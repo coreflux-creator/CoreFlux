@@ -17,12 +17,16 @@ $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
     else       { echo "  ✗ $msg\n"; $fail++; }
 };
 $c = function (string $hay, string $needle): bool { return strpos($hay, $needle) !== false; };
+$root = dirname(__DIR__);
+$localConfig = $root . '/core/config.local.php';
+$configPath = is_file($localConfig) ? $localConfig : $root . '/core/config.local.example.php';
+$usingFixtureConfig = !is_file($localConfig);
 
 // ──────────────────────────────────────────────────────────────────────
 // 1) api/qbo.php — config_check action wired correctly.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── api/qbo.php config_check ──\n";
-$api = (string) file_get_contents('/app/api/qbo.php');
+$api = (string) file_get_contents($root . '/api/qbo.php');
 
 $a("case 'config_check' present",   $c($api, "case 'config_check':"));
 $a('GET-only',                      preg_match("/case 'config_check'[\s\S]{0,300}\\\$method !== 'GET'/", $api) === 1);
@@ -52,7 +56,7 @@ $a('NEVER returns the raw QBO_CLIENT_SECRET value',
 // 2) core/config.local.php — QBO defines present on this pod.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── core/config.local.php QBO defines ──\n";
-$cfg = (string) file_get_contents('/app/core/config.local.php');
+$cfg = (string) file_get_contents($configPath);
 $a('QBO_CLIENT_ID define present',     $c($cfg, "define('QBO_CLIENT_ID',"));
 $a('QBO_CLIENT_SECRET define present', $c($cfg, "define('QBO_CLIENT_SECRET',"));
 $a('QBO_REDIRECT_URI define present',  $c($cfg, "define('QBO_REDIRECT_URI',"));
@@ -70,8 +74,17 @@ $a('redirect uri points at /api/qbo/oauth_callback.php (path-style; Intuit rejec
 //    other tests.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Functional verification ──\n";
-require_once '/app/core/config.local.php';
-require_once '/app/core/qbo/client.php';
+if ($usingFixtureConfig) {
+    putenv('COREFLUX_DATA_KEY=' . base64_encode(str_repeat('q', 32)));
+    putenv('QBO_CLIENT_ID=smoke-qbo-client-id');
+    putenv('QBO_CLIENT_SECRET=smoke-qbo-client-secret');
+    putenv('QBO_REDIRECT_URI=https://www.corefluxapp.com/api/qbo/oauth_callback.php');
+    putenv('QBO_ENV=sandbox');
+    putenv('QBO_SCOPES=com.intuit.quickbooks.accounting');
+} else {
+    require_once $localConfig;
+}
+require_once $root . '/core/qbo/client.php';
 
 $a('qboConfigured() returns true with defines loaded',  qboConfigured() === true);
 $a('qboEnvironment() returns sandbox',                  qboEnvironment() === 'sandbox');
@@ -81,7 +94,7 @@ $a('QBO_REDIRECT_URI matches production host',
     qboCfg('QBO_REDIRECT_URI') === 'https://www.corefluxapp.com/api/qbo/oauth_callback.php');
 
 // Path-style shim must exist and delegate to the main router.
-$shim = (string) file_get_contents('/app/api/qbo/oauth_callback.php');
+$shim = (string) file_get_contents($root . '/api/qbo/oauth_callback.php');
 $a('oauth_callback.php shim exists and delegates to /api/qbo.php',
     $shim !== '' && strpos($shim, "require") !== false && strpos($shim, "qbo.php") !== false);
 

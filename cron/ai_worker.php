@@ -5,6 +5,7 @@
  *
  * Usage:
  *   php cron/ai_worker.php [--queue=default,close_agent] [--max-jobs=N]
+ *                          [--tools=coreflux.close_packet,...]
  *                          [--label="Cloudways-1"] [--once]
  *
  * Behaviour:
@@ -29,10 +30,13 @@ require_once __DIR__ . '/../core/ai/worker.php';
 require_once __DIR__ . '/../core/ai/tool_gateway.php';
 
 // ── CLI args ───────────────────────────────────────────────────────────
-$opts = getopt('', ['queue::', 'max-jobs::', 'label::', 'once', 'verbose']);
+$opts = getopt('', ['queue::', 'tools::', 'max-jobs::', 'label::', 'once', 'verbose']);
 $queues   = isset($opts['queue']) && $opts['queue'] !== ''
               ? array_map('trim', explode(',', (string) $opts['queue']))
               : [];
+$toolAllowlist = isset($opts['tools']) && $opts['tools'] !== ''
+              ? array_values(array_filter(array_map('trim', explode(',', (string) $opts['tools'])), fn ($v) => $v !== ''))
+              : ['*'];
 $maxJobs  = isset($opts['max-jobs']) ? max(1, (int) $opts['max-jobs']) : PHP_INT_MAX;
 $label    = isset($opts['label']) ? (string) $opts['label'] : null;
 $once     = array_key_exists('once', $opts);
@@ -43,6 +47,7 @@ $workerKey = sprintf('%s:%d', gethostname() ?: 'unknown', getmypid());
 // ── Register + heartbeat setup ─────────────────────────────────────────
 $workerId = aiWorkerRegister($workerKey, $label, [
     'queues'          => $queues ?: ['default'],
+    'tool_allowlist'  => $toolAllowlist,
     'max_concurrency' => 1,
 ], gethostbyname(gethostname() ?: 'localhost'));
 $running    = true;
@@ -55,7 +60,7 @@ if (function_exists('pcntl_signal')) {
     pcntl_signal(SIGTERM, function () use (&$running) { $running = false; });
 }
 
-logLine("[ai_worker] registered as #{$workerId} (worker_key={$workerKey}, queues=" . implode(',', $queues ?: ['*']) . ")");
+logLine("[ai_worker] registered as #{$workerId} (worker_key={$workerKey}, queues=" . implode(',', $queues ?: ['*']) . ", tools=" . implode(',', $toolAllowlist) . ")");
 
 // ── Main loop ──────────────────────────────────────────────────────────
 while ($running && $jobsRun < $maxJobs) {
@@ -96,7 +101,7 @@ while ($running && $jobsRun < $maxJobs) {
                 'ai-worker-' . $jobId,                                 // sessionId
                 (string) $job['tool_name'],
                 is_array($payload['args'] ?? null) ? $payload['args'] : [],
-                ['_worker_job_id' => $jobId]                            // callerCtx
+                ['_worker_id' => $workerId, '_worker_job_id' => $jobId]  // callerCtx
             );
 
             if (($env['ok'] ?? false) === true || isset($env['status']) && $env['status'] === 'success') {

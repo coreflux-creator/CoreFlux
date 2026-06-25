@@ -24,7 +24,7 @@ export default function SuggestInvoiceModal({ placementId, placementTitle, onClo
     let cancelled = false;
     (async () => {
       try {
-        const res = await api.post('/modules/billing/api/invoices.php?action=suggest-from-placement', {
+        const res = await api.post('/api/v1/billing/invoices?action=suggest-from-placement', {
           placement_id: placementId,
         });
         if (cancelled) return;
@@ -50,7 +50,7 @@ export default function SuggestInvoiceModal({ placementId, placementTitle, onClo
     if (selectedIds.size === 0) return;
     setBusy(true); setError(null);
     try {
-      const res = await api.post('/modules/billing/api/invoices.php?action=from-time-entries', {
+      const res = await api.post('/api/v1/billing/invoices?action=from-time-entries', {
         time_entry_ids: Array.from(selectedIds),
         aggregation,
         memo,

@@ -10,15 +10,19 @@
  */
 declare(strict_types=1);
 
+$ROOT = dirname(__DIR__);
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
     if ($ok) { echo "  ✓ {$msg}\n"; $pass++; }
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$mig  = (string) file_get_contents('/app/core/migrations/071_jobdiva_placement_metadata.sql');
-$sync = (string) file_get_contents('/app/core/jobdiva/sync.php');
-$fmap = (string) file_get_contents('/app/core/integrations/field_map.php');
+$migPath  = $ROOT . '/core/migrations/071_jobdiva_placement_metadata.sql';
+$syncPath = $ROOT . '/core/jobdiva/sync.php';
+$fmapPath = $ROOT . '/core/integrations/field_map.php';
+$mig      = (string) file_get_contents($migPath);
+$sync     = (string) file_get_contents($syncPath);
+$fmap     = (string) file_get_contents($fmapPath);
 
 echo "\n1. Migration 071 — placements schema columns\n";
 $a('migration file exists', $mig !== '');
@@ -85,12 +89,12 @@ $a('end_client_name written on INSERT alongside FK',
 
 echo "\n7. PHP syntax (no parse errors)\n";
 foreach ([
-    '/app/core/jobdiva/sync.php',
-    '/app/core/integrations/field_map.php',
+    $syncPath,
+    $fmapPath,
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
-    $a("php -l {$f}", $rc === 0, implode("\n", $out));
+    $a('php -l ' . str_replace($ROOT . '/', '', $f), $rc === 0, implode("\n", $out));
 }
 
 echo "\n=========================================\n";

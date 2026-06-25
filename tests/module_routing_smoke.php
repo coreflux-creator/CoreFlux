@@ -60,9 +60,21 @@ $a('No "Payroll module ... omitted" stale comment',
 
 // Built bundle carries every route.
 $bundles = glob(__DIR__ . '/../spa-assets/index-*.js');
-$bundle  = $bundles ? (string) file_get_contents($bundles[0]) : '';
 foreach (['people','placements','time','billing','ap','accounting','payroll'] as $m) {
-    $a("spa-assets bundle has /modules/$m/*",  strpos($bundle, "/modules/$m/*") !== false);
+    $found = false;
+    foreach ($bundles ?: [] as $bundlePath) {
+        $fh = fopen($bundlePath, 'rb');
+        if (!$fh) continue;
+        while (!feof($fh)) {
+            if (strpos((string) fgets($fh), "/modules/$m/*") !== false) {
+                $found = true;
+                break;
+            }
+        }
+        fclose($fh);
+        if ($found) break;
+    }
+    $a("spa-assets bundle has /modules/$m/*",  $found);
 }
 
 echo "\nGenericModule fallback message location is unchanged (regression marker)\n";

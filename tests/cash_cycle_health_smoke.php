@@ -51,7 +51,7 @@ echo "\nReact tile + DashboardOverview wiring\n";
 $tilePath = __DIR__ . '/../dashboard/src/pages/CashCycleHealthTile.jsx';
 $tileSrc  = (string) file_get_contents($tilePath);
 $a('tile file exists',                           is_file($tilePath));
-$a('tile uses useApi() hook',                    str_contains($tileSrc, "useApi('/modules/billing/api/cash_cycle_health.php')"));
+$a('tile uses useApi() hook',                    str_contains($tileSrc, "useApi('/api/v1/billing/cash-cycle-health')"));
 $a('tile hides while loading/error/no data',     str_contains($tileSrc, 'if (loading || error || !data) return null'));
 $a('tile uses fmtMoney for currency',            str_contains($tileSrc, 'fmtMoney(arOut)') && str_contains($tileSrc, 'fmtMoney(released.total_amount)'));
 $a('drill-in link → /modules/ap/weekly-queue',   str_contains($tileSrc, 'to="/modules/ap/weekly-queue"'));

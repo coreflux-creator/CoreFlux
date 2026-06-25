@@ -13,9 +13,9 @@
  *   timeSettlementCycleSuggestion(cycle, anchor, asOf) — advisory cycle window
  *
  * Targets:
- *   'billing'  — entries → AR invoice (placement.client_bill_cycle default)
- *   'ap'      — entries → AP bill    (placement.vendor_pay_cycle default)
- *   'payroll' — entries → payroll line item (payroll_pay_schedules.frequency default)
+ *   'billing'  — entries → AR invoice (placement.billing_cycle_id, legacy client_bill_cycle fallback)
+ *   'ap'       — entries → AP bill    (placement.ap_cycle_id, legacy vendor_pay_cycle fallback)
+ *   'payroll'  — entries → payroll line item (placement.payroll_cycle_id fallback biweekly)
  *
  * Period close:
  *   *Never* checked. A day is extractable iff
@@ -87,16 +87,95 @@ function timeSettlementReady(string $target, array $filters = []): array
     $sql = "SELECT te.id, te.placement_id, te.person_id, te.work_date,
                    te.category, te.hours, te.description, te.status,
                    te.period_id, te.approved_at,
+                   p.billing_cycle_id, p.ap_cycle_id, p.payroll_cycle_id,
                    p.client_bill_cycle, p.client_bill_cycle_anchor,
-                   p.vendor_pay_cycle, p.vendor_pay_cycle_anchor
+                   p.vendor_pay_cycle, p.vendor_pay_cycle_anchor,
+                   bc.name AS billing_cycle_name,
+                   bs.frequency AS billing_cycle_frequency,
+                   COALESCE(bc.anchor_date_override, bs.period_start_anchor) AS billing_cycle_anchor,
+                   ac.name AS ap_cycle_name,
+                   aps.frequency AS ap_cycle_frequency,
+                   COALESCE(ac.anchor_date_override, aps.period_start_anchor) AS ap_cycle_anchor,
+                   pc.name AS payroll_cycle_name,
+                   ps.frequency AS payroll_cycle_frequency,
+                   COALESCE(pc.anchor_date_override, ps.period_start_anchor) AS payroll_cycle_anchor
             FROM time_entries te
             LEFT JOIN placements p ON p.id = te.placement_id AND p.tenant_id = te.tenant_id
+            LEFT JOIN payroll_pay_cycles bc ON bc.id = p.billing_cycle_id AND bc.tenant_id = p.tenant_id
+            LEFT JOIN payroll_pay_schedules bs ON bs.id = bc.schedule_id AND bs.tenant_id = bc.tenant_id
+            LEFT JOIN payroll_pay_cycles ac ON ac.id = p.ap_cycle_id AND ac.tenant_id = p.tenant_id
+            LEFT JOIN payroll_pay_schedules aps ON aps.id = ac.schedule_id AND aps.tenant_id = ac.tenant_id
+            LEFT JOIN payroll_pay_cycles pc ON pc.id = p.payroll_cycle_id AND pc.tenant_id = p.tenant_id
+            LEFT JOIN payroll_pay_schedules ps ON ps.id = pc.schedule_id AND ps.tenant_id = pc.tenant_id
             WHERE " . implode(' AND ', $where) . "
             ORDER BY te.placement_id, te.work_date, te.id";
 
     $stmt = getDB()->prepare($sql);
     $stmt->execute($params);
     return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+}
+
+/**
+ * Resolve the operative settlement cycle for a row returned by timeSettlementReady().
+ *
+ * @return array{cycle:string, anchor:?string, cycle_id:?int, cycle_name:?string, source:string}
+ */
+function timeSettlementCycleForTarget(string $target, array $row): array
+{
+    if ($target === 'billing') {
+        if (!empty($row['billing_cycle_id']) && !empty($row['billing_cycle_frequency'])) {
+            return [
+                'cycle' => (string) $row['billing_cycle_frequency'],
+                'anchor' => $row['billing_cycle_anchor'] ?: null,
+                'cycle_id' => (int) $row['billing_cycle_id'],
+                'cycle_name' => $row['billing_cycle_name'] ?: null,
+                'source' => 'placement.billing_cycle_id',
+            ];
+        }
+        return [
+            'cycle' => (string) ($row['client_bill_cycle'] ?? 'monthly'),
+            'anchor' => $row['client_bill_cycle_anchor'] ?: null,
+            'cycle_id' => null,
+            'cycle_name' => null,
+            'source' => 'placement.client_bill_cycle',
+        ];
+    }
+
+    if ($target === 'ap') {
+        if (!empty($row['ap_cycle_id']) && !empty($row['ap_cycle_frequency'])) {
+            return [
+                'cycle' => (string) $row['ap_cycle_frequency'],
+                'anchor' => $row['ap_cycle_anchor'] ?: null,
+                'cycle_id' => (int) $row['ap_cycle_id'],
+                'cycle_name' => $row['ap_cycle_name'] ?: null,
+                'source' => 'placement.ap_cycle_id',
+            ];
+        }
+        return [
+            'cycle' => (string) ($row['vendor_pay_cycle'] ?? 'biweekly'),
+            'anchor' => $row['vendor_pay_cycle_anchor'] ?: null,
+            'cycle_id' => null,
+            'cycle_name' => null,
+            'source' => 'placement.vendor_pay_cycle',
+        ];
+    }
+
+    if (!empty($row['payroll_cycle_id']) && !empty($row['payroll_cycle_frequency'])) {
+        return [
+            'cycle' => (string) $row['payroll_cycle_frequency'],
+            'anchor' => $row['payroll_cycle_anchor'] ?: null,
+            'cycle_id' => (int) $row['payroll_cycle_id'],
+            'cycle_name' => $row['payroll_cycle_name'] ?: null,
+            'source' => 'placement.payroll_cycle_id',
+        ];
+    }
+    return [
+        'cycle' => 'biweekly',
+        'anchor' => null,
+        'cycle_id' => null,
+        'cycle_name' => null,
+        'source' => 'default',
+    ];
 }
 
 /**

@@ -120,7 +120,8 @@ if ($method === 'POST') {
     ];
 
     // Additive employment/HR fields (migration 006). All optional; whitelisted.
-    $extraEmp = ['employment_type','hire_date','termination_date','pay_frequency','gender','marital_status'];
+    $createOptionalFields = ['employment_type','hire_date','termination_date','pay_frequency','gender','marital_status'];
+    $extraEmp = $createOptionalFields;
     foreach ($extraEmp as $k) {
         if (array_key_exists($k, $body) && $body[$k] !== '' && $body[$k] !== null) {
             $insert[$k] = $body[$k];

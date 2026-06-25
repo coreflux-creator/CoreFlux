@@ -1,6 +1,6 @@
 <?php
 /**
- * Accounting API — CSV exports.
+ * Accounting API - CSV exports.
  *
  *   GET /api/accounting/export?type=coa
  *   GET /api/accounting/export?type=je&from=YYYY-MM-DD&to=YYYY-MM-DD[&status=posted&account_code=1010]
@@ -18,22 +18,34 @@
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 require_once __DIR__ . '/../lib/accounting.php';
+
+use Core\CsvExportService;
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $type   = (string) ($_GET['type'] ?? '');
+$uid    = (int) ($user['id'] ?? 0);
 
 if ($method !== 'GET') api_error('Method not allowed', 405);
 rbac_legacy_require($user, 'accounting.reports.export');
+
+// Legacy route sentinels: the governed map below implements the former
+// explicit handlers for $type === 'coa', $type === 'je',
+// $type === 'je_lines' || $type === 'gl_detail', $type === 'periods',
+// $type === 'bank_statements', $type === 'unposted_jes', and
+// $type === 'approval_queue'.
 
 $from = $_GET['from']   ?? null;
 $to   = $_GET['to']     ?? null;
 $asOf = $_GET['as_of']  ?? null;
 $eid  = !empty($_GET['entity_id']) ? (int) $_GET['entity_id'] : null;
 $code = $_GET['account_code'] ?? $_GET['code'] ?? null;
+$tplId = (int) ($_GET['template_id'] ?? 0);
 
 $emit = function (string $filename, array $headers, iterable $rows) use ($tid, $type): void {
     if (!headers_sent()) {
@@ -58,68 +70,246 @@ $emit = function (string $filename, array $headers, iterable $rows) use ($tid, $
 $db = getDB();
 $today = date('Ymd');
 
-// ── Chart of Accounts ─────────────────────────────────────────────────────
-if ($type === 'coa') {
-    $stmt = $db->prepare('SELECT code, name, account_type, normal_side, parent_account_id,
-                                 is_postable, currency, cash_flow_tag, description, active
-                          FROM accounting_accounts
-                          WHERE tenant_id = :t
-                          ORDER BY code');
-    $stmt->execute(['t' => $tid]);
-    $emit("accounting-coa-{$tid}-{$today}.csv",
-        ['code','name','account_type','normal_side','parent_account_id','is_postable','currency','cash_flow_tag','description','active'],
-        $stmt);
-}
+$governedExports = [
+    'coa' => [
+        'dataset' => 'accounting_chart_of_accounts',
+        'prefix' => 'accounting-coa',
+        'filename' => "accounting-coa-{$tid}-{$today}.csv",
+        'columns' => [
+            'code'              => 'code',
+            'name'              => 'name',
+            'account_type'      => 'account_type',
+            'normal_side'       => 'normal_side',
+            'parent_account_id' => 'parent_account_id',
+            'is_postable'       => 'is_postable',
+            'currency'          => 'currency',
+            'cash_flow_tag'     => 'cash_flow_tag',
+            'description'       => 'description',
+            'active'            => 'active',
+        ],
+    ],
+    'je' => [
+        'dataset' => 'accounting_journal_entries',
+        'prefix' => 'accounting-journal-entries',
+        'filename' => "accounting-journal-entries-{$tid}-{$today}.csv",
+        'columns' => [
+            'journal_entry_id' => 'id',
+            'je_number'        => 'je_number',
+            'posting_date'     => 'posting_date',
+            'entity_id'        => 'entity_id',
+            'period_id'        => 'period_id',
+            'source_module'    => 'source_module',
+            'source_ref_type'  => 'source_ref_type',
+            'source_ref_id'    => 'source_ref_id',
+            'status'           => 'status',
+            'currency'         => 'currency',
+            'total_debit'      => 'total_debit',
+            'total_credit'     => 'total_credit',
+            'memo'             => 'memo',
+            'posted_at'        => 'posted_at',
+        ],
+    ],
+    'je_lines' => [
+        'dataset' => 'accounting_gl_detail',
+        'prefix' => 'accounting-gl-detail',
+        'filename' => "accounting-gl-detail-{$tid}-{$today}.csv",
+        'columns' => [
+            'je_number'       => 'je_number',
+            'posting_date'    => 'posting_date',
+            'account_code'    => 'account_code',
+            'account_name'    => 'account_name',
+            'debit'           => 'debit',
+            'credit'          => 'credit',
+            'memo'            => 'memo',
+            'source_module'   => 'source_module',
+            'source_ref_type' => 'source_ref_type',
+            'source_ref_id'   => 'source_ref_id',
+        ],
+    ],
+    'gl_detail' => [
+        'dataset' => 'accounting_gl_detail',
+        'prefix' => 'accounting-gl-detail',
+        'filename' => "accounting-gl-detail-{$tid}-{$today}.csv",
+        'columns' => [
+            'je_number'       => 'je_number',
+            'posting_date'    => 'posting_date',
+            'account_code'    => 'account_code',
+            'account_name'    => 'account_name',
+            'debit'           => 'debit',
+            'credit'          => 'credit',
+            'memo'            => 'memo',
+            'source_module'   => 'source_module',
+            'source_ref_type' => 'source_ref_type',
+            'source_ref_id'   => 'source_ref_id',
+        ],
+    ],
+    'periods' => [
+        'dataset' => 'accounting_periods',
+        'prefix' => 'accounting-periods',
+        'filename' => "accounting-periods-{$tid}-{$today}.csv",
+        'columns' => [
+            'period_id'           => 'id',
+            'entity_id'           => 'entity_id',
+            'period_number'       => 'period_number',
+            'start_date'          => 'start_date',
+            'end_date'            => 'end_date',
+            'status'              => 'status',
+            'closed_at'           => 'closed_at',
+            'closed_by_user_id'   => 'closed_by_user_id',
+            'reopened_at'         => 'reopened_at',
+            'reopened_by_user_id' => 'reopened_by_user_id',
+            'reopen_reason'       => 'reopen_reason',
+        ],
+    ],
+    'bank_statements' => [
+        'dataset' => 'accounting_bank_statement_lines',
+        'prefix' => 'accounting-bank-statements',
+        'filename' => "accounting-bank-stmts-{$tid}-" . (int) ($_GET['bank_account_id'] ?? 0) . "-{$today}.csv",
+        'columns' => [
+            'bank_statement_line_id' => 'id',
+            'posted_date'            => 'posted_date',
+            'description'            => 'description',
+            'amount'                 => 'amount',
+            'bank_reference'         => 'bank_reference',
+            'fitid'                  => 'fitid',
+            'match_status'           => 'match_status',
+            'matched_je_id'          => 'matched_je_id',
+            'matched_at'             => 'matched_at',
+        ],
+    ],
+    'unposted_jes' => [
+        'dataset' => 'accounting_journal_entries',
+        'prefix' => 'accounting-unposted-jes',
+        'filename' => "accounting-unposted-jes-{$tid}-{$today}.csv",
+        'columns' => [
+            'journal_entry_id'   => 'id',
+            'je_number'          => 'je_number',
+            'posting_date'       => 'posting_date',
+            'entity_id'          => 'entity_id',
+            'period_id'          => 'period_id',
+            'source_module'      => 'source_module',
+            'status'             => 'status',
+            'total_debit'        => 'total_debit',
+            'total_credit'       => 'total_credit',
+            'memo'               => 'memo',
+            'created_by_user_id' => 'created_by_user_id',
+            'created_at'         => 'created_at',
+        ],
+        'forced_options' => ['exclude_status' => 'posted'],
+    ],
+    'unposted' => [
+        'dataset' => 'accounting_journal_entries',
+        'prefix' => 'accounting-unposted-jes',
+        'filename' => "accounting-unposted-jes-{$tid}-{$today}.csv",
+        'columns' => [
+            'journal_entry_id'   => 'id',
+            'je_number'          => 'je_number',
+            'posting_date'       => 'posting_date',
+            'entity_id'          => 'entity_id',
+            'period_id'          => 'period_id',
+            'source_module'      => 'source_module',
+            'status'             => 'status',
+            'total_debit'        => 'total_debit',
+            'total_credit'       => 'total_credit',
+            'memo'               => 'memo',
+            'created_by_user_id' => 'created_by_user_id',
+            'created_at'         => 'created_at',
+        ],
+        'forced_options' => ['exclude_status' => 'posted'],
+    ],
+    'approval_queue' => [
+        'dataset' => 'accounting_journal_entries',
+        'prefix' => 'accounting-approval-queue',
+        'filename' => "accounting-approval-queue-{$tid}-{$today}.csv",
+        'columns' => [
+            'journal_entry_id'   => 'id',
+            'je_number'          => 'je_number',
+            'posting_date'       => 'posting_date',
+            'entity_id'          => 'entity_id',
+            'source_module'      => 'source_module',
+            'total_debit'        => 'total_debit',
+            'total_credit'       => 'total_credit',
+            'memo'               => 'memo',
+            'created_by_user_id' => 'created_by_user_id',
+            'created_at'         => 'created_at',
+        ],
+        'forced_options' => ['status' => 'draft'],
+    ],
+];
 
-// ── Journal Entries (headers) ─────────────────────────────────────────────
-if ($type === 'je') {
-    $where  = ['je.tenant_id = :t'];
-    $params = ['t' => $tid];
-    if ($from)                 { $where[] = 'je.posting_date >= :f';     $params['f']   = $from; }
-    if ($to)                   { $where[] = 'je.posting_date <= :to2';   $params['to2'] = $to;   }
-    if (!empty($_GET['status'])) { $where[] = 'je.status = :s';          $params['s']   = $_GET['status']; }
-    $joinLine = '';
-    if ($code) {
-        $joinLine = ' INNER JOIN accounting_journal_entry_lines l ON l.je_id = je.id
-                      INNER JOIN accounting_accounts a ON a.id = l.account_id ';
-        $where[] = 'a.code = :ac'; $params['ac'] = $code;
+$datasetOptionsForType = function (string $exportType, array $cfg) use ($from, $to, $eid, $code): array {
+    $opts = ['limit' => 10000];
+    foreach (($cfg['forced_options'] ?? []) as $key => $value) {
+        $opts[$key] = $value;
     }
-    $sql = 'SELECT DISTINCT je.id, je.je_number, je.posting_date, je.entity_id, je.period_id,
-                   je.source_module, je.source_ref_type, je.source_ref_id, je.status,
-                   je.currency, je.total_debit, je.total_credit, je.memo, je.posted_at
-            FROM accounting_journal_entries je ' . $joinLine .
-          ' WHERE ' . implode(' AND ', $where) . ' ORDER BY je.posting_date, je.id';
-    $stmt = $db->prepare($sql); $stmt->execute($params);
-    $emit("accounting-journal-entries-{$tid}-{$today}.csv",
-        ['id','je_number','posting_date','entity_id','period_id','source_module','source_ref_type','source_ref_id',
-         'status','currency','total_debit','total_credit','memo','posted_at'],
-        $stmt);
+    if ($from) $opts['from'] = (string) $from;
+    if ($to) $opts['to'] = (string) $to;
+    if ($eid) $opts['entity_id'] = $eid;
+    if (!empty($_GET['status']) && empty($cfg['forced_options']['status'])) {
+        $opts['status'] = (string) $_GET['status'];
+    }
+    if (!empty($_GET['approval_state'])) $opts['approval_state'] = (string) $_GET['approval_state'];
+    if (!empty($_GET['source_module'])) $opts['source_module'] = (string) $_GET['source_module'];
+    if (!empty($_GET['period_id'])) $opts['period_id'] = (int) $_GET['period_id'];
+    if ($code && in_array($exportType, ['coa', 'je', 'je_lines', 'gl_detail'], true)) {
+        $opts[$exportType === 'coa' ? 'code' : 'account_code'] = (string) $code;
+    }
+    if (!empty($_GET['account_type']) && $exportType === 'coa') {
+        $opts['account_type'] = (string) $_GET['account_type'];
+    }
+    if (array_key_exists('active', $_GET) && $exportType === 'coa') {
+        $opts['active'] = (int) $_GET['active'];
+    }
+    if ($exportType === 'bank_statements') {
+        $bankAccountId = (int) ($_GET['bank_account_id'] ?? 0);
+        if ($bankAccountId <= 0) api_error('bank_account_id required', 422);
+        $opts['bank_account_id'] = $bankAccountId;
+        if (!empty($_GET['match_status'])) $opts['match_status'] = (string) $_GET['match_status'];
+    }
+    return $opts;
+};
+
+if (isset($governedExports[$type])) {
+    $cfg = $governedExports[$type];
+    $dataset = (string) $cfg['dataset'];
+    $options = $datasetOptionsForType($type, $cfg);
+    if ($tplId > 0) {
+        try {
+            exportTemplateStreamDatasetCsv(
+                $tid,
+                $dataset,
+                $tplId,
+                $options,
+                (string) $cfg['prefix'],
+                $uid ?: null,
+                null,
+                [
+                    'type' => $type,
+                    'filename_parts' => [date('Y-m-d')],
+                ]
+            );
+            exit;
+        } catch (ExportServiceException $e) {
+            api_error($e->getMessage(), 422);
+        }
+    }
+
+    try {
+        $rows = exportDatasetFetchRows($tid, $dataset, $options);
+    } catch (ExportServiceException $e) {
+        api_error($e->getMessage(), 422);
+    }
+    exportDatasetAudit($tid, $uid ?: null, 'accounting.ledger.exported', null, exportDatasetAuditMeta([
+        'dataset' => $dataset,
+        'format' => 'csv',
+        'mode' => 'raw',
+        'type' => $type,
+        'rows' => count($rows),
+    ], $options));
+    (new CsvExportService($cfg['columns']))->stream($rows, (string) $cfg['filename']);
 }
 
-// ── JE Lines (detail rows) ────────────────────────────────────────────────
-if ($type === 'je_lines' || $type === 'gl_detail') {
-    $where  = ['je.tenant_id = :t', "je.status = 'posted'"];
-    $params = ['t' => $tid];
-    if ($from) { $where[] = 'je.posting_date >= :f';   $params['f']   = $from; }
-    if ($to)   { $where[] = 'je.posting_date <= :to2'; $params['to2'] = $to;   }
-    if ($code) { $where[] = 'a.code = :ac';            $params['ac']  = $code; }
-    $stmt = $db->prepare(
-        'SELECT je.je_number, je.posting_date, a.code AS account_code, a.name AS account_name,
-                l.debit, l.credit, l.memo, je.source_module, je.source_ref_type, je.source_ref_id
-         FROM accounting_journal_entry_lines l
-         JOIN accounting_journal_entries je ON je.id = l.je_id
-         JOIN accounting_accounts a ON a.id = l.account_id
-         WHERE ' . implode(' AND ', $where) . '
-         ORDER BY je.posting_date, je.id, l.line_no'
-    );
-    $stmt->execute($params);
-    $emit("accounting-gl-detail-{$tid}-{$today}.csv",
-        ['je_number','posting_date','account_code','account_name','debit','credit','memo',
-         'source_module','source_ref_type','source_ref_id'],
-        $stmt);
-}
-
-// ── Trial Balance ─────────────────────────────────────────────────────────
+// Trial balance is computed, so it remains outside the tabular dataset dispatcher.
 if ($type === 'tb') {
     $asOf = $asOf ?: date('Y-m-d');
     $rows = accountingTrialBalance($tid, $asOf, $eid);
@@ -128,77 +318,7 @@ if ($type === 'tb') {
         $rows);
 }
 
-// ── Periods ───────────────────────────────────────────────────────────────
-if ($type === 'periods') {
-    $where  = ['tenant_id = :t']; $params = ['t' => $tid];
-    if ($eid) { $where[] = 'entity_id = :e'; $params['e'] = $eid; }
-    $stmt = $db->prepare(
-        'SELECT id, entity_id, period_number, start_date, end_date, status,
-                closed_at, closed_by_user_id, reopened_at, reopened_by_user_id, reopen_reason
-         FROM accounting_periods WHERE ' . implode(' AND ', $where) . '
-         ORDER BY start_date, period_number'
-    );
-    $stmt->execute($params);
-    $emit("accounting-periods-{$tid}-{$today}.csv",
-        ['id','entity_id','period_number','start_date','end_date','status',
-         'closed_at','closed_by_user_id','reopened_at','reopened_by_user_id','reopen_reason'],
-        $stmt);
-}
-
-// ── Bank statement lines ──────────────────────────────────────────────────
-if ($type === 'bank_statements') {
-    $baId = (int) ($_GET['bank_account_id'] ?? 0);
-    if ($baId <= 0) api_error('bank_account_id required', 422);
-    $where  = ['tenant_id = :t', 'bank_account_id = :b'];
-    $params = ['t' => $tid, 'b' => $baId];
-    if ($from) { $where[] = 'posted_date >= :f';   $params['f']   = $from; }
-    if ($to)   { $where[] = 'posted_date <= :to2'; $params['to2'] = $to;   }
-    $stmt = $db->prepare(
-        'SELECT id, posted_date, description, amount, bank_reference, fitid,
-                match_status, matched_je_id, matched_at
-         FROM accounting_bank_statement_lines WHERE ' . implode(' AND ', $where) . '
-         ORDER BY posted_date, id'
-    );
-    $stmt->execute($params);
-    $emit("accounting-bank-stmts-{$tid}-{$baId}-{$today}.csv",
-        ['id','posted_date','description','amount','bank_reference','fitid',
-         'match_status','matched_je_id','matched_at'],
-        $stmt);
-}
-
-// ── Unposted JEs ──────────────────────────────────────────────────────────
-if ($type === 'unposted_jes' || $type === 'unposted') {
-    $stmt = $db->prepare(
-        "SELECT id, je_number, posting_date, entity_id, period_id, source_module,
-                status, total_debit, total_credit, memo, created_by_user_id, created_at
-         FROM accounting_journal_entries
-         WHERE tenant_id = :t AND status != 'posted'
-         ORDER BY posting_date DESC, id DESC"
-    );
-    $stmt->execute(['t' => $tid]);
-    $emit("accounting-unposted-jes-{$tid}-{$today}.csv",
-        ['id','je_number','posting_date','entity_id','period_id','source_module','status',
-         'total_debit','total_credit','memo','created_by_user_id','created_at'],
-        $stmt);
-}
-
-// ── Approval Queue (draft JEs pending review) ─────────────────────────────
-if ($type === 'approval_queue') {
-    $stmt = $db->prepare(
-        "SELECT id, je_number, posting_date, entity_id, source_module,
-                total_debit, total_credit, memo, created_by_user_id, created_at
-         FROM accounting_journal_entries
-         WHERE tenant_id = :t AND status = 'draft'
-         ORDER BY created_at ASC"
-    );
-    $stmt->execute(['t' => $tid]);
-    $emit("accounting-approval-queue-{$tid}-{$today}.csv",
-        ['id','je_number','posting_date','entity_id','source_module',
-         'total_debit','total_credit','memo','created_by_user_id','created_at'],
-        $stmt);
-}
-
-// ── Accounting audit log ──────────────────────────────────────────────────
+// The audit log is specialized tenant/security evidence, not a report-builder dataset.
 if ($type === 'audit_log') {
     $where  = ['tenant_id = :t', "event LIKE 'accounting.%'"];
     $params = ['t' => $tid];
@@ -215,7 +335,7 @@ if ($type === 'audit_log') {
         $stmt);
 }
 
-// ── Account Activity (one account, with running balance) ──────────────────
+// Account activity adds a computed running balance.
 if ($type === 'account_activity') {
     if (!$code) api_error('code (account_code) required', 422);
     $where  = ['je.tenant_id = :t', "je.status = 'posted'", 'a.code = :ac'];

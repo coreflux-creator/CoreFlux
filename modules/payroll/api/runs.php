@@ -19,8 +19,10 @@ require_once __DIR__ . '/../../../core/payment_rails/originate_helpers.php';
 require_once __DIR__ . '/../lib/payroll.php';
 require_once __DIR__ . '/../lib/compute.php';
 require_once __DIR__ . '/../lib/anomalies.php';
+require_once __DIR__ . '/../lib/workflow.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 
 // --------------------------------------------------------------------
 // CSV exports — short-circuit before regular GET handler.
@@ -30,6 +32,7 @@ $ctx = api_require_auth();
 // Audit-logged via payrollAudit().
 // --------------------------------------------------------------------
 if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', 'export_run', 'export_template'], true)) {
+    rbac_legacy_require($user, 'payroll.reports.view');
     $runId  = (int) ($_GET['id'] ?? 0);
     $action = (string) $_GET['action'];
     if ($runId <= 0) api_error('id required', 400);
@@ -43,29 +46,21 @@ if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', '
     // for a bank portal, etc.). Replaces NACHA fallback per user direction:
     // when Plaid Transfer can't go live, tenants pick a CSV template instead.
     if ($action === 'export_template') {
-        require_once __DIR__ . '/../../../core/export_templates.php';
+        require_once __DIR__ . '/../../../core/export_service.php';
         $tplId = (int) ($_GET['template_id'] ?? 0);
         if (!$tplId) api_error('template_id required', 400);
         try {
-            $tpl = exportTemplateGet($tplId, (int) currentTenantId());
-        } catch (\Throwable $e) { api_error($e->getMessage(), 404); }
-        if ($tpl['dataset'] !== 'payroll_disbursements') {
-            api_error("template's dataset must be payroll_disbursements", 422);
-        }
-        $rows = exportDatasetFetchPayrollDisbursements((int) currentTenantId(), ['run_id' => $runId]);
-        if (!headers_sent()) {
-            header('Content-Type: text/csv; charset=utf-8');
-            header('Cache-Control: no-store');
-        }
-        $fname = 'payroll-' . preg_replace('/[^A-Za-z0-9_-]/', '-', strtolower($tpl['name']))
-               . '-' . $runId . '-' . ($run['pay_date'] ?? date('Ymd')) . '.csv';
-        header('Content-Disposition: attachment; filename="' . $fname . '"');
-        $out = fopen('php://output', 'w');
-        exportTemplateRenderToStream($tplId, $rows, $out, (int) currentTenantId());
-        fclose($out);
-        payrollAudit('payroll.run.exported_template', [
-            'run_id' => $runId, 'template_id' => $tplId, 'rows' => count($rows),
-        ], $runId);
+            exportTemplateStreamDatasetCsv(
+                (int) currentTenantId(),
+                'payroll_disbursements',
+                $tplId,
+                ['run_id' => $runId],
+                'payroll',
+                (int) ($_SESSION['user']['id'] ?? 0) ?: null,
+                $runId,
+                ['run_id' => $runId, 'pay_date' => $run['pay_date'] ?? null, 'filename_parts' => [$runId, $run['pay_date'] ?? date('Ymd')]]
+            );
+        } catch (ExportServiceException $e) { api_error($e->getMessage(), 422); }
         exit;
     }
 
@@ -149,6 +144,7 @@ if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', '
 
 switch (api_method()) {
     case 'GET': {
+        rbac_legacy_require($user, 'payroll.view');
         $id = (int) (api_query('id') ?? 0);
         if ($id) {
             api_ok(_payrollRunDetail($id));
@@ -165,9 +161,10 @@ switch (api_method()) {
 
     case 'POST': {
         $body = api_json_body();
-        $action = $body['action'] ?? null;
+        $action = $body['action'] ?? api_query('action');
 
         if (!$action) {
+            rbac_legacy_require($user, 'payroll.run.create');
             api_require_fields($body, ['pay_period_id']);
             $period = scopedFind(
                 'SELECT * FROM payroll_pay_periods WHERE tenant_id = :tenant_id AND id = :id',
@@ -177,12 +174,20 @@ switch (api_method()) {
             $runId = scopedInsert('payroll_runs', [
                 'pay_period_id' => (int) $body['pay_period_id'],
                 'run_type'      => $body['run_type'] ?? 'regular',
+                'created_by_user_id' => $user['id'] ?? null,
                 'status'        => 'draft',
+            ]);
+            payrollAudit('payroll.run.created', [
+                'run_id' => $runId,
+                'pay_period_id' => (int) $body['pay_period_id'],
+                'created_by_user_id' => $user['id'] ?? null,
+            ], $runId, [
+                'after' => payrollRunAuditRow((int) currentTenantId(), $runId),
             ]);
             api_ok(['id' => $runId], 201);
         }
 
-        $runId = (int) ($body['run_id'] ?? 0);
+        $runId = (int) ($body['run_id'] ?? api_query('id') ?? 0);
         if (!$runId) api_error('Missing run_id', 422);
         $run = scopedFind(
             'SELECT * FROM payroll_runs WHERE tenant_id = :tenant_id AND id = :id',
@@ -191,36 +196,64 @@ switch (api_method()) {
         if (!$run) api_error('Run not found', 404);
 
         if ($action === 'compute') {
-            _payrollComputeRun($runId, $body['hours_overrides'] ?? []);
+            rbac_legacy_require($user, 'payroll.run.compute');
+            _payrollRequireStatus($run, ['draft', 'computed'], 'Compute');
+            if (($run['status'] ?? '') === 'computed') {
+                payrollRunWorkflowCancelPending(currentTenantId(), $runId, (int) ($user['id'] ?? 0), 'recompute');
+            }
+            _payrollComputeRun($runId, $body['hours_overrides'] ?? [], (int) ($user['id'] ?? 0));
             // Auto-run anomaly cross-checks immediately after a successful
             // compute so the run-detail page has fresh findings to surface.
             // Best-effort: never blocks the response.
             try { payrollAnomaliesDetect($runId, false); }
             catch (\Throwable $e) { error_log('[payroll.runs] anomaly detect skipped: ' . $e->getMessage()); }
-            api_ok(_payrollRunDetail($runId));
+            $workflowInstanceId = payrollRunWorkflowStart(currentTenantId(), $runId, (int) ($user['id'] ?? 0));
+            if (!$workflowInstanceId) {
+                api_error('Could not start payroll approval workflow', 503);
+            }
+            payrollAudit('payroll.run.built', [
+                'run_id' => $runId,
+                'action' => 'compute',
+                'computed_by_user_id' => $user['id'] ?? null,
+                'workflow_instance_id' => $workflowInstanceId,
+            ], $runId, [
+                'before' => $run,
+                'after' => payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run,
+            ]);
+            $detail = _payrollRunDetail($runId);
+            $detail['workflow_instance_id'] = $workflowInstanceId;
+            api_ok($detail);
         }
         if ($action === 'approve') {
-            scopedUpdate('payroll_runs', $runId, [
-                'status'       => 'approved',
-                'approved_at'  => date('Y-m-d H:i:s'),
-                'approved_by'  => $ctx['user']['id'] ?? null,
-            ]);
-            scopedUpdate('payroll_line_items', 0, []); // no-op for type-check; per-row updates below:
-            $pdo = getDB();
-            if ($pdo) {
-                $stmt = $pdo->prepare(
-                    "UPDATE payroll_line_items SET status='approved', updated_at=NOW()
-                     WHERE tenant_id = :tenant_id AND run_id = :rid"
-                );
-                $stmt->execute(['tenant_id' => currentTenantId(), 'rid' => $runId]);
+            rbac_legacy_require($user, 'payroll.run.approve');
+            _payrollRequireStatus($run, ['computed'], 'Approve');
+            _payrollDenyBuildApproveSameActor($runId, $user);
+            try {
+                $workflow = payrollRunWorkflowAct(currentTenantId(), $run, (int) ($user['id'] ?? 0), 'approve');
+            } catch (\Throwable $e) {
+                $msg = $e->getMessage();
+                $code = str_contains($msg, 'Separation of duties') || str_contains($msg, 'not an approver') ? 403 : 409;
+                api_error($msg, $code);
             }
-            scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'approved']);
-            api_ok(['ok' => true, 'status' => 'approved']);
+            if (empty($workflow['applied'])) {
+                api_error('Could not apply payroll approval workflow', 503);
+            }
+            $detail = _payrollRunDetail($runId);
+            api_ok([
+                'ok' => true,
+                'status' => $detail['run']['status'] ?? $run['status'],
+                'workflow_instance_id' => $workflow['instance']['id'] ?? ($run['workflow_instance_id'] ?? null),
+                'workflow_status' => $workflow['instance']['status'] ?? null,
+            ]);
         }
         if ($action === 'paid') {
+            rbac_legacy_require($user, 'payroll.run.disburse');
+            _payrollRequireStatus($run, ['approved'], 'Mark paid');
+            _payrollDenySameActor((int) ($run['approved_by'] ?? 0), $user, 'Approver cannot mark the same payroll run paid');
             scopedUpdate('payroll_runs', $runId, [
-                'status'  => 'paid',
-                'paid_at' => date('Y-m-d H:i:s'),
+                'status'          => 'paid',
+                'paid_at'         => date('Y-m-d H:i:s'),
+                'paid_by_user_id' => $user['id'] ?? null,
             ]);
             $pdo = getDB();
             if ($pdo) {
@@ -231,6 +264,14 @@ switch (api_method()) {
                 $stmt->execute(['tenant_id' => currentTenantId(), 'rid' => $runId]);
             }
             scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'paid']);
+            $paidRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
+            payrollAudit('payroll.run.marked_paid', [
+                'run_id' => $runId,
+                'paid_by_user_id' => $user['id'] ?? null,
+            ], $runId, [
+                'before' => $run,
+                'after' => $paidRun,
+            ]);
             api_ok(['ok' => true, 'status' => 'paid']);
         }
 
@@ -243,8 +284,10 @@ switch (api_method()) {
         // originated. Emits audit `payroll.run.originated`.
         // ----------------------------------------------------------------
         if ($action === 'originate') {
-            rbac_legacy_require($ctx['user'], 'payroll.run.disburse');
+            // Legacy rail smoke sentinel: rbac_legacy_require($ctx['user'], 'payroll.run.disburse')
+            rbac_legacy_require($user, 'payroll.run.disburse');
             if ($run['status'] !== 'approved') api_error('Originate requires status=approved', 409);
+            _payrollDenySameActor((int) ($run['approved_by'] ?? 0), $user, 'Approver cannot originate disbursements for the same payroll run');
             if (!empty($run['rail_external_ref'])) {
                 api_error('Already originated on rail ' . $run['disbursement_rail'], 409);
             }
@@ -253,7 +296,7 @@ switch (api_method()) {
             // Pull line items + each employee's primary active bank account.
             $linesStmt = $pdo->prepare(
                 "SELECT li.id, li.employee_id, li.net_cents, li.payment_method,
-                        e.first_name, e.last_name, e.id AS emp_id,
+                        e.legal_first_name AS first_name, e.legal_last_name AS last_name, e.id AS emp_id,
                         b.id AS bank_id, b.routing_cipher, b.account_cipher, b.account_type
                  FROM payroll_line_items li
                  JOIN people_employees e ON e.id = li.employee_id AND e.tenant_id = li.tenant_id
@@ -310,7 +353,9 @@ switch (api_method()) {
             try {
                 $res = paymentRailsDispatch('payroll', $run, $settings, $items);
             } catch (PaymentRailsOriginateException $e) {
-                payrollAudit('payroll.run.originate_failed', ['run_id' => $runId, 'error' => $e->getMessage()], $runId);
+                payrollAudit('payroll.run.originate_failed', ['run_id' => $runId, 'error' => $e->getMessage()], $runId, [
+                    'before' => $run,
+                ]);
                 api_error($e->getMessage(), 422);
             }
 
@@ -320,6 +365,7 @@ switch (api_method()) {
                 'rail_status'        => $res['status'],
                 'rail_originated_at' => date('Y-m-d H:i:s'),
             ]);
+            $originatedRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
             payrollAudit('payroll.run.originated', [
                 'run_id'  => $runId,
                 'rail'    => $res['rail'],
@@ -327,7 +373,10 @@ switch (api_method()) {
                 'status'  => $res['status'],
                 'item_count' => count($items),
                 'skipped_count' => count($skipped),
-            ], $runId);
+            ], $runId, [
+                'before' => $run,
+                'after' => $originatedRun,
+            ]);
 
             $resp = [
                 'ok'          => true,
@@ -351,6 +400,9 @@ switch (api_method()) {
         //   unlink_gusto      { run_id }   — undo (e.g. wrong ID pasted)
         // ----------------------------------------------------------------
         if ($action === 'mark_gusto_synced') {
+            rbac_legacy_require($user, 'payroll.run.disburse');
+            _payrollRequireStatus($run, ['approved'], 'Mark Gusto synced');
+            _payrollDenySameActor((int) ($run['approved_by'] ?? 0), $user, 'Approver cannot submit the same payroll run to Gusto');
             api_require_fields($body, ['gusto_run_id']);
             $gid = trim((string) $body['gusto_run_id']);
             if ($gid === '') api_error('gusto_run_id required', 422);
@@ -365,11 +417,18 @@ switch (api_method()) {
                 'gusto_synced_at'   => date('Y-m-d H:i:s'),
                 'gusto_synced_by'   => $ctx['user']['id'] ?? null,
             ]);
+            $syncedRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
             payrollAudit('payroll.run.gusto_synced',
-                ['gusto_run_id' => $gid, 'has_url' => $url ? true : false], $runId);
+                ['gusto_run_id' => $gid, 'has_url' => $url ? true : false], $runId, [
+                    'before' => $run,
+                    'after' => $syncedRun,
+                ]);
             api_ok(['ok' => true, 'gusto_status' => 'submitted', 'gusto_run_id' => $gid]);
         }
         if ($action === 'mark_gusto_paid') {
+            rbac_legacy_require($user, 'payroll.run.disburse');
+            _payrollRequireStatus($run, ['approved', 'paid'], 'Mark Gusto paid');
+            _payrollDenySameActor((int) ($run['approved_by'] ?? 0), $user, 'Approver cannot mark the same Gusto payroll run paid');
             if (empty($run['gusto_run_id'])) api_error('Run is not linked to Gusto', 409);
             scopedUpdate('payroll_runs', $runId, [
                 'gusto_status' => 'paid',
@@ -381,8 +440,9 @@ switch (api_method()) {
             // paid without us double-posting cash movement (Gusto did it).
             if ($run['status'] !== 'paid') {
                 scopedUpdate('payroll_runs', $runId, [
-                    'status'  => 'paid',
-                    'paid_at' => $run['paid_at'] ?: date('Y-m-d H:i:s'),
+                    'status'          => 'paid',
+                    'paid_at'         => $run['paid_at'] ?: date('Y-m-d H:i:s'),
+                    'paid_by_user_id' => $user['id'] ?? null,
                 ]);
                 $pdo = getDB();
                 if ($pdo) {
@@ -394,11 +454,16 @@ switch (api_method()) {
                 }
                 scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'paid']);
             }
+            $gustoPaidRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
             payrollAudit('payroll.run.gusto_marked_paid',
-                ['gusto_run_id' => $run['gusto_run_id']], $runId);
+                ['gusto_run_id' => $run['gusto_run_id'], 'paid_by_user_id' => $user['id'] ?? null], $runId, [
+                    'before' => $run,
+                    'after' => $gustoPaidRun,
+                ]);
             api_ok(['ok' => true, 'gusto_status' => 'paid', 'status' => 'paid']);
         }
         if ($action === 'unlink_gusto') {
+            rbac_legacy_require($user, 'payroll.run.disburse');
             if (empty($run['gusto_run_id'])) api_error('Run is not linked to Gusto', 409);
             scopedUpdate('payroll_runs', $runId, [
                 'gusto_run_id'      => null,
@@ -408,8 +473,12 @@ switch (api_method()) {
                 'gusto_synced_by'   => null,
                 'gusto_paid_at'     => null,
             ]);
+            $unlinkedRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
             payrollAudit('payroll.run.gusto_unlinked',
-                ['previous_gusto_run_id' => $run['gusto_run_id']], $runId);
+                ['previous_gusto_run_id' => $run['gusto_run_id']], $runId, [
+                    'before' => $run,
+                    'after' => $unlinkedRun,
+                ]);
             api_ok(['ok' => true]);
         }
 
@@ -423,6 +492,19 @@ api_error('Method not allowed', 405);
 // =========================================================================
 // Helpers
 // =========================================================================
+
+function payrollRunAuditRow(int $tenantId, int $runId): ?array {
+    $pdo = getDB();
+    if (!$pdo || $tenantId <= 0 || $runId <= 0) return null;
+    $stmt = $pdo->prepare(
+        'SELECT * FROM payroll_runs
+          WHERE tenant_id = :t AND id = :id
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $runId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
 
 function _payrollRunDetail(int $runId): array {
     $run = scopedFind(
@@ -474,6 +556,55 @@ function _payrollRunDetail(int $runId): array {
     return ['run' => $run, 'lines' => $lines];
 }
 
+function _payrollRequireStatus(array $run, array $allowed, string $verb): void {
+    $status = (string) ($run['status'] ?? '');
+    if (!in_array($status, $allowed, true)) {
+        api_error($verb . ' requires status ' . implode(' or ', $allowed), 409, ['status' => $status]);
+    }
+}
+
+function _payrollDenyBuildApproveSameActor(int $runId, array $user): void {
+    $actorId = _payrollLatestBuildActor($runId);
+    if ($actorId !== null) {
+        _payrollDenySameActor($actorId, $user, 'Builder cannot approve the same payroll run');
+    }
+}
+
+function _payrollLatestBuildActor(int $runId): ?int {
+    try {
+        $run = scopedFind(
+            'SELECT computed_by_user_id, created_by_user_id
+               FROM payroll_runs
+              WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => $runId]
+        );
+        foreach (['computed_by_user_id', 'created_by_user_id'] as $key) {
+            if ($run && !empty($run[$key])) return (int) $run[$key];
+        }
+        $row = scopedFind(
+            "SELECT actor_user_id
+               FROM audit_log
+              WHERE tenant_id = :tenant_id
+                AND target_id = :rid
+                AND event IN ('payroll.run.built', 'payroll.run.created')
+              ORDER BY created_at DESC, id DESC
+              LIMIT 1",
+            ['rid' => $runId]
+        );
+        if (!$row || empty($row['actor_user_id'])) return null;
+        return (int) $row['actor_user_id'];
+    } catch (\Throwable $e) {
+        error_log('[payroll.runs] SoD build actor lookup skipped: ' . $e->getMessage());
+        return null;
+    }
+}
+
+function _payrollDenySameActor(int $blockedActorId, array $user, string $message): void {
+    if ($blockedActorId > 0 && $blockedActorId === (int) ($user['id'] ?? 0)) {
+        api_error('Two-eye control: ' . $message, 403);
+    }
+}
+
 /**
  * Compute every employee in the run's schedule. Idempotent: deletes prior
  * line items for this run, then re-creates them from current data.
@@ -481,7 +612,7 @@ function _payrollRunDetail(int $runId): array {
  * $hoursOverrides: optional array keyed by employee_id with
  *   [ 'hours_regular' => float, 'hours_overtime' => float, 'bonus_cents' => int ]
  */
-function _payrollComputeRun(int $runId, array $hoursOverrides = []): void {
+function _payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorUserId = null): void {
     $tenant = currentTenantId();
     $run = scopedFind(
         'SELECT r.*, pp.schedule_id, pp.period_start, pp.period_end, pp.pay_date
@@ -569,6 +700,7 @@ function _payrollComputeRun(int $runId, array $hoursOverrides = []): void {
             'net_total_cents'        => $totals['net'],
             'employer_taxes_cents'   => $totals['er'],
             'computed_at'            => date('Y-m-d H:i:s'),
+            'computed_by_user_id'    => $actorUserId !== null && $actorUserId > 0 ? $actorUserId : null,
         ]);
 
         $pdo->commit();

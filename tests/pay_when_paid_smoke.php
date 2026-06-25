@@ -91,7 +91,7 @@ echo "\nReact: InvoiceDetail.jsx Preview/Download PDF buttons\n";
 $jsxSrc = (string) file_get_contents(__DIR__ . '/../modules/billing/ui/InvoiceDetail.jsx');
 $a('has Preview PDF button',                    str_contains($jsxSrc, 'billing-invoice-preview-pdf'));
 $a('has Download PDF button',                   str_contains($jsxSrc, 'billing-invoice-download-pdf'));
-$a('preview opens new tab',                     str_contains($jsxSrc, "window.open(`/modules/billing/api/invoices.php?action=pdf&id=") && str_contains($jsxSrc, "_blank"));
+$a('preview opens new tab',                     str_contains($jsxSrc, "window.open(`/api/v1/billing/invoices?action=pdf&id=") && str_contains($jsxSrc, "_blank"));
 $a('download forces ?download=1',               str_contains($jsxSrc, "action=pdf&id=\${id}&download=1"));
 $a('send-modal warns on pdf_attached=false',    str_contains($jsxSrc, 'res.pdf_attached === false'));
 

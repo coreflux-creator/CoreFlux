@@ -9,6 +9,7 @@ import BillFromTimeBundleModal from './BillFromTimeBundleModal';
 import BillFromTimeEntriesModal from './BillFromTimeEntriesModal';
 import SuggestPaymentRunModal from './SuggestPaymentRunModal';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 import { QboDriftBadge, useQboDriftBadges } from '../../../dashboard/src/components/QboDriftBadge';
 import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
 
@@ -29,12 +30,8 @@ export default function BillsList() {
     { cacheKey: `ap-bills-list:${path}` }
   );
   const rows = data?.rows ?? [];
-  const sel = useBulkSelection(rows.map(r => r.id));
-
-  // Batch-fetch QBO drift snapshots for every bill in the current view.
-  // The hook collapses the ids array to a stable key so we only refetch
-  // when the list itself changes.
   const qboDrift = useQboDriftBadges('bill', rows.map(r => r.id));
+  const sel = useBulkSelection(rows.map(r => r.id));
 
   const {
     items, sortKey, sortDir, search, setSearch, headerProps,
@@ -51,6 +48,11 @@ export default function BillsList() {
     a.href = `/modules/ap/api/export.php?type=bills&ids=${sel.ids.join(',')}`;
     a.rel  = 'noopener';
     a.click();
+  };
+  const buildTemplateExportHref = (tplId) => {
+    const params = new URLSearchParams({ template_id: String(tplId) });
+    if (status !== 'all') params.set('status', status);
+    return `/api/v1/ap/bills-csv-export?${params.toString()}`;
   };
 
   return (
@@ -92,7 +94,13 @@ export default function BillsList() {
             ✨ Suggest payment run
           </button>
           <Link to="csv_import" className="btn" data-testid="ap-bills-import-csv">Import CSV</Link>
-          <a className="btn" href={`/modules/ap/api/bills_csv_export.php${status ? `?status=${status}` : ''}`} data-testid="ap-bills-export-all-csv">Export all (CSV)</a>
+          <a className="btn" href={`/api/v1/ap/bills-csv-export${status !== 'all' ? `?status=${status}` : ''}`} data-testid="ap-bills-export-all-csv">Export all (CSV)</a>
+          <ExportTemplatePicker
+            dataset="ap_bills"
+            buildHref={buildTemplateExportHref}
+            label="Export via template"
+            testid="ap-bills-export-template"
+          />
         </div>
       </div>
 

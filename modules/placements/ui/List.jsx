@@ -4,6 +4,7 @@ import { useApiCached, bustApiCachePrefix, prefetchApi, api } from '../../../das
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { fmtDate } from '../../../dashboard/src/lib/formatDate';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
 const ETYPES   = ['', 'w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire'];
@@ -57,6 +58,12 @@ export default function List() {
   const perPage = data?.per_page ?? 25;
   const lastPage = Math.max(1, Math.ceil(total / perPage));
   const isDraftView = status === 'draft';
+  const buildTemplateExportHref = (tplId) => {
+    const params = new URLSearchParams({ template_id: String(tplId) });
+    if (status) params.set('status', status);
+    if (engagementType) params.set('engagement_type', engagementType);
+    return `/api/v1/placements/csv-export?${params.toString()}`;
+  };
 
   // Client-side sort only — server already handles q/status/type search.
   const { items, sortKey, sortDir, headerProps } = useTableList(rows, {
@@ -135,7 +142,13 @@ export default function List() {
             ⚡ Try GraphQL (beta)
           </Link>
           <Link to="../csv_import" className="btn" data-testid="placements-csv-btn">Import CSV</Link>
-          <a href="/modules/placements/api/csv_export.php" className="btn" data-testid="placements-csv-export-btn">Export CSV</a>
+          <a href="/api/v1/placements/csv-export" className="btn" data-testid="placements-csv-export-btn">Export CSV</a>
+          <ExportTemplatePicker
+            dataset="placements_directory"
+            buildHref={buildTemplateExportHref}
+            label="Export via template"
+            testid="placements-export-template"
+          />
           <Link to="../new"        className="btn btn--primary" data-testid="placements-new-btn">+ New Placement</Link>
         </div>
       </header>
@@ -269,7 +282,7 @@ export default function List() {
                 {p.first_name ? `${p.first_name} ${p.last_name}` : '—'}
                 {p.person_id ? <> <IdBadge id={p.person_id} prefix="P" /></> : null}
               </td>
-              <td>{p.end_client_name || '—'}</td>
+              <td>{p.end_client_display_name || p.end_client_name || '—'}</td>
               <td>{p.engagement_type}</td>
               <td><span className={`badge badge--${p.status}`}>{p.status}</span></td>
               <td>{fmtDate(p.start_date)}</td>

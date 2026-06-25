@@ -16,7 +16,8 @@ foreach (['BillCreate', 'InvoiceCreate', 'JournalCreate', 'JournalLineItem'] as 
 check('JournalLineItem.debit_or_credit enum locked to debit|credit',
     ($schema['definitions']['JournalLineItem']['constraints']['debit_or_credit.allowed'] ?? []) === ['debit','credit']);
 check('refresh tool exists',           is_file($tool));
-check('refresh tool executable',       is_file($tool) && is_executable($tool));
+check('refresh tool executable on Unix or local Windows checkout',
+    is_file($tool) && (is_executable($tool) || DIRECTORY_SEPARATOR === '\\'));
 check('tool sources www.zoho.com/books/api/v3',
     str_contains((string) file_get_contents($tool), 'www.zoho.com/books/api/v3'));
 

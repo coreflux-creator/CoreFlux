@@ -64,7 +64,7 @@ export default function InvoiceFromTimeEntriesModal({ onClose, onCreated, defaul
     if (selected.size === 0) return;
     setBusy(true); setError(null);
     try {
-      const res = await api.post('/modules/billing/api/invoices.php?action=from-time-entries', {
+      const res = await api.post('/api/v1/billing/invoices?action=from-time-entries', {
         time_entry_ids: Array.from(selected),
         aggregation,
       });

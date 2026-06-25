@@ -83,7 +83,7 @@ export default function InvoiceFromTimeBundleModal({ onClose, onCreated }) {
     if (!periodId || selected.size === 0) return;
     setBusy(true); setError(null);
     try {
-      const res = await api.post('/modules/billing/api/invoices.php?action=from-time-bundle', {
+      const res = await api.post('/api/v1/billing/invoices?action=from-time-bundle', {
         period_id: Number(periodId),
         placement_ids: Array.from(selected),
         aggregation,

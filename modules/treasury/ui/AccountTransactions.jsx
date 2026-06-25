@@ -3,6 +3,8 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate } from '../../../dashboard/src/lib/format';
 import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
 
+const ACCOUNTING_ACCOUNTS_API = '/modules/accounting/api/accounts.php';
+
 const fmtMoneyOriginal = (n) =>
   (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 // Keep backwards compatibility for inline calls; prefer the imported fmtMoney
@@ -20,7 +22,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   );
   // Postable expense / revenue accounts for the categorize dropdown. Filtered
   // to is_postable=1 (no header rows) when the API supplies it.
-  const { data: coa } = useApi('/modules/accounting/api/accounts.php?action=tree');
+  const { data: coa } = useApi(`${ACCOUNTING_ACCOUNTS_API}?action=tree`);
 
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState(null);
@@ -155,7 +157,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
       {type === 'deposit' && (
         <CsvUploadWidget
           testIdPrefix={`treasury-${type}-csv`}
-          endpoint="/api/treasury/import_csv.php"
+          endpoint="/api/v1/treasury/import-csv"
           extraFields={{ bank_account_id: accountId }}
           accept=".csv,text/csv"
           label={plaidItemExternalId

@@ -21,7 +21,7 @@
  *   - NotificationSendersPage.jsx renders per-purpose form with
  *     data-testids for {key}-from-name, {key}-reply-to, {key}-enabled,
  *     {key}-save, {key}-reset, plus the purpose registry coverage.
- *   - config.local.php ships RESEND_FROM_EMAIL =
+ *   - config.local.example.php ships RESEND_FROM_EMAIL =
  *     'no-reply@mail.corefluxapp.com' (platform sender envelope).
  *
  * Run via: php -d zend.assertions=1 tests/tenant_mail_senders_smoke.php
@@ -130,9 +130,9 @@ $out = []; $rc = 0;
 exec('php -l ' . escapeshellarg($apiPath) . ' 2>&1', $out, $rc);
 $a('php -l api/admin/mail_senders.php',      $rc === 0);
 
-// -------------------------------------------------------------- config.local.php
-echo "\nconfig.local.php — platform Resend envelope\n";
-$cfg = (string) file_get_contents($ROOT . '/core/config.local.php');
+// -------------------------------------------------------------- config.local.example.php
+echo "\nconfig.local.example.php — platform Resend envelope\n";
+$cfg = (string) file_get_contents($ROOT . '/core/config.local.example.php');
 $a('declares RESEND_FROM_EMAIL',             $c($cfg, "define('RESEND_FROM_EMAIL'"));
 $a('default from = no-reply@mail.corefluxapp.com', $c($cfg, "'no-reply@mail.corefluxapp.com'"));
 $a('declares RESEND_FROM_NAME default',      $c($cfg, "define('RESEND_FROM_NAME'"));

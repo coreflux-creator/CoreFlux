@@ -90,7 +90,7 @@ $allowed = _authGateAllowedUnauthEndpoints();
 $offenders = [];
 $exempted  = [];
 foreach ($files as $path) {
-    $rel = substr($path, strlen($ROOT) + 1); // strip /app/
+    $rel = str_replace('\\', '/', substr($path, strlen($ROOT) + 1)); // strip /app/
     $src = (string) file_get_contents($path);
 
     // Skip definition-only files (no `<?php` body or only declares functions/constants).

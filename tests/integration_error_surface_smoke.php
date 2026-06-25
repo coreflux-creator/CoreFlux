@@ -25,6 +25,10 @@
  */
 declare(strict_types=1);
 
+if ((string) getenv('COREFLUX_DATA_KEY') === '' && !defined('COREFLUX_DATA_KEY')) {
+    putenv('COREFLUX_DATA_KEY=' . base64_encode(str_repeat('s', 32)));
+}
+
 $passes = 0; $failures = [];
 function check(string $label, bool $cond) {
     global $passes, $failures;

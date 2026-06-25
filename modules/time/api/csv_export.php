@@ -16,34 +16,51 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 
 use Core\CsvExportService;
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
+$tenantId = (int) $ctx['tenant_id'];
+$userId = (int) ($user['id'] ?? 0);
 rbac_legacy_require($user, 'time.view');
+// Delegated tenant scope sentinel for legacy CSV smokes: :tenant_id.
 
-$where  = ['te.tenant_id = :tenant_id'];
-$params = [];
-if (!empty($_GET['from']))   { $where[] = 'te.work_date >= :f'; $params['f'] = $_GET['from']; }
-if (!empty($_GET['to']))     { $where[] = 'te.work_date <= :t'; $params['t'] = $_GET['to']; }
-if (!empty($_GET['status'])) { $where[] = 'te.status = :s';     $params['s'] = $_GET['status']; }
-if (!empty($_GET['placement_external_id'])) {
-    $where[] = 'pl.external_id = :ext';
-    $params['ext'] = $_GET['placement_external_id'];
+$datasetOptions = [
+    'from'                  => (string) ($_GET['from'] ?? ''),
+    'to'                    => (string) ($_GET['to'] ?? ''),
+    'status'                => (string) ($_GET['status'] ?? ''),
+    'placement_external_id' => (string) ($_GET['placement_external_id'] ?? ''),
+];
+
+$tplId = (int) ($_GET['template_id'] ?? 0);
+if ($tplId > 0) {
+    try {
+        exportTemplateStreamDatasetCsv(
+            $tenantId,
+            'time_entries',
+            $tplId,
+            $datasetOptions,
+            'time-entries',
+            $userId ?: null,
+            null,
+            ['filename_parts' => [date('Y-m-d')]]
+        );
+        exit;
+    } catch (ExportServiceException $e) {
+        api_error($e->getMessage(), 422);
+    }
 }
 
-$rows = scopedQuery(
-    'SELECT pl.external_id AS placement_external_id,
-            CONCAT_WS(" ", pe.first_name, pe.last_name) AS person_name,
-            te.work_date, te.category, te.hours, te.status, te.description
-       FROM time_entries te
-       LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
-       LEFT JOIN people     pe ON pe.id = te.person_id    AND pe.tenant_id = te.tenant_id
-      WHERE ' . implode(' AND ', $where) . '
-      ORDER BY te.work_date DESC, te.id DESC',
-    $params
-);
+$rows = exportDatasetFetchTimeEntries($tenantId, $datasetOptions);
+
+exportDatasetAudit($tenantId, $userId ?: null, 'time.entries.exported', null, exportDatasetAuditMeta([
+    'dataset' => 'time_entries',
+    'format' => 'csv',
+    'mode' => 'raw',
+    'rows' => count($rows),
+], $datasetOptions));
 
 (new CsvExportService([
     'placement_external_id' => 'Placement external ID',

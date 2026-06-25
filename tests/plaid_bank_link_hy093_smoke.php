@@ -59,9 +59,10 @@ $bad = [];
 $it  = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($ROOT, FilesystemIterator::SKIP_DOTS));
 foreach ($it as $file) {
     $p = (string) $file;
+    $pn = str_replace('\\', '/', $p);
     if (!str_ends_with($p, '.php')) continue;
     foreach (['/node_modules/', '/vendor/', '/dashboard/', '/tests/', '/lib/PHPMailer/'] as $skip) {
-        if (strpos($p, $skip) !== false) continue 2;
+        if (strpos($pn, $skip) !== false) continue 2;
     }
     $content = (string) file_get_contents($p);
     // Heuristic: look for `OR :name = ""` and `OR :name IS NULL` patterns

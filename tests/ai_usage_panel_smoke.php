@@ -29,7 +29,7 @@ $a('endpoint reports prompt + response token sums',    str_contains($api, "'prom
                                                        && str_contains($api, "'response_tokens'"));
 $a('endpoint preserves null cost (no false zeros)',    str_contains($api, '$costRows > 0 ? $costSum : null'));
 
-exec('php -l /app/api/admin/ai_usage.php 2>&1', $out, $rc);
+exec(PHP_BINARY . ' -l /app/api/admin/ai_usage.php 2>&1', $out, $rc);
 $a('endpoint passes php -l',                           $rc === 0);
 
 // ── Frontend panel ───────────────────────────────────────────────────
@@ -46,11 +46,11 @@ $a('Panel mounted inside AiAccuracyDashboard',          str_contains($jsx, '<AiU
 $a('Window clamped to <= 30 days for the usage panel',  str_contains($jsx, 'Math.min(days, 30)'));
 
 // ── Sentries still green ──────────────────────────────────────────────
-exec('php -d zend.assertions=1 /app/tests/tenant_leak_static_analyzer_smoke.php > /dev/null 2>&1', $_, $rcA);
+exec(PHP_BINARY . ' -d extension=pdo_sqlite -d extension=sqlite3 -d zend.assertions=1 /app/tests/tenant_leak_static_analyzer_smoke.php 2>&1', $outA, $rcA);
 $a('tenant-leak sentry still green', $rcA === 0);
-exec('php -d zend.assertions=1 /app/tests/auth_gate_static_analyzer_smoke.php > /dev/null 2>&1', $_, $rcB);
+exec(PHP_BINARY . ' -d extension=pdo_sqlite -d extension=sqlite3 -d zend.assertions=1 /app/tests/auth_gate_static_analyzer_smoke.php 2>&1', $outB, $rcB);
 $a('auth-gate sentry still green',   $rcB === 0);
-exec('php -d zend.assertions=1 /app/tests/hy093_static_analyzer_smoke.php > /dev/null 2>&1', $_, $rcC);
+exec(PHP_BINARY . ' -d extension=pdo_sqlite -d extension=sqlite3 -d zend.assertions=1 /app/tests/hy093_static_analyzer_smoke.php 2>&1', $outC, $rcC);
 $a('HY093 sentry still green',       $rcC === 0);
 
 echo "\n=========================================\n";

@@ -3,7 +3,7 @@ import { useApi, api } from '../../../dashboard/src/lib/api';
 
 export default function AgingTable() {
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
-  const { data, loading, error } = useApi(`/modules/billing/api/aging.php?as_of=${asOf}`);
+  const { data, loading, error } = useApi(`/api/v1/billing/aging?as_of=${asOf}`);
   const rows = data?.rows ?? [];
   const [preview, setPreview] = useState(null);  // {client_name, ...} after a GET preview
   const [sending, setSending] = useState(null);  // client_name currently being sent
@@ -14,7 +14,7 @@ export default function AgingTable() {
   const batchPreview = async () => {
     setBatchBusy(true); setToast(null);
     try {
-      const r = await api.post('/modules/billing/api/send_statements_batch.php', { as_of: asOf, dry_run: true });
+      const r = await api.post('/api/v1/billing/send-statements-batch', { as_of: asOf, dry_run: true });
       setBatchReport(r);
     } catch (e) { setToast({ kind: 'err', text: e.message }); }
     finally { setBatchBusy(false); }
@@ -25,7 +25,7 @@ export default function AgingTable() {
     if (!proceed) return;
     setBatchBusy(true); setToast(null);
     try {
-      const r = await api.post('/modules/billing/api/send_statements_batch.php', { as_of: asOf });
+      const r = await api.post('/api/v1/billing/send-statements-batch', { as_of: asOf });
       setBatchReport(r);
       setToast({ kind: 'ok', text: `Batch complete — sent ${r.sent}, skipped ${r.skipped}, failed ${r.failed}.` });
     } catch (e) { setToast({ kind: 'err', text: e.message }); }
@@ -35,7 +35,7 @@ export default function AgingTable() {
   const previewStatement = async (clientName) => {
     setSending(clientName); setToast(null);
     try {
-      const data = await api.get(`/modules/billing/api/send_statement.php?client_name=${encodeURIComponent(clientName)}&as_of=${asOf}`);
+      const data = await api.get(`/api/v1/billing/send-statement?client_name=${encodeURIComponent(clientName)}&as_of=${asOf}`);
       setPreview({ ...data, client_name: clientName });
     } catch (e) {
       setToast({ kind: 'err', text: e.message });
@@ -47,7 +47,7 @@ export default function AgingTable() {
   const sendStatement = async (clientName) => {
     setSending(clientName); setToast(null);
     try {
-      const res = await api.post('/modules/billing/api/send_statement.php', { client_name: clientName, as_of: asOf });
+      const res = await api.post('/api/v1/billing/send-statement', { client_name: clientName, as_of: asOf });
       setPreview(null);
       setToast({ kind: 'ok', text: `Statement emailed to ${res.sent_to}${res.cc?.length ? ` (cc ${res.cc.join(', ')})` : ''} — ${res.count} invoice${res.count === 1 ? '' : 's'}.` });
     } catch (e) {
@@ -255,7 +255,7 @@ function StatementPreviewModal({ preview, asOf, busy, onClose, onSend }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
           <a
             className="btn btn--ghost" style={{ fontSize: 12, textDecoration: 'none' }}
-            href={`/modules/billing/api/statement_pdf.php?client_name=${encodeURIComponent(preview.client_name)}&as_of=${encodeURIComponent(asOf)}&disposition=attachment`}
+            href={`/api/v1/billing/statement-pdf?client_name=${encodeURIComponent(preview.client_name)}&as_of=${encodeURIComponent(asOf)}&disposition=attachment`}
             target="_blank" rel="noopener noreferrer"
             data-testid="billing-aging-statement-pdf"
           >

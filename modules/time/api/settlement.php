@@ -54,20 +54,16 @@ if ($method === 'GET') {
     foreach ($rows as $r) {
         $key = $r['placement_id'] . '|' . $r['work_date'];
         if (!isset($blocks[$key])) {
-            $cycle = $target === 'billing'
-                ? ($r['client_bill_cycle'] ?? 'monthly')
-                : ($target === 'ap'
-                    ? ($r['vendor_pay_cycle'] ?? 'biweekly')
-                    : 'biweekly');
-            $anchor = $target === 'billing'
-                ? ($r['client_bill_cycle_anchor'] ?? null)
-                : ($target === 'ap'
-                    ? ($r['vendor_pay_cycle_anchor'] ?? null)
-                    : null);
+            $cycleInfo = timeSettlementCycleForTarget($target, $r);
+            $cycle = $cycleInfo['cycle'];
+            $anchor = $cycleInfo['anchor'];
             $blocks[$key] = [
                 'placement_id'   => (int) $r['placement_id'],
                 'work_date'      => $r['work_date'],
                 'cycle_default'  => $cycle,
+                'cycle_id'       => $cycleInfo['cycle_id'],
+                'cycle_name'     => $cycleInfo['cycle_name'],
+                'cycle_source'   => $cycleInfo['source'],
                 'cycle_window'   => timeSettlementCycleSuggestion($cycle, $anchor, $r['work_date']),
                 'entries'        => [],
                 'total_hours'    => 0.0,
@@ -170,14 +166,16 @@ if ($action === 'ai_suggest') {
         foreach ($rows as $r) {
             $key = $r['placement_id'] . '|' . $r['work_date'];
             if (!isset($blocks[$key])) {
-                $cycle = $target === 'billing' ? ($r['client_bill_cycle'] ?? 'monthly')
-                       : ($target === 'ap'    ? ($r['vendor_pay_cycle']  ?? 'biweekly') : 'biweekly');
-                $anchor = $target === 'billing' ? ($r['client_bill_cycle_anchor'] ?? null)
-                        : ($target === 'ap'    ? ($r['vendor_pay_cycle_anchor']  ?? null) : null);
+                $cycleInfo = timeSettlementCycleForTarget($target, $r);
+                $cycle = $cycleInfo['cycle'];
+                $anchor = $cycleInfo['anchor'];
                 $blocks[$key] = [
                     'placement_id' => (int) $r['placement_id'],
                     'work_date'    => $r['work_date'],
                     'cycle_default'=> $cycle,
+                    'cycle_id'     => $cycleInfo['cycle_id'],
+                    'cycle_name'   => $cycleInfo['cycle_name'],
+                    'cycle_source' => $cycleInfo['source'],
                     'cycle_window' => timeSettlementCycleSuggestion($cycle, $anchor, $r['work_date']),
                     'entries'      => [],
                     'total_hours'  => 0.0,

@@ -16,8 +16,11 @@ $a = function (string $name, bool $ok) use (&$pass, &$fail): void {
     if ($ok) { $pass++; echo "  ok    $name\n"; }
     else     { $fail++; echo "  FAIL  $name\n"; }
 };
-$parses = fn (string $p): bool => is_file($p)
-    && (int) shell_exec('php -l ' . escapeshellarg($p) . ' >/dev/null 2>&1; echo $?') === 0;
+$parses = function (string $p): bool {
+    if (!is_file($p)) return false;
+    exec(PHP_BINARY . ' -l ' . escapeshellarg($p), $out, $code);
+    return $code === 0;
+};
 
 /* ────────────────────────────  PKCE  ──────────────────────────── */
 echo "PKCE (RFC 7636)\n";
@@ -32,9 +35,44 @@ $a('two verifiers differ',                    oidcGenerateCodeVerifier() !== oid
 /* ──────────────────  RS256 round trip with hand-rolled JWK→PEM  ────────────────── */
 echo "\nJWK → PEM conversion (RSA, RS256) — real openssl round trip\n";
 
-// Generate a fresh RSA keypair so the assertion holds regardless of env.
-$kp = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+// Use a deterministic RSA fixture so this smoke does not depend on host
+// OpenSSL key-generation config. The product path still uses OpenSSL to
+// load keys, verify signatures, and validate tokens end to end.
+$fixturePrivateKey = <<<'PEM'
+-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEAohvs2JFl5tOF4DCvSnuGAvnWSlrRC00DdtyzV1Mu47Y/98cn
+pt9MN7CAjXKqnHWv5BNsmJrm/ds7s22kq/ypYpDOV0clkazKYvo5HN6pEwgbpmxC
+TDYzpYwsLjmj67sfrNYwHnqbNB85Tc/OY583tSsDctA1NN+5KtM29FivFTpkYsBd
+ECK9zGRBds4ieb3yc6ax5dsR9o5z4wpu7J6Wfatx3bxllHdjSjgJgu4WZO5G+X/I
+gwy5LYw10iL1lsoIHACsPAe7epmYb9SDN2cDsSiRcnSJzYQ95K9XLV7QBB2w0lAF
+C+L8I7T4PAceZuyzLNReejQlEkDUv+vwghtMzQIDAQABAoIBACDOg/UkH7pCDnLb
+h24MZ4eMpihwDqQ51rykV4sRo4ij5ngvjr+/qv4OM0Xs8cguLQV8RNrxZlPznTZn
+tw6zWFhBM/EHzfuYO3EicJJ+ITtfxbC9cgFYasVTA9HrClh3iyaARka0y1oWA5PS
+vVL98tkwNkdzCYGE0UVwb0ut8ujZkOhxouFyblwKvFwLDxUK2fiMhEgTZp8Of0nw
+XU+9aqvk1cb80wax1DqfMips8dHuDaX7DPsJxPG0dfVg0HYYUdNE9QRnaRGP2Nes
+F1x1HucAvDQomf07rNELAQt9/r/xFFUN9U0cYQ8wd6oatSETdpfSZwCIByS5T/ay
+qyIaPoUCgYEAzQQgjeuFfblFXkN3OdesQEChEPRGnLtGrxUE8Yts8MVzN5eFr6sm
+CGMrZTbyJained3jdsWrM0VQzlV6j8gWTjdiP0QU5gpJfdCcd71+huxJZrQ8cQt0
+OQeU8UW2BC5nKWdm29jQMa3gGVI3KIJbeoUd6+7sjeEICRY/2wNncssCgYEAymw4
+tj34iEYOalFJrz8v7CepwVv6R+bt2q9C03updw+lp+5q3SRYdapbNEuxRrVKsGLX
+EyRrO3Ntzssa0mumPFe4Q+gX8SgbP3CWRpFZvlW9JzZ+FQ4oJTMdj9aTlDBbjeGS
+n7/7myjsRHL7saVStYhKFya3c25ItM8p1qwEE8cCgYB4karLi+1PyPugujCN1ea5
+SsjufZphZknlgYkMvKBu4NAnq3a1nwOY/ylwNuYle5AyvWmeWhWa63LgRaj0kgl8
+KlofNtzLhNU/psW+LbURiDiKrAi3urK5L1pKomKvBtMoqGT3egTGkqkuewlxS2id
+H1g/fp2juunM3kbjeJcIDQKBgACSR6K0EBSKZhYEvrmA6yi2f/MsyEsVqsw4PG8O
+ZU8Ruzz7HlAbfyht364JHKn/bwOKc+L48liLnd68kgnQBfsboEiIyjCDFXibX8E5
+PdCcu1j1/WsfzBs2xrmWOHptnISNA3Xx+8rXVbtnu7AnsFEU3misUk5AHHJuN0cE
+20oXAoGBAMjy0Irgow2DmCXrfgZzNQgAyyyElhzBLnvgO/SLpqcDmCPraKz/Y/i+
+BrhqX7wnxiTqaeBXBU3IffpBsjYuKMFMmipfDNK5mzfoG3Kye8rcoR5VQI55h9/f
+UOErd5GxTzV3zheMj3jeXLp6hFLJaP7Jxzh3sbVRScX1A8jBARN/
+-----END RSA PRIVATE KEY-----
+PEM;
+$kp = openssl_pkey_get_private($fixturePrivateKey);
+$a('fixture private key loads', $kp !== false);
+if ($kp === false) exit(1);
 $details = openssl_pkey_get_details($kp);
+$a('fixture exposes RSA details', is_array($details) && isset($details['rsa']['n'], $details['rsa']['e']));
+if (!is_array($details) || !isset($details['rsa']['n'], $details['rsa']['e'])) exit(1);
 $jwk = [
     'kty' => 'RSA',
     'kid' => 'test-kid-1',

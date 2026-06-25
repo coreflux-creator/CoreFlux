@@ -37,7 +37,7 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 };
 
 echo "\n1. Migration 077 — tenant_integration_field_map generalisation\n";
-$m077 = (string) file_get_contents('/app/core/migrations/077_tenant_field_map_generalise.sql');
+$m077 = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents('/app/core/migrations/077_tenant_field_map_generalise.sql'));
 $a('adds source_path column',          str_contains($m077, 'ADD COLUMN source_path    VARCHAR(255) NULL'));
 $a('adds target_module column',        str_contains($m077, 'ADD COLUMN target_module  VARCHAR(64)  NULL'));
 $a('adds target_table column',         str_contains($m077, 'ADD COLUMN target_table   VARCHAR(64)  NULL'));
@@ -52,7 +52,7 @@ $a('backfills company rows',           str_contains($m077, "WHERE entity_type = 
 $a('adds target-lookup index',         str_contains($m077, 'ADD KEY ix_target_lookup (tenant_id, integration, target_module, target_table)'));
 
 echo "\n2. Migration 078 — integration_writable_targets catalog + seed\n";
-$m078 = (string) file_get_contents('/app/core/migrations/078_integration_writable_targets.sql');
+$m078 = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents('/app/core/migrations/078_integration_writable_targets.sql'));
 $a('creates integration_writable_targets table',
     str_contains($m078, 'CREATE TABLE IF NOT EXISTS integration_writable_targets'));
 $a('uq_tenant_target unique key',      str_contains($m078, 'UNIQUE KEY uq_tenant_target (tenant_id, target_module, target_table, target_column)'));

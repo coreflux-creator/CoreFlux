@@ -53,20 +53,26 @@ foreach ($watched as $name) {
 
 echo "\n── refresh tool ──\n";
 check('tools/refresh_jaz_spec.sh exists',         is_file($tool));
-check('refresh tool is executable',               is_executable($tool));
+check('refresh tool is executable on Unix or local Windows checkout',
+    is_executable($tool) || DIRECTORY_SEPARATOR === '\\');
 check('refresh tool documents --diff and --check', str_contains((string) file_get_contents($tool), '--diff') &&
                                                    str_contains((string) file_get_contents($tool), '--check'));
 
 echo "\n── upstream drift check ──\n";
 // Skip gracefully when curl is missing OR network is unreachable —
 // common in CI containers and the sandbox we test in.
-$haveCurl = trim((string) shell_exec('command -v curl 2>/dev/null')) !== '';
-if (!$haveCurl) {
+$curlProbe = DIRECTORY_SEPARATOR === '\\' ? 'where curl 2>NUL' : 'command -v curl 2>/dev/null';
+$bashProbe = DIRECTORY_SEPARATOR === '\\' ? 'where bash 2>NUL' : 'command -v bash 2>/dev/null';
+$haveCurl = trim((string) shell_exec($curlProbe)) !== '';
+$haveBash = trim((string) shell_exec($bashProbe)) !== '';
+if (!$haveCurl || !$haveBash) {
     echo "  ⚠ curl not present — drift check SKIPPED (run on a host with network)\n";
     goto summary;
 }
 
-$tmp = trim((string) shell_exec("bash " . escapeshellarg($tool) . " --check 2>/dev/null | tail -1"));
+$toolOut = [];
+exec("bash " . escapeshellarg($tool) . " --check 2>/dev/null", $toolOut);
+$tmp = trim((string) end($toolOut));
 if (!$tmp || !is_file($tmp)) {
     echo "  ⚠ upstream fetch failed (offline?) — drift check SKIPPED\n";
     goto summary;

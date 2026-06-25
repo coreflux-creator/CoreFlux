@@ -11,8 +11,9 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../core/db.php';
-require_once __DIR__ . '/../core/sweep_rules.php';
+$ROOT = dirname(__DIR__);
+require_once $ROOT . '/core/db.php';
+require_once $ROOT . '/core/sweep_rules.php';
 
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
@@ -20,11 +21,13 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$mig  = (string) file_get_contents('/app/core/migrations/073_treasury_sweep_rules.sql');
-$svc  = (string) file_get_contents('/app/core/sweep_rules.php');
-$apiF = (string) file_get_contents('/app/api/admin/treasury/sweep_rules.php');
-$ui   = (string) file_get_contents('/app/modules/treasury/ui/SweepRulesAdmin.jsx');
-$tmod = (string) file_get_contents('/app/modules/treasury/ui/TreasuryModule.jsx');
+$sweepRulesPath = $ROOT . '/core/sweep_rules.php';
+$apiPath        = $ROOT . '/api/admin/treasury/sweep_rules.php';
+$mig  = (string) file_get_contents($ROOT . '/core/migrations/073_treasury_sweep_rules.sql');
+$svc  = (string) file_get_contents($sweepRulesPath);
+$apiF = (string) file_get_contents($apiPath);
+$ui   = (string) file_get_contents($ROOT . '/modules/treasury/ui/SweepRulesAdmin.jsx');
+$tmod = (string) file_get_contents($ROOT . '/modules/treasury/ui/TreasuryModule.jsx');
 
 echo "\n1. Migration 073 — schema shape\n";
 $a('CREATE TABLE tenant_sweep_rules',
@@ -104,12 +107,12 @@ $a('Tab link added',
 
 echo "\n6. PHP syntax\n";
 foreach ([
-    '/app/core/sweep_rules.php',
-    '/app/api/admin/treasury/sweep_rules.php',
+    $sweepRulesPath,
+    $apiPath,
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
-    $a("php -l {$f}", $rc === 0, implode("\n", $out));
+    $a('php -l ' . str_replace($ROOT . '/', '', $f), $rc === 0, implode("\n", $out));
 }
 
 echo "\n=========================================\n";

@@ -191,14 +191,15 @@ $a('outbox row marked as failed',                          ($outbox[0]['status']
 // ----------------------------------------------------------------- call-site contract
 echo "\nCall sites — no regression\n";
 $callSites = [
-    '/app/api/cfo_send_report.php',
-    '/app/modules/staffing/api/timesheet_email_approver.php',
-    '/app/modules/ap/api/vendor_portal.php',
-    '/app/modules/ap/api/bill_approvals.php',
-    '/app/core/mercury_payments.php',
+    'api/cfo_send_report.php',
+    'modules/staffing/api/timesheet_email_approver.php',
+    'modules/ap/api/vendor_portal.php',
+    'modules/ap/api/bill_approvals.php',
+    'core/mercury_payments.php',
 ];
 foreach ($callSites as $cs) {
-    $a("call site still references mailerSend: {$cs}",     file_exists($cs) && $c((string) file_get_contents($cs), 'mailerSend('));
+    $path = $ROOT . '/' . $cs;
+    $a("call site still references mailerSend: {$cs}",     file_exists($path) && $c((string) file_get_contents($path), 'mailerSend('));
 }
 
 // ----------------------------------------------------------------- summary

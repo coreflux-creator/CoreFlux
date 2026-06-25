@@ -228,8 +228,8 @@ $ui = $read(__DIR__ . '/../modules/billing/ui/MoneyMovementPreview.jsx');
 foreach (['money-movement-pdf','money-movement-share-link-mint','money-movement-share-link-new','money-movement-share-links-table'] as $tid) {
     $a("testid: {$tid}",                                  str_contains($ui, $tid));
 }
-$a('PDF link opens money_movement_pdf.php',              str_contains($ui, '/modules/billing/api/money_movement_pdf.php'));
-$a('Share-link list loads from API',                     str_contains($ui, "api.get('/modules/billing/api/money_movement_share_links.php')"));
+$a('PDF link opens money movement PDF route',            str_contains($ui, '/api/v1/billing/money-movement-pdf'));
+$a('Share-link list loads from API',                     str_contains($ui, "api.get('/api/v1/billing/money-movement-share-links')"));
 
 /* ──────────────────────  AdminModule nav additions  ────────────────────── */
 echo "\nAdminModule wiring\n";

@@ -8,7 +8,7 @@
  * Behavior:
  *   • Generic success regardless of whether email exists (prevents enumeration).
  *   • Issues link via magicLinkIssue() — rate-limit handled inside.
- *   • Sends email via Core\MailService when bootstrap is available; if mail
+ *   • Sends email via the platform mailer when configured; if mail
  *     isn't configured (dev / phase A tenants), surfaces the link in the
  *     response under `_dev_link` so the developer can copy/paste. Production
  *     never sees this field because mail bootstrap WILL be configured there.
@@ -17,7 +17,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/magic_link.php';
-require_once __DIR__ . '/../../core/mail_bootstrap.php';
+require_once __DIR__ . '/../../core/mailer.php';
 
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
 
@@ -28,6 +28,9 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
 }
 $redirectPath = (string) ($body['redirect_path'] ?? '/');
 $tenantId     = isset($body['tenant_id']) ? (int) $body['tenant_id'] : null;
+if (!$tenantId) {
+    $tenantId = _magicLinkResolveTenantId($email);
+}
 
 $genericResponse = [
     'ok'      => true,
@@ -57,18 +60,18 @@ $url = magicLinkUrl($issued['raw_token']);
 $mailSent = false;
 $devLink  = null;
 try {
-    $mail = cf_mail_bootstrap();
-    if ($mail !== null && $tenantId) {
-        $envelope = [
-            'tenant_id'  => $tenantId,
-            'module'     => 'core',
-            'recipients' => [$email],
-            'subject'    => 'Your CoreFlux sign-in link',
-            'html'       => _magicLinkHtmlBody($url, $issued['expires_at']),
-            'text'       => _magicLinkTextBody($url, $issued['expires_at']),
-        ];
-        $mail->send($envelope);
-        $mailSent = true;
+    $result = mailerSend([
+        'tenant_id' => $tenantId ?: null,
+        'module'    => 'core',
+        'purpose'   => 'auth.magic_link',
+        'to'        => $email,
+        'subject'   => 'Your CoreFlux sign-in link',
+        'body_html' => _magicLinkHtmlBody($url, $issued['expires_at']),
+        'body_text' => _magicLinkTextBody($url, $issued['expires_at']),
+    ]);
+    $mailSent = (bool) ($result['ok'] ?? false);
+    if (($result['driver'] ?? '') === 'log') {
+        $mailSent = false;
     }
 } catch (\Throwable $e) {
     error_log('[magic_link] mail send failed: ' . $e->getMessage());
@@ -83,6 +86,27 @@ if (!$mailSent && ini_get('display_errors')) {
 $resp = $genericResponse;
 if ($devLink) $resp['_dev_link'] = $devLink;
 api_ok($resp);
+
+function _magicLinkResolveTenantId(string $email): ?int
+{
+    try {
+        $pdo = getDB();
+        $stmt = $pdo->prepare(
+            'SELECT ut.tenant_id
+               FROM users u
+               JOIN user_tenants ut ON ut.user_id = u.id
+              WHERE u.email = :email
+                AND COALESCE(ut.status, "active") = "active"
+              ORDER BY COALESCE(ut.is_default, 0) DESC, ut.tenant_id ASC
+              LIMIT 1'
+        );
+        $stmt->execute(['email' => $email]);
+        $tid = $stmt->fetchColumn();
+        return $tid ? (int) $tid : null;
+    } catch (\Throwable $_) {
+        return null;
+    }
+}
 
 function _magicLinkHtmlBody(string $url, string $expiresAt): string {
     $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');

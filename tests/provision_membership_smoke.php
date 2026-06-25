@@ -30,7 +30,7 @@ $a('logs audit row in membership_audit',           str_contains($src, 'INSERT IN
 $a('respects an already-open transaction (nesting safe)',
                                                    str_contains($src, '$ownsTxn = !$pdo->inTransaction()'));
 $a('php -l clean',                                 (function () {
-    exec('php -l /app/core/memberships.php 2>&1', $o, $rc); return $rc === 0;
+    exec(PHP_BINARY . ' -l /app/core/memberships.php 2>&1', $o, $rc); return $rc === 0;
 })());
 
 // ── Persona-type mapping ──────────────────────────────────────────────
@@ -63,9 +63,9 @@ foreach ($consumers as $f => $label) {
 }
 
 // Sentry runs still green
-exec('php -d zend.assertions=1 /app/tests/user_tenants_read_sentry_smoke.php > /dev/null 2>&1', $_, $rcR);
+exec(PHP_BINARY . ' -d extension=pdo_sqlite -d extension=sqlite3 -d zend.assertions=1 /app/tests/user_tenants_read_sentry_smoke.php 2>&1', $outR, $rcR);
 $a('user_tenants read-sentry still green', $rcR === 0);
-exec('php -d zend.assertions=1 /app/tests/user_tenants_write_sentry_smoke.php > /dev/null 2>&1', $_, $rcW);
+exec(PHP_BINARY . ' -d extension=pdo_sqlite -d extension=sqlite3 -d zend.assertions=1 /app/tests/user_tenants_write_sentry_smoke.php 2>&1', $outW, $rcW);
 $a('user_tenants write-sentry green',      $rcW === 0);
 
 echo "\n=========================================\n";

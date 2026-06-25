@@ -8,7 +8,7 @@ require_once __DIR__ . '/config.php';
 
 $pdo = null;
 
-if (defined('USE_DATABASE') && USE_DATABASE) {
+if (defined('USE_DATABASE') && USE_DATABASE && getenv('COREFLUX_DISABLE_DATABASE') !== '1') {
     try {
         $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
         $options = [

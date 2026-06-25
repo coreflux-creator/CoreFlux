@@ -54,6 +54,10 @@ $a('parseDollarsToCents rounds half-up',
 
 // 2) End-to-end SQLite harness -----------------------------------------
 echo "\n2. end-to-end import\n";
+if (!in_array('sqlite', PDO::getAvailableDrivers(), true)) {
+    echo "  SKIP pdo_sqlite is not installed in this PHP runtime\n";
+    goto endpoint_checks;
+}
 $pdo = new PDO('sqlite::memory:');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $pdo->exec(
@@ -181,6 +185,7 @@ $a('wrong tenant_id rejects (period not visible to tenant)',
 
 unlink($tmp);
 
+endpoint_checks:
 // 7) API endpoint structural checks ------------------------------------
 echo "\n7. /api/payroll/import_csv.php endpoint\n";
 $ep = dirname(__DIR__) . '/modules/payroll/api/import_csv.php';

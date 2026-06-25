@@ -28,6 +28,7 @@ if (file_exists($_plaidLocalConfig)) require_once $_plaidLocalConfig;
 unset($_plaidLocalConfig);
 
 require_once __DIR__ . '/encryption.php';
+require_once __DIR__ . '/audit.php';
 require_once __DIR__ . '/sim_mock_bridge.php';
 
 // ---------------------------------------------------------------- config
@@ -191,7 +192,11 @@ function plaidSyncAllItemWebhooks(?string $forceUrl = null): array
             $out['updated']++;
             plaidAudit('core.plaid.webhook_url_synced', [
                 'item_id' => $row['item_id'], 'old' => $existing, 'new' => $url,
-            ], (int) $row['id']);
+            ], (int) $row['id'], [
+                'tenant_id' => (int) ($row['tenant_id'] ?? 0),
+                'actor_type' => 'system',
+                'after' => plaidItemAuditRow((int) ($row['tenant_id'] ?? 0), (int) $row['id']),
+            ]);
         } catch (PlaidApiException $e) {
             $out['failed']++;
             $out['errors'][] = "item {$row['item_id']}: " . $e->getMessage();
@@ -425,26 +430,120 @@ function plaidDecryptAccessToken(?string $ct): ?string
 
 // ---------------------------------------------------------------- audit
 
-function plaidAudit(string $event, array $meta = [], ?int $targetId = null): void
+function plaidItemAuditRow(int $tenantId, int $itemPk): ?array
 {
     try {
-        $ctx = function_exists('currentTenantContext') ? currentTenantContext() : null;
         $pdo = function_exists('getDB') ? getDB() : null;
-        if (!$pdo) return;
-        $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())'
-        )->execute([
-            'tenant_id' => $ctx['tenant_id'] ?? null,
-            'actor'     => $ctx['user']['id'] ?? null,
-            'event'     => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta),
-            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        if (!$pdo || $tenantId <= 0 || $itemPk <= 0) return null;
+        $stmt = $pdo->prepare(
+            'SELECT * FROM plaid_items
+              WHERE tenant_id = :t AND id = :id
+              LIMIT 1'
+        );
+        $stmt->execute(['t' => $tenantId, 'id' => $itemPk]);
+        return plaidAuditScrubTokenRow($stmt->fetch(\PDO::FETCH_ASSOC) ?: null);
+    } catch (\Throwable $e) {
+        error_log('[plaid.audit] item snapshot failed: ' . $e->getMessage());
+        return null;
+    }
+}
+
+function plaidItemAuditRowById(int $itemPk): ?array
+{
+    try {
+        $pdo = function_exists('getDB') ? getDB() : null;
+        if (!$pdo || $itemPk <= 0) return null;
+        $stmt = $pdo->prepare(
+            'SELECT * FROM plaid_items
+              WHERE id = :id AND tenant_id IS NOT NULL
+              LIMIT 1'
+        );
+        $stmt->execute(['id' => $itemPk]);
+        return plaidAuditScrubTokenRow($stmt->fetch(\PDO::FETCH_ASSOC) ?: null);
+    } catch (\Throwable $e) {
+        error_log('[plaid.audit] item snapshot failed: ' . $e->getMessage());
+        return null;
+    }
+}
+
+function plaidPaymentRailAuditRow(int $tenantId, string $rail = 'plaid_transfer'): ?array
+{
+    try {
+        $pdo = function_exists('getDB') ? getDB() : null;
+        if (!$pdo || $tenantId <= 0 || $rail === '') return null;
+        $stmt = $pdo->prepare(
+            'SELECT * FROM tenant_payment_rails
+              WHERE tenant_id = :t AND rail = :r
+              LIMIT 1'
+        );
+        $stmt->execute(['t' => $tenantId, 'r' => $rail]);
+        return plaidAuditScrubTokenRow($stmt->fetch(\PDO::FETCH_ASSOC) ?: null);
+    } catch (\Throwable $e) {
+        error_log('[plaid.audit] payment rail snapshot failed: ' . $e->getMessage());
+        return null;
+    }
+}
+
+function plaidAuditScrubTokenRow(?array $row): ?array
+{
+    if (!$row) return null;
+    unset($row['access_token_ct']);
+    return $row;
+}
+
+function plaidAudit(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
+{
+    try {
+        $tenantId = plaidAuditInt($opts['tenant_id'] ?? $meta['tenant_id'] ?? null);
+        $actorUserId = plaidAuditInt($opts['actor_user_id'] ?? $meta['actor_user_id'] ?? null);
+
+        if ($tenantId === null && $targetId !== null && str_starts_with($event, 'core.plaid.')) {
+            $itemRow = plaidItemAuditRowById($targetId);
+            $tenantId = plaidAuditInt($itemRow['tenant_id'] ?? null);
+        }
+        if ($tenantId === null && function_exists('currentTenantId')) {
+            try {
+                $tenantId = plaidAuditInt(currentTenantId());
+            } catch (\Throwable $_) {
+                $tenantId = null;
+            }
+        }
+        if ($tenantId === null) {
+            $tenantId = plaidAuditInt($_SESSION['tenant_id'] ?? null);
+        }
+        if ($actorUserId === null) {
+            $actorUserId = plaidAuditInt($_SESSION['user']['id'] ?? null);
+        }
+
+        platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+            'object_type' => plaidAuditObjectType($event),
+            'source' => plaidAuditSource($event),
+        ], $opts));
     } catch (\Throwable $e) {
         error_log('[plaid.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
+}
+
+function plaidAuditObjectType(string $event): string
+{
+    if (str_starts_with($event, 'payment_rails.plaid.')) return 'payment_rail_plaid';
+    if (str_starts_with($event, 'accounting.coa.')) return 'accounting_account';
+    return 'plaid_item';
+}
+
+function plaidAuditSource(string $event): string
+{
+    if (str_starts_with($event, 'payment_rails.')) return 'payment_rails';
+    if (str_starts_with($event, 'accounting.')) return 'accounting';
+    return 'plaid';
+}
+
+function plaidAuditInt(mixed $value): ?int
+{
+    if ($value === null || $value === '') return null;
+    if (is_array($value) || is_object($value)) return null;
+    $int = (int) $value;
+    return $int > 0 ? $int : null;
 }
 /**
  * Find or create an institution-level parent COA row for liability auto-grouping.
@@ -644,5 +743,3 @@ function plaidPersistAccountBalances(PDO $pdo, int $tenantId, array $plaidAccoun
     }
     return $updated;
 }
-
-

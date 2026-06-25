@@ -210,15 +210,13 @@ export default function CFODashboard({ session }) {
 
       <RevenueStreamWidget />
 
-      {/* P2.3 — auto-suggest a payment run when PWP just released bills.
-          Renders nothing when there's nothing to nudge about. */}
-      <PwpReleasedNudge variant="tile" days={7} />
-
       <FscHealthPanel />
 
       <QboSyncHealthTile />
 
       <ApprovalMixTile />
+
+      <PwpReleasedNudge variant="tile" days={7} />
 
       {showSend && (
         <SendReportModal

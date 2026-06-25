@@ -44,11 +44,12 @@ $bad = [];
 $it  = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($ROOT, FilesystemIterator::SKIP_DOTS));
 foreach ($it as $file) {
     $p = (string) $file;
+    $pn = str_replace('\\', '/', $p);
     if (!str_ends_with($p, '.php')) continue;
-    if (strpos($p, '/node_modules/') !== false) continue;
-    if (strpos($p, '/vendor/')       !== false) continue;
-    if (strpos($p, '/dashboard/')    !== false) continue;
-    if (strpos($p, '/tests/')        !== false) continue;
+    if (strpos($pn, '/node_modules/') !== false) continue;
+    if (strpos($pn, '/vendor/')       !== false) continue;
+    if (strpos($pn, '/dashboard/')    !== false) continue;
+    if (strpos($pn, '/tests/')        !== false) continue;
     $content = (string) file_get_contents($p);
     if (preg_match('/lastInsertId\(\s*(true|false|\d)/', $content)) {
         $bad[] = $p;

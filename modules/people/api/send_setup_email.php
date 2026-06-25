@@ -71,11 +71,20 @@ $logRow = [
 ];
 
 try {
-    $result = sendEmail([
+    $result = mailerSend([
+        'tenant_id' => (int) ($ctx['tenant_id'] ?? currentTenantId()),
+        'module'    => 'people',
+        'purpose'   => 'people.setup_email',
         'to'        => [$to, trim(($emp['preferred_name'] ?: $emp['legal_first_name']) . ' ' . $emp['legal_last_name'])],
         'subject'   => $subject,
         'body_text' => $fullText,
     ]);
+    if (($result['driver'] ?? '') === 'log') {
+        throw new RuntimeException('mail is configured for local log-only delivery');
+    }
+    if (!($result['ok'] ?? false)) {
+        throw new RuntimeException((string) ($result['error'] ?? 'mail send failed'));
+    }
     $logRow['status']          = 'sent';
     $logRow['smtp_message_id'] = $result['message_id'] ?? null;
 } catch (Throwable $e) {

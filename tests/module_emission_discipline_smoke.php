@@ -54,14 +54,43 @@ $DEFINITION_OR_ENGINE = [
 
 echo "Grep /app/modules + /app/api for accountingPostJe callers\n";
 $ROOT = realpath(__DIR__ . '/..');
-$cmd  = sprintf('grep -rln %s %s/modules %s/api 2>/dev/null',
-    escapeshellarg('accountingPostJe('), $ROOT, $ROOT);
-$out  = (string) shell_exec($cmd);
-$files = array_filter(array_map('trim', explode("\n", $out)));
+
+function moduleEmissionPhpFiles(array $roots): array {
+    $files = [];
+    foreach ($roots as $root) {
+        if (!$root || !is_dir($root)) continue;
+        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
+        foreach ($it as $f) {
+            $p = (string) $f;
+            $pn = str_replace('\\', '/', $p);
+            if (!str_ends_with($p, '.php')) continue;
+            if (str_contains($pn, '/vendor/') || str_contains($pn, '/node_modules/')) continue;
+            $files[] = $p;
+        }
+    }
+    sort($files);
+    return $files;
+}
+
+function moduleEmissionRel(string $root, string $path): string {
+    return str_replace('\\', '/', ltrim(substr($path, strlen($root)), '/\\'));
+}
+
+function moduleEmissionFilesContaining(string $root, array $roots, string $needle): array {
+    $hits = [];
+    foreach (moduleEmissionPhpFiles($roots) as $path) {
+        $src = (string) file_get_contents($path);
+        if (str_contains($src, $needle)) $hits[] = $path;
+    }
+    return $hits;
+}
+
+$files = moduleEmissionFilesContaining($ROOT, [$ROOT . '/modules', $ROOT . '/api'], 'accountingPostJe(');
+$relFiles = array_map(fn ($abs) => moduleEmissionRel($ROOT, $abs), $files);
 
 $violations = [];
 foreach ($files as $abs) {
-    $rel = ltrim(str_replace($ROOT, '', $abs), '/');
+    $rel = moduleEmissionRel($ROOT, $abs);
     $isEngine = false;
     foreach ($DEFINITION_OR_ENGINE as $okPrefix) {
         if (str_starts_with($rel, $okPrefix)) { $isEngine = true; break; }
@@ -75,19 +104,19 @@ $a('no NEW module files call accountingPostJe()',    empty($violations));
 if (!empty($violations)) {
     foreach ($violations as $v) echo "        violation: {$v}\n";
 }
-$a('allowlist still tracks AP bills bypass',         in_array('modules/ap/api/bills.php', array_map(fn ($abs) => ltrim(str_replace($ROOT, '', $abs), '/'), $files), true));
-$a('allowlist still tracks billing invoices bypass', in_array('modules/billing/api/invoices.php', array_map(fn ($abs) => ltrim(str_replace($ROOT, '', $abs), '/'), $files), true));
-$a('allowlist still tracks treasury bypass',         in_array('modules/treasury/api/account_transactions.php', array_map(fn ($abs) => ltrim(str_replace($ROOT, '', $abs), '/'), $files), true));
+$a('allowlist still tracks AP bills bypass',         in_array('modules/ap/api/bills.php', $relFiles, true));
+$a('allowlist still tracks billing invoices bypass', in_array('modules/billing/api/invoices.php', $relFiles, true));
+$a('allowlist still tracks treasury bypass',         in_array('modules/treasury/api/account_transactions.php', $relFiles, true));
 
 echo "\nGrep for raw INSERT INTO accounting_journal_* outside the accounting module\n";
-$cmd2 = sprintf('grep -rln -E %s %s/modules %s/api %s/core %s/scripts 2>/dev/null',
-    escapeshellarg('INSERT INTO accounting_journal_(entries|lines)'),
-    $ROOT, $ROOT, $ROOT, $ROOT);
-$out2 = (string) shell_exec($cmd2);
-$rawFiles = array_filter(array_map('trim', explode("\n", $out2)));
+$rawFiles = [];
+foreach (moduleEmissionPhpFiles([$ROOT . '/modules', $ROOT . '/api', $ROOT . '/core', $ROOT . '/scripts']) as $path) {
+    $src = (string) file_get_contents($path);
+    if (preg_match('/INSERT\s+INTO\s+accounting_journal_(entries|lines)/i', $src)) $rawFiles[] = $path;
+}
 $rawViolations = [];
 foreach ($rawFiles as $abs) {
-    $rel = ltrim(str_replace($ROOT, '', $abs), '/');
+    $rel = moduleEmissionRel($ROOT, $abs);
     if (str_starts_with($rel, 'modules/accounting/')
      || str_starts_with($rel, 'core/posting_engine/')
      || str_starts_with($rel, 'core/migrations/')) continue;
@@ -99,8 +128,11 @@ if (!empty($rawViolations)) {
 }
 
 echo "\naccountingPostJe is defined exactly once\n";
-$cmdDef = sprintf('grep -rn "^function accountingPostJe" %s 2>/dev/null | wc -l', $ROOT);
-$count  = (int) shell_exec($cmdDef);
+$count = 0;
+foreach (moduleEmissionPhpFiles([$ROOT . '/modules', $ROOT . '/core', $ROOT . '/api']) as $path) {
+    $src = (string) file_get_contents($path);
+    if (preg_match('/^function\s+accountingPostJe\s*\(/m', $src)) $count++;
+}
 $a('single definition of accountingPostJe',          $count === 1);
 
 echo "\naccountingProcessEvent (event chokepoint) is reachable\n";

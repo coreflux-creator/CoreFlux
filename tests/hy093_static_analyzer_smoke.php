@@ -35,8 +35,9 @@ $it = new RecursiveIteratorIterator(
 );
 foreach ($it as $f) {
     $p = (string) $f;
+    $pn = str_replace('\\', '/', $p);
     if (!str_ends_with($p, '.php')) continue;
-    foreach ($skip as $s) if (strpos($p, $s) !== false) continue 2;
+    foreach ($skip as $s) if (strpos($pn, $s) !== false) continue 2;
     $files[] = $p;
 }
 sort($files);

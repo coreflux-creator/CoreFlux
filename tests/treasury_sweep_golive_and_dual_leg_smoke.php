@@ -17,8 +17,9 @@
  */
 declare(strict_types=1);
 
-require_once '/app/core/treasury_sweep_engine.php';
-require_once '/app/core/mercury_payments.php';
+$ROOT = dirname(__DIR__);
+require_once $ROOT . '/core/treasury_sweep_engine.php';
+require_once $ROOT . '/core/mercury_payments.php';
 
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
@@ -28,14 +29,14 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 
 echo "\n1. P1.d — EmployeeDirectory.jsx legacy code purged\n";
 $a('/app/modules/people/ui/EmployeeDirectory.jsx is removed',
-   !file_exists('/app/modules/people/ui/EmployeeDirectory.jsx'));
+   !file_exists($ROOT . '/modules/people/ui/EmployeeDirectory.jsx'));
 $a('/app/dashboard/src/modules/EmployeeDirectory.jsx is removed',
-   !file_exists('/app/dashboard/src/modules/EmployeeDirectory.jsx'));
+   !file_exists($ROOT . '/dashboard/src/modules/EmployeeDirectory.jsx'));
 $a('legacy archive copy preserved at /app/legacy/',
-   file_exists('/app/legacy/people_pre_spec_20260429/ui/PeopleModule.jsx'));
+   file_exists($ROOT . '/legacy/people_pre_spec_20260429/ui/PeopleModule.jsx'));
 
 echo "\n2. Sweep go-live wiring\n";
-$mig = (string) file_get_contents('/app/core/migrations/075_sweep_destination_recipient.sql');
+$mig = (string) file_get_contents($ROOT . '/core/migrations/075_sweep_destination_recipient.sql');
 $a('migration 075 extends mercury_recipients.kind ENUM',
    str_contains($mig, "MODIFY COLUMN kind ENUM('vendor','funding_source','sweep_destination')"));
 $a('migration 075 idempotently adds destination_recipient_id column',
@@ -43,14 +44,17 @@ $a('migration 075 idempotently adds destination_recipient_id column',
 $a('migration 075 adds index on tenant + destination_recipient_id',
    str_contains($mig, 'idx_sweep_dest_recipient (tenant_id, destination_recipient_id)'));
 
-$recip = (string) file_get_contents('/app/core/mercury_recipients.php');
+$recipPath = $ROOT . '/core/mercury_recipients.php';
+$payPath   = $ROOT . '/core/mercury_payments.php';
+$engPath   = $ROOT . '/core/treasury_sweep_engine.php';
+$recip = (string) file_get_contents($recipPath);
 $a('mercury_recipients.php validation accepts sweep_destination',
    str_contains($recip, "['vendor', 'funding_source', 'sweep_destination']"));
-$pay = (string) file_get_contents('/app/core/mercury_payments.php');
+$pay = (string) file_get_contents($payPath);
 $a('mpCreate accepts kind=sweep_destination',
    str_contains($pay, "in_array(\$rec['kind'] ?? '', ['vendor', 'sweep_destination'], true)"));
 
-$eng = (string) file_get_contents('/app/core/treasury_sweep_engine.php');
+$eng = (string) file_get_contents($engPath);
 $a('engine Layer 3c live path requires destination_recipient_id',
    str_contains($eng, '$destRecipientId = isset($rule[\'destination_recipient_id\']) ? (int) $rule[\'destination_recipient_id\'] : 0;'));
 $a('engine Layer 3c calls mpCreate with source_module=treasury_sweep',
@@ -62,7 +66,8 @@ $a('engine Layer 3c records swept+live on mpCreate success',
    (bool) preg_match("/treasurySweepRecordRun\(\s*\\\$tenantId,\s*\\\$ruleId,\s*\\\$balanceCents,\s*\\\$sweepCents,\s*'swept',\s*false,\s*\(int\) \(\\\$pi\['id'\] \?\? 0\)/", $eng));
 
 echo "\n3. Sweep audit feed endpoint + UI\n";
-$ep = (string) file_get_contents('/app/api/admin/treasury/sweep_runs.php');
+$sweepRunsPath = $ROOT . '/api/admin/treasury/sweep_runs.php';
+$ep = (string) file_get_contents($sweepRunsPath);
 $a('endpoint requires accounting.bank.manage permission',
    str_contains($ep, "rbac_legacy_require(\$user, 'accounting.bank.manage');"));
 $a('endpoint bounds days 1..90',
@@ -79,7 +84,7 @@ $a('summary computes planned-dryrun and swept-live totals separately',
 $a('response exposes live_mode flag',
    str_contains($ep, "'live_mode'   => treasurySweepLiveModeEnabled(),"));
 
-$feed = (string) file_get_contents('/app/modules/treasury/ui/SweepRunsFeed.jsx');
+$feed = (string) file_get_contents($ROOT . '/modules/treasury/ui/SweepRunsFeed.jsx');
 foreach ([
     'sweep-runs-feed', 'sweep-runs-mode-badge', 'sweep-runs-window',
     'sweep-runs-summary', 'sweep-runs-table',
@@ -97,14 +102,15 @@ foreach ([
 $a('UI surfaces ready/blocked go-live readiness banners',
    str_contains($feed, 'sweep-runs-readiness-ready')
    && str_contains($feed, 'sweep-runs-readiness-blocked'));
-$a('SweepRulesAdmin mounts the new feed',
-   str_contains(
-       (string) file_get_contents('/app/modules/treasury/ui/SweepRulesAdmin.jsx'),
-       'import SweepRunsFeed'
-   ));
+    $a('SweepRulesAdmin mounts the new feed',
+    str_contains(
+        (string) file_get_contents($ROOT . '/modules/treasury/ui/SweepRulesAdmin.jsx'),
+        'import SweepRunsFeed'
+    ));
 
 echo "\n4. Divergence alert cron driver\n";
-$div = (string) file_get_contents('/app/cron/treasury_sweep_divergence_alert.php');
+$divPath = $ROOT . '/cron/treasury_sweep_divergence_alert.php';
+$div = (string) file_get_contents($divPath);
 $a('cron driver scopes to yesterday',
    str_contains($div, '$yesterday = $now->modify(\'-1 day\');'));
 $a('cron driver scans treasury_sweep_runs',
@@ -150,7 +156,8 @@ foreach ([
        str_contains($pay, "= '{$reason}"));
 }
 
-$api = (string) file_get_contents('/app/api/mercury_payments.php');
+$mercuryApiPath = $ROOT . '/api/mercury_payments.php';
+$api = (string) file_get_contents($mercuryApiPath);
 $a('GET-by-id endpoint exposes approval_progress',
    str_contains($api, "'approval_progress' => \$progress"));
 $a('endpoint helper call swallows exceptions (no 500 on transient failure)',
@@ -158,16 +165,16 @@ $a('endpoint helper call swallows exceptions (no 500 on transient failure)',
 
 echo "\n6. PHP syntax\n";
 foreach ([
-    '/app/core/treasury_sweep_engine.php',
-    '/app/core/mercury_payments.php',
-    '/app/core/mercury_recipients.php',
-    '/app/cron/treasury_sweep_divergence_alert.php',
-    '/app/api/admin/treasury/sweep_runs.php',
-    '/app/api/mercury_payments.php',
+    $engPath,
+    $payPath,
+    $recipPath,
+    $divPath,
+    $sweepRunsPath,
+    $mercuryApiPath,
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
-    $a("php -l {$f}", $rc === 0, implode("\n", $out));
+    $a('php -l ' . str_replace($ROOT . '/', '', $f), $rc === 0, implode("\n", $out));
 }
 
 echo "\n=========================================\n";

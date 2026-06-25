@@ -245,7 +245,11 @@ function PasswordResetModal({ user, onClose }) {
     e.preventDefault();
     setBusy(true); setErr(null);
     try {
-      await api.patch(`/api/users.php?id=${user.id}&action=password`, { password: pwd });
+      try {
+        await api.patch(`/api/users.php?id=${user.id}&action=password`, { password: pwd });
+      } catch (patchErr) {
+        await api.post(`/api/users.php?id=${user.id}&action=password`, { password: pwd });
+      }
       alert('Password reset.');
       onClose();
     } catch (e) { setErr(e.message || 'Reset failed'); }

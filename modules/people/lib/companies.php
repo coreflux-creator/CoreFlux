@@ -15,6 +15,7 @@
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/encryption.php';
+require_once __DIR__ . '/../../../core/audit.php';
 
 const COMPANY_ROLES = ['client','customer','vendor','msp','prime_vendor','sub_vendor','referrer','partner'];
 
@@ -190,17 +191,18 @@ function companiesAudit(string $event, array $meta = [], ?int $targetId = null):
 {
     try {
         $ctx  = function_exists('currentTenantContext') ? currentTenantContext() : null;
-        getDB()->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())'
-        )->execute([
-            'tenant_id' => $ctx['tenant_id'] ?? null,
-            'actor'     => $ctx['user']['id'] ?? null,
-            'event'     => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta),
-            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        platformAuditLogWrite(
+            isset($ctx['tenant_id']) ? (int) $ctx['tenant_id'] : null,
+            isset($ctx['user']['id']) ? (int) $ctx['user']['id'] : null,
+            $event,
+            $targetId,
+            $meta,
+            [
+                'source' => 'people',
+                'object_type' => 'company',
+                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+            ]
+        );
     } catch (\Throwable $e) {
         error_log('[companies.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
@@ -279,7 +281,8 @@ function companiesMerge(int $tenantId, int $survivorId, int $victimId, ?int $act
         if ($r['deleted_at'] !== null)           throw new \RuntimeException("Company {$r['id']} is already soft-deleted");
     }
 
-    $ownsTxn = cf_tx_begin($pdo);
+    $ownsTxn = !$pdo->inTransaction();
+    if ($ownsTxn) $pdo->beginTransaction();
     try {
         $redir = [];
 
@@ -326,9 +329,9 @@ function companiesMerge(int $tenantId, int $survivorId, int $victimId, ?int $act
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE companies SET deleted_at = NOW() WHERE id = :v')->execute(['v' => $victimId]);
 
-        cf_tx_commit($pdo, $ownsTxn);
+        if ($ownsTxn) $pdo->commit();
     } catch (\Throwable $e) {
-        cf_tx_rollback($pdo, $ownsTxn);
+        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
 

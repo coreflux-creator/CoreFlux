@@ -95,8 +95,6 @@ function apPwpAutoLinkForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorU
     $candidates = $st->fetchAll(\PDO::FETCH_ASSOC);
 
     $linked = [];
-    // Nested-safe — invoked from inside billingAllocatePayment() during
-    // the PWP auto-link cascade; outer caller may already own the tx.
     $ownsTxn = !$pdo->inTransaction();
     if ($ownsTxn) $pdo->beginTransaction();
     try {
@@ -234,8 +232,6 @@ function apPwpReleaseForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorUs
           FOR UPDATE'
     );
     $released = [];
-    // Nested-safe — apPwpReleaseForArInvoice is auto-fired from inside
-    // billingAllocatePayment(); that handler already holds a tx.
     $ownsTxn = !$pdo->inTransaction();
     if ($ownsTxn) $pdo->beginTransaction();
     try {

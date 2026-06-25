@@ -91,8 +91,8 @@ foreach (['billing-aging','billing-aging-email-statement-${i}','billing-aging-st
     $a("testid: {$tid}",                              str_contains($ui, $tid));
 }
 $a('testid: billing-aging-statement-sent/error (dynamic)', str_contains($ui, "`billing-aging-statement-\${toast.kind === 'ok' ? 'sent' : 'error'}`"));
-$a('preview calls GET ?client_name=',                 str_contains($ui, 'api.get(`/modules/billing/api/send_statement.php?client_name=${encodeURIComponent(clientName)}&as_of=${asOf}`)'));
-$a('send calls POST send_statement.php',              str_contains($ui, "api.post('/modules/billing/api/send_statement.php',"));
+$a('preview calls GET ?client_name=',                 str_contains($ui, 'api.get(`/api/v1/billing/send-statement?client_name=${encodeURIComponent(clientName)}&as_of=${asOf}`)'));
+$a('send calls POST send-statement',                  str_contains($ui, "api.post('/api/v1/billing/send-statement',"));
 $a('disables Send button when no AR contact',         str_contains($ui, 'disabled={busy || !to}'));
 $a('shows no-contact warning state',                  str_contains($ui, 'billing-aging-statement-no-contact'));
 $a('shows preview email body',                        str_contains($ui, 'dangerouslySetInnerHTML={{ __html: preview?.email?.html || \'\' }}'));

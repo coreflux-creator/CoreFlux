@@ -16,7 +16,7 @@ export default function MoneyMovementArchive() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
-    api.get('/modules/billing/api/money_movement_archive.php')
+    api.get('/api/v1/billing/money-movement-archive')
       .then((d) => setRows(d.rows || []))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -25,7 +25,7 @@ export default function MoneyMovementArchive() {
   const openWeek = async (asOf) => {
     setDetailLoading(true);
     try {
-      const d = await api.get(`/modules/billing/api/money_movement_archive.php?as_of=${encodeURIComponent(asOf)}`);
+      const d = await api.get(`/api/v1/billing/money-movement-archive?as_of=${encodeURIComponent(asOf)}`);
       setDetail({ ...d, as_of: asOf });
     } catch (e) { setError(e.message); }
     finally { setDetailLoading(false); }

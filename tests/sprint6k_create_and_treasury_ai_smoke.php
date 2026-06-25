@@ -33,12 +33,12 @@ $assert('legacy buggy ternary is gone',
 
 echo "\nBug 2 — Treasury fetchAiCat must pass line_id via query string\n";
 $ui = (string) file_get_contents("{$ROOT}/modules/treasury/ui/AccountTransactions.jsx");
-$assert('fetchAiCat URL includes &line_id=${lineId}',
-    strpos($ui, '&line_id=${lineId}') !== false);
+$assert('fetchAiCat URL includes line_id=${lineId} in the query string',
+    strpos($ui, '?line_id=${lineId}') !== false || strpos($ui, '&line_id=${lineId}') !== false);
 $assert('fetchAiCat does NOT pass line_id in JSON body',
     strpos($ui, "{ line_id: lineId })") === false);
 $assert('still hits suggest_categorize action',
-    strpos($ui, 'action=suggest_categorize') !== false);
+    strpos($ui, 'action=suggest_categorize') !== false || strpos($ui, '/suggest-categorize') !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

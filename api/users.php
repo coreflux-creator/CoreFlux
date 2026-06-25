@@ -200,7 +200,7 @@ if ($method === 'GET' && $id) {
 }
 
 // ---------- POST (create) ----------
-if ($method === 'POST') {
+if ($method === 'POST' && $action !== 'password') {
     $body = api_json_body();
     api_require_fields($body, ['name', 'email', 'password']);
 
@@ -289,7 +289,7 @@ if ($method === 'POST') {
 }
 
 // ---------- PATCH (update / password / tenant assignment) ----------
-if ($method === 'PATCH' && $id) {
+if (($method === 'PATCH' || ($method === 'POST' && $action === 'password')) && $id) {
     $stmt = $pdo->prepare("SELECT id, role FROM users WHERE id = :id LIMIT 1");
     $stmt->execute(['id' => $id]);
     $existing = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -319,6 +319,10 @@ if ($method === 'PATCH' && $id) {
         )->execute(['pw1' => $hash, 'pw2' => $hash, 'id' => $id]);
         subTenantAudit(0, $activeTid ?? 0, $actorId, 'user.password_reset', ['user_id' => $id]);
         api_ok(['id' => $id]);
+    }
+
+    if ($method !== 'PATCH') {
+        api_error('Method not allowed', 405);
     }
 
     if ($action === 'tenant') {

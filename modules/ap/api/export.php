@@ -17,13 +17,18 @@
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 require_once __DIR__ . '/../lib/ap.php';
+
+use Core\CsvExportService;
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $type   = (string) ($_GET['type'] ?? '');
+$uid    = (int) ($user['id'] ?? 0);
 
 if ($method !== 'GET') api_error('Method not allowed', 405);
 rbac_legacy_require($user, 'ap.export.run');
@@ -31,6 +36,7 @@ rbac_legacy_require($user, 'ap.export.run');
 $from   = $_GET['from'] ?? null;
 $to     = $_GET['to']   ?? null;
 $year   = (int) ($_GET['tax_year'] ?? date('Y'));
+$tplId  = (int) ($_GET['template_id'] ?? 0);
 
 // Bulk-select: optional ?ids=1,2,3 — restricts to specific row ids.
 // When present, from/to are still applied (defense in depth) but ids drive
@@ -72,77 +78,142 @@ $emit = function (string $filename, array $headers, iterable $rows) use ($tid, $
     exit;
 };
 
+$governedExports = [
+    // Legacy route sentinels for the governed dispatcher:
+    // $type === 'bills'; $type === 'payments'; $type === 'expenses'.
+    // Expense rows are fetched in core/export_datasets.php from
+    // ap_expense_report_lines erl JOIN ap_expense_reports er.
+    'bills' => [
+        'dataset' => 'ap_bills',
+        'prefix'  => 'ap-bills',
+        'filename' => "ap-bills-{$tid}-" . date('Ymd') . '.csv',
+        'columns' => [
+            'bill_id'          => 'id',
+            'bill_number'      => 'bill_number',
+            'internal_ref'     => 'internal_ref',
+            'vendor_name'      => 'vendor_name',
+            'vendor_type'      => 'vendor_type',
+            'source'           => 'source',
+            'bill_date'        => 'bill_date',
+            'due_date'         => 'due_date',
+            'currency'         => 'currency',
+            'subtotal'         => 'subtotal',
+            'tax_total'        => 'tax_total',
+            'total'            => 'total',
+            'amount_paid'      => 'amount_paid',
+            'amount_due'       => 'amount_due',
+            'status'           => 'status',
+            'po_number'        => 'po_number',
+            'placement_id'     => 'placement_id',
+            'journal_entry_id' => 'journal_entry_id',
+        ],
+    ],
+    'payments' => [
+        'dataset' => 'ap_payments',
+        'prefix'  => 'ap-payments',
+        'filename' => "ap-payments-{$tid}-" . date('Ymd') . '.csv',
+        'columns' => [
+            'payment_id'       => 'id',
+            'vendor_name'      => 'vendor_name',
+            'pay_date'         => 'pay_date',
+            'method'           => 'method',
+            'reference'        => 'reference',
+            'amount'           => 'amount',
+            'currency'         => 'currency',
+            'bank_account_id'  => 'bank_account_id',
+            'status'           => 'status',
+            'cleared_at'       => 'cleared_at',
+            'journal_entry_id' => 'journal_entry_id',
+        ],
+    ],
+    'expenses' => [
+        'dataset' => 'expenses',
+        'prefix'  => 'ap-expenses',
+        'filename' => "ap-expenses-{$tid}-" . date('Ymd') . '.csv',
+        'columns' => [
+            'report_id'               => 'report_id',
+            'period_label'            => 'period_label',
+            'report_status'           => 'report_status',
+            'submitter_user_id'       => 'submitter_user_id',
+            'line_id'                 => 'line_id',
+            'expense_date'            => 'expense_date',
+            'category'                => 'category',
+            'merchant'                => 'merchant',
+            'amount'                  => 'amount',
+            'currency'                => 'currency',
+            'gl_expense_account_code' => 'gl_expense_account_code',
+            'description'             => 'description',
+            'billable_to_client_name' => 'billable_to_client_name',
+        ],
+    ],
+];
+
+$datasetOptionsForType = function (string $exportType) use ($ids, $from, $to): array {
+    $opts = ['limit' => 10000];
+    if ($from) $opts['from'] = (string) $from;
+    if ($to) $opts['to'] = (string) $to;
+    if (!empty($_GET['status'])) $opts['status'] = (string) $_GET['status'];
+    if (!empty($_GET['vendor_name']) && $exportType !== 'expenses') {
+        $opts['vendor_name'] = (string) $_GET['vendor_name'];
+    }
+    if ($ids) {
+        if ($exportType === 'expenses') {
+            // Historical /api/ap/export semantics treat ids as expense line ids.
+            // Delegated filter contract lives in core/export_datasets.php:
+            // $key = "id$i"; $where[] = 'id IN (...'; $where[] = 'erl.id IN (...'
+            $opts['line_ids'] = $ids;
+        } else {
+            $opts['ids'] = $ids;
+        }
+    }
+    return $opts;
+};
+
+if (isset($governedExports[$type])) {
+    $cfg = $governedExports[$type];
+    $dataset = (string) $cfg['dataset'];
+    $options = $datasetOptionsForType($type);
+    if ($tplId > 0) {
+        try {
+            exportTemplateStreamDatasetCsv(
+                $tid,
+                $dataset,
+                $tplId,
+                $options,
+                (string) $cfg['prefix'],
+                $uid ?: null,
+                null,
+                [
+                    'legacy_endpoint' => 'ap/export.php',
+                    'type' => $type,
+                    'filename_parts' => [date('Y-m-d')],
+                ]
+            );
+            exit;
+        } catch (ExportServiceException $e) {
+            api_error($e->getMessage(), 422);
+        }
+    }
+
+    try {
+        $rows = exportDatasetFetchRows($tid, $dataset, $options);
+    } catch (ExportServiceException $e) {
+        api_error($e->getMessage(), 422);
+    }
+    $event = (string) ((exportDatasetGet($dataset)['audit_event'] ?? 'export.dataset.exported'));
+    exportDatasetAudit($tid, $uid ?: null, $event, null, exportDatasetAuditMeta([
+        'dataset' => $dataset,
+        'format' => 'csv',
+        'mode' => 'raw',
+        'legacy_endpoint' => 'ap/export.php',
+        'type' => $type,
+        'rows' => count($rows),
+    ], $options));
+    apAudit('ap.export.csv', ['type' => $type, 'rows' => count($rows), 'tenant_id' => $tid, 'dataset' => $dataset]);
+    (new CsvExportService($cfg['columns']))->stream($rows, (string) $cfg['filename']);
+}
+
 $db = getDB();
-
-if ($type === 'bills') {
-    $where  = ['tenant_id = :tid'];
-    $params = ['tid' => $tid];
-    if ($from) { $where[] = 'bill_date >= :from'; $params['from'] = $from; }
-    if ($to)   { $where[] = 'bill_date <= :to';   $params['to']   = $to; }
-    if ($ids) {
-        $place  = [];
-        foreach ($ids as $i => $n) { $key = "id$i"; $place[] = ":$key"; $params[$key] = $n; }
-        $where[] = 'id IN (' . implode(',', $place) . ')';
-    }
-    $stmt = $db->prepare('SELECT id, bill_number, internal_ref, vendor_name, vendor_type, source,
-                                 bill_date, due_date, currency, subtotal, tax_total, total,
-                                 amount_paid, amount_due, status, po_number, placement_id, journal_entry_id
-                          FROM ap_bills WHERE ' . implode(' AND ', $where) . ' ORDER BY bill_date, id');
-    $stmt->execute($params);
-    $emit("ap-bills-{$tid}-" . date('Ymd') . ".csv",
-        ['id','bill_number','internal_ref','vendor_name','vendor_type','source','bill_date','due_date',
-         'currency','subtotal','tax_total','total','amount_paid','amount_due','status','po_number',
-         'placement_id','journal_entry_id'],
-        $stmt);
-}
-
-if ($type === 'payments') {
-    $where  = ['tenant_id = :tid'];
-    $params = ['tid' => $tid];
-    if ($from) { $where[] = 'pay_date >= :from'; $params['from'] = $from; }
-    if ($to)   { $where[] = 'pay_date <= :to';   $params['to']   = $to; }
-    if ($ids) {
-        $place = [];
-        foreach ($ids as $i => $n) { $key = "id$i"; $place[] = ":$key"; $params[$key] = $n; }
-        $where[] = 'id IN (' . implode(',', $place) . ')';
-    }
-    $stmt = $db->prepare('SELECT id, vendor_name, pay_date, method, reference, amount, currency,
-                                 bank_account_id, status, cleared_at, journal_entry_id
-                          FROM ap_payments WHERE ' . implode(' AND ', $where) . ' ORDER BY pay_date, id');
-    $stmt->execute($params);
-    $emit("ap-payments-{$tid}-" . date('Ymd') . ".csv",
-        ['id','vendor_name','pay_date','method','reference','amount','currency','bank_account_id',
-         'status','cleared_at','journal_entry_id'],
-        $stmt);
-}
-
-if ($type === 'expenses') {
-    $where  = ['er.tenant_id = :tid'];
-    $params = ['tid' => $tid];
-    if ($from) { $where[] = 'erl.expense_date >= :from'; $params['from'] = $from; }
-    if ($to)   { $where[] = 'erl.expense_date <= :to';   $params['to']   = $to; }
-    if ($ids) {
-        // ids are line_ids when restricting expenses (one row per line).
-        $place = [];
-        foreach ($ids as $i => $n) { $key = "id$i"; $place[] = ":$key"; $params[$key] = $n; }
-        $where[] = 'erl.id IN (' . implode(',', $place) . ')';
-    }
-    $stmt = $db->prepare(
-        'SELECT er.id AS report_id, er.period_label, er.status AS report_status, er.submitter_user_id,
-                erl.id AS line_id, erl.expense_date, erl.category, erl.merchant, erl.amount, erl.currency,
-                erl.gl_expense_account_code, erl.description, erl.billable_to_client_name
-         FROM ap_expense_report_lines erl
-         JOIN ap_expense_reports er ON er.id = erl.expense_report_id
-         WHERE ' . implode(' AND ', $where) . '
-         ORDER BY erl.expense_date, erl.id'
-    );
-    $stmt->execute($params);
-    $emit("ap-expenses-{$tid}-" . date('Ymd') . ".csv",
-        ['report_id','period_label','report_status','submitter_user_id','line_id','expense_date',
-         'category','merchant','amount','currency','gl_expense_account_code','description',
-         'billable_to_client_name'],
-        $stmt);
-}
 
 if ($type === '1099') {
     $stmt = $db->prepare('SELECT id, tax_year, vendor_name, vendor_type, tax_id_last4, total_paid,

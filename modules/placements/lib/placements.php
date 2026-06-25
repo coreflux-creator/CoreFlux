@@ -32,10 +32,12 @@ function placementsSafeFields(string $alias = 'p'): string
 {
     $cols = ['id','tenant_id','person_id','external_id','jobdiva_job_id','status','start_date','end_date',
              'actual_end_date','due_date','engagement_type','worksite_state','worksite_country',
-             'remote_policy','title','end_client_name','end_client_company_id','notes',
+             'remote_policy','title','end_client_name','end_client_company_id','client_id','notes',
              'recruiter_name','recruiter_email','account_manager_name','account_manager_email',
              'client_approver_name','client_approver_email','tokenized_email_approval_enabled',
              'bulk_uploads_can_be_pre_approved',
+             'billing_cycle_id','ap_cycle_id','payroll_cycle_id',
+             'client_bill_cycle','client_bill_cycle_anchor','vendor_pay_cycle','vendor_pay_cycle_anchor',
              'created_by_user_id','created_at','updated_at','deleted_at'];
     return implode(', ', array_map(fn($c) => "{$alias}.{$c}", $cols));
 }
@@ -160,9 +162,11 @@ function placementsList(array $filters = []): array
 
     $total = (int) (scopedFind("SELECT COUNT(*) AS c FROM placements p WHERE {$whereSql}", $params)['c'] ?? 0);
     $rows  = scopedQuery(
-        'SELECT ' . placementsSafeFields() . ', pe.first_name, pe.last_name, pe.email_primary
+        'SELECT ' . placementsSafeFields() . ', pe.first_name, pe.last_name, pe.email_primary,
+                COALESCE(ec.name, p.end_client_name) AS end_client_display_name
          FROM placements p
          LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
+         LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
          WHERE ' . $whereSql . '
          ORDER BY p.start_date DESC
          LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,

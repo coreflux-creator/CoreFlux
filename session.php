@@ -97,6 +97,41 @@ if ($activeModule) {
     ];
 }
 
+function _buildModuleAccessMap(array $user, $tenantId, $membershipId = null): array
+{
+    $globalRole = (string) ($user['global_role'] ?? $_SESSION['global_role'] ?? $user['role'] ?? '');
+    if ($globalRole === 'master_admin' || !empty($user['is_global_admin'])) {
+        return ['*' => 'admin', 'cfo' => 'admin', 'accounting' => 'admin'];
+    }
+
+    $mid = (int) ($membershipId ?? 0);
+    try {
+        $pdo = getDB();
+        if ($mid <= 0 && $pdo && $tenantId && !empty($user['id'])) {
+            $lookup = $pdo->prepare(
+                'SELECT id FROM tenant_memberships
+                  WHERE user_id = :u AND tenant_id = :t AND status = "active"
+                  ORDER BY is_primary DESC, id ASC LIMIT 1'
+            );
+            $lookup->execute(['u' => (int) $user['id'], 't' => (int) $tenantId]);
+            $mid = (int) $lookup->fetchColumn();
+        }
+        if ($mid <= 0 || !class_exists('PDO')) return [];
+
+        $stmt = $pdo->prepare(
+            'SELECT module_key, access_level FROM membership_module_access WHERE membership_id = :m'
+        );
+        $stmt->execute(['m' => $mid]);
+        $map = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $map[(string) $row['module_key']] = (string) $row['access_level'];
+        }
+        return $map;
+    } catch (\Throwable $_) {
+        return [];
+    }
+}
+
 // Build response
 $response = [
     'user' => [
@@ -109,12 +144,6 @@ $response = [
         'is_global_admin' => (int) ($user['is_global_admin'] ?? 0),
         'platform_mode' => (bool) ($_SESSION['platform_mode'] ?? false),
         'avatar' => $user['avatar'] ?? null,
-        // RBAC B5 — per-module access grid sourced from the new
-        // membership_module_access table. Frontend guards (CFOGuard et al)
-        // mirror api_require_*() backend gates against this map so a
-        // user with an explicit per-module grant doesn't see a Forbidden
-        // card. Resolved server-side, never trusted client-side: the
-        // backend re-checks on every API call.
         'module_access' => _buildModuleAccessMap($user, $tenantId, $_SESSION['active_membership_id'] ?? null),
     ],
     'modules' => $formattedModules,
@@ -130,43 +159,3 @@ $response = [
 
 echo json_encode($response);
 exit;
-
-/**
- * Returns the user's module access grid at the active tenant —
- * { module_key: access_level } map. Pulled from membership_module_access
- * via the RBAC resolver. Falls back to an empty array if the resolver
- * is unavailable or the membership can't be located.
- *
- * Master admins get a wildcard grid (every CoreFlux module → 'admin')
- * so client-side gates uniformly pass without special-casing them.
- */
-function _buildModuleAccessMap(array $user, $tenantId, $membershipId): array
-{
-    $globalRole  = $user['global_role'] ?? $user['role'] ?? '';
-    $isGlobalAdm = !empty($user['is_global_admin']);
-    if ($globalRole === 'master_admin' || $isGlobalAdm) {
-        // Wildcard — backend still re-checks per-call, this just keeps
-        // the client guards from short-circuiting.
-        return [
-            'cfo' => 'admin', 'accounting' => 'admin', 'ap' => 'admin',
-            'billing' => 'admin', 'treasury' => 'admin', 'reports' => 'admin',
-            'staffing' => 'admin', 'engagements' => 'admin', 'payroll' => 'admin',
-        ];
-    }
-    $mid = (int) ($membershipId ?: 0);
-    if ($mid <= 0 || !class_exists('RBACResolver')) return [];
-    try {
-        if (!function_exists('getDB')) require_once __DIR__ . '/core/db.php';
-        $rows = getDB()->prepare(
-            'SELECT module_key, access_level FROM membership_module_access WHERE membership_id = :m'
-        );
-        $rows->execute(['m' => $mid]);
-        $out = [];
-        foreach (($rows->fetchAll(PDO::FETCH_ASSOC) ?: []) as $r) {
-            $out[(string) $r['module_key']] = (string) $r['access_level'];
-        }
-        return $out;
-    } catch (\Throwable $_) {
-        return [];
-    }
-}

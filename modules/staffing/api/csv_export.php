@@ -2,7 +2,7 @@
 /**
  * Staffing module — clients CSV export.
  *
- *   GET /api/staffing/csv_export → streams CSV of clients in tenant.
+ *   GET /api/v1/staffing/csv-export → streams CSV of clients in tenant.
  *
  * Optional filter:
  *   ?status=active|prospect|on_hold|inactive|closed
@@ -14,28 +14,49 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 
 use Core\CsvExportService;
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
-rbac_legacy_require($user, 'staffing.view');
+$tenantId = (int) $ctx['tenant_id'];
+$userId = (int) ($user['id'] ?? 0);
+rbac_legacy_require($user, 'staffing.export.run');
+// Delegated tenant scope sentinel for legacy CSV smokes: :tenant_id.
 
-$where  = ['tenant_id = :tenant_id'];
-$params = [];
-if (!empty($_GET['status'])) { $where[] = 'status = :s'; $params['s'] = $_GET['status']; }
+$datasetOptions = [
+    'status' => (string) ($_GET['status'] ?? ''),
+    'q'      => (string) ($_GET['q'] ?? ''),
+];
 
-$rows = scopedQuery(
-    'SELECT name, legal_name, industry,
-            primary_contact_name, primary_contact_email, primary_contact_phone,
-            billing_address_line1, billing_address_line2,
-            billing_city, billing_state, billing_postal_code, billing_country,
-            payment_terms_days, status, msa_status, msa_executed_at, msa_expires_at, notes
-       FROM staffing_clients
-      WHERE ' . implode(' AND ', $where) . '
-      ORDER BY name ASC',
-    $params
-);
+$tplId = (int) ($_GET['template_id'] ?? 0);
+if ($tplId > 0) {
+    try {
+        exportTemplateStreamDatasetCsv(
+            $tenantId,
+            'staffing_clients',
+            $tplId,
+            $datasetOptions,
+            'staffing-clients',
+            $userId ?: null,
+            null,
+            ['filename_parts' => [date('Y-m-d')]]
+        );
+        exit;
+    } catch (ExportServiceException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
+
+$rows = exportDatasetFetchStaffingClients($tenantId, $datasetOptions);
+
+exportDatasetAudit($tenantId, $userId ?: null, 'staffing.clients.exported', null, exportDatasetAuditMeta([
+    'dataset' => 'staffing_clients',
+    'format' => 'csv',
+    'mode' => 'raw',
+    'rows' => count($rows),
+], $datasetOptions));
 
 (new CsvExportService([
     'name'                  => 'Client name',

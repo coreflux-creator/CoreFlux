@@ -17,6 +17,12 @@
  */
 declare(strict_types=1);
 
+$root = dirname(__DIR__);
+$read = function (string $path) use ($root): string {
+    $full = $root . '/' . ltrim($path, '/');
+    return is_file($full) ? (string) file_get_contents($full) : '';
+};
+
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
     if ($cond) { echo "  ✓ $msg\n"; $pass++; }
@@ -27,7 +33,7 @@ $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
 // 1) Migration 104 schema
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Migration 104 schema ──\n";
-$mig = file_get_contents('/app/core/migrations/104_intercompany_xtenant_queue.sql');
+$mig = $read('core/migrations/104_intercompany_xtenant_queue.sql');
 $a('migration file readable',                        is_string($mig) && strlen($mig) > 200);
 $a('creates table intercompany_xtenant_queue',       str_contains($mig, 'CREATE TABLE IF NOT EXISTS intercompany_xtenant_queue'));
 $a('has intercompany_ref column',                    str_contains($mig, 'intercompany_ref'));
@@ -47,7 +53,7 @@ $a('ix_xtenant_target_status index defined',         str_contains($mig, 'ix_xten
 // 2) Lib helpers (cross_tenant_intercompany.php)
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Library helpers ──\n";
-$lib = file_get_contents('/app/modules/accounting/lib/cross_tenant_intercompany.php');
+$lib = $read('modules/accounting/lib/cross_tenant_intercompany.php');
 $a('accountingProposeCrossTenantIntercompany() defined',
     str_contains($lib, 'function accountingProposeCrossTenantIntercompany('));
 $a('accountingApproveCrossTenantIntercompany() defined',
@@ -131,7 +137,7 @@ $a('expire sweep returns {scanned, expired, errors} summary',
 // 3) API surface
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── API actions ──\n";
-$api = file_get_contents('/app/modules/accounting/api/intercompany.php');
+$api = $read('modules/accounting/api/intercompany.php');
 $a('lib included',
     str_contains($api, "require_once __DIR__ . '/../lib/cross_tenant_intercompany.php'"));
 $a('xtenant_inbox action wired',
@@ -169,7 +175,7 @@ $a('decline requires reason',
 // 4) Cron worker
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Cron worker ──\n";
-$cron = file_get_contents('/app/cron/intercompany_xtenant_expire_worker.php');
+$cron = $read('cron/intercompany_xtenant_expire_worker.php');
 $a('cron worker file exists',
     is_string($cron) && strlen($cron) > 200);
 $a('cron worker invokes accountingExpireCrossTenantIntercompanyPending()',
@@ -181,7 +187,7 @@ $a('cron worker emits a complete log line',
 // 5) React UI
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── React UI ──\n";
-$ui = file_get_contents('/app/modules/accounting/ui/XTenantIntercompany.jsx');
+$ui = $read('modules/accounting/ui/XTenantIntercompany.jsx');
 $a('XTenantIntercompany.jsx readable',
     is_string($ui) && strlen($ui) > 1000);
 $a('imports api + useApi from shared helper',
@@ -236,7 +242,7 @@ foreach ([
 // 6) AccountingModule route wiring
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── AccountingModule wiring ──\n";
-$mod = file_get_contents('/app/modules/accounting/ui/AccountingModule.jsx');
+$mod = $read('modules/accounting/ui/AccountingModule.jsx');
 $a('XTenantIntercompany import present',
     str_contains($mod, "import XTenantIntercompany from './XTenantIntercompany'"));
 $a('Cross-tenant IC tab label present',

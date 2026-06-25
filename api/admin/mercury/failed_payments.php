@@ -70,11 +70,12 @@ if ($method === 'GET') {
             // tenant-filtered in the parent SELECT above (line ~62).
             $evStmt = getDB()->prepare(
                 'SELECT meta_json FROM payment_instruction_audit
-                  WHERE payment_instruction_id = :id
+                  WHERE tenant_id = :t
+                    AND instruction_id = :id
                     AND meta_json LIKE :pat
                ORDER BY id DESC LIMIT 1'
             );
-            $evStmt->execute(['id' => (int) $r['id'], 'pat' => '%vendor_raw%']);
+            $evStmt->execute(['t' => $tenantId, 'id' => (int) $r['id'], 'pat' => '%vendor_raw%']);
             $ev = $evStmt->fetch(\PDO::FETCH_ASSOC);
             if ($ev) {
                 $meta = json_decode((string) $ev['meta_json'], true) ?: [];

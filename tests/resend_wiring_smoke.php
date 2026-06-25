@@ -25,7 +25,10 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 
-require_once $root . '/core/config.local.php';
+$localConfig = $root . '/core/config.local.php';
+require_once is_file($localConfig)
+    ? $localConfig
+    : $root . '/core/config.local.example.php';
 require_once $root . '/core/mail/MailDriver.php';
 require_once $root . '/core/mail/ResendDriver.php';
 

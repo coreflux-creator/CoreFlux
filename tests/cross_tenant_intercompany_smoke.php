@@ -16,13 +16,19 @@
  */
 declare(strict_types=1);
 
+$root = dirname(__DIR__);
+$read = function (string $path) use ($root): string {
+    $full = $root . '/' . ltrim($path, '/');
+    return is_file($full) ? (string) file_get_contents($full) : '';
+};
+
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
     if ($cond) { echo "  ✓ $msg\n"; $pass++; }
     else       { echo "  ✗ $msg\n"; $fail++; }
 };
 
-$src = file_get_contents('/app/modules/accounting/lib/cross_tenant_intercompany.php');
+$src = $read('modules/accounting/lib/cross_tenant_intercompany.php');
 
 // ─── Function presence ────────────────────────────────────────────────
 $a('accountingPostCrossTenantIntercompany() defined',

@@ -16,6 +16,8 @@
  */
 declare(strict_types=1);
 
+$ROOT = dirname(__DIR__);
+
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
     if ($cond) { echo "  ✓ $msg\n"; $pass++; }
@@ -26,8 +28,8 @@ $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
 // 1) Lib helpers
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Lib helpers ──\n";
-$billLib = file_get_contents('/app/modules/billing/lib/billing.php');
-$apLib   = file_get_contents('/app/modules/ap/lib/ap.php');
+$billLib = file_get_contents($ROOT . '/modules/billing/lib/billing.php');
+$apLib   = file_get_contents($ROOT . '/modules/ap/lib/ap.php');
 
 $a('billingBuildDraftFromTimeEntries() defined',
     str_contains($billLib, 'function billingBuildDraftFromTimeEntries('));
@@ -67,9 +69,9 @@ $a('AP helper marks bill source as time_entries',
 // 2) API actions
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── API actions ──\n";
-$invApi  = file_get_contents('/app/modules/billing/api/invoices.php');
-$billApi = file_get_contents('/app/modules/ap/api/bills.php');
-$tsApi   = file_get_contents('/app/modules/staffing/api/timesheets.php');
+$invApi  = file_get_contents($ROOT . '/modules/billing/api/invoices.php');
+$billApi = file_get_contents($ROOT . '/modules/ap/api/bills.php');
+$tsApi   = file_get_contents($ROOT . '/modules/staffing/api/timesheets.php');
 
 $a('billing/invoices ?action=from-time-entries wired',
     str_contains($invApi, "'POST' && \$action === 'from-time-entries'"));
@@ -104,12 +106,12 @@ $a('approved_entries optional placement_id, person_id, date range filters',
 // 3) React modals
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── React: InvoiceFromTimeEntriesModal.jsx ──\n";
-$invMod = file_get_contents('/app/modules/billing/ui/InvoiceFromTimeEntriesModal.jsx');
+$invMod = file_get_contents($ROOT . '/modules/billing/ui/InvoiceFromTimeEntriesModal.jsx');
 $a('hits staffing approved_entries endpoint',
     str_contains($invMod, "action: 'approved_entries'")
     && str_contains($invMod, "purpose: 'billable'"));
 $a('posts to billing from-time-entries endpoint',
-    str_contains($invMod, '/modules/billing/api/invoices.php?action=from-time-entries'));
+    str_contains($invMod, '/api/v1/billing/invoices?action=from-time-entries'));
 $a('offers all three aggregation modes',
     str_contains($invMod, "value=\"per_day\"")
     && str_contains($invMod, "value=\"per_placement\"")
@@ -139,7 +141,7 @@ foreach ([
 }
 
 echo "\n── React: BillFromTimeEntriesModal.jsx ──\n";
-$apMod = file_get_contents('/app/modules/ap/ui/BillFromTimeEntriesModal.jsx');
+$apMod = file_get_contents($ROOT . '/modules/ap/ui/BillFromTimeEntriesModal.jsx');
 $a('payable purpose set',
     str_contains($apMod, "purpose: 'payable'"));
 $a('posts to ap from-time-entries endpoint',
@@ -164,8 +166,8 @@ foreach ([
 // 4) List wiring
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── List wiring ──\n";
-$invList = file_get_contents('/app/modules/billing/ui/InvoicesList.jsx');
-$apList  = file_get_contents('/app/modules/ap/ui/BillsList.jsx');
+$invList = file_get_contents($ROOT . '/modules/billing/ui/InvoicesList.jsx');
+$apList  = file_get_contents($ROOT . '/modules/ap/ui/BillsList.jsx');
 $a('InvoicesList imports InvoiceFromTimeEntriesModal',
     str_contains($invList, "import InvoiceFromTimeEntriesModal from './InvoiceFromTimeEntriesModal'"));
 $a('InvoicesList has the new CTA button',

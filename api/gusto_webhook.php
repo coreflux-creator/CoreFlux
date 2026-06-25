@@ -32,6 +32,8 @@ $decoded = json_decode($rawBody, true);
 if (is_array($decoded) && isset($decoded['verification_token'])) {
     gustoAudit('payroll.gusto.webhook_verification_received', [
         'token_len' => strlen((string) $decoded['verification_token']),
+    ], null, [
+        'actor_type' => 'system',
     ]);
     api_ok(['verification_token' => $decoded['verification_token']]);
 }
@@ -40,6 +42,8 @@ if (!gustoVerifyWebhook((string) $signature, $rawBody)) {
     gustoAudit('payroll.gusto.webhook_signature_invalid', [
         'signature_present' => $signature !== '',
         'body_len' => strlen($rawBody),
+    ], null, [
+        'actor_type' => 'system',
     ]);
     api_error('Invalid signature', 401);
 }
@@ -47,11 +51,10 @@ if (!gustoVerifyWebhook((string) $signature, $rawBody)) {
 $payload = is_array($decoded) ? $decoded : [];
 $event   = (string) ($payload['event_type']    ?? '');
 $resourceUuid = (string) ($payload['resource_uuid'] ?? '');
-
-gustoAudit('payroll.gusto.webhook_received', [
-    'event'         => $event,
-    'resource_uuid' => $resourceUuid,
-]);
+$beforeRun = $resourceUuid !== '' ? _gustoWebhookRunAuditRow($resourceUuid) : null;
+$afterRun = null;
+$targetRunId = (int) ($beforeRun['id'] ?? 0);
+$webhookStatus = null;
 
 // Best-effort routing — update payroll_runs with the latest status
 // when the event references a payroll we know about.
@@ -68,19 +71,31 @@ if ($event !== '' && $resourceUuid !== '') {
                 str_starts_with($event, 'Payroll.calculated')=> 'calculated',
                 default => null,
             };
-            if ($status !== null) {
+            if ($status !== null && $beforeRun) {
+                $webhookStatus = $status;
                 // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
                 $pdo->prepare(
                     'UPDATE payroll_runs SET gusto_submission_status = :s, updated_at = NOW()
-                     WHERE gusto_payroll_uuid = :u'
-                )->execute(['s' => $status, 'u' => $resourceUuid]);
+                     WHERE tenant_id = :t AND id = :id AND gusto_payroll_uuid = :u'
+                )->execute([
+                    's' => $status,
+                    't' => (int) $beforeRun['tenant_id'],
+                    'id' => (int) $beforeRun['id'],
+                    'u' => $resourceUuid,
+                ]);
                 if ($status === 'paid') {
                     // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
                     $pdo->prepare(
                         'UPDATE payroll_runs SET status = "paid", paid_at = COALESCE(paid_at, NOW())
-                         WHERE gusto_payroll_uuid = :u AND status <> "paid"'
-                    )->execute(['u' => $resourceUuid]);
+                         WHERE tenant_id = :t AND id = :id AND gusto_payroll_uuid = :u AND status <> "paid"'
+                    )->execute([
+                        't' => (int) $beforeRun['tenant_id'],
+                        'id' => (int) $beforeRun['id'],
+                        'u' => $resourceUuid,
+                    ]);
                 }
+                $afterRun = _gustoWebhookRunAuditRow($resourceUuid);
+                $targetRunId = (int) ($afterRun['id'] ?? $targetRunId);
             }
         }
     } catch (\Throwable $e) {
@@ -88,5 +103,41 @@ if ($event !== '' && $resourceUuid !== '') {
     }
 }
 
+gustoAudit('payroll.gusto.webhook_received', [
+    'event' => $event,
+    'resource_uuid' => $resourceUuid,
+    'status' => $webhookStatus,
+], $targetRunId > 0 ? $targetRunId : null, [
+    'tenant_id' => (int) (($afterRun['tenant_id'] ?? null) ?: ($beforeRun['tenant_id'] ?? 0)),
+    'actor_type' => 'system',
+    'before' => $beforeRun,
+    'after' => $afterRun,
+]);
+
 http_response_code(204);
 exit;
+
+function _gustoWebhookRunAuditRow(string $payrollUuid): ?array
+{
+    if ($payrollUuid === '') return null;
+    try {
+        $pdo = function_exists('getDB') ? getDB() : null;
+        if (!$pdo) return null;
+        $stmt = $pdo->prepare(
+            'SELECT * FROM payroll_runs
+              WHERE gusto_payroll_uuid = :u AND tenant_id IS NOT NULL
+              ORDER BY updated_at DESC, id DESC
+              LIMIT 2'
+        );
+        $stmt->execute(['u' => $payrollUuid]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (count($rows) > 1) {
+            error_log('[gusto.webhook] ambiguous payroll uuid across tenants: ' . $payrollUuid);
+            return null;
+        }
+        return $rows[0] ?? null;
+    } catch (\Throwable $e) {
+        error_log('[gusto.webhook] audit snapshot failed: ' . $e->getMessage());
+        return null;
+    }
+}

@@ -10,7 +10,7 @@ const STATUS_COLOR = { active: '#16a34a', paused: '#a16207', ended: '#64748b' };
  * create / edit / pause / resume / end / generate-now actions.
  */
 export default function RecurringContracts() {
-  const { data, loading, error, reload } = useApi('/modules/billing/api/recurring_contracts.php');
+  const { data, loading, error, reload } = useApi('/api/v1/billing/recurring-contracts');
   const [editing, setEditing] = useState(null);   // contract row OR 'new'
   const [busyId, setBusyId] = useState(null);
 
@@ -19,7 +19,7 @@ export default function RecurringContracts() {
   const act = async (id, action) => {
     setBusyId(id);
     try {
-      await api.post(`/modules/billing/api/recurring_contracts.php?action=${action}&id=${id}`, {});
+      await api.post(`/api/v1/billing/recurring-contracts?action=${action}&id=${id}`, {});
       reload();
     } catch (e) { alert(`Action failed: ${e.message}`); }
     finally { setBusyId(null); }
@@ -134,11 +134,11 @@ function ContractModal({ contract, onClose, onSaved }) {
       const payload = { ...form, amount: Number(form.amount) || 0, day_of_period: Number(form.day_of_period) || 1 };
       if (!payload.end_date) delete payload.end_date;
       if (isNew) {
-        await api.post('/modules/billing/api/recurring_contracts.php', payload);
+        await api.post('/api/v1/billing/recurring-contracts', payload);
       } else {
         // Only edit-allowed fields
         const { client_name, start_date, ...editable } = payload;
-        await api.post(`/modules/billing/api/recurring_contracts.php?action=update&id=${contract.id}`, editable);
+        await api.post(`/api/v1/billing/recurring-contracts?action=update&id=${contract.id}`, editable);
       }
       onSaved();
     } catch (e) { setErr(e); }

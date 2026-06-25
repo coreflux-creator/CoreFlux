@@ -17,16 +17,18 @@
  */
 declare(strict_types=1);
 
+$ROOT = dirname(__DIR__);
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
     if ($ok) { echo "  ✓ {$msg}\n"; $pass++; }
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-require_once __DIR__ . '/../core/CsvImportService.php';
-require_once __DIR__ . '/../modules/placements/lib/csv_helpers.php';
+require_once $ROOT . '/core/CsvImportService.php';
+require_once $ROOT . '/modules/placements/lib/csv_helpers.php';
 
-$src = (string) file_get_contents('/app/modules/placements/api/csv_import.php');
+$csvImportPath = $ROOT . '/modules/placements/api/csv_import.php';
+$src = (string) file_get_contents($csvImportPath);
 
 echo "\n1. placementsCsvNormaliseEmail() — Unicode-defensive normalisation\n";
 $a('function exported',                function_exists('placementsCsvNormaliseEmail'));
@@ -88,8 +90,8 @@ $a('commit error includes the RAW unnormalised input',
 
 echo "\n5. PHP syntax\n";
 $out = []; $rc = 0;
-exec('php -l /app/modules/placements/api/csv_import.php 2>&1', $out, $rc);
-$a('php -l /app/modules/placements/api/csv_import.php', $rc === 0, implode("\n", $out));
+exec('php -l ' . escapeshellarg($csvImportPath) . ' 2>&1', $out, $rc);
+$a('php -l modules/placements/api/csv_import.php', $rc === 0, implode("\n", $out));
 
 echo "\n=========================================\n";
 echo "Placements CSV email-lookup bug fix smoke: {$pass} ✓ / {$fail} ✗\n";

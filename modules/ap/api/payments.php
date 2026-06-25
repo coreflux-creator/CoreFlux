@@ -25,8 +25,7 @@ $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && $action === 'export_template') {
     rbac_legacy_require($user, 'ap.payment.send');
-    require_once __DIR__ . '/../../../core/export_templates.php';
-    require_once __DIR__ . '/../../../core/export_datasets.php';
+    require_once __DIR__ . '/../../../core/export_service.php';
 
     $tplId = (int) ($_GET['template_id'] ?? 0);
     if (!$tplId) api_error('template_id required', 400);
@@ -36,29 +35,17 @@ if ($method === 'GET' && $action === 'export_template') {
     if (count($ids) > 500) api_error('too many ids (max 500)', 400);
 
     try {
-        $tpl = exportTemplateGet($tplId, $tid);
-    } catch (\Throwable $e) { api_error($e->getMessage(), 404); }
-    if ($tpl['dataset'] !== 'ap_payments') {
-        api_error("template's dataset must be ap_payments", 422);
-    }
-
-    $rows = exportDatasetFetchApPayments($tid, ['ids' => $ids]);
-
-    if (!headers_sent()) {
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Cache-Control: no-store');
-    }
-    $stamp = date('Y-m-d');
-    $name  = preg_replace('/[^A-Za-z0-9_-]/', '-', strtolower($tpl['name']));
-    header('Content-Disposition: attachment; filename="ap-' . $name . '-' . $stamp . '.csv"');
-    $out = fopen('php://output', 'w');
-    exportTemplateRenderToStream($tplId, $rows, $out, $tid);
-    fclose($out);
-    if (function_exists('apAudit')) {
-        apAudit('ap.payments.exported_template', [
-            'ids' => $ids, 'template_id' => $tplId, 'rows' => count($rows),
-        ]);
-    }
+        exportTemplateStreamDatasetCsv(
+            $tid,
+            'ap_payments',
+            $tplId,
+            ['ids' => $ids],
+            'ap',
+            (int) ($user['id'] ?? 0) ?: null,
+            null,
+            ['ids' => $ids, 'filename_parts' => [date('Y-m-d')]]
+        );
+    } catch (ExportServiceException $e) { api_error($e->getMessage(), 422); }
     exit;
 }
 
@@ -164,7 +151,9 @@ if ($method === 'POST' && $action === '') {
     ]);
     apAudit('ap.payment.drafted', [
         'payment_id' => $id, 'vendor_name' => $body['vendor_name'], 'amount' => $amount, 'method' => $body['method'],
-    ], $id);
+    ], $id, [
+        'after' => apPaymentAuditRow($tid, $id),
+    ]);
 
     if (!empty($body['auto_allocate'])) {
         try {
@@ -181,12 +170,16 @@ if ($method === 'POST' && $action === 'allocate') {
     rbac_legacy_require($user, 'ap.payment.allocate');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
-    $row = scopedFind('SELECT id FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    $row = apPaymentAuditRow($tid, $id);
     if (!$row) api_error('Not found', 404);
 
     $body  = api_json_body();
     $alloc = apAllocatePayment($id, $body, $user['id'] ?? null);
-    apAudit('ap.payment.allocated', ['payment_id' => $id, 'request' => $body, 'applied' => $alloc['applied']], $id);
+    $updated = apPaymentAuditRow($tid, $id) ?? $row;
+    apAudit('ap.payment.allocated', ['payment_id' => $id, 'request' => $body, 'applied' => $alloc['applied']], $id, [
+        'before' => $row,
+        'after' => $updated,
+    ]);
     api_ok($alloc);
 }
 
@@ -196,51 +189,21 @@ if ($method === 'POST' && $action === 'send') {
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if (!apPaymentTransitionAllowed($row['status'], 'sent')) api_error("Cannot send from status {$row['status']}", 409);
+    apPaymentReleaseGateOrError($tid, $row, (int) ($user['id'] ?? 0), 'send');
 
-    // SoD: the same actor who created the payment cannot release it unless they
-    // also approved the allocated bills (both roles separate recommended).
-    if ((int) ($row['created_by_user_id'] ?? 0) === (int) ($user['id'] ?? 0)) {
-        api_error('Segregation of duties: you cannot release your own payment.', 403);
-    }
-
-    // Refuse if any allocated bill is disputed or void.
     $pdo = getDB();
-    // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
-    $checkStmt = $pdo->prepare(
-        'SELECT b.status, b.internal_ref
-         FROM ap_payment_allocations a
-         JOIN ap_bills b ON b.id = a.bill_id
-         WHERE a.payment_id = :id AND b.status IN ("disputed","void")'
-    );
-    $checkStmt->execute(['id' => $id]);
-    $bad = $checkStmt->fetchAll(\PDO::FETCH_ASSOC);
-    if ($bad) api_error('Cannot release: bill ' . $bad[0]['internal_ref'] . ' is ' . $bad[0]['status'], 409);
-
-    // 4-WAY MATCH GATE: refuse if any allocated bill is in PWP awaiting_ar.
-    // Pay-when-paid contractually requires the client's AR payment to land
-    // BEFORE the vendor disbursement leaves the building — the AP send/
-    // disburse step is the last enforceable point before money moves.
-    // The release is then automatic via billing.allocate() → apPwpReleaseForArInvoice().
-    $pwpBlocked = apPwpAllocatedBillsAwaitingAr($tid, $id);
-    if ($pwpBlocked) {
-        $first = $pwpBlocked[0];
-        $refs  = array_map(fn ($r) => (string) ($r['internal_ref'] ?? ('#' . $r['id'])), $pwpBlocked);
-        api_error(
-            'Pay-when-paid gate: bill ' . ($first['internal_ref'] ?? ('#' . $first['id']))
-            . ' is awaiting AR invoice #' . ($first['linked_ar_invoice_id'] ?? '?')
-            . '. Vendor disbursement is blocked until the client payment is received.',
-            409,
-            ['code' => 'pwp_awaiting_ar', 'blocked_bill_refs' => $refs, 'blocked_bill_ids' => array_column($pwpBlocked, 'id')]
-        );
-    }
 
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare('UPDATE ap_payments SET status = "sent", sent_at = NOW(), sent_by_user_id = :u WHERE id = :id')
         ->execute(['u' => $user['id'] ?? null, 'id' => $id]);
+    $sent = apPaymentAuditRow($tid, $id) ?? $row;
     apAudit('ap.payment.sent', [
         'payment_id' => $id, 'vendor_name' => $row['vendor_name'], 'amount' => $row['amount'], 'method' => $row['method'],
         'rail' => $row['method'] === 'plaid' ? 'plaid_transfer' : 'manual',
-    ], $id);
+    ], $id, [
+        'before' => $row,
+        'after' => $sent,
+    ]);
     api_ok(['ok' => true]);
 }
 
@@ -302,6 +265,39 @@ if ($method === 'POST' && $action === 'originate_batch') {
         );
     }
 
+    // Release controls (SoD, disputed/void bills, PWP) run before bank
+    // decrypt or rail dispatch so the batch remains all-or-nothing.
+    $releaseBlocked = [];
+    foreach ($rows as $r) {
+        $issue = apPaymentReleaseIssue($tid, $r, (int) ($user['id'] ?? 0));
+        if ($issue) {
+            $releaseBlocked[] = array_merge([
+                'payment_id' => (int) $r['id'],
+                'code' => $issue['code'],
+                'message' => $issue['message'],
+                'status' => $issue['status'],
+            ], $issue['extra']);
+        }
+    }
+    if ($releaseBlocked) {
+        $codes = array_values(array_unique(array_map(fn ($r) => (string) $r['code'], $releaseBlocked)));
+        $topCode = count($codes) === 1 ? $codes[0] : 'payment_release_blocked';
+        $status = in_array('sod_created_by', $codes, true) ? 403 : 409;
+        apAudit('ap.payment.release_blocked', [
+            'surface' => 'originate_batch',
+            'blocked' => $releaseBlocked,
+        ], null, [
+            'before' => $rows,
+        ]);
+        api_error(
+            $topCode === 'pwp_awaiting_ar'
+                ? 'Pay-when-paid gate: ' . count($releaseBlocked) . ' payment(s) in this batch have bills awaiting AR collection. Resolve or de-select them and retry.'
+                : 'Payment release controls blocked ' . count($releaseBlocked) . ' payment(s). Resolve or de-select them and retry.',
+            $status,
+            ['code' => $topCode, 'blocked' => $releaseBlocked]
+        );
+    }
+
     // Build all RailItems before opening the transaction. Any failure here =>
     // 422, no DB writes — the user retries after fixing vendor banking.
     $items   = [];
@@ -340,10 +336,15 @@ if ($method === 'POST' && $action === 'originate_batch') {
 
     $settings = scopedFind('SELECT * FROM ap_settings WHERE tenant_id = :tenant_id LIMIT 1') ?: [];
     try {
-        $res = paymentRailsDispatch('ap', ['effective_date' => date('Y-m-d', strtotime('+1 day'))], $settings, $items);
+        $res = paymentRailsDispatch('ap', [
+            'tenant_id' => (int) currentTenantId(),
+            'effective_date' => date('Y-m-d', strtotime('+1 day')),
+        ], $settings, $items);
     } catch (PaymentRailsOriginateException $e) {
         apAudit('ap.payment.batch_originate_failed', [
             'count' => count($ids), 'ids' => $ids, 'error' => $e->getMessage(),
+        ], null, [
+            'before' => $rows,
         ]);
         api_error($e->getMessage(), 422);
     }
@@ -377,14 +378,21 @@ if ($method === 'POST' && $action === 'originate_batch') {
         $pdo->rollBack();
         apAudit('ap.payment.batch_originate_failed', [
             'count' => count($ids), 'ids' => $ids, 'error' => 'persist: ' . $e->getMessage(),
+        ], null, [
+            'before' => $rows,
+            'after' => apPaymentAuditRows($tid, $ids),
         ]);
         api_error('Persist failed: ' . $e->getMessage(), 500);
     }
 
+    $originatedRows = apPaymentAuditRows($tid, $ids);
     apAudit('ap.payment.batch_originated', [
         'count'    => count($ids), 'ids' => $ids,
         'rail'     => $res['rail'], 'batch_id' => $res['batch_id'],
         'amount_total' => array_sum(array_map(fn($r) => (float) $r['amount'], $rows)),
+    ], null, [
+        'before' => $rows,
+        'after' => $originatedRows,
     ]);
 
     $resp = [
@@ -472,7 +480,9 @@ if ($method === 'POST' && $action === 'originate') {
     try {
         $res = paymentRailsDispatch('ap', $row, $settings, [$item]);
     } catch (PaymentRailsOriginateException $e) {
-        apAudit('ap.payment.originate_failed', ['payment_id' => $id, 'error' => $e->getMessage()], $id);
+        apAudit('ap.payment.originate_failed', ['payment_id' => $id, 'error' => $e->getMessage()], $id, [
+            'before' => $row,
+        ]);
         api_error($e->getMessage(), 422);
     }
 
@@ -488,10 +498,14 @@ if ($method === 'POST' && $action === 'originate') {
         't'  => $tid,
         'id' => $id,
     ]);
+    $originated = apPaymentAuditRow($tid, $id) ?? $row;
     apAudit('ap.payment.originated', [
         'payment_id' => $id, 'rail' => $res['rail'], 'batch_id' => $res['batch_id'],
         'status' => $itemRes['status'] ?? $res['status'], 'amount' => $row['amount'],
-    ], $id);
+    ], $id, [
+        'before' => $row,
+        'after' => $originated,
+    ]);
 
     // Surface NACHA file content for client download (driver-specific).
     $resp = [
@@ -517,7 +531,11 @@ if ($method === 'POST' && $action === 'clear') {
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     getDB()->prepare('UPDATE ap_payments SET status = "cleared", cleared_at = NOW() WHERE id = :id')
         ->execute(['id' => $id]);
-    apAudit('ap.payment.cleared', ['payment_id' => $id], $id);
+    $cleared = apPaymentAuditRow($tid, $id) ?? $row;
+    apAudit('ap.payment.cleared', ['payment_id' => $id], $id, [
+        'before' => $row,
+        'after' => $cleared,
+    ]);
     api_ok(['ok' => true]);
 }
 
@@ -576,8 +594,114 @@ if ($method === 'POST' && $action === 'void') {
         throw $e;
     }
 
-    apAudit('ap.payment.voided', ['payment_id' => $id, 'reason' => $reason], $id);
+    $voided = apPaymentAuditRow($tid, $id) ?? $row;
+    apAudit('ap.payment.voided', ['payment_id' => $id, 'reason' => $reason], $id, [
+        'before' => $row,
+        'after' => $voided,
+    ]);
     api_ok(['ok' => true]);
+}
+
+function apPaymentReleaseGateOrError(int $tenantId, array $payment, ?int $userId, string $surface): void
+{
+    $issue = apPaymentReleaseIssue($tenantId, $payment, $userId);
+    if (!$issue) return;
+    apAudit('ap.payment.release_blocked', [
+        'payment_id' => (int) ($payment['id'] ?? 0),
+        'surface' => $surface,
+        'code' => $issue['code'],
+        'reason' => $issue['message'],
+        'extra' => $issue['extra'],
+    ], (int) ($payment['id'] ?? 0), [
+        'before' => $payment,
+    ]);
+    api_error($issue['message'], (int) $issue['status'], array_merge(['code' => $issue['code']], $issue['extra']));
+}
+
+function apPaymentReleaseIssue(int $tenantId, array $payment, ?int $userId): ?array
+{
+    $paymentId = (int) ($payment['id'] ?? 0);
+    if ($paymentId <= 0) {
+        return ['code' => 'payment_missing', 'status' => 422, 'message' => 'payment id required', 'extra' => []];
+    }
+
+    $createdBy = (int) ($payment['created_by_user_id'] ?? 0);
+    if ($userId !== null && $userId > 0 && $createdBy > 0 && $createdBy === $userId) {
+        return [
+            'code' => 'sod_created_by',
+            'status' => 403,
+            'message' => 'Segregation of duties: you cannot release your own payment.',
+            'extra' => ['created_by_user_id' => $createdBy],
+        ];
+    }
+
+    $pdo = getDB();
+    $checkStmt = $pdo->prepare(
+        'SELECT b.status, b.internal_ref
+         FROM ap_payment_allocations a
+         JOIN ap_bills b ON b.id = a.bill_id AND b.tenant_id = a.tenant_id
+         WHERE a.tenant_id = :t
+           AND a.payment_id = :id AND b.status IN ("disputed","void")'
+    );
+    $checkStmt->execute(['t' => $tenantId, 'id' => $paymentId]);
+    $bad = $checkStmt->fetchAll(\PDO::FETCH_ASSOC);
+    if ($bad) {
+        return [
+            'code' => 'bill_not_releasable',
+            'status' => 409,
+            'message' => 'Cannot release: bill ' . $bad[0]['internal_ref'] . ' is ' . $bad[0]['status'],
+            'extra' => ['bill_ref' => $bad[0]['internal_ref'], 'bill_status' => $bad[0]['status']],
+        ];
+    }
+
+    $pwpBlocked = apPwpAllocatedBillsAwaitingAr($tenantId, $paymentId);
+    if ($pwpBlocked) {
+        $first = $pwpBlocked[0];
+        $refs  = array_map(fn ($r) => (string) ($r['internal_ref'] ?? ('#' . $r['id'])), $pwpBlocked);
+        return [
+            'code' => 'pwp_awaiting_ar',
+            'status' => 409,
+            'message' => 'Pay-when-paid gate: bill ' . ($first['internal_ref'] ?? ('#' . $first['id']))
+                . ' is awaiting AR invoice #' . ($first['linked_ar_invoice_id'] ?? '?')
+                . '. Vendor disbursement is blocked until the client payment is received.',
+            'extra' => [
+                'blocked_bill_refs' => $refs,
+                'blocked_bill_ids' => array_column($pwpBlocked, 'id'),
+            ],
+        ];
+    }
+
+    return null;
+}
+
+function apPaymentAuditRow(int $tenantId, int $paymentId): ?array
+{
+    $pdo = getDB();
+    if (!$pdo || $paymentId <= 0) return null;
+    $stmt = $pdo->prepare(
+        'SELECT * FROM ap_payments
+          WHERE tenant_id = :t AND id = :id
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $paymentId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function apPaymentAuditRows(int $tenantId, array $paymentIds): array
+{
+    $ids = array_values(array_unique(array_filter(array_map('intval', $paymentIds), static fn ($id) => $id > 0)));
+    if (!$ids) return [];
+    $pdo = getDB();
+    if (!$pdo) return [];
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = $pdo->prepare(
+        "SELECT * FROM ap_payments
+          WHERE tenant_id = ? AND id IN ({$placeholders})
+          ORDER BY id"
+    );
+    $stmt->execute(array_merge([$tenantId], $ids));
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 api_error('Method not allowed', 405);

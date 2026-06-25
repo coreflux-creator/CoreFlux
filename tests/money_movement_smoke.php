@@ -145,8 +145,8 @@ foreach ([
 ] as $tid) {
     $a("testid: {$tid}",                      str_contains($ui, "data-testid=\"{$tid}\""));
 }
-$a('GET preview from money_movement.php',     str_contains($ui, "api.get(`/modules/billing/api/money_movement.php?as_of=\${encodeURIComponent(date)}`)"));
-$a('POST send via action=send_now',           str_contains($ui, "api.post('/modules/billing/api/money_movement.php?action=send_now'"));
+$a('GET preview from money movement route',   str_contains($ui, "api.get(`/api/v1/billing/money-movement?as_of=\${encodeURIComponent(date)}`)"));
+$a('POST send via action=send_now',           str_contains($ui, "api.post('/api/v1/billing/money-movement?action=send_now'"));
 $a('Send disabled when 0 recipients',         str_contains($ui, 'disabled={sending || recipients.length === 0}'));
 
 $bm = (string) file_get_contents(__DIR__ . '/../modules/billing/ui/BillingModule.jsx');

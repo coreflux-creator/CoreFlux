@@ -67,7 +67,8 @@ $a('validates email',                          str_contains($req, 'FILTER_VALIDA
 $a('generic anti-enumeration response',        str_contains($req, "If an account exists for"));
 $a('rate-limit returns generic still',         str_contains($req, 'api_ok($genericResponse)'));
 $a('Retry-After header on lockout',            str_contains($req, "Retry-After: 3600"));
-$a('uses MailService bootstrap',               str_contains($req, 'cf_mail_bootstrap'));
+$a('uses platform mailer shim',                str_contains($req, 'mailerSend(['));
+$a('does not call MailService with envelope',  !str_contains($req, '$mail->send($envelope)'));
 $a('html body present',                        str_contains($req, '_magicLinkHtmlBody'));
 $a('text body present',                        str_contains($req, '_magicLinkTextBody'));
 $a('dev fallback link only with display_errors', str_contains($req, "ini_get('display_errors')"));

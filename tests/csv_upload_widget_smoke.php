@@ -6,7 +6,7 @@
  *   1. `dashboard/src/components/CsvUploadWidget.jsx` — reusable
  *      file-picker → multipart POST → result panel component.
  *   2. Treasury bank-account drawer renders it for deposit accounts,
- *      wired to `/api/treasury/import_csv.php` with the matching
+ *      wired to `/api/v1/treasury/import-csv` with the matching
  *      `bank_account_id`. Hidden for liability accounts.
  *   3. Payroll PayPeriods table shows an "Import CSV" toggle for
  *      draft/open periods that opens the widget inline, wired to
@@ -68,8 +68,8 @@ $a('imports CsvUploadWidget',
 $a('renders widget ONLY when type === "deposit"',
     str_contains($tsrc, "{type === 'deposit' && (")
     && str_contains($tsrc, '<CsvUploadWidget'));
-$a('points endpoint at /api/treasury/import_csv.php',
-    str_contains($tsrc, 'endpoint="/api/treasury/import_csv.php"'));
+$a('points endpoint at /api/v1/treasury/import-csv',
+    str_contains($tsrc, 'endpoint="/api/v1/treasury/import-csv"'));
 $a('passes bank_account_id={accountId} as extraField',
     str_contains($tsrc, 'extraFields={{ bank_account_id: accountId }}'));
 $a('hint mentions Debit + Credit alternative',

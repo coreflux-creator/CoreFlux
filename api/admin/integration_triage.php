@@ -172,10 +172,10 @@ if (in_array('mercury-failed', $wanted, true)) {
             try {
                 $ev = $db->prepare(
                     'SELECT meta_json FROM payment_instruction_audit
-                      WHERE payment_instruction_id = :id AND meta_json LIKE :pat
+                      WHERE tenant_id = :t AND instruction_id = :id AND meta_json LIKE :pat
                    ORDER BY id DESC LIMIT 1'
                 );
-                $ev->execute(['id' => (int) $pi['id'], 'pat' => '%vendor_raw%']);
+                $ev->execute(['t' => $tenantId, 'id' => (int) $pi['id'], 'pat' => '%vendor_raw%']);
                 $row = $ev->fetch(\PDO::FETCH_ASSOC);
                 if ($row) {
                     $vendorMeta = json_decode((string) $row['meta_json'], true) ?: null;

@@ -46,14 +46,15 @@ $files = [];
 $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($ROOT, FilesystemIterator::SKIP_DOTS));
 foreach ($it as $f) {
     $p = (string) $f;
+    $pn = str_replace('\\', '/', $p);
     if (!str_ends_with($p, '.php')) continue;
-    if (strpos($p, '/node_modules/') !== false) continue;
-    if (strpos($p, '/vendor/') !== false) continue;
-    if (strpos($p, '/lib/PHPMailer/') !== false) continue;
-    if (strpos($p, '/dashboard/') !== false) continue;
-    if (strpos($p, '/tests/') !== false) continue;
-    if (strpos($p, '/legacy/') !== false) continue;
-    if (strpos($p, '/private_equity 2/') !== false) continue;
+    if (strpos($pn, '/node_modules/') !== false) continue;
+    if (strpos($pn, '/vendor/') !== false) continue;
+    if (strpos($pn, '/lib/PHPMailer/') !== false) continue;
+    if (strpos($pn, '/dashboard/') !== false) continue;
+    if (strpos($pn, '/tests/') !== false) continue;
+    if (strpos($pn, '/legacy/') !== false) continue;
+    if (strpos($pn, '/private_equity 2/') !== false) continue;
     $files[] = $p;
 }
 sort($files);
@@ -62,7 +63,7 @@ $a('discovered php files to scan', count($files) > 0);
 $allow = _userTenantsReadAllowlist();
 $offenders = [];
 foreach ($files as $path) {
-    $rel = ltrim(substr($path, strlen($ROOT)), '/');
+    $rel = str_replace('\\', '/', ltrim(substr($path, strlen($ROOT)), '/\\'));
     $src = (string) file_get_contents($path);
     if (!preg_match('/\bFROM\s+`?user_tenants`?\b/i', $src)) continue;
     if (isset($allow[$rel])) continue;

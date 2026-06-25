@@ -9,7 +9,7 @@ const STAGE_COLOR = { 1: '#0f172a', 2: '#a16207', 3: '#dc2626' };
  * "what's our policy" without losing context.
  */
 export default function DunningQueue() {
-  const { data, loading, error, reload } = useApi('/modules/billing/api/dunning.php?action=queue');
+  const { data, loading, error, reload } = useApi('/api/v1/billing/dunning?action=queue');
   const [busyId, setBusyId] = useState(null);
   const [showPolicy, setShowPolicy] = useState(false);
   const [showAi, setShowAi] = useState(null);  // client_name when open
@@ -18,7 +18,7 @@ export default function DunningQueue() {
     if (!confirm('Send the next-stage dunning email now?')) return;
     setBusyId(id);
     try {
-      await api.post(`/modules/billing/api/dunning.php?action=send_now&id=${id}`, {});
+      await api.post(`/api/v1/billing/dunning?action=send_now&id=${id}`, {});
       reload();
     } catch (e) { alert(`Send failed: ${e.message}`); }
     finally { setBusyId(null); }
@@ -28,7 +28,7 @@ export default function DunningQueue() {
     if (!until) return;
     setBusyId(id);
     try {
-      await api.post(`/modules/billing/api/dunning.php?action=pause&id=${id}`, { until });
+      await api.post(`/api/v1/billing/dunning?action=pause&id=${id}`, { until });
       reload();
     } catch (e) { alert(`Pause failed: ${e.message}`); }
     finally { setBusyId(null); }
@@ -36,7 +36,7 @@ export default function DunningQueue() {
   const resume = async (id) => {
     setBusyId(id);
     try {
-      await api.post(`/modules/billing/api/dunning.php?action=resume&id=${id}`, {});
+      await api.post(`/api/v1/billing/dunning?action=resume&id=${id}`, {});
       reload();
     } catch (e) { alert(`Resume failed: ${e.message}`); }
     finally { setBusyId(null); }
@@ -156,7 +156,7 @@ function PolicyEditor({ policy, onClose, onSaved }) {
   const save = async () => {
     setBusy(true); setErr(null);
     try {
-      await api.post('/modules/billing/api/dunning.php?action=policy', {
+      await api.post('/api/v1/billing/dunning?action=policy', {
         ...form,
         do_not_contact: form.do_not_contact.split(',').map(s => s.trim()).filter(Boolean),
       });
@@ -226,7 +226,7 @@ function PolicyEditor({ policy, onClose, onSaved }) {
 }
 
 function AiSuggestionModal({ client, onClose }) {
-  const { data, loading, error } = useApi(`/modules/billing/api/dunning.php?action=ai_suggest&client=${encodeURIComponent(client)}`);
+  const { data, loading, error } = useApi(`/api/v1/billing/dunning?action=ai_suggest&client=${encodeURIComponent(client)}`);
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} data-testid="billing-dunning-ai-modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 12, width: 'min(480px, 100%)', padding: 24 }}>

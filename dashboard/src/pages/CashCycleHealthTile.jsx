@@ -16,7 +16,7 @@ import KpiNote from '../components/KpiNote';
  * page.
  */
 export default function CashCycleHealthTile() {
-  const { data, loading, error } = useApi('/modules/billing/api/cash_cycle_health.php');
+  const { data, loading, error } = useApi('/api/v1/billing/cash-cycle-health');
   const { data: notesData } = useApi('/api/kpi_notes.php');
   const [notes, setNotes] = useState({});
   const [canWriteNotes, setCanWriteNotes] = useState(false);

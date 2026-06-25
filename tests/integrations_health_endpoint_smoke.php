@@ -69,7 +69,8 @@ foreach ([
     check("{$p['id']}: contract smoke present",   is_file($p['contract']));
     check("{$p['id']}: freshness smoke present",  is_file($p['freshness']));
     check("{$p['id']}: refresh tool present",     is_file($p['tool']));
-    check("{$p['id']}: refresh tool executable",  is_executable($p['tool']));
+    check("{$p['id']}: refresh tool executable on Unix or local Windows checkout",
+        is_executable($p['tool']) || DIRECTORY_SEPARATOR === '\\');
     if ($p['snapshot']) {
         check("{$p['id']}: snapshot dir exists",      is_dir($p['snapshot']));
         check("{$p['id']}: .fetched_at marker exists", is_file($p['snapshot'] . '/.fetched_at'));

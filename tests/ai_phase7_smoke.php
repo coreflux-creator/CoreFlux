@@ -84,6 +84,8 @@ foreach ([
     'aiWorkerHeartbeat(int $workerId): bool',
     'aiWorkerList(): array',
     'aiWorkerSweepStalled(): int',
+    'aiWorkerCapabilityList(array $worker, array $keys): array',
+    'aiWorkerToolAllowlist(array $worker): array',
     'aiWorkerEnqueue(int $tenantId, string $toolName, array $payload, array $opts = []): array',
     'aiWorkerClaim(int $workerId, array $queues = [], int $limit = 1): array',
     'aiWorkerMarkRunning(int $jobId): void',
@@ -99,6 +101,8 @@ foreach ([
 }
 $a('claim path uses FOR UPDATE',                            $c($wk, 'FOR UPDATE'));
 $a('claim path wraps in transaction',                       $c($wk, '$pdo->beginTransaction()'));
+$a('claim path filters by worker tool_allowlist',
+    $c($wk, 'aiWorkerToolAllowlist($worker)') && $c($wk, 'tool_name IN ('));
 $a('fail() retries with exponential backoff',               $c($wk, 'AI_WORKER_BACKOFF_BASE * (1 << max(0, $attempt - 1))'));
 $a('fail() marks dead at max_attempts',                     $c($wk, '"dead"') && $c($wk, '$attempt >= $maxAttempts'));
 $a('enqueue idempotency: replay returns existing row',
@@ -179,12 +183,16 @@ $cli = (string) file_get_contents('/app/cron/ai_worker.php');
 $a('CLI shebang',                                           $c($cli, '#!/usr/bin/env php'));
 $a('declares strict_types',                                 $c($cli, 'declare(strict_types=1)'));
 $a('requires worker + tool_gateway',                        $c($cli, "require_once __DIR__ . '/../core/ai/worker.php'") && $c($cli, "require_once __DIR__ . '/../core/ai/tool_gateway.php'"));
-$a('--queue / --max-jobs / --label / --once getopt',
-    $c($cli, "['queue::', 'max-jobs::', 'label::', 'once', 'verbose']"));
+$a('--queue / --tools / --max-jobs / --label / --once getopt',
+    $c($cli, "['queue::', 'tools::', 'max-jobs::', 'label::', 'once', 'verbose']"));
+$a('--tools populates worker tool_allowlist capability',
+    $c($cli, '$toolAllowlist = isset($opts[\'tools\'])') && $c($cli, "'tool_allowlist'  => \$toolAllowlist"));
 $a('registers worker key as host:pid',                      $c($cli, "%s:%d', gethostname() ?: 'unknown', getmypid()"));
 $a('heartbeats on AI_WORKER_HEARTBEAT_SEC interval',        $c($cli, 'time() - $lastBeat >= AI_WORKER_HEARTBEAT_SEC'));
 $a('claims via aiWorkerClaim($workerId, $queues, 1)',       $c($cli, 'aiWorkerClaim($workerId, $queues, 1)'));
 $a('dispatches through aiToolInvoke',                       $c($cli, 'aiToolInvoke('));
+$a('dispatch caller context includes worker + job ids',
+    $c($cli, "'_worker_id' => \$workerId") && $c($cli, "'_worker_job_id' => \$jobId"));
 $a('on success calls aiWorkerComplete',                     $c($cli, 'aiWorkerComplete('));
 $a('on tool envelope error calls aiWorkerFail',             $c($cli, 'aiWorkerFail('));
 $a('signal handlers for SIGINT/SIGTERM',                    $c($cli, 'pcntl_signal(SIGINT,')

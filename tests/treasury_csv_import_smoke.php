@@ -63,6 +63,10 @@ $a('normaliseDate rejects garbage',
 
 // 2) End-to-end against SQLite in-memory --------------------------------
 echo "\n2. end-to-end import against SQLite in-memory\n";
+if (!in_array('sqlite', PDO::getAvailableDrivers(), true)) {
+    echo "  SKIP pdo_sqlite is not installed in this PHP runtime\n";
+    goto endpoint_checks;
+}
 $pdo = new PDO('sqlite::memory:');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $pdo->exec(
@@ -160,6 +164,7 @@ $a('Credit-only row stored as positive', (float) $st->fetchColumn() === 1000.0);
 
 unlink($tmp); unlink($tmp2);
 
+endpoint_checks:
 // 6) Endpoint structural checks.
 echo "\n6. /api/treasury/import_csv.php endpoint\n";
 $ep = dirname(__DIR__) . '/modules/treasury/api/import_csv.php';

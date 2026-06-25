@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, NavLink, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
@@ -1045,7 +1045,7 @@ function ContractCell({ row }) {
 // Each placement can be on a different cadence for billing, AP, and payroll.
 // Time settlement walks these pointers when generating downstream bundles.
 function CyclesTab({ placement, reload }) {
-  const { data: cyclesData, loading: cyclesLoading } = useApi('/modules/payroll/api/cycles.php');
+  const { data: cyclesData, loading: cyclesLoading } = useApi('/api/v1/payroll/cycles');
   const cycles = cyclesData?.rows || cyclesData?.cycles || [];
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -1054,6 +1054,13 @@ function CyclesTab({ placement, reload }) {
     ap_cycle_id:      placement.ap_cycle_id      || '',
     payroll_cycle_id: placement.payroll_cycle_id || '',
   });
+  useEffect(() => {
+    setDraft({
+      billing_cycle_id: placement.billing_cycle_id || '',
+      ap_cycle_id: placement.ap_cycle_id || '',
+      payroll_cycle_id: placement.payroll_cycle_id || '',
+    });
+  }, [placement.id, placement.billing_cycle_id, placement.ap_cycle_id, placement.payroll_cycle_id]);
 
   const save = async () => {
     setBusy(true); setErr(null);

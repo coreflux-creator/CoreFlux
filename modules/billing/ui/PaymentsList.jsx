@@ -6,7 +6,7 @@ import IdBadge from '../../../dashboard/src/components/IdBadge';
 const METHODS = ['ach','wire','check','card','cash','other'];
 
 export default function PaymentsList() {
-  const { data, loading, error, reload } = useApi('/modules/billing/api/payments.php');
+  const { data, loading, error, reload } = useApi('/api/v1/billing/payments');
   const rows = data?.rows ?? [];
   const [showRecord, setShowRecord] = useState(false);
   const [allocFor, setAllocFor] = useState(null);
@@ -105,7 +105,7 @@ function RecordPaymentModal({ onClose, onSaved }) {
   const submit = async () => {
     setBusy(true); setError(null);
     try {
-      const res = await api.post('/modules/billing/api/payments.php', { ...form, amount: Number(form.amount) });
+      const res = await api.post('/api/v1/billing/payments', { ...form, amount: Number(form.amount) });
       onSaved?.(res);
     } catch (e) { setError(e); }
     finally { setBusy(false); }
@@ -138,7 +138,7 @@ function RecordPaymentModal({ onClose, onSaved }) {
 }
 
 function AllocateModal({ payment, onClose, onSaved }) {
-  const { data } = useApi(`/modules/billing/api/invoices.php?client_name=${encodeURIComponent(payment.client_name)}&status=sent`);
+  const { data } = useApi(`/api/v1/billing/invoices?client_name=${encodeURIComponent(payment.client_name)}&status=sent`);
   const [allocs, setAllocs] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -150,7 +150,7 @@ function AllocateModal({ payment, onClose, onSaved }) {
   const autoFifo = async () => {
     setBusy(true); setError(null);
     try {
-      const res = await api.post(`/modules/billing/api/payments.php?action=allocate&id=${payment.id}`, { auto: 'fifo' });
+      const res = await api.post(`/api/v1/billing/payments?action=allocate&id=${payment.id}`, { auto: 'fifo' });
       onSaved?.(res);
     }
     catch (e) { setError(e); }
@@ -164,7 +164,7 @@ function AllocateModal({ payment, onClose, onSaved }) {
         .filter(([_, v]) => Number(v) > 0)
         .map(([invoice_id, amount]) => ({ invoice_id: Number(invoice_id), amount: Number(amount) }));
       if (allocations.length === 0) { setError(new Error('Enter at least one allocation amount.')); setBusy(false); return; }
-      const res = await api.post(`/modules/billing/api/payments.php?action=allocate&id=${payment.id}`, { allocations });
+      const res = await api.post(`/api/v1/billing/payments?action=allocate&id=${payment.id}`, { allocations });
       onSaved?.(res);
     } catch (e) { setError(e); }
     finally { setBusy(false); }

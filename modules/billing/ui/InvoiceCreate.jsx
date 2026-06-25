@@ -57,7 +57,7 @@ export default function InvoiceCreate() {
           })),
       };
       if (payload.lines.length === 0) throw new Error('Add at least one line item');
-      const res = await api.post('/modules/billing/api/invoices.php', payload);
+      const res = await api.post('/api/v1/billing/invoices', payload);
       nav(`../invoices/${res.id}`);
     } catch (e2) { setErr(e2); }
     finally     { setBusy(false); }

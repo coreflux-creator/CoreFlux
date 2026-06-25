@@ -20,8 +20,9 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../core/CsvImportService.php';
-require_once __DIR__ . '/../modules/placements/lib/csv_helpers.php';
+$ROOT = dirname(__DIR__);
+require_once $ROOT . '/core/CsvImportService.php';
+require_once $ROOT . '/modules/placements/lib/csv_helpers.php';
 
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
@@ -29,12 +30,14 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$svc      = (string) file_get_contents('/app/modules/placements/api/csv_import.php');
-$csvSvc   = (string) file_get_contents('/app/core/CsvImportService.php');
-$badgeUi  = (string) file_get_contents('/app/dashboard/src/components/IdBadge.jsx');
-$listUi   = (string) file_get_contents('/app/modules/placements/ui/List.jsx');
-$detailUi = (string) file_get_contents('/app/modules/placements/ui/PlacementDetail.jsx');
-$personUi = (string) file_get_contents('/app/modules/people/ui/PersonDetail.jsx');
+$svcPath      = $ROOT . '/modules/placements/api/csv_import.php';
+$csvSvcPath   = $ROOT . '/core/CsvImportService.php';
+$svc          = (string) file_get_contents($svcPath);
+$csvSvc       = (string) file_get_contents($csvSvcPath);
+$badgeUi      = (string) file_get_contents($ROOT . '/dashboard/src/components/IdBadge.jsx');
+$listUi       = (string) file_get_contents($ROOT . '/modules/placements/ui/List.jsx');
+$detailUi     = (string) file_get_contents($ROOT . '/modules/placements/ui/PlacementDetail.jsx');
+$personUi     = (string) file_get_contents($ROOT . '/modules/people/ui/PersonDetail.jsx');
 
 echo "\n1. CSV schema — new optional integer columns\n";
 $a("person_id registered with type=integer (not required)",
@@ -141,12 +144,12 @@ $a('PersonDetail header surfaces the P badge next to the name',
 
 echo "\n6. PHP syntax\n";
 foreach ([
-    '/app/modules/placements/api/csv_import.php',
-    '/app/core/CsvImportService.php',
+    $svcPath,
+    $csvSvcPath,
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
-    $a("php -l {$f}", $rc === 0, implode("\n", $out));
+    $a('php -l ' . str_replace($ROOT . '/', '', $f), $rc === 0, implode("\n", $out));
 }
 
 echo "\n=========================================\n";

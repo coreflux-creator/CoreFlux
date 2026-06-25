@@ -51,7 +51,7 @@ foreach ([
 ] as $tid) {
     $a("testid: {$tid}",                               str_contains($ui, "data-testid=\"{$tid}\""));
 }
-$a('UI posts to client_contacts.php',                  str_contains($ui, '/modules/billing/api/client_contacts.php'));
+$a('UI posts to client-contacts route',                str_contains($ui, '/api/v1/billing/client-contacts'));
 $a('UI supports delete with action=delete',            str_contains($ui, "action=delete&id="));
 
 $bm = (string) file_get_contents(__DIR__ . '/../modules/billing/ui/BillingModule.jsx');

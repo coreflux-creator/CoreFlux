@@ -20,6 +20,10 @@
 
 declare(strict_types=1);
 
+if ((string) getenv('COREFLUX_DATA_KEY') === '' && !defined('COREFLUX_DATA_KEY')) {
+    putenv('COREFLUX_DATA_KEY=' . base64_encode(str_repeat('s', 32)));
+}
+
 $pass = 0; $fail = 0;
 $a = function (string $label, bool $ok) use (&$pass, &$fail): void {
     echo ($ok ? '  ✓ ' : '  ✗ ') . $label . PHP_EOL;
@@ -91,8 +95,19 @@ unset($_SERVER['HTTP_HOST'], $_SERVER['HTTP_X_FORWARDED_PROTO'], $_SERVER['HTTPS
 $a('plaidWebhookUrl returns null without HTTP_HOST + APP_PUBLIC_URL', plaidWebhookUrl() === null);
 
 // JWK→PEM: synthesize a P-256 keypair, render JWK, convert to PEM, sign+verify.
-$key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+$fixtureEcPrivateKey = <<<'PEM'
+-----BEGIN EC PRIVATE KEY-----
+MHcCAQEEILD5HyaA2ECoqoy+/xEKONp2Cgc6aZNu/DU6Lhlafc/koAoGCCqGSM49
+AwEHoUQDQgAEodMm6WqcYPUOCq7Ueo1ghG//XcNv5C1UGMQfyda0sd1jg+buxXfP
+CBw6EIQlaRoBIYx885tAbJc3qQJifMWsWw==
+-----END EC PRIVATE KEY-----
+PEM;
+$key = openssl_pkey_get_private($fixtureEcPrivateKey);
+$a('P-256 fixture private key loads',        $key !== false);
+if ($key === false) exit(1);
 $details = openssl_pkey_get_details($key);
+$a('P-256 fixture exposes EC details',       is_array($details) && isset($details['ec']['x'], $details['ec']['y']));
+if (!is_array($details) || !isset($details['ec']['x'], $details['ec']['y'])) exit(1);
 $jwk = [
     'kty' => 'EC', 'crv' => 'P-256', 'alg' => 'ES256',
     'x'   => rtrim(strtr(base64_encode($details['ec']['x']), '+/', '-_'), '='),

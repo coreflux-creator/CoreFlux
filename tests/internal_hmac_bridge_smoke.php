@@ -33,10 +33,11 @@ function find_free_port(): int {
 
 $port   = find_free_port();
 $secret = 'smoke-' . bin2hex(random_bytes(8));
-$env    = ['INTERNAL_HMAC_SECRET' => $secret, 'PATH' => getenv('PATH') ?: '/usr/bin:/bin'];
-$cmd    = "php -S 127.0.0.1:{$port} -t /app";
+$root   = realpath(__DIR__ . '/..') ?: dirname(__DIR__);
+putenv('INTERNAL_HMAC_SECRET=' . $secret);
+$cmd    = escapeshellarg(PHP_BINARY) . " -S 127.0.0.1:{$port} -t " . escapeshellarg($root);
 $descr  = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-$proc   = proc_open($cmd, $descr, $pipes, '/app', $env);
+$proc   = proc_open($cmd, $descr, $pipes, $root);
 if (!is_resource($proc)) { echo "FATAL: failed to start php -S\n"; exit(1); }
 register_shutdown_function(function () use ($proc) {
     if (is_resource($proc)) { proc_terminate($proc); proc_close($proc); }

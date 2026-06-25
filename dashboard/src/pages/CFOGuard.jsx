@@ -8,6 +8,7 @@ import { ShieldAlert } from 'lucide-react';
  * Allowed:
  *   - user.global_role === 'master_admin'  OR  is_global_admin === 1
  *   - user.role in ('tenant_admin','admin') at the active tenant
+ *   - user.module_access.cfo (or wildcard) is read/write/admin
  *
  * Anyone else who deep-links to /cfo lands on a friendly Forbidden card
  * rather than seeing a broken dashboard riddled with 403s from every API
@@ -18,13 +19,8 @@ export default function CFOGuard({ session, children }) {
   const role        = user.role        || '';
   const globalRole  = user.global_role || '';
   const isGlobalAdm = !!user.is_global_admin;
-
-  // New RBAC: per-membership module grant for 'cfo'. Mirrors the
-  // backend api_require_cfo() gate (api_bootstrap.php:344). Backend
-  // re-validates on every call; this guard just keeps the user out
-  // of a dashboard that would otherwise spam 403s on mount.
   const moduleAccess = user.module_access || {};
-  const cfoLevel     = moduleAccess.cfo || moduleAccess['*'] || '';
+  const cfoLevel = moduleAccess.cfo || moduleAccess['*'] || '';
   const hasModuleGrant = ['read', 'write', 'admin'].includes(cfoLevel);
 
   const allowed = globalRole === 'master_admin'

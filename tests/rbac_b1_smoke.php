@@ -17,7 +17,7 @@ $c = function (string $hay, string $needle): bool { return strpos($hay, $needle)
 
 // ----------------------------------------------------------------- migration 055
 echo "Migration 055 — RBAC schema foundation\n";
-$mig = (string) file_get_contents($ROOT . '/core/migrations/055_rbac_memberships.sql');
+$mig = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents($ROOT . '/core/migrations/055_rbac_memberships.sql'));
 $a('file present',                              $mig !== '');
 $a('declares tenant_memberships',               $c($mig, 'CREATE TABLE IF NOT EXISTS tenant_memberships'));
 $a('membership has persona_label',              $c($mig, 'persona_label       VARCHAR(80)'));

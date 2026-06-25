@@ -70,7 +70,10 @@ foreach ($layerFiles as $f) {
     $path = $apiDir . '/' . $f;
     if (!is_file($path)) { check("LayerFi endpoint exists: {$f}", false); continue; }
     $src = file_get_contents($path);
-    check("{$f} compiles (php -l)", shell_exec("php -l " . escapeshellarg($path) . " 2>&1 | grep -c 'No syntax errors'") === "1\n");
+    $lintOut = [];
+    $lintRc = 0;
+    exec('php -l ' . escapeshellarg($path) . ' 2>&1', $lintOut, $lintRc);
+    check("{$f} compiles (php -l)", $lintRc === 0 && str_contains(implode("\n", $lintOut), 'No syntax errors'));
     // Each layer file references at least one of the gated permissions.
     $ok = (
         str_contains($src, "'accounting.view'") ||

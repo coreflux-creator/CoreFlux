@@ -5,7 +5,7 @@ import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttac
 
 export default function InvoiceDetail() {
   const { id } = useParams();
-  const { data, loading, error, reload } = useApi(`/modules/billing/api/invoices.php?id=${id}`);
+  const { data, loading, error, reload } = useApi(`/api/v1/billing/invoices?id=${id}`);
   const [busy, setBusy] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [sendTo, setSendTo] = useState('');
@@ -31,9 +31,9 @@ export default function InvoiceDetail() {
     finally { setBusy(null); }
   };
 
-  const approve = () => run('approve', () => api.post(`/modules/billing/api/invoices.php?action=approve&id=${id}`, {}));
+  const approve = () => run('approve', () => api.post(`/api/v1/billing/invoices?action=approve&id=${id}`, {}));
   const send    = () => run('send',    async () => {
-    const res = await api.post(`/modules/billing/api/invoices.php?action=send&id=${id}`, { to: sendTo });
+    const res = await api.post(`/api/v1/billing/invoices?action=send&id=${id}`, { to: sendTo });
     setShowSend(false);
     if (res.email_status !== 'sent') alert(`Token created but email status: ${res.email_status} (${res.email_error || 'no detail'})`);
     if (res.pdf_attached === false && res.pdf_error) alert(`PDF could not be generated: ${res.pdf_error}\nEmail sent without attachment.`);
@@ -41,16 +41,16 @@ export default function InvoiceDetail() {
   const previewPdf = () => {
     // Open the inline PDF in a new tab. The endpoint streams application/pdf
     // so the browser's built-in viewer takes over — no JS download needed.
-    window.open(`/modules/billing/api/invoices.php?action=pdf&id=${id}`, '_blank', 'noopener');
+    window.open(`/api/v1/billing/invoices?action=pdf&id=${id}`, '_blank', 'noopener');
   };
   const downloadPdf = () => {
     // Force the "Save as…" flow.
-    window.location.href = `/modules/billing/api/invoices.php?action=pdf&id=${id}&download=1`;
+    window.location.href = `/api/v1/billing/invoices?action=pdf&id=${id}&download=1`;
   };
   const voidIt  = () => {
     const reason = prompt('Void reason:');
     if (!reason) return;
-    run('void', () => api.post(`/modules/billing/api/invoices.php?action=void&id=${id}`, { reason }));
+    run('void', () => api.post(`/api/v1/billing/invoices?action=void&id=${id}`, { reason }));
   };
 
   return (

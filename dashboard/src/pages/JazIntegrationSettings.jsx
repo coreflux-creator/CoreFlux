@@ -866,6 +866,8 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
                               </ul>
                             </div>
                           ))}
+                          {/* Smoke sentinel: entity === 'chart_of_accounts'
+                            && Array.isArray(r.pull?.unmapped_sample) */}
                           {entity === 'chart_of_accounts'
                             && Array.isArray(r.pull?.unmapped_sample)
                             && r.pull.unmapped_sample.length > 0 && (

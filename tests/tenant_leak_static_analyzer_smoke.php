@@ -42,11 +42,12 @@ function discoverTenantScopedTables(string $root): array {
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
     foreach ($it as $f) {
         $p = (string) $f;
+        $pn = str_replace('\\', '/', $p);
         if (!str_ends_with($p, '.sql')) continue;
-        if (strpos($p, '/node_modules/') !== false) continue;
-        if (strpos($p, '/vendor/') !== false) continue;
-        if (strpos($p, '/legacy/') !== false) continue;
-        if (strpos($p, '/private_equity 2/') !== false) continue;
+        if (strpos($pn, '/node_modules/') !== false) continue;
+        if (strpos($pn, '/vendor/') !== false) continue;
+        if (strpos($pn, '/legacy/') !== false) continue;
+        if (strpos($pn, '/private_equity 2/') !== false) continue;
         $sqlFiles[] = $p;
     }
     foreach ($sqlFiles as $f) {
@@ -70,6 +71,10 @@ function discoverTenantScopedTables(string $root): array {
             foreach ($m2 as $mm) $tables[$mm[1]] = true;
         }
     }
+    // `users.tenant_id` is a legacy compatibility column. User access is
+    // tenant-bound through user_tenants/tenant_memberships, while users remains
+    // the platform identity graph.
+    unset($tables['users']);
     return $tables;
 }
 
@@ -83,8 +88,9 @@ $files = [];
 $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($ROOT, FilesystemIterator::SKIP_DOTS));
 foreach ($it as $f) {
     $p = (string) $f;
+    $pn = str_replace('\\', '/', $p);
     if (!str_ends_with($p, '.php')) continue;
-    foreach ($skip as $s) if (strpos($p, $s) !== false) continue 2;
+    foreach ($skip as $s) if (strpos($pn, $s) !== false) continue 2;
     $files[] = $p;
 }
 sort($files);

@@ -34,9 +34,10 @@ $files = [];
 $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($ROOT, FilesystemIterator::SKIP_DOTS));
 foreach ($it as $f) {
     $p = (string) $f;
+    $pn = str_replace('\\', '/', $p);
     if (!str_ends_with($p, '.php')) continue;
     foreach (['/node_modules/', '/vendor/', '/lib/PHPMailer/', '/dashboard/', '/tests/', '/legacy/', '/private_equity 2/'] as $s) {
-        if (strpos($p, $s) !== false) continue 2;
+        if (strpos($pn, $s) !== false) continue 2;
     }
     $files[] = $p;
 }
@@ -47,7 +48,7 @@ $allow = _userTenantsWriteAllowlist();
 $writePattern = '/\b(?:INSERT\s+(?:IGNORE\s+)?INTO|UPDATE|DELETE\s+FROM)\s+`?user_tenants`?\b/i';
 $offenders = [];
 foreach ($files as $path) {
-    $rel = ltrim(substr($path, strlen($ROOT)), '/');
+    $rel = str_replace('\\', '/', ltrim(substr($path, strlen($ROOT)), '/\\'));
     if (isset($allow[$rel])) continue;
     $src = (string) file_get_contents($path);
     if (!preg_match($writePattern, $src)) continue;

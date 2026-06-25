@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/StorageService.php';
 require_once __DIR__ . '/../../../core/storage_register.php';
 require_once __DIR__ . '/../lib/ap.php';
+require_once __DIR__ . '/../lib/workflow_bridge.php';
 
 use Core\StorageService;
 
@@ -34,6 +35,7 @@ if ($method === 'POST' && $action === 'extract_receipt') {
     // and return suggested fields (item_type, qty, unit, unit_price, GL guess).
     // The user must accept each value; the response is suggestion, not authoritative.
     rbac_legacy_require($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ai.use');
     require_once __DIR__ . '/../../../core/ai_service.php';
     $lineId = (int) ($_GET['line_id'] ?? 0);
     if ($lineId <= 0) api_error('line_id required', 400);
@@ -81,6 +83,7 @@ if ($method === 'POST' && $action === 'extract_from_pdf') {
     // responsible for reviewing every field — the response is suggestion,
     // not authoritative data.
     rbac_legacy_require($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ai.use');
     require_once __DIR__ . '/../../../core/ai_service.php';
     $body = api_json_body();
     api_require_fields($body, ['storage_key']);
@@ -179,9 +182,9 @@ if ($method === 'POST' && $action === 'attach') {
         $body['mime'] ?? null, isset($body['size_bytes']) ? (int) $body['size_bytes'] : null,
         $user['id'] ?? null
     );
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    getDB()->prepare('UPDATE ap_bills SET attachment_storage_object_id = :s WHERE id = :id')
-        ->execute(['s' => $sid, 'id' => $id]);
+    // WorkflowEngine owns approver resolution, SoD, audit, and final AP sync.
+    getDB()->prepare('UPDATE ap_bills SET attachment_storage_object_id = :s WHERE tenant_id = :t AND id = :id')
+        ->execute(['s' => $sid, 't' => $tid, 'id' => $id]);
     apAudit('ap.bill.attachment.added', ['bill_id' => $id, 'storage_object_id' => $sid, 'filename' => $body['filename']], $id);
     api_ok(['ok' => true, 'storage_object_id' => $sid]);
 }
@@ -233,36 +236,42 @@ if ($method === 'GET' && !empty($_GET['id'])) {
     $linesStmt = $pdo->prepare('SELECT * FROM ap_bill_lines WHERE bill_id = :id ORDER BY line_no');
     $linesStmt->execute(['id' => $id]);
     $lines = $linesStmt->fetchAll(\PDO::FETCH_ASSOC);
-
-    // Enrich time_entry-sourced lines with timesheet_id so the
-    // BillDetail UI can deep-link back to the originating timesheet
-    // lifecycle view (P2.1 — inverse cascade).
-    $teLineIds = [];
-    foreach ($lines as $l) {
-        if (in_array($l['source_type'] ?? '', ['time_entry','time'], true) && !empty($l['source_ref_id'])) {
-            $teLineIds[(int) $l['source_ref_id']] = true;
+    try {
+        $entryIds = [];
+        foreach ($lines as $l) {
+            if (in_array((string) ($l['source_type'] ?? ''), ['time_entry', 'time'], true)
+                && !empty($l['source_ref_id'])) {
+                $entryIds[] = (int) $l['source_ref_id'];
+            }
         }
-    }
-    if (!empty($teLineIds)) {
-        $ids = array_keys($teLineIds);
-        $place = implode(',', array_fill(0, count($ids), '?'));
-        try {
-            $tsStmt = $pdo->prepare("SELECT id, timesheet_id, work_date FROM time_entries WHERE tenant_id = ? AND id IN ({$place})");
-            $tsStmt->execute(array_merge([$tid], $ids));
-            $byEntry = [];
-            foreach ($tsStmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
-                $byEntry[(int) $r['id']] = $r;
+        $entryIds = array_values(array_unique(array_filter($entryIds, static fn ($n) => $n > 0)));
+        if ($entryIds) {
+            $ph = [];
+            $params = ['tenant_id' => $tid];
+            foreach ($entryIds as $i => $entryId) {
+                $key = 'entry_id_' . $i;
+                $ph[] = ':' . $key;
+                $params[$key] = $entryId;
+            }
+            $entryStmt = $pdo->prepare(
+                'SELECT id, timesheet_id, work_date
+                   FROM time_entries
+                  WHERE tenant_id = :tenant_id AND id IN (' . implode(',', $ph) . ')'
+            );
+            $entryStmt->execute($params);
+            $entriesById = [];
+            foreach ($entryStmt->fetchAll(\PDO::FETCH_ASSOC) as $entry) {
+                $entriesById[(int) $entry['id']] = $entry;
             }
             foreach ($lines as &$l) {
-                if (in_array($l['source_type'] ?? '', ['time_entry','time'], true) && !empty($byEntry[(int) ($l['source_ref_id'] ?? 0)])) {
-                    $r = $byEntry[(int) $l['source_ref_id']];
-                    $l['source_timesheet_id'] = (int) $r['timesheet_id'];
-                    $l['source_work_date']    = $r['work_date'];
-                }
+                $entry = $entriesById[(int) ($l['source_ref_id'] ?? 0)] ?? null;
+                if (!$entry) continue;
+                $l['source_timesheet_id'] = isset($entry['timesheet_id']) ? (int) $entry['timesheet_id'] : null;
+                $l['source_work_date'] = $entry['work_date'] ?? null;
             }
             unset($l);
-        } catch (\Throwable $_) { /* time_entries table may be unavailable on minimal tenants */ }
-    }
+        }
+    } catch (\Throwable $_) { /* time_entries table may be unavailable in AP-only tenants */ }
     // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
     $allocStmt = $pdo->prepare(
         'SELECT appa.amount_applied, appa.applied_at, app.id AS payment_id, app.pay_date, app.method, app.reference, app.amount AS payment_amount, app.status AS payment_status
@@ -303,6 +312,7 @@ if ($method === 'GET') {
 
 if ($method === 'POST' && $action === 'suggest-payment-run') {
     rbac_legacy_require($user, 'ap.payment.create');
+    rbac_legacy_require($user, 'ai.use');
     $body = api_json_body();
     $days = (int) ($body['days_ahead'] ?? 7);
     $rail = isset($body['rail']) && $body['rail'] !== '' ? (string) $body['rail'] : null;
@@ -662,6 +672,8 @@ if ($method === 'POST' && $action === 'approve') {
     $minTotal = (float) ($lineCheck->fetchColumn() ?? 0);
     if ($minTotal <= 0) api_error('All bill lines must have total > 0', 422);
 
+    $body = api_json_body();
+
     // === 3-WAY MATCH HARD GATE (P1.6) ============================
     // Spec re-audit decision: 3-way match is a HARD rule, not a soft
     // warn. Bills failing PO + receipt + bill reconciliation cannot
@@ -671,7 +683,6 @@ if ($method === 'POST' && $action === 'approve') {
     require_once __DIR__ . '/../lib/three_way_match.php';
     $match = apThreeWayMatch($tid, $id);
     if (!empty($match['warnings']) && !empty($match['enforce'])) {
-        $body          = api_json_body();
         $overrideOk    = !empty($body['three_way_match_override']);
         $overrideReason = trim((string) ($body['three_way_match_override_reason'] ?? ''));
         if (!$overrideOk || $overrideReason === '') {
@@ -700,19 +711,31 @@ if ($method === 'POST' && $action === 'approve') {
     // =================================================================
 
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    getDB()->prepare('UPDATE ap_bills SET status = "approved", approved_by_user_id = :u, approved_at = NOW() WHERE id = :id')
-        ->execute(['u' => $user['id'] ?? null, 'id' => $id]);
-    apAudit('ap.bill.approved', ['bill_id' => $id, 'internal_ref' => $row['internal_ref']], $id);
+    try {
+        $workflow = apWorkflowActBillApproval(
+            $tid,
+            $row,
+            (int) ($user['id'] ?? 0),
+            'approve',
+            trim((string) ($body['note'] ?? '')),
+            true
+        );
+    } catch (\Throwable $e) {
+        apAudit('ap.bill.approval_blocked', [
+            'bill_id' => $id,
+            'action' => 'approve',
+            'control' => 'workflow_engine',
+            'reason' => $e->getMessage(),
+        ], $id);
+        api_error('Workflow control blocked approval: ' . $e->getMessage(), apWorkflowDecisionHttpStatus($e));
+    }
 
-    // Jaz hook (Slice 3) — enqueue a draft accounting command for the
-    // newly approved bill. Best-effort: no-op when no Jaz connection
-    // is wired or the entity is ambiguous; never blocks the approval.
-    require_once __DIR__ . '/../../../core/accounting/command_service.php';
-    $row['status']      = 'approved';
-    $row['approved_at'] = date('Y-m-d H:i:s');
-    accountingTryEnqueueDraft($tid, 'bill', $row, $user['id'] ?? null);
-
-    api_ok(['ok' => true]);
+    api_ok([
+        'ok' => true,
+        'workflow_instance_id' => $workflow['workflow_instance_id'],
+        'workflow_status' => $workflow['workflow_status'],
+        'routed' => $workflow['routed'],
+    ]);
 }
 
 if ($method === 'POST' && $action === 'void') {

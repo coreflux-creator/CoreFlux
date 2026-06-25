@@ -74,7 +74,8 @@ check("Invoice DetailType list includes SalesItemLineDetail",
 
 echo "\n── refresh tool ──\n";
 check('tools/refresh_qbo_spec.sh exists',            is_file($tool));
-check('refresh tool is executable',                  is_executable($tool));
+check('refresh tool is executable on Unix or local Windows checkout',
+    is_executable($tool) || DIRECTORY_SEPARATOR === '\\');
 $toolSrc = (string) @file_get_contents($tool);
 check("refresh tool documents the workflow (re-edit schema after diff)",
     str_contains($toolSrc, 'hand-edit spec/qbo_schema.json'));

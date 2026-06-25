@@ -47,8 +47,8 @@ define('OPENAI_API_KEY', 'sk-proj-REPLACE_ME');
 // own verified addresses.
 // =========================================================================
 // define('RESEND_API_KEY',     're_REPLACE_ME');
-// define('RESEND_FROM_EMAIL',  'no-reply@yourdomain.com');
-// define('RESEND_FROM_NAME',   'CoreFlux Notifications');
+define('RESEND_FROM_EMAIL',  'no-reply@mail.corefluxapp.com');
+define('RESEND_FROM_NAME',   'CoreFlux Notifications');
 
 // =========================================================================
 // QuickBooks Online (QBO) — Intuit AppCenter OAuth 2.0

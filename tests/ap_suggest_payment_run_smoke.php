@@ -10,6 +10,7 @@
  */
 declare(strict_types=1);
 
+$ROOT = dirname(__DIR__);
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
     if ($cond) { echo "  ✓ $msg\n"; $pass++; }
@@ -17,7 +18,11 @@ $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
 };
 
 echo "\n── Lib: apSuggestPaymentRun ──\n";
-$lib = file_get_contents('/app/modules/ap/lib/ap.php');
+$libPath = $ROOT . '/modules/ap/lib/ap.php';
+$apiPath = $ROOT . '/modules/ap/api/bills.php';
+$modalPath = $ROOT . '/modules/ap/ui/SuggestPaymentRunModal.jsx';
+$billsListPath = $ROOT . '/modules/ap/ui/BillsList.jsx';
+$lib = file_get_contents($libPath);
 $a('apSuggestPaymentRun() defined',
     str_contains($lib, 'function apSuggestPaymentRun(int $tenantId, int $daysAhead = 7, ?string $rail = null'));
 $a('horizon clamped to [1, 60]',
@@ -76,7 +81,7 @@ $a('audits each created payment with source=suggest_payment_run',
     str_contains($lib, "'source'       => 'suggest_payment_run'"));
 
 echo "\n── API actions ──\n";
-$api = file_get_contents('/app/modules/ap/api/bills.php');
+$api = file_get_contents($apiPath);
 $a('suggest-payment-run action wired',
     str_contains($api, "'POST' && \$action === 'suggest-payment-run'"));
 $a('execute-payment-run action wired',
@@ -89,7 +94,7 @@ $a('execute-payment-run rejects empty vendor_groups',
     str_contains($api, 'vendor_groups required'));
 
 echo "\n── React: SuggestPaymentRunModal.jsx ──\n";
-$mod = file_get_contents('/app/modules/ap/ui/SuggestPaymentRunModal.jsx');
+$mod = file_get_contents($modalPath);
 $a('posts suggest-payment-run on mount + filter change',
     str_contains($mod, '/modules/ap/api/bills.php?action=suggest-payment-run'));
 $a('posts execute-payment-run on confirm',
@@ -130,7 +135,7 @@ foreach ([
 }
 
 echo "\n── BillsList wiring ──\n";
-$bl = file_get_contents('/app/modules/ap/ui/BillsList.jsx');
+$bl = file_get_contents($billsListPath);
 $a('imports SuggestPaymentRunModal',
     str_contains($bl, "import SuggestPaymentRunModal from './SuggestPaymentRunModal'"));
 $a('has the Suggest payment run CTA',

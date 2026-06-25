@@ -22,7 +22,7 @@ export default function InvoicesList() {
   const qs = new URLSearchParams();
   if (status !== 'all') qs.set('status', status);
   if (activeEntityId)   qs.set('entity_id', String(activeEntityId));
-  const path = '/modules/billing/api/invoices.php' + (qs.toString() ? `?${qs}` : '');
+  const path = '/api/v1/billing/invoices' + (qs.toString() ? `?${qs}` : '');
   const { data, loading, error, reload } = useApiCached(
     path,
     { cacheKey: `billing-invoices-list:${path}` }
@@ -122,7 +122,7 @@ export default function InvoicesList() {
                   to={`/modules/billing/invoices/${r.id}`}
                   data-testid={`billing-invoice-link-${r.id}`}
                   onMouseEnter={() => prefetchApi(
-                    `/modules/billing/api/invoice_detail.php?id=${r.id}`,
+                    `/api/v1/billing/invoices?id=${r.id}`,
                     `billing-invoice-detail:${r.id}`
                   )}
                 >

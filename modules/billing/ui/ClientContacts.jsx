@@ -8,7 +8,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
  */
 export default function ClientContacts() {
   const [q, setQ] = useState('');
-  const url = q ? `/modules/billing/api/client_contacts.php?q=${encodeURIComponent(q)}` : '/modules/billing/api/client_contacts.php';
+  const url = q ? `/api/v1/billing/client-contacts?q=${encodeURIComponent(q)}` : '/api/v1/billing/client-contacts';
   const { data, loading, error, reload } = useApi(url);
   const [editing, setEditing] = useState(null);
 
@@ -17,7 +17,7 @@ export default function ClientContacts() {
   const del = async (id, name) => {
     if (!confirm(`Remove contacts for "${name}"?`)) return;
     try {
-      await api.post(`/modules/billing/api/client_contacts.php?action=delete&id=${id}`, {});
+      await api.post(`/api/v1/billing/client-contacts?action=delete&id=${id}`, {});
       reload();
     } catch (e) { alert(`Delete failed: ${e.message}`); }
   };
@@ -83,7 +83,7 @@ function ContactModal({ contact, onClose, onSaved }) {
   const save = async () => {
     setBusy(true); setErr(null);
     try {
-      await api.post('/modules/billing/api/client_contacts.php', form);
+      await api.post('/api/v1/billing/client-contacts', form);
       onSaved();
     } catch (e) { setErr(e); }
     finally { setBusy(false); }

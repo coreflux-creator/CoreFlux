@@ -31,7 +31,7 @@ $a('CLI supports feature subcommand',             str_contains($cli, "\$cmd === 
 $a('CLI resolves tenant by id OR subdomain',      str_contains($cli, 'ctype_digit($ref)') && str_contains($cli, 'subdomain = :sd'));
 
 // CLI usage runs without fatal (exit 2 == usage)
-exec('php /app/scripts/ai_toggle.php 2>&1', $out, $rc);
+exec(PHP_BINARY . ' /app/scripts/ai_toggle.php 2>&1', $out, $rc);
 $a('CLI prints usage and exits 2 on no-args',     $rc === 2 && implode("\n", $out) !== '');
 
 // ── Backend endpoint ───────────────────────────────────────────────────
@@ -49,7 +49,7 @@ $a('endpoint emits admin.ai_settings.updated audit', str_contains($api, "admin.a
 $a('endpoint is transactional',                   str_contains($api, '$pdo->beginTransaction()') && str_contains($api, '$pdo->commit()') && str_contains($api, '$pdo->rollBack()'));
 
 // Endpoint must syntax-parse cleanly
-exec('php -l /app/api/admin/ai_settings.php 2>&1', $out2, $rc2);
+exec(PHP_BINARY . ' -l /app/api/admin/ai_settings.php 2>&1', $out2, $rc2);
 $a('endpoint passes php -l',                      $rc2 === 0);
 
 // ── SPA page ───────────────────────────────────────────────────────────
@@ -72,9 +72,9 @@ $a('AdminModule renders the ActionCard',          str_contains($admin, 'title="A
 $a('AdminModule sidebar links AI Settings',       str_contains($admin, "label: 'AI Settings'") && str_contains($admin, "to: '/admin/ai-settings'"));
 
 // ── Sentries still green ──────────────────────────────────────────────
-exec('php -d zend.assertions=1 /app/tests/tenant_leak_static_analyzer_smoke.php > /tmp/tlsentry.out 2>&1', $_, $rcA);
+exec(PHP_BINARY . ' -d extension=pdo_sqlite -d extension=sqlite3 -d zend.assertions=1 /app/tests/tenant_leak_static_analyzer_smoke.php 2>&1', $outA, $rcA);
 $a('tenant-leak sentry still green after new endpoint', $rcA === 0);
-exec('php -d zend.assertions=1 /app/tests/auth_gate_static_analyzer_smoke.php > /tmp/agsentry.out 2>&1', $_, $rcB);
+exec(PHP_BINARY . ' -d extension=pdo_sqlite -d extension=sqlite3 -d zend.assertions=1 /app/tests/auth_gate_static_analyzer_smoke.php 2>&1', $outB, $rcB);
 $a('auth-gate sentry still green after new endpoint',   $rcB === 0);
 
 echo "\n=========================================\n";

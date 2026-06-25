@@ -23,7 +23,7 @@ export default function MoneyMovementPreview() {
 
   const loadLinks = async () => {
     try {
-      const r = await api.get('/modules/billing/api/money_movement_share_links.php');
+      const r = await api.get('/api/v1/billing/money-movement-share-links');
       setLinks(r.rows || []);
     } catch (_) { /* link table maybe not migrated */ }
   };
@@ -31,7 +31,7 @@ export default function MoneyMovementPreview() {
   const load = async (date) => {
     setLoading(true); setError(null);
     try {
-      const d = await api.get(`/modules/billing/api/money_movement.php?as_of=${encodeURIComponent(date)}`);
+      const d = await api.get(`/api/v1/billing/money-movement?as_of=${encodeURIComponent(date)}`);
       setData(d);
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
@@ -43,7 +43,7 @@ export default function MoneyMovementPreview() {
     if (!confirm(`Send the digest to ${data?.recipients?.length || 0} recipient(s) now?`)) return;
     setSending(true); setToast(null);
     try {
-      const res = await api.post('/modules/billing/api/money_movement.php?action=send_now', { as_of: asOf });
+      const res = await api.post('/api/v1/billing/money-movement?action=send_now', { as_of: asOf });
       setToast({ kind: 'ok', text: `Sent to ${res.sent} recipient${res.sent === 1 ? '' : 's'}${res.failed ? `, ${res.failed} failed` : ''}.` });
     } catch (e) { setToast({ kind: 'err', text: e.message }); }
     finally { setSending(false); }
@@ -52,7 +52,7 @@ export default function MoneyMovementPreview() {
   const mintLink = async (label) => {
     setLinkBusy(true); setToast(null); setNewLink(null);
     try {
-      const r = await api.post('/modules/billing/api/money_movement_share_links.php', { as_of: asOf, label: label || null, ttl_days: 30 });
+      const r = await api.post('/api/v1/billing/money-movement-share-links', { as_of: asOf, label: label || null, ttl_days: 30 });
       setNewLink(r);
       loadLinks();
     } catch (e) { setToast({ kind: 'err', text: e.message }); }
@@ -62,7 +62,7 @@ export default function MoneyMovementPreview() {
   const revokeLink = async (id) => {
     if (!confirm('Revoke this share link immediately?')) return;
     try {
-      await api.post(`/modules/billing/api/money_movement_share_links.php?action=revoke&id=${id}`, {});
+      await api.post(`/api/v1/billing/money-movement-share-links?action=revoke&id=${id}`, {});
       loadLinks();
     } catch (e) { setToast({ kind: 'err', text: e.message }); }
   };
@@ -70,7 +70,7 @@ export default function MoneyMovementPreview() {
   const downloadPdf = async () => {
     setShowPdfBusy(true);
     try {
-      window.open(`/modules/billing/api/money_movement_pdf.php?as_of=${encodeURIComponent(asOf)}`, '_blank');
+      window.open(`/api/v1/billing/money-movement-pdf?as_of=${encodeURIComponent(asOf)}`, '_blank');
     } finally { setTimeout(() => setShowPdfBusy(false), 800); }
   };
 

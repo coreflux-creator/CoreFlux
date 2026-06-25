@@ -84,7 +84,7 @@ $a('uses LineItemEditor',                       strpos($ic, "import LineItemEdit
 $a('passes glField=gl_revenue_account_code',    strpos($ic, 'glField="gl_revenue_account_code"') !== false);
 $a('fetches revenue accounts only',             strpos($ic, '/modules/accounting/api/accounts.php?type=revenue') !== false);
 $a('separate internal/external notes',          strpos($ic, 'notes-internal') !== false && strpos($ic, 'notes-external') !== false);
-$a('submit posts to invoices.php',              strpos($ic, "api.post('/modules/billing/api/invoices.php'") !== false);
+$a('submit posts to invoices route',            strpos($ic, "api.post('/api/v1/billing/invoices'") !== false);
 
 echo "\nRoutes + list buttons\n";
 $apMod = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/APModule.jsx');

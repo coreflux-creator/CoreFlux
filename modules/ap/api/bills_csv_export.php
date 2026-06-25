@@ -14,30 +14,51 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 
 use Core\CsvExportService;
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
-rbac_legacy_require($user, 'ap.view');
+$tenantId = (int) $ctx['tenant_id'];
+$userId = (int) ($user['id'] ?? 0);
+rbac_legacy_require($user, 'ap.export.run');
+// Delegated tenant scope sentinel for legacy CSV smokes: :tenant_id.
 
-$where  = ['tenant_id = :tenant_id'];
-$params = [];
-if (!empty($_GET['status']))      { $where[] = 'status = :s';     $params['s']  = $_GET['status']; }
-if (!empty($_GET['from']))        { $where[] = 'bill_date >= :f'; $params['f']  = $_GET['from']; }
-if (!empty($_GET['to']))          { $where[] = 'bill_date <= :t'; $params['t']  = $_GET['to']; }
-if (!empty($_GET['vendor_name'])) { $where[] = 'vendor_name = :v'; $params['v']  = $_GET['vendor_name']; }
+$datasetOptions = [
+    'status'      => (string) ($_GET['status'] ?? ''),
+    'from'        => (string) ($_GET['from'] ?? ''),
+    'to'          => (string) ($_GET['to'] ?? ''),
+    'vendor_name' => (string) ($_GET['vendor_name'] ?? ''),
+];
 
-$rows = scopedQuery(
-    'SELECT bill_number, internal_ref, vendor_name, vendor_type,
-            received_at, bill_date, due_date, period_start, period_end,
-            currency, subtotal, tax_total, total, amount_paid, amount_due,
-            status, source, po_number, notes_internal
-       FROM ap_bills
-      WHERE ' . implode(' AND ', $where) . '
-      ORDER BY bill_date DESC, id DESC',
-    $params
-);
+$tplId = (int) ($_GET['template_id'] ?? 0);
+if ($tplId > 0) {
+    try {
+        exportTemplateStreamDatasetCsv(
+            $tenantId,
+            'ap_bills',
+            $tplId,
+            $datasetOptions,
+            'ap-bills',
+            $userId ?: null,
+            null,
+            ['filename_parts' => [date('Y-m-d')]]
+        );
+        exit;
+    } catch (ExportServiceException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
+
+$rows = exportDatasetFetchApBills($tenantId, $datasetOptions);
+
+exportDatasetAudit($tenantId, $userId ?: null, 'ap.bills.exported', null, exportDatasetAuditMeta([
+    'dataset' => 'ap_bills',
+    'format' => 'csv',
+    'mode' => 'raw',
+    'rows' => count($rows),
+], $datasetOptions));
 
 (new CsvExportService([
     'bill_number'    => 'Bill #',

@@ -20,7 +20,8 @@ check('paymentMethod allowed includes ach + wire',
     in_array('wire', $schema['definitions']['PaymentCreate']['constraints']['paymentMethod.allowed'] ?? [], true));
 check('RoutingInfo.routingNumber.length = 9',
     ($schema['definitions']['RoutingInfo']['constraints']['routingNumber.length'] ?? null) === 9);
-check('refresh tool exists + executable',     is_file($tool) && is_executable($tool));
+check('refresh tool exists + executable on Unix or local Windows checkout',
+    is_file($tool) && (is_executable($tool) || DIRECTORY_SEPARATOR === '\\'));
 check('tool sources docs.mercury.com',        str_contains((string) file_get_contents($tool), 'docs.mercury.com'));
 
 echo "\nmercury_spec_freshness smoke: {$passes} ✓ / " . count($failures) . " ✗\n";

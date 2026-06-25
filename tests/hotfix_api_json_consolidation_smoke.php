@@ -17,6 +17,7 @@ $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
     if ($cond) { echo "  ✓ $msg\n"; $pass++; }
     else       { echo "  ✗ $msg\n"; $fail++; }
 };
+require_once $ROOT . '/core/api_bootstrap.php';
 
 // 1. api_json() must not appear in any active PHP file — it's not defined.
 $apiJsonCallers = [];
@@ -24,10 +25,14 @@ $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($ROOT));
 foreach ($it as $f) {
     if ($f->isDir()) continue;
     $p = $f->getPathname();
+    $norm = str_replace('\\', '/', $p);
     if (!preg_match('/\.php$/', $p)) continue;
-    if (str_contains($p, '/dashboard/node_modules/')) continue;
-    if (str_contains($p, '/spa-assets/')) continue;
-    if (str_contains($p, '/tests/')) continue;
+    if (str_contains($norm, '/dashboard/node_modules/')) continue;
+    if (str_contains($norm, '/node_modules/')) continue;
+    if (str_contains($norm, '/vendor/')) continue;
+    if (str_contains($norm, '/spa-assets/')) continue;
+    if (str_contains($norm, '/tests/')) continue;
+    if (str_contains($norm, '/.codex_product_plan_extract/')) continue;
     $src = (string) file_get_contents($p);
     if (preg_match('/\bapi_json\s*\(/', $src)) $apiJsonCallers[] = $p;
 }
@@ -37,14 +42,13 @@ $a('no source file calls undefined api_json()',
 if ($apiJsonCallers) {
     foreach ($apiJsonCallers as $f) echo "      · $f\n";
 }
-require_once $ROOT . '/core/api_bootstrap.php';
 $a('api_ok() is defined',                  function_exists('api_ok'));
 $a('api_json_body() is defined',           function_exists('api_json_body'));
 
 // 2. Consolidation.jsx hooks rule fix.
 $ui = (string) file_get_contents($ROOT . '/modules/accounting/ui/Consolidation.jsx');
-$entitiesCalls = preg_match_all("#useApi\\('/modules/accounting/api/entities\\.php(?:\\?scope=hierarchy)?'\\)#", $ui);
-$a('Consolidation.jsx calls useApi(entities) exactly twice (once per component)',
+$entitiesCalls = substr_count($ui, 'useApi(`${ACCOUNTING_ENTITIES_API}?scope=hierarchy`)');
+$a('Consolidation.jsx calls useApi(v1 entities) exactly twice (once per component)',
     $entitiesCalls === 2);
 $a('Consolidation.jsx uses ?? fallback rather than ||',
     str_contains($ui, "entitiesApi.data?.rows ?? entitiesApi.data?.entities"));

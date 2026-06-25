@@ -113,7 +113,7 @@ $a('BuildItem trims recipient to 22 chars',  strlen($item['recipient_name']) <= 
 $a('BuildItem trims description to 10 chars', strlen($item['description']) <= 10);
 
 $res = paymentRailsDispatch('ap',
-    [], // no row override
+    ['tenant_id' => 1], // no DB row needed, but dispatch is tenant-scoped
     ['nacha_company_id' => '1234567890', 'nacha_company_name' => 'CORE FLUX', 'nacha_origin_routing' => '021000021', 'disbursement_rail' => 'nacha'],
     [$item]
 );

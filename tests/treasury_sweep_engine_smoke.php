@@ -14,7 +14,8 @@
  */
 declare(strict_types=1);
 
-require_once '/app/core/treasury_sweep_engine.php';
+$ROOT = dirname(__DIR__);
+require_once $ROOT . '/core/treasury_sweep_engine.php';
 
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
@@ -106,8 +107,10 @@ $a("'0' → OFF",
 unset($_ENV['TREASURY_SWEEP_LIVE']);
 
 echo "\n7. Orchestrator + cron driver wiring (source-level)\n";
-$eng = (string) file_get_contents('/app/core/treasury_sweep_engine.php');
-$cron = (string) file_get_contents('/app/cron/treasury_sweep_worker.php');
+$enginePath = $ROOT . '/core/treasury_sweep_engine.php';
+$cronPath   = $ROOT . '/cron/treasury_sweep_worker.php';
+$eng = (string) file_get_contents($enginePath);
+$cron = (string) file_get_contents($cronPath);
 
 $a('engine declares treasurySweepRunRule',
    function_exists('treasurySweepRunRule'));
@@ -162,7 +165,7 @@ $a('cron driver swallows fatal exceptions cleanly',
    && str_contains($cron, '[treasury_sweep_worker] FATAL:'));
 
 echo "\n8. Migration 074_treasury_sweep_runs.sql shape\n";
-$mig = (string) file_get_contents('/app/core/migrations/074_treasury_sweep_runs.sql');
+$mig = (string) file_get_contents($ROOT . '/core/migrations/074_treasury_sweep_runs.sql');
 $a('table has rule_id + ran_at index',
    str_contains($mig, 'KEY idx_sweep_runs_rule   (tenant_id, rule_id, ran_at)'));
 $a('outcome column is VARCHAR(48)',
@@ -174,12 +177,12 @@ $a('payment_instruction_id is nullable',
 
 echo "\n9. PHP syntax\n";
 foreach ([
-    '/app/core/treasury_sweep_engine.php',
-    '/app/cron/treasury_sweep_worker.php',
+    $enginePath,
+    $cronPath,
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
-    $a("php -l {$f}", $rc === 0, implode("\n", $out));
+    $a('php -l ' . str_replace($ROOT . '/', '', $f), $rc === 0, implode("\n", $out));
 }
 
 echo "\n=========================================\n";

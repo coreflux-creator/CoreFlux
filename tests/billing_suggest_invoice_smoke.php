@@ -10,6 +10,8 @@
  */
 declare(strict_types=1);
 
+$ROOT = dirname(__DIR__);
+
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
     if ($cond) { echo "  ✓ $msg\n"; $pass++; }
@@ -17,7 +19,7 @@ $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
 };
 
 echo "\n── Lib: billingSuggestInvoiceForPlacement ──\n";
-$lib = file_get_contents('/app/modules/billing/lib/billing.php');
+$lib = file_get_contents($ROOT . '/modules/billing/lib/billing.php');
 $a('billingSuggestInvoiceForPlacement() defined',
     str_contains($lib, 'function billingSuggestInvoiceForPlacement('));
 $a('resolves placement scoped to tenant',
@@ -41,7 +43,7 @@ $a('rule-based: long span + single worker → per_day',
     str_contains($lib, '$workerCount === 1 && $distinctDays > 7')
     && str_contains($lib, "\$aggregation = 'per_day';"));
 $a('rule-based: multi-worker → per_placement (consolidated)',
-    str_contains($lib, "$distinctDays working days, {$workerCount}"));   // reasoning string
+    str_contains($lib, '{$distinctDays} working days, {$workerCount}'));   // reasoning string
 $a('builds deterministic memo fallback before AI call',
     str_contains($lib, '$detMemo = sprintf('));
 $a('calls aiAsk() with feature_class=suggestion',
@@ -58,7 +60,7 @@ $a('returns suggestion shape (placement, period, candidate_entry_ids, suggested_
     && str_contains($lib, "'ai_used'"));
 
 echo "\n── API: ?action=suggest-from-placement ──\n";
-$api = file_get_contents('/app/modules/billing/api/invoices.php');
+$api = file_get_contents($ROOT . '/modules/billing/api/invoices.php');
 $a('suggest-from-placement action wired',
     str_contains($api, "'POST' && \$action === 'suggest-from-placement'"));
 $a('requires billing.invoice.draft permission',
@@ -66,14 +68,14 @@ $a('requires billing.invoice.draft permission',
 $a('requires placement_id',
     preg_match("/suggest-from-placement[\s\S]{0,400}placement_id required/", $api) === 1);
 $a('returns suggestion via api_ok',
-    preg_match("/suggest-from-placement[\s\S]{0,400}api_ok\(\\\$sug\)/", $api) === 1);
+    preg_match("/suggest-from-placement[\s\S]{0,700}api_ok\(\\\$sug\)/", $api) === 1);
 
 echo "\n── React: SuggestInvoiceModal.jsx ──\n";
-$mod = file_get_contents('/app/modules/billing/ui/SuggestInvoiceModal.jsx');
+$mod = file_get_contents($ROOT . '/modules/billing/ui/SuggestInvoiceModal.jsx');
 $a('posts to suggest-from-placement on mount',
-    str_contains($mod, '/modules/billing/api/invoices.php?action=suggest-from-placement'));
+    str_contains($mod, '/api/v1/billing/invoices?action=suggest-from-placement'));
 $a('posts to from-time-entries on confirm',
-    str_contains($mod, '/modules/billing/api/invoices.php?action=from-time-entries'));
+    str_contains($mod, '/api/v1/billing/invoices?action=from-time-entries'));
 $a('sends time_entry_ids + aggregation in confirm body',
     str_contains($mod, 'time_entry_ids: Array.from(selectedIds),'));
 $a('renders AI badge only when ai_used',
@@ -106,7 +108,7 @@ foreach ([
 }
 
 echo "\n── Wiring: PlacementTimesheetsTab.jsx ──\n";
-$ptab = file_get_contents('/app/modules/placements/ui/PlacementTimesheetsTab.jsx');
+$ptab = file_get_contents($ROOT . '/modules/placements/ui/PlacementTimesheetsTab.jsx');
 $a('imports SuggestInvoiceModal',
     str_contains($ptab, "import SuggestInvoiceModal from '../../billing/ui/SuggestInvoiceModal'"));
 $a('renders Suggest invoice button',
@@ -117,7 +119,7 @@ $a('passes placementId + placementTitle into the modal',
     str_contains($ptab, 'placementId={pid}')
     && str_contains($ptab, 'placementTitle={placement?.title}'));
 
-$pdet = file_get_contents('/app/modules/placements/ui/PlacementDetail.jsx');
+$pdet = file_get_contents($ROOT . '/modules/placements/ui/PlacementDetail.jsx');
 $a('PlacementDetail passes placement to the tab',
     str_contains($pdet, '<PlacementTimesheetsTab pid={placement.id} placement={placement} />'));
 

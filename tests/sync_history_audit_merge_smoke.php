@@ -23,6 +23,7 @@
  */
 declare(strict_types=1);
 
+$ROOT = dirname(__DIR__);
 $pass = 0; $fail = 0;
 $assert = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
     if ($ok) { echo "  ✓ {$msg}\n"; $pass++; }
@@ -33,7 +34,7 @@ $assert = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$f
 // Source-inspection: backend endpoint
 // ---------------------------------------------------------------------
 echo "Backend — /api/integrations/sync_history.php audit merge\n";
-$endpoint = '/app/api/integrations/sync_history.php';
+$endpoint = $ROOT . '/api/integrations/sync_history.php';
 $src = (string) file_get_contents($endpoint);
 $assert('endpoint stamps sync rows with kind=sync',
     str_contains($src, "\$r['kind'] = 'sync';"));
@@ -60,7 +61,7 @@ $assert('merged rows truncated to the requested limit',
 // ---------------------------------------------------------------------
 // Real-DB integration: seed sync + audit rows, hit the endpoint, verify merge
 // ---------------------------------------------------------------------
-require_once '/app/core/db.php';
+require_once $ROOT . '/core/db.php';
 try { $pdo = getDB(); if (!$pdo) throw new \Exception('no pdo'); }
 catch (\Throwable $e) { echo "SKIP: no DB ({$e->getMessage()})\n"; goto frontend; }
 
@@ -115,7 +116,7 @@ register_shutdown_function(function () use ($pdo, $TID, $PID) {
 
 // Run the merge logic inline (skip the HTTP layer; we just need to
 // verify the SQL + array merge produces the right shape).
-require_once '/app/core/integrations/entity_mappings.php';
+require_once $ROOT . '/core/integrations/entity_mappings.php';
 $rows = entitySyncHistoryList($TID, 'placement', $PID, 50);
 foreach ($rows as &$r) { $r['kind'] = 'sync'; }
 unset($r);
@@ -167,7 +168,7 @@ frontend:
 // Frontend — drawer source inspection
 // ---------------------------------------------------------------------
 echo "\nFrontend — SyncHistoryDrawer.jsx audit row support\n";
-$drawer = (string) file_get_contents('/app/dashboard/src/components/SyncHistoryDrawer.jsx');
+$drawer = (string) file_get_contents($ROOT . '/dashboard/src/components/SyncHistoryDrawer.jsx');
 $assert('AUDIT_EVENT_LABEL dictionary defined',
     str_contains($drawer, 'AUDIT_EVENT_LABEL'));
 $assert('label dict includes placement.override_cleared',

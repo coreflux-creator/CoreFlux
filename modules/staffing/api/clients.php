@@ -13,13 +13,18 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../lib/client_audit.php';
+require_once __DIR__ . '/../lib/clients.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
+$tenantId = (int) ($ctx['tenant_id'] ?? currentTenantId());
+$actorUserId = isset($user['id']) ? (int) $user['id'] : null;
 $method = api_method();
 $action = $_GET['action'] ?? 'list';
 
 if ($method === 'GET' && $action === 'list') {
+    rbac_legacy_require($user, 'staffing.view');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['status'])) { $where[] = 'status = :s'; $params['s'] = $_GET['status']; }
@@ -31,7 +36,7 @@ if ($method === 'GET' && $action === 'list') {
         $params['q3'] = $params['q'];
     }
     $limit = max(1, min(500, (int) ($_GET['limit'] ?? 100)));
-    $sql = "SELECT c.id, c.name, c.legal_name, c.industry, c.status, c.payment_terms_days,
+    $sql = "SELECT c.id, c.company_id, c.name, c.legal_name, c.industry, c.status, c.payment_terms_days,
                    c.primary_contact_name, c.primary_contact_email,
                    c.billing_city, c.billing_state, c.billing_country,
                    c.msa_status, c.created_at,
@@ -50,6 +55,7 @@ if ($method === 'GET' && $action === 'list') {
 }
 
 if ($method === 'GET' && $action === 'get') {
+    rbac_legacy_require($user, 'staffing.view');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
     $row = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
@@ -58,6 +64,7 @@ if ($method === 'GET' && $action === 'get') {
 }
 
 if ($method === 'POST' && $action === 'create') {
+    rbac_legacy_require($user, 'staffing.clients.manage');
     $b = api_json_body();
     $name = trim((string) ($b['name'] ?? ''));
     if ($name === '') api_error('name required', 422);
@@ -66,7 +73,7 @@ if ($method === 'POST' && $action === 'create') {
     $existing = scopedFind('SELECT id FROM staffing_clients WHERE tenant_id = :tenant_id AND name = :n', ['n' => $name]);
     if ($existing) api_error("Client '{$name}' already exists", 409, ['existing_id' => $existing['id']]);
 
-    $id = scopedInsert('staffing_clients', [
+    $clientRef = staffingClientEnsureForCompany($tenantId, null, $name, [
         'name'                  => $name,
         'legal_name'            => $b['legal_name']            ?? null,
         'industry'              => $b['industry']              ?? null,
@@ -81,17 +88,28 @@ if ($method === 'POST' && $action === 'create') {
         'billing_country'       => $b['billing_country']       ?? 'US',
         'payment_terms_days'    => isset($b['payment_terms_days']) ? (int) $b['payment_terms_days'] : 30,
         'status'                => $b['status']                ?? 'active',
-        'notes'                 => $b['notes']                 ?? null,
-        'msa_status'            => $b['msa_status']            ?? 'none',
+        'created_by_user_id'    => $actorUserId,
     ]);
-    api_ok(['client' => scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id])]);
+    $id = (int) $clientRef['client_id'];
+    $postCreatePatch = array_filter([
+        'notes'      => $b['notes']      ?? null,
+        'msa_status' => $b['msa_status'] ?? 'none',
+    ], static fn($v) => $v !== null);
+    if ($postCreatePatch) scopedUpdate('staffing_clients', $id, $postCreatePatch);
+    $client = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    staffingClientAudit($tenantId, $actorUserId, 'staffing.client.created', $id, [
+        'source' => 'staffing_clients_api',
+        'after' => staffingClientAuditSnapshot($client ?: ['id' => $id, 'name' => $name]),
+    ]);
+    api_ok(['client' => $client]);
 }
 
 if ($method === 'POST' && $action === 'update') {
+    rbac_legacy_require($user, 'staffing.clients.manage');
     $b  = api_json_body();
     $id = (int) ($b['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
-    $existing = scopedFind('SELECT id FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :i', ['i' => $id]);
+    $existing = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :i', ['i' => $id]);
     if (!$existing) api_error('Not found', 404);
 
     $allowed = [
@@ -103,20 +121,49 @@ if ($method === 'POST' && $action === 'update') {
     foreach ($allowed as $k) { if (array_key_exists($k, $b)) $patch[$k] = $b[$k]; }
     if (!$patch) api_error('No updatable fields supplied', 422);
 
+    if (array_key_exists('name', $patch) || empty($existing['company_id'])) {
+        $clientRef = staffingClientEnsureForCompany(
+            $tenantId,
+            !empty($existing['company_id']) ? (int) $existing['company_id'] : null,
+            (string) ($patch['name'] ?? $existing['name']),
+            $patch + ['sync_company_patch' => true]
+        );
+        $patch['company_id'] = $clientRef['company_id'];
+        $patch['name'] = $clientRef['name'];
+    } elseif (!empty($existing['company_id'])) {
+        staffingClientApplyCompanyPatch($tenantId, (int) $existing['company_id'], $patch + ['name' => $existing['name']]);
+    }
     scopedUpdate('staffing_clients', $id, $patch);
-    api_ok(['client' => scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id])]);
+    $client = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    staffingClientAudit($tenantId, $actorUserId, 'staffing.client.updated', $id, [
+        'source' => 'staffing_clients_api',
+        'changed_fields' => array_keys($patch),
+        'before' => staffingClientAuditSnapshot($existing),
+        'after' => staffingClientAuditSnapshot($client ?: []),
+    ]);
+    api_ok(['client' => $client]);
 }
 
 if ($method === 'POST' && $action === 'delete') {
+    rbac_legacy_require($user, 'staffing.clients.manage');
     $b  = api_json_body();
     $id = (int) ($b['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
     // Soft delete — flip status to closed. Keeps FK links intact for history.
+    $existing = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :i', ['i' => $id]);
+    if (!$existing) api_error('Not found', 404);
     scopedUpdate('staffing_clients', $id, ['status' => 'closed']);
+    $client = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    staffingClientAudit($tenantId, $actorUserId, 'staffing.client.closed', $id, [
+        'source' => 'staffing_clients_api',
+        'before' => staffingClientAuditSnapshot($existing),
+        'after' => staffingClientAuditSnapshot($client ?: []),
+    ]);
     api_ok(['ok' => true, 'closed_id' => $id]);
 }
 
 if ($method === 'GET' && $action === 'stats') {
+    rbac_legacy_require($user, 'staffing.view');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
 

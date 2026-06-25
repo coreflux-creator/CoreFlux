@@ -20,7 +20,7 @@ $a('companiesMerge() exists',                  strpos($lib, 'function companiesM
 $a('merge blocks self-merge',                  strpos($lib, 'Cannot merge a company into itself') !== false);
 $a('merge blocks cross-tenant',                strpos($lib, 'Cross-tenant merge blocked') !== false);
 $a('merge refuses already-deleted',            strpos($lib, 'is already soft-deleted') !== false);
-$a('merge wrapped in transaction',             (strpos($lib, '$pdo->beginTransaction()') !== false || strpos($lib, 'cf_tx_begin($pdo)') !== false) && (strpos($lib, 'rollBack()') !== false || strpos($lib, 'cf_tx_rollback') !== false));
+$a('merge wrapped in transaction',             strpos($lib, '$pdo->beginTransaction()') !== false && strpos($lib, 'rollBack()') !== false);
 foreach ([
     'ap_vendors_index'        => 'company_id',
     'ap_bills'                => 'vendor_company_id',
@@ -75,8 +75,8 @@ echo "\nPersonDetail custom-fields tab\n";
 $pd = (string) file_get_contents(__DIR__ . '/../modules/people/ui/PersonDetail.jsx');
 $a('CustomFieldsTab rendered route',           strpos($pd, 'path="custom"    element={<CustomFieldsTab') !== false);
 $a('tabs contains custom entry',               strpos($pd, "slug: 'custom'") !== false);
-$a('values GET uses person_id',                strpos($pd, 'custom_field_values.php?person_id=') !== false);
-$a('values POST endpoint',                     strpos($pd, "api.post(`/modules/people/api/custom_field_values.php?person_id=\${personId}`") !== false);
+$a('values GET uses v1 platform record_id route', strpos($pd, '/api/v1/people/custom-field-values/${personId}') !== false);
+$a('values POST endpoint',                     strpos($pd, "api.post(`/api/v1/people/custom-field-values/\${personId}`") !== false);
 $a('tab testid present',                       strpos($pd, 'data-testid="tab-custom"') !== false);
 $a('save button',                              strpos($pd, 'data-testid="custom-values-save"') !== false);
 $a('dynamic input by field_type date',         strpos($pd, "def.field_type === 'date'") !== false);
