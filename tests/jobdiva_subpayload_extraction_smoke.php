@@ -138,6 +138,16 @@ $a('nested _jd_start → assignment bucket',
     ($ext2['assignment']['payRate']  ?? null) === '52.50'
     && ($ext2['assignment']['billRate'] ?? null) === '120.00');
 
+$canonicalPayload = jobdivaCanonicalPlacementPayload($nestedPayload, $ext2);
+$a('canonical placement payload exposes job.title alias',
+    ($canonicalPayload['job']['title'] ?? null) === 'Lead Engineer');
+$a('canonical placement payload exposes assignment.payRate alias',
+    ($canonicalPayload['assignment']['payRate'] ?? null) === '52.50');
+$a('canonical placement payload exposes company.name alias',
+    ($canonicalPayload['company']['name'] ?? null) === 'Public Storage Inc.');
+$a('canonical placement payload preserves native _jd_* evidence',
+    ($canonicalPayload['_jd_job']['title'] ?? null) === 'Lead Engineer');
+
 // 3) Empty buckets dropped.
 echo "\n3. Empty buckets dropped from output\n";
 $ext3 = jobdivaExtractJoinedSubPayloads(['someUnrelatedKey' => 'x']);

@@ -133,6 +133,65 @@ function pluckPayloadValue(payload, candidates) {
   return '';
 }
 
+function flattenPayloadScalarPaths(value, prefix = '', out = []) {
+  if (value === null || value === undefined) {
+    if (prefix) out.push(prefix);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return out;
+    const first = value[0];
+    if (first && typeof first === 'object' && !Array.isArray(first)) {
+      flattenPayloadScalarPaths(first, `${prefix}[]`, out);
+    } else if (prefix) {
+      out.push(prefix);
+    }
+    return out;
+  }
+  if (typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      const next = prefix ? `${prefix}.${k}` : k;
+      flattenPayloadScalarPaths(v, next, out);
+    }
+    return out;
+  }
+  if (prefix) out.push(prefix);
+  return out;
+}
+
+function defaultFieldMapTarget(entityType, internalField) {
+  const placementRateFields = new Set([
+    'bill_rate', 'bill_rate_unit', 'pay_rate', 'pay_rate_unit',
+    'currency', 'ot_multiplier', 'dt_multiplier',
+  ]);
+  if (entityType === 'placement') {
+    if (placementRateFields.has(internalField)) {
+      return {
+        target_module: 'placements',
+        target_table: 'placement_rates',
+        target_column: internalField,
+        linked_entity: 'placement_rates',
+      };
+    }
+    return {
+      target_module: 'placements',
+      target_table: 'placements',
+      target_column: internalField,
+      linked_entity: 'self',
+    };
+  }
+  if (entityType === 'person') {
+    return { target_module: 'people', target_table: 'people', target_column: internalField, linked_entity: 'self' };
+  }
+  if (entityType === 'company') {
+    return { target_module: 'companies', target_table: 'companies', target_column: internalField, linked_entity: 'self' };
+  }
+  if (entityType === 'contact') {
+    return { target_module: 'companies', target_table: 'company_contacts', target_column: internalField, linked_entity: 'self' };
+  }
+  return { target_module: null, target_table: null, target_column: internalField, linked_entity: 'self' };
+}
+
 function SuggestMappingModal({ open, onClose, mapping, entityType }) {
   // Modal that POSTs the mapping's raw payload to
   // /api/admin/integrations/field_map_suggest.php and lets the operator
@@ -401,15 +460,21 @@ function FieldMapEditor({ integration, entityType, payload }) {
     } finally { setMigrating(false); }
   };
 
-  // Payload-key suggestions for autocomplete. We surface top-level
-  // scalar keys; nested objects are findable via "View raw payload"
-  // below — kept off the autocomplete to avoid overwhelming the dropdown.
+  // Payload-key suggestions for autocomplete. Use scalar leaf paths,
+  // including canonical cross-reference aliases such as job.title.
   const payloadKeys = React.useMemo(() => {
     if (!payload || typeof payload !== 'object') return [];
-    return Object.keys(payload).filter(k => {
-      const v = payload[k];
-      return v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
-    }).sort();
+    const paths = Array.from(new Set(flattenPayloadScalarPaths(payload)));
+    const rank = (path) => {
+      if (path.startsWith('job.')) return 0;
+      if (path.startsWith('assignment.')) return 1;
+      if (path.startsWith('person.')) return 2;
+      if (path.startsWith('company.')) return 3;
+      if (path.startsWith('contact.')) return 4;
+      if (!path.startsWith('_')) return 5;
+      return 6;
+    };
+    return paths.sort((a, b) => (rank(a) - rank(b)) || a.localeCompare(b));
   }, [payload]);
 
   // Internal fields not yet mapped — drives the "Add mapping" dropdown.
@@ -418,17 +483,28 @@ function FieldMapEditor({ integration, entityType, payload }) {
 
   const startEdit = (r) => {
     setEditing(r.id);
-    setDraft({ external_field: r.external_field || '', transform: r.transform || 'none' });
+    setDraft({ external_field: r.source_path || r.external_field || '', transform: r.transform || 'none' });
     setOpError(null);
   };
 
   const saveEdit = async (r) => {
     setBusy(true); setOpError(null);
     try {
+      const sourcePath = draft.external_field.trim();
+      const target = r.target_table && r.target_column
+        ? {
+            target_module: r.target_module,
+            target_table: r.target_table,
+            target_column: r.target_column,
+            linked_entity: r.linked_entity || 'self',
+          }
+        : defaultFieldMapTarget(entityType, r.internal_field);
       await api.post('/api/admin/integrations/field_map.php', {
         integration, entity_type: entityType,
         internal_field: r.internal_field,
-        external_field: draft.external_field.trim(),
+        external_field: sourcePath,
+        source_path:    sourcePath,
+        ...target,
         transform:      draft.transform,
         enabled:        true,
       });
@@ -456,10 +532,14 @@ function FieldMapEditor({ integration, entityType, payload }) {
     }
     setBusy(true); setOpError(null);
     try {
+      const sourcePath = newRow.external_field.trim();
+      const target = defaultFieldMapTarget(entityType, newRow.internal_field);
       await api.post('/api/admin/integrations/field_map.php', {
         integration, entity_type: entityType,
         internal_field: newRow.internal_field,
-        external_field: newRow.external_field.trim(),
+        external_field: sourcePath,
+        source_path:    sourcePath,
+        ...target,
         transform:      newRow.transform,
         enabled:        true,
       });
@@ -614,6 +694,7 @@ function FieldMapEditor({ integration, entityType, payload }) {
             )}
             {rows.map(r => {
               const isEd = editing === r.id;
+              const sourcePath = r.source_path || r.external_field || '';
               return (
                 <tr key={r.id} data-testid={`field-map-row-${r.internal_field}`}>
                   <td style={cellStyle}>
@@ -626,7 +707,7 @@ function FieldMapEditor({ integration, entityType, payload }) {
                         style={inputStyle}
                       />
                     ) : (
-                      <code data-testid={`field-map-external-${r.internal_field}`}>{r.external_field}</code>
+                      <code data-testid={`field-map-external-${r.internal_field}`}>{sourcePath}</code>
                     )}
                   </td>
                   <td style={cellStyle}>
@@ -692,7 +773,7 @@ function FieldMapEditor({ integration, entityType, payload }) {
                 <td style={cellStyle}>
                   <input
                     list={`payloadkeys-${integration}-${entityType}`}
-                    placeholder="e.g. jobTitle, name, job.title"
+                    placeholder="e.g. job.title, assignment.payRate, customerName"
                     value={newRow.external_field}
                     onChange={e => setNewRow(r => ({ ...r, external_field: e.target.value }))}
                     data-testid="field-map-new-external"
@@ -737,7 +818,7 @@ function FieldMapEditor({ integration, entityType, payload }) {
         </table>
       )}
 
-      {/* Shared autocomplete source — top-level payload keys */}
+      {/* Shared autocomplete source — scalar payload paths */}
       <datalist id={`payloadkeys-${integration}-${entityType}`}>
         {payloadKeys.map(k => <option key={k} value={k} />)}
       </datalist>

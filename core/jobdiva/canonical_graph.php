@@ -88,6 +88,43 @@ function jobdivaCanonicalPayloadForEntity(string $nativeEntityType, string $targ
     return $namespace === null ? $payload : [$namespace => $payload];
 }
 
+function jobdivaCanonicalPlacementPayload(array $payload, array $subPayloads = []): array
+{
+    $out = $payload;
+    $aliases = [
+        'person'           => 'person',
+        'job'              => 'job',
+        'jobdiva_customer' => 'company',
+        'contact'          => 'contact',
+        'assignment'       => 'assignment',
+    ];
+    if (!$subPayloads) {
+        $nested = [
+            '_jd_candidate' => 'person',
+            '_jd_job'       => 'job',
+            '_jd_customer'  => 'jobdiva_customer',
+            '_jd_contact'   => 'contact',
+            '_jd_start'     => 'assignment',
+        ];
+        foreach ($nested as $key => $nativeType) {
+            if (isset($payload[$key]) && is_array($payload[$key]) && $payload[$key] !== []) {
+                $subPayloads[$nativeType] = $payload[$key];
+            }
+        }
+    }
+    foreach ($subPayloads as $nativeType => $subPayload) {
+        if (!is_array($subPayload) || $subPayload === []) continue;
+        $alias = $aliases[(string) $nativeType] ?? null;
+        if ($alias === null) continue;
+        if (!isset($out[$alias]) || !is_array($out[$alias])) {
+            $out[$alias] = $subPayload;
+            continue;
+        }
+        $out[$alias] = array_replace_recursive($subPayload, $out[$alias]);
+    }
+    return $out;
+}
+
 function jobdivaCanonicalSourcePathForEntity(string $nativeEntityType, string $targetEntityType, string $sourcePath): string
 {
     $namespace = jobdivaCanonicalFacetNamespace($nativeEntityType, $targetEntityType);

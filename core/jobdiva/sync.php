@@ -846,6 +846,7 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
 
     foreach ($items as $jd) {
         try {
+            $jd = jobdivaCanonicalPlacementPayload($jd, jobdivaExtractJoinedSubPayloads($jd));
             $extId        = jobdivaPluckField($jd, [
                 'id', 'startId', 'start_id', 'placementId', 'placement_id', 'startID',
             ]);
@@ -1553,6 +1554,7 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
         if (!is_string($snap) || $snap === '') continue;
         $payload = json_decode($snap, true);
         if (!is_array($payload)) continue;
+        $payload = jobdivaCanonicalPlacementPayload($payload, jobdivaExtractJoinedSubPayloads($payload));
         $placements[] = ['mapping_id' => (int) $row['id'], 'payload' => $payload];
     }
     if (empty($placements)) return $summary;
@@ -1596,6 +1598,7 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
                 if (!isset($enriched[$i])) { $i++; continue; }
                 $newPayload = $enriched[$i];
                 if (is_array($newPayload)) {
+                    $newPayload = jobdivaCanonicalPlacementPayload($newPayload, jobdivaExtractJoinedSubPayloads($newPayload));
                     $placements[$idx]['payload'] = $newPayload;
                     // Persist enriched payload back so this is one-shot.
                     try {
@@ -2374,7 +2377,10 @@ function jobdivaSyncMirrorEntity(
 
             // 2) Index every field — feeds the Field Mapping Studio's
             // source-side picker and entity-tab counts.
-            integrationPayloadFieldIndexRecord($tid, 'jobdiva', $entityType, $jd);
+            foreach (jobdivaCanonicalFieldIndexEntityTypes($entityType) as $indexEntityType) {
+                $payloadForIndex = jobdivaCanonicalPayloadForEntity($entityType, $indexEntityType, $jd);
+                integrationPayloadFieldIndexRecord($tid, 'jobdiva', $indexEntityType, $payloadForIndex);
+            }
 
             $processed++;
         } catch (\Throwable $e) {

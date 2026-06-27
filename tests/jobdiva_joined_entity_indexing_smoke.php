@@ -84,6 +84,9 @@ $a('per-entity applyAll iterates extracted sub-payloads through canonical aliase
     && str_contains($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', \$mapEntityType, \$payloadForApply, \$ctx)"));
 $a('joined applyAll wrapped in try/catch',
     preg_match("/integrationFieldMapApplyAll\(\\\$tid, 'jobdiva', \\\$mapEntityType.*?catch \(\\\\Throwable \\\$e\)/s", $sync) === 1);
+$a('placement payload is canonicalized before upsert/apply',
+    str_contains($sync, 'jobdivaCanonicalPlacementPayload($jd, jobdivaExtractJoinedSubPayloads($jd))')
+    && strpos($sync, 'jobdivaCanonicalPlacementPayload($jd, jobdivaExtractJoinedSubPayloads($jd))') < strpos($sync, 'jobdivaSyncUpsertPlacement('));
 
 // 4) Field Mapping Studio surface adapts to joined entity types.
 echo "\n4. FieldMappingStudio.jsx adapts root label per entity_type\n";

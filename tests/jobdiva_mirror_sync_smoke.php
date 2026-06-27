@@ -116,6 +116,12 @@ _ok('BI endpoint NPE workaround covers Jobs + Candidates');
 // `by_entity.jobdiva_candidate` must appear in the result envelope so
 // the UI can show per-entity counters after a Sync All run.
 // ─────────────────────────────────────────────────────────────────────
+assert(str_contains($syncSrc, 'jobdivaCanonicalFieldIndexEntityTypes($entityType)')
+    && str_contains($syncSrc, 'jobdivaCanonicalPayloadForEntity($entityType, $indexEntityType, $jd)')
+    && str_contains($syncSrc, "integrationPayloadFieldIndexRecord(\$tid, 'jobdiva', \$indexEntityType, \$payloadForIndex)"),
+    'mirror sync indexes native mirrors and canonical roots');
+_ok('mirror sync indexes native mirrors plus canonical roots');
+
 assert(str_contains($syncSrc, "'jobdiva_job'       => \$jobs"),
        'jobdivaSyncAll surfaces jobdiva_job in by_entity');
 assert(str_contains($syncSrc, "'jobdiva_candidate' => \$candidates"),

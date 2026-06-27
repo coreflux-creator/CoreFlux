@@ -42,8 +42,9 @@ $assert('renders the mappings table with stable test id',
     strpos($panel, 'data-testid="field-map-table"') !== false);
 $assert('per-row test id is keyed off the internal_field (operator-friendly)',
     strpos($panel, 'data-testid={`field-map-row-${r.internal_field}`}') !== false);
-$assert('shows the current external_field as <code>',
-    strpos($panel, 'data-testid={`field-map-external-${r.internal_field}`}>{r.external_field}') !== false);
+$assert('shows source_path before legacy external_field as <code>',
+    strpos($panel, "const sourcePath = r.source_path || r.external_field || '';") !== false
+    && strpos($panel, 'data-testid={`field-map-external-${r.internal_field}`}>{sourcePath}') !== false);
 
 echo "\nFieldMapEditor — inline edit\n";
 $assert('Edit button per row',
@@ -54,6 +55,11 @@ $assert('Inline transform <select> on edit',
     strpos($panel, 'data-testid={`field-map-edit-transform-${r.internal_field}`}') !== false);
 $assert('Save button POSTs to upsert endpoint',
     strpos($panel, "api.post('/api/admin/integrations/field_map.php'") !== false);
+$assert('inline save preserves generalised source_path + target routing',
+    strpos($panel, 'source_path:    sourcePath') !== false
+    && strpos($panel, 'defaultFieldMapTarget(entityType, r.internal_field)') !== false
+    && strpos($panel, 'target_table: r.target_table') !== false
+    && strpos($panel, "linked_entity: r.linked_entity || 'self'") !== false);
 $assert('Save button has stable test id',
     strpos($panel, 'data-testid={`field-map-save-${r.internal_field}`}') !== false);
 $assert('Cancel exits edit mode without writing',
@@ -81,14 +87,22 @@ $assert('new-row transform select',
     strpos($panel, 'data-testid="field-map-new-transform"') !== false);
 $assert('Save new mapping POSTs to upsert',
     strpos($panel, 'data-testid="field-map-new-save"') !== false);
+$assert('new mapping writes generalised source_path + target routing',
+    strpos($panel, 'defaultFieldMapTarget(entityType, newRow.internal_field)') !== false
+    && strpos($panel, 'source_path:    sourcePath') !== false
+    && strpos($panel, '...target') !== false);
 $assert('Cancel new mapping clears state',
     strpos($panel, 'data-testid="field-map-new-cancel"') !== false);
 $assert('hides the "Add" button when every internal field is already mapped',
     strpos($panel, 'Every mappable internal field is already configured') !== false);
 
 echo "\nFieldMapEditor — payload key autocomplete\n";
-$assert('builds payloadKeys from top-level scalar keys',
-    strpos($panel, 'Object.keys(payload).filter(k =>') !== false);
+$assert('declares scalar path flattener for nested payloads',
+    strpos($panel, 'function flattenPayloadScalarPaths(value') !== false
+    && strpos($panel, 'flattenPayloadScalarPaths(v, next, out)') !== false);
+$assert('builds payloadKeys from nested scalar paths',
+    strpos($panel, 'flattenPayloadScalarPaths(payload)') !== false
+    && strpos($panel, "path.startsWith('job.')") !== false);
 $assert('renders a shared <datalist> for autocomplete',
     strpos($panel, '<datalist id={`payloadkeys-${integration}-${entityType}`}>') !== false);
 $assert('inline edit input wired to the same datalist',
@@ -117,6 +131,16 @@ $assert('POST upserts via tenantIntegrationFieldMapUpsert',
 $assert('DELETE requires id query param',
     strpos($api, "(int) (api_query('id') ?? 0)") !== false
     && strpos($api, "tenantIntegrationFieldMapDelete") !== false);
+
+echo "\nServer side — linked mapping payload enrichment\n";
+$mappingsApi = (string) file_get_contents("{$ROOT}/api/integrations/mappings.php");
+$assert('mappings endpoint loads JobDiva canonical graph helper',
+    strpos($mappingsApi, "core/jobdiva/canonical_graph.php") !== false);
+$assert('mappings endpoint resolves placement jobID to jobdiva_job mirror payload',
+    strpos($mappingsApi, "_integrationMappingsJobDivaMirrorPayload(\$tenantId, 'jobdiva_job', \$jobId)") !== false
+    && strpos($mappingsApi, "['job id', 'jobId', 'job_id', 'jobID', 'JOBID']") !== false);
+$assert('mappings endpoint returns canonicalized placement payload',
+    strpos($mappingsApi, 'jobdivaCanonicalPlacementPayload($payload)') !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);
