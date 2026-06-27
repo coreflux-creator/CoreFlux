@@ -12,6 +12,7 @@ import Clients from './Clients';
 import ClientsGraphql from './ClientsGraphql';
 import ClientsCsvImport from './ClientsCsvImport';
 import StaffingReadiness from './StaffingReadiness';
+import Jobs from './Jobs';
 
 // Reuse existing module pages — they already exist and work; we're just
 // re-homing them under the Staffing umbrella per the CoreStaffing spec.
@@ -46,7 +47,7 @@ export default function StaffingModule({ session }) {
         <Route path="clients"      element={<Clients />} />
         <Route path="clients-graphql" element={<ClientsGraphql />} />
         <Route path="clients/csv_import" element={<ClientsCsvImport />} />
-        <Route path="jobs"         element={<ComingSoon title="Jobs / Roles"      phase="2" />} />
+        <Route path="jobs"         element={<Jobs />} />
         <Route path="profitability/*"  element={<StaffingProfitability session={session} />} />
         <Route path="payroll-readiness" element={<StaffingReadiness mode="payroll" />} />
         <Route path="billing-readiness" element={<StaffingReadiness mode="billing" />} />

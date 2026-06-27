@@ -95,6 +95,10 @@ $assert('upserts companies through JobDiva mapping-aware helper',
     strpos($src, 'function jobdivaUpsertCompanyMapped(') !== false
     && strpos($src, 'jobdivaUpsertCompanyMapped($tid, $extId, $name, $patch, $jd, $userId') !== false);
 $assert("tags 'client' role on backfilled company", strpos($src, "['client']") !== false);
+$assert('bridges JobDiva client companies into staffing_clients',
+    strpos($src, 'function jobdivaEnsureStaffingClientForCompany(') !== false
+    && strpos($src, 'staffingClientEnsureForCompany($tid, $companyId, $name') !== false
+    && strpos($src, 'jobdivaEnsureStaffingClientForCompany($tid, $companyId, $name, $userId)') !== false);
 $assert('binds mapping (company)',
     strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'company', \$extId, \$companyId, \$payload, 'pull', \$userId)") !== false);
 $assert('skips records missing extId or name',    strpos($src, "if (\$extId === '' || \$name === '') { \$skipped++; continue; }") !== false);

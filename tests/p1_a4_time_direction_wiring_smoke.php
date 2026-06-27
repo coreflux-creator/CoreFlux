@@ -7,8 +7,9 @@
  *     mapping helpers.
  *   - Pull driver gracefully skips entries when placement mapping missing
  *     (NO auto-create per user requirement).
- *   - Pull driver finds person_id + period_id by joining placements + active
- *     time_period for the work_date.
+ *   - Pull driver finds person_id from the mapped placement, ensures a
+ *     time_period cycle, creates/links the weekly staffing_timesheets header,
+ *     and refreshes header totals.
  *   - Push driver only ships approved entries from last 60 days, content-hash
  *     short-circuits unchanged rows, supports test transport injection.
  *   - sync.php orchestrator honors per-entity time config: pull when
@@ -47,17 +48,25 @@ echo "\nPull driver behaviour\n";
 $assert('hits V2 BI NewUpdatedTimesheetRecords path',
     strpos($src, "JOBDIVA_PATH_TIMESHEETS_DELTA") !== false);
 $assert('falls back across id key spellings',
-    strpos($src, "\$jd['timesheetId']") !== false
-    && strpos($src, "\$jd['timesheet_id']") !== false);
+    strpos($src, "jobdivaPluckField(\$jd, [") !== false
+    && strpos($src, "'timesheetId', 'timesheet_id', 'timesheet id', 'timecardId', 'timecard_id'") !== false);
 $assert('resolves placement via existing mapping (NO auto-create)',
     strpos($src, "mappingFindInternal(\$tid, 'jobdiva', 'placement', \$placementExtId)") !== false
-    && strpos($src, 'if (!$placementMapping) { $skipped++; continue; }') !== false);
-$assert('joins placements + active time_period for work_date',
-    strpos($src, "FROM placements p\n                   JOIN time_periods tp") !== false
-    && strpos($src, 'tp.start_date <= :wd') !== false
-    && strpos($src, 'tp.end_date   >= :wd') !== false);
-$assert('skips when no active period covers work_date',
-    strpos($src, 'if (!$meta) { $skipped++; continue; }') !== false);
+    && strpos($src, "\$skipReasons['placement_unmapped']++") !== false);
+$assert('ensures time_period cycle for work_date',
+    strpos($src, 'function jobdivaEnsureTimePeriod(') !== false
+    && strpos($src, 'INSERT INTO time_periods') !== false
+    && strpos($src, 'jobdivaTimeWeekBounds($tid, $workDate)') !== false);
+$assert('reads tenant staffing week-start setting',
+    strpos($src, 'tenant_staffing_settings') !== false
+    && strpos($src, 'week_starts_on') !== false);
+$assert('ensures staffing_timesheets header for imported rows',
+    strpos($src, 'function jobdivaEnsureStaffingTimesheet(') !== false
+    && strpos($src, 'INSERT INTO staffing_timesheets') !== false
+    && strpos($src, "'timesheet_id' => \$timesheetId") !== false);
+$assert('refreshes staffing_timesheets total after entry upsert',
+    strpos($src, 'function jobdivaRefreshStaffingTimesheetTotal(') !== false
+    && strpos($src, 'jobdivaRefreshStaffingTimesheetTotal($tid, $timesheetId)') !== false);
 $assert('binds mapping (time_entry)',
     strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'time_entry', \$extId, \$internalId, \$jd, 'pull')") !== false);
 $assert('emits audit row entity_type=time direction=pull',
@@ -90,8 +99,11 @@ $assert('emits audit row entity_type=time direction=push',
 echo "\nUpsert helper\n";
 $assert('respects approval lock — only updates draft/pending_review',
     strpos($src, 'WHERE id = :id AND tenant_id = :t AND status IN ("draft","pending_review")') !== false);
+$assert('INSERT links period + staffing header + hour metadata',
+    strpos($src, '(tenant_id, placement_id, person_id, period_id, timesheet_id, work_date, category,') !== false
+    && strpos($src, 'hour_type, billable, payable, hours, description, source, status, created_by_user_id)') !== false);
 $assert("INSERT defaults status='draft'",
-    strpos($src, "VALUES\n            (:t, :pl, :p, :prd, :wd, :c, :h, :d, :s, \"draft\", :u)") !== false);
+    strpos($src, ':s, "draft", :u)') !== false);
 
 echo "\nCategory mapping (runtime)\n";
 require_once $path;

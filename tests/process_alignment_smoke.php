@@ -22,7 +22,7 @@ $a('people setup email records soft mail failure as API failure', str_contains($
 $a('people setup email does not report log-only as sent', str_contains($setup, "(\$result['driver'] ?? '') === 'log'"));
 
 $placementLib = $c('modules/placements/lib/placements.php');
-foreach (['client_id', 'billing_cycle_id', 'ap_cycle_id', 'payroll_cycle_id'] as $field) {
+foreach (['client_id', 'staffing_job_id', 'billing_cycle_id', 'ap_cycle_id', 'payroll_cycle_id'] as $field) {
     $a("placement read model includes {$field}", str_contains($placementLib, "'{$field}'"));
 }
 $a('placement list joins canonical companies', str_contains($placementLib, 'LEFT JOIN companies ec'));

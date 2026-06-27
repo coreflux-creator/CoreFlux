@@ -31,6 +31,7 @@ require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../integrations/payload_field_index.php';
 require_once __DIR__ . '/../../modules/people/lib/companies.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
+require_once __DIR__ . '/../../modules/staffing/lib/jobs.php';
 
 /**
  * JobDiva V2 BI endpoints — verified 2026-02 from
@@ -337,6 +338,35 @@ function jobdivaRowsFromResponse($resp): array
     return !empty($body) ? [$body] : [];
 }
 
+function jobdivaEnsureStaffingClientForCompany(int $tid, int $companyId, string $name, ?int $userId): void
+{
+    if ($companyId <= 0 || trim($name) === '') return;
+    try {
+        staffingClientEnsureForCompany($tid, $companyId, $name, [
+            'created_by_user_id' => $userId,
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[jobdiva company sync] staffing client bridge failed: ' . $e->getMessage());
+    }
+}
+
+function jobdivaBridgeStaffingJobFromPayload(int $tid, string $jobdivaJobId, array $payload, ?int $userId): ?int
+{
+    $jobdivaJobId = trim($jobdivaJobId);
+    if ($jobdivaJobId === '') return null;
+    try {
+        $job = staffingJobEnsureFromJobDivaPayload($tid, $jobdivaJobId, $payload, $userId);
+        $staffingJobId = (int) ($job['id'] ?? 0);
+        if ($staffingJobId > 0) {
+            staffingJobLinkPlacementsByJobDivaId($tid, $jobdivaJobId, $staffingJobId);
+            return $staffingJobId;
+        }
+    } catch (\Throwable $e) {
+        error_log('[jobdiva job sync] staffing job bridge failed: ' . $e->getMessage());
+    }
+    return null;
+}
+
 function jobdivaUpsertCompanyMapped(
     int $tid,
     string $extId,
@@ -381,12 +411,18 @@ function jobdivaUpsertCompanyMapped(
                     ->execute($params);
             }
             foreach ($roles as $role) companiesAddRole($companyId, $role);
+            if (in_array('client', $roles, true)) {
+                jobdivaEnsureStaffingClientForCompany($tid, $companyId, $name, $userId);
+            }
             mappingUpsert($tid, 'jobdiva', 'company', $extId, $companyId, $payload, 'pull', $userId);
             return $companyId;
         }
     }
 
     $companyId = companiesUpsertByName($tid, $name, $patch, $roles);
+    if (in_array('client', $roles, true)) {
+        jobdivaEnsureStaffingClientForCompany($tid, $companyId, $name, $userId);
+    }
     mappingUpsert($tid, 'jobdiva', 'company', $extId, $companyId, $payload, 'pull', $userId);
     return $companyId;
 }
@@ -2027,6 +2063,11 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $tid, 'jobdiva', 'placement', 'jobdiva_job_id', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, ['jobId', 'job_id', 'jobID', 'JOBID', 'reqId', 'req_id'])
     );
+    $staffingJobId = null;
+    if ($jobdivaJobId !== '') {
+        $staffingJob = staffingJobFindBySource($tid, 'jobdiva', $jobdivaJobId);
+        if ($staffingJob) $staffingJobId = (int) ($staffingJob['id'] ?? 0) ?: null;
+    }
     $recruiterName = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'recruiter_name', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
@@ -2149,6 +2190,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'client_approver_email'=> ['cae',   $approverEmail ?: null],
             'title'                => ['ti',    $title],
             'jobdiva_job_id'       => ['jji',   $jobdivaJobId ?: null],
+            'staffing_job_id'      => ['sji',   $staffingJobId],
             'recruiter_name'       => ['rn',    $recruiterName ?: null],
             'recruiter_email'      => ['re',    $recruiterEmail ?: null],
             'account_manager_name' => ['amn',   $accountManagerName ?: null],
@@ -2175,7 +2217,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
                 $skipped[] = $col;
                 continue;
             }
-            if ($val === null && $col === 'client_id') {
+            if ($val === null && in_array($col, ['client_id', 'staffing_job_id'], true)) {
                 $skipped[] = $col;
                 continue;
             }
@@ -2197,14 +2239,14 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $pdo->prepare(
         'INSERT INTO placements (tenant_id, person_id, external_id, jobdiva_job_id, status, start_date, end_date,
                                   actual_end_date, due_date, engagement_type, worksite_state, worksite_country,
-                                  remote_policy, notes, end_client_name, end_client_company_id, client_id,
+                                  remote_policy, notes, end_client_name, end_client_company_id, client_id, staffing_job_id,
                                   client_approver_name, client_approver_email, title,
                                   recruiter_name, recruiter_email,
                                   account_manager_name, account_manager_email,
                                   client_bill_cycle, client_bill_cycle_anchor,
                                   vendor_pay_cycle, vendor_pay_cycle_anchor)
          VALUES (:t, :p, :ext, :jji, :st, :sd, :ed, :aed, :dd, :eng, :ws, :wc,
-                 :rp, :notes, :ecn, :ecc, :cli, :can, :cae, :ti,
+                 :rp, :notes, :ecn, :ecc, :cli, :sji, :can, :cae, :ti,
                  :rn, :re, :amn, :ame,
                  :cbc, :cbca, :vpc, :vpca)'
     )->execute([
@@ -2225,6 +2267,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         'ecn'   => $endClientName ?: null,
         'ecc'   => $endClientCompanyId,
         'cli'   => $clientId,
+        'sji'   => $staffingJobId,
         'can'   => $approverName ?: null,
         'cae'   => $approverEmail ?: null,
         'ti'    => $title,
@@ -2514,6 +2557,10 @@ function jobdivaSyncMirrorEntity(
                 integrationPayloadFieldIndexRecord($tid, 'jobdiva', $indexEntityType, $payloadForIndex);
             }
 
+            if ($entityType === 'jobdiva_job' && $upsert !== null) {
+                jobdivaBridgeStaffingJobFromPayload($tid, $extId, $jd, $userId);
+            }
+
             $processed++;
         } catch (\Throwable $e) {
             $failed++;
@@ -2647,7 +2694,8 @@ function jobdivaMirrorStoreAndIndex(
     int $tid,
     string $entityType,
     array $items,
-    array $idKeys
+    array $idKeys,
+    ?int $userId = null
 ): array {
     require_once __DIR__ . '/../integrations/payload_field_index.php';
     $pdo = getDB();
@@ -2683,6 +2731,9 @@ function jobdivaMirrorStoreAndIndex(
             foreach (jobdivaCanonicalFieldIndexEntityTypes($entityType) as $indexEntityType) {
                 $payloadForIndex = jobdivaCanonicalPayloadForEntity($entityType, $indexEntityType, $jd);
                 integrationPayloadFieldIndexRecord($tid, 'jobdiva', $indexEntityType, $payloadForIndex);
+            }
+            if ($entityType === 'jobdiva_job' && $upsert !== null) {
+                jobdivaBridgeStaffingJobFromPayload($tid, $extId, $jd, $userId);
             }
             $processed++;
         } catch (\Throwable $e) {
@@ -2826,7 +2877,7 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
     if ($jobs) {
         $stats['jobs_returned'] = count($jobs);
         $stored = jobdivaMirrorStoreAndIndex($tid, 'jobdiva_job', $jobs,
-            ['id', 'jobId', 'job_id', 'jobID', 'JOBID', 'job id']);
+            ['id', 'jobId', 'job_id', 'jobID', 'JOBID', 'job id'], $userId);
         $stats['jobs_processed'] = $stored['processed'];
     }
 

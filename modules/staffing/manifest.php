@@ -34,6 +34,7 @@ return [
 
     'permissions' => [
         'staffing.view'                  => 'View the Staffing module (gates the umbrella)',
+        'staffing.jobs.manage'           => 'Create and manage staffing jobs / roles',
         'staffing.time.view'             => 'View timesheets',
         'staffing.time.create'           => 'Create / edit own timesheet entries',
         'staffing.time.submit'           => 'Submit timesheet for review',

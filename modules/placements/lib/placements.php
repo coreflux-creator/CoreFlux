@@ -32,7 +32,7 @@ function placementsSafeFields(string $alias = 'p'): string
 {
     $cols = ['id','tenant_id','person_id','external_id','jobdiva_job_id','status','start_date','end_date',
              'actual_end_date','due_date','engagement_type','worksite_state','worksite_country',
-             'remote_policy','title','end_client_name','end_client_company_id','client_id','notes',
+             'remote_policy','title','end_client_name','end_client_company_id','client_id','staffing_job_id','notes',
              'recruiter_name','recruiter_email','account_manager_name','account_manager_email',
              'client_approver_name','client_approver_email','tokenized_email_approval_enabled',
              'bulk_uploads_can_be_pre_approved',
@@ -68,10 +68,13 @@ function placementGet(int $id): ?array
                    pe.work_auth_status  AS person_work_auth_status,
                    pe.work_auth_expiry  AS person_work_auth_expiry,
                    ec.name              AS end_client_company_name,
-                   ec.website           AS end_client_company_website
+                   ec.website           AS end_client_company_website,
+                   sj.title             AS staffing_job_title,
+                   sj.status            AS staffing_job_status
             FROM placements p
             LEFT JOIN people    pe ON pe.id = p.person_id          AND pe.tenant_id = p.tenant_id
             LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
+            LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id
             WHERE p.tenant_id = :tenant_id AND p.id = :id AND p.deleted_at IS NULL';
     $row = scopedFind($sql, ['id' => $id]);
     if (!$row) return null;
@@ -163,10 +166,12 @@ function placementsList(array $filters = []): array
     $total = (int) (scopedFind("SELECT COUNT(*) AS c FROM placements p WHERE {$whereSql}", $params)['c'] ?? 0);
     $rows  = scopedQuery(
         'SELECT ' . placementsSafeFields() . ', pe.first_name, pe.last_name, pe.email_primary,
-                COALESCE(ec.name, p.end_client_name) AS end_client_display_name
+                COALESCE(ec.name, p.end_client_name) AS end_client_display_name,
+                sj.title AS staffing_job_title
          FROM placements p
          LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
          LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
+         LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id
          WHERE ' . $whereSql . '
          ORDER BY p.start_date DESC
          LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
