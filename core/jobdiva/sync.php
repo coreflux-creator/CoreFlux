@@ -323,6 +323,74 @@ function jobdivaSyncIsFirstSync(int $tenantId, string $entityType): bool
     }
 }
 
+function jobdivaRowsFromResponse($resp): array
+{
+    $body = $resp;
+    if (is_array($resp) && array_key_exists('body', $resp)
+        && (array_key_exists('status', $resp) || array_key_exists('headers', $resp))) {
+        $body = $resp['body'];
+    }
+    if (!is_array($body)) return [];
+    if (isset($body['data']) && is_array($body['data'])) return $body['data'];
+    if (isset($body['items']) && is_array($body['items'])) return $body['items'];
+    if (!empty($body) && array_keys($body) === range(0, count($body) - 1)) return $body;
+    return !empty($body) ? [$body] : [];
+}
+
+function jobdivaUpsertCompanyMapped(
+    int $tid,
+    string $extId,
+    string $name,
+    array $patch,
+    array $payload,
+    ?int $userId,
+    array $roles = ['client']
+): int {
+    $name = trim($name);
+    if ($extId === '' || $name === '') throw new \InvalidArgumentException('company external id and name required');
+
+    $mapped = mappingFindInternal($tid, 'jobdiva', 'company', $extId);
+    if ($mapped) {
+        $companyId = (int) $mapped['internal_entity_id'];
+        $pdo = getDB();
+        $st = $pdo->prepare('SELECT id, name FROM companies WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL LIMIT 1');
+        $st->execute(['t' => $tid, 'id' => $companyId]);
+        $current = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if ($current) {
+            unset($patch['created_by_user_id']);
+            $updatable = array_filter($patch, static fn($v) => $v !== null && $v !== '');
+            $dupeId = 0;
+            if ($name !== '' && $name !== (string) ($current['name'] ?? '')) {
+                $dupe = $pdo->prepare('SELECT id FROM companies WHERE tenant_id = :t AND name = :n AND id != :id AND deleted_at IS NULL LIMIT 1');
+                $dupe->execute(['t' => $tid, 'n' => $name, 'id' => $companyId]);
+                $dupeId = (int) $dupe->fetchColumn();
+                if ($dupeId > 0) {
+                    $dupeMap = mappingFindExternal($tid, 'jobdiva', 'company', $dupeId);
+                    if ($dupeMap && (string) ($dupeMap['external_id'] ?? '') !== $extId) $dupeId = 0;
+                }
+                if ($dupeId <= 0) $updatable['name'] = $name;
+            }
+            if ($dupeId > 0) {
+                $pdo->prepare('UPDATE company_contacts SET company_id = :new WHERE tenant_id = :t AND company_id = :old')
+                    ->execute(['new' => $dupeId, 't' => $tid, 'old' => $companyId]);
+                $companyId = $dupeId;
+            } elseif (!empty($updatable)) {
+                $setSql = implode(', ', array_map(static fn($k) => "{$k} = :{$k}", array_keys($updatable)));
+                $params = $updatable + ['id' => $companyId, 'tenant_id' => $tid];
+                $pdo->prepare("UPDATE companies SET {$setSql} WHERE id = :id AND tenant_id = :tenant_id")
+                    ->execute($params);
+            }
+            foreach ($roles as $role) companiesAddRole($companyId, $role);
+            mappingUpsert($tid, 'jobdiva', 'company', $extId, $companyId, $payload, 'pull', $userId);
+            return $companyId;
+        }
+    }
+
+    $companyId = companiesUpsertByName($tid, $name, $patch, $roles);
+    mappingUpsert($tid, 'jobdiva', 'company', $extId, $companyId, $payload, 'pull', $userId);
+    return $companyId;
+}
+
 function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
 {
     // First-ever Companies sync: widen the window to 365 days so the
@@ -388,9 +456,7 @@ function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
                 'created_by_user_id'   => $userId,
             ];
 
-            $companyId = companiesUpsertByName($tid, $name, $patch, ['client']);
-
-            mappingUpsert($tid, 'jobdiva', 'company', $extId, $companyId, $jd, 'pull', $userId);
+            $companyId = jobdivaUpsertCompanyMapped($tid, $extId, $name, $patch, $jd, $userId, ['client']);
             // Phase 2 — apply tenant mappings against the BI company payload.
             try {
                 require_once __DIR__ . '/../integrations/field_map_apply.php';
@@ -507,9 +573,7 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
                         $tid, 'POST', '/apiv2/jobdiva/searchCustomer',
                         ['customerId' => (int) $companyExtId]
                     );
-                    $candidateRows = $resp['body']['data']
-                        ?? $resp['body']['items']
-                        ?? (is_array($resp['body'] ?? null) && array_keys($resp['body']) === range(0, count($resp['body']) - 1) ? $resp['body'] : null);
+                    $candidateRows = jobdivaRowsFromResponse($resp);
                     if (is_array($candidateRows) && !empty($candidateRows) && is_array($candidateRows[0])) {
                         $jdCo = $candidateRows[0];
                         $coName = trim((string) (
@@ -517,7 +581,7 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
                             ?? $jdCo['customerName'] ?? $jdCo['customer_name'] ?? ''
                         ));
                         if ($coName !== '') {
-                            $newCoId = companiesUpsertByName($tid, $coName, [
+                            $newCoId = jobdivaUpsertCompanyMapped($tid, (string) $companyExtId, $coName, [
                                 'website'            => $jdCo['website'] ?? null,
                                 'phone'              => $jdCo['phone']   ?? null,
                                 'address_line1'      => $jdCo['address1'] ?? $jdCo['address'] ?? null,
@@ -527,8 +591,7 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
                                 'postal_code'        => $jdCo['zip']     ?? $jdCo['postal_code'] ?? null,
                                 'country'            => $jdCo['country'] ?? 'US',
                                 'created_by_user_id' => $userId,
-                            ], ['client']);
-                            mappingUpsert($tid, 'jobdiva', 'company', (string) $companyExtId, $newCoId, $jdCo, 'pull', $userId);
+                            ], $jdCo, $userId, ['client']);
                             $companyMapping = mappingFindInternal($tid, 'jobdiva', 'company', $companyExtId);
                             $companyMappingCache[$companyCacheKey] = $companyMapping ?: null;
                             $skipReasons['backfilled_companies'] = ($skipReasons['backfilled_companies'] ?? 0) + 1;
@@ -541,6 +604,24 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
                     error_log("[jobdiva] backfill_companies_on_contact_pull failed for customer={$companyExtId}: " . $bfe->getMessage());
                 }
                 if (!$companyMapping) $companyBackfillMisses[$companyCacheKey] = true;
+            }
+            if (!$companyMapping && !empty($opts['backfill_companies_on_contact_pull'])) {
+                $placeholderName = 'JobDiva Company ' . (string) $companyExtId;
+                $placeholderPayload = [
+                    'id' => (string) $companyExtId,
+                    'name' => $placeholderName,
+                    '_coreflux_placeholder' => true,
+                    '_coreflux_placeholder_reason' => 'JobDiva contact parent company detail was unavailable during contact sync.',
+                ];
+                $placeholderId = jobdivaUpsertCompanyMapped($tid, (string) $companyExtId, $placeholderName, [
+                    'notes' => 'Placeholder created from JobDiva contact sync; later JobDiva company detail can enrich this record.',
+                    'created_by_user_id' => $userId,
+                ], $placeholderPayload, $userId, ['client']);
+                $companyMapping = mappingFindInternal($tid, 'jobdiva', 'company', $companyExtId);
+                $companyMappingCache[$companyCacheKey] = $companyMapping ?: null;
+                if ($placeholderId > 0) {
+                    $skipReasons['placeholder_companies'] = ($skipReasons['placeholder_companies'] ?? 0) + 1;
+                }
             }
             if (!$companyMapping) {
                 $skipped++; $skipReasons['company_unmapped']++;
@@ -592,6 +673,17 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
                 '%d parent company%s auto-fetched via searchCustomer during this contact sync (backfill_companies_on_contact_pull=true). The contact(s) succeeded; no operator action needed.',
                 $skipReasons['backfilled_companies'],
                 $skipReasons['backfilled_companies'] === 1 ? '' : 'ies'
+            ),
+        ];
+    }
+    if (!empty($skipReasons['placeholder_companies'])) {
+        $errors[] = [
+            'entity' => 'contact',
+            'kind'   => 'placeholder_companies',
+            'error'  => sprintf(
+                '%d parent company placeholder%s created because JobDiva did not return detail for those company IDs. Contacts were preserved and the placeholders can be enriched by a later company/detail sync.',
+                $skipReasons['placeholder_companies'],
+                $skipReasons['placeholder_companies'] === 1 ? '' : 's'
             ),
         ];
     }
@@ -1235,8 +1327,7 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
             $diag[$kind]['attempted']++;
             try {
                 $resp = jobdivaCall($tid, 'POST', $cfg['endpoint'], [$bodyKey => $id]);
-                $body = $resp['body'] ?? [];
-                $rows = $body['data'] ?? $body['items'] ?? (is_array($body) && isset($body[0]) ? $body : []);
+                $rows = jobdivaRowsFromResponse($resp);
                 if (is_array($rows) && count($rows) > 0 && is_array($rows[0])) {
                     $cache[$kind][$id] = $rows[0];
                     $diag[$kind]['succeeded']++;

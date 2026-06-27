@@ -91,10 +91,12 @@ $assert('hits V2 BI NewUpdatedCompanyRecords',    strpos($src, 'JOBDIVA_PATH_COM
                                                   && strpos($src, "'/apiv2/bi/NewUpdatedCompanyRecords'") !== false);
 $assert('falls back across id key spellings',     strpos($src, "\$jd['companyId']") !== false && strpos($src, "\$jd['company_id']") !== false);
 $assert('falls back across name key spellings',   strpos($src, "\$jd['companyName']") !== false && strpos($src, "\$jd['company_name']") !== false);
-$assert('upserts via companiesUpsertByName',      strpos($src, "companiesUpsertByName(\$tid, \$name") !== false);
+$assert('upserts companies through JobDiva mapping-aware helper',
+    strpos($src, 'function jobdivaUpsertCompanyMapped(') !== false
+    && strpos($src, 'jobdivaUpsertCompanyMapped($tid, $extId, $name, $patch, $jd, $userId') !== false);
 $assert("tags 'client' role on backfilled company", strpos($src, "['client']") !== false);
 $assert('binds mapping (company)',
-    strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'company', \$extId, \$companyId, \$jd, 'pull', \$userId)") !== false);
+    strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'company', \$extId, \$companyId, \$payload, 'pull', \$userId)") !== false);
 $assert('skips records missing extId or name',    strpos($src, "if (\$extId === '' || \$name === '') { \$skipped++; continue; }") !== false);
 $assert('emits audit row entity_type=company',
     strpos($src, "'entity_type'     => 'company'") !== false
@@ -126,6 +128,9 @@ $assert("contact insert defaults role to 'other' (via \$contactRoleMap fallback)
 $assert('contact sync caches parent company mapping/backfill attempts',
     strpos($src, '$companyMappingCache') !== false
     && strpos($src, '$companyBackfillMisses') !== false);
+$assert('contact sync can preserve contacts with placeholder parent companies',
+    strpos($src, "'placeholder_companies'") !== false
+    && strpos($src, 'JobDiva Company ') !== false);
 
 echo "\nPlacements driver — discovery via searchStart + timesheet fallback (2026-02 follow-on)\n";
 $assert('requires sync_placements helper module',

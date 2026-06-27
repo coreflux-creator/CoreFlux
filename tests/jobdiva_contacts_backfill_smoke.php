@@ -36,10 +36,12 @@ $assert('backfill calls /apiv2/jobdiva/searchCustomer',
     str_contains($syncSrc, "'/apiv2/jobdiva/searchCustomer'"));
 $assert('backfill uses customerId body key',
     preg_match("/'customerId'\s*=>\s*\(int\)\s*\\\$companyExtId/", $syncSrc) === 1);
-$assert('backfill upserts via companiesUpsertByName',
-    str_contains($syncSrc, 'companiesUpsertByName($tid, $coName'));
+$assert('backfill normalizes decoded jobdivaCall body rows',
+    str_contains($syncSrc, 'jobdivaRowsFromResponse($resp)'));
 $assert('backfill writes a jobdiva→company mapping',
-    str_contains($syncSrc, "mappingUpsert(\$tid, 'jobdiva', 'company', (string) \$companyExtId, \$newCoId"));
+    str_contains($syncSrc, 'jobdivaUpsertCompanyMapped($tid, (string) $companyExtId, $coName'));
+$assert('backfill can create placeholder parent companies',
+    str_contains($syncSrc, 'JobDiva Company ') && str_contains($syncSrc, "'placeholder_companies'"));
 $assert('backfill retries the original mapping lookup (2nd mappingFindInternal call)',
     substr_count($syncSrc, "mappingFindInternal(\$tid, 'jobdiva', 'company', \$companyExtId)") >= 2);
 $assert('backfill failure is non-fatal (error_log + falls through)',
@@ -54,7 +56,7 @@ $apiSrc = (string) file_get_contents('/app/api/jobdiva.php');
 $assert('action=sync extracts backfill flag from body',
     str_contains($apiSrc, "\$body['backfill_companies_on_contact_pull']"));
 $assert('flag is passed into \$opts (not just read)',
-    preg_match("/\\\$opts\['backfill_companies_on_contact_pull'\]\s*=\s*true/", $apiSrc) === 1);
+    preg_match("/\\\$opts\['backfill_companies_on_contact_pull'\]\s*=\s*\(bool\)\s*\\\$body\['backfill_companies_on_contact_pull'\]/", $apiSrc) === 1);
 $assert('action=sync still requires integrations.jobdiva.manage RBAC',
     preg_match("/case 'sync'.*rbac_legacy_require\(\\\$user,\s*'integrations\.jobdiva\.manage'\)/s", $apiSrc) === 1);
 
