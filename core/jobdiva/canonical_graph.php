@@ -23,7 +23,7 @@ function jobdivaCanonicalEntityAliases(): array
 {
     return [
         'placement' => [
-            'placement', 'assignment', 'start', 'job', 'jobdiva_assignment', 'jobdiva_job',
+            'placement',
         ],
         'person' => [
             'person', 'candidate', 'employee', 'worker', 'jobdiva_candidate',
@@ -86,6 +86,22 @@ function jobdivaCanonicalPayloadForEntity(string $nativeEntityType, string $targ
 {
     $namespace = jobdivaCanonicalFacetNamespace($nativeEntityType, $targetEntityType);
     return $namespace === null ? $payload : [$namespace => $payload];
+}
+
+function jobdivaCanonicalFieldRootsForEntity(string $nativeEntityType): array
+{
+    $native = strtolower(trim($nativeEntityType));
+    $out = [];
+    foreach (jobdivaCanonicalEntityTypes() as $root) {
+        if (in_array($native, jobdivaNativeEntityTypesForCanonical($root), true)) {
+            $out[] = $root;
+        }
+    }
+    $canonical = jobdivaCanonicalEntityType($native);
+    if (in_array($canonical, jobdivaCanonicalEntityTypes(), true)) {
+        $out[] = $canonical;
+    }
+    return array_values(array_unique($out));
 }
 
 function jobdivaCanonicalPlacementPayload(array $payload, array $subPayloads = []): array

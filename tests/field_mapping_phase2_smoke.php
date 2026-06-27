@@ -125,6 +125,10 @@ $a('cf bucket flushed via customFieldValueUpsert when available',
     str_contains($apply, 'customFieldValueUpsert($tid, $entityType, $b[\'id\'], $code, $v)'));
 $a('skip + error log when linked_entity has no context row',
     str_contains($apply, 'no_context_row for linked_entity'));
+$a('protected identity targets are hidden and skipped',
+    str_contains($apply, 'function integrationFieldMapIsProtectedTarget')
+    && str_contains($apply, "'external_id'")
+    && str_contains($apply, 'protected_target {$table}.{$col}'));
 
 echo "\n6. JobDiva sync invokes applyAll right after mappingUpsert\n";
 $sync = (string) file_get_contents('/app/core/jobdiva/sync.php');

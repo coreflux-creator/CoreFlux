@@ -145,6 +145,10 @@ $assert('Upsert UPDATE path also writes title',
     strpos($syncSrc, "'title'                => ['ti',    \$title]") !== false);
 $assert('Upsert pluck-resolves title across JobDiva key shapes',
     strpos($syncSrc, "'jobTitle', 'job_title', 'job title', 'title'") !== false);
+$assert('Upsert recovers raw Start IDs that were written into placements.external_id',
+    strpos($syncSrc, "\$canonicalExternalId = 'jd:' . \$extId;") !== false
+    && strpos($syncSrc, 'AND external_id = :raw') !== false
+    && strpos($syncSrc, 'SET external_id = :ext') !== false);
 
 // Slice 4 expansion regression — registry-aware writes for the new
 // allow-listed columns. Catches the "user can pick the column from the

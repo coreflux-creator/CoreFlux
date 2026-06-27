@@ -66,6 +66,29 @@ export default function JobDivaSettings() {
     }
   };
 
+  const onRepairDuplicatePlacements = async (dryRun = true) => {
+    clear(); setRepairResult(null); setBusy(b => ({ ...b, repairDuplicatePlacements: true }));
+    try {
+      if (!dryRun && !window.confirm('Archive duplicate JobDiva placement rows that have no downstream time, billing, or AP activity?')) {
+        return;
+      }
+      const r = await api.post('/api/admin/integrations/jobdiva_mapping_alignment.php?action=repair_duplicate_placements', {
+        dry_run: dryRun,
+      });
+      setRepairResult(r.repair || r);
+      await loadAlignment();
+      const repaired = r.repair?.groups_repaired ?? 0;
+      const archived = r.repair?.placements_archived ?? 0;
+      setMsg(dryRun
+        ? `Duplicate placement cleanup preview: ${repaired} group(s), ${archived} row(s).`
+        : `Duplicate placement cleanup archived ${archived} row(s).`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(b => ({ ...b, repairDuplicatePlacements: false }));
+    }
+  };
+
   const onConnect = async (e) => {
     e?.preventDefault?.();
     clear();
@@ -234,7 +257,9 @@ export default function JobDivaSettings() {
         error={alignmentError}
         onRefresh={loadAlignment}
         onRepairClientLinks={onRepairClientLinks}
+        onRepairDuplicatePlacements={onRepairDuplicatePlacements}
         repairing={!!busy.repairClientLinks}
+        repairingDuplicates={!!busy.repairDuplicatePlacements}
         repairResult={repairResult}
       />
 
@@ -610,7 +635,9 @@ function JobDivaMappingAlignmentCard({
   error,
   onRefresh,
   onRepairClientLinks,
+  onRepairDuplicatePlacements,
   repairing,
+  repairingDuplicates,
   repairResult,
 }) {
   const counts = data?.canonical_mapping_counts || data?.mapping_counts || {};
@@ -653,6 +680,18 @@ function JobDivaMappingAlignmentCard({
             <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
             {repairing ? 'Repairing...' : 'Repair client links'}
           </button>
+          <button type="button" className="btn btn--ghost" onClick={() => onRepairDuplicatePlacements?.(true)}
+                  data-testid="jobdiva-mapping-alignment-preview-duplicate-placements" disabled={repairingDuplicates}
+                  style={{ fontSize: 12 }}>
+            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            {repairingDuplicates ? 'Checking...' : 'Preview duplicates'}
+          </button>
+          <button type="button" className="btn btn--danger" onClick={() => onRepairDuplicatePlacements?.(false)}
+                  data-testid="jobdiva-mapping-alignment-repair-duplicate-placements" disabled={repairingDuplicates}
+                  style={{ fontSize: 12 }}>
+            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            {repairingDuplicates ? 'Repairing...' : 'Archive duplicates'}
+          </button>
         </div>
       </div>
 
@@ -674,7 +713,9 @@ function JobDivaMappingAlignmentCard({
       {repairResult && (
         <p data-testid="jobdiva-mapping-alignment-repair-result"
            style={{ margin: '10px 0 0', padding: 10, border: '1px solid #a7f3d0', background: '#ecfdf5', color: '#065f46', borderRadius: 6, fontSize: 12 }}>
-          Checked {repairResult.checked ?? 0}; repaired {repairResult.repaired ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.
+          {'groups_checked' in repairResult
+            ? <>Groups {repairResult.groups_checked ?? 0}; repaired {repairResult.groups_repaired ?? 0}; archived {repairResult.placements_archived ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
+            : <>Checked {repairResult.checked ?? 0}; repaired {repairResult.repaired ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>}
         </p>
       )}
 

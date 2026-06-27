@@ -170,14 +170,15 @@ foreach (jobdivaCanonicalEntityTypes() as $root) {
 }
 foreach ($extracted as $nativeType => $sub) {
     if (!is_array($sub) || $sub === []) continue;
-    $canonical = jobdivaCanonicalEntityType((string) $nativeType);
-    if (!array_key_exists($canonical, $canonicalExtracted)) continue;
-    $wrapped = jobdivaCanonicalPayloadForEntity((string) $nativeType, $canonical, $sub);
-    $canonicalExtracted[$canonical] = array_merge(
-        $canonicalExtracted[$canonical],
-        _jobdivaRawPayloadFlattenKeys($wrapped)
-    );
-    $canonicalSources[$canonical][] = (string) $nativeType;
+    foreach (jobdivaCanonicalFieldRootsForEntity((string) $nativeType) as $canonical) {
+        if (!array_key_exists($canonical, $canonicalExtracted)) continue;
+        $wrapped = jobdivaCanonicalPayloadForEntity((string) $nativeType, $canonical, $sub);
+        $canonicalExtracted[$canonical] = array_merge(
+            $canonicalExtracted[$canonical],
+            _jobdivaRawPayloadFlattenKeys($wrapped)
+        );
+        $canonicalSources[$canonical][] = (string) $nativeType;
+    }
 }
 $canonicalStats = [];
 foreach ($canonicalExtracted as $root => $keys) {

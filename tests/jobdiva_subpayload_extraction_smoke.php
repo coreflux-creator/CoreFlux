@@ -147,6 +147,10 @@ $a('canonical placement payload exposes company.name alias',
     ($canonicalPayload['company']['name'] ?? null) === 'Public Storage Inc.');
 $a('canonical placement payload preserves native _jd_* evidence',
     ($canonicalPayload['_jd_job']['title'] ?? null) === 'Lead Engineer');
+$a('jobdiva_job remains evidence, not placement identity',
+    jobdivaCanonicalEntityType('jobdiva_job') === 'jobdiva_job');
+$a('jobdiva_job fields still feed placement field roots',
+    in_array('placement', jobdivaCanonicalFieldRootsForEntity('jobdiva_job'), true));
 
 // 3) Empty buckets dropped.
 echo "\n3. Empty buckets dropped from output\n";

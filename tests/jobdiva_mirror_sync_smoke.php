@@ -119,8 +119,8 @@ _ok('BI endpoint NPE workaround covers Jobs + Candidates');
 assert(str_contains($syncSrc, 'jobdivaCanonicalFieldIndexEntityTypes($entityType)')
     && str_contains($syncSrc, 'jobdivaCanonicalPayloadForEntity($entityType, $indexEntityType, $jd)')
     && str_contains($syncSrc, "integrationPayloadFieldIndexRecord(\$tid, 'jobdiva', \$indexEntityType, \$payloadForIndex)"),
-    'mirror sync indexes native mirrors and canonical roots');
-_ok('mirror sync indexes native mirrors plus canonical roots');
+    'mirror sync indexes native mirrors through canonical field-index helper');
+_ok('mirror sync indexes native mirrors without creating placement identities');
 
 assert(str_contains($syncSrc, "'jobdiva_job'       => \$jobs"),
        'jobdivaSyncAll surfaces jobdiva_job in by_entity');

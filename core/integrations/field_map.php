@@ -36,6 +36,26 @@ const TENANT_INTEGRATION_FIELD_MAP_TRANSFORMS = [
     'dollars_to_cents',   // multiply by 100
 ];
 
+function tenantIntegrationFieldMapProtectedInternalFields(): array
+{
+    return [
+        'id',
+        'tenant_id',
+        'external_id',
+        'source_system',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+        'created_by_user_id',
+        'updated_by_user_id',
+    ];
+}
+
+function tenantIntegrationFieldMapIsProtectedInternalField(string $field): bool
+{
+    return in_array(strtolower(trim($field)), tenantIntegrationFieldMapProtectedInternalFields(), true);
+}
+
 /**
  * Internal-field allow-list per entity_type. Restricts what columns the
  * admin UI can target. Keys MUST match real CoreFlux columns on the
@@ -235,7 +255,10 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             'kind',                  // vendor_payment | customer_payment
         ],
     ];
-    return $map[$entityType] ?? [];
+    return array_values(array_filter(
+        $map[$entityType] ?? [],
+        static fn($field) => !tenantIntegrationFieldMapIsProtectedInternalField((string) $field)
+    ));
 }
 
 function tenantIntegrationFieldMapList(int $tenantId, ?string $integration = null, ?string $entityType = null): array

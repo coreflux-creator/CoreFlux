@@ -36,6 +36,7 @@ foreach ([
 ] as $f) {
     $a("placement allow-list surfaces {$f}", in_array($f, $placement, true));
 }
+$a('placement allow-list excludes source-owned external_id', !in_array('external_id', $placement, true));
 
 echo "\n2. Allow-list expansion (person)\n";
 $person = tenantIntegrationFieldMapAllowedInternalFields('person');
@@ -50,6 +51,7 @@ foreach ([
 foreach (['dob', 'ssn_last4', 'tenant_id', 'id'] as $banned) {
     $a("person allow-list still excludes {$banned}", !in_array($banned, $person, true));
 }
+$a('person allow-list excludes source-owned external_id', !in_array('external_id', $person, true));
 
 echo "\n3. Allow-list expansion (company)\n";
 $company = tenantIntegrationFieldMapAllowedInternalFields('company');
@@ -66,6 +68,7 @@ foreach ([
 foreach (['ein_full_ct', 'msa_storage_object_id', 'account_manager_user_id', 'tenant_id'] as $banned) {
     $a("company allow-list still excludes {$banned}", !in_array($banned, $company, true));
 }
+$a('company allow-list excludes source-owned external_id', !in_array('external_id', $company, true));
 
 echo "\n4. Allow-list expansion (contact)\n";
 $contact = tenantIntegrationFieldMapAllowedInternalFields('contact');
@@ -75,6 +78,7 @@ foreach ([
 ] as $f) {
     $a("contact allow-list surfaces {$f}", in_array($f, $contact, true));
 }
+$a('contact allow-list excludes source-owned external_id', !in_array('external_id', $contact, true));
 
 echo "\n5. Placement syncer wire-in (jobdivaSyncUpsertPlacement)\n";
 $sync = (string) file_get_contents('/app/core/jobdiva/sync.php');

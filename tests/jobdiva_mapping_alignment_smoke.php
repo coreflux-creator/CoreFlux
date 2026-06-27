@@ -75,6 +75,10 @@ $a('report flags placements missing staffing client',
 $a('repair function exists and uses staffing bridge',
     str_contains($service, 'function jobdivaMappingRepairStaffingClientLinks')
     && str_contains($service, 'staffingClientEnsureForCompany($tenantId, $companyId, $name'));
+$a('duplicate placement detector and repair function exist',
+    str_contains($service, 'duplicate_jobdiva_placement_rows')
+    && str_contains($service, 'function jobdivaMappingRepairDuplicatePlacements')
+    && str_contains($service, '_jobdivaMappingDuplicatePlacementBlockingChildren'));
 
 echo "\n4. Alignment API is wired and gated\n";
 $a('alignment API file exists', file_exists($apiPath));
@@ -86,6 +90,9 @@ $a('GET returns report',
 $a('POST repair_client_links action is wired',
     str_contains($api, "repair_client_links")
     && str_contains($api, 'jobdivaMappingRepairStaffingClientLinks($tid'));
+$a('POST repair_duplicate_placements action is wired',
+    str_contains($api, "repair_duplicate_placements")
+    && str_contains($api, 'jobdivaMappingRepairDuplicatePlacements('));
 $a('API uses integration RBAC gates',
     str_contains($api, 'rbac_legacy_require_any')
     && str_contains($api, 'integrations.jobdiva.view')
@@ -98,6 +105,9 @@ $a('settings mounts mapping alignment card',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-card"'));
 $a('settings has repair client links button',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-client-links"'));
+$a('settings has duplicate placement preview + repair buttons',
+    str_contains($ui, 'data-testid="jobdiva-mapping-alignment-preview-duplicate-placements"')
+    && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-duplicate-placements"'));
 $a('settings renders canonical object map',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-object-map"'));
 $a('settings renders mirror-only section',

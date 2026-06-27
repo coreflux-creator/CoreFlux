@@ -1705,10 +1705,34 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
 {
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
+    $canonicalExternalId = 'jd:' . $extId;
     // Look up by external_id first (placements has a `external_id` column).
+    // A 2026-06 field-map regression briefly allowed tenant mappings to
+    // overwrite placements.external_id with the raw Start ID. Recover those
+    // rows here so the next sync updates the existing placement instead of
+    // inserting another copy.
     $stmt = $pdo->prepare('SELECT id FROM placements WHERE tenant_id = :t AND external_id = :ext LIMIT 1');
-    $stmt->execute(['t' => $tid, 'ext' => 'jd:' . $extId]);
+    $stmt->execute(['t' => $tid, 'ext' => $canonicalExternalId]);
     $existingId = (int) $stmt->fetchColumn();
+    if ($existingId <= 0) {
+        $stmt = $pdo->prepare(
+            'SELECT id FROM placements
+              WHERE tenant_id = :t
+                AND external_id = :raw
+                AND (deleted_at IS NULL OR deleted_at = "0000-00-00 00:00:00")
+              ORDER BY id ASC
+              LIMIT 1'
+        );
+        $stmt->execute(['t' => $tid, 'raw' => $extId]);
+        $existingId = (int) $stmt->fetchColumn();
+        if ($existingId > 0) {
+            $pdo->prepare(
+                'UPDATE placements
+                    SET external_id = :ext
+                  WHERE tenant_id = :t AND id = :id'
+            )->execute(['ext' => $canonicalExternalId, 't' => $tid, 'id' => $existingId]);
+        }
+    }
 
     // Resolve each placement field via the tenant field-map registry,
     // falling back to the built-in candidate-key lookups when the
@@ -2081,7 +2105,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     )->execute([
         't'     => $tid,
         'p'     => $personId,
-        'ext'   => 'jd:' . $extId,
+        'ext'   => $canonicalExternalId,
         'jji'   => $jobdivaJobId ?: null,
         'st'    => $status,
         'sd'    => $startDate,

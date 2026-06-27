@@ -73,6 +73,12 @@ function integrationWritableTargetsList(?string $module = null, ?string $table =
     } catch (\Throwable $e) {
         return [];
     }
+    $rows = array_values(array_filter($rows, static function ($r): bool {
+        return !integrationFieldMapIsProtectedTarget(
+            (string) ($r['target_table'] ?? ''),
+            (string) ($r['target_column'] ?? '')
+        );
+    }));
     foreach ($rows as &$r) {
         if (isset($r['enum_values']) && is_string($r['enum_values'])) {
             $decoded = json_decode($r['enum_values'], true);
@@ -80,6 +86,26 @@ function integrationWritableTargetsList(?string $module = null, ?string $table =
         }
     }
     return $rows;
+}
+
+function integrationFieldMapIsProtectedTarget(string $table, string $column): bool
+{
+    $column = strtolower(trim($column));
+    if ($column === '') return true;
+    if (in_array($column, [
+        'id',
+        'tenant_id',
+        'external_id',
+        'source_system',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+        'created_by_user_id',
+        'updated_by_user_id',
+    ], true)) {
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -253,6 +279,11 @@ function integrationFieldMapApplyAll(
 
         $table = (string) $m['target_table'];
         $col   = (string) $m['target_column'];
+        if (integrationFieldMapIsProtectedTarget($table, $col)) {
+            $summary['skipped']++;
+            $summary['errors'][] = "protected_target {$table}.{$col} (mapping_id={$m['id']})";
+            continue;
+        }
         $key   = $table . '#' . $rowId;
         if (!isset($bucket[$key])) {
             $bucket[$key] = ['table' => $table, 'id' => $rowId, 'set' => [], 'cf' => []];
