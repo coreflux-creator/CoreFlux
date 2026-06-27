@@ -442,6 +442,8 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
     $unmappedCompanies = []; // collect distinct external IDs for the diagnostic
     $sampleKeys = [];        // record-shape diagnostic: keys from first 3 items
     $sampleMissing = [];     // example records that failed the field gate
+    $companyMappingCache = [];
+    $companyBackfillMisses = [];
 
     foreach ($items as $idx => $jd) {
         if ($idx < 3 && is_array($jd)) $sampleKeys[$idx] = array_keys($jd);
@@ -482,8 +484,18 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
             }
 
             // Resolve internal company via mapping created by jobdivaSyncCompanies().
-            $companyMapping = mappingFindInternal($tid, 'jobdiva', 'company', $companyExtId);
-            if (!$companyMapping && !empty($opts['backfill_companies_on_contact_pull'])) {
+            // Cache by JobDiva company ID so large contact syncs do not repeat the
+            // same mapping lookup/backfill call hundreds of times.
+            $companyCacheKey = (string) $companyExtId;
+            if (array_key_exists($companyCacheKey, $companyMappingCache)) {
+                $companyMapping = $companyMappingCache[$companyCacheKey];
+            } else {
+                $companyMapping = mappingFindInternal($tid, 'jobdiva', 'company', $companyExtId);
+                $companyMappingCache[$companyCacheKey] = $companyMapping ?: null;
+            }
+            if (!$companyMapping
+                && !empty($opts['backfill_companies_on_contact_pull'])
+                && empty($companyBackfillMisses[$companyCacheKey])) {
                 // Backfill on-demand: the Companies delta window missed
                 // this parent (likely because it hasn't been edited
                 // recently). Fetch the single record by id and upsert it
@@ -518,6 +530,7 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
                             ], ['client']);
                             mappingUpsert($tid, 'jobdiva', 'company', (string) $companyExtId, $newCoId, $jdCo, 'pull', $userId);
                             $companyMapping = mappingFindInternal($tid, 'jobdiva', 'company', $companyExtId);
+                            $companyMappingCache[$companyCacheKey] = $companyMapping ?: null;
                             $skipReasons['backfilled_companies'] = ($skipReasons['backfilled_companies'] ?? 0) + 1;
                         }
                     }
@@ -527,6 +540,7 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
                     // so the operator still sees the underlying problem.
                     error_log("[jobdiva] backfill_companies_on_contact_pull failed for customer={$companyExtId}: " . $bfe->getMessage());
                 }
+                if (!$companyMapping) $companyBackfillMisses[$companyCacheKey] = true;
             }
             if (!$companyMapping) {
                 $skipped++; $skipReasons['company_unmapped']++;
@@ -2361,6 +2375,8 @@ function jobdivaSyncMirrorEntity(
 
     $pdo = getDB();
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
+    $itemsFetched = count($items);
+    $sampleKeys = [];
 
     $upsert = $pdo ? $pdo->prepare(
         "INSERT INTO external_entity_mappings
@@ -2378,7 +2394,8 @@ function jobdivaSyncMirrorEntity(
              updated_at       = NOW()"
     ) : null;
 
-    foreach ($items as $jd) {
+    foreach ($items as $idx => $jd) {
+        if ($idx < 3 && is_array($jd)) $sampleKeys[$idx] = array_keys($jd);
         try {
             $extId = (string) jobdivaPluckField($jd, $idCandidates);
             if ($extId === '') { $skipped++; continue; }
@@ -2423,9 +2440,25 @@ function jobdivaSyncMirrorEntity(
         'items_skipped'   => $skipped,
         'items_failed'    => $failed,
         'actor_user_id'   => $userId,
-        'detail'          => ['errors' => array_slice($errors, 0, 5)],
+        'detail'          => [
+            'endpoint'       => $endpoint,
+            'items_fetched'  => $itemsFetched,
+            'empty_response' => $itemsFetched === 0,
+            'skip_reasons'   => $skipped > 0 ? ['missing_external_id' => $skipped] : [],
+            'sample_keys'    => $sampleKeys,
+            'errors'         => array_slice($errors, 0, 5),
+        ],
     ]);
-    return ['processed' => $processed, 'skipped' => $skipped, 'failed' => $failed, 'errors' => $errors];
+    return [
+        'processed'      => $processed,
+        'skipped'        => $skipped,
+        'failed'         => $failed,
+        'errors'         => $errors,
+        'endpoint'       => $endpoint,
+        'items_fetched'  => $itemsFetched,
+        'empty_response' => $itemsFetched === 0,
+        'skip_reasons'   => $skipped > 0 ? ['missing_external_id' => $skipped] : [],
+    ];
 }
 
 /**
@@ -2821,10 +2854,32 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
         $stats['assignments_processed'] = $stored['processed'];
     }
 
+    $processedTotal =
+        (int) $stats['jobs_processed']
+        + (int) $stats['candidates_processed']
+        + (int) $stats['customers_processed']
+        + (int) $stats['assignments_processed'];
+    $errors = [];
+    if ($stats['unique_start_ids'] > 0 && $stats['assignments_returned'] === 0) {
+        foreach ($stats['assignment_employee_records_errors'] as $err) $errors[] = $err;
+        foreach ($stats['assignment_search_start_errors'] as $err) $errors[] = $err;
+    }
+    $failedTotal = count($errors);
+
+    $stats['processed'] = $processedTotal;
+    $stats['skipped']   = 0;
+    $stats['failed']    = $failedTotal;
+    $stats['errors']    = $errors;
+
     jobdivaAudit($tid, 'sync_mirror_by_placements', [
-        'ok'            => true,
-        'detail'        => $stats,
-        'actor_user_id' => $userId,
+        'entity_type'     => 'jobdiva_mirror_by_placements',
+        'direction'       => 'pull',
+        'ok'              => $failedTotal === 0,
+        'items_processed' => $processedTotal,
+        'items_skipped'   => 0,
+        'items_failed'    => $failedTotal,
+        'detail'          => $stats,
+        'actor_user_id'   => $userId,
     ]);
 
     return $stats;
@@ -2880,7 +2935,11 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
         $skipped[]  = 'company';
     }
     if ($shouldPull($config, 'contact')) {
-        $contacts   = $safeRun('contact',   static fn() => jobdivaSyncContacts($tid, $userId, $opts['contacts']   ?? $opts));
+        $contactOpts = $opts['contacts'] ?? $opts;
+        if (!array_key_exists('backfill_companies_on_contact_pull', $contactOpts)) {
+            $contactOpts['backfill_companies_on_contact_pull'] = true;
+        }
+        $contacts   = $safeRun('contact',   static fn() => jobdivaSyncContacts($tid, $userId, $contactOpts));
     } else {
         $contacts   = ['processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'skipped_by_config' => true];
         $skipped[]  = 'contact';
@@ -2890,6 +2949,21 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
     } else {
         $placements = ['processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'skipped_by_config' => true];
         $skipped[]  = 'placement';
+    }
+
+    // Placement-referenced mirror: use the IDs we just pulled from JobDiva
+    // placements to fetch full Job/Candidate/Contact/Assignment payloads.
+    // This is the reliable graph-alignment path for tenants whose
+    // NewUpdatedJobRecords/NewUpdatedCandidateRecords delta endpoints
+    // return empty even though placements reference those records.
+    if ($shouldPull($config, 'placement') && empty($opts['skip_mirror_by_placements'])) {
+        $placementMirror = $safeRun(
+            'jobdiva_mirror_by_placements',
+            static fn() => jobdivaSyncMirrorByPlacements($tid, $userId, $opts['mirror_by_placements'] ?? $opts)
+        );
+    } else {
+        $placementMirror = ['processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'skipped_by_config' => true];
+        $skipped[] = 'jobdiva_mirror_by_placements';
     }
 
     // 2026-05 — Mirror sync of JobDiva Jobs + Candidates so the Field
@@ -2945,6 +3019,7 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
         'company'           => $companies['processed'],
         'contact'           => $contacts['processed'],
         'placement'         => $placements['processed'],
+        'jobdiva_mirror_by_placements' => $placementMirror['processed'] ?? 0,
         'jobdiva_job'       => $jobs['processed'],
         'jobdiva_candidate' => $candidates['processed'],
         'time'              => $timeResult['processed'],
@@ -2966,6 +3041,7 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
             'company'           => $companies,
             'contact'           => $contacts,
             'placement'         => $placements,
+            'jobdiva_mirror_by_placements' => $placementMirror,
             'jobdiva_job'       => $jobs,
             'jobdiva_candidate' => $candidates,
             'time'              => $timeResult,

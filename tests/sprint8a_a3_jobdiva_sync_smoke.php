@@ -121,8 +121,11 @@ $assert('binds mapping (contact)',
 $assert('contact upsert helper exists',           strpos($src, 'function jobdivaSyncUpsertContact(') !== false);
 $assert('contact upsert dedupes by email per company',
     strpos($src, "AND company_id = :c AND email = :e LIMIT 1") !== false);
-$assert("contact insert defaults role to 'other' (via $contactRoleMap fallback)",
+$assert("contact insert defaults role to 'other' (via \$contactRoleMap fallback)",
     strpos($src, "\$contactRoleMap[strtolower(trim(\$contactRoleRaw))] ?? 'other'") !== false);
+$assert('contact sync caches parent company mapping/backfill attempts',
+    strpos($src, '$companyMappingCache') !== false
+    && strpos($src, '$companyBackfillMisses') !== false);
 
 echo "\nPlacements driver — discovery via searchStart + timesheet fallback (2026-02 follow-on)\n";
 $assert('requires sync_placements helper module',
@@ -173,6 +176,9 @@ $assert('runs all 3 drivers in order via safeRun isolator',
 $assert('per-entity errors isolated (one fail no longer aborts whole sync)',
     strpos($src, "'sync_entity_error'") !== false
     && strpos($src, "'processed' => 0, 'skipped' => 0, 'failed' => 1") !== false);
+$assert('Sync All defaults contact parent-company backfill on',
+    strpos($src, "if (!array_key_exists('backfill_companies_on_contact_pull', \$contactOpts))") !== false
+    && strpos($src, "\$contactOpts['backfill_companies_on_contact_pull'] = true") !== false);
 $assert('measures latency_ms',                    strpos($src, '(int) round((microtime(true) - $start) * 1000)') !== false);
 $assert('returns counts {company,contact,placement}',
     strpos($src, "'company'") !== false

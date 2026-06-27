@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../lib/api';
 import {
-  Activity, AlertCircle, AlertTriangle, CheckCircle2, Copy, Database, GitBranch, Link2,
+  Activity, AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Copy, Database, GitBranch, Link2,
   PlugZap, RefreshCw, ShieldCheck, Sparkles, Wrench, X, XCircle,
 } from 'lucide-react';
 
@@ -31,6 +31,7 @@ export default function JobDivaSettings() {
   const [alignmentLoading, setAlignmentLoading] = useState(false);
   const [alignmentError, setAlignmentError] = useState(null);
   const [repairResult, setRepairResult] = useState(null);
+  const [expandedAudit, setExpandedAudit] = useState({});
 
   const set = (k, v) => setForm(s => ({ ...s, [k]: v }));
   const clear = () => { setMsg(null); setErr(null); };
@@ -423,6 +424,12 @@ export default function JobDivaSettings() {
                     const sk = !!info?.skipped_by_config;
                     const def = info?.deferred_reason;
                     const errs = Array.isArray(info?.errors) ? info.errors : [];
+                    const empty = info?.empty_response === true;
+                    const fetched = info?.items_fetched;
+                    const skipReasons = auditHasDetail(info?.skip_reasons) ? info.skip_reasons : null;
+                    const mirrorStats = info?.placements_scanned !== undefined
+                      ? `${info.placements_scanned} placements scanned; ${info.jobs_processed ?? 0} jobs, ${info.candidates_processed ?? 0} candidates, ${info.customers_processed ?? 0} contacts, ${info.assignments_processed ?? 0} assignments mirrored`
+                      : null;
                     return (
                       <tr key={entity} data-testid={`jobdiva-settings-sync-result-diag-${entity}`} style={{ borderBottom: '1px solid #ede9fe' }}>
                         <td style={{ padding: '4px 6px', textTransform: 'capitalize', fontWeight: 500 }}>{entity}</td>
@@ -430,8 +437,17 @@ export default function JobDivaSettings() {
                         <td style={{ padding: '4px 6px', fontVariantNumeric: 'tabular-nums' }}>{info?.skipped ?? 0}</td>
                         <td style={{ padding: '4px 6px', fontVariantNumeric: 'tabular-nums', color: (info?.failed > 0) ? '#dc2626' : 'inherit' }}>{info?.failed ?? 0}</td>
                         <td style={{ padding: '4px 6px', color: '#475569' }}>
-                          {sk && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-skipcfg`}>skipped_by_config</span>}
-                          {def && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-deferred`}>{def}</span>}
+                          {sk && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-skipcfg`} style={{ display: 'block' }}>skipped_by_config</span>}
+                          {def && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-deferred`} style={{ display: 'block' }}>{def}</span>}
+                          {empty && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-empty`} style={{ display: 'block' }}>empty_response{info.endpoint ? ` from ${info.endpoint}` : ''}</span>}
+                          {!empty && fetched !== undefined && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-fetched`} style={{ display: 'block' }}>{fetched} fetched</span>}
+                          {mirrorStats && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-mirror`} style={{ display: 'block' }}>{mirrorStats}</span>}
+                          {skipReasons && (
+                            <code data-testid={`jobdiva-settings-sync-result-diag-${entity}-skip-reasons`}
+                                  style={{ display: 'block', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                              {JSON.stringify(skipReasons)}
+                            </code>
+                          )}
                           {errs.length > 0 && (
                             <ul style={{ margin: 0, paddingLeft: 14 }} data-testid={`jobdiva-settings-sync-result-diag-${entity}-errors`}>
                               {errs.slice(0, 3).map((e, i) => (
@@ -442,7 +458,7 @@ export default function JobDivaSettings() {
                               {errs.length > 3 && <li style={{ color: '#94a3b8' }}>+{errs.length - 3} more</li>}
                             </ul>
                           )}
-                          {!sk && !def && errs.length === 0 && (info?.processed ?? 0) === 0 && '—'}
+                          {!sk && !def && !empty && fetched === undefined && !mirrorStats && !skipReasons && errs.length === 0 && (info?.processed ?? 0) === 0 && '—'}
                         </td>
                       </tr>
                     );
@@ -583,20 +599,47 @@ export default function JobDivaSettings() {
               {data.recent_audit.length === 0 && (
                 <tr><td colSpan={6} className="empty" data-testid="jobdiva-settings-audit-empty">No activity yet.</td></tr>
               )}
-              {data.recent_audit.map(r => (
-                <tr key={r.id} data-testid={`jobdiva-settings-audit-row-${r.id}`}>
-                  <td style={{ fontSize: 12, color: '#64748b' }}>{r.occurred_at}</td>
-                  <td><code>{r.action}</code></td>
-                  <td>{r.entity_type || '—'}</td>
-                  <td>{r.direction}</td>
-                  <td>{r.ok ? <CheckCircle2 size={12} color="#059669" /> : <XCircle size={12} color="#dc2626" />}</td>
-                  <td style={{ fontSize: 12 }}>
-                    {r.items_processed > 0 || r.items_failed > 0 || r.items_skipped > 0
-                      ? `${r.items_processed} ok · ${r.items_skipped} skip · ${r.items_failed} fail`
-                      : '—'}
-                  </td>
-                </tr>
-              ))}
+              {data.recent_audit.map(r => {
+                const hasDetail = auditHasDetail(r.detail);
+                const expanded = !!expandedAudit[r.id];
+                const hasCounts = r.items_processed > 0 || r.items_failed > 0 || r.items_skipped > 0;
+                return (
+                  <React.Fragment key={r.id}>
+                    <tr data-testid={`jobdiva-settings-audit-row-${r.id}`}>
+                      <td style={{ fontSize: 12, color: '#64748b' }}>{r.occurred_at}</td>
+                      <td><code>{r.action}</code></td>
+                      <td>{r.entity_type || '—'}</td>
+                      <td>{r.direction}</td>
+                      <td>{r.ok ? <CheckCircle2 size={12} color="#059669" /> : <XCircle size={12} color="#dc2626" />}</td>
+                      <td style={{ fontSize: 12 }}>
+                        <span>
+                          {hasCounts || hasDetail
+                            ? `${r.items_processed} ok · ${r.items_skipped} skip · ${r.items_failed} fail`
+                            : '—'}
+                        </span>
+                        {hasDetail && (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedAudit(s => ({ ...s, [r.id]: !expanded }))}
+                            aria-label={expanded ? 'Hide audit detail' : 'Show audit detail'}
+                            data-testid={`jobdiva-settings-audit-detail-toggle-${r.id}`}
+                            style={{ marginLeft: 8, border: 0, background: 'transparent', color: '#475569', cursor: 'pointer', verticalAlign: 'middle', padding: 2 }}
+                          >
+                            {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {hasDetail && expanded && (
+                      <tr data-testid={`jobdiva-settings-audit-detail-${r.id}`}>
+                        <td colSpan={6} style={{ padding: '8px 12px', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
+                          <JobDivaAuditDetail detail={r.detail} />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -626,6 +669,85 @@ export default function JobDivaSettings() {
         </div>
       )}
     </section>
+  );
+}
+
+function auditHasDetail(detail) {
+  return !!detail && typeof detail === 'object' && Object.keys(detail).length > 0;
+}
+
+function JobDivaAuditDetail({ detail }) {
+  const errors = Array.isArray(detail?.errors) ? detail.errors.filter(Boolean) : [];
+  const skipReasons = auditHasDetail(detail?.skip_reasons) ? detail.skip_reasons : null;
+  const sampleKeys = auditHasDetail(detail?.sample_keys) ? detail.sample_keys : null;
+  const sampleRecords = Array.isArray(detail?.sample_records) && detail.sample_records.length > 0
+    ? detail.sample_records
+    : null;
+
+  const summaryKeys = [
+    'endpoint', 'items_fetched', 'empty_response',
+    'placements_scanned', 'unique_job_ids', 'unique_candidate_ids', 'unique_customer_ids', 'unique_start_ids',
+    'jobs_returned', 'candidates_returned', 'customers_returned', 'assignments_returned',
+    'jobs_processed', 'candidates_processed', 'customers_processed', 'assignments_processed',
+    'assignment_channel',
+  ];
+  const summary = summaryKeys
+    .filter(k => detail?.[k] !== undefined && detail?.[k] !== null && detail?.[k] !== '')
+    .map(k => [k, detail[k]]);
+  const rendered = summary.length > 0 || errors.length > 0 || skipReasons || sampleKeys || sampleRecords;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 11, color: '#334155' }}>
+      {summary.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 6 }}>
+          {summary.map(([k, v]) => (
+            <div key={k} style={{ border: '1px solid #e2e8f0', background: '#fff', borderRadius: 6, padding: '6px 8px' }}>
+              <div style={{ textTransform: 'uppercase', letterSpacing: 0, color: '#64748b', fontSize: 10 }}>{k}</div>
+              <code style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{String(v)}</code>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {errors.length > 0 && (
+        <div data-testid="jobdiva-settings-audit-detail-errors" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {errors.map((e, i) => (
+            <div key={i} style={{ color: '#991b1b', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '6px 8px' }}>
+              <code style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {typeof e === 'string' ? e : JSON.stringify(e, null, 2)}
+              </code>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {skipReasons && <AuditJsonBlock label="Skip reasons" value={skipReasons} testid="jobdiva-settings-audit-detail-skip-reasons" />}
+      {sampleKeys && <AuditJsonBlock label="Sample keys" value={sampleKeys} testid="jobdiva-settings-audit-detail-sample-keys" />}
+      {sampleRecords && <AuditJsonBlock label="Sample skipped records" value={sampleRecords} testid="jobdiva-settings-audit-detail-sample-records" />}
+      {!rendered && <AuditJsonBlock label="Detail" value={detail} testid="jobdiva-settings-audit-detail-json" />}
+    </div>
+  );
+}
+
+function AuditJsonBlock({ label, value, testid }) {
+  return (
+    <details data-testid={testid}>
+      <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#475569' }}>{label}</summary>
+      <pre style={{
+        margin: '6px 0 0',
+        padding: 8,
+        border: '1px solid #e2e8f0',
+        borderRadius: 6,
+        background: '#fff',
+        color: '#0f172a',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        maxHeight: 240,
+        overflow: 'auto',
+      }}>
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    </details>
   );
 }
 

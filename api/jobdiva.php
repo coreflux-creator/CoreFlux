@@ -244,8 +244,9 @@ switch ($action) {
     }
 
     case 'sync': {
-        // Slice A3: pulls Companies, Contacts, Placements via the agnostic
-        // entity-mapping pipeline. NO candidates / applicants / open positions.
+        // Pull CoreFlux-owned graph roots from JobDiva and mirror the
+        // JobDiva-native records needed for field mapping and placement
+        // enrichment.
         if ($method !== 'POST') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.jobdiva.manage');
         $row = jobdivaConnection($tid);
@@ -253,13 +254,11 @@ switch ($action) {
         $body = api_json_body();
         $opts = [];
         if (!empty($body['modified_since'])) $opts['modified_since'] = (string) $body['modified_since'];
-        // Operator opt-in: when JobDiva's Companies delta window misses
-        // parents that some Contacts depend on, this flag tells the
-        // Contact sync to fetch the missing parent via /searchCustomer
-        // on demand and upsert it before mapping. Off by default — the
-        // extra REST calls aren't free.
-        if (!empty($body['backfill_companies_on_contact_pull'])) {
-            $opts['backfill_companies_on_contact_pull'] = true;
+        // Compatibility knob: Sync All now enables contact parent-company
+        // backfill by default, but callers can still pass the option
+        // explicitly for older flows or targeted sync tests.
+        if (array_key_exists('backfill_companies_on_contact_pull', $body)) {
+            $opts['backfill_companies_on_contact_pull'] = (bool) $body['backfill_companies_on_contact_pull'];
         }
         try {
             $result = jobdivaSyncAll($tid, $user['id'] ?? null, $opts);
