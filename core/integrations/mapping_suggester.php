@@ -15,7 +15,7 @@
  *      synonym dictionary that maps common JobDiva/QBO/Airtable-style
  *      keys to canonical CoreFlux column names.
  *   3. Find writable targets in the entity's preferred module first
- *      (people for `person`, companies for `jobdiva_customer`, etc.);
+ *      (people for `person`, companies for `company`, etc.);
  *      fall back to global search if no preferred-module hit.
  *   4. Skip paths already mapped to keep suggestions actionable.
  *
@@ -27,6 +27,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/payload_field_index.php';
 require_once __DIR__ . '/field_map_apply.php';
 require_once __DIR__ . '/field_map.php';
+require_once __DIR__ . '/../jobdiva/canonical_graph.php';
 
 /**
  * Default linked_entity + preferred CoreFlux module per integration
@@ -265,7 +266,9 @@ function mappingSuggesterSuggest(int $tenantId, string $integration, string $ent
     if ($tenantId <= 0 || $integration === '' || $entityType === '') return [];
 
     // 1. Pull every indexed path for this (tenant, integration, entity_type).
-    $paths = integrationPayloadFieldIndexList($tenantId, $integration, $entityType, 1000);
+    $paths = $integration === 'jobdiva'
+        ? jobdivaCanonicalPayloadFieldIndexList($tenantId, $entityType, 1000)
+        : integrationPayloadFieldIndexList($tenantId, $integration, $entityType, 1000);
     if (!$paths) return [];
 
     // 2. Pull writable targets. Scope to the entity's preferred module
@@ -278,8 +281,8 @@ function mappingSuggesterSuggest(int $tenantId, string $integration, string $ent
         ? integrationWritableTargetsList($preferredModule, null)
         : [];
     $global   = integrationWritableTargetsList(null, null);
-    // Always allow placements module too (joined entity types often need
-    // to write back onto the placement row itself, e.g. job → placements.title).
+    // Always allow placements module too (JobDiva placement facets often
+    // need to write back onto the placement row itself, e.g. job.title).
     if ($preferredModule !== null && $preferredModule !== 'placements') {
         $global = array_merge($preferred, integrationWritableTargetsList('placements', null), $global);
     } else {

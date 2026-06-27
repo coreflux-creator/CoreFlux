@@ -36,6 +36,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/integrations/payload_field_index.php';
+require_once __DIR__ . '/../../../core/jobdiva/canonical_graph.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -54,12 +55,10 @@ if ($integration === '' || !preg_match('/^[a-z0-9_]{1,40}$/', $integration)) {
  */
 $SECTIONS = [
     'jobdiva' => [
-        ['key' => 'assignment',       'label' => 'Assignment / Placement', 'icon' => '📋', 'entity_type' => 'assignment'],
-        ['key' => 'placement_summary','label' => 'Placement summary',      'icon' => '📄', 'entity_type' => 'placement'],
-        ['key' => 'job',              'label' => 'Job',                    'icon' => '💼', 'entity_type' => 'job'],
-        ['key' => 'person',           'label' => 'Person (candidate)',     'icon' => '👤', 'entity_type' => 'person'],
-        ['key' => 'jobdiva_customer', 'label' => 'End-client',             'icon' => '🏢', 'entity_type' => 'jobdiva_customer'],
-        ['key' => 'contact',          'label' => 'Hiring contact',         'icon' => '☎️', 'entity_type' => 'contact'],
+        ['key' => 'placement', 'label' => 'Placement', 'icon' => '📋', 'entity_type' => 'placement'],
+        ['key' => 'person',    'label' => 'Person',    'icon' => '👤', 'entity_type' => 'person'],
+        ['key' => 'company',   'label' => 'Company',   'icon' => '🏢', 'entity_type' => 'company'],
+        ['key' => 'contact',   'label' => 'Contact',   'icon' => '☎️', 'entity_type' => 'contact'],
     ],
 ];
 
@@ -72,7 +71,9 @@ if (empty($sections)) {
 
 $out = [];
 foreach ($sections as $sect) {
-    $rows = integrationPayloadFieldIndexList($tid, $integration, $sect['entity_type'], 500);
+    $rows = $integration === 'jobdiva'
+        ? jobdivaCanonicalPayloadFieldIndexList($tid, (string) $sect['entity_type'], 500)
+        : integrationPayloadFieldIndexList($tid, $integration, $sect['entity_type'], 500);
     if (!is_array($rows)) $rows = [];
     $fields = [];
     foreach ($rows as $r) {

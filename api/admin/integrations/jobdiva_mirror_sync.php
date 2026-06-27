@@ -7,7 +7,8 @@
  * bulk endpoints). Stores every returned record's full payload in
  * `external_entity_mappings` and indexes every field in
  * `payload_field_index` so the Field Mapping Studio's source-side
- * picker exposes them as `jobdiva_job.*` / `jobdiva_candidate.*` paths.
+ * picker rolls them into canonical `placement` / `person` paths while
+ * the native mirror rows remain available for diagnostics.
  *
  * Why this exists: JobDiva's per-record `/searchJob` and `/searchCandidate`
  * endpoints return EMPTY for many tenants (account-scope auth on those

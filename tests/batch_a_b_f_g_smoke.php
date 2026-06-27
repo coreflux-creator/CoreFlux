@@ -37,18 +37,17 @@ $a('placement_schema endpoint exists', file_exists($ps));
 $psSrc = (string) @file_get_contents($ps);
 $a('endpoint RBAC-gated by tenant_admin.integrations',
     str_contains($psSrc, "rbac_legacy_require(\$user, 'tenant_admin.integrations')"));
-$a('endpoint declares jobdiva section list (assignment/placement/job/person/customer/contact)',
+$a('endpoint declares canonical JobDiva section list (placement/person/company/contact)',
     str_contains($psSrc, "'jobdiva' => [")
-    && str_contains($psSrc, "'entity_type' => 'assignment'")
     && str_contains($psSrc, "'entity_type' => 'placement'")
-    && str_contains($psSrc, "'entity_type' => 'job'")
     && str_contains($psSrc, "'entity_type' => 'person'")
-    && str_contains($psSrc, "'entity_type' => 'jobdiva_customer'")
-    && str_contains($psSrc, "'entity_type' => 'contact'"));
+    && str_contains($psSrc, "'entity_type' => 'company'")
+    && str_contains($psSrc, "'entity_type' => 'contact'")
+    && !str_contains($psSrc, "'entity_type' => 'jobdiva_customer'"));
 $a('endpoint skips object/array intermediate nodes',
     str_contains($psSrc, "if (\$type === 'object' || \$type === 'array') continue"));
-$a('endpoint reads integrationPayloadFieldIndexList',
-    str_contains($psSrc, 'integrationPayloadFieldIndexList($tid, $integration, $sect[\'entity_type\'], 500)'));
+$a('endpoint reads canonical JobDiva field index list',
+    str_contains($psSrc, 'jobdivaCanonicalPayloadFieldIndexList($tid, (string) $sect[\'entity_type\'], 500)'));
 $a('endpoint integration arg validated against [a-z0-9_]{1,40}',
     str_contains($psSrc, "preg_match('/^[a-z0-9_]{1,40}\$/', \$integration)"));
 

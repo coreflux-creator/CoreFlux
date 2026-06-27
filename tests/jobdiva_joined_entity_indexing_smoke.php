@@ -3,8 +3,8 @@
  * jobdiva_joined_entity_indexing_smoke.php
  *
  * Validates the new sync-side behaviour that makes the Field Mapping
- * Studio's joined entity types (person/job/jobdiva_customer/contact/
- * assignment) actually populated and usable.
+ * Studio's canonical entity types (placement/person/company/contact)
+ * actually populated and usable.
  *
  * Operator complaint that triggered this:
  *   "there are no available fields anywhere except placements, even
@@ -54,8 +54,10 @@ $a('extractor maps _jd_contact → contact',
     str_contains($sync, "'_jd_contact'   => 'contact'"));
 $a('extractor maps _jd_start → assignment',
     str_contains($sync, "'_jd_start'     => 'assignment'"));
-$a('helper calls integrationPayloadFieldIndexRecord per sub-record',
-    str_contains($sync, "integrationPayloadFieldIndexRecord(\$tenantId, 'jobdiva', \$entityType, \$subPayload)"));
+$a('helper indexes native and canonical entity types per sub-record',
+    str_contains($sync, 'jobdivaCanonicalFieldIndexEntityTypes($entityType)')
+    && str_contains($sync, 'jobdivaCanonicalPayloadForEntity($entityType, $indexEntityType, $subPayload)')
+    && str_contains($sync, "integrationPayloadFieldIndexRecord(\$tenantId, 'jobdiva', \$indexEntityType, \$payloadForIndex)"));
 $a('helper swallows errors so indexing failures never block sync',
     preg_match('/jobdivaIndexJoinedSubPayloads.*?catch \(\\\\Throwable \$e\)/s', $sync) === 1);
 
@@ -75,11 +77,13 @@ $a('JOINED_CTX table declared with person/job/customer/contact/assignment',
     && str_contains($sync, "'jobdiva_customer' => 'end_client_company'")
     && str_contains($sync, "'contact'          => 'self'")
     && str_contains($sync, "'assignment'       => 'self'"));
-$a('per-entity applyAll iterates extracted sub-payloads',
+$a('per-entity applyAll iterates extracted sub-payloads through canonical aliases',
     str_contains($sync, 'jobdivaExtractJoinedSubPayloads($jd)')
-    && str_contains($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', \$joinedEntity, \$subPayload, \$ctx)"));
+    && str_contains($sync, 'jobdivaCanonicalApplyEntityTypes($joinedEntity)')
+    && str_contains($sync, 'jobdivaCanonicalPayloadForEntity($joinedEntity, $mapEntityType, $subPayload)')
+    && str_contains($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', \$mapEntityType, \$payloadForApply, \$ctx)"));
 $a('joined applyAll wrapped in try/catch',
-    preg_match("/integrationFieldMapApplyAll\(\\\$tid, 'jobdiva', \\\$joinedEntity.*?catch \(\\\\Throwable \\\$e\)/s", $sync) === 1);
+    preg_match("/integrationFieldMapApplyAll\(\\\$tid, 'jobdiva', \\\$mapEntityType.*?catch \(\\\\Throwable \\\$e\)/s", $sync) === 1);
 
 // 4) Field Mapping Studio surface adapts to joined entity types.
 echo "\n4. FieldMappingStudio.jsx adapts root label per entity_type\n";
@@ -88,10 +92,10 @@ $a('groupPathsByNamespace accepts entityType param',
     str_contains($fms, "function groupPathsByNamespace(paths, entityType = 'placement')"));
 $a('groupedPaths memo passes entityType through',
     str_contains($fms, 'groupPathsByNamespace(filteredPaths, entityType)'));
-$a('ROOT_LABELS map covers all joined entity types',
-    str_contains($fms, "person:") && str_contains($fms, "job:")
-    && str_contains($fms, "jobdiva_customer:") && str_contains($fms, "contact:")
-    && str_contains($fms, "assignment:") && str_contains($fms, "time_entry:"));
+$a('ROOT_LABELS map covers canonical entity types',
+    str_contains($fms, "person:") && str_contains($fms, "company:")
+    && str_contains($fms, "contact:") && str_contains($fms, "placement:")
+    && str_contains($fms, "time_entry:"));
 $a('joined-entity explainer banner rendered for non-placement',
     str_contains($fms, 'data-testid="fms-paths-explainer-joined"'));
 $a('joined explainer exposes data-entity attribute',

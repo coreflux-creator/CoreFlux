@@ -613,14 +613,16 @@ function JobDivaMappingAlignmentCard({
   repairing,
   repairResult,
 }) {
-  const counts = data?.mapping_counts || {};
-  const fields = data?.field_coverage || {};
+  const counts = data?.canonical_mapping_counts || data?.mapping_counts || {};
+  const fields = data?.canonical_field_coverage || data?.field_coverage || {};
+  const rawCounts = data?.mapping_counts || {};
+  const rawFields = data?.field_coverage || {};
   const layers = data?.relationships?.mapping_layers || {};
   const issues = Array.isArray(data?.issues) ? data.issues : [];
   const critical = issues.filter(i => i.severity === 'critical').length;
   const warn = issues.filter(i => i.severity === 'warn').length;
   const objectMap = data?.object_map || {};
-  const canonicalKeys = ['placement', 'person', 'jobdiva_customer', 'company', 'contact', 'time_entry'];
+  const canonicalKeys = ['placement', 'person', 'company', 'contact', 'time_entry'];
   const mirrorKeys = ['jobdiva_job', 'jobdiva_candidate', 'jobdiva_contact', 'jobdiva_assignment'];
 
   const countFor = (key) => Number(counts[key] || 0);
@@ -635,7 +637,7 @@ function JobDivaMappingAlignmentCard({
             <GitBranch size={16} color="#0f766e" /> JobDiva data alignment
           </h3>
           <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 12, maxWidth: 820 }}>
-            Canonical mappings are the records workflows consume. Mirror-only rows are source evidence for inspection and field mapping.
+            Canonical mappings are the records workflows consume. Native JobDiva mirrors are source evidence; field mapping is rooted in the canonical CoreFlux graph.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -663,8 +665,8 @@ function JobDivaMappingAlignmentCard({
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 8, marginTop: 12 }}>
         <AlignmentMetric label="Canonical" value={layers.canonical_mappings ?? canonicalKeys.reduce((s, k) => s + countFor(k), 0)} tone="ok" testid="canonical" />
-        <AlignmentMetric label="Mirror-only" value={layers.mirror_only_rows ?? mirrorKeys.reduce((s, k) => s + countFor(k), 0)} tone="neutral" testid="mirror-only" />
-        <AlignmentMetric label="Field paths" value={layers.field_map_buckets ?? Object.values(fields).reduce((s, n) => s + Number(n || 0), 0)} tone="neutral" testid="field-paths" />
+        <AlignmentMetric label="Native mirrors" value={layers.native_payload_mirrors ?? layers.mirror_only_rows ?? mirrorKeys.reduce((s, k) => s + Number(rawCounts[k] || 0), 0)} tone="neutral" testid="mirror-only" />
+        <AlignmentMetric label="Field paths" value={layers.field_map_paths ?? layers.field_map_buckets ?? Object.values(fields).reduce((s, n) => s + Number(n || 0), 0)} tone="neutral" testid="field-paths" />
         <AlignmentMetric label="Critical issues" value={critical} tone={critical ? 'bad' : 'ok'} testid="critical" />
         <AlignmentMetric label="Warnings" value={warn} tone={warn ? 'warn' : 'ok'} testid="warnings" />
       </div>
@@ -723,7 +725,7 @@ function JobDivaMappingAlignmentCard({
 
       <details data-testid="jobdiva-mapping-alignment-mirror-only" style={{ marginTop: 8 }}>
         <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#475569' }}>
-          Mirror-only payloads
+          Native payload mirrors
         </summary>
         <table className="data-table" style={{ width: '100%', marginTop: 8, fontSize: 12 }}>
           <thead>
@@ -734,8 +736,8 @@ function JobDivaMappingAlignmentCard({
               <tr key={key} data-testid={`jobdiva-mapping-alignment-mirror-${key}`}>
                 <td><code>{key}</code></td>
                 <td>{objectMap[key]?.identity_rule}</td>
-                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{countFor(key)}</td>
-                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{fieldFor(key)}</td>
+                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{Number(rawCounts[key] || 0)}</td>
+                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{Number(rawFields[key] || 0)}</td>
               </tr>
             ))}
           </tbody>

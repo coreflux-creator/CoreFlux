@@ -155,9 +155,11 @@ $a('backfill queries existing placement payloads',
 $a('backfill decodes JSON payload + skips invalid',
     str_contains($syncSrc, 'json_decode($snap, true)')
     && str_contains($syncSrc, 'if (!is_array($payload)) continue'));
-$a('backfill calls extractor + indexer per row',
+$a('backfill calls extractor + canonical/native indexer per row',
     str_contains($syncSrc, 'jobdivaExtractJoinedSubPayloads($payload)')
-    && str_contains($syncSrc, "integrationPayloadFieldIndexRecord(\$tenantId, 'jobdiva', \$entityType, \$sub)"));
+    && str_contains($syncSrc, 'jobdivaCanonicalFieldIndexEntityTypes($entityType)')
+    && str_contains($syncSrc, 'jobdivaCanonicalPayloadForEntity($entityType, $indexEntityType, $sub)')
+    && str_contains($syncSrc, "integrationPayloadFieldIndexRecord(\$tenantId, 'jobdiva', \$indexEntityType, \$payloadForIndex)"));
 $a('backfill returns placements_walked + sub_records_indexed counters',
     str_contains($syncSrc, "'placements_walked'")
     && str_contains($syncSrc, "'sub_records_indexed'"));
@@ -192,8 +194,10 @@ $a('JOINED_CTX map present',
 $a('joined applyAll iterates extracted sub-payloads',
     str_contains($syncSrc, 'jobdivaExtractJoinedSubPayloads($jd)')
     && str_contains($syncSrc, 'foreach ($joinedSubs as $joinedEntity => $subPayload)'));
-$a('joined applyAll invokes integrationFieldMapApplyAll per entity',
-    str_contains($syncSrc, "integrationFieldMapApplyAll(\$tid, 'jobdiva', \$joinedEntity, \$subPayload, \$ctx)"));
+$a('joined applyAll invokes integrationFieldMapApplyAll per canonical/native entity',
+    str_contains($syncSrc, 'jobdivaCanonicalApplyEntityTypes($joinedEntity)')
+    && str_contains($syncSrc, 'jobdivaCanonicalPayloadForEntity($joinedEntity, $mapEntityType, $subPayload)')
+    && str_contains($syncSrc, "integrationFieldMapApplyAll(\$tid, 'jobdiva', \$mapEntityType, \$payloadForApply, \$ctx)"));
 
 // 6) Backfill API endpoint is present + protected.
 echo "\n6. Re-index API endpoint\n";

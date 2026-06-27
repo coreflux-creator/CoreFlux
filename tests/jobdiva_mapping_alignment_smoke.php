@@ -55,16 +55,21 @@ $a('helper update is guarded by tenant_id and id',
 $a('helper insert explicitly sets tenant_id from argument',
     str_contains($clients, "\$payload['tenant_id'] = \$tenantId"));
 
-echo "\n3. Alignment service models canonical vs mirror-only layers\n";
+echo "\n3. Alignment service models canonical roots plus native mirrors\n";
 $a('alignment service file exists', file_exists($servicePath));
 $a('canonical object map function exists',
     str_contains($service, 'function jobdivaMappingCanonicalObjectMap(): array'));
-$a('object map labels canonical rows',
-    str_contains($service, "'mapping_kind'  => 'canonical'"));
-$a('object map labels mirror-only rows',
-    str_contains($service, "'mapping_kind'  => 'mirror_only'"));
+$a('object map is sourced from canonical graph catalog',
+    str_contains($service, 'jobdivaCanonicalGraphCatalog()')
+    && str_contains($service, "\$row['mapping_kind'] = 'canonical'"));
+$a('report keeps native mirrors as secondary diagnostics',
+    str_contains($service, 'native_payload_mirrors')
+    && str_contains($service, 'native_facets_vs_canonical_roots'));
 $a('customer id semantic tension documented',
     str_contains($service, "'code' => 'customer_id_semantics'"));
+$a('canonical mapping and field counts are exposed',
+    str_contains($service, 'canonical_mapping_counts')
+    && str_contains($service, 'canonical_field_coverage'));
 $a('report flags placements missing staffing client',
     str_contains($service, 'placement_missing_staffing_client'));
 $a('repair function exists and uses staffing bridge',

@@ -13,7 +13,7 @@
  *     Content-Type: multipart/form-data
  *     fields:
  *       integration (text)  e.g. "jobdiva"
- *       entity_type (text)  e.g. "job", "person", "jobdiva_customer"
+ *       entity_type (text)  e.g. "placement", "person", "company"
  *       file        (file)  the CSV file
  *
  *   → 200 {

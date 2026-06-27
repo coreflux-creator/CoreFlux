@@ -2,7 +2,7 @@
 /**
  * JobDiva mapping alignment cockpit API.
  *
- * GET  -> report canonical mappings, mirror-only payloads, graph issues.
+ * GET  -> report canonical mappings, native payload mirrors, graph issues.
  * POST action=repair_client_links -> backfill placements.client_id from the
  * canonical end-client company/staffing client bridge.
  */

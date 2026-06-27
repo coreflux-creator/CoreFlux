@@ -44,6 +44,31 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/jobdiva/sync.php';
 
+function _jobdivaRawPayloadFlattenKeys(array $payload, string $prefix = ''): array
+{
+    $out = [];
+    foreach ($payload as $k => $v) {
+        $path = $prefix === '' ? (string) $k : $prefix . '.' . (string) $k;
+        if (is_array($v) && $v !== []) {
+            array_push($out, ..._jobdivaRawPayloadFlattenKeys($v, $path));
+        } else {
+            $out[] = $path;
+        }
+    }
+    return $out;
+}
+
+function _jobdivaRawPayloadStatsForKeys(array $keys, array $sourceBuckets = []): array
+{
+    $keys = array_values(array_unique(array_filter($keys, static fn($k) => (string) $k !== '')));
+    sort($keys, SORT_STRING);
+    return [
+        'field_count' => count($keys),
+        'keys' => $keys,
+        'source_buckets' => array_values(array_unique($sourceBuckets)),
+    ];
+}
+
 $ctx  = api_require_auth();
 $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
@@ -137,6 +162,28 @@ foreach (['person', 'job', 'jobdiva_customer', 'contact', 'assignment'] as $b) {
     ];
 }
 
+$canonicalExtracted = [];
+$canonicalSources = [];
+foreach (jobdivaCanonicalEntityTypes() as $root) {
+    $canonicalExtracted[$root] = [];
+    $canonicalSources[$root] = [];
+}
+foreach ($extracted as $nativeType => $sub) {
+    if (!is_array($sub) || $sub === []) continue;
+    $canonical = jobdivaCanonicalEntityType((string) $nativeType);
+    if (!array_key_exists($canonical, $canonicalExtracted)) continue;
+    $wrapped = jobdivaCanonicalPayloadForEntity((string) $nativeType, $canonical, $sub);
+    $canonicalExtracted[$canonical] = array_merge(
+        $canonicalExtracted[$canonical],
+        _jobdivaRawPayloadFlattenKeys($wrapped)
+    );
+    $canonicalSources[$canonical][] = (string) $nativeType;
+}
+$canonicalStats = [];
+foreach ($canonicalExtracted as $root => $keys) {
+    $canonicalStats[$root] = _jobdivaRawPayloadStatsForKeys($keys, $canonicalSources[$root] ?? []);
+}
+
 api_ok([
     'ok'                   => true,
     'external_id'          => (string) $row['external_id'],
@@ -146,7 +193,9 @@ api_ok([
     'stats'                => [
         'top_level_scalar_field_count' => count($topFlat),
         'top_level_scalar_keys'        => $topFlat,
-        'buckets'                      => $bucketStats,
-        'extracted_into_buckets'       => $extractedStats,
+        'buckets'                       => $bucketStats,
+        'extracted_into_canonical_roots' => $canonicalStats,
+        'extracted_native_buckets'      => $extractedStats,
+        'extracted_into_buckets'        => $extractedStats,
     ],
 ]);

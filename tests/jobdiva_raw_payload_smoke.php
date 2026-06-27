@@ -40,6 +40,51 @@ function _buildStats(array $payload): array {
     ];
 }
 
+function _flattenKeys(array $payload, string $prefix = ''): array {
+    $out = [];
+    foreach ($payload as $k => $v) {
+        $path = $prefix === '' ? (string) $k : $prefix . '.' . (string) $k;
+        if (is_array($v) && $v !== []) {
+            array_push($out, ..._flattenKeys($v, $path));
+        } else {
+            $out[] = $path;
+        }
+    }
+    return $out;
+}
+
+function _canonicalExtractedStats(array $extracted): array {
+    $roots = ['placement' => [], 'person' => [], 'company' => [], 'contact' => [], 'time_entry' => []];
+    $sources = ['placement' => [], 'person' => [], 'company' => [], 'contact' => [], 'time_entry' => []];
+    foreach ($extracted as $native => $sub) {
+        if (!is_array($sub) || $sub === []) continue;
+        $canonical = match ($native) {
+            'job', 'assignment' => 'placement',
+            'jobdiva_customer' => 'company',
+            default => $native,
+        };
+        if (!array_key_exists($canonical, $roots)) continue;
+        $wrapped = match ($native) {
+            'job' => ['job' => $sub],
+            'assignment' => ['assignment' => $sub],
+            default => $sub,
+        };
+        $roots[$canonical] = array_merge($roots[$canonical], _flattenKeys($wrapped));
+        $sources[$canonical][] = $native;
+    }
+    $stats = [];
+    foreach ($roots as $root => $keys) {
+        $keys = array_values(array_unique($keys));
+        sort($keys, SORT_STRING);
+        $stats[$root] = [
+            'field_count' => count($keys),
+            'keys' => $keys,
+            'source_buckets' => array_values(array_unique($sources[$root])),
+        ];
+    }
+    return $stats;
+}
+
 // -----------------------------------------------------------------------------
 // CASE 1 — Healthy enriched payload (every bucket has dozens of fields).
 // -----------------------------------------------------------------------------
@@ -91,5 +136,23 @@ foreach (['_jd_job', '_jd_candidate', '_jd_customer', '_jd_contact', '_jd_start'
     assert($s['buckets'][$b]['field_count'] === 0, "$b count is 0");
 }
 _ok('CASE 3 — empty payload reports every bucket as absent');
+
+// -----------------------------------------------------------------------------
+// CASE 4 — Flat extraction summary is rooted in CoreFlux canonical roots.
+// -----------------------------------------------------------------------------
+$canonical = _canonicalExtractedStats([
+    'person' => ['first_name' => 'Alice', 'email' => 'alice@example.com'],
+    'job' => ['title' => 'Engineer'],
+    'jobdiva_customer' => ['name' => 'Acme'],
+    'assignment' => ['pay_rate' => 50, 'bill_rate' => 90],
+    'contact' => ['email' => 'approver@example.com'],
+]);
+assert($canonical['person']['keys'] === ['email', 'first_name'], 'candidate fields summarize as person');
+assert($canonical['company']['keys'] === ['name'], 'customer fields summarize as company');
+assert($canonical['placement']['keys'] === ['assignment.bill_rate', 'assignment.pay_rate', 'job.title'], 'job + assignment facets summarize under placement');
+assert($canonical['contact']['keys'] === ['email'], 'contact fields summarize as contact');
+assert($canonical['time_entry']['field_count'] === 0, 'time_entry root is present with zero fields');
+assert(in_array('jobdiva_customer', $canonical['company']['source_buckets'], true), 'company stats retain native source bucket evidence');
+_ok('CASE 4 — flat extraction reports canonical CoreFlux roots');
 
 echo "\n🎯 jobdiva_raw_payload_smoke — ALL PASS\n";

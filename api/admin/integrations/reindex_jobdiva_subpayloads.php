@@ -4,23 +4,23 @@
  *
  * One-shot backfill endpoint that walks every existing placement
  * `payload_snapshot` already stored in external_entity_mappings for
- * the current tenant, extracts joined sub-records (Person / Job /
- * Customer / Contact / Assignment) via jobdivaExtractJoinedSubPayloads,
- * and indexes them under their own entity_type via
+ * the current tenant, extracts joined native facets via
+ * jobdivaExtractJoinedSubPayloads, and indexes them under native
+ * evidence buckets plus canonical CoreFlux roots via
  * integrationPayloadFieldIndexRecord.
  *
  * Why this endpoint exists: prior placement syncs (before the
- * joined-entity indexing side-effect was added) stored full payloads
+ * canonical-root indexing side-effect was added) stored full payloads
  * but only indexed them under entity_type=placement. Without this
- * backfill, the Field Mapping Studio's entity dropdown shows only
- * `placement (N)` even though the operator has hundreds of placements
- * each carrying flat `candidate_*`, `job_*`, `customer_*` fields that
- * SHOULD be mappable per-entity.
+ * backfill, the Field Mapping Studio sees only root placement fields
+ * even though the operator has hundreds of placements carrying flat
+ * `candidate_*`, `job_*`, `customer_*` fields that should be mappable
+ * through person/company/contact/placement.
  *
  * POST /api/admin/integrations/reindex_jobdiva_subpayloads.php
  *   → 200 { ok: true,
  *           placements_walked: N,
- *           sub_records_indexed: { person, job, jobdiva_customer, contact, assignment }
+ *           sub_records_indexed: { placement, person, company, contact, ...native buckets }
  *         }
  *
  * RBAC: tenant_admin.integrations (same gate as other field-map admin).

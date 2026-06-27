@@ -10,106 +10,19 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/sync.php';
+require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
 
 function jobdivaMappingCanonicalObjectMap(): array
 {
-    return [
-        'company' => [
-            'source_object' => 'JobDiva Company',
-            'mapping_kind'  => 'canonical',
-            'core_owner'    => 'People / Companies graph',
-            'core_table'    => 'companies',
-            'identity_rule' => "external_entity_mappings(jobdiva, company) -> companies.id",
-            'consumed_by'   => ['company_contacts', 'placements.end_client_company_id', 'staffing_clients.company_id'],
-        ],
-        'jobdiva_customer' => [
-            'source_object' => 'JobDiva Customer / end-client reference',
-            'mapping_kind'  => 'canonical',
-            'core_owner'    => 'People / Companies graph',
-            'core_table'    => 'companies',
-            'identity_rule' => "external_entity_mappings(jobdiva, jobdiva_customer) -> companies.id",
-            'consumed_by'   => ['placements.end_client_company_id', 'staffing_clients.company_id', 'billing/AP/payroll readiness'],
-            'semantic_note' => 'JobDiva placement customer IDs are treated as end-client/customer identifiers, not blindly as CoreFlux company IDs.',
-        ],
-        'contact' => [
-            'source_object' => 'JobDiva Contact',
-            'mapping_kind'  => 'canonical',
-            'core_owner'    => 'Companies contacts',
-            'core_table'    => 'company_contacts',
-            'identity_rule' => "external_entity_mappings(jobdiva, contact) -> company_contacts.id",
-            'requires'      => ['company mapping'],
-        ],
-        'person' => [
-            'source_object' => 'JobDiva Candidate / Employee',
-            'mapping_kind'  => 'canonical',
-            'core_owner'    => 'People graph',
-            'core_table'    => 'people',
-            'identity_rule' => "external_entity_mappings(jobdiva, person) -> people.id",
-            'consumed_by'   => ['placements.person_id', 'time_entries.person_id', 'payroll readiness'],
-        ],
-        'placement' => [
-            'source_object' => 'JobDiva Start / Placement',
-            'mapping_kind'  => 'canonical',
-            'core_owner'    => 'Placements graph',
-            'core_table'    => 'placements',
-            'identity_rule' => "external_entity_mappings(jobdiva, placement) -> placements.id",
-            'requires'      => ['person mapping', 'end-client company mapping', 'staffing client consumer row'],
-            'consumed_by'   => ['time', 'billing', 'AP', 'payroll', 'reporting'],
-        ],
-        'time_entry' => [
-            'source_object' => 'JobDiva Timesheet',
-            'mapping_kind'  => 'canonical',
-            'core_owner'    => 'Time graph',
-            'core_table'    => 'time_entries',
-            'identity_rule' => "external_entity_mappings(jobdiva, time_entry) -> time_entries.id",
-            'requires'      => ['placement mapping', 'time_period match'],
-            'consumed_by'   => ['billing extraction', 'AP extraction', 'payroll runs'],
-        ],
-        'jobdiva_job' => [
-            'source_object' => 'JobDiva Job',
-            'mapping_kind'  => 'mirror_only',
-            'core_owner'    => 'No standalone CoreFlux job owner yet',
-            'core_table'    => 'external_entity_mappings payload mirror',
-            'identity_rule' => 'Stored for payload inspection and field mapping; not a canonical CoreFlux row.',
-            'consumed_by'   => ['placement title/metadata', 'Field Mapping Studio'],
-        ],
-        'jobdiva_candidate' => [
-            'source_object' => 'JobDiva Candidate detail mirror',
-            'mapping_kind'  => 'mirror_only',
-            'core_owner'    => 'People graph via placement sync',
-            'core_table'    => 'external_entity_mappings payload mirror',
-            'identity_rule' => 'Mirror row is evidence. Canonical person identity is jobdiva/person.',
-        ],
-        'jobdiva_contact' => [
-            'source_object' => 'JobDiva Contact detail mirror',
-            'mapping_kind'  => 'mirror_only',
-            'core_owner'    => 'Company contacts via contact sync or placement enrichment',
-            'core_table'    => 'external_entity_mappings payload mirror',
-            'identity_rule' => 'Mirror row is evidence. Canonical contact identity is jobdiva/contact.',
-        ],
-        'jobdiva_assignment' => [
-            'source_object' => 'JobDiva Assignment / Start detail mirror',
-            'mapping_kind'  => 'mirror_only',
-            'core_owner'    => 'Placements + placement_rates',
-            'core_table'    => 'external_entity_mappings payload mirror',
-            'identity_rule' => 'Mirror row feeds assignment fields; canonical placement identity is jobdiva/placement.',
-        ],
-        'assignment' => [
-            'source_object' => 'Extracted Assignment subpayload',
-            'mapping_kind'  => 'field_map_bucket',
-            'core_owner'    => 'Placements + placement_rates',
-            'core_table'    => 'integration_payload_field_index',
-            'identity_rule' => 'No identity row; bucket exists so assignment/rate fields can be mapped cleanly.',
-        ],
-        'job' => [
-            'source_object' => 'Extracted Job subpayload',
-            'mapping_kind'  => 'field_map_bucket',
-            'core_owner'    => 'Placement context',
-            'core_table'    => 'integration_payload_field_index',
-            'identity_rule' => 'No canonical job table yet; fields map into placement metadata or custom fields.',
-        ],
-    ];
+    $catalog = jobdivaCanonicalGraphCatalog();
+    foreach ($catalog as $entityType => &$row) {
+        $row['mapping_kind'] = 'canonical';
+        $row['source_object'] = implode(' + ', $row['jobdiva_facets'] ?? []);
+        $row['native_entity_types'] = jobdivaNativeEntityTypesForCanonical((string) $entityType);
+    }
+    unset($row);
+    return $catalog;
 }
 
 function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
@@ -162,11 +75,13 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
 
     $mappingCounts = _jobdivaMappingCountsByType($pdo, $tenantId);
     $fieldCoverage = _jobdivaMappingFieldCoverage($pdo, $tenantId);
+    $canonicalMappingCounts = _jobdivaMappingCanonicalCounts($mappingCounts);
+    $canonicalFieldCoverage = _jobdivaMappingCanonicalCounts($fieldCoverage);
     $samples = _jobdivaMappingSampleRows($pdo, $tenantId, $limit);
 
     $canonicalTotal = 0;
-    foreach (['company', 'jobdiva_customer', 'contact', 'person', 'placement', 'time_entry'] as $entity) {
-        $canonicalTotal += (int) ($mappingCounts[$entity] ?? 0);
+    foreach (jobdivaCanonicalEntityTypes() as $entity) {
+        $canonicalTotal += (int) ($canonicalMappingCounts[$entity] ?? 0);
     }
     $mirrorTotal = 0;
     foreach (['jobdiva_job', 'jobdiva_candidate', 'jobdiva_contact', 'jobdiva_assignment'] as $entity) {
@@ -175,8 +90,8 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
 
     $relationships['mapping_layers'] = [
         'canonical_mappings' => $canonicalTotal,
-        'mirror_only_rows'   => $mirrorTotal,
-        'field_map_buckets'  => array_sum(array_map('intval', $fieldCoverage)),
+        'native_payload_mirrors' => $mirrorTotal,
+        'field_map_paths'  => array_sum(array_map('intval', $canonicalFieldCoverage)),
     ];
 
     $badStatuses = _jobdivaMappingScalar($pdo,
@@ -324,15 +239,15 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
         _jobdivaMappingAddIssue($issues, 'critical', 'time_entry_without_placement_mapping', 'time', $timeWithoutPlacementMap, 'Some JobDiva time entries are linked to placements that do not have a JobDiva placement mapping.', 'Repair placement mappings before sending these hours through billing/AP/payroll.');
     }
 
-    $joinedBuckets = ['person', 'job', 'jobdiva_customer', 'contact', 'assignment'];
+    $joinedBuckets = ['person', 'company', 'contact', 'placement'];
     $missingBuckets = [];
     if ((int) ($mappingCounts['placement'] ?? 0) > 0) {
         foreach ($joinedBuckets as $bucket) {
-            if ((int) ($fieldCoverage[$bucket] ?? 0) === 0) $missingBuckets[] = $bucket;
+            if ((int) ($canonicalFieldCoverage[$bucket] ?? 0) === 0) $missingBuckets[] = $bucket;
         }
     }
     if ($missingBuckets) {
-        _jobdivaMappingAddIssue($issues, 'warn', 'joined_payload_buckets_missing', 'field_mapping', count($missingBuckets), 'Placement payloads exist, but some joined JobDiva field buckets are empty: ' . implode(', ', $missingBuckets) . '.', 'Run the JobDiva subpayload re-indexer, then open Field Mapping Studio.');
+        _jobdivaMappingAddIssue($issues, 'warn', 'canonical_payload_roots_missing', 'field_mapping', count($missingBuckets), 'Placement payloads exist, but some canonical mapping roots have no indexed JobDiva fields: ' . implode(', ', $missingBuckets) . '.', 'Run the JobDiva subpayload re-indexer, then open Field Mapping Studio.');
     }
 
     if ((int) ($mappingCounts['jobdiva_candidate'] ?? 0) > 0 && (int) ($mappingCounts['person'] ?? 0) === 0) {
@@ -352,18 +267,20 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
         'object_map' => $objectMap,
         'sync_config' => $syncConfig,
         'mapping_counts' => $mappingCounts,
+        'canonical_mapping_counts' => $canonicalMappingCounts,
         'field_coverage' => $fieldCoverage,
+        'canonical_field_coverage' => $canonicalFieldCoverage,
         'relationships' => $relationships,
         'issues' => $issues,
         'samples' => $samples,
         'known_tensions' => [
             [
-                'code' => 'mirror_vs_canonical',
-                'summary' => 'jobdiva_job/jobdiva_candidate/jobdiva_contact/jobdiva_assignment rows are payload mirrors, not canonical CoreFlux owners.',
+                'code' => 'native_facets_vs_canonical_roots',
+                'summary' => 'JobDiva native facets are retained as evidence, but mappings and workflows should root in placement, person, company, contact, and time_entry.',
             ],
             [
                 'code' => 'customer_id_semantics',
-                'summary' => 'JobDiva placement customer/customerId fields are normalized into the end-client company/client bridge; operators should not interpret them as direct CoreFlux company IDs.',
+                'summary' => 'JobDiva customer/customerId fields are normalized into the company/end-client bridge; native jobdiva_customer rows may remain only to avoid source-id collisions.',
             ],
             [
                 'code' => 'staffing_consumes_company_graph',
@@ -524,6 +441,17 @@ function _jobdivaMappingSampleRows(\PDO $pdo, int $tenantId, int $limit): array
           LIMIT {$limit}",
         ['t' => $tenantId]
     );
+}
+
+function _jobdivaMappingCanonicalCounts(array $rawCounts): array
+{
+    $out = array_fill_keys(jobdivaCanonicalEntityTypes(), 0);
+    foreach ($rawCounts as $entityType => $count) {
+        $canonical = jobdivaCanonicalEntityType((string) $entityType);
+        if (!array_key_exists($canonical, $out)) continue;
+        $out[$canonical] += (int) $count;
+    }
+    return $out;
 }
 
 function _jobdivaMappingAddIssue(array &$issues, string $severity, string $code, string $area, int $count, string $summary, string $action): void

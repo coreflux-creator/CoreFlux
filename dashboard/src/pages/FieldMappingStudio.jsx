@@ -36,34 +36,32 @@ const LINKED_ENTITY_LABELS = {
 /**
  * JobDiva enrichment buckets — the sync grafts these joined sub-records
  * onto the placement payload so a placement-level mapping can reach into
- * the candidate / job / customer / contact / start records without a
- * separate sync. The Studio surfaces these as visual groups in the
- * left pane so operators see "this is the Person section, this is the
- * Job section, this is the Assignment section" instead of a flat path
- * list.
+ * the candidate/person, job context, customer/company, contact, and
+ * start/assignment facts without a separate sync. The Studio surfaces
+ * these as visual groups in the left pane so operators see canonical
+ * CoreFlux roots and placement facets instead of a flat source-path list.
  *
  * default-open groups bubble to the top; the rest expand on click.
  */
 const PATH_GROUPS = [
-  { key: '_jd_candidate', label: 'Person (candidate)',        icon: '👤', linked: 'person',             defaultOpen: true },
-  { key: '_jd_job',       label: 'Job',                       icon: '💼', linked: 'self',               defaultOpen: true },
-  { key: '_jd_customer',  label: 'End-client company',        icon: '🏢', linked: 'end_client_company', defaultOpen: true },
-  { key: '_jd_contact',   label: 'Hiring contact',            icon: '☎️', linked: 'self',               defaultOpen: false },
-  { key: '_jd_start',     label: 'Start / Assignment detail', icon: '📋', linked: 'self',               defaultOpen: true },
+  { key: '_jd_candidate', label: 'Person',                    icon: '👤', linked: 'person',             defaultOpen: true },
+  { key: '_jd_job',       label: 'Placement job context',     icon: '💼', linked: 'self',               defaultOpen: true },
+  { key: '_jd_customer',  label: 'Company (end-client)',      icon: '🏢', linked: 'end_client_company', defaultOpen: true },
+  { key: '_jd_contact',   label: 'Contact (hiring)',          icon: '☎️', linked: 'self',               defaultOpen: false },
+  { key: '_jd_start',     label: 'Placement assignment terms', icon: '📋', linked: 'self',              defaultOpen: true },
 ];
 
 function groupPathsByNamespace(paths, entityType = 'placement') {
   const groups = new Map();
   // Friendly root-bucket label per entity_type so the UI doesn't say
   // "Placement fields" when the operator is actually mapping a Person
-  // / Job / Customer / Contact / Assignment sub-record.
+  // / Company / Contact roots or Placement job/assignment facets.
   const ROOT_LABELS = {
     placement:         { label: 'Placement fields (root record)',         icon: '📄' },
     person:            { label: 'Person fields (root of candidate record)', icon: '👤' },
-    job:               { label: 'Job fields (root of job record)',        icon: '💼' },
-    jobdiva_customer:  { label: 'End-client fields (root of customer record)', icon: '🏢' },
+    job:               { label: 'Placement fields (job facet)',           icon: '💼' },
+    assignment:        { label: 'Placement fields (assignment facet)',    icon: '📋' },
     contact:           { label: 'Contact fields (root of contact record)', icon: '☎️' },
-    assignment:        { label: 'Assignment fields (root of start record)', icon: '📋' },
     company:           { label: 'Company fields (root record)',           icon: '🏢' },
     time_entry:        { label: 'Time entry fields (root record)',        icon: '⏱️' },
   };
@@ -202,7 +200,7 @@ export default function FieldMappingStudio() {
         const tot = Object.values(r.sub_records_indexed || {}).reduce((a, b) => a + (Number(b) || 0), 0);
         setFlash({
           kind: 'success',
-          msg: `Indexed joined sub-records from ${r.placements_walked || 0} placement(s) — ${tot} sub-records routed to Person/Job/Customer/Contact/Assignment.`,
+          msg: `Indexed canonical JobDiva roots from ${r.placements_walked || 0} placement(s) — ${tot} source facets routed to Placement/Person/Company/Contact.`,
         });
       }
       return r;
@@ -292,7 +290,7 @@ export default function FieldMappingStudio() {
     setCsvResult(null);
     setCsvError(null);
     // Pre-fill the entity dropdown with the one the operator is viewing
-    // so the most common path (open studio on `job`, upload jobs.csv)
+    // so the common path (open Placement, upload a jobs/placements CSV)
     // is zero-config.
     setCsvEntity(entityType);
   };
@@ -427,7 +425,8 @@ export default function FieldMappingStudio() {
   // Auto re-index for JobDiva tenants whose picker is stuck on placement-
   // only: if we've loaded sources and the only jobdiva entity is
   // 'placement' with paths, fire ONE silent re-index so the operator
-  // immediately sees Person/Job/Customer/Contact/Assignment populated
+  // immediately sees Person/Company/Contact populated, with Job/Start
+  // facets available as placement context.
   // without having to know about a button. Guarded so we never loop.
   useEffect(() => {
     if (integration !== 'jobdiva') return;
@@ -437,7 +436,7 @@ export default function FieldMappingStudio() {
     if (jdSources.length === 0) return;
     const hasPlacement = jdSources.some(s => s.entity_type === 'placement' && Number(s.path_count) > 0);
     const hasJoined    = jdSources.some(s =>
-      ['person', 'job', 'jobdiva_customer', 'contact', 'assignment'].includes(s.entity_type)
+      ['person', 'company', 'contact'].includes(s.entity_type)
       && Number(s.path_count) > 0
     );
     if (hasPlacement && !hasJoined) {
@@ -602,7 +601,7 @@ export default function FieldMappingStudio() {
                 .filter(s => s.integration === integration)
                 .map(s => ({ et: s.entity_type, count: Number(s.path_count) || 0 }));
               const fallback = {
-                jobdiva:    ['placement', 'person', 'company', 'contact', 'jobdiva_customer', 'time_entry'],
+                jobdiva:    ['placement', 'person', 'company', 'contact', 'time_entry'],
                 quickbooks: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account', 'item'],
                 zoho_books: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account'],
                 airtable:   ['placement', 'person', 'company', 'vendor', 'customer', 'contact', 'note', 'task', 'opportunity', 'generic'],
@@ -729,7 +728,7 @@ export default function FieldMappingStudio() {
           dropdown above. Lists every (integration, entity_type) tuple
           we've actually seen, with its indexed path count. Operator
           asked: "clearer entity tabs in the Field Mapping Studio
-          (Person / Job / Customer / Contact / Assignment / Placement)
+          (Placement / Person / Company / Contact / Time Entry)
           with a count of fields available in each". The dropdown
           stays in place for power users + small screens. */}
       {(() => {
@@ -737,7 +736,7 @@ export default function FieldMappingStudio() {
           .filter(s => s.integration === integration)
           .map(s => ({ et: s.entity_type, count: Number(s.path_count) || 0 }));
         const fallback = {
-          jobdiva:    ['placement', 'person', 'job', 'jobdiva_customer', 'contact', 'assignment', 'jobdiva_job', 'jobdiva_candidate', 'jobdiva_contact', 'jobdiva_assignment'],
+          jobdiva:    ['placement', 'person', 'company', 'contact', 'time_entry'],
           quickbooks: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account', 'item'],
           zoho_books: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account'],
           airtable:   ['placement', 'person', 'company', 'vendor', 'customer', 'contact', 'note', 'task', 'opportunity', 'generic'],
@@ -751,11 +750,8 @@ export default function FieldMappingStudio() {
         const LABELS = {
           placement:        'Placement',
           person:           'Person',
-          job:              'Job',
-          jobdiva_customer: 'Customer',
           customer:         'Customer',
           contact:          'Contact',
-          assignment:       'Assignment',
           company:          'Company',
           jobdiva_job:        '🪞 JobDiva Job (full mirror)',
           jobdiva_candidate:  '🪞 JobDiva Candidate (full mirror)',
@@ -822,14 +818,14 @@ export default function FieldMappingStudio() {
       })()}
 
       {/* JobDiva re-index banner — surfaces when the only jobdiva source
-          is `placement`. Lets the operator extract joined Person/Job/
-          Customer/Contact/Assignment sub-records out of every existing
+          is `placement`. Lets the operator extract canonical Person/
+          Company/Contact roots plus placement context out of every existing
           placement payload WITHOUT triggering a fresh JobDiva HTTP sync. */}
       {integration === 'jobdiva' && (() => {
         const jdSources = sources.filter(s => s.integration === 'jobdiva');
         const placementSrc = jdSources.find(s => s.entity_type === 'placement');
         const joinedSrc = jdSources.filter(s =>
-          ['person', 'job', 'jobdiva_customer', 'contact', 'assignment'].includes(s.entity_type)
+          ['person', 'company', 'contact'].includes(s.entity_type)
           && Number(s.path_count) > 0
         );
         if (!placementSrc || Number(placementSrc.path_count) === 0) return null;
@@ -848,13 +844,13 @@ export default function FieldMappingStudio() {
             <div style={{ flex: 1, fontSize: 12 }}>
               <strong style={{ color: '#0f172a' }}>
                 {joinedCount > 0
-                  ? `JobDiva joined entities indexed (${joinedCount}/5).`
-                  : `Joined-entity fields not yet indexed.`}
+                  ? `JobDiva canonical roots indexed (${joinedCount}/3).`
+                  : `Canonical related fields not yet indexed.`}
               </strong>
               <div style={{ marginTop: 4, color: '#475569' }}>
                 {joinedCount > 0
-                  ? <>You have <strong>{placementCount}</strong> placement paths indexed plus joined sub-records. <strong>Re-index again</strong> any time to pull the latest full Job / Candidate / Customer records from JobDiva via <code>/apiv2/jobdiva/search*</code> and refresh the indexed paths.</>
-                  : <>You have <strong>{placementCount}</strong> placement paths indexed but none of the joined Person / Job / End-client / Contact / Assignment fields are in the picker yet. Click below to extract them from your existing placement payloads <em>and</em> fetch full joined records from JobDiva — no fresh sync needed.</>}
+                  ? <>You have <strong>{placementCount}</strong> placement paths indexed plus canonical related roots. <strong>Re-index again</strong> any time to pull the latest source Job / Candidate / Customer facets from JobDiva via <code>/apiv2/jobdiva/search*</code> and refresh the canonical paths.</>
+                  : <>You have <strong>{placementCount}</strong> placement paths indexed but the related Person / Company / Contact roots are not in the picker yet. Click below to extract them from your existing placement payloads <em>and</em> fetch full joined records from JobDiva — no fresh sync needed.</>}
               </div>
               {reindexResult && (
                 <div data-testid="fms-jobdiva-reindex-result"
@@ -863,7 +859,7 @@ export default function FieldMappingStudio() {
                   {' '}{Object.entries(reindexResult.sub_records_indexed || {})
                           .filter(([, n]) => Number(n) > 0)
                           .map(([k, n]) => `${k} ×${n}`)
-                          .join(', ') || 'no joined sub-records found'}
+                          .join(', ') || 'no canonical roots found'}
                   {Number(reindexResult.enrichment_ran_for) > 0 && (
                     <span data-testid="fms-jobdiva-reindex-enrichment"
                           style={{ marginLeft: 6, color: '#0369a1' }}>
@@ -1016,12 +1012,12 @@ export default function FieldMappingStudio() {
                      style={{ fontSize: 11, color: '#475569', background: '#f8fafc',
                               padding: '6px 10px', borderBottom: '1px solid #e2e8f0' }}>
                   Placement records are <strong>enriched</strong> server-side with the joined
-                  Person, Job, End-client and Assignment detail. Pick any field from any group
+                  Person, Company, Contact, Job and Start/Assignment detail. Pick any field from any group
                   below — set <em>linked_entity</em> in the save bar to route it to the right
                   CoreFlux row.
                 </div>
               )}
-              {integration === 'jobdiva' && ['person', 'job', 'jobdiva_customer', 'contact', 'assignment'].includes(entityType) && (
+              {integration === 'jobdiva' && ['person', 'company', 'contact', 'time_entry'].includes(entityType) && (
                 <div data-testid="fms-paths-explainer-joined"
                      data-entity={entityType}
                      style={{ fontSize: 11, color: '#475569', background: '#fefce8',
@@ -1593,7 +1589,7 @@ export default function FieldMappingStudio() {
                 <input data-testid="fms-csv-entity"
                        value={csvEntity}
                        onChange={e => setCsvEntity(e.target.value.replace(/[^a-z0-9_]/g, '').toLowerCase())}
-                       placeholder="e.g. job, person, jobdiva_customer"
+                       placeholder="e.g. placement, person, company"
                        className="input"
                        style={{ display: 'block', marginTop: 4, fontSize: 13 }} />
                 <span style={{ fontSize: 11, color: '#94a3b8' }}>
@@ -1670,9 +1666,8 @@ export default function FieldMappingStudio() {
           .map(s => ({ et: s.entity_type, count: Number(s.path_count) || 0 }))
           .sort((a, b) => b.count - a.count);
         const LABELS = {
-          placement: 'Placement', person: 'Person', job: 'Job',
-          jobdiva_customer: 'Customer', customer: 'Customer',
-          contact: 'Contact', assignment: 'Assignment', company: 'Company',
+          placement: 'Placement', person: 'Person', company: 'Company',
+          customer: 'Customer', contact: 'Contact',
           journal_entry: 'Journal Entry', vendor: 'Vendor', invoice: 'Invoice',
           bill: 'Bill', payment: 'Payment', gl_account: 'GL Account',
           item: 'Item', time_entry: 'Time Entry', record: 'Record',
@@ -2018,36 +2013,41 @@ export default function FieldMappingStudio() {
                   </div>
                 </div>
 
-                {/* What our flat extractor produced — the actual source of
-                    mappable fields when JobDiva enrichment is absent. */}
-                {rawData.stats?.extracted_into_buckets && (
+                {/* What our flat extractor produced as canonical roots — the
+                    actual source of mappable fields when JobDiva enrichment is absent. */}
+                {(rawData.stats?.extracted_into_canonical_roots || rawData.stats?.extracted_into_buckets) && (
                   <div data-testid="fms-raw-extracted"
                        style={{ border: '1px solid #bae6fd', borderRadius: 8, padding: 12, background: '#f0f9ff' }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#0c4a6e' }}>
-                      What CoreFlux extracted from flat top-level keys
+                      Canonical CoreFlux roots extracted from flat top-level keys
                     </div>
                     <div style={{ fontSize: 11, color: '#0c4a6e', marginBottom: 8 }}>
                       JobDiva V2 BI carries joined-entity fields as flat keys (e.g.
                       <code style={{ margin: '0 4px' }}>candidate id</code>,
                       <code style={{ margin: '0 4px' }}>start pay rate</code>). CoreFlux strips the
-                      prefix and routes them into the right bucket — even when JobDiva's enrichment
-                      endpoints return nothing.
+                      prefix and routes them into Placement, Person, Company, and Contact — even when
+                      JobDiva's enrichment endpoints return nothing.
                     </div>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr style={{ background: '#e0f2fe' }}>
-                          <th style={{ ...thStyle, fontSize: 11 }}>Bucket</th>
+                          <th style={{ ...thStyle, fontSize: 11 }}>CoreFlux root</th>
                           <th style={{ ...thStyle, fontSize: 11, textAlign: 'right' }}>Extracted</th>
                           <th style={{ ...thStyle, fontSize: 11 }}>Keys</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {Object.entries(rawData.stats.extracted_into_buckets).map(([bucket, info]) => (
+                        {Object.entries(rawData.stats.extracted_into_canonical_roots || rawData.stats.extracted_into_buckets).map(([bucket, info]) => (
                           <tr key={bucket}
                               data-testid={`fms-raw-extracted-${bucket}`}
                               style={{ borderTop: '1px solid #bae6fd' }}>
                             <td style={{ ...tdStyle }}>
                               <code style={{ fontSize: 11 }}>{bucket}</code>
+                              {Array.isArray(info.source_buckets) && info.source_buckets.length > 0 && (
+                                <span style={{ marginLeft: 6, color: '#64748b', fontSize: 11 }}>
+                                  from {info.source_buckets.join(', ')}
+                                </span>
+                              )}
                             </td>
                             <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600,
                                          color: info.field_count === 0 ? '#94a3b8' : '#0369a1' }}>

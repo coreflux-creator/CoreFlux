@@ -29,6 +29,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/integrations/payload_field_index.php';
+require_once __DIR__ . '/../../../core/jobdiva/canonical_graph.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -43,8 +44,9 @@ $limit       = (int) ($_GET['limit'] ?? 500);
 if ($integration === '' || $entityType === '') {
     // Source-discovery mode: which (integration, entity_type) tuples
     // does this tenant have payloads for?
+    $sources = integrationPayloadFieldIndexSources($tid);
     api_ok([
-        'sources' => integrationPayloadFieldIndexSources($tid),
+        'sources' => jobdivaCanonicalizePayloadSources($sources),
     ]);
 }
 
@@ -53,12 +55,14 @@ if ($integration === '' || $entityType === '') {
 // Inspector's "global search across all entities" behavior (operator
 // types `pay` once and sees matching paths under every bucket).
 if ($entityType === '*' || $entityType === 'all') {
-    $sources = integrationPayloadFieldIndexSources($tid);
+    $sources = jobdivaCanonicalizePayloadSources(integrationPayloadFieldIndexSources($tid));
     $perBucket = [];
     foreach ($sources as $src) {
         if ($src['integration'] !== $integration) continue;
         $et = $src['entity_type'];
-        $perBucket[$et] = integrationPayloadFieldIndexList($tid, $integration, $et, $limit);
+        $perBucket[$et] = $integration === 'jobdiva'
+            ? jobdivaCanonicalPayloadFieldIndexList($tid, $et, $limit)
+            : integrationPayloadFieldIndexList($tid, $integration, $et, $limit);
     }
     api_ok([
         'integration'    => $integration,
@@ -70,6 +74,8 @@ if ($entityType === '*' || $entityType === 'all') {
 // Path-listing mode: drive the picker tree.
 api_ok([
     'integration' => $integration,
-    'entity_type' => $entityType,
-    'paths'       => integrationPayloadFieldIndexList($tid, $integration, $entityType, $limit),
+    'entity_type' => $integration === 'jobdiva' ? jobdivaCanonicalEntityType($entityType) : $entityType,
+    'paths'       => $integration === 'jobdiva'
+        ? jobdivaCanonicalPayloadFieldIndexList($tid, $entityType, $limit)
+        : integrationPayloadFieldIndexList($tid, $integration, $entityType, $limit),
 ]);

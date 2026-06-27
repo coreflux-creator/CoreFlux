@@ -26,6 +26,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/client.php';
+require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../integrations/payload_field_index.php';
 require_once __DIR__ . '/../../modules/people/lib/companies.php';
@@ -937,13 +938,11 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
             $internalId = jobdivaSyncUpsertPlacement($tid, $personId, $endClientCompanyId, $jd, $extId, $userId);
             mappingUpsert($tid, 'jobdiva', 'placement', $extId, $internalId, $jd, 'pull', $userId);
 
-            // Side-effect: index every joined sub-record (_jd_candidate,
-            // _jd_job, _jd_customer, _jd_contact, _jd_start) under its OWN
-            // entity_type so the Field Mapping Studio offers paths for
-            // person / job / jobdiva_customer / contact / assignment after
-            // any placement sync. Without this the picker only shows
-            // "placement.*" paths; with this it shows real domain entity
-            // pickers with sample values populated.
+            // Side-effect: index every joined sub-record under both its
+            // native evidence bucket and its CoreFlux canonical root.
+            // The Field Mapping Studio should lead with placement/person/
+            // company/contact, while raw native facets remain available
+            // for diagnostics and legacy mappings.
             try {
                 jobdivaIndexJoinedSubPayloads($tid, $jd);
             } catch (\Throwable $e) {
@@ -965,16 +964,12 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
                     'end_client_company'     => $endClientCompanyId ?? 0,
                 ]);
 
-                // Also apply mappings stored UNDER the joined entity
-                // types (person/job/jobdiva_customer/contact/assignment),
-                // treating each EXTRACTED sub-record (from nested _jd_*
-                // OR flat prefix-keyed fields like candidate_first_name)
-                // as the source payload. This is how the Field Mapping
-                // Studio's entity-type dropdown becomes useful end-to-end:
-                // an operator picks entity_type='person', maps
-                // `first_name → people.first_name`, and the placement
-                // sync honours it because the extracted candidate sub-
-                // record is the active payload.
+                // Also apply mappings through the canonical root for each
+                // joined native facet. Example: a JobDiva Customer subpayload
+                // is treated as CoreFlux `company`; Job/Start subpayloads are
+                // namespaced under canonical `placement` as job.* and
+                // assignment.*. Legacy native entity_type mappings are still
+                // honored for existing tenant configs.
                 static $JOINED_CTX = [
                     'person'           => 'person',
                     'job'              => 'self',
@@ -995,10 +990,13 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
                         'placement_rates'        => $internalId,
                         'placement_corp_details' => $internalId,
                     ];
-                    try {
-                        integrationFieldMapApplyAll($tid, 'jobdiva', $joinedEntity, $subPayload, $ctx);
-                    } catch (\Throwable $e) {
-                        error_log('[jobdiva placement sync] joined applyAll ' . $joinedEntity . ' failed: ' . $e->getMessage());
+                    foreach (jobdivaCanonicalApplyEntityTypes($joinedEntity) as $mapEntityType) {
+                        $payloadForApply = jobdivaCanonicalPayloadForEntity($joinedEntity, $mapEntityType, $subPayload);
+                        try {
+                            integrationFieldMapApplyAll($tid, 'jobdiva', $mapEntityType, $payloadForApply, $ctx);
+                        } catch (\Throwable $e) {
+                            error_log('[jobdiva placement sync] joined applyAll ' . $mapEntityType . ' from ' . $joinedEntity . ' failed: ' . $e->getMessage());
+                        }
                     }
                 }
             } catch (\Throwable $e) {
@@ -1470,7 +1468,7 @@ function jobdivaExtractJoinedSubPayloads(array $enriched): array
 /**
  * Index every joined sub-record of an enriched placement payload UNDER
  * ITS OWN entity_type so the Field Mapping Studio surfaces paths for
- * `person`, `job`, `jobdiva_customer`, `contact`, `assignment` even
+ * canonical `person`, `company`, `contact`, and `placement` roots even
  * without separate top-level JobDiva endpoints for those entities.
  *
  * Side-effect only — never throws. Failures are logged + swallowed
@@ -1483,7 +1481,10 @@ function jobdivaIndexJoinedSubPayloads(int $tenantId, array $enrichedPayload): v
     foreach ($subs as $entityType => $subPayload) {
         if (empty($subPayload)) continue;
         try {
-            integrationPayloadFieldIndexRecord($tenantId, 'jobdiva', $entityType, $subPayload);
+            foreach (jobdivaCanonicalFieldIndexEntityTypes($entityType) as $indexEntityType) {
+                $payloadForIndex = jobdivaCanonicalPayloadForEntity($entityType, $indexEntityType, $subPayload);
+                integrationPayloadFieldIndexRecord($tenantId, 'jobdiva', $indexEntityType, $payloadForIndex);
+            }
         } catch (\Throwable $e) {
             error_log('[jobdivaIndexJoinedSubPayloads] ' . $entityType . ' index failed: ' . $e->getMessage());
         }
@@ -1511,7 +1512,9 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
     $summary = [
         'placements_walked'   => 0,
         'sub_records_indexed' => [
+            'placement'        => 0,
             'person'           => 0,
+            'company'          => 0,
             'job'              => 0,
             'jobdiva_customer' => 0,
             'contact'          => 0,
@@ -1632,9 +1635,12 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
         foreach ($subs as $entityType => $sub) {
             if (empty($sub)) continue;
             try {
-                $n = integrationPayloadFieldIndexRecord($tenantId, 'jobdiva', $entityType, $sub);
-                if ($n > 0 && isset($summary['sub_records_indexed'][$entityType])) {
-                    $summary['sub_records_indexed'][$entityType]++;
+                foreach (jobdivaCanonicalFieldIndexEntityTypes($entityType) as $indexEntityType) {
+                    $payloadForIndex = jobdivaCanonicalPayloadForEntity($entityType, $indexEntityType, $sub);
+                    $n = integrationPayloadFieldIndexRecord($tenantId, 'jobdiva', $indexEntityType, $payloadForIndex);
+                    if ($n > 0 && isset($summary['sub_records_indexed'][$indexEntityType])) {
+                        $summary['sub_records_indexed'][$indexEntityType]++;
+                    }
                 }
             } catch (\Throwable $e) {
                 error_log('[jobdivaBackfillJoinedIndexes] index ' . $entityType . ': ' . $e->getMessage());
@@ -1670,6 +1676,11 @@ function jobdivaResolveOrAutoCreateEndClient(
 
     if ($existingId > 0) {
         mappingUpsert($tid, 'jobdiva', 'jobdiva_customer', $customerExtId, $existingId, $payload, 'pull', $userId);
+        try {
+            integrationPayloadFieldIndexRecord($tid, 'jobdiva', 'company', $payload);
+        } catch (\Throwable $e) {
+            error_log('[jobdiva end-client resolver] company index failed: ' . $e->getMessage());
+        }
         return $existingId;
     }
 
@@ -1679,6 +1690,11 @@ function jobdivaResolveOrAutoCreateEndClient(
     )->execute(['t' => $tid, 'n' => $customerName]);
     $newId = (int) $pdo->lastInsertId();
     mappingUpsert($tid, 'jobdiva', 'jobdiva_customer', $customerExtId, $newId, $payload, 'pull', $userId);
+    try {
+        integrationPayloadFieldIndexRecord($tid, 'jobdiva', 'company', $payload);
+    } catch (\Throwable $e) {
+        error_log('[jobdiva end-client resolver] company index failed: ' . $e->getMessage());
+    }
     return $newId;
 }
 
@@ -2281,10 +2297,9 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
  *   - Operators want every JobDiva field mappable — not just the
  *     subset that survives the placement-level enrichment dance.
  *
- * The payload also feeds `payload_field_index` so the entity tabs in
- * the Field Mapping Studio populate with `jobdiva_job (N)` /
- * `jobdiva_candidate (N)` counts and the operator can map every
- * column on demand.
+ * The payload also feeds `payload_field_index`. Native mirror buckets
+ * remain as evidence, but the Field Mapping Studio rolls them into the
+ * canonical placement/person/company/contact roots for mapping.
  *
  * Internal_entity_id is a sentinel (cast of $extId or crc32 hash)
  * because there is no paired CoreFlux row — the table's `uk_internal`
@@ -2385,8 +2400,7 @@ function jobdivaSyncMirrorEntity(
 
 /**
  * Mirror every JobDiva Job record into `external_entity_mappings`
- * under `internal_entity_type='jobdiva_job'`. Drives the Field Mapping
- * Studio's `jobdiva_job` entity tab. JobDiva's `/apiv2/bi/NewUpdatedJobRecords`
+ * under `internal_entity_type='jobdiva_job'`. JobDiva's `/apiv2/bi/NewUpdatedJobRecords`
  * endpoint returns the full Job record (title, status, location, rate
  * range, custom fields, etc.) — every field becomes mappable in the
  * Studio without per-record enrichment.
@@ -2402,8 +2416,8 @@ function jobdivaSyncJobs(int $tid, ?int $userId, array $opts = []): array
 
 /**
  * Mirror every JobDiva Candidate record into `external_entity_mappings`
- * under `internal_entity_type='jobdiva_candidate'`. Drives the
- * `jobdiva_candidate` entity tab. JobDiva's
+ * under `internal_entity_type='jobdiva_candidate'`. Canonical mapping
+ * surfaces this data under `person`. JobDiva's
  * `/apiv2/bi/NewUpdatedCandidateRecords` returns the full Candidate
  * record (every contact field, work-auth, skills, custom fields, etc.).
  */
@@ -2512,7 +2526,10 @@ function jobdivaMirrorStoreAndIndex(
                     'hash' => hash('sha256', $payloadJson),
                 ]);
             }
-            integrationPayloadFieldIndexRecord($tid, 'jobdiva', $entityType, $jd);
+            foreach (jobdivaCanonicalFieldIndexEntityTypes($entityType) as $indexEntityType) {
+                $payloadForIndex = jobdivaCanonicalPayloadForEntity($entityType, $indexEntityType, $jd);
+                integrationPayloadFieldIndexRecord($tid, 'jobdiva', $indexEntityType, $payloadForIndex);
+            }
             $processed++;
         } catch (\Throwable $e) {
             $failed++;

@@ -117,17 +117,33 @@ $a('Person group routes to linked_entity=person',
     preg_match("/'_jd_candidate'.*linked:\s*'person'/s", $fms) === 1);
 $a('End-client group routes to linked_entity=end_client_company',
     preg_match("/'_jd_customer'.*linked:\s*'end_client_company'/s", $fms) === 1);
+$a('JobDiva groups are labeled as canonical roots and placement facets',
+    str_contains($fms, "label: 'Person'")
+    && str_contains($fms, "label: 'Company (end-client)'")
+    && str_contains($fms, "label: 'Placement job context'")
+    && str_contains($fms, "label: 'Placement assignment terms'")
+    && !str_contains($fms, "Job fields (root of job record)"));
 
 // 5.6) Entity-type dropdown is data-driven (not the old hardcoded list).
 echo "\n5.6 Data-driven entity-type dropdown\n";
 $a('dropdown options derive from indexed sources',
     str_contains($fms, 'sources') && str_contains($fms, 's.integration === integration'));
-$a('fallback list includes JobDiva entity types',
-    str_contains($fms, "jobdiva:") && str_contains($fms, "'jobdiva_customer'") && str_contains($fms, "'time_entry'"));
+$a('fallback list includes canonical JobDiva entity types',
+    str_contains($fms, "jobdiva:")
+    && str_contains($fms, "'placement'")
+    && str_contains($fms, "'person'")
+    && str_contains($fms, "'company'")
+    && str_contains($fms, "'contact'")
+    && str_contains($fms, "'time_entry'")
+    && !str_contains($fms, "jobdiva:    ['placement', 'person', 'company', 'contact', 'jobdiva_customer'"));
 $a('fallback list includes QBO entity types',
     str_contains($fms, "quickbooks:") && str_contains($fms, "'journal_entry'") && str_contains($fms, "'customer'"));
 $a('old hardcoded gl_account-only dropdown removed',
     !str_contains($fms, "['placement', 'person', 'company', 'contact', 'gl_account', 'journal_entry', 'bill', 'invoice', 'payment'].map(et =>"));
+$a('raw diagnostic extracted summary prefers canonical roots',
+    str_contains($fms, 'extracted_into_canonical_roots')
+    && str_contains($fms, 'Canonical CoreFlux roots extracted from flat top-level keys')
+    && str_contains($fms, 'CoreFlux root'));
 
 // 6) PHP syntax sanity on touched JSX-adjacent PHP (none changed in this
 //    slice, just confirm bundle sync left the deploy-version coherent).
