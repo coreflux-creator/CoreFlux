@@ -122,6 +122,14 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             'client_bill_cycle', 'client_bill_cycle_anchor',
             'vendor_pay_cycle',  'vendor_pay_cycle_anchor',
         ],
+        'staffing_job' => [
+            // -- staffing_jobs table (Job / Role / Opening context) --
+            // Source identity is set by the sync bridge; tenant mappings
+            // hydrate descriptive operating fields on the role node.
+            'title', 'status', 'description', 'department',
+            'location_city', 'location_state', 'location_country',
+            'remote_policy', 'opened_at', 'closed_at',
+        ],
         'person' => [
             // -- people table (one row per person; talent-pool model) --
             'external_id',

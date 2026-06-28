@@ -147,10 +147,11 @@ $a('canonical placement payload exposes company.name alias',
     ($canonicalPayload['company']['name'] ?? null) === 'Public Storage Inc.');
 $a('canonical placement payload preserves native _jd_* evidence',
     ($canonicalPayload['_jd_job']['title'] ?? null) === 'Lead Engineer');
-$a('jobdiva_job remains evidence, not placement identity',
-    jobdivaCanonicalEntityType('jobdiva_job') === 'jobdiva_job');
-$a('jobdiva_job fields still feed placement field roots',
-    in_array('placement', jobdivaCanonicalFieldRootsForEntity('jobdiva_job'), true));
+$a('jobdiva_job is canonical staffing_job graph identity',
+    jobdivaCanonicalEntityType('jobdiva_job') === 'staffing_job');
+$a('jobdiva_job fields feed placement context and staffing_job graph roots',
+    in_array('placement', jobdivaCanonicalFieldRootsForEntity('jobdiva_job'), true)
+    && in_array('staffing_job', jobdivaCanonicalFieldRootsForEntity('jobdiva_job'), true));
 
 // 3) Empty buckets dropped.
 echo "\n3. Empty buckets dropped from output\n";
@@ -176,7 +177,8 @@ $a('backfill calls extractor + canonical/native indexer per row',
     && str_contains($syncSrc, "integrationPayloadFieldIndexRecord(\$tenantId, 'jobdiva', \$indexEntityType, \$payloadForIndex)"));
 $a('backfill returns placements_walked + sub_records_indexed counters',
     str_contains($syncSrc, "'placements_walked'")
-    && str_contains($syncSrc, "'sub_records_indexed'"));
+    && str_contains($syncSrc, "'sub_records_indexed'")
+    && str_contains($syncSrc, "'staffing_job'     => 0"));
 
 // 4.5) Backfill now also pulls full joined records via the JobDiva
 // enrichment endpoints (searchJob / searchCandidate / searchCustomer /
@@ -205,13 +207,18 @@ $a('JOINED_CTX map present',
     str_contains($syncSrc, 'static $JOINED_CTX = [')
     && str_contains($syncSrc, "'person'           => 'person'")
     && str_contains($syncSrc, "'jobdiva_customer' => 'end_client_company'"));
+$a('placement sync delegates applyAll to shared mapping helper',
+    str_contains($syncSrc, 'jobdivaApplyPlacementFieldMappings(')
+    && str_contains($syncSrc, 'jobdivaPlacementStaffingJobId($tid, $internalId)'));
 $a('joined applyAll iterates extracted sub-payloads',
-    str_contains($syncSrc, 'jobdivaExtractJoinedSubPayloads($jd)')
-    && str_contains($syncSrc, 'foreach ($joinedSubs as $joinedEntity => $subPayload)'));
+    str_contains($syncSrc, 'function jobdivaApplyPlacementFieldMappings(')
+    && str_contains($syncSrc, 'foreach (jobdivaExtractJoinedSubPayloads($payload) as $joinedEntity => $subPayload)'));
 $a('joined applyAll invokes integrationFieldMapApplyAll per canonical/native entity',
     str_contains($syncSrc, 'jobdivaCanonicalApplyEntityTypes($joinedEntity)')
     && str_contains($syncSrc, 'jobdivaCanonicalPayloadForEntity($joinedEntity, $mapEntityType, $subPayload)')
-    && str_contains($syncSrc, "integrationFieldMapApplyAll(\$tid, 'jobdiva', \$mapEntityType, \$payloadForApply, \$ctx)"));
+    && str_contains($syncSrc, "integrationFieldMapApplyAll(\$tenantId, 'jobdiva', \$entityType, \$payloadForApply, \$ctx)")
+    && str_contains($syncSrc, '$apply($mapEntityType, $payloadForApply, $ctx)')
+    && str_contains($syncSrc, "'staffing_job'       => \$baseCtx['staffing_job'],"));
 
 // 6) Backfill API endpoint is present + protected.
 echo "\n6. Re-index API endpoint\n";

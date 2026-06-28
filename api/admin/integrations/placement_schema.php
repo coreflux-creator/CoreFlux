@@ -56,6 +56,7 @@ if ($integration === '' || !preg_match('/^[a-z0-9_]{1,40}$/', $integration)) {
 $SECTIONS = [
     'jobdiva' => [
         ['key' => 'placement', 'label' => 'Placement', 'icon' => '📋', 'entity_type' => 'placement'],
+        ['key' => 'staffing_job', 'label' => 'Job / Role', 'icon' => '💼', 'entity_type' => 'staffing_job'],
         ['key' => 'person',    'label' => 'Person',    'icon' => '👤', 'entity_type' => 'person'],
         ['key' => 'company',   'label' => 'Company',   'icon' => '🏢', 'entity_type' => 'company'],
         ['key' => 'contact',   'label' => 'Contact',   'icon' => '☎️', 'entity_type' => 'contact'],

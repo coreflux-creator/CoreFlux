@@ -40,8 +40,14 @@ $a('bridges job client through staffingClientEnsureForCompany', str_contains($li
 
 echo "\nJobDiva sync bridge\n";
 $sync = $read('core/jobdiva/sync.php');
+$canon = $read('core/jobdiva/canonical_graph.php');
+$a('canonical graph exposes staffing_job as JobDiva job owner',
+    str_contains($canon, "return ['placement', 'staffing_job', 'person', 'company', 'contact', 'time_entry']")
+    && str_contains($canon, "'staffing_job', 'job', 'role', 'opening', 'requisition', 'jobdiva_job'"));
 $a('sync loads staffing jobs lib', str_contains($sync, "/../../modules/staffing/lib/jobs.php"));
 $a('bridge helper declared', str_contains($sync, 'function jobdivaBridgeStaffingJobFromPayload('));
+$a('bridge writes external mapping for staffing_job',
+    str_contains($sync, "mappingUpsert(\$tid, 'jobdiva', 'staffing_job', \$jobdivaJobId, \$staffingJobId"));
 $a('job mirror entity calls bridge',
     str_contains($sync, "if (\$entityType === 'jobdiva_job' && \$upsert !== null)")
     && str_contains($sync, 'jobdivaBridgeStaffingJobFromPayload($tid, $extId, $jd, $userId)'));
@@ -51,6 +57,17 @@ $a('mirror-by-placement passes actor to jobs bridge',
 $a('placement upsert can write staffing_job_id',
     str_contains($sync, "'staffing_job_id'      => ['sji'")
     && str_contains($sync, 'client_id, staffing_job_id'));
+$a('mirror re-projection joins existing placement rows only',
+    str_contains($sync, 'function jobdivaReprojectMirroredPlacementGraphs(')
+    && str_contains($sync, 'JOIN placements p')
+    && str_contains($sync, "AND m.internal_entity_type = 'placement'")
+    && str_contains($sync, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats)'));
+$a('mirror re-projection forces known placement id before upsert',
+    str_contains($sync, "\$payload['__cf_existing_placement_id'] = \$placementId;")
+    && str_contains($sync, '$forcedExistingId = (int) ($jd[\'__cf_existing_placement_id\'] ?? 0)'));
+$a('mirror-by-placement reports placement projection stats',
+    str_contains($sync, '$projection = jobdivaReprojectMirroredPlacementGraphs(')
+    && str_contains($sync, "\$stats['placements_projected']"));
 
 echo "\nPlacement read model\n";
 $placementLib = $read('modules/placements/lib/placements.php');

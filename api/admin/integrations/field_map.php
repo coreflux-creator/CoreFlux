@@ -97,7 +97,7 @@ try {
             // a constrained dropdown for `internal_field` (prevents
             // operators from typing arbitrary column names).
             $allow = [];
-            foreach (['placement', 'person', 'company', 'contact',
+            foreach (['placement', 'staffing_job', 'person', 'company', 'contact',
                       'gl_account', 'journal_entry', 'bill', 'invoice', 'payment'] as $et) {
                 $allow[$et] = tenantIntegrationFieldMapAllowedInternalFields($et);
             }
@@ -136,6 +136,7 @@ try {
             'rows'                    => [],
             'allowed_internal_fields' => [
                 'placement' => tenantIntegrationFieldMapAllowedInternalFields('placement'),
+                'staffing_job' => tenantIntegrationFieldMapAllowedInternalFields('staffing_job'),
                 'person'    => tenantIntegrationFieldMapAllowedInternalFields('person'),
                 'company'   => tenantIntegrationFieldMapAllowedInternalFields('company'),
                 'contact'   => tenantIntegrationFieldMapAllowedInternalFields('contact'),

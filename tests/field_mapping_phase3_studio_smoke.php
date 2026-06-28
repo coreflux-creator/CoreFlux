@@ -86,7 +86,8 @@ $a('link points at /admin/integrations/field-map/studio',
 
 echo "\n4. JobDiva company sync wires applyAll\n";
 $a('company sync requires field_map_apply.php',
-    (bool) preg_match("/mappingUpsert\(\\\$tid, 'jobdiva', 'company',[^;]+;\s*\/\/ Phase 2[^}]+require_once __DIR__ \. '\/\.\.\/integrations\/field_map_apply\.php';/s", $sync));
+    str_contains($sync, "require_once __DIR__ . '/../integrations/field_map_apply.php';")
+    && strpos($sync, "require_once __DIR__ . '/../integrations/field_map_apply.php';") < strpos($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'company', \$jd, ['self' => \$companyId]);"));
 $a('company sync calls applyAll with {self => $companyId}',
     str_contains($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'company', \$jd, ['self' => \$companyId]);"));
 

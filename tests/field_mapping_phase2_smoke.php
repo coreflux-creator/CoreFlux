@@ -62,6 +62,9 @@ $a('seeds people targets',             str_contains($m078, "('people', 'people',
 $a('seeds placements + placement_rates',
     str_contains($m078, "('placements', 'placements', 'title'")
     && str_contains($m078, "('placements', 'placement_rates', 'bill_rate'"));
+$a('seeds staffing job targets',
+    str_contains($m078, "('staffing', 'staffing_jobs', 'title'")
+    && str_contains($m078, "('staffing', 'staffing_jobs', 'closed_at'"));
 $a('seeds companies targets',          str_contains($m078, "('companies', 'companies', 'industry'"));
 $a('seeds ap.ap_vendors targets',      str_contains($m078, "('ap', 'ap_vendors', 'payment_terms'"));
 $a('seeds billing.billing_clients targets',
@@ -134,16 +137,19 @@ echo "\n6. JobDiva sync invokes applyAll right after mappingUpsert\n";
 $sync = (string) file_get_contents('/app/core/jobdiva/sync.php');
 $a('apply step requires field_map_apply.php',
     str_contains($sync, "require_once __DIR__ . '/../integrations/field_map_apply.php';"));
-$a('apply step called with placement entity_type + enriched $jd',
-    str_contains($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'placement', \$jd, ["));
-$a('context map populates self/placement_rates/placement_corp_details/person/end_client_company',
-    str_contains($sync, "'self'                   => \$internalId,")
-    && str_contains($sync, "'placement_rates'        => \$internalId,")
-    && str_contains($sync, "'placement_corp_details' => \$internalId,")
-    && str_contains($sync, "'person'                 => \$personId ?? 0,")
-    && str_contains($sync, "'end_client_company'     => \$endClientCompanyId ?? 0,"));
+$a('placement sync calls shared placement mapping helper',
+    str_contains($sync, 'jobdivaApplyPlacementFieldMappings(')
+    && str_contains($sync, 'jobdivaPlacementStaffingJobId($tid, $internalId)'));
+$a('context map populates placement/person/company/staffing_job owners',
+    str_contains($sync, "'self'                   => \$placementId,")
+    && str_contains($sync, "'placement'              => \$placementId,")
+    && str_contains($sync, "'placement_rates'        => \$placementId,")
+    && str_contains($sync, "'placement_corp_details' => \$placementId,")
+    && str_contains($sync, "'person'                 => \$personId,")
+    && str_contains($sync, "'end_client_company'     => \$endClientCompanyId ?? 0,")
+    && str_contains($sync, "'staffing_job'           => \$staffingJobId,"));
 $a('apply step is wrapped in try/catch (best-effort)',
-    (bool) preg_match('/try \{\s*require_once __DIR__ \. \'\/\.\.\/integrations\/field_map_apply\.php\';\s*integrationFieldMapApplyAll/s', $sync));
+    (bool) preg_match('/try \{\s*\$staffingJobId = jobdivaPlacementStaffingJobId\(.*?jobdivaApplyPlacementFieldMappings/s', $sync));
 
 echo "\n7. /api/admin/integrations/writable_targets.php discovery endpoint\n";
 $wt = (string) file_get_contents('/app/api/admin/integrations/writable_targets.php');

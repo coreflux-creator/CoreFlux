@@ -27,6 +27,7 @@ import { api } from '../lib/api';
 const LINKED_ENTITY_LABELS = {
   self:                   'self (the entity being upserted)',
   person:                 'person (linked talent)',
+  staffing_job:           'staffing_job (linked job / role)',
   end_client_company:     'end-client company',
   vendor_company:         'vendor company',
   placement_rates:        'placement_rates (sibling row)',
@@ -45,7 +46,7 @@ const LINKED_ENTITY_LABELS = {
  */
 const PATH_GROUPS = [
   { key: '_jd_candidate', label: 'Person',                    icon: '👤', linked: 'person',             defaultOpen: true },
-  { key: '_jd_job',       label: 'Placement job context',     icon: '💼', linked: 'self',               defaultOpen: true },
+  { key: '_jd_job',       label: 'Staffing job / role',       icon: '💼', linked: 'staffing_job',       defaultOpen: true },
   { key: '_jd_customer',  label: 'Company (end-client)',      icon: '🏢', linked: 'end_client_company', defaultOpen: true },
   { key: '_jd_contact',   label: 'Contact (hiring)',          icon: '☎️', linked: 'self',               defaultOpen: false },
   { key: '_jd_start',     label: 'Placement assignment terms', icon: '📋', linked: 'self',              defaultOpen: true },
@@ -58,6 +59,7 @@ function groupPathsByNamespace(paths, entityType = 'placement') {
   // / Company / Contact roots or Placement job/assignment facets.
   const ROOT_LABELS = {
     placement:         { label: 'Placement fields (root record)',         icon: '📄' },
+    staffing_job:      { label: 'Staffing job fields (root record)',      icon: '💼' },
     person:            { label: 'Person fields (root of candidate record)', icon: '👤' },
     job:               { label: 'Placement fields (job facet)',           icon: '💼' },
     assignment:        { label: 'Placement fields (assignment facet)',    icon: '📋' },
@@ -436,7 +438,7 @@ export default function FieldMappingStudio() {
     if (jdSources.length === 0) return;
     const hasPlacement = jdSources.some(s => s.entity_type === 'placement' && Number(s.path_count) > 0);
     const hasJoined    = jdSources.some(s =>
-      ['person', 'company', 'contact'].includes(s.entity_type)
+      ['staffing_job', 'person', 'company', 'contact'].includes(s.entity_type)
       && Number(s.path_count) > 0
     );
     if (hasPlacement && !hasJoined) {
@@ -736,7 +738,7 @@ export default function FieldMappingStudio() {
           .filter(s => s.integration === integration)
           .map(s => ({ et: s.entity_type, count: Number(s.path_count) || 0 }));
         const fallback = {
-          jobdiva:    ['placement', 'person', 'company', 'contact', 'time_entry'],
+          jobdiva:    ['placement', 'staffing_job', 'person', 'company', 'contact', 'time_entry'],
           quickbooks: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account', 'item'],
           zoho_books: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account'],
           airtable:   ['placement', 'person', 'company', 'vendor', 'customer', 'contact', 'note', 'task', 'opportunity', 'generic'],
@@ -749,6 +751,7 @@ export default function FieldMappingStudio() {
         if (ordered.length === 0) return null;
         const LABELS = {
           placement:        'Placement',
+          staffing_job:     'Staffing Job',
           person:           'Person',
           customer:         'Customer',
           contact:          'Contact',
@@ -1667,6 +1670,7 @@ export default function FieldMappingStudio() {
           .sort((a, b) => b.count - a.count);
         const LABELS = {
           placement: 'Placement', person: 'Person', company: 'Company',
+          staffing_job: 'Staffing Job',
           customer: 'Customer', contact: 'Contact',
           journal_entry: 'Journal Entry', vendor: 'Vendor', invoice: 'Invoice',
           bill: 'Bill', payment: 'Payment', gl_account: 'GL Account',

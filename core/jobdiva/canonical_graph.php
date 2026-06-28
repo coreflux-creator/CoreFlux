@@ -16,7 +16,7 @@ declare(strict_types=1);
 
 function jobdivaCanonicalEntityTypes(): array
 {
-    return ['placement', 'person', 'company', 'contact', 'time_entry'];
+    return ['placement', 'staffing_job', 'person', 'company', 'contact', 'time_entry'];
 }
 
 function jobdivaCanonicalEntityAliases(): array
@@ -24,6 +24,9 @@ function jobdivaCanonicalEntityAliases(): array
     return [
         'placement' => [
             'placement',
+        ],
+        'staffing_job' => [
+            'staffing_job', 'job', 'role', 'opening', 'requisition', 'jobdiva_job',
         ],
         'person' => [
             'person', 'candidate', 'employee', 'worker', 'jobdiva_candidate',
@@ -54,6 +57,7 @@ function jobdivaNativeEntityTypesForCanonical(string $canonicalEntityType): arra
     $canonical = jobdivaCanonicalEntityType($canonicalEntityType);
     return match ($canonical) {
         'placement' => ['placement', 'job', 'assignment', 'jobdiva_job', 'jobdiva_assignment'],
+        'staffing_job' => ['staffing_job', 'job', 'jobdiva_job'],
         'person'    => ['person', 'jobdiva_candidate'],
         'company'   => ['company', 'jobdiva_customer'],
         'contact'   => ['contact', 'jobdiva_contact'],
@@ -166,6 +170,14 @@ function jobdivaCanonicalGraphCatalog(): array
             'jobdiva_facets' => ['Start / Assignment', 'Job context'],
             'identity_rule' => "external_entity_mappings(jobdiva, placement) -> placements.id",
             'consumed_by' => ['time', 'billing', 'AP', 'payroll', 'reporting'],
+        ],
+        'staffing_job' => [
+            'label' => 'Staffing Job / Role',
+            'core_owner' => 'CoreStaffing jobs graph',
+            'core_table' => 'staffing_jobs',
+            'jobdiva_facets' => ['Job / requisition / role'],
+            'identity_rule' => "external_entity_mappings(jobdiva, staffing_job) -> staffing_jobs.id; placements.staffing_job_id links role context back to each assignment.",
+            'consumed_by' => ['placements.staffing_job_id', 'staffing operations', 'reporting', 'billing/payroll context'],
         ],
         'person' => [
             'label' => 'Person',

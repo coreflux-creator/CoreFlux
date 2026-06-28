@@ -78,12 +78,13 @@ $a('JOINED_CTX table declared with person/job/customer/contact/assignment',
     && str_contains($sync, "'contact'          => 'self'")
     && str_contains($sync, "'assignment'       => 'self'"));
 $a('per-entity applyAll iterates extracted sub-payloads through canonical aliases',
-    str_contains($sync, 'jobdivaExtractJoinedSubPayloads($jd)')
+    str_contains($sync, 'foreach (jobdivaExtractJoinedSubPayloads($payload) as $joinedEntity => $subPayload)')
     && str_contains($sync, 'jobdivaCanonicalApplyEntityTypes($joinedEntity)')
     && str_contains($sync, 'jobdivaCanonicalPayloadForEntity($joinedEntity, $mapEntityType, $subPayload)')
-    && str_contains($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', \$mapEntityType, \$payloadForApply, \$ctx)"));
+    && str_contains($sync, '$apply($mapEntityType, $payloadForApply, $ctx)')
+    && str_contains($sync, "integrationFieldMapApplyAll(\$tenantId, 'jobdiva', \$entityType, \$payloadForApply, \$ctx)"));
 $a('joined applyAll wrapped in try/catch',
-    preg_match("/integrationFieldMapApplyAll\(\\\$tid, 'jobdiva', \\\$mapEntityType.*?catch \(\\\\Throwable \\\$e\)/s", $sync) === 1);
+    preg_match('/\$apply = static function .*?try \{.*?integrationFieldMapApplyAll.*?catch \(\\\\Throwable \$e\)/s', $sync) === 1);
 $a('placement payload is canonicalized before upsert/apply',
     str_contains($sync, 'jobdivaCanonicalPlacementPayload($jd, jobdivaExtractJoinedSubPayloads($jd))')
     && strpos($sync, 'jobdivaCanonicalPlacementPayload($jd, jobdivaExtractJoinedSubPayloads($jd))') < strpos($sync, 'jobdivaSyncUpsertPlacement('));

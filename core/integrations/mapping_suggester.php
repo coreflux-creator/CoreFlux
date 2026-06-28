@@ -39,7 +39,9 @@ function mappingSuggesterEntityDefaults(string $entityType): array
 {
     static $DEFAULTS = [
         'person'           => ['module' => 'people',     'linked_entity' => 'person'],
-        'job'              => ['module' => 'placements', 'linked_entity' => 'self'],
+        'staffing_job'     => ['module' => 'staffing',   'linked_entity' => 'staffing_job'],
+        'job'              => ['module' => 'staffing',   'linked_entity' => 'staffing_job'],
+        'jobdiva_job'      => ['module' => 'staffing',   'linked_entity' => 'staffing_job'],
         'jobdiva_customer' => ['module' => 'companies',  'linked_entity' => 'end_client_company'],
         'contact'          => ['module' => 'companies',  'linked_entity' => 'self'],
         'assignment'       => ['module' => 'placements', 'linked_entity' => 'self'],
@@ -120,8 +122,8 @@ function mappingSuggesterSynonymMap(): array
         'jobtitle'        => ['title'],
         'positiontype'    => ['engagement_type'],
         'positiontitle'   => ['title'],
-        'dept'            => ['notes'],
-        'department'      => ['notes'],
+        'dept'            => ['department', 'notes'],
+        'department'      => ['department', 'notes'],
         'jobid'           => ['jobdiva_job_id', 'external_id'],
         'jobrefno'        => ['jobdiva_job_id'],
         'optionalrefnumber' => ['jobdiva_job_id'],

@@ -358,6 +358,7 @@ function jobdivaBridgeStaffingJobFromPayload(int $tid, string $jobdivaJobId, arr
         $job = staffingJobEnsureFromJobDivaPayload($tid, $jobdivaJobId, $payload, $userId);
         $staffingJobId = (int) ($job['id'] ?? 0);
         if ($staffingJobId > 0) {
+            mappingUpsert($tid, 'jobdiva', 'staffing_job', $jobdivaJobId, $staffingJobId, $payload, 'pull', $userId);
             staffingJobLinkPlacementsByJobDivaId($tid, $jobdivaJobId, $staffingJobId);
             return $staffingJobId;
         }
@@ -1098,50 +1099,15 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
             // 2026-02 spec re-audit). The context map tells the apply
             // step which row id to write to for each linked_entity slug.
             try {
-                require_once __DIR__ . '/../integrations/field_map_apply.php';
-                integrationFieldMapApplyAll($tid, 'jobdiva', 'placement', $jd, [
-                    'self'                   => $internalId,
-                    'placement_rates'        => $internalId,
-                    'placement_corp_details' => $internalId,
-                    'person'                 => $personId ?? 0,
-                    'end_client_company'     => $endClientCompanyId ?? 0,
-                ]);
-
-                // Also apply mappings through the canonical root for each
-                // joined native facet. Example: a JobDiva Customer subpayload
-                // is treated as CoreFlux `company`; Job/Start subpayloads are
-                // namespaced under canonical `placement` as job.* and
-                // assignment.*. Legacy native entity_type mappings are still
-                // honored for existing tenant configs.
-                static $JOINED_CTX = [
-                    'person'           => 'person',
-                    'job'              => 'self',
-                    'jobdiva_customer' => 'end_client_company',
-                    'contact'          => 'self',
-                    'assignment'       => 'self',
-                ];
-                $joinedSubs = jobdivaExtractJoinedSubPayloads($jd);
-                foreach ($joinedSubs as $joinedEntity => $subPayload) {
-                    if (empty($subPayload)) continue;
-                    $selfSlug = $JOINED_CTX[$joinedEntity] ?? 'self';
-                    $ctx = [
-                        'self'                   => ($selfSlug === 'person')             ? ($personId ?? 0)
-                                                  : (($selfSlug === 'end_client_company') ? ($endClientCompanyId ?? 0)
-                                                  : $internalId),
-                        'person'                 => $personId ?? 0,
-                        'end_client_company'     => $endClientCompanyId ?? 0,
-                        'placement_rates'        => $internalId,
-                        'placement_corp_details' => $internalId,
-                    ];
-                    foreach (jobdivaCanonicalApplyEntityTypes($joinedEntity) as $mapEntityType) {
-                        $payloadForApply = jobdivaCanonicalPayloadForEntity($joinedEntity, $mapEntityType, $subPayload);
-                        try {
-                            integrationFieldMapApplyAll($tid, 'jobdiva', $mapEntityType, $payloadForApply, $ctx);
-                        } catch (\Throwable $e) {
-                            error_log('[jobdiva placement sync] joined applyAll ' . $mapEntityType . ' from ' . $joinedEntity . ' failed: ' . $e->getMessage());
-                        }
-                    }
-                }
+                $staffingJobId = jobdivaPlacementStaffingJobId($tid, $internalId);
+                jobdivaApplyPlacementFieldMappings(
+                    $tid,
+                    $internalId,
+                    $personId ?? 0,
+                    $endClientCompanyId ?? 0,
+                    $staffingJobId,
+                    $jd
+                );
             } catch (\Throwable $e) {
                 error_log('[jobdiva placement sync] applyAll failed: ' . $e->getMessage());
             }
@@ -1633,6 +1599,99 @@ function jobdivaIndexJoinedSubPayloads(int $tenantId, array $enrichedPayload): v
     }
 }
 
+function jobdivaPlacementStaffingJobId(int $tenantId, int $placementId): int
+{
+    if ($tenantId <= 0 || $placementId <= 0) return 0;
+    try {
+        $st = getDB()->prepare(
+            'SELECT staffing_job_id
+               FROM placements
+              WHERE tenant_id = :t AND id = :id
+              LIMIT 1'
+        );
+        $st->execute(['t' => $tenantId, 'id' => $placementId]);
+        return (int) $st->fetchColumn();
+    } catch (\Throwable $e) {
+        error_log('[jobdiva placement mapping context] staffing_job_id failed: ' . $e->getMessage());
+        return 0;
+    }
+}
+
+function jobdivaApplyPlacementFieldMappings(
+    int $tenantId,
+    int $placementId,
+    int $personId,
+    ?int $endClientCompanyId,
+    int $staffingJobId,
+    array $payload
+): array {
+    $summary = ['attempted' => 0, 'written' => 0, 'skipped' => 0, 'errors' => []];
+    if ($tenantId <= 0 || $placementId <= 0) return $summary;
+
+    require_once __DIR__ . '/../integrations/field_map_apply.php';
+
+    $baseCtx = [
+        'self'                   => $placementId,
+        'placement'              => $placementId,
+        'placement_rates'        => $placementId,
+        'placement_corp_details' => $placementId,
+        'person'                 => $personId,
+        'end_client_company'     => $endClientCompanyId ?? 0,
+        'staffing_job'           => $staffingJobId,
+    ];
+
+    $mergeSummary = static function (array $part) use (&$summary): void {
+        $summary['attempted'] += (int) ($part['attempted'] ?? 0);
+        $summary['written']   += (int) ($part['written'] ?? 0);
+        $summary['skipped']   += (int) ($part['skipped'] ?? 0);
+        foreach (($part['errors'] ?? []) as $err) {
+            $summary['errors'][] = (string) $err;
+        }
+    };
+
+    $apply = static function (string $entityType, array $payloadForApply, array $ctx) use (
+        $tenantId,
+        &$summary,
+        $mergeSummary
+    ): void {
+        try {
+            $mergeSummary(integrationFieldMapApplyAll($tenantId, 'jobdiva', $entityType, $payloadForApply, $ctx));
+        } catch (\Throwable $e) {
+            $msg = '[jobdiva placement field_map] applyAll ' . $entityType . ' failed: ' . $e->getMessage();
+            error_log($msg);
+            $summary['errors'][] = $msg;
+        }
+    };
+
+    $apply('placement', $payload, $baseCtx);
+
+    static $JOINED_CTX = [
+        'person'           => 'person',
+        'job'              => 'self',
+        'jobdiva_customer' => 'end_client_company',
+        'contact'          => 'self',
+        'assignment'       => 'self',
+    ];
+    foreach (jobdivaExtractJoinedSubPayloads($payload) as $joinedEntity => $subPayload) {
+        if (empty($subPayload)) continue;
+        $defaultOwner = $JOINED_CTX[$joinedEntity] ?? 'self';
+        foreach (jobdivaCanonicalApplyEntityTypes($joinedEntity) as $mapEntityType) {
+            $owner = $mapEntityType === 'staffing_job' ? 'staffing_job' : $defaultOwner;
+            $ctx = $baseCtx;
+            $ctx['self'] = match ($owner) {
+                'person'             => $baseCtx['person'],
+                'end_client_company' => $baseCtx['end_client_company'],
+                'staffing_job'       => $baseCtx['staffing_job'],
+                default              => $baseCtx['placement'],
+            };
+            $payloadForApply = jobdivaCanonicalPayloadForEntity($joinedEntity, $mapEntityType, $subPayload);
+            $apply($mapEntityType, $payloadForApply, $ctx);
+        }
+    }
+
+    return $summary;
+}
+
 /**
  * One-shot backfill: walk every existing placement `payload_snapshot`
  * already stored in external_entity_mappings for this tenant, extract
@@ -1655,6 +1714,7 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
         'placements_walked'   => 0,
         'sub_records_indexed' => [
             'placement'        => 0,
+            'staffing_job'     => 0,
             'person'           => 0,
             'company'          => 0,
             'job'              => 0,
@@ -1796,6 +1856,184 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
     return $summary;
 }
 
+function jobdivaMirrorPayloadByExternalId(int $tenantId, string $entityType, string $externalId): ?array
+{
+    $externalId = trim($externalId);
+    if ($tenantId <= 0 || $entityType === '' || $externalId === '') return null;
+    try {
+        $st = getDB()->prepare(
+            "SELECT payload_snapshot
+               FROM external_entity_mappings
+              WHERE tenant_id = :t
+                AND source_system = 'jobdiva'
+                AND internal_entity_type = :et
+                AND external_id = :eid
+                AND payload_snapshot IS NOT NULL
+              LIMIT 1"
+        );
+        $st->execute(['t' => $tenantId, 'et' => $entityType, 'eid' => $externalId]);
+        $snap = $st->fetchColumn();
+        if (!is_string($snap) || $snap === '') return null;
+        $decoded = json_decode($snap, true);
+        return is_array($decoded) ? $decoded : null;
+    } catch (\Throwable $e) {
+        error_log('[jobdiva mirror payload lookup] ' . $entityType . ' failed: ' . $e->getMessage());
+        return null;
+    }
+}
+
+function jobdivaPlacementPayloadWithMirrors(int $tenantId, array $payload, array &$stats = []): array
+{
+    $stats += [
+        'jobs_joined'        => 0,
+        'candidates_joined'  => 0,
+        'contacts_joined'    => 0,
+        'assignments_joined' => 0,
+    ];
+
+    $jobId = jobdivaPluckFieldDeep($payload, ['job id', 'jobId', 'job_id', 'jobID', 'JOBID']);
+    if ($jobId !== '') {
+        $job = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_job', $jobId);
+        if ($job) {
+            $payload['_jd_job'] = $job;
+            $payload['job'] = $job;
+            $stats['jobs_joined']++;
+        }
+    }
+
+    $candidateId = jobdivaPluckFieldDeep($payload, [
+        'candidate id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID', 'employeeId',
+    ]);
+    if ($candidateId !== '') {
+        $candidate = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_candidate', $candidateId);
+        if ($candidate) {
+            $payload['_jd_candidate'] = $candidate;
+            $stats['candidates_joined']++;
+        }
+    }
+
+    $contactId = jobdivaPluckFieldDeep($payload, [
+        'job contact id', 'jobContactId', 'contactId', 'contact id',
+        'customer id', 'customerId', 'customer_id', 'customerID', 'CUSTOMERID',
+    ]);
+    if ($contactId !== '') {
+        $contact = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_contact', $contactId);
+        if ($contact) {
+            $payload['_jd_contact'] = $contact;
+            $stats['contacts_joined']++;
+        }
+    }
+
+    $startId = jobdivaPluckFieldDeep($payload, ['id', 'startId', 'start_id', 'startID', 'STARTID', 'placementId']);
+    if ($startId !== '') {
+        $assignment = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_assignment', $startId);
+        if ($assignment) {
+            $payload['_jd_start'] = $assignment;
+            $payload['assignment'] = $assignment;
+            $stats['assignments_joined']++;
+        }
+    }
+
+    return jobdivaCanonicalPlacementPayload($payload, jobdivaExtractJoinedSubPayloads($payload));
+}
+
+function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, int $limit = 1000): array
+{
+    $summary = [
+        'placements_seen'     => 0,
+        'placements_projected'=> 0,
+        'jobs_joined'         => 0,
+        'candidates_joined'   => 0,
+        'contacts_joined'     => 0,
+        'assignments_joined'  => 0,
+        'mapping_writes'      => 0,
+        'field_map_writes'    => 0,
+        'errors'              => [],
+    ];
+    if ($tenantId <= 0) return $summary;
+
+    try {
+        $pdo = getDB();
+        $st = $pdo->prepare(
+            "SELECT m.external_id, m.payload_snapshot, m.internal_entity_id AS placement_id,
+                    p.person_id, p.end_client_company_id, p.staffing_job_id
+               FROM external_entity_mappings m
+               JOIN placements p
+                 ON p.tenant_id = m.tenant_id
+                AND p.id = m.internal_entity_id
+              WHERE m.tenant_id = :t
+                AND m.source_system = 'jobdiva'
+                AND m.internal_entity_type = 'placement'
+                AND m.payload_snapshot IS NOT NULL
+                AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
+              ORDER BY m.updated_at DESC, m.id DESC
+              LIMIT " . max(1, min(5000, $limit))
+        );
+        $st->execute(['t' => $tenantId]);
+    } catch (\Throwable $e) {
+        $summary['errors'][] = 'query_failed: ' . $e->getMessage();
+        return $summary;
+    }
+
+    while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {
+        $summary['placements_seen']++;
+        try {
+            $payload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
+            if (!is_array($payload)) continue;
+
+            $joinStats = [];
+            $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats);
+            foreach (['jobs_joined', 'candidates_joined', 'contacts_joined', 'assignments_joined'] as $k) {
+                $summary[$k] += (int) ($joinStats[$k] ?? 0);
+            }
+
+            $placementId = (int) ($row['placement_id'] ?? 0);
+            $externalId = trim((string) ($row['external_id'] ?? ''));
+            if (str_starts_with($externalId, 'jd:')) $externalId = substr($externalId, 3);
+            if ($placementId <= 0 || $externalId === '') continue;
+
+            $payload['__cf_existing_placement_id'] = $placementId;
+            $internalId = jobdivaSyncUpsertPlacement(
+                $tenantId,
+                (int) ($row['person_id'] ?? 0),
+                isset($row['end_client_company_id']) ? (int) $row['end_client_company_id'] : null,
+                $payload,
+                $externalId,
+                $userId
+            );
+            unset($payload['__cf_existing_placement_id']);
+            mappingUpsert($tenantId, 'jobdiva', 'placement', $externalId, $internalId, $payload, 'pull', $userId);
+            $summary['mapping_writes']++;
+
+            try {
+                jobdivaIndexJoinedSubPayloads($tenantId, $payload);
+            } catch (\Throwable $e) {
+                error_log('[jobdiva reproject] index failed: ' . $e->getMessage());
+            }
+
+            $staffingJobId = jobdivaPlacementStaffingJobId($tenantId, $internalId);
+            $mapSummary = jobdivaApplyPlacementFieldMappings(
+                $tenantId,
+                $internalId,
+                (int) ($row['person_id'] ?? 0),
+                isset($row['end_client_company_id']) ? (int) $row['end_client_company_id'] : null,
+                $staffingJobId,
+                $payload
+            );
+            $summary['field_map_writes'] += (int) ($mapSummary['written'] ?? 0);
+            $summary['placements_projected']++;
+        } catch (\Throwable $e) {
+            $summary['errors'][] = [
+                'placement_id' => (int) ($row['placement_id'] ?? 0),
+                'error' => substr($e->getMessage(), 0, 240),
+            ];
+            if (count($summary['errors']) >= 20) break;
+        }
+    }
+
+    return $summary;
+}
+
 
 
 function jobdivaResolveOrAutoCreateEndClient(
@@ -1852,9 +2090,31 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     // overwrite placements.external_id with the raw Start ID. Recover those
     // rows here so the next sync updates the existing placement instead of
     // inserting another copy.
-    $stmt = $pdo->prepare('SELECT id FROM placements WHERE tenant_id = :t AND external_id = :ext LIMIT 1');
-    $stmt->execute(['t' => $tid, 'ext' => $canonicalExternalId]);
-    $existingId = (int) $stmt->fetchColumn();
+    $forcedExistingId = (int) ($jd['__cf_existing_placement_id'] ?? 0);
+    $existingId = 0;
+    if ($forcedExistingId > 0) {
+        $stmt = $pdo->prepare(
+            'SELECT id FROM placements
+              WHERE tenant_id = :t
+                AND id = :id
+                AND (deleted_at IS NULL OR deleted_at = "0000-00-00 00:00:00")
+              LIMIT 1'
+        );
+        $stmt->execute(['t' => $tid, 'id' => $forcedExistingId]);
+        $existingId = (int) $stmt->fetchColumn();
+        if ($existingId > 0) {
+            $pdo->prepare(
+                'UPDATE placements
+                    SET external_id = :ext
+                  WHERE tenant_id = :t AND id = :id'
+            )->execute(['ext' => $canonicalExternalId, 't' => $tid, 'id' => $existingId]);
+        }
+    }
+    if ($existingId <= 0) {
+        $stmt = $pdo->prepare('SELECT id FROM placements WHERE tenant_id = :t AND external_id = :ext LIMIT 1');
+        $stmt->execute(['t' => $tid, 'ext' => $canonicalExternalId]);
+        $existingId = (int) $stmt->fetchColumn();
+    }
     if ($existingId <= 0) {
         $stmt = $pdo->prepare(
             'SELECT id FROM placements
@@ -2065,6 +2325,20 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     );
     $staffingJobId = null;
     if ($jobdivaJobId !== '') {
+        $jobPayload = [];
+        foreach (['_jd_job', 'job'] as $jobKey) {
+            if (isset($jd[$jobKey]) && is_array($jd[$jobKey]) && $jd[$jobKey] !== []) {
+                $jobPayload = $jd[$jobKey];
+                break;
+            }
+        }
+        if ($jobPayload === []) {
+            $jobPayload = $jd;
+        }
+        $bridgedStaffingJobId = jobdivaBridgeStaffingJobFromPayload($tid, $jobdivaJobId, $jobPayload, $userId);
+        if ($bridgedStaffingJobId !== null && $bridgedStaffingJobId > 0) {
+            $staffingJobId = $bridgedStaffingJobId;
+        }
         $staffingJob = staffingJobFindBySource($tid, 'jobdiva', $jobdivaJobId);
         if ($staffingJob) $staffingJobId = (int) ($staffingJob['id'] ?? 0) ?: null;
     }
@@ -2995,6 +3269,14 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
             ['id', 'startId', 'start_id', 'startID', 'STARTID', 'placementId', 'employeeId']);
         $stats['assignments_processed'] = $stored['processed'];
     }
+
+    $projection = jobdivaReprojectMirroredPlacementGraphs(
+        $tid,
+        $userId,
+        (int) ($opts['projection_limit'] ?? 1000)
+    );
+    $stats['projection'] = $projection;
+    $stats['placements_projected'] = (int) ($projection['placements_projected'] ?? 0);
 
     $processedTotal =
         (int) $stats['jobs_processed']

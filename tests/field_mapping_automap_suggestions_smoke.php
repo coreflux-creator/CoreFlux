@@ -69,11 +69,18 @@ foreach ([
         isset($syn[$src]) && in_array($tgt, $syn[$src], true));
 }
 
+$a('dept/department synonyms prefer real staffing job department column',
+    isset($syn['dept'], $syn['department'])
+    && ($syn['dept'][0] ?? null) === 'department'
+    && ($syn['department'][0] ?? null) === 'department');
+
 // 3) Entity defaults route to the right module + linked_entity.
 echo "\n3. Entity defaults (preferred module + linked_entity)\n";
 foreach ([
     'person'           => ['people',     'person'],
-    'job'              => ['placements', 'self'],
+    'staffing_job'     => ['staffing',   'staffing_job'],
+    'job'              => ['staffing',   'staffing_job'],
+    'jobdiva_job'      => ['staffing',   'staffing_job'],
     'jobdiva_customer' => ['companies',  'end_client_company'],
     'contact'          => ['companies',  'self'],
     'assignment'       => ['placements', 'self'],
