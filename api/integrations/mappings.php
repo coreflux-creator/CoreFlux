@@ -47,27 +47,46 @@ function _integrationMappingsJobDivaPluck(array $payload, array $candidates): st
 function _integrationMappingsJobDivaMirrorPayload(int $tenantId, string $entityType, string $externalId): ?array
 {
     if ($externalId === '') return null;
+    $externalId = trim($externalId);
+    $externalIds = [$externalId];
+    if (str_starts_with($externalId, 'jd:')) {
+        $externalIds[] = substr($externalId, 3);
+    } else {
+        $externalIds[] = 'jd:' . $externalId;
+    }
     try {
         $pdo = getDB();
-        $st = $pdo->prepare(
-            "SELECT payload_snapshot
-               FROM external_entity_mappings
-              WHERE tenant_id = :t
-                AND source_system = 'jobdiva'
-                AND internal_entity_type = :et
-                AND external_id = :eid
-                AND payload_snapshot IS NOT NULL
-              LIMIT 1"
-        );
-        $st->execute(['t' => $tenantId, 'et' => $entityType, 'eid' => $externalId]);
-        $snap = $st->fetchColumn();
-        if (!is_string($snap) || $snap === '') return null;
-        $decoded = json_decode($snap, true);
-        return is_array($decoded) ? $decoded : null;
+        foreach (array_values(array_unique(array_filter($externalIds))) as $eid) {
+            $st = $pdo->prepare(
+                "SELECT payload_snapshot
+                   FROM external_entity_mappings
+                  WHERE tenant_id = :t
+                    AND source_system = 'jobdiva'
+                    AND internal_entity_type = :et
+                    AND external_id = :eid
+                    AND payload_snapshot IS NOT NULL
+                  LIMIT 1"
+            );
+            $st->execute(['t' => $tenantId, 'et' => $entityType, 'eid' => $eid]);
+            $snap = $st->fetchColumn();
+            if (!is_string($snap) || $snap === '') continue;
+            $decoded = json_decode($snap, true);
+            if (is_array($decoded)) return $decoded;
+        }
+        return null;
     } catch (\Throwable $e) {
         error_log('[mappings.php] JobDiva mirror lookup failed: ' . $e->getMessage());
         return null;
     }
+}
+
+function _integrationMappingsJobDivaMirrorPayloadAny(int $tenantId, array $entityTypes, string $externalId): ?array
+{
+    foreach ($entityTypes as $entityType) {
+        $payload = _integrationMappingsJobDivaMirrorPayload($tenantId, (string) $entityType, $externalId);
+        if (is_array($payload) && $payload !== []) return $payload;
+    }
+    return null;
 }
 
 function _integrationMappingsJobDivaCanonicalizeRowPayload(int $tenantId, array $row): array
@@ -79,9 +98,9 @@ function _integrationMappingsJobDivaCanonicalizeRowPayload(int $tenantId, array 
         return $row;
     }
     $payload = $row['payload_snapshot'];
-    $jobId = _integrationMappingsJobDivaPluck($payload, ['job id', 'jobId', 'job_id', 'jobID', 'JOBID']);
+    $jobId = _integrationMappingsJobDivaPluck($payload, ['job id', 'jobId', 'job_id', 'jobID', 'JOBID', 'reqId', 'req_id']);
     if ($jobId !== '') {
-        $mirror = _integrationMappingsJobDivaMirrorPayload($tenantId, 'jobdiva_job', $jobId);
+        $mirror = _integrationMappingsJobDivaMirrorPayloadAny($tenantId, ['jobdiva_job', 'staffing_job'], $jobId);
         if (is_array($mirror) && $mirror !== []) {
             if (empty($payload['_jd_job']) || !is_array($payload['_jd_job'])) {
                 $payload['_jd_job'] = $mirror;

@@ -180,6 +180,14 @@ function defaultFieldMapTarget(entityType, internalField) {
       linked_entity: 'self',
     };
   }
+  if (entityType === 'staffing_job') {
+    return {
+      target_module: 'staffing',
+      target_table: 'staffing_jobs',
+      target_column: internalField,
+      linked_entity: 'staffing_job',
+    };
+  }
   if (entityType === 'person') {
     return { target_module: 'people', target_table: 'people', target_column: internalField, linked_entity: 'self' };
   }
@@ -190,6 +198,39 @@ function defaultFieldMapTarget(entityType, internalField) {
     return { target_module: 'companies', target_table: 'company_contacts', target_column: internalField, linked_entity: 'self' };
   }
   return { target_module: null, target_table: null, target_column: internalField, linked_entity: 'self' };
+}
+
+function integrationMappingEntityOptions(sourceSystem, entityType) {
+  if (sourceSystem === 'jobdiva' && entityType === 'placement') {
+    return [
+      { key: 'placement', label: 'Placement' },
+      { key: 'staffing_job', label: 'Job / Role' },
+      { key: 'person', label: 'Person' },
+      { key: 'company', label: 'Company' },
+      { key: 'contact', label: 'Contact' },
+    ];
+  }
+  return [{ key: entityType, label: entityType }];
+}
+
+function payloadForMappingEntity(payload, entityType) {
+  if (!payload || typeof payload !== 'object') return {};
+  if (entityType === 'staffing_job') return payload.job || payload._jd_job || {};
+  if (entityType === 'person') return payload.person || payload._jd_candidate || {};
+  if (entityType === 'company') return payload.company || payload._jd_customer || {};
+  if (entityType === 'contact') return payload.contact || payload._jd_contact || {};
+  return payload;
+}
+
+function fieldIndexPathOptions(data, prefix = '') {
+  const rows = Array.isArray(data?.paths) ? data.paths : [];
+  return rows
+    .map(r => String(r?.source_path || '').trim())
+    .filter(Boolean)
+    .map(path => {
+      if (!prefix || path.startsWith(`${prefix}.`)) return path;
+      return `${prefix}.${path}`;
+    });
 }
 
 function SuggestMappingModal({ open, onClose, mapping, entityType }) {
@@ -405,6 +446,14 @@ function FieldMapEditor({ integration, entityType, payload }) {
   //   DEL  /api/admin/integrations/field_map.php?id=
   const url = `/api/admin/integrations/field_map.php?integration=${encodeURIComponent(integration)}&entity_type=${encodeURIComponent(entityType)}`;
   const { data, loading, error, reload } = useApi(url);
+  const indexedPathUrl = integration && entityType
+    ? `/api/admin/integrations/payload_fields.php?integration=${encodeURIComponent(integration)}&entity_type=${encodeURIComponent(entityType)}&limit=2000`
+    : null;
+  const { data: indexedPathData } = useApi(indexedPathUrl, { enabled: !!indexedPathUrl });
+  const staffingJobPathUrl = integration === 'jobdiva' && entityType === 'placement'
+    ? `/api/admin/integrations/payload_fields.php?integration=${encodeURIComponent(integration)}&entity_type=staffing_job&limit=2000`
+    : null;
+  const { data: staffingJobPathData } = useApi(staffingJobPathUrl, { enabled: !!staffingJobPathUrl });
   const [editing, setEditing] = useState(null);          // mapping id being edited inline
   const [draft, setDraft]     = useState({ external_field: '', transform: 'none' });
   const [adding, setAdding]   = useState(false);
@@ -463,8 +512,14 @@ function FieldMapEditor({ integration, entityType, payload }) {
   // Payload-key suggestions for autocomplete. Use scalar leaf paths,
   // including canonical cross-reference aliases such as job.title.
   const payloadKeys = React.useMemo(() => {
-    if (!payload || typeof payload !== 'object') return [];
-    const paths = Array.from(new Set(flattenPayloadScalarPaths(payload)));
+    const rowPaths = payload && typeof payload === 'object'
+      ? flattenPayloadScalarPaths(payload)
+      : [];
+    const indexedPaths = fieldIndexPathOptions(indexedPathData);
+    const staffingJobPaths = integration === 'jobdiva' && entityType === 'placement'
+      ? fieldIndexPathOptions(staffingJobPathData, 'job')
+      : [];
+    const paths = Array.from(new Set([...rowPaths, ...indexedPaths, ...staffingJobPaths]));
     const rank = (path) => {
       if (path.startsWith('job.')) return 0;
       if (path.startsWith('assignment.')) return 1;
@@ -475,7 +530,7 @@ function FieldMapEditor({ integration, entityType, payload }) {
       return 6;
     };
     return paths.sort((a, b) => (rank(a) - rank(b)) || a.localeCompare(b));
-  }, [payload]);
+  }, [payload, indexedPathData, staffingJobPathData, integration, entityType]);
 
   // Internal fields not yet mapped — drives the "Add mapping" dropdown.
   const mappedInternal = new Set(rows.map(r => r.internal_field));
@@ -849,8 +904,15 @@ function FieldMapEditor({ integration, entityType, payload }) {
 function DetailRow({ mapping, entityType }) {
   const [showRaw, setShowRaw] = useState(false);
   const [showSuggest, setShowSuggest] = useState(false);
+  const [mappingEntity, setMappingEntity] = useState(entityType);
   const payload = mapping.payload_snapshot || {};
   const idFields = SOURCE_ID_FIELDS[mapping.source_system]?.[entityType] || [];
+  const mappingEntities = integrationMappingEntityOptions(mapping.source_system, entityType);
+  const selectedMappingEntity = mappingEntities.some(o => o.key === mappingEntity)
+    ? mappingEntity
+    : (mappingEntities[0]?.key || entityType);
+  const selectedMappingPayload = payloadForMappingEntity(payload, selectedMappingEntity);
+  const selectedMapping = { ...mapping, payload_snapshot: selectedMappingPayload };
 
   // Slice-3 — surface the source-system deep-link when the payload
   // carries one. Airtable populates `_airtable_record_url` during
@@ -911,10 +973,40 @@ function DetailRow({ mapping, entityType }) {
             <ExternalLink size={11} /> Open in {SOURCE_LABEL[mapping.source_system] || mapping.source_system}
           </a>
         )}
+        {mappingEntities.length > 1 && (
+          <div
+            data-testid={`field-map-entity-tabs-${mapping.source_system}`}
+            style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10, marginBottom: 8 }}
+          >
+            {mappingEntities.map(opt => {
+              const active = opt.key === selectedMappingEntity;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  data-testid={`field-map-entity-tab-${opt.key}`}
+                  onClick={() => setMappingEntity(opt.key)}
+                  style={{
+                    border: `1px solid ${active ? '#4f46e5' : '#cbd5e1'}`,
+                    background: active ? '#eef2ff' : '#fff',
+                    color: active ? '#3730a3' : '#475569',
+                    borderRadius: 6,
+                    padding: '4px 9px',
+                    fontSize: 11,
+                    fontWeight: active ? 700 : 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <FieldMapEditor
           integration={mapping.source_system}
-          entityType={entityType}
-          payload={payload}
+          entityType={selectedMappingEntity}
+          payload={selectedMappingPayload}
         />
         <div style={{ marginTop: idFields.length > 0 ? '0.6rem' : 0, display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <button
@@ -958,8 +1050,8 @@ function DetailRow({ mapping, entityType }) {
         <SuggestMappingModal
           open={showSuggest}
           onClose={() => setShowSuggest(false)}
-          mapping={mapping}
-          entityType={entityType}
+          mapping={selectedMapping}
+          entityType={selectedMappingEntity}
         />
       </td>
     </tr>

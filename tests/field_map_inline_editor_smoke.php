@@ -91,6 +91,10 @@ $assert('new mapping writes generalised source_path + target routing',
     strpos($panel, 'defaultFieldMapTarget(entityType, newRow.internal_field)') !== false
     && strpos($panel, 'source_path:    sourcePath') !== false
     && strpos($panel, '...target') !== false);
+$assert('default target routing includes staffing_job integration mappings',
+    strpos($panel, "if (entityType === 'staffing_job')") !== false
+    && strpos($panel, "target_table: 'staffing_jobs'") !== false
+    && strpos($panel, "linked_entity: 'staffing_job'") !== false);
 $assert('Cancel new mapping clears state',
     strpos($panel, 'data-testid="field-map-new-cancel"') !== false);
 $assert('hides the "Add" button when every internal field is already mapped',
@@ -103,6 +107,12 @@ $assert('declares scalar path flattener for nested payloads',
 $assert('builds payloadKeys from nested scalar paths',
     strpos($panel, 'flattenPayloadScalarPaths(payload)') !== false
     && strpos($panel, "path.startsWith('job.')") !== false);
+$assert('merges indexed source paths from payload_fields endpoint',
+    strpos($panel, '/api/admin/integrations/payload_fields.php?integration=') !== false
+    && strpos($panel, 'fieldIndexPathOptions(indexedPathData)') !== false);
+$assert('placement editor aliases staffing_job indexed paths as job.* options',
+    strpos($panel, 'entity_type=staffing_job') !== false
+    && strpos($panel, "fieldIndexPathOptions(staffingJobPathData, 'job')") !== false);
 $assert('renders a shared <datalist> for autocomplete',
     strpos($panel, '<datalist id={`payloadkeys-${integration}-${entityType}`}>') !== false);
 $assert('inline edit input wired to the same datalist',
@@ -118,7 +128,16 @@ $assert('panel help text mentions the mapping editor (not just raw payload)',
     strpos($panel, 'current field mappings') !== false);
 $assert('FieldMapEditor is rendered inside the expanded DetailRow',
     strpos($panel, '<FieldMapEditor') !== false
-    && strpos($panel, 'integration={mapping.source_system}') !== false);
+    && strpos($panel, 'integration={mapping.source_system}') !== false
+    && strpos($panel, 'entityType={selectedMappingEntity}') !== false);
+$assert('JobDiva placement panel uses integration mapping entity buckets',
+    strpos($panel, 'function integrationMappingEntityOptions(sourceSystem, entityType)') !== false
+    && strpos($panel, "sourceSystem === 'jobdiva' && entityType === 'placement'") !== false
+    && strpos($panel, "{ key: 'staffing_job', label: 'Job / Role' }") !== false
+    && strpos($panel, 'data-testid={`field-map-entity-tab-${opt.key}`}') !== false);
+$assert('Suggest mappings follows the selected integration mapping bucket',
+    strpos($panel, 'const selectedMapping = { ...mapping, payload_snapshot: selectedMappingPayload };') !== false
+    && strpos($panel, 'entityType={selectedMappingEntity}') !== false);
 
 echo "\nServer side — verifies the admin field_map endpoint still wires correctly\n";
 $api = (string) file_get_contents("{$ROOT}/api/admin/integrations/field_map.php");
@@ -137,8 +156,11 @@ $mappingsApi = (string) file_get_contents("{$ROOT}/api/integrations/mappings.php
 $assert('mappings endpoint loads JobDiva canonical graph helper',
     strpos($mappingsApi, "core/jobdiva/canonical_graph.php") !== false);
 $assert('mappings endpoint resolves placement jobID to jobdiva_job mirror payload',
-    strpos($mappingsApi, "_integrationMappingsJobDivaMirrorPayload(\$tenantId, 'jobdiva_job', \$jobId)") !== false
-    && strpos($mappingsApi, "['job id', 'jobId', 'job_id', 'jobID', 'JOBID']") !== false);
+    strpos($mappingsApi, "_integrationMappingsJobDivaMirrorPayloadAny(\$tenantId, ['jobdiva_job', 'staffing_job'], \$jobId)") !== false
+    && strpos($mappingsApi, "['job id', 'jobId', 'job_id', 'jobID', 'JOBID', 'reqId', 'req_id']") !== false);
+$assert('mappings endpoint tolerates jd:-prefixed mirror ids',
+    strpos($mappingsApi, "str_starts_with(\$externalId, 'jd:')") !== false
+    && strpos($mappingsApi, "\$externalIds[] = 'jd:' . \$externalId") !== false);
 $assert('mappings endpoint returns canonicalized placement payload',
     strpos($mappingsApi, 'jobdivaCanonicalPlacementPayload($payload)') !== false);
 
