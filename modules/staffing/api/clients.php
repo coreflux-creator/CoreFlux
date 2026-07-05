@@ -36,6 +36,18 @@ if ($method === 'GET' && $action === 'list') {
         $params['q3'] = $params['q'];
     }
     $limit = max(1, min(500, (int) ($_GET['limit'] ?? 100)));
+    $sortMap = [
+        'name'                  => 'c.name',
+        'industry'              => 'c.industry',
+        'active_placements'     => 'active_placements',
+        'primary_contact_email' => 'c.primary_contact_email',
+        'payment_terms_days'    => 'c.payment_terms_days',
+        'status'                => 'c.status',
+        'created_at'            => 'c.created_at',
+    ];
+    $sortKey = (string) ($_GET['sort'] ?? 'name');
+    $sortExpr = $sortMap[$sortKey] ?? $sortMap['name'];
+    $sortDir = strtolower((string) ($_GET['dir'] ?? 'asc')) === 'desc' ? 'DESC' : 'ASC';
     $sql = "SELECT c.id, c.company_id, c.name, c.legal_name, c.industry, c.status, c.payment_terms_days,
                    c.primary_contact_name, c.primary_contact_email,
                    c.billing_city, c.billing_state, c.billing_country,
@@ -49,7 +61,7 @@ if ($method === 'GET' && $action === 'list') {
                    GROUP BY tenant_id, client_id
               ) p ON p.tenant_id = c.tenant_id AND p.client_id = c.id
              WHERE " . implode(' AND ', $where) . "
-             ORDER BY c.name
+             ORDER BY {$sortExpr} {$sortDir}, c.id DESC
              LIMIT " . $limit;
     api_ok(['rows' => scopedQuery($sql, $params)]);
 }

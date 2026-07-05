@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi, api } from '../../../dashboard/src/lib/api';
+import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 /**
@@ -27,6 +28,28 @@ export default function DraftRatesQueue() {
   const [selected, setSelected] = useState(() => new Set());
   const [busy, setBusy]         = useState(false);
   const [result, setResult]     = useState(null);
+  const [statusFilter, setStatusFilter] = useState('');
+  const placementStatuses = useMemo(
+    () => Array.from(new Set(rates.map(r => r.placement_status).filter(Boolean))).sort(),
+    [rates]
+  );
+  const filteredRates = useMemo(() => {
+    if (!statusFilter) return rates;
+    return rates.filter(r => r.placement_status === statusFilter);
+  }, [rates, statusFilter]);
+  const {
+    items,
+    sortKey,
+    sortDir,
+    search,
+    setSearch,
+    headerProps,
+  } = useTableList(filteredRates, {
+    defaultSort: { key: 'created_at', dir: 'desc' },
+    searchKeys: ['placement_title', 'first_name', 'last_name', 'end_client_name', 'placement_status'],
+    dateKeys: ['effective_from', 'created_at'],
+    numericKeys: ['id', 'placement_id', 'bill_rate', 'pay_rate'],
+  });
 
   useEffect(() => { setSelected(new Set()); }, [total]);
 
@@ -37,12 +60,12 @@ export default function DraftRatesQueue() {
       return next;
     });
   };
-  const allOn = rates.length > 0 && rates.every(r => selected.has(r.id));
+  const allOn = items.length > 0 && items.every(r => selected.has(r.id));
   const toggleAll = () => {
     setSelected(prev => {
       const next = new Set(prev);
-      if (allOn) rates.forEach(r => next.delete(r.id));
-      else       rates.forEach(r => next.add(r.id));
+      if (allOn) items.forEach(r => next.delete(r.id));
+      else       items.forEach(r => next.add(r.id));
       return next;
     });
   };
@@ -95,6 +118,20 @@ export default function DraftRatesQueue() {
         </div>
       </header>
 
+      <div style={{ display: 'flex', gap: 'var(--cf-space-2)', marginBottom: 'var(--cf-space-3)', flexWrap: 'wrap' }}>
+        <input
+          className="input"
+          placeholder="Search placement, person, client..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          data-testid="placements-draft-rates-search"
+        />
+        <select className="input" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} data-testid="placements-draft-rates-status-filter">
+          <option value="">All placement statuses</option>
+          {placementStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+
       {result && (
         <div
           data-testid="placements-draft-rates-result"
@@ -135,18 +172,21 @@ export default function DraftRatesQueue() {
                   aria-label="Select all draft rates"
                 />
               </th>
-              <th>Placement</th>
-              <th>Person</th>
-              <th>End client</th>
-              <th>Effective</th>
-              <th>Bill</th>
-              <th>Pay</th>
-              <th>Created</th>
+              <th {...headerProps('placement_title', 'placements-draft-rates-sort')}>Placement <SortIndicator active={sortKey === 'placement_title'} dir={sortDir} /></th>
+              <th {...headerProps('last_name', 'placements-draft-rates-sort')}>Person <SortIndicator active={sortKey === 'last_name'} dir={sortDir} /></th>
+              <th {...headerProps('end_client_name', 'placements-draft-rates-sort')}>End client <SortIndicator active={sortKey === 'end_client_name'} dir={sortDir} /></th>
+              <th {...headerProps('effective_from', 'placements-draft-rates-sort')}>Effective <SortIndicator active={sortKey === 'effective_from'} dir={sortDir} /></th>
+              <th {...headerProps('bill_rate', 'placements-draft-rates-sort')}>Bill <SortIndicator active={sortKey === 'bill_rate'} dir={sortDir} /></th>
+              <th {...headerProps('pay_rate', 'placements-draft-rates-sort')}>Pay <SortIndicator active={sortKey === 'pay_rate'} dir={sortDir} /></th>
+              <th {...headerProps('created_at', 'placements-draft-rates-sort')}>Created <SortIndicator active={sortKey === 'created_at'} dir={sortDir} /></th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {rates.map(r => (
+            {items.length === 0 && (
+              <tr><td colSpan={9} className="empty" data-testid="placements-draft-rates-filtered-empty">No draft rates match.</td></tr>
+            )}
+            {items.map(r => (
               <tr key={r.id} data-testid={`draft-rate-row-${r.id}`}>
                 <td>
                   <input

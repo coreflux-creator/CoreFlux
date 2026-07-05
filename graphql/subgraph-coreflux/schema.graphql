@@ -111,6 +111,7 @@ type Person @key(fields: "id") {
 type Company @key(fields: "id") {
   id: ID!
   name: String!
+  status: String
   industry: String
   website: String
   phone: String

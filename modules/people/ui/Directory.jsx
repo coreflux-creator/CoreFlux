@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 
@@ -15,12 +16,15 @@ export default function Directory() {
   const [status, setStatus] = useState('');
   const [needsReview, setNeedsReview] = useState(false);
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState({ key: 'last_name', dir: 'asc' });
 
   const path = useMemo(() => {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
     if (classification) params.set('classification', classification);
     if (status) params.set('status', status);
+    if (sort.key) params.set('sort', sort.key);
+    if (sort.dir) params.set('dir', sort.dir);
     if (needsReview) {
       // Targets auto-imported placeholders from
       // jobdivaPlacementsAutoCreatePerson(): @no-email.invalid emails,
@@ -30,13 +34,20 @@ export default function Directory() {
     }
     params.set('page', String(page));
     return `${API}?${params.toString()}`;
-  }, [q, classification, status, needsReview, page]);
+  }, [q, classification, status, needsReview, page, sort]);
 
   const { data, loading, error, reload } = useApi(path);
   const rows  = data?.rows ?? [];
   const total = data?.total ?? 0;
   const perPage = data?.per_page ?? 25;
   const lastPage = Math.max(1, Math.ceil(total / perPage));
+  const { items, sortKey, sortDir, headerProps } = useTableList(rows, {
+    defaultSort: { key: 'last_name', dir: 'asc' },
+    sort,
+    onSortChange: next => { setSort(next); setPage(1); },
+    dateKeys: ['created_at'],
+    numericKeys: ['id'],
+  });
   const buildTemplateExportHref = (tplId) => {
     const params = new URLSearchParams({ template_id: String(tplId) });
     if (classification) params.set('classification', classification);
@@ -129,20 +140,20 @@ export default function Directory() {
           <table className="data-table" data-testid="people-directory-table" style={{ width: '100%' }}>
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Classification</th>
-                <th>Status</th>
-                <th>Work auth</th>
-                <th>Created</th>
+                <th {...headerProps('id', 'people-directory-sort')}>ID <SortIndicator active={sortKey === 'id'} dir={sortDir} /></th>
+                <th {...headerProps('last_name', 'people-directory-sort')}>Name <SortIndicator active={sortKey === 'last_name'} dir={sortDir} /></th>
+                <th {...headerProps('email_primary', 'people-directory-sort')}>Email <SortIndicator active={sortKey === 'email_primary'} dir={sortDir} /></th>
+                <th {...headerProps('classification', 'people-directory-sort')}>Classification <SortIndicator active={sortKey === 'classification'} dir={sortDir} /></th>
+                <th {...headerProps('status', 'people-directory-sort')}>Status <SortIndicator active={sortKey === 'status'} dir={sortDir} /></th>
+                <th {...headerProps('work_auth_status', 'people-directory-sort')}>Work auth <SortIndicator active={sortKey === 'work_auth_status'} dir={sortDir} /></th>
+                <th {...headerProps('created_at', 'people-directory-sort')}>Created <SortIndicator active={sortKey === 'created_at'} dir={sortDir} /></th>
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 && (
+              {items.length === 0 && (
                 <tr><td colSpan={7} className="empty" data-testid="people-directory-empty">No people match.</td></tr>
               )}
-              {rows.map((p) => {
+              {items.map((p) => {
                 // A row "needs review" iff it carries one of the synthetic
                 // placeholders that jobdivaPlacementsAutoCreatePerson()
                 // sets when JobDiva's payload was missing real data. Same

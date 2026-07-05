@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useGql, runDiagnostics, __GRAPHQL_URL__ } from '../../../dashboard/src/lib/graphqlClient';
+import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { Zap, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 
 /**
@@ -18,7 +19,8 @@ import { Zap, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
  * over HTTPS to graphql.corefluxapp.com).
  */
 
-const STATUSES = ['', 'pending_start', 'active', 'ended', 'cancelled'];
+const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
+const ETYPES   = ['', 'w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal'];
 const PER_PAGE = 25;
 // PHP's placementsList caps per_page at 200. Ask for the max so we get
 // every record for a typical tenant in one round-trip. A future iteration
@@ -78,6 +80,7 @@ const PLACEMENTS_QUERY = `
 export default function ListGraphql() {
   const [q, setQ]                 = useState('');
   const [status, setStatus]       = useState('active');
+  const [engagementType, setEngagementType] = useState('');
   const [page, setPage]           = useState(1);
 
   // GraphQL doesn't support the existing REST's free-text q or paging
@@ -98,24 +101,30 @@ export default function ListGraphql() {
     finally { setDiagLoading(false); }
   };
 
-  const allRows = data?.placements ?? [];
+  const allRows = useMemo(() => (data?.placements ?? []).map(p => ({
+    ...p,
+    personName: p.person ? `${p.person.firstName ?? ''} ${p.person.lastName ?? ''}`.trim() : '',
+  })), [data?.placements]);
   const filtered = useMemo(() => {
-    if (!q.trim()) return allRows;
-    const needle = q.trim().toLowerCase();
-    return allRows.filter(p => {
-      const fields = [
-        p.title,
-        p.endClientName,
-        p.person?.firstName,
-        p.person?.lastName,
-      ].filter(Boolean).map(s => String(s).toLowerCase());
-      return fields.some(f => f.includes(needle));
-    });
-  }, [allRows, q]);
+    if (!engagementType) return allRows;
+    return allRows.filter(p => p.engagementType === engagementType);
+  }, [allRows, engagementType]);
+  const {
+    items: sortedRows,
+    sortKey,
+    sortDir,
+    setSearch,
+    headerProps,
+  } = useTableList(filtered, {
+    defaultSort: { key: 'startDate', dir: 'desc' },
+    searchKeys: ['title', 'endClientName', 'personName', 'status', 'engagementType'],
+    dateKeys: ['startDate', 'dueDate', 'endDate'],
+    numericKeys: ['id'],
+  });
 
-  const total = filtered.length;
+  const total = sortedRows.length;
   const lastPage = Math.max(1, Math.ceil(total / PER_PAGE));
-  const rows = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const rows = sortedRows.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   return (
     <section className="people-directory" data-testid="placements-list-gql">
@@ -163,9 +172,12 @@ export default function ListGraphql() {
 
       <div style={{ display: 'flex', gap: 'var(--cf-space-2)', marginBottom: 'var(--cf-space-3)', flexWrap: 'wrap' }}>
         <input className="input" placeholder="Search title, end-client, person…" value={q}
-               onChange={e => { setQ(e.target.value); setPage(1); }} data-testid="placements-gql-search" />
+               onChange={e => { setQ(e.target.value); setSearch(e.target.value); setPage(1); }} data-testid="placements-gql-search" />
         <select className="input" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }} data-testid="placements-gql-status-filter">
           {STATUSES.map(s => <option key={s} value={s}>{s === '' ? 'All statuses' : s}</option>)}
+        </select>
+        <select className="input" value={engagementType} onChange={e => { setEngagementType(e.target.value); setPage(1); }} data-testid="placements-gql-etype-filter">
+          {ETYPES.map(s => <option key={s} value={s}>{s === '' ? 'All types' : s}</option>)}
         </select>
       </div>
 
@@ -232,7 +244,18 @@ export default function ListGraphql() {
       )}
 
       <table className="data-table" data-testid="placements-gql-table">
-        <thead><tr><th>Title</th><th>Person</th><th>End client</th><th>Type</th><th>Status</th><th>Start</th><th>Due</th><th>End</th></tr></thead>
+        <thead>
+          <tr>
+            <th {...headerProps('title', 'placements-gql-sort')}>Title <SortIndicator active={sortKey === 'title'} dir={sortDir} /></th>
+            <th {...headerProps('personName', 'placements-gql-sort')}>Person <SortIndicator active={sortKey === 'personName'} dir={sortDir} /></th>
+            <th {...headerProps('endClientName', 'placements-gql-sort')}>End client <SortIndicator active={sortKey === 'endClientName'} dir={sortDir} /></th>
+            <th {...headerProps('engagementType', 'placements-gql-sort')}>Type <SortIndicator active={sortKey === 'engagementType'} dir={sortDir} /></th>
+            <th {...headerProps('status', 'placements-gql-sort')}>Status <SortIndicator active={sortKey === 'status'} dir={sortDir} /></th>
+            <th {...headerProps('startDate', 'placements-gql-sort')}>Start <SortIndicator active={sortKey === 'startDate'} dir={sortDir} /></th>
+            <th {...headerProps('dueDate', 'placements-gql-sort')}>Due <SortIndicator active={sortKey === 'dueDate'} dir={sortDir} /></th>
+            <th {...headerProps('endDate', 'placements-gql-sort')}>End <SortIndicator active={sortKey === 'endDate'} dir={sortDir} /></th>
+          </tr>
+        </thead>
         <tbody>
           {!loading && rows.length === 0 && (
             <tr><td colSpan={8} className="empty" data-testid="placements-gql-empty">No placements match.</td></tr>

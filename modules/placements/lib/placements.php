@@ -162,6 +162,27 @@ function placementsList(array $filters = []): array
     $perPage = min(200, max(1, (int) ($filters['per_page'] ?? 25)));
     $offset  = ($page - 1) * $perPage;
     $whereSql = implode(' AND ', $where);
+    $sortMap = [
+        'id'                => 'p.id',
+        'title'             => 'p.title',
+        'last_name'         => 'pe.last_name',
+        'person'            => 'pe.last_name',
+        'end_client_name'   => 'COALESCE(ec.name, p.end_client_name)',
+        'engagement_type'   => 'p.engagement_type',
+        'status'            => 'p.status',
+        'start_date'        => 'p.start_date',
+        'due_date'          => 'p.due_date',
+        'end_date'          => 'p.end_date',
+        'created_at'        => 'p.created_at',
+        'updated_at'        => 'p.updated_at',
+    ];
+    $sortKey = (string) ($filters['sort'] ?? 'start_date');
+    $sortExpr = $sortMap[$sortKey] ?? $sortMap['start_date'];
+    $sortDir = strtolower((string) ($filters['dir'] ?? 'desc')) === 'asc' ? 'ASC' : 'DESC';
+    $tieDir = $sortDir === 'ASC' ? 'ASC' : 'DESC';
+    $orderSql = $sortKey === 'last_name' || $sortKey === 'person'
+        ? "{$sortExpr} {$sortDir}, pe.first_name {$sortDir}, p.id {$tieDir}"
+        : "{$sortExpr} {$sortDir}, p.id {$tieDir}";
 
     $total = (int) (scopedFind("SELECT COUNT(*) AS c FROM placements p WHERE {$whereSql}", $params)['c'] ?? 0);
     $rows  = scopedQuery(
@@ -173,7 +194,7 @@ function placementsList(array $filters = []): array
          LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
          LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id
          WHERE ' . $whereSql . '
-         ORDER BY p.start_date DESC
+         ORDER BY ' . $orderSql . '
          LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
@@ -304,9 +325,41 @@ function placementDocuments(int $placementId): array
 }
 
 /**
- * Compute net margin per SPEC §4 from a rate row + chain.
- * Returns ['adjusted_bill_rate', 'net_to_vendor', 'gross_margin_per_hour',
- *          'total_portal_fee_pct'].
+ * Stable, tenant-scoped snapshot used in placement audit before/after payloads.
+ * Kept separate from placementGet() so audit callers do not depend on UI-facing
+ * hydration side effects.
+ */
+function placementAuditRow(int $placementId): ?array
+{
+    if ($placementId <= 0) return null;
+    return scopedFind(
+        'SELECT ' . placementsSafeFields() . ',
+                pe.first_name AS person_first_name,
+                pe.last_name AS person_last_name,
+                pe.email_primary AS person_email_primary,
+                COALESCE(ec.name, p.end_client_name) AS end_client_display_name,
+                sj.title AS staffing_job_title
+           FROM placements p
+           LEFT JOIN people pe
+             ON pe.id = p.person_id
+            AND pe.tenant_id = p.tenant_id
+           LEFT JOIN companies ec
+             ON ec.id = p.end_client_company_id
+            AND ec.tenant_id = p.tenant_id
+           LEFT JOIN staffing_jobs sj
+             ON sj.id = p.staffing_job_id
+            AND sj.tenant_id = p.tenant_id
+          WHERE p.tenant_id = :tenant_id
+            AND p.id = :id
+            AND p.deleted_at IS NULL',
+        ['id' => $placementId]
+    );
+}
+
+/**
+ * Compute net margin per SPEC section 4 from a rate row + chain.
+ * Returns adjusted_bill_rate, net_to_vendor, gross_margin_per_hour,
+ * and total_portal_fee_pct.
  */
 function placementsComputeMargin(array $rate, array $chain): array
 {

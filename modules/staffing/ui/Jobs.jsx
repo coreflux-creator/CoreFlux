@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 
 const EMPTY_JOB = {
   title: '',
@@ -20,9 +21,20 @@ export default function Jobs() {
   const [drawer, setDrawer] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const path = `/modules/staffing/api/jobs.php?action=list&status=${encodeURIComponent(status)}&q=${encodeURIComponent(q)}`;
+  const [sort, setSort] = useState({ key: 'status', dir: 'asc' });
+  const path = `/modules/staffing/api/jobs.php?action=list&status=${encodeURIComponent(status)}&q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort.key)}&dir=${encodeURIComponent(sort.dir)}`;
   const { data, loading, reload } = useApi(path, [path]);
-  const rows = data?.rows ?? [];
+  const rows = (data?.rows ?? []).map(row => ({
+    ...row,
+    location: [row.location_city, row.location_state, row.location_country].filter(Boolean).join(', '),
+  }));
+  const { items, sortKey, sortDir, headerProps } = useTableList(rows, {
+    defaultSort: { key: 'status', dir: 'asc' },
+    sort,
+    onSortChange: setSort,
+    dateKeys: ['opened_at', 'updated_at'],
+    numericKeys: ['id', 'placement_count'],
+  });
 
   const openNew = () => {
     setDrawer({ mode: 'new', job: { ...EMPTY_JOB }, placements: [] });
@@ -112,16 +124,21 @@ export default function Jobs() {
         <table className="data-table" data-testid="staffing-jobs-table">
           <thead>
             <tr>
-              <th>Title</th><th>Client</th><th>Status</th><th>Location</th><th>Source</th><th>Placements</th>
+              <th {...headerProps('title', 'staffing-jobs-sort')}>Title <SortIndicator active={sortKey === 'title'} dir={sortDir} /></th>
+              <th {...headerProps('client_name', 'staffing-jobs-sort')}>Client <SortIndicator active={sortKey === 'client_name'} dir={sortDir} /></th>
+              <th {...headerProps('status', 'staffing-jobs-sort')}>Status <SortIndicator active={sortKey === 'status'} dir={sortDir} /></th>
+              <th {...headerProps('location', 'staffing-jobs-sort')}>Location <SortIndicator active={sortKey === 'location'} dir={sortDir} /></th>
+              <th {...headerProps('source_system', 'staffing-jobs-sort')}>Source <SortIndicator active={sortKey === 'source_system'} dir={sortDir} /></th>
+              <th {...headerProps('placement_count', 'staffing-jobs-sort')}>Placements <SortIndicator active={sortKey === 'placement_count'} dir={sortDir} /></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(row => (
+            {items.map(row => (
               <tr key={row.id} onClick={() => openEdit(row)} style={{ cursor: 'pointer' }} data-testid={`staffing-job-row-${row.id}`}>
                 <td><strong>{row.title}</strong>{row.department ? <div style={{ fontSize:'0.75em', color:'var(--cf-text-muted)' }}>{row.department}</div> : null}</td>
                 <td>{row.client_name || '-'}</td>
                 <td><span className={`status-pill status-${row.status}`}>{row.status}</span></td>
-                <td>{[row.location_city, row.location_state, row.location_country].filter(Boolean).join(', ') || '-'}</td>
+                <td>{row.location || '-'}</td>
                 <td>{row.source_system === 'jobdiva' ? `JobDiva ${row.external_id || ''}` : row.source_system}</td>
                 <td>{row.placement_count ?? 0}</td>
               </tr>

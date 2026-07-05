@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useGql } from '../../../dashboard/src/lib/graphqlClient';
+import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { Zap } from 'lucide-react';
 
 /**
@@ -19,13 +20,14 @@ const MAX_FETCH = 200;
 const PER_PAGE  = 25;
 
 // Same status values the REST `Clients.jsx` page exposes.
-const STATUS_OPTIONS = ['', 'active', 'prospect', 'on_hold', 'inactive'];
+const STATUS_OPTIONS = ['', 'active', 'prospect', 'on_hold', 'inactive', 'closed'];
 
 const COMPANIES_QUERY = `
   query DashboardCompanies($limit: Int!) {
     companies(limit: $limit) {
       id
       name
+      status
       industry
       website
       phone
@@ -45,20 +47,21 @@ export default function ClientsGraphql() {
   const { data, error, loading, elapsedMs, reload } =
     useGql(COMPANIES_QUERY, { variables });
 
-  const allRows = data?.companies ?? [];
+  const allRows = useMemo(() => (data?.companies ?? []).map(c => ({
+    ...c,
+    location: [c.billingAddress?.city, c.billingAddress?.state, c.billingAddress?.country]
+      .filter(Boolean).join(', '),
+  })), [data?.companies]);
   const filtered = useMemo(() => {
     let rows = allRows;
     if (statusFilter) {
-      // The current schema doesn't expose status; once it does this
-      // becomes a server-side argument. Until then, hide the column
-      // value mismatch in plain sight rather than pretend to filter.
-      rows = rows.filter(c => !!c.name); // no-op — kept for parity with REST UX
+      rows = rows.filter(c => c.status === statusFilter);
     }
     if (q.trim()) {
       const needle = q.trim().toLowerCase();
       rows = rows.filter(c => {
         const fields = [
-          c.name, c.industry, c.billingEmail,
+          c.name, c.status, c.industry, c.billingEmail, c.location,
           c.billingAddress?.city, c.billingAddress?.state,
         ].filter(Boolean).map(s => String(s).toLowerCase());
         return fields.some(f => f.includes(needle));
@@ -67,9 +70,20 @@ export default function ClientsGraphql() {
     return rows;
   }, [allRows, q, statusFilter]);
 
-  const total = filtered.length;
+  const {
+    items: sortedRows,
+    sortKey,
+    sortDir,
+    headerProps,
+  } = useTableList(filtered, {
+    defaultSort: { key: 'name', dir: 'asc' },
+    searchKeys: ['name', 'industry', 'billingEmail', 'location', 'status'],
+    numericKeys: ['id'],
+  });
+
+  const total = sortedRows.length;
   const lastPage = Math.max(1, Math.ceil(total / PER_PAGE));
-  const rows = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const rows = sortedRows.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   return (
     <section className="people-directory" data-testid="clients-list-gql">
@@ -178,17 +192,24 @@ export default function ClientsGraphql() {
       <table className="data-table" data-testid="clients-gql-table">
         <thead>
           <tr>
-            <th>Name</th><th>Industry</th><th>Website</th><th>Phone</th>
-            <th>Billing email</th><th>Terms</th><th>Location</th>
+            <th {...headerProps('name', 'clients-gql-sort')}>Name <SortIndicator active={sortKey === 'name'} dir={sortDir} /></th>
+            <th {...headerProps('status', 'clients-gql-sort')}>Status <SortIndicator active={sortKey === 'status'} dir={sortDir} /></th>
+            <th {...headerProps('industry', 'clients-gql-sort')}>Industry <SortIndicator active={sortKey === 'industry'} dir={sortDir} /></th>
+            <th {...headerProps('website', 'clients-gql-sort')}>Website <SortIndicator active={sortKey === 'website'} dir={sortDir} /></th>
+            <th {...headerProps('phone', 'clients-gql-sort')}>Phone <SortIndicator active={sortKey === 'phone'} dir={sortDir} /></th>
+            <th {...headerProps('billingEmail', 'clients-gql-sort')}>Billing email <SortIndicator active={sortKey === 'billingEmail'} dir={sortDir} /></th>
+            <th {...headerProps('billingTerms', 'clients-gql-sort')}>Terms <SortIndicator active={sortKey === 'billingTerms'} dir={sortDir} /></th>
+            <th {...headerProps('location', 'clients-gql-sort')}>Location <SortIndicator active={sortKey === 'location'} dir={sortDir} /></th>
           </tr>
         </thead>
         <tbody>
           {!loading && rows.length === 0 && (
-            <tr><td colSpan={7} className="empty" data-testid="clients-gql-empty">No companies match.</td></tr>
+            <tr><td colSpan={8} className="empty" data-testid="clients-gql-empty">No companies match.</td></tr>
           )}
           {rows.map(c => (
             <tr key={c.id} data-testid={`client-gql-row-${c.id}`}>
               <td>{c.name || '(unnamed)'}</td>
+              <td>{c.status || '-'}</td>
               <td>{c.industry || '—'}</td>
               <td>
                 {c.website

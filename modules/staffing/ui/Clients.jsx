@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 
 /**
@@ -19,9 +20,17 @@ const EMPTY_CLIENT = {
 export default function Clients() {
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
-  const path = `/modules/staffing/api/clients.php?action=list&status=${statusFilter}&q=${encodeURIComponent(q)}`;
+  const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
+  const path = `/modules/staffing/api/clients.php?action=list&status=${statusFilter}&q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort.key)}&dir=${encodeURIComponent(sort.dir)}`;
   const { data, loading, reload } = useApi(path, [path]);
   const rows = data?.rows ?? [];
+  const { items, sortKey, sortDir, headerProps } = useTableList(rows, {
+    defaultSort: { key: 'name', dir: 'asc' },
+    sort,
+    onSortChange: setSort,
+    dateKeys: ['created_at'],
+    numericKeys: ['id', 'active_placements', 'payment_terms_days'],
+  });
 
   const [drawer, setDrawer]   = useState(null); // { mode: 'new' | 'edit', client }
   const [savePending, setSP]  = useState(false);
@@ -113,11 +122,16 @@ export default function Clients() {
         <table className="data-table" data-testid="staffing-clients-table">
           <thead>
             <tr>
-              <th>Name</th><th>Industry</th><th>Active Placements</th><th>Contact</th><th>Terms</th><th>Status</th>
+              <th {...headerProps('name', 'staffing-clients-sort')}>Name <SortIndicator active={sortKey === 'name'} dir={sortDir} /></th>
+              <th {...headerProps('industry', 'staffing-clients-sort')}>Industry <SortIndicator active={sortKey === 'industry'} dir={sortDir} /></th>
+              <th {...headerProps('active_placements', 'staffing-clients-sort')}>Active Placements <SortIndicator active={sortKey === 'active_placements'} dir={sortDir} /></th>
+              <th {...headerProps('primary_contact_email', 'staffing-clients-sort')}>Contact <SortIndicator active={sortKey === 'primary_contact_email'} dir={sortDir} /></th>
+              <th {...headerProps('payment_terms_days', 'staffing-clients-sort')}>Terms <SortIndicator active={sortKey === 'payment_terms_days'} dir={sortDir} /></th>
+              <th {...headerProps('status', 'staffing-clients-sort')}>Status <SortIndicator active={sortKey === 'status'} dir={sortDir} /></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => (
+            {items.map(r => (
               <tr key={r.id} onClick={() => openEdit(r)} style={{ cursor: 'pointer' }} data-testid={`staffing-client-row-${r.id}`}>
                 <td><strong>{r.name}</strong>{r.legal_name ? <div style={{ fontSize:'0.75em', color:'var(--cf-text-muted)' }}>{r.legal_name}</div> : null}</td>
                 <td>{r.industry || '—'}</td>

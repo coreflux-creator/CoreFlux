@@ -36,6 +36,9 @@ if ($method === 'GET') {
     $res = companiesList([
         'q'        => $_GET['q']        ?? null,
         'role'     => $_GET['role']     ?? null,
+        'status'   => $_GET['status']   ?? null,
+        'sort'     => $_GET['sort']     ?? null,
+        'dir'      => $_GET['dir']      ?? null,
         'page'     => $_GET['page']     ?? 1,
         'per_page' => $_GET['per_page'] ?? 50,
     ]);

@@ -129,6 +129,24 @@ function peopleList(array $filters = []): array
     $offset  = ($page - 1) * $perPage;
 
     $whereSql = implode(' AND ', $where);
+    $sortMap = [
+        'id'               => 'p.id',
+        'name'             => 'p.last_name',
+        'last_name'        => 'p.last_name',
+        'email_primary'    => 'p.email_primary',
+        'classification'   => 'p.classification',
+        'status'           => 'p.status',
+        'work_auth_status' => 'p.work_auth_status',
+        'created_at'       => 'p.created_at',
+        'updated_at'       => 'p.updated_at',
+    ];
+    $sortKey  = (string) ($filters['sort'] ?? 'name');
+    $sortExpr = $sortMap[$sortKey] ?? $sortMap['name'];
+    $sortDir  = strtolower((string) ($filters['dir'] ?? 'asc')) === 'desc' ? 'DESC' : 'ASC';
+    $tieDir   = $sortDir === 'DESC' ? 'DESC' : 'ASC';
+    $orderSql = in_array($sortKey, ['name', 'last_name'], true)
+        ? "{$sortExpr} {$sortDir}, p.first_name {$sortDir}, p.id {$tieDir}"
+        : "{$sortExpr} {$sortDir}, p.id {$tieDir}";
 
     // Total count (separate query for accurate pagination)
     $countSql = "SELECT COUNT(*) AS c FROM people p WHERE {$whereSql}";
@@ -138,7 +156,7 @@ function peopleList(array $filters = []): array
     $listSql = 'SELECT ' . str_replace('p.', 'p.', peopleSafeFieldsAliased('p')) . '
                 FROM people p
                 WHERE ' . $whereSql . '
-                ORDER BY p.last_name, p.first_name
+                ORDER BY ' . $orderSql . '
                 LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset;
     $rows = scopedQuery($listSql, $params);
 

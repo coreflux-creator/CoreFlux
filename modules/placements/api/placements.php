@@ -52,6 +52,8 @@ if ($method === 'GET') {
         'start_after'     => $_GET['start_after']     ?? null,
         'end_before'      => $_GET['end_before']      ?? null,
         'due_before'      => $_GET['due_before']      ?? null,
+        'sort'            => $_GET['sort']            ?? null,
+        'dir'             => $_GET['dir']             ?? null,
         'page'            => $_GET['page']            ?? 1,
         'per_page'        => $_GET['per_page']        ?? 25,
     ]));
@@ -328,6 +330,13 @@ if ($method === 'PATCH') {
     $existing = placementGet($id);
     if (!$existing) api_error('Not found', 404);
     $before = placementAuditRow($id) ?? $existing;
+    $autoApproved = 0;
+    $promotingFromDraft = isset($body['status'])
+        && (string) $existing['status'] === 'draft'
+        && !in_array((string) $body['status'], ['draft', 'cancelled'], true);
+    if ($promotingFromDraft) {
+        $autoApproved = placementsAutoApproveDraftRates($id, $user);
+    }
     if (($body['status'] ?? null) === 'active') {
         _placementsRequireActiveReady(
             $id,
@@ -391,12 +400,7 @@ if ($method === 'PATCH') {
     // in two separate tabs. Soft-gated by rbac inside the helper so
     // a recruiter without financials.approve doesn't get a free
     // privilege escalation.
-    $autoApproved = 0;
-    if (isset($body['status'])
-        && (string) $body['status'] !== 'active'
-        && (string) $existing['status'] === 'draft'
-        && !in_array((string) $body['status'], ['draft', 'cancelled'], true)) {
-        $autoApproved = placementsAutoApproveDraftRates($id, $user);
+    if ($promotingFromDraft) {
         if ($autoApproved > 0) {
             placementsAudit('placement.rates.auto_approved_on_promotion', [
                 'placement_id'    => $id,

@@ -22,6 +22,7 @@ export default function List() {
   const [status, setStatus]             = useState(initialStatus);
   const [engagementType, setETYPE]      = useState('');
   const [page, setPage]                 = useState(1);
+  const [sort, setSort]                 = useState({ key: 'start_date', dir: 'desc' });
   // Bulk-selection state — only meaningful when filtered to `draft`.
   // Stored as a Set so an O(1) toggle works on thousands of rows.
   const [selected, setSelected]         = useState(() => new Set());
@@ -45,9 +46,11 @@ export default function List() {
     if (q) p.set('q', q);
     if (status) p.set('status', status);
     if (engagementType) p.set('engagement_type', engagementType);
+    if (sort.key) p.set('sort', sort.key);
+    if (sort.dir) p.set('dir', sort.dir);
     p.set('page', String(page));
     return `/modules/placements/api/placements.php?${p.toString()}`;
-  }, [q, status, engagementType, page]);
+  }, [q, status, engagementType, page, sort]);
 
   const { data, loading, error, elapsedMs, reload } = useApiCached(
     path,
@@ -68,6 +71,8 @@ export default function List() {
   // Client-side sort only — server already handles q/status/type search.
   const { items, sortKey, sortDir, headerProps } = useTableList(rows, {
     defaultSort: { key: 'start_date', dir: 'desc' },
+    sort,
+    onSortChange: next => { setSort(next); setPage(1); },
     dateKeys:    ['start_date', 'due_date', 'end_date'],
     numericKeys: ['id', 'person_id'],
   });

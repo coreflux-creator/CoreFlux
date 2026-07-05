@@ -42,6 +42,10 @@ $rateAppr   = (string) file_get_contents('/app/modules/placements/lib/rate_appro
 $detail     = (string) file_get_contents('/app/modules/placements/ui/PlacementDetail.jsx');
 
 echo "\n1. placementGet() joins people + companies\n";
+$a('placementAuditRow helper exists for before/after audit snapshots',
+   str_contains($lib, 'function placementAuditRow(int $placementId): ?array')
+   && str_contains($lib, 'WHERE p.tenant_id = :tenant_id')
+   && str_contains($lib, 'AND p.deleted_at IS NULL'));
 $a('joins people for person_first_name / person_last_name / person_email_primary',
    str_contains($lib, 'pe.first_name        AS person_first_name')
    && str_contains($lib, 'pe.last_name         AS person_last_name')

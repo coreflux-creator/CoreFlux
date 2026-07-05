@@ -21,6 +21,8 @@
  *     searchKeys:  ['title', 'vendor_name', 'invoice_number'],
  *     dateKeys:    ['issue_date', 'due_date'],   // sorted as dates
  *     numericKeys: ['total', 'amount_due'],      // sorted numerically
+ *     sort:        { key: 'title', dir: 'asc' }, // optional controlled sort
+ *     onSortChange: next => setSort(next),       // for server-backed pages
  *   });
  */
 import { useMemo, useState, useCallback } from 'react';
@@ -33,14 +35,26 @@ export function useTableList(rows, options = {}) {
     searchKeys  = [],
     dateKeys    = [],
     numericKeys = [],
+    sort         = null,
+    onSortChange = null,
   } = options;
 
-  const [sortKey, setSortKey] = useState(defaultSort.key);
-  const [sortDir, setSortDir] = useState(defaultSort.dir === 'desc' ? 'desc' : 'asc');
+  const isControlledSort = !!sort && typeof onSortChange === 'function';
+  const [innerSortKey, setSortKey] = useState(defaultSort.key);
+  const [innerSortDir, setSortDir] = useState(defaultSort.dir === 'desc' ? 'desc' : 'asc');
   const [search,  setSearch]  = useState('');
+  const sortKey = isControlledSort ? sort.key : innerSortKey;
+  const sortDir = (isControlledSort ? sort.dir : innerSortDir) === 'desc' ? 'desc' : 'asc';
 
   const toggleSort = useCallback((key) => {
     if (!key) return;
+    if (isControlledSort) {
+      onSortChange({
+        key,
+        dir: sortKey === key && sortDir === 'asc' ? 'desc' : 'asc',
+      });
+      return;
+    }
     setSortKey(prevKey => {
       if (prevKey === key) {
         // Same column — flip direction.
@@ -51,7 +65,7 @@ export function useTableList(rows, options = {}) {
       setSortDir('asc');
       return key;
     });
-  }, []);
+  }, [isControlledSort, onSortChange, sortDir, sortKey]);
 
   const dateSet    = useMemo(() => new Set(dateKeys),    [dateKeys.join('|')]);    // eslint-disable-line react-hooks/exhaustive-deps
   const numericSet = useMemo(() => new Set(numericKeys), [numericKeys.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps

@@ -80,18 +80,33 @@ function companiesList(array $filters = []): array
         $where[] = 'EXISTS (SELECT 1 FROM company_roles cr WHERE cr.company_id = c.id AND cr.role = :role)';
         $params['role'] = $filters['role'];
     }
+    if (!empty($filters['status'])) {
+        $where[] = 'c.status = :status';
+        $params['status'] = $filters['status'];
+    }
 
     $perPage = max(1, min(200, (int) ($filters['per_page'] ?? 50)));
     $page    = max(1, (int) ($filters['page'] ?? 1));
     $offset  = ($page - 1) * $perPage;
+    $sortMap = [
+        'name'         => 'c.name',
+        'legal_name'   => 'c.legal_name',
+        'status'       => 'c.status',
+        'use_count'    => 'c.use_count',
+        'last_used_at' => 'c.last_used_at',
+        'created_at'   => 'c.created_at',
+    ];
+    $sortKey  = (string) ($filters['sort'] ?? 'name');
+    $sortExpr = $sortMap[$sortKey] ?? $sortMap['name'];
+    $sortDir  = strtolower((string) ($filters['dir'] ?? 'asc')) === 'desc' ? 'DESC' : 'ASC';
 
     $rows = scopedQuery(
-        'SELECT c.id, c.name, c.legal_name, c.city, c.state, c.country,
+        'SELECT c.id, c.name, c.legal_name, c.status, c.city, c.state, c.country,
                 c.primary_contact_name, c.primary_contact_email, c.use_count, c.last_used_at,
                 (SELECT GROUP_CONCAT(role) FROM company_roles cr WHERE cr.company_id = c.id) AS roles_csv
          FROM companies c
          WHERE ' . implode(' AND ', $where) . '
-         ORDER BY c.name ASC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
+         ORDER BY ' . $sortExpr . ' ' . $sortDir . ', c.id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
     foreach ($rows as &$r) $r['roles'] = $r['roles_csv'] ? explode(',', $r['roles_csv']) : [];

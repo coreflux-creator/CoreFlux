@@ -180,6 +180,7 @@ function shapeCompany(row: any): any {
   return {
     id: String(row.id),
     name: row.name,
+    status: row.status ?? null,
     industry: row.industry ?? null,
     website: row.website ?? null,
     phone: row.phone ?? null,

@@ -42,6 +42,22 @@ if ($method === 'GET' && $action === 'list') {
         $params['qexact'] = (string) $_GET['q'];
     }
     $limit = max(1, min(500, (int) ($_GET['limit'] ?? 100)));
+    $sortMap = [
+        'title'           => 'sj.title',
+        'client_name'     => 'client_name',
+        'status'          => 'FIELD(sj.status, "open", "active", "on_hold", "filled", "closed", "cancelled")',
+        'location'        => 'sj.location_state',
+        'source_system'   => 'sj.source_system',
+        'placement_count' => 'placement_count',
+        'opened_at'       => 'sj.opened_at',
+        'updated_at'      => 'sj.updated_at',
+    ];
+    $sortKey = (string) ($_GET['sort'] ?? 'status');
+    $sortExpr = $sortMap[$sortKey] ?? $sortMap['status'];
+    $sortDir = strtolower((string) ($_GET['dir'] ?? 'asc')) === 'desc' ? 'DESC' : 'ASC';
+    $orderSql = $sortKey === 'status'
+        ? "{$sortExpr} {$sortDir}, sj.title ASC, sj.id DESC"
+        : "{$sortExpr} {$sortDir}, sj.id DESC";
     $sql = 'SELECT sj.id, sj.client_id, sj.company_id, sj.title, sj.status,
                    sj.external_id, sj.source_system, sj.department,
                    sj.location_city, sj.location_state, sj.location_country,
@@ -57,7 +73,7 @@ if ($method === 'GET' && $action === 'list') {
                     GROUP BY tenant_id, staffing_job_id
               ) p ON p.tenant_id = sj.tenant_id AND p.staffing_job_id = sj.id
              WHERE ' . implode(' AND ', $where) . '
-          ORDER BY FIELD(sj.status, "open", "active", "on_hold", "filled", "closed", "cancelled"), sj.title
+          ORDER BY ' . $orderSql . '
              LIMIT ' . $limit;
     api_ok(['rows' => scopedQuery($sql, $params)]);
 }
