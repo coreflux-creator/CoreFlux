@@ -332,7 +332,10 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
 
     $stmt = $pdo->prepare(
         "SELECT p.id, p.client_id, p.end_client_company_id, p.end_client_name, c.name AS company_name,
-                sc.id AS existing_client_id, sc.company_id AS existing_client_company_id
+                sc.id AS existing_client_id, sc.company_id AS existing_client_company_id,
+                sc.name AS existing_client_name,
+                m.external_id AS mapping_external_id,
+                m.payload_snapshot
            FROM external_entity_mappings m
            JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
       LEFT JOIN companies c ON c.id = p.end_client_company_id AND c.tenant_id = p.tenant_id AND c.deleted_at IS NULL
@@ -343,7 +346,10 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
             AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
             AND (
                  p.client_id IS NULL
+              OR p.end_client_company_id IS NULL
+              OR p.end_client_company_id = 0
               OR sc.id IS NULL
+              OR (p.end_client_company_id IS NOT NULL AND p.end_client_company_id <> 0 AND (sc.company_id IS NULL OR sc.company_id = 0))
               OR (p.end_client_company_id IS NOT NULL AND sc.company_id IS NOT NULL AND sc.company_id <> p.end_client_company_id)
             )
        ORDER BY p.updated_at DESC
@@ -356,8 +362,87 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
         $summary['checked']++;
         $placementId = (int) $row['id'];
         $companyId = !empty($row['end_client_company_id']) ? (int) $row['end_client_company_id'] : null;
+        if ($companyId === null && !empty($row['existing_client_company_id'])) {
+            $companyId = (int) $row['existing_client_company_id'];
+        }
+
+        $payload = [];
+        if (is_string($row['payload_snapshot'] ?? null) && trim((string) $row['payload_snapshot']) !== '') {
+            $decoded = json_decode((string) $row['payload_snapshot'], true);
+            if (is_array($decoded)) {
+                $payload = $decoded;
+                try {
+                    if (function_exists('jobdivaPlacementPayloadWithMirrors')) {
+                        $mirrorStats = [];
+                        $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats);
+                    }
+                } catch (\Throwable $e) {
+                    error_log('[jobdiva mapping repair] payload mirror enrichment failed: ' . $e->getMessage());
+                }
+            }
+        }
+
+        $customerNestOrder = ['_jd_customer', 'customer', 'Customer', 'company', 'Company'];
+        $customerExtId = $payload && function_exists('jobdivaPluckFieldDeep')
+            ? jobdivaPluckFieldDeep($payload, [
+                'customerId', 'customer_id', 'customer id', 'clientId', 'client_id',
+                'companyId', 'company_id', 'company id',
+            ], $customerNestOrder)
+            : '';
+        $payloadClientName = $payload && function_exists('jobdivaPluckFieldDeep')
+            ? jobdivaPluckFieldDeep($payload, [
+                'customerName', 'customer_name', 'customer name',
+                'clientName', 'client_name', 'client name',
+                'companyName', 'company_name', 'company name',
+                'name',
+            ], $customerNestOrder)
+            : '';
+
+        if ($companyId === null && $customerExtId !== '' && function_exists('mappingFindInternal')) {
+            foreach (['jobdiva_customer', 'company'] as $mapType) {
+                $mapping = mappingFindInternal($tenantId, 'jobdiva', $mapType, $customerExtId);
+                if ($mapping && !empty($mapping['internal_entity_id'])) {
+                    $companyId = (int) $mapping['internal_entity_id'];
+                    break;
+                }
+            }
+        }
+
+        if ($companyId === null && $customerExtId !== '' && $payloadClientName !== ''
+            && function_exists('jobdivaResolveOrAutoCreateEndClient')) {
+            try {
+                $resolvedCompanyId = jobdivaResolveOrAutoCreateEndClient(
+                    $tenantId,
+                    $customerExtId,
+                    $payloadClientName,
+                    $userId,
+                    $payload
+                );
+                if ($resolvedCompanyId !== null && $resolvedCompanyId > 0) {
+                    $companyId = (int) $resolvedCompanyId;
+                }
+            } catch (\Throwable $e) {
+                error_log('[jobdiva mapping repair] end-client resolve failed: ' . $e->getMessage());
+            }
+        }
+
         $name = trim((string) ($row['end_client_name'] ?? ''));
         if ($name === '') $name = trim((string) ($row['company_name'] ?? ''));
+        if ($name === '') $name = trim((string) ($row['existing_client_name'] ?? ''));
+        if ($name === '') $name = trim($payloadClientName);
+        if ($name === '' && $companyId !== null && $companyId > 0) {
+            try {
+                $nameStmt = $pdo->prepare(
+                    'SELECT name FROM companies
+                      WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL
+                      LIMIT 1'
+                );
+                $nameStmt->execute(['t' => $tenantId, 'id' => $companyId]);
+                $name = trim((string) ($nameStmt->fetchColumn() ?: ''));
+            } catch (\Throwable $e) {
+                error_log('[jobdiva mapping repair] company-name lookup failed: ' . $e->getMessage());
+            }
+        }
         if ($name === '') {
             $summary['skipped']++;
             continue;

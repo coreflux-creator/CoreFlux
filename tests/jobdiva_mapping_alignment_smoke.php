@@ -72,9 +72,24 @@ $a('canonical mapping and field counts are exposed',
     && str_contains($service, 'canonical_field_coverage'));
 $a('report flags placements missing staffing client',
     str_contains($service, 'placement_missing_staffing_client'));
+$a('report flags placements missing canonical end-client company',
+    str_contains($service, 'placement_missing_end_client_company'));
 $a('repair function exists and uses staffing bridge',
     str_contains($service, 'function jobdivaMappingRepairStaffingClientLinks')
     && str_contains($service, 'staffingClientEnsureForCompany($tenantId, $companyId, $name'));
+$a('repair selects rows with missing end_client_company_id, not only missing client_id',
+    str_contains($service, 'OR p.end_client_company_id IS NULL')
+    && str_contains($service, 'OR p.end_client_company_id = 0'));
+$a('repair carries JobDiva payload snapshot for end-client fallback',
+    str_contains($service, 'm.payload_snapshot')
+    && str_contains($service, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats)')
+    && str_contains($service, 'jobdivaPluckFieldDeep($payload'));
+$a('repair can resolve/create canonical company from JobDiva customer payload',
+    str_contains($service, 'mappingFindInternal($tenantId, \'jobdiva\', $mapType, $customerExtId)')
+    && str_contains($service, 'jobdivaResolveOrAutoCreateEndClient('));
+$a('repair backfills from an existing staffing client company when present',
+    str_contains($service, 'existing_client_company_id')
+    && str_contains($service, "\$companyId === null && !empty(\$row['existing_client_company_id'])"));
 $a('duplicate placement detector and repair function exist',
     str_contains($service, 'duplicate_jobdiva_placement_rows')
     && str_contains($service, 'function jobdivaMappingRepairDuplicatePlacements')
