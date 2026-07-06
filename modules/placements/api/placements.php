@@ -131,8 +131,12 @@ if ($method === 'POST') {
                 ['id' => $pid]
             ) ?: ['id' => $pid, 'start_date' => null];
             $autoApproved = 0;
-            if ($prior && (string) $prior['status'] === 'draft'
-                    && !in_array($newStatus, ['draft', 'cancelled'], true)) {
+            $shouldAutoApproveRates = $prior
+                && (
+                    ((string) $prior['status'] === 'draft' && !in_array($newStatus, ['draft', 'cancelled'], true))
+                    || $newStatus === 'active'
+                );
+            if ($shouldAutoApproveRates) {
                 $autoApproved = placementsAutoApproveDraftRates($pid, $user);
             }
             if ($newStatus === 'active') {
@@ -205,6 +209,7 @@ if ($method === 'POST') {
             api_ok(['ok' => true, 'placement' => $placement, 'rates_auto_approved' => 0]);
         }
         $before = placementAuditRow($id) ?? $placement;
+        $autoApproved = placementsAutoApproveDraftRates($id, $user);
         _placementsRequireActiveReady($id, (string) ($placement['start_date'] ?? date('Y-m-d')), 'activate_action');
         $rows = scopedUpdate('placements', $id, ['status' => 'active']);
         if ($rows === 0) api_error('Not found or no change', 404);
@@ -212,7 +217,15 @@ if ($method === 'POST') {
             'before' => $before,
             'after' => placementAuditRow($id),
         ]);
-        api_ok(['ok' => true, 'placement' => placementGet($id), 'rates_auto_approved' => 0]);
+        if ($autoApproved > 0) {
+            placementsAudit('placement.rates.auto_approved_on_promotion', [
+                'placement_id'    => $id,
+                'rate_count'      => $autoApproved,
+                'promoted_status' => 'active',
+                'via'             => 'activate_action',
+            ], $id);
+        }
+        api_ok(['ok' => true, 'placement' => placementGet($id), 'rates_auto_approved' => $autoApproved]);
     }
 
     // Default POST = create
@@ -338,6 +351,9 @@ if ($method === 'PATCH') {
         $autoApproved = placementsAutoApproveDraftRates($id, $user);
     }
     if (($body['status'] ?? null) === 'active') {
+        if (!$promotingFromDraft) {
+            $autoApproved = placementsAutoApproveDraftRates($id, $user);
+        }
         _placementsRequireActiveReady(
             $id,
             (string) ($body['start_date'] ?? $existing['start_date']),
@@ -400,14 +416,13 @@ if ($method === 'PATCH') {
     // in two separate tabs. Soft-gated by rbac inside the helper so
     // a recruiter without financials.approve doesn't get a free
     // privilege escalation.
-    if ($promotingFromDraft) {
-        if ($autoApproved > 0) {
-            placementsAudit('placement.rates.auto_approved_on_promotion', [
-                'placement_id'    => $id,
-                'rate_count'      => $autoApproved,
-                'promoted_status' => (string) $body['status'],
-            ], $id);
-        }
+    if (isset($body['status']) && $autoApproved > 0) {
+        placementsAudit('placement.rates.auto_approved_on_promotion', [
+            'placement_id'    => $id,
+            'rate_count'      => $autoApproved,
+            'promoted_status' => (string) $body['status'],
+            'via'             => 'patch_status',
+        ], $id);
     }
     api_ok(['placement' => placementGet($id), 'rates_auto_approved' => $autoApproved]);
 }

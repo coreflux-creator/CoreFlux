@@ -157,6 +157,14 @@ function jobdivaCanonicalApplyEntityTypes(string $nativeEntityType): array
     $canonical = jobdivaCanonicalEntityType($nativeEntityType);
     $out = [$canonical];
     if ($nativeEntityType !== $canonical) $out[] = $nativeEntityType;
+    $out = array_merge($out, match ($canonical) {
+        'staffing_job' => ['jobdiva_job'],
+        'person' => ['candidate', 'jobdiva_candidate'],
+        'company' => ['customer', 'jobdiva_customer'],
+        'contact' => ['jobdiva_contact'],
+        'time_entry' => ['time', 'jobdiva_timesheet'],
+        default => [],
+    });
     return array_values(array_unique($out));
 }
 

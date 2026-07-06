@@ -26,6 +26,7 @@ import { api } from '../lib/api';
 
 const LINKED_ENTITY_LABELS = {
   self:                   'self (the entity being upserted)',
+  placement:              'placement (linked assignment)',
   person:                 'person (linked talent)',
   staffing_job:           'staffing_job (linked job / role)',
   end_client_company:     'end-client company',
@@ -52,6 +53,37 @@ const PATH_GROUPS = [
   { key: '_jd_start',     label: 'Placement assignment terms', icon: '📋', linked: 'self',              defaultOpen: true },
 ];
 
+const PATH_GROUP_ROOT_ALIASES = {
+  _jd_candidate: ['person', 'candidate', 'jobdiva_candidate'],
+  _jd_job: ['job', 'staffing_job', 'jobdiva_job'],
+  _jd_customer: ['company', 'customer', 'client', 'end_client', 'jobdiva_customer'],
+  _jd_contact: ['contact', 'jobdiva_contact'],
+  _jd_start: ['assignment', 'start', 'jobdiva_assignment'],
+};
+
+const PATH_GROUP_META_OVERRIDES = {
+  _jd_job: { label: 'Placement job context' },
+};
+
+function inferLinkedEntityForTarget(entityType, target) {
+  const et = String(entityType || '').toLowerCase();
+  const module = String(target?.target_module || '').toLowerCase();
+  const table = String(target?.target_table || '').toLowerCase();
+  if (table === 'placements') return et === 'placement' ? 'self' : 'placement';
+  if (table === 'placement_rates') return 'placement_rates';
+  if (table === 'placement_corp_details') return 'placement_corp_details';
+  if (table === 'staffing_jobs') return et === 'staffing_job' ? 'self' : 'staffing_job';
+  if (table === 'people') return et === 'person' ? 'self' : 'person';
+  if (table === 'companies') return et === 'company' ? 'self' : 'end_client_company';
+  if (table === 'company_contacts') return et === 'contact' ? 'self' : 'contact';
+  if (table === 'custom_field_values') {
+    if (module === 'people') return et === 'person' ? 'self' : 'person';
+    if (module === 'companies') return et === 'company' ? 'self' : 'end_client_company';
+    if (module === 'placements') return et === 'placement' ? 'self' : 'placement';
+  }
+  return target?.default_linked_entity || 'self';
+}
+
 function groupPathsByNamespace(paths, entityType = 'placement') {
   const groups = new Map();
   // Friendly root-bucket label per entity_type so the UI doesn't say
@@ -71,8 +103,13 @@ function groupPathsByNamespace(paths, entityType = 'placement') {
 
   // Always-initialise known buckets so the UI is stable even when a
   // sub-record hasn't been indexed yet.
+  const rootToGroup = new Map();
   for (const g of PATH_GROUPS) {
-    groups.set(g.key, { meta: g, rows: [] });
+    const meta = { ...g, ...(PATH_GROUP_META_OVERRIDES[g.key] || {}) };
+    groups.set(g.key, { meta, rows: [] });
+    for (const root of [g.key, ...(PATH_GROUP_ROOT_ALIASES[g.key] || [])]) {
+      rootToGroup.set(root, g.key);
+    }
   }
   groups.set('__root__', {
     meta: { key: '__root__', label: rootMeta.label, icon: rootMeta.icon, linked: 'self', defaultOpen: true },
@@ -85,8 +122,9 @@ function groupPathsByNamespace(paths, entityType = 'placement') {
 
   for (const p of paths) {
     const top = (p.source_path || '').split('.')[0].split('[')[0];
-    if (top.startsWith('_jd_') && groups.has(top)) {
-      groups.get(top).rows.push(p);
+    const groupKey = rootToGroup.get(top);
+    if (groupKey && groups.has(groupKey)) {
+      groups.get(groupKey).rows.push(p);
     } else if (!top.startsWith('_jd_') && !top.startsWith('_')) {
       groups.get('__root__').rows.push(p);
     } else {
@@ -499,10 +537,10 @@ export default function FieldMappingStudio() {
 
   // When a target is selected, pre-fill linked_entity from default.
   useEffect(() => {
-    if (selectedTarget?.default_linked_entity) {
-      setLinkedEntity(selectedTarget.default_linked_entity);
+    if (selectedTarget) {
+      setLinkedEntity(inferLinkedEntityForTarget(entityType, selectedTarget));
     }
-  }, [selectedTarget]);
+  }, [entityType, selectedTarget]);
 
   const canSave = selectedPath && selectedTarget
                   && (selectedTarget.target_column !== '*' || customFieldCode);

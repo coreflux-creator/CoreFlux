@@ -15,8 +15,8 @@
  *      common case works without any tenant configuration
  *   3. Skips writing when bill_rate <= 0 (don't pollute the rate
  *      table with placeholder rows for direct-hire / unrated placements)
- *   4. UPSERTs the CURRENT row (effective_to IS NULL) — UPDATE if one
- *      already exists, INSERT otherwise
+ *   4. UPSERTs the CURRENT draft row (effective_to IS NULL) but does
+ *      not mutate approved snapshots; upstream changes become drafts
  *   5. Coerces rate_unit / currency to valid ENUM / CHAR(3) values
  *   6. Is called from BOTH the INSERT and UPDATE branches of
  *      jobdivaSyncUpsertPlacement (so newly-discovered placements AND
@@ -45,7 +45,7 @@ $assert('declared with the canonical 4-arg signature',
     strpos($sync, 'function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $startDate, array $jd): bool') !== false);
 $assert('called from the INSERT branch (newly-created placement gets rates)',
     preg_match('/\$placementId = \(int\) \$pdo->lastInsertId\(\);\s*jobdivaSyncUpsertPlacementRates\(\$tid, \$placementId, \$startDate, \$jd\);/', $sync) === 1);
-$assert('called from the UPDATE branch (re-sync overwrites rates)',
+$assert('called from the UPDATE branch (re-sync refreshes or drafts rates)',
     preg_match('/jobdivaSyncUpsertPlacementRates\(\$tid, \$existingId, \$startDate, \$jd\);/', $sync) === 1);
 
 echo "\njobdivaSyncUpsertPlacementRates — registry resolution\n";
@@ -77,10 +77,14 @@ $assert('currency is forced to CHAR(3) by extracting ISO-3 substring',
 echo "\njobdivaSyncUpsertPlacementRates — UPSERT semantics\n";
 $assert('locates the CURRENT rate row via effective_to IS NULL',
     strpos($sync, 'effective_to IS NULL') !== false);
-$assert('UPDATE branch writes all rate columns + multipliers',
-    strpos($sync, "UPDATE placement_rates\n                SET bill_rate = :br, bill_rate_unit = :bru,\n                    pay_rate  = :pr, pay_rate_unit  = :pru,\n                    currency  = :cur,\n                    ot_multiplier = :ot, dt_multiplier = :dt") !== false);
+$assert('UPDATE branch writes all draft rate columns + multipliers',
+    strpos($sync, "UPDATE placement_rates\n                SET effective_from = :ef,\n                    bill_rate = :br, bill_rate_unit = :bru,\n                    pay_rate  = :pr, pay_rate_unit  = :pru,\n                    currency  = :cur,\n                    ot_multiplier = :ot, dt_multiplier = :dt") !== false);
+$assert('approved snapshots are not mutated by re-sync',
+    strpos($sync, "if (\$rateId > 0 && empty(\$currentRate['approved_at']))") !== false
+    && strpos($sync, 'Fall through to INSERT a draft correction') !== false);
 $assert('INSERT branch sets effective_from to placement start_date',
-    strpos($sync, '$startDate !== \'\' ? $startDate : date(\'Y-m-d\')') !== false);
+    strpos($sync, '$effectiveFrom = $startDate !== \'\' ? $startDate : date(\'Y-m-d\');') !== false
+    && strpos($sync, "'ef'  => \$effectiveFrom") !== false);
 $assert('tenant_id is bound on INSERT (RLS defence-in-depth)',
     strpos($sync, "'t'   => \$tid, 'p'   => \$placementId,") !== false);
 

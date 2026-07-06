@@ -121,7 +121,7 @@ function integrationFieldMapIsProtectedTarget(string $table, string $column): bo
  * shallow-tolerant resolver — this is the strict dotted-path one
  * that the Phase 2/3 UI builds against.
  */
-function integrationPayloadResolvePath(array $payload, string $path): mixed
+function integrationPayloadResolvePathStrict(array $payload, string $path): mixed
 {
     if ($path === '' || $path === '$') return null;
     $cursor = $payload;
@@ -148,6 +148,105 @@ function integrationPayloadResolvePath(array $payload, string $path): mixed
     }
     if (is_array($cursor)) return null; // not a scalar leaf
     return $cursor;
+}
+
+function integrationPayloadSourcePathAliases(string $path): array
+{
+    $path = trim($path);
+    if ($path === '' || $path === '$') return [$path];
+    if (!preg_match('/^([^\.\[]+)(.*)$/u', $path, $m)) return [$path];
+
+    $root = $m[1];
+    $suffix = $m[2] ?? '';
+    $rootKey = strtolower($root);
+    $aliases = [
+        'job' => ['_jd_job', 'staffing_job', 'jobdiva_job'],
+        'staffing_job' => ['job', '_jd_job', 'jobdiva_job'],
+        'jobdiva_job' => ['job', '_jd_job', 'staffing_job'],
+        '_jd_job' => ['job', 'staffing_job', 'jobdiva_job'],
+
+        'assignment' => ['_jd_start', 'start', 'jobdiva_assignment'],
+        'start' => ['assignment', '_jd_start', 'jobdiva_assignment'],
+        'jobdiva_assignment' => ['assignment', '_jd_start', 'start'],
+        '_jd_start' => ['assignment', 'start', 'jobdiva_assignment'],
+
+        'person' => ['_jd_candidate', 'candidate', 'employee', 'worker', 'jobdiva_candidate'],
+        'candidate' => ['person', '_jd_candidate', 'jobdiva_candidate'],
+        'employee' => ['person', '_jd_candidate', 'candidate', 'jobdiva_candidate'],
+        'worker' => ['person', '_jd_candidate', 'candidate', 'jobdiva_candidate'],
+        'jobdiva_candidate' => ['person', '_jd_candidate', 'candidate'],
+        '_jd_candidate' => ['person', 'candidate', 'jobdiva_candidate'],
+
+        'company' => ['_jd_customer', 'customer', 'client', 'end_client', 'jobdiva_customer'],
+        'customer' => ['company', '_jd_customer', 'client', 'end_client', 'jobdiva_customer'],
+        'client' => ['company', '_jd_customer', 'customer', 'end_client', 'jobdiva_customer'],
+        'end_client' => ['company', '_jd_customer', 'customer', 'client', 'jobdiva_customer'],
+        'jobdiva_customer' => ['company', '_jd_customer', 'customer', 'client', 'end_client'],
+        '_jd_customer' => ['company', 'customer', 'client', 'end_client', 'jobdiva_customer'],
+
+        'contact' => ['_jd_contact', 'jobdiva_contact'],
+        'jobdiva_contact' => ['contact', '_jd_contact'],
+        '_jd_contact' => ['contact', 'jobdiva_contact'],
+    ];
+
+    $out = [$path];
+    foreach (($aliases[$rootKey] ?? []) as $aliasRoot) {
+        $candidate = $aliasRoot . $suffix;
+        if (!in_array($candidate, $out, true)) $out[] = $candidate;
+    }
+    return $out;
+}
+
+function integrationPayloadResolvePath(array $payload, string $path): mixed
+{
+    foreach (integrationPayloadSourcePathAliases($path) as $candidatePath) {
+        $value = integrationPayloadResolvePathStrict($payload, $candidatePath);
+        if ($value !== null) return $value;
+    }
+    return null;
+}
+
+function integrationFieldMapContextRowId(array $contextRowIds, array $mapping): int
+{
+    $linked = trim((string) ($mapping['linked_entity'] ?? 'self'));
+    if ($linked === '') $linked = 'self';
+    if ($linked !== 'self' && isset($contextRowIds[$linked]) && (int) $contextRowIds[$linked] > 0) {
+        return (int) $contextRowIds[$linked];
+    }
+
+    $table = strtolower(trim((string) ($mapping['target_table'] ?? '')));
+    $module = strtolower(trim((string) ($mapping['target_module'] ?? '')));
+    $hasPlacementContext = isset($contextRowIds['placement'])
+        || isset($contextRowIds['placement_rates'])
+        || isset($contextRowIds['placement_corp_details']);
+    $rootSelfFallback = $hasPlacementContext ? [] : ['self'];
+    $candidates = match ($table) {
+        'placements' => ['placement', 'self'],
+        'placement_rates' => ['placement_rates', 'placement', 'self'],
+        'placement_corp_details' => ['placement_corp_details', 'placement', 'self'],
+        'staffing_jobs' => array_merge(['staffing_job', 'job', 'jobdiva_job'], $rootSelfFallback),
+        'people' => array_merge(['person', 'candidate', 'jobdiva_candidate', 'employee', 'worker'], $rootSelfFallback),
+        'companies' => str_contains($linked, 'vendor')
+            ? array_merge(['vendor_company', 'company'], $rootSelfFallback)
+            : array_merge(['end_client_company', 'company', 'customer', 'client', 'jobdiva_customer'], $rootSelfFallback),
+        'company_contacts' => array_merge(['contact', 'jobdiva_contact'], $rootSelfFallback),
+        'custom_field_values' => match ($module) {
+            'people' => array_merge(['person', 'candidate', 'jobdiva_candidate'], $rootSelfFallback),
+            'companies' => str_contains($linked, 'vendor')
+                ? array_merge(['vendor_company', 'company'], $rootSelfFallback)
+                : array_merge(['end_client_company', 'company', 'customer', 'client', 'jobdiva_customer'], $rootSelfFallback),
+            'placements' => ['placement', 'self'],
+            default => [$linked, 'self'],
+        },
+        default => [$linked, 'self'],
+    };
+
+    foreach ($candidates as $candidate) {
+        if (isset($contextRowIds[$candidate]) && (int) $contextRowIds[$candidate] > 0) {
+            return (int) $contextRowIds[$candidate];
+        }
+    }
+    return 0;
 }
 
 /**
@@ -270,10 +369,10 @@ function integrationFieldMapApplyAll(
         }
 
         $linked = (string) ($m['linked_entity'] ?? 'self');
-        $rowId  = isset($contextRowIds[$linked]) ? (int) $contextRowIds[$linked] : 0;
+        $rowId  = integrationFieldMapContextRowId($contextRowIds, $m);
         if ($rowId <= 0) {
             $summary['skipped']++;
-            $summary['errors'][] = "no_context_row for linked_entity={$linked} (mapping_id={$m['id']})";
+            $summary['errors'][] = "no_context_row for linked_entity={$linked} target={$m['target_table']}.{$m['target_column']} (mapping_id={$m['id']})";
             continue;
         }
 

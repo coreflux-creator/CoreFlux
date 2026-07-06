@@ -1676,7 +1676,9 @@ function jobdivaApplyPlacementFieldMappings(
         if (empty($subPayload)) continue;
         $defaultOwner = $JOINED_CTX[$joinedEntity] ?? 'self';
         foreach (jobdivaCanonicalApplyEntityTypes($joinedEntity) as $mapEntityType) {
-            $owner = $mapEntityType === 'staffing_job' ? 'staffing_job' : $defaultOwner;
+            $owner = in_array($mapEntityType, ['staffing_job', 'jobdiva_job'], true)
+                ? 'staffing_job'
+                : $defaultOwner;
             $ctx = $baseCtx;
             $ctx['self'] = match ($owner) {
                 'person'             => $baseCtx['person'],
@@ -2682,26 +2684,36 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     $otMul = is_numeric($otRaw) ? (float) $otRaw : 1.50;
     $dtMul = is_numeric($dtRaw) ? (float) $dtRaw : 2.00;
 
-    // Locate the current rate row (effective_to IS NULL). If multiple
-    // exist (data anomaly), update the most recent one.
+    $effectiveFrom = $startDate !== '' ? $startDate : date('Y-m-d');
+
+    // Locate the current open rate row (effective_to IS NULL). Prefer an
+    // unapproved draft so re-syncs refresh the approvable row. Approved
+    // rows are locked snapshots: if JobDiva now differs, create a new draft
+    // correction rather than silently mutating the approved economics.
     $existing = $pdo->prepare(
-        'SELECT id FROM placement_rates
+        'SELECT id, effective_from, approved_at, bill_rate, bill_rate_unit,
+                pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier
+           FROM placement_rates
           WHERE tenant_id = :t AND placement_id = :p AND effective_to IS NULL
-          ORDER BY effective_from DESC, id DESC LIMIT 1'
+          ORDER BY (approved_at IS NULL) DESC, effective_from DESC, id DESC
+          LIMIT 1'
     );
     $existing->execute(['t' => $tid, 'p' => $placementId]);
-    $rateId = (int) $existing->fetchColumn();
+    $currentRate = $existing->fetch(\PDO::FETCH_ASSOC) ?: null;
+    $rateId = (int) ($currentRate['id'] ?? 0);
 
-    if ($rateId > 0) {
+    if ($rateId > 0 && empty($currentRate['approved_at'])) {
         // tenant-leak-allow: id was just fetched under tenant scope above
         $pdo->prepare(
             'UPDATE placement_rates
-                SET bill_rate = :br, bill_rate_unit = :bru,
+                SET effective_from = :ef,
+                    bill_rate = :br, bill_rate_unit = :bru,
                     pay_rate  = :pr, pay_rate_unit  = :pru,
                     currency  = :cur,
                     ot_multiplier = :ot, dt_multiplier = :dt
               WHERE id = :id'
         )->execute([
+            'ef'  => $effectiveFrom,
             'br'  => $billRate, 'bru' => $billRateUnit,
             'pr'  => $payRate,  'pru' => $payRateUnit,
             'cur' => $currency,
@@ -2711,14 +2723,40 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         return true;
     }
 
+    $draftEffectiveTo = null;
+    if ($rateId > 0 && !empty($currentRate['approved_at'])) {
+        $sameEconomics =
+            round((float) ($currentRate['bill_rate'] ?? 0), 4) === round($billRate, 4)
+            && round((float) ($currentRate['pay_rate'] ?? 0), 4) === round($payRate, 4)
+            && strtolower((string) ($currentRate['bill_rate_unit'] ?? '')) === strtolower($billRateUnit)
+            && strtolower((string) ($currentRate['pay_rate_unit'] ?? '')) === strtolower($payRateUnit)
+            && strtoupper((string) ($currentRate['currency'] ?? '')) === $currency
+            && round((float) ($currentRate['ot_multiplier'] ?? 0), 4) === round($otMul, 4)
+            && round((float) ($currentRate['dt_multiplier'] ?? 0), 4) === round($dtMul, 4);
+        $coversPlacementStart = (string) ($currentRate['effective_from'] ?? '') <= $effectiveFrom;
+        if ($sameEconomics && $coversPlacementStart) {
+            return true;
+        }
+        $currentEffectiveFrom = (string) ($currentRate['effective_from'] ?? '');
+        if ($currentEffectiveFrom !== '' && $currentEffectiveFrom > $effectiveFrom) {
+            $toTs = strtotime($currentEffectiveFrom . ' -1 day');
+            if ($toTs !== false) {
+                $draftEffectiveTo = date('Y-m-d', $toTs);
+            }
+        }
+        // Fall through to INSERT a draft correction. The placement approval
+        // helper will approve it under the normal margin/audit path.
+    }
+
     $pdo->prepare(
         'INSERT INTO placement_rates
-            (tenant_id, placement_id, effective_from, bill_rate, bill_rate_unit,
+            (tenant_id, placement_id, effective_from, effective_to, bill_rate, bill_rate_unit,
              pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier)
-         VALUES (:t, :p, :ef, :br, :bru, :pr, :pru, :cur, :ot, :dt)'
+         VALUES (:t, :p, :ef, :et, :br, :bru, :pr, :pru, :cur, :ot, :dt)'
     )->execute([
         't'   => $tid, 'p'   => $placementId,
-        'ef'  => $startDate !== '' ? $startDate : date('Y-m-d'),
+        'ef'  => $effectiveFrom,
+        'et'  => $draftEffectiveTo,
         'br'  => $billRate, 'bru' => $billRateUnit,
         'pr'  => $payRate,  'pru' => $payRateUnit,
         'cur' => $currency,

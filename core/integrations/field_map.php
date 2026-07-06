@@ -26,6 +26,11 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
 
+$__jobdivaCanonicalGraph = __DIR__ . '/../jobdiva/canonical_graph.php';
+if (is_file($__jobdivaCanonicalGraph)) {
+    require_once $__jobdivaCanonicalGraph;
+}
+
 const TENANT_INTEGRATION_FIELD_MAP_TRANSFORMS = [
     'none',
     'date_normalise',     // epoch ms / ISO / m/d/Y → Y-m-d
@@ -54,6 +59,57 @@ function tenantIntegrationFieldMapProtectedInternalFields(): array
 function tenantIntegrationFieldMapIsProtectedInternalField(string $field): bool
 {
     return in_array(strtolower(trim($field)), tenantIntegrationFieldMapProtectedInternalFields(), true);
+}
+
+function tenantIntegrationFieldMapCanonicalEntityType(string $integration, string $entityType): string
+{
+    $entityType = strtolower(trim($entityType));
+    if (strtolower(trim($integration)) === 'jobdiva'
+        && function_exists('jobdivaCanonicalEntityType')) {
+        return jobdivaCanonicalEntityType($entityType);
+    }
+    return $entityType;
+}
+
+function tenantIntegrationFieldMapDefaultLinkedEntityForTarget(
+    string $entityType,
+    string $targetModule,
+    string $targetTable
+): string {
+    $entityType = strtolower(trim($entityType));
+    $targetModule = strtolower(trim($targetModule));
+    $targetTable = strtolower(trim($targetTable));
+
+    if ($targetTable === 'placements') {
+        return $entityType === 'placement' ? 'self' : 'placement';
+    }
+    if ($targetTable === 'placement_rates') {
+        return 'placement_rates';
+    }
+    if ($targetTable === 'placement_corp_details') {
+        return 'placement_corp_details';
+    }
+    if ($targetTable === 'staffing_jobs') {
+        return $entityType === 'staffing_job' ? 'self' : 'staffing_job';
+    }
+    if ($targetTable === 'people') {
+        return $entityType === 'person' ? 'self' : 'person';
+    }
+    if ($targetTable === 'companies') {
+        return $entityType === 'company' ? 'self' : 'end_client_company';
+    }
+    if ($targetTable === 'company_contacts') {
+        return $entityType === 'contact' ? 'self' : 'contact';
+    }
+    if ($targetTable === 'custom_field_values') {
+        return match ($targetModule) {
+            'people' => $entityType === 'person' ? 'self' : 'person',
+            'companies' => $entityType === 'company' ? 'self' : 'end_client_company',
+            'placements' => $entityType === 'placement' ? 'self' : 'placement',
+            default => 'self',
+        };
+    }
+    return 'self';
 }
 
 /**
@@ -336,6 +392,7 @@ function tenantIntegrationFieldMapUpsert(int $tenantId, array $payload, ?int $ac
 
     if ($integration === '')   throw new \InvalidArgumentException('integration required');
     if ($entityType === '')    throw new \InvalidArgumentException('entity_type required');
+    $entityType = tenantIntegrationFieldMapCanonicalEntityType($integration, $entityType);
     if ($externalField === '' && $sourcePath === '') {
         throw new \InvalidArgumentException('external_field or source_path required');
     }
@@ -374,6 +431,14 @@ function tenantIntegrationFieldMapUpsert(int $tenantId, array $payload, ?int $ac
             }
         }
         if ($internalField === '') $internalField = $targetColumn;
+        $defaultLinkedEntity = tenantIntegrationFieldMapDefaultLinkedEntityForTarget(
+            $entityType,
+            $targetModule,
+            $targetTable
+        );
+        if ($linkedEntity === '' || ($linkedEntity === 'self' && $defaultLinkedEntity !== 'self')) {
+            $linkedEntity = $defaultLinkedEntity;
+        }
     } else {
         // Legacy code path — hardcoded allow-list.
         $allowed = tenantIntegrationFieldMapAllowedInternalFields($entityType);

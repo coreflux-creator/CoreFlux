@@ -92,6 +92,9 @@ try {
         case 'GET': {
             $integration = (string) (api_query('integration') ?? '');
             $entityType  = (string) (api_query('entity_type') ?? '');
+            if ($integration !== '' && $entityType !== '') {
+                $entityType = tenantIntegrationFieldMapCanonicalEntityType($integration, $entityType);
+            }
             $rows = tenantIntegrationFieldMapList($tid, $integration ?: null, $entityType ?: null);
             // Expose the allow-list per entity_type so the UI can render
             // a constrained dropdown for `internal_field` (prevents

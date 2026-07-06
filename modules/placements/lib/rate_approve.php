@@ -105,6 +105,132 @@ if (!function_exists('placementsRateApproveOne')) {
     }
 }
 
+if (!function_exists('placementsEnsureDraftRateFromSourcePayload')) {
+    /**
+     * Repair an imported placement that has source data but no approvable
+     * placement_rates row. This closes the dead-end where activation requires
+     * an approved rate while the Draft Rates queue is empty.
+     *
+     * Current implementation supports JobDiva placements because their full
+     * placement payload is persisted in external_entity_mappings and the
+     * JobDiva syncer already owns the canonical rate resolution rules.
+     */
+    function placementsEnsureDraftRateFromSourcePayload(int $placementId, array $user): bool
+    {
+        if ($placementId <= 0) return false;
+
+        $tenantId = (int) (currentTenantId() ?? 0);
+        if ($tenantId <= 0) return false;
+
+        $placement = scopedFind(
+            'SELECT id, start_date, external_id
+               FROM placements
+              WHERE tenant_id = :tenant_id
+                AND id = :id
+                AND deleted_at IS NULL',
+            ['id' => $placementId]
+        );
+        if (!$placement) return false;
+
+        $startDate = trim((string) ($placement['start_date'] ?? ''));
+        if ($startDate === '') $startDate = date('Y-m-d');
+
+        // Nothing to repair: activation will already pass, or there is an
+        // explicit draft row waiting for the normal approval path below.
+        if (placementCurrentRate($placementId, $startDate)) return false;
+        $draft = scopedFind(
+            'SELECT id
+               FROM placement_rates
+              WHERE tenant_id = :tenant_id
+                AND placement_id = :pid
+                AND approved_at IS NULL
+              ORDER BY effective_from DESC, id DESC
+              LIMIT 1',
+            ['pid' => $placementId]
+        );
+        if ($draft) return false;
+
+        $mapping = scopedFind(
+            "SELECT id, external_id, payload_snapshot
+               FROM external_entity_mappings
+              WHERE tenant_id = :tenant_id
+                AND source_system = 'jobdiva'
+                AND internal_entity_type = 'placement'
+                AND internal_entity_id = :pid
+                AND payload_snapshot IS NOT NULL
+                AND payload_snapshot <> ''
+              ORDER BY updated_at DESC, id DESC
+              LIMIT 1",
+            ['pid' => $placementId]
+        );
+        if (!$mapping || !is_string($mapping['payload_snapshot'] ?? null)) {
+            placementsAudit('placement.rate.auto_draft_from_source_unavailable', [
+                'placement_id' => $placementId,
+                'source'       => 'jobdiva',
+                'reason'       => 'missing_payload_snapshot',
+            ], $placementId);
+            return false;
+        }
+
+        $payload = json_decode((string) $mapping['payload_snapshot'], true);
+        if (!is_array($payload)) {
+            placementsAudit('placement.rate.auto_draft_from_source_unavailable', [
+                'placement_id' => $placementId,
+                'source'       => 'jobdiva',
+                'mapping_id'   => (int) ($mapping['id'] ?? 0),
+                'reason'       => 'invalid_payload_snapshot_json',
+            ], $placementId);
+            return false;
+        }
+
+        try {
+            require_once __DIR__ . '/../../../core/jobdiva/sync.php';
+            if (!function_exists('jobdivaSyncUpsertPlacementRates')) {
+                placementsAudit('placement.rate.auto_draft_from_source_failed', [
+                    'placement_id' => $placementId,
+                    'source'       => 'jobdiva',
+                    'reason'       => 'jobdiva_rate_writer_unavailable',
+                ], $placementId);
+                return false;
+            }
+
+            $mirrorStats = [];
+            if (function_exists('jobdivaPlacementPayloadWithMirrors')) {
+                $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats);
+            }
+
+            $drafted = (bool) jobdivaSyncUpsertPlacementRates($tenantId, $placementId, $startDate, $payload);
+            if ($drafted) {
+                placementsAudit('placement.rate.auto_drafted_from_source', [
+                    'placement_id' => $placementId,
+                    'source'       => 'jobdiva',
+                    'mapping_id'   => (int) ($mapping['id'] ?? 0),
+                    'external_id'  => (string) ($mapping['external_id'] ?? ''),
+                    'effective_from' => $startDate,
+                    'mirror_stats' => $mirrorStats,
+                    'user_id'      => (int) ($user['id'] ?? 0),
+                ], $placementId);
+                return true;
+            }
+
+            placementsAudit('placement.rate.auto_draft_from_source_unavailable', [
+                'placement_id' => $placementId,
+                'source'       => 'jobdiva',
+                'mapping_id'   => (int) ($mapping['id'] ?? 0),
+                'reason'       => 'payload_has_no_positive_bill_rate',
+            ], $placementId);
+        } catch (\Throwable $e) {
+            placementsAudit('placement.rate.auto_draft_from_source_failed', [
+                'placement_id' => $placementId,
+                'source'       => 'jobdiva',
+                'reason'       => $e->getMessage(),
+            ], $placementId);
+        }
+
+        return false;
+    }
+}
+
 if (!function_exists('placementsAutoApproveDraftRates')) {
     /**
      * Approve every unapproved rate row on a placement. Called when the
@@ -137,6 +263,8 @@ if (!function_exists('placementsAutoApproveDraftRates')) {
             ], $placementId);
             return 0;
         }
+
+        placementsEnsureDraftRateFromSourcePayload($placementId, $user);
 
         $rows = scopedQuery(
             'SELECT id FROM placement_rates
