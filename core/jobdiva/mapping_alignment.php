@@ -93,6 +93,13 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
         'native_payload_mirrors' => $mirrorTotal,
         'field_map_paths'  => array_sum(array_map('intval', $canonicalFieldCoverage)),
     ];
+    $projectorContract = function_exists('jobdivaProjectorContract') ? jobdivaProjectorContract() : [];
+    $projectorReadiness = function_exists('jobdivaProjectorReadinessCounts') ? jobdivaProjectorReadinessCounts($tenantId) : [];
+    $relationships['projector'] = [
+        'contract_stages' => array_keys($projectorContract['stages'] ?? []),
+        'workflow_readiness' => $projectorReadiness,
+        'field_mapping_role' => 'enrichment_only_after_identity_resolution',
+    ];
 
     $badStatuses = _jobdivaMappingScalar($pdo,
         "SELECT COUNT(*) FROM external_entity_mappings
@@ -106,6 +113,40 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
         $relationships['placement_graph'] = [
             'mapped_placements' => $placementTotal,
         ];
+        foreach ([
+            'missing_staffing_job' => 'placement_missing_staffing_job',
+            'missing_rate_row' => 'placement_missing_rate_row',
+            'active_missing_approved_rate' => 'placement_active_missing_approved_rate',
+        ] as $readinessKey => $issueCode) {
+            $relationships['placement_graph'][$readinessKey] = (int) ($projectorReadiness[$readinessKey] ?? 0);
+        }
+        _jobdivaMappingAddIssue(
+            $issues,
+            'critical',
+            'placement_missing_staffing_job',
+            'placement',
+            (int) ($projectorReadiness['missing_staffing_job'] ?? 0),
+            'JobDiva-mapped placements are missing the canonical staffing job link.',
+            'Re-run JobDiva placement projection with job mirrors so workflows can pull job details into placement, billing, payroll, and reporting.'
+        );
+        _jobdivaMappingAddIssue(
+            $issues,
+            'critical',
+            'placement_missing_rate_row',
+            'placement_rates',
+            (int) ($projectorReadiness['missing_rate_row'] ?? 0),
+            'JobDiva-mapped placements have no placement_rates row.',
+            'Re-run JobDiva projection or repair source-rate drafts before activating placements or sending time through billing/payroll.'
+        );
+        _jobdivaMappingAddIssue(
+            $issues,
+            'critical',
+            'placement_active_missing_approved_rate',
+            'placement_rates',
+            (int) ($projectorReadiness['active_missing_approved_rate'] ?? 0),
+            'Active JobDiva placements do not have an approved rate covering the placement start date.',
+            'Approve the draft rate or adjust its effective window before promotion, billing, payroll, or AP settlement.'
+        );
         $duplicatePlacementGroups = _jobdivaMappingDuplicatePlacementGroups($pdo, $tenantId, $limit);
         $relationships['placement_graph']['duplicate_jobdiva_external_id_groups'] = count($duplicatePlacementGroups);
         if ($duplicatePlacementGroups) {

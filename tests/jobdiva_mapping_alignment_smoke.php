@@ -22,6 +22,7 @@ echo "JobDiva mapping alignment smoke\n";
 echo "===============================\n";
 
 $sync = $read("$root/core/jobdiva/sync.php");
+$projector = $read("$root/core/jobdiva/projector.php");
 $clients = $read("$root/modules/staffing/lib/clients.php");
 $servicePath = "$root/core/jobdiva/mapping_alignment.php";
 $service = $read($servicePath);
@@ -34,8 +35,11 @@ $a('sync requires staffing client bridge helper',
     str_contains($sync, "/../../modules/staffing/lib/clients.php"));
 $a('placement upsert accepts actor user for bridge creation',
     str_contains($sync, 'function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId, ?int $userId = null)'));
-$a('placement sync passes user id into upsert',
-    str_contains($sync, 'jobdivaSyncUpsertPlacement($tid, $personId, $endClientCompanyId, $jd, $extId, $userId)'));
+$a('placement sync uses projector for canonical graph writes',
+    str_contains($sync, 'jobdivaProjectorProjectPlacement($tid, $jd, $userId'));
+$a('projector passes user id into canonical upsert',
+    str_contains($projector, 'jobdivaSyncUpsertPlacement(')
+    && str_contains($projector, '$userId'));
 $a('sync calls staffingClientEnsureForCompany for JobDiva end-client',
     str_contains($sync, 'staffingClientEnsureForCompany($tid, $endClientCompanyId, $clientBridgeName'));
 $a('update field set includes client_id',
@@ -94,6 +98,11 @@ $a('duplicate placement detector and repair function exist',
     str_contains($service, 'duplicate_jobdiva_placement_rows')
     && str_contains($service, 'function jobdivaMappingRepairDuplicatePlacements')
     && str_contains($service, '_jobdivaMappingDuplicatePlacementBlockingChildren'));
+$a('alignment report includes projector readiness drift',
+    str_contains($service, 'jobdivaProjectorReadinessCounts($tenantId)')
+    && str_contains($service, 'placement_missing_staffing_job')
+    && str_contains($service, 'placement_missing_rate_row')
+    && str_contains($service, 'placement_active_missing_approved_rate'));
 
 echo "\n4. Alignment API is wired and gated\n";
 $a('alignment API file exists', file_exists($apiPath));

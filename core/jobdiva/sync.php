@@ -32,6 +32,7 @@ require_once __DIR__ . '/../integrations/payload_field_index.php';
 require_once __DIR__ . '/../../modules/people/lib/companies.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
 require_once __DIR__ . '/../../modules/staffing/lib/jobs.php';
+require_once __DIR__ . '/projector.php';
 
 /**
  * JobDiva V2 BI endpoints — verified 2026-02 from
@@ -1079,37 +1080,14 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
                 }
             }
 
-            $internalId = jobdivaSyncUpsertPlacement($tid, $personId, $endClientCompanyId, $jd, $extId, $userId);
-            mappingUpsert($tid, 'jobdiva', 'placement', $extId, $internalId, $jd, 'pull', $userId);
-
-            // Side-effect: index every joined sub-record under both its
-            // native evidence bucket and its CoreFlux canonical root.
-            // The Field Mapping Studio should lead with placement/person/
-            // company/contact, while raw native facets remain available
-            // for diagnostics and legacy mappings.
-            try {
-                jobdivaIndexJoinedSubPayloads($tid, $jd);
-            } catch (\Throwable $e) {
-                error_log('[jobdiva placement sync] index sub-payloads failed: ' . $e->getMessage());
-            }
-
-            // Phase 2 — apply ALL enabled tenant mappings against the
-            // enriched payload. Tenant mappings ALWAYS win over the
-            // hardcoded sync defaults above (decision (d) from the
-            // 2026-02 spec re-audit). The context map tells the apply
-            // step which row id to write to for each linked_entity slug.
-            try {
-                $staffingJobId = jobdivaPlacementStaffingJobId($tid, $internalId);
-                jobdivaApplyPlacementFieldMappings(
-                    $tid,
-                    $internalId,
-                    $personId ?? 0,
-                    $endClientCompanyId ?? 0,
-                    $staffingJobId,
-                    $jd
-                );
-            } catch (\Throwable $e) {
-                error_log('[jobdiva placement sync] applyAll failed: ' . $e->getMessage());
+            $projection = jobdivaProjectorProjectPlacement($tid, $jd, $userId, [
+                'payload_is_enriched' => true,
+                'external_id' => $extId,
+                'person_id' => $personId,
+                'end_client_company_id' => $endClientCompanyId,
+            ]);
+            if (empty($projection['projected'])) {
+                throw new \RuntimeException(implode('; ', $projection['errors'] ?? ['projection failed']));
             }
             $processed++;
         } catch (\Throwable $e) {
@@ -1994,35 +1972,18 @@ function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, in
             if (str_starts_with($externalId, 'jd:')) $externalId = substr($externalId, 3);
             if ($placementId <= 0 || $externalId === '') continue;
 
-            $payload['__cf_existing_placement_id'] = $placementId;
-            $internalId = jobdivaSyncUpsertPlacement(
-                $tenantId,
-                (int) ($row['person_id'] ?? 0),
-                isset($row['end_client_company_id']) ? (int) $row['end_client_company_id'] : null,
-                $payload,
-                $externalId,
-                $userId
-            );
-            unset($payload['__cf_existing_placement_id']);
-            mappingUpsert($tenantId, 'jobdiva', 'placement', $externalId, $internalId, $payload, 'pull', $userId);
-            $summary['mapping_writes']++;
-
-            try {
-                jobdivaIndexJoinedSubPayloads($tenantId, $payload);
-            } catch (\Throwable $e) {
-                error_log('[jobdiva reproject] index failed: ' . $e->getMessage());
+            $projection = jobdivaProjectorProjectPlacement($tenantId, $payload, $userId, [
+                'payload_is_enriched' => true,
+                'external_id' => $externalId,
+                'existing_placement_id' => $placementId,
+                'person_id' => (int) ($row['person_id'] ?? 0),
+                'end_client_company_id' => isset($row['end_client_company_id']) ? (int) $row['end_client_company_id'] : null,
+            ]);
+            if (empty($projection['projected'])) {
+                throw new \RuntimeException(implode('; ', $projection['errors'] ?? ['projection failed']));
             }
-
-            $staffingJobId = jobdivaPlacementStaffingJobId($tenantId, $internalId);
-            $mapSummary = jobdivaApplyPlacementFieldMappings(
-                $tenantId,
-                $internalId,
-                (int) ($row['person_id'] ?? 0),
-                isset($row['end_client_company_id']) ? (int) $row['end_client_company_id'] : null,
-                $staffingJobId,
-                $payload
-            );
-            $summary['field_map_writes'] += (int) ($mapSummary['written'] ?? 0);
+            $summary['mapping_writes'] += (int) ($projection['mapping_writes'] ?? 0);
+            $summary['field_map_writes'] += (int) ($projection['field_map']['written'] ?? 0);
             $summary['placements_projected']++;
         } catch (\Throwable $e) {
             $summary['errors'][] = [

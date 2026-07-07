@@ -8,8 +8,8 @@
  *     items_override) and binds via mappingUpsert with source_system='jobdiva'
  *   - Companies driver upserts into companies via companiesUpsertByName + tags 'client'
  *   - Contacts driver resolves company via mappingFindInternal first
- *   - Placements driver resolves person mapping first; skips if missing
- *     (we DO NOT auto-create candidates/applicants per user requirement)
+ *   - Placements driver resolves person identity before projection; the
+ *     non-override path can auto-create a minimal person anchor.
  *   - jobdivaSyncAll aggregates counts, latency, bumps last_sync_at
  *   - api/jobdiva.php sync action invokes jobdivaSyncAll, returns counts/total/latency
  */
@@ -29,6 +29,7 @@ $ROOT = realpath(__DIR__ . '/..');
 echo "Sync driver — core/jobdiva/sync.php\n";
 $path = "{$ROOT}/core/jobdiva/sync.php";
 $src = (string) file_get_contents($path);
+$projectorSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/projector.php");
 $assert('file exists',                            strlen($src) > 0);
 $assert('parses',                                 $lint($path));
 $assert('declares strict_types',                  strpos($src, 'declare(strict_types=1)') !== false);
@@ -172,7 +173,8 @@ $assert('placement insert provides title (NOT NULL on placements table)',
     && strpos($src, "client_approver_name, client_approver_email, title") !== false
     && strpos($src, "if (\$title === '') \$title = 'JobDiva Placement '") !== false);
 $assert('binds mapping (placement)',
-    strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'placement', \$extId, \$internalId, \$jd, 'pull', \$userId)") !== false);
+    strpos($src, 'jobdivaProjectorProjectPlacement($tid, $jd, $userId') !== false
+    && strpos($projectorSrc, "mappingUpsert(\$tenantId, 'jobdiva', 'placement'") !== false);
 
 echo "\njobdivaSyncAll — orchestration\n";
 $assert('runs all 3 drivers in order via safeRun isolator',

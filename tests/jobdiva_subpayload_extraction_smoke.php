@@ -161,6 +161,7 @@ $a('payload with no joined data returns empty array', $ext3 === []);
 // 4) Backfill function is declared + uses extractor.
 echo "\n4. jobdivaBackfillJoinedIndexes wired\n";
 $syncSrc = file_get_contents("$root/core/jobdiva/sync.php");
+$projectorSrc = file_get_contents("$root/core/jobdiva/projector.php");
 $a('jobdivaBackfillJoinedIndexes function declared',
     str_contains($syncSrc, 'function jobdivaBackfillJoinedIndexes(int $tenantId): array'));
 $a('backfill queries existing placement payloads',
@@ -207,9 +208,10 @@ $a('JOINED_CTX map present',
     str_contains($syncSrc, 'static $JOINED_CTX = [')
     && str_contains($syncSrc, "'person'           => 'person'")
     && str_contains($syncSrc, "'jobdiva_customer' => 'end_client_company'"));
-$a('placement sync delegates applyAll to shared mapping helper',
-    str_contains($syncSrc, 'jobdivaApplyPlacementFieldMappings(')
-    && str_contains($syncSrc, 'jobdivaPlacementStaffingJobId($tid, $internalId)'));
+$a('placement sync delegates projection to shared projector',
+    str_contains($syncSrc, 'jobdivaProjectorProjectPlacement($tid, $jd, $userId')
+    && str_contains($projectorSrc, 'jobdivaPlacementStaffingJobId($tenantId, $placementId)')
+    && str_contains($projectorSrc, 'jobdivaApplyPlacementFieldMappings('));
 $a('joined applyAll iterates extracted sub-payloads',
     str_contains($syncSrc, 'function jobdivaApplyPlacementFieldMappings(')
     && str_contains($syncSrc, 'foreach (jobdivaExtractJoinedSubPayloads($payload) as $joinedEntity => $subPayload)'));
