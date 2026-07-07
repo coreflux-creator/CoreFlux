@@ -228,13 +228,11 @@ export default function JobDivaSettings() {
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div>
           <strong style={{ fontSize: 13, color: '#5b21b6', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Sparkles size={14} /> Customize what JobDiva writes into CoreFlux
+            <Sparkles size={14} /> Advanced field overrides
           </strong>
           <p style={{ margin: '4px 0 0', fontSize: 12, color: '#475569' }}>
-            Use the <strong>Field Mapping Studio</strong> to pick any path from the live JobDiva payload
-            (placement, person, company, contact) and route it into any CoreFlux column — including custom
-            fields. Tenant mappings always win over built-in sync defaults. Run a sync at least once so the
-            indexer learns the payload shape, then open the Studio.
+            CoreFlux already projects JobDiva into placements, people, companies, jobs, and rates. Use the
+            <strong> Field Mapping Studio</strong> only when a tenant needs to override or add a specific source field.
           </p>
         </div>
         <Link
@@ -767,15 +765,36 @@ function JobDivaMappingAlignmentCard({
   const rawCounts = data?.mapping_counts || {};
   const rawFields = data?.field_coverage || {};
   const layers = data?.relationships?.mapping_layers || {};
+  const readiness = data?.relationships?.projector?.workflow_readiness || {};
   const issues = Array.isArray(data?.issues) ? data.issues : [];
-  const critical = issues.filter(i => i.severity === 'critical').length;
-  const warn = issues.filter(i => i.severity === 'warn').length;
+  const criticalIssues = issues.filter(i => i.severity === 'critical');
+  const warningIssues = issues.filter(i => i.severity === 'warn');
+  const critical = criticalIssues.length;
+  const warn = warningIssues.length;
+  const affectedRows = criticalIssues.reduce((s, i) => s + Number(i.count || 0), 0);
   const objectMap = data?.object_map || {};
   const canonicalKeys = ['placement', 'person', 'company', 'contact', 'time_entry'];
   const mirrorKeys = ['jobdiva_job', 'jobdiva_candidate', 'jobdiva_contact', 'jobdiva_assignment'];
 
   const countFor = (key) => Number(counts[key] || 0);
   const fieldFor = (key) => Number(fields[key] || 0);
+  const totalCoreRecords = layers.canonical_mappings ?? canonicalKeys.reduce((s, k) => s + countFor(k), 0);
+  const totalMirrors = layers.native_payload_mirrors ?? layers.mirror_only_rows ?? mirrorKeys.reduce((s, k) => s + Number(rawCounts[k] || 0), 0);
+  const fieldPathTotal = layers.field_map_paths ?? layers.field_map_buckets ?? Object.values(fields).reduce((s, n) => s + Number(n || 0), 0);
+  const identityBlockers =
+    Number(readiness.missing_person || 0)
+    + Number(readiness.missing_staffing_job || 0)
+    + Number(readiness.missing_end_client_company || 0)
+    + Number(readiness.missing_staffing_client || 0)
+    + Number(readiness.client_company_mismatch || 0);
+  const rateBlockers =
+    Number(readiness.missing_rate_row || 0)
+    + Number(readiness.active_missing_approved_rate || 0);
+  const isWorkflowReady = critical === 0;
+  const topIssues = issues.slice(0, 6).map(issue => ({
+    ...issue,
+    view: operatorIssueView(issue),
+  }));
 
   return (
     <div data-testid="jobdiva-mapping-alignment-card"
@@ -783,10 +802,11 @@ function JobDivaMappingAlignmentCard({
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 15 }}>
-            <GitBranch size={16} color="#0f766e" /> JobDiva data alignment
+            <GitBranch size={16} color="#0f766e" /> JobDiva sync health
           </h3>
           <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 12, maxWidth: 820 }}>
-            Canonical mappings are the records workflows consume. Native JobDiva mirrors are source evidence; field mapping is rooted in the canonical CoreFlux graph.
+            This shows whether JobDiva records have landed in the CoreFlux records that placements, rates,
+            billing, payroll, AP, and reporting actually use.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -802,18 +822,11 @@ function JobDivaMappingAlignmentCard({
             <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
             {repairing ? 'Repairing...' : 'Repair client links'}
           </button>
-          <button type="button" className="btn btn--ghost" onClick={() => onRepairDuplicatePlacements?.(true)}
-                  data-testid="jobdiva-mapping-alignment-preview-duplicate-placements" disabled={repairingDuplicates}
-                  style={{ fontSize: 12 }}>
-            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-            {repairingDuplicates ? 'Checking...' : 'Preview duplicates'}
-          </button>
-          <button type="button" className="btn btn--danger" onClick={() => onRepairDuplicatePlacements?.(false)}
-                  data-testid="jobdiva-mapping-alignment-repair-duplicate-placements" disabled={repairingDuplicates}
-                  style={{ fontSize: 12 }}>
-            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-            {repairingDuplicates ? 'Repairing...' : 'Archive duplicates'}
-          </button>
+          <Link to="/modules/placements/draft-rates" className="btn btn--ghost"
+                data-testid="jobdiva-mapping-alignment-open-draft-rates"
+                style={{ fontSize: 12 }}>
+            Approve rates
+          </Link>
         </div>
       </div>
 
@@ -824,11 +837,65 @@ function JobDivaMappingAlignmentCard({
         </p>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 8, marginTop: 12 }}>
-        <AlignmentMetric label="Canonical" value={layers.canonical_mappings ?? canonicalKeys.reduce((s, k) => s + countFor(k), 0)} tone="ok" testid="canonical" />
-        <AlignmentMetric label="Native mirrors" value={layers.native_payload_mirrors ?? layers.mirror_only_rows ?? mirrorKeys.reduce((s, k) => s + Number(rawCounts[k] || 0), 0)} tone="neutral" testid="mirror-only" />
-        <AlignmentMetric label="Field paths" value={layers.field_map_paths ?? layers.field_map_buckets ?? Object.values(fields).reduce((s, n) => s + Number(n || 0), 0)} tone="neutral" testid="field-paths" />
-        <AlignmentMetric label="Critical issues" value={critical} tone={critical ? 'bad' : 'ok'} testid="critical" />
+      <div data-testid="jobdiva-mapping-alignment-health"
+           style={{ marginTop: 12, padding: 12, borderRadius: 8,
+                    border: `1px solid ${isWorkflowReady ? '#a7f3d0' : '#fecaca'}`,
+                    background: isWorkflowReady ? '#ecfdf5' : '#fef2f2',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isWorkflowReady
+            ? <CheckCircle2 size={18} color="#059669" />
+            : <AlertTriangle size={18} color="#dc2626" />}
+          <div>
+            <strong style={{ color: isWorkflowReady ? '#065f46' : '#991b1b', fontSize: 14 }}>
+              {isWorkflowReady ? 'JobDiva data is workflow-ready' : `${affectedRows} JobDiva-linked row${affectedRows === 1 ? '' : 's'} need attention`}
+            </strong>
+            <div style={{ color: isWorkflowReady ? '#047857' : '#7f1d1d', fontSize: 12, marginTop: 2 }}>
+              {isWorkflowReady
+                ? 'Placements can move through activation, billing, payroll, AP, and reporting.'
+                : `${critical} blocker type${critical === 1 ? '' : 's'} must be cleared before the affected records are fully usable.`}
+            </div>
+          </div>
+        </div>
+        <span style={{ fontSize: 12, color: '#475569' }}>
+          Last checked {data?.generated_at ? new Date(data.generated_at).toLocaleString() : 'after refresh'}
+        </span>
+      </div>
+
+      <div data-testid="jobdiva-mapping-alignment-workflow"
+           style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 8, marginTop: 12 }}>
+        <WorkflowStep
+          label="1. Imported"
+          value={totalCoreRecords}
+          detail={`${totalMirrors} raw JobDiva source row${totalMirrors === 1 ? '' : 's'} retained for audit`}
+          tone={totalCoreRecords > 0 ? 'ok' : 'neutral'}
+        />
+        <WorkflowStep
+          label="2. Matched"
+          value={identityBlockers > 0 ? `${identityBlockers} blocked` : 'Ready'}
+          detail={identityBlockers > 0 ? 'People, job, client, or company links need repair' : 'People, jobs, clients, and companies are linked'}
+          tone={identityBlockers > 0 ? 'bad' : 'ok'}
+        />
+        <WorkflowStep
+          label="3. Rates"
+          value={rateBlockers > 0 ? `${rateBlockers} blocked` : 'Ready'}
+          detail={rateBlockers > 0 ? 'Create or approve placement rates before activation' : 'Rates are present for workflow checks'}
+          tone={rateBlockers > 0 ? 'bad' : 'ok'}
+        />
+        <WorkflowStep
+          label="4. Processes"
+          value={isWorkflowReady ? 'Ready' : `${critical} blockers`}
+          detail={isWorkflowReady ? 'Activation, billing, payroll, AP, and reporting can consume the graph' : 'Clear blockers below, then refresh'}
+          tone={isWorkflowReady ? 'ok' : 'bad'}
+        />
+      </div>
+
+      <div style={{ display: 'none' }} aria-hidden="true">
+        <AlignmentMetric label="CoreFlux records" value={totalCoreRecords} tone="ok" testid="canonical" />
+        <AlignmentMetric label="Source rows" value={totalMirrors} tone="neutral" testid="mirror-only" />
+        <AlignmentMetric label="Field choices" value={fieldPathTotal} tone="neutral" testid="field-paths" />
+        <AlignmentMetric label="Blocker types" value={critical} tone={critical ? 'bad' : 'ok'} testid="critical" />
         <AlignmentMetric label="Warnings" value={warn} tone={warn ? 'warn' : 'ok'} testid="warnings" />
       </div>
 
@@ -842,36 +909,72 @@ function JobDivaMappingAlignmentCard({
       )}
 
       {issues.length > 0 ? (
-        <div data-testid="jobdiva-mapping-alignment-issues" style={{ marginTop: 12 }}>
-          {issues.slice(0, 6).map(issue => (
+        <div data-testid="jobdiva-mapping-alignment-issues" style={{ marginTop: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+            <strong style={{ color: '#0f172a', fontSize: 13 }}>What needs attention</strong>
+            <span style={{ color: '#64748b', fontSize: 11 }}>{issues.length} issue type{issues.length === 1 ? '' : 's'}</span>
+          </div>
+          {topIssues.map(issue => (
             <div key={issue.code} data-testid={`jobdiva-mapping-alignment-issue-${issue.code}`}
-                 style={{ display: 'grid', gridTemplateColumns: '90px 70px minmax(0,1fr)', gap: 8,
-                          alignItems: 'start', padding: '8px 0', borderTop: '1px solid #e2e8f0', fontSize: 12 }}>
+                 style={{ display: 'grid', gridTemplateColumns: '110px minmax(0,1fr) auto', gap: 10,
+                          alignItems: 'start', padding: '10px 0', borderTop: '1px solid #e2e8f0', fontSize: 12 }}>
               <span style={severityStyle(issue.severity)}>
                 <AlertTriangle size={11} /> {issue.severity}
               </span>
-              <strong style={{ color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{issue.count}</strong>
-              <span style={{ color: '#334155' }}>
-                {issue.summary}
-                <span style={{ display: 'block', color: '#64748b', marginTop: 2 }}>{issue.action}</span>
-              </span>
+              <div style={{ color: '#334155', minWidth: 0 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                  <strong style={{ color: '#0f172a', fontSize: 13 }}>{issue.view.title}</strong>
+                  <span style={{ color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>
+                    {issue.count} affected
+                  </span>
+                </div>
+                <div style={{ color: '#475569', marginTop: 2 }}>{issue.view.impact}</div>
+                <div style={{ color: '#64748b', marginTop: 4 }}>{issue.view.next}</div>
+              </div>
+              <IssueAction
+                issue={issue}
+                onRepairClientLinks={onRepairClientLinks}
+                onRepairDuplicatePlacements={onRepairDuplicatePlacements}
+                repairing={repairing}
+                repairingDuplicates={repairingDuplicates}
+              />
             </div>
           ))}
         </div>
       ) : (
         <div data-testid="jobdiva-mapping-alignment-no-issues"
              style={{ marginTop: 12, padding: 10, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', borderRadius: 6, fontSize: 12 }}>
-          No critical JobDiva mapping alignment issues detected.
+          No JobDiva workflow blockers detected.
         </div>
       )}
 
-      <details data-testid="jobdiva-mapping-alignment-object-map" style={{ marginTop: 12 }}>
+      <details data-testid="jobdiva-mapping-alignment-maintenance-actions" style={{ marginTop: 12 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#475569' }}>
+          Maintenance actions
+        </summary>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+          <button type="button" className="btn btn--ghost" onClick={() => onRepairDuplicatePlacements?.(true)}
+                  data-testid="jobdiva-mapping-alignment-preview-duplicate-placements" disabled={repairingDuplicates}
+                  style={{ fontSize: 12 }}>
+            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            {repairingDuplicates ? 'Checking...' : 'Preview duplicate placements'}
+          </button>
+          <button type="button" className="btn btn--danger" onClick={() => onRepairDuplicatePlacements?.(false)}
+                  data-testid="jobdiva-mapping-alignment-repair-duplicate-placements" disabled={repairingDuplicates}
+                  style={{ fontSize: 12 }}>
+            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            {repairingDuplicates ? 'Repairing...' : 'Archive safe duplicates'}
+          </button>
+        </div>
+      </details>
+
+      <details data-testid="jobdiva-mapping-alignment-object-map" style={{ marginTop: 14 }}>
         <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#0f766e' }}>
-          Canonical object map
+          Advanced diagnostics: CoreFlux graph destinations
         </summary>
         <table className="data-table" style={{ width: '100%', marginTop: 8, fontSize: 12 }}>
           <thead>
-            <tr><th>JobDiva object</th><th>CoreFlux destination</th><th>Mappings</th><th>Field paths</th></tr>
+            <tr><th>JobDiva source</th><th>CoreFlux record</th><th>Records</th><th>Field choices</th></tr>
           </thead>
           <tbody>
             {canonicalKeys.map(key => (
@@ -888,11 +991,11 @@ function JobDivaMappingAlignmentCard({
 
       <details data-testid="jobdiva-mapping-alignment-mirror-only" style={{ marginTop: 8 }}>
         <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#475569' }}>
-          Native payload mirrors
+          Advanced diagnostics: raw JobDiva source rows
         </summary>
         <table className="data-table" style={{ width: '100%', marginTop: 8, fontSize: 12 }}>
           <thead>
-            <tr><th>Mirror row</th><th>Purpose</th><th>Rows</th><th>Field paths</th></tr>
+            <tr><th>Source row</th><th>Why it exists</th><th>Rows</th><th>Field choices</th></tr>
           </thead>
           <tbody>
             {mirrorKeys.map(key => (
@@ -908,18 +1011,111 @@ function JobDivaMappingAlignmentCard({
       </details>
 
       {Array.isArray(data?.known_tensions) && data.known_tensions.length > 0 && (
-        <div data-testid="jobdiva-mapping-alignment-known-tensions"
-             style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {data.known_tensions.map(t => (
-            <div key={t.code} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, color: '#64748b', fontSize: 11 }}>
-              <Database size={11} style={{ marginTop: 2, flexShrink: 0 }} />
-              <span><code>{t.code}</code>: {t.summary}</span>
-            </div>
-          ))}
-        </div>
+        <details data-testid="jobdiva-mapping-alignment-known-tensions" style={{ marginTop: 8 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#475569' }}>
+            Architecture notes
+          </summary>
+          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {data.known_tensions.map(t => (
+              <div key={t.code} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, color: '#64748b', fontSize: 11 }}>
+                <Database size={11} style={{ marginTop: 2, flexShrink: 0 }} />
+                <span><code>{t.code}</code>: {t.summary}</span>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
     </div>
   );
+}
+
+function WorkflowStep({ label, value, detail, tone }) {
+  const palette = {
+    ok: { bg: '#f0fdf4', border: '#bbf7d0', fg: '#166534', icon: CheckCircle2 },
+    bad: { bg: '#fef2f2', border: '#fecaca', fg: '#991b1b', icon: AlertTriangle },
+    neutral: { bg: '#f8fafc', border: '#e2e8f0', fg: '#475569', icon: Activity },
+  }[tone] || { bg: '#f8fafc', border: '#e2e8f0', fg: '#475569', icon: Activity };
+  const Icon = palette.icon;
+  return (
+    <div style={{ border: `1px solid ${palette.border}`, background: palette.bg, borderRadius: 8, padding: 10, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: palette.fg, fontSize: 12, fontWeight: 700 }}>
+        <Icon size={13} /> {label}
+      </div>
+      <div style={{ color: '#0f172a', fontSize: 18, lineHeight: 1.2, fontWeight: 800, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
+        {value}
+      </div>
+      <div style={{ color: '#64748b', fontSize: 11, marginTop: 3 }}>{detail}</div>
+    </div>
+  );
+}
+
+function operatorIssueView(issue) {
+  const code = issue?.code || '';
+  const fallback = {
+    title: issue?.summary || 'JobDiva record needs attention',
+    impact: issue?.summary || 'This data exists, but it is not fully usable yet.',
+    next: issue?.action || 'Review the source record, run sync or repair, then refresh.',
+  };
+  return ({
+    placement_active_missing_approved_rate: {
+      title: 'Approve rates before activation',
+      impact: 'These active JobDiva placements do not have an approved rate covering the placement start date.',
+      next: 'Open the draft rates queue, approve valid rates, then refresh sync health.',
+    },
+    placement_missing_rate_row: {
+      title: 'Create missing placement rates',
+      impact: 'These JobDiva placements have no pricing row in CoreFlux, so billing and payroll cannot price the work.',
+      next: 'Run JobDiva sync or source-rate repair, then approve any draft rates that appear.',
+    },
+    placement_missing_end_client_company: {
+      title: 'Repair end-client company link',
+      impact: 'The placement exists, but it is not tied to the company record that billing, AP, and payroll share.',
+      next: 'Use Repair client links to rebuild the company and staffing client bridge.',
+    },
+    placement_missing_staffing_client: {
+      title: 'Repair staffing client link',
+      impact: 'The placement is missing placements.client_id, so staffing workflows cannot group it by client.',
+      next: 'Use Repair client links to rebuild the staffing client row from the company graph.',
+    },
+    placement_missing_staffing_job: {
+      title: 'Link the JobDiva job',
+      impact: 'The placement is missing its staffing job record, so job details cannot flow into placements and reports.',
+      next: 'Run JobDiva sync with job mirrors, then refresh sync health.',
+    },
+    duplicate_jobdiva_placement_rows: {
+      title: 'Remove duplicate placement rows',
+      impact: 'One JobDiva Start ID points at more than one active CoreFlux placement row.',
+      next: 'Preview duplicates first; archive only duplicate rows with no downstream activity.',
+    },
+  })[code] || fallback;
+}
+
+function IssueAction({ issue, onRepairClientLinks, onRepairDuplicatePlacements, repairing, repairingDuplicates }) {
+  const code = issue?.code || '';
+  if (code === 'placement_active_missing_approved_rate' || code === 'placement_missing_rate_row') {
+    return (
+      <Link to="/modules/placements/draft-rates" className="btn btn--ghost" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+        Draft rates
+      </Link>
+    );
+  }
+  if (code === 'placement_missing_end_client_company' || code === 'placement_missing_staffing_client') {
+    return (
+      <button type="button" className="btn btn--primary" onClick={onRepairClientLinks}
+              disabled={repairing} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+        {repairing ? 'Repairing...' : 'Repair links'}
+      </button>
+    );
+  }
+  if (code === 'duplicate_jobdiva_placement_rows') {
+    return (
+      <button type="button" className="btn btn--ghost" onClick={() => onRepairDuplicatePlacements?.(true)}
+              disabled={repairingDuplicates} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+        {repairingDuplicates ? 'Checking...' : 'Preview'}
+      </button>
+    );
+  }
+  return <span style={{ color: '#94a3b8', fontSize: 11 }}>Refresh after repair</span>;
 }
 
 function AlignmentMetric({ label, value, tone, testid }) {
