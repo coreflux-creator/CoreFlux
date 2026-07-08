@@ -43,6 +43,10 @@ $a('projector resolves end client through JobDiva customer/company mappings',
     str_contains($projector, 'function jobdivaProjectorResolveEndClientCompany')
     && str_contains($projector, "foreach (['jobdiva_customer', 'company'] as \$mapType)")
     && str_contains($projector, "mappingFindInternal(\$tenantId, 'jobdiva', \$mapType, \$customerExtId)"));
+$a('projector can ensure name-only end-client companies from joined JobDiva job/customer data',
+    str_contains($projector, 'function jobdivaProjectorEnsureEndClientCompany')
+    && str_contains($projector, "'COMPANYNAME'")
+    && str_contains($projector, 'staffingClientEnsureForCompany($tenantId, null, $name'));
 $a('projector delegates placement/rate write to canonical sync writer',
     str_contains($projector, 'jobdivaSyncUpsertPlacement('));
 $a('projector binds canonical placement mapping',

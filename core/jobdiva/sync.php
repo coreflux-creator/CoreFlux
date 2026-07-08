@@ -1595,6 +1595,27 @@ function jobdivaPlacementStaffingJobId(int $tenantId, int $placementId): int
     }
 }
 
+function jobdivaPlacementCurrentRateId(int $tenantId, int $placementId): int
+{
+    if ($tenantId <= 0 || $placementId <= 0) return 0;
+    try {
+        $st = getDB()->prepare(
+            'SELECT id
+               FROM placement_rates
+              WHERE tenant_id = :t
+                AND placement_id = :p
+                AND effective_to IS NULL
+              ORDER BY (approved_at IS NULL) DESC, effective_from DESC, id DESC
+              LIMIT 1'
+        );
+        $st->execute(['t' => $tenantId, 'p' => $placementId]);
+        return (int) $st->fetchColumn();
+    } catch (\Throwable $e) {
+        error_log('[jobdiva placement mapping context] placement_rates id failed: ' . $e->getMessage());
+        return 0;
+    }
+}
+
 function jobdivaApplyPlacementFieldMappings(
     int $tenantId,
     int $placementId,
@@ -1611,7 +1632,7 @@ function jobdivaApplyPlacementFieldMappings(
     $baseCtx = [
         'self'                   => $placementId,
         'placement'              => $placementId,
-        'placement_rates'        => $placementId,
+        'placement_rates'        => jobdivaPlacementCurrentRateId($tenantId, $placementId),
         'placement_corp_details' => $placementId,
         'person'                 => $personId,
         'end_client_company'     => $endClientCompanyId ?? 0,
@@ -2153,8 +2174,15 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $tid, 'jobdiva', 'placement', 'end_client_name', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
             'endClientName', 'clientName', 'end_client_name', 'client_name', 'client name', 'end client name',
+            'companyName', 'company_name', 'company name', 'COMPANYNAME',
+            'jobCompanyName', 'job_company_name', 'job company name',
+            'endClientCompanyName', 'end_client_company_name', 'end client company name',
             // _jd_customer carries the customer record — name lives there as 'name' / 'customerName'.
             'customerName', 'customer name', 'name',
+        ], [
+            '_jd_customer', 'customer', 'Customer', 'client', 'Client',
+            '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord',
+            '_jd_start', 'assignment', 'start', 'Start',
         ])
     );
     $clientId = null;
@@ -2553,21 +2581,13 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     //    default-key candidate lists shaped to the V2 BI payload.
     $billRateRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'bill_rate', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'final bill rate', 'finalBillRate', 'final_bill_rate',
             'bill rate', 'billRate', 'bill_rate',
-            'quoted bill rate', 'quotedBillRate',
-        ]) ?: (
-            // Fall through to the enriched start detail (when present).
-            // JobDiva BI feeds frequently null out the rate on the
-            // Assignment-level payload; the searchStart detail call
-            // (when wired) carries it.
-            isset($jd['_jd_start']) && is_array($jd['_jd_start'])
-                ? jobdivaPluckField($jd['_jd_start'], [
-                    'finalBillRate', 'billRate', 'final_bill_rate', 'bill_rate',
-                ])
-                : ''
-        )
+            'quoted bill rate', 'quotedBillRate', 'quoted_bill_rate',
+            'BILLRATEMAX', 'billRateMax', 'bill_rate_max', 'bill rate max',
+            'max bill rate', 'maximum bill rate', 'finalBillRateMax', 'final_bill_rate_max',
+        ])
     );
     $billRate = is_numeric($billRateRaw) ? (float) $billRateRaw : 0.0;
     if ($billRate <= 0) {
@@ -2579,16 +2599,11 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
 
     $payRateRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'pay_rate', $jd,
-        static fn() => jobdivaPluckField($jd, [
-            'agreed pay rate', 'agreedPayRate', 'agreed_pay_rate',
-            'pay rate', 'payRate', 'pay_rate',
-        ]) ?: (
-            isset($jd['_jd_start']) && is_array($jd['_jd_start'])
-                ? jobdivaPluckField($jd['_jd_start'], [
-                    'payRate', 'agreedPayRate', 'pay_rate', 'agreed_pay_rate',
-                ])
-                : ''
-        )
+        static fn() => jobdivaPluckFieldDeep($jd, [
+            'agreed pay rate', 'agreedPayRate', 'agreed_pay_rate', 'AGREEDPAYRATE',
+            'pay rate', 'payRate', 'pay_rate', 'PAYRATE',
+            'base pay rate', 'basePayRate', 'base_pay_rate',
+        ])
     );
     // pay_rate is NOT NULL on the schema — if JobDiva didn't supply
     // one, mirror bill_rate (overrideable by the operator later).
@@ -2608,22 +2623,27 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     };
     $billRateUnit = $coerceUnit((string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'bill_rate_unit', $jd,
-        static fn() => jobdivaPluckField($jd, [
-            'final bill rate unit', 'bill rate currency/unit', 'billRateUnit', 'bill_rate_unit',
+        static fn() => jobdivaPluckFieldDeep($jd, [
+            'final bill rate unit', 'finalBillRateUnit', 'final_bill_rate_unit',
+            'bill rate currency/unit', 'billRateCurrencyUnit', 'bill_rate_currency_unit',
+            'billRateUnit', 'bill_rate_unit', 'BILLRATEUNIT',
         ])
     ));
     $payRateUnit = $coerceUnit((string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'pay_rate_unit', $jd,
-        static fn() => jobdivaPluckField($jd, [
-            'pay rate currency/unit', 'payRateUnit', 'pay_rate_unit', 'hourly unit',
+        static fn() => jobdivaPluckFieldDeep($jd, [
+            'pay rate currency/unit', 'payRateCurrencyUnit', 'pay_rate_currency_unit',
+            'payRateUnit', 'pay_rate_unit', 'PAYRATEUNIT', 'hourly unit',
         ])
     ));
 
     // Currency: extract from "USD/Hour" style strings if needed.
     $currencyRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'currency', $jd,
-        static fn() => jobdivaPluckField($jd, [
-            'currency', 'final bill rate currency', 'hourly currency',
+        static fn() => jobdivaPluckFieldDeep($jd, [
+            'currency', 'CURRENCY', 'final bill rate currency', 'finalBillRateCurrency',
+            'final_bill_rate_currency', 'bill rate currency/unit', 'billRateCurrencyUnit',
+            'pay rate currency/unit', 'hourly currency',
         ])
     );
     if ($currencyRaw === '') $currencyRaw = 'USD';
@@ -2636,11 +2656,11 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
 
     $otRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'ot_multiplier', $jd,
-        static fn() => jobdivaPluckField($jd, ['ot_multiplier', 'otMultiplier', 'overtime_multiplier'])
+        static fn() => jobdivaPluckFieldDeep($jd, ['ot_multiplier', 'otMultiplier', 'overtime_multiplier', 'OTMULTIPLIER'])
     );
     $dtRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'dt_multiplier', $jd,
-        static fn() => jobdivaPluckField($jd, ['dt_multiplier', 'dtMultiplier', 'doubletime_multiplier'])
+        static fn() => jobdivaPluckFieldDeep($jd, ['dt_multiplier', 'dtMultiplier', 'doubletime_multiplier', 'DTMULTIPLIER'])
     );
     $otMul = is_numeric($otRaw) ? (float) $otRaw : 1.50;
     $dtMul = is_numeric($dtRaw) ? (float) $dtRaw : 2.00;

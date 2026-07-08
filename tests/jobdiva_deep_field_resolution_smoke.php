@@ -152,9 +152,10 @@ $a('sync.php placement title fallback uses deep pluck',
     str_contains($sync, "return jobdivaPluckFieldDeep(\$jd, [\n                'jobTitle'"));
 $a('sync.php placement start_date fallback uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, ['startDate'"));
-$a('sync.php placement end_client_name fallback uses deep pluck (with `name` candidate)',
-    str_contains($sync, "// _jd_customer record stores the name as 'name'")
-    && str_contains($sync, "'customerName', 'customer name', 'name',"));
+$a('sync.php placement end_client_name fallback uses deep pluck with JobDiva company names',
+    str_contains($sync, "'companyName', 'company_name', 'company name', 'COMPANYNAME'")
+    && str_contains($sync, "'customerName', 'customer name', 'name',")
+    && str_contains($sync, "'_jd_customer', 'customer', 'Customer', 'client', 'Client'"));
 $a('sync.php placement status fallback uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, ['status'"));
 $a('sync.php placement engagement_type uses deep pluck',

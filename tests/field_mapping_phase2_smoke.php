@@ -135,21 +135,24 @@ $a('protected identity targets are hidden and skipped',
 
 echo "\n6. JobDiva sync invokes applyAll right after mappingUpsert\n";
 $sync = (string) file_get_contents('/app/core/jobdiva/sync.php');
+$projector = (string) file_get_contents('/app/core/jobdiva/projector.php');
 $a('apply step requires field_map_apply.php',
     str_contains($sync, "require_once __DIR__ . '/../integrations/field_map_apply.php';"));
 $a('placement sync calls shared placement mapping helper',
     str_contains($sync, 'jobdivaApplyPlacementFieldMappings(')
-    && str_contains($sync, 'jobdivaPlacementStaffingJobId($tid, $internalId)'));
+    && str_contains($sync, 'jobdivaPlacementCurrentRateId($tenantId, $placementId)')
+    && str_contains($projector, 'jobdivaPlacementStaffingJobId($tenantId, $placementId)')
+    && str_contains($projector, 'jobdivaApplyPlacementFieldMappings('));
 $a('context map populates placement/person/company/staffing_job owners',
     str_contains($sync, "'self'                   => \$placementId,")
     && str_contains($sync, "'placement'              => \$placementId,")
-    && str_contains($sync, "'placement_rates'        => \$placementId,")
+    && str_contains($sync, "'placement_rates'        => jobdivaPlacementCurrentRateId(\$tenantId, \$placementId),")
     && str_contains($sync, "'placement_corp_details' => \$placementId,")
     && str_contains($sync, "'person'                 => \$personId,")
     && str_contains($sync, "'end_client_company'     => \$endClientCompanyId ?? 0,")
     && str_contains($sync, "'staffing_job'           => \$staffingJobId,"));
 $a('apply step is wrapped in try/catch (best-effort)',
-    (bool) preg_match('/try \{\s*\$staffingJobId = jobdivaPlacementStaffingJobId\(.*?jobdivaApplyPlacementFieldMappings/s', $sync));
+    (bool) preg_match('/try \{\s*\$summary\[\'field_map\'\] = jobdivaApplyPlacementFieldMappings/s', $projector));
 
 echo "\n7. /api/admin/integrations/writable_targets.php discovery endpoint\n";
 $wt = (string) file_get_contents('/app/api/admin/integrations/writable_targets.php');

@@ -31,7 +31,7 @@
  *       'person'                 => 67890, // linked person id (placements only)
  *       'end_client_company'     => 555,   // resolved end-client company id
  *       'vendor_company'         => 777,   // resolved vendor company id (PWP, etc.)
- *       'placement_rates'        => 12345, // sibling rates row id (== placement_id)
+ *       'placement_rates'        => 24680, // sibling placement_rates.id for this placement
  *       'placement_corp_details' => 12345, // sibling corp-details row id (== placement_id)
  *   ];
  *

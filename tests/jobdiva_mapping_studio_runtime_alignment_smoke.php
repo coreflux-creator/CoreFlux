@@ -27,10 +27,12 @@ $payload = [
     '_jd_job' => [
         'title' => 'Service Desk Analyst',
         'jobID' => '27857851',
+        'COMPANYNAME' => 'TCS',
     ],
     '_jd_start' => [
         'payRate' => '52.50',
         'finalBillRate' => '120.00',
+        'BILLRATEMAX' => '125.00',
     ],
     '_jd_candidate' => [
         'firstName' => 'Andrew',
@@ -47,10 +49,16 @@ $a('job.jobID resolves from _jd_job.jobID',
     integrationPayloadResolvePath($payload, 'job.jobID') === '27857851');
 $a('assignment.payRate resolves from _jd_start.payRate',
     integrationPayloadResolvePath($payload, 'assignment.payRate') === '52.50');
+$a('assignment.BILLRATEMAX resolves from _jd_start.BILLRATEMAX',
+    integrationPayloadResolvePath($payload, 'assignment.BILLRATEMAX') === '125.00');
 $a('person.firstName resolves from _jd_candidate.firstName',
     integrationPayloadResolvePath($payload, 'person.firstName') === 'Andrew');
 $a('company.name resolves from _jd_customer.name',
     integrationPayloadResolvePath($payload, 'company.name') === 'SOIE');
+$a('legacy pluck resolves job.COMPANYNAME through the same alias contract',
+    tenantIntegrationFieldMapPluckPath($payload, 'job.COMPANYNAME') === 'TCS');
+$a('legacy pluck resolves assignment.BILLRATEMAX through the same alias contract',
+    tenantIntegrationFieldMapPluckPath($payload, 'assignment.BILLRATEMAX') === '125.00');
 $a('aliases list keeps original first and includes _jd_job fallback',
     integrationPayloadSourcePathAliases('job.title')[0] === 'job.title'
     && in_array('_jd_job.title', integrationPayloadSourcePathAliases('job.title'), true));

@@ -58,8 +58,11 @@ foreach (['bill_rate', 'pay_rate', 'bill_rate_unit', 'pay_rate_unit',
 echo "\njobdivaSyncUpsertPlacementRates — JobDiva V2 default candidates\n";
 $assert('bill_rate defaults include "final bill rate" (V2 BI key)',
     strpos($sync, "'final bill rate', 'finalBillRate', 'final_bill_rate'") !== false);
+$assert('bill_rate defaults include JobDiva BILLRATEMAX from start detail',
+    strpos($sync, "'BILLRATEMAX', 'billRateMax', 'bill_rate_max'") !== false
+    && strpos($sync, 'static fn() => jobdivaPluckFieldDeep($jd, [') !== false);
 $assert('pay_rate defaults include "agreed pay rate" (V2 BI key)',
-    strpos($sync, "'agreed pay rate', 'agreedPayRate', 'agreed_pay_rate'") !== false);
+    strpos($sync, "'agreed pay rate', 'agreedPayRate', 'agreed_pay_rate', 'AGREEDPAYRATE'") !== false);
 $assert('bill_rate_unit defaults include "bill rate currency/unit"',
     strpos($sync, "'bill rate currency/unit'") !== false);
 

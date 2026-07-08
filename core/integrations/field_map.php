@@ -638,7 +638,54 @@ function tenantIntegrationFieldMapApplyTransform(mixed $value, string $transform
  *
  * Returns '' when the path doesn't resolve.
  */
-function tenantIntegrationFieldMapPluckPath(array $payload, string $path): string
+function tenantIntegrationFieldMapPluckPathSourceAliases(string $path): array
+{
+    $path = trim($path);
+    if ($path === '' || $path === '$') return [$path];
+    if (!preg_match('/^([^\.\[]+)(.*)$/u', $path, $m)) return [$path];
+
+    $root = $m[1];
+    $suffix = $m[2] ?? '';
+    $rootKey = strtolower($root);
+    $aliases = [
+        'job' => ['_jd_job', 'staffing_job', 'jobdiva_job'],
+        'staffing_job' => ['job', '_jd_job', 'jobdiva_job'],
+        'jobdiva_job' => ['job', '_jd_job', 'staffing_job'],
+        '_jd_job' => ['job', 'staffing_job', 'jobdiva_job'],
+
+        'assignment' => ['_jd_start', 'start', 'jobdiva_assignment'],
+        'start' => ['assignment', '_jd_start', 'jobdiva_assignment'],
+        'jobdiva_assignment' => ['assignment', '_jd_start', 'start'],
+        '_jd_start' => ['assignment', 'start', 'jobdiva_assignment'],
+
+        'person' => ['_jd_candidate', 'candidate', 'employee', 'worker', 'jobdiva_candidate'],
+        'candidate' => ['person', '_jd_candidate', 'jobdiva_candidate'],
+        'employee' => ['person', '_jd_candidate', 'candidate', 'jobdiva_candidate'],
+        'worker' => ['person', '_jd_candidate', 'candidate', 'jobdiva_candidate'],
+        'jobdiva_candidate' => ['person', '_jd_candidate', 'candidate'],
+        '_jd_candidate' => ['person', 'candidate', 'jobdiva_candidate'],
+
+        'company' => ['_jd_customer', 'customer', 'client', 'end_client', 'jobdiva_customer'],
+        'customer' => ['company', '_jd_customer', 'client', 'end_client', 'jobdiva_customer'],
+        'client' => ['company', '_jd_customer', 'customer', 'end_client', 'jobdiva_customer'],
+        'end_client' => ['company', '_jd_customer', 'customer', 'client', 'jobdiva_customer'],
+        'jobdiva_customer' => ['company', '_jd_customer', 'customer', 'client', 'end_client'],
+        '_jd_customer' => ['company', 'customer', 'client', 'end_client', 'jobdiva_customer'],
+
+        'contact' => ['_jd_contact', 'jobdiva_contact'],
+        'jobdiva_contact' => ['contact', '_jd_contact'],
+        '_jd_contact' => ['contact', 'jobdiva_contact'],
+    ];
+
+    $out = [$path];
+    foreach (($aliases[$rootKey] ?? []) as $aliasRoot) {
+        $candidate = $aliasRoot . $suffix;
+        if (!in_array($candidate, $out, true)) $out[] = $candidate;
+    }
+    return $out;
+}
+
+function tenantIntegrationFieldMapPluckPathStrict(array $payload, string $path): string
 {
     if ($path === '') return '';
     $segments = explode('.', $path);
@@ -666,6 +713,15 @@ function tenantIntegrationFieldMapPluckPath(array $payload, string $path): strin
             if (is_scalar($v)) return trim((string) $v);
             return '';
         }
+    }
+    return '';
+}
+
+function tenantIntegrationFieldMapPluckPath(array $payload, string $path): string
+{
+    foreach (tenantIntegrationFieldMapPluckPathSourceAliases($path) as $candidatePath) {
+        $v = tenantIntegrationFieldMapPluckPathStrict($payload, $candidatePath);
+        if ($v !== '') return $v;
     }
     return '';
 }

@@ -336,19 +336,38 @@ function jobdivaProjectorResolveEndClientCompany(int $tenantId, array $payload, 
 {
     $companyExtId = jobdivaProjectorPluck($payload, [
         'companyId', 'company_id', 'company id', 'endClientCompanyId',
+        'COMPANYID', 'companyID', 'end client company id',
     ]);
+    $companyName = jobdivaProjectorPluckDeep($payload, [
+        'companyName', 'company_name', 'company name', 'COMPANYNAME',
+        'jobCompanyName', 'job_company_name', 'job company name',
+        'endClientCompanyName', 'end_client_company_name', 'end client company name',
+    ], jobdivaProjectorEndClientNestOrder());
     if ($companyExtId !== '') {
         $cm = mappingFindInternal($tenantId, 'jobdiva', 'company', $companyExtId);
         if ($cm) return (int) $cm['internal_entity_id'];
+        if ($companyName !== '') {
+            return jobdivaProjectorEnsureEndClientCompany(
+                $tenantId,
+                $companyName,
+                $userId,
+                $payload,
+                $companyExtId,
+                'company'
+            );
+        }
     }
 
     $customerExtId = jobdivaProjectorPluckDeep($payload, [
-        'customerId', 'customer_id', 'customer id', 'clientId', 'client_id',
-    ]);
+        'customerId', 'customer_id', 'customer id', 'customerID', 'CUSTOMERID',
+        'clientId', 'client_id', 'client id',
+    ], jobdivaProjectorEndClientNestOrder());
     $customerName = jobdivaProjectorPluckDeep($payload, [
         'customerName', 'customer_name', 'customer name', 'clientName', 'client_name',
-        'companyName', 'company_name', 'name',
-    ]);
+        'client name', 'companyName', 'company_name', 'company name', 'COMPANYNAME',
+        'jobCompanyName', 'job_company_name', 'job company name',
+        'endClientName', 'end_client_name', 'end client name', 'name',
+    ], jobdivaProjectorEndClientNestOrder());
     if ($customerExtId !== '') {
         foreach (['jobdiva_customer', 'company'] as $mapType) {
             $cm = mappingFindInternal($tenantId, 'jobdiva', $mapType, $customerExtId);
@@ -359,7 +378,65 @@ function jobdivaProjectorResolveEndClientCompany(int $tenantId, array $payload, 
         }
     }
 
+    $nameOnly = $customerName !== '' ? $customerName : $companyName;
+    if ($nameOnly !== '') {
+        return jobdivaProjectorEnsureEndClientCompany($tenantId, $nameOnly, $userId, $payload);
+    }
+
     return null;
+}
+
+function jobdivaProjectorEnsureEndClientCompany(
+    int $tenantId,
+    string $name,
+    ?int $userId,
+    array $payload,
+    string $externalId = '',
+    string $mapType = 'jobdiva_customer'
+): ?int {
+    $name = trim($name);
+    if ($tenantId <= 0 || $name === '') return null;
+
+    try {
+        if (function_exists('staffingClientEnsureForCompany')) {
+            $clientRef = staffingClientEnsureForCompany($tenantId, null, $name, [
+                'created_by_user_id' => $userId,
+            ]);
+            $companyId = (int) ($clientRef['company_id'] ?? 0);
+        } elseif (function_exists('companiesUpsertByName')) {
+            $companyId = companiesUpsertByName($tenantId, $name, [
+                'created_by_user_id' => $userId,
+            ], ['client']);
+        } else {
+            return null;
+        }
+
+        if ($companyId > 0) {
+            if (trim($externalId) !== '') {
+                mappingUpsert($tenantId, 'jobdiva', $mapType, trim($externalId), $companyId, $payload, 'pull', $userId);
+            }
+            if (function_exists('integrationPayloadFieldIndexRecord')) {
+                try {
+                    integrationPayloadFieldIndexRecord($tenantId, 'jobdiva', 'company', $payload);
+                } catch (\Throwable $e) {
+                    error_log('[jobdiva projector] company index failed: ' . $e->getMessage());
+                }
+            }
+            return $companyId;
+        }
+    } catch (\Throwable $e) {
+        error_log('[jobdiva projector] end-client company ensure failed: ' . $e->getMessage());
+    }
+    return null;
+}
+
+function jobdivaProjectorEndClientNestOrder(): array
+{
+    return [
+        '_jd_customer', 'customer', 'Customer', 'client', 'Client',
+        '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord',
+        '_jd_start', 'assignment', 'start', 'Start',
+    ];
 }
 
 function jobdivaProjectorPlacementRateFacts(int $tenantId, int $placementId, string $startDate): array
@@ -434,12 +511,16 @@ function jobdivaProjectorPluck(array $payload, array $candidates): string
     return '';
 }
 
-function jobdivaProjectorPluckDeep(array $payload, array $candidates): string
+function jobdivaProjectorPluckDeep(array $payload, array $candidates, ?array $nestOrder = null): string
 {
-    if (function_exists('jobdivaPluckFieldDeep')) return jobdivaPluckFieldDeep($payload, $candidates);
+    if (function_exists('jobdivaPluckFieldDeep')) {
+        return $nestOrder !== null
+            ? jobdivaPluckFieldDeep($payload, $candidates, $nestOrder)
+            : jobdivaPluckFieldDeep($payload, $candidates);
+    }
     $v = jobdivaProjectorPluck($payload, $candidates);
     if ($v !== '') return $v;
-    foreach (['_jd_candidate', '_jd_job', '_jd_customer', '_jd_contact', '_jd_start', 'job', 'candidate', 'customer', 'contact'] as $nest) {
+    foreach (($nestOrder ?? ['_jd_candidate', '_jd_job', '_jd_customer', '_jd_contact', '_jd_start', 'job', 'candidate', 'customer', 'contact']) as $nest) {
         if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
         $v = jobdivaProjectorPluck($payload[$nest], $candidates);
         if ($v !== '') return $v;

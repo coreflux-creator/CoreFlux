@@ -80,10 +80,13 @@ $assert('legacy jobdivaSyncResolveJobTitles still exists as thin wrapper',
     && strpos($sync, 'return jobdivaSyncEnrichRelatedEntities($tid, $items, $userId, []);') !== false);
 
 echo "\nRate fallback — _jd_start picked up when BI feed nulls rates\n";
-$assert('bill_rate default falls through to _jd_start.finalBillRate',
-    strpos($sync, "isset(\$jd['_jd_start']) && is_array(\$jd['_jd_start'])\n                ? jobdivaPluckField(\$jd['_jd_start'], [\n                    'finalBillRate', 'billRate', 'final_bill_rate', 'bill_rate',\n                ])") !== false);
-$assert('pay_rate default falls through to _jd_start.payRate',
-    strpos($sync, "'payRate', 'agreedPayRate', 'pay_rate', 'agreed_pay_rate'") !== false);
+$assert('bill_rate default deep-plucks _jd_start.finalBillRate / BILLRATEMAX',
+    strpos($sync, 'static fn() => jobdivaPluckFieldDeep($jd, [') !== false
+    && strpos($sync, "'final bill rate', 'finalBillRate', 'final_bill_rate'") !== false
+    && strpos($sync, "'BILLRATEMAX', 'billRateMax', 'bill_rate_max'") !== false);
+$assert('pay_rate default deep-plucks _jd_start.payRate / AGREEDPAYRATE',
+    strpos($sync, "'agreed pay rate', 'agreedPayRate', 'agreed_pay_rate', 'AGREEDPAYRATE'") !== false
+    && strpos($sync, "'pay rate', 'payRate', 'pay_rate', 'PAYRATE'") !== false);
 
 echo "\nMulti-id-option support — jobRefNo fallback to /searchJob via req\n";
 $assert('job kind declares id_options with numeric jobId + string req',
