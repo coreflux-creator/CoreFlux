@@ -126,7 +126,9 @@ function jobdivaPluckFieldDeep(
     array $candidates,
     array $nestOrder = ['_jd_candidate', '_jd_job', '_jd_customer', '_jd_contact', '_jd_start',
                        'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord',
-                       'candidate', 'Candidate', 'customer', 'Customer', 'contact', 'Contact']
+                       'candidate', 'Candidate', 'customer', 'Customer', 'contact', 'Contact',
+                       'person', 'company', 'Company', 'client', 'Client',
+                       'assignment', 'start', 'Start', 'jobdiva_assignment']
 ): string {
     // 1. shallow first
     $v = jobdivaPluckField($item, $candidates);
@@ -142,30 +144,43 @@ function jobdivaPluckFieldDeep(
 
 function jobdivaEndClientNameFromPayload(array $item): string
 {
-    $specific = [
-        'endClientName', 'end_client_name', 'end client name',
+    $companySpecific = [
         'endClientCompanyName', 'end_client_company_name', 'end client company name',
-        'customerName', 'customer_name', 'customer name',
-        'clientName', 'client_name', 'client name',
         'companyName', 'company_name', 'company name', 'COMPANYNAME',
         'jobCompanyName', 'job_company_name', 'job company name',
     ];
-    $v = jobdivaPluckField($item, $specific);
+    $ambiguousNames = [
+        'endClientName', 'end_client_name', 'end client name',
+        'customerName', 'customer_name', 'customer name',
+        'clientName', 'client_name', 'client name',
+    ];
+
+    foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
+        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
+        $v = jobdivaPluckField($item[$nest], $companySpecific);
+        if ($v !== '') return $v;
+    }
+    foreach (['_jd_customer', 'customer', 'Customer', 'company', 'Company', 'client', 'Client'] as $nest) {
+        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
+        $v = jobdivaPluckField($item[$nest], array_merge($companySpecific, ['legalName', 'legal_name', 'name']));
+        if ($v !== '') return $v;
+    }
+
+    $v = jobdivaPluckField($item, $companySpecific);
+    if ($v !== '') return $v;
+
+    foreach (['_jd_start', 'assignment', 'start', 'Start'] as $nest) {
+        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
+        $v = jobdivaPluckField($item[$nest], $companySpecific);
+        if ($v !== '') return $v;
+    }
+
+    $v = jobdivaPluckField($item, $ambiguousNames);
     if ($v !== '') return $v;
 
     foreach (['_jd_customer', 'customer', 'Customer', 'client', 'Client'] as $nest) {
         if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
-        $v = jobdivaPluckField($item[$nest], array_merge($specific, ['name']));
-        if ($v !== '') return $v;
-    }
-    foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
-        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
-        $v = jobdivaPluckField($item[$nest], $specific);
-        if ($v !== '') return $v;
-    }
-    foreach (['_jd_start', 'assignment', 'start', 'Start'] as $nest) {
-        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
-        $v = jobdivaPluckField($item[$nest], $specific);
+        $v = jobdivaPluckField($item[$nest], array_merge($ambiguousNames, ['name']));
         if ($v !== '') return $v;
     }
     return '';
@@ -2023,7 +2038,6 @@ function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, in
                 'external_id' => $externalId,
                 'existing_placement_id' => $placementId,
                 'person_id' => (int) ($row['person_id'] ?? 0),
-                'end_client_company_id' => isset($row['end_client_company_id']) ? (int) $row['end_client_company_id'] : null,
             ]);
             if (empty($projection['projected'])) {
                 throw new \RuntimeException(implode('; ', $projection['errors'] ?? ['projection failed']));

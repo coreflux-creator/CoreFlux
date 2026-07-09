@@ -533,38 +533,51 @@ function jobdivaProjectorEnsureEndClientCompany(
 function jobdivaProjectorEndClientNestOrder(): array
 {
     return [
-        '_jd_customer', 'customer', 'Customer', 'client', 'Client',
         '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord',
+        '_jd_customer', 'customer', 'Customer', 'company', 'Company', 'client', 'Client',
         '_jd_start', 'assignment', 'start', 'Start',
     ];
 }
 
 function jobdivaProjectorEndClientNameFromPayload(array $payload): string
 {
-    $specific = [
-        'endClientName', 'end_client_name', 'end client name',
+    $companySpecific = [
         'endClientCompanyName', 'end_client_company_name', 'end client company name',
-        'customerName', 'customer_name', 'customer name',
-        'clientName', 'client_name', 'client name',
         'companyName', 'company_name', 'company name', 'COMPANYNAME',
         'jobCompanyName', 'job_company_name', 'job company name',
     ];
-    $v = jobdivaProjectorPluck($payload, $specific);
+    $ambiguousNames = [
+        'endClientName', 'end_client_name', 'end client name',
+        'customerName', 'customer_name', 'customer name',
+        'clientName', 'client_name', 'client name',
+    ];
+
+    foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
+        if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
+        $v = jobdivaProjectorPluck($payload[$nest], $companySpecific);
+        if ($v !== '') return $v;
+    }
+    foreach (['_jd_customer', 'customer', 'Customer', 'company', 'Company', 'client', 'Client'] as $nest) {
+        if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
+        $v = jobdivaProjectorPluck($payload[$nest], array_merge($companySpecific, ['legalName', 'legal_name', 'name']));
+        if ($v !== '') return $v;
+    }
+
+    $v = jobdivaProjectorPluck($payload, $companySpecific);
+    if ($v !== '') return $v;
+
+    foreach (['_jd_start', 'assignment', 'start', 'Start'] as $nest) {
+        if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
+        $v = jobdivaProjectorPluck($payload[$nest], $companySpecific);
+        if ($v !== '') return $v;
+    }
+
+    $v = jobdivaProjectorPluck($payload, $ambiguousNames);
     if ($v !== '') return $v;
 
     foreach (['_jd_customer', 'customer', 'Customer', 'client', 'Client'] as $nest) {
         if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
-        $v = jobdivaProjectorPluck($payload[$nest], array_merge($specific, ['name']));
-        if ($v !== '') return $v;
-    }
-    foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
-        if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
-        $v = jobdivaProjectorPluck($payload[$nest], $specific);
-        if ($v !== '') return $v;
-    }
-    foreach (['_jd_start', 'assignment', 'start', 'Start'] as $nest) {
-        if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
-        $v = jobdivaProjectorPluck($payload[$nest], $specific);
+        $v = jobdivaProjectorPluck($payload[$nest], array_merge($ambiguousNames, ['name']));
         if ($v !== '') return $v;
     }
     return '';

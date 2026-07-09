@@ -1145,6 +1145,7 @@ function _jobdivaMappingDuplicatePlacementGroups(\PDO $pdo, int $tenantId, int $
     }
     $limit = max(1, min(500, $limit));
     $mapped = [];
+    $mappedByInternalId = [];
     if (_jobdivaMappingTableExists($pdo, 'external_entity_mappings')) {
         $mappingRows = _jobdivaMappingRows($pdo,
             "SELECT external_id, internal_entity_id
@@ -1160,24 +1161,53 @@ function _jobdivaMappingDuplicatePlacementGroups(\PDO $pdo, int $tenantId, int $
             if ($ext === '') continue;
             $mapped[$ext] ??= ['internal_ids' => []];
             if ($iid > 0) $mapped[$ext]['internal_ids'][$iid] = true;
+            if ($iid > 0) {
+                $mappedByInternalId[$iid] ??= [];
+                if (!in_array($ext, $mappedByInternalId[$iid], true)) {
+                    $mappedByInternalId[$iid][] = $ext;
+                }
+            }
         }
     }
 
+    $hasMappings = _jobdivaMappingTableExists($pdo, 'external_entity_mappings');
+    $hasJobDivaJobId = _jobdivaMappingColumnExists($pdo, 'placements', 'jobdiva_job_id');
+    $mappingJoin = $hasMappings
+        ? "LEFT JOIN external_entity_mappings m
+                 ON m.tenant_id = p.tenant_id
+                AND m.internal_entity_type = 'placement'
+                AND m.internal_entity_id = p.id
+                AND m.source_system = 'jobdiva'"
+        : '';
+    $sourceWhere = [
+        "(p.external_id IS NOT NULL AND p.external_id <> '')",
+        "p.title LIKE 'JobDiva Placement %'",
+    ];
+    if ($hasMappings) $sourceWhere[] = 'm.id IS NOT NULL';
+    if ($hasJobDivaJobId) $sourceWhere[] = "(p.jobdiva_job_id IS NOT NULL AND p.jobdiva_job_id <> '')";
+    $jobIdSelect = $hasJobDivaJobId ? 'p.jobdiva_job_id' : 'NULL AS jobdiva_job_id';
+    $jobIdGroup = $hasJobDivaJobId ? 'p.jobdiva_job_id' : 'NULL';
+
     $placementRows = _jobdivaMappingRows($pdo,
-        "SELECT id, external_id, title, person_id, start_date, status, created_at, updated_at
-           FROM placements
-          WHERE tenant_id = :t
-            AND external_id IS NOT NULL
-            AND external_id <> ''
-            AND (deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00')
-       ORDER BY id ASC",
+        "SELECT p.id, p.external_id, p.title, p.person_id, p.start_date, p.end_date,
+                p.end_client_name, p.end_client_company_id, {$jobIdSelect}, p.status,
+                p.created_at, p.updated_at
+           FROM placements p
+           {$mappingJoin}
+          WHERE p.tenant_id = :t
+            AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
+            AND (" . implode(' OR ', $sourceWhere) . ")
+       GROUP BY p.id, p.external_id, p.title, p.person_id, p.start_date, p.end_date,
+                p.end_client_name, p.end_client_company_id, {$jobIdGroup}, p.status,
+                p.created_at, p.updated_at
+       ORDER BY p.id ASC",
         ['t' => $tenantId]
     );
     $groups = [];
     $rowsGroupedByStartId = [];
     foreach ($placementRows as $row) {
         $id = (int) ($row['id'] ?? 0);
-        $startId = _jobdivaMappingPlacementStartIdFromRow($row, $mapped);
+        $startId = _jobdivaMappingPlacementStartIdFromRow($row, $mapped, $mappedByInternalId);
         if ($startId === '') continue;
         $row['is_current_mapping'] = $id > 0 && !empty($mapped[$startId]['internal_ids'][$id]);
         $row['canonical_external_id'] = 'jd:' . $startId;
@@ -1218,8 +1248,17 @@ function _jobdivaMappingDuplicatePlacementGroups(\PDO $pdo, int $tenantId, int $
     return array_slice($out, 0, $limit);
 }
 
-function _jobdivaMappingPlacementStartIdFromRow(array $row, array $mapped = []): string
+function _jobdivaMappingPlacementStartIdFromRow(array $row, array $mapped = [], array $mappedByInternalId = []): string
 {
+    $id = (int) ($row['id'] ?? 0);
+    if ($id > 0 && !empty($mappedByInternalId[$id]) && is_array($mappedByInternalId[$id])) {
+        foreach ($mappedByInternalId[$id] as $mappedExt) {
+            $mappedExt = _jobdivaMappingNormalisePlacementExternalId((string) $mappedExt);
+            if ($mappedExt !== '' && preg_match('/^\d+$/', $mappedExt)) {
+                return $mappedExt;
+            }
+        }
+    }
     $externalId = trim((string) ($row['external_id'] ?? ''));
     $norm = _jobdivaMappingNormalisePlacementExternalId($externalId);
     if ($norm !== ''
@@ -1270,17 +1309,26 @@ function _jobdivaMappingStaleActivePlacementRows(\PDO $pdo, int $tenantId, int $
 function _jobdivaMappingChooseDuplicatePlacementKeeper(array $group): int
 {
     $rows = is_array($group['rows'] ?? null) ? $group['rows'] : [];
-    foreach ($rows as $row) {
-        if (!empty($row['is_current_mapping']) && (int) ($row['id'] ?? 0) > 0) {
-            return (int) $row['id'];
-        }
-    }
     $canonical = (string) ($group['canonical_external_id'] ?? '');
+    $bestId = 0;
+    $bestScore = -1;
     foreach ($rows as $row) {
-        if ($canonical !== '' && (string) ($row['external_id'] ?? '') === $canonical && (int) ($row['id'] ?? 0) > 0) {
-            return (int) $row['id'];
+        $id = (int) ($row['id'] ?? 0);
+        if ($id <= 0) continue;
+        $title = trim((string) ($row['title'] ?? ''));
+        $score = 0;
+        if ($canonical !== '' && (string) ($row['external_id'] ?? '') === $canonical) $score += 30;
+        if (!empty($row['is_current_mapping'])) $score += 25;
+        if ($title !== '' && !preg_match('/^JobDiva\s+Placement\s+\d+$/i', $title)) $score += 40;
+        if (trim((string) ($row['external_id'] ?? '')) !== '') $score += 20;
+        if (trim((string) ($row['jobdiva_job_id'] ?? '')) !== '') $score += 10;
+        if (trim((string) ($row['end_client_name'] ?? '')) !== '') $score += 5;
+        if ($score > $bestScore) {
+            $bestScore = $score;
+            $bestId = $id;
         }
     }
+    if ($bestId > 0) return $bestId;
     foreach ($rows as $row) {
         if ((int) ($row['id'] ?? 0) > 0) return (int) $row['id'];
     }

@@ -103,10 +103,19 @@ $a('duplicate detector catches legacy placeholder JobDiva placement copies',
     && str_contains($service, 'JobDiva\s+Placement\s+(\d+)')
     && str_contains($service, "'duplicate_basis' => 'jobdiva_start_id'")
     && str_contains($service, "'canonical_external_id' => 'jd:' . \$startId"));
+$a('duplicate detector includes source bindings and title-only JobDiva shells',
+    str_contains($service, '$mappedByInternalId')
+    && str_contains($service, "p.title LIKE 'JobDiva Placement %'")
+    && str_contains($service, 'm.id IS NOT NULL')
+    && str_contains($service, '_jobdivaMappingPlacementStartIdFromRow($row, $mapped, $mappedByInternalId)'));
 $a('duplicate repair prefers the row carrying downstream workflow activity',
     str_contains($service, 'function _jobdivaMappingDuplicatePlacementChildCounts')
     && str_contains($service, 'multiple_rows_have_downstream_activity')
     && str_contains($service, '$keepId = count($rowsWithChildren) === 1'));
+$a('duplicate repair prefers fully projected rows over placeholder shells',
+    str_contains($service, "!preg_match('/^JobDiva\\s+Placement\\s+\\d+$/i', \$title)")
+    && str_contains($service, '$score += 40')
+    && str_contains($service, '$score += 25'));
 $a('duplicate repair rehomes mappings after archiving orphan shells',
     str_contains($service, 'function _jobdivaMappingRehomePlacementMapping')
     && str_contains($service, 'DELETE FROM external_entity_mappings')

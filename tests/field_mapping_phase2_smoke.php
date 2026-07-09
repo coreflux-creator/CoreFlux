@@ -119,6 +119,11 @@ $a('UPDATE always enforces tenant_id scope',
 $a('source_path resolves first, external_field is fallback',
     strpos($apply, "integrationPayloadResolvePath(\$payload, (string) \$m['source_path'])")
     < strpos($apply, "tenantIntegrationFieldMapPluckPath(\$payload, (string) \$m['external_field'])"));
+$a('sync plucker also honors source_path before legacy external_field',
+    str_contains($fm, 'SELECT internal_field, external_field, source_path, transform')
+    && str_contains($fm, "\$sourcePath = trim((string) (\$map[\$internalField]['source_path'] ?? ''));")
+    && str_contains($fm, "\$raw = \$sourcePath !== '' ? tenantIntegrationFieldMapPluckPath(\$payload, \$sourcePath) : '';")
+    && str_contains($fm, "\$externalField !== '' && \$externalField !== \$sourcePath"));
 $a('applies transform via existing helper',
     str_contains($apply, "tenantIntegrationFieldMapApplyTransform(\$val, (string) \$m['transform'])"));
 $a('custom_field_values target bucketed separately',

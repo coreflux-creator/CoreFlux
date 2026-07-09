@@ -547,7 +547,7 @@ function tenantIntegrationFieldMapResolveAll(int $tenantId, string $integration,
 
     $pdo = getDB();
     $stmt = $pdo->prepare(
-        'SELECT internal_field, external_field, transform
+        'SELECT internal_field, external_field, source_path, transform
            FROM tenant_integration_field_map
           WHERE tenant_id = :t AND integration = :i AND entity_type = :e
             AND enabled = 1'
@@ -557,6 +557,7 @@ function tenantIntegrationFieldMapResolveAll(int $tenantId, string $integration,
     foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
         $map[(string) $row['internal_field']] = [
             'external_field' => (string) $row['external_field'],
+            'source_path'    => (string) ($row['source_path'] ?? ''),
             'transform'      => (string) $row['transform'],
         ];
     }
@@ -749,7 +750,12 @@ function tenantIntegrationFieldMapPluckInternal(
 ): mixed {
     $map = tenantIntegrationFieldMapResolveAll($tenantId, $integration, $entityType);
     if (isset($map[$internalField])) {
-        $raw = tenantIntegrationFieldMapPluckPath($payload, $map[$internalField]['external_field']);
+        $sourcePath = trim((string) ($map[$internalField]['source_path'] ?? ''));
+        $externalField = trim((string) ($map[$internalField]['external_field'] ?? ''));
+        $raw = $sourcePath !== '' ? tenantIntegrationFieldMapPluckPath($payload, $sourcePath) : '';
+        if ($raw === '' && $externalField !== '' && $externalField !== $sourcePath) {
+            $raw = tenantIntegrationFieldMapPluckPath($payload, $externalField);
+        }
         if ($raw !== '') {
             return tenantIntegrationFieldMapApplyTransform($raw, $map[$internalField]['transform']);
         }
