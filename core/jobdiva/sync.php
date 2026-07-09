@@ -2148,7 +2148,9 @@ function jobdivaResolveOrAutoCreateEndClient(
 function jobdivaNormalisePlacementEngagementType(string $raw, ?string $fallback = null): string
 {
     $allowed = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire'];
-    $fallback = in_array((string) $fallback, $allowed, true) ? (string) $fallback : 'w2';
+    $fallback = in_array((string) $fallback, $allowed, true)
+        ? (string) $fallback
+        : ($fallback === '' ? '' : 'w2');
     $s = strtolower(trim($raw));
     if ($s === '') return $fallback;
 
@@ -2190,6 +2192,73 @@ function jobdivaNormalisePlacementEngagementType(string $raw, ?string $fallback 
     }
 
     return $fallback;
+}
+
+function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string $fallback = null): string
+{
+    $allowed = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire'];
+    $fallback = in_array((string) $fallback, $allowed, true)
+        ? (string) $fallback
+        : ($fallback === '' ? '' : 'w2');
+
+    $classify = static function (string $key, mixed $value) use ($fallback): ?string {
+        if (!is_scalar($value) && $value !== null) return null;
+        $keyNorm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $key));
+        $valueRaw = trim((string) $value);
+        $valueNorm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $valueRaw));
+        $keyValue = trim($key . ' ' . $valueRaw);
+
+        $c2cKey = str_contains($keyNorm, 'c2c')
+            || str_contains($keyNorm, 'corptocorp')
+            || str_contains($keyNorm, 'croptocrop')
+            || str_contains($keyNorm, 'corporationtocorporation');
+        if ($c2cKey) {
+            if ($valueRaw === '' || jobdivaBoolishTrue($valueRaw)) return 'c2c';
+            $negative = in_array($valueNorm, ['0', 'false', 'no', 'n', 'off', 'unchecked'], true);
+            if (!$negative && jobdivaNormalisePlacementEngagementType($keyValue, '') === 'c2c') return 'c2c';
+            return null;
+        }
+
+        $typedKey = str_contains($keyNorm, 'engagementtype')
+            || str_contains($keyNorm, 'workertype')
+            || str_contains($keyNorm, 'classification')
+            || str_contains($keyNorm, 'employmenttype')
+            || str_contains($keyNorm, 'employeetype')
+            || str_contains($keyNorm, 'positiontype')
+            || str_contains($keyNorm, 'taxtype')
+            || str_contains($keyNorm, 'payrolltype')
+            || str_contains($keyNorm, 'contracttype')
+            || str_contains($keyNorm, 'jobtype')
+            || str_contains($keyNorm, 'hiretype');
+        if ($typedKey) {
+            $type = jobdivaNormalisePlacementEngagementType($valueRaw, '');
+            if ($type !== '') return $type;
+            $type = jobdivaNormalisePlacementEngagementType($keyValue, '');
+            if ($type !== '') return $type;
+        }
+
+        $strongValue = jobdivaNormalisePlacementEngagementType($valueRaw, '');
+        if ($strongValue !== '' && $strongValue !== $fallback) {
+            return $strongValue;
+        }
+        return null;
+    };
+
+    $walk = static function (array $node, string $prefix = '') use (&$walk, $classify): ?string {
+        foreach ($node as $key => $value) {
+            $path = $prefix === '' ? (string) $key : $prefix . '.' . (string) $key;
+            if (is_array($value)) {
+                $hit = $walk($value, $path);
+                if ($hit !== null) return $hit;
+                continue;
+            }
+            $hit = $classify($path, $value);
+            if ($hit !== null) return $hit;
+        }
+        return null;
+    };
+
+    return $walk($payload) ?? $fallback;
 }
 
 function jobdivaBoolishTrue(mixed $raw): bool
@@ -2597,13 +2666,6 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'corporation to corporation', 'isC2c', 'is_c2c',
         ])
     );
-    $c2cFlagRaw = jobdivaPluckFieldDeep($jd, [
-        'c2c', 'corp to corp', 'corp-to-corp', 'crop to crop',
-        'corporation to corporation', 'isC2c', 'is_c2c',
-    ]);
-    if (jobdivaBoolishTrue($c2cFlagRaw)) {
-        $engagementRaw = 'c2c';
-    }
     $existingEngagement = null;
     if ($existingId > 0) {
         try {
@@ -2616,7 +2678,10 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             $existingEngagement = null;
         }
     }
-    $engagement = jobdivaNormalisePlacementEngagementType($engagementRaw, $existingEngagement);
+    $sourceEngagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, '');
+    $engagement = $sourceEngagement !== ''
+        ? $sourceEngagement
+        : jobdivaNormalisePlacementEngagementType($engagementRaw, $existingEngagement);
 
     $worksiteState = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'worksite_state', $jd,

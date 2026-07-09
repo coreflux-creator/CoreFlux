@@ -32,13 +32,15 @@ $a('classification candidates include JobDiva position/tax/payroll language',
 $a('classification candidates include JobDiva C2C flag fields',
     str_contains($sync, "'crop to crop'")
     && str_contains($sync, "'corp to corp'")
-    && str_contains($sync, 'jobdivaBoolishTrue($c2cFlagRaw)'));
+    && str_contains($sync, 'function jobdivaInferPlacementEngagementTypeFromPayload')
+    && str_contains($sync, 'jobdivaBoolishTrue($valueRaw)'));
 $a('normalizer recognizes c2c/corp/vendor and observed typo crop-to-crop',
     str_contains($sync, "str_contains(\$s, 'c2c')")
     && str_contains($sync, "str_contains(\$s, 'crop to crop')")
     && str_contains($sync, "str_contains(\$s, 'vendor')"));
 $a('existing placement engagement can be preserved when source is silent',
     str_contains($sync, '$existingEngagement')
+    && str_contains($sync, 'jobdivaInferPlacementEngagementTypeFromPayload($jd, \'\')')
     && str_contains($sync, 'jobdivaNormalisePlacementEngagementType($engagementRaw, $existingEngagement)'));
 $a('old direct fallback to w2 is gone',
     !str_contains($sync, '$engagementMap[strtolower(trim($engagementRaw))] ?? \'w2\''));

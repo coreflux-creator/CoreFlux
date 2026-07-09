@@ -156,18 +156,19 @@ $assert('resolves person via existing mapping in items_override path',
     strpos($src, "mappingFindInternal(\$tid, 'jobdiva', 'person', \$personExtId)") !== false);
 $assert('skips when person mapping missing (items_override path)',
     strpos($src, 'if (!$personMapping) { $skipped++; continue; }') !== false);
-$assert('optionally resolves end_client company_id',
-    strpos($src, "if (\$companyExtId !== '') {") !== false
-    && strpos($src, "mappingFindInternal(\$tid, 'jobdiva', 'company', \$companyExtId)") !== false);
+$assert('resolves end_client company_id through projector/customer identity',
+    strpos($src, '$endClientCompanyId = jobdivaProjectorResolveEndClientCompany($tid, $jd, $userId);') !== false
+    && strpos($projectorSrc, 'function jobdivaProjectorResolveEndClientCompany') !== false);
 $assert('placement upsert helper exists',         strpos($src, 'function jobdivaSyncUpsertPlacement(') !== false);
 $assert("placement uses 'jd:' external_id prefix",
     strpos($src, "'jd:' . \$extId") !== false);
 $assert('placement status maps JobDiva → CoreFlux enum',
     strpos($src, "'pending' => 'pending_start'") !== false
     && strpos($src, "'cancelled' => 'cancelled'") !== false);
-$assert("placement insert defaults engagement_type='w2' when registry/payload yield nothing",
-    strpos($src, "'w2'") !== false
-    && strpos($src, '$engagementMap[strtolower(trim($engagementRaw))] ?? \'w2\'') !== false);
+$assert("placement engagement_type uses source-evidence inference before defaulting",
+    strpos($src, 'function jobdivaInferPlacementEngagementTypeFromPayload') !== false
+    && strpos($src, '$sourceEngagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, \'\');') !== false
+    && strpos($src, 'jobdivaNormalisePlacementEngagementType($engagementRaw, $existingEngagement)') !== false);
 $assert('placement insert provides title (NOT NULL on placements table)',
     strpos($src, "engagement_type, worksite_state, worksite_country") !== false
     && strpos($src, "client_approver_name, client_approver_email, title") !== false
