@@ -140,6 +140,37 @@ function jobdivaPluckFieldDeep(
     return '';
 }
 
+function jobdivaEndClientNameFromPayload(array $item): string
+{
+    $specific = [
+        'endClientName', 'end_client_name', 'end client name',
+        'endClientCompanyName', 'end_client_company_name', 'end client company name',
+        'customerName', 'customer_name', 'customer name',
+        'clientName', 'client_name', 'client name',
+        'companyName', 'company_name', 'company name', 'COMPANYNAME',
+        'jobCompanyName', 'job_company_name', 'job company name',
+    ];
+    $v = jobdivaPluckField($item, $specific);
+    if ($v !== '') return $v;
+
+    foreach (['_jd_customer', 'customer', 'Customer', 'client', 'Client'] as $nest) {
+        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
+        $v = jobdivaPluckField($item[$nest], array_merge($specific, ['name']));
+        if ($v !== '') return $v;
+    }
+    foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
+        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
+        $v = jobdivaPluckField($item[$nest], $specific);
+        if ($v !== '') return $v;
+    }
+    foreach (['_jd_start', 'assignment', 'start', 'Start'] as $nest) {
+        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
+        $v = jobdivaPluckField($item[$nest], $specific);
+        if ($v !== '') return $v;
+    }
+    return '';
+}
+
 /**
  * Normalise a JobDiva date value into MySQL DATE (YYYY-MM-DD) format.
  *
@@ -1052,34 +1083,7 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
             //      showing on every JobDiva-synced placement, and lets
             //      the operator merge / rename the company later in the
             //      Companies UI without losing the mapping.
-            $endClientCompanyId = null;
-            if ($companyExtId !== '') {
-                $cm = mappingFindInternal($tid, 'jobdiva', 'company', $companyExtId);
-                if ($cm) $endClientCompanyId = (int) $cm['internal_entity_id'];
-            }
-            if ($endClientCompanyId === null) {
-                // Deep pluck — pulls from `_jd_customer` when the placement
-                // BI feed nullified the inline customer name (common).
-                $customerExtId = jobdivaPluckFieldDeep($jd, [
-                    'customerId', 'customer_id', 'customer id', 'clientId', 'client_id',
-                ]);
-                $customerName  = jobdivaPluckFieldDeep($jd, [
-                    'customerName', 'customer_name', 'customer name', 'clientName', 'client_name',
-                    // _jd_customer record stores the name as 'name'
-                    'name',
-                ]);
-                if ($customerExtId !== '') {
-                    $cm = mappingFindInternal($tid, 'jobdiva', 'jobdiva_customer', $customerExtId);
-                    if ($cm) {
-                        $endClientCompanyId = (int) $cm['internal_entity_id'];
-                    } elseif ($customerName !== '') {
-                        $endClientCompanyId = jobdivaResolveOrAutoCreateEndClient(
-                            $tid, $customerExtId, $customerName, $userId, $jd
-                        );
-                    }
-                }
-            }
-
+            $endClientCompanyId = jobdivaProjectorResolveEndClientCompany($tid, $jd, $userId);
             $projection = jobdivaProjectorProjectPlacement($tid, $jd, $userId, [
                 'payload_is_enriched' => true,
                 'external_id' => $extId,
@@ -2172,18 +2176,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
 
     $endClientName = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'end_client_name', $jd,
-        static fn() => jobdivaPluckFieldDeep($jd, [
-            'endClientName', 'clientName', 'end_client_name', 'client_name', 'client name', 'end client name',
-            'companyName', 'company_name', 'company name', 'COMPANYNAME',
-            'jobCompanyName', 'job_company_name', 'job company name',
-            'endClientCompanyName', 'end_client_company_name', 'end client company name',
-            // _jd_customer carries the customer record — name lives there as 'name' / 'customerName'.
-            'customerName', 'customer name', 'name',
-        ], [
-            '_jd_customer', 'customer', 'Customer', 'client', 'Client',
-            '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord',
-            '_jd_start', 'assignment', 'start', 'Start',
-        ])
+        static fn() => jobdivaEndClientNameFromPayload($jd)
     );
     $clientId = null;
     $clientBridgeName = trim($endClientName);

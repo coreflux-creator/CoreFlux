@@ -423,42 +423,13 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
             }
         }
 
-        $customerNestOrder = ['_jd_customer', 'customer', 'Customer', 'company', 'Company'];
-        $customerExtId = $payload && function_exists('jobdivaPluckFieldDeep')
-            ? jobdivaPluckFieldDeep($payload, [
-                'customerId', 'customer_id', 'customer id', 'clientId', 'client_id',
-                'companyId', 'company_id', 'company id',
-            ], $customerNestOrder)
-            : '';
-        $payloadClientName = $payload && function_exists('jobdivaPluckFieldDeep')
-            ? jobdivaPluckFieldDeep($payload, [
-                'customerName', 'customer_name', 'customer name',
-                'clientName', 'client_name', 'client name',
-                'companyName', 'company_name', 'company name',
-                'name',
-            ], $customerNestOrder)
+        $payloadClientName = $payload && function_exists('jobdivaEndClientNameFromPayload')
+            ? jobdivaEndClientNameFromPayload($payload)
             : '';
 
-        if ($companyId === null && $customerExtId !== '' && function_exists('mappingFindInternal')) {
-            foreach (['jobdiva_customer', 'company'] as $mapType) {
-                $mapping = mappingFindInternal($tenantId, 'jobdiva', $mapType, $customerExtId);
-                if ($mapping && !empty($mapping['internal_entity_id'])) {
-                    $companyId = (int) $mapping['internal_entity_id'];
-                    break;
-                }
-            }
-        }
-
-        if ($companyId === null && $customerExtId !== '' && $payloadClientName !== ''
-            && function_exists('jobdivaResolveOrAutoCreateEndClient')) {
+        if ($companyId === null && $payload && function_exists('jobdivaProjectorResolveEndClientCompany')) {
             try {
-                $resolvedCompanyId = jobdivaResolveOrAutoCreateEndClient(
-                    $tenantId,
-                    $customerExtId,
-                    $payloadClientName,
-                    $userId,
-                    $payload
-                );
+                $resolvedCompanyId = jobdivaProjectorResolveEndClientCompany($tenantId, $payload, $userId);
                 if ($resolvedCompanyId !== null && $resolvedCompanyId > 0) {
                     $companyId = (int) $resolvedCompanyId;
                 }

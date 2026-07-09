@@ -29,9 +29,8 @@
  *     remote_policy, notes, approver name/email, jobdiva_job_id,
  *     recruiter name/email, account_manager name/email, due_date,
  *     actual_end_date.
- *   - End-client name lookup (customerId / customerName / name) uses deep,
- *     adding `name` to the candidate list so the _jd_customer record's
- *     bare 'name' field is found.
+ *   - End-client name lookup uses a dedicated resolver so generic
+ *     top-level `name` fields cannot masquerade as the client company.
  *
  * This smoke EXECUTES the deep pluck against synthetic fixtures (no
  * DB, no HTTP) to prove the behaviour, and grep-asserts the wire-up.
@@ -134,6 +133,19 @@ $emptyDoc = ['placementId' => 1];
 $a('returns empty string when no candidate hits anywhere',
     jobdivaPluckFieldDeep($emptyDoc, ['unrelatedField']) === '');
 
+// 1k: end-client lookup must not treat a top-level person/contact `name`
+// as the client company when the joined JobDiva job carries COMPANYNAME.
+$overloadedName = [
+    'placementId' => 2,
+    'name' => 'Kelly Gosciminski',
+    'candidateName' => 'Naga Ganesh Sai Karthik Sadanala',
+    '_jd_job' => ['COMPANYNAME' => 'TCS'],
+];
+$a('end-client helper ignores top-level generic name and uses _jd_job.COMPANYNAME',
+    jobdivaEndClientNameFromPayload($overloadedName) === 'TCS');
+$a('projector end-client helper ignores top-level generic name and uses _jd_job.COMPANYNAME',
+    jobdivaProjectorEndClientNameFromPayload($overloadedName) === 'TCS');
+
 echo "\n2. Source-level wire-up — deep pluck is actually consumed downstream\n";
 
 $sync  = (string) file_get_contents('/app/core/jobdiva/sync.php');
@@ -152,10 +164,10 @@ $a('sync.php placement title fallback uses deep pluck',
     str_contains($sync, "return jobdivaPluckFieldDeep(\$jd, [\n                'jobTitle'"));
 $a('sync.php placement start_date fallback uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, ['startDate'"));
-$a('sync.php placement end_client_name fallback uses deep pluck with JobDiva company names',
-    str_contains($sync, "'companyName', 'company_name', 'company name', 'COMPANYNAME'")
-    && str_contains($sync, "'customerName', 'customer name', 'name',")
-    && str_contains($sync, "'_jd_customer', 'customer', 'Customer', 'client', 'Client'"));
+$a('sync.php placement end_client_name fallback uses dedicated end-client resolver',
+    str_contains($sync, 'function jobdivaEndClientNameFromPayload')
+    && str_contains($sync, 'static fn() => jobdivaEndClientNameFromPayload($jd)')
+    && str_contains($sync, "'companyName', 'company_name', 'company name', 'COMPANYNAME'"));
 $a('sync.php placement status fallback uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, ['status'"));
 $a('sync.php placement engagement_type uses deep pluck',
@@ -172,8 +184,8 @@ $a('sync.php placement account_manager_name uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, [\n            'accountManager'"));
 $a('sync.php placement jobdiva_job_id uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, ['jobId'"));
-$a('sync.php customer-name resolution at placement upsert uses deep pluck',
-    str_contains($sync, '$customerName  = jobdivaPluckFieldDeep($jd, ['));
+$a('placement sync delegates end-client company resolution to the projector',
+    str_contains($sync, '$endClientCompanyId = jobdivaProjectorResolveEndClientCompany($tid, $jd, $userId);'));
 
 echo "\n3. Enrichment scaffolding stays in place\n";
 $a('jobdivaSyncEnrichRelatedEntities still injects _jd_job / _jd_candidate / _jd_customer / _jd_contact',

@@ -87,10 +87,9 @@ $a('repair selects rows with missing end_client_company_id, not only missing cli
 $a('repair carries JobDiva payload snapshot for end-client fallback',
     str_contains($service, 'm.payload_snapshot')
     && str_contains($service, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats)')
-    && str_contains($service, 'jobdivaPluckFieldDeep($payload'));
-$a('repair can resolve/create canonical company from JobDiva customer payload',
-    str_contains($service, 'mappingFindInternal($tenantId, \'jobdiva\', $mapType, $customerExtId)')
-    && str_contains($service, 'jobdivaResolveOrAutoCreateEndClient('));
+    && str_contains($service, 'jobdivaEndClientNameFromPayload($payload)'));
+$a('repair resolves canonical company through projector end-client rules',
+    str_contains($service, 'jobdivaProjectorResolveEndClientCompany($tenantId, $payload, $userId)'));
 $a('repair backfills from an existing staffing client company when present',
     str_contains($service, 'existing_client_company_id')
     && str_contains($service, "\$companyId === null && !empty(\$row['existing_client_company_id'])"));
