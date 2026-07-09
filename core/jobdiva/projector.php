@@ -228,12 +228,9 @@ function jobdivaProjectorBindPlacementSourceIdentities(
         'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID',
         'endClientCompanyId', 'end_client_company_id',
     ], jobdivaProjectorEndClientNestOrder());
-    $customerExtId = jobdivaProjectorPluckDeep($payload, [
-        'customerId', 'customer_id', 'customer id', 'customerID', 'CUSTOMERID',
-        'clientId', 'client_id', 'client id',
-    ], jobdivaProjectorEndClientNestOrder());
     $bind('company', $companyExtId, $endClientCompanyId, $companyPayload);
-    $bind('jobdiva_customer', $customerExtId, $endClientCompanyId, $companyPayload);
+    $trustedCustomerExtId = jobdivaProjectorTrustedCustomerCompanyExternalId($payload);
+    $bind('jobdiva_customer', $trustedCustomerExtId, $endClientCompanyId, $companyPayload);
 
     $jobPayload = jobdivaProjectorNestedPayload($payload, [
         '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job', 'jobdiva_job',
@@ -491,6 +488,34 @@ function jobdivaProjectorMappedCompanyIdIfNameMatches(
     }
 }
 
+function jobdivaProjectorTrustedCustomerCompanyExternalId(array $payload): string
+{
+    // Placement-level `customer id` is not safe as a company identity. In the
+    // live Thunderhawk JobDiva payloads it points at a contact, so binding it
+    // as jobdiva_customer -> companies creates duplicate internal mappings.
+    // Only trust customer/client ids when they live inside the explicit
+    // CompaniesDetail enrichment bucket. Generic `company`/`customer` payloads
+    // can be canonical aliases built from flat placement customer fields.
+    foreach (['_jd_customer'] as $nest) {
+        if (empty($payload[$nest]) || !is_array($payload[$nest])) continue;
+        $sub = $payload[$nest];
+        $name = jobdivaProjectorPluck($sub, [
+            'companyName', 'company_name', 'company name', 'COMPANYNAME',
+            'customerName', 'customer_name', 'customer name',
+            'clientName', 'client_name', 'client name',
+            'legalName', 'legal_name', 'name',
+        ]);
+        if ($name === '') continue;
+        $id = jobdivaProjectorPluck($sub, [
+            'id', 'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID',
+            'customerId', 'customer_id', 'customer id', 'customerID', 'CUSTOMERID',
+            'clientId', 'client_id', 'client id',
+        ]);
+        if ($id !== '') return $id;
+    }
+    return '';
+}
+
 function jobdivaProjectorResolveEndClientCompany(int $tenantId, array $payload, ?int $userId): ?int
 {
     $companyExtId = jobdivaProjectorPluck($payload, [
@@ -513,10 +538,7 @@ function jobdivaProjectorResolveEndClientCompany(int $tenantId, array $payload, 
         }
     }
 
-    $customerExtId = jobdivaProjectorPluckDeep($payload, [
-        'customerId', 'customer_id', 'customer id', 'customerID', 'CUSTOMERID',
-        'clientId', 'client_id', 'client id',
-    ], jobdivaProjectorEndClientNestOrder());
+    $customerExtId = jobdivaProjectorTrustedCustomerCompanyExternalId($payload);
     if ($customerExtId !== '') {
         foreach (['jobdiva_customer', 'company'] as $mapType) {
             $companyId = jobdivaProjectorMappedCompanyIdIfNameMatches($tenantId, $mapType, $customerExtId, $endClientName);
@@ -561,7 +583,11 @@ function jobdivaProjectorEnsureEndClientCompany(
 
         if ($companyId > 0) {
             if (trim($externalId) !== '') {
-                mappingUpsert($tenantId, 'jobdiva', $mapType, trim($externalId), $companyId, $payload, 'pull', $userId);
+                try {
+                    mappingUpsert($tenantId, 'jobdiva', $mapType, trim($externalId), $companyId, $payload, 'pull', $userId);
+                } catch (\Throwable $e) {
+                    error_log('[jobdiva projector] end-client mapping bind skipped: ' . $e->getMessage());
+                }
             }
             if (function_exists('integrationPayloadFieldIndexRecord')) {
                 try {

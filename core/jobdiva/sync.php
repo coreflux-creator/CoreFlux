@@ -1084,23 +1084,22 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
             //
             //   • `companyId`              — JobDiva "company" entity id
             //     (Companies tab in JobDiva). Some tenants use this.
-            //   • `customer id` + `customer name`  — JobDiva "customer"
-            //     entity id (Customers tab). Most placements observed
-            //     in this user's pod use this shape; `companyId` is
-            //     absent. The customer IS the end client for staffing
-            //     placements — Public Storage in the Andrew Lee example.
+            //   • `customer name` / job COMPANYNAME — end-client name
+            //     evidence. In this tenant the placement `customer id`
+            //     is a contact id, not a company id, so the projector
+            //     does not bind that id as jobdiva_customer -> companies.
             //
             // Resolution chain (first hit wins):
             //   1. Existing `external_entity_mappings` row of kind
             //      'company' for `companyId`.
-            //   2. Existing `external_entity_mappings` row of kind
-            //      'jobdiva_customer' for `customer id`.
-            //   3. NEW — auto-create a CoreFlux `companies` row from
-            //      `customer name`, bind the mapping, and use it. This
+            //   2. Trusted nested customer/company payload ids only
+            //      (never the shallow placement `customer id`).
+            //   3. Auto-create or reuse a CoreFlux `companies` row from
+            //      the end-client name and use it. This
             //      unblocks the "(no end client)" badge that's been
             //      showing on every JobDiva-synced placement, and lets
             //      the operator merge / rename the company later in the
-            //      Companies UI without losing the mapping.
+            //      Companies UI without losing the placement link.
             $endClientCompanyId = jobdivaProjectorResolveEndClientCompany($tid, $jd, $userId);
             $projection = jobdivaProjectorProjectPlacement($tid, $jd, $userId, [
                 'payload_is_enriched' => true,
@@ -2080,7 +2079,11 @@ function jobdivaResolveOrAutoCreateEndClient(
     $existingId = (int) $stmt->fetchColumn();
 
     if ($existingId > 0) {
-        mappingUpsert($tid, 'jobdiva', 'jobdiva_customer', $customerExtId, $existingId, $payload, 'pull', $userId);
+        try {
+            mappingUpsert($tid, 'jobdiva', 'jobdiva_customer', $customerExtId, $existingId, $payload, 'pull', $userId);
+        } catch (\Throwable $e) {
+            error_log('[jobdiva end-client resolver] customer mapping bind skipped: ' . $e->getMessage());
+        }
         try {
             integrationPayloadFieldIndexRecord($tid, 'jobdiva', 'company', $payload);
         } catch (\Throwable $e) {
@@ -2094,7 +2097,11 @@ function jobdivaResolveOrAutoCreateEndClient(
         'INSERT INTO companies (tenant_id, name) VALUES (:t, :n)'
     )->execute(['t' => $tid, 'n' => $customerName]);
     $newId = (int) $pdo->lastInsertId();
-    mappingUpsert($tid, 'jobdiva', 'jobdiva_customer', $customerExtId, $newId, $payload, 'pull', $userId);
+    try {
+        mappingUpsert($tid, 'jobdiva', 'jobdiva_customer', $customerExtId, $newId, $payload, 'pull', $userId);
+    } catch (\Throwable $e) {
+        error_log('[jobdiva end-client resolver] customer mapping bind skipped: ' . $e->getMessage());
+    }
     try {
         integrationPayloadFieldIndexRecord($tid, 'jobdiva', 'company', $payload);
     } catch (\Throwable $e) {

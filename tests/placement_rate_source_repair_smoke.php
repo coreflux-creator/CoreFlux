@@ -37,6 +37,10 @@ $a('repair enriches the placement payload with local JobDiva mirrors before reso
     str_contains($rateApprove, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats)'));
 $a('repair delegates rate creation to the canonical JobDiva placement_rates writer',
     str_contains($rateApprove, 'jobdivaSyncUpsertPlacementRates($tenantId, $placementId, $startDate, $payload)'));
+$a('repair does not skip unsafe auto-drafted bill=pay rows',
+    str_contains($rateApprove, "SELECT id, bill_rate, pay_rate, created_by_user_id")
+    && str_contains($rateApprove, '$unsafeAutoDraft = empty($draft[\'created_by_user_id\'])')
+    && str_contains($rateApprove, 'if (!$unsafeAutoDraft) return false;'));
 $a('repair audits success and unavailable/failure reasons',
     str_contains($rateApprove, "placement.rate.auto_drafted_from_source")
     && str_contains($rateApprove, "placement.rate.auto_draft_from_source_unavailable")
@@ -44,7 +48,7 @@ $a('repair audits success and unavailable/failure reasons',
 
 echo "\n2. Auto-approve runs repair before looking for draft rows\n";
 $repairPos = strpos($rateApprove, 'placementsEnsureDraftRateFromSourcePayload($placementId, $user);');
-$selectPos = strpos($rateApprove, 'SELECT id FROM placement_rates');
+$selectPos = strpos($rateApprove, 'SELECT id FROM placement_rates', $repairPos ?: 0);
 $a('placementsAutoApproveDraftRates invokes source-payload repair first',
     $repairPos !== false && $selectPos !== false && $repairPos < $selectPos);
 $a('auto-approve remains financial-approval gated',

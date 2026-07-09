@@ -196,7 +196,7 @@ if (!function_exists('placementsEnsureDraftRateFromSourcePayload')) {
         // explicit draft row waiting for the normal approval path below.
         if (placementCurrentRate($placementId, $startDate)) return false;
         $draft = scopedFind(
-            'SELECT id
+            'SELECT id, bill_rate, pay_rate, created_by_user_id
                FROM placement_rates
               WHERE tenant_id = :tenant_id
                 AND placement_id = :pid
@@ -205,7 +205,11 @@ if (!function_exists('placementsEnsureDraftRateFromSourcePayload')) {
               LIMIT 1',
             ['pid' => $placementId]
         );
-        if ($draft) return false;
+        if ($draft) {
+            $unsafeAutoDraft = empty($draft['created_by_user_id'])
+                && abs((float) ($draft['pay_rate'] ?? 0) - (float) ($draft['bill_rate'] ?? 0)) < 0.0001;
+            if (!$unsafeAutoDraft) return false;
+        }
 
         $mapping = scopedFind(
             "SELECT id, external_id, payload_snapshot
@@ -291,7 +295,7 @@ if (!function_exists('placementsEnsureDraftRateFromSourcePayload')) {
                 'placement_id' => $placementId,
                 'source'       => 'jobdiva',
                 'mapping_id'   => (int) ($mapping['id'] ?? 0),
-                'reason'       => 'payload_has_no_positive_bill_rate',
+                'reason'       => 'payload_has_no_positive_bill_or_pay_rate',
             ], $placementId);
         } catch (\Throwable $e) {
             placementsAudit('placement.rate.auto_draft_from_source_failed', [

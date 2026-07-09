@@ -8,14 +8,13 @@
  *      data-nuking that hit the user's `customer name → end_client_name`
  *      mapping with the wrong transform selected.
  *
- *   B) `jobdivaResolveOrAutoCreateEndClient()` resolves the end-client
- *      company from JobDiva's `customer id` + `customer name` payload
- *      keys, auto-creating a CoreFlux companies row + binding the
- *      mapping on first sight. Eliminates the "(no end client)" badge
- *      that was showing on every JobDiva-synced placement.
+ *   B) The projector resolves the end-client company from trusted
+ *      company ids or company-name evidence. Placement-level `customer id`
+ *      is deliberately NOT treated as a company identity because this
+ *      tenant's JobDiva payload uses it as a contact id.
  *
  *   C) The placement sync resolution chain now tries `companyId` first,
- *      then falls back to `customer id` lookup → auto-create.
+ *      then falls back to trusted nested customer/company ids or name.
  *
  *   D) The mapping editor UI surfaces a `!` warning chip when
  *      `date_normalise` is applied to a non-date internal field.
@@ -50,27 +49,33 @@ $assert('empty string still returns empty (no crash on empty input)',
 $assert('null still returns null',
     tenantIntegrationFieldMapApplyTransform(null, 'date_normalise') === null);
 
-echo "\njobdivaResolveOrAutoCreateEndClient — declaration + wiring\n";
+echo "\nJobDiva end-client projection — declaration + wiring\n";
 $sync = (string) file_get_contents("{$ROOT}/core/jobdiva/sync.php");
+$projector = (string) file_get_contents("{$ROOT}/core/jobdiva/projector.php");
 $assert('helper declared',
     strpos($sync, 'function jobdivaResolveOrAutoCreateEndClient(') !== false);
-$assert('placement loop calls helper when companyId mapping is absent',
-    strpos($sync, '$endClientCompanyId = jobdivaResolveOrAutoCreateEndClient(') !== false);
-$assert('placement loop plucks customer id from V2 BI key shapes',
-    strpos($sync, "'customerId', 'customer_id', 'customer id', 'clientId', 'client_id'") !== false);
-$assert('placement loop plucks customer name from V2 BI key shapes',
-    strpos($sync, "'customerName', 'customer_name', 'customer name', 'clientName', 'client_name'") !== false);
-$assert('uses kind=jobdiva_customer for the mapping (distinct from kind=company)',
-    substr_count($sync, "'jobdiva_customer'") >= 3);
+$assert('placement loop delegates end-client resolution to projector',
+    strpos($sync, '$endClientCompanyId = jobdivaProjectorResolveEndClientCompany($tid, $jd, $userId);') !== false);
+$assert('projector declares trusted customer/company id helper',
+    strpos($projector, 'function jobdivaProjectorTrustedCustomerCompanyExternalId') !== false);
+$assert('projector documents shallow customer id as unsafe company identity',
+    strpos($projector, 'Placement-level `customer id` is not safe as a company identity') !== false);
+$assert('projector still plucks customer/company names from V2 BI key shapes',
+    strpos($projector, "'customerName', 'customer_name', 'customer name'") !== false
+    && strpos($projector, "'clientName', 'client_name', 'client name'") !== false);
+$assert('projector only binds trusted jobdiva_customer identities',
+    strpos($projector, '$trustedCustomerExtId = jobdivaProjectorTrustedCustomerCompanyExternalId($payload);') !== false
+    && strpos($projector, "\$bind('jobdiva_customer', \$trustedCustomerExtId") !== false);
 
 echo "\njobdivaResolveOrAutoCreateEndClient — dedupe + bind\n";
 $assert('case-insensitive name lookup before auto-create (avoid dupes)',
     strpos($sync, 'WHERE tenant_id = :t AND LOWER(name) = LOWER(:n) AND deleted_at IS NULL') !== false);
-$assert('binds the mapping after finding an existing row',
-    preg_match("/mappingUpsert\(\\\$tid, 'jobdiva', 'jobdiva_customer', \\\$customerExtId, \\\$existingId/", $sync) === 1);
+$assert('mapping collisions are logged but do not abort end-client resolution',
+    strpos($sync, '[jobdiva end-client resolver] customer mapping bind skipped') !== false
+    && strpos($projector, '[jobdiva projector] end-client mapping bind skipped') !== false);
 $assert('auto-creates with name-only (operator enriches later)',
     strpos($sync, "'INSERT INTO companies (tenant_id, name) VALUES (:t, :n)'") !== false);
-$assert('binds the mapping after auto-create',
+$assert('legacy helper still attempts a trusted mapping bind after auto-create',
     preg_match("/mappingUpsert\(\\\$tid, 'jobdiva', 'jobdiva_customer', \\\$customerExtId, \\\$newId/", $sync) === 1);
 
 echo "\nUI — transform warning chip when date_normalise targets a non-date column\n";

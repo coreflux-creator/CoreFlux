@@ -42,7 +42,12 @@ $a('projector joins native mirrors before projection',
 $a('projector resolves end client through JobDiva customer/company mappings',
     str_contains($projector, 'function jobdivaProjectorResolveEndClientCompany')
     && str_contains($projector, "foreach (['jobdiva_customer', 'company'] as \$mapType)")
-    && str_contains($projector, "mappingFindInternal(\$tenantId, 'jobdiva', \$mapType, \$customerExtId)"));
+    && str_contains($projector, 'jobdivaProjectorTrustedCustomerCompanyExternalId($payload)'));
+$a('projector does not treat shallow placement customer id as company identity',
+    str_contains($projector, 'function jobdivaProjectorTrustedCustomerCompanyExternalId')
+    && str_contains($projector, 'Placement-level `customer id` is not safe as a company identity')
+    && str_contains($projector, "foreach (['_jd_customer'] as \$nest)")
+    && !str_contains($projector, "\$bind('jobdiva_customer', \$customerExtId, \$endClientCompanyId"));
 $a('projector can ensure name-only end-client companies from joined JobDiva job/customer data',
     str_contains($projector, 'function jobdivaProjectorEnsureEndClientCompany')
     && str_contains($projector, "'COMPANYNAME'")
@@ -54,7 +59,7 @@ $a('projector binds canonical placement mapping',
 $a('projector reinforces adjacent canonical source mappings',
     str_contains($projector, 'function jobdivaProjectorBindPlacementSourceIdentities')
     && str_contains($projector, "\$bind('person', \$candidateExtId, \$personId")
-    && str_contains($projector, "\$bind('jobdiva_customer', \$customerExtId, \$endClientCompanyId")
+    && str_contains($projector, "\$bind('jobdiva_customer', \$trustedCustomerExtId, \$endClientCompanyId")
     && str_contains($projector, "\$bind('staffing_job', \$jobExtId, \$staffingJobId")
     && str_contains($projector, "\$bind('contact', \$contactExtId, \$contactId"));
 $a('projector indexes joined canonical roots',
