@@ -2217,6 +2217,9 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     if ($statusJd === '') $statusJd = 'active';
     $statusMap = ['active' => 'active', 'pending' => 'pending_start', 'ended' => 'ended', 'cancelled' => 'cancelled'];
     $status    = $statusMap[$statusJd] ?? 'active';
+    if ($endDateNorm !== null && $endDateNorm !== '' && $endDateNorm < date('Y-m-d') && $status !== 'cancelled') {
+        $status = 'ended';
+    }
 
     // -----------------------------------------------------------------
     // Slice 4 expansion (2026-02): resolve every additional same-table

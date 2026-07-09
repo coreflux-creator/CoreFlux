@@ -97,6 +97,20 @@ $a('duplicate placement detector and repair function exist',
     str_contains($service, 'duplicate_jobdiva_placement_rows')
     && str_contains($service, 'function jobdivaMappingRepairDuplicatePlacements')
     && str_contains($service, '_jobdivaMappingDuplicatePlacementBlockingChildren'));
+$a('duplicate detector catches legacy placeholder JobDiva placement copies',
+    str_contains($service, 'function _jobdivaMappingPlacementStartIdFromRow')
+    && str_contains($service, "str_starts_with(\$externalId, 'jd:') || isset(\$mapped[\$norm])")
+    && str_contains($service, 'JobDiva\s+Placement\s+(\d+)')
+    && str_contains($service, "'duplicate_basis' => 'jobdiva_start_id'")
+    && str_contains($service, "'canonical_external_id' => 'jd:' . \$startId"));
+$a('duplicate repair prefers the row carrying downstream workflow activity',
+    str_contains($service, 'function _jobdivaMappingDuplicatePlacementChildCounts')
+    && str_contains($service, 'multiple_rows_have_downstream_activity')
+    && str_contains($service, '$keepId = count($rowsWithChildren) === 1'));
+$a('stale active placement repair is exposed from alignment service',
+    str_contains($service, 'placement_active_past_end_date')
+    && str_contains($service, 'function jobdivaMappingRepairStaleActivePlacements')
+    && str_contains($service, 'mapping_alignment_repair_stale_active_placements'));
 $a('alignment report includes projector readiness drift',
     str_contains($service, 'jobdivaProjectorReadinessCounts($tenantId)')
     && str_contains($service, 'placement_missing_staffing_job')
@@ -106,6 +120,9 @@ $a('source rate draft repair is exposed from alignment service',
     str_contains($service, 'function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user')
     && str_contains($service, 'placementsEnsureDraftRateFromSourcePayload($placementId, $user)')
     && str_contains($service, 'mapping_alignment_repair_source_rate_drafts'));
+$a('JobDiva placement sync derives ended status from past end dates',
+    str_contains($sync, "\$endDateNorm < date('Y-m-d')")
+    && str_contains($sync, "\$status = 'ended';"));
 
 echo "\n4. Alignment API is wired and gated\n";
 $a('alignment API file exists', file_exists($apiPath));
@@ -123,6 +140,9 @@ $a('POST repair_duplicate_placements action is wired',
 $a('POST repair_source_rate_drafts action is wired',
     str_contains($api, "repair_source_rate_drafts")
     && str_contains($api, 'jobdivaMappingRepairSourceRateDrafts($tid, $user'));
+$a('POST repair_stale_placements action is wired',
+    str_contains($api, "repair_stale_placements")
+    && str_contains($api, 'jobdivaMappingRepairStaleActivePlacements('));
 $a('API uses integration RBAC gates',
     str_contains($api, 'rbac_legacy_require_any')
     && str_contains($api, 'integrations.jobdiva.view')
@@ -138,6 +158,10 @@ $a('settings has repair client links button',
 $a('settings has duplicate placement preview + repair buttons',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-preview-duplicate-placements"')
     && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-duplicate-placements"'));
+$a('settings has stale active preview + repair buttons',
+    str_contains($ui, 'data-testid="jobdiva-mapping-alignment-preview-stale-placements"')
+    && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-stale-placements"')
+    && str_contains($ui, "repair_stale_placements"));
 $a('settings has source rate draft repair button and issue action',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-rate-drafts"')
     && str_contains($ui, "repair_source_rate_drafts")

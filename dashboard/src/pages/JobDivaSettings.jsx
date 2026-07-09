@@ -84,7 +84,7 @@ export default function JobDivaSettings() {
   const onRepairDuplicatePlacements = async (dryRun = true) => {
     clear(); setRepairResult(null); setBusy(b => ({ ...b, repairDuplicatePlacements: true }));
     try {
-      if (!dryRun && !window.confirm('Archive duplicate JobDiva placement rows that have no downstream time, billing, or AP activity?')) {
+      if (!dryRun && !window.confirm('Archive duplicate JobDiva/legacy placement rows that have no downstream time, billing, or AP activity?')) {
         return;
       }
       const r = await api.post('/api/admin/integrations/jobdiva_mapping_alignment.php?action=repair_duplicate_placements', {
@@ -101,6 +101,28 @@ export default function JobDivaSettings() {
       setErr(e.message);
     } finally {
       setBusy(b => ({ ...b, repairDuplicatePlacements: false }));
+    }
+  };
+
+  const onRepairStalePlacements = async (dryRun = true) => {
+    clear(); setRepairResult(null); setBusy(b => ({ ...b, repairStalePlacements: true }));
+    try {
+      if (!dryRun && !window.confirm('Mark active JobDiva placements whose end date has passed as ended?')) {
+        return;
+      }
+      const r = await api.post('/api/admin/integrations/jobdiva_mapping_alignment.php?action=repair_stale_placements', {
+        dry_run: dryRun,
+      });
+      setRepairResult(r.repair || r);
+      await loadAlignment();
+      const ended = r.repair?.ended ?? 0;
+      setMsg(dryRun
+        ? `Stale active cleanup preview: ${ended} placement(s) would be ended.`
+        : `Stale active cleanup marked ${ended} placement(s) ended.`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(b => ({ ...b, repairStalePlacements: false }));
     }
   };
 
@@ -272,9 +294,11 @@ export default function JobDivaSettings() {
         onRepairClientLinks={onRepairClientLinks}
         onRepairRateDrafts={onRepairRateDrafts}
         onRepairDuplicatePlacements={onRepairDuplicatePlacements}
+        onRepairStalePlacements={onRepairStalePlacements}
         repairing={!!busy.repairClientLinks}
         repairingRates={!!busy.repairRateDrafts}
         repairingDuplicates={!!busy.repairDuplicatePlacements}
+        repairingStale={!!busy.repairStalePlacements}
         repairResult={repairResult}
       />
 
@@ -773,9 +797,11 @@ function JobDivaMappingAlignmentCard({
   onRepairClientLinks,
   onRepairRateDrafts,
   onRepairDuplicatePlacements,
+  onRepairStalePlacements,
   repairing,
   repairingRates,
   repairingDuplicates,
+  repairingStale,
   repairResult,
 }) {
   const counts = data?.canonical_mapping_counts || data?.mapping_counts || {};
@@ -928,6 +954,8 @@ function JobDivaMappingAlignmentCard({
            style={{ margin: '10px 0 0', padding: 10, border: '1px solid #a7f3d0', background: '#ecfdf5', color: '#065f46', borderRadius: 6, fontSize: 12 }}>
           {'groups_checked' in repairResult
             ? <>Groups {repairResult.groups_checked ?? 0}; repaired {repairResult.groups_repaired ?? 0}; archived {repairResult.placements_archived ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
+            : 'ended' in repairResult
+              ? <>{repairResult.dry_run ? 'Previewed' : 'Checked'} {repairResult.checked ?? 0}; {repairResult.dry_run ? 'would end' : 'ended'} {repairResult.ended ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
             : 'drafted' in repairResult
               ? <>Checked {repairResult.checked ?? 0}; drafted {repairResult.drafted ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
             : <>Checked {repairResult.checked ?? 0}; repaired {repairResult.repaired ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>}
@@ -962,9 +990,11 @@ function JobDivaMappingAlignmentCard({
                 onRepairClientLinks={onRepairClientLinks}
                 onRepairRateDrafts={onRepairRateDrafts}
                 onRepairDuplicatePlacements={onRepairDuplicatePlacements}
+                onRepairStalePlacements={onRepairStalePlacements}
                 repairing={repairing}
                 repairingRates={repairingRates}
                 repairingDuplicates={repairingDuplicates}
+                repairingStale={repairingStale}
               />
             </div>
           ))}
@@ -992,6 +1022,18 @@ function JobDivaMappingAlignmentCard({
                   style={{ fontSize: 12 }}>
             <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
             {repairingDuplicates ? 'Repairing...' : 'Archive safe duplicates'}
+          </button>
+          <button type="button" className="btn btn--ghost" onClick={() => onRepairStalePlacements?.(true)}
+                  data-testid="jobdiva-mapping-alignment-preview-stale-placements" disabled={repairingStale}
+                  style={{ fontSize: 12 }}>
+            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            {repairingStale ? 'Checking...' : 'Preview stale active'}
+          </button>
+          <button type="button" className="btn btn--danger" onClick={() => onRepairStalePlacements?.(false)}
+                  data-testid="jobdiva-mapping-alignment-repair-stale-placements" disabled={repairingStale}
+                  style={{ fontSize: 12 }}>
+            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            {repairingStale ? 'Repairing...' : 'Mark stale ended'}
           </button>
         </div>
       </details>
@@ -1112,13 +1154,18 @@ function operatorIssueView(issue) {
     },
     duplicate_jobdiva_placement_rows: {
       title: 'Remove duplicate placement rows',
-      impact: 'One JobDiva Start ID points at more than one active CoreFlux placement row.',
+      impact: 'One JobDiva or legacy external placement identity points at more than one active CoreFlux placement row.',
       next: 'Preview duplicates first; archive only duplicate rows with no downstream activity.',
+    },
+    placement_active_past_end_date: {
+      title: 'End stale active placements',
+      impact: 'These JobDiva placements are still marked active even though their end date has passed.',
+      next: 'Preview stale active rows, then mark valid stale rows ended.',
     },
   })[code] || fallback;
 }
 
-function IssueAction({ issue, onRepairClientLinks, onRepairRateDrafts, onRepairDuplicatePlacements, repairing, repairingRates, repairingDuplicates }) {
+function IssueAction({ issue, onRepairClientLinks, onRepairRateDrafts, onRepairDuplicatePlacements, onRepairStalePlacements, repairing, repairingRates, repairingDuplicates, repairingStale }) {
   const code = issue?.code || '';
   if (code === 'placement_missing_rate_row') {
     return (
@@ -1154,6 +1201,14 @@ function IssueAction({ issue, onRepairClientLinks, onRepairRateDrafts, onRepairD
       <button type="button" className="btn btn--ghost" onClick={() => onRepairDuplicatePlacements?.(true)}
               disabled={repairingDuplicates} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
         {repairingDuplicates ? 'Checking...' : 'Preview'}
+      </button>
+    );
+  }
+  if (code === 'placement_active_past_end_date') {
+    return (
+      <button type="button" className="btn btn--ghost" onClick={() => onRepairStalePlacements?.(true)}
+              disabled={repairingStale} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+        {repairingStale ? 'Checking...' : 'Preview'}
       </button>
     );
   }
