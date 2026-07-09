@@ -122,6 +122,11 @@ $a('duplicate repair rehomes mappings after archiving orphan shells',
     && str_contains($service, 'internal_entity_id <> :keep_id')
     && strpos($service, '_jobdivaMappingRehomePlacementMapping($pdo, $tenantId, $norm, $keepId, $duplicateIds)') >
        strpos($service, 'SET deleted_at = NOW(), updated_at = NOW()'));
+$a('duplicate repair avoids repeated PDO placeholders when restoring external ids',
+    str_contains($service, 'external_id = :ext_set')
+    && str_contains($service, 'external_id <> :ext_filter')
+    && str_contains($service, "'ext_set' => \$canonical")
+    && str_contains($service, "'ext_filter' => \$canonical"));
 $a('stale active placement repair is exposed from alignment service',
     str_contains($service, 'placement_active_past_end_date')
     && str_contains($service, 'function jobdivaMappingRepairStaleActivePlacements')

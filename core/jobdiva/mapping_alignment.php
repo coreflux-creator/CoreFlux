@@ -944,10 +944,10 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
             if ($canonical !== '') {
                 $st = $pdo->prepare(
                     'UPDATE placements
-                        SET external_id = :ext, updated_at = NOW()
-                      WHERE tenant_id = :t AND id = :id AND external_id <> :ext'
+                        SET external_id = :ext_set, updated_at = NOW()
+                      WHERE tenant_id = :t AND id = :id AND external_id <> :ext_filter'
                 );
-                $st->execute(['ext' => $canonical, 't' => $tenantId, 'id' => $keepId]);
+                $st->execute(['ext_set' => $canonical, 'ext_filter' => $canonical, 't' => $tenantId, 'id' => $keepId]);
                 if ($st->rowCount() > 0) $summary['external_ids_restored']++;
             }
 
