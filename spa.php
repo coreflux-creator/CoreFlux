@@ -14,35 +14,69 @@ if (!isset($_SESSION['user'])) {
     exit;
 }
 
-// Find the built assets dynamically.
+// Find the built assets deterministically.
 //
-// IMPORTANT: We pick the bundle with the most recent mtime, NOT the
-// alphabetically-last one. Vite emits content-hashed filenames like
-// `index-7wDAi7LA.js`. Old bundles from previous builds linger in this
-// directory until a deploy script cleans them up — and the previous
-// alphabetical loop would non-deterministically serve whichever happened
-// to sort last (often an older bundle), making fresh deploys appear to
-// have no effect. update.php now also prunes stale bundles after each
-// successful pull, but mtime-based selection here is the belt-and-suspenders
-// guarantee that the newest file wins regardless.
+// Vite emits content-hashed filenames and old bundles can linger after Git
+// deploys. Guessing by alphabetical order or mtime lets the app boot an older
+// JS bundle with a newer CSS file, which makes production look unchanged after
+// a successful push. The built dashboard/dist/index.html is the source of
+// truth; .deploy-version is the fallback stamp written by the bundle sync.
 $assetsDir = __DIR__ . '/spa-assets';
 $jsFile = '';
 $cssFile = '';
 
+function corefluxSpaPickAssetFromDist(string $root, string $ext): string
+{
+    $distHtml = $root . '/dashboard/dist/index.html';
+    if (!is_file($distHtml)) return '';
+    $html = (string) file_get_contents($distHtml);
+    if (!preg_match_all('#/(?:spa-assets|assets)/(index-[A-Za-z0-9_-]+\.' . preg_quote($ext, '#') . ')#', $html, $matches)) {
+        return '';
+    }
+    foreach ($matches[1] as $name) {
+        if (is_file($root . '/spa-assets/' . $name)) return $name;
+    }
+    return '';
+}
+
+function corefluxSpaPickAssetFromStamp(string $root, string $ext): string
+{
+    $stampFile = $root . '/.deploy-version';
+    if (!is_file($stampFile)) return '';
+    $stamp = (string) file_get_contents($stampFile);
+    if (!preg_match('/expected_bundle:\s*\n((?:\s*-[^\n]*\n)+)/', $stamp, $block)) return '';
+    foreach (preg_split('/\r?\n/', trim($block[1])) as $line) {
+        $rel = trim((string) preg_replace('/^\s*-\s*/', '', $line));
+        $name = basename($rel);
+        if (preg_match('/^index-[A-Za-z0-9_-]+\.' . preg_quote($ext, '/') . '$/', $name)
+            && is_file($root . '/spa-assets/' . $name)) {
+            return $name;
+        }
+    }
+    return '';
+}
+
 if (is_dir($assetsDir)) {
+    $jsFile = corefluxSpaPickAssetFromDist(__DIR__, 'js') ?: corefluxSpaPickAssetFromStamp(__DIR__, 'js');
+    $cssFile = corefluxSpaPickAssetFromDist(__DIR__, 'css') ?: corefluxSpaPickAssetFromStamp(__DIR__, 'css');
+}
+
+// Last-resort fallback for developer sandboxes where the dist/stamp files have
+// not been generated yet.
+if (is_dir($assetsDir) && ($jsFile === '' || $cssFile === '')) {
     $jsCandidate  = ['name' => '', 'mtime' => 0];
     $cssCandidate = ['name' => '', 'mtime' => 0];
     foreach (scandir($assetsDir) as $file) {
         $path = $assetsDir . '/' . $file;
-        if (preg_match('/^index-.*\.js$/', $file) && filemtime($path) > $jsCandidate['mtime']) {
+        if ($jsFile === '' && preg_match('/^index-.*\.js$/', $file) && filemtime($path) > $jsCandidate['mtime']) {
             $jsCandidate = ['name' => $file, 'mtime' => filemtime($path)];
         }
-        if (preg_match('/^index-.*\.css$/', $file) && filemtime($path) > $cssCandidate['mtime']) {
+        if ($cssFile === '' && preg_match('/^index-.*\.css$/', $file) && filemtime($path) > $cssCandidate['mtime']) {
             $cssCandidate = ['name' => $file, 'mtime' => filemtime($path)];
         }
     }
-    $jsFile  = $jsCandidate['name'];
-    $cssFile = $cssCandidate['name'];
+    $jsFile  = $jsFile ?: $jsCandidate['name'];
+    $cssFile = $cssFile ?: $cssCandidate['name'];
 }
 
 // Fallback if assets not found
