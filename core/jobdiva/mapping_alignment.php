@@ -148,6 +148,34 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
             'Active JobDiva placements do not have an approved rate covering the placement start date.',
             'Approve the draft rate or adjust its effective window before promotion, billing, payroll, or AP settlement.'
         );
+        $unsafeAutoDraftRates = 0;
+        if (_jobdivaMappingTableExists($pdo, 'placement_rates')
+            && _jobdivaMappingColumnExists($pdo, 'placement_rates', 'created_by_user_id')) {
+            $unsafeAutoDraftRates = _jobdivaMappingScalar($pdo,
+                "SELECT COUNT(*)
+                   FROM external_entity_mappings m
+                   JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
+                   JOIN placement_rates pr ON pr.tenant_id = p.tenant_id AND pr.placement_id = p.id
+                  WHERE m.tenant_id = :t
+                    AND m.source_system = 'jobdiva'
+                    AND m.internal_entity_type = 'placement'
+                    AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
+                    AND pr.approved_at IS NULL
+                    AND pr.created_by_user_id IS NULL
+                    AND ABS(pr.pay_rate - pr.bill_rate) < 0.0001",
+                ['t' => $tenantId]
+            );
+        }
+        $relationships['placement_graph']['unsafe_auto_rate_bill_equals_pay'] = $unsafeAutoDraftRates;
+        _jobdivaMappingAddIssue(
+            $issues,
+            'critical',
+            'placement_auto_rate_bill_equals_pay',
+            'placement_rates',
+            $unsafeAutoDraftRates,
+            'JobDiva auto-drafted rates have identical bill and pay values.',
+            'Run Repair rates so CoreFlux can rebuild from a real JobDiva pay field or remove unsafe auto-drafts before approval.'
+        );
         $duplicatePlacementGroups = _jobdivaMappingDuplicatePlacementGroups($pdo, $tenantId, $limit);
         $relationships['placement_graph']['duplicate_jobdiva_external_id_groups'] = count($duplicatePlacementGroups);
         if ($duplicatePlacementGroups) {
@@ -402,7 +430,8 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
             AND m.internal_entity_type = 'placement'
             AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
             AND (
-                 p.client_id IS NULL
+                 m.payload_snapshot IS NOT NULL
+              OR p.client_id IS NULL
               OR p.end_client_company_id IS NULL
               OR p.end_client_company_id = 0
               OR sc.id IS NULL
@@ -443,7 +472,7 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
             ? jobdivaEndClientNameFromPayload($payload)
             : '';
 
-        if ($companyId === null && $payload && function_exists('jobdivaProjectorResolveEndClientCompany')) {
+        if ($payloadClientName !== '' && function_exists('jobdivaProjectorResolveEndClientCompany')) {
             try {
                 $resolvedCompanyId = jobdivaProjectorResolveEndClientCompany($tenantId, $payload, $userId);
                 if ($resolvedCompanyId !== null && $resolvedCompanyId > 0) {
@@ -454,7 +483,8 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
             }
         }
 
-        $name = trim((string) ($row['end_client_name'] ?? ''));
+        $name = trim($payloadClientName);
+        if ($name === '') $name = trim((string) ($row['end_client_name'] ?? ''));
         if ($name === '') $name = trim((string) ($row['company_name'] ?? ''));
         if ($name === '') $name = trim((string) ($row['existing_client_name'] ?? ''));
         if ($name === '') $name = trim($payloadClientName);
@@ -495,7 +525,8 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
                 $sets[] = 'end_client_company_id = :end_client_company_id';
                 $patch['end_client_company_id'] = (int) $clientRef['company_id'];
             }
-            if (trim((string) ($row['end_client_name'] ?? '')) === '' && !empty($clientRef['name'])) {
+            if (!empty($clientRef['name'])
+                && jobdivaProjectorCompanyNameKey((string) ($row['end_client_name'] ?? '')) !== jobdivaProjectorCompanyNameKey((string) $clientRef['name'])) {
                 $sets[] = 'end_client_name = :end_client_name';
                 $patch['end_client_name'] = (string) $clientRef['name'];
             }
@@ -545,7 +576,7 @@ function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user, int $l
             return $summary;
         }
     }
-    foreach ([['placements', 'start_date'], ['placements', 'status'], ['placement_rates', 'approved_at'], ['placement_rates', 'effective_from'], ['placement_rates', 'effective_to']] as [$table, $column]) {
+    foreach ([['placements', 'start_date'], ['placements', 'status'], ['placement_rates', 'approved_at'], ['placement_rates', 'effective_from'], ['placement_rates', 'effective_to'], ['placement_rates', 'created_by_user_id']] as [$table, $column]) {
         if (!_jobdivaMappingColumnExists($pdo, $table, $column)) {
             $summary['failed']++;
             $summary['errors'][] = "Missing column: {$table}.{$column}";
@@ -579,6 +610,15 @@ function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user, int $l
                         AND approved_pr.effective_from <= COALESCE(NULLIF(p.start_date, ''), CURDATE())
                         AND (approved_pr.effective_to IS NULL OR approved_pr.effective_to >= COALESCE(NULLIF(p.start_date, ''), CURDATE()))
                 )
+              )
+              OR EXISTS (
+                    SELECT 1
+                      FROM placement_rates unsafe_pr
+                     WHERE unsafe_pr.tenant_id = p.tenant_id
+                       AND unsafe_pr.placement_id = p.id
+                       AND unsafe_pr.approved_at IS NULL
+                       AND unsafe_pr.created_by_user_id IS NULL
+                       AND ABS(unsafe_pr.pay_rate - unsafe_pr.bill_rate) < 0.0001
               )
             )
        GROUP BY p.id

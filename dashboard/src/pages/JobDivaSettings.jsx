@@ -1245,6 +1245,11 @@ function operatorIssueView(issue) {
       impact: 'These JobDiva placements have no pricing row in CoreFlux, so billing and payroll cannot price the work.',
       next: 'Use Repair rate drafts, then approve any draft rates that appear.',
     },
+    placement_auto_rate_bill_equals_pay: {
+      title: 'Repair unsafe auto-drafted rates',
+      impact: 'These JobDiva auto-drafted rates have identical bill and pay values, which would approve a fake zero-margin contract.',
+      next: 'Use Repair rates to rebuild them from a real JobDiva pay field or remove unsafe drafts before approval.',
+    },
     placement_missing_end_client_company: {
       title: 'Repair end-client company link',
       impact: 'The placement exists, but it is not tied to the company record that billing, AP, and payroll share.',
@@ -1275,7 +1280,7 @@ function operatorIssueView(issue) {
 
 function IssueAction({ issue, onRepairClientLinks, onRepairRateDrafts, onRepairDuplicatePlacements, onRepairStalePlacements, repairing, repairingRates, repairingDuplicates, repairingStale }) {
   const code = issue?.code || '';
-  if (code === 'placement_missing_rate_row') {
+  if (code === 'placement_missing_rate_row' || code === 'placement_auto_rate_bill_equals_pay') {
     return (
       <button type="button" className="btn btn--primary" onClick={onRepairRateDrafts}
               disabled={repairingRates} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>

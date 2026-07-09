@@ -63,6 +63,9 @@ $assert('bill_rate defaults include JobDiva BILLRATEMAX from start detail',
     && strpos($sync, 'static fn() => jobdivaPluckFieldDeep($jd, [') !== false);
 $assert('pay_rate defaults include "agreed pay rate" (V2 BI key)',
     strpos($sync, "'agreed pay rate', 'agreedPayRate', 'agreed_pay_rate', 'AGREEDPAYRATE'") !== false);
+$assert('pay_rate defaults include JobDiva pay-rate variants without using bill-rate keys',
+    strpos($sync, "'final pay rate', 'finalPayRate', 'final_pay_rate'") !== false
+    && strpos($sync, "'pay rate max', 'payRateMax', 'pay_rate_max', 'PAYRATEMAX'") !== false);
 $assert('bill_rate_unit defaults include "bill rate currency/unit"',
     strpos($sync, "'bill rate currency/unit'") !== false);
 
@@ -75,9 +78,14 @@ $assert('rate parser accepts currency/unit display strings',
     && strpos($sync, "str_replace([',', '$'], '', \$s)") !== false
     && strpos($sync, "preg_match('/-?\\d+(?:\\.\\d+)?/'") !== false
     && strpos($sync, '$billRate = jobdivaParseRateAmount($billRateRaw);') !== false);
-$assert('pay_rate falls back to bill_rate when JobDiva did not supply one (NOT NULL column)',
+$assert('missing pay_rate removes unsafe auto-draft instead of falling back to bill_rate',
     strpos($sync, '$payRate = jobdivaParseRateAmount($payRateRaw);') !== false
-    && strpos($sync, 'if ($payRate <= 0) $payRate = $billRate;') !== false);
+    && strpos($sync, 'jobdivaSyncRemoveUnsourcedAutoDraftRate($tid, $placementId, $billRate);') !== false
+    && strpos($sync, 'if ($payRate <= 0) $payRate = $billRate;') === false);
+$assert('cleanup targets old auto-generated bill=pay drafts only',
+    strpos($sync, 'function jobdivaSyncRemoveUnsourcedAutoDraftRate') !== false
+    && strpos($sync, 'created_by_user_id IS NULL') !== false
+    && strpos($sync, 'ABS(pay_rate - bill_rate) < 0.0001') !== false);
 $assert('unit coercion accepts "h" / "USD/Hour" / "Hourly" → hour',
     strpos($sync, "if (\$s === '' || \$s === 'h' || str_contains(\$s, 'hour')) return 'hour';") !== false);
 $assert('currency is forced to CHAR(3) by extracting ISO-3 substring',

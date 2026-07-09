@@ -2616,6 +2616,31 @@ function jobdivaParseRateAmount(mixed $raw): float
     return 0.0;
 }
 
+function jobdivaSyncRemoveUnsourcedAutoDraftRate(int $tid, int $placementId, float $billRate): void
+{
+    if ($tid <= 0 || $placementId <= 0 || $billRate <= 0) return;
+    try {
+        $pdo = getDB();
+        if (!$pdo) return;
+        $pdo->prepare(
+            'DELETE FROM placement_rates
+              WHERE tenant_id = :t
+                AND placement_id = :p
+                AND approved_at IS NULL
+                AND created_by_user_id IS NULL
+                AND effective_to IS NULL
+                AND ABS(bill_rate - :br) < 0.0001
+                AND ABS(pay_rate - bill_rate) < 0.0001'
+        )->execute([
+            't'  => $tid,
+            'p'  => $placementId,
+            'br' => $billRate,
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[jobdiva placement rate cleanup] ' . $e->getMessage());
+    }
+}
+
 function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $startDate, array $jd): bool
 {
     require_once __DIR__ . '/../integrations/field_map.php';
@@ -2646,13 +2671,23 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         static fn() => jobdivaPluckFieldDeep($jd, [
             'agreed pay rate', 'agreedPayRate', 'agreed_pay_rate', 'AGREEDPAYRATE',
             'pay rate', 'payRate', 'pay_rate', 'PAYRATE',
+            'final pay rate', 'finalPayRate', 'final_pay_rate',
+            'actual pay rate', 'actualPayRate', 'actual_pay_rate',
             'base pay rate', 'basePayRate', 'base_pay_rate',
+            'pay rate max', 'payRateMax', 'pay_rate_max', 'PAYRATEMAX',
+            'max pay rate', 'maximum pay rate', 'payRateMaximum',
+            'hourly pay rate', 'hourlyPayRate', 'hourly_pay_rate',
         ])
     );
-    // pay_rate is NOT NULL on the schema — if JobDiva didn't supply
-    // one, mirror bill_rate (overrideable by the operator later).
+    // pay_rate is NOT NULL on the schema, but copying bill_rate into
+    // pay_rate creates a fake zero-margin contract. If JobDiva (or the
+    // tenant field map) does not provide a real positive pay value, do
+    // not create/refresh the rate row.
     $payRate = jobdivaParseRateAmount($payRateRaw);
-    if ($payRate <= 0) $payRate = $billRate;
+    if ($payRate <= 0) {
+        jobdivaSyncRemoveUnsourcedAutoDraftRate($tid, $placementId, $billRate);
+        return false;
+    }
 
     // Coerce 'h' / 'hourly' / 'USD/Hour' / etc. to the ENUM values.
     // Per-rate units may differ (e.g. day rate + hourly OT) but the
@@ -2718,7 +2753,8 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     // correction rather than silently mutating the approved economics.
     $existing = $pdo->prepare(
         'SELECT id, effective_from, approved_at, bill_rate, bill_rate_unit,
-                pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier
+                pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier,
+                created_by_user_id
            FROM placement_rates
           WHERE tenant_id = :t AND placement_id = :p AND effective_to IS NULL
           ORDER BY (approved_at IS NULL) DESC, effective_from DESC, id DESC

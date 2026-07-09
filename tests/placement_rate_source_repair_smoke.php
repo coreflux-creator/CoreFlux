@@ -75,6 +75,11 @@ $a('writer compares approved economics and returns when current approved row is 
 $a('writer inserts a draft correction instead of mutating approved rows',
     str_contains($jobdivaSync, 'Fall through to INSERT a draft correction')
     && str_contains($jobdivaSync, '(tenant_id, placement_id, effective_from, effective_to, bill_rate'));
+$a('approval refuses unsafe JobDiva auto-drafts where bill equals pay',
+    str_contains($rateApprove, 'function placementsRateIsUnsafeJobDivaAutoDraft')
+    && str_contains($rateApprove, 'abs((float) ($rate[\'bill_rate\'] ?? 0) - (float) ($rate[\'pay_rate\'] ?? 0))')
+    && str_contains($rateApprove, "source_system = 'jobdiva'")
+    && str_contains($rateApprove, 'identical bill and pay values'));
 
 echo "\n5. PHP syntax\n";
 foreach ([

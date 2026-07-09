@@ -443,6 +443,54 @@ function jobdivaProjectorReadinessCounts(int $tenantId): array
     return $counts;
 }
 
+function jobdivaProjectorCompanyNameKey(string $name): string
+{
+    return strtolower((string) preg_replace('/[^a-z0-9]/i', '', $name));
+}
+
+function jobdivaProjectorCompanyNameCompatible(string $mappedName, string $sourceName): bool
+{
+    $mapped = jobdivaProjectorCompanyNameKey($mappedName);
+    $source = jobdivaProjectorCompanyNameKey($sourceName);
+    if ($mapped === '' || $source === '') return true;
+    if ($mapped === $source) return true;
+    return strlen($mapped) >= 4 && strlen($source) >= 4
+        && (str_contains($mapped, $source) || str_contains($source, $mapped));
+}
+
+function jobdivaProjectorMappedCompanyIdIfNameMatches(
+    int $tenantId,
+    string $mapType,
+    string $externalId,
+    string $sourceName
+): ?int {
+    $mapping = mappingFindInternal($tenantId, 'jobdiva', $mapType, $externalId);
+    if (!$mapping) return null;
+    $companyId = (int) ($mapping['internal_entity_id'] ?? 0);
+    if ($companyId <= 0) return null;
+    if (trim($sourceName) === '') return $companyId;
+
+    try {
+        $pdo = getDB();
+        $stmt = $pdo->prepare(
+            'SELECT name, legal_name
+               FROM companies
+              WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL
+              LIMIT 1'
+        );
+        $stmt->execute(['t' => $tenantId, 'id' => $companyId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if (!$row) return null;
+        $mappedName = trim((string) (($row['name'] ?? '') ?: ($row['legal_name'] ?? '')));
+        return jobdivaProjectorCompanyNameCompatible($mappedName, $sourceName)
+            ? $companyId
+            : null;
+    } catch (\Throwable $e) {
+        error_log('[jobdiva projector] mapped company compatibility check failed: ' . $e->getMessage());
+        return $companyId;
+    }
+}
+
 function jobdivaProjectorResolveEndClientCompany(int $tenantId, array $payload, ?int $userId): ?int
 {
     $companyExtId = jobdivaProjectorPluck($payload, [
@@ -451,8 +499,8 @@ function jobdivaProjectorResolveEndClientCompany(int $tenantId, array $payload, 
     ]);
     $endClientName = jobdivaProjectorEndClientNameFromPayload($payload);
     if ($companyExtId !== '') {
-        $cm = mappingFindInternal($tenantId, 'jobdiva', 'company', $companyExtId);
-        if ($cm) return (int) $cm['internal_entity_id'];
+        $companyId = jobdivaProjectorMappedCompanyIdIfNameMatches($tenantId, 'company', $companyExtId, $endClientName);
+        if ($companyId !== null && $companyId > 0) return $companyId;
         if ($endClientName !== '') {
             return jobdivaProjectorEnsureEndClientCompany(
                 $tenantId,
@@ -471,8 +519,8 @@ function jobdivaProjectorResolveEndClientCompany(int $tenantId, array $payload, 
     ], jobdivaProjectorEndClientNestOrder());
     if ($customerExtId !== '') {
         foreach (['jobdiva_customer', 'company'] as $mapType) {
-            $cm = mappingFindInternal($tenantId, 'jobdiva', $mapType, $customerExtId);
-            if ($cm) return (int) $cm['internal_entity_id'];
+            $companyId = jobdivaProjectorMappedCompanyIdIfNameMatches($tenantId, $mapType, $customerExtId, $endClientName);
+            if ($companyId !== null && $companyId > 0) return $companyId;
         }
         if ($endClientName !== '' && function_exists('jobdivaResolveOrAutoCreateEndClient')) {
             return jobdivaResolveOrAutoCreateEndClient($tenantId, $customerExtId, $endClientName, $userId, $payload);

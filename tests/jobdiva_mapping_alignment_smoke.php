@@ -88,6 +88,10 @@ $a('repair carries JobDiva payload snapshot for end-client fallback',
     str_contains($service, 'm.payload_snapshot')
     && str_contains($service, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats)')
     && str_contains($service, 'jobdivaEndClientNameFromPayload($payload)'));
+$a('repair treats JobDiva payload company name as authoritative over stale placement labels',
+    str_contains($service, '$name = trim($payloadClientName);')
+    && str_contains($service, 'jobdivaProjectorCompanyNameKey((string) ($row[\'end_client_name\'] ?? \'\'))')
+    && str_contains($service, 'end_client_name = :end_client_name'));
 $a('repair resolves canonical company through projector end-client rules',
     str_contains($service, 'jobdivaProjectorResolveEndClientCompany($tenantId, $payload, $userId)'));
 $a('repair backfills from an existing staffing client company when present',
@@ -143,6 +147,11 @@ $a('source rate draft repair is exposed from alignment service',
 $a('source rate draft repair tries mapped placements even when snapshot must be rebuilt from mirrors',
     str_contains($service, "m.internal_entity_type = 'placement'")
     && !str_contains($service, "AND m.payload_snapshot IS NOT NULL\n            AND m.payload_snapshot <> ''\n            AND (p.deleted_at"));
+$a('alignment detects and repairs unsafe JobDiva auto-drafted bill=pay rates',
+    str_contains($service, 'placement_auto_rate_bill_equals_pay')
+    && str_contains($service, 'unsafe_auto_rate_bill_equals_pay')
+    && str_contains($service, 'ABS(pr.pay_rate - pr.bill_rate) < 0.0001')
+    && str_contains($service, 'ABS(unsafe_pr.pay_rate - unsafe_pr.bill_rate) < 0.0001'));
 $a('canonical projection repair is exposed from alignment service',
     str_contains($service, 'function jobdivaMappingRepairCanonicalProjection(int $tenantId')
     && str_contains($service, 'jobdivaReprojectMirroredPlacementGraphs($tenantId, $userId, $limit)')
@@ -160,6 +169,11 @@ $a('ordered repair workflow replays canonical projection before cleanup and rate
 $a('JobDiva placement sync derives ended status from past end dates',
     str_contains($sync, "\$endDateNorm < date('Y-m-d')")
     && str_contains($sync, "\$status = 'ended';"));
+$a('projector distrusts external company mappings whose name conflicts with JobDiva payload',
+    str_contains($projector, 'function jobdivaProjectorCompanyNameCompatible')
+    && str_contains($projector, 'function jobdivaProjectorMappedCompanyIdIfNameMatches')
+    && str_contains($projector, 'jobdivaProjectorMappedCompanyIdIfNameMatches($tenantId, \'company\', $companyExtId, $endClientName)')
+    && !str_contains($projector, '$cm = mappingFindInternal($tenantId, \'jobdiva\', \'company\', $companyExtId);'));
 
 echo "\n4. Alignment API is wired and gated\n";
 $a('alignment API file exists', file_exists($apiPath));
@@ -213,7 +227,11 @@ $a('settings has source rate draft repair button and issue action',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-rate-drafts"')
     && str_contains($ui, "repair_source_rate_drafts")
     && str_contains($ui, "code === 'placement_missing_rate_row'")
+    && str_contains($ui, "code === 'placement_missing_rate_row' || code === 'placement_auto_rate_bill_equals_pay'")
     && str_contains($ui, 'Repair rates'));
+$a('settings explains unsafe JobDiva auto-drafted bill=pay rates',
+    str_contains($ui, 'placement_auto_rate_bill_equals_pay')
+    && str_contains($ui, 'fake zero-margin contract'));
 $a('settings renders canonical object map',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-object-map"'));
 $a('settings renders mirror-only section',

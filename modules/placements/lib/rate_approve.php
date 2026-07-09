@@ -16,6 +16,28 @@ declare(strict_types=1);
 require_once __DIR__ . '/placements.php';
 
 if (!function_exists('placementsRateApproveOne')) {
+    function placementsRateIsUnsafeJobDivaAutoDraft(array $rate): bool
+    {
+        if (!empty($rate['created_by_user_id'])) return false;
+        if (abs((float) ($rate['bill_rate'] ?? 0) - (float) ($rate['pay_rate'] ?? 0)) >= 0.0001) return false;
+        if ((float) ($rate['bill_rate'] ?? 0) <= 0) return false;
+        try {
+            $mapping = scopedFind(
+                "SELECT id FROM external_entity_mappings
+                  WHERE tenant_id = :tenant_id
+                    AND source_system = 'jobdiva'
+                    AND internal_entity_type = 'placement'
+                    AND internal_entity_id = :pid
+                  LIMIT 1",
+                ['pid' => (int) ($rate['placement_id'] ?? 0)]
+            );
+            return (bool) $mapping;
+        } catch (\Throwable $e) {
+            error_log('[placements rate approve] unsafe JobDiva draft check failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     /**
      * Approve one placement_rates row inside its own transaction.
      * Throws on failure (caller decides whether to map to HTTP / log /
@@ -28,6 +50,11 @@ if (!function_exists('placementsRateApproveOne')) {
         $rate = scopedFind('SELECT * FROM placement_rates WHERE tenant_id = :tenant_id AND id = :id', ['id' => $rateId]);
         if (!$rate)               throw new \RuntimeException("Rate {$rateId} not found");
         if ($rate['approved_at']) throw new \RuntimeException("Rate {$rateId} already approved");
+        if (placementsRateIsUnsafeJobDivaAutoDraft($rate)) {
+            throw new \RuntimeException(
+                'JobDiva auto-drafted this rate with identical bill and pay values. Run Repair rates to rebuild from a real pay field, or enter a manual rate before approval.'
+            );
+        }
 
         $chain  = placementChain((int) $rate['placement_id']);
         $margin = placementsComputeMargin($rate, $chain);
