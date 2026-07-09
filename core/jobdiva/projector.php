@@ -34,12 +34,12 @@ function jobdivaProjectorContract(): array
             'project_coreflux' => [
                 'owner' => 'coreflux_graphs',
                 'description' => 'Write the canonical rows downstream modules consume.',
-                'outputs' => ['people', 'companies', 'company_contacts', 'staffing_jobs', 'staffing_clients', 'placements', 'placement_rates', 'time_entries'],
+                'outputs' => ['people', 'companies', 'company_contacts', 'staffing_jobs', 'staffing_clients', 'placements', 'placement_client_chain', 'placement_rates', 'time_entries'],
             ],
             'workflow_readiness' => [
                 'owner' => 'projector',
                 'description' => 'Check whether projected rows are usable by placement activation, time, billing, payroll, AP, and reporting.',
-                'outputs' => ['person_link', 'staffing_job_link', 'end_client_company_link', 'staffing_client_link', 'rate_row', 'approved_rate_window'],
+                'outputs' => ['person_link', 'staffing_job_link', 'end_client_company_link', 'staffing_client_link', 'vendor_chain', 'rate_row', 'approved_rate_window'],
             ],
             'field_map_enrichment' => [
                 'owner' => 'tenant_integration_field_map',

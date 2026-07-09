@@ -37,6 +37,7 @@ const TENANT_INTEGRATION_FIELD_MAP_TRANSFORMS = [
     'lowercase',
     'uppercase',
     'trim',
+    'percent_to_decimal', // 22 or 22% -> 0.22; 0.22 stays 0.22
     'cents_to_dollars',   // divide by 100
     'dollars_to_cents',   // multiply by 100
 ];
@@ -85,6 +86,9 @@ function tenantIntegrationFieldMapDefaultLinkedEntityForTarget(
     }
     if ($targetTable === 'placement_rates') {
         return 'placement_rates';
+    }
+    if ($targetTable === 'placement_client_chain') {
+        return 'placement_chain_prime_vendor';
     }
     if ($targetTable === 'placement_corp_details') {
         return 'placement_corp_details';
@@ -170,6 +174,7 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             'pay_rate',  'pay_rate_unit',
             'currency',
             'ot_multiplier', 'dt_multiplier',
+            'adder_pct', 'background_fee_total',
             // -- placements (cycle config, migration 002_cycles +
             //    002_cycle_config). Mappable so JobDiva tenants can
             //    inherit upstream billing/pay cadences without
@@ -597,6 +602,16 @@ function tenantIntegrationFieldMapApplyTransform(mixed $value, string $transform
             return $s !== null ? strtoupper($s) : $value;
         case 'trim':
             return $s !== null ? trim($s) : $value;
+        case 'percent_to_decimal':
+            if ($s === null) return $value;
+            $pct = trim($s);
+            if ($pct === '') return $value;
+            $hadPercent = str_contains($pct, '%');
+            $pct = str_replace([',', '%'], '', $pct);
+            if (!is_numeric($pct)) return $value;
+            $n = (float) $pct;
+            if ($hadPercent || abs($n) > 1) $n = $n / 100;
+            return round($n, 6);
         case 'cents_to_dollars':
             return is_numeric($value) ? ((float) $value / 100) : $value;
         case 'dollars_to_cents':

@@ -32,6 +32,11 @@ const LINKED_ENTITY_LABELS = {
   end_client_company:     'end-client company',
   vendor_company:         'vendor company',
   placement_rates:        'placement_rates (sibling row)',
+  placement_chain_end_client:   'placement_client_chain end-client row',
+  placement_chain_msp:          'placement_client_chain MSP row',
+  placement_chain_prime_vendor: 'placement_client_chain prime-vendor row',
+  placement_chain_sub_vendor:   'placement_client_chain sub-vendor row',
+  placement_chain_direct:       'placement_client_chain direct row',
   placement_corp_details: 'placement_corp_details (sibling row)',
 };
 
@@ -71,6 +76,7 @@ function inferLinkedEntityForTarget(entityType, target) {
   const table = String(target?.target_table || '').toLowerCase();
   if (table === 'placements') return et === 'placement' ? 'self' : 'placement';
   if (table === 'placement_rates') return 'placement_rates';
+  if (table === 'placement_client_chain') return target?.default_linked_entity || 'placement_chain_prime_vendor';
   if (table === 'placement_corp_details') return 'placement_corp_details';
   if (table === 'staffing_jobs') return et === 'staffing_job' ? 'self' : 'staffing_job';
   if (table === 'people') return et === 'person' ? 'self' : 'person';
@@ -1227,7 +1233,11 @@ export default function FieldMappingStudio() {
             <option value="none">none</option>
             <option value="date_normalise">date_normalise</option>
             <option value="lowercase">lowercase</option>
+            <option value="uppercase">uppercase</option>
+            <option value="trim">trim</option>
+            <option value="percent_to_decimal">percent_to_decimal</option>
             <option value="cents_to_dollars">cents_to_dollars</option>
+            <option value="dollars_to_cents">dollars_to_cents</option>
           </select>
         </label>
         <button
@@ -1568,7 +1578,7 @@ export default function FieldMappingStudio() {
                               className="input"
                               style={{ fontSize: 12, padding: '4px 6px' }}
                             >
-                              {['none', 'lowercase', 'uppercase', 'trim', 'date_normalise', 'json_decode'].map(t =>
+                              {['none', 'lowercase', 'uppercase', 'trim', 'date_normalise', 'percent_to_decimal', 'cents_to_dollars', 'dollars_to_cents'].map(t =>
                                 <option key={t} value={t}>{t}</option>
                               )}
                             </select>

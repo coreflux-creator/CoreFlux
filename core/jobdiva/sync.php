@@ -1647,6 +1647,40 @@ function jobdivaPlacementCurrentRateId(int $tenantId, int $placementId): int
     }
 }
 
+function jobdivaPlacementChainContextIds(int $tenantId, int $placementId): array
+{
+    $ctx = [
+        'placement_chain_end_client' => 0,
+        'placement_chain_msp' => 0,
+        'placement_chain_prime_vendor' => 0,
+        'placement_chain_sub_vendor' => 0,
+        'placement_chain_direct' => 0,
+    ];
+    if ($tenantId <= 0 || $placementId <= 0) return $ctx;
+    try {
+        $st = getDB()->prepare(
+            'SELECT id, party_role
+               FROM placement_client_chain
+              WHERE tenant_id = :t
+                AND placement_id = :p
+              ORDER BY position ASC, id ASC'
+        );
+        $st->execute(['t' => $tenantId, 'p' => $placementId]);
+        while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {
+            $role = (string) ($row['party_role'] ?? '');
+            $id = (int) ($row['id'] ?? 0);
+            if ($id <= 0 || $role === '') continue;
+            $key = 'placement_chain_' . $role;
+            if (array_key_exists($key, $ctx) && (int) $ctx[$key] <= 0) {
+                $ctx[$key] = $id;
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('[jobdiva placement mapping context] placement_client_chain ids failed: ' . $e->getMessage());
+    }
+    return $ctx;
+}
+
 function jobdivaApplyPlacementFieldMappings(
     int $tenantId,
     int $placementId,
@@ -1676,6 +1710,7 @@ function jobdivaApplyPlacementFieldMappings(
         'contact'                => $contactId,
         'jobdiva_contact'        => $contactId,
     ];
+    $baseCtx = array_merge($baseCtx, jobdivaPlacementChainContextIds($tenantId, $placementId));
 
     $mergeSummary = static function (array $part) use (&$summary): void {
         $summary['attempted'] += (int) ($part['attempted'] ?? 0);
@@ -2110,6 +2145,278 @@ function jobdivaResolveOrAutoCreateEndClient(
     return $newId;
 }
 
+function jobdivaNormalisePlacementEngagementType(string $raw, ?string $fallback = null): string
+{
+    $allowed = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire'];
+    $fallback = in_array((string) $fallback, $allowed, true) ? (string) $fallback : 'w2';
+    $s = strtolower(trim($raw));
+    if ($s === '') return $fallback;
+
+    $s = str_replace(['_', '-', '/', '\\'], ' ', $s);
+    $s = preg_replace('/\s+/', ' ', $s) ?: $s;
+
+    if (str_contains($s, 'temp to perm')
+        || str_contains($s, 'contract to hire')
+        || preg_match('/\bcth\b/', $s)) {
+        return 'temp_to_perm';
+    }
+    if (str_contains($s, 'direct hire')
+        || str_contains($s, 'direct placement')
+        || preg_match('/\bperm(?:anent)?\b/', $s)) {
+        return 'direct_hire';
+    }
+    if (str_contains($s, '1099')
+        || str_contains($s, 'independent contractor')
+        || preg_match('/\bic\b/', $s)) {
+        return '1099';
+    }
+    if (str_contains($s, 'c2c')
+        || str_contains($s, 'corp to corp')
+        || str_contains($s, 'crop to crop')
+        || str_contains($s, 'corp 2 corp')
+        || str_contains($s, 'corporation')
+        || str_contains($s, 'llc')
+        || str_contains($s, 'inc to inc')
+        || str_contains($s, 'vendor')
+        || str_contains($s, 'supplier')
+        || str_contains($s, 'subcontractor')) {
+        return 'c2c';
+    }
+    if (str_contains($s, 'w2')
+        || str_contains($s, 'w 2')
+        || str_contains($s, 'employee')
+        || str_contains($s, 'payroll')) {
+        return 'w2';
+    }
+
+    return $fallback;
+}
+
+function jobdivaBoolishTrue(mixed $raw): bool
+{
+    if ($raw === true) return true;
+    if (is_int($raw) || is_float($raw)) return (float) $raw > 0;
+    $s = strtolower(trim((string) $raw));
+    if ($s === '') return false;
+    return in_array($s, ['1', 'true', 'yes', 'y', 'on', 'checked'], true);
+}
+
+function jobdivaSyncUpsertPlacementChainRow(
+    int $tid,
+    int $placementId,
+    int $position,
+    string $partyRole,
+    ?string $partyName,
+    ?int $companyId = null,
+    array $extras = [],
+    ?int $userId = null
+): int {
+    $partyName = trim((string) $partyName);
+    if ($tid <= 0 || $placementId <= 0 || $position < 0 || $partyRole === '') return 0;
+
+    $pdo = getDB();
+    $existing = $pdo->prepare(
+        'SELECT id, party_name
+           FROM placement_client_chain
+          WHERE tenant_id = :t AND placement_id = :p AND position = :pos
+          LIMIT 1'
+    );
+    $existing->execute(['t' => $tid, 'p' => $placementId, 'pos' => $position]);
+    $existingRow = $existing->fetch(\PDO::FETCH_ASSOC) ?: null;
+
+    if ($partyName === '' && $existingRow) {
+        $partyName = (string) ($existingRow['party_name'] ?? '');
+    }
+    if ($partyName === '' && $companyId !== null && $companyId > 0 && function_exists('companiesGet')) {
+        $company = companiesGet($companyId);
+        $partyName = trim((string) ($company['name'] ?? ''));
+    }
+    if ($partyName === '') return 0;
+
+    $roleForCompany = $partyRole === 'end_client'
+        ? 'client'
+        : ($partyRole === 'direct' ? 'client' : $partyRole);
+    if (($companyId === null || $companyId <= 0) && function_exists('companiesUpsertByName')) {
+        try {
+            $companyId = companiesUpsertByName($tid, $partyName, [
+                'created_by_user_id' => $userId,
+            ], [$roleForCompany]);
+        } catch (\Throwable $e) {
+            error_log('[jobdiva placement chain] company upsert skipped: ' . $e->getMessage());
+            $companyId = null;
+        }
+    } elseif ($companyId !== null && $companyId > 0 && function_exists('companiesAddRole')) {
+        try {
+            companiesAddRole($companyId, $roleForCompany);
+        } catch (\Throwable $e) {
+            error_log('[jobdiva placement chain] company role skipped: ' . $e->getMessage());
+        }
+    }
+    if ($companyId !== null && $companyId > 0 && function_exists('companiesBumpUsage')) {
+        try { companiesBumpUsage($companyId); } catch (\Throwable $e) { /* non-fatal */ }
+    }
+
+    $payload = [
+        'party_name' => $partyName,
+        'party_role' => $partyRole,
+        'company_id' => ($companyId !== null && $companyId > 0) ? $companyId : null,
+    ];
+    foreach (['portal_fee_pct', 'portal_fee_flat', 'submittal_id', 'vms_job_id'] as $k) {
+        if (array_key_exists($k, $extras) && $extras[$k] !== null && $extras[$k] !== '') {
+            $payload[$k] = $extras[$k];
+        }
+    }
+
+    if ($existingRow) {
+        $sets = [];
+        $params = ['id' => (int) $existingRow['id']];
+        foreach ($payload as $col => $value) {
+            $sets[] = "{$col} = :{$col}";
+            $params[$col] = $value;
+        }
+        $pdo->prepare(
+            'UPDATE placement_client_chain
+                SET ' . implode(', ', $sets) . '
+              WHERE id = :id'
+        )->execute($params);
+        return (int) $existingRow['id'];
+    }
+
+    $pdo->prepare(
+        'INSERT INTO placement_client_chain
+            (tenant_id, placement_id, position, party_name, party_role, company_id,
+             portal_fee_pct, portal_fee_flat, submittal_id, vms_job_id)
+         VALUES
+            (:t, :p, :pos, :name, :role, :company_id,
+             :fee_pct, :fee_flat, :submittal, :vms)'
+    )->execute([
+        't' => $tid,
+        'p' => $placementId,
+        'pos' => $position,
+        'name' => $payload['party_name'],
+        'role' => $payload['party_role'],
+        'company_id' => $payload['company_id'],
+        'fee_pct' => $payload['portal_fee_pct'] ?? null,
+        'fee_flat' => $payload['portal_fee_flat'] ?? null,
+        'submittal' => $payload['submittal_id'] ?? null,
+        'vms' => $payload['vms_job_id'] ?? null,
+    ]);
+    return (int) $pdo->lastInsertId();
+}
+
+function jobdivaSyncUpsertPlacementChain(
+    int $tid,
+    int $placementId,
+    ?int $endClientCompanyId,
+    ?string $endClientName,
+    array $jd,
+    ?int $userId = null
+): array {
+    $summary = ['written' => 0, 'rows' => []];
+    if ($tid <= 0 || $placementId <= 0) return $summary;
+
+    $endClientName = trim((string) ($endClientName ?: jobdivaPluckFieldDeep($jd, [
+        'end_client_name', 'endClientName', 'customer name', 'customerName',
+        'companyName', 'company name', 'job.COMPANYNAME', 'job.companyName',
+    ])));
+    if ($endClientName !== '') {
+        $id = jobdivaSyncUpsertPlacementChainRow(
+            $tid,
+            $placementId,
+            0,
+            'end_client',
+            $endClientName,
+            $endClientCompanyId,
+            [],
+            $userId
+        );
+        if ($id > 0) {
+            $summary['written']++;
+            $summary['rows']['end_client'] = $id;
+        }
+    }
+
+    $defs = [
+        [
+            'role' => 'msp',
+            'position' => 1,
+            'name_keys' => [
+                'msp', 'msp name', 'mspName', 'managed service provider',
+                'vms', 'vms name', 'vmsName',
+            ],
+            'fee_keys' => [
+                'msp fee pct', 'msp_fee_pct', 'mspFeePct',
+                'vms fee pct', 'vms_fee_pct', 'discount pct',
+                'discount %', 'client discount pct', 'client discount %',
+            ],
+            'flat_keys' => ['msp fee flat', 'msp_fee_flat', 'vms fee flat', 'discount flat'],
+        ],
+        [
+            'role' => 'prime_vendor',
+            'position' => 2,
+            'name_keys' => [
+                'prime vendor', 'primeVendor', 'prime_vendor',
+                'vendor name', 'vendorName', 'supplier name', 'supplierName',
+                'agency name', 'agencyName', 'employer company', 'employerCompany',
+            ],
+            'fee_keys' => ['prime vendor fee pct', 'vendor fee pct', 'supplier fee pct', 'agency fee pct'],
+            'flat_keys' => ['prime vendor fee flat', 'vendor fee flat', 'supplier fee flat', 'agency fee flat'],
+        ],
+        [
+            'role' => 'sub_vendor',
+            'position' => 3,
+            'name_keys' => [
+                'sub vendor', 'subVendor', 'sub_vendor',
+                'subcontractor', 'subcontractor name', 'sub supplier', 'subSupplier',
+            ],
+            'fee_keys' => ['sub vendor fee pct', 'subvendor fee pct', 'subcontractor fee pct'],
+            'flat_keys' => ['sub vendor fee flat', 'subvendor fee flat', 'subcontractor fee flat'],
+        ],
+    ];
+
+    foreach ($defs as $def) {
+        $name = trim((string) jobdivaPluckFieldDeep($jd, $def['name_keys']));
+        if ($name === '') continue;
+        if ($endClientName !== '' && strtolower($name) === strtolower($endClientName)) continue;
+
+        $feePctRaw = jobdivaPluckFieldDeep($jd, $def['fee_keys']);
+        $feePct = jobdivaParsePercent($feePctRaw);
+        $feeFlatRaw = jobdivaPluckFieldDeep($jd, $def['flat_keys']);
+        $feeFlat = jobdivaParseRateAmount($feeFlatRaw);
+        $submittalId = jobdivaPluckFieldDeep($jd, [
+            'submittal id', 'submittalId', 'submittal_id',
+            $def['role'] . ' submittal id', $def['role'] . '_submittal_id',
+        ]);
+        $vmsJobId = jobdivaPluckFieldDeep($jd, [
+            'vms job id', 'vmsJobId', 'vms_job_id',
+            'client job id', 'clientJobId', 'client_req_id',
+            $def['role'] . ' vms job id', $def['role'] . '_vms_job_id',
+        ]);
+
+        $id = jobdivaSyncUpsertPlacementChainRow(
+            $tid,
+            $placementId,
+            (int) $def['position'],
+            (string) $def['role'],
+            $name,
+            null,
+            [
+                'portal_fee_pct' => $feePct,
+                'portal_fee_flat' => $feeFlat > 0 ? $feeFlat : null,
+                'submittal_id' => $submittalId !== '' ? $submittalId : null,
+                'vms_job_id' => $vmsJobId !== '' ? $vmsJobId : null,
+            ],
+            $userId
+        );
+        if ($id > 0) {
+            $summary['written']++;
+            $summary['rows'][(string) $def['role']] = $id;
+        }
+    }
+
+    return $summary;
+}
+
 function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId, ?int $userId = null): int
 {
     require_once __DIR__ . '/../integrations/field_map.php';
@@ -2278,17 +2585,38 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $tid, 'jobdiva', 'placement', 'engagement_type', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
             'engagementType', 'engagement_type', 'workerType',
-            'worker_type', 'classification', 'employmentType',
+            'worker_type', 'classification', 'employmentType', 'employment type',
+            'positionType', 'position_type', 'position type',
+            'employeeType', 'employee_type', 'employee type',
+            'taxType', 'tax_type', 'tax type',
+            'payrollType', 'payroll_type', 'payroll type',
+            'contractType', 'contract_type', 'contract type',
+            'jobType', 'job_type', 'job type',
+            'hireType', 'hire_type', 'hire type',
+            'c2c', 'corp to corp', 'corp-to-corp', 'crop to crop',
+            'corporation to corporation', 'isC2c', 'is_c2c',
         ])
     );
-    $engagementMap = [
-        'w2' => 'w2', '1099' => '1099', 'c2c' => 'c2c',
-        'corp-to-corp' => 'c2c', 'corp_to_corp' => 'c2c',
-        'temp_to_perm' => 'temp_to_perm', 'temp-to-perm' => 'temp_to_perm',
-        'direct_hire' => 'direct_hire', 'direct-hire' => 'direct_hire',
-        'perm' => 'direct_hire',
-    ];
-    $engagement = $engagementMap[strtolower(trim($engagementRaw))] ?? 'w2';
+    $c2cFlagRaw = jobdivaPluckFieldDeep($jd, [
+        'c2c', 'corp to corp', 'corp-to-corp', 'crop to crop',
+        'corporation to corporation', 'isC2c', 'is_c2c',
+    ]);
+    if (jobdivaBoolishTrue($c2cFlagRaw)) {
+        $engagementRaw = 'c2c';
+    }
+    $existingEngagement = null;
+    if ($existingId > 0) {
+        try {
+            $existingEngagementStmt = $pdo->prepare(
+                'SELECT engagement_type FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
+            );
+            $existingEngagementStmt->execute(['t' => $tid, 'id' => $existingId]);
+            $existingEngagement = (string) $existingEngagementStmt->fetchColumn();
+        } catch (\Throwable $e) {
+            $existingEngagement = null;
+        }
+    }
+    $engagement = jobdivaNormalisePlacementEngagementType($engagementRaw, $existingEngagement);
 
     $worksiteState = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'worksite_state', $jd,
@@ -2537,6 +2865,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             $pdo->prepare($sql)->execute($bindings);
         }
         jobdivaSyncUpsertPlacementRates($tid, $existingId, $startDate, $jd);
+        jobdivaSyncUpsertPlacementChain($tid, $existingId, $endClientCompanyId, $endClientName ?: null, $jd, $userId);
         return $existingId;
     }
     $pdo->prepare(
@@ -2587,6 +2916,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     ]);
     $placementId = (int) $pdo->lastInsertId();
     jobdivaSyncUpsertPlacementRates($tid, $placementId, $startDate, $jd);
+    jobdivaSyncUpsertPlacementChain($tid, $placementId, $endClientCompanyId, $endClientName ?: null, $jd, $userId);
     return $placementId;
 }
 
@@ -2621,6 +2951,27 @@ function jobdivaParseRateAmount(mixed $raw): float
         return (float) $m[0];
     }
     return 0.0;
+}
+
+function jobdivaParsePercent(mixed $raw): ?float
+{
+    if ($raw === null) return null;
+    if (is_int($raw) || is_float($raw)) {
+        $n = (float) $raw;
+    } else {
+        $s = trim((string) $raw);
+        if ($s === '') return null;
+        $hadPercent = str_contains($s, '%');
+        $s = str_replace([',', '%'], '', $s);
+        if (!is_numeric($s)) {
+            if (!preg_match('/-?\d+(?:\.\d+)?/', $s, $m)) return null;
+            $s = $m[0];
+        }
+        $n = (float) $s;
+        if ($hadPercent) $n = $n / 100;
+    }
+    if (abs($n) > 1) $n = $n / 100;
+    return round($n, 6);
 }
 
 function jobdivaSyncRemoveUnsourcedAutoDraftRate(int $tid, int $placementId, float $billRate): void
@@ -2752,6 +3103,28 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     $otMul = is_numeric($otRaw) ? (float) $otRaw : 1.50;
     $dtMul = is_numeric($dtRaw) ? (float) $dtRaw : 2.00;
 
+    $adderRaw = tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'adder_pct', $jd,
+        static fn() => jobdivaPluckFieldDeep($jd, [
+            'adder_pct', 'adderPct', 'adder %', 'adder percent',
+            'markup', 'mark up', 'markup %', 'markupPct', 'markup_pct',
+            'burden', 'burden %', 'employer burden', 'employer_burden_pct',
+        ])
+    );
+    $adderPct = jobdivaParsePercent($adderRaw);
+
+    $backgroundFeeRaw = tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'background_fee_total', $jd,
+        static fn() => jobdivaPluckFieldDeep($jd, [
+            'background_fee_total', 'backgroundFeeTotal',
+            'background fee', 'background fee total',
+            'background check fee', 'screening fee',
+            'onboarding fee', 'compliance fee',
+        ])
+    );
+    $backgroundFeeTotal = jobdivaParseRateAmount($backgroundFeeRaw);
+    $backgroundFeeTotal = $backgroundFeeTotal > 0 ? $backgroundFeeTotal : null;
+
     $effectiveFrom = $startDate !== '' ? $startDate : date('Y-m-d');
 
     // Locate the current open rate row (effective_to IS NULL). Prefer an
@@ -2761,7 +3134,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     $existing = $pdo->prepare(
         'SELECT id, effective_from, approved_at, bill_rate, bill_rate_unit,
                 pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier,
-                created_by_user_id
+                adder_pct, background_fee_total, created_by_user_id
            FROM placement_rates
           WHERE tenant_id = :t AND placement_id = :p AND effective_to IS NULL
           ORDER BY (approved_at IS NULL) DESC, effective_from DESC, id DESC
@@ -2779,7 +3152,8 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
                     bill_rate = :br, bill_rate_unit = :bru,
                     pay_rate  = :pr, pay_rate_unit  = :pru,
                     currency  = :cur,
-                    ot_multiplier = :ot, dt_multiplier = :dt
+                    ot_multiplier = :ot, dt_multiplier = :dt,
+                    adder_pct = :adder, background_fee_total = :bg
               WHERE id = :id'
         )->execute([
             'ef'  => $effectiveFrom,
@@ -2787,6 +3161,8 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'pr'  => $payRate,  'pru' => $payRateUnit,
             'cur' => $currency,
             'ot'  => $otMul, 'dt' => $dtMul,
+            'adder' => $adderPct,
+            'bg'    => $backgroundFeeTotal,
             'id'  => $rateId,
         ]);
         return true;
@@ -2801,7 +3177,9 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             && strtolower((string) ($currentRate['pay_rate_unit'] ?? '')) === strtolower($payRateUnit)
             && strtoupper((string) ($currentRate['currency'] ?? '')) === $currency
             && round((float) ($currentRate['ot_multiplier'] ?? 0), 4) === round($otMul, 4)
-            && round((float) ($currentRate['dt_multiplier'] ?? 0), 4) === round($dtMul, 4);
+            && round((float) ($currentRate['dt_multiplier'] ?? 0), 4) === round($dtMul, 4)
+            && round((float) ($currentRate['adder_pct'] ?? 0), 6) === round((float) ($adderPct ?? 0), 6)
+            && round((float) ($currentRate['background_fee_total'] ?? 0), 2) === round((float) ($backgroundFeeTotal ?? 0), 2);
         $coversPlacementStart = (string) ($currentRate['effective_from'] ?? '') <= $effectiveFrom;
         if ($sameEconomics && $coversPlacementStart) {
             return true;
@@ -2820,8 +3198,9 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     $pdo->prepare(
         'INSERT INTO placement_rates
             (tenant_id, placement_id, effective_from, effective_to, bill_rate, bill_rate_unit,
-             pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier)
-         VALUES (:t, :p, :ef, :et, :br, :bru, :pr, :pru, :cur, :ot, :dt)'
+             pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier,
+             adder_pct, background_fee_total)
+         VALUES (:t, :p, :ef, :et, :br, :bru, :pr, :pru, :cur, :ot, :dt, :adder, :bg)'
     )->execute([
         't'   => $tid, 'p'   => $placementId,
         'ef'  => $effectiveFrom,
@@ -2830,6 +3209,8 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         'pr'  => $payRate,  'pru' => $payRateUnit,
         'cur' => $currency,
         'ot'  => $otMul, 'dt' => $dtMul,
+        'adder' => $adderPct,
+        'bg'    => $backgroundFeeTotal,
     ]);
     return true;
 }

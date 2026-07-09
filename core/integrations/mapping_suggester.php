@@ -140,6 +140,51 @@ function mappingSuggesterSynonymMap(): array
         'billratecurrencyunit' => ['currency'],
         'currency'        => ['currency'],
         'currencycode'    => ['currency'],
+        'adderpct'        => ['adder_pct'],
+        'adderpercent'    => ['adder_pct'],
+        'markup'          => ['adder_pct'],
+        'markuppct'       => ['adder_pct'],
+        'markuppercent'   => ['adder_pct'],
+        'burden'          => ['adder_pct'],
+        'burdenpct'       => ['adder_pct'],
+        'backgroundfee'   => ['background_fee_total'],
+        'backgroundfeetotal' => ['background_fee_total'],
+        'screeningfee'    => ['background_fee_total'],
+        'compliancefee'   => ['background_fee_total'],
+        // ---------- Placement client/vendor chain ----------
+        'msp'             => ['party_name'],
+        'mspname'         => ['party_name'],
+        'vms'             => ['party_name'],
+        'vmsname'         => ['party_name'],
+        'managedserviceprovider' => ['party_name'],
+        'primevendor'     => ['party_name'],
+        'primevendorname' => ['party_name'],
+        'vendorname'      => ['party_name'],
+        'suppliername'    => ['party_name'],
+        'agencyname'      => ['party_name'],
+        'subvendor'       => ['party_name'],
+        'subvendorname'   => ['party_name'],
+        'subcontractor'   => ['party_name'],
+        'subcontractorname' => ['party_name'],
+        'mspfeepct'       => ['portal_fee_pct'],
+        'mspfeepercent'   => ['portal_fee_pct'],
+        'vmsfeepct'       => ['portal_fee_pct'],
+        'discountpct'     => ['portal_fee_pct'],
+        'discountpercent' => ['portal_fee_pct'],
+        'vendorfeepct'    => ['portal_fee_pct'],
+        'vendorfeepercent'=> ['portal_fee_pct'],
+        'supplierfeepct'  => ['portal_fee_pct'],
+        'primevendorfeepct' => ['portal_fee_pct'],
+        'subvendorfeepct' => ['portal_fee_pct'],
+        'subcontractorfeepct' => ['portal_fee_pct'],
+        'mspfeeflat'      => ['portal_fee_flat'],
+        'vmsfeeflat'      => ['portal_fee_flat'],
+        'discountflat'    => ['portal_fee_flat'],
+        'vendorfeeflat'   => ['portal_fee_flat'],
+        'primevendorfeeflat' => ['portal_fee_flat'],
+        'subvendorfeeflat' => ['portal_fee_flat'],
+        'submittalid'     => ['submittal_id'],
+        'vmsjobid'        => ['vms_job_id'],
         // ---------- Dates ----------
         'startdate'       => ['start_date'],
         'enddate'         => ['end_date'],
@@ -196,7 +241,45 @@ function mappingSuggesterDefaultTransform(string $normSrc, string $targetColumn)
     if (str_ends_with($targetColumn, '_date'))               return 'date_normalise';
     if ($targetColumn === 'status')                          return 'lowercase';
     if (str_contains($normSrc, 'currency') && $targetColumn === 'currency') return 'uppercase';
+    if (in_array($targetColumn, ['portal_fee_pct', 'adder_pct'], true)
+        || str_contains($normSrc, 'pct')
+        || str_contains($normSrc, 'percent')) return 'percent_to_decimal';
     return 'none';
+}
+
+function mappingSuggesterNormaliseFullPath(string $raw): string
+{
+    return strtolower((string) preg_replace('/[^A-Za-z0-9]/', '', $raw));
+}
+
+function mappingSuggesterLinkedEntityForTarget(array $target, string $sourcePath, string $fallback): string
+{
+    $table = strtolower((string) ($target['target_table'] ?? ''));
+    $default = (string) ($target['default_linked_entity'] ?? '') ?: $fallback;
+    if ($table !== 'placement_client_chain') return $default;
+
+    $full = mappingSuggesterNormaliseFullPath($sourcePath);
+    if ($full === '') return $default ?: 'placement_chain_prime_vendor';
+    if (str_contains($full, 'endclient')) return 'placement_chain_end_client';
+    if (str_contains($full, 'subvendor')
+        || str_contains($full, 'subsupplier')
+        || str_contains($full, 'subcontractor')) {
+        return 'placement_chain_sub_vendor';
+    }
+    if (str_contains($full, 'primevendor')
+        || str_contains($full, 'vendor')
+        || str_contains($full, 'supplier')
+        || str_contains($full, 'agency')
+        || str_contains($full, 'employercompany')) {
+        return 'placement_chain_prime_vendor';
+    }
+    if (str_contains($full, 'msp')
+        || str_contains($full, 'vms')
+        || str_contains($full, 'managedserviceprovider')) {
+        return 'placement_chain_msp';
+    }
+    if (str_contains($full, 'direct')) return 'placement_chain_direct';
+    return $default ?: 'placement_chain_prime_vendor';
 }
 
 /**
@@ -365,7 +448,7 @@ function mappingSuggesterSuggest(int $tenantId, string $integration, string $ent
 
         // Decide linked_entity — prefer the target's
         // default_linked_entity, else the entity-type default.
-        $linked = (string) ($best['default_linked_entity'] ?? '') ?: $linkedEntity;
+        $linked = mappingSuggesterLinkedEntityForTarget($best, $srcPath, $linkedEntity);
 
         $suggestions[] = [
             'source_path'   => $srcPath,

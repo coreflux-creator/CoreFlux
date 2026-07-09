@@ -7,15 +7,18 @@
  *   POST /api/placements/csv_import?action=dry_run
  *   POST /api/placements/csv_import?action=commit (+ optional ?skip_invalid=1)
  *
- * NOTE: Phase A scope imports the placement record + first rate row + chain[0]
- * (end client) only. Multi-tier chain, commissions, referrals, corp details
- * remain manual via UI. Bulk import of those is Phase B.
+ * Imports the placement record, first/current draft rate row, and the
+ * canonical placement_client_chain tiers (end client, MSP, prime vendor,
+ * sub-vendor) so manual import has the same graph shape as UI-created
+ * placements and JobDiva projection.
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/placements.php';
+require_once __DIR__ . '/../../people/lib/companies.php';
+require_once __DIR__ . '/../../staffing/lib/clients.php';
 
 use Core\CsvImportService;
 
@@ -38,18 +41,205 @@ CsvImportService::registerSchema('placements', [
                                 'enum' => ['w2','1099','c2c','temp_to_perm','direct_hire']],
         'start_date'        => ['label' => 'Start date',       'required' => true, 'type' => 'date'],
         'end_date'          => ['label' => 'End date',         'type' => 'date'],
+        'actual_end_date'   => ['label' => 'Actual end date',  'type' => 'date'],
         'due_date'          => ['label' => 'Due date',         'type' => 'date'],
+        'end_client_company_id' => ['label' => 'End client company ID', 'type' => 'integer'],
         'end_client_name'   => ['label' => 'End client name'],
         'worksite_state'    => ['label' => 'Worksite state'],
         'worksite_country'  => ['label' => 'Worksite country (2-letter)'],
         'remote_policy'     => ['label' => 'Remote policy',    'enum' => ['onsite','hybrid','remote']],
+        'client_approver_name'  => ['label' => 'Client approver name'],
+        'client_approver_email' => ['label' => 'Client approver email', 'type' => 'email'],
+        'jobdiva_job_id'        => ['label' => 'JobDiva job ID'],
+        'recruiter_name'        => ['label' => 'Recruiter name'],
+        'recruiter_email'       => ['label' => 'Recruiter email', 'type' => 'email'],
+        'account_manager_name'  => ['label' => 'Account manager name'],
+        'account_manager_email' => ['label' => 'Account manager email', 'type' => 'email'],
+        'client_bill_cycle'     => ['label' => 'Client bill cycle', 'enum' => ['weekly','biweekly','semimonthly','monthly','adhoc']],
+        'client_bill_cycle_anchor' => ['label' => 'Client bill cycle anchor', 'type' => 'date'],
+        'vendor_pay_cycle'      => ['label' => 'Vendor pay cycle', 'enum' => ['weekly','biweekly','semimonthly','monthly','adhoc']],
+        'vendor_pay_cycle_anchor' => ['label' => 'Vendor pay cycle anchor', 'type' => 'date'],
         'bill_rate'         => ['label' => 'Bill rate ($/hr)', 'type' => 'number'],
         'pay_rate'          => ['label' => 'Pay rate ($/hr)',  'type' => 'number'],
+        'rate_effective_from' => ['label' => 'Rate effective from', 'type' => 'date'],
+        'rate_effective_to'   => ['label' => 'Rate effective to',   'type' => 'date'],
+        'bill_rate_unit'    => ['label' => 'Bill rate unit', 'enum' => ['hour','day','week','month','project']],
+        'pay_rate_unit'     => ['label' => 'Pay rate unit',  'enum' => ['hour','day','week','month','project']],
+        'currency'          => ['label' => 'Currency'],
+        'ot_multiplier'     => ['label' => 'OT multiplier', 'type' => 'number'],
+        'dt_multiplier'     => ['label' => 'DT multiplier', 'type' => 'number'],
+        'adder_pct'         => ['label' => 'Adder %', 'type' => 'number'],
+        'background_fee_total' => ['label' => 'Background fee total', 'type' => 'number'],
+        'msp_name'          => ['label' => 'MSP name'],
+        'msp_fee_pct'       => ['label' => 'MSP / discount fee %', 'type' => 'number'],
+        'msp_fee_flat'      => ['label' => 'MSP / discount fee flat', 'type' => 'number'],
+        'msp_submittal_id'  => ['label' => 'MSP submittal ID'],
+        'msp_vms_job_id'    => ['label' => 'MSP VMS job ID'],
+        'prime_vendor_name' => ['label' => 'Prime vendor name'],
+        'prime_vendor_fee_pct' => ['label' => 'Prime vendor fee %', 'type' => 'number'],
+        'prime_vendor_fee_flat' => ['label' => 'Prime vendor fee flat', 'type' => 'number'],
+        'prime_vendor_submittal_id' => ['label' => 'Prime vendor submittal ID'],
+        'prime_vendor_vms_job_id' => ['label' => 'Prime vendor VMS job ID'],
+        'sub_vendor_name'   => ['label' => 'Sub-vendor name'],
+        'sub_vendor_fee_pct' => ['label' => 'Sub-vendor fee %', 'type' => 'number'],
+        'sub_vendor_fee_flat' => ['label' => 'Sub-vendor fee flat', 'type' => 'number'],
+        'sub_vendor_submittal_id' => ['label' => 'Sub-vendor submittal ID'],
+        'sub_vendor_vms_job_id' => ['label' => 'Sub-vendor VMS job ID'],
         'external_id'       => ['label' => 'External ID'],
         'notes'             => ['label' => 'Notes'],
     ],
     'unique_within_batch' => ['external_id', 'placement_id'],
 ]);
+
+function placementsCsvBlankToNull(mixed $value): mixed
+{
+    if ($value === null) return null;
+    if (is_string($value) && trim($value) === '') return null;
+    return $value;
+}
+
+function placementsCsvPercentToDecimal(mixed $value): ?float
+{
+    if ($value === null || $value === '') return null;
+    $s = trim((string) $value);
+    if ($s === '') return null;
+    $hadPercent = str_contains($s, '%');
+    $s = str_replace([',', '%'], '', $s);
+    if (!is_numeric($s)) return null;
+    $n = (float) $s;
+    if ($hadPercent || abs($n) > 1) $n = $n / 100;
+    return round($n, 6);
+}
+
+function placementsCsvNormaliseCurrency(mixed $value): string
+{
+    $raw = strtoupper(trim((string) ($value ?? '')));
+    if ($raw === '') return 'USD';
+    if (preg_match('/\b([A-Z]{3})\b/', $raw, $m)) return $m[1];
+    $cur = strtoupper(substr($raw, 0, 3));
+    return strlen($cur) === 3 ? $cur : 'USD';
+}
+
+function placementsCsvBuildRatePayload(array $row): ?array
+{
+    if (($row['bill_rate'] ?? '') === '' || ($row['pay_rate'] ?? '') === '') {
+        return null;
+    }
+    return [
+        'effective_from' => $row['rate_effective_from'] ?? $row['start_date'],
+        'effective_to'   => placementsCsvBlankToNull($row['rate_effective_to'] ?? null),
+        'bill_rate'      => (float) $row['bill_rate'],
+        'bill_rate_unit' => $row['bill_rate_unit'] ?? 'hour',
+        'pay_rate'       => (float) $row['pay_rate'],
+        'pay_rate_unit'  => $row['pay_rate_unit'] ?? 'hour',
+        'currency'       => placementsCsvNormaliseCurrency($row['currency'] ?? 'USD'),
+        'ot_multiplier'  => ($row['ot_multiplier'] ?? '') !== '' ? (float) $row['ot_multiplier'] : 1.5,
+        'dt_multiplier'  => ($row['dt_multiplier'] ?? '') !== '' ? (float) $row['dt_multiplier'] : 2.0,
+        'adder_pct'      => placementsCsvPercentToDecimal($row['adder_pct'] ?? null),
+        'background_fee_total' => ($row['background_fee_total'] ?? '') !== ''
+            ? (float) $row['background_fee_total']
+            : null,
+    ];
+}
+
+function placementsCsvUpsertDraftRate(int $placementId, array $row, ?int $userId, bool $updateExisting): void
+{
+    $payload = placementsCsvBuildRatePayload($row);
+    if ($payload === null) return;
+
+    $existing = scopedFind(
+        'SELECT id, approved_at
+           FROM placement_rates
+          WHERE tenant_id = :tenant_id AND placement_id = :p AND effective_to IS NULL
+          ORDER BY (approved_at IS NULL) DESC, effective_from DESC, id DESC
+          LIMIT 1',
+        ['p' => $placementId]
+    );
+
+    if ($updateExisting && $existing && empty($existing['approved_at'])) {
+        scopedUpdate('placement_rates', (int) $existing['id'], $payload);
+        return;
+    }
+
+    $payload['placement_id'] = $placementId;
+    $payload['created_by_user_id'] = $userId;
+    scopedInsert('placement_rates', $payload);
+}
+
+function placementsCsvUpsertChainRow(
+    int $placementId,
+    int $position,
+    string $role,
+    ?string $name,
+    array $extras,
+    ?int $userId
+): void {
+    $name = trim((string) $name);
+    if ($placementId <= 0 || $position < 0 || $role === '' || $name === '') return;
+
+    $roleForCompany = $role === 'end_client'
+        ? 'client'
+        : ($role === 'direct' ? 'client' : $role);
+    $companyId = companiesUpsertByName(currentTenantId(), $name, [
+        'created_by_user_id' => $userId,
+    ], [$roleForCompany]);
+    companiesBumpUsage($companyId);
+
+    $payload = [
+        'placement_id' => $placementId,
+        'position'     => $position,
+        'party_name'   => $name,
+        'party_role'   => $role,
+        'company_id'   => $companyId,
+    ];
+    foreach (['portal_fee_pct', 'portal_fee_flat', 'submittal_id', 'vms_job_id'] as $k) {
+        if (array_key_exists($k, $extras) && $extras[$k] !== null && $extras[$k] !== '') {
+            $payload[$k] = $extras[$k];
+        }
+    }
+
+    $existing = scopedFind(
+        'SELECT id FROM placement_client_chain
+          WHERE tenant_id = :tenant_id AND placement_id = :p AND position = :pos
+          LIMIT 1',
+        ['p' => $placementId, 'pos' => $position]
+    );
+    if ($existing) {
+        unset($payload['placement_id'], $payload['position']);
+        scopedUpdate('placement_client_chain', (int) $existing['id'], $payload);
+        return;
+    }
+    scopedInsert('placement_client_chain', $payload);
+}
+
+function placementsCsvUpsertChain(int $placementId, array $row, ?int $userId): void
+{
+    placementsCsvUpsertChainRow($placementId, 0, 'end_client', $row['end_client_name'] ?? null, [], $userId);
+
+    $tiers = [
+        ['prefix' => 'msp', 'position' => 1, 'role' => 'msp'],
+        ['prefix' => 'prime_vendor', 'position' => 2, 'role' => 'prime_vendor'],
+        ['prefix' => 'sub_vendor', 'position' => 3, 'role' => 'sub_vendor'],
+    ];
+    foreach ($tiers as $tier) {
+        $prefix = $tier['prefix'];
+        placementsCsvUpsertChainRow(
+            $placementId,
+            (int) $tier['position'],
+            (string) $tier['role'],
+            $row[$prefix . '_name'] ?? null,
+            [
+                'portal_fee_pct' => placementsCsvPercentToDecimal($row[$prefix . '_fee_pct'] ?? null),
+                'portal_fee_flat' => ($row[$prefix . '_fee_flat'] ?? '') !== ''
+                    ? (float) $row[$prefix . '_fee_flat']
+                    : null,
+                'submittal_id' => placementsCsvBlankToNull($row[$prefix . '_submittal_id'] ?? null),
+                'vms_job_id' => placementsCsvBlankToNull($row[$prefix . '_vms_job_id'] ?? null),
+            ],
+            $userId
+        );
+    }
+}
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -367,6 +557,7 @@ if ($method === 'POST' && $action === 'commit') {
             'external_id'      => $row['external_id']     ?? null,
             'start_date'       => $row['start_date'],
             'end_date'         => $row['end_date']        ?? null,
+            'actual_end_date'  => $row['actual_end_date'] ?? null,
             'due_date'         => $row['due_date']        ?? null,
             'engagement_type'  => $row['engagement_type'],
             'worksite_state'   => $row['worksite_state']  ?? null,
@@ -374,8 +565,47 @@ if ($method === 'POST' && $action === 'commit') {
             'remote_policy'    => placementsNormalizeRemotePolicy($row['remote_policy'] ?? null),
             'title'            => $row['title'],
             'end_client_name'  => $row['end_client_name'] ?? null,
+            'end_client_company_id' => !empty($row['end_client_company_id']) ? (int) $row['end_client_company_id'] : null,
+            'client_approver_name'  => $row['client_approver_name']  ?? null,
+            'client_approver_email' => $row['client_approver_email'] ?? null,
+            'jobdiva_job_id'        => $row['jobdiva_job_id']        ?? null,
+            'recruiter_name'        => $row['recruiter_name']        ?? null,
+            'recruiter_email'       => $row['recruiter_email']       ?? null,
+            'account_manager_name'  => $row['account_manager_name']  ?? null,
+            'account_manager_email' => $row['account_manager_email'] ?? null,
+            'client_bill_cycle'     => $row['client_bill_cycle']     ?? null,
+            'client_bill_cycle_anchor' => $row['client_bill_cycle_anchor'] ?? null,
+            'vendor_pay_cycle'      => $row['vendor_pay_cycle']      ?? null,
+            'vendor_pay_cycle_anchor' => $row['vendor_pay_cycle_anchor'] ?? null,
             'notes'            => $row['notes']           ?? null,
         ];
+        $payload = array_filter($payload, static fn($v): bool => $v !== null && $v !== '');
+
+        if (!empty($payload['end_client_company_id'])) {
+            $co = companiesGet((int) $payload['end_client_company_id']);
+            if ($co) {
+                $payload['end_client_name'] = $co['name'];
+                companiesAddRole((int) $co['id'], 'client');
+                companiesBumpUsage((int) $co['id']);
+            }
+        } elseif (!empty($payload['end_client_name'])) {
+            $cid = companiesUpsertByName(currentTenantId(), (string) $payload['end_client_name'], [
+                'created_by_user_id' => $user['id'] ?? null,
+            ], ['client']);
+            $payload['end_client_company_id'] = $cid;
+            companiesBumpUsage($cid);
+        }
+        if (!empty($payload['end_client_company_id']) || !empty($payload['end_client_name'])) {
+            $clientRef = staffingClientEnsureForCompany(
+                currentTenantId(),
+                !empty($payload['end_client_company_id']) ? (int) $payload['end_client_company_id'] : null,
+                (string) ($payload['end_client_name'] ?? ''),
+                ['created_by_user_id' => $user['id'] ?? null]
+            );
+            $payload['client_id'] = $clientRef['client_id'];
+            $payload['end_client_company_id'] = $clientRef['company_id'] ?: ($payload['end_client_company_id'] ?? null);
+            $payload['end_client_name'] = $clientRef['name'];
+        }
 
         if ($existing) {
             scopedUpdate('placements', (int) $existing['id'], $payload);
@@ -387,30 +617,13 @@ if ($method === 'POST' && $action === 'commit') {
         }
 
         // First rate row (drafted, not approved — approval is a deliberate human step).
-        // In update-existing mode, only insert if no rate has been recorded yet.
-        if (!empty($row['bill_rate']) && !empty($row['pay_rate'])) {
-            $hasRate = $existing ? scopedFind('SELECT id FROM placement_rates WHERE placement_id = :p LIMIT 1', ['p' => $pid]) : null;
-            if (!$hasRate) {
-                scopedInsert('placement_rates', [
-                    'placement_id'        => $pid,
-                    'effective_from'      => $row['start_date'],
-                    'bill_rate'           => (float) $row['bill_rate'],
-                    'pay_rate'            => (float) $row['pay_rate'],
-                    'currency'            => 'USD',
-                    'created_by_user_id'  => $user['id'] ?? null,
-                ]);
-            }
-        }
+        // Existing approved snapshots stay locked; imports write drafts.
+        placementsCsvUpsertDraftRate($pid, $row, $user['id'] ?? null, (bool) $existing);
 
-        // Chain[0] = end client (string). Only insert for new placements.
-        if (!$existing && !empty($row['end_client_name'])) {
-            scopedInsert('placement_client_chain', [
-                'placement_id' => $pid,
-                'position'     => 0,
-                'party_name'   => $row['end_client_name'],
-                'party_role'   => 'end_client',
-            ]);
-        }
+        // End client + vendor tiers are canonical placement_client_chain rows.
+        placementsCsvUpsertChain($pid, array_merge($row, [
+            'end_client_name' => $payload['end_client_name'] ?? ($row['end_client_name'] ?? null),
+        ]), $user['id'] ?? null);
 
         return $pid;
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);

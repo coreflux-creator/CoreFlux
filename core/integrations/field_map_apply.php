@@ -222,8 +222,16 @@ function integrationFieldMapContextRowId(array $contextRowIds, array $mapping): 
     $rootSelfFallback = $hasPlacementContext ? [] : ['self'];
     $candidates = match ($table) {
         'placements' => ['placement', 'self'],
-        'placement_rates' => ['placement_rates', 'placement', 'self'],
+        'placement_rates' => array_merge(['placement_rates'], $rootSelfFallback),
         'placement_corp_details' => ['placement_corp_details', 'placement', 'self'],
+        'placement_client_chain' => match (true) {
+            str_contains($linked, 'end_client') => ['placement_chain_end_client'],
+            str_contains($linked, 'msp') => ['placement_chain_msp'],
+            str_contains($linked, 'prime') => ['placement_chain_prime_vendor'],
+            str_contains($linked, 'sub') => ['placement_chain_sub_vendor'],
+            str_contains($linked, 'direct') => ['placement_chain_direct'],
+            default => ['placement_chain_prime_vendor', 'placement_chain_msp', 'placement_chain_sub_vendor'],
+        },
         'staffing_jobs' => array_merge(['staffing_job', 'job', 'jobdiva_job'], $rootSelfFallback),
         'people' => array_merge(['person', 'candidate', 'jobdiva_candidate', 'employee', 'worker'], $rootSelfFallback),
         'companies' => str_contains($linked, 'vendor')

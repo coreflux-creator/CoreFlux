@@ -58,6 +58,12 @@ foreach ([
     'jobtitle'     => 'title',
     'agreedpayrate' => 'pay_rate',
     'finalbillrate' => 'bill_rate',
+    'adderpct'      => 'adder_pct',
+    'backgroundfee' => 'background_fee_total',
+    'mspname'       => 'party_name',
+    'mspfeepct'     => 'portal_fee_pct',
+    'vendorname'    => 'party_name',
+    'subvendorname' => 'party_name',
     'customername' => 'name',
     'companyname'  => 'name',
     'startdate'    => 'start_date',
@@ -118,8 +124,22 @@ $a('status column → lowercase',
     mappingSuggesterDefaultTransform('startstatus', 'status') === 'lowercase');
 $a('currency source + currency target → uppercase',
     mappingSuggesterDefaultTransform('payratecurrencyunit', 'currency') === 'uppercase');
+$a('percent-like fee/adders convert to decimal',
+    mappingSuggesterDefaultTransform('mspfeepct', 'portal_fee_pct') === 'percent_to_decimal'
+    && mappingSuggesterDefaultTransform('adderpercent', 'adder_pct') === 'percent_to_decimal');
 $a('non-special → none',
     mappingSuggesterDefaultTransform('firstname', 'first_name') === 'none');
+
+echo "\n5.5 Chain linked_entity inference\n";
+$chainTarget = ['target_table' => 'placement_client_chain', 'default_linked_entity' => 'placement_chain_prime_vendor'];
+$a('MSP source routes to placement_chain_msp',
+    mappingSuggesterLinkedEntityForTarget($chainTarget, '_jd_start.mspFeePct', 'self') === 'placement_chain_msp');
+$a('prime/vendor source routes to placement_chain_prime_vendor',
+    mappingSuggesterLinkedEntityForTarget($chainTarget, '_jd_start.vendorName', 'self') === 'placement_chain_prime_vendor');
+$a('sub-vendor source routes to placement_chain_sub_vendor',
+    mappingSuggesterLinkedEntityForTarget($chainTarget, '_jd_start.subVendorFeePct', 'self') === 'placement_chain_sub_vendor');
+$a('non-chain target keeps default linked_entity',
+    mappingSuggesterLinkedEntityForTarget(['target_table' => 'placement_rates', 'default_linked_entity' => 'placement_rates'], 'mspFeePct', 'self') === 'placement_rates');
 
 // 6) Target indexing helper.
 echo "\n6. mappingSuggesterIndexTargets\n";
@@ -205,7 +225,7 @@ $a('per-row linked_entity dropdown',
     str_contains($fms, 'data-testid={`fms-suggest-linked-${i}`}'));
 $a('per-row transform dropdown with sane choices',
     str_contains($fms, 'data-testid={`fms-suggest-transform-${i}`}')
-    && str_contains($fms, "'none', 'lowercase', 'uppercase', 'trim', 'date_normalise', 'json_decode'"));
+    && str_contains($fms, "'none', 'lowercase', 'uppercase', 'trim', 'date_normalise', 'percent_to_decimal', 'cents_to_dollars', 'dollars_to_cents'"));
 $a('edited rows flag _edited and surface a marker',
     str_contains($fms, '_edited: true')
     && str_contains($fms, 'data-testid={`fms-suggest-edited-${i}`}'));

@@ -53,6 +53,8 @@ $assert("'none' is a no-op",                     tenantIntegrationFieldMapApplyT
 $assert("'lowercase' lowercases",                tenantIntegrationFieldMapApplyTransform('Hello', 'lowercase') === 'hello');
 $assert("'uppercase' uppercases",                tenantIntegrationFieldMapApplyTransform('Hello', 'uppercase') === 'HELLO');
 $assert("'trim' trims whitespace",               tenantIntegrationFieldMapApplyTransform('  hi  ', 'trim') === 'hi');
+$assert("'percent_to_decimal' converts whole percent", tenantIntegrationFieldMapApplyTransform('22%', 'percent_to_decimal') === 0.22);
+$assert("'percent_to_decimal' preserves decimal percent", tenantIntegrationFieldMapApplyTransform('0.22', 'percent_to_decimal') === 0.22);
 $assert("'cents_to_dollars' divides by 100",     tenantIntegrationFieldMapApplyTransform('12345', 'cents_to_dollars') === 123.45);
 $assert("'dollars_to_cents' multiplies by 100",  tenantIntegrationFieldMapApplyTransform('12.34', 'dollars_to_cents') === 1234);
 $assert("'date_normalise' delegates to jobdivaNormaliseDate (epoch ms)",

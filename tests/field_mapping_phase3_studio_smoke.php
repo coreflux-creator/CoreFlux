@@ -67,9 +67,9 @@ $a('save posts source_path + target_module/table/column + linked_entity to exist
     && str_contains($ui, 'target_module: selectedTarget.target_module,')
     && str_contains($ui, 'target_table:  selectedTarget.target_table,')
     && str_contains($ui, 'linked_entity: linkedEntity,'));
-$a('selecting a target pre-fills linked_entity from default_linked_entity',
-    str_contains($ui, 'selectedTarget?.default_linked_entity')
-    && str_contains($ui, 'setLinkedEntity(selectedTarget.default_linked_entity)'));
+$a('selecting a target pre-fills linked_entity through target inference',
+    str_contains($ui, 'inferLinkedEntityForTarget(entityType, selectedTarget)')
+    && str_contains($ui, 'setLinkedEntity(inferLinkedEntityForTarget(entityType, selectedTarget))'));
 
 echo "\n2. AdminModule.jsx mounts the studio route\n";
 $a('imports FieldMappingStudio',
