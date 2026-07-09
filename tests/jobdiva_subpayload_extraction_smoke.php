@@ -182,7 +182,7 @@ $a('backfill returns placements_walked + sub_records_indexed counters',
     && str_contains($syncSrc, "'staffing_job'     => 0"));
 
 // 4.5) Backfill now also pulls full joined records via the JobDiva
-// enrichment endpoints (searchJob / searchCandidate / searchCustomer /
+// enrichment endpoints (searchJob / searchCandidate / CompaniesDetail /
 // searchContact). Operator complaint: "once I link the job I want to be
 // able to pull from the job fields and keep mapping" — the V2 BI
 // placement payload only carries flat ref-number stubs (jobRefNo,

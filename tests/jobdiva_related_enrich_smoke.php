@@ -43,9 +43,11 @@ $assert('configs candidate kind → /searchCandidate',
     strpos($sync, "'candidate' => [") !== false
     && strpos($sync, "'endpoint' => '/apiv2/jobdiva/searchCandidate',") !== false
     && strpos($sync, "'inject'   => '_jd_candidate',") !== false);
-$assert('configs customer kind → /searchCustomer',
+$assert('configs customer kind → /CompaniesDetail',
     strpos($sync, "'customer'  => [") !== false
-    && strpos($sync, "'endpoint' => '/apiv2/jobdiva/searchCustomer',") !== false
+    && strpos($sync, "'method'   => 'GET',") !== false
+    && strpos($sync, "'endpoint' => '/apiv2/bi/CompaniesDetail',") !== false
+    && strpos($sync, "'body_key' => 'companyIds',") !== false
     && strpos($sync, "'inject'   => '_jd_customer',") !== false);
 $assert('configs contact kind → /searchContact with job contact id',
     strpos($sync, "'contact'   => [") !== false
@@ -99,8 +101,10 @@ $assert('req fallback pluck list includes jobRefNo + reqNo + req',
 $assert('shared pluckIdOption helper enforces numeric flag',
     strpos($sync, '$pluckIdOption = function (array $cfg, array $jd)') !== false
     && strpos($sync, 'if (!ctype_digit($raw) || (int) $raw <= 0) continue;') !== false);
-$assert('Phase 2 uses per-id body_key when calling jobdivaCall',
-    strpos($sync, 'jobdivaCall($tid, \'POST\', $cfg[\'endpoint\'], [$bodyKey => $id])') !== false);
+$assert('Phase 2 uses per-id body_key and supports GET detail endpoints',
+    strpos($sync, "\$method = strtoupper((string) (\$cfg['method'] ?? 'POST'));") !== false
+    && strpos($sync, "jobdivaCall(\$tid, 'GET', \$cfg['endpoint'], null") !== false
+    && strpos($sync, "jobdivaCall(\$tid, 'POST', \$cfg['endpoint'], [\$bodyKey => \$id])") !== false);
 $assert('Phase 3 uses pluckIdOption helper for injection',
     strpos($sync, '$pick = $pluckIdOption($cfg, $jd);') !== false
     && strpos($sync, '$idStr = $pick[\'id\'];') !== false);

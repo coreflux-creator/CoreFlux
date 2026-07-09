@@ -33,7 +33,7 @@ $panel = (string) file_get_contents("{$ROOT}/dashboard/src/components/LinkedExte
 
 echo "FieldMapEditor — current-mappings list\n";
 $assert('declares FieldMapEditor component',
-    strpos($panel, 'function FieldMapEditor({ integration, entityType, payload })') !== false);
+    strpos($panel, 'function FieldMapEditor({ integration, entityType, payload, applyContext })') !== false);
 $assert('reads mappings from /api/admin/integrations/field_map.php (filtered by integration + entity_type)',
     strpos($panel, "`/api/admin/integrations/field_map.php?integration=\${encodeURIComponent(integration)}&entity_type=\${encodeURIComponent(entityType)}`") !== false);
 $assert('renders root container with stable test id',
@@ -55,6 +55,10 @@ $assert('Inline transform <select> on edit',
     strpos($panel, 'data-testid={`field-map-edit-transform-${r.internal_field}`}') !== false);
 $assert('Save button POSTs to upsert endpoint',
     strpos($panel, "api.post('/api/admin/integrations/field_map.php'") !== false);
+$assert('save path can immediately apply mappings to the current record',
+    strpos($panel, "api.post('/api/admin/integrations/field_map_apply_now.php'") !== false
+    && strpos($panel, 'root_entity_type: applyContext.rootEntityType') !== false
+    && strpos($panel, 'root_internal_id: applyContext.rootInternalId') !== false);
 $assert('inline save preserves generalised source_path + target routing',
     strpos($panel, 'source_path:    sourcePath') !== false
     && strpos($panel, 'defaultFieldMapTarget(entityType, r.internal_field)') !== false
@@ -87,6 +91,9 @@ $assert('new-row transform select',
     strpos($panel, 'data-testid="field-map-new-transform"') !== false);
 $assert('Save new mapping POSTs to upsert',
     strpos($panel, 'data-testid="field-map-new-save"') !== false);
+$assert('existing mappings can be applied without editing a row',
+    strpos($panel, 'data-testid="field-map-apply-now"') !== false
+    && strpos($panel, 'applyCurrentMappings().catch(() => {})') !== false);
 $assert('new mapping writes generalised source_path + target routing',
     strpos($panel, 'defaultFieldMapTarget(entityType, newRow.internal_field)') !== false
     && strpos($panel, 'source_path:    sourcePath') !== false
@@ -129,7 +136,8 @@ $assert('panel help text mentions the mapping editor (not just raw payload)',
 $assert('FieldMapEditor is rendered inside the expanded DetailRow',
     strpos($panel, '<FieldMapEditor') !== false
     && strpos($panel, 'integration={mapping.source_system}') !== false
-    && strpos($panel, 'entityType={selectedMappingEntity}') !== false);
+    && strpos($panel, 'entityType={selectedMappingEntity}') !== false
+    && strpos($panel, 'rootInternalId: mapping.internal_entity_id || internalId') !== false);
 $assert('JobDiva placement panel uses integration mapping entity buckets',
     strpos($panel, 'function integrationMappingEntityOptions(sourceSystem, entityType)') !== false
     && strpos($panel, "sourceSystem === 'jobdiva' && entityType === 'placement'") !== false
@@ -152,6 +160,13 @@ $assert('DELETE requires id query param',
     && strpos($api, "tenantIntegrationFieldMapDelete") !== false);
 
 echo "\nServer side — linked mapping payload enrichment\n";
+$applyNowApi = (string) file_get_contents("{$ROOT}/api/admin/integrations/field_map_apply_now.php");
+$assert('apply-now endpoint reruns canonical JobDiva placement projector',
+    strpos($applyNowApi, 'jobdivaProjectorProjectPlacement($tid, $payload, $userId') !== false
+    && strpos($applyNowApi, "'existing_placement_id' => \$rootInternalId") !== false);
+$assert('apply-now endpoint falls back to direct field-map apply for non-placement bindings',
+    strpos($applyNowApi, 'integrationFieldMapApplyAll($tid, $integration, $entityType, $payload') !== false);
+
 $mappingsApi = (string) file_get_contents("{$ROOT}/api/integrations/mappings.php");
 $assert('mappings endpoint loads JobDiva canonical graph helper',
     strpos($mappingsApi, "core/jobdiva/canonical_graph.php") !== false);

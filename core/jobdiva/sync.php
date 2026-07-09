@@ -638,11 +638,14 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
                 // JobDiva 404s the company, we still fall through to the
                 // skip path below so the contact is logged like before.
                 try {
-                    $resp = jobdivaCall(
-                        $tid, 'POST', '/apiv2/jobdiva/searchCustomer',
-                        ['customerId' => (int) $companyExtId]
+                    $candidateRows = jobdivaCallBulkIds(
+                        $tid,
+                        '/apiv2/bi/CompaniesDetail',
+                        'companyIds',
+                        [(string) $companyExtId],
+                        [],
+                        1
                     );
-                    $candidateRows = jobdivaRowsFromResponse($resp);
                     if (is_array($candidateRows) && !empty($candidateRows) && is_array($candidateRows[0])) {
                         $jdCo = $candidateRows[0];
                         $coName = trim((string) (
@@ -670,7 +673,7 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
                     // Backfill failure is non-fatal — the contact will
                     // just go through the existing skip+diagnostic path
                     // so the operator still sees the underlying problem.
-                    error_log("[jobdiva] backfill_companies_on_contact_pull failed for customer={$companyExtId}: " . $bfe->getMessage());
+                    error_log("[jobdiva] backfill_companies_on_contact_pull failed for company={$companyExtId}: " . $bfe->getMessage());
                 }
                 if (!$companyMapping) $companyBackfillMisses[$companyCacheKey] = true;
             }
@@ -739,7 +742,7 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
             'entity' => 'contact',
             'kind'   => 'companies_backfilled',
             'error'  => sprintf(
-                '%d parent company%s auto-fetched via searchCustomer during this contact sync (backfill_companies_on_contact_pull=true). The contact(s) succeeded; no operator action needed.',
+                '%d parent company%s auto-fetched via CompaniesDetail during this contact sync (backfill_companies_on_contact_pull=true). The contact(s) succeeded; no operator action needed.',
                 $skipReasons['backfilled_companies'],
                 $skipReasons['backfilled_companies'] === 1 ? '' : 'ies'
             ),
@@ -1161,7 +1164,7 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
  *   __cf_resolved_job_title  ← legacy convenience (still set, see notes)
  *   _jd_job        ← /apiv2/jobdiva/searchJob       result row
  *   _jd_candidate  ← /apiv2/jobdiva/searchCandidate result row
- *   _jd_customer   ← /apiv2/jobdiva/searchCustomer  result row
+ *   _jd_customer   ← /apiv2/bi/CompaniesDetail      result row
  *   _jd_contact    ← /apiv2/jobdiva/searchContact   result row (job contact)
  *   _jd_start      ← /apiv2/jobdiva/searchStart     full detail (with rates)
  *
@@ -1212,10 +1215,12 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
         ],
         'customer'  => [
             'id_options' => [
-                ['ids' => ['customer id', 'customerId', 'customer_id', 'clientId'],
-                 'body_key' => 'customerId', 'numeric' => true],
+                ['ids' => ['companyId', 'company_id', 'company id', 'companyID', 'COMPANYID',
+                           'endClientCompanyId', 'end_client_company_id', 'end client company id'],
+                 'body_key' => 'companyIds', 'numeric' => true],
             ],
-            'endpoint' => '/apiv2/jobdiva/searchCustomer',
+            'method'   => 'GET',
+            'endpoint' => '/apiv2/bi/CompaniesDetail',
             'inject'   => '_jd_customer',
         ],
         'contact'   => [
@@ -1310,7 +1315,15 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
             }
             $diag[$kind]['attempted']++;
             try {
-                $resp = jobdivaCall($tid, 'POST', $cfg['endpoint'], [$bodyKey => $id]);
+                $method = strtoupper((string) ($cfg['method'] ?? 'POST'));
+                if ($method === 'GET') {
+                    $resp = jobdivaCall($tid, 'GET', $cfg['endpoint'], null, [
+                        $bodyKey => $id,
+                        'userFieldsName' => '',
+                    ]);
+                } else {
+                    $resp = jobdivaCall($tid, 'POST', $cfg['endpoint'], [$bodyKey => $id]);
+                }
                 $rows = jobdivaRowsFromResponse($resp);
                 if (is_array($rows) && count($rows) > 0 && is_array($rows[0])) {
                     $cache[$kind][$id] = $rows[0];

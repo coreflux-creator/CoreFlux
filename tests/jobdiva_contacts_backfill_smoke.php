@@ -5,7 +5,7 @@
  * Validates that `jobdivaSyncContacts()` honours the new
  * `backfill_companies_on_contact_pull` opt: when a contact's parent
  * company has no mapping, the sync now fetches the company on-demand
- * via /apiv2/jobdiva/searchCustomer, upserts it, and retries the
+ * via /apiv2/bi/CompaniesDetail, upserts it, and retries the
  * mapping — instead of silently skipping the contact like before.
  *
  * Strategy
@@ -32,12 +32,12 @@ echo "Source — jobdivaSyncContacts() handles missing parent\n";
 $syncSrc = (string) file_get_contents('/app/core/jobdiva/sync.php');
 $assert('backfill is gated by opts flag',
     str_contains($syncSrc, "!empty(\$opts['backfill_companies_on_contact_pull'])"));
-$assert('backfill calls /apiv2/jobdiva/searchCustomer',
-    str_contains($syncSrc, "'/apiv2/jobdiva/searchCustomer'"));
-$assert('backfill uses customerId body key',
-    preg_match("/'customerId'\s*=>\s*\(int\)\s*\\\$companyExtId/", $syncSrc) === 1);
-$assert('backfill normalizes decoded jobdivaCall body rows',
-    str_contains($syncSrc, 'jobdivaRowsFromResponse($resp)'));
+$assert('backfill calls /apiv2/bi/CompaniesDetail',
+    str_contains($syncSrc, "'/apiv2/bi/CompaniesDetail'"));
+$assert('backfill uses companyIds detail query key',
+    str_contains($syncSrc, "'companyIds'"));
+$assert('backfill uses the shared bulk-id detail helper',
+    str_contains($syncSrc, 'jobdivaCallBulkIds('));
 $assert('backfill writes a jobdiva→company mapping',
     str_contains($syncSrc, 'jobdivaUpsertCompanyMapped($tid, (string) $companyExtId, $coName'));
 $assert('backfill can create placeholder parent companies',

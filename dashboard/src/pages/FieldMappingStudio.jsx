@@ -2047,7 +2047,7 @@ export default function FieldMappingStudio() {
                     </tbody>
                   </table>
                   <div style={{ marginTop: 10, fontSize: 11, color: '#64748b' }}>
-                    Red rows = JobDiva's <code>/searchJob</code>, <code>/searchCandidate</code>, <code>/searchCustomer</code>,
+                    Red rows = JobDiva's search/detail mirrors,
                     {' '}<code>/searchContact</code> or <code>/searchStart</code> endpoint didn't return data for this tenant.
                     That's a JobDiva account-permission issue on those endpoints — but read the
                     <strong> "What we extracted from flat fields" </strong>panel below: CoreFlux ALSO walks the placement's

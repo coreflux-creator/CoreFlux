@@ -290,7 +290,8 @@ function mappingListForInternal(int $tenantId, string $entityType, int $internal
     // ignore the column; the row size is bounded by the source-side
     // payload, which is already tenant-scoped.
     $stmt = $pdo->prepare(
-        'SELECT id, source_system, external_id, sync_status, direction,
+        'SELECT id, source_system, internal_entity_type, internal_entity_id,
+                external_id, sync_status, direction,
                 last_synced_at, last_seen_at, payload_snapshot
            FROM external_entity_mappings
           WHERE tenant_id = :t
@@ -396,4 +397,3 @@ function entitySyncHistoryList(int $tenantId, string $entityType, int $internalI
     }
     return $rows;
 }
-

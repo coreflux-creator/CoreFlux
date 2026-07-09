@@ -66,7 +66,7 @@ foreach (['_jd_job', '_jd_candidate', '_jd_customer', '_jd_contact', '_jd_start'
 }
 $a('enricher hits /apiv2/jobdiva/searchJob',      str_contains($sync, '/apiv2/jobdiva/searchJob'));
 $a('enricher hits /apiv2/jobdiva/searchCandidate',str_contains($sync, '/apiv2/jobdiva/searchCandidate'));
-$a('enricher hits /apiv2/jobdiva/searchCustomer', str_contains($sync, '/apiv2/jobdiva/searchCustomer'));
+$a('enricher hits /apiv2/bi/CompaniesDetail', str_contains($sync, '/apiv2/bi/CompaniesDetail'));
 $a('enricher hits /apiv2/jobdiva/searchContact',  str_contains($sync, '/apiv2/jobdiva/searchContact'));
 $a('legacy thin wrapper preserved',               str_contains($sync, 'function jobdivaSyncResolveJobTitles'));
 

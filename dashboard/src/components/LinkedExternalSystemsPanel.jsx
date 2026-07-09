@@ -433,7 +433,7 @@ function SuggestMappingModal({ open, onClose, mapping, entityType }) {
   );
 }
 
-function FieldMapEditor({ integration, entityType, payload }) {
+function FieldMapEditor({ integration, entityType, payload, applyContext }) {
   // Editable list of CURRENT (external_field → internal_field) mappings
   // for this (integration, entity_type). Replaces the AI-only "Suggest"
   // flow with direct CRUD so operators can fix sync drift on demand —
@@ -460,6 +460,7 @@ function FieldMapEditor({ integration, entityType, payload }) {
   const [newRow, setNewRow]   = useState({ internal_field: '', external_field: '', transform: 'none' });
   const [busy, setBusy]       = useState(false);
   const [opError, setOpError] = useState(null);
+  const [opMsg, setOpMsg]     = useState(null);
 
   const rows       = data?.rows || [];
   const allowed    = data?.allowed_internal_fields?.[entityType] || [];
@@ -539,7 +540,42 @@ function FieldMapEditor({ integration, entityType, payload }) {
   const startEdit = (r) => {
     setEditing(r.id);
     setDraft({ external_field: r.source_path || r.external_field || '', transform: r.transform || 'none' });
-    setOpError(null);
+    setOpError(null); setOpMsg(null);
+  };
+
+  const canApplyNow = !!(applyContext?.rootEntityType && applyContext?.rootInternalId);
+  const applyResultMessage = (r, prefix = 'Applied mappings') => {
+    const projection = r?.projection || {};
+    const fieldMap = projection.field_map || r?.apply || {};
+    const written = Number(fieldMap.written ?? 0);
+    const attempted = Number(fieldMap.attempted ?? 0);
+    const recordId = projection.placement_id || r?.root_internal_id || applyContext?.rootInternalId;
+    return `${prefix}: ${written} write${written === 1 ? '' : 's'}`
+      + (attempted ? ` from ${attempted} mapping${attempted === 1 ? '' : 's'}` : '')
+      + (recordId ? ` on record ${recordId}.` : '.');
+  };
+
+  const applyCurrentMappings = async ({ quiet = false } = {}) => {
+    if (!canApplyNow) return null;
+    if (!quiet) { setBusy(true); setOpError(null); setOpMsg(null); }
+    try {
+      const r = await api.post('/api/admin/integrations/field_map_apply_now.php', {
+        integration,
+        entity_type: entityType,
+        root_entity_type: applyContext.rootEntityType,
+        root_internal_id: applyContext.rootInternalId,
+      });
+      if (!quiet) setOpMsg(applyResultMessage(r));
+      reload && reload();
+      return r;
+    } catch (e) {
+      const message = e.message || 'Apply failed';
+      if (!quiet) setOpError(message);
+      if (quiet) return { ok: false, error: message };
+      throw e;
+    } finally {
+      if (!quiet) setBusy(false);
+    }
   };
 
   const saveEdit = async (r) => {
@@ -563,7 +599,13 @@ function FieldMapEditor({ integration, entityType, payload }) {
         transform:      draft.transform,
         enabled:        true,
       });
+      const applied = await applyCurrentMappings({ quiet: true });
       setEditing(null);
+      if (applied?.ok === false) {
+        setOpError(`Saved mapping, but apply failed: ${applied.error}`);
+      } else {
+        setOpMsg(applied ? applyResultMessage(applied, 'Saved and applied') : 'Saved mapping.');
+      }
       reload && reload();
     } catch (e) {
       setOpError(e.message || 'Save failed');
@@ -598,8 +640,14 @@ function FieldMapEditor({ integration, entityType, payload }) {
         transform:      newRow.transform,
         enabled:        true,
       });
+      const applied = await applyCurrentMappings({ quiet: true });
       setNewRow({ internal_field: '', external_field: '', transform: 'none' });
       setAdding(false);
+      if (applied?.ok === false) {
+        setOpError(`Saved mapping, but apply failed: ${applied.error}`);
+      } else {
+        setOpMsg(applied ? applyResultMessage(applied, 'Saved and applied') : 'Saved mapping.');
+      }
       reload && reload();
     } catch (e) {
       setOpError(e.message || 'Save failed');
@@ -629,6 +677,23 @@ function FieldMapEditor({ integration, entityType, payload }) {
         <Pencil size={12} color="#475569" />
         <strong style={{ fontSize: 12 }}>Current field mappings</strong>
         <span style={{ flex: 1 }} />
+        {canApplyNow && (
+          <button
+            type="button"
+            onClick={() => applyCurrentMappings().catch(() => {})}
+            disabled={busy}
+            title="Apply mappings to this record"
+            data-testid="field-map-apply-now"
+            style={{
+              background: '#eef2ff', border: '1px solid #c7d2fe',
+              color: '#3730a3', cursor: 'pointer', fontSize: 11,
+              padding: '3px 8px', borderRadius: 4, fontWeight: 600,
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+            }}
+          >
+            <Save size={11} /> Apply now
+          </button>
+        )}
         <span style={{ fontSize: 11, color: '#64748b' }}>
           {rows.length} active · {unmappedInternal.length} unmapped
         </span>
@@ -638,7 +703,7 @@ function FieldMapEditor({ integration, entityType, payload }) {
                   background: '#f1f5f9', border: '1px solid #e2e8f0',
                   padding: '4px 8px', borderRadius: 4 }}>
         These mappings are <strong>tenant-wide</strong> — they apply to every {integration} {entityType} record, not just this one.
-        This record&apos;s raw payload (below) is shown here only so you can copy real field names into the mapping.
+        Saving a mapping or pressing Apply now projects this source payload into the current CoreFlux record.
         {entityType === 'placement' && (
           <> JobDiva sync resolves the placement, person, client company, staffing client, job, and rate row first; mappings then enrich those resolved rows.</>
         )}
@@ -727,6 +792,12 @@ function FieldMapEditor({ integration, entityType, payload }) {
            style={{ fontSize: 11, color: '#991b1b', background: '#fef2f2',
                     border: '1px solid #fecaca', padding: '4px 8px',
                     borderRadius: 4, margin: '0 0 6px' }}>{opError}</p>
+      )}
+      {opMsg && (
+        <p data-testid="field-map-op-msg"
+           style={{ fontSize: 11, color: '#065f46', background: '#ecfdf5',
+                    border: '1px solid #a7f3d0', padding: '4px 8px',
+                    borderRadius: 4, margin: '0 0 6px' }}>{opMsg}</p>
       )}
 
       {!loading && (
@@ -880,7 +951,7 @@ function FieldMapEditor({ integration, entityType, payload }) {
 
       {!adding && unmappedInternal.length > 0 && (
         <button
-          onClick={() => { setAdding(true); setOpError(null); }}
+          onClick={() => { setAdding(true); setOpError(null); setOpMsg(null); }}
           data-testid="field-map-add"
           style={{
             marginTop: 6, background: 'transparent',
@@ -901,7 +972,7 @@ function FieldMapEditor({ integration, entityType, payload }) {
   );
 }
 
-function DetailRow({ mapping, entityType }) {
+function DetailRow({ mapping, entityType, internalId }) {
   const [showRaw, setShowRaw] = useState(false);
   const [showSuggest, setShowSuggest] = useState(false);
   const [mappingEntity, setMappingEntity] = useState(entityType);
@@ -1007,6 +1078,10 @@ function DetailRow({ mapping, entityType }) {
           integration={mapping.source_system}
           entityType={selectedMappingEntity}
           payload={selectedMappingPayload}
+          applyContext={{
+            rootEntityType: entityType,
+            rootInternalId: mapping.internal_entity_id || internalId,
+          }}
         />
         <div style={{ marginTop: idFields.length > 0 ? '0.6rem' : 0, display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <button
@@ -1156,7 +1231,7 @@ export default function LinkedExternalSystemsPanel({ entityType, internalId }) {
                       {m.last_synced_at || '—'}
                     </td>
                   </tr>
-                  {isOpen && <DetailRow mapping={m} entityType={entityType} />}
+                  {isOpen && <DetailRow mapping={m} entityType={entityType} internalId={internalId} />}
                 </React.Fragment>
               );
             })}
