@@ -1626,7 +1626,8 @@ function jobdivaApplyPlacementFieldMappings(
     int $personId,
     ?int $endClientCompanyId,
     int $staffingJobId,
-    array $payload
+    array $payload,
+    int $contactId = 0
 ): array {
     $summary = ['attempted' => 0, 'written' => 0, 'skipped' => 0, 'errors' => []];
     if ($tenantId <= 0 || $placementId <= 0) return $summary;
@@ -1640,7 +1641,13 @@ function jobdivaApplyPlacementFieldMappings(
         'placement_corp_details' => $placementId,
         'person'                 => $personId,
         'end_client_company'     => $endClientCompanyId ?? 0,
+        'company'                => $endClientCompanyId ?? 0,
+        'jobdiva_customer'       => $endClientCompanyId ?? 0,
         'staffing_job'           => $staffingJobId,
+        'job'                    => $staffingJobId,
+        'jobdiva_job'            => $staffingJobId,
+        'contact'                => $contactId,
+        'jobdiva_contact'        => $contactId,
     ];
 
     $mergeSummary = static function (array $part) use (&$summary): void {
@@ -1672,7 +1679,7 @@ function jobdivaApplyPlacementFieldMappings(
         'person'           => 'person',
         'job'              => 'self',
         'jobdiva_customer' => 'end_client_company',
-        'contact'          => 'self',
+        'contact'          => 'contact',
         'assignment'       => 'self',
     ];
     foreach (jobdivaExtractJoinedSubPayloads($payload) as $joinedEntity => $subPayload) {
@@ -1687,6 +1694,7 @@ function jobdivaApplyPlacementFieldMappings(
                 'person'             => $baseCtx['person'],
                 'end_client_company' => $baseCtx['end_client_company'],
                 'staffing_job'       => $baseCtx['staffing_job'],
+                'contact'            => $baseCtx['contact'],
                 default              => $baseCtx['placement'],
             };
             $payloadForApply = jobdivaCanonicalPayloadForEntity($joinedEntity, $mapEntityType, $subPayload);

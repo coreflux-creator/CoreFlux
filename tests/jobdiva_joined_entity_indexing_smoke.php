@@ -38,6 +38,7 @@ echo "=========================================\n";
 // 1) Sync source declares the side-effect helper.
 echo "\n1. jobdivaIndexJoinedSubPayloads helper\n";
 $sync = file_get_contents("$root/core/jobdiva/sync.php");
+$projector = file_get_contents("$root/core/jobdiva/projector.php");
 $a('payload_field_index.php required at top of sync',
     str_contains($sync, "require_once __DIR__ . '/../integrations/payload_field_index.php'"));
 $a('jobdivaIndexJoinedSubPayloads function declared',
@@ -61,12 +62,13 @@ $a('helper indexes native and canonical entity types per sub-record',
 $a('helper swallows errors so indexing failures never block sync',
     preg_match('/jobdivaIndexJoinedSubPayloads.*?catch \(\\\\Throwable \$e\)/s', $sync) === 1);
 
-// 2) Placement sync call site wires the helper after mappingUpsert.
-echo "\n2. Placement sync invokes the helper\n";
+// 2) Placement projection wires the helper after mappingUpsert.
+echo "\n2. Placement projection invokes the helper\n";
 $a('helper invoked after placement mapping upsert',
-    str_contains($sync, "jobdivaIndexJoinedSubPayloads(\$tid, \$jd);"));
-$a('invocation wrapped in try/catch — best-effort',
-    preg_match('/jobdivaIndexJoinedSubPayloads\(\$tid, \$jd\);.*?catch \(\\\\Throwable \$e\)/s', $sync) === 1);
+    str_contains($projector, "mappingUpsert(\$tenantId, 'jobdiva', 'placement'")
+    && str_contains($projector, 'jobdivaIndexJoinedSubPayloads($tenantId, $writePayload);'));
+$a('invocation wrapped in try/catch - best-effort',
+    preg_match('/jobdivaIndexJoinedSubPayloads\(\$tenantId, \$writePayload\);.*?catch \(\\\\Throwable \$e\)/s', $projector) === 1);
 
 // 3) applyAll fires for each joined entity type with its sub-payload.
 echo "\n3. applyAll wired per joined entity\n";
@@ -75,7 +77,7 @@ $a('JOINED_CTX table declared with person/job/customer/contact/assignment',
     && str_contains($sync, "'person'           => 'person'")
     && str_contains($sync, "'job'              => 'self'")
     && str_contains($sync, "'jobdiva_customer' => 'end_client_company'")
-    && str_contains($sync, "'contact'          => 'self'")
+    && str_contains($sync, "'contact'          => 'contact'")
     && str_contains($sync, "'assignment'       => 'self'"));
 $a('per-entity applyAll iterates extracted sub-payloads through canonical aliases',
     str_contains($sync, 'foreach (jobdivaExtractJoinedSubPayloads($payload) as $joinedEntity => $subPayload)')

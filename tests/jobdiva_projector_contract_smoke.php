@@ -51,6 +51,12 @@ $a('projector delegates placement/rate write to canonical sync writer',
     str_contains($projector, 'jobdivaSyncUpsertPlacement('));
 $a('projector binds canonical placement mapping',
     str_contains($projector, "mappingUpsert(\$tenantId, 'jobdiva', 'placement'"));
+$a('projector reinforces adjacent canonical source mappings',
+    str_contains($projector, 'function jobdivaProjectorBindPlacementSourceIdentities')
+    && str_contains($projector, "\$bind('person', \$candidateExtId, \$personId")
+    && str_contains($projector, "\$bind('jobdiva_customer', \$customerExtId, \$endClientCompanyId")
+    && str_contains($projector, "\$bind('staffing_job', \$jobExtId, \$staffingJobId")
+    && str_contains($projector, "\$bind('contact', \$contactExtId, \$contactId"));
 $a('projector indexes joined canonical roots',
     str_contains($projector, 'jobdivaIndexJoinedSubPayloads($tenantId, $writePayload)'));
 $a('projector applies tenant mappings after identity resolution',

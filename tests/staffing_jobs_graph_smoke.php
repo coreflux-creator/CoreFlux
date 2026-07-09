@@ -40,6 +40,7 @@ $a('bridges job client through staffingClientEnsureForCompany', str_contains($li
 
 echo "\nJobDiva sync bridge\n";
 $sync = $read('core/jobdiva/sync.php');
+$projector = $read('core/jobdiva/projector.php');
 $canon = $read('core/jobdiva/canonical_graph.php');
 $a('canonical graph exposes staffing_job as JobDiva job owner',
     str_contains($canon, "return ['placement', 'staffing_job', 'person', 'company', 'contact', 'time_entry']")
@@ -63,7 +64,8 @@ $a('mirror re-projection joins existing placement rows only',
     && str_contains($sync, "AND m.internal_entity_type = 'placement'")
     && str_contains($sync, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats)'));
 $a('mirror re-projection forces known placement id before upsert',
-    str_contains($sync, "\$payload['__cf_existing_placement_id'] = \$placementId;")
+    str_contains($sync, "'existing_placement_id' => \$placementId")
+    && str_contains($projector, "\$writePayload['__cf_existing_placement_id'] = \$existingPlacementId;")
     && str_contains($sync, '$forcedExistingId = (int) ($jd[\'__cf_existing_placement_id\'] ?? 0)'));
 $a('mirror-by-placement reports placement projection stats',
     str_contains($sync, '$projection = jobdivaReprojectMirroredPlacementGraphs(')

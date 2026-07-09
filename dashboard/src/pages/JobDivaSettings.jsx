@@ -1141,6 +1141,7 @@ function JobDivaMappingAlignmentCard({
 }
 
 const repairStepLabels = {
+  canonical_projection: 'Canonical projection',
   duplicate_placements: 'Duplicate placements',
   client_links: 'Client links',
   stale_active_placements: 'Stale active placements',
@@ -1155,6 +1156,9 @@ function JobDivaWorkflowRepairResult({ repair }) {
   const failed = repair?.totals?.failed ?? 0;
 
   const lineFor = (key, step) => {
+    if (key === 'canonical_projection') {
+      return `projected ${step.projected ?? 0}/${step.checked ?? 0}; mapping writes ${step.mapping_writes ?? 0}; field writes ${step.field_map_writes ?? 0}; failed ${step.failed ?? 0}`;
+    }
     if (key === 'duplicate_placements') {
       return `archived ${step.placements_archived ?? 0}; restored ids ${step.external_ids_restored ?? 0}; skipped ${step.skipped ?? 0}; failed ${step.failed ?? 0}`;
     }

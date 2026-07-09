@@ -61,6 +61,7 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
             'person_id' => 0,
             'end_client_company_id' => 0,
             'staffing_job_id' => 0,
+            'contact_id' => 0,
         ],
         'join_stats' => [],
         'mapping_writes' => 0,
@@ -139,6 +140,19 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         $staffingJobId = function_exists('jobdivaPlacementStaffingJobId')
             ? jobdivaPlacementStaffingJobId($tenantId, $placementId)
             : 0;
+        $identityBindings = jobdivaProjectorBindPlacementSourceIdentities(
+            $tenantId,
+            $writePayload,
+            $userId,
+            $personId,
+            $endClientCompanyId > 0 ? $endClientCompanyId : 0,
+            $staffingJobId
+        );
+        $summary['mapping_writes'] += (int) ($identityBindings['mapping_writes'] ?? 0);
+        foreach (($identityBindings['errors'] ?? []) as $bindError) {
+            $summary['errors'][] = (string) $bindError;
+        }
+        $contactId = (int) ($identityBindings['contact_id'] ?? 0);
         if (function_exists('jobdivaApplyPlacementFieldMappings')) {
             try {
                 $summary['field_map'] = jobdivaApplyPlacementFieldMappings(
@@ -147,7 +161,8 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
                     $personId,
                     $endClientCompanyId > 0 ? $endClientCompanyId : null,
                     $staffingJobId,
-                    $writePayload
+                    $writePayload,
+                    $contactId
                 );
             } catch (\Throwable $e) {
                 $summary['field_map']['errors'][] = $e->getMessage();
@@ -161,6 +176,7 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
             'person_id' => $personId,
             'end_client_company_id' => $endClientCompanyId,
             'staffing_job_id' => $staffingJobId,
+            'contact_id' => $contactId,
         ];
         $summary['readiness'] = jobdivaProjectorPlacementReadiness($tenantId, $placementId);
         return $summary;
@@ -168,6 +184,101 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         $summary['errors'][] = $e->getMessage();
         return $summary;
     }
+}
+
+function jobdivaProjectorBindPlacementSourceIdentities(
+    int $tenantId,
+    array $payload,
+    ?int $userId,
+    int $personId,
+    int $endClientCompanyId,
+    int $staffingJobId
+): array {
+    $summary = ['mapping_writes' => 0, 'contact_id' => 0, 'errors' => []];
+    if ($tenantId <= 0) return $summary;
+
+    $bind = static function (string $entityType, string $externalId, int $internalId, array $sourcePayload) use (
+        $tenantId,
+        $userId,
+        &$summary
+    ): void {
+        $externalId = trim($externalId);
+        if ($externalId === '' || $internalId <= 0) return;
+        try {
+            mappingUpsert($tenantId, 'jobdiva', $entityType, $externalId, $internalId, $sourcePayload, 'pull', $userId);
+            $summary['mapping_writes']++;
+        } catch (\Throwable $e) {
+            $summary['errors'][] = "{$entityType} {$externalId}: " . $e->getMessage();
+        }
+    };
+
+    $candidatePayload = jobdivaProjectorNestedPayload($payload, [
+        '_jd_candidate', 'person', 'candidate', 'Candidate', 'jobdiva_candidate',
+    ]) ?: $payload;
+    $candidateExtId = jobdivaProjectorPluckDeep($payload, [
+        'candidate id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID',
+        'employeeId', 'employee_id', 'personId', 'person_id',
+    ], ['_jd_candidate', 'person', 'candidate', 'Candidate', 'jobdiva_candidate']);
+    $bind('person', $candidateExtId, $personId, $candidatePayload);
+
+    $companyPayload = jobdivaProjectorNestedPayload($payload, [
+        '_jd_customer', 'company', 'customer', 'Customer', 'client', 'Client', 'jobdiva_customer',
+    ]) ?: $payload;
+    $companyExtId = jobdivaProjectorPluckDeep($payload, [
+        'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID',
+        'endClientCompanyId', 'end_client_company_id',
+    ], jobdivaProjectorEndClientNestOrder());
+    $customerExtId = jobdivaProjectorPluckDeep($payload, [
+        'customerId', 'customer_id', 'customer id', 'customerID', 'CUSTOMERID',
+        'clientId', 'client_id', 'client id',
+    ], jobdivaProjectorEndClientNestOrder());
+    $bind('company', $companyExtId, $endClientCompanyId, $companyPayload);
+    $bind('jobdiva_customer', $customerExtId, $endClientCompanyId, $companyPayload);
+
+    $jobPayload = jobdivaProjectorNestedPayload($payload, [
+        '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job', 'jobdiva_job',
+    ]) ?: $payload;
+    $jobExtId = jobdivaProjectorPluckDeep($payload, [
+        'job id', 'jobId', 'job_id', 'jobID', 'JOBID', 'reqId', 'req_id',
+    ], ['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job', 'jobdiva_job']);
+    $bind('staffing_job', $jobExtId, $staffingJobId, $jobPayload);
+
+    $contactPayload = jobdivaProjectorNestedPayload($payload, [
+        '_jd_contact', 'contact', 'Contact', 'jobdiva_contact',
+    ]) ?: $payload;
+    $contactExtId = jobdivaProjectorPluckDeep($payload, [
+        'job contact id', 'jobContactId', 'contactId', 'contact_id', 'contact id',
+    ], ['_jd_contact', 'contact', 'Contact', 'jobdiva_contact']);
+    $contactName = jobdivaProjectorPluck($contactPayload, [
+        'name', 'fullName', 'full_name', 'contactName', 'contact_name',
+    ]);
+    if ($contactName === '') {
+        $first = jobdivaProjectorPluck($contactPayload, ['first name', 'firstName', 'first_name', 'firstname']);
+        $last = jobdivaProjectorPluck($contactPayload, ['last name', 'lastName', 'last_name', 'lastname']);
+        $contactName = trim($first . ' ' . $last);
+    }
+    if ($contactName === '') {
+        $contactName = jobdivaProjectorPluckDeep($payload, [
+            'client_approver_name', 'approverName', 'approver_name',
+            'clientApprover', 'client_approver', 'clientContactName',
+        ], ['_jd_contact', 'contact', 'Contact', 'jobdiva_contact']);
+    }
+    if ($contactExtId !== '' && $endClientCompanyId > 0 && $contactName !== '' && function_exists('jobdivaSyncUpsertContact')) {
+        try {
+            if (jobdivaProjectorPluck($contactPayload, ['id', 'contactId', 'contact_id', 'contactID']) === '') {
+                $contactPayload['id'] = $contactExtId;
+            }
+            $contactId = (int) jobdivaSyncUpsertContact($tenantId, $endClientCompanyId, $contactPayload, $contactName);
+            if ($contactId > 0) {
+                $summary['contact_id'] = $contactId;
+                $bind('contact', $contactExtId, $contactId, $contactPayload);
+            }
+        } catch (\Throwable $e) {
+            $summary['errors'][] = "contact {$contactExtId}: " . $e->getMessage();
+        }
+    }
+
+    return $summary;
 }
 
 function jobdivaProjectorPlacementReadiness(int $tenantId, int $placementId): array
@@ -546,6 +657,16 @@ function jobdivaProjectorPluckDeep(array $payload, array $candidates, ?array $ne
         if ($v !== '') return $v;
     }
     return '';
+}
+
+function jobdivaProjectorNestedPayload(array $payload, array $keys): ?array
+{
+    foreach ($keys as $key) {
+        if (isset($payload[$key]) && is_array($payload[$key]) && $payload[$key] !== []) {
+            return $payload[$key];
+        }
+    }
+    return null;
 }
 
 function jobdivaProjectorScalar(\PDO $pdo, string $sql, array $params = []): int

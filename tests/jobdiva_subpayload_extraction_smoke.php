@@ -207,7 +207,8 @@ echo "\n5. Placement sync uses extractor for applyAll fan-out\n";
 $a('JOINED_CTX map present',
     str_contains($syncSrc, 'static $JOINED_CTX = [')
     && str_contains($syncSrc, "'person'           => 'person'")
-    && str_contains($syncSrc, "'jobdiva_customer' => 'end_client_company'"));
+    && str_contains($syncSrc, "'jobdiva_customer' => 'end_client_company'")
+    && str_contains($syncSrc, "'contact'          => 'contact'"));
 $a('placement sync delegates projection to shared projector',
     str_contains($syncSrc, 'jobdivaProjectorProjectPlacement($tid, $jd, $userId')
     && str_contains($projectorSrc, 'jobdivaPlacementStaffingJobId($tenantId, $placementId)')
@@ -220,7 +221,8 @@ $a('joined applyAll invokes integrationFieldMapApplyAll per canonical/native ent
     && str_contains($syncSrc, 'jobdivaCanonicalPayloadForEntity($joinedEntity, $mapEntityType, $subPayload)')
     && str_contains($syncSrc, "integrationFieldMapApplyAll(\$tenantId, 'jobdiva', \$entityType, \$payloadForApply, \$ctx)")
     && str_contains($syncSrc, '$apply($mapEntityType, $payloadForApply, $ctx)')
-    && str_contains($syncSrc, "'staffing_job'       => \$baseCtx['staffing_job'],"));
+    && str_contains($syncSrc, "'staffing_job'       => \$baseCtx['staffing_job'],")
+    && str_contains($syncSrc, "'contact'            => \$baseCtx['contact'],"));
 
 // 6) Backfill API endpoint is present + protected.
 echo "\n6. Re-index API endpoint\n";

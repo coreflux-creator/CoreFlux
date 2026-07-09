@@ -126,10 +126,17 @@ $a('source rate draft repair is exposed from alignment service',
     str_contains($service, 'function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user')
     && str_contains($service, 'placementsEnsureDraftRateFromSourcePayload($placementId, $user)')
     && str_contains($service, 'mapping_alignment_repair_source_rate_drafts'));
-$a('ordered repair workflow runs safe operations before rate drafting',
+$a('canonical projection repair is exposed from alignment service',
+    str_contains($service, 'function jobdivaMappingRepairCanonicalProjection(int $tenantId')
+    && str_contains($service, 'jobdivaReprojectMirroredPlacementGraphs($tenantId, $userId, $limit)')
+    && str_contains($service, 'mapping_alignment_repair_canonical_projection'));
+$a('ordered repair workflow replays canonical projection before cleanup and rate drafting',
     str_contains($service, 'function jobdivaMappingRepairWorkflow(int $tenantId, array $user')
+    && strpos($service, "jobdivaMappingRepairCanonicalProjection(\$tenantId, \$userId, \$limit)") !== false
     && strpos($service, "jobdivaMappingRepairDuplicatePlacements(\$tenantId, \$userId, min(500, \$limit), false)") !== false
     && strpos($service, "jobdivaMappingRepairSourceRateDrafts(\$tenantId, \$user, \$limit)") !== false
+    && strpos($service, "jobdivaMappingRepairCanonicalProjection(\$tenantId, \$userId, \$limit)") <
+       strpos($service, "jobdivaMappingRepairDuplicatePlacements(\$tenantId, \$userId, min(500, \$limit), false)")
     && strpos($service, "jobdivaMappingRepairDuplicatePlacements(\$tenantId, \$userId, min(500, \$limit), false)") <
        strpos($service, "jobdivaMappingRepairSourceRateDrafts(\$tenantId, \$user, \$limit)")
     && str_contains($service, 'mapping_alignment_repair_workflow'));
@@ -174,6 +181,7 @@ $a('settings has repair client links button',
 $a('settings has one-click ordered repair workflow',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-workflow"')
     && str_contains($ui, "repair_workflow")
+    && str_contains($ui, 'canonical_projection')
     && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-workflow-result"')
     && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-workflow-errors"')
     && str_contains($ui, 'repairStepLabels'));

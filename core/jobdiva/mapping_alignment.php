@@ -624,6 +624,67 @@ function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user, int $l
     return $summary;
 }
 
+function jobdivaMappingRepairCanonicalProjection(int $tenantId, ?int $userId = null, int $limit = 500): array
+{
+    $summary = [
+        'checked' => 0,
+        'projected' => 0,
+        'skipped' => 0,
+        'failed' => 0,
+        'mapping_writes' => 0,
+        'field_map_writes' => 0,
+        'jobs_joined' => 0,
+        'candidates_joined' => 0,
+        'contacts_joined' => 0,
+        'assignments_joined' => 0,
+        'errors' => [],
+    ];
+    $limit = max(1, min(5000, $limit));
+
+    if (!function_exists('jobdivaReprojectMirroredPlacementGraphs')) {
+        $summary['failed']++;
+        $summary['errors'][] = 'Canonical projection function is not loaded';
+        return $summary;
+    }
+
+    $projection = jobdivaReprojectMirroredPlacementGraphs($tenantId, $userId, $limit);
+    $summary['checked'] = (int) ($projection['placements_seen'] ?? 0);
+    $summary['projected'] = (int) ($projection['placements_projected'] ?? 0);
+    $summary['mapping_writes'] = (int) ($projection['mapping_writes'] ?? 0);
+    $summary['field_map_writes'] = (int) ($projection['field_map_writes'] ?? 0);
+    foreach (['jobs_joined', 'candidates_joined', 'contacts_joined', 'assignments_joined'] as $k) {
+        $summary[$k] = (int) ($projection[$k] ?? 0);
+    }
+
+    foreach ((array) ($projection['errors'] ?? []) as $err) {
+        if (is_array($err)) {
+            $prefix = !empty($err['placement_id']) ? 'placement ' . (int) $err['placement_id'] . ': ' : '';
+            $summary['errors'][] = $prefix . (string) ($err['error'] ?? json_encode($err));
+        } else {
+            $summary['errors'][] = (string) $err;
+        }
+        if (count($summary['errors']) >= 10) break;
+    }
+    $summary['failed'] = count((array) ($projection['errors'] ?? []));
+    $summary['skipped'] = max(0, $summary['checked'] - $summary['projected'] - $summary['failed']);
+
+    if (function_exists('jobdivaAudit')) {
+        try {
+            jobdivaAudit($tenantId, 'mapping_alignment_repair_canonical_projection', [
+                'ok' => $summary['failed'] === 0,
+                'direction' => 'pull',
+                'actor_user_id' => $userId,
+                'items_processed' => $summary['projected'],
+                'items_skipped' => $summary['skipped'],
+                'items_failed' => $summary['failed'],
+                'detail' => $summary,
+            ]);
+        } catch (\Throwable $_) {}
+    }
+
+    return $summary;
+}
+
 function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 500): array
 {
     $limit = max(1, min(1000, $limit));
@@ -631,7 +692,9 @@ function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5
     $startedAt = gmdate('c');
     $steps = [];
 
-    // Order matters: remove duplicate shells before creating new rate children.
+    // Order matters: replay source evidence into canonical graph owners first,
+    // then clean duplicate/orphan placement shells and downstream blockers.
+    $steps['canonical_projection'] = jobdivaMappingRepairCanonicalProjection($tenantId, $userId, $limit);
     $steps['duplicate_placements'] = jobdivaMappingRepairDuplicatePlacements($tenantId, $userId, min(500, $limit), false);
     $steps['client_links'] = jobdivaMappingRepairStaffingClientLinks($tenantId, $userId, $limit);
     $steps['stale_active_placements'] = jobdivaMappingRepairStaleActivePlacements($tenantId, $userId, $limit, false);
@@ -646,6 +709,8 @@ function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5
         $changed += (int) ($step['repaired'] ?? 0);
         $changed += (int) ($step['ended'] ?? 0);
         $changed += (int) ($step['drafted'] ?? 0);
+        $changed += (int) ($step['mapping_writes'] ?? 0);
+        $changed += (int) ($step['field_map_writes'] ?? 0);
     }
 
     $after = jobdivaMappingAlignmentReport($tenantId, ['sample_limit' => 10]);
