@@ -24,6 +24,28 @@ function _fieldMapApplyNowPayload(array $mapping): array
     return [];
 }
 
+function _fieldMapApplyNowPlacementContext(int $tenantId, int $placementId): array
+{
+    if ($tenantId <= 0 || $placementId <= 0) return [];
+    try {
+        $st = getDB()->prepare(
+            'SELECT person_id, end_client_company_id
+               FROM placements
+              WHERE tenant_id = :t AND id = :id
+              LIMIT 1'
+        );
+        $st->execute(['t' => $tenantId, 'id' => $placementId]);
+        $row = $st->fetch(\PDO::FETCH_ASSOC) ?: [];
+        return [
+            'person_id' => (int) ($row['person_id'] ?? 0),
+            'end_client_company_id' => (int) ($row['end_client_company_id'] ?? 0),
+        ];
+    } catch (\Throwable $e) {
+        error_log('[field_map_apply_now] placement context lookup failed: ' . $e->getMessage());
+        return [];
+    }
+}
+
 $ctx = api_require_auth();
 $user = $ctx['user'];
 $tid = (int) $ctx['tenant_id'];
@@ -64,10 +86,19 @@ try {
         $externalId = trim((string) ($mapping['external_id'] ?? ''));
         if (str_starts_with($externalId, 'jd:')) $externalId = substr($externalId, 3);
 
-        $projection = jobdivaProjectorProjectPlacement($tid, $payload, $userId, [
+        $placementContext = _fieldMapApplyNowPlacementContext($tid, $rootInternalId);
+        $projectionOpts = [
             'external_id' => $externalId,
             'existing_placement_id' => $rootInternalId,
-        ]);
+        ];
+        if (!empty($placementContext['person_id'])) {
+            $projectionOpts['person_id'] = (int) $placementContext['person_id'];
+        }
+        if (!empty($placementContext['end_client_company_id'])) {
+            $projectionOpts['end_client_company_id'] = (int) $placementContext['end_client_company_id'];
+        }
+
+        $projection = jobdivaProjectorProjectPlacement($tid, $payload, $userId, $projectionOpts);
         if (empty($projection['projected'])) {
             api_error('JobDiva projection failed.', 422, ['projection' => $projection]);
         }

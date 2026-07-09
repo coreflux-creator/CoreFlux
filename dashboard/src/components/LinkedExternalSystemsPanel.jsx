@@ -35,7 +35,7 @@ const SOURCE_ID_FIELDS = {
       ['Start ID',        ['startId', 'id']],
       ['JobDiva Job #',   ['jobNumber', 'job_number', 'jobId', 'job_id', 'jobNum']],
       ['Job Title',       ['jobTitle', 'job_title', 'title', 'positionTitle']],
-      ['Candidate ID',    ['candidateId', 'candidate_id', 'employeeId', 'employee_id']],
+      ['Candidate ID',    ['candidate id', 'candidateId', 'candidate_id', 'employeeId', 'employee_id']],
       ['Candidate Name',  ['candidateName', 'candidate_name']],
       ['Company',         ['companyName', 'company_name', 'endClientName']],
       ['Start Date',      ['startDate', 'start_date']],
@@ -44,7 +44,7 @@ const SOURCE_ID_FIELDS = {
       ['Pay Rate',        ['payRate',   'pay_rate']],
     ],
     person: [
-      ['Candidate ID',   ['id', 'candidateId', 'candidate_id', 'employeeId']],
+      ['Candidate ID',   ['id', 'candidate id', 'candidateId', 'candidate_id', 'employeeId']],
       ['Email',          ['email', 'candidateEmail']],
       ['Phone',          ['phone', 'candidatePhone', 'phone 1']],
     ],
@@ -544,6 +544,14 @@ function FieldMapEditor({ integration, entityType, payload, applyContext }) {
   };
 
   const canApplyNow = !!(applyContext?.rootEntityType && applyContext?.rootInternalId);
+  const applyErrorMessage = (e) => {
+    const projection = e?.data?.projection;
+    const errors = Array.isArray(projection?.errors) ? projection.errors.filter(Boolean) : [];
+    const fieldErrors = Array.isArray(projection?.field_map?.errors) ? projection.field_map.errors.filter(Boolean) : [];
+    const details = [...errors, ...fieldErrors].map(String).filter(Boolean);
+    if (details.length > 0) return `${e.message || 'Apply failed'}: ${details.slice(0, 3).join('; ')}`;
+    return e.message || 'Apply failed';
+  };
   const applyResultMessage = (r, prefix = 'Applied mappings') => {
     const projection = r?.projection || {};
     const fieldMap = projection.field_map || r?.apply || {};
@@ -569,7 +577,7 @@ function FieldMapEditor({ integration, entityType, payload, applyContext }) {
       reload && reload();
       return r;
     } catch (e) {
-      const message = e.message || 'Apply failed';
+      const message = applyErrorMessage(e);
       if (!quiet) setOpError(message);
       if (quiet) return { ok: false, error: message };
       throw e;

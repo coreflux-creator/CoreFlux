@@ -97,8 +97,9 @@ $assert('diagnostics surfaces timesheet_discovered_ids',
 
 echo "\nAuto-create person resolver\n";
 $assert('resolves candidate ID via multiple shapes',
-    strpos($src, "'candidateId', 'candidate_id', 'employeeId', 'employee_id'") !== false
-    && strpos($src, "'candidateID', 'EmployeeID', 'personId', 'person_id'") !== false);
+    strpos($src, "'candidate id'") !== false
+    && strpos($src, "'candidateId', 'candidate_id', 'employeeId', 'employee_id'") !== false
+    && strpos($src, "'candidateID', 'CANDIDATEID', 'EmployeeID', 'personId', 'person_id'") !== false);
 $assert('returns null when no candidate ID at all',
     strpos($src, "if (\$candidateExtId === '') return null;") !== false);
 $assert('reuses existing person mapping when present',

@@ -231,8 +231,9 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
 {
     require_once __DIR__ . '/../integrations/field_map.php';
     $candidateExtId = jobdivaPluckField($jd, [
+        'candidate id',
         'candidateId', 'candidate_id', 'employeeId', 'employee_id',
-        'candidateID', 'EmployeeID', 'personId', 'person_id',
+        'candidateID', 'CANDIDATEID', 'EmployeeID', 'personId', 'person_id',
     ]);
     if ($candidateExtId === '') return null;
 

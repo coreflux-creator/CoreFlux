@@ -59,6 +59,10 @@ $assert('save path can immediately apply mappings to the current record',
     strpos($panel, "api.post('/api/admin/integrations/field_map_apply_now.php'") !== false
     && strpos($panel, 'root_entity_type: applyContext.rootEntityType') !== false
     && strpos($panel, 'root_internal_id: applyContext.rootInternalId') !== false);
+$assert('apply errors surface projector detail instead of only the generic banner',
+    strpos($panel, 'const applyErrorMessage = (e) =>') !== false
+    && strpos($panel, 'projection?.errors') !== false
+    && strpos($panel, 'projection?.field_map?.errors') !== false);
 $assert('inline save preserves generalised source_path + target routing',
     strpos($panel, 'source_path:    sourcePath') !== false
     && strpos($panel, 'defaultFieldMapTarget(entityType, r.internal_field)') !== false
@@ -164,6 +168,10 @@ $applyNowApi = (string) file_get_contents("{$ROOT}/api/admin/integrations/field_
 $assert('apply-now endpoint reruns canonical JobDiva placement projector',
     strpos($applyNowApi, 'jobdivaProjectorProjectPlacement($tid, $payload, $userId') !== false
     && strpos($applyNowApi, "'existing_placement_id' => \$rootInternalId") !== false);
+$assert('apply-now endpoint reuses existing placement identity context',
+    strpos($applyNowApi, 'function _fieldMapApplyNowPlacementContext') !== false
+    && strpos($applyNowApi, 'SELECT person_id, end_client_company_id') !== false
+    && strpos($applyNowApi, "\$projectionOpts['person_id']") !== false);
 $assert('apply-now endpoint falls back to direct field-map apply for non-placement bindings',
     strpos($applyNowApi, 'integrationFieldMapApplyAll($tid, $integration, $entityType, $payload') !== false);
 
