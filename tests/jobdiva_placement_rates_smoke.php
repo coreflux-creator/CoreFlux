@@ -70,8 +70,14 @@ echo "\njobdivaSyncUpsertPlacementRates — coercion / validation\n";
 $assert('skips when bill_rate <= 0 (no placeholder rows)',
     strpos($sync, 'if ($billRate <= 0) {') !== false
     && strpos($sync, 'return false;') !== false);
+$assert('rate parser accepts currency/unit display strings',
+    strpos($sync, 'function jobdivaParseRateAmount(mixed $raw): float') !== false
+    && strpos($sync, "str_replace([',', '$'], '', \$s)") !== false
+    && strpos($sync, "preg_match('/-?\\d+(?:\\.\\d+)?/'") !== false
+    && strpos($sync, '$billRate = jobdivaParseRateAmount($billRateRaw);') !== false);
 $assert('pay_rate falls back to bill_rate when JobDiva did not supply one (NOT NULL column)',
-    strpos($sync, '$payRate = is_numeric($payRateRaw) ? (float) $payRateRaw : $billRate;') !== false);
+    strpos($sync, '$payRate = jobdivaParseRateAmount($payRateRaw);') !== false
+    && strpos($sync, 'if ($payRate <= 0) $payRate = $billRate;') !== false);
 $assert('unit coercion accepts "h" / "USD/Hour" / "Hourly" → hour',
     strpos($sync, "if (\$s === '' || \$s === 'h' || str_contains(\$s, 'hour')) return 'hour';") !== false);
 $assert('currency is forced to CHAR(3) by extracting ISO-3 substring',

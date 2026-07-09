@@ -2568,6 +2568,19 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
  * — placements without a rate (e.g. direct-hire) should NOT create
  * placeholder rows; users can fix manually.
  */
+function jobdivaParseRateAmount(mixed $raw): float
+{
+    if (is_int($raw) || is_float($raw)) return (float) $raw;
+    $s = trim((string) $raw);
+    if ($s === '') return 0.0;
+    $s = str_replace([',', '$'], '', $s);
+    if (is_numeric($s)) return (float) $s;
+    if (preg_match('/-?\d+(?:\.\d+)?/', $s, $m)) {
+        return (float) $m[0];
+    }
+    return 0.0;
+}
+
 function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $startDate, array $jd): bool
 {
     require_once __DIR__ . '/../integrations/field_map.php';
@@ -2585,7 +2598,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'max bill rate', 'maximum bill rate', 'finalBillRateMax', 'final_bill_rate_max',
         ])
     );
-    $billRate = is_numeric($billRateRaw) ? (float) $billRateRaw : 0.0;
+    $billRate = jobdivaParseRateAmount($billRateRaw);
     if ($billRate <= 0) {
         // No rate present — placement is rate-less (direct hire,
         // perm placement, etc). Skip writing a rate row so we don't
@@ -2603,7 +2616,8 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     );
     // pay_rate is NOT NULL on the schema — if JobDiva didn't supply
     // one, mirror bill_rate (overrideable by the operator later).
-    $payRate = is_numeric($payRateRaw) ? (float) $payRateRaw : $billRate;
+    $payRate = jobdivaParseRateAmount($payRateRaw);
+    if ($payRate <= 0) $payRate = $billRate;
 
     // Coerce 'h' / 'hourly' / 'USD/Hour' / etc. to the ENUM values.
     // Per-rate units may differ (e.g. day rate + hourly OT) but the

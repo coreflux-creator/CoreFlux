@@ -994,6 +994,11 @@ function JobDivaMappingAlignmentCard({
                 : 'drafted' in repairResult
                   ? <>Checked {repairResult.checked ?? 0}; drafted {repairResult.drafted ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
                 : <>Checked {repairResult.checked ?? 0}; repaired {repairResult.repaired ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>}
+              {Array.isArray(repairResult.errors) && repairResult.errors.length > 0 && (
+                <span style={{ display: 'block', marginTop: 6, color: '#991b1b' }}>
+                  First error: {repairResult.errors[0]}
+                </span>
+              )}
             </p>
           )
       )}
@@ -1164,6 +1169,9 @@ function JobDivaWorkflowRepairResult({ repair }) {
     }
     return `checked ${step.checked ?? step.groups_checked ?? 0}; failed ${step.failed ?? 0}`;
   };
+  const stepErrors = Object.entries(steps)
+    .flatMap(([key, step]) => (Array.isArray(step?.errors) ? step.errors.map(err => `${repairStepLabels[key] || key}: ${err}`) : []))
+    .slice(0, 3);
 
   return (
     <div data-testid="jobdiva-mapping-alignment-repair-workflow-result"
@@ -1185,6 +1193,12 @@ function JobDivaWorkflowRepairResult({ repair }) {
       <div style={{ color: '#475569', marginTop: 8 }}>
         Remaining after refresh: {remainingTypes} critical blocker type{remainingTypes === 1 ? '' : 's'}, {remainingRows} affected row{remainingRows === 1 ? '' : 's'}.
       </div>
+      {stepErrors.length > 0 && (
+        <div data-testid="jobdiva-mapping-alignment-repair-workflow-errors"
+             style={{ marginTop: 8, color: '#991b1b', fontFamily: 'ui-monospace, SFMono-Regular, monospace', whiteSpace: 'pre-wrap' }}>
+          {stepErrors.map((err, idx) => <div key={idx}>{err}</div>)}
+        </div>
+      )}
     </div>
   );
 }

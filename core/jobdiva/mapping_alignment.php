@@ -866,6 +866,16 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
         try {
             $pdo->beginTransaction();
             $canonical = (string) ($group['canonical_external_id'] ?? '');
+            [$inSql, $params] = _jobdivaMappingInClause('id', $duplicateIds);
+            $params['t'] = $tenantId;
+            $pdo->prepare(
+                "UPDATE placements
+                    SET deleted_at = NOW(), updated_at = NOW()
+                  WHERE tenant_id = :t AND {$inSql}"
+            )->execute($params);
+
+            _jobdivaMappingRehomePlacementMapping($pdo, $tenantId, $norm, $keepId, $duplicateIds);
+
             if ($canonical !== '') {
                 $st = $pdo->prepare(
                     'UPDATE placements
@@ -875,25 +885,6 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
                 $st->execute(['ext' => $canonical, 't' => $tenantId, 'id' => $keepId]);
                 if ($st->rowCount() > 0) $summary['external_ids_restored']++;
             }
-
-            $pdo->prepare(
-                "UPDATE external_entity_mappings
-                    SET internal_entity_id = :iid,
-                        updated_at = NOW(),
-                        last_seen_at = NOW()
-                  WHERE tenant_id = :t
-                    AND source_system = 'jobdiva'
-                    AND internal_entity_type = 'placement'
-                    AND external_id = :ext"
-            )->execute(['iid' => $keepId, 't' => $tenantId, 'ext' => $norm]);
-
-            [$inSql, $params] = _jobdivaMappingInClause('id', $duplicateIds);
-            $params['t'] = $tenantId;
-            $pdo->prepare(
-                "UPDATE placements
-                    SET deleted_at = NOW(), updated_at = NOW()
-                  WHERE tenant_id = :t AND {$inSql}"
-            )->execute($params);
 
             $pdo->commit();
             $summary['groups_repaired']++;
@@ -922,6 +913,104 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
     }
 
     return $summary;
+}
+
+function _jobdivaMappingRehomePlacementMapping(\PDO $pdo, int $tenantId, string $externalId, int $keepId, array $duplicateIds): void
+{
+    if ($externalId === '' || $keepId <= 0) return;
+    $externalIds = array_values(array_unique([$externalId, 'jd:' . $externalId]));
+    [$dupSql, $dupParams] = _jobdivaMappingInClause('internal_entity_id', $duplicateIds ?: [-1]);
+    [$extSql, $extParams] = _jobdivaMappingStringInClause('external_id', $externalIds);
+    $params = array_merge($dupParams, $extParams, ['t' => $tenantId]);
+
+    $sourceStmt = $pdo->prepare(
+        "SELECT payload_snapshot, content_hash, direction
+           FROM external_entity_mappings
+          WHERE tenant_id = :t
+            AND source_system = 'jobdiva'
+            AND internal_entity_type = 'placement'
+            AND ({$extSql} OR {$dupSql} OR internal_entity_id = :keep_filter_id)
+       ORDER BY CASE WHEN internal_entity_id = :keep_order_id THEN 0 ELSE 1 END,
+                CASE WHEN external_id = :external_order_id THEN 0 ELSE 1 END,
+                updated_at DESC,
+                id DESC
+          LIMIT 1"
+    );
+    $sourceStmt->execute($params + [
+        'keep_filter_id' => $keepId,
+        'keep_order_id' => $keepId,
+        'external_order_id' => $externalId,
+    ]);
+    $source = $sourceStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+
+    $deleteParams = array_merge($dupParams, $extParams, ['t' => $tenantId, 'keep_id' => $keepId]);
+    $pdo->prepare(
+        "DELETE FROM external_entity_mappings
+          WHERE tenant_id = :t
+            AND source_system = 'jobdiva'
+            AND internal_entity_type = 'placement'
+            AND internal_entity_id <> :keep_id
+            AND ({$extSql} OR {$dupSql})"
+    )->execute($deleteParams);
+
+    $existing = $pdo->prepare(
+        "SELECT id
+           FROM external_entity_mappings
+          WHERE tenant_id = :t
+            AND source_system = 'jobdiva'
+            AND internal_entity_type = 'placement'
+            AND internal_entity_id = :keep_id
+          LIMIT 1"
+    );
+    $existing->execute(['t' => $tenantId, 'keep_id' => $keepId]);
+    $existingId = (int) ($existing->fetchColumn() ?: 0);
+
+    $payload = is_string($source['payload_snapshot'] ?? null) ? (string) $source['payload_snapshot'] : null;
+    $hash = is_string($source['content_hash'] ?? null) ? (string) $source['content_hash'] : null;
+    $direction = in_array((string) ($source['direction'] ?? 'pull'), ['pull', 'push', 'two_way', 'off'], true)
+        ? (string) $source['direction']
+        : 'pull';
+
+    if ($existingId > 0) {
+        $pdo->prepare(
+            "UPDATE external_entity_mappings
+                SET external_id = :external_id,
+                    payload_snapshot = COALESCE(:payload_snapshot, payload_snapshot),
+                    content_hash = COALESCE(:content_hash, content_hash),
+                    direction = :direction,
+                    sync_status = 'ok',
+                    last_error = NULL,
+                    last_seen_at = NOW(),
+                    updated_at = NOW()
+              WHERE tenant_id = :t AND id = :id"
+        )->execute([
+            'external_id' => $externalId,
+            'payload_snapshot' => $payload,
+            'content_hash' => $hash,
+            'direction' => $direction,
+            't' => $tenantId,
+            'id' => $existingId,
+        ]);
+        return;
+    }
+
+    $pdo->prepare(
+        "INSERT INTO external_entity_mappings
+            (tenant_id, source_system, internal_entity_type, external_id,
+             internal_entity_id, payload_snapshot, content_hash, direction,
+             sync_status, last_seen_at, last_synced_at)
+         VALUES
+            (:t, 'jobdiva', 'placement', :external_id,
+             :keep_id, :payload_snapshot, :content_hash, :direction,
+             'ok', NOW(), NOW())"
+    )->execute([
+        't' => $tenantId,
+        'external_id' => $externalId,
+        'keep_id' => $keepId,
+        'payload_snapshot' => $payload,
+        'content_hash' => $hash,
+        'direction' => $direction,
+    ]);
 }
 
 function _jobdivaMappingCountsByType(\PDO $pdo, int $tenantId): array
@@ -1205,6 +1294,19 @@ function _jobdivaMappingInClause(string $column, array $values): array
         $key = 'in_' . $idx;
         $parts[] = ':' . $key;
         $params[$key] = (int) $value;
+    }
+    $safeColumn = preg_replace('/[^A-Za-z0-9_]/', '', $column);
+    return [$safeColumn . ' IN (' . implode(', ', $parts) . ')', $params];
+}
+
+function _jobdivaMappingStringInClause(string $column, array $values): array
+{
+    $params = [];
+    $parts = [];
+    foreach (array_values($values) as $idx => $value) {
+        $key = 'sin_' . $idx;
+        $parts[] = ':' . $key;
+        $params[$key] = (string) $value;
     }
     $safeColumn = preg_replace('/[^A-Za-z0-9_]/', '', $column);
     return [$safeColumn . ' IN (' . implode(', ', $parts) . ')', $params];

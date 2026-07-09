@@ -107,6 +107,12 @@ $a('duplicate repair prefers the row carrying downstream workflow activity',
     str_contains($service, 'function _jobdivaMappingDuplicatePlacementChildCounts')
     && str_contains($service, 'multiple_rows_have_downstream_activity')
     && str_contains($service, '$keepId = count($rowsWithChildren) === 1'));
+$a('duplicate repair rehomes mappings after archiving orphan shells',
+    str_contains($service, 'function _jobdivaMappingRehomePlacementMapping')
+    && str_contains($service, 'DELETE FROM external_entity_mappings')
+    && str_contains($service, 'internal_entity_id <> :keep_id')
+    && strpos($service, '_jobdivaMappingRehomePlacementMapping($pdo, $tenantId, $norm, $keepId, $duplicateIds)') >
+       strpos($service, 'SET deleted_at = NOW(), updated_at = NOW()'));
 $a('stale active placement repair is exposed from alignment service',
     str_contains($service, 'placement_active_past_end_date')
     && str_contains($service, 'function jobdivaMappingRepairStaleActivePlacements')
@@ -169,6 +175,7 @@ $a('settings has one-click ordered repair workflow',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-workflow"')
     && str_contains($ui, "repair_workflow")
     && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-workflow-result"')
+    && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-workflow-errors"')
     && str_contains($ui, 'repairStepLabels'));
 $a('settings has duplicate placement preview + repair buttons',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-preview-duplicate-placements"')
