@@ -6,7 +6,7 @@
  * - canonical mappings vs mirror-only payloads are explicitly modeled;
  * - JobDiva placements write placements.client_id through the staffing
  *   consumer bridge, so billing/payroll readiness can group by client;
- * - operators have one alignment cockpit and a repair action.
+ * - operators have one alignment cockpit and an ordered repair workflow.
  */
 declare(strict_types=1);
 
@@ -120,6 +120,13 @@ $a('source rate draft repair is exposed from alignment service',
     str_contains($service, 'function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user')
     && str_contains($service, 'placementsEnsureDraftRateFromSourcePayload($placementId, $user)')
     && str_contains($service, 'mapping_alignment_repair_source_rate_drafts'));
+$a('ordered repair workflow runs safe operations before rate drafting',
+    str_contains($service, 'function jobdivaMappingRepairWorkflow(int $tenantId, array $user')
+    && strpos($service, "jobdivaMappingRepairDuplicatePlacements(\$tenantId, \$userId, min(500, \$limit), false)") !== false
+    && strpos($service, "jobdivaMappingRepairSourceRateDrafts(\$tenantId, \$user, \$limit)") !== false
+    && strpos($service, "jobdivaMappingRepairDuplicatePlacements(\$tenantId, \$userId, min(500, \$limit), false)") <
+       strpos($service, "jobdivaMappingRepairSourceRateDrafts(\$tenantId, \$user, \$limit)")
+    && str_contains($service, 'mapping_alignment_repair_workflow'));
 $a('JobDiva placement sync derives ended status from past end dates',
     str_contains($sync, "\$endDateNorm < date('Y-m-d')")
     && str_contains($sync, "\$status = 'ended';"));
@@ -134,6 +141,9 @@ $a('GET returns report',
 $a('POST repair_client_links action is wired',
     str_contains($api, "repair_client_links")
     && str_contains($api, 'jobdivaMappingRepairStaffingClientLinks($tid'));
+$a('POST repair_workflow action is wired',
+    str_contains($api, "repair_workflow")
+    && str_contains($api, 'jobdivaMappingRepairWorkflow($tid, $user, $limit)'));
 $a('POST repair_duplicate_placements action is wired',
     str_contains($api, "repair_duplicate_placements")
     && str_contains($api, 'jobdivaMappingRepairDuplicatePlacements('));
@@ -155,6 +165,11 @@ $a('settings mounts mapping alignment card',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-card"'));
 $a('settings has repair client links button',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-client-links"'));
+$a('settings has one-click ordered repair workflow',
+    str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-workflow"')
+    && str_contains($ui, "repair_workflow")
+    && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-workflow-result"')
+    && str_contains($ui, 'repairStepLabels'));
 $a('settings has duplicate placement preview + repair buttons',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-preview-duplicate-placements"')
     && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-duplicate-placements"'));

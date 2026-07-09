@@ -53,6 +53,27 @@ export default function JobDivaSettings() {
     loadAlignment();
   }, [loadAlignment]);
 
+  const onRepairWorkflow = async () => {
+    clear(); setRepairResult(null);
+    if (!window.confirm('Run the ordered JobDiva alignment repair? This archives safe duplicate shells, repairs client links, ends stale active placements, and creates source-backed draft rates. Rate approval remains a separate approval step.')) {
+      return;
+    }
+    setBusy(b => ({ ...b, repairWorkflow: true }));
+    try {
+      const r = await api.post('/api/admin/integrations/jobdiva_mapping_alignment.php?action=repair_workflow', {});
+      const repair = r.repair || r;
+      setRepairResult(repair);
+      await loadAlignment();
+      const changed = repair.totals?.changed ?? 0;
+      const remaining = repair.remaining?.critical_issue_types ?? 0;
+      setMsg(`JobDiva alignment repair finished: ${changed} change(s); ${remaining} critical blocker type(s) remain.`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(b => ({ ...b, repairWorkflow: false }));
+    }
+  };
+
   const onRepairClientLinks = async () => {
     clear(); setRepairResult(null); setBusy(b => ({ ...b, repairClientLinks: true }));
     try {
@@ -291,10 +312,12 @@ export default function JobDivaSettings() {
         loading={alignmentLoading}
         error={alignmentError}
         onRefresh={loadAlignment}
+        onRepairWorkflow={onRepairWorkflow}
         onRepairClientLinks={onRepairClientLinks}
         onRepairRateDrafts={onRepairRateDrafts}
         onRepairDuplicatePlacements={onRepairDuplicatePlacements}
         onRepairStalePlacements={onRepairStalePlacements}
+        repairingWorkflow={!!busy.repairWorkflow}
         repairing={!!busy.repairClientLinks}
         repairingRates={!!busy.repairRateDrafts}
         repairingDuplicates={!!busy.repairDuplicatePlacements}
@@ -794,10 +817,12 @@ function JobDivaMappingAlignmentCard({
   loading,
   error,
   onRefresh,
+  onRepairWorkflow,
   onRepairClientLinks,
   onRepairRateDrafts,
   onRepairDuplicatePlacements,
   onRepairStalePlacements,
+  repairingWorkflow,
   repairing,
   repairingRates,
   repairingDuplicates,
@@ -839,6 +864,7 @@ function JobDivaMappingAlignmentCard({
     ...issue,
     view: operatorIssueView(issue),
   }));
+  const anyRepairing = !!(repairingWorkflow || repairing || repairingRates || repairingDuplicates || repairingStale);
 
   return (
     <div data-testid="jobdiva-mapping-alignment-card"
@@ -860,14 +886,20 @@ function JobDivaMappingAlignmentCard({
             <RefreshCw size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
             {loading ? 'Checking...' : 'Refresh'}
           </button>
+          <button type="button" className="btn btn--primary" onClick={onRepairWorkflow}
+                  data-testid="jobdiva-mapping-alignment-repair-workflow" disabled={anyRepairing}
+                  style={{ fontSize: 12 }}>
+            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            {repairingWorkflow ? 'Repairing alignment...' : 'Repair alignment'}
+          </button>
           <button type="button" className="btn btn--primary" onClick={onRepairClientLinks}
-                  data-testid="jobdiva-mapping-alignment-repair-client-links" disabled={repairing}
+                  data-testid="jobdiva-mapping-alignment-repair-client-links" disabled={anyRepairing}
                   style={{ fontSize: 12 }}>
             <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
             {repairing ? 'Repairing...' : 'Repair client links'}
           </button>
           <button type="button" className="btn btn--ghost" onClick={onRepairRateDrafts}
-                  data-testid="jobdiva-mapping-alignment-repair-rate-drafts" disabled={repairingRates}
+                  data-testid="jobdiva-mapping-alignment-repair-rate-drafts" disabled={anyRepairing}
                   style={{ fontSize: 12 }}>
             <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
             {repairingRates ? 'Repairing...' : 'Repair rate drafts'}
@@ -950,16 +982,20 @@ function JobDivaMappingAlignmentCard({
       </div>
 
       {repairResult && (
-        <p data-testid="jobdiva-mapping-alignment-repair-result"
-           style={{ margin: '10px 0 0', padding: 10, border: '1px solid #a7f3d0', background: '#ecfdf5', color: '#065f46', borderRadius: 6, fontSize: 12 }}>
-          {'groups_checked' in repairResult
-            ? <>Groups {repairResult.groups_checked ?? 0}; repaired {repairResult.groups_repaired ?? 0}; archived {repairResult.placements_archived ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
-            : 'ended' in repairResult
-              ? <>{repairResult.dry_run ? 'Previewed' : 'Checked'} {repairResult.checked ?? 0}; {repairResult.dry_run ? 'would end' : 'ended'} {repairResult.ended ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
-            : 'drafted' in repairResult
-              ? <>Checked {repairResult.checked ?? 0}; drafted {repairResult.drafted ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
-            : <>Checked {repairResult.checked ?? 0}; repaired {repairResult.repaired ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>}
-        </p>
+        'steps' in repairResult
+          ? <JobDivaWorkflowRepairResult repair={repairResult} />
+          : (
+            <p data-testid="jobdiva-mapping-alignment-repair-result"
+               style={{ margin: '10px 0 0', padding: 10, border: '1px solid #a7f3d0', background: '#ecfdf5', color: '#065f46', borderRadius: 6, fontSize: 12 }}>
+              {'groups_checked' in repairResult
+                ? <>Groups {repairResult.groups_checked ?? 0}; repaired {repairResult.groups_repaired ?? 0}; archived {repairResult.placements_archived ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
+                : 'ended' in repairResult
+                  ? <>{repairResult.dry_run ? 'Previewed' : 'Checked'} {repairResult.checked ?? 0}; {repairResult.dry_run ? 'would end' : 'ended'} {repairResult.ended ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
+                : 'drafted' in repairResult
+                  ? <>Checked {repairResult.checked ?? 0}; drafted {repairResult.drafted ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
+                : <>Checked {repairResult.checked ?? 0}; repaired {repairResult.repaired ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>}
+            </p>
+          )
       )}
 
       {issues.length > 0 ? (
@@ -991,10 +1027,10 @@ function JobDivaMappingAlignmentCard({
                 onRepairRateDrafts={onRepairRateDrafts}
                 onRepairDuplicatePlacements={onRepairDuplicatePlacements}
                 onRepairStalePlacements={onRepairStalePlacements}
-                repairing={repairing}
-                repairingRates={repairingRates}
-                repairingDuplicates={repairingDuplicates}
-                repairingStale={repairingStale}
+                repairing={repairing || repairingWorkflow}
+                repairingRates={repairingRates || repairingWorkflow}
+                repairingDuplicates={repairingDuplicates || repairingWorkflow}
+                repairingStale={repairingStale || repairingWorkflow}
               />
             </div>
           ))}
@@ -1012,25 +1048,25 @@ function JobDivaMappingAlignmentCard({
         </summary>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
           <button type="button" className="btn btn--ghost" onClick={() => onRepairDuplicatePlacements?.(true)}
-                  data-testid="jobdiva-mapping-alignment-preview-duplicate-placements" disabled={repairingDuplicates}
+                  data-testid="jobdiva-mapping-alignment-preview-duplicate-placements" disabled={anyRepairing}
                   style={{ fontSize: 12 }}>
             <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
             {repairingDuplicates ? 'Checking...' : 'Preview duplicate placements'}
           </button>
           <button type="button" className="btn btn--danger" onClick={() => onRepairDuplicatePlacements?.(false)}
-                  data-testid="jobdiva-mapping-alignment-repair-duplicate-placements" disabled={repairingDuplicates}
+                  data-testid="jobdiva-mapping-alignment-repair-duplicate-placements" disabled={anyRepairing}
                   style={{ fontSize: 12 }}>
             <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
             {repairingDuplicates ? 'Repairing...' : 'Archive safe duplicates'}
           </button>
           <button type="button" className="btn btn--ghost" onClick={() => onRepairStalePlacements?.(true)}
-                  data-testid="jobdiva-mapping-alignment-preview-stale-placements" disabled={repairingStale}
+                  data-testid="jobdiva-mapping-alignment-preview-stale-placements" disabled={anyRepairing}
                   style={{ fontSize: 12 }}>
             <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
             {repairingStale ? 'Checking...' : 'Preview stale active'}
           </button>
           <button type="button" className="btn btn--danger" onClick={() => onRepairStalePlacements?.(false)}
-                  data-testid="jobdiva-mapping-alignment-repair-stale-placements" disabled={repairingStale}
+                  data-testid="jobdiva-mapping-alignment-repair-stale-placements" disabled={anyRepairing}
                   style={{ fontSize: 12 }}>
             <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
             {repairingStale ? 'Repairing...' : 'Mark stale ended'}
@@ -1095,6 +1131,60 @@ function JobDivaMappingAlignmentCard({
           </div>
         </details>
       )}
+    </div>
+  );
+}
+
+const repairStepLabels = {
+  duplicate_placements: 'Duplicate placements',
+  client_links: 'Client links',
+  stale_active_placements: 'Stale active placements',
+  source_rate_drafts: 'Source rate drafts',
+};
+
+function JobDivaWorkflowRepairResult({ repair }) {
+  const steps = repair?.steps || {};
+  const remainingTypes = repair?.remaining?.critical_issue_types ?? 0;
+  const remainingRows = repair?.remaining?.critical_rows ?? 0;
+  const changed = repair?.totals?.changed ?? 0;
+  const failed = repair?.totals?.failed ?? 0;
+
+  const lineFor = (key, step) => {
+    if (key === 'duplicate_placements') {
+      return `archived ${step.placements_archived ?? 0}; restored ids ${step.external_ids_restored ?? 0}; skipped ${step.skipped ?? 0}; failed ${step.failed ?? 0}`;
+    }
+    if (key === 'client_links') {
+      return `repaired ${step.repaired ?? 0}; skipped ${step.skipped ?? 0}; failed ${step.failed ?? 0}`;
+    }
+    if (key === 'stale_active_placements') {
+      return `ended ${step.ended ?? 0}; skipped ${step.skipped ?? 0}; failed ${step.failed ?? 0}`;
+    }
+    if (key === 'source_rate_drafts') {
+      return `drafted ${step.drafted ?? 0}; skipped ${step.skipped ?? 0}; failed ${step.failed ?? 0}`;
+    }
+    return `checked ${step.checked ?? step.groups_checked ?? 0}; failed ${step.failed ?? 0}`;
+  };
+
+  return (
+    <div data-testid="jobdiva-mapping-alignment-repair-workflow-result"
+         style={{ margin: '10px 0 0', padding: 10, border: failed ? '1px solid #fecaca' : '1px solid #a7f3d0',
+                  background: failed ? '#fef2f2' : '#ecfdf5', color: failed ? '#991b1b' : '#065f46',
+                  borderRadius: 6, fontSize: 12 }}>
+      <strong>
+        Repair workflow finished: {changed} change{changed === 1 ? '' : 's'}; {failed} failed.
+      </strong>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 6, marginTop: 8 }}>
+        {Object.entries(steps).map(([key, step]) => (
+          <div key={key} data-testid={`jobdiva-mapping-alignment-repair-workflow-step-${key}`}
+               style={{ background: 'rgba(255,255,255,0.65)', border: '1px solid rgba(15,23,42,0.08)', borderRadius: 6, padding: 8 }}>
+            <div style={{ fontWeight: 700, color: '#0f172a' }}>{repairStepLabels[key] || key}</div>
+            <div style={{ color: '#475569', marginTop: 2 }}>{lineFor(key, step || {})}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ color: '#475569', marginTop: 8 }}>
+        Remaining after refresh: {remainingTypes} critical blocker type{remainingTypes === 1 ? '' : 's'}, {remainingRows} affected row{remainingRows === 1 ? '' : 's'}.
+      </div>
     </div>
   );
 }

@@ -11,6 +11,7 @@
  * whose end date has passed as ended.
  * POST action=repair_duplicate_placements -> archive duplicate placement
  * rows created by damaged source identity mappings.
+ * POST action=repair_workflow -> run the ordered, safe alignment repair flow.
  */
 declare(strict_types=1);
 
@@ -42,6 +43,17 @@ if ($method === 'POST' && $action === 'repair_client_links') {
     $limit = isset($body['limit']) ? (int) $body['limit'] : 500;
     $result = jobdivaMappingRepairStaffingClientLinks($tid, isset($user['id']) ? (int) $user['id'] : null, $limit);
     api_ok(['ok' => $result['failed'] === 0, 'repair' => $result]);
+}
+
+if ($method === 'POST' && $action === 'repair_workflow') {
+    rbac_legacy_require_any($user, [
+        'tenant_admin.integrations',
+        'integrations.jobdiva.manage',
+    ]);
+    $body = api_json_body();
+    $limit = isset($body['limit']) ? (int) $body['limit'] : 500;
+    $result = jobdivaMappingRepairWorkflow($tid, $user, $limit);
+    api_ok(['ok' => $result['ok'] === true, 'repair' => $result]);
 }
 
 if ($method === 'POST' && $action === 'repair_source_rate_drafts') {

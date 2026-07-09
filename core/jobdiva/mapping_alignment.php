@@ -624,6 +624,72 @@ function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user, int $l
     return $summary;
 }
 
+function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 500): array
+{
+    $limit = max(1, min(1000, $limit));
+    $userId = isset($user['id']) ? (int) $user['id'] : null;
+    $startedAt = gmdate('c');
+    $steps = [];
+
+    // Order matters: remove duplicate shells before creating new rate children.
+    $steps['duplicate_placements'] = jobdivaMappingRepairDuplicatePlacements($tenantId, $userId, min(500, $limit), false);
+    $steps['client_links'] = jobdivaMappingRepairStaffingClientLinks($tenantId, $userId, $limit);
+    $steps['stale_active_placements'] = jobdivaMappingRepairStaleActivePlacements($tenantId, $userId, $limit, false);
+    $steps['source_rate_drafts'] = jobdivaMappingRepairSourceRateDrafts($tenantId, $user, $limit);
+
+    $failed = 0;
+    $changed = 0;
+    foreach ($steps as $step) {
+        $failed += (int) ($step['failed'] ?? 0);
+        $changed += (int) ($step['placements_archived'] ?? 0);
+        $changed += (int) ($step['external_ids_restored'] ?? 0);
+        $changed += (int) ($step['repaired'] ?? 0);
+        $changed += (int) ($step['ended'] ?? 0);
+        $changed += (int) ($step['drafted'] ?? 0);
+    }
+
+    $after = jobdivaMappingAlignmentReport($tenantId, ['sample_limit' => 10]);
+    $remainingCritical = array_values(array_filter(
+        (array) ($after['issues'] ?? []),
+        static fn($issue) => (string) ($issue['severity'] ?? '') === 'critical'
+    ));
+
+    $summary = [
+        'ok' => $failed === 0,
+        'started_at' => $startedAt,
+        'finished_at' => gmdate('c'),
+        'steps' => $steps,
+        'totals' => [
+            'changed' => $changed,
+            'failed' => $failed,
+        ],
+        'remaining' => [
+            'critical_issue_types' => count($remainingCritical),
+            'critical_rows' => array_reduce(
+                $remainingCritical,
+                static fn($sum, $issue) => $sum + (int) ($issue['count'] ?? 0),
+                0
+            ),
+            'issues' => $remainingCritical,
+        ],
+    ];
+
+    if (function_exists('jobdivaAudit')) {
+        try {
+            jobdivaAudit($tenantId, 'mapping_alignment_repair_workflow', [
+                'ok' => $summary['ok'],
+                'direction' => 'pull',
+                'actor_user_id' => $userId,
+                'items_processed' => $changed,
+                'items_failed' => $failed,
+                'detail' => $summary,
+            ]);
+        } catch (\Throwable $_) {}
+    }
+
+    return $summary;
+}
+
 function jobdivaMappingRepairStaleActivePlacements(int $tenantId, ?int $userId = null, int $limit = 500, bool $dryRun = true): array
 {
     $summary = ['dry_run' => $dryRun, 'checked' => 0, 'ended' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => []];
