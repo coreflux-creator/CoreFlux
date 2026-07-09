@@ -106,6 +106,36 @@ if (!function_exists('placementsRateApproveOne')) {
 }
 
 if (!function_exists('placementsEnsureDraftRateFromSourcePayload')) {
+    function placementsJobDivaNormaliseExternalId(?string $externalId): string
+    {
+        $externalId = trim((string) $externalId);
+        if ($externalId === '') return '';
+        return str_starts_with($externalId, 'jd:') ? substr($externalId, 3) : $externalId;
+    }
+
+    function placementsJobDivaSeedPayloadFromBinding(array $placement, ?array $mapping): array
+    {
+        $payload = [];
+        $externalId = placementsJobDivaNormaliseExternalId(
+            (string) (($mapping['external_id'] ?? '') ?: ($placement['external_id'] ?? ''))
+        );
+        if ($externalId !== '') {
+            $payload['id'] = $externalId;
+            $payload['startId'] = $externalId;
+            $payload['start_id'] = $externalId;
+            $payload['placementId'] = $externalId;
+        }
+
+        $jobId = trim((string) ($placement['jobdiva_job_id'] ?? ''));
+        if ($jobId !== '') {
+            $payload['jobID'] = $jobId;
+            $payload['jobId'] = $jobId;
+            $payload['job_id'] = $jobId;
+        }
+
+        return $payload;
+    }
+
     /**
      * Repair an imported placement that has source data but no approvable
      * placement_rates row. This closes the dead-end where activation requires
@@ -123,7 +153,7 @@ if (!function_exists('placementsEnsureDraftRateFromSourcePayload')) {
         if ($tenantId <= 0) return false;
 
         $placement = scopedFind(
-            'SELECT id, start_date, external_id
+            'SELECT id, start_date, external_id, jobdiva_job_id
                FROM placements
               WHERE tenant_id = :tenant_id
                 AND id = :id
@@ -157,28 +187,45 @@ if (!function_exists('placementsEnsureDraftRateFromSourcePayload')) {
                 AND source_system = 'jobdiva'
                 AND internal_entity_type = 'placement'
                 AND internal_entity_id = :pid
-                AND payload_snapshot IS NOT NULL
-                AND payload_snapshot <> ''
-              ORDER BY updated_at DESC, id DESC
+              ORDER BY CASE WHEN payload_snapshot IS NOT NULL AND payload_snapshot <> '' THEN 0 ELSE 1 END,
+                       updated_at DESC, id DESC
               LIMIT 1",
             ['pid' => $placementId]
         );
-        if (!$mapping || !is_string($mapping['payload_snapshot'] ?? null)) {
+        if (!$mapping) {
             placementsAudit('placement.rate.auto_draft_from_source_unavailable', [
                 'placement_id' => $placementId,
                 'source'       => 'jobdiva',
-                'reason'       => 'missing_payload_snapshot',
+                'reason'       => 'missing_jobdiva_source_binding',
             ], $placementId);
             return false;
         }
 
-        $payload = json_decode((string) $mapping['payload_snapshot'], true);
-        if (!is_array($payload)) {
+        $payload = [];
+        if (is_string($mapping['payload_snapshot'] ?? null) && trim((string) $mapping['payload_snapshot']) !== '') {
+            $decoded = json_decode((string) $mapping['payload_snapshot'], true);
+            if (is_array($decoded)) {
+                $payload = $decoded;
+            } else {
+                placementsAudit('placement.rate.auto_draft_from_source_unavailable', [
+                    'placement_id' => $placementId,
+                    'source'       => 'jobdiva',
+                    'mapping_id'   => (int) ($mapping['id'] ?? 0),
+                    'reason'       => 'invalid_payload_snapshot_json_rebuilding_from_binding',
+                ], $placementId);
+            }
+        }
+
+        if (!$payload) {
+            $payload = placementsJobDivaSeedPayloadFromBinding($placement, $mapping);
+        }
+
+        if (!$payload) {
             placementsAudit('placement.rate.auto_draft_from_source_unavailable', [
                 'placement_id' => $placementId,
                 'source'       => 'jobdiva',
                 'mapping_id'   => (int) ($mapping['id'] ?? 0),
-                'reason'       => 'invalid_payload_snapshot_json',
+                'reason'       => 'missing_payload_snapshot_and_source_ids',
             ], $placementId);
             return false;
         }

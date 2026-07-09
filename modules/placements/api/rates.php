@@ -92,7 +92,7 @@ if ($method === 'POST' && $action === 'bulk_approve') {
     $ids = is_array($body['ids'] ?? null) ? array_values(array_unique(array_map('intval', $body['ids']))) : [];
     $ids = array_values(array_filter($ids, static fn ($n) => $n > 0));
     if (!$ids)             api_error('ids[] required', 422);
-    if (count($ids) > 200) api_error('Too many ids (max 200 per call)', 422);
+    if (count($ids) > 500) api_error('Too many ids (max 500 per call)', 422);
 
     // Bulk-approve never accepts an "is_correction=true" flag — by the
     // shape of the workflow a CSV-imported draft is always a fresh

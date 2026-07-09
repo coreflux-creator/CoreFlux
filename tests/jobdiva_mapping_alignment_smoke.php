@@ -140,6 +140,9 @@ $a('source rate draft repair is exposed from alignment service',
     str_contains($service, 'function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user')
     && str_contains($service, 'placementsEnsureDraftRateFromSourcePayload($placementId, $user)')
     && str_contains($service, 'mapping_alignment_repair_source_rate_drafts'));
+$a('source rate draft repair tries mapped placements even when snapshot must be rebuilt from mirrors',
+    str_contains($service, "m.internal_entity_type = 'placement'")
+    && !str_contains($service, "AND m.payload_snapshot IS NOT NULL\n            AND m.payload_snapshot <> ''\n            AND (p.deleted_at"));
 $a('canonical projection repair is exposed from alignment service',
     str_contains($service, 'function jobdivaMappingRepairCanonicalProjection(int $tenantId')
     && str_contains($service, 'jobdivaReprojectMirroredPlacementGraphs($tenantId, $userId, $limit)')

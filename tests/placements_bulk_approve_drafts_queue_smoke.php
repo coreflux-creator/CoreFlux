@@ -78,8 +78,8 @@ $a('action=bulk_approve declared with POST',
    str_contains($rates, "if (\$method === 'POST' && \$action === 'bulk_approve')"));
 $a('bulk_approve requires placements.financials.approve',
    (bool) preg_match("/action === 'bulk_approve'.*?rbac_legacy_require\(\\\$user, 'placements\\.financials\\.approve'\)/s", $rates));
-$a('bulk_approve caps at 200 ids',
-   str_contains($rates, "api_error('Too many ids (max 200 per call)', 422)"));
+$a('bulk_approve caps at 500 ids to match the draft queue',
+   str_contains($rates, "api_error('Too many ids (max 500 per call)', 422)"));
 $a('bulk_approve never sets is_correction=true (forces per-row path)',
    str_contains($rates, '$r = placementsRateApproveOne($rid, $user, false, null);'));
 $a('bulk_approve returns approved + failed + results',
@@ -155,6 +155,11 @@ $a('empty state when no drafts',
 $a('select-all + per-rate select test ids',
    str_contains($queue, 'data-testid="placements-draft-rates-select-all"')
    && str_contains($queue, 'data-testid={`draft-rate-select-${r.id}`}'));
+$a('queue can approve every currently shown draft rate',
+   str_contains($queue, 'const approveFiltered = async () =>')
+   && str_contains($queue, 'items.map(r => Number(r.id))')
+   && str_contains($queue, 'data-testid="placements-draft-rates-approve-filtered-btn"')
+   && str_contains($queue, 'Approve all shown ({items.length})'));
 
 echo "\n9. PHP syntax\n";
 foreach ([

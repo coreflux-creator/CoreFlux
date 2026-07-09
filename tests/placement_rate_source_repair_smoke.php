@@ -23,12 +23,16 @@ $jobdivaSync = (string) file_get_contents("{$ROOT}/core/jobdiva/sync.php");
 echo "\n1. Missing-rate repair helper\n";
 $a('rate_approve.php defines placementsEnsureDraftRateFromSourcePayload',
     str_contains($rateApprove, 'function placementsEnsureDraftRateFromSourcePayload(int $placementId, array $user): bool'));
-$a('repair reads stored JobDiva placement payload snapshots by internal placement id',
+$a('repair reads JobDiva source bindings by internal placement id',
     str_contains($rateApprove, 'FROM external_entity_mappings')
     && str_contains($rateApprove, "source_system = 'jobdiva'")
     && str_contains($rateApprove, "internal_entity_type = 'placement'")
-    && str_contains($rateApprove, 'internal_entity_id = :pid')
-    && str_contains($rateApprove, 'payload_snapshot'));
+    && str_contains($rateApprove, 'internal_entity_id = :pid'));
+$a('repair prefers payload snapshots but can rebuild from placement binding ids',
+    str_contains($rateApprove, 'CASE WHEN payload_snapshot IS NOT NULL AND payload_snapshot <>')
+    && str_contains($rateApprove, 'placementsJobDivaSeedPayloadFromBinding($placement, $mapping)')
+    && str_contains($rateApprove, '$payload[\'startId\'] = $externalId')
+    && str_contains($rateApprove, '$payload[\'jobID\'] = $jobId'));
 $a('repair enriches the placement payload with local JobDiva mirrors before resolving rates',
     str_contains($rateApprove, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats)'));
 $a('repair delegates rate creation to the canonical JobDiva placement_rates writer',

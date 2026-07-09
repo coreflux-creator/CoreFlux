@@ -560,8 +560,6 @@ function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user, int $l
           WHERE m.tenant_id = :t
             AND m.source_system = 'jobdiva'
             AND m.internal_entity_type = 'placement'
-            AND m.payload_snapshot IS NOT NULL
-            AND m.payload_snapshot <> ''
             AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
             AND (
                  NOT EXISTS (

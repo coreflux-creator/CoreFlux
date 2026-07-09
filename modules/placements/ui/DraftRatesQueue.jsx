@@ -96,6 +96,27 @@ export default function DraftRatesQueue() {
     }
   };
 
+  const approveFiltered = async () => {
+    const ids = Array.from(new Set(items.map(r => Number(r.id)).filter(Boolean)));
+    if (ids.length === 0) return;
+    const scope = statusFilter || search ? 'filtered' : 'shown';
+    if (!confirm(`Approve ${ids.length} ${scope} draft rate${ids.length === 1 ? '' : 's'}? Each approval locks the snapshot - corrections require a separate per-row workflow.`)) return;
+    setBusy(true); setResult(null);
+    try {
+      const res = await api.post(
+        '/modules/placements/api/rates.php?action=bulk_approve',
+        { ids }
+      );
+      setResult(res);
+      setSelected(new Set());
+      reload();
+    } catch (e) {
+      setResult({ error: e?.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="people-directory" data-testid="placements-draft-rates">
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
@@ -114,6 +135,15 @@ export default function DraftRatesQueue() {
             data-testid="placements-draft-rates-approve-btn"
           >
             {busy ? 'Approving…' : `Approve ${selected.size || ''} selected`}
+          </button>
+          <button
+            className="btn btn--ghost"
+            disabled={items.length === 0 || busy}
+            onClick={approveFiltered}
+            data-testid="placements-draft-rates-approve-filtered-btn"
+            title="Approve every draft rate currently shown by the search and status filters"
+          >
+            Approve all shown ({items.length})
           </button>
         </div>
       </header>
