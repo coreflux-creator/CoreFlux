@@ -102,6 +102,10 @@ $a('alignment report includes projector readiness drift',
     && str_contains($service, 'placement_missing_staffing_job')
     && str_contains($service, 'placement_missing_rate_row')
     && str_contains($service, 'placement_active_missing_approved_rate'));
+$a('source rate draft repair is exposed from alignment service',
+    str_contains($service, 'function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user')
+    && str_contains($service, 'placementsEnsureDraftRateFromSourcePayload($placementId, $user)')
+    && str_contains($service, 'mapping_alignment_repair_source_rate_drafts'));
 
 echo "\n4. Alignment API is wired and gated\n";
 $a('alignment API file exists', file_exists($apiPath));
@@ -116,6 +120,9 @@ $a('POST repair_client_links action is wired',
 $a('POST repair_duplicate_placements action is wired',
     str_contains($api, "repair_duplicate_placements")
     && str_contains($api, 'jobdivaMappingRepairDuplicatePlacements('));
+$a('POST repair_source_rate_drafts action is wired',
+    str_contains($api, "repair_source_rate_drafts")
+    && str_contains($api, 'jobdivaMappingRepairSourceRateDrafts($tid, $user'));
 $a('API uses integration RBAC gates',
     str_contains($api, 'rbac_legacy_require_any')
     && str_contains($api, 'integrations.jobdiva.view')
@@ -131,6 +138,11 @@ $a('settings has repair client links button',
 $a('settings has duplicate placement preview + repair buttons',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-preview-duplicate-placements"')
     && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-duplicate-placements"'));
+$a('settings has source rate draft repair button and issue action',
+    str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-rate-drafts"')
+    && str_contains($ui, "repair_source_rate_drafts")
+    && str_contains($ui, "code === 'placement_missing_rate_row'")
+    && str_contains($ui, 'Repair rates'));
 $a('settings renders canonical object map',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-object-map"'));
 $a('settings renders mirror-only section',

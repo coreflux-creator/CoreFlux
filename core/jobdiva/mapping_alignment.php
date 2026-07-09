@@ -12,6 +12,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/sync.php';
 require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
+require_once __DIR__ . '/../../modules/placements/lib/rate_approve.php';
 
 function jobdivaMappingCanonicalObjectMap(): array
 {
@@ -502,6 +503,102 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
                 'direction' => 'pull',
                 'actor_user_id' => $userId,
                 'items_processed' => $summary['repaired'],
+                'items_skipped' => $summary['skipped'],
+                'items_failed' => $summary['failed'],
+                'detail' => $summary,
+            ]);
+        } catch (\Throwable $_) {}
+    }
+
+    return $summary;
+}
+
+function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user, int $limit = 500): array
+{
+    $summary = ['checked' => 0, 'drafted' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => []];
+    $limit = max(1, min(1000, $limit));
+    $pdo = getDB();
+    if (!$pdo) {
+        $summary['failed']++;
+        $summary['errors'][] = 'No database connection';
+        return $summary;
+    }
+    foreach (['external_entity_mappings', 'placements', 'placement_rates'] as $table) {
+        if (!_jobdivaMappingTableExists($pdo, $table)) {
+            $summary['failed']++;
+            $summary['errors'][] = "Missing table: {$table}";
+            return $summary;
+        }
+    }
+    foreach ([['placements', 'start_date'], ['placements', 'status'], ['placement_rates', 'approved_at'], ['placement_rates', 'effective_from'], ['placement_rates', 'effective_to']] as [$table, $column]) {
+        if (!_jobdivaMappingColumnExists($pdo, $table, $column)) {
+            $summary['failed']++;
+            $summary['errors'][] = "Missing column: {$table}.{$column}";
+            return $summary;
+        }
+    }
+
+    $stmt = $pdo->prepare(
+        "SELECT p.id
+           FROM external_entity_mappings m
+           JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
+          WHERE m.tenant_id = :t
+            AND m.source_system = 'jobdiva'
+            AND m.internal_entity_type = 'placement'
+            AND m.payload_snapshot IS NOT NULL
+            AND m.payload_snapshot <> ''
+            AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
+            AND (
+                 NOT EXISTS (
+                     SELECT 1
+                       FROM placement_rates any_pr
+                      WHERE any_pr.tenant_id = p.tenant_id
+                        AND any_pr.placement_id = p.id
+                 )
+              OR (
+                    p.status = 'active'
+                AND NOT EXISTS (
+                     SELECT 1
+                       FROM placement_rates approved_pr
+                      WHERE approved_pr.tenant_id = p.tenant_id
+                        AND approved_pr.placement_id = p.id
+                        AND approved_pr.approved_at IS NOT NULL
+                        AND approved_pr.effective_from <= COALESCE(NULLIF(p.start_date, ''), CURDATE())
+                        AND (approved_pr.effective_to IS NULL OR approved_pr.effective_to >= COALESCE(NULLIF(p.start_date, ''), CURDATE()))
+                )
+              )
+            )
+       GROUP BY p.id
+       ORDER BY MAX(p.updated_at) DESC
+          LIMIT {$limit}"
+    );
+    $stmt->execute(['t' => $tenantId]);
+    $placementIds = array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN) ?: []);
+
+    foreach ($placementIds as $placementId) {
+        if ($placementId <= 0) continue;
+        $summary['checked']++;
+        try {
+            if (placementsEnsureDraftRateFromSourcePayload($placementId, $user)) {
+                $summary['drafted']++;
+            } else {
+                $summary['skipped']++;
+            }
+        } catch (\Throwable $e) {
+            $summary['failed']++;
+            if (count($summary['errors']) < 10) {
+                $summary['errors'][] = "placement {$placementId}: " . $e->getMessage();
+            }
+        }
+    }
+
+    if (function_exists('jobdivaAudit')) {
+        try {
+            jobdivaAudit($tenantId, 'mapping_alignment_repair_source_rate_drafts', [
+                'ok' => $summary['failed'] === 0,
+                'direction' => 'pull',
+                'actor_user_id' => isset($user['id']) ? (int) $user['id'] : null,
+                'items_processed' => $summary['drafted'],
                 'items_skipped' => $summary['skipped'],
                 'items_failed' => $summary['failed'],
                 'detail' => $summary,

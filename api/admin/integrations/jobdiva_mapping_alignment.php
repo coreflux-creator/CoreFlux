@@ -5,6 +5,8 @@
  * GET  -> report canonical mappings, native payload mirrors, graph issues.
  * POST action=repair_client_links -> backfill placements.client_id from the
  * canonical end-client company/staffing client bridge.
+ * POST action=repair_source_rate_drafts -> create missing draft rate rows
+ * from JobDiva source payload snapshots.
  * POST action=repair_duplicate_placements -> archive duplicate placement
  * rows created by damaged source identity mappings.
  */
@@ -37,6 +39,17 @@ if ($method === 'POST' && $action === 'repair_client_links') {
     $body = api_json_body();
     $limit = isset($body['limit']) ? (int) $body['limit'] : 500;
     $result = jobdivaMappingRepairStaffingClientLinks($tid, isset($user['id']) ? (int) $user['id'] : null, $limit);
+    api_ok(['ok' => $result['failed'] === 0, 'repair' => $result]);
+}
+
+if ($method === 'POST' && $action === 'repair_source_rate_drafts') {
+    rbac_legacy_require_any($user, [
+        'tenant_admin.integrations',
+        'integrations.jobdiva.manage',
+    ]);
+    $body = api_json_body();
+    $limit = isset($body['limit']) ? (int) $body['limit'] : 500;
+    $result = jobdivaMappingRepairSourceRateDrafts($tid, $user, $limit);
     api_ok(['ok' => $result['failed'] === 0, 'repair' => $result]);
 }
 

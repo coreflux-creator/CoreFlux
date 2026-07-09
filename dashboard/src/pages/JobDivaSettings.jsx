@@ -67,6 +67,20 @@ export default function JobDivaSettings() {
     }
   };
 
+  const onRepairRateDrafts = async () => {
+    clear(); setRepairResult(null); setBusy(b => ({ ...b, repairRateDrafts: true }));
+    try {
+      const r = await api.post('/api/admin/integrations/jobdiva_mapping_alignment.php?action=repair_source_rate_drafts', {});
+      setRepairResult(r.repair || r);
+      await loadAlignment();
+      setMsg(`Rate drafts repaired: ${r.repair?.drafted ?? 0}.`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(b => ({ ...b, repairRateDrafts: false }));
+    }
+  };
+
   const onRepairDuplicatePlacements = async (dryRun = true) => {
     clear(); setRepairResult(null); setBusy(b => ({ ...b, repairDuplicatePlacements: true }));
     try {
@@ -256,8 +270,10 @@ export default function JobDivaSettings() {
         error={alignmentError}
         onRefresh={loadAlignment}
         onRepairClientLinks={onRepairClientLinks}
+        onRepairRateDrafts={onRepairRateDrafts}
         onRepairDuplicatePlacements={onRepairDuplicatePlacements}
         repairing={!!busy.repairClientLinks}
+        repairingRates={!!busy.repairRateDrafts}
         repairingDuplicates={!!busy.repairDuplicatePlacements}
         repairResult={repairResult}
       />
@@ -755,8 +771,10 @@ function JobDivaMappingAlignmentCard({
   error,
   onRefresh,
   onRepairClientLinks,
+  onRepairRateDrafts,
   onRepairDuplicatePlacements,
   repairing,
+  repairingRates,
   repairingDuplicates,
   repairResult,
 }) {
@@ -821,6 +839,12 @@ function JobDivaMappingAlignmentCard({
                   style={{ fontSize: 12 }}>
             <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
             {repairing ? 'Repairing...' : 'Repair client links'}
+          </button>
+          <button type="button" className="btn btn--ghost" onClick={onRepairRateDrafts}
+                  data-testid="jobdiva-mapping-alignment-repair-rate-drafts" disabled={repairingRates}
+                  style={{ fontSize: 12 }}>
+            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            {repairingRates ? 'Repairing...' : 'Repair rate drafts'}
           </button>
           <Link to="/modules/placements/draft-rates" className="btn btn--ghost"
                 data-testid="jobdiva-mapping-alignment-open-draft-rates"
@@ -904,6 +928,8 @@ function JobDivaMappingAlignmentCard({
            style={{ margin: '10px 0 0', padding: 10, border: '1px solid #a7f3d0', background: '#ecfdf5', color: '#065f46', borderRadius: 6, fontSize: 12 }}>
           {'groups_checked' in repairResult
             ? <>Groups {repairResult.groups_checked ?? 0}; repaired {repairResult.groups_repaired ?? 0}; archived {repairResult.placements_archived ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
+            : 'drafted' in repairResult
+              ? <>Checked {repairResult.checked ?? 0}; drafted {repairResult.drafted ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
             : <>Checked {repairResult.checked ?? 0}; repaired {repairResult.repaired ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>}
         </p>
       )}
@@ -934,8 +960,10 @@ function JobDivaMappingAlignmentCard({
               <IssueAction
                 issue={issue}
                 onRepairClientLinks={onRepairClientLinks}
+                onRepairRateDrafts={onRepairRateDrafts}
                 onRepairDuplicatePlacements={onRepairDuplicatePlacements}
                 repairing={repairing}
+                repairingRates={repairingRates}
                 repairingDuplicates={repairingDuplicates}
               />
             </div>
@@ -1060,12 +1088,12 @@ function operatorIssueView(issue) {
     placement_active_missing_approved_rate: {
       title: 'Approve rates before activation',
       impact: 'These active JobDiva placements do not have an approved rate covering the placement start date.',
-      next: 'Open the draft rates queue, approve valid rates, then refresh sync health.',
+      next: 'Use Repair rate drafts to create or correct source-backed drafts, then approve valid rates.',
     },
     placement_missing_rate_row: {
       title: 'Create missing placement rates',
       impact: 'These JobDiva placements have no pricing row in CoreFlux, so billing and payroll cannot price the work.',
-      next: 'Run JobDiva sync or source-rate repair, then approve any draft rates that appear.',
+      next: 'Use Repair rate drafts, then approve any draft rates that appear.',
     },
     placement_missing_end_client_company: {
       title: 'Repair end-client company link',
@@ -1090,13 +1118,27 @@ function operatorIssueView(issue) {
   })[code] || fallback;
 }
 
-function IssueAction({ issue, onRepairClientLinks, onRepairDuplicatePlacements, repairing, repairingDuplicates }) {
+function IssueAction({ issue, onRepairClientLinks, onRepairRateDrafts, onRepairDuplicatePlacements, repairing, repairingRates, repairingDuplicates }) {
   const code = issue?.code || '';
-  if (code === 'placement_active_missing_approved_rate' || code === 'placement_missing_rate_row') {
+  if (code === 'placement_missing_rate_row') {
     return (
-      <Link to="/modules/placements/draft-rates" className="btn btn--ghost" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-        Draft rates
-      </Link>
+      <button type="button" className="btn btn--primary" onClick={onRepairRateDrafts}
+              disabled={repairingRates} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+        {repairingRates ? 'Repairing...' : 'Repair rates'}
+      </button>
+    );
+  }
+  if (code === 'placement_active_missing_approved_rate') {
+    return (
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn--primary" onClick={onRepairRateDrafts}
+                disabled={repairingRates} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+          {repairingRates ? 'Repairing...' : 'Repair rates'}
+        </button>
+        <Link to="/modules/placements/draft-rates" className="btn btn--ghost" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+          Approve rates
+        </Link>
+      </div>
     );
   }
   if (code === 'placement_missing_end_client_company' || code === 'placement_missing_staffing_client') {
