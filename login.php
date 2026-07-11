@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$email = trim($_POST['username'] ?? '');
+$email = strtolower(trim((string) ($_POST['username'] ?? $_POST['email'] ?? '')));
 $password = $_POST['password'] ?? '';
 
 if (!$email || !$password) {
@@ -32,7 +32,7 @@ if (!$pdo) {
 }
 
 // Look up user
-$stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
+$stmt = $pdo->prepare("SELECT * FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1");
 $stmt->execute([$email]);
 $dbUser = $stmt->fetch();
 
@@ -41,15 +41,7 @@ if (!$dbUser) {
     exit;
 }
 
-// Check password
-$validPassword = false;
-if (!empty($dbUser['password']) && password_verify($password, $dbUser['password'])) {
-    $validPassword = true;
-} elseif (!empty($dbUser['password_hash']) && password_verify($password, $dbUser['password_hash'])) {
-    $validPassword = true;
-}
-
-if (!$validPassword) {
+if (!authVerifyPassword($dbUser, (string) $password)) {
     header("Location: login.html?error=invalid");
     exit;
 }
@@ -110,8 +102,8 @@ $tenantRole = $platformMode
     ? 'master_admin'
     : ($defaultTenant['role'] ?? 'employee');
 
-// Parse name
-$nameParts = explode(' ', $dbUser['name'] ?? 'User', 2);
+// Parse name across canonical and legacy user schemas.
+[$firstName, $lastName] = authUserNameParts($dbUser);
 
 // For platform admins, the user.tenants list is the FULL tenant inventory
 // (so the header dropdown can offer everything to switch into). For everyone
@@ -144,8 +136,8 @@ if ($platformMode) {
 // Build user object
 $user = [
     'id' => $dbUser['id'],
-    'first_name' => $nameParts[0],
-    'last_name' => $nameParts[1] ?? '',
+    'first_name' => $firstName,
+    'last_name' => $lastName,
     'email' => $dbUser['email'],
     'role' => $tenantRole,
     'global_role' => $globalRole,

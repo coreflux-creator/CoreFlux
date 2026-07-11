@@ -24,10 +24,13 @@ $a('action=invite branch present',
     $c($mems, "(string) (api_query('action') ?? '') === 'invite'"));
 $a('loads magic_link.php',                $c($mems, "require_once __DIR__ . '/../../core/magic_link.php'"));
 $a('loads mailer.php',                    $c($mems, "require_once __DIR__ . '/../../core/mailer.php'"));
+$a('loads auth.php for schema/display helpers', $c($mems, "require_once __DIR__ . '/../../core/auth.php'"));
 $a('validates email with FILTER_VALIDATE_EMAIL', $c($mems, 'FILTER_VALIDATE_EMAIL'));
-$a('JIT-creates the user',                $c($mems, 'SHOW COLUMNS FROM users'));
+$a('JIT-creates the user schema-tolerantly', $c($mems, "authTableColumns(\$pdo, 'users')"));
 $a('schema-tolerant: handles name column',          $c($mems, "if (in_array('name', \$cols, true))"));
 $a('schema-tolerant: handles is_active flag',       $c($mems, "if (in_array('is_active', \$cols, true))"));
+$a('schema-tolerant: inviter name does not assume first_name/last_name',
+    $c($mems, 'authUserDisplayName($inviter') && $c($mems, 'NULL AS first_name'));
 $a('seeds placeholder password for NOT NULL cols',  $c($mems, 'password_hash(bin2hex(random_bytes(16))'));
 $a('upserts membership in pending state', $c($mems, '"pending"') && $c($mems, 'invited_by_user_id, invited_at'));
 $a('un-revokes via IF on status',         $c($mems, 'IF(status = "revoked", "pending", status)'));
@@ -40,6 +43,9 @@ $a('audits with action="invited"',         $c($mems, "RBACResolver::auditMembers
 $a('returns 201 on success',               $c($mems, 'api_ok($resp, 201)'));
 $a('TTL clamps 15min..30d',                $c($mems, 'max(15, min(60 * 24 * 30,'));
 $a('global-admin gets magic_link_url',     $c($mems, "if (\$isGlobalAdmin) \$resp['magic_link_url'] = \$linkUrl"));
+$a('tenant admin gets copy link when mail is log/disabled/failed',
+    $c($mems, "'magic_link_delivery'] = 'copy_link_required'")
+    && $c($mems, "['log', 'disabled']"));
 
 // ------------------------------------------------------------------ consume
 echo "\napi/auth/consume_magic_link.php — invite-accept hook\n";

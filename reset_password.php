@@ -4,7 +4,9 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 require_once __DIR__ . '/config/db.php';
-require_once __DIR__ . '/config/smtp_yahoo.php';
+require_once __DIR__ . '/core/auth.php';
+require_once __DIR__ . '/core/mailer.php';
+require_once __DIR__ . '/core/memberships.php';
 
 // Accept both styles (?token=&email=) and legacy (?t=&e=)
 $email = trim($_GET['email'] ?? $_GET['e'] ?? $_POST['email'] ?? '');
@@ -20,7 +22,7 @@ $success = '';
  */
 function get_valid_reset(PDO $pdo, string $email, string $token) {
     $stmt = $pdo->prepare("
-        SELECT id, token_hash, expires_at, used_at
+        SELECT id, user_id, email, token_hash, expires_at, used_at
         FROM password_resets
         WHERE email = :email
           AND used_at IS NULL
@@ -41,6 +43,39 @@ function get_valid_reset(PDO $pdo, string $email, string $token) {
         return [null, 'Invalid reset token.'];
     }
     return [$row, null];
+}
+
+function reset_password_tenant_id(PDO $pdo, int $userId): int {
+    $tenantId = 0;
+    try {
+        $cols = authTableColumns($pdo, 'users');
+        if (in_array('tenant_id', $cols, true)) {
+            $tStmt = $pdo->prepare('SELECT tenant_id FROM users WHERE id = :id');
+            $tStmt->execute([':id' => $userId]);
+            $tenantId = (int) ($tStmt->fetchColumn() ?: 0);
+        }
+    } catch (Throwable $_) { /* fall through */ }
+    if ($tenantId <= 0) {
+        try {
+            $tmStmt = $pdo->prepare(
+                "SELECT tenant_id
+                   FROM " . membershipReadSourceSql() . " src
+                  WHERE src.user_id = :u
+                  ORDER BY src.is_primary DESC, src.tenant_id ASC
+                  LIMIT 1"
+            );
+            $tmStmt->execute([':u' => $userId]);
+            $tenantId = (int) ($tmStmt->fetchColumn() ?: 0);
+        } catch (Throwable $_) { /* fall through */ }
+    }
+    if ($tenantId <= 0) {
+        try {
+            $tenantId = (int) ($pdo->query(
+                'SELECT id FROM tenants WHERE COALESCE(is_active,1) = 1 ORDER BY id ASC LIMIT 1'
+            )->fetchColumn() ?: 1);
+        } catch (Throwable $_) { $tenantId = 1; }
+    }
+    return $tenantId;
 }
 
 // GET: decide whether to show the form
@@ -78,10 +113,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($err) {
                 $error = $err;
             } else {
-                // Update user password
+                // Update user password across canonical and legacy columns.
                 $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
-                $pdo->prepare("UPDATE users SET password = :p WHERE email = :e")
-                    ->execute([':p' => $passwordHash, ':e' => $email]);
+                $userCols = authTableColumns($pdo, 'users');
+                $sets = [];
+                $bind = [':e' => $email];
+                if (in_array('password', $userCols, true)) {
+                    $sets[] = 'password = :password';
+                    $bind[':password'] = $passwordHash;
+                }
+                if (in_array('password_hash', $userCols, true)) {
+                    $sets[] = 'password_hash = :password_hash';
+                    $bind[':password_hash'] = $passwordHash;
+                }
+                if (in_array('updated_at', $userCols, true)) {
+                    $sets[] = 'updated_at = NOW()';
+                }
+                if (!$sets) {
+                    throw new RuntimeException('No password column exists on users table.');
+                }
+                $pdo->prepare('UPDATE users SET ' . implode(', ', $sets) . ' WHERE LOWER(email) = LOWER(:e)')
+                    ->execute($bind);
 
                 // Mark token as used and optionally clean up old used tokens
                 $pdo->prepare("UPDATE password_resets SET used_at = NOW() WHERE id = :id")
@@ -89,9 +141,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("DELETE FROM password_resets WHERE email = :e AND used_at IS NOT NULL")
                     ->execute([':e' => $email]);
 
-                // Optional confirmation email
-                if (function_exists('sendPasswordChangedNotice')) {
-                    @sendPasswordChangedNotice($email);
+                // Optional confirmation email through the central mailer.
+                try {
+                    $tenantId = reset_password_tenant_id($pdo, (int) $row['user_id']);
+                    $notice = mailerSend([
+                        'tenant_id' => $tenantId,
+                        'module'    => 'auth',
+                        'purpose'   => 'password_reset',
+                        'to'        => (string) ($row['email'] ?? $email),
+                        'subject'   => 'Your CoreFlux password was changed',
+                        'body_text' => "Your CoreFlux password was changed. If you did not make this change, contact your administrator immediately.\n",
+                    ]);
+                    if (empty($notice['ok'])) {
+                        error_log('[reset_password] password-changed notice failed for ' . $email
+                            . ' tenant=' . $tenantId
+                            . ' driver=' . ($notice['driver'] ?? '?')
+                            . ' err=' . ($notice['error'] ?? '?'));
+                    }
+                } catch (Throwable $noticeErr) {
+                    error_log('[reset_password] password-changed notice error: ' . $noticeErr->getMessage());
                 }
 
                 $success = 'Your password has been reset successfully. You can now <a href="/login.php">log in</a>.';

@@ -16,6 +16,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/jwt.php';
 require_once __DIR__ . '/../../core/db.php';
+require_once __DIR__ . '/../../core/auth.php';
+require_once __DIR__ . '/../../core/memberships.php';
 
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
 
@@ -28,46 +30,57 @@ $pwd   = (string) $body['password'];
 $pdo = getDB();
 if (!$pdo) api_error('No database connection', 500);
 
-// Find the user by email. Schema: users.password_hash (preferred) with users.password as legacy.
+// Find the user by email. SELECT * keeps this endpoint schema-tolerant across
+// canonical and legacy user tables.
 $stmt = $pdo->prepare(
-    "SELECT id, name, email, password, password_hash, role, is_active
+    "SELECT *
        FROM users
-      WHERE email = :e LIMIT 1"
+      WHERE LOWER(email) = LOWER(:e) LIMIT 1"
 );
 $stmt->execute(['e' => $email]);
 $user = $stmt->fetch(PDO::FETCH_ASSOC);
-if (!$user || !$user['is_active']) {
+if (
+    !$user
+    || (isset($user['is_active']) && (int) $user['is_active'] !== 1)
+    || (($user['status'] ?? null) === 'disabled')
+) {
     api_error('Invalid credentials', 401);
 }
 
-$hash = (string) ($user['password_hash'] ?? $user['password'] ?? '');
-if (!$hash || !password_verify($pwd, $hash)) {
+if (!authVerifyPassword($user, $pwd)) {
     api_error('Invalid credentials', 401);
 }
 
-// Resolve tenant. Prefer the requested tenant_code, otherwise pick the user's first active mapping.
-$tenantId   = null;
-$tenantCode = $body['tenant_code'] ?? null;
-if ($tenantCode) {
-    $tStmt = $pdo->prepare(
-        "SELECT t.id, t.code, t.name FROM tenants t
-           JOIN user_tenants ut ON ut.tenant_id = t.id
-          WHERE ut.user_id = :u AND t.code = :c AND ut.status = 'active'
-          LIMIT 1"
-    );
-    $tStmt->execute(['u' => (int) $user['id'], 'c' => (string) $tenantCode]);
-    $tenant = $tStmt->fetch(PDO::FETCH_ASSOC);
-} else {
-    $tStmt = $pdo->prepare(
-        "SELECT t.id, t.code, t.name FROM tenants t
-           JOIN user_tenants ut ON ut.tenant_id = t.id
-          WHERE ut.user_id = :u AND ut.status = 'active'
-          ORDER BY ut.created_at ASC
-          LIMIT 1"
-    );
-    $tStmt->execute(['u' => (int) $user['id']]);
-    $tenant = $tStmt->fetch(PDO::FETCH_ASSOC);
+try { healMembershipsForUser((int) $user['id']); } catch (\Throwable $e) {
+    error_log('[mobile_login] healMembershipsForUser failed: ' . $e->getMessage());
 }
+
+// Resolve tenant. Prefer the requested tenant_code, otherwise pick the user's
+// primary active mapping. Read through membershipReadSourceSql() so pending
+// RBAC backfill does not strand mobile users.
+$tenantCode = isset($body['tenant_code']) ? trim((string) $body['tenant_code']) : '';
+$tenantCols = authTableColumns($pdo, 'tenants');
+$codeExpr = in_array('code', $tenantCols, true)
+    ? 't.code'
+    : (in_array('subdomain', $tenantCols, true) ? 't.subdomain AS code' : 'CAST(t.id AS CHAR) AS code');
+$whereCode = $tenantCode !== ''
+    ? (in_array('code', $tenantCols, true)
+        ? ' AND t.code = :c'
+        : (in_array('subdomain', $tenantCols, true) ? ' AND t.subdomain = :c' : ' AND CAST(t.id AS CHAR) = :c'))
+    : '';
+
+$tStmt = $pdo->prepare(
+    "SELECT t.id, {$codeExpr}, t.name
+       FROM " . membershipReadSourceSql() . " src
+       JOIN tenants t ON t.id = src.tenant_id
+      WHERE src.user_id = :u{$whereCode}
+      ORDER BY src.is_primary DESC, t.name ASC
+      LIMIT 1"
+);
+$bind = ['u' => (int) $user['id']];
+if ($tenantCode !== '') $bind['c'] = $tenantCode;
+$tStmt->execute($bind);
+$tenant = $tStmt->fetch(PDO::FETCH_ASSOC);
 if (!$tenant) api_error('No tenant assigned', 403);
 $tenantId = (int) $tenant['id'];
 
@@ -104,9 +117,9 @@ $accessTtl = 8 * 60 * 60;
 $accessToken = jwtSign([
     'user_id'   => (int) $user['id'],
     'tenant_id' => $tenantId,
-    'name'      => $user['name'],
+    'name'      => authUserDisplayName($user),
     'email'     => $user['email'],
-    'role'      => $user['role'],
+    'role'      => $user['role'] ?? 'employee',
 ], $accessTtl);
 
 [$refresh, $refreshExpires] = jwtIssueRefreshToken($tenantId, (int) $user['id'], $deviceId);
@@ -118,9 +131,9 @@ api_ok([
     'refresh_expires_at'  => $refreshExpires,
     'user'                => [
         'id'    => (int) $user['id'],
-        'name'  => $user['name'],
+        'name'  => authUserDisplayName($user),
         'email' => $user['email'],
-        'role'  => $user['role'],
+        'role'  => $user['role'] ?? 'employee',
     ],
     'tenant' => [
         'id'   => $tenantId,

@@ -25,6 +25,7 @@ header('Pragma: no-cache');
 
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/core/mailer.php';
+require_once __DIR__ . '/core/memberships.php';
 
 $APP_NAME      = 'CoreFlux';
 $TOKEN_TTL_MIN = 60;
@@ -54,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errorMsg = 'Please enter a valid email address.';
     } else {
         try {
-            $stmt = $pdo->prepare('SELECT id FROM users WHERE email = :e LIMIT 1');
+            $stmt = $pdo->prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(:e) LIMIT 1');
             $stmt->execute([':e' => $email]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -64,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Resolve the user's home tenant — required for Resend
                 // routing through mailerSend(). Order of preference:
                 //   1. users.tenant_id (legacy NOT-NULL column on most prod envs)
-                //   2. oldest active tenant_memberships row
+                //   2. oldest active unified membership row
                 //   3. tenant id 1 (system fallback) — keeps Resend hot
                 //      even if neither of the above resolves
                 $tenantId = 0;
@@ -79,9 +80,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($tenantId <= 0) {
                     try {
                         $tmStmt = $pdo->prepare(
-                            "SELECT tenant_id FROM tenant_memberships
-                              WHERE user_id = :u AND status = 'active'
-                              ORDER BY created_at ASC LIMIT 1"
+                            "SELECT tenant_id
+                               FROM " . membershipReadSourceSql() . " src
+                              WHERE src.user_id = :u
+                              ORDER BY src.is_primary DESC, src.tenant_id ASC
+                              LIMIT 1"
                         );
                         $tmStmt->execute([':u' => $userId]);
                         $tenantId = (int) ($tmStmt->fetchColumn() ?: 0);

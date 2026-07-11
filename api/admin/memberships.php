@@ -121,6 +121,7 @@ if ($method === 'POST' && (string) (api_query('action') ?? '') === 'invite') {
     //   retrieve a fresh link out-of-band when an invitee can't find the email.
     require_once __DIR__ . '/../../core/magic_link.php';
     require_once __DIR__ . '/../../core/mailer.php';
+    require_once __DIR__ . '/../../core/auth.php';
     require_once __DIR__ . '/../../core/rbac/permission_profiles.php';
 
     $body  = api_json_body();
@@ -145,7 +146,8 @@ if ($method === 'POST' && (string) (api_query('action') ?? '') === 'invite') {
     })($nameRaw);
 
     // 1) Find or JIT-create the user.
-    $st = $pdo->prepare('SELECT id FROM users WHERE email = :e LIMIT 1');
+    $userCols = authTableColumns($pdo, 'users');
+    $st = $pdo->prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(:e) LIMIT 1');
     $st->execute(['e' => $email]);
     $existing = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
     if ($existing) {
@@ -155,9 +157,7 @@ if ($method === 'POST' && (string) (api_query('action') ?? '') === 'invite') {
         // single `name` column + `is_active` flag; some forks also have
         // `first_name`/`last_name`/`status`. Introspect once and INSERT only
         // the columns that actually exist.
-        $colStmt = $pdo->query('SHOW COLUMNS FROM users');
-        $cols    = array_column($colStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [], 'Field');
-        $cols    = array_map('strval', $cols);
+        $cols    = $userCols;
         $row     = ['email' => $email];
         if (in_array('name', $cols, true)) {
             $row['name'] = trim($firstName . ' ' . $lastName) ?: $email;
@@ -278,11 +278,14 @@ if ($method === 'POST' && (string) (api_query('action') ?? '') === 'invite') {
 
     // 5) Resolve tenant name + inviter name for the email body.
     $tName  = (string) ($pdo->query('SELECT name FROM tenants WHERE id = ' . (int) $tenantId)->fetchColumn() ?: 'CoreFlux');
-    $invStmt = $pdo->prepare('SELECT first_name, last_name, email FROM users WHERE id = :id LIMIT 1');
+    $invSelect = ['email'];
+    $invSelect[] = in_array('name', $userCols, true) ? 'name' : 'NULL AS name';
+    $invSelect[] = in_array('first_name', $userCols, true) ? 'first_name' : 'NULL AS first_name';
+    $invSelect[] = in_array('last_name', $userCols, true) ? 'last_name' : 'NULL AS last_name';
+    $invStmt = $pdo->prepare('SELECT ' . implode(', ', $invSelect) . ' FROM users WHERE id = :id LIMIT 1');
     $invStmt->execute(['id' => $actorId]);
     $inviter   = $invStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-    $invName   = trim((string) ($inviter['first_name'] ?? '') . ' ' . (string) ($inviter['last_name'] ?? ''))
-                 ?: ((string) ($inviter['email'] ?? 'A teammate'));
+    $invName   = authUserDisplayName($inviter, 'A teammate');
     $expiresIso = (string) $link['expires_at'];
 
     $subject  = "You've been invited to {$tName} on CoreFlux";
@@ -332,6 +335,16 @@ if ($method === 'POST' && (string) (api_query('action') ?? '') === 'invite') {
     ];
     if ($profileApplied !== null) $resp['profile_applied'] = $profileApplied;
     if ($isGlobalAdmin) $resp['magic_link_url'] = $linkUrl;
+    if (
+        !$isGlobalAdmin
+        && (
+            empty($mailRes['ok'])
+            || in_array((string) ($mailRes['driver'] ?? ''), ['log', 'disabled'], true)
+        )
+    ) {
+        $resp['magic_link_url'] = $linkUrl;
+        $resp['magic_link_delivery'] = 'copy_link_required';
+    }
     api_ok($resp, 201);
 }
 

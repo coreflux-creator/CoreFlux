@@ -1,38 +1,19 @@
 <?php
-session_start();
-require_once '../core/db_connection.php';
-require_once '../core/functions_auth.php';
+/**
+ * Legacy login route compatibility shim.
+ *
+ * Older links point at /auth/login.php, but the maintained handler is the
+ * root /login.php endpoint used by the SPA login screen. Keep this file as a
+ * forwarding wrapper so old URLs do not hit removed db_connection/functions
+ * includes and fail before authentication starts.
+ */
+declare(strict_types=1);
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = $_POST['email'] ?? '';
-    $password = $_POST['password'] ?? '';
-    $user = authenticateUser($email, $password);
-    if ($user) {
-        $_SESSION['user_id'] = $user['id'];
-        $_SESSION['tenant_id'] = $user['tenant_id'];
-        header("Location: ../tenant_landing.php");
-        exit;
-    } else {
-        $error = "Invalid credentials.";
-    }
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    $_POST['username'] = $_POST['username'] ?? $_POST['email'] ?? '';
+    require __DIR__ . '/../login.php';
+    exit;
 }
-?>
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Login - CoreFlux</title>
-  <link rel="stylesheet" href="../assets/css/style.css" />
-</head>
-<body>
-  <div class="login-wrapper">
-    <img src="../assets/logo.png" class="logo" alt="CoreFlux" />
-    <h2>Login</h2>
-    <?php if (!empty($error)) echo "<p style='color:red;'>$error</p>"; ?>
-    <form method="post" action="login.php">
-      <input type="email" name="email" placeholder="Email" required />
-      <input type="password" name="password" placeholder="Password" required />
-      <button type="submit">Login</button>
-    </form>
-  </div>
-</body>
-</html>
+
+header('Location: /login.html');
+exit;

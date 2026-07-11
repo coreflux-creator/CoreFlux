@@ -39,6 +39,9 @@ require_once __DIR__ . '/db.php';
 if (!function_exists('cf_mail_purpose_registry')) {
     function cf_mail_purpose_registry(): array {
         return [
+            ['key' => 'auth.magic_link',     'module' => 'auth',      'label' => 'Sign-in Links',  'description' => 'Passwordless sign-in magic links.'],
+            ['key' => 'password_reset',      'module' => 'auth',      'label' => 'Password Reset',  'description' => 'Password reset links and password recovery notices.'],
+            ['key' => 'membership_invite',   'module' => 'admin',     'label' => 'Member Invites',  'description' => 'Admin invitations and tenant membership acceptance links.'],
             ['key' => 'timesheets',    'module' => 'staffing', 'label' => 'Timesheets',     'description' => 'Timesheet approver notifications.'],
             ['key' => 'ap',            'module' => 'ap',       'label' => 'AP',             'description' => 'Bill approval requests sent to approvers.'],
             ['key' => 'vendor_portal', 'module' => 'ap',       'label' => 'Vendor Portal',  'description' => 'Magic-link invites to the vendor self-serve portal.'],
@@ -227,4 +230,3 @@ if (!function_exists('cf_mail_senders_upsert')) {
         ]);
     }
 }
-

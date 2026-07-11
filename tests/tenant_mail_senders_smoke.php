@@ -70,13 +70,13 @@ $a('php -l core/tenant_mail.php',            $rc === 0);
 echo "\nFunctional — purpose registry\n";
 require_once $ROOT . '/core/tenant_mail.php';
 $reg = cf_mail_purpose_registry();
-$a('registry has 5 entries',                 is_array($reg) && count($reg) === 5);
-$expectedKeys = ['timesheets', 'ap', 'vendor_portal', 'cfo', 'payments'];
+$a('registry has auth + workflow entries',   is_array($reg) && count($reg) >= 8);
+$expectedKeys = ['auth.magic_link', 'password_reset', 'membership_invite', 'timesheets', 'ap', 'vendor_portal', 'cfo', 'payments'];
 $actualKeys   = array_map(static fn ($r) => $r['key'], $reg);
 foreach ($expectedKeys as $k) {
     $a("registry exposes purpose key: $k",   in_array($k, $actualKeys, true));
 }
-$expectedLabels = ['Timesheets', 'AP', 'Vendor Portal', 'CFO', 'Payments'];
+$expectedLabels = ['Sign-in Links', 'Password Reset', 'Member Invites', 'Timesheets', 'AP', 'Vendor Portal', 'CFO', 'Payments'];
 $actualLabels   = array_map(static fn ($r) => $r['label'], $reg);
 foreach ($expectedLabels as $lbl) {
     $a("registry exposes label: $lbl",       in_array($lbl, $actualLabels, true));

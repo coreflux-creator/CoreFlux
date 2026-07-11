@@ -8,6 +8,77 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/modules.php';
 
 /**
+ * Return table columns with a tiny request-local cache. Several auth entry
+ * points run across installs where `users` may be canonical (`name`) or
+ * legacy (`first_name` / `last_name`, `password_hash`), so callers should
+ * branch from real schema instead of assuming columns.
+ */
+function authTableColumns(PDO $pdo, string $table): array {
+    static $cache = [];
+    if (!preg_match('/^[A-Za-z0-9_]+$/', $table)) {
+        return [];
+    }
+    if (isset($cache[$table])) {
+        return $cache[$table];
+    }
+    try {
+        $stmt = $pdo->query('SHOW COLUMNS FROM `' . $table . '`');
+        $cols = array_column($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [], 'Field');
+        $cache[$table] = array_values(array_map('strval', $cols));
+    } catch (Throwable $_) {
+        $cache[$table] = [];
+    }
+    return $cache[$table];
+}
+
+/**
+ * Pick the active password hash from either canonical or legacy user rows.
+ * Prefer whichever column is non-empty instead of letting an empty
+ * password_hash mask a valid legacy password value.
+ */
+function authPasswordHashForUser(array $user): string {
+    foreach (['password_hash', 'password'] as $field) {
+        if (isset($user[$field]) && trim((string) $user[$field]) !== '') {
+            return (string) $user[$field];
+        }
+    }
+    return '';
+}
+
+function authVerifyPassword(array $user, string $password): bool {
+    $hash = authPasswordHashForUser($user);
+    return $hash !== '' && password_verify($password, $hash);
+}
+
+function authUserDisplayName(array $user, string $fallback = 'User'): string {
+    $name = trim((string) ($user['name'] ?? ''));
+    if ($name !== '') {
+        return $name;
+    }
+    $parts = array_filter([
+        trim((string) ($user['first_name'] ?? '')),
+        trim((string) ($user['last_name'] ?? '')),
+    ], static fn($v) => $v !== '');
+    $name = trim(implode(' ', $parts));
+    if ($name !== '') {
+        return $name;
+    }
+    $email = trim((string) ($user['email'] ?? ''));
+    return $email !== '' ? $email : $fallback;
+}
+
+function authUserNameParts(array $user, string $fallback = 'User'): array {
+    $first = trim((string) ($user['first_name'] ?? ''));
+    $last  = trim((string) ($user['last_name'] ?? ''));
+    if ($first !== '' || $last !== '') {
+        return [$first !== '' ? $first : $fallback, $last];
+    }
+    $display = authUserDisplayName($user, $fallback);
+    $parts = preg_split('/\s+/', trim($display), 2);
+    return [(string) ($parts[0] ?? $fallback), (string) ($parts[1] ?? '')];
+}
+
+/**
  * Initialize session with proper settings
  */
 function initSession(): void {

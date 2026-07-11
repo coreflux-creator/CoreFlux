@@ -18,6 +18,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/magic_link.php';
 require_once __DIR__ . '/../../core/mailer.php';
+require_once __DIR__ . '/../../core/memberships.php';
 
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
 
@@ -92,12 +93,11 @@ function _magicLinkResolveTenantId(string $email): ?int
     try {
         $pdo = getDB();
         $stmt = $pdo->prepare(
-            'SELECT ut.tenant_id
+            'SELECT src.tenant_id
                FROM users u
-               JOIN user_tenants ut ON ut.user_id = u.id
-              WHERE u.email = :email
-                AND COALESCE(ut.status, "active") = "active"
-              ORDER BY COALESCE(ut.is_default, 0) DESC, ut.tenant_id ASC
+               JOIN ' . membershipReadSourceSql() . ' src ON src.user_id = u.id
+              WHERE LOWER(u.email) = LOWER(:email)
+              ORDER BY src.is_primary DESC, src.tenant_id ASC
               LIMIT 1'
         );
         $stmt->execute(['email' => $email]);
