@@ -116,6 +116,14 @@ $a('placement_commissions account manager target writes account-manager commissi
         'target_table' => 'placement_commissions',
         'target_column' => 'split_pct',
     ]) === 61);
+$a('commission linked_entity defaults resolve to the same role keys used by runtime creation',
+    integrationFieldMapCommissionContextKey('placement_commission_recruiter') === 'placement_commission_recruiter'
+    && integrationFieldMapCommissionContextKey('placement_commission_account_manager') === 'placement_commission_account_manager'
+    && integrationFieldMapCommissionContextKey('self') === 'placement_commission_recruiter');
+$a('chain linked_entity defaults resolve to canonical row keys used by runtime creation',
+    integrationFieldMapChainContextKey('placement_chain_msp') === 'placement_chain_msp'
+    && integrationFieldMapChainContextKey('placement_chain_prime_vendor') === 'placement_chain_prime_vendor'
+    && integrationFieldMapChainContextKey('placement_chain_sub_vendor') === 'placement_chain_sub_vendor');
 $a('explicit vendor company link remains respected',
     integrationFieldMapContextRowId($ctx + ['vendor_company' => 50], [
         'linked_entity' => 'vendor_company',

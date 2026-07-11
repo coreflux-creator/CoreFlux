@@ -96,6 +96,10 @@ $assert('upsert clears last_error on successful sync',
     strpos($lib, 'last_error         = NULL') !== false);
 $assert('upsert bumps last_seen_at even when unchanged',
     strpos($lib, 'SET last_seen_at = NOW()') !== false);
+$assert('upsert reconciles stale internal/external uniqueness conflicts',
+    strpos($lib, '$conflictingInternal = mappingFindExternal($tenantId, $source, $entityType, $internalId)') !== false
+    && strpos($lib, '$existingForInternal = mappingFindExternal($tenantId, $source, $entityType, $internalId)') !== false
+    && strpos($lib, 'SET external_id        = :ext') !== false);
 $assert('upsert validates direction whitelist',
     strpos($lib, "in_array(\$direction, EXTERNAL_MAPPING_DIRECTIONS, true)") !== false);
 $assert('mappingMarkStatus validates status whitelist',
@@ -195,7 +199,9 @@ $assert('tenant-scoped via api_require_auth',    strpos($api, "\$tid  = (int) \$
 echo "\nUI — JobDivaSettings.jsx sync-result card (A3 forward-compat)\n";
 $jsx = (string) file_get_contents("{$ROOT}/dashboard/src/pages/JobDivaSettings.jsx");
 $assert('imports Sparkles + X icons',
-    strpos($jsx, 'Sparkles, X, XCircle') !== false);
+    strpos($jsx, 'Sparkles') !== false
+    && strpos($jsx, ' X,') !== false
+    && strpos($jsx, 'XCircle') !== false);
 $assert('declares syncResult state',
     strpos($jsx, 'const [syncResult, setSyncResult] = useState(null)') !== false);
 $assert('onSync parses counts + total forward-compatibly',

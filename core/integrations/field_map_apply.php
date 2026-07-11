@@ -206,7 +206,219 @@ function integrationPayloadResolvePath(array $payload, string $path): mixed
     return null;
 }
 
-function integrationFieldMapContextRowId(array $contextRowIds, array $mapping): int
+function integrationFieldMapPlacementIdFromContext(array $contextRowIds): int
+{
+    if (isset($contextRowIds['placement']) && (int) $contextRowIds['placement'] > 0) {
+        return (int) $contextRowIds['placement'];
+    }
+    $hasPlacementShape = isset($contextRowIds['placement_rates'])
+        || isset($contextRowIds['placement_corp_details'])
+        || isset($contextRowIds['placement_commission_recruiter'])
+        || isset($contextRowIds['placement_chain_end_client']);
+    if ($hasPlacementShape && isset($contextRowIds['self']) && (int) $contextRowIds['self'] > 0) {
+        return (int) $contextRowIds['self'];
+    }
+    return 0;
+}
+
+function integrationFieldMapCommissionRoleFromLinked(string $linkedEntity): string
+{
+    $linked = strtolower(trim($linkedEntity));
+    if (str_contains($linked, 'account') || str_contains($linked, 'manager')) return 'account_manager';
+    if (str_contains($linked, 'lead')) return 'lead';
+    if (str_contains($linked, 'team')) return 'team';
+    if (str_contains($linked, 'other')) return 'other';
+    return 'recruiter';
+}
+
+function integrationFieldMapCommissionContextKey(string $linkedEntity): string
+{
+    return 'placement_commission_' . integrationFieldMapCommissionRoleFromLinked($linkedEntity);
+}
+
+function integrationFieldMapEnsurePlacementCommissionRow(
+    int $tenantId,
+    array $contextRowIds,
+    string $linkedEntity
+): int {
+    $placementId = integrationFieldMapPlacementIdFromContext($contextRowIds);
+    if ($tenantId <= 0 || $placementId <= 0) return 0;
+
+    $role = integrationFieldMapCommissionRoleFromLinked($linkedEntity);
+    try {
+        $pdo = getDB();
+        $existing = $pdo->prepare(
+            'SELECT id
+               FROM placement_commissions
+              WHERE tenant_id = :t
+                AND placement_id = :p
+                AND role = :role
+                AND (effective_to IS NULL OR effective_to >= CURRENT_DATE())
+              ORDER BY effective_from DESC, id DESC
+              LIMIT 1'
+        );
+        $existing->execute(['t' => $tenantId, 'p' => $placementId, 'role' => $role]);
+        $existingId = (int) $existing->fetchColumn();
+        if ($existingId > 0) return $existingId;
+
+        $start = $pdo->prepare(
+            'SELECT start_date
+               FROM placements
+              WHERE tenant_id = :t AND id = :p
+              LIMIT 1'
+        );
+        $start->execute(['t' => $tenantId, 'p' => $placementId]);
+        $effectiveFrom = trim((string) $start->fetchColumn());
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $effectiveFrom)) {
+            $effectiveFrom = date('Y-m-d');
+        }
+
+        $pdo->prepare(
+            'INSERT INTO placement_commissions
+                (tenant_id, placement_id, role, basis, effective_from, notes)
+             VALUES
+                (:t, :p, :role, "net_margin", :ef, :notes)'
+        )->execute([
+            't' => $tenantId,
+            'p' => $placementId,
+            'role' => $role,
+            'ef' => $effectiveFrom,
+            'notes' => 'Source: integration field mapping projection',
+        ]);
+        return (int) $pdo->lastInsertId();
+    } catch (\Throwable $e) {
+        error_log('[field_map_apply] placement_commissions ensure failed: ' . $e->getMessage());
+        return 0;
+    }
+}
+
+function integrationFieldMapChainRoleFromLinked(string $linkedEntity): string
+{
+    $linked = strtolower(trim($linkedEntity));
+    if (str_contains($linked, 'end_client')) return 'end_client';
+    if (str_contains($linked, 'msp')) return 'msp';
+    if (str_contains($linked, 'sub')) return 'sub_vendor';
+    if (str_contains($linked, 'direct')) return 'direct';
+    return 'prime_vendor';
+}
+
+function integrationFieldMapChainContextKey(string $linkedEntity): string
+{
+    return 'placement_chain_' . integrationFieldMapChainRoleFromLinked($linkedEntity);
+}
+
+function integrationFieldMapChainPositionForRole(string $role): int
+{
+    return match ($role) {
+        'end_client' => 0,
+        'msp', 'direct' => 1,
+        'prime_vendor' => 2,
+        'sub_vendor' => 3,
+        default => 2,
+    };
+}
+
+function integrationFieldMapFindPlacementChainRow(
+    int $tenantId,
+    array $contextRowIds,
+    string $linkedEntity
+): int {
+    $placementId = integrationFieldMapPlacementIdFromContext($contextRowIds);
+    if ($tenantId <= 0 || $placementId <= 0) return 0;
+    $role = integrationFieldMapChainRoleFromLinked($linkedEntity);
+    try {
+        $st = getDB()->prepare(
+            'SELECT id
+               FROM placement_client_chain
+              WHERE tenant_id = :t
+                AND placement_id = :p
+                AND party_role = :role
+              ORDER BY position ASC, id ASC
+              LIMIT 1'
+        );
+        $st->execute(['t' => $tenantId, 'p' => $placementId, 'role' => $role]);
+        return (int) $st->fetchColumn();
+    } catch (\Throwable $e) {
+        error_log('[field_map_apply] placement_client_chain lookup failed: ' . $e->getMessage());
+        return 0;
+    }
+}
+
+function integrationFieldMapEnsurePlacementChainRow(
+    int $tenantId,
+    array $contextRowIds,
+    string $linkedEntity,
+    mixed $partyNameRaw
+): int {
+    $placementId = integrationFieldMapPlacementIdFromContext($contextRowIds);
+    $partyName = trim((string) $partyNameRaw);
+    if ($tenantId <= 0 || $placementId <= 0 || $partyName === '') return 0;
+
+    $role = integrationFieldMapChainRoleFromLinked($linkedEntity);
+    try {
+        $pdo = getDB();
+        $existingId = integrationFieldMapFindPlacementChainRow($tenantId, $contextRowIds, $linkedEntity);
+
+        $companyId = null;
+        $companiesLib = dirname(__DIR__, 2) . '/modules/people/lib/companies.php';
+        if (is_file($companiesLib)) {
+            require_once $companiesLib;
+        }
+        if (function_exists('companiesUpsertByName')) {
+            $companyRole = $role === 'end_client' || $role === 'direct' ? 'client' : $role;
+            try {
+                $companyId = companiesUpsertByName($tenantId, $partyName, [], [$companyRole]);
+            } catch (\Throwable $e) {
+                error_log('[field_map_apply] chain company upsert skipped: ' . $e->getMessage());
+                $companyId = null;
+            }
+        }
+
+        if ($existingId > 0) {
+            $sql = 'UPDATE placement_client_chain
+                       SET party_name = :name'
+                 . (($companyId !== null && $companyId > 0) ? ', company_id = :company_id' : '')
+                 . ' WHERE id = :id AND tenant_id = :t';
+            $params = ['name' => $partyName, 'id' => $existingId, 't' => $tenantId];
+            if ($companyId !== null && $companyId > 0) $params['company_id'] = $companyId;
+            $pdo->prepare($sql)->execute($params);
+            return $existingId;
+        }
+
+        $desiredPosition = integrationFieldMapChainPositionForRole($role);
+        $usedStmt = $pdo->prepare(
+            'SELECT position
+               FROM placement_client_chain
+              WHERE tenant_id = :t AND placement_id = :p'
+        );
+        $usedStmt->execute(['t' => $tenantId, 'p' => $placementId]);
+        $used = array_map('intval', $usedStmt->fetchAll(\PDO::FETCH_COLUMN) ?: []);
+        $position = $desiredPosition;
+        while (in_array($position, $used, true) && $position < 255) {
+            $position++;
+        }
+
+        $pdo->prepare(
+            'INSERT INTO placement_client_chain
+                (tenant_id, placement_id, position, party_name, party_role, company_id)
+             VALUES
+                (:t, :p, :pos, :name, :role, :company_id)'
+        )->execute([
+            't' => $tenantId,
+            'p' => $placementId,
+            'pos' => $position,
+            'name' => $partyName,
+            'role' => $role,
+            'company_id' => ($companyId !== null && $companyId > 0) ? $companyId : null,
+        ]);
+        return (int) $pdo->lastInsertId();
+    } catch (\Throwable $e) {
+        error_log('[field_map_apply] placement_client_chain ensure failed: ' . $e->getMessage());
+        return 0;
+    }
+}
+
+function integrationFieldMapContextRowId(array $contextRowIds, array $mapping, int $tenantId = 0): int
 {
     $linked = trim((string) ($mapping['linked_entity'] ?? 'self'));
     if ($linked === '') $linked = 'self';
@@ -268,6 +480,12 @@ function integrationFieldMapContextRowId(array $contextRowIds, array $mapping): 
         if (isset($contextRowIds[$candidate]) && (int) $contextRowIds[$candidate] > 0) {
             return (int) $contextRowIds[$candidate];
         }
+    }
+    if ($tenantId > 0 && $table === 'placement_commissions') {
+        return integrationFieldMapEnsurePlacementCommissionRow($tenantId, $contextRowIds, $linked);
+    }
+    if ($tenantId > 0 && $table === 'placement_client_chain') {
+        return integrationFieldMapFindPlacementChainRow($tenantId, $contextRowIds, $linked);
     }
     return 0;
 }
@@ -392,15 +610,26 @@ function integrationFieldMapApplyAll(
         }
 
         $linked = (string) ($m['linked_entity'] ?? 'self');
-        $rowId  = integrationFieldMapContextRowId($contextRowIds, $m);
+        $table = (string) $m['target_table'];
+        $col   = (string) $m['target_column'];
+        $tableLower = strtolower($table);
+        $colLower = strtolower($col);
+
+        $rowId  = integrationFieldMapContextRowId($contextRowIds, $m, $tid);
+        if ($rowId <= 0 && $tableLower === 'placement_client_chain' && $colLower === 'party_name') {
+            $rowId = integrationFieldMapEnsurePlacementChainRow($tid, $contextRowIds, $linked, $val);
+        }
         if ($rowId <= 0) {
             $summary['skipped']++;
             $summary['errors'][] = "no_context_row for linked_entity={$linked} target={$m['target_table']}.{$m['target_column']} (mapping_id={$m['id']})";
             continue;
         }
+        if ($tableLower === 'placement_commissions') {
+            $contextRowIds[integrationFieldMapCommissionContextKey($linked)] = $rowId;
+        } elseif ($tableLower === 'placement_client_chain') {
+            $contextRowIds[integrationFieldMapChainContextKey($linked)] = $rowId;
+        }
 
-        $table = (string) $m['target_table'];
-        $col   = (string) $m['target_column'];
         if (integrationFieldMapIsProtectedTarget($table, $col)) {
             $summary['skipped']++;
             $summary['errors'][] = "protected_target {$table}.{$col} (mapping_id={$m['id']})";

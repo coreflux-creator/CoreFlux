@@ -129,6 +129,15 @@ function mappingUpsert(
     if ($existing) {
         $changed = ($hash !== null && $hash !== $existing['content_hash']);
         // Internal id can move (e.g. merge); accept the new one.
+        if ((int) $existing['internal_entity_id'] !== $internalId) {
+            $conflictingInternal = mappingFindExternal($tenantId, $source, $entityType, $internalId);
+            if ($conflictingInternal && (int) $conflictingInternal['id'] !== (int) $existing['id']) {
+                $pdo->prepare(
+                    'DELETE FROM external_entity_mappings
+                      WHERE id = :id AND tenant_id = :t'
+                )->execute(['id' => (int) $conflictingInternal['id'], 't' => $tenantId]);
+            }
+        }
         $bindings = [
             'iid'   => $internalId,
             'dir'   => $direction,
@@ -179,6 +188,46 @@ function mappingUpsert(
 
     // Insert. Race-safe via UNIQUE KEY uk_external — ON DUPLICATE KEY catches
     // a concurrent insert and converts it to an update.
+    $existingForInternal = mappingFindExternal($tenantId, $source, $entityType, $internalId);
+    if ($existingForInternal) {
+        $changed = ($hash !== null && $hash !== $existingForInternal['content_hash'])
+            || (string) $existingForInternal['external_id'] !== $externalId;
+        $pdo->prepare(
+            'UPDATE external_entity_mappings
+                SET external_id        = :ext,
+                    payload_snapshot   = :snap,
+                    content_hash       = :hash,
+                    direction          = :dir,
+                    sync_status        = "ok",
+                    last_error         = NULL,
+                    last_seen_at       = NOW(),
+                    last_synced_at     = NOW()
+              WHERE id = :id AND tenant_id = :t'
+        )->execute([
+            'ext'  => $externalId,
+            'snap' => $snapshot,
+            'hash' => $hash,
+            'dir'  => $direction,
+            'id'   => (int) $existingForInternal['id'],
+            't'    => $tenantId,
+        ]);
+        if ($hash !== null && $snapshot !== null && $hash !== $existingForInternal['content_hash']) {
+            entitySyncHistoryRecord(
+                $tenantId, $source, $entityType, $internalId, $externalId,
+                $direction,
+                is_string($existingForInternal['payload_snapshot']) ? $existingForInternal['payload_snapshot'] : null,
+                $snapshot,
+                $existingForInternal['content_hash'] ?? null,
+                $hash,
+                $actorUserId
+            );
+        }
+        $row = mappingFindInternal($tenantId, $source, $entityType, $externalId);
+        if (!$row) $row = mappingFindExternal($tenantId, $source, $entityType, $internalId);
+        $row['changed'] = $changed;
+        return $row;
+    }
+
     $pdo->prepare(
         'INSERT INTO external_entity_mappings
             (tenant_id, source_system, internal_entity_type, external_id,

@@ -57,6 +57,10 @@ $a('chain writer creates MSP / prime vendor / sub-vendor tiers',
 $a('chain context ids are available to generalized field mapping',
     str_contains($sync, 'function jobdivaPlacementChainContextIds')
     && str_contains($apply, "'placement_client_chain' => match"));
+$a('chain mappings can create/reuse vendor-chain sibling rows',
+    str_contains($apply, 'function integrationFieldMapEnsurePlacementChainRow')
+    && str_contains($apply, 'integrationFieldMapFindPlacementChainRow($tenantId, $contextRowIds, $linked)')
+    && str_contains($apply, "placement_client_chain' && \$colLower === 'party_name'"));
 $a('projector declares placement_client_chain output',
     str_contains($projector, 'placement_client_chain')
     && str_contains($projector, 'vendor_chain'));
@@ -87,6 +91,10 @@ $a('commission writer targets placement_commissions',
 $a('commission context ids are available to generalized field mapping',
     str_contains($sync, 'function jobdivaPlacementCommissionContextIds')
     && str_contains($apply, "'placement_commissions' => match"));
+$a('commission mappings can create/reuse commission sibling rows',
+    str_contains($apply, 'function integrationFieldMapEnsurePlacementCommissionRow')
+    && str_contains($apply, 'integrationFieldMapEnsurePlacementCommissionRow($tenantId, $contextRowIds, $linked)')
+    && str_contains($apply, 'integrationFieldMapCommissionContextKey($linked)'));
 $a('field-map allow-list includes commission economics',
     str_contains($fieldMap, "'split_pct'")
     && str_contains($fieldMap, "'flat_amount'")
