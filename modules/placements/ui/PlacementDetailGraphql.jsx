@@ -171,7 +171,7 @@ export default function PlacementDetailGraphql() {
       {placement && (
         <>
           <Section title="Engagement" testid="placement-gql-detail-engagement">
-            <Field label="Engagement type" testid="placement-gql-detail-engagement-type">{placement.engagementType}</Field>
+            <Field label="Worker classification" testid="placement-gql-detail-engagement-type">{placement.engagementType}</Field>
             <Field label="Remote policy"   testid="placement-gql-detail-remote-policy">{placement.remotePolicy}</Field>
             <Field label="Start date"      testid="placement-gql-detail-start">{placement.startDate}</Field>
             <Field label="End date"        testid="placement-gql-detail-end">{placement.endDate}</Field>
@@ -188,7 +188,6 @@ export default function PlacementDetailGraphql() {
               </Field>
               <Field label="Email"          testid="placement-gql-detail-person-email">{placement.person.emailPrimary}</Field>
               <Field label="Phone"          testid="placement-gql-detail-person-phone">{placement.person.phonePrimary}</Field>
-              <Field label="Classification" testid="placement-gql-detail-person-classification">{placement.person.classification}</Field>
               <Field label="Employment"     testid="placement-gql-detail-person-employment">{placement.person.employmentType}</Field>
               <Field label="Status"         testid="placement-gql-detail-person-status">{placement.person.status}</Field>
             </Section>

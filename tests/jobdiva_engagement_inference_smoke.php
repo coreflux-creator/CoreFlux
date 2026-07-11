@@ -50,6 +50,10 @@ $a('silent payload preserves non-w2 fallback',
     jobdivaInferPlacementEngagementTypeFromPayload(['title' => 'Analyst'], 'c2c') === 'c2c');
 $a('silent payload with empty fallback stays empty',
     jobdivaInferPlacementEngagementTypeFromPayload(['title' => 'Analyst'], '') === '');
+$a('company legal name LLC does not imply c2c',
+    jobdivaInferPlacementEngagementTypeFromPayload(['companyName' => 'Public Storage LLC'], '') === '');
+$a('prime vendor name does not imply c2c',
+    jobdivaInferPlacementEngagementTypeFromPayload(['prime_vendor_name' => 'Thunderhawk Technology Partners LLC'], '') === '');
 
 echo "\nJobDiva engagement inference smoke: {$pass} ok / {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

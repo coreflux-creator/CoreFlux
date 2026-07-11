@@ -168,7 +168,7 @@ $assert('placement status maps JobDiva → CoreFlux enum',
 $assert("placement engagement_type uses source-evidence inference before defaulting",
     strpos($src, 'function jobdivaInferPlacementEngagementTypeFromPayload') !== false
     && strpos($src, '$sourceEngagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, \'\');') !== false
-    && strpos($src, 'jobdivaNormalisePlacementEngagementType($engagementRaw, $existingEngagement)') !== false);
+    && strpos($src, '$mappedEngagement = jobdivaNormalisePlacementEngagementType($engagementRaw, \'\');') !== false);
 $assert('placement insert provides title (NOT NULL on placements table)',
     strpos($src, "engagement_type, worksite_state, worksite_country") !== false
     && strpos($src, "client_approver_name, client_approver_email, title") !== false

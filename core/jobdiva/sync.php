@@ -2201,7 +2201,7 @@ function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string 
         ? (string) $fallback
         : ($fallback === '' ? '' : 'w2');
 
-    $classify = static function (string $key, mixed $value) use ($fallback): ?string {
+    $classify = static function (string $key, mixed $value): ?string {
         if (!is_scalar($value) && $value !== null) return null;
         $keyNorm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $key));
         $valueRaw = trim((string) $value);
@@ -2237,10 +2237,9 @@ function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string 
             if ($type !== '') return $type;
         }
 
-        $strongValue = jobdivaNormalisePlacementEngagementType($valueRaw, '');
-        if ($strongValue !== '' && $strongValue !== $fallback) {
-            return $strongValue;
-        }
+        // Do not classify from arbitrary scalar values. Company/legal names
+        // like "Acme Staffing LLC" or chain labels like "prime vendor" are
+        // business-entity evidence, not worker-classification evidence.
         return null;
     };
 
@@ -2666,22 +2665,11 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'corporation to corporation', 'isC2c', 'is_c2c',
         ])
     );
-    $existingEngagement = null;
-    if ($existingId > 0) {
-        try {
-            $existingEngagementStmt = $pdo->prepare(
-                'SELECT engagement_type FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
-            );
-            $existingEngagementStmt->execute(['t' => $tid, 'id' => $existingId]);
-            $existingEngagement = (string) $existingEngagementStmt->fetchColumn();
-        } catch (\Throwable $e) {
-            $existingEngagement = null;
-        }
-    }
     $sourceEngagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, '');
+    $mappedEngagement = jobdivaNormalisePlacementEngagementType($engagementRaw, '');
     $engagement = $sourceEngagement !== ''
         ? $sourceEngagement
-        : jobdivaNormalisePlacementEngagementType($engagementRaw, $existingEngagement);
+        : ($mappedEngagement !== '' ? $mappedEngagement : 'w2');
 
     $worksiteState = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'worksite_state', $jd,

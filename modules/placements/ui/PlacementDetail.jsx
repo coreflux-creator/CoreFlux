@@ -215,7 +215,6 @@ function OverviewTab({ placement, reload }) {
               : '—'}
             t="overview-person-email" />
           <Item k="Phone"            v={placement.person_phone_primary}              t="overview-person-phone" />
-          <Item k="Classification"   v={placement.person_classification}              t="overview-person-classification" />
           <Item k="Work auth"        v={placement.person_work_auth_status}            t="overview-person-work-auth" />
           <Item k="Work auth expiry" v={placement.person_work_auth_expiry}            t="overview-person-work-auth-expiry" />
         </div>
@@ -226,7 +225,7 @@ function OverviewTab({ placement, reload }) {
         <h4 style={{ marginBottom: 'var(--cf-space-2)', color: '#475569', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Engagement</h4>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
           <Item k="Title"            v={placement.title}            t="overview-title"       field="title" />
-          <Item k="Engagement type"  v={placement.engagement_type}  t="overview-etype"       field="engagement_type" />
+          <Item k="Worker classification" v={placement.engagement_type} t="overview-etype" field="engagement_type" />
           <Item k="Status"           v={placement.status}           t="overview-status"      field="status" />
           <Item k="Start"            v={placement.start_date}       t="overview-start"       field="start_date" />
           <Item k="End (planned)"    v={placement.end_date}         t="overview-end"         field="end_date" />

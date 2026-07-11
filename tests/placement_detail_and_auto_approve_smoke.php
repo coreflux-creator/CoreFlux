@@ -26,9 +26,10 @@ $a('joins people for person name/email fields',
    str_contains($lib, 'pe.first_name        AS person_first_name')
    && str_contains($lib, 'pe.last_name         AS person_last_name')
    && str_contains($lib, 'pe.email_primary     AS person_email_primary'));
-$a('joins people for phone/classification/work auth',
+$a('joins people for phone/work auth without competing person classification',
    str_contains($lib, 'pe.phone_primary     AS person_phone_primary')
-   && str_contains($lib, 'pe.classification    AS person_classification')
+   && !str_contains($lib, 'pe.classification    AS person_classification')
+   && str_contains($lib, "\$k === 'classification'")
    && str_contains($lib, 'pe.work_auth_status  AS person_work_auth_status')
    && str_contains($lib, 'pe.work_auth_expiry  AS person_work_auth_expiry'));
 $a('joins companies for end-client company name + website',
@@ -38,12 +39,14 @@ $a('LEFT JOIN companies on end_client_company_id',
    str_contains($lib, 'LEFT JOIN companies ec ON ec.id = p.end_client_company_id'));
 
 echo "\n2. Detail page Overview surfaces relevant placement context\n";
-$a('person section renders name/email/phone/classification',
+$a('person section renders name/email/phone; worker class lives on placement',
    str_contains($detail, 'data-testid="tab-overview-section-person"')
    && str_contains($detail, 'overview-person-name')
    && str_contains($detail, 'overview-person-email')
    && str_contains($detail, 'overview-person-phone')
-   && str_contains($detail, 'overview-person-classification'));
+   && !str_contains($detail, 'overview-person-classification')
+   && str_contains($detail, 'Worker classification')
+   && str_contains($detail, 'overview-etype'));
 $a('person section renders work auth + expiry',
    str_contains($detail, 'overview-person-work-auth')
    && str_contains($detail, 'overview-person-work-auth-expiry'));

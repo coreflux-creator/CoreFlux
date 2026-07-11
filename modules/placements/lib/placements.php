@@ -54,7 +54,7 @@ function placementGet(int $id): ?array
     //
     // The hand-picked `pe.X AS person_X` aliases below cover the fields
     // the Overview tab needs verbatim. Underneath that, `placementHydratePersonFields()`
-    // fans out the FULL row from `people` as `person_*` so any column
+    // fans out non-competing row fields from `people` as `person_*` so any column
     // we add to `people` later (linkedin_url, secondary_email, custom
     // fields, etc.) shows up on placement detail automatically — operator
     // ask: "why isn't it universal? we're still not getting some of the
@@ -64,7 +64,6 @@ function placementGet(int $id): ?array
                    pe.last_name         AS person_last_name,
                    pe.email_primary     AS person_email_primary,
                    pe.phone_primary     AS person_phone_primary,
-                   pe.classification    AS person_classification,
                    pe.work_auth_status  AS person_work_auth_status,
                    pe.work_auth_expiry  AS person_work_auth_expiry,
                    ec.name              AS end_client_company_name,
@@ -109,7 +108,7 @@ function placementHydratePersonFields(array $row, ?callable $loader = null): arr
     }
     if (!$person) return $row;
     foreach ($person as $k => $v) {
-        if ($k === 'id' || $k === 'tenant_id' || $k === 'deleted_at') continue;
+        if ($k === 'id' || $k === 'tenant_id' || $k === 'deleted_at' || $k === 'classification') continue;
         $key = 'person_' . $k;
         if (!array_key_exists($key, $row)) {
             $row[$key] = $v;
