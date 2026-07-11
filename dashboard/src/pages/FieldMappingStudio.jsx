@@ -37,6 +37,11 @@ const LINKED_ENTITY_LABELS = {
   placement_chain_prime_vendor: 'placement_client_chain prime-vendor row',
   placement_chain_sub_vendor:   'placement_client_chain sub-vendor row',
   placement_chain_direct:       'placement_client_chain direct row',
+  placement_commission_recruiter:       'placement_commissions recruiter row',
+  placement_commission_account_manager: 'placement_commissions account-manager row',
+  placement_commission_lead:            'placement_commissions lead row',
+  placement_commission_team:            'placement_commissions team row',
+  placement_commission_other:           'placement_commissions other row',
   placement_corp_details: 'placement_corp_details (sibling row)',
 };
 
@@ -77,6 +82,7 @@ function inferLinkedEntityForTarget(entityType, target) {
   if (table === 'placements') return et === 'placement' ? 'self' : 'placement';
   if (table === 'placement_rates') return 'placement_rates';
   if (table === 'placement_client_chain') return target?.default_linked_entity || 'placement_chain_prime_vendor';
+  if (table === 'placement_commissions') return target?.default_linked_entity || 'placement_commission_recruiter';
   if (table === 'placement_corp_details') return 'placement_corp_details';
   if (table === 'staffing_jobs') return et === 'staffing_job' ? 'self' : 'staffing_job';
   if (table === 'people') return et === 'person' ? 'self' : 'person';
@@ -1520,9 +1526,19 @@ export default function FieldMappingStudio() {
                                   value={currentKey}
                                   onChange={e => {
                                     const [m, tbl, col] = e.target.value.split('|');
+                                    const nextTarget = opts.find(t =>
+                                      `${t.target_module}|${t.target_table}|${t.target_column}` === e.target.value
+                                    ) || { target_module: m, target_table: tbl, target_column: col };
                                     setSuggestList(list => list.map((row, idx) =>
                                       idx === i
-                                        ? { ...row, target_module: m, target_table: tbl, target_column: col, _edited: true }
+                                        ? {
+                                            ...row,
+                                            target_module: m,
+                                            target_table: tbl,
+                                            target_column: col,
+                                            linked_entity: inferLinkedEntityForTarget(entityType, nextTarget),
+                                            _edited: true,
+                                          }
                                         : row
                                     ));
                                   }}

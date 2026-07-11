@@ -102,11 +102,15 @@ $a('falls back to legacy allow-list if catalog has no row',
     || str_contains($fm, "Try legacy allow-list as a fallback gate"));
 $a('catalog lookup validates target_table.target_column',
     str_contains($fm, 'integrationWritableTargetsList($targetModule'));
-$a('backfills internal_field from target_column when omitted',
-    str_contains($fm, "if (\$internalField === '') \$internalField = \$targetColumn;"));
-$a('INSERT writes all five new columns',
-    str_contains($fm, '(tenant_id, integration, entity_type, external_field, source_path,
-             internal_field, target_module, target_table, target_column, linked_entity,'));
+$a('backfills internal_field from generalized target when omitted',
+    str_contains($fm, 'tenantIntegrationFieldMapInternalFieldForTarget('));
+$a('upsert writes all five generalized columns',
+    str_contains($fm, 'target_module  = :tm')
+    && str_contains($fm, 'target_table   = :tt')
+    && str_contains($fm, 'target_column  = :tc')
+    && str_contains($fm, 'linked_entity  = :le')
+    && str_contains($fm, 'source_path    = :sp')
+    && str_contains($fm, 'target_module, target_table, target_column, linked_entity,'));
 
 echo "\n5. integrationFieldMapApplyAll — wire-up + bucket semantics\n";
 $apply = (string) file_get_contents('/app/core/integrations/field_map_apply.php');

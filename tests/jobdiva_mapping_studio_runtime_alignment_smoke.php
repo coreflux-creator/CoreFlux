@@ -71,6 +71,8 @@ $ctx = [
     'end_client_company' => 30,
     'staffing_job' => 40,
     'placement_rates' => 10,
+    'placement_commission_recruiter' => 60,
+    'placement_commission_account_manager' => 61,
 ];
 $a('stale self + staffing_jobs target writes staffing_job row',
     integrationFieldMapContextRowId($ctx, [
@@ -100,6 +102,20 @@ $a('placement_rates target writes sibling placement_rates row',
         'target_table' => 'placement_rates',
         'target_column' => 'bill_rate',
     ]) === 10);
+$a('placement_commissions recruiter target writes recruiter commission row',
+    integrationFieldMapContextRowId($ctx, [
+        'linked_entity' => 'placement_commission_recruiter',
+        'target_module' => 'placements',
+        'target_table' => 'placement_commissions',
+        'target_column' => 'split_pct',
+    ]) === 60);
+$a('placement_commissions account manager target writes account-manager commission row',
+    integrationFieldMapContextRowId($ctx, [
+        'linked_entity' => 'placement_commission_account_manager',
+        'target_module' => 'placements',
+        'target_table' => 'placement_commissions',
+        'target_column' => 'split_pct',
+    ]) === 61);
 $a('explicit vendor company link remains respected',
     integrationFieldMapContextRowId($ctx + ['vendor_company' => 50], [
         'linked_entity' => 'vendor_company',
@@ -129,6 +145,8 @@ $a('placement -> people default is person',
     tenantIntegrationFieldMapDefaultLinkedEntityForTarget('placement', 'people', 'people') === 'person');
 $a('placement -> companies default is end_client_company',
     tenantIntegrationFieldMapDefaultLinkedEntityForTarget('placement', 'companies', 'companies') === 'end_client_company');
+$a('placement -> placement_commissions default is recruiter commission row',
+    tenantIntegrationFieldMapDefaultLinkedEntityForTarget('placement', 'placements', 'placement_commissions') === 'placement_commission_recruiter');
 $a('company -> companies remains self',
     tenantIntegrationFieldMapDefaultLinkedEntityForTarget('company', 'companies', 'companies') === 'self');
 $a('JobDiva native entity type canonicalizes before save',
@@ -145,7 +163,8 @@ $a('Studio label says Placement job context',
 $a('Studio infers linked entity from selected target table',
     str_contains($fms, 'function inferLinkedEntityForTarget')
     && str_contains($fms, "if (table === 'staffing_jobs') return et === 'staffing_job' ? 'self' : 'staffing_job';")
-    && str_contains($fms, "if (table === 'companies') return et === 'company' ? 'self' : 'end_client_company';"));
+    && str_contains($fms, "if (table === 'companies') return et === 'company' ? 'self' : 'end_client_company';")
+    && str_contains($fms, "if (table === 'placement_commissions') return target?.default_linked_entity || 'placement_commission_recruiter';"));
 
 echo "\n==============================================\n";
 echo "JobDiva mapping alignment smoke: $pass OK / $fail FAIL\n";

@@ -64,6 +64,10 @@ foreach ([
     'mspfeepct'     => 'portal_fee_pct',
     'vendorname'    => 'party_name',
     'subvendorname' => 'party_name',
+    'recruitercommissionpct' => 'split_pct',
+    'accountmanagercommissionpct' => 'split_pct',
+    'commissionflat' => 'flat_amount',
+    'commissionbasis' => 'basis',
     'customername' => 'name',
     'companyname'  => 'name',
     'startdate'    => 'start_date',
@@ -140,6 +144,17 @@ $a('sub-vendor source routes to placement_chain_sub_vendor',
     mappingSuggesterLinkedEntityForTarget($chainTarget, '_jd_start.subVendorFeePct', 'self') === 'placement_chain_sub_vendor');
 $a('non-chain target keeps default linked_entity',
     mappingSuggesterLinkedEntityForTarget(['target_table' => 'placement_rates', 'default_linked_entity' => 'placement_rates'], 'mspFeePct', 'self') === 'placement_rates');
+
+echo "\n5.6 Commission linked_entity inference\n";
+$commissionTarget = ['target_table' => 'placement_commissions', 'default_linked_entity' => 'placement_commission_recruiter'];
+$a('recruiter commission source routes to recruiter row',
+    mappingSuggesterLinkedEntityForTarget($commissionTarget, '_jd_start.recruiterCommissionPct', 'self') === 'placement_commission_recruiter');
+$a('account-manager commission source routes to account-manager row',
+    mappingSuggesterLinkedEntityForTarget($commissionTarget, '_jd_start.accountManagerCommissionPct', 'self') === 'placement_commission_account_manager');
+$a('salesperson commission source routes to account-manager row',
+    mappingSuggesterLinkedEntityForTarget($commissionTarget, '_jd_start.salespersonCommissionPct', 'self') === 'placement_commission_account_manager');
+$a('split_pct defaults to percent_to_decimal',
+    mappingSuggesterDefaultTransform('recruitercommissionpct', 'split_pct') === 'percent_to_decimal');
 
 // 6) Target indexing helper.
 echo "\n6. mappingSuggesterIndexTargets\n";

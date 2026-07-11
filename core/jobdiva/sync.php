@@ -1681,6 +1681,40 @@ function jobdivaPlacementChainContextIds(int $tenantId, int $placementId): array
     return $ctx;
 }
 
+function jobdivaPlacementCommissionContextIds(int $tenantId, int $placementId): array
+{
+    $ctx = [
+        'placement_commission_recruiter' => 0,
+        'placement_commission_account_manager' => 0,
+        'placement_commission_lead' => 0,
+        'placement_commission_team' => 0,
+        'placement_commission_other' => 0,
+    ];
+    if ($tenantId <= 0 || $placementId <= 0) return $ctx;
+    try {
+        $st = getDB()->prepare(
+            'SELECT id, role
+               FROM placement_commissions
+              WHERE tenant_id = :t
+                AND placement_id = :p
+              ORDER BY effective_from DESC, id ASC'
+        );
+        $st->execute(['t' => $tenantId, 'p' => $placementId]);
+        while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {
+            $role = (string) ($row['role'] ?? '');
+            $id = (int) ($row['id'] ?? 0);
+            if ($id <= 0 || $role === '') continue;
+            $key = 'placement_commission_' . $role;
+            if (array_key_exists($key, $ctx) && (int) $ctx[$key] <= 0) {
+                $ctx[$key] = $id;
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('[jobdiva placement mapping context] placement_commissions ids failed: ' . $e->getMessage());
+    }
+    return $ctx;
+}
+
 function jobdivaApplyPlacementFieldMappings(
     int $tenantId,
     int $placementId,
@@ -1710,7 +1744,11 @@ function jobdivaApplyPlacementFieldMappings(
         'contact'                => $contactId,
         'jobdiva_contact'        => $contactId,
     ];
-    $baseCtx = array_merge($baseCtx, jobdivaPlacementChainContextIds($tenantId, $placementId));
+    $baseCtx = array_merge(
+        $baseCtx,
+        jobdivaPlacementChainContextIds($tenantId, $placementId),
+        jobdivaPlacementCommissionContextIds($tenantId, $placementId)
+    );
 
     $mergeSummary = static function (array $part) use (&$summary): void {
         $summary['attempted'] += (int) ($part['attempted'] ?? 0);
@@ -2485,6 +2523,329 @@ function jobdivaSyncUpsertPlacementChain(
     return $summary;
 }
 
+function jobdivaNormaliseCommissionBasis(string $raw, string $fallback = 'net_margin'): string
+{
+    $allowed = ['net_margin', 'gross_margin', 'bill_rate', 'flat'];
+    $fallback = in_array($fallback, $allowed, true) ? $fallback : 'net_margin';
+    $s = strtolower(trim($raw));
+    if ($s === '') return $fallback;
+    $s = str_replace(['-', '/', '\\'], ' ', $s);
+    $s = preg_replace('/\s+/', ' ', $s) ?: $s;
+    if (str_contains($s, 'gross')) return 'gross_margin';
+    if (str_contains($s, 'bill')) return 'bill_rate';
+    if (str_contains($s, 'flat') || str_contains($s, 'fixed')) return 'flat';
+    if (str_contains($s, 'net') || str_contains($s, 'margin')) return 'net_margin';
+    return $fallback;
+}
+
+function jobdivaResolvePlacementCommissionUserId(int $tid, ?string $email, ?string $name): ?int
+{
+    if ($tid <= 0) return null;
+    $email = strtolower(trim((string) $email));
+    $name = trim((string) $name);
+    if ($email === '' && $name === '') return null;
+    try {
+        $pdo = getDB();
+        if ($email !== '') {
+            $st = $pdo->prepare(
+                'SELECT u.id
+                   FROM users u
+                   JOIN user_tenants ut ON ut.user_id = u.id
+                  WHERE ut.tenant_id = :t
+                    AND ut.status = "active"
+                    AND u.is_active = 1
+                    AND LOWER(u.email) = :email
+                  ORDER BY u.id ASC
+                  LIMIT 1'
+            );
+            $st->execute(['t' => $tid, 'email' => $email]);
+            $id = (int) $st->fetchColumn();
+            if ($id > 0) return $id;
+        }
+        if ($name !== '') {
+            $st = $pdo->prepare(
+                'SELECT u.id
+                   FROM users u
+                   JOIN user_tenants ut ON ut.user_id = u.id
+                  WHERE ut.tenant_id = :t
+                    AND ut.status = "active"
+                    AND u.is_active = 1
+                    AND LOWER(u.name) = LOWER(:name)
+                  ORDER BY u.id ASC
+                  LIMIT 1'
+            );
+            $st->execute(['t' => $tid, 'name' => $name]);
+            $id = (int) $st->fetchColumn();
+            if ($id > 0) return $id;
+        }
+    } catch (\Throwable $e) {
+        error_log('[jobdiva placement commissions] user resolution skipped: ' . $e->getMessage());
+    }
+    return null;
+}
+
+function jobdivaCommissionMappedOrDefault(
+    int $tid,
+    string $targetColumn,
+    string $linkedEntity,
+    array $jd,
+    callable $defaultFn
+): mixed {
+    if (function_exists('tenantIntegrationFieldMapPluckTarget')) {
+        return tenantIntegrationFieldMapPluckTarget(
+            $tid,
+            'jobdiva',
+            'placement',
+            'placement_commissions',
+            $targetColumn,
+            $linkedEntity,
+            $jd,
+            $defaultFn
+        );
+    }
+    return $defaultFn();
+}
+
+function jobdivaSyncUpsertPlacementCommissionRow(
+    int $tid,
+    int $placementId,
+    string $role,
+    ?int $userId,
+    ?float $splitPct,
+    ?float $flatAmount,
+    string $basis,
+    string $effectiveFrom,
+    ?string $effectiveTo,
+    string $sourceLabel
+): int {
+    if ($tid <= 0 || $placementId <= 0 || $role === '' || $effectiveFrom === '') return 0;
+    if ($splitPct !== null && ($splitPct <= 0 || $splitPct > 1)) $splitPct = null;
+    if ($flatAmount !== null && $flatAmount <= 0) $flatAmount = null;
+    if ($splitPct === null && $flatAmount === null) return 0;
+    if ($flatAmount !== null && $splitPct === null) $basis = 'flat';
+
+    $pdo = getDB();
+    $notes = 'Source: JobDiva commission projection (' . $sourceLabel . ')';
+    $existing = $pdo->prepare(
+        'SELECT id
+           FROM placement_commissions
+          WHERE tenant_id = :t
+            AND placement_id = :p
+            AND role = :role
+            AND effective_from = :ef
+            AND notes LIKE "Source: JobDiva commission projection%"
+          ORDER BY id ASC
+          LIMIT 1'
+    );
+    $existing->execute([
+        't' => $tid,
+        'p' => $placementId,
+        'role' => $role,
+        'ef' => $effectiveFrom,
+    ]);
+    $existingId = (int) $existing->fetchColumn();
+    if ($existingId > 0) {
+        $pdo->prepare(
+            'UPDATE placement_commissions
+                SET user_id = :uid,
+                    split_pct = :split,
+                    basis = :basis,
+                    flat_amount = :flat,
+                    effective_to = :eto,
+                    notes = :notes
+              WHERE id = :id AND tenant_id = :t'
+        )->execute([
+            'uid' => $userId,
+            'split' => $splitPct,
+            'basis' => $basis,
+            'flat' => $flatAmount,
+            'eto' => $effectiveTo,
+            'notes' => $notes,
+            'id' => $existingId,
+            't' => $tid,
+        ]);
+        return $existingId;
+    }
+
+    $pdo->prepare(
+        'INSERT INTO placement_commissions
+            (tenant_id, placement_id, role, user_id, split_pct, basis, flat_amount,
+             effective_from, effective_to, notes)
+         VALUES
+            (:t, :p, :role, :uid, :split, :basis, :flat, :ef, :eto, :notes)'
+    )->execute([
+        't' => $tid,
+        'p' => $placementId,
+        'role' => $role,
+        'uid' => $userId,
+        'split' => $splitPct,
+        'basis' => $basis,
+        'flat' => $flatAmount,
+        'ef' => $effectiveFrom,
+        'eto' => $effectiveTo,
+        'notes' => $notes,
+    ]);
+    return (int) $pdo->lastInsertId();
+}
+
+function jobdivaSyncUpsertPlacementCommissions(int $tid, int $placementId, string $startDate, array $jd): array
+{
+    $summary = ['written' => 0, 'rows' => []];
+    if ($tid <= 0 || $placementId <= 0) return $summary;
+
+    $defs = [
+        [
+            'role' => 'recruiter',
+            'linked' => 'placement_commission_recruiter',
+            'name_keys' => [
+                'recruiterName', 'recruiter_name', 'recruiter', 'recruiterFullName',
+                'primaryRecruiter', 'primary recruiter',
+            ],
+            'email_keys' => ['recruiterEmail', 'recruiter_email', 'recruiter email'],
+            'split_keys' => [
+                'recruiter commission pct', 'recruiter commission %', 'recruiterCommissionPct',
+                'recruiterCommissionPercent', 'recruiter split pct', 'recruiter split %',
+                'recruiterSplitPct', 'primary recruiter split pct',
+            ],
+            'flat_keys' => [
+                'recruiter commission flat', 'recruiterCommissionFlat',
+                'recruiter commission amount', 'recruiterCommissionAmount',
+            ],
+        ],
+        [
+            'role' => 'account_manager',
+            'linked' => 'placement_commission_account_manager',
+            'name_keys' => [
+                'accountManager', 'account_manager', 'accountManagerName',
+                'salesperson', 'salesPerson', 'sales rep', 'salesRep',
+            ],
+            'email_keys' => [
+                'accountManagerEmail', 'account_manager_email',
+                'salesPersonEmail', 'salespersonEmail', 'sales rep email',
+            ],
+            'split_keys' => [
+                'account manager commission pct', 'account manager commission %',
+                'accountManagerCommissionPct', 'accountManagerSplitPct',
+                'account manager split pct', 'salesperson commission pct',
+                'salesPersonCommissionPct', 'sales commission pct',
+            ],
+            'flat_keys' => [
+                'account manager commission flat', 'accountManagerCommissionFlat',
+                'salesperson commission flat', 'salesPersonCommissionFlat',
+            ],
+        ],
+        [
+            'role' => 'lead',
+            'linked' => 'placement_commission_lead',
+            'name_keys' => ['lead', 'leadName', 'lead name', 'leadRecruiter'],
+            'email_keys' => ['leadEmail', 'lead email'],
+            'split_keys' => ['lead commission pct', 'lead commission %', 'lead split pct', 'leadSplitPct'],
+            'flat_keys' => ['lead commission flat', 'leadCommissionFlat'],
+        ],
+        [
+            'role' => 'team',
+            'linked' => 'placement_commission_team',
+            'name_keys' => ['team', 'teamName', 'team name'],
+            'email_keys' => ['teamEmail', 'team email'],
+            'split_keys' => ['team commission pct', 'team commission %', 'team split pct', 'teamSplitPct'],
+            'flat_keys' => ['team commission flat', 'teamCommissionFlat'],
+        ],
+        [
+            'role' => 'other',
+            'linked' => 'placement_commission_other',
+            'name_keys' => ['commissionOwner', 'commission owner', 'commissionPayee', 'commission payee'],
+            'email_keys' => ['commissionOwnerEmail', 'commission owner email', 'commissionPayeeEmail'],
+            'split_keys' => ['commission pct', 'commission %', 'commissionPercent', 'commissionSplitPct'],
+            'flat_keys' => ['commission flat', 'commission amount', 'flatCommission', 'commissionFlat'],
+        ],
+    ];
+
+    foreach ($defs as $def) {
+        $role = (string) $def['role'];
+        $linked = (string) $def['linked'];
+        $splitRaw = jobdivaCommissionMappedOrDefault(
+            $tid,
+            'split_pct',
+            $linked,
+            $jd,
+            static fn() => jobdivaPluckFieldDeep($jd, $def['split_keys'])
+        );
+        $splitPct = jobdivaParsePercent($splitRaw);
+        if ($splitPct !== null && ($splitPct <= 0 || $splitPct > 1)) $splitPct = null;
+
+        $flatRaw = jobdivaCommissionMappedOrDefault(
+            $tid,
+            'flat_amount',
+            $linked,
+            $jd,
+            static fn() => jobdivaPluckFieldDeep($jd, $def['flat_keys'])
+        );
+        $flatAmount = jobdivaParseRateAmount($flatRaw);
+        $flatAmount = $flatAmount > 0 ? $flatAmount : null;
+
+        if ($splitPct === null && $flatAmount === null) continue;
+
+        $basisRaw = (string) jobdivaCommissionMappedOrDefault(
+            $tid,
+            'basis',
+            $linked,
+            $jd,
+            static fn() => jobdivaPluckFieldDeep($jd, [
+                $role . ' commission basis', $role . 'CommissionBasis',
+                'commission basis', 'commissionBasis',
+            ])
+        );
+        $basis = jobdivaNormaliseCommissionBasis($basisRaw, $flatAmount !== null && $splitPct === null ? 'flat' : 'net_margin');
+
+        $effectiveFromRaw = (string) jobdivaCommissionMappedOrDefault(
+            $tid,
+            'effective_from',
+            $linked,
+            $jd,
+            static fn() => jobdivaPluckFieldDeep($jd, [
+                $role . ' commission effective from', $role . 'CommissionEffectiveFrom',
+                'commission effective from', 'commission start date',
+            ])
+        );
+        $effectiveFrom = jobdivaNormaliseDate($effectiveFromRaw) ?: ($startDate !== '' ? $startDate : date('Y-m-d'));
+
+        $effectiveToRaw = (string) jobdivaCommissionMappedOrDefault(
+            $tid,
+            'effective_to',
+            $linked,
+            $jd,
+            static fn() => jobdivaPluckFieldDeep($jd, [
+                $role . ' commission effective to', $role . 'CommissionEffectiveTo',
+                'commission effective to', 'commission end date',
+            ])
+        );
+        $effectiveTo = jobdivaNormaliseDate($effectiveToRaw);
+
+        $name = jobdivaPluckFieldDeep($jd, $def['name_keys']);
+        $email = jobdivaPluckFieldDeep($jd, $def['email_keys']);
+        $commissionUserId = jobdivaResolvePlacementCommissionUserId($tid, $email !== '' ? $email : null, $name !== '' ? $name : null);
+
+        $id = jobdivaSyncUpsertPlacementCommissionRow(
+            $tid,
+            $placementId,
+            $role,
+            $commissionUserId,
+            $splitPct,
+            $flatAmount,
+            $basis,
+            $effectiveFrom,
+            $effectiveTo,
+            $role
+        );
+        if ($id > 0) {
+            $summary['written']++;
+            $summary['rows'][$role] = $id;
+        }
+    }
+
+    return $summary;
+}
+
 function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId, ?int $userId = null): int
 {
     require_once __DIR__ . '/../integrations/field_map.php';
@@ -2919,6 +3280,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         }
         jobdivaSyncUpsertPlacementRates($tid, $existingId, $startDate, $jd);
         jobdivaSyncUpsertPlacementChain($tid, $existingId, $endClientCompanyId, $endClientName ?: null, $jd, $userId);
+        jobdivaSyncUpsertPlacementCommissions($tid, $existingId, $startDate, $jd);
         return $existingId;
     }
     $pdo->prepare(
@@ -2970,6 +3332,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $placementId = (int) $pdo->lastInsertId();
     jobdivaSyncUpsertPlacementRates($tid, $placementId, $startDate, $jd);
     jobdivaSyncUpsertPlacementChain($tid, $placementId, $endClientCompanyId, $endClientName ?: null, $jd, $userId);
+    jobdivaSyncUpsertPlacementCommissions($tid, $placementId, $startDate, $jd);
     return $placementId;
 }
 

@@ -90,6 +90,9 @@ function tenantIntegrationFieldMapDefaultLinkedEntityForTarget(
     if ($targetTable === 'placement_client_chain') {
         return 'placement_chain_prime_vendor';
     }
+    if ($targetTable === 'placement_commissions') {
+        return 'placement_commission_recruiter';
+    }
     if ($targetTable === 'placement_corp_details') {
         return 'placement_corp_details';
     }
@@ -114,6 +117,36 @@ function tenantIntegrationFieldMapDefaultLinkedEntityForTarget(
         };
     }
     return 'self';
+}
+
+function tenantIntegrationFieldMapInternalFieldForTarget(
+    string $targetTable,
+    string $targetColumn,
+    string $linkedEntity
+): string {
+    $targetTable = strtolower(trim($targetTable));
+    $targetColumn = trim($targetColumn);
+    $linkedEntity = strtolower(trim($linkedEntity));
+    if ($targetColumn === '') return '';
+
+    // Legacy syncer pluck paths still address singleton placement/rate
+    // fields by column name. Keep those stable, but disambiguate targets
+    // that can appear multiple times under one placement payload.
+    $singletonTables = [
+        'placements' => true,
+        'placement_rates' => true,
+        'placement_corp_details' => true,
+    ];
+    if ($linkedEntity === '' || $linkedEntity === 'self' || isset($singletonTables[$targetTable])) {
+        return substr($targetColumn, 0, 64);
+    }
+
+    $slug = strtolower((string) preg_replace('/[^a-z0-9_]+/i', '_', $linkedEntity));
+    $key = $targetColumn . '__' . trim($slug, '_');
+    if (strlen($key) <= 64) return $key;
+
+    $hash = substr(sha1($key), 0, 10);
+    return substr($targetColumn, 0, 51) . '__' . $hash;
 }
 
 /**
@@ -182,6 +215,12 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             //    server-side; anchors normalised via date_normalise.
             'client_bill_cycle', 'client_bill_cycle_anchor',
             'vendor_pay_cycle',  'vendor_pay_cycle_anchor',
+            // -- placement_commissions table. These are sibling rows,
+            //    keyed by linked_entity (recruiter/account manager/etc.),
+            //    so generalized mappings can keep one row per commission
+            //    role instead of forcing every split into one field.
+            'split_pct', 'basis', 'flat_amount',
+            'effective_from', 'effective_to',
         ],
         'staffing_job' => [
             // -- staffing_jobs table (Job / Role / Opening context) --
@@ -435,7 +474,6 @@ function tenantIntegrationFieldMapUpsert(int $tenantId, array $payload, ?int $ac
                 ));
             }
         }
-        if ($internalField === '') $internalField = $targetColumn;
         $defaultLinkedEntity = tenantIntegrationFieldMapDefaultLinkedEntityForTarget(
             $entityType,
             $targetModule,
@@ -443,6 +481,13 @@ function tenantIntegrationFieldMapUpsert(int $tenantId, array $payload, ?int $ac
         );
         if ($linkedEntity === '' || ($linkedEntity === 'self' && $defaultLinkedEntity !== 'self')) {
             $linkedEntity = $defaultLinkedEntity;
+        }
+        if ($internalField === '') {
+            $internalField = tenantIntegrationFieldMapInternalFieldForTarget(
+                $targetTable,
+                $targetColumn,
+                $linkedEntity
+            );
         }
     } else {
         // Legacy code path — hardcoded allow-list.
@@ -458,33 +503,93 @@ function tenantIntegrationFieldMapUpsert(int $tenantId, array $payload, ?int $ac
     }
 
     $pdo = getDB();
-    $pdo->prepare(
-        'INSERT INTO tenant_integration_field_map
-            (tenant_id, integration, entity_type, external_field, source_path,
-             internal_field, target_module, target_table, target_column, linked_entity,
-             transform, enabled, notes, updated_by_user_id)
-         VALUES (:t, :i, :e, :ef, :sp, :if, :tm, :tt, :tc, :le, :tr, :en, :n, :u)
-         ON DUPLICATE KEY UPDATE
-             external_field = VALUES(external_field),
-             source_path    = VALUES(source_path),
-             target_module  = VALUES(target_module),
-             target_table   = VALUES(target_table),
-             target_column  = VALUES(target_column),
-             linked_entity  = VALUES(linked_entity),
-             transform      = VALUES(transform),
-             enabled        = VALUES(enabled),
-             notes          = VALUES(notes),
-             updated_by_user_id = VALUES(updated_by_user_id)'
-    )->execute([
-        't'  => $tenantId, 'i' => $integration, 'e' => $entityType,
-        'ef' => $externalField, 'sp' => $sourcePath !== '' ? $sourcePath : null,
-        'if' => $internalField,
-        'tm' => $targetModule !== '' ? $targetModule : null,
-        'tt' => $targetTable  !== '' ? $targetTable  : null,
-        'tc' => $targetColumn !== '' ? $targetColumn : null,
-        'le' => $linkedEntity !== '' ? $linkedEntity : null,
-        'tr' => $transform, 'en' => $enabled, 'n' => $notes, 'u' => $actorUserId,
-    ]);
+    $existingByTargetId = 0;
+    if ($targetTable !== '' && $targetColumn !== '') {
+        $find = $pdo->prepare(
+            'SELECT id
+               FROM tenant_integration_field_map
+              WHERE tenant_id = :t
+                AND integration = :i
+                AND entity_type = :e
+                AND COALESCE(target_module, "") = COALESCE(:tm, "")
+                AND target_table = :tt
+                AND target_column = :tc
+                AND COALESCE(linked_entity, "self") = :le
+              ORDER BY id ASC
+              LIMIT 1'
+        );
+        $find->execute([
+            't'  => $tenantId,
+            'i'  => $integration,
+            'e'  => $entityType,
+            'tm' => $targetModule !== '' ? $targetModule : null,
+            'tt' => $targetTable,
+            'tc' => $targetColumn,
+            'le' => $linkedEntity !== '' ? $linkedEntity : 'self',
+        ]);
+        $existingByTargetId = (int) $find->fetchColumn();
+    }
+
+    if ($existingByTargetId > 0) {
+        $pdo->prepare(
+            'UPDATE tenant_integration_field_map
+                SET external_field = :ef,
+                    source_path    = :sp,
+                    internal_field = :if,
+                    target_module  = :tm,
+                    target_table   = :tt,
+                    target_column  = :tc,
+                    linked_entity  = :le,
+                    transform      = :tr,
+                    enabled        = :en,
+                    notes          = :n,
+                    updated_by_user_id = :u
+              WHERE id = :id AND tenant_id = :t'
+        )->execute([
+            'id' => $existingByTargetId,
+            't'  => $tenantId,
+            'ef' => $externalField,
+            'sp' => $sourcePath !== '' ? $sourcePath : null,
+            'if' => $internalField,
+            'tm' => $targetModule !== '' ? $targetModule : null,
+            'tt' => $targetTable  !== '' ? $targetTable  : null,
+            'tc' => $targetColumn !== '' ? $targetColumn : null,
+            'le' => $linkedEntity !== '' ? $linkedEntity : null,
+            'tr' => $transform,
+            'en' => $enabled,
+            'n'  => $notes,
+            'u'  => $actorUserId,
+        ]);
+    } else {
+        $pdo->prepare(
+            'INSERT INTO tenant_integration_field_map
+                (tenant_id, integration, entity_type, external_field, source_path,
+                 internal_field, target_module, target_table, target_column, linked_entity,
+                 transform, enabled, notes, updated_by_user_id)
+             VALUES (:t, :i, :e, :ef, :sp, :if, :tm, :tt, :tc, :le, :tr, :en, :n, :u)
+             ON DUPLICATE KEY UPDATE
+                 external_field = VALUES(external_field),
+                 source_path    = VALUES(source_path),
+                 internal_field = VALUES(internal_field),
+                 target_module  = VALUES(target_module),
+                 target_table   = VALUES(target_table),
+                 target_column  = VALUES(target_column),
+                 linked_entity  = VALUES(linked_entity),
+                 transform      = VALUES(transform),
+                 enabled        = VALUES(enabled),
+                 notes          = VALUES(notes),
+                 updated_by_user_id = VALUES(updated_by_user_id)'
+        )->execute([
+            't'  => $tenantId, 'i' => $integration, 'e' => $entityType,
+            'ef' => $externalField, 'sp' => $sourcePath !== '' ? $sourcePath : null,
+            'if' => $internalField,
+            'tm' => $targetModule !== '' ? $targetModule : null,
+            'tt' => $targetTable  !== '' ? $targetTable  : null,
+            'tc' => $targetColumn !== '' ? $targetColumn : null,
+            'le' => $linkedEntity !== '' ? $linkedEntity : null,
+            'tr' => $transform, 'en' => $enabled, 'n' => $notes, 'u' => $actorUserId,
+        ]);
+    }
 
     // Return the resulting canonical row.
     $stmt = $pdo->prepare(
@@ -782,10 +887,104 @@ function tenantIntegrationFieldMapPluckInternal(
 }
 
 /**
- * Test helper — flush the per-request cache. Re-exported as an alias for
- * the same-effect helper above; kept so external callers can use a
- * single canonical name.
+ * Cache key for generalized target-address lookups.
  */
+function tenantIntegrationFieldMapTargetCacheKey(
+    int $tenantId,
+    string $integration,
+    string $entityType,
+    string $targetTable,
+    string $targetColumn,
+    string $linkedEntity
+): string {
+    return implode('|', [
+        $tenantId,
+        strtolower(trim($integration)),
+        tenantIntegrationFieldMapCanonicalEntityType($integration, $entityType),
+        strtolower(trim($targetTable)),
+        strtolower(trim($targetColumn)),
+        strtolower(trim($linkedEntity ?: 'self')),
+    ]);
+}
+
+/**
+ * Pluck by the generalized target address instead of the legacy
+ * internal_field key. This is for sibling rows where multiple graph
+ * owners share the same physical column name, e.g. recruiter vs account
+ * manager rows in placement_commissions.split_pct.
+ */
+function tenantIntegrationFieldMapPluckTarget(
+    int $tenantId,
+    string $integration,
+    string $entityType,
+    string $targetTable,
+    string $targetColumn,
+    string $linkedEntity,
+    array $payload,
+    callable $defaultFn
+): mixed {
+    if ($tenantId <= 0 || $integration === '' || $entityType === '' || $targetTable === '' || $targetColumn === '') {
+        return $defaultFn();
+    }
+
+    $entityType = tenantIntegrationFieldMapCanonicalEntityType($integration, $entityType);
+    $linkedEntity = trim($linkedEntity) !== '' ? trim($linkedEntity) : 'self';
+    $cache =& tenantIntegrationFieldMapCache();
+    $cacheKey = 'target|' . tenantIntegrationFieldMapTargetCacheKey(
+        $tenantId,
+        $integration,
+        $entityType,
+        $targetTable,
+        $targetColumn,
+        $linkedEntity
+    );
+
+    if (!array_key_exists($cacheKey, $cache)) {
+        try {
+            $pdo = getDB();
+            $st = $pdo->prepare(
+                'SELECT external_field, source_path, transform
+                   FROM tenant_integration_field_map
+                  WHERE tenant_id = :t
+                    AND integration = :i
+                    AND entity_type = :e
+                    AND target_table = :tt
+                    AND target_column = :tc
+                    AND COALESCE(linked_entity, "self") = :le
+                    AND enabled = 1
+                  ORDER BY id DESC
+                  LIMIT 1'
+            );
+            $st->execute([
+                't'  => $tenantId,
+                'i'  => $integration,
+                'e'  => $entityType,
+                'tt' => $targetTable,
+                'tc' => $targetColumn,
+                'le' => $linkedEntity,
+            ]);
+            $cache[$cacheKey] = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+        } catch (\Throwable $e) {
+            $cache[$cacheKey] = null;
+        }
+    }
+
+    $map = $cache[$cacheKey] ?? null;
+    if (is_array($map)) {
+        $sourcePath = trim((string) ($map['source_path'] ?? ''));
+        $externalField = trim((string) ($map['external_field'] ?? ''));
+        $raw = $sourcePath !== '' ? tenantIntegrationFieldMapPluckPath($payload, $sourcePath) : '';
+        if ($raw === '' && $externalField !== '' && $externalField !== $sourcePath) {
+            $raw = tenantIntegrationFieldMapPluckPath($payload, $externalField);
+        }
+        if ($raw !== '') {
+            return tenantIntegrationFieldMapApplyTransform($raw, (string) ($map['transform'] ?? 'none'));
+        }
+    }
+
+    return $defaultFn();
+}
+
 // (Alias removed — tenantIntegrationFieldMapFlushCache is now the
 // canonical entry point defined alongside the resolver above.)
 

@@ -218,6 +218,7 @@ function integrationFieldMapContextRowId(array $contextRowIds, array $mapping): 
     $module = strtolower(trim((string) ($mapping['target_module'] ?? '')));
     $hasPlacementContext = isset($contextRowIds['placement'])
         || isset($contextRowIds['placement_rates'])
+        || isset($contextRowIds['placement_commission_recruiter'])
         || isset($contextRowIds['placement_corp_details']);
     $rootSelfFallback = $hasPlacementContext ? [] : ['self'];
     $candidates = match ($table) {
@@ -231,6 +232,20 @@ function integrationFieldMapContextRowId(array $contextRowIds, array $mapping): 
             str_contains($linked, 'sub') => ['placement_chain_sub_vendor'],
             str_contains($linked, 'direct') => ['placement_chain_direct'],
             default => ['placement_chain_prime_vendor', 'placement_chain_msp', 'placement_chain_sub_vendor'],
+        },
+        'placement_commissions' => match (true) {
+            str_contains($linked, 'account') || str_contains($linked, 'manager') => ['placement_commission_account_manager'],
+            str_contains($linked, 'recruit') => ['placement_commission_recruiter'],
+            str_contains($linked, 'lead') => ['placement_commission_lead'],
+            str_contains($linked, 'team') => ['placement_commission_team'],
+            str_contains($linked, 'other') => ['placement_commission_other'],
+            default => [
+                'placement_commission_recruiter',
+                'placement_commission_account_manager',
+                'placement_commission_lead',
+                'placement_commission_team',
+                'placement_commission_other',
+            ],
         },
         'staffing_jobs' => array_merge(['staffing_job', 'job', 'jobdiva_job'], $rootSelfFallback),
         'people' => array_merge(['person', 'candidate', 'jobdiva_candidate', 'employee', 'worker'], $rootSelfFallback),

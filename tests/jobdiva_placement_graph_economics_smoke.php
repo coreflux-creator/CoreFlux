@@ -15,6 +15,7 @@ $fieldMap = (string) file_get_contents("{$ROOT}/core/integrations/field_map.php"
 $apply = (string) file_get_contents("{$ROOT}/core/integrations/field_map_apply.php");
 $projector = (string) file_get_contents("{$ROOT}/core/jobdiva/projector.php");
 $migration = (string) file_get_contents("{$ROOT}/core/migrations/123_placement_chain_and_rate_writable_targets.sql");
+$commissionMigration = (string) file_get_contents("{$ROOT}/core/migrations/124_placement_commission_writable_targets.sql");
 $studio = (string) file_get_contents("{$ROOT}/dashboard/src/pages/FieldMappingStudio.jsx");
 
 $pass = 0; $fail = 0;
@@ -76,7 +77,30 @@ $a('rate SQL writes adder/background on update and insert',
 $a('placement_rates mapping no longer falls through to placement id',
     str_contains($apply, "'placement_rates' => array_merge(['placement_rates'], \$rootSelfFallback)"));
 
-echo "\n4. PHP syntax\n";
+echo "\n4. Placement commissions are projected and mappable\n";
+$a('commission writer exists', str_contains($sync, 'function jobdivaSyncUpsertPlacementCommissions('));
+$a('sync calls commission writer from update and insert paths',
+    substr_count($sync, 'jobdivaSyncUpsertPlacementCommissions($tid,') >= 2);
+$a('commission writer targets placement_commissions',
+    str_contains($sync, 'INSERT INTO placement_commissions')
+    && str_contains($sync, 'UPDATE placement_commissions'));
+$a('commission context ids are available to generalized field mapping',
+    str_contains($sync, 'function jobdivaPlacementCommissionContextIds')
+    && str_contains($apply, "'placement_commissions' => match"));
+$a('field-map allow-list includes commission economics',
+    str_contains($fieldMap, "'split_pct'")
+    && str_contains($fieldMap, "'flat_amount'")
+    && str_contains($fieldMap, "'effective_from'"));
+$a('writable-target migration exposes placement_commissions',
+    str_contains($commissionMigration, "'placements', 'placement_commissions', 'split_pct'")
+    && str_contains($commissionMigration, "'placement_commission_recruiter'")
+    && str_contains($commissionMigration, "placement_commission_account_manager"));
+$a('Field Mapping Studio exposes commission linked-entity roles',
+    str_contains($studio, 'placement_commission_recruiter')
+    && str_contains($studio, 'placement_commission_account_manager')
+    && str_contains($studio, "table === 'placement_commissions'"));
+
+echo "\n5. PHP syntax\n";
 foreach ([
     "{$ROOT}/core/jobdiva/sync.php",
     "{$ROOT}/core/integrations/field_map.php",

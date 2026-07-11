@@ -185,6 +185,34 @@ function mappingSuggesterSynonymMap(): array
         'subvendorfeeflat' => ['portal_fee_flat'],
         'submittalid'     => ['submittal_id'],
         'vmsjobid'        => ['vms_job_id'],
+        // ---------- Placement commissions ----------
+        'commissionpct'   => ['split_pct'],
+        'commissionpercent' => ['split_pct'],
+        'commissionsplitpct' => ['split_pct'],
+        'commissionsplitpercent' => ['split_pct'],
+        'recruitercommissionpct' => ['split_pct'],
+        'recruitercommissionpercent' => ['split_pct'],
+        'recruitersplitpct' => ['split_pct'],
+        'recruitersplitpercent' => ['split_pct'],
+        'accountmanagercommissionpct' => ['split_pct'],
+        'accountmanagercommissionpercent' => ['split_pct'],
+        'accountmanagersplitpct' => ['split_pct'],
+        'accountmanagersplitpercent' => ['split_pct'],
+        'salescommissionpct' => ['split_pct'],
+        'salespersoncommissionpct' => ['split_pct'],
+        'leadcommissionpct' => ['split_pct'],
+        'teamcommissionpct' => ['split_pct'],
+        'commissionflat' => ['flat_amount'],
+        'commissionamount' => ['flat_amount'],
+        'flatcommission' => ['flat_amount'],
+        'recruitercommissionflat' => ['flat_amount'],
+        'accountmanagercommissionflat' => ['flat_amount'],
+        'salespersoncommissionflat' => ['flat_amount'],
+        'commissionbasis' => ['basis'],
+        'commissioneffectivefrom' => ['effective_from'],
+        'commissionstartdate' => ['effective_from'],
+        'commissioneffectiveto' => ['effective_to'],
+        'commissionenddate' => ['effective_to'],
         // ---------- Dates ----------
         'startdate'       => ['start_date'],
         'enddate'         => ['end_date'],
@@ -241,7 +269,7 @@ function mappingSuggesterDefaultTransform(string $normSrc, string $targetColumn)
     if (str_ends_with($targetColumn, '_date'))               return 'date_normalise';
     if ($targetColumn === 'status')                          return 'lowercase';
     if (str_contains($normSrc, 'currency') && $targetColumn === 'currency') return 'uppercase';
-    if (in_array($targetColumn, ['portal_fee_pct', 'adder_pct'], true)
+    if (in_array($targetColumn, ['portal_fee_pct', 'adder_pct', 'split_pct'], true)
         || str_contains($normSrc, 'pct')
         || str_contains($normSrc, 'percent')) return 'percent_to_decimal';
     return 'none';
@@ -256,6 +284,21 @@ function mappingSuggesterLinkedEntityForTarget(array $target, string $sourcePath
 {
     $table = strtolower((string) ($target['target_table'] ?? ''));
     $default = (string) ($target['default_linked_entity'] ?? '') ?: $fallback;
+    if ($table === 'placement_commissions') {
+        $full = mappingSuggesterNormaliseFullPath($sourcePath);
+        if ($full === '') return $default ?: 'placement_commission_recruiter';
+        if (str_contains($full, 'accountmanager')
+            || str_contains($full, 'accountmgr')
+            || str_contains($full, 'salesperson')
+            || str_contains($full, 'salesrep')
+            || str_contains($full, 'sales')) {
+            return 'placement_commission_account_manager';
+        }
+        if (str_contains($full, 'recruit')) return 'placement_commission_recruiter';
+        if (str_contains($full, 'lead')) return 'placement_commission_lead';
+        if (str_contains($full, 'team')) return 'placement_commission_team';
+        return $default ?: 'placement_commission_other';
+    }
     if ($table !== 'placement_client_chain') return $default;
 
     $full = mappingSuggesterNormaliseFullPath($sourcePath);

@@ -34,7 +34,7 @@ function jobdivaProjectorContract(): array
             'project_coreflux' => [
                 'owner' => 'coreflux_graphs',
                 'description' => 'Write the canonical rows downstream modules consume.',
-                'outputs' => ['people', 'companies', 'company_contacts', 'staffing_jobs', 'staffing_clients', 'placements', 'placement_client_chain', 'placement_rates', 'time_entries'],
+                'outputs' => ['people', 'companies', 'company_contacts', 'staffing_jobs', 'staffing_clients', 'placements', 'placement_client_chain', 'placement_rates', 'placement_commissions', 'time_entries'],
             ],
             'workflow_readiness' => [
                 'owner' => 'projector',
