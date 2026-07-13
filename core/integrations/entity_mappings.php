@@ -228,32 +228,93 @@ function mappingUpsert(
         return $row;
     }
 
-    $pdo->prepare(
-        'INSERT INTO external_entity_mappings
-            (tenant_id, source_system, internal_entity_type, external_id,
-             internal_entity_id, payload_snapshot, content_hash, direction,
-             sync_status, last_seen_at, last_synced_at)
-         VALUES
-            (:t, :src, :et, :ext, :iid, :snap, :hash, :dir, "ok", NOW(), NOW())
-         ON DUPLICATE KEY UPDATE
-            internal_entity_id = VALUES(internal_entity_id),
-            payload_snapshot   = VALUES(payload_snapshot),
-            content_hash       = VALUES(content_hash),
-            direction          = VALUES(direction),
-            sync_status        = "ok",
-            last_error         = NULL,
-            last_seen_at       = NOW(),
-            last_synced_at     = NOW()'
-    )->execute([
-        't'    => $tenantId,
-        'src'  => $source,
-        'et'   => $entityType,
-        'ext'  => $externalId,
-        'iid'  => $internalId,
-        'snap' => $snapshot,
-        'hash' => $hash,
-        'dir'  => $direction,
-    ]);
+    try {
+        $pdo->prepare(
+            'INSERT INTO external_entity_mappings
+                (tenant_id, source_system, internal_entity_type, external_id,
+                 internal_entity_id, payload_snapshot, content_hash, direction,
+                 sync_status, last_seen_at, last_synced_at)
+             VALUES
+                (:t, :src, :et, :ext, :iid, :snap, :hash, :dir, "ok", NOW(), NOW())
+             ON DUPLICATE KEY UPDATE
+                internal_entity_id = VALUES(internal_entity_id),
+                payload_snapshot   = VALUES(payload_snapshot),
+                content_hash       = VALUES(content_hash),
+                direction          = VALUES(direction),
+                sync_status        = "ok",
+                last_error         = NULL,
+                last_seen_at       = NOW(),
+                last_synced_at     = NOW()'
+        )->execute([
+            't'    => $tenantId,
+            'src'  => $source,
+            'et'   => $entityType,
+            'ext'  => $externalId,
+            'iid'  => $internalId,
+            'snap' => $snapshot,
+            'hash' => $hash,
+            'dir'  => $direction,
+        ]);
+    } catch (\PDOException $e) {
+        // A source may surface the same canonical row through an older alias
+        // (common with JobDiva customer/company evidence). Reconcile the
+        // alias onto the already-bound internal row instead of aborting the
+        // whole projection on uk_internal.
+        if ((string) $e->getCode() !== '23000') {
+            throw $e;
+        }
+        $byExternal = mappingFindInternal($tenantId, $source, $entityType, $externalId);
+        $byInternal = mappingFindExternal($tenantId, $source, $entityType, $internalId);
+        if ($byInternal) {
+            if ($byExternal && (int) $byExternal['id'] !== (int) $byInternal['id']) {
+                $pdo->prepare(
+                    'DELETE FROM external_entity_mappings
+                      WHERE id = :id AND tenant_id = :t'
+                )->execute(['id' => (int) $byExternal['id'], 't' => $tenantId]);
+            }
+            $pdo->prepare(
+                'UPDATE external_entity_mappings
+                    SET external_id        = :ext,
+                        payload_snapshot   = :snap,
+                        content_hash       = :hash,
+                        direction          = :dir,
+                        sync_status        = "ok",
+                        last_error         = NULL,
+                        last_seen_at       = NOW(),
+                        last_synced_at     = NOW()
+                  WHERE id = :id AND tenant_id = :t'
+            )->execute([
+                'ext'  => $externalId,
+                'snap' => $snapshot,
+                'hash' => $hash,
+                'dir'  => $direction,
+                'id'   => (int) $byInternal['id'],
+                't'    => $tenantId,
+            ]);
+        } elseif ($byExternal) {
+            $pdo->prepare(
+                'UPDATE external_entity_mappings
+                    SET internal_entity_id = :iid,
+                        payload_snapshot   = :snap,
+                        content_hash       = :hash,
+                        direction          = :dir,
+                        sync_status        = "ok",
+                        last_error         = NULL,
+                        last_seen_at       = NOW(),
+                        last_synced_at     = NOW()
+                  WHERE id = :id AND tenant_id = :t'
+            )->execute([
+                'iid'  => $internalId,
+                'snap' => $snapshot,
+                'hash' => $hash,
+                'dir'  => $direction,
+                'id'   => (int) $byExternal['id'],
+                't'    => $tenantId,
+            ]);
+        } else {
+            throw $e;
+        }
+    }
     $row = mappingFindInternal($tenantId, $source, $entityType, $externalId);
     $row['changed'] = true; // brand new
     return $row;

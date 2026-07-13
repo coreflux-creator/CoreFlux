@@ -685,6 +685,19 @@ function tenantIntegrationFieldMapFlushCache(): void
     $GLOBALS['CF_FIELD_MAP_CACHE'] = [];
 }
 
+function tenantIntegrationFieldMapHasInternal(
+    int $tenantId,
+    string $integration,
+    string $entityType,
+    string $internalField
+): bool {
+    if ($tenantId <= 0 || $integration === '' || $entityType === '' || $internalField === '') {
+        return false;
+    }
+    $map = tenantIntegrationFieldMapResolveAll($tenantId, $integration, $entityType);
+    return isset($map[$internalField]);
+}
+
 /**
  * Apply a configured transform to a raw value. Returns the transformed
  * string, or the original if no transform applies.

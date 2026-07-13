@@ -66,7 +66,7 @@ $assert('placement curated row includes JobDiva Job #',
 $assert('placement curated row includes Job Title',
     strpos($panelSrc, "['Job Title',       ['jobTitle', 'job_title', 'title', 'positionTitle']],") !== false);
 $assert('placement curated row includes Candidate ID',
-    strpos($panelSrc, "['Candidate ID',    ['candidateId', 'candidate_id', 'employeeId', 'employee_id']],") !== false);
+    strpos($panelSrc, "['Candidate ID',    ['candidate id', 'candidateId', 'candidate_id', 'employeeId', 'employee_id']],") !== false);
 $assert('placement curated row includes Bill Rate + Pay Rate',
     strpos($panelSrc, "['Bill Rate',       ['billRate'") !== false
     && strpos($panelSrc, "['Pay Rate',        ['payRate'") !== false);

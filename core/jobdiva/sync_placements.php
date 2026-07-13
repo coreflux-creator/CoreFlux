@@ -223,10 +223,36 @@ function jobdivaPlacementsDiscover(int $tid, ?int $userId, array $opts = []): ar
  *   - email_primary is NOT NULL on `people`. If JobDiva doesn't provide
  *     one, we synthesise `jd-emp-<extId>@no-email.invalid` which is
  *     guaranteed unique (RFC 6761 reserves .invalid).
- *   - classification falls back to 'w2' (most common JobDiva placement
- *     type); the operator can correct it in the People UI.
+ *   - people.classification is derived from explicit JobDiva person/worker
+ *     evidence when present, otherwise defaults to 'candidate'. Placement
+ *     engagement_type remains the operational source for W2 / C2C workflow
+ *     routing.
  *   - source = 'jobdiva' so the People list filter can isolate imports.
  */
+function jobdivaPersonClassificationFromPlacementPayload(int $tid, array $jd): string
+{
+    require_once __DIR__ . '/../integrations/field_map.php';
+    $raw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'person', 'classification', $jd,
+        static fn() => jobdivaPluckFieldDeep($jd, [
+            'classification', 'workerType', 'worker_type',
+            'employmentType', 'employment type', 'employeeType',
+            'employee type', 'taxType', 'tax type',
+            'payrollType', 'payroll type',
+        ])
+    );
+    $engagement = jobdivaNormalisePlacementEngagementType($raw, '');
+    if ($engagement === '') {
+        $engagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, '');
+    }
+    return match ($engagement) {
+        'w2', '1099', 'c2c' => $engagement,
+        'temp_to_perm' => 'temp',
+        'direct_hire' => 'perm',
+        default => 'candidate',
+    };
+}
+
 function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?int
 {
     require_once __DIR__ . '/../integrations/field_map.php';
@@ -283,6 +309,7 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
     if ($firstName === '') $firstName = 'JobDiva';
     if ($lastName  === '') $lastName  = 'Candidate-' . $candidateExtId;
     if ($email     === '') $email     = sprintf('jd-emp-%s@no-email.invalid', $candidateExtId);
+    $classification = jobdivaPersonClassificationFromPlacementPayload($tid, $jd);
 
     $pdo = getDB();
     // Channel 2: existing person by email (covers manual-create-before-sync race).
@@ -321,7 +348,7 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
         'ln'  => $lastName,
         'em'  => $email,
         'ph'  => $phone !== '' ? $phone : null,
-        'cls' => 'w2',  // sensible default; operator can correct in People UI
+        'cls' => $classification,
         'u'   => $userId,
     ]);
     $newId = (int) $pdo->lastInsertId();

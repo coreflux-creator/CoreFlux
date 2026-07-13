@@ -2295,7 +2295,50 @@ function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string 
         return null;
     };
 
-    return $walk($payload) ?? $fallback;
+    $scanNested = static function (array $roots) use ($payload, $walk): ?string {
+        foreach ($roots as $root) {
+            if (!isset($payload[$root]) || !is_array($payload[$root])) continue;
+            $hit = $walk($payload[$root], (string) $root);
+            if ($hit !== null) return $hit;
+        }
+        return null;
+    };
+
+    // Placement/assignment/job facets own the engagement contract. Candidate
+    // classification is only person evidence, so scan it after placement-level
+    // evidence to avoid stale "W2 candidate" defaults masking C2C assignments.
+    $hit = $scanNested([
+        '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
+        '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job',
+    ]);
+    if ($hit !== null) return $hit;
+
+    foreach ($payload as $key => $value) {
+        if (is_array($value)) continue;
+        $hit = $classify((string) $key, $value);
+        if ($hit !== null) return $hit;
+    }
+
+    $hit = $scanNested([
+        '_jd_candidate', 'person', 'candidate', 'Candidate',
+        'employee', 'worker', 'jobdiva_candidate',
+    ]);
+    if ($hit !== null) return $hit;
+
+    foreach ($payload as $key => $value) {
+        if (!is_array($value)) continue;
+        if (in_array((string) $key, [
+            '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
+            '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job',
+            '_jd_candidate', 'person', 'candidate', 'Candidate', 'employee', 'worker', 'jobdiva_candidate',
+        ], true)) {
+            continue;
+        }
+        $hit = $walk($value, (string) $key);
+        if ($hit !== null) return $hit;
+    }
+
+    return $fallback;
 }
 
 function jobdivaBoolishTrue(mixed $raw): bool
@@ -2448,14 +2491,15 @@ function jobdivaSyncUpsertPlacementChain(
             'position' => 1,
             'name_keys' => [
                 'msp', 'msp name', 'mspName', 'managed service provider',
-                'vms', 'vms name', 'vmsName',
+                'vms', 'vms name', 'vmsName', 'vms provider', 'vmsProvider',
             ],
             'fee_keys' => [
                 'msp fee pct', 'msp_fee_pct', 'mspFeePct',
                 'vms fee pct', 'vms_fee_pct', 'discount pct',
-                'discount %', 'client discount pct', 'client discount %',
+                'discount %', 'discount percent', 'discountPercentage',
+                'client discount pct', 'client discount %', 'client discount percent',
             ],
-            'flat_keys' => ['msp fee flat', 'msp_fee_flat', 'vms fee flat', 'discount flat'],
+            'flat_keys' => ['msp fee flat', 'msp_fee_flat', 'vms fee flat', 'discount flat', 'discount amount'],
         ],
         [
             'role' => 'prime_vendor',
@@ -2463,20 +2507,37 @@ function jobdivaSyncUpsertPlacementChain(
             'name_keys' => [
                 'prime vendor', 'primeVendor', 'prime_vendor',
                 'vendor name', 'vendorName', 'supplier name', 'supplierName',
-                'agency name', 'agencyName', 'employer company', 'employerCompany',
+                'vendor', 'vendor company', 'vendorCompany',
+                'supplier', 'supplier company', 'supplierCompany',
+                'agency name', 'agencyName', 'agency company', 'agencyCompany',
+                'employer company', 'employerCompany', 'payrolling company', 'payrollingCompany',
             ],
-            'fee_keys' => ['prime vendor fee pct', 'vendor fee pct', 'supplier fee pct', 'agency fee pct'],
-            'flat_keys' => ['prime vendor fee flat', 'vendor fee flat', 'supplier fee flat', 'agency fee flat'],
+            'fee_keys' => [
+                'prime vendor fee pct', 'vendor fee pct', 'vendor fee percent',
+                'supplier fee pct', 'supplier fee percent', 'agency fee pct',
+                'vendor discount pct', 'vendor discount %', 'vendor discount percent',
+            ],
+            'flat_keys' => [
+                'prime vendor fee flat', 'vendor fee flat', 'supplier fee flat',
+                'agency fee flat', 'vendor discount flat', 'vendor discount amount',
+            ],
         ],
         [
             'role' => 'sub_vendor',
             'position' => 3,
             'name_keys' => [
                 'sub vendor', 'subVendor', 'sub_vendor',
-                'subcontractor', 'subcontractor name', 'sub supplier', 'subSupplier',
+                'subcontractor', 'subcontractor name', 'subcontractor company',
+                'sub supplier', 'subSupplier', 'sub supplier name', 'subSupplierName',
             ],
-            'fee_keys' => ['sub vendor fee pct', 'subvendor fee pct', 'subcontractor fee pct'],
-            'flat_keys' => ['sub vendor fee flat', 'subvendor fee flat', 'subcontractor fee flat'],
+            'fee_keys' => [
+                'sub vendor fee pct', 'subvendor fee pct', 'subcontractor fee pct',
+                'sub vendor discount pct', 'subcontractor discount pct',
+            ],
+            'flat_keys' => [
+                'sub vendor fee flat', 'subvendor fee flat', 'subcontractor fee flat',
+                'sub vendor discount flat', 'subcontractor discount flat',
+            ],
         ],
     ];
 
@@ -3028,9 +3089,13 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     );
     $sourceEngagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, '');
     $mappedEngagement = jobdivaNormalisePlacementEngagementType($engagementRaw, '');
-    $engagement = $sourceEngagement !== ''
+    $hasMappedEngagement = function_exists('tenantIntegrationFieldMapHasInternal')
+        && tenantIntegrationFieldMapHasInternal($tid, 'jobdiva', 'placement', 'engagement_type');
+    $engagement = ($hasMappedEngagement && $mappedEngagement !== '')
+        ? $mappedEngagement
+        : ($sourceEngagement !== ''
         ? $sourceEngagement
-        : ($mappedEngagement !== '' ? $mappedEngagement : 'w2');
+        : ($mappedEngagement !== '' ? $mappedEngagement : 'w2'));
 
     $worksiteState = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'worksite_state', $jd,
@@ -3169,7 +3234,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     };
     $clientBillCycleRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'client_bill_cycle', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'billCycle', 'bill_cycle', 'clientBillCycle', 'client_bill_cycle',
             'invoiceFrequency', 'billingFrequency', 'billing_cycle',
         ])
@@ -3177,7 +3242,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $clientBillCycle = $coerceCycle($clientBillCycleRaw);
     $clientBillCycleAnchorRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'client_bill_cycle_anchor', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'billCycleAnchor', 'bill_cycle_anchor', 'clientBillCycleAnchor',
             'client_bill_cycle_anchor', 'billingAnchorDate', 'invoiceAnchor',
         ])
@@ -3185,7 +3250,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $clientBillCycleAnchor = jobdivaNormaliseDate($clientBillCycleAnchorRaw);
     $vendorPayCycleRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'vendor_pay_cycle', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'payCycle', 'pay_cycle', 'vendorPayCycle', 'vendor_pay_cycle',
             'payrollFrequency', 'pay_frequency',
         ])
@@ -3193,7 +3258,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $vendorPayCycle = $coerceCycle($vendorPayCycleRaw);
     $vendorPayCycleAnchorRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'vendor_pay_cycle_anchor', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'payCycleAnchor', 'pay_cycle_anchor', 'vendorPayCycleAnchor',
             'vendor_pay_cycle_anchor', 'payrollAnchorDate',
         ])
@@ -3447,10 +3512,17 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'pay rate', 'payRate', 'pay_rate', 'PAYRATE',
             'final pay rate', 'finalPayRate', 'final_pay_rate',
             'actual pay rate', 'actualPayRate', 'actual_pay_rate',
+            'approved pay rate', 'approvedPayRate', 'approved_pay_rate',
+            'candidate pay rate', 'candidatePayRate', 'candidate_pay_rate',
+            'employee pay rate', 'employeePayRate', 'employee_pay_rate',
+            'regular pay rate', 'regularPayRate', 'regular_pay_rate',
+            'standard pay rate', 'standardPayRate', 'standard_pay_rate',
             'base pay rate', 'basePayRate', 'base_pay_rate',
             'pay rate max', 'payRateMax', 'pay_rate_max', 'PAYRATEMAX',
+            'pay rate min', 'payRateMin', 'pay_rate_min', 'PAYRATEMIN',
             'max pay rate', 'maximum pay rate', 'payRateMaximum',
-            'hourly pay rate', 'hourlyPayRate', 'hourly_pay_rate',
+            'min pay rate', 'minimum pay rate', 'payRateMinimum',
+            'hourly pay rate', 'hourlyPayRate', 'hourly_pay_rate', 'hourlyRate', 'hourly rate',
         ])
     );
     // pay_rate is NOT NULL on the schema, but copying bill_rate into

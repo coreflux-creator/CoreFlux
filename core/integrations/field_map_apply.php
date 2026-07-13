@@ -532,6 +532,196 @@ function integrationFieldMapResolveGeneralised(
     return $rows;
 }
 
+function integrationFieldMapNumberValue(mixed $raw): ?float
+{
+    if ($raw === null) return null;
+    if (is_int($raw) || is_float($raw)) return (float) $raw;
+    $s = trim((string) $raw);
+    if ($s === '') return null;
+    $s = str_replace([',', '$'], '', $s);
+    if (is_numeric($s)) return (float) $s;
+    if (preg_match('/-?\d+(?:\.\d+)?/', $s, $m)) return (float) $m[0];
+    return null;
+}
+
+function integrationFieldMapPercentValue(mixed $raw): ?float
+{
+    if ($raw === null) return null;
+    if (is_int($raw) || is_float($raw)) {
+        $n = (float) $raw;
+    } else {
+        $s = trim((string) $raw);
+        if ($s === '') return null;
+        $hadPercent = str_contains($s, '%');
+        $s = str_replace([',', '%'], '', $s);
+        if (!is_numeric($s)) {
+            if (!preg_match('/-?\d+(?:\.\d+)?/', $s, $m)) return null;
+            $s = $m[0];
+        }
+        $n = (float) $s;
+        if ($hadPercent) $n /= 100;
+    }
+    if (abs($n) > 1) $n /= 100;
+    return round($n, 6);
+}
+
+function integrationFieldMapDateValue(mixed $raw): ?string
+{
+    if ($raw === null) return null;
+    if (function_exists('jobdivaNormaliseDate')) {
+        $normalised = jobdivaNormaliseDate($raw);
+        if ($normalised !== null) return $normalised;
+    }
+    $s = trim((string) $raw);
+    if ($s === '') return null;
+    if (is_numeric($s)) {
+        $n = (float) $s;
+        $ts = $n >= 1000000000000 ? (int) floor($n / 1000) : (int) $n;
+        if ($ts > 0) return gmdate('Y-m-d', $ts);
+    }
+    $ts = strtotime($s);
+    return $ts === false ? null : date('Y-m-d', $ts);
+}
+
+function integrationFieldMapBoolValue(mixed $raw): ?int
+{
+    if ($raw === null) return null;
+    if (is_bool($raw)) return $raw ? 1 : 0;
+    if (is_int($raw) || is_float($raw)) return ((float) $raw) > 0 ? 1 : 0;
+    $s = strtolower(trim((string) $raw));
+    if ($s === '') return null;
+    if (in_array($s, ['1', 'true', 'yes', 'y', 'on', 'checked'], true)) return 1;
+    if (in_array($s, ['0', 'false', 'no', 'n', 'off', 'unchecked'], true)) return 0;
+    return null;
+}
+
+function integrationFieldMapEngagementValue(mixed $raw): ?string
+{
+    $s = trim((string) $raw);
+    if ($s === '') return null;
+    if (function_exists('jobdivaNormalisePlacementEngagementType')) {
+        $normalised = jobdivaNormalisePlacementEngagementType($s, '');
+        if ($normalised !== '') return $normalised;
+    }
+    $key = strtolower(str_replace(['-', '/', '\\'], ' ', $s));
+    $key = preg_replace('/\s+/', ' ', $key) ?: $key;
+    if (str_contains($key, 'temp to perm') || str_contains($key, 'contract to hire')) return 'temp_to_perm';
+    if (str_contains($key, 'direct hire') || str_contains($key, 'perm')) return 'direct_hire';
+    if (str_contains($key, '1099') || str_contains($key, 'independent contractor')) return '1099';
+    if (str_contains($key, 'c2c') || str_contains($key, 'corp to corp') || str_contains($key, 'crop to crop')) return 'c2c';
+    if (str_contains($key, 'w2') || str_contains($key, 'w 2') || str_contains($key, 'employee')) return 'w2';
+    return in_array($key, ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal'], true) ? $key : null;
+}
+
+function integrationFieldMapPersonClassificationValue(mixed $raw): ?string
+{
+    $eng = integrationFieldMapEngagementValue($raw);
+    if ($eng !== null) {
+        return match ($eng) {
+            'temp_to_perm' => 'temp',
+            'direct_hire' => 'perm',
+            default => $eng,
+        };
+    }
+    $key = strtolower(trim((string) $raw));
+    return in_array($key, ['temp', 'perm', 'candidate', 'alumni'], true) ? $key : null;
+}
+
+function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
+{
+    $table = strtolower(trim((string) ($mapping['target_table'] ?? '')));
+    $col = strtolower(trim((string) ($mapping['target_column'] ?? '')));
+    if ($table === '' || $col === '') return $val;
+
+    if ($table === 'placements' && $col === 'engagement_type') {
+        return integrationFieldMapEngagementValue($val);
+    }
+    if ($table === 'people' && $col === 'classification') {
+        return integrationFieldMapPersonClassificationValue($val);
+    }
+    if ($table === 'people' && $col === 'worker_class') {
+        $eng = integrationFieldMapEngagementValue($val);
+        if ($eng !== null) {
+            return match ($eng) {
+                '1099' => 'contractor_1099',
+                'c2c' => 'c2c',
+                'w2' => 'w2_temp',
+                default => 'employee',
+            };
+        }
+    }
+    if ($table === 'placements' && $col === 'remote_policy') {
+        $s = strtolower(trim((string) $val));
+        return match ($s) {
+            'onsite', 'on-site', 'on site', 'on_site' => 'onsite',
+            'hybrid' => 'hybrid',
+            'remote', 'work from home', 'work_from_home', 'wfh' => 'remote',
+            default => null,
+        };
+    }
+    if ($table === 'placements' && in_array($col, ['client_bill_cycle', 'vendor_pay_cycle'], true)) {
+        $s = strtolower(trim((string) $val));
+        $s = preg_replace('/[\s(].*$/', '', $s) ?: $s;
+        return match ($s) {
+            'weekly' => 'weekly',
+            'biweekly', 'bi-weekly', 'bi_weekly' => 'biweekly',
+            'semimonthly', 'semi-monthly', 'semi_monthly' => 'semimonthly',
+            'monthly' => 'monthly',
+            'adhoc', 'ad-hoc', 'ad_hoc' => 'adhoc',
+            default => null,
+        };
+    }
+    if ($table === 'placement_client_chain' && $col === 'party_role') {
+        $s = strtolower(trim((string) $val));
+        $s = str_replace([' ', '-'], '_', $s);
+        return match ($s) {
+            'end_client', 'client', 'customer' => 'end_client',
+            'msp', 'vms', 'managed_service_provider' => 'msp',
+            'prime_vendor', 'vendor', 'supplier', 'agency' => 'prime_vendor',
+            'sub_vendor', 'subcontractor', 'sub_supplier' => 'sub_vendor',
+            'direct' => 'direct',
+            default => null,
+        };
+    }
+    if ($table === 'placement_rates' && in_array($col, ['bill_rate_unit', 'pay_rate_unit'], true)) {
+        $s = strtolower(trim((string) $val));
+        if ($s === '' || $s === 'h' || str_contains($s, 'hour')) return 'hour';
+        if (str_contains($s, 'day')) return 'day';
+        if (str_contains($s, 'week')) return 'week';
+        if (str_contains($s, 'month')) return 'month';
+        if (str_contains($s, 'project') || str_contains($s, 'fixed')) return 'project';
+        return null;
+    }
+    if ($table === 'placement_rates' && $col === 'currency') {
+        $s = strtoupper(trim((string) $val));
+        if (preg_match('/\b([A-Z]{3})\b/', $s, $m)) return $m[1];
+        $s = substr($s, 0, 3);
+        return strlen($s) === 3 ? $s : null;
+    }
+    if (str_ends_with($col, '_date')
+        || in_array($col, ['effective_from', 'effective_to', 'opened_at', 'closed_at', 'hire_date', 'termination_date', 'work_auth_expiry'], true)
+        || str_ends_with($col, '_signed_at')
+        || str_ends_with($col, '_expires_on')) {
+        return integrationFieldMapDateValue($val);
+    }
+    if (str_ends_with($col, '_pct') || in_array($col, ['split_pct', 'adder_pct', 'portal_fee_pct'], true)) {
+        return integrationFieldMapPercentValue($val);
+    }
+    if (in_array($col, ['bill_rate', 'pay_rate', 'flat_amount', 'portal_fee_flat', 'background_fee_total', 'ot_multiplier', 'dt_multiplier'], true)) {
+        return integrationFieldMapNumberValue($val);
+    }
+    if (str_starts_with($col, 'is_') || in_array($col, [
+        'tokenized_email_approval_enabled',
+        'bulk_uploads_can_be_pre_approved',
+        'requires_sponsorship',
+        'w9_on_file',
+        'coi_on_file',
+    ], true)) {
+        return integrationFieldMapBoolValue($val);
+    }
+    return $val;
+}
+
 /**
  * Apply every enabled tenant mapping to a synced record. Writes are
  * scoped per (target_table, internal_row_id) so a single mapping run
@@ -608,6 +798,8 @@ function integrationFieldMapApplyAll(
             $val = tenantIntegrationFieldMapApplyTransform($val, (string) $m['transform']);
             if ($val === null || $val === '') { $summary['skipped']++; continue; }
         }
+        $val = integrationFieldMapCoerceTargetValue($val, $m);
+        if ($val === null || $val === '') { $summary['skipped']++; continue; }
 
         $linked = (string) ($m['linked_entity'] ?? 'self');
         $table = (string) $m['target_table'];

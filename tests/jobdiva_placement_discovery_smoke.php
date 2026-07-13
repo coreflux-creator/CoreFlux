@@ -117,8 +117,10 @@ $assert('synthesises @no-email.invalid when email missing (RFC 6761)',
 $assert("source tagged 'jobdiva' so People UI can filter imports",
     strpos($src, "\"jobdiva\"") !== false
     && strpos($src, "INSERT INTO people") !== false);
-$assert("classification defaults to 'w2' (most common JobDiva placement)",
-    strpos($src, "'cls' => 'w2'") !== false);
+$assert("classification no longer defaults blindly to 'w2'",
+    strpos($src, "jobdivaPersonClassificationFromPlacementPayload") !== false
+    && strpos($src, "'cls' => \$classification") !== false
+    && strpos($src, "'cls' => 'w2'") === false);
 $assert("external_id prefixed 'jd:' for cross-source uniqueness",
     strpos($src, "'jd:' . \$candidateExtId") !== false);
 $assert('binds person mapping after create',
@@ -162,8 +164,9 @@ foreach (['engagement_type', 'worksite_state', 'worksite_country',
         strpos($syncSrc, "'jobdiva', 'placement', '{$col}', \$jd,") !== false);
 }
 $assert('engagement_type enum coercion handles common upstream variants',
-    strpos($syncSrc, "'corp-to-corp' => 'c2c'") !== false
-    && strpos($syncSrc, "'temp_to_perm' => 'temp_to_perm'") !== false);
+    strpos($syncSrc, 'jobdivaNormalisePlacementEngagementType($engagementRaw, \'\')') !== false
+    && strpos($syncSrc, "str_contains(\$s, 'corp to corp')") !== false
+    && strpos($syncSrc, "str_contains(\$s, 'temp to perm')") !== false);
 $assert('worksite_country is forced to CHAR(2) (matches column type)',
     strpos($syncSrc, 'strtoupper(substr($worksiteCountry, 0, 2))') !== false);
 $assert('remote_policy enum coercion accepts onsite/hybrid/remote synonyms',
