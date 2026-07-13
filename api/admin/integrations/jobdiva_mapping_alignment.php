@@ -51,7 +51,7 @@ if ($method === 'POST' && $action === 'repair_workflow') {
         'integrations.jobdiva.manage',
     ]);
     $body = api_json_body();
-    $limit = isset($body['limit']) ? (int) $body['limit'] : 500;
+    $limit = isset($body['limit']) ? (int) $body['limit'] : 5000;
     $result = jobdivaMappingRepairWorkflow($tid, $user, $limit);
     api_ok(['ok' => $result['ok'] === true, 'repair' => $result]);
 }

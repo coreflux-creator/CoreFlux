@@ -112,6 +112,9 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         if ($existingPlacementId > 0) {
             $writePayload['__cf_existing_placement_id'] = $existingPlacementId;
         }
+        if (!empty($opts['force_projection'])) {
+            $writePayload['__cf_force_projection'] = true;
+        }
 
         if (!function_exists('jobdivaSyncUpsertPlacement')) {
             throw new \RuntimeException('jobdivaSyncUpsertPlacement is not loaded');
@@ -125,6 +128,7 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
             $userId
         );
         unset($writePayload['__cf_existing_placement_id']);
+        unset($writePayload['__cf_force_projection']);
 
         mappingUpsert($tenantId, 'jobdiva', 'placement', $externalId, $placementId, $writePayload, 'pull', $userId);
         $summary['mapping_writes']++;

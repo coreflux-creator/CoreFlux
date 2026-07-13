@@ -14,6 +14,10 @@ $fieldMap = (string) file_get_contents("{$ROOT}/core/integrations/field_map.php"
 $apply = (string) file_get_contents("{$ROOT}/core/integrations/field_map_apply.php");
 $sync = (string) file_get_contents("{$ROOT}/core/jobdiva/sync.php");
 $placements = (string) file_get_contents("{$ROOT}/core/jobdiva/sync_placements.php");
+$projector = (string) file_get_contents("{$ROOT}/core/jobdiva/projector.php");
+$alignment = (string) file_get_contents("{$ROOT}/core/jobdiva/mapping_alignment.php");
+$alignmentApi = (string) file_get_contents("{$ROOT}/api/admin/integrations/jobdiva_mapping_alignment.php");
+$settingsUi = (string) file_get_contents("{$ROOT}/dashboard/src/pages/JobDivaSettings.jsx");
 
 $pass = 0; $fail = 0;
 $a = function (string $label, bool $ok, string $detail = '') use (&$pass, &$fail): void {
@@ -83,13 +87,34 @@ $a('vendor chain writer includes supplier/vendor discount aliases',
     && str_contains($sync, "'vendor discount pct'")
     && str_contains($sync, "'discount amount'"));
 
-echo "\n6. PHP syntax\n";
+echo "\n6. Repair alignment force-reprojects the live placement rows\n";
+$a('projector accepts and strips force_projection sentinel',
+    str_contains($projector, "\$writePayload['__cf_force_projection'] = true")
+    && str_contains($projector, "unset(\$writePayload['__cf_force_projection']);"));
+$a('placement upsert bypasses coreflux_overridden_fields only under forced repair',
+    str_contains($sync, "\$forceProjection = !empty(\$jd['__cf_force_projection']);")
+    && str_contains($sync, 'if (!$forceProjection) {')
+    && str_contains($sync, 'SELECT coreflux_overridden_fields FROM placements'));
+$a('mirror reproject path passes force_projection into projector',
+    str_contains($sync, "'force_projection' => true"));
+$a('repair workflow defaults/caps to full placement-sized batches',
+    str_contains($alignment, 'function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5000)')
+    && str_contains($alignment, 'min(5000, $limit)')
+    && str_contains($alignmentApi, '$limit = isset($body[\'limit\']) ? (int) $body[\'limit\'] : 5000')
+    && str_contains($settingsUi, "repair_workflow', { limit: 5000 }"));
+$a('repair totals count projected placements, not only mapping writes',
+    str_contains($alignment, "\$changed += (int) (\$step['projected'] ?? 0);"));
+
+echo "\n7. PHP syntax\n";
 foreach ([
     "{$ROOT}/core/integrations/entity_mappings.php",
     "{$ROOT}/core/integrations/field_map.php",
     "{$ROOT}/core/integrations/field_map_apply.php",
     "{$ROOT}/core/jobdiva/sync.php",
     "{$ROOT}/core/jobdiva/sync_placements.php",
+    "{$ROOT}/core/jobdiva/projector.php",
+    "{$ROOT}/core/jobdiva/mapping_alignment.php",
+    "{$ROOT}/api/admin/integrations/jobdiva_mapping_alignment.php",
 ] as $file) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($file) . ' 2>&1', $out, $rc);

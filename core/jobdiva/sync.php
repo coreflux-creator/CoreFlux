@@ -2109,6 +2109,7 @@ function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, in
                 'payload_is_enriched' => true,
                 'external_id' => $externalId,
                 'existing_placement_id' => $placementId,
+                'force_projection' => true,
                 'person_id' => (int) ($row['person_id'] ?? 0),
             ]);
             if (empty($projection['projected'])) {
@@ -2912,6 +2913,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
     $canonicalExternalId = 'jd:' . $extId;
+    $forceProjection = !empty($jd['__cf_force_projection']);
     // Look up by external_id first (placements has a `external_id` column).
     // A 2026-06 field-map regression briefly allowed tenant mappings to
     // overwrite placements.external_id with the raw Start ID. Recover those
@@ -3269,16 +3271,18 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         // Slice 2: respect coreflux_overridden_fields — fields the user edited
         // in CoreFlux must not be reverted on the next JobDiva pull. Strip
         // any overridden field from the SET clause and audit what we skipped.
-        $overrideStmt = $pdo->prepare(
-            'SELECT coreflux_overridden_fields FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
-        );
-        $overrideStmt->execute(['t' => $tid, 'id' => $existingId]);
-        $rawOverride = $overrideStmt->fetchColumn();
         $overrides = [];
-        if (is_string($rawOverride) && $rawOverride !== '') {
-            $decoded = json_decode($rawOverride, true);
-            if (is_array($decoded)) {
-                $overrides = array_values(array_filter(array_map('strval', $decoded)));
+        if (!$forceProjection) {
+            $overrideStmt = $pdo->prepare(
+                'SELECT coreflux_overridden_fields FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
+            );
+            $overrideStmt->execute(['t' => $tid, 'id' => $existingId]);
+            $rawOverride = $overrideStmt->fetchColumn();
+            if (is_string($rawOverride) && $rawOverride !== '') {
+                $decoded = json_decode($rawOverride, true);
+                if (is_array($decoded)) {
+                    $overrides = array_values(array_filter(array_map('strval', $decoded)));
+                }
             }
         }
 

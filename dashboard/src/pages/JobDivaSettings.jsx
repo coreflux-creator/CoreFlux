@@ -60,7 +60,7 @@ export default function JobDivaSettings() {
     }
     setBusy(b => ({ ...b, repairWorkflow: true }));
     try {
-      const r = await api.post('/api/admin/integrations/jobdiva_mapping_alignment.php?action=repair_workflow', {});
+      const r = await api.post('/api/admin/integrations/jobdiva_mapping_alignment.php?action=repair_workflow', { limit: 5000 });
       const repair = r.repair || r;
       setRepairResult(repair);
       await loadAlignment();

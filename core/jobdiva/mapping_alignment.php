@@ -662,7 +662,7 @@ function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user, int $l
     return $summary;
 }
 
-function jobdivaMappingRepairCanonicalProjection(int $tenantId, ?int $userId = null, int $limit = 500): array
+function jobdivaMappingRepairCanonicalProjection(int $tenantId, ?int $userId = null, int $limit = 5000): array
 {
     $summary = [
         'checked' => 0,
@@ -723,9 +723,9 @@ function jobdivaMappingRepairCanonicalProjection(int $tenantId, ?int $userId = n
     return $summary;
 }
 
-function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 500): array
+function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5000): array
 {
-    $limit = max(1, min(1000, $limit));
+    $limit = max(1, min(5000, $limit));
     $userId = isset($user['id']) ? (int) $user['id'] : null;
     $startedAt = gmdate('c');
     $steps = [];
@@ -749,6 +749,7 @@ function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5
         $changed += (int) ($step['drafted'] ?? 0);
         $changed += (int) ($step['mapping_writes'] ?? 0);
         $changed += (int) ($step['field_map_writes'] ?? 0);
+        $changed += (int) ($step['projected'] ?? 0);
     }
 
     $after = jobdivaMappingAlignmentReport($tenantId, ['sample_limit' => 10]);
