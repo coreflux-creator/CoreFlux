@@ -14,7 +14,10 @@
 #   2. Mirrors dashboard/dist/spa-assets/* into the top-level spa-assets/
 #      directory so spa.php (which lives at /app/spa.php and serves the
 #      SPA shell) can find them at /spa-assets/...
-#   3. Patches the `expected_bundle:` block in /app/.deploy-version so the
+#   3. Copies the freshly-built HTML shell into both /index.html and
+#      /spa-assets/index.html so static hosting and diagnostics point at the
+#      same bundle that actually exists.
+#   4. Patches the `expected_bundle:` block in /app/.deploy-version so the
 #      sprint6b_dashboard_uis_smoke check sees the new hashes.
 #
 # All three are idempotent. Run it twice in a row and the second pass
@@ -68,7 +71,19 @@ if [ ! -f "$TOP_ASSETS/$NEW_CSS" ]; then
     exit 1
 fi
 
-# ── 3. Patch .deploy-version expected_bundle: block ─────────────────────
+# ── 3. Keep static HTML shells in lockstep with the bundle ───────────────
+#
+# The public root /index.html is a static Vite shell. If it is not rewritten
+# after every build, production can keep serving an old hashed JS filename
+# even though the new bundle was copied correctly. That is the exact failure
+# mode where pushes look successful but the browser shows no change.
+cp -f "$DIST_INDEX" "index.html"
+cp -f "$DIST_INDEX" "$TOP_ASSETS/index.html"
+
+echo "✓ index.html synced"
+echo "✓ spa-assets/index.html synced"
+
+# ── 4. Patch .deploy-version expected_bundle: block ─────────────────────
 if [ ! -f "$DEPLOY_VER" ]; then
     echo "ERROR: $DEPLOY_VER missing" >&2
     exit 1
@@ -101,7 +116,7 @@ echo "✓ spa-assets/ synced"
 echo "✓ .deploy-version expected_bundle: updated"
 echo "✓ dashboard/dist/index.html already points at new hashes (Vite wrote them)"
 
-# ── 4. Auto-bump service-worker CACHE_VERSION ────────────────────────────
+# ── 5. Auto-bump service-worker CACHE_VERSION ────────────────────────────
 #
 # Why: the SW uses cache-first for /spa-assets/*.js. When Vite produces
 # the same content-hash filename across two sessions (which happens when
@@ -131,4 +146,4 @@ done
 echo "✓ service-worker CACHE_VERSION → $NEW_SW_VERSION"
 
 echo ""
-echo "All four sync points are now consistent. Commit and push."
+echo "All sync points are now consistent. Commit and push."
