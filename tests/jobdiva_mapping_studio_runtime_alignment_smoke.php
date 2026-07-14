@@ -27,12 +27,13 @@ $payload = [
     '_jd_job' => [
         'title' => 'Service Desk Analyst',
         'jobID' => '27857851',
-        'COMPANYNAME' => 'TCS',
+        'companyName' => 'TCS',
     ],
     '_jd_start' => [
         'payRate' => '52.50',
         'finalBillRate' => '120.00',
         'BILLRATEMAX' => '125.00',
+        'agreedPayRate' => '64.00',
     ],
     '_jd_candidate' => [
         'firstName' => 'Andrew',
@@ -51,10 +52,16 @@ $a('assignment.payRate resolves from _jd_start.payRate',
     integrationPayloadResolvePath($payload, 'assignment.payRate') === '52.50');
 $a('assignment.BILLRATEMAX resolves from _jd_start.BILLRATEMAX',
     integrationPayloadResolvePath($payload, 'assignment.BILLRATEMAX') === '125.00');
+$a('assignment.final_bill_rate resolves from camelCase _jd_start.finalBillRate',
+    integrationPayloadResolvePath($payload, 'assignment.final_bill_rate') === '120.00');
+$a('assignment.agreed_pay_rate resolves from camelCase _jd_start.agreedPayRate',
+    integrationPayloadResolvePath($payload, 'assignment.agreed_pay_rate') === '64.00');
 $a('person.firstName resolves from _jd_candidate.firstName',
     integrationPayloadResolvePath($payload, 'person.firstName') === 'Andrew');
 $a('company.name resolves from _jd_customer.name',
     integrationPayloadResolvePath($payload, 'company.name') === 'SOIE');
+$a('job.COMPANYNAME resolves from camelCase _jd_job.companyName',
+    integrationPayloadResolvePath($payload, 'job.COMPANYNAME') === 'TCS');
 $a('legacy pluck resolves job.COMPANYNAME through the same alias contract',
     tenantIntegrationFieldMapPluckPath($payload, 'job.COMPANYNAME') === 'TCS');
 $a('legacy pluck resolves assignment.BILLRATEMAX through the same alias contract',
@@ -102,6 +109,15 @@ $a('placement_rates target writes sibling placement_rates row',
         'target_table' => 'placement_rates',
         'target_column' => 'bill_rate',
     ]) === 10);
+$fieldMapApplySrc = file_get_contents($root . '/core/integrations/field_map_apply.php');
+$a('placement_rates mappings can create a source-backed draft when no sibling row exists',
+    str_contains($fieldMapApplySrc, 'function integrationFieldMapInsertPlacementRateRow')
+    && str_contains($fieldMapApplySrc, "placement_rates@placement#")
+    && str_contains($fieldMapApplySrc, 'INSERT INTO placement_rates')
+    && str_contains($fieldMapApplySrc, 'placement_rates_missing_required'));
+$a('placement_rates draft creation requires real bill and pay source values',
+    str_contains($fieldMapApplySrc, 'bill_rate and pay_rate must both resolve to positive source values')
+    && !str_contains($fieldMapApplySrc, '$payRate = $billRate'));
 $a('placement_commissions recruiter target writes recruiter commission row',
     integrationFieldMapContextRowId($ctx, [
         'linked_entity' => 'placement_commission_recruiter',

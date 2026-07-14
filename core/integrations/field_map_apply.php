@@ -142,8 +142,24 @@ function integrationPayloadResolvePathStrict(array $payload, string $path): mixe
                 $cursor = $cursor[$i];
             }
         } else {
-            if (!is_array($cursor) || !array_key_exists($p, $cursor)) return null;
-            $cursor = $cursor[$p];
+            if (!is_array($cursor)) return null;
+            if (array_key_exists($p, $cursor)) {
+                $cursor = $cursor[$p];
+                continue;
+            }
+            $needle = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $p));
+            if ($needle === '') return null;
+            $matched = false;
+            foreach ($cursor as $k => $v) {
+                if (!is_string($k) && !is_int($k)) continue;
+                $key = strtolower((string) preg_replace('/[^a-z0-9]/i', '', (string) $k));
+                if ($key === $needle) {
+                    $cursor = $v;
+                    $matched = true;
+                    break;
+                }
+            }
+            if (!$matched) return null;
         }
     }
     if (is_array($cursor)) return null; // not a scalar leaf
@@ -415,6 +431,126 @@ function integrationFieldMapEnsurePlacementChainRow(
     } catch (\Throwable $e) {
         error_log('[field_map_apply] placement_client_chain ensure failed: ' . $e->getMessage());
         return 0;
+    }
+}
+
+function integrationFieldMapPlacementEffectiveFrom(int $tenantId, int $placementId): string
+{
+    if ($tenantId <= 0 || $placementId <= 0) return date('Y-m-d');
+    try {
+        $st = getDB()->prepare(
+            'SELECT start_date
+               FROM placements
+              WHERE tenant_id = :t AND id = :p
+              LIMIT 1'
+        );
+        $st->execute(['t' => $tenantId, 'p' => $placementId]);
+        $start = trim((string) $st->fetchColumn());
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $start)) return $start;
+    } catch (\Throwable $e) {
+        error_log('[field_map_apply] placement start_date lookup failed: ' . $e->getMessage());
+    }
+    return date('Y-m-d');
+}
+
+function integrationFieldMapRateUnitValue(mixed $raw, string $fallback = 'hour'): string
+{
+    $s = strtolower(trim((string) $raw));
+    if ($s === '' || $s === 'h' || str_contains($s, 'hour')) return 'hour';
+    if (str_contains($s, 'day')) return 'day';
+    if (str_contains($s, 'week')) return 'week';
+    if (str_contains($s, 'month')) return 'month';
+    if (str_contains($s, 'project') || str_contains($s, 'fixed')) return 'project';
+    return in_array($fallback, ['hour', 'day', 'week', 'month', 'project'], true) ? $fallback : 'hour';
+}
+
+function integrationFieldMapCurrencyValue(mixed $raw, string $fallback = 'USD'): string
+{
+    $s = strtoupper(trim((string) $raw));
+    if (preg_match('/\b([A-Z]{3})\b/', $s, $m)) return $m[1];
+    $s = substr($s, 0, 3);
+    if (strlen($s) === 3 && preg_match('/^[A-Z]{3}$/', $s)) return $s;
+    return preg_match('/^[A-Z]{3}$/', $fallback) ? $fallback : 'USD';
+}
+
+/**
+ * Create the sibling placement_rates row needed by mapping overrides.
+ *
+ * Unlike placements/companies, placement_rates has required economics.
+ * We only create a source-backed draft when BOTH bill_rate and pay_rate
+ * resolve to positive values. That prevents the bad zero-margin fallback
+ * where pay silently became bill just to satisfy NOT NULL constraints.
+ *
+ * @return array{id:int,error:string}
+ */
+function integrationFieldMapInsertPlacementRateRow(
+    int $tenantId,
+    int $placementId,
+    array $set
+): array {
+    $billRate = array_key_exists('bill_rate', $set) ? integrationFieldMapNumberValue($set['bill_rate']) : null;
+    $payRate  = array_key_exists('pay_rate', $set) ? integrationFieldMapNumberValue($set['pay_rate']) : null;
+    if ($billRate === null || $billRate <= 0 || $payRate === null || $payRate <= 0) {
+        return [
+            'id' => 0,
+            'error' => 'placement_rates_missing_required: bill_rate and pay_rate must both resolve to positive source values before creating a draft rate',
+        ];
+    }
+
+    $effectiveFrom = array_key_exists('effective_from', $set)
+        ? (integrationFieldMapDateValue($set['effective_from']) ?: '')
+        : '';
+    if ($effectiveFrom === '') {
+        $effectiveFrom = integrationFieldMapPlacementEffectiveFrom($tenantId, $placementId);
+    }
+    $effectiveTo = array_key_exists('effective_to', $set)
+        ? integrationFieldMapDateValue($set['effective_to'])
+        : null;
+
+    $billUnit = integrationFieldMapRateUnitValue($set['bill_rate_unit'] ?? 'hour');
+    $payUnit  = integrationFieldMapRateUnitValue($set['pay_rate_unit'] ?? $billUnit, $billUnit);
+    $currency = integrationFieldMapCurrencyValue($set['currency'] ?? 'USD');
+
+    $ot = array_key_exists('ot_multiplier', $set) ? integrationFieldMapNumberValue($set['ot_multiplier']) : null;
+    if ($ot === null || $ot <= 0) $ot = 1.50;
+    $dt = array_key_exists('dt_multiplier', $set) ? integrationFieldMapNumberValue($set['dt_multiplier']) : null;
+    if ($dt === null || $dt <= 0) $dt = 2.00;
+
+    $adder = array_key_exists('adder_pct', $set) ? integrationFieldMapPercentValue($set['adder_pct']) : null;
+    $backgroundFee = array_key_exists('background_fee_total', $set)
+        ? integrationFieldMapNumberValue($set['background_fee_total'])
+        : null;
+
+    try {
+        $pdo = getDB();
+        $pdo->prepare(
+            'INSERT INTO placement_rates
+                (tenant_id, placement_id, effective_from, effective_to,
+                 bill_rate, bill_rate_unit, pay_rate, pay_rate_unit, currency,
+                 ot_multiplier, dt_multiplier, adder_pct, background_fee_total)
+             VALUES
+                (:t, :p, :ef, :et,
+                 :br, :bru, :pr, :pru, :cur,
+                 :ot, :dt, :adder, :bg)'
+        )->execute([
+            't' => $tenantId,
+            'p' => $placementId,
+            'ef' => $effectiveFrom,
+            'et' => $effectiveTo,
+            'br' => $billRate,
+            'bru' => $billUnit,
+            'pr' => $payRate,
+            'pru' => $payUnit,
+            'cur' => $currency,
+            'ot' => $ot,
+            'dt' => $dt,
+            'adder' => $adder,
+            'bg' => $backgroundFee,
+        ]);
+        return ['id' => (int) $pdo->lastInsertId(), 'error' => ''];
+    } catch (\Throwable $e) {
+        error_log('[field_map_apply] placement_rates insert failed: ' . $e->getMessage());
+        return ['id' => 0, 'error' => 'placement_rates_insert_failed: ' . $e->getMessage()];
     }
 }
 
@@ -762,7 +898,7 @@ function integrationFieldMapApplyAll(
     // per row even when a single payload writes a dozen columns to
     // the same row. Halves write count on placements (which often
     // get 10+ mapped columns).
-    $bucket = []; // key: "tbl#id" → ['table' => ..., 'id' => ..., 'set' => [col=>val], 'cf' => [code=>val]]
+    $bucket = []; // key: "tbl#id" or "placement_rates@placement#id" => write bucket
 
     foreach ($maps as $m) {
         $summary['attempted']++;
@@ -808,10 +944,14 @@ function integrationFieldMapApplyAll(
         $colLower = strtolower($col);
 
         $rowId  = integrationFieldMapContextRowId($contextRowIds, $m, $tid);
+        $pendingPlacementRateFor = 0;
         if ($rowId <= 0 && $tableLower === 'placement_client_chain' && $colLower === 'party_name') {
             $rowId = integrationFieldMapEnsurePlacementChainRow($tid, $contextRowIds, $linked, $val);
         }
-        if ($rowId <= 0) {
+        if ($rowId <= 0 && $tableLower === 'placement_rates') {
+            $pendingPlacementRateFor = integrationFieldMapPlacementIdFromContext($contextRowIds);
+        }
+        if ($rowId <= 0 && $pendingPlacementRateFor <= 0) {
             $summary['skipped']++;
             $summary['errors'][] = "no_context_row for linked_entity={$linked} target={$m['target_table']}.{$m['target_column']} (mapping_id={$m['id']})";
             continue;
@@ -827,9 +967,17 @@ function integrationFieldMapApplyAll(
             $summary['errors'][] = "protected_target {$table}.{$col} (mapping_id={$m['id']})";
             continue;
         }
-        $key   = $table . '#' . $rowId;
+        $key = $pendingPlacementRateFor > 0
+            ? $table . '@placement#' . $pendingPlacementRateFor
+            : $table . '#' . $rowId;
         if (!isset($bucket[$key])) {
-            $bucket[$key] = ['table' => $table, 'id' => $rowId, 'set' => [], 'cf' => []];
+            $bucket[$key] = [
+                'table' => $table,
+                'id' => $rowId,
+                'placement_id' => $pendingPlacementRateFor,
+                'set' => [],
+                'cf' => [],
+            ];
         }
 
         if ($table === 'custom_field_values') {
@@ -845,6 +993,18 @@ function integrationFieldMapApplyAll(
     foreach ($bucket as $b) {
         if (!empty($b['set'])) {
             try {
+                $tableLower = strtolower((string) ($b['table'] ?? ''));
+                if ($tableLower === 'placement_rates' && (int) ($b['id'] ?? 0) <= 0) {
+                    $placementId = (int) ($b['placement_id'] ?? 0);
+                    $insert = integrationFieldMapInsertPlacementRateRow($tid, $placementId, $b['set']);
+                    if ((int) ($insert['id'] ?? 0) > 0) {
+                        $summary['written'] += count($b['set']);
+                    } else {
+                        $summary['skipped'] += count($b['set']);
+                        $summary['errors'][] = (string) ($insert['error'] ?? 'placement_rates_insert_failed');
+                    }
+                    continue;
+                }
                 $sets = [];
                 $params = ['id' => $b['id'], 't' => $tid];
                 foreach ($b['set'] as $c => $v) {

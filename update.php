@@ -72,8 +72,12 @@ function runUpdate(): array {
     //     immediately sees that Cloudways' git deploy hasn't run.
     $log['steps'][] = _deployVersionCheck($root);
 
-    // 2. Apply pending migrations
-    $log['steps'][] = ['name' => 'apply pending migrations', 'ok' => true, 'list' => runMigrationsInProcess()];
+    // 2. Apply pending migrations through the same runtime runner the app
+    // uses on requests. The older installer helper writes a separate
+    // coreflux_migrations ledger and can drift from the canonical
+    // _migrations ledger, which makes the update page misleading.
+    $migrationStep = corefluxUpdateRunRuntimeMigrations($root);
+    $log['steps'][] = $migrationStep;
 
     // 2b. Refresh SPA bundle mtimes so freshness check is deterministic.
     //     After `git pull`, source + bundle files all get "now" as their
@@ -273,6 +277,45 @@ function runUpdate(): array {
     }
 
     return $log;
+}
+
+function corefluxUpdateRunRuntimeMigrations(string $root): array
+{
+    require_once $root . '/core/migrate.php';
+
+    $status = coreflux_run_migrations(true);
+    $errors = array_values(array_filter(array_map('strval', $status['errors'] ?? [])));
+    $applied = array_values(array_map('strval', $status['applied_files'] ?? []));
+    $skipped = array_values(array_map('strval', $status['skipped_files'] ?? []));
+
+    $list = [[
+        'check' => 'canonical migration runner',
+        'ok' => empty($errors),
+        'detail' => sprintf(
+            'applied %d, already applied %d, errors %d',
+            count($applied),
+            count($skipped),
+            count($errors)
+        ),
+    ]];
+    foreach ($applied as $file) {
+        $list[] = ['file' => $file, 'status' => 'applied'];
+    }
+    foreach ($errors as $err) {
+        $file = $err;
+        $detail = 'failed';
+        if (preg_match('/^([^:]+):\s*(.*)$/', $err, $m)) {
+            $file = trim($m[1]);
+            $detail = 'failed: ' . trim($m[2]);
+        }
+        $list[] = ['file' => $file, 'status' => $detail];
+    }
+
+    return [
+        'name' => 'apply pending migrations',
+        'ok' => empty($errors),
+        'list' => $list,
+    ];
 }
 
 /**
