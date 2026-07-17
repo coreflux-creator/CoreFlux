@@ -56,7 +56,21 @@ foreach ([
     $a("schema includes {$field}", str_contains($import, "'{$field}'"));
 }
 
-echo "\n4. Commit writer targets the right graphs\n";
+echo "\n4. Import schema exposes commissions and C2C corp details\n";
+foreach ([
+    'recruiter_commission_pct',
+    'account_manager_commission_pct',
+    'lead_commission_pct',
+    'team_commission_pct',
+    'other_commission_pct',
+    'corp_legal_name',
+    'corp_contact_email',
+    'coi_expiry',
+] as $field) {
+    $a("schema includes {$field}", str_contains($import, "'{$field}'"));
+}
+
+echo "\n5. Commit writer targets the right graphs\n";
 $a('requires companies + staffing clients libs',
     str_contains($import, 'people/lib/companies.php')
     && str_contains($import, 'staffing/lib/clients.php'));
@@ -72,11 +86,20 @@ $a('chain importer writes placement_client_chain tiers',
     && str_contains($import, "'msp'")
     && str_contains($import, "'prime_vendor'")
     && str_contains($import, "'sub_vendor'"));
+$a('commission importer writes placement_commissions role rows',
+    str_contains($import, 'function placementsCsvUpsertCommissions')
+    && str_contains($import, 'placement_commissions')
+    && str_contains($import, "['recruiter', 'account_manager', 'lead', 'team', 'other']"));
+$a('corp importer writes encrypted C2C placement_corp_details row',
+    str_contains($import, 'function placementsCsvUpsertCorpDetails')
+    && str_contains($import, 'placement_corp_details')
+    && str_contains($import, 'encryptField($ein)')
+    && str_contains($import, 'last4($ein)'));
 $a('percentage helpers convert 22 or 22% to decimals',
     str_contains($import, 'function placementsCsvPercentToDecimal')
     && str_contains($import, 'abs($n) > 1'));
 
-echo "\n5. Export mirrors the widened import surface\n";
+echo "\n6. Export mirrors the widened import surface\n";
 foreach ([
     'placement_id',
     'person_id',
@@ -88,6 +111,11 @@ foreach ([
     'msp_name',
     'prime_vendor_name',
     'sub_vendor_name',
+    'recruiter_commission_pct',
+    'account_manager_commission_pct',
+    'corp_legal_name',
+    'corp_ein_last4',
+    'coi_expiry',
 ] as $field) {
     $a("export includes {$field}", str_contains($export, $field));
 }
@@ -99,8 +127,16 @@ $a('export reads placement_client_chain roles',
     && str_contains($export, 'party_role = \\\'msp\\\'')
     && str_contains($export, 'party_role = \\\'prime_vendor\\\'')
     && str_contains($export, 'party_role = \\\'sub_vendor\\\''));
+$a('export reads placement_commissions roles',
+    str_contains($export, 'placement_commissions')
+    && str_contains($export, "pc.role = \\\'recruiter\\\'")
+    && str_contains($export, "pc.role = \\\'account_manager\\\'"));
+$a('export joins placement_corp_details without exposing full EIN',
+    str_contains($export, 'LEFT JOIN placement_corp_details pcd')
+    && str_contains($export, 'pcd.corp_ein_last4')
+    && !str_contains($export, 'pcd.corp_ein_ct'));
 
-echo "\n6. PHP syntax\n";
+echo "\n7. PHP syntax\n";
 foreach ([
     "{$ROOT}/modules/placements/api/csv_import.php",
     "{$ROOT}/modules/placements/api/csv_export.php",

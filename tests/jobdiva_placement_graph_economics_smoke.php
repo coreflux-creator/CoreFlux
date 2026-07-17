@@ -16,6 +16,7 @@ $apply = (string) file_get_contents("{$ROOT}/core/integrations/field_map_apply.p
 $projector = (string) file_get_contents("{$ROOT}/core/jobdiva/projector.php");
 $migration = (string) file_get_contents("{$ROOT}/core/migrations/123_placement_chain_and_rate_writable_targets.sql");
 $commissionMigration = (string) file_get_contents("{$ROOT}/core/migrations/124_placement_commission_writable_targets.sql");
+$corpMigration = (string) file_get_contents("{$ROOT}/core/migrations/125_placement_corp_writable_targets.sql");
 $studio = (string) file_get_contents("{$ROOT}/dashboard/src/pages/FieldMappingStudio.jsx");
 
 $pass = 0; $fail = 0;
@@ -108,7 +109,25 @@ $a('Field Mapping Studio exposes commission linked-entity roles',
     && str_contains($studio, 'placement_commission_account_manager')
     && str_contains($studio, "table === 'placement_commissions'"));
 
-echo "\n5. PHP syntax\n";
+echo "\n5. C2C corp details are mappable through the placement graph\n";
+$a('field-map allow-list includes safe corp detail fields',
+    str_contains($fieldMap, "'corp_legal_name'")
+    && str_contains($fieldMap, "'corp_contact_email'")
+    && str_contains($fieldMap, "'coi_expiry'")
+    && !str_contains($fieldMap, "'corp_ein_ct'"));
+$a('writable-target migration exposes safe corp details only',
+    str_contains($corpMigration, "'placements', 'placement_corp_details', 'corp_legal_name'")
+    && str_contains($corpMigration, "'placement_corp_details'")
+    && !str_contains($corpMigration, 'corp_ein_ct'));
+$a('runtime has placement-keyed corp-details writer',
+    str_contains($apply, 'function integrationFieldMapWritePlacementCorpDetails')
+    && str_contains($apply, 'WHERE tenant_id = :t AND placement_id = :p')
+    && str_contains($apply, "strtolower((string) \$b['table']) === 'placement_corp_details'"));
+$a('Field Mapping Studio exposes corp-details linked entity',
+    str_contains($studio, 'placement_corp_details')
+    && str_contains($studio, "if (table === 'placement_corp_details') return 'placement_corp_details';"));
+
+echo "\n6. PHP syntax\n";
 foreach ([
     "{$ROOT}/core/jobdiva/sync.php",
     "{$ROOT}/core/integrations/field_map.php",

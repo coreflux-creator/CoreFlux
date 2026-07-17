@@ -16,6 +16,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../../../core/encryption.php';
 require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
 require_once __DIR__ . '/../../staffing/lib/clients.php';
@@ -85,6 +86,48 @@ CsvImportService::registerSchema('placements', [
         'sub_vendor_fee_flat' => ['label' => 'Sub-vendor fee flat', 'type' => 'number'],
         'sub_vendor_submittal_id' => ['label' => 'Sub-vendor submittal ID'],
         'sub_vendor_vms_job_id' => ['label' => 'Sub-vendor VMS job ID'],
+        'recruiter_commission_pct' => ['label' => 'Recruiter commission %', 'type' => 'number'],
+        'recruiter_commission_flat' => ['label' => 'Recruiter commission flat', 'type' => 'number'],
+        'recruiter_commission_basis' => ['label' => 'Recruiter commission basis', 'enum' => ['net_margin','gross_margin','bill_rate','flat']],
+        'recruiter_commission_effective_from' => ['label' => 'Recruiter commission effective from', 'type' => 'date'],
+        'recruiter_commission_effective_to' => ['label' => 'Recruiter commission effective to', 'type' => 'date'],
+        'recruiter_commission_notes' => ['label' => 'Recruiter commission notes'],
+        'account_manager_commission_pct' => ['label' => 'Account manager commission %', 'type' => 'number'],
+        'account_manager_commission_flat' => ['label' => 'Account manager commission flat', 'type' => 'number'],
+        'account_manager_commission_basis' => ['label' => 'Account manager commission basis', 'enum' => ['net_margin','gross_margin','bill_rate','flat']],
+        'account_manager_commission_effective_from' => ['label' => 'Account manager commission effective from', 'type' => 'date'],
+        'account_manager_commission_effective_to' => ['label' => 'Account manager commission effective to', 'type' => 'date'],
+        'account_manager_commission_notes' => ['label' => 'Account manager commission notes'],
+        'lead_commission_pct' => ['label' => 'Lead commission %', 'type' => 'number'],
+        'lead_commission_flat' => ['label' => 'Lead commission flat', 'type' => 'number'],
+        'lead_commission_basis' => ['label' => 'Lead commission basis', 'enum' => ['net_margin','gross_margin','bill_rate','flat']],
+        'lead_commission_effective_from' => ['label' => 'Lead commission effective from', 'type' => 'date'],
+        'lead_commission_effective_to' => ['label' => 'Lead commission effective to', 'type' => 'date'],
+        'lead_commission_notes' => ['label' => 'Lead commission notes'],
+        'team_commission_pct' => ['label' => 'Team commission %', 'type' => 'number'],
+        'team_commission_flat' => ['label' => 'Team commission flat', 'type' => 'number'],
+        'team_commission_basis' => ['label' => 'Team commission basis', 'enum' => ['net_margin','gross_margin','bill_rate','flat']],
+        'team_commission_effective_from' => ['label' => 'Team commission effective from', 'type' => 'date'],
+        'team_commission_effective_to' => ['label' => 'Team commission effective to', 'type' => 'date'],
+        'team_commission_notes' => ['label' => 'Team commission notes'],
+        'other_commission_pct' => ['label' => 'Other commission %', 'type' => 'number'],
+        'other_commission_flat' => ['label' => 'Other commission flat', 'type' => 'number'],
+        'other_commission_basis' => ['label' => 'Other commission basis', 'enum' => ['net_margin','gross_margin','bill_rate','flat']],
+        'other_commission_effective_from' => ['label' => 'Other commission effective from', 'type' => 'date'],
+        'other_commission_effective_to' => ['label' => 'Other commission effective to', 'type' => 'date'],
+        'other_commission_notes' => ['label' => 'Other commission notes'],
+        'corp_legal_name' => ['label' => 'C2C corp legal name'],
+        'corp_ein' => ['label' => 'C2C corp EIN'],
+        'corp_address_line1' => ['label' => 'C2C corp address line 1'],
+        'corp_address_line2' => ['label' => 'C2C corp address line 2'],
+        'corp_city' => ['label' => 'C2C corp city'],
+        'corp_state' => ['label' => 'C2C corp state'],
+        'corp_postal_code' => ['label' => 'C2C corp postal code'],
+        'corp_country' => ['label' => 'C2C corp country'],
+        'corp_contact_name' => ['label' => 'C2C corp contact name'],
+        'corp_contact_email' => ['label' => 'C2C corp contact email', 'type' => 'email'],
+        'corp_contact_phone' => ['label' => 'C2C corp contact phone'],
+        'coi_expiry' => ['label' => 'COI expiry', 'type' => 'date'],
         'external_id'       => ['label' => 'External ID'],
         'notes'             => ['label' => 'Notes'],
     ],
@@ -239,6 +282,142 @@ function placementsCsvUpsertChain(int $placementId, array $row, ?int $userId): v
             $userId
         );
     }
+}
+
+function placementsCsvNormaliseCommissionBasis(mixed $value): string
+{
+    $s = strtolower(trim((string) ($value ?? '')));
+    if ($s === '') return 'net_margin';
+    $s = str_replace(['-', '/', '\\'], ' ', $s);
+    $s = preg_replace('/\s+/', ' ', $s) ?: $s;
+    if (str_contains($s, 'gross')) return 'gross_margin';
+    if (str_contains($s, 'bill')) return 'bill_rate';
+    if (str_contains($s, 'flat') || str_contains($s, 'fixed')) return 'flat';
+    return 'net_margin';
+}
+
+function placementsCsvBuildCommissionPayload(string $role, array $row): ?array
+{
+    $prefix = $role . '_commission';
+    $split = placementsCsvPercentToDecimal($row[$prefix . '_pct'] ?? null);
+    $flat = ($row[$prefix . '_flat'] ?? '') !== '' ? (float) $row[$prefix . '_flat'] : null;
+    if ($split !== null && ($split <= 0 || $split > 1)) $split = null;
+    if ($flat !== null && $flat <= 0) $flat = null;
+    if ($split === null && $flat === null) return null;
+
+    $basis = placementsCsvNormaliseCommissionBasis($row[$prefix . '_basis'] ?? null);
+    if ($flat !== null && $split === null) $basis = 'flat';
+
+    return [
+        'role' => $role,
+        'split_pct' => $split,
+        'basis' => $basis,
+        'flat_amount' => $flat,
+        'effective_from' => $row[$prefix . '_effective_from'] ?? $row['start_date'],
+        'effective_to' => placementsCsvBlankToNull($row[$prefix . '_effective_to'] ?? null),
+        'notes' => placementsCsvBlankToNull($row[$prefix . '_notes'] ?? null),
+    ];
+}
+
+function placementsCsvUpsertCommissions(int $placementId, array $row, bool $updateExisting): void
+{
+    foreach (['recruiter', 'account_manager', 'lead', 'team', 'other'] as $role) {
+        $payload = placementsCsvBuildCommissionPayload($role, $row);
+        if ($payload === null) continue;
+        $effectiveFrom = (string) ($payload['effective_from'] ?? '');
+        if ($effectiveFrom === '') continue;
+
+        $existing = scopedFind(
+            'SELECT id FROM placement_commissions
+              WHERE tenant_id = :tenant_id
+                AND placement_id = :p
+                AND role = :role
+                AND effective_from = :ef
+              ORDER BY id ASC
+              LIMIT 1',
+            ['p' => $placementId, 'role' => $role, 'ef' => $effectiveFrom]
+        );
+        unset($payload['role']);
+        if ($updateExisting && $existing) {
+            scopedUpdate('placement_commissions', (int) $existing['id'], $payload);
+            continue;
+        }
+        $payload['placement_id'] = $placementId;
+        $payload['role'] = $role;
+        scopedInsert('placement_commissions', $payload);
+    }
+}
+
+function placementsCsvBuildCorpPayload(array $row): ?array
+{
+    $legal = trim((string) ($row['corp_legal_name'] ?? ''));
+    $hasCorpField = $legal !== '';
+    foreach ([
+        'corp_ein', 'corp_address_line1', 'corp_address_line2', 'corp_city', 'corp_state',
+        'corp_postal_code', 'corp_country', 'corp_contact_name', 'corp_contact_email',
+        'corp_contact_phone', 'coi_expiry',
+    ] as $field) {
+        if (trim((string) ($row[$field] ?? '')) !== '') {
+            $hasCorpField = true;
+            break;
+        }
+    }
+    if (!$hasCorpField) return null;
+    if ($legal === '') {
+        throw new \RuntimeException('corp_legal_name is required when importing C2C corp details');
+    }
+
+    $ein = trim((string) ($row['corp_ein'] ?? ''));
+    return [
+        'corp_legal_name' => $legal,
+        'corp_ein_ct' => $ein !== '' ? encryptField($ein) : null,
+        'corp_ein_last4' => $ein !== '' ? last4($ein) : null,
+        'corp_address_line1' => placementsCsvBlankToNull($row['corp_address_line1'] ?? null),
+        'corp_address_line2' => placementsCsvBlankToNull($row['corp_address_line2'] ?? null),
+        'corp_city' => placementsCsvBlankToNull($row['corp_city'] ?? null),
+        'corp_state' => placementsCsvBlankToNull($row['corp_state'] ?? null),
+        'corp_postal_code' => placementsCsvBlankToNull($row['corp_postal_code'] ?? null),
+        'corp_country' => placementsCsvBlankToNull($row['corp_country'] ?? null),
+        'corp_contact_name' => placementsCsvBlankToNull($row['corp_contact_name'] ?? null),
+        'corp_contact_email' => placementsCsvBlankToNull($row['corp_contact_email'] ?? null),
+        'corp_contact_phone' => placementsCsvBlankToNull($row['corp_contact_phone'] ?? null),
+        'coi_expiry' => placementsCsvBlankToNull($row['coi_expiry'] ?? null),
+    ];
+}
+
+function placementsCsvUpsertCorpDetails(int $placementId, array $row): void
+{
+    $payload = placementsCsvBuildCorpPayload($row);
+    if ($payload === null) return;
+    $payload['placement_id'] = $placementId;
+    $payload['tenant_id'] = currentTenantId();
+
+    $pdo = getDB();
+    $pdo->prepare(
+        'INSERT INTO placement_corp_details
+            (placement_id, tenant_id, corp_legal_name, corp_ein_ct, corp_ein_last4,
+             corp_address_line1, corp_address_line2, corp_city, corp_state, corp_postal_code,
+             corp_country, corp_contact_name, corp_contact_email, corp_contact_phone, coi_expiry)
+         VALUES
+            (:placement_id, :tenant_id, :corp_legal_name, :corp_ein_ct, :corp_ein_last4,
+             :corp_address_line1, :corp_address_line2, :corp_city, :corp_state, :corp_postal_code,
+             :corp_country, :corp_contact_name, :corp_contact_email, :corp_contact_phone, :coi_expiry)
+         ON DUPLICATE KEY UPDATE
+            corp_legal_name = VALUES(corp_legal_name),
+            corp_ein_ct = COALESCE(VALUES(corp_ein_ct), corp_ein_ct),
+            corp_ein_last4 = COALESCE(VALUES(corp_ein_last4), corp_ein_last4),
+            corp_address_line1 = VALUES(corp_address_line1),
+            corp_address_line2 = VALUES(corp_address_line2),
+            corp_city = VALUES(corp_city),
+            corp_state = VALUES(corp_state),
+            corp_postal_code = VALUES(corp_postal_code),
+            corp_country = VALUES(corp_country),
+            corp_contact_name = VALUES(corp_contact_name),
+            corp_contact_email = VALUES(corp_contact_email),
+            corp_contact_phone = VALUES(corp_contact_phone),
+            coi_expiry = VALUES(coi_expiry),
+            updated_at = NOW()'
+    )->execute($payload);
 }
 
 $ctx = api_require_auth();
@@ -624,6 +803,12 @@ if ($method === 'POST' && $action === 'commit') {
         placementsCsvUpsertChain($pid, array_merge($row, [
             'end_client_name' => $payload['end_client_name'] ?? ($row['end_client_name'] ?? null),
         ]), $user['id'] ?? null);
+
+        // Commission splits and C2C corp details are placement sibling
+        // records, not staffing-owned side data. Keep manual import in
+        // the same canonical graph the UI and JobDiva projector consume.
+        placementsCsvUpsertCommissions($pid, $row, (bool) $existing);
+        placementsCsvUpsertCorpDetails($pid, $row);
 
         return $pid;
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);

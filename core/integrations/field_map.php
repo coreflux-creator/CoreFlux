@@ -221,6 +221,14 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             //    role instead of forcing every split into one field.
             'split_pct', 'basis', 'flat_amount',
             'effective_from', 'effective_to',
+            // -- placement_corp_details table. Safe non-sensitive C2C
+            //    corp fields only; EIN and storage-object ids are
+            //    intentionally excluded from generic mapping.
+            'corp_legal_name',
+            'corp_address_line1', 'corp_address_line2',
+            'corp_city', 'corp_state', 'corp_postal_code', 'corp_country',
+            'corp_contact_name', 'corp_contact_email', 'corp_contact_phone',
+            'coi_expiry',
         ],
         'staffing_job' => [
             // -- staffing_jobs table (Job / Role / Opening context) --

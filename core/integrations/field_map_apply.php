@@ -308,6 +308,91 @@ function integrationFieldMapEnsurePlacementCommissionRow(
     }
 }
 
+function integrationFieldMapWritePlacementCorpDetails(int $tenantId, int $placementId, array $set): array
+{
+    $allowed = [
+        'corp_legal_name' => true,
+        'corp_address_line1' => true,
+        'corp_address_line2' => true,
+        'corp_city' => true,
+        'corp_state' => true,
+        'corp_postal_code' => true,
+        'corp_country' => true,
+        'corp_contact_name' => true,
+        'corp_contact_email' => true,
+        'corp_contact_phone' => true,
+        'coi_expiry' => true,
+    ];
+    $clean = [];
+    foreach ($set as $col => $value) {
+        $col = (string) $col;
+        if (!isset($allowed[$col])) continue;
+        $clean[$col] = $value;
+    }
+    if ($tenantId <= 0 || $placementId <= 0 || !$clean) {
+        return ['ok' => false, 'written' => 0, 'error' => 'no placement_corp_details values'];
+    }
+
+    try {
+        $pdo = getDB();
+        $exists = $pdo->prepare(
+            'SELECT placement_id
+               FROM placement_corp_details
+              WHERE tenant_id = :t AND placement_id = :p
+              LIMIT 1'
+        );
+        $exists->execute(['t' => $tenantId, 'p' => $placementId]);
+        $hasRow = (bool) $exists->fetchColumn();
+
+        if (!$hasRow && trim((string) ($clean['corp_legal_name'] ?? '')) === '') {
+            return [
+                'ok' => false,
+                'written' => 0,
+                'error' => 'placement_corp_details requires corp_legal_name before sibling fields can be written',
+            ];
+        }
+
+        if ($hasRow) {
+            $sets = [];
+            $params = ['t' => $tenantId, 'p' => $placementId];
+            foreach ($clean as $col => $value) {
+                $ph = 'v_' . preg_replace('/[^a-z0-9_]/i', '_', $col);
+                $sets[] = "`{$col}` = :{$ph}";
+                $params[$ph] = $value;
+            }
+            $pdo->prepare(
+                'UPDATE placement_corp_details
+                    SET ' . implode(', ', $sets) . '
+                  WHERE tenant_id = :t AND placement_id = :p'
+            )->execute($params);
+            return ['ok' => true, 'written' => count($clean), 'error' => ''];
+        }
+
+        $cols = ['placement_id', 'tenant_id'];
+        $placeholders = [':placement_id', ':tenant_id'];
+        $params = ['placement_id' => $placementId, 'tenant_id' => $tenantId];
+        foreach ($clean as $col => $value) {
+            $cols[] = "`{$col}`";
+            $placeholders[] = ':' . $col;
+            $params[$col] = $value;
+        }
+        $updates = [];
+        foreach (array_keys($clean) as $col) {
+            $updates[] = "`{$col}` = VALUES(`{$col}`)";
+        }
+        $pdo->prepare(
+            'INSERT INTO placement_corp_details
+                (' . implode(', ', $cols) . ')
+             VALUES
+                (' . implode(', ', $placeholders) . ')
+             ON DUPLICATE KEY UPDATE ' . implode(', ', $updates)
+        )->execute($params);
+        return ['ok' => true, 'written' => count($clean), 'error' => ''];
+    } catch (\Throwable $e) {
+        return ['ok' => false, 'written' => 0, 'error' => $e->getMessage()];
+    }
+}
+
 function integrationFieldMapChainRoleFromLinked(string $linkedEntity): string
 {
     $linked = strtolower(trim($linkedEntity));
@@ -837,7 +922,8 @@ function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
     if (str_ends_with($col, '_date')
         || in_array($col, ['effective_from', 'effective_to', 'opened_at', 'closed_at', 'hire_date', 'termination_date', 'work_auth_expiry'], true)
         || str_ends_with($col, '_signed_at')
-        || str_ends_with($col, '_expires_on')) {
+        || str_ends_with($col, '_expires_on')
+        || str_ends_with($col, '_expiry')) {
         return integrationFieldMapDateValue($val);
     }
     if (str_ends_with($col, '_pct') || in_array($col, ['split_pct', 'adder_pct', 'portal_fee_pct'], true)) {
@@ -1002,6 +1088,15 @@ function integrationFieldMapApplyAll(
                     } else {
                         $summary['skipped'] += count($b['set']);
                         $summary['errors'][] = (string) ($insert['error'] ?? 'placement_rates_insert_failed');
+                    }
+                    continue;
+                }
+                if ($tableLower === 'placement_corp_details') {
+                    $corpWrite = integrationFieldMapWritePlacementCorpDetails($tid, (int) $b['id'], $b['set']);
+                    if (!empty($corpWrite['ok'])) {
+                        $summary['written'] += (int) ($corpWrite['written'] ?? 0);
+                    } else {
+                        $summary['errors'][] = "write_fail {$b['table']}#{$b['id']}: " . (string) ($corpWrite['error'] ?? 'unknown error');
                     }
                     continue;
                 }

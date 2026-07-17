@@ -78,6 +78,7 @@ $ctx = [
     'end_client_company' => 30,
     'staffing_job' => 40,
     'placement_rates' => 10,
+    'placement_corp_details' => 10,
     'placement_commission_recruiter' => 60,
     'placement_commission_account_manager' => 61,
 ];
@@ -118,6 +119,13 @@ $a('placement_rates mappings can create a source-backed draft when no sibling ro
 $a('placement_rates draft creation requires real bill and pay source values',
     str_contains($fieldMapApplySrc, 'bill_rate and pay_rate must both resolve to positive source values')
     && !str_contains($fieldMapApplySrc, '$payRate = $billRate'));
+$a('placement_corp_details target writes placement-keyed corp sibling row',
+    integrationFieldMapContextRowId($ctx, [
+        'linked_entity' => 'self',
+        'target_module' => 'placements',
+        'target_table' => 'placement_corp_details',
+        'target_column' => 'corp_legal_name',
+    ]) === 10);
 $a('placement_commissions recruiter target writes recruiter commission row',
     integrationFieldMapContextRowId($ctx, [
         'linked_entity' => 'placement_commission_recruiter',
@@ -171,6 +179,8 @@ $a('placement -> companies default is end_client_company',
     tenantIntegrationFieldMapDefaultLinkedEntityForTarget('placement', 'companies', 'companies') === 'end_client_company');
 $a('placement -> placement_commissions default is recruiter commission row',
     tenantIntegrationFieldMapDefaultLinkedEntityForTarget('placement', 'placements', 'placement_commissions') === 'placement_commission_recruiter');
+$a('placement -> placement_corp_details default is placement corp details row',
+    tenantIntegrationFieldMapDefaultLinkedEntityForTarget('placement', 'placements', 'placement_corp_details') === 'placement_corp_details');
 $a('company -> companies remains self',
     tenantIntegrationFieldMapDefaultLinkedEntityForTarget('company', 'companies', 'companies') === 'self');
 $a('JobDiva native entity type canonicalizes before save',
@@ -188,7 +198,8 @@ $a('Studio infers linked entity from selected target table',
     str_contains($fms, 'function inferLinkedEntityForTarget')
     && str_contains($fms, "if (table === 'staffing_jobs') return et === 'staffing_job' ? 'self' : 'staffing_job';")
     && str_contains($fms, "if (table === 'companies') return et === 'company' ? 'self' : 'end_client_company';")
-    && str_contains($fms, "if (table === 'placement_commissions') return target?.default_linked_entity || 'placement_commission_recruiter';"));
+    && str_contains($fms, "if (table === 'placement_commissions') return target?.default_linked_entity || 'placement_commission_recruiter';")
+    && str_contains($fms, "if (table === 'placement_corp_details') return 'placement_corp_details';"));
 
 echo "\n==============================================\n";
 echo "JobDiva mapping alignment smoke: $pass OK / $fail FAIL\n";
