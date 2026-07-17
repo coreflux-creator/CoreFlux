@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/periods.php';
 
 $ctx  = api_require_auth();
@@ -31,7 +32,16 @@ $tenantId = (int) $ctx['tenant_id'];
 $pdo = getDB();
 if (!$pdo) api_error('No database connection', 500);
 
-$params = ['t' => $tenantId, 'from_' => $period['from'], 'to' => $period['to']];
+$peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
+$placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+$params = [
+    't' => $tenantId,
+    'people_tid' => $peopleTenantId,
+    'placements_tid' => $placementsTenantId,
+    'from_' => $period['from'],
+    'to' => $period['to'],
+];
+$timeParams = ['t' => $tenantId, 'from_' => $period['from'], 'to' => $period['to']];
 
 // Totals.
 $stmt = $pdo->prepare(
@@ -44,7 +54,7 @@ $stmt = $pdo->prepare(
      FROM v_timesheet_day_fin
      WHERE tenant_id = :t AND work_date BETWEEN :from_ AND :to"
 );
-$stmt->execute($params);
+$stmt->execute($timeParams);
 $tot = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 $totals = [
     'ot_hours'   => round((float) ($tot['ot_hours'] ?? 0), 2),
@@ -66,7 +76,7 @@ $stmt = $pdo->prepare(
      GROUP BY week_start
      ORDER BY week_start"
 );
-$stmt->execute($params);
+$stmt->execute($timeParams);
 $weekly = [];
 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
     $th = (float) $r['total_hours'];
@@ -86,7 +96,7 @@ $stmt = $pdo->prepare(
             COALESCE(SUM(v.hours), 0) AS total_hours,
             COALESCE(SUM(CASE WHEN v.is_overtime = 1 THEN v.hours ELSE 0 END), 0) AS ot_hours
      FROM v_timesheet_day_fin v
-     LEFT JOIN people pe ON pe.id = v.employee_id AND pe.tenant_id = v.tenant_id
+     LEFT JOIN people pe ON pe.id = v.employee_id AND pe.tenant_id = :people_tid
      WHERE v.tenant_id = :t AND v.work_date BETWEEN :from_ AND :to
      GROUP BY v.employee_id, worker_name
      HAVING total_hours > 0
@@ -113,7 +123,7 @@ $stmt = $pdo->prepare(
             COALESCE(SUM(CASE WHEN v.is_overtime = 1 THEN v.hours ELSE 0 END), 0) AS ot_hours,
             COALESCE(SUM(CASE WHEN v.is_overtime = 1 THEN v.gross_profit ELSE 0 END), 0) AS ot_margin
      FROM v_timesheet_day_fin v
-     LEFT JOIN placements pl ON pl.id = v.placement_id AND pl.tenant_id = v.tenant_id
+     LEFT JOIN placements pl ON pl.id = v.placement_id AND pl.tenant_id = :placements_tid
      WHERE v.tenant_id = :t AND v.work_date BETWEEN :from_ AND :to
      GROUP BY client
      HAVING ot_hours > 0

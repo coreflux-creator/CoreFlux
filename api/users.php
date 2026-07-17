@@ -20,6 +20,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
+require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/sub_tenants.php';
 require_once __DIR__ . '/../core/memberships.php';
 
@@ -314,9 +315,26 @@ if (($method === 'PATCH' || ($method === 'POST' && $action === 'password')) && $
         $pwd = (string) ($body['password'] ?? '');
         if (strlen($pwd) < 8) api_error('Password must be at least 8 characters', 422);
         $hash = password_hash($pwd, PASSWORD_DEFAULT);
+        $cols = authTableColumns($pdo, 'users');
+        $sets = [];
+        $bind = ['id' => $id];
+        if (in_array('password', $cols, true)) {
+            $sets[] = 'password = :pw_password';
+            $bind['pw_password'] = $hash;
+        }
+        if (in_array('password_hash', $cols, true)) {
+            $sets[] = 'password_hash = :pw_hash';
+            $bind['pw_hash'] = $hash;
+        }
+        if (!$sets) {
+            api_error('Password login is not enabled on this user schema', 422);
+        }
+        if (in_array('updated_at', $cols, true)) {
+            $sets[] = 'updated_at = NOW()';
+        }
         $pdo->prepare(
-            "UPDATE users SET password = :pw1, password_hash = :pw2, updated_at = NOW() WHERE id = :id"
-        )->execute(['pw1' => $hash, 'pw2' => $hash, 'id' => $id]);
+            'UPDATE users SET ' . implode(', ', $sets) . ' WHERE id = :id'
+        )->execute($bind);
         subTenantAudit(0, $activeTid ?? 0, $actorId, 'user.password_reset', ['user_id' => $id]);
         api_ok(['id' => $id]);
     }

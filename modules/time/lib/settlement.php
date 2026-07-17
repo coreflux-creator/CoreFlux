@@ -27,6 +27,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/time.php';
 
 const TIME_SETTLEMENT_TARGETS = ['billing','ap','payroll'];
 
@@ -55,8 +57,15 @@ function _settlementColumns(string $target): array
 function timeSettlementReady(string $target, array $filters = []): array
 {
     $cols = _settlementColumns($target);
+    timeRepairApprovedRateSnapshots((int) currentTenantId(), [
+        'placement_id' => $filters['placement_id'] ?? null,
+        'person_id' => $filters['person_id'] ?? null,
+        'from' => $filters['from'] ?? null,
+        'to' => $filters['to'] ?? null,
+    ], 5000);
     $where  = ["te.tenant_id = :tenant_id", "te.status = 'approved'", "te.{$cols['at']} IS NULL"];
     $params = ['tenant_id' => currentTenantId()];
+    $params['placements_tid'] = effectiveTenantIdForModule('placements', (int) currentTenantId()) ?? currentTenantId();
 
     if (!empty($filters['placement_id'])) {
         $where[] = 'te.placement_id = :placement_id';
@@ -100,7 +109,7 @@ function timeSettlementReady(string $target, array $filters = []): array
                    ps.frequency AS payroll_cycle_frequency,
                    COALESCE(pc.anchor_date_override, ps.period_start_anchor) AS payroll_cycle_anchor
             FROM time_entries te
-            LEFT JOIN placements p ON p.id = te.placement_id AND p.tenant_id = te.tenant_id
+            LEFT JOIN placements p ON p.id = te.placement_id AND p.tenant_id = :placements_tid
             LEFT JOIN payroll_pay_cycles bc ON bc.id = p.billing_cycle_id AND bc.tenant_id = p.tenant_id
             LEFT JOIN payroll_pay_schedules bs ON bs.id = bc.schedule_id AND bs.tenant_id = bc.tenant_id
             LEFT JOIN payroll_pay_cycles ac ON ac.id = p.ap_cycle_id AND ac.tenant_id = p.tenant_id
@@ -200,12 +209,13 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
     $tenantId = currentTenantId();
     $pdo = getDB();
     $place = implode(',', array_fill(0, count($entryIds), '?'));
+    timeRepairApprovedRateSnapshots((int) $tenantId, ['ids' => $entryIds], count($entryIds));
 
     $ownsTxn = cf_tx_begin($pdo);
     try {
         // Lock + validate the batch.
         $stmt = $pdo->prepare(
-            "SELECT id, status, {$cols['at']} AS already_at, {$cols['ref']} AS already_ref
+            "SELECT id, status, rate_snapshot_id, {$cols['at']} AS already_at, {$cols['ref']} AS already_ref
              FROM time_entries
              WHERE tenant_id = ? AND id IN ($place)
              FOR UPDATE"
@@ -218,6 +228,9 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
         foreach ($rows as $r) {
             if ($r['status'] !== 'approved') {
                 throw new TimeSettlementException("Entry #{$r['id']} status={$r['status']} (must be approved)");
+            }
+            if (empty($r['rate_snapshot_id'])) {
+                throw new TimeSettlementException("Entry #{$r['id']} is approved but has no locked rate snapshot");
             }
             if (!empty($r['already_at'])) {
                 throw new TimeSettlementException("Entry #{$r['id']} already extracted to $target (ref={$r['already_ref']})");

@@ -7,6 +7,7 @@
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 
 /**
  * Atomically allocate the next invoice number for a tenant.
@@ -80,17 +81,19 @@ function billingBuildDraftFromBundle(int $tenantId, int $periodId, array $placem
         $params[$k] = (int) $pid;
     }
 
+    $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
     $bundles = scopedQuery(
         'SELECT tdf.*, p.title AS placement_title, p.end_client_name,
                 p.bill_to_address_json, p.person_id, pe.first_name, pe.last_name
          FROM time_downstream_feed tdf
-         LEFT JOIN placements p ON p.id = tdf.placement_id AND p.tenant_id = tdf.tenant_id
-         LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
+         LEFT JOIN placements p ON p.id = tdf.placement_id AND p.tenant_id = :placements_tid
+         LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :people_tid
          WHERE tdf.tenant_id = :tenant_id
            AND tdf.period_id = :per
            AND tdf.bundle_type = "ar"
            AND tdf.placement_id IN (' . implode(',', $placeholders) . ')',
-        $params
+        array_merge($params, ['placements_tid' => $placementsTenantId, 'people_tid' => $peopleTenantId])
     );
     if (empty($bundles)) {
         throw new \RuntimeException('No AR bundles found for the given period+placements.');
@@ -195,9 +198,8 @@ function billingBuildDraftFromBundle(int $tenantId, int $periodId, array $placem
  * day-level granularity: "bill these specific approved entries", without
  * needing to wait for period-close bundle build.
  *
- * Each entry's bill rate is looked up via `placementCurrentRate()` for
- * its `work_date`.  Entries that are not approved-and-billable are
- * rejected.
+ * Each entry's bill rate is read from its locked `rate_snapshot_id`.
+ * Entries that are not approved-and-billable are rejected.
  *
  *   $aggregation = 'per_day'        → one invoice per (placement, work_date)
  *                = 'per_placement'  → one invoice per placement (lines per day)
@@ -220,6 +222,7 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
     if (count($ids) > 500) throw new \InvalidArgumentException('Too many time_entry_ids (max 500 per call)');
 
     require_once __DIR__ . '/../../placements/lib/placements.php';
+    require_once __DIR__ . '/../../time/lib/time.php';
 
     $pdo = getDB();
     $tenant = $pdo->prepare('SELECT billing_tax_rate_pct, billing_invoice_terms FROM tenants WHERE id = :id');
@@ -238,18 +241,21 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
         $placeholders[] = ':' . $k;
         $params[$k] = $id;
     }
+    timeRepairApprovedRateSnapshots($tenantId, ['ids' => $ids], count($ids));
+    $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
     $entries = scopedQuery(
-        'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.hour_type,
-                te.hours, te.billable, te.payable, te.status, te.description,
+        'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.category, te.hour_type,
+                te.hours, te.billable, te.payable, te.status, te.description, te.rate_snapshot_id,
                 p.title AS placement_title, p.end_client_name,
                 pe.first_name, pe.last_name
            FROM time_entries te
-      LEFT JOIN placements p  ON p.id = te.placement_id AND p.tenant_id = te.tenant_id
-      LEFT JOIN people     pe ON pe.id = te.person_id   AND pe.tenant_id = te.tenant_id
+      LEFT JOIN placements p  ON p.id = te.placement_id AND p.tenant_id = :placements_tid
+      LEFT JOIN people     pe ON pe.id = te.person_id   AND pe.tenant_id = :people_tid
           WHERE te.tenant_id = :tenant_id
             AND te.id IN (' . implode(',', $placeholders) . ')
           ORDER BY te.placement_id, te.work_date, te.id',
-        $params
+        array_merge($params, ['placements_tid' => $placementsTenantId, 'people_tid' => $peopleTenantId])
     );
     if (empty($entries)) throw new \RuntimeException('No matching time_entries found');
 
@@ -269,24 +275,26 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
     }
     if (empty($billable)) throw new \RuntimeException('Selected entries have no billable hours');
 
-    // Resolve rate for each entry (cached per placement+date).
-    $rateCache = [];
+    // Approved time must price from its locked approval snapshot, not from
+    // whatever placement rate happens to be current when billing runs.
+    $ratesById = timeRateSnapshotsById(array_column($billable, 'rate_snapshot_id'), $tenantId);
     foreach ($billable as &$e) {
-        $key = $e['placement_id'] . ':' . $e['work_date'];
-        if (!isset($rateCache[$key])) {
-            $rateCache[$key] = placementCurrentRate((int) $e['placement_id'], (string) $e['work_date']);
+        $rateId = (int) ($e['rate_snapshot_id'] ?? 0);
+        $rate = $rateId > 0 ? ($ratesById[$rateId] ?? null) : null;
+        if (!$rate || empty($rate['id'])) {
+            throw new \RuntimeException(
+                "Entry #{$e['id']} is approved but has no locked bill-rate snapshot. Repair approved time snapshots first."
+            );
         }
-        $rate = $rateCache[$key];
-        $base = (float) ($rate['bill_rate'] ?? 0);
-        $ot   = (float) ($rate['ot_multiplier'] ?? 1.5);
-        $dt   = (float) ($rate['dt_multiplier'] ?? 2.0);
-        $mult = match ((string) $e['hour_type']) {
-            'overtime'   => $ot,
-            'doubletime' => $dt,
-            default      => 1.0,
-        };
+        $base = (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0);
+        if ($base <= 0) {
+            throw new \RuntimeException(
+                "Placement #{$e['placement_id']} approved rate #{$rate['id']} has no positive bill_rate."
+            );
+        }
+        $mult = timeRateCategoryMultiplier($rate, (string) ($e['hour_type'] ?: ($e['category'] ?? '')));
         $e['_bill_rate']       = round($base * $mult, 4);
-        $e['_rate_snapshot_id']= $rate['id'] ?? null;
+        $e['_rate_snapshot_id']= (int) $rate['id'];
     }
     unset($e);
 
@@ -423,15 +431,19 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
 function billingSuggestInvoiceForPlacement(int $tenantId, int $placementId, ?int $userId = null): array
 {
     require_once __DIR__ . '/../../placements/lib/placements.php';
+    require_once __DIR__ . '/../../time/lib/time.php';
     $pdo = getDB();
 
     // Resolve the placement (and quietly fail if it doesn't exist or
     // belongs to a different tenant).
-    $pl = scopedFind(
+    $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
+    $plStmt = $pdo->prepare(
         'SELECT id, title, end_client_name, person_id, engagement_type
-           FROM placements WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
-        ['id' => $placementId]
+           FROM placements WHERE tenant_id = :tenant_id AND id = :id LIMIT 1'
     );
+    $plStmt->execute(['tenant_id' => $placementsTenantId, 'id' => $placementId]);
+    $pl = $plStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     if (!$pl) throw new \RuntimeException('Placement not found');
 
     // Look up the last invoice for this placement (via any line that
@@ -458,36 +470,38 @@ function billingSuggestInvoiceForPlacement(int $tenantId, int $placementId, ?int
     ];
     $params = ['pid' => $placementId];
     if ($cutoff) { $where[] = 'te.work_date > :cutoff'; $params['cutoff'] = $cutoff; }
+    timeRepairApprovedRateSnapshots($tenantId, ['placement_id' => $placementId], 5000);
     $entries = scopedQuery(
-        'SELECT te.id, te.work_date, te.hour_type, te.hours, te.person_id, te.description,
+        'SELECT te.id, te.work_date, te.category, te.hour_type, te.hours, te.person_id, te.description, te.rate_snapshot_id,
                 p.first_name, p.last_name
            FROM time_entries te
-      LEFT JOIN people p ON p.id = te.person_id AND p.tenant_id = te.tenant_id
+      LEFT JOIN people p ON p.id = te.person_id AND p.tenant_id = :people_tid
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY te.work_date ASC, te.id ASC
           LIMIT 500',
-        $params
+        array_merge($params, ['people_tid' => $peopleTenantId])
     );
 
-    // Compute previews using placementCurrentRate per (placement, work_date).
-    $rateCache = [];
+    // Preview from the same locked snapshots invoice creation will use.
+    $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'), $tenantId);
     $totalHours = 0.0; $estSubtotal = 0.0;
     $workersSeen = [];
     $minDate = null; $maxDate = null;
     foreach ($entries as $e) {
-        $key = $placementId . ':' . $e['work_date'];
-        if (!isset($rateCache[$key])) {
-            $rateCache[$key] = placementCurrentRate($placementId, (string) $e['work_date']);
+        $rateId = (int) ($e['rate_snapshot_id'] ?? 0);
+        $rate = $rateId > 0 ? ($ratesById[$rateId] ?? null) : null;
+        if (!$rate || empty($rate['id'])) {
+            throw new \RuntimeException(
+                "Entry #{$e['id']} is approved but has no locked bill-rate snapshot. Repair approved time snapshots first."
+            );
         }
-        $rate = $rateCache[$key];
-        $base = (float) ($rate['bill_rate'] ?? 0);
-        $ot   = (float) ($rate['ot_multiplier'] ?? 1.5);
-        $dt   = (float) ($rate['dt_multiplier'] ?? 2.0);
-        $mult = match ((string) $e['hour_type']) {
-            'overtime'   => $ot,
-            'doubletime' => $dt,
-            default      => 1.0,
-        };
+        $base = (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0);
+        if ($base <= 0) {
+            throw new \RuntimeException(
+                "Placement #{$placementId} approved rate #{$rate['id']} has no positive bill_rate."
+            );
+        }
+        $mult = timeRateCategoryMultiplier($rate, (string) ($e['hour_type'] ?: ($e['category'] ?? '')));
         $billRate = round($base * $mult, 4);
         $hours    = (float) $e['hours'];
         $totalHours += $hours;

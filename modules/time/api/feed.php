@@ -7,6 +7,7 @@
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/time.php';
 
 $ctx = api_require_auth();
@@ -18,12 +19,13 @@ if ($method === 'GET') {
     rbac_legacy_require($user, 'time.view');
     $where  = ['tdf.tenant_id = :tenant_id', 'tdf.status = "ready"'];
     $params = [];
+    $params['placements_tid'] = effectiveTenantIdForModule('placements', (int) ($ctx['tenant_id'] ?? currentTenantId())) ?? currentTenantId();
     if (!empty($_GET['bundle_type'])) { $where[] = 'tdf.bundle_type = :bt'; $params['bt'] = $_GET['bundle_type']; }
     if (!empty($_GET['period_id']))   { $where[] = 'tdf.period_id = :pid';  $params['pid'] = (int) $_GET['period_id']; }
     $rows = scopedQuery(
         'SELECT tdf.*, p.title AS placement_title, p.end_client_name
          FROM time_downstream_feed tdf
-         LEFT JOIN placements p ON p.id = tdf.placement_id AND p.tenant_id = tdf.tenant_id
+         LEFT JOIN placements p ON p.id = tdf.placement_id AND p.tenant_id = :placements_tid
          WHERE ' . implode(' AND ', $where) . '
          ORDER BY tdf.created_at DESC LIMIT 500',
         $params

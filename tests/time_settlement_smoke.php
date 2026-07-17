@@ -52,6 +52,10 @@ $a('PERIOD CLOSE NOT REFERENCED (period.status NEVER queried)',
     !preg_match('/time_periods.*\.status|tp\.status|p\.status\s*=\s*[\'"]closed/', $lib));
 $a('only allows status=approved on extract',
     $c($lib, "\$r['status'] !== 'approved'"));
+$a('extract refuses approved rows without locked snapshots',
+    $c($lib, "is approved but has no locked rate snapshot"));
+$a('extract repairs legacy approved rows before validating',
+    $c($lib, 'timeRepairApprovedRateSnapshots((int) $tenantId, [\'ids\' => $entryIds]'));
 $a('idempotent guard: refuses if already extracted',
     $c($lib, 'already extracted to'));
 $a('FOR UPDATE row lock on extract',         $c($lib, 'FOR UPDATE'));
@@ -152,11 +156,21 @@ $a('payroll: skipped[] for missing payroll_profile/cycle',
                                                   $c($cr, "'no_payroll_profile_or_cycle'"));
 $a('payroll: skipped[] when no open period',      $c($cr, "'no_open_period_in_cycle'"));
 $a('groups entries by placement_id',              $c($cr, '$byPlacement[(int) $e[\'placement_id\']]'));
-$a('looks up placement_rates with effective dates',$c($cr, 'effective_from <= :d') && $c($cr, 'superseded_by IS NULL'));
-$a('OT multiplier applied for OT_billable',        $c($cr, "OT_billable") && $c($cr, 'ot_multiplier'));
+$a('auto-create repairs legacy approved rows first',
+                                                  $c($cr, 'timeRepairApprovedRateSnapshots((int) $tenantId'));
+$a('auto-create loads locked rate snapshots by id',$c($cr, 'timeRateSnapshotsById(array_column($entries, \'rate_snapshot_id\')'));
+$a('auto-create refuses approved rows without snapshots',
+                                                  $c($cr, 'is approved but has no locked rate snapshot'));
+$a('billing uses adjusted bill rate',              $c($cr, "\$rate['adjusted_bill_rate'] ?? \$rate['bill_rate']"));
+$a('AP uses pay rate, not margin/net snapshot',    $c($cr, "\$rate['pay_rate'] ?? 0")
+                                                  && !$c($cr, "\$rate['net_to_vendor'] ?? \$rate['pay_rate']"));
+$a('OT/DT multiplier delegated to shared helper',  $c($cr, 'timeRateCategoryMultiplier($rate'));
 $a('billing creates draft AR invoice + per-day lines',
-    $c($cr, "scopedInsert('billing_invoices'") && $c($cr, "INSERT INTO billing_invoice_lines"));
-$a('AP creates pending_approval bill',             $c($cr, "scopedInsert('ap_bills'") && $c($cr, "'status'         => 'pending_approval'"));
+    $c($cr, "scopedInsert('billing_invoices'") && $c($cr, "INSERT INTO billing_invoice_lines")
+    && $c($cr, 'rate_snapshot_id, description'));
+$a('AP creates pending_approval bill + per-day lines',
+    $c($cr, "scopedInsert('ap_bills'") && $c($cr, "'status'         => 'pending_approval'")
+    && $c($cr, "INSERT INTO ap_bill_lines"));
 $a('atomic: begin/commit/rollBack',                ($c($cr, '$pdo->beginTransaction()') || $c($cr, 'cf_tx_begin($pdo)')) && ($c($cr, '$pdo->commit()') || $c($cr, 'cf_tx_commit(')) && ($c($cr, '$pdo->rollBack()') || $c($cr, 'cf_tx_rollback(')));
 $a('only allows status=approved entries',          $c($cr, "\$e['status'] !== 'approved'"));
 $a('refuses already-extracted entries',            $c($cr, 'already extracted to'));

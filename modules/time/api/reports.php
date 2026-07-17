@@ -7,6 +7,7 @@
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/time.php';
 
 $ctx = api_require_auth();
@@ -17,6 +18,9 @@ rbac_legacy_require($user, 'time.view');
 $type = $_GET['type'] ?? '';
 $periodId = (int) ($_GET['period_id'] ?? 0);
 if ($periodId <= 0) api_error('period_id required', 400);
+$tenantId = (int) ($ctx['tenant_id'] ?? currentTenantId());
+$placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+$peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
 
 if ($type === 'by_placement') {
     $rows = scopedQuery(
@@ -28,11 +32,11 @@ if ($type === 'by_placement') {
                 SUM(te.hours) AS total,
                 COUNT(*) AS entry_count
          FROM time_entries te
-         LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+         LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
          WHERE te.tenant_id = :tenant_id AND te.period_id = :pid AND te.status != "superseded"
          GROUP BY te.placement_id
          ORDER BY billable DESC',
-        ['pid' => $periodId]
+        ['pid' => $periodId, 'placements_tid' => $placementsTenantId]
     );
     api_ok(['rows' => $rows]);
 }
@@ -45,11 +49,11 @@ if ($type === 'by_person') {
                 SUM(CASE WHEN te.category IN ("holiday","vacation","sick","bereavement") THEN te.hours ELSE 0 END) AS pto,
                 SUM(te.hours) AS total
          FROM time_entries te
-         LEFT JOIN people pe ON pe.id = te.person_id AND pe.tenant_id = te.tenant_id
+         LEFT JOIN people pe ON pe.id = te.person_id AND pe.tenant_id = :people_tid
          WHERE te.tenant_id = :tenant_id AND te.period_id = :pid AND te.status != "superseded"
          GROUP BY te.person_id
          ORDER BY billable DESC',
-        ['pid' => $periodId]
+        ['pid' => $periodId, 'people_tid' => $peopleTenantId]
     );
     api_ok(['rows' => $rows]);
 }

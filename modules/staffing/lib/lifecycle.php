@@ -33,6 +33,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 
 /**
  * Full lifecycle cascade for a single timesheet.
@@ -40,14 +41,16 @@ require_once __DIR__ . '/../../../core/tenant_scope.php';
 function staffingTimesheetLifecycle(int $tenantId, int $timesheetId): array
 {
     $pdo = getDB();
+    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
+    $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
 
     // 1. Timesheet header + entries.
     $ts = scopedFind(
         'SELECT t.*, p.first_name, p.last_name, p.email_primary
            FROM staffing_timesheets t
-      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = :people_tid
           WHERE t.tenant_id = :tenant_id AND t.id = :id LIMIT 1',
-        ['id' => $timesheetId]
+        ['id' => $timesheetId, 'people_tid' => $peopleTenantId]
     );
     if (!$ts) throw new \RuntimeException("timesheet {$timesheetId} not found");
 
@@ -57,12 +60,12 @@ function staffingTimesheetLifecycle(int $tenantId, int $timesheetId): array
                 pl.title AS placement_title,
                 COALESCE(pl.end_client_name, '') AS client_name
            FROM time_entries te
-      LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+      LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
           WHERE te.tenant_id = :tenant_id
             AND te.timesheet_id = :tid
             AND te.status != 'superseded'
           ORDER BY te.work_date, te.placement_id, te.id",
-        ['tid' => $timesheetId]
+        ['tid' => $timesheetId, 'placements_tid' => $placementsTenantId]
     );
     $entryIds = array_map(static fn ($e) => (int) $e['id'], $entries);
 

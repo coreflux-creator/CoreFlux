@@ -41,9 +41,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/RBAC.php';
+require_once __DIR__ . '/../../core/sub_tenants.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
+$peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
+$placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
 rbac_legacy_require($ctx['user'], 'payroll.run.create');
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
@@ -83,6 +86,9 @@ $emps = scopedQuery(
              e.legal_last_name  AS last_name,
              e.preferred_name   AS preferred_name,
              e.employee_number  AS employee_number,
+             e.user_id          AS employee_user_id,
+             e.work_email       AS work_email,
+             e.personal_email   AS personal_email,
              e.ssn_cipher       AS ssn_cipher,
              e.date_of_birth    AS date_of_birth,
              e.hire_date        AS hire_date,
@@ -196,23 +202,69 @@ foreach ($emps as $e) {
     }
 
     // Active placement with approved rate covering this period ───────
-    $placement = scopedFind(
-        "SELECT pl.id AS placement_id, pl.status,
+    $personIds = [$empId]; // legacy fallback for older tenants where ids matched.
+    try {
+        $personWhere = [];
+        $personParams = ['people_tid' => $peopleTenantId];
+        if (!empty($e['employee_user_id'])) {
+            $personWhere[] = 'user_id = :employee_user_id';
+            $personParams['employee_user_id'] = (int) $e['employee_user_id'];
+        }
+        $emails = array_values(array_unique(array_filter([
+            strtolower(trim((string) ($e['work_email'] ?? ''))),
+            strtolower(trim((string) ($e['personal_email'] ?? ''))),
+        ])));
+        foreach ($emails as $idx => $email) {
+            $key = 'email' . $idx;
+            $personWhere[] = "LOWER(email_primary) = :{$key}";
+            $personParams[$key] = $email;
+        }
+        if ($personWhere) {
+            $personStmt = $pdo->prepare(
+                'SELECT id FROM people
+                  WHERE tenant_id = :people_tid
+                    AND deleted_at IS NULL
+                    AND (' . implode(' OR ', $personWhere) . ')'
+            );
+            $personStmt->execute($personParams);
+            foreach ($personStmt->fetchAll(PDO::FETCH_ASSOC) as $pRow) {
+                $personIds[] = (int) $pRow['id'];
+            }
+        }
+    } catch (\Throwable $_) { /* keep legacy fallback */ }
+    $personIds = array_values(array_unique(array_filter($personIds, static fn($id) => $id > 0)));
+    $ph = [];
+    $placementParams = [
+        'placements_tid' => $placementsTenantId,
+        'pe' => $periodEnd,
+        'ps' => (string) $period['period_start'],
+    ];
+    foreach ($personIds as $idx => $pid) {
+        $key = 'person_' . $idx;
+        $ph[] = ':' . $key;
+        $placementParams[$key] = $pid;
+    }
+    $placement = null;
+    if ($ph) {
+        $placementStmt = $pdo->prepare(
+            "SELECT pl.id AS placement_id, pl.status,
                 pr.pay_rate, pr.pay_rate_unit, pr.approved_at,
                 pr.effective_from, pr.effective_to
            FROM placements pl
            LEFT JOIN placement_rates pr ON pr.placement_id = pl.id
-                                       AND pr.tenant_id = pl.tenant_id
+                                       AND pr.tenant_id = :placements_tid
                                        AND pr.approved_at IS NOT NULL
                                        AND pr.effective_from <= :pe
                                        AND (pr.effective_to IS NULL OR pr.effective_to >= :ps)
-          WHERE pl.tenant_id = :tenant_id
-            AND pl.person_id = :eid
+          WHERE pl.tenant_id = :placements_tid
+            AND pl.person_id IN (" . implode(',', $ph) . ")
             AND pl.status IN ('active','pending_start')
           ORDER BY pl.id DESC, pr.effective_from DESC
-          LIMIT 1",
-        ['eid' => $empId, 'pe' => $periodEnd, 'ps' => (string) $period['period_start']]
-    );
+          LIMIT 1"
+        );
+        $placementStmt->execute($placementParams);
+        $placement = $placementStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
     if (!$placement) {
         $blockers[] = [
             'id' => 'placement', 'label' => 'Active placement covering ' . $period['period_start'] . ' → ' . $periodEnd,

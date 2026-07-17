@@ -11,6 +11,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/db.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../../time/lib/time.php';
 
 const STAFFING_HOUR_TYPES = [
     'regular','overtime','doubletime','holiday','pto','sick','bereavement','unpaid','nonbillable',
@@ -41,6 +43,28 @@ function staffingSettings(): array {
     ];
 }
 
+function staffingPeopleTenantId(?int $tenantId = null): ?int
+{
+    $tenantId = $tenantId ?? currentTenantId();
+    if (!$tenantId) return null;
+    try {
+        return effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
+    } catch (\Throwable $_) {
+        return $tenantId;
+    }
+}
+
+function staffingPlacementsTenantId(?int $tenantId = null): ?int
+{
+    $tenantId = $tenantId ?? currentTenantId();
+    if (!$tenantId) return null;
+    try {
+        return effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+    } catch (\Throwable $_) {
+        return $tenantId;
+    }
+}
+
 /** Get-or-create the timesheet header for (person, week). */
 function staffingTimesheetUpsert(int $personId, string $periodStart, string $periodEnd): array {
     $existing = scopedFind(
@@ -69,13 +93,13 @@ function staffingTimesheetWeek(int $personId, string $periodStart, string $perio
                 p.title AS placement_title,
                 COALESCE(p.end_client_name, '') AS client_name
            FROM time_entries te
-           LEFT JOIN placements p ON p.id = te.placement_id AND p.tenant_id = te.tenant_id
+           LEFT JOIN placements p ON p.id = te.placement_id AND p.tenant_id = :placements_tid
           WHERE te.tenant_id = :tenant_id
             AND te.person_id = :pid
             AND te.work_date BETWEEN :ps AND :pe
             AND te.status != 'superseded'
           ORDER BY te.placement_id, te.work_date, te.id",
-        ['pid' => $personId, 'ps' => $periodStart, 'pe' => $periodEnd]
+        ['pid' => $personId, 'ps' => $periodStart, 'pe' => $periodEnd, 'placements_tid' => staffingPlacementsTenantId()]
     );
 
     return [
@@ -347,6 +371,26 @@ function staffingTimesheetApprove(int $userId, int $personId, string $periodStar
     $pdo = getDB();
     $ownsTxn = cf_tx_begin($pdo);
     try {
+        $pendingEntries = scopedQuery(
+            'SELECT id, placement_id, work_date
+               FROM time_entries
+              WHERE tenant_id = :tenant_id
+                AND timesheet_id = :tid
+                AND status = "pending_review"
+              ORDER BY work_date, id',
+            ['tid' => $headerId]
+        );
+        $snapshots = [];
+        foreach ($pendingEntries as $entry) {
+            $snap = timeResolveRateSnapshot((int) $entry['placement_id'], (string) $entry['work_date']);
+            if (!$snap || empty($snap['id'])) {
+                throw new \RuntimeException(
+                    "Entry #{$entry['id']} has no approved rate covering {$entry['work_date']} for placement #{$entry['placement_id']}."
+                );
+            }
+            $snapshots[(int) $entry['id']] = (int) $snap['id'];
+        }
+
         scopedUpdate('staffing_timesheets', $headerId, [
             'status'              => 'approved',
             'approved_at'         => date('Y-m-d H:i:s'),
@@ -354,10 +398,19 @@ function staffingTimesheetApprove(int $userId, int $personId, string $periodStar
         ]);
         $upd = $pdo->prepare(
             "UPDATE time_entries
-                SET status = 'approved', approved_at = NOW(), approved_by_user_id = :u, approved_via = 'manual'
-              WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
+                SET status = 'approved',
+                    rate_snapshot_id = :rid,
+                    approved_at = NOW(),
+                    approved_by_user_id = :u,
+                    approved_via = 'manual'
+              WHERE tenant_id = :t
+                AND timesheet_id = :tid
+                AND id = :id
+                AND status = 'pending_review'"
         );
-        $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'u' => $userId]);
+        foreach ($snapshots as $entryId => $rateId) {
+            $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'id' => $entryId, 'rid' => $rateId, 'u' => $userId]);
+        }
         cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
         cf_tx_rollback($pdo, $ownsTxn);
@@ -391,12 +444,12 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): voi
                     SUM(te.hours * COALESCE(pr.pay_rate,  0))        AS cost
                FROM staffing_timesheets t
                JOIN time_entries te ON te.timesheet_id = t.id AND te.tenant_id = t.tenant_id AND te.status != 'superseded'
-               LEFT JOIN placements pl     ON pl.id = te.placement_id AND pl.tenant_id = t.tenant_id
+               LEFT JOIN placements pl     ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
                LEFT JOIN placement_rates pr ON pr.id = te.rate_snapshot_id
               WHERE t.tenant_id = :t AND t.id = :id
               GROUP BY t.id, engagement_type"
         );
-        $stmt->execute(['t' => $tenantId, 'id' => $headerId]);
+        $stmt->execute(['t' => $tenantId, 'id' => $headerId, 'placements_tid' => staffingPlacementsTenantId($tenantId)]);
         $groups = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         if (!$groups) return;
 
@@ -638,4 +691,3 @@ function staffingTimeEntryDelete(int $userId, int $entryId): array {
     scopedUpdate('staffing_timesheets', $tsId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
     return ['deleted' => $entryId, 'timesheet_id' => $tsId];
 }
-

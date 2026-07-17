@@ -5,11 +5,14 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/jobs.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
 $tenantId = (int) ($ctx['tenant_id'] ?? currentTenantId());
+$placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+$peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
 $actorUserId = isset($user['id']) ? (int) $user['id'] : null;
 $method = api_method();
 $action = $_GET['action'] ?? 'list';
@@ -67,15 +70,15 @@ if ($method === 'GET' && $action === 'list') {
               FROM staffing_jobs sj
          LEFT JOIN staffing_clients c ON c.id = sj.client_id AND c.tenant_id = sj.tenant_id
          LEFT JOIN (
-                   SELECT tenant_id, staffing_job_id, COUNT(*) AS placement_count
+                   SELECT staffing_job_id, COUNT(*) AS placement_count
                      FROM placements
-                    WHERE staffing_job_id IS NOT NULL
-                    GROUP BY tenant_id, staffing_job_id
-              ) p ON p.tenant_id = sj.tenant_id AND p.staffing_job_id = sj.id
+                    WHERE tenant_id = :placements_tid AND staffing_job_id IS NOT NULL
+                    GROUP BY staffing_job_id
+              ) p ON p.staffing_job_id = sj.id
              WHERE ' . implode(' AND ', $where) . '
           ORDER BY ' . $orderSql . '
              LIMIT ' . $limit;
-    api_ok(['rows' => scopedQuery($sql, $params)]);
+    api_ok(['rows' => scopedQuery($sql, array_merge($params, ['placements_tid' => $placementsTenantId]))]);
 }
 
 if ($method === 'GET' && $action === 'get') {
@@ -90,17 +93,18 @@ if ($method === 'GET' && $action === 'get') {
         ['id' => $id]
     );
     if (!$job) api_error('Not found', 404);
-    $placements = scopedQuery(
+    $stmt = getDB()->prepare(
         'SELECT p.id, p.title, p.status, p.start_date, p.end_date,
                 pe.first_name, pe.last_name, pe.email_primary
            FROM placements p
-      LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
-          WHERE p.tenant_id = :tenant_id
+      LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :people_tid
+          WHERE p.tenant_id = :placements_tid
             AND p.staffing_job_id = :id
             AND p.deleted_at IS NULL
-       ORDER BY p.start_date DESC, p.id DESC',
-        ['id' => $id]
+       ORDER BY p.start_date DESC, p.id DESC'
     );
+    $stmt->execute(['id' => $id, 'placements_tid' => $placementsTenantId, 'people_tid' => $peopleTenantId]);
+    $placements = $stmt->fetchAll(PDO::FETCH_ASSOC);
     api_ok(['job' => $job, 'placements' => $placements]);
 }
 

@@ -19,6 +19,17 @@ const TIME_NONBILLABLE_CATS = ['regular_nonbillable','OT_nonbillable'];
 const TIME_PTO_CATS         = ['holiday','vacation','sick','bereavement'];
 const TIME_UNPAID_CATS      = ['unpaid_leave'];
 
+function timePlacementGraphTenantId(?int $tenantId = null): ?int
+{
+    $tenantId = $tenantId ?? currentTenantId();
+    if (!$tenantId) return null;
+    try {
+        return effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+    } catch (\Throwable $_) {
+        return $tenantId;
+    }
+}
+
 /**
  * Resolve the tenant's bundle-correction grace window in days.
  * Spec re-audit reversal: post-consume bundle supersession is
@@ -109,18 +120,219 @@ function timeEntriesList(array $filters = []): array
 }
 
 /** Return the approved placement_rates row that covers $workDate, or null. */
-function timeResolveRateSnapshot(int $placementId, string $workDate): ?array
+function timeResolveRateSnapshot(int $placementId, string $workDate, ?int $tenantId = null): ?array
 {
-    return scopedFind(
+    $tenantId = timePlacementGraphTenantId($tenantId);
+    $pdo = getDB();
+    if (!$pdo || !$tenantId) return null;
+    $stmt = $pdo->prepare(
         'SELECT id, bill_rate, pay_rate, bill_rate_unit, pay_rate_unit, currency, ot_multiplier, dt_multiplier
          FROM placement_rates
          WHERE tenant_id = :tenant_id AND placement_id = :pid
            AND approved_at IS NOT NULL
-           AND effective_from <= :wd
-           AND (effective_to IS NULL OR effective_to >= :wd)
-         ORDER BY effective_from DESC LIMIT 1',
-        ['pid' => $placementId, 'wd' => $workDate]
+           AND effective_from <= :wd_from
+           AND (effective_to IS NULL OR effective_to >= :wd_to)
+         ORDER BY effective_from DESC LIMIT 1'
     );
+    $stmt->execute([
+        'tenant_id' => $tenantId,
+        'pid'       => $placementId,
+        'wd_from'   => $workDate,
+        'wd_to'     => $workDate,
+    ]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+/**
+ * Backfill legacy approved entries that predate the snapshot-at-approval gate.
+ * This is intentionally conservative: it only fills NULL rate_snapshot_id on
+ * rows already approved, and only when an approved placement rate covered the
+ * entry work_date.
+ *
+ * @param array{ids?:int[], period_id?:int, placement_id?:int, person_id?:int, from?:string, to?:string} $filters
+ * @return array{checked:int,repaired:int,missing:int,failed:int,failures:array<int,string>}
+ */
+function timeRepairApprovedRateSnapshots(?int $tenantId = null, array $filters = [], int $limit = 1000): array
+{
+    $tenantId = $tenantId ?? currentTenantId();
+    $pdo = getDB();
+    if (!$pdo || !$tenantId) {
+        return ['checked' => 0, 'repaired' => 0, 'missing' => 0, 'failed' => 0, 'failures' => []];
+    }
+
+    $where = [
+        'tenant_id = :tenant_id',
+        "status IN ('approved','locked','billing_ready','payroll_ready')",
+        'rate_snapshot_id IS NULL',
+        'placement_id IS NOT NULL',
+        'work_date IS NOT NULL',
+    ];
+    $params = ['tenant_id' => $tenantId];
+
+    if (!empty($filters['period_id'])) {
+        $where[] = 'period_id = :period_id';
+        $params['period_id'] = (int) $filters['period_id'];
+    }
+    if (!empty($filters['placement_id'])) {
+        $where[] = 'placement_id = :placement_id';
+        $params['placement_id'] = (int) $filters['placement_id'];
+    }
+    if (!empty($filters['person_id'])) {
+        $where[] = 'person_id = :person_id';
+        $params['person_id'] = (int) $filters['person_id'];
+    }
+    if (!empty($filters['from'])) {
+        $where[] = 'work_date >= :from';
+        $params['from'] = (string) $filters['from'];
+    }
+    if (!empty($filters['to'])) {
+        $where[] = 'work_date <= :to';
+        $params['to'] = (string) $filters['to'];
+    }
+    $ids = array_values(array_unique(array_filter(array_map('intval', $filters['ids'] ?? []))));
+    if ($ids) {
+        $idPlaceholders = [];
+        foreach ($ids as $idx => $id) {
+            $key = 'id_' . $idx;
+            $idPlaceholders[] = ':' . $key;
+            $params[$key] = $id;
+        }
+        $where[] = 'id IN (' . implode(',', $idPlaceholders) . ')';
+    }
+
+    $limit = max(1, min(5000, $limit));
+    $stmt = $pdo->prepare(
+        'SELECT id, placement_id, work_date
+           FROM time_entries
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY work_date, id
+          LIMIT ' . (int) $limit
+    );
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+    $out = ['checked' => count($rows), 'repaired' => 0, 'missing' => 0, 'failed' => 0, 'failures' => []];
+    if (!$rows) return $out;
+
+    $upd = $pdo->prepare(
+        "UPDATE time_entries
+            SET rate_snapshot_id = :rate_snapshot_id
+          WHERE tenant_id = :tenant_id
+            AND id = :id
+            AND status IN ('approved','locked','billing_ready','payroll_ready')
+            AND rate_snapshot_id IS NULL"
+    );
+    foreach ($rows as $row) {
+        try {
+            $snap = timeResolveRateSnapshot((int) $row['placement_id'], (string) $row['work_date'], $tenantId);
+            if (!$snap || empty($snap['id'])) {
+                $out['missing']++;
+                continue;
+            }
+            $upd->execute([
+                'rate_snapshot_id' => (int) $snap['id'],
+                'tenant_id' => $tenantId,
+                'id' => (int) $row['id'],
+            ]);
+            if ($upd->rowCount() > 0) $out['repaired']++;
+        } catch (\Throwable $e) {
+            $out['failed']++;
+            if (count($out['failures']) < 5) {
+                $out['failures'][] = "Entry #{$row['id']}: " . $e->getMessage();
+            }
+        }
+    }
+    return $out;
+}
+
+function timeRateSnapshotsById(array $rateIds, ?int $tenantId = null): array
+{
+    $rateIds = array_values(array_unique(array_filter(array_map('intval', $rateIds))));
+    if (!$rateIds) return [];
+
+    $tenantId = timePlacementGraphTenantId($tenantId);
+    $pdo = getDB();
+    if (!$pdo || !$tenantId) return [];
+
+    $params = ['tenant_id' => $tenantId];
+    $placeholders = [];
+    foreach ($rateIds as $idx => $id) {
+        $key = 'rate_' . $idx;
+        $placeholders[] = ':' . $key;
+        $params[$key] = $id;
+    }
+    $stmt = $pdo->prepare(
+        'SELECT *
+           FROM placement_rates
+          WHERE tenant_id = :tenant_id
+            AND approved_at IS NOT NULL
+            AND id IN (' . implode(',', $placeholders) . ')'
+    );
+    $stmt->execute($params);
+    $rows = [];
+    foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        $rows[(int) $row['id']] = $row;
+    }
+    return $rows;
+}
+
+function timeRateCategoryMultiplier(array $rate, string $category): float
+{
+    $category = strtolower(trim($category));
+    if ($category === 'doubletime' || $category === 'dt' || str_contains($category, 'double')) {
+        return (float) ($rate['dt_multiplier'] ?? 2.0);
+    }
+    if ($category === 'overtime' || $category === 'ot' || str_contains($category, 'ot_') || str_contains($category, 'overtime')) {
+        return (float) ($rate['ot_multiplier'] ?? 1.5);
+    }
+    return 1.0;
+}
+
+/**
+ * Calculate bundle totals from each entry's locked rate snapshot.
+ *
+ * @return array{totals:array<string,float>,amount_bill:float,amount_pay:float,rate_ids:int[],primary_rate_id:?int,missing_rate_entry_ids:int[]}
+ */
+function timeEntrySnapshotFinancialTotals(array $entries, array $ratesById): array
+{
+    $totals = ['billable' => 0.0, 'nonbillable' => 0.0, 'pto' => 0.0, 'unpaid' => 0.0, 'custom' => 0.0];
+    $amountBill = 0.0;
+    $amountPay = 0.0;
+    $rateIds = [];
+    $missing = [];
+
+    foreach ($entries as $entry) {
+        $hours = (float) ($entry['hours'] ?? 0);
+        $category = (string) ($entry['category'] ?? $entry['hour_type'] ?? 'regular_billable');
+        $bucket = timeBucket($category);
+        $totals[$bucket] = ($totals[$bucket] ?? 0.0) + $hours;
+
+        if ($bucket !== 'billable') continue;
+
+        $rateId = (int) ($entry['rate_snapshot_id'] ?? 0);
+        $rate = $rateId > 0 ? ($ratesById[$rateId] ?? null) : null;
+        if (!$rate) {
+            $missing[] = (int) ($entry['id'] ?? 0);
+            continue;
+        }
+        $rateIds[] = $rateId;
+        $multiplier = timeRateCategoryMultiplier($rate, $category);
+        $billBase = (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0);
+        $payBase = (float) ($rate['pay_rate'] ?? 0);
+        $amountBill += $billBase * $multiplier * $hours;
+        $amountPay += $payBase * $multiplier * $hours;
+    }
+
+    $rateIds = array_values(array_unique(array_filter($rateIds)));
+    return [
+        'totals' => $totals,
+        'amount_bill' => $amountBill,
+        'amount_pay' => $amountPay,
+        'rate_ids' => $rateIds,
+        'primary_rate_id' => $rateIds[0] ?? null,
+        'missing_rate_entry_ids' => array_values(array_unique(array_filter($missing))),
+    ];
 }
 
 /** Bucket for totals aggregation. */
@@ -145,6 +357,8 @@ function timeBuildBundlesForPeriod(int $periodId): array
     $period = scopedFind('SELECT * FROM time_periods WHERE tenant_id = :tenant_id AND id = :id', ['id' => $periodId]);
     if (!$period) throw new \RuntimeException("Period {$periodId} not found");
 
+    timeRepairApprovedRateSnapshots(currentTenantId(), ['period_id' => $periodId], 5000);
+
     $entries = scopedQuery(
         'SELECT * FROM time_entries
          WHERE tenant_id = :tenant_id AND period_id = :pid AND status = "approved"
@@ -160,30 +374,29 @@ function timeBuildBundlesForPeriod(int $periodId): array
 
     $built = [];
     $pdo = getDB();
+    $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'));
     foreach ($byPlacement as $placementId => $group) {
-        // Resolve a representative rate_snapshot_id (should be stable across entries in period)
-        $rateIds = array_unique(array_filter(array_column($group, 'rate_snapshot_id')));
-        $rateId = $rateIds ? (int) reset($rateIds) : null;
-        $rate = $rateId ? scopedFind('SELECT bill_rate, pay_rate FROM placement_rates WHERE tenant_id = :tenant_id AND id = :id', ['id' => $rateId]) : null;
-        $bill = $rate ? (float) $rate['bill_rate'] : 0.0;
-        $pay  = $rate ? (float) $rate['pay_rate'] : 0.0;
-
-        $totals = ['billable' => 0.0, 'nonbillable' => 0.0, 'pto' => 0.0, 'unpaid' => 0.0];
+        $calc = timeEntrySnapshotFinancialTotals($group, $ratesById);
+        if ($calc['missing_rate_entry_ids']) {
+            throw new \RuntimeException(
+                'Approved entries are missing locked rate snapshots: ' . implode(', ', $calc['missing_rate_entry_ids'])
+            );
+        }
+        $totals = $calc['totals'];
         $entryIds = [];
         foreach ($group as $e) {
-            $totals[timeBucket($e['category'])] += (float) $e['hours'];
             $entryIds[] = (int) $e['id'];
         }
 
         foreach (['ar','ap','payroll','revrec'] as $bundleType) {
             $payload = [
-                'entries_json'           => json_encode(['entry_ids' => $entryIds, 'totals' => $totals]),
-                'rate_snapshot_id'       => $rateId,
+                'entries_json'           => json_encode(['entry_ids' => $entryIds, 'totals' => $totals, 'rate_ids' => $calc['rate_ids']]),
+                'rate_snapshot_id'       => $calc['primary_rate_id'],
                 'total_hours_billable'   => round($totals['billable'], 2),
                 'total_hours_nonbillable'=> round($totals['nonbillable'], 2),
                 'total_hours_pto'        => round($totals['pto'], 2),
-                'total_amount_bill'      => round($bill * $totals['billable'], 2),
-                'total_amount_pay'       => round($pay  * $totals['billable'], 2),
+                'total_amount_bill'      => round($calc['amount_bill'], 2),
+                'total_amount_pay'       => round($calc['amount_pay'], 2),
             ];
 
             // Find existing bundle
@@ -293,6 +506,8 @@ function timePreviewBundlesForPeriod(int $periodId): array
     $period = scopedFind('SELECT * FROM time_periods WHERE tenant_id = :tenant_id AND id = :id', ['id' => $periodId]);
     if (!$period) throw new \RuntimeException("Period {$periodId} not found");
 
+    timeRepairApprovedRateSnapshots(currentTenantId(), ['period_id' => $periodId], 5000);
+
     // Blockers + informational counts
     $statusCounts = scopedQuery(
         'SELECT status, COUNT(*) AS c FROM time_entries
@@ -318,16 +533,11 @@ function timePreviewBundlesForPeriod(int $periodId): array
     $bundles = [];
     $sum = ['placements' => 0, 'bundles' => 0, 'hours_billable' => 0.0, 'hours_pto' => 0.0, 'amount_bill' => 0.0, 'amount_pay' => 0.0];
 
+    $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'));
     foreach ($byPlacement as $placementId => $group) {
         $sum['placements']++;
-        $rateIds = array_unique(array_filter(array_column($group, 'rate_snapshot_id')));
-        $rateId  = $rateIds ? (int) reset($rateIds) : null;
-        $rate    = $rateId ? scopedFind('SELECT bill_rate, pay_rate FROM placement_rates WHERE tenant_id = :tenant_id AND id = :id', ['id' => $rateId]) : null;
-        $bill    = $rate ? (float) $rate['bill_rate'] : 0.0;
-        $pay     = $rate ? (float) $rate['pay_rate'] : 0.0;
-
-        $totals = ['billable' => 0.0, 'nonbillable' => 0.0, 'pto' => 0.0, 'unpaid' => 0.0];
-        foreach ($group as $e) { $totals[timeBucket($e['category'])] += (float) $e['hours']; }
+        $calc = timeEntrySnapshotFinancialTotals($group, $ratesById);
+        $totals = $calc['totals'];
 
         $title  = $group[0]['placement_title']  ?? null;
         $client = $group[0]['end_client_name']  ?? null;
@@ -349,16 +559,17 @@ function timePreviewBundlesForPeriod(int $periodId): array
                 'total_hours_billable'          => round($totals['billable'], 2),
                 'total_hours_nonbillable'       => round($totals['nonbillable'], 2),
                 'total_hours_pto'               => round($totals['pto'], 2),
-                'total_amount_bill'             => round($bill * $totals['billable'], 2),
-                'total_amount_pay'              => round($pay  * $totals['billable'], 2),
+                'total_amount_bill'             => round($calc['amount_bill'], 2),
+                'total_amount_pay'              => round($calc['amount_pay'], 2),
+                'missing_rate_entry_ids'        => $calc['missing_rate_entry_ids'],
                 'supersedes_existing_bundle_id' => $supersedes,
             ];
             $sum['bundles']++;
         }
         $sum['hours_billable'] += $totals['billable'];
         $sum['hours_pto']      += $totals['pto'];
-        $sum['amount_bill']    += $bill * $totals['billable'];
-        $sum['amount_pay']     += $pay  * $totals['billable'];
+        $sum['amount_bill']    += $calc['amount_bill'];
+        $sum['amount_pay']     += $calc['amount_pay'];
     }
 
     return [

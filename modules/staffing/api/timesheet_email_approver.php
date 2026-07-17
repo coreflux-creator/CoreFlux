@@ -15,6 +15,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../../core/staffing_email_approval.php';
 require_once __DIR__ . '/../lib/timesheets.php';
 
@@ -33,6 +34,7 @@ if ($approverEmail === '' || !filter_var($approverEmail, FILTER_VALIDATE_EMAIL))
 }
 
 $tenantId = currentTenantId();
+$peopleTenantId = effectiveTenantIdForModule('people', (int) $tenantId) ?? $tenantId;
 $pdo      = getDB();
 
 // Load header + verify it's submitted (only submitted timesheets can be
@@ -41,10 +43,10 @@ $h = $pdo->prepare(
     "SELECT t.*,
             COALESCE(NULLIF(CONCAT_WS(' ', p.first_name, p.last_name), ' '), p.email_primary) AS worker_name
        FROM staffing_timesheets t
-       LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+       LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = :people_tid
       WHERE t.tenant_id = :t AND t.id = :id LIMIT 1"
 );
-$h->execute(['t' => $tenantId, 'id' => $tsId]);
+$h->execute(['t' => $tenantId, 'id' => $tsId, 'people_tid' => $peopleTenantId]);
 $header = $h->fetch(\PDO::FETCH_ASSOC);
 if (!$header) api_error('Timesheet not found', 404);
 if (($header['status'] ?? '') !== 'submitted') {

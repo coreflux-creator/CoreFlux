@@ -255,8 +255,8 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
  *                = 'per_placement'  → one bill per placement
  *                = 'per_vendor'     → one bill per vendor (1099 / corp)
  *
- * Pay-rate is looked up via placementCurrentRate(); OT/DT multipliers
- * apply to the entry's hour_type. Returns the same shape as
+ * Pay-rate is read from each entry's locked rate_snapshot_id; OT/DT
+ * multipliers apply to the entry's hour_type. Returns the same shape as
  * apBuildDraftFromBundle() with `bundle_ids: []` and an extra
  * `entry_ids` array for the audit trail.
  */
@@ -271,6 +271,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
     if (count($ids) > 500) throw new \InvalidArgumentException('Too many time_entry_ids (max 500 per call)');
 
     require_once __DIR__ . '/../../placements/lib/placements.php';
+    require_once __DIR__ . '/../../time/lib/time.php';
 
     $pdo = getDB();
     $tenant = $pdo->prepare('SELECT ap_default_terms FROM tenants WHERE id = :id');
@@ -287,20 +288,23 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
         $placeholders[] = ':' . $k;
         $params[$k] = $id;
     }
+    timeRepairApprovedRateSnapshots($tenantId, ['ids' => $ids], count($ids));
+    $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
     $entries = scopedQuery(
-        'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.hour_type,
-                te.hours, te.billable, te.payable, te.status, te.description,
+        'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.category, te.hour_type,
+                te.hours, te.billable, te.payable, te.status, te.description, te.rate_snapshot_id,
                 p.title AS placement_title, p.engagement_type,
                 pcd.corp_name,
                 pe.first_name, pe.last_name
            FROM time_entries te
-      LEFT JOIN placements p   ON p.id = te.placement_id AND p.tenant_id = te.tenant_id
+      LEFT JOIN placements p   ON p.id = te.placement_id AND p.tenant_id = :placements_tid
       LEFT JOIN placement_corp_details pcd ON pcd.placement_id = p.id
-      LEFT JOIN people pe ON pe.id = te.person_id AND pe.tenant_id = te.tenant_id
+      LEFT JOIN people pe ON pe.id = te.person_id AND pe.tenant_id = :people_tid
           WHERE te.tenant_id = :tenant_id
             AND te.id IN (' . implode(',', $placeholders) . ')
           ORDER BY te.placement_id, te.work_date, te.id',
-        $params
+        array_merge($params, ['placements_tid' => $placementsTenantId, 'people_tid' => $peopleTenantId])
     );
     if (empty($entries)) throw new \RuntimeException('No matching time_entries found');
 
@@ -317,24 +321,26 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
     }
     if (empty($payable)) throw new \RuntimeException('Selected entries have no payable hours');
 
-    // Resolve rate per (placement, work_date), cached.
-    $rateCache = [];
+    // Approved time must pay from its locked approval snapshot, not from
+    // a later placement-rate correction.
+    $ratesById = timeRateSnapshotsById(array_column($payable, 'rate_snapshot_id'), $tenantId);
     foreach ($payable as &$e) {
-        $key = $e['placement_id'] . ':' . $e['work_date'];
-        if (!isset($rateCache[$key])) {
-            $rateCache[$key] = placementCurrentRate((int) $e['placement_id'], (string) $e['work_date']);
+        $rateId = (int) ($e['rate_snapshot_id'] ?? 0);
+        $rate = $rateId > 0 ? ($ratesById[$rateId] ?? null) : null;
+        if (!$rate || empty($rate['id'])) {
+            throw new \RuntimeException(
+                "Entry #{$e['id']} is approved but has no locked pay-rate snapshot. Repair approved time snapshots first."
+            );
         }
-        $rate = $rateCache[$key];
         $base = (float) ($rate['pay_rate'] ?? 0);
-        $ot   = (float) ($rate['ot_multiplier'] ?? 1.5);
-        $dt   = (float) ($rate['dt_multiplier'] ?? 2.0);
-        $mult = match ((string) $e['hour_type']) {
-            'overtime'   => $ot,
-            'doubletime' => $dt,
-            default      => 1.0,
-        };
+        if ($base <= 0) {
+            throw new \RuntimeException(
+                "Placement #{$e['placement_id']} approved rate #{$rate['id']} has no positive pay_rate."
+            );
+        }
+        $mult = timeRateCategoryMultiplier($rate, (string) ($e['hour_type'] ?: ($e['category'] ?? '')));
         $e['_pay_rate']         = round($base * $mult, 4);
-        $e['_rate_snapshot_id'] = $rate['id'] ?? null;
+        $e['_rate_snapshot_id'] = (int) $rate['id'];
         $engType    = strtolower((string) ($e['engagement_type'] ?? ''));
         $e['_is_corp']    = ($engType === 'c2c' || !empty($e['corp_name']));
         $e['_vendor_name']= $e['_is_corp']

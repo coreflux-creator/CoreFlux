@@ -18,10 +18,14 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 
 $ctx    = api_require_auth();
 $method = api_method();
 if ($method !== 'GET') api_error('Method not allowed', 405);
+$tenantId = (int) ($ctx['tenant_id'] ?? currentTenantId());
+$placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+$peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
 
 $weeks = max(1, min(52, (int) ($_GET['weeks'] ?? 12)));
 $pe    = isset($_GET['period_end'])   ? (string) $_GET['period_end']
@@ -37,14 +41,14 @@ try {
             SUM(te.hours)                              AS hours,
             SUM(te.hours * COALESCE(pr.pay_rate, 0))   AS cost
            FROM time_entries te
-           LEFT JOIN placements pl     ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+           LEFT JOIN placements pl     ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
            LEFT JOIN placement_rates pr ON pr.id = te.rate_snapshot_id
           WHERE te.tenant_id = :tenant_id
             AND te.work_date BETWEEN :ps AND :pe
             AND te.status != 'superseded'
           GROUP BY week_start, engagement_type
           ORDER BY week_start ASC",
-        ['ps' => $ps, 'pe' => $pe]
+        ['ps' => $ps, 'pe' => $pe, 'placements_tid' => $placementsTenantId]
     );
 } catch (\Throwable $e) {
     api_ok(['weeks' => [], 'classification_changes' => [], 'note' => 'No data: ' . $e->getMessage()]);
@@ -82,21 +86,27 @@ foreach ($rows as $r) {
 // Flags potential W2↔1099 reclassification triggers.
 $changes = [];
 try {
-    $changes = scopedQuery(
+    $stmt = getDB()->prepare(
         "SELECT pl.person_id AS person_id,
                 CONCAT(COALESCE(p.first_name,''), ' ', COALESCE(p.last_name,'')) AS name,
                 GROUP_CONCAT(DISTINCT pl.engagement_type ORDER BY pl.engagement_type) AS types_seen,
                 MIN(pl.start_date) AS first_start,
                 MAX(pl.start_date) AS latest_start
            FROM placements pl
-           LEFT JOIN people p ON p.id = pl.person_id AND p.tenant_id = pl.tenant_id
-          WHERE pl.tenant_id = :tenant_id
+           LEFT JOIN people p ON p.id = pl.person_id AND p.tenant_id = :people_tid
+          WHERE pl.tenant_id = :placements_tid
             AND pl.start_date BETWEEN :ps AND :pe
             AND pl.person_id IS NOT NULL
           GROUP BY pl.person_id
-         HAVING COUNT(DISTINCT pl.engagement_type) > 1",
-        ['ps' => $ps, 'pe' => $pe]
+         HAVING COUNT(DISTINCT pl.engagement_type) > 1"
     );
+    $stmt->execute([
+        'placements_tid' => $placementsTenantId,
+        'people_tid' => $peopleTenantId,
+        'ps' => $ps,
+        'pe' => $pe,
+    ]);
+    $changes = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 } catch (\Throwable $_) { /* placements may be missing — empty */ }
 
 api_ok([

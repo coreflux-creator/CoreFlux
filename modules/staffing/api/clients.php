@@ -13,12 +13,14 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/client_audit.php';
 require_once __DIR__ . '/../lib/clients.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $tenantId = (int) ($ctx['tenant_id'] ?? currentTenantId());
+$placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
 $actorUserId = isset($user['id']) ? (int) $user['id'] : null;
 $method = api_method();
 $action = $_GET['action'] ?? 'list';
@@ -55,15 +57,15 @@ if ($method === 'GET' && $action === 'list') {
                    COALESCE(p.cnt, 0) AS active_placements
               FROM staffing_clients c
               LEFT JOIN (
-                  SELECT tenant_id, client_id, COUNT(*) AS cnt
+                  SELECT client_id, COUNT(*) AS cnt
                     FROM placements
-                   WHERE status = 'active'
-                   GROUP BY tenant_id, client_id
-              ) p ON p.tenant_id = c.tenant_id AND p.client_id = c.id
+                   WHERE tenant_id = :placements_tid AND status = 'active'
+                   GROUP BY client_id
+              ) p ON p.client_id = c.id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY {$sortExpr} {$sortDir}, c.id DESC
              LIMIT " . $limit;
-    api_ok(['rows' => scopedQuery($sql, $params)]);
+    api_ok(['rows' => scopedQuery($sql, array_merge($params, ['placements_tid' => $placementsTenantId]))]);
 }
 
 if ($method === 'GET' && $action === 'get') {
@@ -179,19 +181,29 @@ if ($method === 'GET' && $action === 'stats') {
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
 
-    $active = scopedFind("SELECT COUNT(*) AS c FROM placements WHERE tenant_id = :tenant_id AND client_id = :id AND status = 'active'", ['id' => $id]);
+    $activeStmt = getDB()->prepare(
+        "SELECT COUNT(*) AS c
+           FROM placements
+          WHERE tenant_id = :placements_tid
+            AND client_id = :id
+            AND status = 'active'"
+    );
+    $activeStmt->execute(['placements_tid' => $placementsTenantId, 'id' => $id]);
+    $active = $activeStmt->fetch(PDO::FETCH_ASSOC) ?: [];
     $stats = ['active_placements' => (int) ($active['c'] ?? 0)];
 
     // MTD revenue from the staffing reports view if it exists.
     try {
-        $rev = scopedFind(
+        $stmt = getDB()->prepare(
             "SELECT COALESCE(SUM(v.revenue), 0) AS r
                FROM v_timesheet_day_fin v
-               JOIN placements p ON p.id = v.placement_id AND p.tenant_id = v.tenant_id
-              WHERE v.tenant_id = :tenant_id AND p.client_id = :id
-                AND v.work_date >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01')",
-            ['id' => $id]
+               JOIN placements p ON p.id = v.placement_id AND p.tenant_id = :placements_tid
+              WHERE v.tenant_id = :tenant_id
+                AND p.client_id = :id
+                AND v.work_date >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01')"
         );
+        $stmt->execute(['tenant_id' => $tenantId, 'placements_tid' => $placementsTenantId, 'id' => $id]);
+        $rev = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
         $stats['mtd_revenue'] = (float) ($rev['r'] ?? 0);
     } catch (\Throwable $_) {
         $stats['mtd_revenue'] = null;

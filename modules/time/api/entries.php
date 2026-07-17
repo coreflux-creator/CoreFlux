@@ -144,11 +144,13 @@ if ($method === 'POST') {
     }
 
     // Resolve placement (for person_id denorm + tenant check)
-    $placement = scopedFind(
+    $placementsTenantId = effectiveTenantIdForModule('placements', (int) ($ctx['tenant_id'] ?? currentTenantId())) ?? currentTenantId();
+    $placementStmt = getDB()->prepare(
         'SELECT id, person_id, start_date, end_date FROM placements
-         WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
-        ['id' => (int) $body['placement_id']]
+         WHERE tenant_id = :placements_tid AND id = :id AND deleted_at IS NULL'
     );
+    $placementStmt->execute(['id' => (int) $body['placement_id'], 'placements_tid' => $placementsTenantId]);
+    $placement = $placementStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     if (!$placement) api_error('placement_id not found in this tenant', 422);
 
     // work_date must fall inside placement active window

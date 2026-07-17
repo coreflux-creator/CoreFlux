@@ -63,6 +63,9 @@ $a('cycle mutations remain gated to cycle managers', substr_count($cyclesApi, "r
 $usersApi = $c('api/users.php');
 $usersUi = $c('dashboard/src/pages/UsersAdmin.jsx');
 $a('password reset accepts POST fallback server-side', str_contains($usersApi, "\$method === 'POST' && \$action === 'password'"));
+$a('password reset updates only existing password columns', str_contains($usersApi, "authTableColumns(\$pdo, 'users')")
+    && str_contains($usersApi, "in_array('password', \$cols, true)")
+    && str_contains($usersApi, "in_array('password_hash', \$cols, true)"));
 $a('password reset UI retries POST after PATCH failure', str_contains($usersUi, 'api.patch(`/api/users.php?id=${user.id}&action=password`')
     && str_contains($usersUi, 'api.post(`/api/users.php?id=${user.id}&action=password`'));
 

@@ -17,6 +17,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/settlement.php';
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 
 /**
  * @param int[]  $entryIds      time_entries.id list (approved + un-extracted)
@@ -36,8 +37,10 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
     if (count($entryIds) > 5000) throw new TimeSettlementException('Batch limit 5000');
 
     $tenantId = currentTenantId();
+    $placementsTenantId = effectiveTenantIdForModule('placements', (int) $tenantId) ?? $tenantId;
     $pdo      = getDB();
     $place    = implode(',', array_fill(0, count($entryIds), '?'));
+    timeRepairApprovedRateSnapshots((int) $tenantId, ['ids' => $entryIds], count($entryIds));
 
     $cols = match ($target) {
         'billing' => ['at' => 'bill_extracted_at',     'ref' => 'bill_extracted_ref',     'by' => 'bill_extracted_by_user_id'],
@@ -57,15 +60,15 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
         // 1) Pull entries + placement context, lock with FOR UPDATE.
         $stmt = $pdo->prepare(
             "SELECT te.id, te.placement_id, te.person_id, te.work_date,
-                    te.category, te.hours, te.description, te.status,
+                    te.category, te.hours, te.description, te.status, te.rate_snapshot_id,
                     te.{$cols['at']} AS already_at,
                     p.title AS placement_title, p.engagement_type, p.end_client_name
              FROM time_entries te
-             LEFT JOIN placements p ON p.id = te.placement_id AND p.tenant_id = te.tenant_id
+             LEFT JOIN placements p ON p.id = te.placement_id AND p.tenant_id = ?
              WHERE te.tenant_id = ? AND te.id IN ($place)
              FOR UPDATE"
         );
-        $stmt->execute(array_merge([$tenantId], $entryIds));
+        $stmt->execute(array_merge([$placementsTenantId, $tenantId], $entryIds));
         $entries = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         if (count($entries) !== count($entryIds)) {
             throw new TimeSettlementException('Some entry ids not found in this tenant');
@@ -77,47 +80,43 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
             if (!empty($e['already_at'])) {
                 throw new TimeSettlementException("Entry #{$e['id']} already extracted to $target");
             }
+            if (empty($e['rate_snapshot_id'])) {
+                throw new TimeSettlementException("Entry #{$e['id']} is approved but has no locked rate snapshot");
+            }
         }
 
         // 2) Group by placement_id.
         $byPlacement = [];
         foreach ($entries as $e) $byPlacement[(int) $e['placement_id']][] = $e;
+        $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'), $tenantId);
 
-        // 3) Per placement: pick a rate snapshot, create the target shell + lines.
+        // 3) Per placement: price each row from its locked rate snapshot.
         $created = [];
         foreach ($byPlacement as $placementId => $rows) {
-            // Find an active rate snapshot covering the earliest work_date.
-            $minDate = min(array_column($rows, 'work_date'));
-            $rateStmt = $pdo->prepare(
-                'SELECT * FROM placement_rates
-                 WHERE tenant_id = :t AND placement_id = :p
-                   AND effective_from <= :d1
-                   AND (effective_to IS NULL OR effective_to >= :d2)
-                   AND superseded_by IS NULL
-                 ORDER BY effective_from DESC LIMIT 1'
-            );
-            $rateStmt->execute(['t' => $tenantId, 'p' => $placementId, 'd1' => $minDate, 'd2' => $minDate]);
-            $rate = $rateStmt->fetch(\PDO::FETCH_ASSOC);
-            if (!$rate) {
-                throw new TimeSettlementException("Placement #$placementId has no active rate snapshot for $minDate");
-            }
-            $unitPrice = $target === 'billing'
-                ? (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'])
-                : (float) ($rate['net_to_vendor'] ?? $rate['pay_rate']);
-            $currency  = (string) ($rate['currency'] ?? 'USD');
-
             // Sum + per-day lines.
-            $totalHours  = 0.0; $totalAmount = 0.0;
+            $totalHours  = 0.0; $totalAmount = 0.0; $currency = 'USD';
             $lines = [];
             foreach ($rows as $e) {
+                $rateId = (int) ($e['rate_snapshot_id'] ?? 0);
+                $rate = $rateId > 0 ? ($ratesById[$rateId] ?? null) : null;
+                if (!$rate) {
+                    throw new TimeSettlementException("Entry #{$e['id']} references missing rate snapshot #{$rateId}");
+                }
+                $unitPrice = $target === 'billing'
+                    ? (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0)
+                    : (float) ($rate['pay_rate'] ?? 0);
+                if ($unitPrice <= 0) {
+                    $rateField = $target === 'billing' ? 'bill_rate' : 'pay_rate';
+                    throw new TimeSettlementException("Entry #{$e['id']} rate snapshot #{$rateId} has no positive {$rateField}");
+                }
+                $currency = (string) ($rate['currency'] ?? $currency);
                 $hours = (float) $e['hours'];
-                $mult  = ($e['category'] === 'OT_billable' || $e['category'] === 'OT_nonbillable')
-                    ? (float) ($rate['ot_multiplier'] ?? 1.5)
-                    : 1.0;
+                $mult  = timeRateCategoryMultiplier($rate, (string) $e['category']);
                 $price = round($unitPrice * $mult, 4);
                 $sub   = round($price * $hours, 2);
                 $lines[] = [
                     'time_entry_id' => (int) $e['id'],
+                    'rate_snapshot_id' => $rateId,
                     'work_date'     => $e['work_date'],
                     'description'   => trim((string) (($e['placement_title'] ?? '') . ' — ' . $e['work_date']
                                               . ($e['description'] ? ' · ' . $e['description'] : ''))),
@@ -155,12 +154,12 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
                 $lstmt = $pdo->prepare(
                     'INSERT INTO billing_invoice_lines
                        (invoice_id, line_no, source_type, item_type, source_ref_id, placement_id,
-                        description, quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total)
-                     VALUES (?, ?, "time", "time_hourly", ?, ?, ?, ?, "hour", ?, ?, 0, 0, ?)'
+                        rate_snapshot_id, description, quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total)
+                     VALUES (?, ?, "time", "time_hourly", ?, ?, ?, ?, ?, "hour", ?, ?, 0, 0, ?)'
                 );
                 foreach ($lines as $l) {
                     $lstmt->execute([
-                        $invId, $i++, $l['time_entry_id'], $placementId, $l['description'],
+                        $invId, $i++, $l['time_entry_id'], $placementId, $l['rate_snapshot_id'], $l['description'],
                         $l['quantity'], $l['unit_price'], $l['subtotal'], $l['subtotal'],
                     ]);
                 }
@@ -198,6 +197,20 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
                     'created_by_user_id' => $actorUserId,
                 ];
                 $billId = scopedInsert('ap_bills', $bill);
+                $i = 1;
+                $lstmt = $pdo->prepare(
+                    'INSERT INTO ap_bill_lines
+                       (bill_id, line_no, source_type, source_ref_id, placement_id, rate_snapshot_id,
+                        description, quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total, is_1099_eligible)
+                     VALUES (?, ?, "time", ?, ?, ?, ?, ?, "hour", ?, ?, 0, 0, ?, ?)'
+                );
+                $is1099 = in_array((string) ($bill['vendor_type'] ?? ''), ['1099_individual','c2c'], true) ? 1 : 0;
+                foreach ($lines as $l) {
+                    $lstmt->execute([
+                        $billId, $i++, $l['time_entry_id'], $placementId, $l['rate_snapshot_id'], $l['description'],
+                        $l['quantity'], $l['unit_price'], $l['subtotal'], $l['subtotal'], $is1099,
+                    ]);
+                }
                 $created[$placementId] = [
                     'target_id'    => $billId,
                     'kind'         => 'bill',
@@ -256,6 +269,7 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
 function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId, int $tenantId, \PDO $pdo, string $place): array
 {
     require_once __DIR__ . '/../../payroll/lib/payroll.php';
+    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
 
     $ownsTxn = cf_tx_begin($pdo);
     try {
@@ -264,17 +278,17 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
         //    so we do the resolution in PHP after fetching.
         $stmt = $pdo->prepare(
             "SELECT te.id, te.person_id, te.placement_id, te.work_date,
-                    te.category, te.hours, te.description, te.status,
+                    te.category, te.hours, te.description, te.status, te.rate_snapshot_id,
                     te.{$cols['at']} AS already_at,
                     pe.user_id AS person_user_id,
                     pe.email_primary AS person_email,
                     pe.first_name, pe.last_name
              FROM time_entries te
-             LEFT JOIN people pe ON pe.id = te.person_id AND pe.tenant_id = te.tenant_id
+             LEFT JOIN people pe ON pe.id = te.person_id AND pe.tenant_id = ?
              WHERE te.tenant_id = ? AND te.id IN ($place)
              FOR UPDATE"
         );
-        $stmt->execute(array_merge([$tenantId], $entryIds));
+        $stmt->execute(array_merge([$peopleTenantId, $tenantId], $entryIds));
         $entries = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         if (count($entries) !== count($entryIds)) {
             throw new TimeSettlementException('Some entry ids not found in this tenant');
@@ -285,6 +299,9 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
             }
             if (!empty($e['already_at'])) {
                 throw new TimeSettlementException("Entry #{$e['id']} already extracted to payroll");
+            }
+            if (empty($e['rate_snapshot_id'])) {
+                throw new TimeSettlementException("Entry #{$e['id']} is approved but has no locked rate snapshot");
             }
         }
 

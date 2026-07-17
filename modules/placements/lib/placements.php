@@ -9,6 +9,7 @@
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 
 /**
  * Allowed values for the placements.remote_policy ENUM. The MySQL column is
@@ -19,6 +20,17 @@ require_once __DIR__ . '/../../../core/tenant_scope.php';
  * placementsNormalizeRemotePolicy() before INSERT/UPDATE.
  */
 const PLACEMENTS_ALLOWED_REMOTE = ['onsite','hybrid','remote'];
+
+function placementsGraphTenantId(?int $tenantId = null): ?int
+{
+    $tenantId = $tenantId ?? currentTenantId();
+    if (!$tenantId) return null;
+    try {
+        return effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+    } catch (\Throwable $_) {
+        return $tenantId;
+    }
+}
 
 function placementsNormalizeRemotePolicy($v): ?string
 {
@@ -282,15 +294,25 @@ function placementCurrentRate(int $placementId, ?string $asOf = null): ?array
     // ATTR_EMULATE_PREPARES=false (server-side prepares) doesn't reject
     // the query with HY093 "Invalid parameter number". MySQL native
     // prepares do not deduplicate repeated named placeholders.
-    return scopedFind(
+    $tenantId = placementsGraphTenantId();
+    $pdo = getDB();
+    if (!$pdo || !$tenantId) return null;
+    $stmt = $pdo->prepare(
         'SELECT * FROM placement_rates
          WHERE tenant_id = :tenant_id AND placement_id = :pid
            AND approved_at IS NOT NULL
            AND effective_from <= :asof_lo
            AND (effective_to IS NULL OR effective_to >= :asof_hi)
-         ORDER BY effective_from DESC LIMIT 1',
-        ['pid' => $placementId, 'asof_lo' => $asOf, 'asof_hi' => $asOf]
+         ORDER BY effective_from DESC LIMIT 1'
     );
+    $stmt->execute([
+        'tenant_id' => $tenantId,
+        'pid'       => $placementId,
+        'asof_lo'   => $asOf,
+        'asof_hi'   => $asOf,
+    ]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    return $row ?: null;
 }
 
 function placementCommissions(int $placementId): array

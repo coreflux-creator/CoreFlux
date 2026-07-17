@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/periods.php';
 
 $ctx  = api_require_auth();
@@ -28,6 +29,8 @@ $tenantId = (int) $ctx['tenant_id'];
 
 $pdo = getDB();
 if (!$pdo) api_error('No database connection', 500);
+$placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+$peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
 
 $sql = "SELECT
           v.placement_id,
@@ -43,8 +46,8 @@ $sql = "SELECT
           COALESCE(SUM(CASE WHEN v.is_billable = 1 THEN v.hours * v.bill_rate ELSE 0 END), 0) AS bill_rate_wsum,
           COALESCE(SUM(v.hours * v.pay_rate), 0) AS pay_rate_wsum
         FROM v_timesheet_day_fin v
-        LEFT JOIN placements pl ON pl.id = v.placement_id AND pl.tenant_id = v.tenant_id
-        LEFT JOIN people pe     ON pe.id = v.employee_id  AND pe.tenant_id = v.tenant_id
+        LEFT JOIN placements pl ON pl.id = v.placement_id AND pl.tenant_id = :placements_tid
+        LEFT JOIN people pe     ON pe.id = v.employee_id  AND pe.tenant_id = :people_tid
         WHERE v.tenant_id = :t AND v.work_date BETWEEN :from_ AND :to
         GROUP BY v.placement_id, pl.title, pl.end_client_name, pl.engagement_type, worker_name
         HAVING hours > 0
@@ -52,7 +55,13 @@ $sql = "SELECT
         LIMIT 500";
 
 $stmt = $pdo->prepare($sql);
-$stmt->execute(['t' => $tenantId, 'from_' => $period['from'], 'to' => $period['to']]);
+$stmt->execute([
+    't' => $tenantId,
+    'placements_tid' => $placementsTenantId,
+    'people_tid' => $peopleTenantId,
+    'from_' => $period['from'],
+    'to' => $period['to'],
+]);
 
 $rows = [];
 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {

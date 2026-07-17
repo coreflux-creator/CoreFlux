@@ -23,12 +23,16 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/timesheets.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $action = $_GET['action'] ?? 'week';
 $method = api_method();
+$tenantId = (int) ($ctx['tenant_id'] ?? currentTenantId());
+$peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
+$placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
 
 if ($action === 'settings') {
     if ($method === 'GET') {
@@ -87,11 +91,11 @@ if ($method === 'GET' && $action === 'list') {
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                 p.first_name, p.last_name, p.email_primary
            FROM staffing_timesheets t
-           LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+           LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = :people_tid
           WHERE {$whereSql}
           ORDER BY t.period_start DESC, t.id DESC
           LIMIT 200",
-        $params
+        array_merge($params, ['people_tid' => $peopleTenantId])
     );
     api_ok(['rows' => $rows]);
 }
@@ -162,9 +166,9 @@ if ($method === 'GET' && $action === 'detail') {
                 t.created_at, t.updated_at,
                 p.first_name, p.last_name, p.email_primary
            FROM staffing_timesheets t
-      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = :people_tid
           WHERE t.tenant_id = :tenant_id AND t.id = :id LIMIT 1',
-        ['id' => $id]
+        ['id' => $id, 'people_tid' => $peopleTenantId]
     );
     if (!$header) api_error('timesheet not found', 404);
     $entries = scopedQuery(
@@ -173,12 +177,12 @@ if ($method === 'GET' && $action === 'detail') {
                 pl.title AS placement_title,
                 COALESCE(pl.end_client_name, '') AS client_name
            FROM time_entries te
-      LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+      LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
           WHERE te.tenant_id = :tenant_id
             AND te.timesheet_id = :tid
             AND te.status != 'superseded'
           ORDER BY te.work_date, te.placement_id, te.id",
-        ['tid' => $id]
+        ['tid' => $id, 'placements_tid' => $placementsTenantId]
     );
     api_ok(['timesheet' => $header, 'entries' => $entries]);
 }
@@ -207,14 +211,14 @@ if ($method === 'GET' && $action === 'list_for_placement') {
            FROM staffing_timesheets t
            JOIN time_entries te ON te.timesheet_id = t.id AND te.tenant_id = t.tenant_id
                                 AND te.status != 'superseded'
-      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = :people_tid
           WHERE {$whereSql}
           GROUP BY t.id, t.person_id, t.period_start, t.period_end, t.status,
                    t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                    p.first_name, p.last_name, p.email_primary
           ORDER BY t.period_start DESC, t.id DESC
           LIMIT 500",
-        $params
+        array_merge($params, ['people_tid' => $peopleTenantId])
     );
     api_ok(['rows' => $rows, 'placement_id' => $placementId]);
 }
@@ -234,9 +238,9 @@ if ($method === 'GET' && $action === 'detail_for_placement') {
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                 p.first_name, p.last_name, p.email_primary
            FROM staffing_timesheets t
-      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = :people_tid
           WHERE t.tenant_id = :tenant_id AND t.id = :id LIMIT 1',
-        ['id' => $id]
+        ['id' => $id, 'people_tid' => $peopleTenantId]
     );
     if (!$header) api_error('timesheet not found', 404);
     $entries = scopedQuery(
@@ -245,13 +249,13 @@ if ($method === 'GET' && $action === 'detail_for_placement') {
                 pl.title AS placement_title,
                 COALESCE(pl.end_client_name, '') AS client_name
            FROM time_entries te
-      LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+      LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
           WHERE te.tenant_id = :tenant_id
             AND te.timesheet_id = :tid
             AND te.placement_id = :plid
             AND te.status != 'superseded'
           ORDER BY te.work_date, te.id",
-        ['tid' => $id, 'plid' => $placementId]
+        ['tid' => $id, 'plid' => $placementId, 'placements_tid' => $placementsTenantId]
     );
     // Per-placement total so the UI can show "8h of 40h total for this person"
     $plHours = 0.0;
@@ -318,11 +322,11 @@ if ($method === 'GET' && $action === 'list_for_person') {
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                 p.first_name, p.last_name, p.email_primary
            FROM staffing_timesheets t
-      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = :people_tid
           WHERE t.tenant_id = :tenant_id AND t.person_id = :pid
           ORDER BY t.period_start DESC, t.id DESC
           LIMIT {$limit}",
-        ['pid' => $personId]
+        ['pid' => $personId, 'people_tid' => $peopleTenantId]
     );
     api_ok(['rows' => $rows, 'person_id' => $personId]);
 }
@@ -382,12 +386,12 @@ if ($method === 'GET' && $action === 'approved_entries') {
                 COALESCE(pl.end_client_name, '') AS client_name,
                 p.first_name, p.last_name, p.email_primary
            FROM time_entries te
-      LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
-      LEFT JOIN people p ON p.id = te.person_id AND p.tenant_id = te.tenant_id
+      LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
+      LEFT JOIN people p ON p.id = te.person_id AND p.tenant_id = :people_tid
           WHERE {$whereSql}
           ORDER BY te.work_date ASC, te.placement_id, te.id
           LIMIT 500",
-        $params
+        array_merge($params, ['placements_tid' => $placementsTenantId, 'people_tid' => $peopleTenantId])
     );
     api_ok(['rows' => $rows, 'purpose' => $purpose]);
 }
@@ -408,8 +412,8 @@ if ($method === 'GET' && $action === 'approved_entries') {
 // with placement/date filters when the operator clicks through.
 if ($method === 'GET' && $action === 'approved_hours_ready') {
     $base = "FROM time_entries te
-        LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
-        LEFT JOIN people     pe ON pe.id = te.person_id   AND pe.tenant_id = te.tenant_id
+        LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
+        LEFT JOIN people     pe ON pe.id = te.person_id   AND pe.tenant_id = :people_tid
             WHERE te.tenant_id = :tenant_id
               AND te.status IN ('approved','locked','billing_ready','payroll_ready')
               AND te.hours > 0";
@@ -469,9 +473,10 @@ if ($method === 'GET' && $action === 'approved_hours_ready') {
               AND UPPER(COALESCE(pe.classification, '')) = 'W2'";
 
     try {
-        $billing  = scopedQuery($billingSql)[0]  ?? [];
-        $ap       = scopedQuery($apSql)[0]       ?? [];
-        $payroll  = scopedQuery($payrollSql)[0]  ?? [];
+        $scopeParams = ['placements_tid' => $placementsTenantId, 'people_tid' => $peopleTenantId];
+        $billing  = scopedQuery($billingSql, $scopeParams)[0]  ?? [];
+        $ap       = scopedQuery($apSql, $scopeParams)[0]       ?? [];
+        $payroll  = scopedQuery($payrollSql, $scopeParams)[0]  ?? [];
     } catch (\Throwable $e) { api_error($e->getMessage(), 500); }
 
     // Rough $-amount estimate per bucket using a cached avg bill/pay
@@ -482,12 +487,13 @@ if ($method === 'GET' && $action === 'approved_hours_ready') {
     try {
         // Refine with an actual average bill rate across approved
         // placement_rates if available — coarse but realistic.
-        $row = scopedQuery(
+        $stmt = getDB()->prepare(
             "SELECT AVG(NULLIF(bill_rate, 0)) AS avg_bill, AVG(NULLIF(pay_rate, 0)) AS avg_pay
                FROM placement_rates
               WHERE tenant_id = :tenant_id AND approved_at IS NOT NULL"
         );
-        $r = $row[0] ?? null;
+        $stmt->execute(['tenant_id' => $placementsTenantId]);
+        $r = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
         if ($r) {
             if (!empty($r['avg_bill'])) $estBilling = round((float) ($billing['hours'] ?? 0) * (float) $r['avg_bill'], 2);
             if (!empty($r['avg_pay']))  $estAp      = round((float) ($ap['hours']      ?? 0) * (float) $r['avg_pay'], 2);

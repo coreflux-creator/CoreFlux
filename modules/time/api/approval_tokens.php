@@ -25,6 +25,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/mail_bootstrap.php';
 require_once __DIR__ . '/../../../core/tenant_mail.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/time.php';
 require_once __DIR__ . '/../lib/approval_tokens.php';
 
@@ -53,11 +54,17 @@ if ($method === 'GET' && $action === 'verify') {
     $entryIds = json_decode((string) $row['entries_json'], true)['entry_ids'] ?? [];
     $pdo = getDB();
     if ($pdo) {
+        $placementsTenantId = effectiveTenantIdForModule('placements', (int) $row['tenant_id']) ?? (int) $row['tenant_id'];
+        $peopleTenantId = effectiveTenantIdForModule('people', (int) $row['tenant_id']) ?? (int) $row['tenant_id'];
         $pstmt = $pdo->prepare('SELECT p.title, p.end_client_name, pe.first_name, pe.last_name
                                 FROM placements p
-                                LEFT JOIN people pe ON pe.id = (SELECT person_id FROM placements WHERE id = p.id LIMIT 1)
-                                WHERE p.id = :id AND p.tenant_id = :tid');
-        $pstmt->execute(['id' => $row['placement_id'], 'tid' => $row['tenant_id']]);
+                                LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :people_tid
+                                WHERE p.id = :id AND p.tenant_id = :placements_tid');
+        $pstmt->execute([
+            'id' => $row['placement_id'],
+            'placements_tid' => $placementsTenantId,
+            'people_tid' => $peopleTenantId,
+        ]);
         $placement = $pstmt->fetch(\PDO::FETCH_ASSOC) ?: null;
 
         if (!empty($entryIds)) {
@@ -125,17 +132,60 @@ if ($method === 'POST' && $action === 'respond') {
         if (!empty($entryIds)) {
             $in = implode(',', array_map('intval', $entryIds));
             if ($choice === 'approve') {
-                $pdo->exec(
+                $pendingStmt = $pdo->prepare(
+                    "SELECT id, placement_id, work_date
+                       FROM time_entries
+                      WHERE tenant_id = :tenant_id
+                        AND placement_id = :placement_id
+                        AND period_id = :period_id
+                        AND id IN ({$in})
+                        AND status = 'pending_review'
+                      ORDER BY work_date, id"
+                );
+                $pendingStmt->execute([
+                    'tenant_id' => (int) $row['tenant_id'],
+                    'placement_id' => (int) $row['placement_id'],
+                    'period_id' => (int) $row['period_id'],
+                ]);
+                $snapshots = [];
+                foreach ($pendingStmt->fetchAll(\PDO::FETCH_ASSOC) as $entry) {
+                    $snap = timeResolveRateSnapshot(
+                        (int) $entry['placement_id'],
+                        (string) $entry['work_date'],
+                        (int) $row['tenant_id']
+                    );
+                    if (!$snap || empty($snap['id'])) {
+                        $pdo->rollBack();
+                        api_error(
+                            "Entry #{$entry['id']} has no approved rate covering {$entry['work_date']} for this placement.",
+                            422
+                        );
+                    }
+                    $snapshots[(int) $entry['id']] = (int) $snap['id'];
+                }
+                $approveStmt = $pdo->prepare(
                     "UPDATE time_entries
-                     SET status = 'approved', approved_at = NOW(),
+                     SET status = 'approved',
+                         rate_snapshot_id = :rate_snapshot_id,
+                         approved_at = NOW(),
                          approved_via = 'tokenized_client_email',
-                         client_approver_email = " . $pdo->quote($row['client_approver_email']) . "
-                     WHERE tenant_id = {$row['tenant_id']}
-                       AND placement_id = {$row['placement_id']}
-                       AND period_id = {$row['period_id']}
-                       AND id IN ({$in})
+                         client_approver_email = :client_approver_email
+                     WHERE tenant_id = :tenant_id
+                       AND placement_id = :placement_id
+                       AND period_id = :period_id
+                       AND id = :id
                        AND status = 'pending_review'"
                 );
+                foreach ($snapshots as $entryId => $rateSnapshotId) {
+                    $approveStmt->execute([
+                        'rate_snapshot_id' => $rateSnapshotId,
+                        'client_approver_email' => $row['client_approver_email'],
+                        'tenant_id' => (int) $row['tenant_id'],
+                        'placement_id' => (int) $row['placement_id'],
+                        'period_id' => (int) $row['period_id'],
+                        'id' => $entryId,
+                    ]);
+                }
             } else {
                 $pdo->exec(
                     "UPDATE time_entries
@@ -246,15 +296,18 @@ if ($method === 'POST' && $action === 'issue') {
     $ttlDays     = max(1, min(30, (int) ($body['ttl_days'] ?? 7)));
     if (empty($entryIds)) api_error('entry_ids required', 422);
 
-    $placement = scopedFind(
+    $placementsTenantId = effectiveTenantIdForModule('placements', (int) $ctx['tenant_id']) ?? (int) $ctx['tenant_id'];
+    $peopleTenantId = effectiveTenantIdForModule('people', (int) $ctx['tenant_id']) ?? (int) $ctx['tenant_id'];
+    $placementStmt = getDB()->prepare(
         'SELECT p.id, p.title, p.end_client_name, p.person_id, p.client_approver_name,
                 p.client_approver_email, p.tokenized_email_approval_enabled,
                 pe.first_name, pe.last_name
          FROM placements p
-         LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
-         WHERE p.tenant_id = :tenant_id AND p.id = :id',
-        ['id' => $placementId]
+         LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :people_tid
+         WHERE p.tenant_id = :placements_tid AND p.id = :id'
     );
+    $placementStmt->execute(['id' => $placementId, 'placements_tid' => $placementsTenantId, 'people_tid' => $peopleTenantId]);
+    $placement = $placementStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     if (!$placement) api_error('Placement not found', 404);
     if ((int) ($placement['tokenized_email_approval_enabled'] ?? 0) !== 1) {
         api_error('Tokenized email approval is disabled for this placement. Enable it in Placement → Approval tab.', 422);

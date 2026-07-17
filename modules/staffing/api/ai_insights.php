@@ -12,11 +12,14 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../../core/ai_service.php';
 
 $ctx    = api_require_auth();
 $method = api_method();
 $action = $_GET['action'] ?? '';
+$tenantId = (int) ($ctx['tenant_id'] ?? currentTenantId());
+$placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
 
 if ($method !== 'GET' || $action !== 'weekly_memo') api_error('Unknown action', 404);
 
@@ -41,11 +44,11 @@ try {
     $topClients = scopedQuery(
         "SELECT c.name AS client_name, SUM(v.revenue) AS revenue, SUM(v.gross_profit) AS gp
            FROM v_timesheet_day_fin v
-           JOIN placements p ON p.id = v.placement_id AND p.tenant_id = v.tenant_id
-           LEFT JOIN staffing_clients c ON c.id = p.client_id AND c.tenant_id = v.tenant_id
+           JOIN placements p ON p.id = v.placement_id AND p.tenant_id = :placements_tid
+           LEFT JOIN staffing_clients c ON c.id = p.client_id AND c.tenant_id = :placements_tid_c
           WHERE v.tenant_id = :tenant_id AND v.work_date BETWEEN :ps AND :pe AND v.entry_status != 'superseded'
           GROUP BY c.name HAVING revenue > 0 ORDER BY revenue DESC LIMIT 5",
-        ['ps' => $ps, 'pe' => $pe]
+        ['ps' => $ps, 'pe' => $pe, 'placements_tid' => $placementsTenantId, 'placements_tid_c' => $placementsTenantId]
     );
 } catch (\Throwable $_) { /* view missing — proceed with empty stats */ }
 
