@@ -1026,12 +1026,15 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
     // Resolved titles are injected into each item under
     // `__cf_resolved_job_title` so the existing title pluck chain in
     // jobdivaSyncUpsertPlacement picks them up at no extra cost.
-    // The opt-in `enrich_start` flag adds a /apiv2/jobdiva/searchStart
-    // detail call per placement to pick up fields (pay rate, etc.) the
-    // discovery feed nulls out. Costs one extra API call per placement
-    // — leave off unless operators ask for it.
+    // Start/Assignment detail is core placement evidence. It carries
+    // rates, vendor/pay-cycle fields, MSP discounts, C2C markers, and
+    // assignment-level dates. Keep an explicit opt-out for tests or
+    // emergency API throttling; otherwise sync the complete graph.
+    $enrichStart = array_key_exists('enrich_start', $opts)
+        ? (bool) $opts['enrich_start']
+        : true;
     $items = jobdivaSyncEnrichRelatedEntities($tid, $items, $userId, [
-        'enrich_start' => !empty($opts['enrich_start']),
+        'enrich_start' => $enrichStart,
     ]);
 
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
@@ -1315,9 +1318,9 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
             // own row's id (we already HAVE the searchStart payload —
             // it IS this row's payload). This avoids a 1:1 fan-out of
             // useless API calls for the most common pattern. Operators
-            // who need a fuller searchStart (e.g. to pick up pay rate
-            // that JobDiva's BI feed nulls out on the Assignment
-            // payload) can flip `enrich_start=1` in the sync opts.
+            // Normal sync now keeps Start/Assignment enrichment on because
+            // this is where JobDiva carries rates and vendor economics. The
+            // `enrich_start=0` path exists only for tests or throttling.
             if ($kind === 'start' && empty($opts['enrich_start'])) {
                 $diag[$kind]['skipped_self']++;
                 continue;
@@ -1882,7 +1885,8 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
     $needsEnrichment = array_filter($placements, function ($p) {
         $jd = $p['payload'];
         return empty($jd['_jd_job']) || empty($jd['_jd_candidate'])
-            || empty($jd['_jd_customer']);
+            || empty($jd['_jd_customer'])
+            || (empty($jd['_jd_start']) && empty($jd['assignment']));
     });
     $enrichmentRanFor = 0;
     $enrichmentBroken = [];
@@ -2258,6 +2262,17 @@ function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string 
             return null;
         }
 
+        $workerCorpKey = str_contains($keyNorm, 'corplegalname')
+            || str_contains($keyNorm, 'corporationname')
+            || str_contains($keyNorm, 'contractorcompany')
+            || str_contains($keyNorm, 'contractorcorp')
+            || str_contains($keyNorm, 'candidatecorp')
+            || str_contains($keyNorm, 'employeecorp')
+            || str_contains($keyNorm, 'payeecompany')
+            || str_contains($keyNorm, 'payeelegalname')
+            || str_contains($keyNorm, 'subcontractorcompany');
+        if ($workerCorpKey && $valueRaw !== '') return 'c2c';
+
         $typedKey = str_contains($keyNorm, 'engagementtype')
             || str_contains($keyNorm, 'workertype')
             || str_contains($keyNorm, 'classification')
@@ -2493,14 +2508,25 @@ function jobdivaSyncUpsertPlacementChain(
             'name_keys' => [
                 'msp', 'msp name', 'mspName', 'managed service provider',
                 'vms', 'vms name', 'vmsName', 'vms provider', 'vmsProvider',
+                'program', 'program name', 'programName',
+                'client portal', 'clientPortal', 'portal', 'portal name', 'portalName',
+                'beeline', 'fieldglass', 'iqnavigator',
             ],
             'fee_keys' => [
                 'msp fee pct', 'msp_fee_pct', 'mspFeePct',
                 'vms fee pct', 'vms_fee_pct', 'discount pct',
                 'discount %', 'discount percent', 'discountPercentage',
                 'client discount pct', 'client discount %', 'client discount percent',
+                'msp discount pct', 'msp discount %', 'vms discount pct',
+                'portal fee pct', 'portal fee %', 'program fee pct',
+                'admin fee pct', 'management fee pct',
+                'beeline fee pct', 'fieldglass fee pct',
             ],
-            'flat_keys' => ['msp fee flat', 'msp_fee_flat', 'vms fee flat', 'discount flat', 'discount amount'],
+            'flat_keys' => [
+                'msp fee flat', 'msp_fee_flat', 'vms fee flat', 'discount flat', 'discount amount',
+                'portal fee flat', 'program fee flat', 'admin fee flat',
+                'beeline fee flat', 'fieldglass fee flat',
+            ],
         ],
         [
             'role' => 'prime_vendor',
@@ -2512,15 +2538,25 @@ function jobdivaSyncUpsertPlacementChain(
                 'supplier', 'supplier company', 'supplierCompany',
                 'agency name', 'agencyName', 'agency company', 'agencyCompany',
                 'employer company', 'employerCompany', 'payrolling company', 'payrollingCompany',
+                'vendor legal name', 'vendorLegalName',
+                'supplier legal name', 'supplierLegalName',
+                'payee company', 'payeeCompany',
+                'payee legal name', 'payeeLegalName',
+                'employer of record', 'employerOfRecord',
+                'eor', 'payroll provider', 'payrollProvider',
             ],
             'fee_keys' => [
                 'prime vendor fee pct', 'vendor fee pct', 'vendor fee percent',
                 'supplier fee pct', 'supplier fee percent', 'agency fee pct',
                 'vendor discount pct', 'vendor discount %', 'vendor discount percent',
+                'vendor portal fee pct', 'supplier discount pct',
+                'agency discount pct', 'payroll provider fee pct',
             ],
             'flat_keys' => [
                 'prime vendor fee flat', 'vendor fee flat', 'supplier fee flat',
                 'agency fee flat', 'vendor discount flat', 'vendor discount amount',
+                'vendor portal fee flat', 'supplier discount flat',
+                'agency discount flat', 'payroll provider fee flat',
             ],
         ],
         [
@@ -2530,14 +2566,18 @@ function jobdivaSyncUpsertPlacementChain(
                 'sub vendor', 'subVendor', 'sub_vendor',
                 'subcontractor', 'subcontractor name', 'subcontractor company',
                 'sub supplier', 'subSupplier', 'sub supplier name', 'subSupplierName',
+                'secondary vendor', 'secondaryVendor',
+                'downstream vendor', 'downstreamVendor',
             ],
             'fee_keys' => [
                 'sub vendor fee pct', 'subvendor fee pct', 'subcontractor fee pct',
                 'sub vendor discount pct', 'subcontractor discount pct',
+                'secondary vendor fee pct', 'downstream vendor fee pct',
             ],
             'flat_keys' => [
                 'sub vendor fee flat', 'subvendor fee flat', 'subcontractor fee flat',
                 'sub vendor discount flat', 'subcontractor discount flat',
+                'secondary vendor fee flat', 'downstream vendor fee flat',
             ],
         ],
     ];
@@ -2580,6 +2620,205 @@ function jobdivaSyncUpsertPlacementChain(
             $summary['written']++;
             $summary['rows'][(string) $def['role']] = $id;
         }
+    }
+
+    return $summary;
+}
+
+function jobdivaCorpMappedOrDefault(
+    int $tid,
+    string $targetColumn,
+    array $jd,
+    callable $defaultFn
+): mixed {
+    if (function_exists('tenantIntegrationFieldMapPluckTarget')) {
+        return tenantIntegrationFieldMapPluckTarget(
+            $tid,
+            'jobdiva',
+            'placement',
+            'placement_corp_details',
+            $targetColumn,
+            'placement_corp_details',
+            $jd,
+            $defaultFn
+        );
+    }
+    return $defaultFn();
+}
+
+function jobdivaSyncCorpPluck(int $tid, array $jd, string $targetColumn, array $defaultKeys): string
+{
+    return trim((string) jobdivaCorpMappedOrDefault(
+        $tid,
+        $targetColumn,
+        $jd,
+        static fn() => jobdivaPluckFieldDeep($jd, $defaultKeys)
+    ));
+}
+
+function jobdivaSyncUpsertPlacementCorpDetails(
+    int $tid,
+    int $placementId,
+    array $jd,
+    ?int $userId = null,
+    ?string $resolvedEngagement = null
+): array {
+    $summary = ['written' => 0, 'removed' => 0, 'row' => 0, 'skipped' => false, 'errors' => []];
+    if ($tid <= 0 || $placementId <= 0) return $summary;
+
+    $engagement = jobdivaNormalisePlacementEngagementType((string) ($resolvedEngagement ?? ''), '');
+    if ($engagement === '') {
+        $engagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, '');
+    }
+    if ($engagement !== 'c2c') {
+        try {
+            $pdo = getDB();
+            $st = $pdo->prepare(
+                'DELETE pcd
+                   FROM placement_corp_details pcd
+                   JOIN placements p
+                     ON p.tenant_id = pcd.tenant_id
+                    AND p.id = pcd.placement_id
+                  WHERE pcd.tenant_id = :tenant_id
+                    AND pcd.placement_id = :placement_id
+                    AND p.engagement_type <> "c2c"'
+            );
+            $st->execute(['tenant_id' => $tid, 'placement_id' => $placementId]);
+            $summary['removed'] = $st->rowCount();
+            if ($summary['removed'] > 0 && function_exists('placementsAudit')) {
+                placementsAudit('placement.corp.cleared_non_c2c_jobdiva', [
+                    'placement_id' => $placementId,
+                    'actor_user_id' => $userId,
+                ], $placementId);
+            }
+        } catch (\Throwable $e) {
+            $summary['errors'][] = $e->getMessage();
+            error_log('[jobdiva placement corp details clear] ' . $e->getMessage());
+        }
+        $summary['skipped'] = true;
+        return $summary;
+    }
+
+    $legalName = jobdivaSyncCorpPluck($tid, $jd, 'corp_legal_name', [
+        'corp legal name', 'corp_legal_name', 'corpLegalName',
+        'corporation name', 'corporationName', 'company corporation name',
+        'contractor company', 'contractorCompany', 'contractor corp',
+        'candidate corp', 'candidateCorp', 'employee corp', 'employeeCorp',
+        'payee company', 'payeeCompany', 'payee legal name',
+        'vendor legal name', 'vendorLegalName', 'vendor company', 'vendorCompany',
+        'supplier legal name', 'supplierLegalName', 'supplier company', 'supplierCompany',
+        'subcontractor company', 'subcontractorCompany',
+        'employer company', 'employerCompany', 'payrolling company', 'payrollingCompany',
+    ]);
+    if ($legalName === '' && $engagement === 'c2c') {
+        $legalName = trim((string) jobdivaPluckFieldDeep($jd, [
+            'payee name', 'payeeName',
+            'vendor name', 'vendorName',
+            'supplier name', 'supplierName',
+            'subcontractor name', 'subcontractorName',
+        ]));
+    }
+    $fields = [
+        'corp_legal_name' => $legalName,
+        'corp_address_line1' => jobdivaSyncCorpPluck($tid, $jd, 'corp_address_line1', [
+            'corp address line1', 'corp address 1', 'corpAddress1', 'corp_address_line1',
+            'vendor address line1', 'vendor address 1', 'vendorAddress1',
+            'supplier address line1', 'supplier address 1', 'payee address line1',
+        ]),
+        'corp_address_line2' => jobdivaSyncCorpPluck($tid, $jd, 'corp_address_line2', [
+            'corp address line2', 'corp address 2', 'corpAddress2', 'corp_address_line2',
+            'vendor address line2', 'vendor address 2', 'vendorAddress2',
+            'supplier address line2', 'supplier address 2', 'payee address line2',
+        ]),
+        'corp_city' => jobdivaSyncCorpPluck($tid, $jd, 'corp_city', [
+            'corp city', 'corpCity', 'corp_city',
+            'vendor city', 'vendorCity', 'supplier city', 'payee city',
+        ]),
+        'corp_state' => jobdivaSyncCorpPluck($tid, $jd, 'corp_state', [
+            'corp state', 'corpState', 'corp_state',
+            'vendor state', 'vendorState', 'supplier state', 'payee state',
+        ]),
+        'corp_postal_code' => jobdivaSyncCorpPluck($tid, $jd, 'corp_postal_code', [
+            'corp postal code', 'corp zip', 'corpZip', 'corp_postal_code',
+            'vendor postal code', 'vendor zip', 'vendorZip',
+            'supplier postal code', 'payee postal code',
+        ]),
+        'corp_country' => jobdivaSyncCorpPluck($tid, $jd, 'corp_country', [
+            'corp country', 'corpCountry', 'corp_country',
+            'vendor country', 'vendorCountry', 'supplier country', 'payee country',
+        ]),
+        'corp_contact_name' => jobdivaSyncCorpPluck($tid, $jd, 'corp_contact_name', [
+            'corp contact name', 'corpContactName', 'corp_contact_name',
+            'vendor contact name', 'vendorContactName',
+            'supplier contact name', 'payee contact name',
+        ]),
+        'corp_contact_email' => jobdivaSyncCorpPluck($tid, $jd, 'corp_contact_email', [
+            'corp contact email', 'corpContactEmail', 'corp_contact_email',
+            'vendor contact email', 'vendorContactEmail',
+            'supplier contact email', 'payee contact email',
+        ]),
+        'corp_contact_phone' => jobdivaSyncCorpPluck($tid, $jd, 'corp_contact_phone', [
+            'corp contact phone', 'corpContactPhone', 'corp_contact_phone',
+            'vendor contact phone', 'vendorContactPhone',
+            'supplier contact phone', 'payee contact phone',
+        ]),
+        'coi_expiry' => jobdivaNormaliseDate(jobdivaSyncCorpPluck($tid, $jd, 'coi_expiry', [
+            'coi expiry', 'coiExpiry', 'coi_expiry',
+            'certificate of insurance expiry', 'insurance expiry',
+        ])),
+    ];
+
+    if ($fields['corp_country'] !== '') {
+        $fields['corp_country'] = strtoupper(substr($fields['corp_country'], 0, 2));
+    }
+
+    $clean = [];
+    foreach ($fields as $col => $value) {
+        if ($value !== null && trim((string) $value) !== '') {
+            $clean[$col] = $value;
+        }
+    }
+    if (empty($clean['corp_legal_name'])) {
+        $summary['skipped'] = true;
+        return $summary;
+    }
+
+    try {
+        $pdo = getDB();
+        $cols = ['placement_id', 'tenant_id'];
+        $placeholders = [':placement_id', ':tenant_id'];
+        $params = [
+            'placement_id' => $placementId,
+            'tenant_id' => $tid,
+        ];
+        foreach ($clean as $col => $value) {
+            $cols[] = "`{$col}`";
+            $placeholders[] = ':' . $col;
+            $params[$col] = $value;
+        }
+        $updates = [];
+        foreach (array_keys($clean) as $col) {
+            $updates[] = "`{$col}` = VALUES(`{$col}`)";
+        }
+        $pdo->prepare(
+            'INSERT INTO placement_corp_details
+                (' . implode(', ', $cols) . ')
+             VALUES
+                (' . implode(', ', $placeholders) . ')
+             ON DUPLICATE KEY UPDATE ' . implode(', ', $updates) . ', updated_at = NOW()'
+        )->execute($params);
+        $summary['written'] = count($clean);
+        $summary['row'] = $placementId;
+        if (function_exists('placementsAudit')) {
+            placementsAudit('placement.corp.projected_from_jobdiva', [
+                'placement_id' => $placementId,
+                'fields' => array_keys($clean),
+                'actor_user_id' => $userId,
+            ], $placementId);
+        }
+    } catch (\Throwable $e) {
+        $summary['errors'][] = $e->getMessage();
+        error_log('[jobdiva placement corp details] ' . $e->getMessage());
     }
 
     return $summary;
@@ -3349,6 +3588,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         }
         jobdivaSyncUpsertPlacementRates($tid, $existingId, $startDate, $jd);
         jobdivaSyncUpsertPlacementChain($tid, $existingId, $endClientCompanyId, $endClientName ?: null, $jd, $userId);
+        jobdivaSyncUpsertPlacementCorpDetails($tid, $existingId, $jd, $userId, $engagement);
         jobdivaSyncUpsertPlacementCommissions($tid, $existingId, $startDate, $jd);
         return $existingId;
     }
@@ -3401,6 +3641,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $placementId = (int) $pdo->lastInsertId();
     jobdivaSyncUpsertPlacementRates($tid, $placementId, $startDate, $jd);
     jobdivaSyncUpsertPlacementChain($tid, $placementId, $endClientCompanyId, $endClientName ?: null, $jd, $userId);
+    jobdivaSyncUpsertPlacementCorpDetails($tid, $placementId, $jd, $userId, $engagement);
     jobdivaSyncUpsertPlacementCommissions($tid, $placementId, $startDate, $jd);
     return $placementId;
 }
@@ -3496,6 +3737,12 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         static fn() => jobdivaPluckFieldDeep($jd, [
             'final bill rate', 'finalBillRate', 'final_bill_rate',
             'bill rate', 'billRate', 'bill_rate',
+            'billing rate', 'billingRate', 'billing_rate',
+            'client bill rate', 'clientBillRate', 'client_bill_rate',
+            'customer bill rate', 'customerBillRate', 'customer_bill_rate',
+            'invoice rate', 'invoiceRate', 'invoice_rate',
+            'charge rate', 'chargeRate', 'charge_rate',
+            'sell rate', 'sellRate', 'sell_rate',
             'quoted bill rate', 'quotedBillRate', 'quoted_bill_rate',
             'BILLRATEMAX', 'billRateMax', 'bill_rate_max', 'bill rate max',
             'max bill rate', 'maximum bill rate', 'finalBillRateMax', 'final_bill_rate_max',
@@ -3514,6 +3761,16 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         static fn() => jobdivaPluckFieldDeep($jd, [
             'agreed pay rate', 'agreedPayRate', 'agreed_pay_rate', 'AGREEDPAYRATE',
             'pay rate', 'payRate', 'pay_rate', 'PAYRATE',
+            'vendor pay rate', 'vendorPayRate', 'vendor_pay_rate',
+            'vendor rate', 'vendorRate', 'vendor_rate',
+            'supplier pay rate', 'supplierPayRate', 'supplier_pay_rate',
+            'supplier rate', 'supplierRate', 'supplier_rate',
+            'contractor pay rate', 'contractorPayRate', 'contractor_pay_rate',
+            'contractor rate', 'contractorRate', 'contractor_rate',
+            'consultant pay rate', 'consultantPayRate', 'consultant_pay_rate',
+            'subcontractor pay rate', 'subcontractorPayRate', 'subcontractor_pay_rate',
+            'subcontractor rate', 'subcontractorRate', 'subcontractor_rate',
+            'cost rate', 'costRate', 'cost_rate',
             'final pay rate', 'finalPayRate', 'final_pay_rate',
             'actual pay rate', 'actualPayRate', 'actual_pay_rate',
             'approved pay rate', 'approvedPayRate', 'approved_pay_rate',
@@ -3600,7 +3857,10 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         static fn() => jobdivaPluckFieldDeep($jd, [
             'adder_pct', 'adderPct', 'adder %', 'adder percent',
             'markup', 'mark up', 'markup %', 'markupPct', 'markup_pct',
-            'burden', 'burden %', 'employer burden', 'employer_burden_pct',
+            'markup percent', 'markupPercent', 'markup_percent',
+            'burden', 'burden %', 'burden percent', 'burdenPercent',
+            'employer burden', 'employer_burden_pct', 'employer burden pct',
+            'load', 'load %', 'load percent', 'benefit load', 'payroll burden',
         ])
     );
     $adderPct = jobdivaParsePercent($adderRaw);
@@ -3612,6 +3872,8 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'background fee', 'background fee total',
             'background check fee', 'screening fee',
             'onboarding fee', 'compliance fee',
+            'other cost', 'other costs', 'additional cost', 'additional costs',
+            'credentialing fee', 'drug test fee', 'drug screen fee',
         ])
     );
     $backgroundFeeTotal = jobdivaParseRateAmount($backgroundFeeRaw);
@@ -4173,6 +4435,15 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
         $assignmentRecords = [];
         $cap = (int) ($opts['assignment_cap'] ?? 500);
         $batch = array_slice($startIds, 0, $cap);
+        $appendAssignmentRecord = static function (mixed $row, string $startId) use (&$assignmentRecords): void {
+            if (!is_array($row)) return;
+            $hasStartId = jobdivaPluckField($row, ['id', 'startId', 'start_id', 'startID', 'STARTID', 'placementId']);
+            if ($hasStartId === '') {
+                $row['startId'] = $startId;
+                $row['id'] = $startId;
+            }
+            $assignmentRecords[] = $row;
+        };
 
         // --- Channel 1: EmployeeAssignmentRecordsDetail ---------------
         $ch1Errors = [];
@@ -4184,14 +4455,14 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
                 ]);
                 if (is_array($resp)) {
                     if (isset($resp['data']) && is_array($resp['data'])) {
-                        $assignmentRecords = array_merge($assignmentRecords, $resp['data']);
+                        foreach ($resp['data'] as $row) $appendAssignmentRecord($row, (string) $sid);
                     } elseif (isset($resp['items']) && is_array($resp['items'])) {
-                        $assignmentRecords = array_merge($assignmentRecords, $resp['items']);
+                        foreach ($resp['items'] as $row) $appendAssignmentRecord($row, (string) $sid);
                     } elseif (!empty($resp) && array_keys($resp) === range(0, count($resp) - 1)) {
-                        $assignmentRecords = array_merge($assignmentRecords, $resp);
+                        foreach ($resp as $row) $appendAssignmentRecord($row, (string) $sid);
                     } elseif (!empty($resp)) {
                         // Some BI endpoints return a single record (object) not wrapped.
-                        $assignmentRecords[] = $resp;
+                        $appendAssignmentRecord($resp, (string) $sid);
                     }
                 }
             } catch (\Throwable $e) {
@@ -4232,7 +4503,7 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
                             }
                         }
                     }
-                    foreach ($list as $row) $assignmentRecords[] = $row;
+                    foreach ($list as $row) $appendAssignmentRecord($row, (string) $sid);
                 } catch (\Throwable $e) {
                     $msg = $e->getMessage();
                     $ch2Errors[] = ['startId' => (string) $sid, 'error' => substr($msg, 0, 200)];

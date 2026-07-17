@@ -90,9 +90,13 @@ try {
         $projectionOpts = [
             'external_id' => $externalId,
             'existing_placement_id' => $rootInternalId,
+            'force_projection' => true,
         ];
         if (!empty($placementContext['person_id'])) {
             $projectionOpts['person_id'] = (int) $placementContext['person_id'];
+        }
+        if (!empty($placementContext['end_client_company_id'])) {
+            $projectionOpts['end_client_company_id'] = (int) $placementContext['end_client_company_id'];
         }
 
         $projection = jobdivaProjectorProjectPlacement($tid, $payload, $userId, $projectionOpts);

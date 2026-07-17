@@ -671,6 +671,8 @@ function jobdivaMappingRepairCanonicalProjection(int $tenantId, ?int $userId = n
         'failed' => 0,
         'mapping_writes' => 0,
         'field_map_writes' => 0,
+        'payloads_refreshed' => 0,
+        'subpayload_indexes_refreshed' => 0,
         'jobs_joined' => 0,
         'candidates_joined' => 0,
         'contacts_joined' => 0,
@@ -683,6 +685,19 @@ function jobdivaMappingRepairCanonicalProjection(int $tenantId, ?int $userId = n
         $summary['failed']++;
         $summary['errors'][] = 'Canonical projection function is not loaded';
         return $summary;
+    }
+
+    if (function_exists('jobdivaBackfillJoinedIndexes')) {
+        $backfill = jobdivaBackfillJoinedIndexes($tenantId);
+        $summary['payloads_refreshed'] = (int) ($backfill['enrichment_ran_for'] ?? 0);
+        foreach ((array) ($backfill['sub_records_indexed'] ?? []) as $count) {
+            $summary['subpayload_indexes_refreshed'] += (int) $count;
+        }
+        foreach ((array) ($backfill['enrichment_errors'] ?? []) as $err) {
+            if (count($summary['errors']) < 10) {
+                $summary['errors'][] = 'payload_refresh: ' . (string) $err;
+            }
+        }
     }
 
     $projection = jobdivaReprojectMirroredPlacementGraphs($tenantId, $userId, $limit);
@@ -750,6 +765,8 @@ function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5
         $changed += (int) ($step['mapping_writes'] ?? 0);
         $changed += (int) ($step['field_map_writes'] ?? 0);
         $changed += (int) ($step['projected'] ?? 0);
+        $changed += (int) ($step['payloads_refreshed'] ?? 0);
+        $changed += (int) ($step['subpayload_indexes_refreshed'] ?? 0);
     }
 
     $after = jobdivaMappingAlignmentReport($tenantId, ['sample_limit' => 10]);

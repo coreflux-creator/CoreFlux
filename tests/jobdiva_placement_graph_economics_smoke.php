@@ -36,6 +36,11 @@ $a('classification candidates include JobDiva C2C flag fields',
     && str_contains($sync, "'corp to corp'")
     && str_contains($sync, 'function jobdivaInferPlacementEngagementTypeFromPayload')
     && str_contains($sync, 'jobdivaBoolishTrue($valueRaw)'));
+$a('explicit worker-corp/payee evidence infers C2C without generic vendor-name leakage',
+    str_contains($sync, '$workerCorpKey')
+    && str_contains($sync, "'corplegalname'")
+    && str_contains($sync, "'payeecompany'")
+    && str_contains($sync, "'subcontractorcompany'"));
 $a('normalizer recognizes c2c/corp/vendor and observed typo crop-to-crop',
     str_contains($sync, "str_contains(\$s, 'c2c')")
     && str_contains($sync, "str_contains(\$s, 'crop to crop')")
@@ -55,6 +60,12 @@ $a('chain writer creates MSP / prime vendor / sub-vendor tiers',
     str_contains($sync, "'role' => 'msp'")
     && str_contains($sync, "'role' => 'prime_vendor'")
     && str_contains($sync, "'role' => 'sub_vendor'"));
+$a('chain writer recognizes obvious vendor/MSP/discount labels without custom mapping',
+    str_contains($sync, "'vendor legal name'")
+    && str_contains($sync, "'payee company'")
+    && str_contains($sync, "'portal fee pct'")
+    && str_contains($sync, "'msp discount pct'")
+    && str_contains($sync, "'secondary vendor'"));
 $a('chain context ids are available to generalized field mapping',
     str_contains($sync, 'function jobdivaPlacementChainContextIds')
     && str_contains($apply, "'placement_client_chain' => match"));
@@ -76,6 +87,18 @@ foreach (['adder_pct', 'background_fee_total'] as $f) {
     $a("JobDiva rate writer resolves {$f}", str_contains($sync, "'jobdiva', 'placement', '{$f}', \$jd,"));
     $a("writable-target migration includes {$f}", str_contains($migration, "'{$f}'"));
 }
+$a('rate writer recognizes distinct JobDiva bill/client and vendor/pay labels',
+    str_contains($sync, "'client bill rate'")
+    && str_contains($sync, "'invoice rate'")
+    && str_contains($sync, "'vendor pay rate'")
+    && str_contains($sync, "'supplier rate'")
+    && str_contains($sync, "'contractor rate'")
+    && str_contains($sync, "'cost rate'"));
+$a('rate writer recognizes common burden/other-cost fields',
+    str_contains($sync, "'markup percent'")
+    && str_contains($sync, "'payroll burden'")
+    && str_contains($sync, "'other cost'")
+    && str_contains($sync, "'credentialing fee'"));
 $a('rate SQL writes adder/background on update and insert',
     str_contains($sync, 'adder_pct = :adder, background_fee_total = :bg')
     && str_contains($sync, 'adder_pct, background_fee_total)'));
@@ -123,11 +146,36 @@ $a('runtime has placement-keyed corp-details writer',
     str_contains($apply, 'function integrationFieldMapWritePlacementCorpDetails')
     && str_contains($apply, 'WHERE tenant_id = :t AND placement_id = :p')
     && str_contains($apply, "strtolower((string) \$b['table']) === 'placement_corp_details'"));
+$a('JobDiva projector writes safe C2C corp details by default',
+    str_contains($sync, 'function jobdivaSyncUpsertPlacementCorpDetails')
+    && substr_count($sync, 'jobdivaSyncUpsertPlacementCorpDetails($tid,') >= 2
+    && str_contains($sync, "\$engagement !== 'c2c'")
+    && str_contains($sync, 'placement.corp.cleared_non_c2c_jobdiva')
+    && str_contains($sync, "'vendor legal name'")
+    && str_contains($sync, "'corp_contact_email'")
+    && str_contains($sync, 'INSERT INTO placement_corp_details'));
 $a('Field Mapping Studio exposes corp-details linked entity',
     str_contains($studio, 'placement_corp_details')
     && str_contains($studio, "if (table === 'placement_corp_details') return 'placement_corp_details';"));
 
-echo "\n6. PHP syntax\n";
+echo "\n6. Assignment evidence is mandatory for JobDiva alignment\n";
+$a('normal placement sync enriches Start/Assignment details by default',
+    str_contains($sync, '$enrichStart = array_key_exists(\'enrich_start\', $opts)')
+    && str_contains($sync, ": true;\n    \$items = jobdivaSyncEnrichRelatedEntities")
+    && str_contains($sync, "'enrich_start' => \$enrichStart"));
+$a('backfill treats missing _jd_start as requiring enrichment',
+    str_contains($sync, "empty(\$jd['_jd_start']) && empty(\$jd['assignment'])"));
+$a('assignment mirror rows are tagged with the requested Start ID before storage',
+    str_contains($sync, '$appendAssignmentRecord = static function')
+    && str_contains($sync, "\$row['startId'] = \$startId")
+    && str_contains($sync, "\$row['id'] = \$startId")
+    && str_contains($sync, "\$appendAssignmentRecord(\$row, (string) \$sid)"));
+$a('canonical projection repair refreshes stored joined payloads before reprojecting',
+    str_contains($service = (string) file_get_contents("{$ROOT}/core/jobdiva/mapping_alignment.php"), 'jobdivaBackfillJoinedIndexes($tenantId)')
+    && str_contains($service, "'payloads_refreshed'")
+    && str_contains($service, "'subpayload_indexes_refreshed'"));
+
+echo "\n7. PHP syntax\n";
 foreach ([
     "{$ROOT}/core/jobdiva/sync.php",
     "{$ROOT}/core/integrations/field_map.php",
