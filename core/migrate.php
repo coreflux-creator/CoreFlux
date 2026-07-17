@@ -174,7 +174,10 @@ function coreflux_run_migrations(bool $force = false): array {
 
     $pdo = getDB();
     if (!$pdo) {
-        $coreflux_migration_status['errors'][] = 'no PDO available';
+        $reason = function_exists('getDBLastError') ? getDBLastError() : null;
+        $coreflux_migration_status['errors'][] = $reason
+            ? 'no PDO available: ' . $reason
+            : 'no PDO available';
         return $coreflux_migration_status;
     }
 
