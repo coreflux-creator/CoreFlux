@@ -48,6 +48,9 @@ $a('normalizer recognizes c2c/corp/vendor and observed typo crop-to-crop',
 $a('silent source does not preserve stale imported engagement type',
     str_contains($sync, '$mappedEngagement = jobdivaNormalisePlacementEngagementType($engagementRaw, \'\')')
     && str_contains($sync, '($mappedEngagement !== \'\' ? $mappedEngagement : \'w2\')'));
+$a('strong source engagement evidence beats a generic mapped W2',
+    str_contains($sync, "\$sourceEngagement !== '' && (\$mappedEngagement === '' || \$mappedEngagement === 'w2')")
+    && str_contains($sync, 'flattening every placement to W2'));
 $a('old direct fallback to w2 is gone',
     !str_contains($sync, '$engagementMap[strtolower(trim($engagementRaw))] ?? \'w2\''));
 
@@ -165,6 +168,10 @@ $a('normal placement sync enriches Start/Assignment details by default',
     && str_contains($sync, "'enrich_start' => \$enrichStart"));
 $a('backfill treats missing _jd_start as requiring enrichment',
     str_contains($sync, "empty(\$jd['_jd_start']) && empty(\$jd['assignment'])"));
+$a('backfill reattaches enriched payloads to the original placement snapshot',
+    str_contains($sync, "'placement_index' => count(\$placements)")
+    && str_contains($sync, '$needsEnrichment = array_values(array_filter($placements')
+    && str_contains($sync, "\$placements[\$p['placement_index']]['payload'] = \$newPayload"));
 $a('assignment mirror rows are tagged with the requested Start ID before storage',
     str_contains($sync, '$appendAssignmentRecord = static function')
     && str_contains($sync, "\$row['startId'] = \$startId")

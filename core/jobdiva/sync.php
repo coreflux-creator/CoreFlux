@@ -1872,7 +1872,11 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
         $payload = json_decode($snap, true);
         if (!is_array($payload)) continue;
         $payload = jobdivaCanonicalPlacementPayload($payload, jobdivaExtractJoinedSubPayloads($payload));
-        $placements[] = ['mapping_id' => (int) $row['id'], 'payload' => $payload];
+        $placements[] = [
+            'placement_index' => count($placements),
+            'mapping_id' => (int) $row['id'],
+            'payload' => $payload,
+        ];
     }
     if (empty($placements)) return $summary;
 
@@ -1882,12 +1886,12 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
     // when nothing's missing. This is the step that pulls the FULL job /
     // candidate / customer / contact rows out of JobDiva so the picker
     // surfaces complete schemas instead of just flat ref-number stubs.
-    $needsEnrichment = array_filter($placements, function ($p) {
+    $needsEnrichment = array_values(array_filter($placements, function ($p) {
         $jd = $p['payload'];
         return empty($jd['_jd_job']) || empty($jd['_jd_candidate'])
             || empty($jd['_jd_customer'])
             || (empty($jd['_jd_start']) && empty($jd['assignment']));
-    });
+    }));
     $enrichmentRanFor = 0;
     $enrichmentBroken = [];
     $enrichDiag = null;
@@ -1911,13 +1915,12 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
             // Re-stitch enriched results back into $placements by index +
             // re-save the enriched payload to external_entity_mappings so
             // the next backfill / sync sees the full record.
-            $i = 0;
-            foreach ($needsEnrichment as $idx => $p) {
-                if (!isset($enriched[$i])) { $i++; continue; }
+            foreach ($needsEnrichment as $i => $p) {
+                if (!isset($enriched[$i])) continue;
                 $newPayload = $enriched[$i];
                 if (is_array($newPayload)) {
                     $newPayload = jobdivaCanonicalPlacementPayload($newPayload, jobdivaExtractJoinedSubPayloads($newPayload));
-                    $placements[$idx]['payload'] = $newPayload;
+                    $placements[$p['placement_index']]['payload'] = $newPayload;
                     // Persist enriched payload back so this is one-shot.
                     try {
                         $up = $pdo->prepare(
@@ -1935,7 +1938,6 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
                     }
                     $enrichmentRanFor++;
                 }
-                $i++;
             }
         } catch (\Throwable $e) {
             error_log('[jobdivaBackfillJoinedIndexes] enrich failed: ' . $e->getMessage());
@@ -3332,11 +3334,19 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $mappedEngagement = jobdivaNormalisePlacementEngagementType($engagementRaw, '');
     $hasMappedEngagement = function_exists('tenantIntegrationFieldMapHasInternal')
         && tenantIntegrationFieldMapHasInternal($tid, 'jobdiva', 'placement', 'engagement_type');
-    $engagement = ($hasMappedEngagement && $mappedEngagement !== '')
-        ? $mappedEngagement
-        : ($sourceEngagement !== ''
-        ? $sourceEngagement
-        : ($mappedEngagement !== '' ? $mappedEngagement : 'w2'));
+    // Strong JobDiva assignment evidence (1099/C2C/direct-hire/etc.) beats
+    // a generic mapped W2 value. This prevents one broad tenant mapping from
+    // flattening every placement to W2 while still honoring explicit non-W2
+    // field-map choices.
+    if ($sourceEngagement !== '' && ($mappedEngagement === '' || $mappedEngagement === 'w2')) {
+        $engagement = $sourceEngagement;
+    } elseif ($hasMappedEngagement && $mappedEngagement !== '') {
+        $engagement = $mappedEngagement;
+    } elseif ($sourceEngagement !== '') {
+        $engagement = $sourceEngagement;
+    } else {
+        $engagement = $mappedEngagement !== '' ? $mappedEngagement : 'w2';
+    }
 
     $worksiteState = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'worksite_state', $jd,
