@@ -24,6 +24,8 @@ $a = function (string $name, bool $ok) use (&$pass, &$fail): void {
 
 $db = (string) file_get_contents(__DIR__ . '/../core/db.php');
 $migrate = (string) file_get_contents(__DIR__ . '/../core/migrate.php');
+$update = (string) file_get_contents(__DIR__ . '/../update.php');
+$deploy = (string) file_get_contents(__DIR__ . '/../.deploy-version');
 
 echo "core/db.php - updater-safe DB bootstrap\n";
 $a('records last DB bootstrap error', str_contains($db, '$coreflux_db_last_error'));
@@ -37,6 +39,13 @@ $a('tracks disabled database mode distinctly', str_contains($db, 'COREFLUX_DISAB
 echo "\ncore/migrate.php - update page diagnostic contract\n";
 $a('migration runner includes DB bootstrap detail', str_contains($migrate, 'getDBLastError()'));
 $a('migration error keeps no-PDO prefix for existing UI handling', str_contains($migrate, "'no PDO available: ' . \$reason"));
+
+echo "\nupdate.php - hosted updater DB fallback\n";
+$a('update page shows explicit DB diagnostics step', str_contains($update, 'database bootstrap diagnostics'));
+$a('update page can install direct PDO fallback into runtime', str_contains($update, "\$GLOBALS['pdo'] = \$direct['pdo']"));
+$a('update page resets migration status before retrying fallback', str_contains($update, "\$GLOBALS['coreflux_migration_status']"));
+$a('update page redacts DB secrets from diagnostics', str_contains($update, 'corefluxUpdateRedactDbError'));
+$a('deploy proof list includes update.php and core/db.php', str_contains($deploy, '- update.php') && str_contains($deploy, '- core/db.php'));
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

@@ -73,6 +73,8 @@ sentinels:
 - api/plaid_items.php
 - api/plaid_dedupe.php
 - api/ai_categorization_rules.php
+- update.php
+- core/db.php
 - core/migrate.php
 - core/migrations/010_plaid_account_balances.sql
 - modules/payroll/api/preflight.php

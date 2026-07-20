@@ -72,6 +72,13 @@ function runUpdate(): array {
     //     immediately sees that Cloudways' git deploy hasn't run.
     $log['steps'][] = _deployVersionCheck($root);
 
+    // 1c. Database bootstrap proof. The updater is the one place where a stale
+    // core/db.php or host-level PDO mismatch can silently block every schema
+    // repair while the SPA bundle still looks fresh. Probe DB access here and,
+    // when the direct probe succeeds, install that PDO into the runtime so the
+    // canonical migration runner can proceed.
+    $log['steps'][] = corefluxUpdateDbDiagnostics($root);
+
     // 2. Apply pending migrations through the same runtime runner the app
     // uses on requests. The older installer helper writes a separate
     // coreflux_migrations ledger and can drift from the canonical
@@ -284,6 +291,26 @@ function corefluxUpdateRunRuntimeMigrations(string $root): array
     require_once $root . '/core/migrate.php';
 
     $status = coreflux_run_migrations(true);
+    if (corefluxUpdateMigrationNeedsDbFallback($status)) {
+        $direct = corefluxUpdateOpenPdo();
+        if (($direct['pdo'] ?? null) instanceof \PDO) {
+            $GLOBALS['pdo'] = $direct['pdo'];
+            if (array_key_exists('coreflux_db_last_error', $GLOBALS)) {
+                $GLOBALS['coreflux_db_last_error'] = null;
+            }
+            $GLOBALS['coreflux_migration_status'] = [
+                'ran_in_process' => false,
+                'applied_files'  => [],
+                'skipped_files'  => [],
+                'errors'         => [],
+            ];
+            $status = coreflux_run_migrations(true);
+            $status['update_db_fallback'] = 'direct PDO connected via ' . (string) ($direct['host'] ?? 'configured host');
+        } else {
+            $status['errors'][] = 'update direct DB fallback failed: ' . (string) ($direct['error'] ?? 'unknown database error');
+        }
+    }
+
     $errors = array_values(array_filter(array_map('strval', $status['errors'] ?? [])));
     $applied = array_values(array_map('strval', $status['applied_files'] ?? []));
     $skipped = array_values(array_map('strval', $status['skipped_files'] ?? []));
@@ -298,6 +325,13 @@ function corefluxUpdateRunRuntimeMigrations(string $root): array
             count($errors)
         ),
     ]];
+    if (!empty($status['update_db_fallback'])) {
+        $list[] = [
+            'check' => 'update DB fallback',
+            'ok' => true,
+            'detail' => (string) $status['update_db_fallback'],
+        ];
+    }
     foreach ($applied as $file) {
         $list[] = ['file' => $file, 'status' => 'applied'];
     }
@@ -316,6 +350,111 @@ function corefluxUpdateRunRuntimeMigrations(string $root): array
         'ok' => empty($errors),
         'list' => $list,
     ];
+}
+
+function corefluxUpdateDbDiagnostics(string $root): array
+{
+    require_once $root . '/core/db.php';
+
+    $pdo = function_exists('getDB') ? getDB() : null;
+    $last = function_exists('getDBLastError') ? (string) (getDBLastError() ?? '') : 'getDBLastError unavailable';
+    $drivers = class_exists('PDO') ? \PDO::getAvailableDrivers() : [];
+    $parts = [
+        'PDO=' . (class_exists('PDO') ? 'yes' : 'no'),
+        'pdo_mysql=' . (in_array('mysql', $drivers, true) ? 'yes' : 'no'),
+        'getDB=' . ($pdo instanceof \PDO ? 'connected' : 'empty'),
+    ];
+    if ($last !== '') {
+        $parts[] = 'bootstrap=' . corefluxUpdateRedactDbError($last);
+    }
+
+    if (!$pdo instanceof \PDO) {
+        $direct = corefluxUpdateOpenPdo();
+        if (($direct['pdo'] ?? null) instanceof \PDO) {
+            $GLOBALS['pdo'] = $direct['pdo'];
+            if (array_key_exists('coreflux_db_last_error', $GLOBALS)) {
+                $GLOBALS['coreflux_db_last_error'] = null;
+            }
+            $parts[] = 'direct_probe=connected via ' . (string) ($direct['host'] ?? 'configured host');
+            return [
+                'name' => 'database bootstrap diagnostics',
+                'ok' => true,
+                'detail' => implode(' | ', $parts),
+            ];
+        }
+        $parts[] = 'direct_probe=failed: ' . corefluxUpdateRedactDbError((string) ($direct['error'] ?? 'unknown database error'));
+        return [
+            'name' => 'database bootstrap diagnostics',
+            'ok' => false,
+            'detail' => implode(' | ', $parts),
+        ];
+    }
+
+    return [
+        'name' => 'database bootstrap diagnostics',
+        'ok' => true,
+        'detail' => implode(' | ', $parts),
+    ];
+}
+
+function corefluxUpdateMigrationNeedsDbFallback(array $status): bool
+{
+    foreach (($status['errors'] ?? []) as $err) {
+        if (stripos((string) $err, 'no PDO available') !== false) {
+            return true;
+        }
+    }
+    return function_exists('getDB') && !(getDB() instanceof \PDO);
+}
+
+function corefluxUpdateOpenPdo(): array
+{
+    if (!class_exists('PDO')) {
+        return ['pdo' => null, 'error' => 'PDO class is not loaded'];
+    }
+    $drivers = \PDO::getAvailableDrivers();
+    if (!in_array('mysql', $drivers, true)) {
+        return [
+            'pdo' => null,
+            'error' => 'pdo_mysql driver is not loaded; available drivers: ' . implode(',', $drivers),
+        ];
+    }
+
+    $hosts = [DB_HOST];
+    if (DB_HOST === 'localhost') {
+        $hosts[] = '127.0.0.1';
+    } elseif (DB_HOST === '127.0.0.1') {
+        $hosts[] = 'localhost';
+    }
+
+    $errors = [];
+    $options = [
+        \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+        \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+        \PDO::ATTR_EMULATE_PREPARES => false,
+    ];
+    foreach (array_values(array_unique($hosts)) as $host) {
+        try {
+            $dsn = 'mysql:host=' . $host . ';dbname=' . DB_NAME . ';charset=utf8mb4';
+            return [
+                'pdo' => new \PDO($dsn, DB_USER, DB_PASS, $options),
+                'host' => $host,
+                'error' => null,
+            ];
+        } catch (\Throwable $e) {
+            $errors[] = $host . ': ' . $e->getMessage();
+        }
+    }
+
+    return ['pdo' => null, 'error' => implode(' | ', $errors)];
+}
+
+function corefluxUpdateRedactDbError(string $error): string
+{
+    $error = str_replace((string) DB_PASS, '[redacted]', $error);
+    $error = str_replace((string) DB_USER, '[db-user]', $error);
+    $error = str_replace((string) DB_NAME, '[db-name]', $error);
+    return $error;
 }
 
 /**
