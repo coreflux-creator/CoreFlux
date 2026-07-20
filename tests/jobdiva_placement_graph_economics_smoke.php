@@ -47,7 +47,10 @@ $a('normalizer recognizes c2c/corp/vendor and observed typo crop-to-crop',
     && str_contains($sync, "str_contains(\$s, 'vendor')"));
 $a('silent source does not preserve stale imported engagement type',
     str_contains($sync, '$mappedEngagement = jobdivaNormalisePlacementEngagementType($engagementRaw, \'\')')
-    && str_contains($sync, '($mappedEngagement !== \'\' ? $mappedEngagement : \'w2\')'));
+    && (
+        str_contains($sync, '($mappedEngagement !== \'\' ? $mappedEngagement : \'w2\')')
+        || str_contains($sync, '$engagement = $mappedEngagement !== \'\' ? $mappedEngagement : \'w2\';')
+    ));
 $a('strong source engagement evidence beats a generic mapped W2',
     str_contains($sync, "\$sourceEngagement !== '' && (\$mappedEngagement === '' || \$mappedEngagement === 'w2')")
     && str_contains($sync, 'flattening every placement to W2'));
@@ -148,7 +151,8 @@ $a('writable-target migration exposes safe corp details only',
 $a('runtime has placement-keyed corp-details writer',
     str_contains($apply, 'function integrationFieldMapWritePlacementCorpDetails')
     && str_contains($apply, 'WHERE tenant_id = :t AND placement_id = :p')
-    && str_contains($apply, "strtolower((string) \$b['table']) === 'placement_corp_details'"));
+    && str_contains($apply, '$tableLower === \'placement_corp_details\'')
+    && str_contains($apply, 'integrationFieldMapWritePlacementCorpDetails($tid, (int) $b[\'id\'], $b[\'set\'])'));
 $a('JobDiva projector writes safe C2C corp details by default',
     str_contains($sync, 'function jobdivaSyncUpsertPlacementCorpDetails')
     && substr_count($sync, 'jobdivaSyncUpsertPlacementCorpDetails($tid,') >= 2
@@ -177,6 +181,15 @@ $a('assignment mirror rows are tagged with the requested Start ID before storage
     && str_contains($sync, "\$row['startId'] = \$startId")
     && str_contains($sync, "\$row['id'] = \$startId")
     && str_contains($sync, "\$appendAssignmentRecord(\$row, (string) \$sid)"));
+$a('JobDiva mirror writers use the external-mapping reconciler, not raw duplicate-key inserts',
+    substr_count($sync, "mappingUpsert(\$tid, 'jobdiva', \$entityType, \$extId, \$internalSentinel, \$jd, 'pull', \$userId);") >= 2
+    && !str_contains($sync, '$upsert->execute'));
+$a('backfill attaches local mirrored payloads before trying brittle live endpoints',
+    str_contains($sync, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats)'));
+$a('full sync performs final canonical replay after mirror evidence is stored',
+    str_contains($sync, "'jobdiva_final_projection'")
+    && str_contains($sync, '$finalProjection = $safeRun(')
+    && str_contains($sync, "'jobdiva_final_projection' => \$finalProjection"));
 $a('canonical projection repair refreshes stored joined payloads before reprojecting',
     str_contains($service = (string) file_get_contents("{$ROOT}/core/jobdiva/mapping_alignment.php"), 'jobdivaBackfillJoinedIndexes($tenantId)')
     && str_contains($service, "'payloads_refreshed'")

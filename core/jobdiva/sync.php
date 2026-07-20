@@ -1872,6 +1872,10 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
         $payload = json_decode($snap, true);
         if (!is_array($payload)) continue;
         $payload = jobdivaCanonicalPlacementPayload($payload, jobdivaExtractJoinedSubPayloads($payload));
+        if (function_exists('jobdivaPlacementPayloadWithMirrors')) {
+            $mirrorStats = [];
+            $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats);
+        }
         $placements[] = [
             'placement_index' => count($placements),
             'mapping_id' => (int) $row['id'],
@@ -4038,22 +4042,6 @@ function jobdivaSyncMirrorEntity(
     $itemsFetched = count($items);
     $sampleKeys = [];
 
-    $upsert = $pdo ? $pdo->prepare(
-        "INSERT INTO external_entity_mappings
-            (tenant_id, source_system, internal_entity_type, internal_entity_id,
-             external_id, payload_snapshot, content_hash, sync_status, direction,
-             last_seen_at, last_synced_at, created_at, updated_at)
-         VALUES
-            (:t, 'jobdiva', :et, :iid, :eid, :payload, :hash, 'ok', 'pull',
-             NOW(), NOW(), NOW(), NOW())
-         ON DUPLICATE KEY UPDATE
-             payload_snapshot = VALUES(payload_snapshot),
-             content_hash     = VALUES(content_hash),
-             last_seen_at     = NOW(),
-             last_synced_at   = NOW(),
-             updated_at       = NOW()"
-    ) : null;
-
     foreach ($items as $idx => $jd) {
         if ($idx < 3 && is_array($jd)) $sampleKeys[$idx] = array_keys($jd);
         try {
@@ -4062,18 +4050,10 @@ function jobdivaSyncMirrorEntity(
 
             // 1) Mirror the full payload — feeds the "🔬 Raw payload"
             // diagnostic so operators can see every field JobDiva sent.
-            if ($upsert !== null) {
-                $payloadJson      = json_encode($jd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '{}';
+            if ($pdo !== null) {
                 $internalSentinel = ctype_digit($extId) ? (int) $extId : abs(crc32($extId));
                 if ($internalSentinel <= 0) $internalSentinel = 1;
-                $upsert->execute([
-                    't'        => $tid,
-                    'et'       => $entityType,
-                    'iid'      => $internalSentinel,
-                    'eid'      => $extId,
-                    'payload'  => $payloadJson,
-                    'hash'     => hash('sha256', $payloadJson),
-                ]);
+                mappingUpsert($tid, 'jobdiva', $entityType, $extId, $internalSentinel, $jd, 'pull', $userId);
             }
 
             // 2) Index every field — feeds the Field Mapping Studio's
@@ -4083,7 +4063,7 @@ function jobdivaSyncMirrorEntity(
                 integrationPayloadFieldIndexRecord($tid, 'jobdiva', $indexEntityType, $payloadForIndex);
             }
 
-            if ($entityType === 'jobdiva_job' && $upsert !== null) {
+            if ($entityType === 'jobdiva_job' && $pdo !== null) {
                 jobdivaBridgeStaffingJobFromPayload($tid, $extId, $jd, $userId);
             }
 
@@ -4225,40 +4205,21 @@ function jobdivaMirrorStoreAndIndex(
 ): array {
     require_once __DIR__ . '/../integrations/payload_field_index.php';
     $pdo = getDB();
-    $upsert = $pdo ? $pdo->prepare(
-        "INSERT INTO external_entity_mappings
-            (tenant_id, source_system, internal_entity_type, internal_entity_id,
-             external_id, payload_snapshot, content_hash, sync_status, direction,
-             last_seen_at, last_synced_at, created_at, updated_at)
-         VALUES
-            (:t, 'jobdiva', :et, :iid, :eid, :payload, :hash, 'ok', 'pull',
-             NOW(), NOW(), NOW(), NOW())
-         ON DUPLICATE KEY UPDATE
-             payload_snapshot = VALUES(payload_snapshot),
-             content_hash     = VALUES(content_hash),
-             last_seen_at     = NOW(), last_synced_at = NOW(), updated_at = NOW()"
-    ) : null;
-
     $processed = 0; $skipped = 0; $failed = 0;
     foreach ($items as $jd) {
         try {
             $extId = (string) jobdivaPluckField($jd, $idKeys);
             if ($extId === '') { $skipped++; continue; }
-            if ($upsert !== null) {
-                $payloadJson      = json_encode($jd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '{}';
+            if ($pdo !== null) {
                 $internalSentinel = ctype_digit($extId) ? (int) $extId : abs(crc32($extId));
                 if ($internalSentinel <= 0) $internalSentinel = 1;
-                $upsert->execute([
-                    't' => $tid, 'et' => $entityType, 'iid' => $internalSentinel,
-                    'eid' => $extId, 'payload' => $payloadJson,
-                    'hash' => hash('sha256', $payloadJson),
-                ]);
+                mappingUpsert($tid, 'jobdiva', $entityType, $extId, $internalSentinel, $jd, 'pull', $userId);
             }
             foreach (jobdivaCanonicalFieldIndexEntityTypes($entityType) as $indexEntityType) {
                 $payloadForIndex = jobdivaCanonicalPayloadForEntity($entityType, $indexEntityType, $jd);
                 integrationPayloadFieldIndexRecord($tid, 'jobdiva', $indexEntityType, $payloadForIndex);
             }
-            if ($entityType === 'jobdiva_job' && $upsert !== null) {
+            if ($entityType === 'jobdiva_job' && $pdo !== null) {
                 jobdivaBridgeStaffingJobFromPayload($tid, $extId, $jd, $userId);
             }
             $processed++;
@@ -4682,6 +4643,25 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
         $skipped[] = 'jobdiva_candidate';
     }
 
+    // Final canonical replay: placements may have been projected before the
+    // mirror-by-placement and job/candidate mirror passes finished collecting
+    // related evidence. Re-run projection once after all reachable JobDiva
+    // mirrors are stored so placements, rates, clients, vendor/corp details,
+    // and mapping overrides all read from the same enriched payload.
+    if ($shouldPull($config, 'placement') && empty($opts['skip_final_projection'])) {
+        $finalProjection = $safeRun(
+            'jobdiva_final_projection',
+            static fn() => jobdivaReprojectMirroredPlacementGraphs(
+                $tid,
+                $userId,
+                (int) ($opts['final_projection_limit'] ?? $opts['projection_limit'] ?? 5000)
+            )
+        );
+    } else {
+        $finalProjection = ['placements_seen' => 0, 'placements_projected' => 0, 'errors' => [], 'skipped_by_config' => true];
+        $skipped[] = 'jobdiva_final_projection';
+    }
+
     // Time direction wiring (Slice A4 follow-on). Pull, push, two_way honored.
     $timeResult = ['processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'skipped_by_config' => true];
     if ($shouldPull($config, 'time') || $shouldPush($config, 'time')) {
@@ -4707,6 +4687,7 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
         'jobdiva_mirror_by_placements' => $placementMirror['processed'] ?? 0,
         'jobdiva_job'       => $jobs['processed'],
         'jobdiva_candidate' => $candidates['processed'],
+        'jobdiva_final_projection' => $finalProjection['placements_projected'] ?? 0,
         'time'              => $timeResult['processed'],
     ];
     $total      = array_sum($counts);
@@ -4729,6 +4710,7 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
             'jobdiva_mirror_by_placements' => $placementMirror,
             'jobdiva_job'       => $jobs,
             'jobdiva_candidate' => $candidates,
+            'jobdiva_final_projection' => $finalProjection,
             'time'              => $timeResult,
         ],
     ];
