@@ -151,12 +151,20 @@ function plaidUpdateItemWebhook(string $accessToken, string $newWebhookUrl): arr
  * automatically. Read-mostly: only calls /item/webhook/update if the
  * stored URL differs from the canonical one.
  *
- * @return array{checked:int, updated:int, skipped:int, failed:int, errors:array<int,string>}
+ * @return array{checked:int, updated:int, skipped:int, failed:int, stale_revoked:int, errors:array<int,string>, webhook_url:?string}
  */
 function plaidSyncAllItemWebhooks(?string $forceUrl = null): array
 {
     $url = $forceUrl ?: plaidWebhookUrl();
-    $out = ['checked' => 0, 'updated' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'webhook_url' => $url];
+    $out = [
+        'checked' => 0,
+        'updated' => 0,
+        'skipped' => 0,
+        'failed' => 0,
+        'stale_revoked' => 0,
+        'errors' => [],
+        'webhook_url' => $url,
+    ];
     if (!$url) {
         $out['errors'][] = 'cannot resolve webhook URL (set APP_PUBLIC_URL or PLAID_WEBHOOK_URL)';
         return $out;
@@ -198,11 +206,61 @@ function plaidSyncAllItemWebhooks(?string $forceUrl = null): array
                 'after' => plaidItemAuditRow((int) ($row['tenant_id'] ?? 0), (int) $row['id']),
             ]);
         } catch (PlaidApiException $e) {
+            if (plaidIsRemovedItemException($e)) {
+                plaidMarkItemRevokedLocally($pdo, $row, $e);
+                $out['skipped']++;
+                $out['stale_revoked']++;
+                continue;
+            }
             $out['failed']++;
             $out['errors'][] = "item {$row['item_id']}: " . $e->getMessage();
         }
     }
     return $out;
+}
+
+function plaidIsRemovedItemException(PlaidApiException $e): bool
+{
+    $code = strtoupper($e->errorCode);
+    $msg = strtolower($e->getMessage());
+    return in_array($code, ['ITEM_NOT_FOUND', 'INVALID_ACCESS_TOKEN'], true)
+        || str_contains($msg, 'item you requested cannot be found')
+        || str_contains($msg, 'has been previously removed')
+        || str_contains($msg, 'access removed by the user')
+        || str_contains($msg, '/item/remove');
+}
+
+function plaidMarkItemRevokedLocally(\PDO $pdo, array $row, PlaidApiException $e): void
+{
+    $tenantId = (int) ($row['tenant_id'] ?? 0);
+    $id = (int) ($row['id'] ?? 0);
+    if ($tenantId <= 0 || $id <= 0) return;
+
+    $stmt = $pdo->prepare(
+        'UPDATE plaid_items
+            SET status = "revoked",
+                last_error_code = :code,
+                last_error_message = :msg,
+                updated_at = NOW()
+          WHERE tenant_id = :tenant_id
+            AND id = :id'
+    );
+    $stmt->execute([
+        'code' => $e->errorCode ?: 'ITEM_REMOVED',
+        'msg' => substr($e->getMessage(), 0, 500),
+        'tenant_id' => $tenantId,
+        'id' => $id,
+    ]);
+
+    plaidAudit('core.plaid.item_marked_revoked_from_sync', [
+        'item_id' => $row['item_id'] ?? null,
+        'error_code' => $e->errorCode ?: null,
+        'error' => $e->getMessage(),
+    ], $id, [
+        'tenant_id' => $tenantId,
+        'actor_type' => 'system',
+        'after' => plaidItemAuditRow($tenantId, $id),
+    ]);
 }
 
 // ---------------------------------------------------------------- HTTP

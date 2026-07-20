@@ -65,6 +65,11 @@ $a('health check exposes request_url for INVALID_PRODUCT',
 $a('plaidWebhookUrl() auto-derive helper',     $c($svc, 'function plaidWebhookUrl'));
 $a('plaidUpdateItemWebhook() helper',          $c($svc, 'function plaidUpdateItemWebhook'));
 $a('plaidSyncAllItemWebhooks() helper',        $c($svc, 'function plaidSyncAllItemWebhooks'));
+$a('webhook sync treats removed Items as local revoke cleanup',
+    $c($svc, 'function plaidIsRemovedItemException')
+ && $c($svc, 'function plaidMarkItemRevokedLocally')
+ && $c($svc, 'stale_revoked')
+ && $c($svc, 'status = "revoked"'));
 $a('webhook URL falls back to APP_PUBLIC_URL', $c($svc, "plaidGet('APP_PUBLIC_URL')"));
 $a('webhook URL respects X-Forwarded-Proto',   $c($svc, 'HTTP_X_FORWARDED_PROTO'));
 $a('encryption.php required',     $c($svc, "require_once __DIR__ . '/encryption.php'"));
