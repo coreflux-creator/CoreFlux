@@ -30,7 +30,7 @@ $c = function (string $hay, string $needle): bool { return strpos($hay, $needle)
 echo "Migration 101 — recon aliases + CoA backfill\n";
 $m101 = (string) file_get_contents($ROOT . '/core/migrations/101_accounting_recon_aliases_and_coa_backfill.sql');
 $a('migration 101 exists',                                $m101 !== '');
-$a('adds statement_end_date column (idempotent)',         $c($m101, "TABLE_NAME   = 'accounting_reconciliations'") && $c($m101, 'ADD COLUMN statement_end_date DATE NULL'));
+$a('adds statement_end_date column (idempotent)',         $c($m101, "TABLE_NAME = 'accounting_reconciliations'") && $c($m101, 'ADD COLUMN statement_end_date DATE NULL'));
 $a('adds reconciled_through_date column',                 $c($m101, 'ADD COLUMN reconciled_through_date DATE NULL'));
 $a('backfills statement_end_date from period_end',        $c($m101, 'SET statement_end_date = period_end'));
 $a('backfills reconciled_through_date from period_end',   $c($m101, 'SET reconciled_through_date = period_end'));
@@ -38,10 +38,12 @@ $a('creates lookup index for books_health query',         $c($m101, 'CREATE INDE
 $a('CoA backfill INSERT … SELECT from bank_accounts',     $c($m101, 'INSERT INTO accounting_accounts') && $c($m101, 'FROM accounting_bank_accounts aba'));
 $a('CoA backfill is idempotent (NOT EXISTS guard)',       substr_count($m101, 'NOT EXISTS') >= 2);
 $a('CoA backfill includes treasury_liability_accounts',   $c($m101, 'FROM treasury_liability_accounts tla'));
-$a('liability backfill tags account_type=liability',      $c($m101, "'liability' AS account_type"));
-$a('liability backfill tags normal_side=credit',          $c($m101, "'credit'    AS normal_side"));
-$a('bank backfill tags account_type=asset',               $c($m101, "'asset'  AS account_type"));
-$a('bank backfill labels with last4 suffix',              $c($m101, "CONCAT(' …', aba.last4)"));
+$a('CoA backfill chooses live bank code column',           $c($m101, "COLUMN_NAME IN ('gl_account_code', 'legal_account_code', 'account_code')") && $c($m101, '@aba_code_expr'));
+$a('liability backfill is optional when table only has account_id', $c($m101, '@tla_code_expr') && $c($m101, '@tla_code_col'));
+$a('liability backfill tags account_type=liability',      $c($m101, "''liability'' AS account_type"));
+$a('liability backfill tags normal_side=credit',          $c($m101, "''credit'' AS normal_side"));
+$a('bank backfill tags account_type=asset',               $c($m101, "''asset'' AS account_type"));
+$a('bank backfill labels with last4 suffix',              $c($m101, "CONCAT(' ...', aba.`last4`)"));
 
 // ────────────────────────────────────────── 2) migration 102
 echo "\nMigration 102 — sub-tenant entity seed\n";
@@ -66,7 +68,7 @@ $a('inline seed derives 4-letter code',                   $c($st, "preg_replace(
 $a('inline seed is best-effort (try/catch)',              $c($st, 'Migration 102 will catch this on next deploy'));
 
 $rc = 0; $o = [];
-exec('php -l ' . escapeshellarg($ROOT . '/core/sub_tenants.php') . ' 2>&1', $o, $rc);
+exec(escapeshellarg(PHP_BINARY) . ' -l ' . escapeshellarg($ROOT . '/core/sub_tenants.php') . ' 2>&1', $o, $rc);
 $a('php -l sub_tenants.php',                              $rc === 0);
 
 // ────────────────────────────────────────── 4) active_entity.php cross-tenant
@@ -85,7 +87,7 @@ $a('ORDER BY active tenant first, then master',           $c($ae, "CASE WHEN ae.
 $a('tenant-leak-allow comment present',                   $c($ae, 'tenant-leak-allow: cross-tenant by design'));
 
 $rc = 0; $o = [];
-exec('php -l ' . escapeshellarg($ROOT . '/core/active_entity.php') . ' 2>&1', $o, $rc);
+exec(escapeshellarg(PHP_BINARY) . ' -l ' . escapeshellarg($ROOT . '/core/active_entity.php') . ' 2>&1', $o, $rc);
 $a('php -l active_entity.php',                            $rc === 0);
 
 // ────────────────────────────────────────── 5) migration 103 — mercury method enum

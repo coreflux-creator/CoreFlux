@@ -76,6 +76,8 @@ sentinels:
 - update.php
 - core/db.php
 - core/migrate.php
+- core/migrations/094_ai_classify_idempotency.sql
+- core/migrations/101_accounting_recon_aliases_and_coa_backfill.sql
 - core/migrations/010_plaid_account_balances.sql
 - modules/payroll/api/preflight.php
 - modules/payroll/api/gusto_preview.php

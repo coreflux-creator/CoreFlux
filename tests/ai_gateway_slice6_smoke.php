@@ -44,12 +44,18 @@ echo "=======================================================\n\n";
 echo "core/migrations/094_ai_classify_idempotency.sql\n";
 $m = $read("{$ROOT}/core/migrations/094_ai_classify_idempotency.sql");
 $a('file exists',                                  $m !== '');
-$a('alters accounting_bank_statement_lines',       str_contains($m, 'ALTER TABLE accounting_bank_statement_lines'));
-$a('  adds ai_classified_at timestamp',            str_contains($m, 'ADD COLUMN IF NOT EXISTS ai_classified_at   TIMESTAMP NULL'));
-$a('  adds ai_workflow_run_id back-link',          str_contains($m, 'ADD COLUMN IF NOT EXISTS ai_workflow_run_id CHAR(36) NULL'));
-$a('  pending index for cron lookup',              str_contains($m, 'ADD KEY IF NOT EXISTS ix_abst_ai_pending'));
-$a('alters mercury_transactions',                  str_contains($m, 'ALTER TABLE mercury_transactions'));
-$a('  pending index for mercury cron lookup',      str_contains($m, 'ADD KEY IF NOT EXISTS ix_mtx_ai_pending'));
+$a('discovers accounting_bank_statement_lines shape',
+    str_contains($m, "TABLE_NAME = 'accounting_bank_statement_lines'")
+ && str_contains($m, "COLUMN_NAME = 'posted_date'"));
+$a('  adds ai_classified_at timestamp safely',     str_contains($m, 'ADD COLUMN ai_classified_at TIMESTAMP NULL DEFAULT NULL'));
+$a('  adds ai_workflow_run_id back-link safely',   str_contains($m, 'ADD COLUMN ai_workflow_run_id CHAR(36) NULL DEFAULT NULL'));
+$a('  pending index for cron lookup',              str_contains($m, 'CREATE INDEX ix_abst_ai_pending ON accounting_bank_statement_lines'));
+$a('discovers mercury_transactions shape',
+    str_contains($m, "TABLE_NAME = 'mercury_transactions'")
+ && str_contains($m, "COLUMN_NAME = 'received_at'"));
+$a('  pending index for mercury cron lookup',      str_contains($m, 'CREATE INDEX ix_mtx_ai_pending ON mercury_transactions'));
+$a('does not assume posted_at exists on bank lines',
+    !str_contains($m, 'ADD COLUMN IF NOT EXISTS ai_classified_at   TIMESTAMP NULL DEFAULT NULL AFTER posted_at'));
 
 // ── cron worker ────────────────────────────────────────────────────
 echo "\ncron/ai_classify_bank_transactions.php\n";
@@ -237,7 +243,7 @@ foreach ([
     'cron/ai_classify_bank_transactions.php',
     'api/ai/exceptions.php',
 ] as $f) {
-    $r = shell_exec("php -l {$ROOT}/{$f} 2>&1");
+    $r = shell_exec(escapeshellarg(PHP_BINARY) . ' -l ' . escapeshellarg("{$ROOT}/{$f}") . ' 2>&1');
     $a("{$f} parses",                              is_string($r) && str_contains($r, 'No syntax errors'));
 }
 
