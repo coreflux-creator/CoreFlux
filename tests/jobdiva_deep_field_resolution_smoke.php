@@ -95,6 +95,13 @@ $a('_jd_contact.fullName resolved for approver name chain',
     jobdivaPluckFieldDeep($contactOnly, ['approverName', 'clientApprover', 'fullName']) === 'Jane Manager');
 $a('_jd_contact.email resolved for approver email chain',
     jobdivaPluckFieldDeep($contactOnly, ['approverEmail', 'email']) === 'jane@client.example.com');
+$contactAndCandidate = [
+    'email' => 'candidate-flat@example.com',
+    '_jd_candidate' => ['email' => 'candidate@example.com'],
+    '_jd_contact' => ['fullName' => 'Jane Manager', 'email' => 'jane@client.example.com'],
+];
+$a('contact-scoped lookup does not fall through to candidate email',
+    jobdivaPluckNestedField($contactAndCandidate, ['email', 'emailAddress'], ['_jd_contact', 'contact', 'Contact']) === 'jane@client.example.com');
 
 // 1f: _jd_start for rate fields (legacy nest still works)
 $startOnly = [
@@ -178,6 +185,9 @@ $a('sync.php placement approver_name uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, [\n            'approverName'"));
 $a('sync.php placement approver_email uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, [\n            'approverEmail'"));
+$a('sync.php placement approver email rejects candidate bleed',
+    str_contains($sync, "strcasecmp(\$approverEmail, \$candidateEmail) === 0")
+    && str_contains($sync, '$resolvedContactEmail'));
 $a('sync.php placement recruiter_name uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, [\n            'recruiterName'"));
 $a('sync.php placement account_manager_name uses deep pluck',

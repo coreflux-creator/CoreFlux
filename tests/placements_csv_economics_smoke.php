@@ -129,8 +129,8 @@ $a('export reads placement_client_chain roles',
     && str_contains($export, 'party_role = \\\'sub_vendor\\\''));
 $a('export reads placement_commissions roles',
     str_contains($export, 'placement_commissions')
-    && str_contains($export, "pc.role = \\\'recruiter\\\'")
-    && str_contains($export, "pc.role = \\\'account_manager\\\'"));
+    && str_contains($export, 'pc.role = \\\'recruiter\\\'')
+    && str_contains($export, 'pc.role = \\\'account_manager\\\''));
 $a('export joins placement_corp_details without exposing full EIN',
     str_contains($export, 'LEFT JOIN placement_corp_details pcd')
     && str_contains($export, 'pcd.corp_ein_last4')

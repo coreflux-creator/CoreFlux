@@ -41,10 +41,10 @@ $a('explicit worker-corp/payee evidence infers C2C without generic vendor-name l
     && str_contains($sync, "'corplegalname'")
     && str_contains($sync, "'payeecompany'")
     && str_contains($sync, "'subcontractorcompany'"));
-$a('normalizer recognizes c2c/corp/vendor and observed typo crop-to-crop',
+$a('normalizer recognizes explicit c2c/corp and observed typo crop-to-crop',
     str_contains($sync, "str_contains(\$s, 'c2c')")
     && str_contains($sync, "str_contains(\$s, 'crop to crop')")
-    && str_contains($sync, "str_contains(\$s, 'vendor')"));
+    && !str_contains($sync, "str_contains(\$s, 'vendor')"));
 $a('silent source does not preserve stale imported engagement type',
     str_contains($sync, '$mappedEngagement = jobdivaNormalisePlacementEngagementType($engagementRaw, \'\')')
     && (

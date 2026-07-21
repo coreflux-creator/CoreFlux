@@ -34,6 +34,10 @@ $a('observed typo crop to crop text -> c2c',
     jobdivaInferPlacementEngagementTypeFromPayload([
         'assignment' => ['position_type' => 'crop to crop'],
     ], 'w2') === 'c2c');
+$a('payee company evidence can infer c2c',
+    jobdivaInferPlacementEngagementTypeFromPayload([
+        'assignment' => ['payeeCompany' => 'Apex Consulting LLC'],
+    ], 'w2') === 'c2c');
 
 echo "\n3. Other classifications still resolve\n";
 $a('workerType 1099 -> 1099',
@@ -54,6 +58,12 @@ $a('company legal name LLC does not imply c2c',
     jobdivaInferPlacementEngagementTypeFromPayload(['companyName' => 'Public Storage LLC'], '') === '');
 $a('prime vendor name does not imply c2c',
     jobdivaInferPlacementEngagementTypeFromPayload(['prime_vendor_name' => 'Thunderhawk Technology Partners LLC'], '') === '');
+$a('generic workerType vendor does not imply c2c',
+    jobdivaInferPlacementEngagementTypeFromPayload(['assignment' => ['workerType' => 'Vendor']], '') === '');
+$a('normalizer refuses vendor/company words without explicit c2c language',
+    jobdivaNormalisePlacementEngagementType('vendor', '') === ''
+    && jobdivaNormalisePlacementEngagementType('Public Storage LLC', '') === ''
+    && jobdivaNormalisePlacementEngagementType('subcontractor', '') === '');
 
 echo "\nJobDiva engagement inference smoke: {$pass} ok / {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

@@ -142,6 +142,16 @@ function jobdivaPluckFieldDeep(
     return '';
 }
 
+function jobdivaPluckNestedField(array $item, array $candidates, array $nestOrder): string
+{
+    foreach ($nestOrder as $nest) {
+        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
+        $v = jobdivaPluckField($item[$nest], $candidates);
+        if ($v !== '') return $v;
+    }
+    return '';
+}
+
 function jobdivaEndClientNameFromPayload(array $item): string
 {
     $companySpecific = [
@@ -2225,12 +2235,8 @@ function jobdivaNormalisePlacementEngagementType(string $raw, ?string $fallback 
         || str_contains($s, 'corp to corp')
         || str_contains($s, 'crop to crop')
         || str_contains($s, 'corp 2 corp')
-        || str_contains($s, 'corporation')
-        || str_contains($s, 'llc')
-        || str_contains($s, 'inc to inc')
-        || str_contains($s, 'vendor')
-        || str_contains($s, 'supplier')
-        || str_contains($s, 'subcontractor')) {
+        || str_contains($s, 'corporation to corporation')
+        || str_contains($s, 'inc to inc')) {
         return 'c2c';
     }
     if (str_contains($s, 'w2')
@@ -3389,6 +3395,37 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $tid, 'jobdiva', 'placement', 'notes', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, ['notes', 'placementNotes', 'placement_notes'])
     );
+    $contactNameKeys = ['name', 'fullName', 'full_name', 'contactName', 'contact_name', 'firstName', 'lastName'];
+    $contactEmailKeys = ['email', 'emailAddress', 'email_address', 'primary email', 'primaryEmail', 'workEmail', 'work_email'];
+    $contactNestOrder = ['_jd_contact', 'contact', 'Contact', 'jobdiva_contact'];
+    $candidateNestOrder = ['_jd_candidate', 'candidate', 'Candidate', 'person', 'employee', 'worker', 'jobdiva_candidate'];
+    $resolvedContactName = jobdivaPluckNestedField($jd, $contactNameKeys, $contactNestOrder);
+    if ($resolvedContactName !== '' && !str_contains($resolvedContactName, ' ')) {
+        $first = jobdivaPluckNestedField($jd, ['firstName', 'first_name', 'first name'], $contactNestOrder);
+        $last = jobdivaPluckNestedField($jd, ['lastName', 'last_name', 'last name'], $contactNestOrder);
+        $full = trim($first . ' ' . $last);
+        if ($full !== '') $resolvedContactName = $full;
+    }
+    $resolvedContactEmail = jobdivaPluckNestedField($jd, $contactEmailKeys, $contactNestOrder);
+    $candidateEmail = jobdivaPluckField($jd, [
+        'candidateEmail', 'candidate_email', 'candidate email',
+        'email', 'emailAddress', 'email_address', 'primary email', 'primaryEmail', 'workEmail', 'work_email',
+    ]);
+    if ($candidateEmail === '') {
+        $candidateEmail = jobdivaPluckNestedField($jd, [
+            'candidateEmail', 'candidate_email', 'candidate email',
+            'email', 'emailAddress', 'email_address', 'primary email', 'primaryEmail', 'workEmail', 'work_email',
+        ], $candidateNestOrder);
+    }
+    $candidateName = jobdivaPluckField($jd, ['candidateName', 'candidate_name', 'candidate name', 'name', 'fullName', 'full_name']);
+    if ($candidateName === '') {
+        $candidateName = jobdivaPluckNestedField($jd, ['name', 'fullName', 'full_name', 'candidateName', 'candidate_name'], $candidateNestOrder);
+    }
+    if ($candidateName === '') {
+        $first = jobdivaPluckNestedField($jd, ['firstName', 'first_name', 'first name'], $candidateNestOrder);
+        $last = jobdivaPluckNestedField($jd, ['lastName', 'last_name', 'last name'], $candidateNestOrder);
+        $candidateName = trim($first . ' ' . $last);
+    }
     $approverName = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'client_approver_name', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
@@ -3410,6 +3447,18 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     // assignment was filled against), distinct from the assignment ID
     // which we already store in external_id. Useful for cross-linking
     // back to the Job record and rebooking detection.
+    // A broad tenant map or generic deep pluck must not copy candidate
+    // identity into the client approval-contact fields.
+    if ($candidateEmail !== '' && strcasecmp($approverEmail, $candidateEmail) === 0) {
+        $approverEmail = $resolvedContactEmail !== '' && strcasecmp($resolvedContactEmail, $candidateEmail) !== 0
+            ? $resolvedContactEmail
+            : '';
+    }
+    if ($candidateName !== '' && strcasecmp($approverName, $candidateName) === 0) {
+        $approverName = $resolvedContactName !== '' && strcasecmp($resolvedContactName, $candidateName) !== 0
+            ? $resolvedContactName
+            : '';
+    }
     $jobdivaJobId = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'jobdiva_job_id', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, ['jobId', 'job_id', 'jobID', 'JOBID', 'reqId', 'req_id'])
