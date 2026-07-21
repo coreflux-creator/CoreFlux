@@ -36,11 +36,12 @@ $a('classification candidates include JobDiva C2C flag fields',
     && str_contains($sync, "'corp to corp'")
     && str_contains($sync, 'function jobdivaInferPlacementEngagementTypeFromPayload')
     && str_contains($sync, 'jobdivaBoolishTrue($valueRaw)'));
-$a('explicit worker-corp/payee evidence infers C2C without generic vendor-name leakage',
-    str_contains($sync, '$workerCorpKey')
-    && str_contains($sync, "'corplegalname'")
-    && str_contains($sync, "'payeecompany'")
-    && str_contains($sync, "'subcontractorcompany'"));
+$a('C2C requires explicit JobDiva classification/flag proof, not payee/vendor names',
+    str_contains($sync, 'function jobdivaPlacementPayloadHasC2CProof')
+    && str_contains($sync, 'function jobdivaPlacementScalarHasC2CSignal')
+    && str_contains($sync, "if (\$engagement === 'c2c' && !jobdivaPlacementPayloadHasC2CProof(\$jd))")
+    && !str_contains($sync, '$workerCorpKey')
+    && !str_contains($sync, "str_contains(\$keyNorm, 'payeecompany')"));
 $a('normalizer recognizes explicit c2c/corp and observed typo crop-to-crop',
     str_contains($sync, "str_contains(\$s, 'c2c')")
     && str_contains($sync, "str_contains(\$s, 'crop to crop')")
@@ -54,6 +55,10 @@ $a('silent source does not preserve stale imported engagement type',
 $a('strong source engagement evidence beats a generic mapped W2',
     str_contains($sync, "\$sourceEngagement !== '' && (\$mappedEngagement === '' || \$mappedEngagement === 'w2')")
     && str_contains($sync, 'flattening every placement to W2'));
+$a('field-map enrichment cannot reapply unsafe JobDiva C2C guesses',
+    str_contains($apply, 'function integrationFieldMapShouldSkipUnsafeJobDivaEngagement')
+    && str_contains($apply, 'unsafe_jobdiva_engagement_c2c')
+    && str_contains($apply, 'jobdivaPlacementPayloadHasC2CProof($payload)'));
 $a('old direct fallback to w2 is gone',
     !str_contains($sync, '$engagementMap[strtolower(trim($engagementRaw))] ?? \'w2\''));
 

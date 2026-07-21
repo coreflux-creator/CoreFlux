@@ -34,10 +34,19 @@ $a('observed typo crop to crop text -> c2c',
     jobdivaInferPlacementEngagementTypeFromPayload([
         'assignment' => ['position_type' => 'crop to crop'],
     ], 'w2') === 'c2c');
-$a('payee company evidence can infer c2c',
+$a('payee company evidence alone does not infer c2c',
     jobdivaInferPlacementEngagementTypeFromPayload([
         'assignment' => ['payeeCompany' => 'Apex Consulting LLC'],
-    ], 'w2') === 'c2c');
+    ], 'w2') === 'w2');
+$a('subcontractor company evidence alone does not infer c2c',
+    jobdivaInferPlacementEngagementTypeFromPayload([
+        'assignment' => ['subcontractorCompany' => 'Apex Consulting LLC'],
+    ], 'w2') === 'w2');
+$a('C2C proof helper sees explicit source flags',
+    jobdivaPlacementPayloadHasC2CProof(['assignment' => ['crop_to_crop' => 'Y']]) === true);
+$a('C2C proof helper ignores payee/vendor names',
+    jobdivaPlacementPayloadHasC2CProof(['assignment' => ['payeeCompany' => 'Apex Consulting LLC']]) === false
+    && jobdivaPlacementPayloadHasC2CProof(['vendorCompany' => 'Apex Consulting LLC']) === false);
 
 echo "\n3. Other classifications still resolve\n";
 $a('workerType 1099 -> 1099',
@@ -58,6 +67,8 @@ $a('company legal name LLC does not imply c2c',
     jobdivaInferPlacementEngagementTypeFromPayload(['companyName' => 'Public Storage LLC'], '') === '');
 $a('prime vendor name does not imply c2c',
     jobdivaInferPlacementEngagementTypeFromPayload(['prime_vendor_name' => 'Thunderhawk Technology Partners LLC'], '') === '');
+$a('payee legal/name fields do not imply c2c without an explicit C2C source flag',
+    jobdivaInferPlacementEngagementTypeFromPayload(['assignment' => ['payeeLegalName' => 'Worker LLC']], '') === '');
 $a('generic workerType vendor does not imply c2c',
     jobdivaInferPlacementEngagementTypeFromPayload(['assignment' => ['workerType' => 'Vendor']], '') === '');
 $a('normalizer refuses vendor/company words without explicit c2c language',

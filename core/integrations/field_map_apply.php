@@ -944,6 +944,31 @@ function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
     return $val;
 }
 
+function integrationFieldMapShouldSkipUnsafeJobDivaEngagement(
+    string $integration,
+    string $entityType,
+    array $mapping,
+    mixed $rawValue,
+    mixed $coercedValue,
+    array $payload
+): bool {
+    if (strtolower($integration) !== 'jobdiva' || strtolower($entityType) !== 'placement') return false;
+    if ($coercedValue !== 'c2c') return false;
+    $table = strtolower(trim((string) ($mapping['target_table'] ?? '')));
+    $col = strtolower(trim((string) ($mapping['target_column'] ?? '')));
+    if ($table !== 'placements' || $col !== 'engagement_type') return false;
+
+    if (function_exists('jobdivaNormalisePlacementEngagementType')
+        && jobdivaNormalisePlacementEngagementType((string) $rawValue, '') === 'c2c') {
+        return false;
+    }
+    if (function_exists('jobdivaPlacementPayloadHasC2CProof')) {
+        return !jobdivaPlacementPayloadHasC2CProof($payload);
+    }
+
+    return false;
+}
+
 /**
  * Apply every enabled tenant mapping to a synced record. Writes are
  * scoped per (target_table, internal_row_id) so a single mapping run
@@ -1020,8 +1045,21 @@ function integrationFieldMapApplyAll(
             $val = tenantIntegrationFieldMapApplyTransform($val, (string) $m['transform']);
             if ($val === null || $val === '') { $summary['skipped']++; continue; }
         }
+        $rawValForSafety = $val;
         $val = integrationFieldMapCoerceTargetValue($val, $m);
         if ($val === null || $val === '') { $summary['skipped']++; continue; }
+        if (integrationFieldMapShouldSkipUnsafeJobDivaEngagement(
+            $integration,
+            $entityType,
+            $m,
+            $rawValForSafety,
+            $val,
+            $payload
+        )) {
+            $summary['skipped']++;
+            $summary['errors'][] = "unsafe_jobdiva_engagement_c2c target={$m['target_table']}.{$m['target_column']} (mapping_id={$m['id']})";
+            continue;
+        }
 
         $linked = (string) ($m['linked_entity'] ?? 'self');
         $table = (string) $m['target_table'];

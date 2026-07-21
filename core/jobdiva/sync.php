@@ -2249,6 +2249,72 @@ function jobdivaNormalisePlacementEngagementType(string $raw, ?string $fallback 
     return $fallback;
 }
 
+function jobdivaPlacementScalarHasC2CSignal(string $key, mixed $value): bool
+{
+    if (!is_scalar($value) && $value !== null) return false;
+    $keyNorm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $key));
+    $valueRaw = trim((string) $value);
+    $valueNorm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $valueRaw));
+    $keyValue = trim($key . ' ' . $valueRaw);
+
+    $negative = in_array($valueNorm, ['0', 'false', 'no', 'n', 'off', 'unchecked'], true);
+    $c2cKey = str_contains($keyNorm, 'c2c')
+        || str_contains($keyNorm, 'corptocorp')
+        || str_contains($keyNorm, 'croptocrop')
+        || str_contains($keyNorm, 'corporationtocorporation');
+    if ($c2cKey) {
+        if ($valueRaw === '' || jobdivaBoolishTrue($valueRaw)) return true;
+        return !$negative && jobdivaNormalisePlacementEngagementType($keyValue, '') === 'c2c';
+    }
+
+    $typedKey = str_contains($keyNorm, 'engagementtype')
+        || str_contains($keyNorm, 'workertype')
+        || str_contains($keyNorm, 'classification')
+        || str_contains($keyNorm, 'employmenttype')
+        || str_contains($keyNorm, 'employeetype')
+        || str_contains($keyNorm, 'positiontype')
+        || str_contains($keyNorm, 'taxtype')
+        || str_contains($keyNorm, 'payrolltype')
+        || str_contains($keyNorm, 'contracttype')
+        || str_contains($keyNorm, 'jobtype')
+        || str_contains($keyNorm, 'hiretype');
+    if (!$typedKey || $negative) return false;
+
+    return jobdivaNormalisePlacementEngagementType($valueRaw, '') === 'c2c'
+        || jobdivaNormalisePlacementEngagementType($keyValue, '') === 'c2c';
+}
+
+function jobdivaPlacementPayloadHasC2CProof(array $payload): bool
+{
+    $scan = static function (array $node, string $prefix = '') use (&$scan): bool {
+        foreach ($node as $key => $value) {
+            $path = $prefix === '' ? (string) $key : $prefix . '.' . (string) $key;
+            if (is_array($value)) {
+                if ($scan($value, $path)) return true;
+                continue;
+            }
+            if (jobdivaPlacementScalarHasC2CSignal($path, $value)) return true;
+        }
+        return false;
+    };
+
+    foreach ([
+        '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
+        '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job',
+    ] as $root) {
+        if (isset($payload[$root]) && is_array($payload[$root]) && $scan($payload[$root], (string) $root)) {
+            return true;
+        }
+    }
+
+    foreach ($payload as $key => $value) {
+        if (is_array($value)) continue;
+        if (jobdivaPlacementScalarHasC2CSignal((string) $key, $value)) return true;
+    }
+
+    return false;
+}
+
 function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string $fallback = null): string
 {
     $allowed = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire'];
@@ -2260,30 +2326,9 @@ function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string 
         if (!is_scalar($value) && $value !== null) return null;
         $keyNorm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $key));
         $valueRaw = trim((string) $value);
-        $valueNorm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $valueRaw));
         $keyValue = trim($key . ' ' . $valueRaw);
 
-        $c2cKey = str_contains($keyNorm, 'c2c')
-            || str_contains($keyNorm, 'corptocorp')
-            || str_contains($keyNorm, 'croptocrop')
-            || str_contains($keyNorm, 'corporationtocorporation');
-        if ($c2cKey) {
-            if ($valueRaw === '' || jobdivaBoolishTrue($valueRaw)) return 'c2c';
-            $negative = in_array($valueNorm, ['0', 'false', 'no', 'n', 'off', 'unchecked'], true);
-            if (!$negative && jobdivaNormalisePlacementEngagementType($keyValue, '') === 'c2c') return 'c2c';
-            return null;
-        }
-
-        $workerCorpKey = str_contains($keyNorm, 'corplegalname')
-            || str_contains($keyNorm, 'corporationname')
-            || str_contains($keyNorm, 'contractorcompany')
-            || str_contains($keyNorm, 'contractorcorp')
-            || str_contains($keyNorm, 'candidatecorp')
-            || str_contains($keyNorm, 'employeecorp')
-            || str_contains($keyNorm, 'payeecompany')
-            || str_contains($keyNorm, 'payeelegalname')
-            || str_contains($keyNorm, 'subcontractorcompany');
-        if ($workerCorpKey && $valueRaw !== '') return 'c2c';
+        if (jobdivaPlacementScalarHasC2CSignal($key, $value)) return 'c2c';
 
         $typedKey = str_contains($keyNorm, 'engagementtype')
             || str_contains($keyNorm, 'workertype')
@@ -3356,6 +3401,9 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $engagement = $sourceEngagement;
     } else {
         $engagement = $mappedEngagement !== '' ? $mappedEngagement : 'w2';
+    }
+    if ($engagement === 'c2c' && !jobdivaPlacementPayloadHasC2CProof($jd)) {
+        $engagement = 'w2';
     }
 
     $worksiteState = (string) tenantIntegrationFieldMapPluckInternal(
