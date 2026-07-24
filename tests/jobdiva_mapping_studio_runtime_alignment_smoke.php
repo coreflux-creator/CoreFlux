@@ -41,6 +41,13 @@ $payload = [
     '_jd_customer' => [
         'name' => 'SOIE',
     ],
+    'assignment' => [
+        0 => [
+            'W2' => 1,
+            'corp_to_corp' => 0,
+            'TCS_W2' => 1,
+        ],
+    ],
 ];
 
 echo "\n1. Canonical source paths resolve against _jd_* payloads\n";
@@ -56,6 +63,12 @@ $a('assignment.final_bill_rate resolves from camelCase _jd_start.finalBillRate',
     integrationPayloadResolvePath($payload, 'assignment.final_bill_rate') === '120.00');
 $a('assignment.agreed_pay_rate resolves from camelCase _jd_start.agreedPayRate',
     integrationPayloadResolvePath($payload, 'assignment.agreed_pay_rate') === '64.00');
+$a('assignment[].W2 resolves numeric JobDiva row wrapper',
+    integrationPayloadResolvePath($payload, 'assignment[].W2') === 1);
+$a('assignment.0.W2 resolves legacy numeric JobDiva row wrapper',
+    integrationPayloadResolvePath($payload, 'assignment.0.W2') === 1);
+$a('assignment.W2 resolves first wrapped JobDiva row for operator-friendly paths',
+    integrationPayloadResolvePath($payload, 'assignment.W2') === 1);
 $a('person.firstName resolves from _jd_candidate.firstName',
     integrationPayloadResolvePath($payload, 'person.firstName') === 'Andrew');
 $a('company.name resolves from _jd_customer.name',
@@ -66,6 +79,8 @@ $a('legacy pluck resolves job.COMPANYNAME through the same alias contract',
     tenantIntegrationFieldMapPluckPath($payload, 'job.COMPANYNAME') === 'TCS');
 $a('legacy pluck resolves assignment.BILLRATEMAX through the same alias contract',
     tenantIntegrationFieldMapPluckPath($payload, 'assignment.BILLRATEMAX') === '125.00');
+$a('legacy pluck resolves assignment[].W2 through numeric row wrapper',
+    tenantIntegrationFieldMapPluckPath($payload, 'assignment[].W2') === '1');
 $a('aliases list keeps original first and includes _jd_job fallback',
     integrationPayloadSourcePathAliases('job.title')[0] === 'job.title'
     && in_array('_jd_job.title', integrationPayloadSourcePathAliases('job.title'), true));

@@ -173,9 +173,25 @@ function sampleValueLabel(value) {
   return s.length > 120 ? s.slice(0, 117) + '...' : s;
 }
 
+function isNumericKeyObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  return keys.length > 0 && keys.every(k => /^\d+$/.test(k));
+}
+
+function firstNumericKeyObjectValue(value) {
+  if (!isNumericKeyObject(value)) return undefined;
+  const firstKey = Object.keys(value).map(k => Number(k)).sort((a, b) => a - b)[0];
+  return value[String(firstKey)] ?? value[firstKey];
+}
+
+function normalizeSourcePathForPicker(path) {
+  return String(path || '').trim().replace(/\.([0-9]+)(?=\.|$)/g, '[]');
+}
+
 function flattenPayloadScalarEntries(value, prefix = '', out = []) {
   if (value === null || value === undefined) {
-    if (prefix) out.push({ source_path: prefix, sample_value: null, value_type: 'null', live: true });
+    if (prefix) out.push({ source_path: normalizeSourcePathForPicker(prefix), sample_value: null, value_type: 'null', live: true });
     return out;
   }
   if (Array.isArray(value)) {
@@ -184,18 +200,32 @@ function flattenPayloadScalarEntries(value, prefix = '', out = []) {
     if (first && typeof first === 'object' && !Array.isArray(first)) {
       flattenPayloadScalarEntries(first, `${prefix}[]`, out);
     } else if (prefix) {
-      out.push({ source_path: prefix, sample_value: first, value_type: payloadValueType(first), live: true });
+      out.push({ source_path: normalizeSourcePathForPicker(prefix), sample_value: first, value_type: payloadValueType(first), live: true });
     }
     return out;
   }
   if (typeof value === 'object') {
+    if (isNumericKeyObject(value)) {
+      const first = firstNumericKeyObjectValue(value);
+      if (first && typeof first === 'object' && !Array.isArray(first)) {
+        flattenPayloadScalarEntries(first, `${prefix}[]`, out);
+      } else if (prefix) {
+        out.push({
+          source_path: normalizeSourcePathForPicker(prefix),
+          sample_value: first,
+          value_type: payloadValueType(first),
+          live: true,
+        });
+      }
+      return out;
+    }
     for (const [k, v] of Object.entries(value)) {
       const next = prefix ? `${prefix}.${k}` : k;
       flattenPayloadScalarEntries(v, next, out);
     }
     return out;
   }
-  if (prefix) out.push({ source_path: prefix, sample_value: value, value_type: payloadValueType(value), live: true });
+  if (prefix) out.push({ source_path: normalizeSourcePathForPicker(prefix), sample_value: value, value_type: payloadValueType(value), live: true });
   return out;
 }
 
@@ -381,7 +411,7 @@ function prefixedSourcePath(path, prefix = '') {
 function fieldIndexPathEntries(data, prefix = '', editorEntityType = '') {
   const out = [];
   const pushRow = (r, rowPrefix = '', sourceEntityType = '') => {
-    const path = prefixedSourcePath(r?.source_path, rowPrefix);
+    const path = normalizeSourcePathForPicker(prefixedSourcePath(r?.source_path, rowPrefix));
     if (!path) return;
     out.push({
       source_path: path,
@@ -407,7 +437,7 @@ function fieldIndexPathEntries(data, prefix = '', editorEntityType = '') {
 
 function sourcePathRank(path) {
   const p = String(path || '');
-  if (p.startsWith('assignment.')) return 0;
+  if (p.startsWith('assignment.') || p.startsWith('assignment[]')) return 0;
   if (p.startsWith('job.')) return 1;
   if (p.startsWith('person.')) return 2;
   if (p.startsWith('company.')) return 3;
@@ -419,7 +449,7 @@ function sourcePathRank(path) {
 function mergeSourceEntries(entries) {
   const byPath = new Map();
   for (const entry of entries) {
-    const path = String(entry?.source_path || '').trim();
+    const path = normalizeSourcePathForPicker(entry?.source_path);
     if (!path) continue;
     const prev = byPath.get(path);
     if (!prev) {

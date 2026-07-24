@@ -771,6 +771,38 @@ function tenantIntegrationFieldMapApplyTransform(mixed $value, string $transform
     }
 }
 
+function tenantIntegrationFieldMapArrayLikeFirst(array $node): mixed
+{
+    if ($node === []) return null;
+    if (array_is_list($node)) return $node[0] ?? null;
+
+    $numericKeys = [];
+    foreach (array_keys($node) as $k) {
+        if (is_int($k) || (is_string($k) && preg_match('/^\d+$/', $k))) {
+            $numericKeys[] = (int) $k;
+            continue;
+        }
+        return null;
+    }
+    if ($numericKeys === []) return null;
+    sort($numericKeys, SORT_NUMERIC);
+    $firstKey = $numericKeys[0];
+    return $node[$firstKey] ?? $node[(string) $firstKey] ?? null;
+}
+
+function tenantIntegrationFieldMapFindCaseInsensitiveKey(array $node, string $segment): mixed
+{
+    if (array_key_exists($segment, $node)) return $node[$segment];
+    $needle = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $segment));
+    if ($needle === '') return null;
+    foreach ($node as $k => $v) {
+        if (!is_string($k) && !is_int($k)) continue;
+        $key = strtolower((string) preg_replace('/[^a-z0-9]/i', '', (string) $k));
+        if ($key === $needle) return $v;
+    }
+    return null;
+}
+
 /**
  * Pluck a value from a payload using an `external_field` spec that may
  * include a dotted path for nested objects (e.g. `job.title` to walk
@@ -830,33 +862,54 @@ function tenantIntegrationFieldMapPluckPathSourceAliases(string $path): array
 function tenantIntegrationFieldMapPluckPathStrict(array $payload, string $path): string
 {
     if ($path === '') return '';
-    $segments = explode('.', $path);
+    $segments = preg_split('/(\.|(?=\[))/u', $path) ?: [];
     $cursor = $payload;
+    $segments = array_values(array_filter($segments, static fn($s) => $s !== '' && $s !== '.'));
     while (count($segments) > 1) {
         $head = array_shift($segments);
-        $matched = null;
-        if (is_array($cursor)) {
-            $nh = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $head));
-            foreach ($cursor as $k => $v) {
-                if (!is_string($k)) continue;
-                $nk = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $k));
-                if ($nk === $nh) { $matched = $v; break; }
+        if ($head !== '' && $head[0] === '[') {
+            if (!is_array($cursor)) return '';
+            $idx = trim($head, '[]');
+            if ($idx === '') {
+                $cursor = tenantIntegrationFieldMapArrayLikeFirst($cursor);
+            } else {
+                $i = (int) $idx;
+                $cursor = $cursor[$i] ?? $cursor[(string) $i] ?? null;
+            }
+            if ($cursor === null) return '';
+            continue;
+        }
+
+        $matched = is_array($cursor)
+            ? tenantIntegrationFieldMapFindCaseInsensitiveKey($cursor, $head)
+            : null;
+        if ($matched === null && is_array($cursor)) {
+            $first = tenantIntegrationFieldMapArrayLikeFirst($cursor);
+            if (is_array($first)) {
+                $matched = tenantIntegrationFieldMapFindCaseInsensitiveKey($first, $head);
             }
         }
         if (!is_array($matched)) return '';
         $cursor = $matched;
     }
-    $final = $segments[0];
-    $nf = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $final));
-    foreach ($cursor as $k => $v) {
-        if (!is_string($k)) continue;
-        $nk = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $k));
-        if ($nk === $nf) {
-            if (is_scalar($v)) return trim((string) $v);
-            return '';
+    $final = $segments[0] ?? '';
+    if ($final !== '' && $final[0] === '[') {
+        if (!is_array($cursor)) return '';
+        $idx = trim($final, '[]');
+        $v = $idx === ''
+            ? tenantIntegrationFieldMapArrayLikeFirst($cursor)
+            : ($cursor[(int) $idx] ?? $cursor[$idx] ?? null);
+        return is_scalar($v) ? trim((string) $v) : '';
+    }
+    if (!is_array($cursor)) return '';
+    $v = tenantIntegrationFieldMapFindCaseInsensitiveKey($cursor, $final);
+    if ($v === null) {
+        $first = tenantIntegrationFieldMapArrayLikeFirst($cursor);
+        if (is_array($first)) {
+            $v = tenantIntegrationFieldMapFindCaseInsensitiveKey($first, $final);
         }
     }
-    return '';
+    return is_scalar($v) ? trim((string) $v) : '';
 }
 
 function tenantIntegrationFieldMapPluckPath(array $payload, string $path): string

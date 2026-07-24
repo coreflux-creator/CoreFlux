@@ -134,32 +134,32 @@ function integrationPayloadResolvePathStrict(array $payload, string $path): mixe
             $idx = trim($p, "[]");
             if (!is_array($cursor)) return null;
             if ($idx === '') {
-                if (!array_is_list($cursor) || empty($cursor)) return null;
-                $cursor = $cursor[0];
+                if (function_exists('tenantIntegrationFieldMapArrayLikeFirst')) {
+                    $cursor = tenantIntegrationFieldMapArrayLikeFirst($cursor);
+                } else {
+                    if (!array_is_list($cursor) || empty($cursor)) return null;
+                    $cursor = $cursor[0];
+                }
+                if ($cursor === null) return null;
             } else {
                 $i = (int) $idx;
-                if (!isset($cursor[$i])) return null;
-                $cursor = $cursor[$i];
+                if (!array_key_exists($i, $cursor) && !array_key_exists((string) $i, $cursor)) return null;
+                $cursor = $cursor[$i] ?? $cursor[(string) $i] ?? null;
             }
         } else {
             if (!is_array($cursor)) return null;
-            if (array_key_exists($p, $cursor)) {
-                $cursor = $cursor[$p];
-                continue;
-            }
-            $needle = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $p));
-            if ($needle === '') return null;
-            $matched = false;
-            foreach ($cursor as $k => $v) {
-                if (!is_string($k) && !is_int($k)) continue;
-                $key = strtolower((string) preg_replace('/[^a-z0-9]/i', '', (string) $k));
-                if ($key === $needle) {
-                    $cursor = $v;
-                    $matched = true;
-                    break;
+            $matchedValue = function_exists('tenantIntegrationFieldMapFindCaseInsensitiveKey')
+                ? tenantIntegrationFieldMapFindCaseInsensitiveKey($cursor, $p)
+                : null;
+            if ($matchedValue === null && function_exists('tenantIntegrationFieldMapArrayLikeFirst')
+                && function_exists('tenantIntegrationFieldMapFindCaseInsensitiveKey')) {
+                $first = tenantIntegrationFieldMapArrayLikeFirst($cursor);
+                if (is_array($first)) {
+                    $matchedValue = tenantIntegrationFieldMapFindCaseInsensitiveKey($first, $p);
                 }
             }
-            if (!$matched) return null;
+            if ($matchedValue === null) return null;
+            $cursor = $matchedValue;
         }
     }
     if (is_array($cursor)) return null; // not a scalar leaf

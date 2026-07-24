@@ -45,6 +45,13 @@ $assert('uses live payload entries with sample values',
     && str_contains($panel, 'sample_value: value')
     && str_contains($panel, 'sampleValueLabel(s.sample_value)'));
 
+$assert('normalizes JobDiva numeric row wrappers before showing/saving paths',
+    str_contains($panel, 'function isNumericKeyObject(value)')
+    && str_contains($panel, 'function normalizeSourcePathForPicker(path)')
+    && str_contains($panel, "replace(/\\.([0-9]+)(?=\\.|$)/g, '[]')")
+    && str_contains($panel, 'firstNumericKeyObjectValue(value)')
+    && str_contains($panel, 'normalizeSourcePathForPicker(prefixedSourcePath'));
+
 $assert('shows searchable target/source lists',
     str_contains($panel, 'data-testid="field-map-target-search"')
     && str_contains($panel, 'data-testid="field-map-source-search"')
