@@ -51,6 +51,10 @@ $a('C2C proof helper ignores payee/vendor names',
 echo "\n3. Other classifications still resolve\n";
 $a('workerType 1099 -> 1099',
     jobdivaInferPlacementEngagementTypeFromPayload(['workerType' => '1099'], 'w2') === '1099');
+$a('EMPLOYMENT_CATEGORY C2C -> c2c',
+    jobdivaInferPlacementEngagementTypeFromPayload(['assignment' => ['EMPLOYMENT_CATEGORY' => 'C2C']], 'w2') === 'c2c');
+$a('EMPLOYMENT_CATEGORY W2 -> w2',
+    jobdivaInferPlacementEngagementTypeFromPayload(['assignment' => ['EMPLOYMENT_CATEGORY' => 'W2']], '') === 'w2');
 $a('hireType Direct Hire -> direct_hire',
     jobdivaInferPlacementEngagementTypeFromPayload(['hireType' => 'Direct Hire'], 'w2') === 'direct_hire');
 $a('contractType Contract to Hire -> temp_to_perm',

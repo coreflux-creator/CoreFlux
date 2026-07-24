@@ -848,6 +848,23 @@ function integrationFieldMapPersonClassificationValue(mixed $raw): ?string
     return in_array($key, ['temp', 'perm', 'candidate', 'alumni'], true) ? $key : null;
 }
 
+function integrationFieldMapPlacementStatusValue(mixed $raw): ?string
+{
+    $s = strtolower(trim((string) $raw));
+    if ($s === '') return null;
+    $s = str_replace(['_', '-', '/', '\\'], ' ', $s);
+    $s = preg_replace('/\s+/', ' ', $s) ?: $s;
+    if (in_array($s, ['draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'], true)) {
+        return $s;
+    }
+    if (str_contains($s, 'cancel') || str_contains($s, 'reject')) return 'cancelled';
+    if (str_contains($s, 'end') || str_contains($s, 'term') || str_contains($s, 'complete') || str_contains($s, 'closed')) return 'ended';
+    if (str_contains($s, 'hold') || str_contains($s, 'pause')) return 'on_hold';
+    if (str_contains($s, 'pending') || str_contains($s, 'scheduled') || str_contains($s, 'pre start') || str_contains($s, 'not started')) return 'pending_start';
+    if (str_contains($s, 'start') || str_contains($s, 'active') || str_contains($s, 'open') || str_contains($s, 'placed')) return 'active';
+    return null;
+}
+
 function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
 {
     $table = strtolower(trim((string) ($mapping['target_table'] ?? '')));
@@ -856,6 +873,9 @@ function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
 
     if ($table === 'placements' && $col === 'engagement_type') {
         return integrationFieldMapEngagementValue($val);
+    }
+    if ($table === 'placements' && $col === 'status') {
+        return integrationFieldMapPlacementStatusValue($val);
     }
     if ($table === 'people' && $col === 'classification') {
         return integrationFieldMapPersonClassificationValue($val);
@@ -1119,7 +1139,6 @@ function integrationFieldMapApplyAll(
 
         if (integrationFieldMapIsProtectedTarget($table, $col)) {
             integrationFieldMapSkip($summary, $m, 'protected_target');
-            $summary['errors'][] = "protected_target {$table}.{$col} (mapping_id={$m['id']})";
             continue;
         }
         $key = $pendingPlacementRateFor > 0

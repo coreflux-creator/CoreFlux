@@ -197,6 +197,13 @@ const AUTO_TRUTHY_TRANSFORMS = new Set([
   'truthy_to_direct_hire',
 ]);
 
+function isFlagLikeSample(value) {
+  if (typeof value === 'boolean') return true;
+  if (typeof value === 'number') return value === 0 || value === 1;
+  const s = String(value ?? '').trim().toLowerCase();
+  return ['0', '1', 'true', 'false', 'yes', 'no', 'y', 'n', 'on', 'off', 'checked', 'unchecked'].includes(s);
+}
+
 function inferFieldFirstTransform(target, source, current = 'none') {
   if (!target || !source) return current || 'none';
   if (current && current !== 'none' && !AUTO_TRUTHY_TRANSFORMS.has(current)) return current;
@@ -207,14 +214,15 @@ function inferFieldFirstTransform(target, source, current = 'none') {
   if (!targetNeedsWorkerEnum) return current || 'none';
 
   const path = String(source.source_path || '').toLowerCase();
-  const sample = String(source.sample_value ?? '').toLowerCase();
-  const evidence = `${path} ${sample}`.replace(/[_\-\/]+/g, ' ');
-  if (/\b(1099|independent contractor| ic )\b/.test(evidence)) return 'truthy_to_1099';
-  if (/\b(c2c|corp to corp|crop to crop|corporation to corporation|inc to inc)\b/.test(evidence)) return 'truthy_to_c2c';
-  if (/\b(temp to perm|contract to hire|cth)\b/.test(evidence)) return 'truthy_to_temp_to_perm';
-  if (/\b(direct hire|direct placement|permanent| perm )\b/.test(evidence)) return 'truthy_to_direct_hire';
-  if (/\b(w2|w 2|employee|payroll)\b/.test(evidence)) return 'truthy_to_w2';
-  return current || 'none';
+  const pathEvidence = path.replace(/[_\-\/]+/g, ' ');
+  if (isFlagLikeSample(source.sample_value)) {
+    if (/\b(1099|independent contractor| ic )\b/.test(pathEvidence)) return 'truthy_to_1099';
+    if (/\b(c2c|corp to corp|crop to crop|corporation to corporation|inc to inc)\b/.test(pathEvidence)) return 'truthy_to_c2c';
+    if (/\b(temp to perm|contract to hire|cth)\b/.test(pathEvidence)) return 'truthy_to_temp_to_perm';
+    if (/\b(direct hire|direct placement|permanent| perm )\b/.test(pathEvidence)) return 'truthy_to_direct_hire';
+    if (/\b(w2|w 2)\b/.test(pathEvidence)) return 'truthy_to_w2';
+  }
+  return AUTO_TRUTHY_TRANSFORMS.has(current) ? 'none' : (current || 'none');
 }
 
 function flattenPayloadScalarEntries(value, prefix = '', out = []) {

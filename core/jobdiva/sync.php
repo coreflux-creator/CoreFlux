@@ -2271,6 +2271,7 @@ function jobdivaPlacementScalarHasC2CSignal(string $key, mixed $value): bool
         || str_contains($keyNorm, 'workertype')
         || str_contains($keyNorm, 'classification')
         || str_contains($keyNorm, 'employmenttype')
+        || str_contains($keyNorm, 'employmentcategory')
         || str_contains($keyNorm, 'employeetype')
         || str_contains($keyNorm, 'positiontype')
         || str_contains($keyNorm, 'taxtype')
@@ -2334,6 +2335,7 @@ function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string 
             || str_contains($keyNorm, 'workertype')
             || str_contains($keyNorm, 'classification')
             || str_contains($keyNorm, 'employmenttype')
+            || str_contains($keyNorm, 'employmentcategory')
             || str_contains($keyNorm, 'employeetype')
             || str_contains($keyNorm, 'positiontype')
             || str_contains($keyNorm, 'taxtype')
@@ -3374,6 +3376,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         static fn() => jobdivaPluckFieldDeep($jd, [
             'engagementType', 'engagement_type', 'workerType',
             'worker_type', 'classification', 'employmentType', 'employment type',
+            'employmentCategory', 'employment_category', 'EMPLOYMENT_CATEGORY', 'employment category',
             'positionType', 'position_type', 'position type',
             'employeeType', 'employee_type', 'employee type',
             'taxType', 'tax_type', 'tax type',

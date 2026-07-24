@@ -87,6 +87,7 @@ $a('aliases list keeps original first and includes _jd_job fallback',
 $a('truthy worker transforms turn JobDiva flags into CoreFlux enum values',
     tenantIntegrationFieldMapApplyTransform('1', 'truthy_to_w2') === 'w2'
     && tenantIntegrationFieldMapApplyTransform(1, 'truthy_to_c2c') === 'c2c'
+    && tenantIntegrationFieldMapApplyTransform('C2C', 'truthy_to_w2') === 'c2c'
     && tenantIntegrationFieldMapApplyTransform('0', 'truthy_to_w2') === null
     && tenantIntegrationFieldMapApplyTransform('Public Storage', 'truthy_to_w2') === null);
 $a('truthy worker transforms pass CoreFlux engagement coercion',
@@ -94,6 +95,10 @@ $a('truthy worker transforms pass CoreFlux engagement coercion',
         tenantIntegrationFieldMapApplyTransform('1', 'truthy_to_c2c'),
         ['target_table' => 'placements', 'target_column' => 'engagement_type']
     ) === 'c2c');
+$a('placement status coercion maps JobDiva status text into CoreFlux enum values',
+    integrationFieldMapCoerceTargetValue('started', ['target_table' => 'placements', 'target_column' => 'status']) === 'active'
+    && integrationFieldMapCoerceTargetValue('cancelled', ['target_table' => 'placements', 'target_column' => 'status']) === 'cancelled'
+    && integrationFieldMapCoerceTargetValue('complete', ['target_table' => 'placements', 'target_column' => 'status']) === 'ended');
 
 echo "\n2. Target table resolves to the actual graph owner\n";
 $ctx = [

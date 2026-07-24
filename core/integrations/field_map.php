@@ -724,6 +724,22 @@ function tenantIntegrationFieldMapApplyTransform(mixed $value, string $transform
 {
     if ($value === null || $value === '') return $value;
     $s = is_scalar($value) ? (string) $value : null;
+    $normaliseWorkerEnum = static function (mixed $raw): ?string {
+        $text = strtolower(trim((string) $raw));
+        if ($text === '') return null;
+        if (function_exists('jobdivaNormalisePlacementEngagementType')) {
+            $normalised = jobdivaNormalisePlacementEngagementType($text, '');
+            if ($normalised !== '') return $normalised;
+        }
+        $key = str_replace(['_', '-', '/', '\\'], ' ', $text);
+        $key = preg_replace('/\s+/', ' ', $key) ?: $key;
+        if (str_contains($key, 'temp to perm') || str_contains($key, 'contract to hire')) return 'temp_to_perm';
+        if (str_contains($key, 'direct hire') || str_contains($key, 'direct placement')) return 'direct_hire';
+        if (str_contains($key, '1099') || str_contains($key, 'independent contractor')) return '1099';
+        if (str_contains($key, 'c2c') || str_contains($key, 'corp to corp') || str_contains($key, 'crop to crop')) return 'c2c';
+        if (str_contains($key, 'w2') || str_contains($key, 'w 2')) return 'w2';
+        return in_array($key, ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire'], true) ? $key : null;
+    };
     $truthyTo = static function (mixed $raw, string $target): ?string {
         if (is_bool($raw)) return $raw ? $target : null;
         if (is_int($raw) || is_float($raw)) return ((float) $raw) > 0 ? $target : null;
@@ -757,15 +773,15 @@ function tenantIntegrationFieldMapApplyTransform(mixed $value, string $transform
         case 'dollars_to_cents':
             return is_numeric($value) ? (int) round(((float) $value) * 100) : $value;
         case 'truthy_to_w2':
-            return $truthyTo($value, 'w2');
+            return $normaliseWorkerEnum($value) ?? $truthyTo($value, 'w2');
         case 'truthy_to_1099':
-            return $truthyTo($value, '1099');
+            return $normaliseWorkerEnum($value) ?? $truthyTo($value, '1099');
         case 'truthy_to_c2c':
-            return $truthyTo($value, 'c2c');
+            return $normaliseWorkerEnum($value) ?? $truthyTo($value, 'c2c');
         case 'truthy_to_temp_to_perm':
-            return $truthyTo($value, 'temp_to_perm');
+            return $normaliseWorkerEnum($value) ?? $truthyTo($value, 'temp_to_perm');
         case 'truthy_to_direct_hire':
-            return $truthyTo($value, 'direct_hire');
+            return $normaliseWorkerEnum($value) ?? $truthyTo($value, 'direct_hire');
         case 'date_normalise':
             // jobdivaNormaliseDate() returns null when the input isn't
             // parseable as a date (epoch ms, ISO, m/d/Y). Returning null

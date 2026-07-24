@@ -94,9 +94,11 @@ $assert('surfaces apply skipped/error counts instead of hiding them',
 
 $assert('auto-selects flag-to-enum transforms for worker fields',
     str_contains($panel, 'function inferFieldFirstTransform')
+    && str_contains($panel, 'function isFlagLikeSample')
     && str_contains($panel, 'truthy_to_w2')
     && str_contains($panel, 'truthy_to_c2c')
-    && str_contains($panel, 'transform: inferFieldFirstTransform(selectedTarget, s, prev.transform)'));
+    && str_contains($panel, 'transform: inferFieldFirstTransform(selectedTarget, s, prev.transform)')
+    && str_contains($panel, "AUTO_TRUTHY_TRANSFORMS.has(current) ? 'none'"));
 
 $assert('treats zero-write apply as a visible no-change warning',
     str_contains($panel, 'const applyHadNoWrites = (r) =>')
