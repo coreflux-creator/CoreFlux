@@ -40,6 +40,11 @@ const TENANT_INTEGRATION_FIELD_MAP_TRANSFORMS = [
     'percent_to_decimal', // 22 or 22% -> 0.22; 0.22 stays 0.22
     'cents_to_dollars',   // divide by 100
     'dollars_to_cents',   // multiply by 100
+    'truthy_to_w2',        // JobDiva flag 1/true -> CoreFlux enum value
+    'truthy_to_1099',
+    'truthy_to_c2c',
+    'truthy_to_temp_to_perm',
+    'truthy_to_direct_hire',
 ];
 
 function tenantIntegrationFieldMapProtectedInternalFields(): array
@@ -719,6 +724,15 @@ function tenantIntegrationFieldMapApplyTransform(mixed $value, string $transform
 {
     if ($value === null || $value === '') return $value;
     $s = is_scalar($value) ? (string) $value : null;
+    $truthyTo = static function (mixed $raw, string $target): ?string {
+        if (is_bool($raw)) return $raw ? $target : null;
+        if (is_int($raw) || is_float($raw)) return ((float) $raw) > 0 ? $target : null;
+        $flag = strtolower(trim((string) $raw));
+        if ($flag === '') return null;
+        if (in_array($flag, ['1', 'true', 'yes', 'y', 'on', 'checked'], true)) return $target;
+        if (in_array($flag, ['0', 'false', 'no', 'n', 'off', 'unchecked'], true)) return null;
+        return null;
+    };
     switch ($transform) {
         case 'none':
             return $value;
@@ -742,6 +756,16 @@ function tenantIntegrationFieldMapApplyTransform(mixed $value, string $transform
             return is_numeric($value) ? ((float) $value / 100) : $value;
         case 'dollars_to_cents':
             return is_numeric($value) ? (int) round(((float) $value) * 100) : $value;
+        case 'truthy_to_w2':
+            return $truthyTo($value, 'w2');
+        case 'truthy_to_1099':
+            return $truthyTo($value, '1099');
+        case 'truthy_to_c2c':
+            return $truthyTo($value, 'c2c');
+        case 'truthy_to_temp_to_perm':
+            return $truthyTo($value, 'temp_to_perm');
+        case 'truthy_to_direct_hire':
+            return $truthyTo($value, 'direct_hire');
         case 'date_normalise':
             // jobdivaNormaliseDate() returns null when the input isn't
             // parseable as a date (epoch ms, ISO, m/d/Y). Returning null

@@ -89,7 +89,19 @@ $assert('default routing covers rates, chain, commissions, and corp details',
 
 $assert('surfaces apply skipped/error counts instead of hiding them',
     str_contains($panel, 'const skipped = Number(fieldMap.skipped ?? 0);')
-    && str_contains($panel, 'const errors = Array.isArray(fieldMap.errors)'));
+    && str_contains($panel, 'const errors = Array.isArray(fieldMap.errors)')
+    && str_contains($panel, 'const skippedReasons = Array.isArray(fieldMap.skipped_reasons)'));
+
+$assert('auto-selects flag-to-enum transforms for worker fields',
+    str_contains($panel, 'function inferFieldFirstTransform')
+    && str_contains($panel, 'truthy_to_w2')
+    && str_contains($panel, 'truthy_to_c2c')
+    && str_contains($panel, 'transform: inferFieldFirstTransform(selectedTarget, s, prev.transform)'));
+
+$assert('treats zero-write apply as a visible no-change warning',
+    str_contains($panel, 'const applyHadNoWrites = (r) =>')
+    && str_contains($panel, "Saved mapping, but nothing changed")
+    && str_contains($panel, "Nothing changed"));
 
 $assert('placement detail passes full root payload to the mapper',
     str_contains($panel, 'rootPayload={payload}'));

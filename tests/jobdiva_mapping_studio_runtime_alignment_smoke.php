@@ -84,6 +84,16 @@ $a('legacy pluck resolves assignment[].W2 through numeric row wrapper',
 $a('aliases list keeps original first and includes _jd_job fallback',
     integrationPayloadSourcePathAliases('job.title')[0] === 'job.title'
     && in_array('_jd_job.title', integrationPayloadSourcePathAliases('job.title'), true));
+$a('truthy worker transforms turn JobDiva flags into CoreFlux enum values',
+    tenantIntegrationFieldMapApplyTransform('1', 'truthy_to_w2') === 'w2'
+    && tenantIntegrationFieldMapApplyTransform(1, 'truthy_to_c2c') === 'c2c'
+    && tenantIntegrationFieldMapApplyTransform('0', 'truthy_to_w2') === null
+    && tenantIntegrationFieldMapApplyTransform('Public Storage', 'truthy_to_w2') === null);
+$a('truthy worker transforms pass CoreFlux engagement coercion',
+    integrationFieldMapCoerceTargetValue(
+        tenantIntegrationFieldMapApplyTransform('1', 'truthy_to_c2c'),
+        ['target_table' => 'placements', 'target_column' => 'engagement_type']
+    ) === 'c2c');
 
 echo "\n2. Target table resolves to the actual graph owner\n";
 $ctx = [

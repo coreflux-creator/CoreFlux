@@ -969,6 +969,28 @@ function integrationFieldMapShouldSkipUnsafeJobDivaEngagement(
     return false;
 }
 
+function integrationFieldMapSkippedReason(array $mapping, string $reason): string
+{
+    $target = trim((string) (($mapping['target_table'] ?? '') . '.' . ($mapping['target_column'] ?? '')), '.');
+    $source = trim((string) (($mapping['source_path'] ?? '') ?: ($mapping['external_field'] ?? '')));
+    $id = (int) ($mapping['id'] ?? 0);
+    return $reason
+        . ($target !== '' ? ' target=' . $target : '')
+        . ($source !== '' ? ' source=' . $source : '')
+        . ($id > 0 ? ' mapping_id=' . $id : '');
+}
+
+function integrationFieldMapSkip(array &$summary, array $mapping, string $reason): void
+{
+    $summary['skipped']++;
+    if (!isset($summary['skipped_reasons']) || !is_array($summary['skipped_reasons'])) {
+        $summary['skipped_reasons'] = [];
+    }
+    if (count($summary['skipped_reasons']) < 8) {
+        $summary['skipped_reasons'][] = integrationFieldMapSkippedReason($mapping, $reason);
+    }
+}
+
 /**
  * Apply every enabled tenant mapping to a synced record. Writes are
  * scoped per (target_table, internal_row_id) so a single mapping run
@@ -993,7 +1015,7 @@ function integrationFieldMapApplyAll(
     array $payload,
     array $contextRowIds
 ): array {
-    $summary = ['attempted' => 0, 'written' => 0, 'skipped' => 0, 'errors' => []];
+    $summary = ['attempted' => 0, 'written' => 0, 'skipped' => 0, 'skipped_reasons' => [], 'errors' => []];
     if ($tid <= 0 || $integration === '' || $entityType === '') return $summary;
     $maps = integrationFieldMapResolveGeneralised($tid, $integration, $entityType);
     if (!$maps) return $summary;
@@ -1017,7 +1039,7 @@ function integrationFieldMapApplyAll(
         if (empty($m['target_table']) || empty($m['target_column'])) {
             // Legacy row (pre-Phase-2 backfill missed it) — skip and let
             // the hardcoded syncer fallback path handle this column.
-            $summary['skipped']++;
+            integrationFieldMapSkip($summary, $m, 'unresolved_target');
             continue;
         }
 
@@ -1036,18 +1058,27 @@ function integrationFieldMapApplyAll(
                 if ($maybe !== '') $val = $maybe;
             }
         }
-        if ($val === null || $val === '') { $summary['skipped']++; continue; }
+        if ($val === null || $val === '') {
+            integrationFieldMapSkip($summary, $m, 'source_value_missing');
+            continue;
+        }
 
         // Apply transform (cents_to_dollars / date_normalise / etc.) —
         // reuses the existing slice-4 transform helper so legacy +
         // generalised mappings share semantics.
         if (function_exists('tenantIntegrationFieldMapApplyTransform') && !empty($m['transform'])) {
             $val = tenantIntegrationFieldMapApplyTransform($val, (string) $m['transform']);
-            if ($val === null || $val === '') { $summary['skipped']++; continue; }
+            if ($val === null || $val === '') {
+                integrationFieldMapSkip($summary, $m, 'transform_produced_empty_value');
+                continue;
+            }
         }
         $rawValForSafety = $val;
         $val = integrationFieldMapCoerceTargetValue($val, $m);
-        if ($val === null || $val === '') { $summary['skipped']++; continue; }
+        if ($val === null || $val === '') {
+            integrationFieldMapSkip($summary, $m, 'value_not_valid_for_coreflux_field');
+            continue;
+        }
         if (integrationFieldMapShouldSkipUnsafeJobDivaEngagement(
             $integration,
             $entityType,
@@ -1056,7 +1087,7 @@ function integrationFieldMapApplyAll(
             $val,
             $payload
         )) {
-            $summary['skipped']++;
+            integrationFieldMapSkip($summary, $m, 'unsafe_jobdiva_engagement_c2c');
             $summary['errors'][] = "unsafe_jobdiva_engagement_c2c target={$m['target_table']}.{$m['target_column']} (mapping_id={$m['id']})";
             continue;
         }
@@ -1076,7 +1107,7 @@ function integrationFieldMapApplyAll(
             $pendingPlacementRateFor = integrationFieldMapPlacementIdFromContext($contextRowIds);
         }
         if ($rowId <= 0 && $pendingPlacementRateFor <= 0) {
-            $summary['skipped']++;
+            integrationFieldMapSkip($summary, $m, 'target_row_not_resolved');
             $summary['errors'][] = "no_context_row for linked_entity={$linked} target={$m['target_table']}.{$m['target_column']} (mapping_id={$m['id']})";
             continue;
         }
@@ -1087,7 +1118,7 @@ function integrationFieldMapApplyAll(
         }
 
         if (integrationFieldMapIsProtectedTarget($table, $col)) {
-            $summary['skipped']++;
+            integrationFieldMapSkip($summary, $m, 'protected_target');
             $summary['errors'][] = "protected_target {$table}.{$col} (mapping_id={$m['id']})";
             continue;
         }

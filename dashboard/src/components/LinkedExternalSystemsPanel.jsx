@@ -189,6 +189,34 @@ function normalizeSourcePathForPicker(path) {
   return String(path || '').trim().replace(/\.([0-9]+)(?=\.|$)/g, '[]');
 }
 
+const AUTO_TRUTHY_TRANSFORMS = new Set([
+  'truthy_to_w2',
+  'truthy_to_1099',
+  'truthy_to_c2c',
+  'truthy_to_temp_to_perm',
+  'truthy_to_direct_hire',
+]);
+
+function inferFieldFirstTransform(target, source, current = 'none') {
+  if (!target || !source) return current || 'none';
+  if (current && current !== 'none' && !AUTO_TRUTHY_TRANSFORMS.has(current)) return current;
+  const table = String(target.target_table || '').toLowerCase();
+  const column = String(target.target_column || target.internal_field || '').toLowerCase();
+  const targetNeedsWorkerEnum = (table === 'placements' && column === 'engagement_type')
+    || (table === 'people' && ['classification', 'worker_class'].includes(column));
+  if (!targetNeedsWorkerEnum) return current || 'none';
+
+  const path = String(source.source_path || '').toLowerCase();
+  const sample = String(source.sample_value ?? '').toLowerCase();
+  const evidence = `${path} ${sample}`.replace(/[_\-\/]+/g, ' ');
+  if (/\b(1099|independent contractor| ic )\b/.test(evidence)) return 'truthy_to_1099';
+  if (/\b(c2c|corp to corp|crop to crop|corporation to corporation|inc to inc)\b/.test(evidence)) return 'truthy_to_c2c';
+  if (/\b(temp to perm|contract to hire|cth)\b/.test(evidence)) return 'truthy_to_temp_to_perm';
+  if (/\b(direct hire|direct placement|permanent| perm )\b/.test(evidence)) return 'truthy_to_direct_hire';
+  if (/\b(w2|w 2|employee|payroll)\b/.test(evidence)) return 'truthy_to_w2';
+  return current || 'none';
+}
+
 function flattenPayloadScalarEntries(value, prefix = '', out = []) {
   if (value === null || value === undefined) {
     if (prefix) out.push({ source_path: normalizeSourcePathForPicker(prefix), sample_value: null, value_type: 'null', live: true });
@@ -1005,12 +1033,19 @@ function FieldMapEditor({ integration, entityType, payload, rootPayload, applyCo
     const attempted = Number(fieldMap.attempted ?? 0);
     const skipped = Number(fieldMap.skipped ?? 0);
     const errors = Array.isArray(fieldMap.errors) ? fieldMap.errors.filter(Boolean).map(String) : [];
+    const skippedReasons = Array.isArray(fieldMap.skipped_reasons) ? fieldMap.skipped_reasons.filter(Boolean).map(String) : [];
     const recordId = projection.placement_id || r?.root_internal_id || applyContext?.rootInternalId;
     return `${prefix}: ${written} write${written === 1 ? '' : 's'}`
       + (attempted ? ` from ${attempted} mapping${attempted === 1 ? '' : 's'}` : '')
       + (skipped ? `; ${skipped} skipped` : '')
+      + (skippedReasons.length ? `; reason: ${skippedReasons.slice(0, 2).join('; ')}` : '')
       + (errors.length ? `; ${errors.length} issue${errors.length === 1 ? '' : 's'} (${errors.slice(0, 2).join('; ')})` : '')
       + (recordId ? ` on record ${recordId}.` : '.');
+  };
+  const applyHadNoWrites = (r) => {
+    if (!r) return false;
+    const fieldMap = (r?.projection || {}).field_map || r?.apply || {};
+    return Number(fieldMap.attempted ?? 0) > 0 && Number(fieldMap.written ?? 0) === 0;
   };
 
   const applyCurrentMappings = async ({ quiet = false } = {}) => {
@@ -1023,7 +1058,10 @@ function FieldMapEditor({ integration, entityType, payload, rootPayload, applyCo
         root_entity_type: applyContext.rootEntityType,
         root_internal_id: applyContext.rootInternalId,
       });
-      if (!quiet) setOpMsg(applyResultMessage(r));
+      if (!quiet) {
+        if (applyHadNoWrites(r)) setOpError(applyResultMessage(r, 'Nothing changed'));
+        else setOpMsg(applyResultMessage(r));
+      }
       reload && reload();
       return r;
     } catch (e) {
@@ -1048,6 +1086,7 @@ function FieldMapEditor({ integration, entityType, payload, rootPayload, applyCo
     setBusy(true); setOpError(null); setOpMsg(null);
     try {
       const sourcePath = selectedSource.source_path;
+      const transform = inferFieldFirstTransform(selectedTarget, selectedSource, fieldFirst.transform);
       await api.post('/api/admin/integrations/field_map.php', {
         integration,
         entity_type: entityType,
@@ -1058,12 +1097,14 @@ function FieldMapEditor({ integration, entityType, payload, rootPayload, applyCo
         target_table: selectedTarget.target_table,
         target_column: selectedTarget.target_column,
         linked_entity: selectedTarget.linked_entity || 'self',
-        transform: fieldFirst.transform,
+        transform,
         enabled: true,
       });
       const applied = await applyCurrentMappings({ quiet: true });
       if (applied?.ok === false) {
         setOpError(`Saved mapping, but apply failed: ${applied.error}`);
+      } else if (applyHadNoWrites(applied)) {
+        setOpError(applyResultMessage(applied, 'Saved mapping, but nothing changed'));
       } else {
         setOpMsg(applied ? applyResultMessage(applied, 'Saved and applied') : 'Saved mapping.');
       }
@@ -1100,6 +1141,8 @@ function FieldMapEditor({ integration, entityType, payload, rootPayload, applyCo
       setEditing(null);
       if (applied?.ok === false) {
         setOpError(`Saved mapping, but apply failed: ${applied.error}`);
+      } else if (applyHadNoWrites(applied)) {
+        setOpError(applyResultMessage(applied, 'Saved mapping, but nothing changed'));
       } else {
         setOpMsg(applied ? applyResultMessage(applied, 'Saved and applied') : 'Saved mapping.');
       }
@@ -1142,6 +1185,8 @@ function FieldMapEditor({ integration, entityType, payload, rootPayload, applyCo
       setAdding(false);
       if (applied?.ok === false) {
         setOpError(`Saved mapping, but apply failed: ${applied.error}`);
+      } else if (applyHadNoWrites(applied)) {
+        setOpError(applyResultMessage(applied, 'Saved mapping, but nothing changed'));
       } else {
         setOpMsg(applied ? applyResultMessage(applied, 'Saved and applied') : 'Saved mapping.');
       }
@@ -1367,7 +1412,11 @@ function FieldMapEditor({ integration, entityType, payload, rootPayload, applyCo
                       type="button"
                       data-testid={`field-map-target-option-${t.key}`}
                       onClick={() => {
-                        setFieldFirst(s => ({ ...s, targetKey: t.key }));
+                        setFieldFirst(prev => ({
+                          ...prev,
+                          targetKey: t.key,
+                          transform: inferFieldFirstTransform(t, selectedSource, prev.transform),
+                        }));
                         setOpError(null); setOpMsg(null);
                       }}
                       style={{
@@ -1431,7 +1480,11 @@ function FieldMapEditor({ integration, entityType, payload, rootPayload, applyCo
                       type="button"
                       data-testid={`field-map-source-option-${s.source_path}`}
                       onClick={() => {
-                        setFieldFirst(prev => ({ ...prev, sourcePath: s.source_path }));
+                        setFieldFirst(prev => ({
+                          ...prev,
+                          sourcePath: s.source_path,
+                          transform: inferFieldFirstTransform(selectedTarget, s, prev.transform),
+                        }));
                         setOpError(null); setOpMsg(null);
                       }}
                       style={{
