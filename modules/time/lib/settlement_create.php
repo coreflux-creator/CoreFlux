@@ -15,6 +15,10 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/settlement.php';
+require_once __DIR__ . '/../../placements/lib/economics.php';
+require_once __DIR__ . '/../../ap/lib/ap.php';
+require_once __DIR__ . '/../../ap/lib/pwp.php';
+require_once __DIR__ . '/../../payroll/lib/cycles.php';
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
@@ -133,12 +137,16 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
             $entryIdsForPlacement = array_map(fn ($e) => (int) $e['id'], $rows);
             if ($target === 'billing') {
                 $clientName = (string) ($rows[0]['end_client_name'] ?? 'Unspecified Client');
+                $workDates = array_column($rows, 'work_date');
+                sort($workDates);
                 $invoice = [
                     'tenant_id'         => $tenantId,
                     'invoice_number'    => 'TS-' . date('Ymd-His') . '-P' . $placementId,
                     'client_name'       => $clientName,
-                    'invoice_date'      => date('Y-m-d'),
+                    'issue_date'        => date('Y-m-d'),
                     'due_date'          => date('Y-m-d', strtotime('+30 days')),
+                    'period_start'      => reset($workDates) ?: date('Y-m-d'),
+                    'period_end'        => end($workDates) ?: date('Y-m-d'),
                     'currency'          => $currency,
                     'subtotal'          => $totalAmount,
                     'tax_total'         => 0,
@@ -173,53 +181,54 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
                 ];
                 $targetRefForStamp = $invId;
             } else {  // ap
-                $vendorName = $rows[0]['placement_title']
-                    ? 'Placement #' . $placementId . ' — ' . $rows[0]['placement_title']
-                    : 'Placement #' . $placementId;
-                $bill = [
-                    'tenant_id'      => $tenantId,
-                    'internal_ref'   => 'TS-AP-' . date('Ymd-His') . '-P' . $placementId,
-                    'bill_number'    => null,
-                    'vendor_name'    => $vendorName,
-                    'vendor_type'    => $rows[0]['engagement_type'] === '1099' ? '1099_individual'
-                                       : ($rows[0]['engagement_type'] === 'c2c' ? 'c2c' : 'other'),
-                    'source'         => 'time_settlement',
-                    'placement_id'   => $placementId,
-                    'bill_date'      => date('Y-m-d'),
-                    'due_date'       => date('Y-m-d', strtotime('+15 days')),
-                    'currency'       => $currency,
-                    'subtotal'       => $totalAmount,
-                    'tax_total'      => 0,
-                    'total'          => $totalAmount,
-                    'amount_paid'    => 0,
-                    'amount_due'     => $totalAmount,
-                    'status'         => 'pending_approval',
-                    'created_by_user_id' => $actorUserId,
-                ];
-                $billId = scopedInsert('ap_bills', $bill);
-                $i = 1;
-                $lstmt = $pdo->prepare(
-                    'INSERT INTO ap_bill_lines
-                       (bill_id, line_no, source_type, source_ref_id, placement_id, rate_snapshot_id,
-                        description, quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total, is_1099_eligible)
-                     VALUES (?, ?, "time", ?, ?, ?, ?, ?, "hour", ?, ?, 0, 0, ?, ?)'
-                );
-                $is1099 = in_array((string) ($bill['vendor_type'] ?? ''), ['1099_individual','c2c'], true) ? 1 : 0;
-                foreach ($lines as $l) {
-                    $lstmt->execute([
-                        $billId, $i++, $l['time_entry_id'], $placementId, $l['rate_snapshot_id'], $l['description'],
-                        $l['quantity'], $l['unit_price'], $l['subtotal'], $l['subtotal'], $is1099,
-                    ]);
+                $drafts = apBuildDraftFromTimeEntries($tenantId, $entryIdsForPlacement, 'per_placement');
+                if (!$drafts) throw new TimeSettlementException("Placement #{$placementId} produced no AP obligations.");
+                $billIds = [];
+                $primaryBillId = null;
+                $createdTotal = 0.0;
+                $createdLineCount = 0;
+                foreach ($drafts as $draft) {
+                    $bill = $draft['bill'];
+                    $bill['tenant_id'] = $tenantId;
+                    $bill['internal_ref'] = apNextInternalRef($tenantId);
+                    $bill['bill_number'] = $bill['internal_ref'];
+                    $bill['created_by_user_id'] = $actorUserId;
+                    $billId = scopedInsert('ap_bills', $bill);
+                    $billIds[] = $billId;
+                    $hasLabor = false;
+                    foreach ($draft['lines'] as $line) {
+                        unset($line['_entry_ids']);
+                        $line['bill_id'] = $billId;
+                        $line['item_type'] = apNormalizeItemType($line['item_type'] ?? null, $line['source_type'] ?? 'time');
+                        if ($line['item_type'] === 'labor') $hasLabor = true;
+                        $cols = array_keys($line);
+                        $params = [];
+                        foreach ($cols as $col) $params['v_' . $col] = $line[$col];
+                        $pdo->prepare(
+                            'INSERT INTO ap_bill_lines (`' . implode('`,`', $cols) . '`)
+                             VALUES (:' . implode(',:', array_keys($params)) . ')'
+                        )->execute($params);
+                    }
+                    if ($hasLabor && $primaryBillId === null) $primaryBillId = $billId;
+                    foreach ((array) ($draft['obligations'] ?? []) as $obligation) {
+                        placementEconomicsRecordObligation(
+                            $tenantId, (int) $obligation['placement_id'], (int) $obligation['economic_party_id'],
+                            (string) $obligation['source_type'], (int) $obligation['source_ref_id'],
+                            array_merge($obligation, ['status' => 'billed', 'ap_bill_id' => $billId])
+                        );
+                    }
+                    $createdTotal += (float) $bill['total'];
+                    $createdLineCount += count($draft['lines']);
                 }
+                $targetRefForStamp = $primaryBillId ?? $billIds[0];
                 $created[$placementId] = [
-                    'target_id'    => $billId,
-                    'kind'         => 'bill',
-                    'internal_ref' => $bill['internal_ref'],
-                    'currency'     => $currency,
-                    'total'        => $totalAmount,
-                    'line_count'   => count($lines),
+                    'target_id' => $targetRefForStamp,
+                    'target_ids' => $billIds,
+                    'kind' => 'bill',
+                    'currency' => $currency,
+                    'total' => round($createdTotal, 2),
+                    'line_count' => $createdLineCount,
                 ];
-                $targetRefForStamp = $billId;
             }
 
             // 5) Stamp this placement's entries with the new target ref.
@@ -239,6 +248,26 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
         cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
+
+    foreach ($created as &$createdTarget) {
+        try {
+            if ($target === 'billing') {
+                $createdTarget['pwp_links'] = apPwpAutoLinkForArInvoice(
+                    (int) $tenantId, (int) $createdTarget['target_id'], $actorUserId
+                );
+            } else {
+                $createdTarget['pwp_links'] = [];
+                foreach ((array) ($createdTarget['target_ids'] ?? [$createdTarget['target_id']]) as $billId) {
+                    $createdTarget['pwp_links'][] = apPwpAutoLinkForApBill(
+                        (int) $tenantId, (int) $billId, $actorUserId
+                    );
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('[time settlement pwp link] ' . $e->getMessage());
+        }
+    }
+    unset($createdTarget);
 
     settlementAudit("time.settlement.auto_extracted_$target", [
         'count' => count($entryIds), 'created' => $created, 'ids' => $entryIds,
@@ -260,12 +289,51 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
  * caller can surface them to the user — the rest of the batch still
  * settles atomically.
  *
- * Run/period selection: each employee's payroll_profile carries a
- * cycle_id. We find the cycle's newest open period (status='draft' or
- * 'open'), then the draft run on that period (creating one if missing).
+ * Run/period selection: the placement's payroll operating cycle wins;
+ * the employee payroll profile is the fallback for legacy placements.
+ * We find that cycle's newest open period (status='draft' or 'open'),
+ * then the draft run on that period (creating one if missing).
  *
  * @return array{created: array<int, array>, extracted_count: int, skipped: array}
  */
+function _settlementPayrollRunForCycle(\PDO $pdo, int $tenantId, int $cycleId, ?int $actorUserId): ?array
+{
+    if ($cycleId <= 0) return null;
+    $periodSt = $pdo->prepare(
+        'SELECT id, period_start, period_end, pay_date, status
+           FROM payroll_pay_periods
+          WHERE tenant_id = :t AND cycle_id = :c AND status IN ("draft","open")
+          ORDER BY period_number DESC LIMIT 1'
+    );
+    $periodSt->execute(['t' => $tenantId, 'c' => $cycleId]);
+    $period = $periodSt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    if (!$period) {
+        $advanced = payrollCycleAdvance($cycleId, $actorUserId);
+        $periodSt->execute(['t' => $tenantId, 'c' => $cycleId]);
+        $period = $periodSt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if (!$period && !empty($advanced['period_id'])) {
+            $period = ['id' => (int) $advanced['period_id']] + ($advanced['window'] ?? []);
+        }
+    }
+    if (!$period) return null;
+
+    $runSt = $pdo->prepare(
+        'SELECT id FROM payroll_runs
+          WHERE tenant_id = :t AND pay_period_id = :p AND status = "draft"
+          ORDER BY id DESC LIMIT 1'
+    );
+    $runSt->execute(['t' => $tenantId, 'p' => (int) $period['id']]);
+    $runId = (int) $runSt->fetchColumn();
+    if (!$runId) {
+        $pdo->prepare(
+            'INSERT INTO payroll_runs (tenant_id, pay_period_id, status, created_at)
+             VALUES (:t, :p, "draft", NOW())'
+        )->execute(['t' => $tenantId, 'p' => (int) $period['id']]);
+        $runId = (int) $pdo->lastInsertId();
+    }
+    return ['run_id' => $runId, 'period' => $period, 'cycle_id' => $cycleId];
+}
+
 function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId, int $tenantId, \PDO $pdo, string $place): array
 {
     require_once __DIR__ . '/../../payroll/lib/payroll.php';
@@ -282,13 +350,16 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
                     te.{$cols['at']} AS already_at,
                     pe.user_id AS person_user_id,
                     pe.email_primary AS person_email,
-                    pe.first_name, pe.last_name
+                    pe.first_name, pe.last_name,
+                    p.payroll_cycle_id AS placement_payroll_cycle_id,
+                    p.payroll_operating_cycle_id
              FROM time_entries te
              LEFT JOIN people pe ON pe.id = te.person_id AND pe.tenant_id = ?
+             LEFT JOIN placements p ON p.id = te.placement_id AND p.tenant_id = ?
              WHERE te.tenant_id = ? AND te.id IN ($place)
              FOR UPDATE"
         );
-        $stmt->execute(array_merge([$peopleTenantId, $tenantId], $entryIds));
+        $stmt->execute(array_merge([$peopleTenantId, $tenantId, $tenantId], $entryIds));
         $entries = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         if (count($entries) !== count($entryIds)) {
             throw new TimeSettlementException('Some entry ids not found in this tenant');
@@ -316,8 +387,8 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
             if (!empty($p['person_user_id'])) {
                 $q = $pdo->prepare(
                     "SELECT e.id AS employee_id, e.employee_number, e.legal_first_name, e.legal_last_name,
-                            pp.id AS profile_id, pp.cycle_id, pp.pay_type, pp.pay_rate_cents,
-                            pp.flsa_class
+                            pp.id AS profile_id, pp.cycle_id, pp.schedule_id, pp.work_state,
+                            pp.payment_method, pp.pay_type, pp.pay_rate_cents, pp.flsa_class
                      FROM people_employees e
                      LEFT JOIN payroll_profiles pp ON pp.tenant_id = e.tenant_id AND pp.employee_id = e.id
                      WHERE e.tenant_id = ? AND e.user_id = ? AND e.status = 'active' LIMIT 1"
@@ -328,8 +399,8 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
             if (!$row && !empty($p['person_email'])) {
                 $q = $pdo->prepare(
                     "SELECT e.id AS employee_id, e.employee_number, e.legal_first_name, e.legal_last_name,
-                            pp.id AS profile_id, pp.cycle_id, pp.pay_type, pp.pay_rate_cents,
-                            pp.flsa_class
+                            pp.id AS profile_id, pp.cycle_id, pp.schedule_id, pp.work_state,
+                            pp.payment_method, pp.pay_type, pp.pay_rate_cents, pp.flsa_class
                      FROM people_employees e
                      LEFT JOIN payroll_profiles pp ON pp.tenant_id = e.tenant_id AND pp.employee_id = e.id
                      WHERE e.tenant_id = ? AND e.personal_email = ? AND e.status = 'active' LIMIT 1"
@@ -342,7 +413,7 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
 
         // 3. Bucket entries → employee. Entries with no employee resolution
         //    or no payroll_profile go into `skipped`.
-        $byEmployee = [];      // employee_id => [ rows... ]
+        $byEmployee = [];      // employee_id:cycle_id => [ rows... ]
         $skipped    = [];
         foreach ($entries as $e) {
             $pid = (int) $e['person_id'];
@@ -352,57 +423,39 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
                               'person_id' => $pid, 'email' => $e['person_email']];
                 continue;
             }
-            if (empty($emp['profile_id']) || empty($emp['cycle_id'])) {
+            $cycleId = (int) ($e['placement_payroll_cycle_id'] ?: $emp['cycle_id'] ?? 0);
+            if (empty($emp['profile_id']) || $cycleId <= 0) {
                 $skipped[] = ['entry_id' => (int) $e['id'], 'reason' => 'no_payroll_profile_or_cycle',
                               'employee_id' => (int) $emp['employee_id']];
                 continue;
             }
-            $byEmployee[(int) $emp['employee_id']]['employee'] = $emp;
-            $byEmployee[(int) $emp['employee_id']]['entries'][] = $e;
+            $key = (int) $emp['employee_id'] . ':' . $cycleId;
+            $byEmployee[$key]['employee'] = $emp;
+            $byEmployee[$key]['cycle_id'] = $cycleId;
+            $byEmployee[$key]['entries'][] = $e;
         }
 
-        // 4. For each employee bucket: find/create draft run, upsert line item.
+        // 4. For each employee and placement cycle: find/create the draft run.
         $created = [];
-        foreach ($byEmployee as $employeeId => $bucket) {
+        $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'), $tenantId);
+        foreach ($byEmployee as $bucket) {
             $emp = $bucket['employee'];
+            $employeeId = (int) $emp['employee_id'];
 
             // Find newest open period for the employee's cycle.
-            $perStmt = $pdo->prepare(
-                "SELECT id, period_start, period_end, pay_date, status
-                 FROM payroll_pay_periods
-                 WHERE tenant_id = :t AND cycle_id = :c
-                   AND status IN ('draft','open')
-                 ORDER BY period_number DESC LIMIT 1"
-            );
-            $perStmt->execute(['t' => $tenantId, 'c' => (int) $emp['cycle_id']]);
-            $period = $perStmt->fetch(\PDO::FETCH_ASSOC);
+            $runTarget = _settlementPayrollRunForCycle($pdo, $tenantId, (int) $bucket['cycle_id'], $actorUserId);
+            $period = $runTarget['period'] ?? null;
             if (!$period) {
                 // No open period — push every entry for this employee to skipped.
                 foreach ($bucket['entries'] as $e) {
                     $skipped[] = ['entry_id' => (int) $e['id'], 'reason' => 'no_open_period_in_cycle',
-                                  'employee_id' => $employeeId, 'cycle_id' => (int) $emp['cycle_id']];
+                                  'employee_id' => $employeeId, 'cycle_id' => (int) $bucket['cycle_id']];
                 }
                 continue;
             }
 
             // Find/create draft run on that period.
-            $runStmt = $pdo->prepare(
-                "SELECT id FROM payroll_runs
-                 WHERE tenant_id = :t AND pay_period_id = :p AND status = 'draft'
-                 ORDER BY id DESC LIMIT 1"
-            );
-            $runStmt->execute(['t' => $tenantId, 'p' => (int) $period['id']]);
-            $runRow = $runStmt->fetch(\PDO::FETCH_ASSOC);
-            if ($runRow) {
-                $runId = (int) $runRow['id'];
-            } else {
-                $ins = $pdo->prepare(
-                    'INSERT INTO payroll_runs (tenant_id, pay_period_id, status, created_at)
-                     VALUES (:t, :p, "draft", NOW())'
-                );
-                $ins->execute(['t' => $tenantId, 'p' => (int) $period['id']]);
-                $runId = (int) $pdo->lastInsertId();
-            }
+            $runId = (int) $runTarget['run_id'];
 
             // Aggregate hours_regular vs hours_overtime by category.
             $hoursReg = 0.0; $hoursOt = 0.0;
@@ -415,25 +468,10 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
                 }
             }
 
-            // Upsert payroll_line_items (UQ on run_id+employee_id) — add to
-            // existing hours if a line already exists from a prior settlement.
-            $upsert = $pdo->prepare(
-                'INSERT INTO payroll_line_items
-                    (tenant_id, run_id, employee_id, pay_type, pay_rate_cents,
-                     hours_regular, hours_overtime, gross_cents, created_at)
-                 VALUES (:t, :r, :e, :pt, :rate, :hr, :ho, 0, NOW())
-                 ON DUPLICATE KEY UPDATE
-                    hours_regular  = hours_regular  + VALUES(hours_regular),
-                    hours_overtime = hours_overtime + VALUES(hours_overtime)'
-            );
-            $upsert->execute([
-                't' => $tenantId, 'r' => $runId, 'e' => $employeeId,
-                'pt' => $emp['pay_type'] ?? 'hourly',
-                'rate' => (int) ($emp['pay_rate_cents'] ?? 0),
-                'hr' => round($hoursReg, 2), 'ho' => round($hoursOt, 2),
-            ]);
-
-            $created[$employeeId] = [
+            // Stamp source hours and economic earnings on the run target.
+            // Payroll compute reads those sources and creates the final line.
+            $createdKey = $employeeId . ':' . $runId;
+            $created[$createdKey] = [
                 'run_id'         => $runId,
                 'period_id'      => (int) $period['id'],
                 'employee_id'    => $employeeId,
@@ -441,7 +479,55 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
                 'hours_regular'  => round($hoursReg, 2),
                 'hours_overtime' => round($hoursOt, 2),
                 'line_count'     => count($bucket['entries']),
+                'economic_earnings' => 0,
             ];
+
+            $entriesByPlacement = [];
+            foreach ($bucket['entries'] as $entry) $entriesByPlacement[(int) $entry['placement_id']][] = $entry;
+            foreach ($entriesByPlacement as $placementId => $placementEntries) {
+                $hours = 0.0; $billAmount = 0.0; $payAmount = 0.0; $workDates = [];
+                foreach ($placementEntries as $entry) {
+                    $rate = $ratesById[(int) $entry['rate_snapshot_id']] ?? null;
+                    if (!$rate) continue;
+                    $entryHours = (float) $entry['hours'];
+                    $multiplier = timeRateCategoryMultiplier($rate, (string) $entry['category']);
+                    $hours += $entryHours;
+                    $billAmount += $entryHours * $multiplier * (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0);
+                    $payAmount += $entryHours * $multiplier * (float) ($rate['pay_rate'] ?? 0);
+                    $workDates[] = (string) $entry['work_date'];
+                }
+                sort($workDates);
+                $sourceRefId = min(array_map(static fn(array $entry): int => (int) $entry['id'], $placementEntries));
+                foreach (placementEconomicsPayrollCharges($tenantId, $placementId, $hours, $billAmount, $payAmount, end($workDates) ?: null) as $charge) {
+                    $recipient = placementEconomicsPayrollEmployee($tenantId, $charge);
+                    if (!$recipient) {
+                        throw new TimeSettlementException("Payroll recipient {$charge['display_name']} is not linked to a payroll-ready employee");
+                    }
+                    $recipientCycleId = 0;
+                    if (!empty($charge['operating_cycle_id'])) {
+                        $cycleSt = $pdo->prepare('SELECT payroll_pay_cycle_id FROM staffing_operating_cycles WHERE tenant_id = :t AND id = :id');
+                        $cycleSt->execute(['t' => $tenantId, 'id' => (int) $charge['operating_cycle_id']]);
+                        $recipientCycleId = (int) $cycleSt->fetchColumn();
+                    }
+                    if ($recipientCycleId <= 0) $recipientCycleId = (int) ($recipient['cycle_id'] ?? $bucket['cycle_id']);
+                    $recipientRun = _settlementPayrollRunForCycle($pdo, $tenantId, $recipientCycleId, $actorUserId);
+                    if (!$recipientRun) throw new TimeSettlementException("No open payroll period for {$charge['display_name']}");
+                    placementEconomicsRecordObligation(
+                        $tenantId, $placementId, (int) $charge['id'], 'time_bundle', $sourceRefId,
+                        [
+                            'period_start' => reset($workDates) ?: null,
+                            'period_end' => end($workDates) ?: null,
+                            'quantity' => $charge['calculation_quantity'],
+                            'basis_amount' => $charge['calculation_basis_amount'],
+                            'amount' => $charge['calculated_amount'],
+                            'currency' => 'USD',
+                            'status' => 'payroll',
+                            'payroll_ref_id' => (int) $recipientRun['run_id'],
+                        ]
+                    );
+                    $created[$createdKey]['economic_earnings']++;
+                }
+            }
 
             // Stamp the entries we just settled.
             $ids = array_map(fn($e) => (int) $e['id'], $bucket['entries']);

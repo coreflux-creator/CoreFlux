@@ -16,6 +16,7 @@
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../../core/encryption.php';
+require_once __DIR__ . '/../../placements/lib/economics.php';
 
 /**
  * Atomically allocate the next internal bill reference for a tenant.
@@ -126,18 +127,34 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
     // Group bundles
     $groups = [];
     foreach ($bundles as $b) {
-        $engType    = strtolower((string) ($b['engagement_type'] ?? ''));
-        $isCorp     = ($engType === 'c2c' || !empty($b['corp_name']));
-        $vendorName = $isCorp
-            ? (string) ($b['corp_name'] ?? 'Unknown Corp')
-            : (trim(($b['first_name'] ?? '') . ' ' . ($b['last_name'] ?? '')) ?: 'Unknown Vendor');
-        $vendorType = $isCorp ? 'c2c_corp' : '1099_individual';
-
-        $key = $aggregation === 'per_placement'
-            ? 'PL:' . (int) $b['placement_id']
-            : 'V:' . $vendorName;
-
-        $groups[$key][] = ['bundle' => $b, 'vendor_name' => $vendorName, 'vendor_type' => $vendorType];
+        $placementId = (int) $b['placement_id'];
+        placementEconomicsReconcile($tenantId, $placementId);
+        $hours = (float) $b['total_hours_billable'];
+        $charges = placementEconomicsApCharges(
+            $tenantId, $placementId, $hours,
+            (float) $b['total_amount_bill'], (float) $b['total_amount_pay'],
+            (string) $period['end_date']
+        );
+        if (!$charges) {
+            throw new \RuntimeException(
+                "Placement #{$b['placement_id']} has payable time but no resolved AP recipient in Placement Economics."
+            );
+        }
+        foreach ($charges as $party) {
+            $key = 'V:' . (int) $party['ap_vendor_id'];
+            if ($aggregation === 'per_placement') $key .= ':P:' . $placementId;
+            $groups[$key][] = [
+                'bundle' => $b,
+                'charge' => $party,
+                'vendor_name' => (string) ($party['vendor_name'] ?: $party['display_name']),
+                'vendor_type' => (string) ($party['vendor_type'] ?: 'other'),
+                'vendor_company_id' => $party['company_id'] ?: null,
+                'ap_vendor_id' => $party['ap_vendor_id'] ?: null,
+                'economic_party_id' => $party['id'] ?: null,
+                'payment_terms' => (string) ($party['resolved_payment_terms'] ?? $terms),
+                'pwp_enabled' => !empty($party['resolved_pwp']),
+            ];
+        }
     }
 
     // Pre-load PWP flags for these vendors. Bills for vendors marked
@@ -171,19 +188,25 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
         $vendorName = $first['vendor_name'];
         $vendorType = $first['vendor_type'];
         $is1099     = ($vendorType === '1099_individual');
-        $isPwp      = !empty($vendorPwp[$vendorName]);
-        $billDue    = $isPwp ? date('Y-m-d', strtotime("+{$pwpNetDays} days")) : $dueDate;
+        $resolvedTerms = placementEconomicsNormaliseTerms((string) ($first['payment_terms'] ?? $terms));
+        $isPwp = !empty($first['pwp_enabled']) || placementEconomicsTermsArePwp($resolvedTerms);
+        $resolvedDays = placementEconomicsTermsDays($resolvedTerms, $netDays);
+        $billDue = date('Y-m-d', strtotime('+' . ($isPwp ? max($resolvedDays, $pwpNetDays) : $resolvedDays) . ' days'));
 
         $lines = [];
+        $obligations = [];
         $lineNo = 1;
         $subtotal = 0.0;
 
         foreach ($groupItems as $item) {
             $b = $item['bundle'];
+            $charge = $item['charge'];
             $hours = (float) $b['total_hours_billable'];
             if ($hours <= 0) continue;
-            $payRate = $hours > 0 ? round((float) $b['total_amount_pay'] / $hours, 4) : 0.0;
-            $sub     = round($hours * $payRate, 2);
+            $isLabor = (string) $charge['fee_basis'] === 'pay_rate';
+            $quantity = ($isLabor || (string) $charge['fee_basis'] === 'per_hour') ? $hours : 1.0;
+            $sub = (float) $charge['calculated_amount'];
+            $unitPrice = $quantity > 0 ? round($sub / $quantity, 4) : $sub;
 
             $consultant = trim(($b['first_name'] ?? '') . ' ' . ($b['last_name'] ?? '')) ?: 'Consultant';
             $desc = sprintf(
@@ -196,21 +219,33 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
 
             $lines[] = [
                 'line_no'                 => $lineNo++,
-                'source_type'             => 'time',
-                'item_type'               => 'labor',
+                'source_type'             => $isLabor ? 'time' : 'economic_party',
+                'item_type'               => $isLabor ? 'labor' : 'other',
                 'source_ref_id'           => (int) $b['id'],
                 'placement_id'            => (int) $b['placement_id'],
                 'rate_snapshot_id'        => $b['rate_snapshot_id'] ? (int) $b['rate_snapshot_id'] : null,
                 'description'             => $desc,
-                'quantity'                => round($hours, 4),
-                'unit'                    => 'hour',
-                'unit_price'              => $payRate,
+                'quantity'                => round($quantity, 4),
+                'unit'                    => (!$isLabor && $quantity === 1.0) ? 'fee' : 'hour',
+                'unit_price'              => $unitPrice,
                 'subtotal'                => $sub,
                 'tax_rate_pct'            => 0,
                 'tax_amount'              => 0,
                 'total'                   => $sub,
                 'gl_expense_account_code' => null,
                 'is_1099_eligible'        => $is1099 ? 1 : 0,
+            ];
+            $obligations[] = [
+                'economic_party_id' => (int) $charge['id'],
+                'placement_id' => (int) $b['placement_id'],
+                'source_type' => 'time_bundle',
+                'source_ref_id' => (int) $b['id'],
+                'period_start' => $period['start_date'],
+                'period_end' => $period['end_date'],
+                'quantity' => $quantity,
+                'basis_amount' => (float) $charge['calculation_basis_amount'],
+                'amount' => $sub,
+                'currency' => 'USD',
             ];
             $subtotal += $sub;
         }
@@ -221,6 +256,7 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
             'bill' => [
                 'vendor_name'   => $vendorName,
                 'vendor_type'   => $vendorType,
+                'vendor_company_id' => $first['vendor_company_id'],
                 'received_at'   => $today,
                 'bill_date'     => $today,
                 'due_date'      => $billDue,
@@ -234,11 +270,12 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
                 'status'        => 'pending_approval',
                 'source'        => 'time_bundle',
                 'notes_internal'=> null,
-                'payment_terms' => $isPwp ? 'PWP' : null,
+                'payment_terms' => $resolvedTerms,
                 'pwp_status'    => $isPwp ? 'awaiting_ar' : 'not_pwp',
             ],
             'lines'      => $lines,
             'bundle_ids' => array_map(fn ($l) => $l['source_ref_id'], $lines),
+            'obligations' => $obligations,
         ];
     }
 
@@ -340,22 +377,28 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
         }
         $mult = timeRateCategoryMultiplier($rate, (string) ($e['hour_type'] ?: ($e['category'] ?? '')));
         $e['_pay_rate']         = round($base * $mult, 4);
+        $e['_bill_rate']        = round((float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0) * $mult, 4);
         $e['_rate_snapshot_id'] = (int) $rate['id'];
-        $engType    = strtolower((string) ($e['engagement_type'] ?? ''));
-        $e['_is_corp']    = ($engType === 'c2c' || !empty($e['corp_name']));
-        $e['_vendor_name']= $e['_is_corp']
-            ? (string) ($e['corp_name'] ?? 'Unknown Corp')
-            : (trim(($e['first_name'] ?? '') . ' ' . ($e['last_name'] ?? '')) ?: 'Unknown Vendor');
-        $e['_vendor_type']= $e['_is_corp'] ? 'c2c_corp' : '1099_individual';
+        $party = placementEconomicsPrimaryPayable($tenantId, (int) $e['placement_id']);
+        $e['_primary_ap_party'] = $party;
+        if ($party) {
+            $e['_vendor_name'] = (string) ($party['vendor_name'] ?: $party['display_name']);
+            $e['_vendor_type'] = (string) ($party['vendor_type'] ?: 'other');
+            $e['_vendor_company_id'] = $party['vendor_company_id'] ?: $party['company_id'] ?: null;
+            $e['_ap_vendor_id'] = $party['ap_vendor_id'] ?: null;
+            $e['_economic_party_id'] = $party['id'] ?: null;
+            $e['_payment_terms'] = (string) ($party['resolved_payment_terms'] ?? $terms);
+            $e['_pwp_enabled'] = !empty($party['resolved_pwp']);
+        }
     }
     unset($e);
 
     $groups = [];
-    foreach ($payable as $e) {
+    foreach (array_filter($payable, static fn(array $row): bool => !empty($row['_primary_ap_party'])) as $e) {
         $key = match ($aggregation) {
             'per_day'       => 'D:' . $e['placement_id'] . ':' . $e['work_date'] . ':' . $e['_vendor_name'],
             'per_placement' => 'P:' . $e['placement_id'],
-            'per_vendor'    => 'V:' . $e['_vendor_name'],
+            'per_vendor'    => 'V:' . (int) ($e['_ap_vendor_id'] ?? 0),
         };
         $groups[$key][] = $e;
     }
@@ -369,7 +412,26 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
         $vendorName = $first['_vendor_name'];
         $vendorType = $first['_vendor_type'];
         $is1099     = ($vendorType === '1099_individual');
+        $resolvedTerms = placementEconomicsNormaliseTerms((string) ($first['_payment_terms'] ?? $terms));
+        $isPwp = !empty($first['_pwp_enabled']) || placementEconomicsTermsArePwp($resolvedTerms);
+        $resolvedDays = placementEconomicsTermsDays($resolvedTerms, $netDays);
+        $resolvedDueDate = date('Y-m-d', strtotime('+' . ($isPwp ? max($resolvedDays, 90) : $resolvedDays) . ' days'));
         $minDate = null; $maxDate = null;
+        $obligations = [];
+        foreach ($rows as $r) {
+            $obligations[] = [
+                'economic_party_id' => (int) $r['_economic_party_id'],
+                'placement_id' => (int) $r['placement_id'],
+                'source_type' => 'time_entry',
+                'source_ref_id' => (int) $r['id'],
+                'period_start' => (string) $r['work_date'],
+                'period_end' => (string) $r['work_date'],
+                'quantity' => (float) $r['hours'],
+                'basis_amount' => (float) $r['hours'] * (float) $r['_pay_rate'],
+                'amount' => round((float) $r['hours'] * (float) $r['_pay_rate'], 2),
+                'currency' => 'USD',
+            ];
+        }
 
         $linesByKey = [];
         foreach ($rows as $r) {
@@ -434,9 +496,10 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
             'bill' => [
                 'vendor_name'    => $vendorName,
                 'vendor_type'    => $vendorType,
+                'vendor_company_id' => $first['_vendor_company_id'],
                 'received_at'    => $today,
                 'bill_date'      => $today,
-                'due_date'       => $dueDate,
+                'due_date'       => $resolvedDueDate,
                 'period_start'   => $minDate ?? $today,
                 'period_end'     => $maxDate ?? $today,
                 'currency'       => 'USD',
@@ -447,13 +510,98 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
                 'status'         => 'pending_approval',
                 'source'         => 'time_entries',
                 'notes_internal' => null,
-                'payment_terms'  => null,
-                'pwp_status'     => 'not_pwp',
+                'payment_terms'  => $resolvedTerms,
+                'pwp_status'     => $isPwp ? 'awaiting_ar' : 'not_pwp',
             ],
             'lines'      => $lines,
             'bundle_ids' => [],
             'entry_ids'  => array_merge(...array_column($lines, '_entry_ids')),
+            'obligations' => $obligations,
         ];
+    }
+
+    // Secondary payees (portal vendors, referrers, and other AP parties)
+    // receive their own bills and terms. They must never be folded into the
+    // worker/corp labor bill because they are distinct vendor obligations.
+    $byPlacement = [];
+    foreach ($payable as $row) $byPlacement[(int) $row['placement_id']][] = $row;
+    foreach ($byPlacement as $placementId => $rows) {
+        $hours = array_sum(array_map(static fn(array $r): float => (float) $r['hours'], $rows));
+        $billAmount = array_sum(array_map(static fn(array $r): float => (float) $r['hours'] * (float) $r['_bill_rate'], $rows));
+        $payAmount = array_sum(array_map(static fn(array $r): float => (float) $r['hours'] * (float) $r['_pay_rate'], $rows));
+        $dates = array_column($rows, 'work_date');
+        sort($dates);
+        $charges = placementEconomicsApCharges(
+            $tenantId, $placementId, $hours, $billAmount, $payAmount, end($dates) ?: $today
+        );
+        foreach ($charges as $charge) {
+            if ((string) $charge['fee_basis'] === 'pay_rate') continue;
+            $amount = (float) $charge['calculated_amount'];
+            if ($amount <= 0) continue;
+            $quantity = (float) $charge['calculation_quantity'];
+            $termsForCharge = placementEconomicsNormaliseTerms((string) $charge['resolved_payment_terms']);
+            $pwpForCharge = !empty($charge['resolved_pwp']);
+            $daysForCharge = placementEconomicsTermsDays($termsForCharge, $netDays);
+            $sourceRef = (int) $rows[0]['id'];
+            $obligationSourceType = (string) $charge['fee_basis'] === 'one_time' ? 'manual' : 'time_entry';
+            $obligationSourceRef = $obligationSourceType === 'manual' ? $placementId : $sourceRef;
+            $bills[] = [
+                'bill' => [
+                    'vendor_name' => (string) ($charge['vendor_name'] ?: $charge['display_name']),
+                    'vendor_type' => (string) ($charge['vendor_type'] ?: 'other'),
+                    'vendor_company_id' => $charge['company_id'] ?: null,
+                    'received_at' => $today,
+                    'bill_date' => $today,
+                    'due_date' => date('Y-m-d', strtotime('+' . ($pwpForCharge ? max($daysForCharge, 90) : $daysForCharge) . ' days')),
+                    'period_start' => reset($dates) ?: $today,
+                    'period_end' => end($dates) ?: $today,
+                    'currency' => 'USD',
+                    'subtotal' => $amount,
+                    'tax_total' => 0,
+                    'total' => $amount,
+                    'amount_due' => $amount,
+                    'status' => 'pending_approval',
+                    'source' => 'staffing_economics',
+                    'placement_id' => $placementId,
+                    'payment_terms' => $termsForCharge,
+                    'pwp_status' => $pwpForCharge ? 'awaiting_ar' : 'not_pwp',
+                    'notes_internal' => 'Generated from placement economic party #' . (int) $charge['id'],
+                ],
+                'lines' => [[
+                    'line_no' => 1,
+                    'source_type' => 'economic_party',
+                    'item_type' => 'other',
+                    'source_ref_id' => (int) $charge['id'],
+                    'placement_id' => $placementId,
+                    'rate_snapshot_id' => null,
+                    'description' => (string) $charge['display_name'] . ' - ' . str_replace('_', ' ', (string) $charge['fee_basis']),
+                    'quantity' => $quantity,
+                    'unit' => $quantity === 1.0 ? 'fee' : 'hour',
+                    'unit_price' => $quantity > 0 ? round($amount / $quantity, 4) : $amount,
+                    'subtotal' => $amount,
+                    'tax_rate_pct' => 0,
+                    'tax_amount' => 0,
+                    'total' => $amount,
+                    'gl_expense_account_code' => null,
+                    'is_1099_eligible' => 0,
+                    '_entry_ids' => array_map('intval', array_column($rows, 'id')),
+                ]],
+                'bundle_ids' => [],
+                'entry_ids' => array_map('intval', array_column($rows, 'id')),
+                'obligations' => [[
+                    'economic_party_id' => (int) $charge['id'],
+                    'placement_id' => $placementId,
+                    'source_type' => $obligationSourceType,
+                    'source_ref_id' => $obligationSourceRef,
+                    'period_start' => reset($dates) ?: $today,
+                    'period_end' => end($dates) ?: $today,
+                    'quantity' => $quantity,
+                    'basis_amount' => (float) $charge['calculation_basis_amount'],
+                    'amount' => $amount,
+                    'currency' => 'USD',
+                ]],
+            ];
+        }
     }
 
     return $bills;
@@ -967,6 +1115,15 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
                  SET amount_paid = :paid, amount_due = :due, status = :s
                  WHERE id = :id'
             )->execute(['paid' => $newPaid, 'due' => $newDue, 's' => $newStatus, 'id' => $bRow['id']]);
+            $pdo->prepare(
+                'UPDATE placement_economic_obligations
+                    SET status = :status
+                  WHERE tenant_id = :tenant_id AND ap_bill_id = :bill_id AND status <> "void"'
+            )->execute([
+                'status' => $newStatus === 'paid' ? 'paid' : 'billed',
+                'tenant_id' => (int) $pay['tenant_id'],
+                'bill_id' => (int) $bRow['id'],
+            ]);
 
             $applied[] = [
                 'bill_id'        => (int) $bRow['id'],

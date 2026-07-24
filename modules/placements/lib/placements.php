@@ -49,7 +49,9 @@ function placementsSafeFields(string $alias = 'p'): string
              'client_approver_name','client_approver_email','tokenized_email_approval_enabled',
              'bulk_uploads_can_be_pre_approved',
              'billing_cycle_id','ap_cycle_id','payroll_cycle_id',
+             'billing_operating_cycle_id','ap_operating_cycle_id','payroll_operating_cycle_id',
              'client_bill_cycle','client_bill_cycle_anchor','vendor_pay_cycle','vendor_pay_cycle_anchor',
+             'vendor_payment_terms_override','vendor_pwp_enabled',
              'created_by_user_id','created_at','updated_at','deleted_at'];
     return implode(', ', array_map(fn($c) => "{$alias}.{$c}", $cols));
 }
@@ -219,6 +221,7 @@ function placementChain(int $placementId): array
     return scopedQuery(
         'SELECT id, tenant_id, placement_id, position, party_name, party_role,
                 company_id, vendor_portal_id, portal_fee_pct, portal_fee_flat,
+                payment_terms_override, pwp_enabled, is_payable,
                 contract_storage_object_id, submittal_id, vms_job_id,
                 (portal_credentials_ct IS NOT NULL) AS has_portal_credentials,
                 kms_key_version, created_at, updated_at
@@ -318,9 +321,11 @@ function placementCurrentRate(int $placementId, ?string $asOf = null): ?array
 function placementCommissions(int $placementId): array
 {
     return scopedQuery(
-        'SELECT * FROM placement_commissions
-         WHERE tenant_id = :tenant_id AND placement_id = :pid
-         ORDER BY role, effective_from DESC',
+        'SELECT pc.*, u.name AS recipient_name, u.email AS recipient_email
+           FROM placement_commissions pc
+      LEFT JOIN users u ON u.id = pc.user_id
+          WHERE pc.tenant_id = :tenant_id AND pc.placement_id = :pid
+          ORDER BY pc.role, pc.effective_from DESC',
         ['pid' => $placementId]
     );
 }
@@ -328,9 +333,15 @@ function placementCommissions(int $placementId): array
 function placementReferrals(int $placementId): array
 {
     return scopedQuery(
-        'SELECT * FROM placement_referrals
-         WHERE tenant_id = :tenant_id AND placement_id = :pid
-         ORDER BY start_date DESC',
+        'SELECT pr.*,
+                COALESCE(c.name, NULLIF(TRIM(CONCAT(pp.first_name, " ", pp.last_name)), ""), u.name, pr.referrer_vendor_name) AS referrer_name,
+                c.id AS canonical_company_id
+           FROM placement_referrals pr
+      LEFT JOIN companies c ON c.tenant_id = pr.tenant_id AND c.id = pr.referrer_company_id
+      LEFT JOIN people pp ON pp.tenant_id = pr.tenant_id AND pp.id = pr.referrer_person_id
+      LEFT JOIN users u ON u.id = pr.referrer_user_id
+          WHERE pr.tenant_id = :tenant_id AND pr.placement_id = :pid
+          ORDER BY pr.start_date DESC',
         ['pid' => $placementId]
     );
 }

@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../../core/encryption.php';
 require_once __DIR__ . '/../lib/placements.php';
+require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
 require_once __DIR__ . '/../../staffing/lib/clients.php';
 
@@ -60,6 +61,8 @@ CsvImportService::registerSchema('placements', [
         'client_bill_cycle_anchor' => ['label' => 'Client bill cycle anchor', 'type' => 'date'],
         'vendor_pay_cycle'      => ['label' => 'Vendor pay cycle', 'enum' => ['weekly','biweekly','semimonthly','monthly','adhoc']],
         'vendor_pay_cycle_anchor' => ['label' => 'Vendor pay cycle anchor', 'type' => 'date'],
+        'vendor_payment_terms_override' => ['label' => 'Primary vendor payment terms'],
+        'vendor_pwp_enabled'    => ['label' => 'Primary vendor paid when paid', 'type' => 'boolean'],
         'bill_rate'         => ['label' => 'Bill rate ($/hr)', 'type' => 'number'],
         'pay_rate'          => ['label' => 'Pay rate ($/hr)',  'type' => 'number'],
         'rate_effective_from' => ['label' => 'Rate effective from', 'type' => 'date'],
@@ -76,16 +79,25 @@ CsvImportService::registerSchema('placements', [
         'msp_fee_flat'      => ['label' => 'MSP / discount fee flat', 'type' => 'number'],
         'msp_submittal_id'  => ['label' => 'MSP submittal ID'],
         'msp_vms_job_id'    => ['label' => 'MSP VMS job ID'],
+        'msp_payment_terms'  => ['label' => 'MSP payment terms'],
+        'msp_paid_when_paid' => ['label' => 'MSP paid when paid', 'type' => 'boolean'],
+        'msp_is_payable'     => ['label' => 'MSP is payable', 'type' => 'boolean'],
         'prime_vendor_name' => ['label' => 'Prime vendor name'],
         'prime_vendor_fee_pct' => ['label' => 'Prime vendor fee %', 'type' => 'number'],
         'prime_vendor_fee_flat' => ['label' => 'Prime vendor fee flat', 'type' => 'number'],
         'prime_vendor_submittal_id' => ['label' => 'Prime vendor submittal ID'],
         'prime_vendor_vms_job_id' => ['label' => 'Prime vendor VMS job ID'],
+        'prime_vendor_payment_terms' => ['label' => 'Prime vendor payment terms'],
+        'prime_vendor_paid_when_paid' => ['label' => 'Prime vendor paid when paid', 'type' => 'boolean'],
+        'prime_vendor_is_payable' => ['label' => 'Prime vendor is payable', 'type' => 'boolean'],
         'sub_vendor_name'   => ['label' => 'Sub-vendor name'],
         'sub_vendor_fee_pct' => ['label' => 'Sub-vendor fee %', 'type' => 'number'],
         'sub_vendor_fee_flat' => ['label' => 'Sub-vendor fee flat', 'type' => 'number'],
         'sub_vendor_submittal_id' => ['label' => 'Sub-vendor submittal ID'],
         'sub_vendor_vms_job_id' => ['label' => 'Sub-vendor VMS job ID'],
+        'sub_vendor_payment_terms' => ['label' => 'Sub-vendor payment terms'],
+        'sub_vendor_paid_when_paid' => ['label' => 'Sub-vendor paid when paid', 'type' => 'boolean'],
+        'sub_vendor_is_payable' => ['label' => 'Sub-vendor is payable', 'type' => 'boolean'],
         'recruiter_commission_pct' => ['label' => 'Recruiter commission %', 'type' => 'number'],
         'recruiter_commission_flat' => ['label' => 'Recruiter commission flat', 'type' => 'number'],
         'recruiter_commission_basis' => ['label' => 'Recruiter commission basis', 'enum' => ['net_margin','gross_margin','bill_rate','flat']],
@@ -128,6 +140,8 @@ CsvImportService::registerSchema('placements', [
         'corp_contact_email' => ['label' => 'C2C corp contact email', 'type' => 'email'],
         'corp_contact_phone' => ['label' => 'C2C corp contact phone'],
         'coi_expiry' => ['label' => 'COI expiry', 'type' => 'date'],
+        'corp_payment_terms' => ['label' => 'C2C corp payment terms'],
+        'corp_paid_when_paid' => ['label' => 'C2C corp paid when paid', 'type' => 'boolean'],
         'external_id'       => ['label' => 'External ID'],
         'notes'             => ['label' => 'Notes'],
     ],
@@ -235,7 +249,7 @@ function placementsCsvUpsertChainRow(
         'party_role'   => $role,
         'company_id'   => $companyId,
     ];
-    foreach (['portal_fee_pct', 'portal_fee_flat', 'submittal_id', 'vms_job_id'] as $k) {
+    foreach (['portal_fee_pct', 'portal_fee_flat', 'payment_terms_override', 'pwp_enabled', 'is_payable', 'submittal_id', 'vms_job_id'] as $k) {
         if (array_key_exists($k, $extras) && $extras[$k] !== null && $extras[$k] !== '') {
             $payload[$k] = $extras[$k];
         }
@@ -278,6 +292,12 @@ function placementsCsvUpsertChain(int $placementId, array $row, ?int $userId): v
                     : null,
                 'submittal_id' => placementsCsvBlankToNull($row[$prefix . '_submittal_id'] ?? null),
                 'vms_job_id' => placementsCsvBlankToNull($row[$prefix . '_vms_job_id'] ?? null),
+                'payment_terms_override' => trim((string) ($row[$prefix . '_payment_terms'] ?? '')) !== ''
+                    ? placementEconomicsNormaliseTerms((string) $row[$prefix . '_payment_terms']) : null,
+                'pwp_enabled' => array_key_exists($prefix . '_paid_when_paid', $row)
+                    ? (int) $row[$prefix . '_paid_when_paid'] : null,
+                'is_payable' => array_key_exists($prefix . '_is_payable', $row)
+                    ? (int) $row[$prefix . '_is_payable'] : null,
             ],
             $userId
         );
@@ -356,6 +376,7 @@ function placementsCsvBuildCorpPayload(array $row): ?array
         'corp_ein', 'corp_address_line1', 'corp_address_line2', 'corp_city', 'corp_state',
         'corp_postal_code', 'corp_country', 'corp_contact_name', 'corp_contact_email',
         'corp_contact_phone', 'coi_expiry',
+        'corp_payment_terms', 'corp_paid_when_paid',
     ] as $field) {
         if (trim((string) ($row[$field] ?? '')) !== '') {
             $hasCorpField = true;
@@ -382,6 +403,10 @@ function placementsCsvBuildCorpPayload(array $row): ?array
         'corp_contact_email' => placementsCsvBlankToNull($row['corp_contact_email'] ?? null),
         'corp_contact_phone' => placementsCsvBlankToNull($row['corp_contact_phone'] ?? null),
         'coi_expiry' => placementsCsvBlankToNull($row['coi_expiry'] ?? null),
+        'payment_terms_override' => trim((string) ($row['corp_payment_terms'] ?? '')) !== ''
+            ? placementEconomicsNormaliseTerms((string) $row['corp_payment_terms']) : null,
+        'pwp_enabled' => array_key_exists('corp_paid_when_paid', $row)
+            ? (int) $row['corp_paid_when_paid'] : 0,
     ];
 }
 
@@ -396,16 +421,20 @@ function placementsCsvUpsertCorpDetails(int $placementId, array $row): void
     $pdo->prepare(
         'INSERT INTO placement_corp_details
             (placement_id, tenant_id, corp_legal_name, corp_ein_ct, corp_ein_last4,
+             payment_terms_override, pwp_enabled,
              corp_address_line1, corp_address_line2, corp_city, corp_state, corp_postal_code,
              corp_country, corp_contact_name, corp_contact_email, corp_contact_phone, coi_expiry)
          VALUES
             (:placement_id, :tenant_id, :corp_legal_name, :corp_ein_ct, :corp_ein_last4,
+             :payment_terms_override, :pwp_enabled,
              :corp_address_line1, :corp_address_line2, :corp_city, :corp_state, :corp_postal_code,
              :corp_country, :corp_contact_name, :corp_contact_email, :corp_contact_phone, :coi_expiry)
          ON DUPLICATE KEY UPDATE
             corp_legal_name = VALUES(corp_legal_name),
             corp_ein_ct = COALESCE(VALUES(corp_ein_ct), corp_ein_ct),
             corp_ein_last4 = COALESCE(VALUES(corp_ein_last4), corp_ein_last4),
+            payment_terms_override = VALUES(payment_terms_override),
+            pwp_enabled = VALUES(pwp_enabled),
             corp_address_line1 = VALUES(corp_address_line1),
             corp_address_line2 = VALUES(corp_address_line2),
             corp_city = VALUES(corp_city),
@@ -756,6 +785,10 @@ if ($method === 'POST' && $action === 'commit') {
             'client_bill_cycle_anchor' => $row['client_bill_cycle_anchor'] ?? null,
             'vendor_pay_cycle'      => $row['vendor_pay_cycle']      ?? null,
             'vendor_pay_cycle_anchor' => $row['vendor_pay_cycle_anchor'] ?? null,
+            'vendor_payment_terms_override' => trim((string) ($row['vendor_payment_terms_override'] ?? '')) !== ''
+                ? placementEconomicsNormaliseTerms((string) $row['vendor_payment_terms_override']) : null,
+            'vendor_pwp_enabled' => array_key_exists('vendor_pwp_enabled', $row)
+                ? (int) $row['vendor_pwp_enabled'] : null,
             'notes'            => $row['notes']           ?? null,
         ];
         $payload = array_filter($payload, static fn($v): bool => $v !== null && $v !== '');
@@ -809,6 +842,7 @@ if ($method === 'POST' && $action === 'commit') {
         // the same canonical graph the UI and JobDiva projector consume.
         placementsCsvUpsertCommissions($pid, $row, (bool) $existing);
         placementsCsvUpsertCorpDetails($pid, $row);
+        placementEconomicsReconcile(currentTenantId(), $pid);
 
         return $pid;
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);

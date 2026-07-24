@@ -6,6 +6,7 @@ import LinkedExternalSystemsPanel from '../../../dashboard/src/components/Linked
 import SyncHistoryDrawer from '../../../dashboard/src/components/SyncHistoryDrawer';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import PlacementTimesheetsTab from './PlacementTimesheetsTab';
+import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 
 /**
  * Placement Detail — SPEC §7 tabs.
@@ -20,7 +21,6 @@ export default function PlacementDetail({ session }) {
   const placement = data?.placement;
   const chain     = data?.chain ?? [];
   const rates     = data?.rates ?? [];
-  const currentRate = data?.current_rate;
   const commissions = data?.commissions ?? [];
   const referrals   = data?.referrals ?? [];
   const documents   = data?.documents ?? [];
@@ -31,16 +31,11 @@ export default function PlacementDetail({ session }) {
 
   const TABS = [
     { slug: 'overview',    label: 'Overview' },
-    { slug: 'chain',       label: 'Chain' },
+    { slug: 'economics',   label: 'Economics' },
     { slug: 'rates',       label: 'Rates' },
-    { slug: 'commissions', label: 'Commissions' },
-    { slug: 'referrals',   label: 'Referrals' },
-    ...(placement.engagement_type === 'c2c' ? [{ slug: 'corp', label: 'Corp (C2C)' }] : []),
-    { slug: 'cycles',      label: 'Cycles' },
     { slug: 'timesheets',  label: 'Timesheets' },
     { slug: 'documents',   label: 'Documents' },
     { slug: 'approval',    label: 'Approval' },
-    { slug: 'margin',      label: 'Margin' },
   ];
 
   return (
@@ -107,16 +102,17 @@ export default function PlacementDetail({ session }) {
       <Routes>
         <Route index             element={<Navigate to="overview" replace />} />
         <Route path="overview"   element={<OverviewTab    placement={placement} reload={reload} />} />
-        <Route path="chain"      element={<ChainTab       pid={placement.id} chain={chain} reload={reload} />} />
+        <Route path="economics"  element={<EconomicsTab   placement={placement} chain={chain} commissions={commissions} referrals={referrals} reload={reload} />} />
+        <Route path="chain"      element={<Navigate to="../economics" replace />} />
         <Route path="rates"      element={<RatesTab       pid={placement.id} rates={rates} reload={reload} />} />
-        <Route path="commissions"element={<CommissionsTab pid={placement.id} rows={commissions} reload={reload} />} />
-        <Route path="referrals"  element={<ReferralsTab   pid={placement.id} rows={referrals} reload={reload} />} />
-        <Route path="corp"       element={<CorpTab        pid={placement.id} />} />
-        <Route path="cycles"     element={<CyclesTab      placement={placement} reload={reload} />} />
+        <Route path="commissions"element={<Navigate to="../economics" replace />} />
+        <Route path="referrals"  element={<Navigate to="../economics" replace />} />
+        <Route path="corp"       element={<Navigate to="../economics" replace />} />
+        <Route path="cycles"     element={<Navigate to="../economics" replace />} />
         <Route path="timesheets" element={<PlacementTimesheetsTab pid={placement.id} placement={placement} />} />
         <Route path="documents"  element={<DocumentsTab   pid={placement.id} rows={documents} reload={reload} />} />
         <Route path="approval"   element={<ApprovalTab    pid={placement.id} placement={placement} reload={reload} />} />
-        <Route path="margin"     element={<MarginTab      currentRate={currentRate} chain={chain} />} />
+        <Route path="margin"     element={<Navigate to="../economics" replace />} />
       </Routes>
     </section>
   );
@@ -447,6 +443,203 @@ function OverviewEdit({ placement, onClose }) {
 }
 
 // ── Chain ────────────────────────────────────────────────
+function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
+  const path = `/modules/placements/api/economics.php?placement_id=${placement.id}`;
+  const { data, loading, error, reload: reloadEconomics } = useApi(path);
+  const parties = data?.parties || [];
+  const cycles = data?.cycles || [];
+  const readiness = data?.readiness || {};
+  const model = data?.model || {};
+  const graphPlacement = data?.placement || {};
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [partyCompany, setPartyCompany] = useState(null);
+  const [partyRecipientType, setPartyRecipientType] = useState('company');
+  const [partyPersonSearch, setPartyPersonSearch] = useState('');
+  const usersLookup = useApi('/api/users.php');
+  const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
+  const [partyForm, setPartyForm] = useState({ role: 'vendor', settlement_channel: 'ap', fee_basis: 'none', fee_pct: '', fee_flat: '', payment_terms: 'NET30', pwp_enabled: false });
+  const partyPersonLookup = useApi(partyRecipientType === 'person' && partyPersonSearch.length >= 2 && !partyForm.person_id
+    ? `/modules/people/api/people.php?q=${encodeURIComponent(partyPersonSearch)}&per_page=10`
+    : null);
+  const [cycleDraft, setCycleDraft] = useState({ billing_operating_cycle_id: '', ap_operating_cycle_id: '', payroll_operating_cycle_id: '' });
+  const [newCycle, setNewCycle] = useState({ purpose: 'billing', name: '', cadence: 'biweekly', anchor_date: new Date().toISOString().slice(0, 10), settlement_offset_days: 0, default_payment_terms: 'NET30' });
+
+  useEffect(() => {
+    setCycleDraft({
+      billing_operating_cycle_id: graphPlacement.billing_operating_cycle_id || '',
+      ap_operating_cycle_id: graphPlacement.ap_operating_cycle_id || '',
+      payroll_operating_cycle_id: graphPlacement.payroll_operating_cycle_id || '',
+    });
+  }, [graphPlacement.billing_operating_cycle_id, graphPlacement.ap_operating_cycle_id, graphPlacement.payroll_operating_cycle_id]);
+
+  const refreshAll = () => { reloadEconomics(); reload(); };
+  const patchParty = async (id, changes) => {
+    setBusy(true); setMessage('');
+    try {
+      await api.patch(`/modules/placements/api/economics.php?id=${id}`, changes);
+      setMessage('Economic terms saved.'); refreshAll();
+    } catch (e) { setMessage(`Save failed: ${e.message}`); }
+    finally { setBusy(false); }
+  };
+  const removeParty = async (party) => {
+    if (!window.confirm(`Remove ${party.display_name} from this placement's economics?`)) return;
+    setBusy(true); setMessage('');
+    try {
+      await api.delete(`/modules/placements/api/economics.php?id=${party.id}`);
+      setMessage('Participant removed.'); refreshAll();
+    } catch (e) { setMessage(`Remove failed: ${e.message}`); }
+    finally { setBusy(false); }
+  };
+  const addParty = async (e) => {
+    e.preventDefault();
+    const selectedUser = tenantUsers.find((user) => Number(user.id) === Number(partyForm.user_id));
+    if (partyRecipientType === 'company' && !partyCompany?.name) { setMessage('Choose or create a company first.'); return; }
+    if (partyRecipientType === 'user' && !selectedUser) { setMessage('Choose an internal user first.'); return; }
+    if (partyRecipientType === 'person' && !partyForm.person_id) { setMessage('Choose a person first.'); return; }
+    setBusy(true); setMessage('');
+    try {
+      await api.post(`${path}&action=party`, {
+        ...partyForm,
+        company_id: partyRecipientType === 'company' ? (partyCompany?.id || null) : null,
+        person_id: partyRecipientType === 'person' ? Number(partyForm.person_id) : null,
+        user_id: partyRecipientType === 'user' ? Number(partyForm.user_id) : null,
+        display_name: partyRecipientType === 'company'
+          ? partyCompany.name
+          : partyRecipientType === 'user'
+            ? (selectedUser.name || selectedUser.email)
+            : partyPersonSearch,
+        fee_pct: partyForm.fee_pct === '' ? null : Number(partyForm.fee_pct),
+        fee_flat: partyForm.fee_flat === '' ? null : Number(partyForm.fee_flat),
+      });
+      setPartyCompany(null);
+      setPartyRecipientType('company');
+      setPartyPersonSearch('');
+      setPartyForm({ role: 'vendor', settlement_channel: 'ap', fee_basis: 'none', fee_pct: '', fee_flat: '', payment_terms: 'NET30', pwp_enabled: false });
+      setMessage('Participant added and normalized to the shared company/vendor graph.'); refreshAll();
+    } catch (e) { setMessage(`Add failed: ${e.message}`); }
+    finally { setBusy(false); }
+  };
+  const saveCycles = async () => {
+    setBusy(true); setMessage('');
+    try {
+      const payload = { placement_id: placement.id };
+      Object.entries(cycleDraft).forEach(([key, value]) => { payload[key] = value === '' ? null : Number(value); });
+      await api.post('/modules/placements/api/cycles.php?action=assign', payload);
+      setMessage('Settlement cycles assigned.'); refreshAll();
+    } catch (e) { setMessage(`Cycle assignment failed: ${e.message}`); }
+    finally { setBusy(false); }
+  };
+  const createCycle = async (e) => {
+    e.preventDefault(); setBusy(true); setMessage('');
+    try {
+      const res = await api.post('/modules/placements/api/cycles.php', { ...newCycle, placement_id: placement.id });
+      setCycleDraft((current) => ({ ...current, [`${newCycle.purpose}_operating_cycle_id`]: res.id }));
+      setNewCycle((current) => ({ ...current, name: '' }));
+      setMessage(`${newCycle.purpose} cycle created and assigned.`); refreshAll();
+    } catch (e) { setMessage(`Cycle creation failed: ${e.message}`); }
+    finally { setBusy(false); }
+  };
+
+  const termsOptions = ['DUE_ON_RECEIPT','NET7','NET10','NET15','NET30','NET45','NET60','NET90','PWP','PWP_NET7','PWP_NET10','PWP_NET15','PWP_NET30','PWP_NET45','PWP_NET60','PWP_NET90'];
+  const readinessProblems = [
+    readiness.missing_receivable_party && 'Client billing recipient',
+    readiness.missing_approved_rate && 'Approved rate',
+    readiness.missing_payable_party && 'Worker or vendor payee',
+    readiness.missing_labor_payee && 'Primary labor payee',
+    readiness.multiple_labor_payees && 'Resolve multiple primary labor payees',
+    readiness.missing_c2c_vendor && 'C2C corporate vendor',
+    readiness.missing_billing_cycle && 'Billing cycle', readiness.missing_ap_cycle && 'AP cycle',
+    readiness.missing_payroll_cycle && 'Payroll cycle',
+    readiness.unresolved_parties > 0 && `${readiness.unresolved_parties} unresolved recipient(s)`,
+  ].filter(Boolean);
+  if (loading) return <p>Loading placement economics...</p>;
+  if (error) return <p className="error">Error: {error.message}</p>;
+
+  return (
+    <div data-testid="tab-economics">
+      <header style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <div><h3 style={{ margin: 0 }}>Placement economics</h3><p style={{ color: 'var(--cf-text-secondary)', margin: '4px 0 0' }}>Every client, worker, vendor, referrer, and commission recipient involved in this engagement.</p></div>
+        <span className={`badge badge--${readiness.ready ? 'active' : 'candidate'}`} data-testid="economics-readiness">{readiness.ready ? 'Ready for settlement' : `${readinessProblems.length} setup item${readinessProblems.length === 1 ? '' : 's'}`}</span>
+      </header>
+      {!readiness.ready && <div className="alert alert--warn" style={{ marginTop: 12 }}>Complete: {readinessProblems.join(', ') || 'economic setup'}.</div>}
+      {message && <div className={message.includes('failed') ? 'alert alert--err' : 'alert alert--ok'} style={{ marginTop: 12 }}>{message}</div>}
+
+      {model.available && <section style={{ marginTop: 24 }} data-testid="economics-model-summary">
+        <h4>Modeled hourly economics</h4>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16 }}>
+          {[['Bill rate', model.bill_rate], ['All hourly costs', model.modeled_hourly_cost], ['Modeled margin', model.modeled_hourly_margin]].map(([label, value]) => <div key={label}><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>{label}</span><strong>{model.currency} {Number(value).toFixed(2)} / hour</strong></div>)}
+          <div><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>Margin</span><strong>{(Number(model.modeled_margin_pct) * 100).toFixed(2)}%</strong></div>
+          <div><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>Fixed obligations</span><strong>{model.currency} {Number(model.fixed_obligations).toFixed(2)}</strong></div>
+        </div>
+        <details style={{ marginTop: 10 }}><summary style={{ cursor: 'pointer' }}>Cost breakdown</summary><table className="data-table" style={{ marginTop: 8 }}><thead><tr><th>Recipient or cost</th><th>Basis</th><th>Channel</th><th>Amount</th></tr></thead><tbody>{[...(model.hourly_lines || []), ...(model.fixed_lines || [])].map((line, index) => <tr key={`${line.role}-${index}`}><td>{line.name}</td><td>{line.basis.replace(/_/g, ' ')}</td><td>{line.settlement_channel}</td><td>{model.currency} {Number(line.amount).toFixed(2)}{(model.hourly_lines || []).includes(line) ? ' / hour' : ''}</td></tr>)}</tbody></table></details>
+      </section>}
+
+      <section style={{ marginTop: 24 }}>
+        <h4>Participants and payment rules</h4>
+        <table className="data-table" data-testid="economics-parties-table">
+          <thead><tr><th>Participant</th><th>Role</th><th>Flow</th><th>Calculation</th><th>Terms</th><th>Paid when paid</th><th>Cycle</th><th aria-label="Actions" /></tr></thead>
+          <tbody>
+            {parties.length === 0 && <tr><td colSpan={8} className="empty">No participants resolved.</td></tr>}
+            {parties.map((party) => <tr key={party.id} data-testid={`economics-party-${party.id}`}>
+              <td><strong>{party.display_name}</strong><div style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>{party.company_id ? `Company #${party.company_id}${party.ap_vendor_id ? ` / Vendor #${party.ap_vendor_id}` : ''}` : party.person_id ? `Person #${party.person_id}` : party.source_type}</div></td>
+              <td>{party.role.replace(/_/g, ' ')}</td>
+              <td>{party.settlement_channel === 'ar' ? 'Receivable' : party.settlement_channel === 'ap' ? 'Accounts payable' : party.settlement_channel === 'payroll' ? 'Payroll' : 'Informational'}</td>
+              <td>{party.fee_basis.replace(/_/g, ' ')}{party.fee_pct ? ` (${(Number(party.fee_pct) * 100).toFixed(2)}%)` : ''}{party.fee_flat ? ` ($${Number(party.fee_flat).toFixed(2)})` : ''}</td>
+              <td>{party.settlement_channel === 'ap' ? <select className="input" value={party.payment_terms || party.vendor_default_terms || 'NET30'} disabled={busy} onChange={(e) => patchParty(party.id, { payment_terms: e.target.value })}>{termsOptions.map((term) => <option key={term} value={term}>{term.replace('PWP', 'Paid when paid')}</option>)}</select> : '-'}</td>
+              <td>{party.settlement_channel === 'ap' ? <input type="checkbox" checked={!!Number(party.pwp_enabled)} disabled={busy} onChange={(e) => patchParty(party.id, { pwp_enabled: e.target.checked })} aria-label={`Paid when paid for ${party.display_name}`} /> : '-'}</td>
+              <td>{party.settlement_channel !== 'none' ? (party.cycle_name || 'Placement default') : '-'}</td>
+              <td>{!Number(party.source_managed) && <button type="button" className="btn btn--sm" disabled={busy} onClick={() => removeParty(party)}>Remove</button>}</td>
+            </tr>)}
+          </tbody>
+        </table>
+      </section>
+
+      <section style={{ marginTop: 28 }}>
+        <h4>Settlement cycles</h4>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          {['billing','ap','payroll'].map((purpose) => { const field = `${purpose}_operating_cycle_id`; return <label key={purpose}><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)', marginBottom: 4 }}>{purpose === 'billing' ? 'Client billing (AR)' : purpose === 'ap' ? 'Vendor payments (AP)' : 'Employee payroll'}</span><select className="input" value={cycleDraft[field]} onChange={(e) => setCycleDraft({ ...cycleDraft, [field]: e.target.value })}><option value="">Excluded</option>{cycles.filter((cycle) => cycle.purpose === purpose).map((cycle) => <option key={cycle.id} value={cycle.id}>{cycle.name} ({cycle.cadence})</option>)}</select></label>; })}
+        </div>
+        <button type="button" className="btn btn--primary" style={{ marginTop: 12 }} onClick={saveCycles} disabled={busy}>Save cycle assignments</button>
+        <form onSubmit={createCycle} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, alignItems: 'end', marginTop: 18 }}>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Purpose</span><select className="input" value={newCycle.purpose} onChange={(e) => setNewCycle({ ...newCycle, purpose: e.target.value })}>{['billing','ap','payroll'].map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Cycle name</span><input className="input" required value={newCycle.name} onChange={(e) => setNewCycle({ ...newCycle, name: e.target.value })} placeholder="Biweekly vendor pay" /></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Cadence</span><select className="input" value={newCycle.cadence} onChange={(e) => setNewCycle({ ...newCycle, cadence: e.target.value })}>{['weekly','biweekly','semimonthly','monthly','adhoc'].map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Anchor</span><input className="input" type="date" value={newCycle.anchor_date} onChange={(e) => setNewCycle({ ...newCycle, anchor_date: e.target.value })} /></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Settlement offset</span><input className="input" type="number" value={newCycle.settlement_offset_days} onChange={(e) => setNewCycle({ ...newCycle, settlement_offset_days: Number(e.target.value) })} /></label>
+          {newCycle.purpose === 'ap' && <label><span style={{ display: 'block', fontSize: 12 }}>Default payment terms</span><select className="input" value={newCycle.default_payment_terms} onChange={(e) => setNewCycle({ ...newCycle, default_payment_terms: e.target.value })}>{termsOptions.map((term) => <option key={term}>{term}</option>)}</select></label>}
+          <button className="btn" disabled={busy}>Create and assign</button>
+        </form>
+      </section>
+
+      <section style={{ marginTop: 28 }}>
+        <h4>Add participant</h4>
+        <form onSubmit={addParty} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 8, alignItems: 'end' }}>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Recipient type</span><select className="input" value={partyRecipientType} onChange={(e) => { const type = e.target.value; setPartyRecipientType(type); setPartyCompany(null); setPartyPersonSearch(''); setPartyForm({ ...partyForm, company_id: '', person_id: '', user_id: '', settlement_channel: type === 'user' ? 'payroll' : 'ap' }); }}><option value="company">Company or vendor</option><option value="person">Person</option><option value="user">Internal user</option></select></label>
+          {partyRecipientType === 'company' && <div><span style={{ display: 'block', fontSize: 12 }}>Company</span><CompanyTypeahead role={partyForm.settlement_channel === 'ar' ? 'client' : 'vendor'} value={partyCompany} onChange={setPartyCompany} placeholder="Search or create company" testId="economics-company" /></div>}
+          {partyRecipientType === 'user' && <label><span style={{ display: 'block', fontSize: 12 }}>Internal user</span><select className="input" required value={partyForm.user_id || ''} onChange={(e) => setPartyForm({ ...partyForm, user_id: e.target.value })}><option value="">Choose user</option>{tenantUsers.map((user) => <option key={user.id} value={user.id}>{user.name || user.email}</option>)}</select></label>}
+          {partyRecipientType === 'person' && <div style={{ position: 'relative' }}><span style={{ display: 'block', fontSize: 12 }}>Person</span><input className="input" required value={partyPersonSearch} onChange={(e) => { setPartyPersonSearch(e.target.value); setPartyForm({ ...partyForm, person_id: '' }); }} placeholder="Search people" />{!partyForm.person_id && (partyPersonLookup.data?.rows || []).length > 0 && <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, background: 'white', border: '1px solid var(--cf-border)', maxHeight: 180, overflowY: 'auto' }}>{(partyPersonLookup.data?.rows || []).map((person) => <button type="button" key={person.id} onClick={() => { setPartyForm({ ...partyForm, person_id: person.id }); setPartyPersonSearch(`${person.first_name} ${person.last_name}`); }} style={{ display: 'block', width: '100%', padding: 8, textAlign: 'left', border: 0, background: 'white', cursor: 'pointer' }}>{person.first_name} {person.last_name} ({person.email_primary})</button>)}</div>}</div>}
+          <label><span style={{ display: 'block', fontSize: 12 }}>Role</span><select className="input" value={partyForm.role} onChange={(e) => setPartyForm({ ...partyForm, role: e.target.value, fee_basis: e.target.value === 'c2c_vendor' ? 'pay_rate' : partyForm.fee_basis })}>{['vendor', ...(placement.engagement_type === 'c2c' ? ['c2c_vendor'] : []), 'msp','prime_vendor','sub_vendor','referrer','other'].map((value) => <option key={value}>{value.replace(/_/g, ' ')}</option>)}</select></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Payment channel</span><select className="input" value={partyForm.settlement_channel} onChange={(e) => setPartyForm({ ...partyForm, settlement_channel: e.target.value })}>{partyRecipientType === 'company' && <option value="ar">Accounts receivable</option>}<option value="ap">Accounts payable</option>{partyRecipientType !== 'company' && <option value="payroll">Payroll</option>}<option value="none">Informational</option></select></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Calculation</span><select className="input" value={partyForm.fee_basis} onChange={(e) => setPartyForm({ ...partyForm, fee_basis: e.target.value })}>{['none','pay_rate','per_hour','per_invoice','one_time','pct_bill','pct_margin','flat'].map((value) => <option key={value}>{value.replace(/_/g, ' ')}</option>)}</select></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Percent (decimal)</span><input className="input" type="number" step="0.0001" value={partyForm.fee_pct} onChange={(e) => setPartyForm({ ...partyForm, fee_pct: e.target.value })} placeholder="0.10 = 10%" /></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Flat or hourly amount</span><input className="input" type="number" step="0.01" value={partyForm.fee_flat} onChange={(e) => setPartyForm({ ...partyForm, fee_flat: e.target.value })} placeholder="0.00" /></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Payment terms</span><select className="input" value={partyForm.payment_terms} onChange={(e) => setPartyForm({ ...partyForm, payment_terms: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })}>{termsOptions.map((term) => <option key={term}>{term}</option>)}</select></label>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={partyForm.pwp_enabled} onChange={(e) => setPartyForm({ ...partyForm, pwp_enabled: e.target.checked })} /> Paid when paid</label>
+          <button className="btn" disabled={busy}>Add participant</button>
+        </form>
+      </section>
+
+      <details style={{ marginTop: 28 }}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Source details and documents</summary>
+        <div style={{ marginTop: 20 }}><ChainTab pid={placement.id} chain={chain} reload={refreshAll} /></div>
+        <div style={{ marginTop: 28 }}><ReferralsTab pid={placement.id} rows={referrals} reload={refreshAll} /></div>
+        <div style={{ marginTop: 28 }}><CommissionsTab pid={placement.id} rows={commissions} reload={refreshAll} /></div>
+        {placement.engagement_type === 'c2c' && <div style={{ marginTop: 28 }}><CorpTab pid={placement.id} /></div>}
+      </details>
+    </div>
+  );
+}
+
 function ChainTab({ pid, chain, reload }) {
   const [form, setForm] = useState({ position: 0, party_name: '', party_role: 'end_client', portal_fee_pct: '', submittal_id: '', vms_job_id: '' });
   const [adding, setAdding] = useState(false);
@@ -764,7 +957,10 @@ function RatesTab({ pid, rates, reload }) {
 
 // ── Commissions ────────────────────────────────────────────
 function CommissionsTab({ pid, rows, reload }) {
-  const [form, setForm] = useState({ role: 'recruiter', split_pct: '', basis: 'net_margin', effective_from: new Date().toISOString().slice(0,10) });
+  const usersLookup = useApi('/api/users.php');
+  const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
+  const emptyForm = () => ({ role: 'recruiter', user_id: '', split_pct: '', basis: 'net_margin', effective_from: new Date().toISOString().slice(0,10) });
+  const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState(null);
   const add = async (e) => {
     e.preventDefault(); setError(null);
@@ -772,20 +968,31 @@ function CommissionsTab({ pid, rows, reload }) {
       await api.post(`/modules/placements/api/commissions.php?placement_id=${pid}`, {
         ...form, split_pct: form.split_pct ? parseFloat(form.split_pct) : null,
       });
-      setForm({ role: 'recruiter', split_pct: '', basis: 'net_margin', effective_from: new Date().toISOString().slice(0,10) });
+      setForm(emptyForm());
       reload();
     } catch (e) { setError(e); }
+  };
+  const patchRecipient = async (id, userId) => {
+    setError(null);
+    try { await api.patch(`/modules/placements/api/commissions.php?id=${id}`, { user_id: Number(userId) }); reload(); }
+    catch (e) { setError(e); }
   };
   const del = async (id) => { if (!confirm('Remove split?')) return; await api.delete(`/modules/placements/api/commissions.php?id=${id}`); reload(); };
   return (
     <div data-testid="tab-commissions">
       <h3>Commission splits</h3>
       <table className="data-table" data-testid="commissions-table">
-        <thead><tr><th>Role</th><th>Split</th><th>Basis</th><th>From</th><th>To</th><th></th></tr></thead>
+        <thead><tr><th>Recipient</th><th>Role</th><th>Split</th><th>Basis</th><th>From</th><th>To</th><th></th></tr></thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={6} className="empty" data-testid="commissions-empty">No splits.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={7} className="empty" data-testid="commissions-empty">No splits.</td></tr>}
           {rows.map(c => (
             <tr key={c.id} data-testid={`commission-row-${c.id}`}>
+              <td>
+                <select className="input" value={c.user_id || ''} onChange={e => patchRecipient(c.id, e.target.value)} aria-label={`Commission recipient for ${c.role}`}>
+                  <option value="">Choose recipient</option>
+                  {tenantUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+                </select>
+              </td>
               <td>{c.role}</td><td>{c.split_pct ? `${(c.split_pct * 100).toFixed(2)}%` : c.flat_amount ? `$${c.flat_amount}` : '—'}</td>
               <td>{c.basis}</td><td>{c.effective_from}</td><td>{c.effective_to || '—'}</td>
               <td><button className="btn btn--ghost" onClick={() => del(c.id)} data-testid={`commission-delete-${c.id}`}>Remove</button></td>
@@ -794,6 +1001,10 @@ function CommissionsTab({ pid, rows, reload }) {
         </tbody>
       </table>
       <form onSubmit={add} style={{ marginTop: 'var(--cf-space-3)', display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }} data-testid="commissions-add-form">
+        <select className="input" required value={form.user_id} onChange={e => setForm({ ...form, user_id: e.target.value })} data-testid="commission-recipient">
+          <option value="">Choose recipient</option>
+          {tenantUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+        </select>
         <select className="input" value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} data-testid="commission-role">
           {['account_manager','lead','recruiter','team','other'].map(r => <option key={r} value={r}>{r}</option>)}
         </select>
@@ -811,13 +1022,31 @@ function CommissionsTab({ pid, rows, reload }) {
 
 // ── Referrals ────────────────────────────────────────────
 function ReferralsTab({ pid, rows, reload }) {
-  const [form, setForm] = useState({ referrer_type: 'vendor', referrer_vendor_name: '', fee_basis: 'pct_bill', fee_pct: '', start_date: new Date().toISOString().slice(0,10), duration_months: '' });
+  const usersLookup = useApi('/api/users.php');
+  const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
+  const emptyForm = () => ({ referrer_type: 'vendor', referrer_vendor_name: '', referrer_company_id: '', referrer_person_id: '', referrer_user_id: '', fee_basis: 'pct_bill', fee_pct: '', fee_flat: '', start_date: new Date().toISOString().slice(0,10), duration_months: '', payment_terms_override: 'NET30', pwp_enabled: false });
+  const [form, setForm] = useState(emptyForm);
+  const [referrerCompany, setReferrerCompany] = useState(null);
+  const [personSearch, setPersonSearch] = useState('');
+  const personLookup = useApi(form.referrer_type === 'person' && personSearch.length >= 2 && !form.referrer_person_id
+    ? `/modules/people/api/people.php?q=${encodeURIComponent(personSearch)}&per_page=10`
+    : null);
   const [error, setError] = useState(null);
   const add = async (e) => {
     e.preventDefault(); setError(null);
     try {
-      const payload = { ...form, fee_pct: form.fee_pct ? parseFloat(form.fee_pct) : null, duration_months: form.duration_months ? parseInt(form.duration_months, 10) : null };
+      const payload = {
+        ...form,
+        referrer_company_id: referrerCompany?.id || null,
+        referrer_vendor_name: referrerCompany?.name || form.referrer_vendor_name || null,
+        fee_pct: form.fee_pct ? parseFloat(form.fee_pct) : null,
+        fee_flat: form.fee_flat ? parseFloat(form.fee_flat) : null,
+        duration_months: form.duration_months ? parseInt(form.duration_months, 10) : null,
+      };
       await api.post(`/modules/placements/api/referrals.php?placement_id=${pid}`, payload);
+      setForm(emptyForm());
+      setReferrerCompany(null);
+      setPersonSearch('');
       reload();
     } catch (e) { setError(e); }
   };
@@ -831,7 +1060,7 @@ function ReferralsTab({ pid, rows, reload }) {
           {rows.length === 0 && <tr><td colSpan={6} className="empty" data-testid="referrals-empty">No referrals.</td></tr>}
           {rows.map(r => (
             <tr key={r.id} data-testid={`referral-row-${r.id}`}>
-              <td>{r.referrer_vendor_name || `#${r.referrer_person_id || r.referrer_user_id}`}</td>
+              <td>{r.referrer_name || r.referrer_vendor_name || `#${r.referrer_person_id || r.referrer_user_id}`}</td>
               <td>{r.fee_pct ? `${(r.fee_pct * 100).toFixed(2)}%` : r.fee_flat ? `$${r.fee_flat}` : '—'}</td>
               <td>{r.fee_basis}</td><td>{r.start_date}</td><td>{r.duration_months ? `${r.duration_months}mo` : '—'}</td>
               <td><button className="btn btn--ghost" onClick={() => del(r.id)} data-testid={`referral-delete-${r.id}`}>Remove</button></td>
@@ -840,16 +1069,26 @@ function ReferralsTab({ pid, rows, reload }) {
         </tbody>
       </table>
       <form onSubmit={add} style={{ marginTop: 'var(--cf-space-3)', display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }} data-testid="referrals-add-form">
-        <select className="input" value={form.referrer_type} onChange={e => setForm({ ...form, referrer_type: e.target.value })} data-testid="referral-type">
+        <select className="input" value={form.referrer_type} onChange={e => { setForm({ ...emptyForm(), referrer_type: e.target.value }); setReferrerCompany(null); setPersonSearch(''); }} data-testid="referral-type">
           <option value="vendor">vendor</option><option value="person">person</option><option value="user">user</option>
         </select>
-        <input className="input" placeholder="Vendor name (if vendor)" value={form.referrer_vendor_name} onChange={e => setForm({ ...form, referrer_vendor_name: e.target.value })} data-testid="referral-name" />
+        {form.referrer_type === 'vendor' && <div style={{ minWidth: 260 }}><CompanyTypeahead role="referrer" value={referrerCompany} onChange={(company) => { setReferrerCompany(company); setForm({ ...form, referrer_company_id: company?.id || '', referrer_vendor_name: company?.name || '' }); }} placeholder="Search or create vendor" testId="referral-company" /></div>}
+        {form.referrer_type === 'user' && <select className="input" required value={form.referrer_user_id} onChange={e => setForm({ ...form, referrer_user_id: e.target.value })} data-testid="referral-user"><option value="">Choose user</option>{tenantUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}</select>}
+        {form.referrer_type === 'person' && <div style={{ position: 'relative', minWidth: 260 }}>
+          <input className="input" required value={personSearch} onChange={e => { setPersonSearch(e.target.value); setForm({ ...form, referrer_person_id: '' }); }} placeholder="Search people" data-testid="referral-person-search" />
+          {!form.referrer_person_id && (personLookup.data?.rows || []).length > 0 && <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, background: 'white', border: '1px solid var(--cf-border)', maxHeight: 180, overflowY: 'auto' }}>
+            {(personLookup.data?.rows || []).map(person => <button type="button" key={person.id} onClick={() => { setForm({ ...form, referrer_person_id: person.id }); setPersonSearch(`${person.first_name} ${person.last_name}`); }} style={{ display: 'block', width: '100%', padding: 8, textAlign: 'left', border: 0, background: 'white', cursor: 'pointer' }}>{person.first_name} {person.last_name} ({person.email_primary})</button>)}
+          </div>}
+        </div>}
         <select className="input" value={form.fee_basis} onChange={e => setForm({ ...form, fee_basis: e.target.value })} data-testid="referral-basis">
           {['per_hour','per_invoice','one_time','pct_bill','pct_margin'].map(b => <option key={b} value={b}>{b}</option>)}
         </select>
         <input className="input" type="number" step="0.0001" placeholder="0.10 = 10%" value={form.fee_pct} onChange={e => setForm({ ...form, fee_pct: e.target.value })} data-testid="referral-fee" />
+        <input className="input" type="number" step="0.01" placeholder="Flat amount" value={form.fee_flat} onChange={e => setForm({ ...form, fee_flat: e.target.value })} data-testid="referral-flat" />
         <input className="input" type="number" placeholder="Months" value={form.duration_months} onChange={e => setForm({ ...form, duration_months: e.target.value })} style={{ width: '90px' }} data-testid="referral-months" />
         <input className="input" type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} data-testid="referral-start" />
+        <select className="input" value={form.payment_terms_override} onChange={e => setForm({ ...form, payment_terms_override: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })} data-testid="referral-terms">{['DUE_ON_RECEIPT','NET7','NET10','NET15','NET30','NET45','NET60','NET90','PWP','PWP_NET7','PWP_NET10','PWP_NET15','PWP_NET30','PWP_NET45','PWP_NET60','PWP_NET90'].map(term => <option key={term}>{term}</option>)}</select>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={form.pwp_enabled} onChange={e => setForm({ ...form, pwp_enabled: e.target.checked })} /> Paid when paid</label>
         <button className="btn btn--primary" data-testid="referral-add-btn">Add</button>
       </form>
       {error && <p className="error" data-testid="referrals-error">Error: {error.message}</p>}

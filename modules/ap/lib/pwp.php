@@ -100,7 +100,8 @@ function apPwpAutoLinkForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorU
     try {
         foreach ($candidates as $b) {
             $parsed = apPwpParseTerms($b['payment_terms']);
-            $isPwp  = $parsed['is_pwp'] || (int) ($b['default_pwp'] ?? 0) === 1;
+            $isPwp  = $parsed['is_pwp'] || (int) ($b['default_pwp'] ?? 0) === 1
+                || ($b['pwp_status'] ?? '') === 'awaiting_ar';
             if (!$isPwp) continue;
             // Don't clobber an existing link to a different invoice.
             if (!empty($b['linked_ar_invoice_id']) && (int) $b['linked_ar_invoice_id'] !== $arInvoiceId) continue;
@@ -134,6 +135,70 @@ function apPwpAutoLinkForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorU
         throw $e;
     }
     return ['linked' => $linked];
+}
+
+/**
+ * Link a newly-created PWP AP bill when its matching AR invoice already
+ * exists. This is the inverse ordering of apPwpAutoLinkForArInvoice().
+ */
+function apPwpAutoLinkForApBill(int $tenantId, int $billId, ?int $actorUserId = null): array {
+    $pdo = getDB();
+    $st = $pdo->prepare(
+        'SELECT b.id, b.period_start, b.period_end, b.payment_terms, b.pwp_status,
+                b.linked_ar_invoice_id, v.default_pwp
+           FROM ap_bills b
+      LEFT JOIN ap_vendors_index v
+             ON v.tenant_id = b.tenant_id AND v.vendor_name = b.vendor_name
+          WHERE b.tenant_id = :t AND b.id = :id LIMIT 1'
+    );
+    $st->execute(['t' => $tenantId, 'id' => $billId]);
+    $bill = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+    if (!$bill) throw new \RuntimeException("AP bill {$billId} not found");
+    $parsed = apPwpParseTerms($bill['payment_terms']);
+    if (!$parsed['is_pwp'] && empty($bill['default_pwp']) && ($bill['pwp_status'] ?? '') !== 'awaiting_ar') {
+        return ['linked' => [], 'reason' => 'bill is not paid-when-paid'];
+    }
+    if (!empty($bill['linked_ar_invoice_id'])) {
+        return ['linked' => [], 'ar_invoice_id' => (int) $bill['linked_ar_invoice_id'], 'reason' => 'already linked'];
+    }
+    if (empty($bill['period_start']) || empty($bill['period_end'])) {
+        return ['linked' => [], 'reason' => 'bill has no settlement period'];
+    }
+
+    $placements = $pdo->prepare(
+        'SELECT DISTINCT placement_id FROM ap_bill_lines
+          WHERE bill_id = :id AND placement_id IS NOT NULL'
+    );
+    $placements->execute(['id' => $billId]);
+    $placementIds = array_map('intval', array_column($placements->fetchAll(\PDO::FETCH_ASSOC), 'placement_id'));
+    if (!$placementIds) return ['linked' => [], 'reason' => 'bill has no placement lines'];
+
+    $params = ['t' => $tenantId, 'ps' => $bill['period_start'], 'pe' => $bill['period_end']];
+    $ph = [];
+    foreach ($placementIds as $i => $placementId) {
+        $key = 'p' . $i;
+        $ph[] = ':' . $key;
+        $params[$key] = $placementId;
+    }
+    $invoice = $pdo->prepare(
+        'SELECT DISTINCT i.id
+           FROM billing_invoices i
+           JOIN billing_invoice_lines il ON il.invoice_id = i.id
+          WHERE i.tenant_id = :t AND i.status <> "void"
+            AND i.period_start = :ps AND i.period_end = :pe
+            AND il.placement_id IN (' . implode(',', $ph) . ')
+          ORDER BY i.id'
+    );
+    $invoice->execute($params);
+    $invoiceIds = array_map('intval', array_column($invoice->fetchAll(\PDO::FETCH_ASSOC), 'id'));
+    if (count($invoiceIds) !== 1) {
+        return ['linked' => [], 'reason' => count($invoiceIds) ? 'multiple matching AR invoices' : 'matching AR invoice not created yet'];
+    }
+
+    $arInvoiceId = $invoiceIds[0];
+    $result = apPwpAutoLinkForArInvoice($tenantId, $arInvoiceId, $actorUserId);
+    $release = apPwpReleaseForArInvoice($tenantId, $arInvoiceId, $actorUserId);
+    return ['linked' => $result['linked'] ?? [], 'ar_invoice_id' => $arInvoiceId, 'released' => $release['released'] ?? []];
 }
 
 /**

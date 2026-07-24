@@ -136,25 +136,34 @@ $a('TimeModule routes /settlement → TimeSettlement',
 
 echo "\nlib/settlement_create.php — auto-create engine\n";
 $cr = (string) file_get_contents(__DIR__ . '/../modules/time/lib/settlement_create.php');
+$payrollLib = (string) file_get_contents(__DIR__ . '/../modules/payroll/lib/payroll.php');
 $a('timeSettlementAutoCreate() exposed',         $c($cr, 'function timeSettlementAutoCreate'));
 $a('accepts billing|ap|payroll targets',          $c($cr, "['billing','ap','payroll']"));
 $a('payroll branch routes to dedicated handler',  $c($cr, '_settleTimeIntoPayroll'));
-$a('payroll: groups entries by employee',         $c($cr, '$byEmployee[(int) $emp[\'employee_id\']]'));
+$a('payroll: groups entries by employee and selected placement cycle',
+                                                  $c($cr, '$byEmployee[$key][\'entries\'][] = $e')
+                                                  && $c($cr, 'placement_payroll_cycle_id'));
 $a('payroll: resolves person_id → employee via user_id',
                                                   $c($cr, 'WHERE e.tenant_id = ? AND e.user_id = ?'));
 $a('payroll: resolves person_id → employee via email fallback',
                                                   $c($cr, 'WHERE e.tenant_id = ? AND e.personal_email = ?'));
 $a('payroll: finds open period in employee\'s cycle',
                                                   $c($cr, "WHERE tenant_id = :t AND cycle_id = :c") &&
-                                                  $c($cr, "status IN ('draft','open')"));
-$a('payroll: finds-or-creates draft run on period',$c($cr, 'INSERT INTO payroll_runs') && $c($cr, "status = 'draft'"));
-$a('payroll: upserts line items (additive)',      $c($cr, 'ON DUPLICATE KEY UPDATE') &&
-                                                  $c($cr, 'hours_regular  + VALUES(hours_regular)'));
+                                                  $c($cr, 'status IN ("draft","open")'));
+$a('payroll: finds-or-creates draft run on period',$c($cr, 'INSERT INTO payroll_runs') && $c($cr, 'status = "draft"'));
+$a('payroll: compute reads settled source time instead of additive line-item writes',
+                                                  $c($payrollLib, 'function payrollRunExtractedHours')
+                                                  && !$c($cr, 'hours_regular  + VALUES(hours_regular)'));
 $a('payroll: splits OT vs regular by category',   $c($cr, "str_contains(\$cat, 'overtime')"));
 $a('payroll: skipped[] for unmatched employees',  $c($cr, "'no_matching_employee'"));
 $a('payroll: skipped[] for missing payroll_profile/cycle',
                                                   $c($cr, "'no_payroll_profile_or_cycle'"));
-$a('payroll: skipped[] when no open period',      $c($cr, "'no_open_period_in_cycle'"));
+$a('payroll: advances or creates the selected payroll-cycle run',
+                                                  $c($cr, '_settlementPayrollRunForCycle')
+                                                  && $c($cr, 'payrollCycleAdvance'));
+$a('payroll: records commission/referral obligations against the run',
+                                                  $c($cr, 'placementEconomicsPayrollCharges')
+                                                  && $c($cr, '\'payroll_ref_id\' => (int) $recipientRun[\'run_id\']'));
 $a('groups entries by placement_id',              $c($cr, '$byPlacement[(int) $e[\'placement_id\']]'));
 $a('auto-create repairs legacy approved rows first',
                                                   $c($cr, 'timeRepairApprovedRateSnapshots((int) $tenantId'));
@@ -168,9 +177,9 @@ $a('OT/DT multiplier delegated to shared helper',  $c($cr, 'timeRateCategoryMult
 $a('billing creates draft AR invoice + per-day lines',
     $c($cr, "scopedInsert('billing_invoices'") && $c($cr, "INSERT INTO billing_invoice_lines")
     && $c($cr, 'rate_snapshot_id, description'));
-$a('AP creates pending_approval bill + per-day lines',
-    $c($cr, "scopedInsert('ap_bills'") && $c($cr, "'status'         => 'pending_approval'")
-    && $c($cr, "INSERT INTO ap_bill_lines"));
+$a('AP creates graph-backed bills and obligation lines',
+    $c($cr, 'apBuildDraftFromTimeEntries(') && $c($cr, "scopedInsert('ap_bills'")
+    && $c($cr, 'placementEconomicsRecordObligation(') && $c($cr, "INSERT INTO ap_bill_lines"));
 $a('atomic: begin/commit/rollBack',                ($c($cr, '$pdo->beginTransaction()') || $c($cr, 'cf_tx_begin($pdo)')) && ($c($cr, '$pdo->commit()') || $c($cr, 'cf_tx_commit(')) && ($c($cr, '$pdo->rollBack()') || $c($cr, 'cf_tx_rollback(')));
 $a('only allows status=approved entries',          $c($cr, "\$e['status'] !== 'approved'"));
 $a('refuses already-extracted entries',            $c($cr, 'already extracted to'));

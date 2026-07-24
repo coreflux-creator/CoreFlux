@@ -153,7 +153,10 @@ function payrollComputeLine(array $ctx): array {
 
     // ---- 1. Earnings ----
     $earnings = [];
-    if (($ctx['pay_type'] ?? 'salary') === 'salary') {
+    if (!empty($ctx['suppress_regular_earnings'])) {
+        // Economic-only recipient added to a placement cycle: pay the
+        // commission/referral here without duplicating base salary or wages.
+    } elseif (($ctx['pay_type'] ?? 'salary') === 'salary') {
         // gross per period = annual / periods (cents-safe)
         $regCents = intdiv((int)$ctx['pay_rate_cents'], $periods);
         $earnings[] = [
@@ -182,6 +185,10 @@ function payrollComputeLine(array $ctx): array {
     $bonus = (int) ($ctx['bonus_cents'] ?? 0);
     if ($bonus > 0) {
         $earnings[] = ['code'=>'bonus','hours'=>null,'rate_cents'=>null,'amount_cents'=>$bonus,'taxable'=>1];
+    }
+    $commission = (int) ($ctx['commission_cents'] ?? 0);
+    if ($commission > 0) {
+        $earnings[] = ['code'=>'commission','hours'=>null,'rate_cents'=>null,'amount_cents'=>$commission,'taxable'=>1];
     }
 
     $gross = 0;

@@ -16,6 +16,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
+require_once __DIR__ . '/../lib/economics.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -185,10 +186,15 @@ if ($method === 'POST') {
         'vendor_portal_id'=> $body['vendor_portal_id'] ?? null,
         'portal_fee_pct'  => $body['portal_fee_pct']   ?? null,
         'portal_fee_flat' => $body['portal_fee_flat']  ?? null,
+        'payment_terms_override' => !empty($body['payment_terms_override'])
+            ? placementEconomicsNormaliseTerms((string) $body['payment_terms_override']) : null,
+        'pwp_enabled'     => !empty($body['pwp_enabled']) ? 1 : 0,
+        'is_payable'      => !empty($body['is_payable']) ? 1 : 0,
         'submittal_id'    => $body['submittal_id']     ?? null,
         'vms_job_id'      => $body['vms_job_id']       ?? null,
         'contract_storage_object_id' => $body['contract_storage_object_id'] ?? null,
     ]);
+    placementEconomicsReconcile(currentTenantId(), $pid);
     placementsAudit('placement.chain.updated', ['placement_id' => $pid, 'op' => 'add', 'chain_id' => $id, 'company_id' => $companyId], $pid);
     api_ok(['id' => $id, 'company_id' => $companyId], 201);
 }
@@ -202,10 +208,24 @@ if ($method === 'PATCH') {
     foreach (['id','tenant_id','placement_id','portal_credentials_ct','kms_key_version','has_portal_credentials'] as $k) {
         unset($body[$k]);
     }
+    $allowed = [
+        'position','party_name','party_role','company_id','vendor_portal_id',
+        'portal_fee_pct','portal_fee_flat','payment_terms_override','pwp_enabled','is_payable',
+        'submittal_id','vms_job_id','contract_storage_object_id',
+    ];
+    $body = array_intersect_key($body, array_flip($allowed));
+    if (array_key_exists('payment_terms_override', $body) && $body['payment_terms_override'] !== null) {
+        $body['payment_terms_override'] = placementEconomicsNormaliseTerms((string) $body['payment_terms_override']);
+    }
+    foreach (['pwp_enabled','is_payable'] as $flag) {
+        if (array_key_exists($flag, $body)) $body[$flag] = !empty($body[$flag]) ? 1 : 0;
+    }
     if (!$body) api_error('No fields to update', 422);
+    $source = scopedFind('SELECT placement_id FROM placement_client_chain WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     $rows = scopedUpdate('placement_client_chain', $id, $body);
     if ($rows === 0) api_error('Not found or no change', 404);
     placementsAudit('placement.chain.updated', ['chain_id' => $id, 'op' => 'patch', 'fields' => array_keys($body)], $id);
+    if ($source) placementEconomicsReconcile(currentTenantId(), (int) $source['placement_id']);
     api_ok(['ok' => true]);
 }
 
@@ -213,9 +233,11 @@ if ($method === 'DELETE') {
     rbac_legacy_require($user, 'placements.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
+    $source = scopedFind('SELECT placement_id FROM placement_client_chain WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     $rows = scopedDelete('placement_client_chain', $id);
     if ($rows === 0) api_error('Not found', 404);
     placementsAudit('placement.chain.updated', ['chain_id' => $id, 'op' => 'delete'], $id);
+    if ($source) placementEconomicsReconcile(currentTenantId(), (int) $source['placement_id']);
     api_ok(['ok' => true]);
 }
 

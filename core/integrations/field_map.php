@@ -98,6 +98,9 @@ function tenantIntegrationFieldMapDefaultLinkedEntityForTarget(
     if ($targetTable === 'placement_commissions') {
         return 'placement_commission_recruiter';
     }
+    if ($targetTable === 'placement_referrals') {
+        return 'placement_referral';
+    }
     if ($targetTable === 'placement_corp_details') {
         return 'placement_corp_details';
     }
@@ -220,12 +223,21 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             //    server-side; anchors normalised via date_normalise.
             'client_bill_cycle', 'client_bill_cycle_anchor',
             'vendor_pay_cycle',  'vendor_pay_cycle_anchor',
+            'vendor_payment_terms_override', 'vendor_pwp_enabled',
+            // -- placement_client_chain relationship economics. These
+            //    target a linked chain row, not the placement root.
+            'party_name', 'party_role', 'portal_fee_pct', 'portal_fee_flat',
+            'payment_terms_override', 'pwp_enabled', 'is_payable',
+            'submittal_id', 'vms_job_id',
             // -- placement_commissions table. These are sibling rows,
             //    keyed by linked_entity (recruiter/account manager/etc.),
             //    so generalized mappings can keep one row per commission
             //    role instead of forcing every split into one field.
             'split_pct', 'basis', 'flat_amount',
             'effective_from', 'effective_to',
+            // -- placement_referrals relationship economics.
+            'referrer_type', 'referrer_vendor_name', 'fee_pct', 'fee_flat', 'fee_basis',
+            'duration_months', 'start_date', 'end_date',
             // -- placement_corp_details table. Safe non-sensitive C2C
             //    corp fields only; EIN and storage-object ids are
             //    intentionally excluded from generic mapping.
@@ -233,7 +245,7 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             'corp_address_line1', 'corp_address_line2',
             'corp_city', 'corp_state', 'corp_postal_code', 'corp_country',
             'corp_contact_name', 'corp_contact_email', 'corp_contact_phone',
-            'coi_expiry',
+            'coi_expiry', 'payment_terms_override', 'pwp_enabled',
         ],
         'staffing_job' => [
             // -- staffing_jobs table (Job / Role / Opening context) --

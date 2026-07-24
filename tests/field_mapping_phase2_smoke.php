@@ -140,7 +140,7 @@ $a('skip + error log when linked_entity has no context row',
 $a('protected identity targets are hidden and skipped',
     str_contains($apply, 'function integrationFieldMapIsProtectedTarget')
     && str_contains($apply, "'external_id'")
-    && str_contains($apply, 'protected_target {$table}.{$col}'));
+    && str_contains($apply, 'integrationFieldMapSkip($summary, $m, \'protected_target\')'));
 
 echo "\n6. JobDiva sync invokes applyAll right after mappingUpsert\n";
 $sync = (string) file_get_contents('/app/core/jobdiva/sync.php');

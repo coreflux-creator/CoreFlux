@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/encryption.php';
 require_once __DIR__ . '/../lib/placements.php';
+require_once __DIR__ . '/../lib/economics.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -19,7 +20,8 @@ if ($pid <= 0) api_error('placement_id required', 400);
 if ($method === 'GET') {
     rbac_legacy_require($user, 'placements.corp.view');
     $row = scopedFind(
-        'SELECT placement_id, tenant_id, corp_legal_name, corp_ein_last4,
+        'SELECT placement_id, tenant_id, company_id, ap_vendor_id,
+                corp_legal_name, corp_ein_last4, payment_terms_override, pwp_enabled,
                 corp_address_line1, corp_address_line2, corp_city, corp_state, corp_postal_code, corp_country,
                 corp_contact_name, corp_contact_email, corp_contact_phone,
                 msa_storage_object_id, coi_storage_object_id, coi_expiry, w9_storage_object_id, updated_at
@@ -42,18 +44,20 @@ if ($method === 'PUT' || $method === 'POST') {
 
     $stmt = $pdo->prepare(
         'INSERT INTO placement_corp_details
-            (placement_id, tenant_id, corp_legal_name,
+            (placement_id, tenant_id, corp_legal_name, payment_terms_override, pwp_enabled,
              corp_ein_ct, corp_ein_last4,
              corp_address_line1, corp_address_line2, corp_city, corp_state, corp_postal_code, corp_country,
              corp_contact_name, corp_contact_email, corp_contact_phone,
              msa_storage_object_id, coi_storage_object_id, coi_expiry, w9_storage_object_id)
-         VALUES (:pid, :tenant_id, :legal,
+         VALUES (:pid, :tenant_id, :legal, :terms, :pwp,
                  :ein_ct, :ein4,
                  :a1, :a2, :city, :state, :postal, :country,
                  :cname, :cemail, :cphone,
                  :msa, :coi, :coi_exp, :w9)
          ON DUPLICATE KEY UPDATE
             corp_legal_name = VALUES(corp_legal_name),
+            payment_terms_override = VALUES(payment_terms_override),
+            pwp_enabled = VALUES(pwp_enabled),
             ' . ($hasEin ? 'corp_ein_ct = VALUES(corp_ein_ct), corp_ein_last4 = VALUES(corp_ein_last4),' : '') . '
             corp_address_line1 = VALUES(corp_address_line1),
             corp_address_line2 = VALUES(corp_address_line2),
@@ -74,6 +78,8 @@ if ($method === 'PUT' || $method === 'POST') {
         'pid'       => $pid,
         'tenant_id' => currentTenantId(),
         'legal'     => $body['corp_legal_name'],
+        'terms'     => placementEconomicsNormaliseTerms((string) ($body['payment_terms_override'] ?? 'NET30')),
+        'pwp'       => !empty($body['pwp_enabled']) ? 1 : 0,
         'ein_ct'    => $hasEin ? encryptField($body['corp_ein']) : null,
         'ein4'      => $hasEin ? last4($body['corp_ein']) : null,
         'a1'        => $body['corp_address_line1'] ?? null,
@@ -90,6 +96,7 @@ if ($method === 'PUT' || $method === 'POST') {
         'coi_exp'   => $body['coi_expiry']            ?? null,
         'w9'        => $body['w9_storage_object_id']  ?? null,
     ]);
+    placementEconomicsReconcile(currentTenantId(), $pid);
     placementsAudit('placement.corp.updated', ['placement_id' => $pid, 'fields' => array_keys($body)], $pid);
     api_ok(['ok' => true]);
 }

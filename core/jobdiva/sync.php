@@ -32,6 +32,7 @@ require_once __DIR__ . '/../integrations/payload_field_index.php';
 require_once __DIR__ . '/../../modules/people/lib/companies.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
 require_once __DIR__ . '/../../modules/staffing/lib/jobs.php';
+require_once __DIR__ . '/../../modules/placements/lib/economics.php';
 require_once __DIR__ . '/projector.php';
 
 /**
@@ -1728,6 +1729,30 @@ function jobdivaPlacementCommissionContextIds(int $tenantId, int $placementId): 
     return $ctx;
 }
 
+function jobdivaPlacementReferralContextId(int $tenantId, int $placementId): int
+{
+    if ($tenantId <= 0 || $placementId <= 0) return 0;
+    try {
+        $st = getDB()->prepare(
+            'SELECT id
+               FROM placement_referrals
+              WHERE tenant_id = :t AND placement_id = :p
+              ORDER BY CASE
+                         WHEN notes LIKE "Source: JobDiva referral projection%" THEN 0
+                         WHEN notes LIKE "Source: %integration%projection%" THEN 1
+                         ELSE 2
+                       END,
+                       id ASC
+              LIMIT 1'
+        );
+        $st->execute(['t' => $tenantId, 'p' => $placementId]);
+        return (int) $st->fetchColumn();
+    } catch (\Throwable $e) {
+        error_log('[jobdiva placement mapping context] placement_referrals id failed: ' . $e->getMessage());
+        return 0;
+    }
+}
+
 function jobdivaApplyPlacementFieldMappings(
     int $tenantId,
     int $placementId,
@@ -1747,6 +1772,7 @@ function jobdivaApplyPlacementFieldMappings(
         'placement'              => $placementId,
         'placement_rates'        => jobdivaPlacementCurrentRateId($tenantId, $placementId),
         'placement_corp_details' => $placementId,
+        'placement_referral'     => jobdivaPlacementReferralContextId($tenantId, $placementId),
         'person'                 => $personId,
         'end_client_company'     => $endClientCompanyId ?? 0,
         'company'                => $endClientCompanyId ?? 0,
@@ -2485,7 +2511,10 @@ function jobdivaSyncUpsertPlacementChainRow(
         'party_role' => $partyRole,
         'company_id' => ($companyId !== null && $companyId > 0) ? $companyId : null,
     ];
-    foreach (['portal_fee_pct', 'portal_fee_flat', 'submittal_id', 'vms_job_id'] as $k) {
+    foreach ([
+        'portal_fee_pct', 'portal_fee_flat', 'submittal_id', 'vms_job_id',
+        'payment_terms_override', 'pwp_enabled', 'is_payable',
+    ] as $k) {
         if (array_key_exists($k, $extras) && $extras[$k] !== null && $extras[$k] !== '') {
             $payload[$k] = $extras[$k];
         }
@@ -2509,10 +2538,11 @@ function jobdivaSyncUpsertPlacementChainRow(
     $pdo->prepare(
         'INSERT INTO placement_client_chain
             (tenant_id, placement_id, position, party_name, party_role, company_id,
-             portal_fee_pct, portal_fee_flat, submittal_id, vms_job_id)
+             portal_fee_pct, portal_fee_flat, payment_terms_override, pwp_enabled, is_payable,
+             submittal_id, vms_job_id)
          VALUES
             (:t, :p, :pos, :name, :role, :company_id,
-             :fee_pct, :fee_flat, :submittal, :vms)'
+             :fee_pct, :fee_flat, :terms, :pwp, :is_payable, :submittal, :vms)'
     )->execute([
         't' => $tid,
         'p' => $placementId,
@@ -2522,6 +2552,9 @@ function jobdivaSyncUpsertPlacementChainRow(
         'company_id' => $payload['company_id'],
         'fee_pct' => $payload['portal_fee_pct'] ?? null,
         'fee_flat' => $payload['portal_fee_flat'] ?? null,
+        'terms' => $payload['payment_terms_override'] ?? null,
+        'pwp' => !empty($payload['pwp_enabled']) ? 1 : 0,
+        'is_payable' => !empty($payload['is_payable']) ? 1 : 0,
         'submittal' => $payload['submittal_id'] ?? null,
         'vms' => $payload['vms_job_id'] ?? null,
     ]);
@@ -2650,6 +2683,29 @@ function jobdivaSyncUpsertPlacementChain(
         $feePct = jobdivaParsePercent($feePctRaw);
         $feeFlatRaw = jobdivaPluckFieldDeep($jd, $def['flat_keys']);
         $feeFlat = jobdivaParseRateAmount($feeFlatRaw);
+        $roleKey = (string) $def['role'];
+        $roleLabel = str_replace('_', ' ', $roleKey);
+        $termsRaw = jobdivaPluckFieldDeep($jd, [
+            $roleLabel . ' payment terms', $roleKey . '_payment_terms', $roleKey . 'PaymentTerms',
+            $roleLabel . ' terms', $roleKey . '_terms', $roleKey . 'Terms',
+            'vendor payment terms', 'vendorPaymentTerms', 'supplier payment terms', 'supplierPaymentTerms',
+        ]);
+        $terms = $termsRaw !== '' ? placementEconomicsNormaliseTerms($termsRaw) : null;
+        $pwpRaw = jobdivaPluckFieldDeep($jd, [
+            $roleLabel . ' paid when paid', $roleKey . '_paid_when_paid', $roleKey . 'PaidWhenPaid',
+            $roleLabel . ' pwp', $roleKey . '_pwp', $roleKey . 'Pwp',
+            'vendor paid when paid', 'vendorPaidWhenPaid', 'paidWhenPaid', 'payWhenPaid', 'pwp',
+        ]);
+        $pwp = $pwpRaw !== ''
+            ? jobdivaBoolishTrue($pwpRaw)
+            : ($terms !== null ? placementEconomicsTermsArePwp($terms) : null);
+        $payableRaw = jobdivaPluckFieldDeep($jd, [
+            $roleLabel . ' is payable', $roleKey . '_is_payable', $roleKey . 'IsPayable',
+            $roleLabel . ' payable', $roleKey . '_payable', $roleKey . 'Payable',
+        ]);
+        $isPayable = $payableRaw !== ''
+            ? jobdivaBoolishTrue($payableRaw)
+            : ((($feePct !== null && $feePct > 0) || $feeFlat > 0) ? true : null);
         $submittalId = jobdivaPluckFieldDeep($jd, [
             'submittal id', 'submittalId', 'submittal_id',
             $def['role'] . ' submittal id', $def['role'] . '_submittal_id',
@@ -2670,6 +2726,9 @@ function jobdivaSyncUpsertPlacementChain(
             [
                 'portal_fee_pct' => $feePct,
                 'portal_fee_flat' => $feeFlat > 0 ? $feeFlat : null,
+                'payment_terms_override' => $terms,
+                'pwp_enabled' => $pwp === null ? null : ($pwp ? 1 : 0),
+                'is_payable' => $isPayable === null ? null : ($isPayable ? 1 : 0),
                 'submittal_id' => $submittalId !== '' ? $submittalId : null,
                 'vms_job_id' => $vmsJobId !== '' ? $vmsJobId : null,
             ],
@@ -3206,12 +3265,174 @@ function jobdivaSyncUpsertPlacementCommissions(int $tid, int $placementId, strin
     return $summary;
 }
 
+function jobdivaNormaliseReferralBasis(string $raw, bool $hasPercent, bool $hasFlat): string
+{
+    $s = strtolower(trim($raw));
+    $s = str_replace([' ', '-'], '_', $s);
+    if (str_contains($s, 'margin')) return 'pct_margin';
+    if (str_contains($s, 'bill') || str_contains($s, 'percent') || str_contains($s, 'pct')) return 'pct_bill';
+    if (str_contains($s, 'hour')) return 'per_hour';
+    if (str_contains($s, 'invoice')) return 'per_invoice';
+    if (str_contains($s, 'one') || str_contains($s, 'flat')) return 'one_time';
+    if ($hasPercent) return 'pct_bill';
+    return $hasFlat ? 'one_time' : 'pct_bill';
+}
+
+function jobdivaSyncUpsertPlacementReferral(
+    int $tid,
+    int $placementId,
+    string $placementStartDate,
+    array $jd,
+    ?int $createdByUserId = null
+): int {
+    if ($tid <= 0 || $placementId <= 0) return 0;
+
+    $feePct = jobdivaParsePercent(jobdivaPluckFieldDeep($jd, [
+        'referral fee pct', 'referral fee %', 'referral percentage', 'referral percent',
+        'referralFeePct', 'referralFeePercent', 'referral_pct', 'referral_percentage',
+    ]));
+    if ($feePct !== null && ($feePct <= 0 || $feePct > 1)) $feePct = null;
+    $feeFlat = jobdivaParseRateAmount(jobdivaPluckFieldDeep($jd, [
+        'referral fee flat', 'referral fee amount', 'referral flat amount',
+        'referralFeeFlat', 'referralFeeAmount', 'referral_flat', 'referral_amount',
+    ]));
+    $feeFlat = $feeFlat > 0 ? $feeFlat : null;
+    if ($feePct === null && $feeFlat === null) return 0;
+
+    $name = trim(jobdivaPluckFieldDeep($jd, [
+        'referrer name', 'referrerName', 'referrer', 'referred by', 'referredBy',
+        'referral source', 'referralSource', 'referral partner', 'referralPartner',
+        'referral vendor', 'referralVendor', 'referral agency', 'referralAgency',
+    ]));
+    $email = trim(jobdivaPluckFieldDeep($jd, [
+        'referrer email', 'referrerEmail', 'referral email', 'referralEmail',
+        'referral source email', 'referralSourceEmail',
+    ]));
+    $referrerUserId = jobdivaResolvePlacementCommissionUserId(
+        $tid,
+        $email !== '' ? $email : null,
+        $name !== '' ? $name : null
+    );
+    if ($referrerUserId === null && $name === '') return 0;
+
+    $basis = jobdivaNormaliseReferralBasis(
+        jobdivaPluckFieldDeep($jd, [
+            'referral fee basis', 'referralFeeBasis', 'referral basis', 'referralBasis',
+        ]),
+        $feePct !== null,
+        $feeFlat !== null
+    );
+    $startDate = jobdivaNormaliseDate(jobdivaPluckFieldDeep($jd, [
+        'referral start date', 'referralStartDate', 'referral effective from', 'referralEffectiveFrom',
+    ])) ?: ($placementStartDate !== '' ? $placementStartDate : date('Y-m-d'));
+    $endDate = jobdivaNormaliseDate(jobdivaPluckFieldDeep($jd, [
+        'referral end date', 'referralEndDate', 'referral effective to', 'referralEffectiveTo',
+    ]));
+    $durationRaw = jobdivaParseRateAmount(jobdivaPluckFieldDeep($jd, [
+        'referral duration months', 'referralDurationMonths', 'referral months', 'referralMonths',
+    ]));
+    $durationMonths = $durationRaw > 0 ? (int) round($durationRaw) : null;
+    $termsRaw = trim(jobdivaPluckFieldDeep($jd, [
+        'referral payment terms', 'referralPaymentTerms', 'referrer payment terms', 'referrerPaymentTerms',
+    ]));
+    $terms = $termsRaw !== '' ? placementEconomicsNormaliseTerms($termsRaw) : null;
+    $pwpRaw = trim(jobdivaPluckFieldDeep($jd, [
+        'referral paid when paid', 'referralPaidWhenPaid', 'referrer paid when paid',
+        'referrerPaidWhenPaid', 'referral pwp', 'referralPwp',
+    ]));
+    $pwp = $pwpRaw !== ''
+        ? jobdivaBoolishTrue($pwpRaw)
+        : ($terms !== null ? placementEconomicsTermsArePwp($terms) : null);
+
+    $companyId = null;
+    $type = $referrerUserId !== null ? 'user' : 'vendor';
+    if ($type === 'vendor') {
+        $companyId = companiesUpsertByName($tid, $name, [
+            'created_by_user_id' => $createdByUserId,
+        ], ['referrer', 'vendor']);
+    }
+
+    $pdo = getDB();
+    $existing = $pdo->prepare(
+        'SELECT id
+           FROM placement_referrals
+          WHERE tenant_id = :t AND placement_id = :p
+            AND notes LIKE "Source: JobDiva referral projection%"
+          ORDER BY id ASC LIMIT 1'
+    );
+    $existing->execute(['t' => $tid, 'p' => $placementId]);
+    $id = (int) $existing->fetchColumn();
+    $values = [
+        'type' => $type,
+        'vendor_name' => $type === 'vendor' ? $name : null,
+        'company_id' => $companyId,
+        'user_id' => $referrerUserId,
+        'fee_pct' => $feePct,
+        'fee_flat' => $feeFlat,
+        'basis' => $basis,
+        'terms' => $terms,
+        'pwp' => $pwp === null ? null : ($pwp ? 1 : 0),
+        'duration' => $durationMonths,
+        'start_date' => $startDate,
+        'end_date' => $endDate,
+        'notes' => 'Source: JobDiva referral projection',
+    ];
+    if ($id > 0) {
+        $values += ['id' => $id, 't' => $tid];
+        $pdo->prepare(
+            'UPDATE placement_referrals
+                SET referrer_type = :type, referrer_vendor_name = :vendor_name,
+                    referrer_company_id = :company_id, referrer_user_id = :user_id,
+                    referrer_person_id = NULL, fee_pct = :fee_pct, fee_flat = :fee_flat,
+                    fee_basis = :basis, payment_terms_override = COALESCE(:terms, payment_terms_override),
+                    pwp_enabled = COALESCE(:pwp, pwp_enabled), duration_months = :duration,
+                    start_date = :start_date, end_date = :end_date, notes = :notes
+              WHERE id = :id AND tenant_id = :t'
+        )->execute($values);
+        return $id;
+    }
+
+    if ($values['pwp'] === null) $values['pwp'] = 0;
+    $values += ['t' => $tid, 'p' => $placementId];
+    $pdo->prepare(
+        'INSERT INTO placement_referrals
+            (tenant_id, placement_id, referrer_type, referrer_vendor_name,
+             referrer_company_id, referrer_user_id, fee_pct, fee_flat, fee_basis,
+             payment_terms_override, pwp_enabled, duration_months, start_date, end_date, notes)
+         VALUES
+            (:t, :p, :type, :vendor_name, :company_id, :user_id, :fee_pct, :fee_flat, :basis,
+             :terms, :pwp, :duration, :start_date, :end_date, :notes)'
+    )->execute($values);
+    return (int) $pdo->lastInsertId();
+}
+
+function jobdivaSyncPlacementEconomicOptions(array $jd): array
+{
+    $terms = jobdivaPluckFieldDeep($jd, [
+        'vendorPaymentTerms', 'vendor_payment_terms', 'paymentTerms', 'payment_terms',
+        'supplierPaymentTerms', 'supplier_payment_terms', 'payeeTerms', 'payee_terms',
+        'netTerms', 'net_terms',
+    ]);
+    $pwpRaw = strtolower(trim(jobdivaPluckFieldDeep($jd, [
+        'paidWhenPaid', 'paid_when_paid', 'payWhenPaid', 'pay_when_paid',
+        'pwp', 'isPwp', 'is_pwp',
+    ])));
+    $pwp = $pwpRaw === '' ? null
+        : in_array($pwpRaw, ['1','true','yes','y','on','pwp','paid when paid','pay when paid'], true);
+    if ($terms !== '' && placementEconomicsTermsArePwp($terms)) $pwp = true;
+    return [
+        'payment_terms' => $terms !== '' ? placementEconomicsNormaliseTerms($terms) : null,
+        'pwp_enabled' => $pwp,
+    ];
+}
+
 function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId, ?int $userId = null): int
 {
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
     $canonicalExternalId = 'jd:' . $extId;
     $forceProjection = !empty($jd['__cf_force_projection']);
+    $economicOptions = jobdivaSyncPlacementEconomicOptions($jd);
     // Look up by external_id first (placements has a `external_id` column).
     // A 2026-06 field-map regression briefly allowed tenant mappings to
     // overwrite placements.external_id with the raw Start ID. Recover those
@@ -3667,6 +3888,8 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'client_bill_cycle_anchor'  => ['cbca', $clientBillCycleAnchor],
             'vendor_pay_cycle'          => ['vpc',  $vendorPayCycle],
             'vendor_pay_cycle_anchor'   => ['vpca', $vendorPayCycleAnchor],
+            'vendor_payment_terms_override' => ['vpto', $economicOptions['payment_terms']],
+            'vendor_pwp_enabled'        => ['vpwp', $economicOptions['pwp_enabled'] === null ? null : (!empty($economicOptions['pwp_enabled']) ? 1 : 0)],
         ];
         $assignments = [];
         $bindings = ['id' => $existingId];
@@ -3688,6 +3911,10 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
                 $skipped[] = $col;
                 continue;
             }
+            if ($val === null && in_array($col, ['vendor_payment_terms_override', 'vendor_pwp_enabled'], true)) {
+                $skipped[] = $col;
+                continue;
+            }
             $assignments[] = "{$col} = :{$bind}";
             $bindings[$bind] = $val;
         }
@@ -3704,6 +3931,8 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         jobdivaSyncUpsertPlacementChain($tid, $existingId, $endClientCompanyId, $endClientName ?: null, $jd, $userId);
         jobdivaSyncUpsertPlacementCorpDetails($tid, $existingId, $jd, $userId, $engagement);
         jobdivaSyncUpsertPlacementCommissions($tid, $existingId, $startDate, $jd);
+        jobdivaSyncUpsertPlacementReferral($tid, $existingId, $startDate, $jd, $userId);
+        placementEconomicsReconcile($tid, $existingId, jobdivaSyncPlacementEconomicOptions($jd));
         return $existingId;
     }
     $pdo->prepare(
@@ -3714,11 +3943,12 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
                                   recruiter_name, recruiter_email,
                                   account_manager_name, account_manager_email,
                                   client_bill_cycle, client_bill_cycle_anchor,
-                                  vendor_pay_cycle, vendor_pay_cycle_anchor)
+                                  vendor_pay_cycle, vendor_pay_cycle_anchor,
+                                  vendor_payment_terms_override, vendor_pwp_enabled)
          VALUES (:t, :p, :ext, :jji, :st, :sd, :ed, :aed, :dd, :eng, :ws, :wc,
                  :rp, :notes, :ecn, :ecc, :cli, :sji, :can, :cae, :ti,
                  :rn, :re, :amn, :ame,
-                 :cbc, :cbca, :vpc, :vpca)'
+                 :cbc, :cbca, :vpc, :vpca, :vpto, :vpwp)'
     )->execute([
         't'     => $tid,
         'p'     => $personId,
@@ -3751,12 +3981,16 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         'cbca'  => $clientBillCycleAnchor,
         'vpc'   => $vendorPayCycle ?? 'biweekly',
         'vpca'  => $vendorPayCycleAnchor,
+        'vpto'  => $economicOptions['payment_terms'],
+        'vpwp'  => !empty($economicOptions['pwp_enabled']) ? 1 : 0,
     ]);
     $placementId = (int) $pdo->lastInsertId();
     jobdivaSyncUpsertPlacementRates($tid, $placementId, $startDate, $jd);
     jobdivaSyncUpsertPlacementChain($tid, $placementId, $endClientCompanyId, $endClientName ?: null, $jd, $userId);
     jobdivaSyncUpsertPlacementCorpDetails($tid, $placementId, $jd, $userId, $engagement);
     jobdivaSyncUpsertPlacementCommissions($tid, $placementId, $startDate, $jd);
+    jobdivaSyncUpsertPlacementReferral($tid, $placementId, $startDate, $jd, $userId);
+    placementEconomicsReconcile($tid, $placementId, jobdivaSyncPlacementEconomicOptions($jd));
     return $placementId;
 }
 

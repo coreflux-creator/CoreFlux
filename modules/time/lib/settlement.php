@@ -87,18 +87,40 @@ function timeSettlementReady(string $target, array $filters = []): array
     // Only consider categories relevant to each target.
     if ($target === 'billing') {
         $where[] = "te.category IN ('regular_billable','OT_billable')";
+        $where[] = 'EXISTS (SELECT 1 FROM placement_economic_parties ep
+                             WHERE ep.tenant_id = p.tenant_id AND ep.placement_id = p.id
+                               AND ep.active = 1 AND ep.money_flow = "receivable"
+                               AND ep.settlement_channel = "ar")';
     } elseif ($target === 'ap') {
         $where[] = "te.category IN ('regular_billable','OT_billable')";
+        $where[] = 'EXISTS (SELECT 1 FROM placement_economic_parties ep
+                             WHERE ep.tenant_id = p.tenant_id AND ep.placement_id = p.id
+                               AND ep.active = 1 AND ep.money_flow = "payable"
+                               AND ep.settlement_channel = "ap")';
     } else {  // payroll
         $where[] = "te.category NOT IN ('unpaid_leave')";
+        $where[] = 'EXISTS (SELECT 1 FROM placement_economic_parties ep
+                             WHERE ep.tenant_id = p.tenant_id AND ep.placement_id = p.id
+                               AND ep.active = 1 AND ep.money_flow = "payable"
+                               AND ep.settlement_channel = "payroll")';
     }
 
     $sql = "SELECT te.id, te.placement_id, te.person_id, te.work_date,
                    te.category, te.hours, te.description, te.status,
                    te.period_id, te.approved_at,
                    p.billing_cycle_id, p.ap_cycle_id, p.payroll_cycle_id,
+                   p.billing_operating_cycle_id, p.ap_operating_cycle_id, p.payroll_operating_cycle_id,
                    p.client_bill_cycle, p.client_bill_cycle_anchor,
                    p.vendor_pay_cycle, p.vendor_pay_cycle_anchor,
+                   boc.name AS billing_operating_cycle_name,
+                   boc.cadence AS billing_operating_cycle_frequency,
+                   boc.anchor_date AS billing_operating_cycle_anchor,
+                   aoc.name AS ap_operating_cycle_name,
+                   aoc.cadence AS ap_operating_cycle_frequency,
+                   aoc.anchor_date AS ap_operating_cycle_anchor,
+                   poc.name AS payroll_operating_cycle_name,
+                   poc.cadence AS payroll_operating_cycle_frequency,
+                   poc.anchor_date AS payroll_operating_cycle_anchor,
                    bc.name AS billing_cycle_name,
                    bs.frequency AS billing_cycle_frequency,
                    COALESCE(bc.anchor_date_override, bs.period_start_anchor) AS billing_cycle_anchor,
@@ -110,6 +132,9 @@ function timeSettlementReady(string $target, array $filters = []): array
                    COALESCE(pc.anchor_date_override, ps.period_start_anchor) AS payroll_cycle_anchor
             FROM time_entries te
             LEFT JOIN placements p ON p.id = te.placement_id AND p.tenant_id = :placements_tid
+            LEFT JOIN staffing_operating_cycles boc ON boc.id = p.billing_operating_cycle_id AND boc.tenant_id = p.tenant_id AND boc.active = 1
+            LEFT JOIN staffing_operating_cycles aoc ON aoc.id = p.ap_operating_cycle_id AND aoc.tenant_id = p.tenant_id AND aoc.active = 1
+            LEFT JOIN staffing_operating_cycles poc ON poc.id = p.payroll_operating_cycle_id AND poc.tenant_id = p.tenant_id AND poc.active = 1
             LEFT JOIN payroll_pay_cycles bc ON bc.id = p.billing_cycle_id AND bc.tenant_id = p.tenant_id
             LEFT JOIN payroll_pay_schedules bs ON bs.id = bc.schedule_id AND bs.tenant_id = bc.tenant_id
             LEFT JOIN payroll_pay_cycles ac ON ac.id = p.ap_cycle_id AND ac.tenant_id = p.tenant_id
@@ -132,6 +157,15 @@ function timeSettlementReady(string $target, array $filters = []): array
 function timeSettlementCycleForTarget(string $target, array $row): array
 {
     if ($target === 'billing') {
+        if (!empty($row['billing_operating_cycle_id']) && !empty($row['billing_operating_cycle_frequency'])) {
+            return [
+                'cycle' => (string) $row['billing_operating_cycle_frequency'],
+                'anchor' => $row['billing_operating_cycle_anchor'] ?: null,
+                'cycle_id' => (int) $row['billing_operating_cycle_id'],
+                'cycle_name' => $row['billing_operating_cycle_name'] ?: null,
+                'source' => 'placement.billing_operating_cycle_id',
+            ];
+        }
         if (!empty($row['billing_cycle_id']) && !empty($row['billing_cycle_frequency'])) {
             return [
                 'cycle' => (string) $row['billing_cycle_frequency'],
@@ -151,6 +185,15 @@ function timeSettlementCycleForTarget(string $target, array $row): array
     }
 
     if ($target === 'ap') {
+        if (!empty($row['ap_operating_cycle_id']) && !empty($row['ap_operating_cycle_frequency'])) {
+            return [
+                'cycle' => (string) $row['ap_operating_cycle_frequency'],
+                'anchor' => $row['ap_operating_cycle_anchor'] ?: null,
+                'cycle_id' => (int) $row['ap_operating_cycle_id'],
+                'cycle_name' => $row['ap_operating_cycle_name'] ?: null,
+                'source' => 'placement.ap_operating_cycle_id',
+            ];
+        }
         if (!empty($row['ap_cycle_id']) && !empty($row['ap_cycle_frequency'])) {
             return [
                 'cycle' => (string) $row['ap_cycle_frequency'],
@@ -169,6 +212,15 @@ function timeSettlementCycleForTarget(string $target, array $row): array
         ];
     }
 
+    if (!empty($row['payroll_operating_cycle_id']) && !empty($row['payroll_operating_cycle_frequency'])) {
+        return [
+            'cycle' => (string) $row['payroll_operating_cycle_frequency'],
+            'anchor' => $row['payroll_operating_cycle_anchor'] ?: null,
+            'cycle_id' => (int) $row['payroll_operating_cycle_id'],
+            'cycle_name' => $row['payroll_operating_cycle_name'] ?: null,
+            'source' => 'placement.payroll_operating_cycle_id',
+        ];
+    }
     if (!empty($row['payroll_cycle_id']) && !empty($row['payroll_cycle_frequency'])) {
         return [
             'cycle' => (string) $row['payroll_cycle_frequency'],

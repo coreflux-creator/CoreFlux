@@ -230,11 +230,49 @@ function integrationFieldMapPlacementIdFromContext(array $contextRowIds): int
     $hasPlacementShape = isset($contextRowIds['placement_rates'])
         || isset($contextRowIds['placement_corp_details'])
         || isset($contextRowIds['placement_commission_recruiter'])
+        || isset($contextRowIds['placement_referral'])
         || isset($contextRowIds['placement_chain_end_client']);
     if ($hasPlacementShape && isset($contextRowIds['self']) && (int) $contextRowIds['self'] > 0) {
         return (int) $contextRowIds['self'];
     }
     return 0;
+}
+
+function integrationFieldMapEnsurePlacementReferralRow(int $tenantId, array $contextRowIds): int
+{
+    $placementId = integrationFieldMapPlacementIdFromContext($contextRowIds);
+    if ($tenantId <= 0 || $placementId <= 0) return 0;
+
+    try {
+        $pdo = getDB();
+        $existing = $pdo->prepare(
+            'SELECT id
+               FROM placement_referrals
+              WHERE tenant_id = :t AND placement_id = :p
+                AND notes LIKE "Source: %integration%projection%"
+              ORDER BY id ASC
+              LIMIT 1'
+        );
+        $existing->execute(['t' => $tenantId, 'p' => $placementId]);
+        $existingId = (int) $existing->fetchColumn();
+        if ($existingId > 0) return $existingId;
+
+        $pdo->prepare(
+            'INSERT INTO placement_referrals
+                (tenant_id, placement_id, referrer_type, fee_basis, start_date, notes)
+             VALUES
+                (:t, :p, "vendor", "pct_bill", :start_date, :notes)'
+        )->execute([
+            't' => $tenantId,
+            'p' => $placementId,
+            'start_date' => integrationFieldMapPlacementEffectiveFrom($tenantId, $placementId),
+            'notes' => 'Source: integration field mapping projection',
+        ]);
+        return (int) $pdo->lastInsertId();
+    } catch (\Throwable $e) {
+        error_log('[field_map_apply] placement_referrals ensure failed: ' . $e->getMessage());
+        return 0;
+    }
 }
 
 function integrationFieldMapCommissionRoleFromLinked(string $linkedEntity): string
@@ -322,6 +360,8 @@ function integrationFieldMapWritePlacementCorpDetails(int $tenantId, int $placem
         'corp_contact_email' => true,
         'corp_contact_phone' => true,
         'coi_expiry' => true,
+        'payment_terms_override' => true,
+        'pwp_enabled' => true,
     ];
     $clean = [];
     foreach ($set as $col => $value) {
@@ -652,6 +692,7 @@ function integrationFieldMapContextRowId(array $contextRowIds, array $mapping, i
     $hasPlacementContext = isset($contextRowIds['placement'])
         || isset($contextRowIds['placement_rates'])
         || isset($contextRowIds['placement_commission_recruiter'])
+        || isset($contextRowIds['placement_referral'])
         || isset($contextRowIds['placement_corp_details']);
     $rootSelfFallback = $hasPlacementContext ? [] : ['self'];
     $candidates = match ($table) {
@@ -680,6 +721,7 @@ function integrationFieldMapContextRowId(array $contextRowIds, array $mapping, i
                 'placement_commission_other',
             ],
         },
+        'placement_referrals' => ['placement_referral'],
         'staffing_jobs' => array_merge(['staffing_job', 'job', 'jobdiva_job'], $rootSelfFallback),
         'people' => array_merge(['person', 'candidate', 'jobdiva_candidate', 'employee', 'worker'], $rootSelfFallback),
         'companies' => str_contains($linked, 'vendor')
@@ -707,6 +749,9 @@ function integrationFieldMapContextRowId(array $contextRowIds, array $mapping, i
     }
     if ($tenantId > 0 && $table === 'placement_client_chain') {
         return integrationFieldMapFindPlacementChainRow($tenantId, $contextRowIds, $linked);
+    }
+    if ($tenantId > 0 && $table === 'placement_referrals') {
+        return integrationFieldMapEnsurePlacementReferralRow($tenantId, $contextRowIds);
     }
     return 0;
 }
@@ -924,6 +969,27 @@ function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
             default => null,
         };
     }
+    if ($table === 'placement_referrals' && $col === 'referrer_type') {
+        $s = strtolower(trim((string) $val));
+        return match ($s) {
+            'vendor', 'company', 'agency', 'partner', 'supplier' => 'vendor',
+            'person', 'candidate', 'worker', 'contractor' => 'person',
+            'user', 'employee', 'staff', 'internal' => 'user',
+            default => null,
+        };
+    }
+    if ($table === 'placement_referrals' && $col === 'fee_basis') {
+        $s = strtolower(trim((string) $val));
+        $s = str_replace([' ', '-'], '_', $s);
+        return match ($s) {
+            'per_hour', 'hourly', 'hour' => 'per_hour',
+            'per_invoice', 'invoice' => 'per_invoice',
+            'one_time', 'onetime', 'flat' => 'one_time',
+            'pct_bill', 'percent_bill', 'bill', 'bill_rate' => 'pct_bill',
+            'pct_margin', 'percent_margin', 'margin', 'gross_margin', 'net_margin' => 'pct_margin',
+            default => null,
+        };
+    }
     if ($table === 'placement_rates' && in_array($col, ['bill_rate_unit', 'pay_rate_unit'], true)) {
         $s = strtolower(trim((string) $val));
         if ($s === '' || $s === 'h' || str_contains($s, 'hour')) return 'hour';
@@ -939,6 +1005,17 @@ function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
         $s = substr($s, 0, 3);
         return strlen($s) === 3 ? $s : null;
     }
+    if (in_array($col, ['payment_terms_override', 'vendor_payment_terms_override'], true)) {
+        $s = strtoupper(trim((string) $val));
+        $s = str_replace([' ', '-', '_'], '', $s);
+        if (in_array($s, ['DUEONRECEIPT', 'RECEIPT', 'IMMEDIATE', 'NET0'], true)) return 'DUE_ON_RECEIPT';
+        if ($s === 'PWP' || $s === 'PAIDWHENPAID' || $s === 'PAYWHENPAID') return 'PWP';
+        if (preg_match('/^(?:PWP|PAIDWHENPAID|PAYWHENPAID)NET(\d{1,3})$/', $s, $m)) {
+            return 'PWP_NET' . (int) $m[1];
+        }
+        if (preg_match('/^NET(\d{1,3})$/', $s, $m)) return 'NET' . (int) $m[1];
+        return null;
+    }
     if (str_ends_with($col, '_date')
         || in_array($col, ['effective_from', 'effective_to', 'opened_at', 'closed_at', 'hire_date', 'termination_date', 'work_auth_expiry'], true)
         || str_ends_with($col, '_signed_at')
@@ -949,8 +1026,12 @@ function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
     if (str_ends_with($col, '_pct') || in_array($col, ['split_pct', 'adder_pct', 'portal_fee_pct'], true)) {
         return integrationFieldMapPercentValue($val);
     }
-    if (in_array($col, ['bill_rate', 'pay_rate', 'flat_amount', 'portal_fee_flat', 'background_fee_total', 'ot_multiplier', 'dt_multiplier'], true)) {
+    if (in_array($col, ['bill_rate', 'pay_rate', 'flat_amount', 'fee_flat', 'portal_fee_flat', 'background_fee_total', 'ot_multiplier', 'dt_multiplier'], true)) {
         return integrationFieldMapNumberValue($val);
+    }
+    if ($col === 'duration_months') {
+        $number = integrationFieldMapNumberValue($val);
+        return $number === null ? null : max(0, (int) round($number));
     }
     if (str_starts_with($col, 'is_') || in_array($col, [
         'tokenized_email_approval_enabled',
@@ -958,6 +1039,8 @@ function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
         'requires_sponsorship',
         'w9_on_file',
         'coi_on_file',
+        'pwp_enabled',
+        'vendor_pwp_enabled',
     ], true)) {
         return integrationFieldMapBoolValue($val);
     }
@@ -1135,6 +1218,8 @@ function integrationFieldMapApplyAll(
             $contextRowIds[integrationFieldMapCommissionContextKey($linked)] = $rowId;
         } elseif ($tableLower === 'placement_client_chain') {
             $contextRowIds[integrationFieldMapChainContextKey($linked)] = $rowId;
+        } elseif ($tableLower === 'placement_referrals') {
+            $contextRowIds['placement_referral'] = $rowId;
         }
 
         if (integrationFieldMapIsProtectedTarget($table, $col)) {
@@ -1217,6 +1302,18 @@ function integrationFieldMapApplyAll(
                 }
             } catch (\Throwable $e) {
                 $summary['errors'][] = "cf_write_fail {$b['table']}#{$b['id']}: " . $e->getMessage();
+            }
+        }
+    }
+
+    if ($integration === 'jobdiva' && $entityType === 'placement') {
+        $placementId = integrationFieldMapPlacementIdFromContext($contextRowIds);
+        if ($placementId > 0) {
+            try {
+                require_once __DIR__ . '/../../modules/placements/lib/economics.php';
+                placementEconomicsReconcile($tid, $placementId);
+            } catch (\Throwable $e) {
+                $summary['errors'][] = 'economic_reconcile_failed: ' . $e->getMessage();
             }
         }
     }

@@ -273,10 +273,15 @@ function defaultFieldMapTarget(entityType, internalField) {
   ]);
   const placementChainFields = new Set([
     'party_name', 'party_role', 'portal_fee_pct', 'portal_fee_flat',
+    'payment_terms_override', 'pwp_enabled', 'is_payable',
     'submittal_id', 'vms_job_id',
   ]);
   const placementCommissionFields = new Set([
     'split_pct', 'basis', 'flat_amount', 'effective_from', 'effective_to',
+  ]);
+  const placementReferralFields = new Set([
+    'referrer_type', 'referrer_vendor_name', 'fee_pct', 'fee_flat',
+    'fee_basis', 'duration_months',
   ]);
   const placementCorpFields = new Set([
     'corp_legal_name',
@@ -308,6 +313,14 @@ function defaultFieldMapTarget(entityType, internalField) {
         target_table: 'placement_commissions',
         target_column: internalField,
         linked_entity: 'placement_commission_recruiter',
+      };
+    }
+    if (placementReferralFields.has(internalField)) {
+      return {
+        target_module: 'placements',
+        target_table: 'placement_referrals',
+        target_column: internalField,
+        linked_entity: 'placement_referral',
       };
     }
     if (placementCorpFields.has(internalField)) {
@@ -516,6 +529,7 @@ function inferLinkedEntityForTarget(entityType, target) {
   if (table === 'placement_rates') return 'placement_rates';
   if (table === 'placement_client_chain') return target?.default_linked_entity || 'placement_chain_prime_vendor';
   if (table === 'placement_commissions') return target?.default_linked_entity || 'placement_commission_recruiter';
+  if (table === 'placement_referrals') return target?.default_linked_entity || 'placement_referral';
   if (table === 'placement_corp_details') return 'placement_corp_details';
   if (table === 'staffing_jobs') return et === 'staffing_job' ? 'self' : 'staffing_job';
   if (table === 'people') return et === 'person' ? 'self' : 'person';
@@ -554,7 +568,7 @@ function targetModulesForEntity(entityType) {
 
 function targetTablesForEntity(entityType) {
   return ({
-    placement: ['placements', 'placement_rates', 'placement_client_chain', 'placement_commissions', 'placement_corp_details', 'custom_field_values'],
+    placement: ['placements', 'placement_rates', 'placement_client_chain', 'placement_commissions', 'placement_referrals', 'placement_corp_details', 'custom_field_values'],
     staffing_job: ['staffing_jobs', 'custom_field_values'],
     person: ['people', 'custom_field_values'],
     company: ['companies', 'custom_field_values'],
@@ -568,6 +582,7 @@ function targetLabel(target) {
   const linked = target?.linked_entity || inferLinkedEntityForTarget('', target);
   if (table === 'placement_client_chain') return `${linkedEntityLabel(linked)}: ${col}`;
   if (table === 'placement_commissions') return `${linkedEntityLabel(linked)}: ${col}`;
+  if (table === 'placement_referrals') return `Referral: ${col}`;
   if (table === 'placement_rates') return `Rates: ${col}`;
   if (table === 'placement_corp_details') return `Corp details: ${col}`;
   if (table === 'staffing_jobs') return `Job / role: ${col}`;

@@ -1,10 +1,10 @@
 <?php
 /**
- * Smoke: AP Weekly Queue + Approve-by-email + PWP NET90 carry + digest blurb.
+ * Smoke: AP Weekly Queue + Approve-by-email + PWP carry + digest blurb.
  *
  * Static contract checks (no live DB). Verifies the full wire-up:
- *   - PWP-defaulting vendors get NET90 due_date + payment_terms='PWP' + pwp_status='awaiting_ar'
- *     on bills built via apBuildDraftFromBundle()
+ *   - PWP vendors retain their explicit term, carry at least 90 days while
+ *     blocked, and stamp pwp_status='awaiting_ar' on generated bills.
  *   - apEmailApproval* family is wired correctly (mint + consume + body builder)
  *   - /api/ap/approve_by_email.php public endpoint exists, is noindexed, validates token format
  *   - /api/ap/weekly_queue.php exposes GET + 2 POST actions with RBAC
@@ -21,12 +21,12 @@ $a = function (string $name, bool $ok) use (&$pass, &$fail): void {
     else     { $fail++; echo "  FAIL  $name\n"; }
 };
 
-echo "AP lib: NET90 carry for PWP vendors\n";
+echo "AP lib: explicit-term carry for PWP vendors\n";
 $apLib = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/ap.php');
 $a('apBuildDraftFromBundle loads vendor PWP flags', str_contains($apLib, 'COALESCE(default_pwp, 0) AS default_pwp'));
 $a('PWP carry constant = 90 days',                  str_contains($apLib, '$pwpNetDays = 90'));
-$a('billDue = +90 days when vendor is PWP',         str_contains($apLib, '$isPwp ? date(\'Y-m-d\', strtotime("+{$pwpNetDays} days")) : $dueDate'));
-$a("bill stamps payment_terms='PWP'",               str_contains($apLib, "'payment_terms' => \$isPwp ? 'PWP' : null"));
+$a('billDue carries PWP bills for at least 90 days', str_contains($apLib, '$isPwp ? max($resolvedDays, $pwpNetDays) : $resolvedDays'));
+$a('bill preserves the resolved PWP term',          str_contains($apLib, "'payment_terms' => \$resolvedTerms"));
 $a("bill stamps pwp_status='awaiting_ar'",          str_contains($apLib, "'pwp_status'    => \$isPwp ? 'awaiting_ar' : 'not_pwp'"));
 $a('falls back when default_pwp column missing',    str_contains($apLib, "/* default_pwp column not migrated yet"));
 

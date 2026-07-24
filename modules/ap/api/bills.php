@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/StorageService.php';
 require_once __DIR__ . '/../../../core/storage_register.php';
 require_once __DIR__ . '/../lib/ap.php';
+require_once __DIR__ . '/../lib/pwp.php';
 require_once __DIR__ . '/../lib/workflow_bridge.php';
 
 use Core\StorageService;
@@ -377,9 +378,20 @@ if ($method === 'POST' && $action === 'from-time-entries') {
                 $stmt->execute($l);
             }
 
+            foreach ((array) ($d['obligations'] ?? []) as $obligation) {
+                placementEconomicsRecordObligation(
+                    $tid,
+                    (int) $obligation['placement_id'],
+                    (int) $obligation['economic_party_id'],
+                    (string) $obligation['source_type'],
+                    (int) $obligation['source_ref_id'],
+                    array_merge($obligation, ['status' => 'billed', 'ap_bill_id' => $billId])
+                );
+            }
+
             // Upsert vendors_index + companies for corporate vendors.
-            $companyId = null;
-            if (in_array($bill['vendor_type'], ['c2c_corp','w9_business','utility','other'], true)) {
+            $companyId = !empty($bill['vendor_company_id']) ? (int) $bill['vendor_company_id'] : null;
+            if (!$companyId && in_array($bill['vendor_type'], ['c2c_corp','w9_business','utility','other'], true)) {
                 require_once __DIR__ . '/../../people/lib/companies.php';
                 $companyId = companiesUpsertByName($tid, (string) $bill['vendor_name'], [
                     'created_by_user_id' => $user['id'] ?? null,
@@ -429,6 +441,14 @@ if ($method === 'POST' && $action === 'from-time-entries') {
         if ($pdo->inTransaction()) $pdo->rollBack();
         api_error('Bill create failed: ' . $e->getMessage(), 500);
     }
+    foreach ($created as &$createdBill) {
+        try {
+            $createdBill['pwp_link'] = apPwpAutoLinkForApBill($tid, (int) $createdBill['id'], $user['id'] ?? null);
+        } catch (\Throwable $e) {
+            error_log('[ap pwp reverse link] ' . $e->getMessage());
+        }
+    }
+    unset($createdBill);
     api_ok(['bills_created' => $created], 201);
 }
 
@@ -473,6 +493,17 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
                 $stmt->execute($l);
             }
 
+            foreach ((array) ($d['obligations'] ?? []) as $obligation) {
+                placementEconomicsRecordObligation(
+                    $tid,
+                    (int) $obligation['placement_id'],
+                    (int) $obligation['economic_party_id'],
+                    (string) $obligation['source_type'],
+                    (int) $obligation['source_ref_id'],
+                    array_merge($obligation, ['status' => 'billed', 'ap_bill_id' => $billId])
+                );
+            }
+
             foreach ($d['bundle_ids'] as $bid) {
                 $pdo->prepare(
                     'UPDATE time_downstream_feed
@@ -483,8 +514,8 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
             }
 
             // Upsert into vendors_index + companies directory for non-individuals
-            $companyId = null;
-            if (in_array($bill['vendor_type'], ['c2c_corp','w9_business','utility','other'], true)) {
+            $companyId = !empty($bill['vendor_company_id']) ? (int) $bill['vendor_company_id'] : null;
+            if (!$companyId && in_array($bill['vendor_type'], ['c2c_corp','w9_business','utility','other'], true)) {
                 require_once __DIR__ . '/../../people/lib/companies.php';
                 $companyId = companiesUpsertByName($tid, (string) $bill['vendor_name'], [
                     'created_by_user_id' => $user['id'] ?? null,
@@ -526,6 +557,14 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
+    foreach ($created as &$createdBill) {
+        try {
+            $createdBill['pwp_link'] = apPwpAutoLinkForApBill($tid, (int) $createdBill['id'], $user['id'] ?? null);
+        } catch (\Throwable $e) {
+            error_log('[ap pwp reverse link] ' . $e->getMessage());
+        }
+    }
+    unset($createdBill);
     api_ok(['bills_created' => $created], 201);
 }
 
@@ -768,6 +807,12 @@ if ($method === 'POST' && $action === 'void') {
             'UPDATE ap_bills SET status = "void", voided_at = NOW(),
              voided_by_user_id = :u, void_reason = :r WHERE id = :id'
         )->execute(['u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id]);
+
+        $pdo->prepare(
+            'UPDATE placement_economic_obligations
+                SET status = "void"
+              WHERE tenant_id = :tenant_id AND ap_bill_id = :bill_id'
+        )->execute(['tenant_id' => $tid, 'bill_id' => $id]);
 
         $pdo->commit();
     } catch (\Throwable $e) {

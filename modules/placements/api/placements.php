@@ -15,6 +15,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
+require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../lib/rate_approve.php';
 require_once __DIR__ . '/../../staffing/lib/clients.php';
 
@@ -196,6 +197,7 @@ if ($method === 'POST') {
             'before' => $before,
             'after' => placementAuditRow($id),
         ]);
+        placementEconomicsReconcile((int) $ctx['tenant_id'], $id);
         api_ok(['ok' => true, 'placement' => placementGet($id)]);
     }
 
@@ -315,6 +317,7 @@ if ($method === 'POST') {
     placementsAudit('placement.created', ['id' => $id, 'engagement_type' => $insert['engagement_type']], $id, [
         'after' => placementAuditRow($id),
     ]);
+    placementEconomicsReconcile((int) $ctx['tenant_id'], $id);
     api_ok(['placement' => placementGet($id)], 201);
 }
 
@@ -424,6 +427,7 @@ if ($method === 'PATCH') {
             'via'             => 'patch_status',
         ], $id);
     }
+    placementEconomicsReconcile((int) $ctx['tenant_id'], $id);
     api_ok(['placement' => placementGet($id), 'rates_auto_approved' => $autoApproved]);
 }
 
@@ -435,11 +439,48 @@ function _placementsRequireActiveReady(int $placementId, ?string $asOf, string $
     $placement = placementAuditRow($placementId);
     $rate = placementCurrentRate($placementId, $asOf);
     if ($rate) {
+        $economics = placementEconomicsContext((int) currentTenantId(), $placementId, true);
+        if (empty($economics['available'])) {
+            placementsAudit('placement.activation_blocked_economics_unavailable', [
+                'placement_id' => $placementId,
+                'as_of' => $asOf,
+                'via' => $via,
+                'errors' => $economics['reconcile']['errors'] ?? [],
+            ], $placementId, ['before' => $placement, 'after' => $placement]);
+            api_error('Placement economics are unavailable. Apply the staffing economic graph migration before activation.', 409);
+        }
+        $readiness = $economics['readiness'] ?? [];
+        if (empty($readiness['ready'])) {
+            $labels = [
+                'missing_receivable_party' => 'client billing recipient',
+                'missing_payable_party' => 'worker or vendor payee',
+                'missing_labor_payee' => 'primary labor payee',
+                'multiple_labor_payees' => 'multiple primary labor payees',
+                'missing_c2c_vendor' => 'C2C corporate vendor',
+                'missing_billing_cycle' => 'billing cycle',
+                'missing_ap_cycle' => 'AP cycle',
+                'missing_payroll_cycle' => 'payroll cycle',
+            ];
+            $blockers = [];
+            foreach ($labels as $key => $label) if (!empty($readiness[$key])) $blockers[] = $label;
+            if (!empty($readiness['unresolved_parties'])) {
+                $blockers[] = (int) $readiness['unresolved_parties'] . ' unresolved payment recipient(s)';
+            }
+            placementsAudit('placement.activation_blocked_economic_setup', [
+                'placement_id' => $placementId,
+                'as_of' => $asOf,
+                'via' => $via,
+                'blockers' => $blockers,
+                'readiness' => $readiness,
+            ], $placementId, ['before' => $placement, 'after' => $placement]);
+            api_error('Placement economic setup incomplete: ' . implode(', ', $blockers) . '.', 422);
+        }
         placementsAudit('placement.activation_rate_verified', [
             'placement_id' => $placementId,
             'rate_id'      => (int) ($rate['id'] ?? 0),
             'as_of'        => $asOf,
             'via'          => $via,
+            'economics_ready' => true,
         ], $placementId, [
             'before' => $placement,
             'after' => $placement,

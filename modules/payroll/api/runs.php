@@ -24,6 +24,18 @@ require_once __DIR__ . '/../lib/workflow.php';
 $ctx = api_require_auth();
 $user = $ctx['user'];
 
+function _payrollMarkEconomicObligationsPaid(int $runId): void {
+    try {
+        getDB()->prepare(
+            'UPDATE placement_economic_obligations
+                SET status = "paid", updated_at = NOW()
+              WHERE tenant_id = :t AND payroll_ref_id = :run_id AND status = "payroll"'
+        )->execute(['t' => currentTenantId(), 'run_id' => $runId]);
+    } catch (\Throwable $e) {
+        error_log('[payroll economics paid] ' . $e->getMessage());
+    }
+}
+
 // --------------------------------------------------------------------
 // CSV exports — short-circuit before regular GET handler.
 //   ?action=export_gusto&id=<run_id>   → Gusto "Run regular payroll" hours-import CSV
@@ -264,6 +276,7 @@ switch (api_method()) {
                 $stmt->execute(['tenant_id' => currentTenantId(), 'rid' => $runId]);
             }
             scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'paid']);
+            _payrollMarkEconomicObligationsPaid($runId);
             $paidRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
             payrollAudit('payroll.run.marked_paid', [
                 'run_id' => $runId,
@@ -453,6 +466,7 @@ switch (api_method()) {
                     $stmt->execute(['tenant_id' => currentTenantId(), 'rid' => $runId]);
                 }
                 scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'paid']);
+                _payrollMarkEconomicObligationsPaid($runId);
             }
             $gustoPaidRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
             payrollAudit('payroll.run.gusto_marked_paid',
@@ -630,6 +644,21 @@ function _payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorU
 
     $settings = payrollGetTenantSettings();
     $emps = payrollEmployeesForSchedule((int) $run['schedule_id']);
+    $settledHours = payrollRunExtractedHours($runId);
+    $economicEarnings = payrollRunEconomicEarnings($runId);
+    $economicOnly = [];
+    $scheduledEmployeeIds = array_fill_keys(array_map(static fn(array $row): int => (int) $row['employee_id'], $emps), true);
+    foreach (array_keys($economicEarnings) as $economicEmployeeId) {
+        if (isset($scheduledEmployeeIds[$economicEmployeeId])) continue;
+        $employee = peopleGetEmployee((int) $economicEmployeeId);
+        $profile = payrollGetProfile((int) $economicEmployeeId);
+        if (!$employee || !$profile || empty($profile['enabled'])) continue;
+        $emps[] = $employee + $profile + [
+            'employee_id' => (int) $economicEmployeeId,
+            'payment_method' => $profile['payment_method'] ?? 'direct_deposit',
+        ];
+        $economicOnly[(int) $economicEmployeeId] = true;
+    }
 
     $pdo = getDB();
     if (!$pdo) throw new RuntimeException('No database');
@@ -653,7 +682,15 @@ function _payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorU
         $totals = ['gross'=>0,'taxes'=>0,'ded'=>0,'net'=>0,'er'=>0,'count'=>0];
         foreach ($emps as $e) {
             $empId = (int) $e['employee_id'];
-            $extras = $hoursOverrides[$empId] ?? [];
+            $extras = $settledHours[$empId] ?? [];
+            foreach (($hoursOverrides[$empId] ?? []) as $key => $value) $extras[$key] = $value;
+            $extras['commission_cents'] = (int) ($extras['commission_cents'] ?? 0)
+                + (int) ($economicEarnings[$empId] ?? 0);
+            if (!empty($economicOnly[$empId])) {
+                $extras['hours_regular'] = 0;
+                $extras['hours_overtime'] = 0;
+                $extras['suppress_regular_earnings'] = true;
+            }
             $cctx = payrollBuildComputeContext($empId, $period, $settings, $extras);
             if (!$cctx) continue; // skip employees without comp/tax/profile
 

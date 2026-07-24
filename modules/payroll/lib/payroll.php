@@ -53,6 +53,56 @@ function payrollEmployeesForSchedule(int $scheduleId): array {
     );
 }
 
+/** Hours explicitly extracted from Time into this payroll run. */
+function payrollRunExtractedHours(int $runId): array {
+    $ref = 'payroll:run#' . $runId;
+    $rows = scopedQuery(
+        'SELECT e.id AS employee_id,
+                SUM(CASE WHEN LOWER(te.category) LIKE "%overtime%" OR LOWER(te.category) = "ot" THEN 0 ELSE te.hours END) AS hours_regular,
+                SUM(CASE WHEN LOWER(te.category) LIKE "%overtime%" OR LOWER(te.category) = "ot" THEN te.hours ELSE 0 END) AS hours_overtime
+           FROM time_entries te
+           JOIN people p ON p.tenant_id = te.tenant_id AND p.id = te.person_id
+           JOIN people_employees e ON e.tenant_id = te.tenant_id
+            AND ((p.user_id IS NOT NULL AND e.user_id = p.user_id)
+              OR (p.email_primary IS NOT NULL AND LOWER(e.personal_email) = LOWER(p.email_primary)))
+          WHERE te.tenant_id = :tenant_id AND te.payroll_extracted_ref = :ref
+          GROUP BY e.id',
+        ['ref' => $ref]
+    );
+    $result = [];
+    foreach ($rows as $row) {
+        $result[(int) $row['employee_id']] = [
+            'hours_regular' => (float) $row['hours_regular'],
+            'hours_overtime' => (float) $row['hours_overtime'],
+        ];
+    }
+    return $result;
+}
+
+/** Commission/referral obligations routed to employee earnings for this run. */
+function payrollRunEconomicEarnings(int $runId): array {
+    $rows = scopedQuery(
+        'SELECT e.id AS employee_id, ROUND(SUM(o.amount) * 100) AS commission_cents
+           FROM placement_economic_obligations o
+           JOIN placement_economic_parties ep
+             ON ep.tenant_id = o.tenant_id AND ep.id = o.economic_party_id
+      LEFT JOIN people p ON p.tenant_id = ep.tenant_id AND p.id = ep.person_id
+           JOIN people_employees e ON e.tenant_id = ep.tenant_id
+            AND ((ep.user_id IS NOT NULL AND e.user_id = ep.user_id)
+              OR (ep.person_id IS NOT NULL AND (
+                   (p.user_id IS NOT NULL AND e.user_id = p.user_id)
+                   OR (p.email_primary IS NOT NULL AND LOWER(e.personal_email) = LOWER(p.email_primary))
+              )))
+          WHERE o.tenant_id = :tenant_id AND o.payroll_ref_id = :run_id
+            AND o.status IN ("payroll","paid") AND ep.settlement_channel = "payroll"
+          GROUP BY e.id',
+        ['run_id' => $runId]
+    );
+    $result = [];
+    foreach ($rows as $row) $result[(int) $row['employee_id']] = (int) $row['commission_cents'];
+    return $result;
+}
+
 /**
  * Sum YTD wages for an employee from prior approved runs in the same calendar year.
  * Returns ['ss' => cents, 'medicare' => cents, 'futa' => cents, 'suta' => cents].
@@ -111,6 +161,8 @@ function payrollBuildComputeContext(int $employeeId, array $period, array $tenan
         'hours_regular'  => (float) ($extras['hours_regular']  ?? $profile['default_hours_per_period'] ?? 0),
         'hours_overtime' => (float) ($extras['hours_overtime'] ?? 0),
         'bonus_cents'    => (int)   ($extras['bonus_cents']    ?? 0),
+        'commission_cents' => (int) ($extras['commission_cents'] ?? 0),
+        'suppress_regular_earnings' => !empty($extras['suppress_regular_earnings']),
 
         'fed_filing_status'         => $fed['filing_status'],
         'fed_dependents_cents'      => (int) $fed['dependents_amount_cents'],
