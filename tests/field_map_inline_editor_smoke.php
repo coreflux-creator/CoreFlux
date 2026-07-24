@@ -33,7 +33,7 @@ $panel = (string) file_get_contents("{$ROOT}/dashboard/src/components/LinkedExte
 
 echo "FieldMapEditor — current-mappings list\n";
 $assert('declares FieldMapEditor component',
-    strpos($panel, 'function FieldMapEditor({ integration, entityType, payload, applyContext })') !== false);
+    strpos($panel, 'function FieldMapEditor({ integration, entityType, payload, rootPayload, applyContext })') !== false);
 $assert('reads mappings from /api/admin/integrations/field_map.php (filtered by integration + entity_type)',
     strpos($panel, "`/api/admin/integrations/field_map.php?integration=\${encodeURIComponent(integration)}&entity_type=\${encodeURIComponent(entityType)}`") !== false);
 $assert('renders root container with stable test id',
@@ -84,6 +84,21 @@ $assert('Delete confirms before destructive write',
 echo "\nFieldMapEditor — add new mapping\n";
 $assert('"Add mapping" trigger',
     strpos($panel, 'data-testid="field-map-add"') !== false);
+$assert('field-first mapper is rendered above the advanced table',
+    strpos($panel, 'data-testid="field-map-coreflux-first"') !== false
+    && strpos($panel, 'data-testid="field-map-target-picker"') !== false
+    && strpos($panel, 'data-testid="field-map-source-picker"') !== false);
+$assert('field-first mapper searches CoreFlux targets and JobDiva source values',
+    strpos($panel, 'data-testid="field-map-target-search"') !== false
+    && strpos($panel, 'data-testid="field-map-source-search"') !== false
+    && strpos($panel, 'sampleValueLabel(s.sample_value)') !== false);
+$assert('field-first save posts full target address and immediately applies',
+    strpos($panel, 'const saveFieldFirst = async () =>') !== false
+    && strpos($panel, 'target_module: selectedTarget.target_module') !== false
+    && strpos($panel, 'target_table: selectedTarget.target_table') !== false
+    && strpos($panel, 'target_column: selectedTarget.target_column') !== false
+    && strpos($panel, "linked_entity: selectedTarget.linked_entity || 'self'") !== false
+    && strpos($panel, 'const applied = await applyCurrentMappings({ quiet: true });') !== false);
 $assert('new-row container test id',
     strpos($panel, 'data-testid="field-map-row-new"') !== false);
 $assert('new-row internal_field select drives from unmappedInternal',
@@ -112,18 +127,19 @@ $assert('hides the "Add" button when every internal field is already mapped',
     strpos($panel, 'Every mappable internal field is already configured') !== false);
 
 echo "\nFieldMapEditor — payload key autocomplete\n";
-$assert('declares scalar path flattener for nested payloads',
-    strpos($panel, 'function flattenPayloadScalarPaths(value') !== false
-    && strpos($panel, 'flattenPayloadScalarPaths(v, next, out)') !== false);
-$assert('builds payloadKeys from nested scalar paths',
-    strpos($panel, 'flattenPayloadScalarPaths(payload)') !== false
-    && strpos($panel, "path.startsWith('job.')") !== false);
-$assert('merges indexed source paths from payload_fields endpoint',
+$assert('declares scalar path entry flattener with live sample values',
+    strpos($panel, 'function flattenPayloadScalarEntries(value') !== false
+    && strpos($panel, 'sample_value: value') !== false);
+$assert('builds payloadKeys from sourceEntries used by the field-first picker',
+    strpos($panel, 'const sourceEntries = React.useMemo(() =>') !== false
+    && strpos($panel, 'const payloadKeys = React.useMemo(() => sourceEntries.map(e => e.source_path)') !== false);
+$assert('merges indexed source paths from payload_fields endpoint and all JobDiva buckets for placement',
     strpos($panel, '/api/admin/integrations/payload_fields.php?integration=') !== false
-    && strpos($panel, 'fieldIndexPathOptions(indexedPathData)') !== false);
+    && strpos($panel, 'fieldIndexPathEntries(indexedPathData)') !== false
+    && strpos($panel, 'entity_type=*') !== false);
 $assert('placement editor aliases staffing_job indexed paths as job.* options',
     strpos($panel, 'entity_type=staffing_job') !== false
-    && strpos($panel, "fieldIndexPathOptions(staffingJobPathData, 'job')") !== false);
+    && strpos($panel, "fieldIndexPathEntries(staffingJobPathData, 'job')") !== false);
 $assert('renders a shared <datalist> for autocomplete',
     strpos($panel, '<datalist id={`payloadkeys-${integration}-${entityType}`}>') !== false);
 $assert('inline edit input wired to the same datalist',
@@ -147,6 +163,8 @@ $assert('JobDiva placement panel uses integration mapping entity buckets',
     && strpos($panel, "sourceSystem === 'jobdiva' && entityType === 'placement'") !== false
     && strpos($panel, "{ key: 'staffing_job', label: 'Job / Role' }") !== false
     && strpos($panel, 'data-testid={`field-map-entity-tab-${opt.key}`}') !== false);
+$assert('FieldMapEditor receives full root payload for placement-level mapping sources',
+    strpos($panel, 'rootPayload={payload}') !== false);
 $assert('Suggest mappings follows the selected integration mapping bucket',
     strpos($panel, 'const selectedMapping = { ...mapping, payload_snapshot: selectedMappingPayload };') !== false
     && strpos($panel, 'entityType={selectedMappingEntity}') !== false);

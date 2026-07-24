@@ -159,10 +159,65 @@ function flattenPayloadScalarPaths(value, prefix = '', out = []) {
   return out;
 }
 
+function payloadValueType(value) {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'boolean') return 'boolean';
+  return 'string';
+}
+
+function sampleValueLabel(value) {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'object') return JSON.stringify(value).slice(0, 120);
+  const s = String(value);
+  return s.length > 120 ? s.slice(0, 117) + '...' : s;
+}
+
+function flattenPayloadScalarEntries(value, prefix = '', out = []) {
+  if (value === null || value === undefined) {
+    if (prefix) out.push({ source_path: prefix, sample_value: null, value_type: 'null', live: true });
+    return out;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return out;
+    const first = value[0];
+    if (first && typeof first === 'object' && !Array.isArray(first)) {
+      flattenPayloadScalarEntries(first, `${prefix}[]`, out);
+    } else if (prefix) {
+      out.push({ source_path: prefix, sample_value: first, value_type: payloadValueType(first), live: true });
+    }
+    return out;
+  }
+  if (typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      const next = prefix ? `${prefix}.${k}` : k;
+      flattenPayloadScalarEntries(v, next, out);
+    }
+    return out;
+  }
+  if (prefix) out.push({ source_path: prefix, sample_value: value, value_type: payloadValueType(value), live: true });
+  return out;
+}
+
 function defaultFieldMapTarget(entityType, internalField) {
   const placementRateFields = new Set([
     'bill_rate', 'bill_rate_unit', 'pay_rate', 'pay_rate_unit',
     'currency', 'ot_multiplier', 'dt_multiplier',
+    'adder_pct', 'background_fee_total',
+  ]);
+  const placementChainFields = new Set([
+    'party_name', 'party_role', 'portal_fee_pct', 'portal_fee_flat',
+    'submittal_id', 'vms_job_id',
+  ]);
+  const placementCommissionFields = new Set([
+    'split_pct', 'basis', 'flat_amount', 'effective_from', 'effective_to',
+  ]);
+  const placementCorpFields = new Set([
+    'corp_legal_name',
+    'corp_address_line1', 'corp_address_line2',
+    'corp_city', 'corp_state', 'corp_postal_code', 'corp_country',
+    'corp_contact_name', 'corp_contact_email', 'corp_contact_phone',
+    'coi_expiry',
   ]);
   if (entityType === 'placement') {
     if (placementRateFields.has(internalField)) {
@@ -171,6 +226,30 @@ function defaultFieldMapTarget(entityType, internalField) {
         target_table: 'placement_rates',
         target_column: internalField,
         linked_entity: 'placement_rates',
+      };
+    }
+    if (placementChainFields.has(internalField)) {
+      return {
+        target_module: 'placements',
+        target_table: 'placement_client_chain',
+        target_column: internalField,
+        linked_entity: 'placement_chain_prime_vendor',
+      };
+    }
+    if (placementCommissionFields.has(internalField)) {
+      return {
+        target_module: 'placements',
+        target_table: 'placement_commissions',
+        target_column: internalField,
+        linked_entity: 'placement_commission_recruiter',
+      };
+    }
+    if (placementCorpFields.has(internalField)) {
+      return {
+        target_module: 'placements',
+        target_table: 'placement_corp_details',
+        target_column: internalField,
+        linked_entity: 'placement_corp_details',
       };
     }
     return {
@@ -231,6 +310,270 @@ function fieldIndexPathOptions(data, prefix = '') {
       if (!prefix || path.startsWith(`${prefix}.`)) return path;
       return `${prefix}.${path}`;
     });
+}
+
+const LINKED_ENTITY_LABELS = {
+  self: 'This CoreFlux row',
+  placement: 'Placement',
+  person: 'Person',
+  staffing_job: 'Job / role',
+  end_client_company: 'End client company',
+  vendor_company: 'Vendor company',
+  placement_rates: 'Rates',
+  placement_corp_details: 'Corp details',
+  placement_chain_end_client: 'End client chain row',
+  placement_chain_msp: 'MSP / VMS chain row',
+  placement_chain_prime_vendor: 'Prime vendor chain row',
+  placement_chain_sub_vendor: 'Sub-vendor chain row',
+  placement_chain_direct: 'Direct chain row',
+  placement_commission_recruiter: 'Recruiter commission row',
+  placement_commission_account_manager: 'Account manager commission row',
+  placement_commission_lead: 'Lead commission row',
+  placement_commission_team: 'Team commission row',
+  placement_commission_other: 'Other commission row',
+};
+
+const PLACEMENT_CHAIN_TARGETS = [
+  ['placement_chain_end_client', 'End client'],
+  ['placement_chain_msp', 'MSP / VMS'],
+  ['placement_chain_prime_vendor', 'Prime vendor'],
+  ['placement_chain_sub_vendor', 'Sub-vendor'],
+  ['placement_chain_direct', 'Direct'],
+];
+
+const PLACEMENT_COMMISSION_TARGETS = [
+  ['placement_commission_recruiter', 'Recruiter'],
+  ['placement_commission_account_manager', 'Account manager'],
+  ['placement_commission_lead', 'Lead'],
+  ['placement_commission_team', 'Team'],
+  ['placement_commission_other', 'Other'],
+];
+
+function linkedEntityLabel(linkedEntity) {
+  return LINKED_ENTITY_LABELS[linkedEntity] || linkedEntity || 'This CoreFlux row';
+}
+
+function sourcePrefixForIndexEntity(indexEntityType, editorEntityType) {
+  if (editorEntityType !== 'placement') return '';
+  const et = String(indexEntityType || '').toLowerCase();
+  return ({
+    staffing_job: 'job',
+    jobdiva_job: 'job',
+    job: 'job',
+    person: 'person',
+    candidate: 'person',
+    jobdiva_candidate: 'person',
+    company: 'company',
+    customer: 'company',
+    jobdiva_customer: 'company',
+    contact: 'contact',
+    jobdiva_contact: 'contact',
+  })[et] || '';
+}
+
+function prefixedSourcePath(path, prefix = '') {
+  const p = String(path || '').trim();
+  if (!p) return '';
+  if (!prefix || p.startsWith(`${prefix}.`)) return p;
+  return `${prefix}.${p}`;
+}
+
+function fieldIndexPathEntries(data, prefix = '', editorEntityType = '') {
+  const out = [];
+  const pushRow = (r, rowPrefix = '', sourceEntityType = '') => {
+    const path = prefixedSourcePath(r?.source_path, rowPrefix);
+    if (!path) return;
+    out.push({
+      source_path: path,
+      sample_value: r?.sample_value ?? null,
+      value_type: r?.value_type || 'string',
+      occurrence_count: Number(r?.occurrence_count || 0),
+      source_entity_type: sourceEntityType || r?.source_entity_type || '',
+      indexed: true,
+    });
+  };
+  if (Array.isArray(data?.paths)) {
+    data.paths.forEach(r => pushRow(r, prefix, data?.entity_type || ''));
+  }
+  if (data?.paths_by_entity && typeof data.paths_by_entity === 'object') {
+    for (const [et, rows] of Object.entries(data.paths_by_entity)) {
+      if (!Array.isArray(rows)) continue;
+      const rowPrefix = prefix || sourcePrefixForIndexEntity(et, editorEntityType);
+      rows.forEach(r => pushRow(r, rowPrefix, et));
+    }
+  }
+  return out;
+}
+
+function sourcePathRank(path) {
+  const p = String(path || '');
+  if (p.startsWith('assignment.')) return 0;
+  if (p.startsWith('job.')) return 1;
+  if (p.startsWith('person.')) return 2;
+  if (p.startsWith('company.')) return 3;
+  if (p.startsWith('contact.')) return 4;
+  if (!p.startsWith('_')) return 5;
+  return 6;
+}
+
+function mergeSourceEntries(entries) {
+  const byPath = new Map();
+  for (const entry of entries) {
+    const path = String(entry?.source_path || '').trim();
+    if (!path) continue;
+    const prev = byPath.get(path);
+    if (!prev) {
+      byPath.set(path, { ...entry, source_path: path });
+      continue;
+    }
+    const prevHasSample = prev.sample_value !== null && prev.sample_value !== undefined && prev.sample_value !== '';
+    const entryHasSample = entry.sample_value !== null && entry.sample_value !== undefined && entry.sample_value !== '';
+    byPath.set(path, {
+      ...prev,
+      ...entry,
+      source_path: path,
+      sample_value: prev.live && prevHasSample ? prev.sample_value : (entryHasSample ? entry.sample_value : prev.sample_value),
+      live: Boolean(prev.live || entry.live),
+      occurrence_count: Math.max(Number(prev.occurrence_count || 0), Number(entry.occurrence_count || 0)),
+    });
+  }
+  return Array.from(byPath.values()).sort((a, b) => (
+    sourcePathRank(a.source_path) - sourcePathRank(b.source_path)
+  ) || String(a.source_path).localeCompare(String(b.source_path)));
+}
+
+function inferLinkedEntityForTarget(entityType, target) {
+  const et = String(entityType || '').toLowerCase();
+  const module = String(target?.target_module || '').toLowerCase();
+  const table = String(target?.target_table || '').toLowerCase();
+  if (table === 'placements') return et === 'placement' ? 'self' : 'placement';
+  if (table === 'placement_rates') return 'placement_rates';
+  if (table === 'placement_client_chain') return target?.default_linked_entity || 'placement_chain_prime_vendor';
+  if (table === 'placement_commissions') return target?.default_linked_entity || 'placement_commission_recruiter';
+  if (table === 'placement_corp_details') return 'placement_corp_details';
+  if (table === 'staffing_jobs') return et === 'staffing_job' ? 'self' : 'staffing_job';
+  if (table === 'people') return et === 'person' ? 'self' : 'person';
+  if (table === 'companies') return et === 'company' ? 'self' : 'end_client_company';
+  if (table === 'company_contacts') return et === 'contact' ? 'self' : 'contact';
+  if (table === 'custom_field_values') {
+    if (module === 'people') return et === 'person' ? 'self' : 'person';
+    if (module === 'companies') return et === 'company' ? 'self' : 'end_client_company';
+    if (module === 'placements') return et === 'placement' ? 'self' : 'placement';
+  }
+  return target?.default_linked_entity || 'self';
+}
+
+function internalFieldForTarget(targetTable, targetColumn, linkedEntity) {
+  const table = String(targetTable || '').toLowerCase();
+  const column = String(targetColumn || '').trim();
+  const linked = String(linkedEntity || '').toLowerCase().trim();
+  if (!column) return '';
+  if (!linked || linked === 'self' || ['placements', 'placement_rates', 'placement_corp_details'].includes(table)) {
+    return column.slice(0, 64);
+  }
+  const slug = linked.replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+  const key = `${column}__${slug}`;
+  return key.length <= 64 ? key : key.slice(0, 64);
+}
+
+function targetModulesForEntity(entityType) {
+  return ({
+    placement: ['placements'],
+    staffing_job: ['staffing'],
+    person: ['people'],
+    company: ['companies'],
+    contact: ['companies'],
+  })[entityType] || [];
+}
+
+function targetTablesForEntity(entityType) {
+  return ({
+    placement: ['placements', 'placement_rates', 'placement_client_chain', 'placement_commissions', 'placement_corp_details', 'custom_field_values'],
+    staffing_job: ['staffing_jobs', 'custom_field_values'],
+    person: ['people', 'custom_field_values'],
+    company: ['companies', 'custom_field_values'],
+    contact: ['company_contacts', 'custom_field_values'],
+  })[entityType] || [];
+}
+
+function targetLabel(target) {
+  const table = target?.target_table || '';
+  const col = target?.target_column || '';
+  const linked = target?.linked_entity || inferLinkedEntityForTarget('', target);
+  if (table === 'placement_client_chain') return `${linkedEntityLabel(linked)}: ${col}`;
+  if (table === 'placement_commissions') return `${linkedEntityLabel(linked)}: ${col}`;
+  if (table === 'placement_rates') return `Rates: ${col}`;
+  if (table === 'placement_corp_details') return `Corp details: ${col}`;
+  if (table === 'staffing_jobs') return `Job / role: ${col}`;
+  if (table === 'people') return `Person: ${col}`;
+  if (table === 'companies') return `Company: ${col}`;
+  if (table === 'company_contacts') return `Contact: ${col}`;
+  return `${table}.${col}`;
+}
+
+function targetOptionKey(target) {
+  return [
+    target?.target_module || '',
+    target?.target_table || '',
+    target?.target_column || '',
+    target?.linked_entity || 'self',
+  ].join('|');
+}
+
+function expandWritableTargetForEntity(entityType, target) {
+  const modules = targetModulesForEntity(entityType);
+  const tables = targetTablesForEntity(entityType);
+  const module = String(target?.target_module || '');
+  const table = String(target?.target_table || '');
+  const column = String(target?.target_column || '');
+  if (!column || column === '*') return [];
+  if (modules.length && module && !modules.includes(module)) return [];
+  if (tables.length && table && !tables.includes(table)) return [];
+
+  const base = {
+    target_module: module,
+    target_table: table,
+    target_column: column,
+    value_type: target?.value_type || 'string',
+    description: target?.description || '',
+  };
+  if (entityType === 'placement' && table === 'placement_client_chain') {
+    return PLACEMENT_CHAIN_TARGETS.map(([linked_entity, roleLabel]) => ({
+      ...base,
+      linked_entity,
+      internal_field: internalFieldForTarget(table, column, linked_entity),
+      label: `${roleLabel}: ${column}`,
+    }));
+  }
+  if (entityType === 'placement' && table === 'placement_commissions') {
+    return PLACEMENT_COMMISSION_TARGETS.map(([linked_entity, roleLabel]) => ({
+      ...base,
+      linked_entity,
+      internal_field: internalFieldForTarget(table, column, linked_entity),
+      label: `${roleLabel}: ${column}`,
+    }));
+  }
+  const linked_entity = target?.default_linked_entity || inferLinkedEntityForTarget(entityType, target);
+  return [{
+    ...base,
+    linked_entity,
+    internal_field: internalFieldForTarget(table, column, linked_entity),
+    label: targetLabel({ ...base, linked_entity }),
+  }];
+}
+
+function fallbackTargetOption(entityType, internalField) {
+  const target = defaultFieldMapTarget(entityType, internalField);
+  const linked_entity = target.linked_entity || inferLinkedEntityForTarget(entityType, target);
+  return {
+    ...target,
+    linked_entity,
+    target_column: target.target_column || internalField,
+    value_type: 'string',
+    description: 'Legacy mappable CoreFlux field',
+    internal_field: internalFieldForTarget(target.target_table, target.target_column || internalField, linked_entity) || internalField,
+    label: targetLabel({ ...target, target_column: target.target_column || internalField, linked_entity }),
+  };
 }
 
 function SuggestMappingModal({ open, onClose, mapping, entityType }) {
@@ -433,7 +776,7 @@ function SuggestMappingModal({ open, onClose, mapping, entityType }) {
   );
 }
 
-function FieldMapEditor({ integration, entityType, payload, applyContext }) {
+function FieldMapEditor({ integration, entityType, payload, rootPayload, applyContext }) {
   // Editable list of CURRENT (external_field → internal_field) mappings
   // for this (integration, entity_type). Replaces the AI-only "Suggest"
   // flow with direct CRUD so operators can fix sync drift on demand —
@@ -454,16 +797,29 @@ function FieldMapEditor({ integration, entityType, payload, applyContext }) {
     ? `/api/admin/integrations/payload_fields.php?integration=${encodeURIComponent(integration)}&entity_type=staffing_job&limit=2000`
     : null;
   const { data: staffingJobPathData } = useApi(staffingJobPathUrl, { enabled: !!staffingJobPathUrl });
+  const allJobDivaPathUrl = integration === 'jobdiva' && entityType === 'placement'
+    ? `/api/admin/integrations/payload_fields.php?integration=${encodeURIComponent(integration)}&entity_type=*&limit=2000`
+    : null;
+  const { data: allJobDivaPathData } = useApi(allJobDivaPathUrl, { enabled: !!allJobDivaPathUrl });
+  const writableTargetUrl = entityType ? '/api/admin/integrations/writable_targets.php' : null;
+  const { data: writableTargetData } = useApi(writableTargetUrl, { enabled: !!writableTargetUrl });
   const [editing, setEditing] = useState(null);          // mapping id being edited inline
   const [draft, setDraft]     = useState({ external_field: '', transform: 'none' });
   const [adding, setAdding]   = useState(false);
   const [newRow, setNewRow]   = useState({ internal_field: '', external_field: '', transform: 'none' });
+  const [fieldFirst, setFieldFirst] = useState({
+    targetKey: '',
+    sourcePath: '',
+    transform: 'none',
+    targetQuery: '',
+    sourceQuery: '',
+  });
   const [busy, setBusy]       = useState(false);
   const [opError, setOpError] = useState(null);
   const [opMsg, setOpMsg]     = useState(null);
 
-  const rows       = data?.rows || [];
-  const allowed    = data?.allowed_internal_fields?.[entityType] || [];
+  const rows       = React.useMemo(() => data?.rows || [], [data?.rows]);
+  const allowed    = React.useMemo(() => data?.allowed_internal_fields?.[entityType] || [], [data?.allowed_internal_fields, entityType]);
   const transforms = data?.transforms || ['none'];
   const migrationPending = !!data?.migration_pending;
   // Heuristic — internal fields whose name ends with `_date` or starts
@@ -510,28 +866,88 @@ function FieldMapEditor({ integration, entityType, payload, applyContext }) {
     } finally { setMigrating(false); }
   };
 
-  // Payload-key suggestions for autocomplete. Use scalar leaf paths,
-  // including canonical cross-reference aliases such as job.title.
-  const payloadKeys = React.useMemo(() => {
-    const rowPaths = payload && typeof payload === 'object'
-      ? flattenPayloadScalarPaths(payload)
+  // Source path catalog for the picker. Placement mappings can draw from
+  // the whole joined JobDiva payload; sub-graph tabs stay scoped so the
+  // saved path resolves against the same graph the projector applies.
+  const sourcePayload = integration === 'jobdiva' && entityType === 'placement' && rootPayload && typeof rootPayload === 'object'
+    ? rootPayload
+    : payload;
+  const sourceEntries = React.useMemo(() => {
+    const liveEntries = sourcePayload && typeof sourcePayload === 'object'
+      ? flattenPayloadScalarEntries(sourcePayload)
       : [];
-    const indexedPaths = fieldIndexPathOptions(indexedPathData);
-    const staffingJobPaths = integration === 'jobdiva' && entityType === 'placement'
-      ? fieldIndexPathOptions(staffingJobPathData, 'job')
+    const selectedEntries = sourcePayload !== payload && payload && typeof payload === 'object'
+      ? flattenPayloadScalarEntries(payload)
       : [];
-    const paths = Array.from(new Set([...rowPaths, ...indexedPaths, ...staffingJobPaths]));
-    const rank = (path) => {
-      if (path.startsWith('job.')) return 0;
-      if (path.startsWith('assignment.')) return 1;
-      if (path.startsWith('person.')) return 2;
-      if (path.startsWith('company.')) return 3;
-      if (path.startsWith('contact.')) return 4;
-      if (!path.startsWith('_')) return 5;
-      return 6;
-    };
-    return paths.sort((a, b) => (rank(a) - rank(b)) || a.localeCompare(b));
-  }, [payload, indexedPathData, staffingJobPathData, integration, entityType]);
+    const indexedEntries = fieldIndexPathEntries(indexedPathData);
+    const staffingJobEntries = integration === 'jobdiva' && entityType === 'placement'
+      ? fieldIndexPathEntries(staffingJobPathData, 'job')
+      : [];
+    const allJobDivaEntries = integration === 'jobdiva' && entityType === 'placement'
+      ? fieldIndexPathEntries(allJobDivaPathData, '', entityType)
+      : [];
+    return mergeSourceEntries([
+      ...liveEntries,
+      ...selectedEntries,
+      ...indexedEntries,
+      ...staffingJobEntries,
+      ...allJobDivaEntries,
+    ]);
+  }, [sourcePayload, payload, indexedPathData, staffingJobPathData, allJobDivaPathData, integration, entityType]);
+
+  const payloadKeys = React.useMemo(() => sourceEntries.map(e => e.source_path), [sourceEntries]);
+
+  const targetOptions = React.useMemo(() => {
+    const mapped = new Map();
+    rows.forEach(r => {
+      const target = r.target_table && r.target_column
+        ? {
+            target_module: r.target_module,
+            target_table: r.target_table,
+            target_column: r.target_column,
+            linked_entity: r.linked_entity || 'self',
+          }
+        : defaultFieldMapTarget(entityType, r.internal_field);
+      mapped.set(targetOptionKey(target), true);
+    });
+
+    const byKey = new Map();
+    const targets = Array.isArray(writableTargetData?.targets) ? writableTargetData.targets : [];
+    targets.forEach(t => {
+      expandWritableTargetForEntity(entityType, t).forEach(opt => {
+        const key = targetOptionKey(opt);
+        byKey.set(key, { ...opt, key, mapped: mapped.has(key) });
+      });
+    });
+    allowed.forEach(field => {
+      const opt = fallbackTargetOption(entityType, field);
+      const key = targetOptionKey(opt);
+      if (!byKey.has(key)) byKey.set(key, { ...opt, key, mapped: mapped.has(key) });
+    });
+    return Array.from(byKey.values()).sort((a, b) => (
+      String(a.target_table).localeCompare(String(b.target_table))
+      || String(a.label).localeCompare(String(b.label))
+    ));
+  }, [writableTargetData, allowed, rows, entityType]);
+
+  const selectedTarget = targetOptions.find(t => t.key === fieldFirst.targetKey) || null;
+  const selectedSource = sourceEntries.find(s => s.source_path === fieldFirst.sourcePath) || null;
+  const filteredTargetOptions = React.useMemo(() => {
+    const q = fieldFirst.targetQuery.trim().toLowerCase();
+    if (!q) return targetOptions.slice(0, 80);
+    return targetOptions.filter(t => (
+      `${t.label} ${t.target_table} ${t.target_column} ${t.linked_entity} ${t.description}`
+    ).toLowerCase().includes(q)).slice(0, 100);
+  }, [targetOptions, fieldFirst.targetQuery]);
+  const filteredSourceEntries = React.useMemo(() => {
+    const q = fieldFirst.sourceQuery.trim().toLowerCase();
+    const rows = q
+      ? sourceEntries.filter(s => (
+          `${s.source_path} ${sampleValueLabel(s.sample_value)} ${s.source_entity_type || ''}`
+        ).toLowerCase().includes(q))
+      : sourceEntries;
+    return rows.slice(0, 120);
+  }, [sourceEntries, fieldFirst.sourceQuery]);
 
   // Internal fields not yet mapped — drives the "Add mapping" dropdown.
   const mappedInternal = new Set(rows.map(r => r.internal_field));
@@ -557,9 +973,13 @@ function FieldMapEditor({ integration, entityType, payload, applyContext }) {
     const fieldMap = projection.field_map || r?.apply || {};
     const written = Number(fieldMap.written ?? 0);
     const attempted = Number(fieldMap.attempted ?? 0);
+    const skipped = Number(fieldMap.skipped ?? 0);
+    const errors = Array.isArray(fieldMap.errors) ? fieldMap.errors.filter(Boolean).map(String) : [];
     const recordId = projection.placement_id || r?.root_internal_id || applyContext?.rootInternalId;
     return `${prefix}: ${written} write${written === 1 ? '' : 's'}`
       + (attempted ? ` from ${attempted} mapping${attempted === 1 ? '' : 's'}` : '')
+      + (skipped ? `; ${skipped} skipped` : '')
+      + (errors.length ? `; ${errors.length} issue${errors.length === 1 ? '' : 's'} (${errors.slice(0, 2).join('; ')})` : '')
       + (recordId ? ` on record ${recordId}.` : '.');
   };
 
@@ -583,6 +1003,45 @@ function FieldMapEditor({ integration, entityType, payload, applyContext }) {
       throw e;
     } finally {
       if (!quiet) setBusy(false);
+    }
+  };
+
+  const saveFieldFirst = async () => {
+    if (!selectedTarget) {
+      setOpError('Pick a CoreFlux field first.');
+      return;
+    }
+    if (!selectedSource) {
+      setOpError('Pick a JobDiva source value.');
+      return;
+    }
+    setBusy(true); setOpError(null); setOpMsg(null);
+    try {
+      const sourcePath = selectedSource.source_path;
+      await api.post('/api/admin/integrations/field_map.php', {
+        integration,
+        entity_type: entityType,
+        internal_field: selectedTarget.internal_field,
+        external_field: sourcePath,
+        source_path: sourcePath,
+        target_module: selectedTarget.target_module,
+        target_table: selectedTarget.target_table,
+        target_column: selectedTarget.target_column,
+        linked_entity: selectedTarget.linked_entity || 'self',
+        transform: fieldFirst.transform,
+        enabled: true,
+      });
+      const applied = await applyCurrentMappings({ quiet: true });
+      if (applied?.ok === false) {
+        setOpError(`Saved mapping, but apply failed: ${applied.error}`);
+      } else {
+        setOpMsg(applied ? applyResultMessage(applied, 'Saved and applied') : 'Saved mapping.');
+      }
+      reload && reload();
+    } catch (e) {
+      setOpError(e.message || 'Save failed');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -806,6 +1265,193 @@ function FieldMapEditor({ integration, entityType, payload, applyContext }) {
            style={{ fontSize: 11, color: '#065f46', background: '#ecfdf5',
                     border: '1px solid #a7f3d0', padding: '4px 8px',
                     borderRadius: 4, margin: '0 0 6px' }}>{opMsg}</p>
+      )}
+
+      {!loading && (
+        <div
+          data-testid="field-map-coreflux-first"
+          style={{
+            border: '1px solid #bfdbfe',
+            background: '#eff6ff',
+            borderRadius: 6,
+            padding: 10,
+            margin: '8px 0 10px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <strong style={{ fontSize: 12, color: '#1e3a8a' }}>Map a CoreFlux field</strong>
+            <span style={{ fontSize: 11, color: '#475569' }}>
+              {targetOptions.length} CoreFlux destinations · {sourceEntries.length} JobDiva source paths
+            </span>
+            <span style={{ flex: 1 }} />
+            <button
+              type="button"
+              onClick={saveFieldFirst}
+              disabled={busy || !selectedTarget || !selectedSource}
+              data-testid="field-map-coreflux-first-save"
+              title="Save and apply this mapping to the current record"
+              style={{
+                background: selectedTarget && selectedSource ? '#1d4ed8' : '#cbd5e1',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                padding: '5px 10px',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: selectedTarget && selectedSource && !busy ? 'pointer' : 'not-allowed',
+              }}
+            >
+              {busy ? 'Saving...' : 'Save & apply'}
+            </button>
+          </div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(240px, 0.9fr) minmax(280px, 1.1fr)',
+            gap: 10,
+            alignItems: 'start',
+          }}>
+            <section data-testid="field-map-target-picker"
+                     style={{ background: '#fff', border: '1px solid #dbeafe', borderRadius: 6, padding: 8 }}>
+              <label style={{ display: 'block', fontSize: 11, color: '#1e3a8a', fontWeight: 700, marginBottom: 5 }}>
+                1. CoreFlux field
+              </label>
+              <input
+                value={fieldFirst.targetQuery}
+                onChange={e => setFieldFirst(s => ({ ...s, targetQuery: e.target.value }))}
+                placeholder="Search CoreFlux fields..."
+                data-testid="field-map-target-search"
+                style={{ ...inputStyle, fontFamily: 'inherit', marginBottom: 6 }}
+              />
+              <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 4 }}>
+                {filteredTargetOptions.length === 0 && (
+                  <div data-testid="field-map-target-empty" style={{ padding: 8, fontSize: 11, color: '#64748b' }}>
+                    No CoreFlux fields match.
+                  </div>
+                )}
+                {filteredTargetOptions.map(t => {
+                  const active = t.key === fieldFirst.targetKey;
+                  return (
+                    <button
+                      key={t.key}
+                      type="button"
+                      data-testid={`field-map-target-option-${t.key}`}
+                      onClick={() => {
+                        setFieldFirst(s => ({ ...s, targetKey: t.key }));
+                        setOpError(null); setOpMsg(null);
+                      }}
+                      style={{
+                        width: '100%',
+                        display: 'block',
+                        textAlign: 'left',
+                        border: 0,
+                        borderBottom: '1px solid #e2e8f0',
+                        background: active ? '#dbeafe' : '#fff',
+                        color: '#0f172a',
+                        padding: '7px 8px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <strong style={{ fontSize: 12 }}>{t.label}</strong>
+                        {t.mapped && (
+                          <span style={{
+                            color: '#166534',
+                            background: '#dcfce7',
+                            borderRadius: 999,
+                            padding: '1px 6px',
+                            fontSize: 10,
+                            fontWeight: 700,
+                          }}>mapped</span>
+                        )}
+                      </span>
+                      <span style={{ display: 'block', marginTop: 2, fontSize: 10, color: '#64748b' }}>
+                        {t.target_table}.{t.target_column} · {linkedEntityLabel(t.linked_entity)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section data-testid="field-map-source-picker"
+                     style={{ background: '#fff', border: '1px solid #dbeafe', borderRadius: 6, padding: 8 }}>
+              <label style={{ display: 'block', fontSize: 11, color: '#1e3a8a', fontWeight: 700, marginBottom: 5 }}>
+                2. JobDiva value
+              </label>
+              <input
+                value={fieldFirst.sourceQuery}
+                onChange={e => setFieldFirst(s => ({ ...s, sourceQuery: e.target.value }))}
+                placeholder="Search JobDiva paths or values..."
+                data-testid="field-map-source-search"
+                style={{ ...inputStyle, fontFamily: 'inherit', marginBottom: 6 }}
+              />
+              <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 4 }}>
+                {filteredSourceEntries.length === 0 && (
+                  <div data-testid="field-map-source-empty" style={{ padding: 8, fontSize: 11, color: '#64748b' }}>
+                    No JobDiva values match.
+                  </div>
+                )}
+                {filteredSourceEntries.map(s => {
+                  const active = s.source_path === fieldFirst.sourcePath;
+                  const sample = sampleValueLabel(s.sample_value);
+                  return (
+                    <button
+                      key={s.source_path}
+                      type="button"
+                      data-testid={`field-map-source-option-${s.source_path}`}
+                      onClick={() => {
+                        setFieldFirst(prev => ({ ...prev, sourcePath: s.source_path }));
+                        setOpError(null); setOpMsg(null);
+                      }}
+                      style={{
+                        width: '100%',
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(160px, 1fr) minmax(120px, 0.8fr)',
+                        gap: 8,
+                        alignItems: 'center',
+                        textAlign: 'left',
+                        border: 0,
+                        borderBottom: '1px solid #e2e8f0',
+                        background: active ? '#dbeafe' : '#fff',
+                        color: '#0f172a',
+                        padding: '7px 8px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <code style={{ fontSize: 11, whiteSpace: 'normal', wordBreak: 'break-word' }}>{s.source_path}</code>
+                      <span style={{
+                        fontSize: 11,
+                        color: sample === '-' ? '#94a3b8' : '#334155',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }} title={sample}>
+                        {sample}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <select
+              value={fieldFirst.transform}
+              onChange={e => setFieldFirst(s => ({ ...s, transform: e.target.value }))}
+              data-testid="field-map-coreflux-first-transform"
+              style={{ ...inputStyle, width: 180, fontFamily: 'inherit' }}
+            >
+              {transforms.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <span data-testid="field-map-coreflux-first-summary" style={{ fontSize: 11, color: '#475569' }}>
+              {selectedTarget && selectedSource
+                ? `${selectedTarget.label} <= ${selectedSource.source_path}`
+                : 'Pick one CoreFlux field and one JobDiva value.'}
+            </span>
+          </div>
+        </div>
       )}
 
       {!loading && (
@@ -1086,6 +1732,7 @@ function DetailRow({ mapping, entityType, internalId }) {
           integration={mapping.source_system}
           entityType={selectedMappingEntity}
           payload={selectedMappingPayload}
+          rootPayload={payload}
           applyContext={{
             rootEntityType: entityType,
             rootInternalId: mapping.internal_entity_id || internalId,
