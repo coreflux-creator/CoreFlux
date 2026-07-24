@@ -447,10 +447,8 @@ function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
   const path = `/modules/placements/api/economics.php?placement_id=${placement.id}`;
   const { data, loading, error, reload: reloadEconomics } = useApi(path);
   const parties = data?.parties || [];
-  const cycles = data?.cycles || [];
   const readiness = data?.readiness || {};
   const model = data?.model || {};
-  const graphPlacement = data?.placement || {};
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [partyCompany, setPartyCompany] = useState(null);
@@ -458,20 +456,10 @@ function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
   const [partyPersonSearch, setPartyPersonSearch] = useState('');
   const usersLookup = useApi('/api/users.php');
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
-  const [partyForm, setPartyForm] = useState({ role: 'vendor', settlement_channel: 'ap', fee_basis: 'none', fee_pct: '', fee_flat: '', payment_terms: 'NET30', pwp_enabled: false });
+  const [partyForm, setPartyForm] = useState({ role: 'vendor', settlement_channel: 'ap', fee_basis: 'none', fee_pct: '', fee_flat: '', cadence: 'biweekly', payment_terms: 'NET30', pwp_enabled: false });
   const partyPersonLookup = useApi(partyRecipientType === 'person' && partyPersonSearch.length >= 2 && !partyForm.person_id
     ? `/modules/people/api/people.php?q=${encodeURIComponent(partyPersonSearch)}&per_page=10`
     : null);
-  const [cycleDraft, setCycleDraft] = useState({ billing_operating_cycle_id: '', ap_operating_cycle_id: '', payroll_operating_cycle_id: '' });
-  const [newCycle, setNewCycle] = useState({ purpose: 'billing', name: '', cadence: 'biweekly', anchor_date: new Date().toISOString().slice(0, 10), settlement_offset_days: 0, default_payment_terms: 'NET30' });
-
-  useEffect(() => {
-    setCycleDraft({
-      billing_operating_cycle_id: graphPlacement.billing_operating_cycle_id || '',
-      ap_operating_cycle_id: graphPlacement.ap_operating_cycle_id || '',
-      payroll_operating_cycle_id: graphPlacement.payroll_operating_cycle_id || '',
-    });
-  }, [graphPlacement.billing_operating_cycle_id, graphPlacement.ap_operating_cycle_id, graphPlacement.payroll_operating_cycle_id]);
 
   const refreshAll = () => { reloadEconomics(); reload(); };
   const patchParty = async (id, changes) => {
@@ -515,42 +503,33 @@ function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
       setPartyCompany(null);
       setPartyRecipientType('company');
       setPartyPersonSearch('');
-      setPartyForm({ role: 'vendor', settlement_channel: 'ap', fee_basis: 'none', fee_pct: '', fee_flat: '', payment_terms: 'NET30', pwp_enabled: false });
+      setPartyForm({ role: 'vendor', settlement_channel: 'ap', fee_basis: 'none', fee_pct: '', fee_flat: '', cadence: 'biweekly', payment_terms: 'NET30', pwp_enabled: false });
       setMessage('Participant added and normalized to the shared company/vendor graph.'); refreshAll();
     } catch (e) { setMessage(`Add failed: ${e.message}`); }
     finally { setBusy(false); }
   };
-  const saveCycles = async () => {
-    setBusy(true); setMessage('');
-    try {
-      const payload = { placement_id: placement.id };
-      Object.entries(cycleDraft).forEach(([key, value]) => { payload[key] = value === '' ? null : Number(value); });
-      await api.post('/modules/placements/api/cycles.php?action=assign', payload);
-      setMessage('Settlement cycles assigned.'); refreshAll();
-    } catch (e) { setMessage(`Cycle assignment failed: ${e.message}`); }
-    finally { setBusy(false); }
-  };
-  const createCycle = async (e) => {
-    e.preventDefault(); setBusy(true); setMessage('');
-    try {
-      const res = await api.post('/modules/placements/api/cycles.php', { ...newCycle, placement_id: placement.id });
-      setCycleDraft((current) => ({ ...current, [`${newCycle.purpose}_operating_cycle_id`]: res.id }));
-      setNewCycle((current) => ({ ...current, name: '' }));
-      setMessage(`${newCycle.purpose} cycle created and assigned.`); refreshAll();
-    } catch (e) { setMessage(`Cycle creation failed: ${e.message}`); }
-    finally { setBusy(false); }
-  };
-
-  const termsOptions = ['DUE_ON_RECEIPT','NET7','NET10','NET15','NET30','NET45','NET60','NET90','PWP','PWP_NET7','PWP_NET10','PWP_NET15','PWP_NET30','PWP_NET45','PWP_NET60','PWP_NET90'];
+  const arTermsOptions = ['DUE_ON_RECEIPT','NET7','NET10','NET15','NET30','NET45','NET60','NET90'];
+  const apTermsOptions = [...arTermsOptions, 'PWP','PWP_NET7','PWP_NET10','PWP_NET15','PWP_NET30','PWP_NET45','PWP_NET60','PWP_NET90'];
+  const frequencyOptions = ['weekly','biweekly','semimonthly','monthly','adhoc'];
+  const frequencyLabel = { weekly: 'Weekly', biweekly: 'Bi-weekly', semimonthly: 'Semi-monthly', monthly: 'Monthly', adhoc: 'As needed' };
+  const termsLabel = (term) => term === 'DUE_ON_RECEIPT' ? 'Due on receipt' : term === 'PWP' ? 'Paid when paid' : term.startsWith('PWP_NET') ? `Paid when paid + ${term.slice(7)} days` : term.replace('NET', 'Net ');
+  const partyRoleOptions = partyForm.settlement_channel === 'ar'
+    ? ['end_client', 'client']
+    : partyForm.settlement_channel === 'payroll'
+      ? ['worker', 'commission_recipient', 'recruiter', 'account_manager', 'referrer', 'other']
+      : ['vendor', ...(placement.engagement_type === 'c2c' ? ['c2c_vendor'] : []), 'worker', 'msp', 'prime_vendor', 'sub_vendor', 'referrer', 'other'];
   const readinessProblems = [
     readiness.missing_receivable_party && 'Client billing recipient',
+    readiness.multiple_receivable_parties && 'Choose one bill-to client',
     readiness.missing_approved_rate && 'Approved rate',
     readiness.missing_payable_party && 'Worker or vendor payee',
     readiness.missing_labor_payee && 'Primary labor payee',
     readiness.multiple_labor_payees && 'Resolve multiple primary labor payees',
     readiness.missing_c2c_vendor && 'C2C corporate vendor',
-    readiness.missing_billing_cycle && 'Billing cycle', readiness.missing_ap_cycle && 'AP cycle',
-    readiness.missing_payroll_cycle && 'Payroll cycle',
+    readiness.missing_billing_cycle && 'Client billing frequency', readiness.missing_ap_cycle && 'Vendor payment frequency',
+    readiness.missing_payroll_cycle && 'Payroll frequency',
+    readiness.missing_ar_payment_terms && 'Client payment terms',
+    readiness.missing_ap_payment_terms && 'Vendor payment terms',
     readiness.unresolved_parties > 0 && `${readiness.unresolved_parties} unresolved recipient(s)`,
   ].filter(Boolean);
   if (loading) return <p>Loading placement economics...</p>;
@@ -576,19 +555,18 @@ function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
       </section>}
 
       <section style={{ marginTop: 24 }}>
-        <h4>Participants and payment rules</h4>
+        <h4>Commercial terms by participant</h4>
         <table className="data-table" data-testid="economics-parties-table">
-          <thead><tr><th>Participant</th><th>Role</th><th>Flow</th><th>Calculation</th><th>Terms</th><th>Paid when paid</th><th>Cycle</th><th aria-label="Actions" /></tr></thead>
+          <thead><tr><th>Participant</th><th>Role</th><th>Flow</th><th>Calculation</th><th>Billing / payment frequency</th><th>Payment terms</th><th aria-label="Actions" /></tr></thead>
           <tbody>
-            {parties.length === 0 && <tr><td colSpan={8} className="empty">No participants resolved.</td></tr>}
+            {parties.length === 0 && <tr><td colSpan={7} className="empty">No participants resolved.</td></tr>}
             {parties.map((party) => <tr key={party.id} data-testid={`economics-party-${party.id}`}>
               <td><strong>{party.display_name}</strong><div style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>{party.company_id ? `Company #${party.company_id}${party.ap_vendor_id ? ` / Vendor #${party.ap_vendor_id}` : ''}` : party.person_id ? `Person #${party.person_id}` : party.source_type}</div></td>
               <td>{party.role.replace(/_/g, ' ')}</td>
               <td>{party.settlement_channel === 'ar' ? 'Receivable' : party.settlement_channel === 'ap' ? 'Accounts payable' : party.settlement_channel === 'payroll' ? 'Payroll' : 'Informational'}</td>
               <td>{party.fee_basis.replace(/_/g, ' ')}{party.fee_pct ? ` (${(Number(party.fee_pct) * 100).toFixed(2)}%)` : ''}{party.fee_flat ? ` ($${Number(party.fee_flat).toFixed(2)})` : ''}</td>
-              <td>{party.settlement_channel === 'ap' ? <select className="input" value={party.payment_terms || party.vendor_default_terms || 'NET30'} disabled={busy} onChange={(e) => patchParty(party.id, { payment_terms: e.target.value })}>{termsOptions.map((term) => <option key={term} value={term}>{term.replace('PWP', 'Paid when paid')}</option>)}</select> : '-'}</td>
-              <td>{party.settlement_channel === 'ap' ? <input type="checkbox" checked={!!Number(party.pwp_enabled)} disabled={busy} onChange={(e) => patchParty(party.id, { pwp_enabled: e.target.checked })} aria-label={`Paid when paid for ${party.display_name}`} /> : '-'}</td>
-              <td>{party.settlement_channel !== 'none' ? (party.cycle_name || 'Placement default') : '-'}</td>
+              <td>{party.settlement_channel !== 'none' ? <select className="input" value={party.cycle_cadence || ''} disabled={busy} onChange={(e) => patchParty(party.id, { cadence: e.target.value })} aria-label={`Frequency for ${party.display_name}`}><option value="" disabled>Choose frequency</option>{frequencyOptions.map((value) => <option key={value} value={value}>{frequencyLabel[value]}</option>)}</select> : '-'}</td>
+              <td>{['ar','ap'].includes(party.settlement_channel) ? <select className="input" value={party.payment_terms || party.vendor_default_terms || 'NET30'} disabled={busy} onChange={(e) => patchParty(party.id, { payment_terms: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })} aria-label={`Payment terms for ${party.display_name}`}>{(party.settlement_channel === 'ar' ? arTermsOptions : apTermsOptions).map((term) => <option key={term} value={term}>{termsLabel(term)}</option>)}</select> : party.settlement_channel === 'payroll' ? 'Paid through payroll' : '-'}</td>
               <td>{!Number(party.source_managed) && <button type="button" className="btn btn--sm" disabled={busy} onClick={() => removeParty(party)}>Remove</button>}</td>
             </tr>)}
           </tbody>
@@ -596,36 +574,46 @@ function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
       </section>
 
       <section style={{ marginTop: 28 }}>
-        <h4>Settlement cycles</h4>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-          {['billing','ap','payroll'].map((purpose) => { const field = `${purpose}_operating_cycle_id`; return <label key={purpose}><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)', marginBottom: 4 }}>{purpose === 'billing' ? 'Client billing (AR)' : purpose === 'ap' ? 'Vendor payments (AP)' : 'Employee payroll'}</span><select className="input" value={cycleDraft[field]} onChange={(e) => setCycleDraft({ ...cycleDraft, [field]: e.target.value })}><option value="">Excluded</option>{cycles.filter((cycle) => cycle.purpose === purpose).map((cycle) => <option key={cycle.id} value={cycle.id}>{cycle.name} ({cycle.cadence})</option>)}</select></label>; })}
-        </div>
-        <button type="button" className="btn btn--primary" style={{ marginTop: 12 }} onClick={saveCycles} disabled={busy}>Save cycle assignments</button>
-        <form onSubmit={createCycle} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, alignItems: 'end', marginTop: 18 }}>
-          <label><span style={{ display: 'block', fontSize: 12 }}>Purpose</span><select className="input" value={newCycle.purpose} onChange={(e) => setNewCycle({ ...newCycle, purpose: e.target.value })}>{['billing','ap','payroll'].map((value) => <option key={value}>{value}</option>)}</select></label>
-          <label><span style={{ display: 'block', fontSize: 12 }}>Cycle name</span><input className="input" required value={newCycle.name} onChange={(e) => setNewCycle({ ...newCycle, name: e.target.value })} placeholder="Biweekly vendor pay" /></label>
-          <label><span style={{ display: 'block', fontSize: 12 }}>Cadence</span><select className="input" value={newCycle.cadence} onChange={(e) => setNewCycle({ ...newCycle, cadence: e.target.value })}>{['weekly','biweekly','semimonthly','monthly','adhoc'].map((value) => <option key={value}>{value}</option>)}</select></label>
-          <label><span style={{ display: 'block', fontSize: 12 }}>Anchor</span><input className="input" type="date" value={newCycle.anchor_date} onChange={(e) => setNewCycle({ ...newCycle, anchor_date: e.target.value })} /></label>
-          <label><span style={{ display: 'block', fontSize: 12 }}>Settlement offset</span><input className="input" type="number" value={newCycle.settlement_offset_days} onChange={(e) => setNewCycle({ ...newCycle, settlement_offset_days: Number(e.target.value) })} /></label>
-          {newCycle.purpose === 'ap' && <label><span style={{ display: 'block', fontSize: 12 }}>Default payment terms</span><select className="input" value={newCycle.default_payment_terms} onChange={(e) => setNewCycle({ ...newCycle, default_payment_terms: e.target.value })}>{termsOptions.map((term) => <option key={term}>{term}</option>)}</select></label>}
-          <button className="btn" disabled={busy}>Create and assign</button>
-        </form>
-      </section>
-
-      <section style={{ marginTop: 28 }}>
         <h4>Add participant</h4>
         <form onSubmit={addParty} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 8, alignItems: 'end' }}>
-          <label><span style={{ display: 'block', fontSize: 12 }}>Recipient type</span><select className="input" value={partyRecipientType} onChange={(e) => { const type = e.target.value; setPartyRecipientType(type); setPartyCompany(null); setPartyPersonSearch(''); setPartyForm({ ...partyForm, company_id: '', person_id: '', user_id: '', settlement_channel: type === 'user' ? 'payroll' : 'ap' }); }}><option value="company">Company or vendor</option><option value="person">Person</option><option value="user">Internal user</option></select></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Recipient type</span><select className="input" value={partyRecipientType} onChange={(e) => {
+            const type = e.target.value;
+            const settlementChannel = type === 'user' ? 'payroll' : 'ap';
+            setPartyRecipientType(type);
+            setPartyCompany(null);
+            setPartyPersonSearch('');
+            setPartyForm({
+              ...partyForm,
+              company_id: '', person_id: '', user_id: '',
+              settlement_channel: settlementChannel,
+              role: type === 'company' ? 'vendor' : type === 'person' ? 'worker' : 'commission_recipient',
+              cadence: 'biweekly', payment_terms: 'NET30', pwp_enabled: false,
+            });
+          }}><option value="company">Company or vendor</option><option value="person">Person</option><option value="user">Internal user</option></select></label>
           {partyRecipientType === 'company' && <div><span style={{ display: 'block', fontSize: 12 }}>Company</span><CompanyTypeahead role={partyForm.settlement_channel === 'ar' ? 'client' : 'vendor'} value={partyCompany} onChange={setPartyCompany} placeholder="Search or create company" testId="economics-company" /></div>}
           {partyRecipientType === 'user' && <label><span style={{ display: 'block', fontSize: 12 }}>Internal user</span><select className="input" required value={partyForm.user_id || ''} onChange={(e) => setPartyForm({ ...partyForm, user_id: e.target.value })}><option value="">Choose user</option>{tenantUsers.map((user) => <option key={user.id} value={user.id}>{user.name || user.email}</option>)}</select></label>}
           {partyRecipientType === 'person' && <div style={{ position: 'relative' }}><span style={{ display: 'block', fontSize: 12 }}>Person</span><input className="input" required value={partyPersonSearch} onChange={(e) => { setPartyPersonSearch(e.target.value); setPartyForm({ ...partyForm, person_id: '' }); }} placeholder="Search people" />{!partyForm.person_id && (partyPersonLookup.data?.rows || []).length > 0 && <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, background: 'white', border: '1px solid var(--cf-border)', maxHeight: 180, overflowY: 'auto' }}>{(partyPersonLookup.data?.rows || []).map((person) => <button type="button" key={person.id} onClick={() => { setPartyForm({ ...partyForm, person_id: person.id }); setPartyPersonSearch(`${person.first_name} ${person.last_name}`); }} style={{ display: 'block', width: '100%', padding: 8, textAlign: 'left', border: 0, background: 'white', cursor: 'pointer' }}>{person.first_name} {person.last_name} ({person.email_primary})</button>)}</div>}</div>}
-          <label><span style={{ display: 'block', fontSize: 12 }}>Role</span><select className="input" value={partyForm.role} onChange={(e) => setPartyForm({ ...partyForm, role: e.target.value, fee_basis: e.target.value === 'c2c_vendor' ? 'pay_rate' : partyForm.fee_basis })}>{['vendor', ...(placement.engagement_type === 'c2c' ? ['c2c_vendor'] : []), 'msp','prime_vendor','sub_vendor','referrer','other'].map((value) => <option key={value}>{value.replace(/_/g, ' ')}</option>)}</select></label>
-          <label><span style={{ display: 'block', fontSize: 12 }}>Payment channel</span><select className="input" value={partyForm.settlement_channel} onChange={(e) => setPartyForm({ ...partyForm, settlement_channel: e.target.value })}>{partyRecipientType === 'company' && <option value="ar">Accounts receivable</option>}<option value="ap">Accounts payable</option>{partyRecipientType !== 'company' && <option value="payroll">Payroll</option>}<option value="none">Informational</option></select></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Role</span><select className="input" value={partyForm.role} onChange={(e) => setPartyForm({ ...partyForm, role: e.target.value, fee_basis: e.target.value === 'c2c_vendor' ? 'pay_rate' : partyForm.fee_basis })}>{partyRoleOptions.map((value) => <option key={value} value={value}>{value.replace(/_/g, ' ')}</option>)}</select></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Money flow</span><select className="input" value={partyForm.settlement_channel} onChange={(e) => {
+            const settlementChannel = e.target.value;
+            const role = settlementChannel === 'ar'
+              ? 'end_client'
+              : settlementChannel === 'payroll'
+                ? (partyRecipientType === 'user' ? 'commission_recipient' : 'worker')
+                : ['end_client', 'client'].includes(partyForm.role) ? 'vendor' : partyForm.role;
+            setPartyForm({
+              ...partyForm,
+              settlement_channel: settlementChannel,
+              role,
+              cadence: settlementChannel === 'ar' ? 'monthly' : 'biweekly',
+              payment_terms: 'NET30', pwp_enabled: false,
+            });
+          }}>{partyRecipientType === 'company' && Number(readiness.receivable_parties || 0) === 0 && <option value="ar">Client receivable</option>}{partyRecipientType !== 'user' && <option value="ap">Vendor payable</option>}{partyRecipientType !== 'company' && <option value="payroll">Employee payroll</option>}<option value="none">Informational only</option></select></label>
           <label><span style={{ display: 'block', fontSize: 12 }}>Calculation</span><select className="input" value={partyForm.fee_basis} onChange={(e) => setPartyForm({ ...partyForm, fee_basis: e.target.value })}>{['none','pay_rate','per_hour','per_invoice','one_time','pct_bill','pct_margin','flat'].map((value) => <option key={value}>{value.replace(/_/g, ' ')}</option>)}</select></label>
           <label><span style={{ display: 'block', fontSize: 12 }}>Percent (decimal)</span><input className="input" type="number" step="0.0001" value={partyForm.fee_pct} onChange={(e) => setPartyForm({ ...partyForm, fee_pct: e.target.value })} placeholder="0.10 = 10%" /></label>
           <label><span style={{ display: 'block', fontSize: 12 }}>Flat or hourly amount</span><input className="input" type="number" step="0.01" value={partyForm.fee_flat} onChange={(e) => setPartyForm({ ...partyForm, fee_flat: e.target.value })} placeholder="0.00" /></label>
-          <label><span style={{ display: 'block', fontSize: 12 }}>Payment terms</span><select className="input" value={partyForm.payment_terms} onChange={(e) => setPartyForm({ ...partyForm, payment_terms: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })}>{termsOptions.map((term) => <option key={term}>{term}</option>)}</select></label>
-          <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={partyForm.pwp_enabled} onChange={(e) => setPartyForm({ ...partyForm, pwp_enabled: e.target.checked })} /> Paid when paid</label>
+          {partyForm.settlement_channel !== 'none' && <label><span style={{ display: 'block', fontSize: 12 }}>{partyForm.settlement_channel === 'ar' ? 'Client billing frequency' : partyForm.settlement_channel === 'ap' ? 'Vendor payment frequency' : 'Payroll frequency'}</span><select className="input" value={partyForm.cadence} onChange={(e) => setPartyForm({ ...partyForm, cadence: e.target.value })}>{frequencyOptions.map((value) => <option key={value} value={value}>{frequencyLabel[value]}</option>)}</select></label>}
+          {['ar','ap'].includes(partyForm.settlement_channel) && <label><span style={{ display: 'block', fontSize: 12 }}>Payment terms</span><select className="input" value={partyForm.payment_terms} onChange={(e) => setPartyForm({ ...partyForm, payment_terms: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })}>{(partyForm.settlement_channel === 'ar' ? arTermsOptions : apTermsOptions).map((term) => <option key={term} value={term}>{termsLabel(term)}</option>)}</select></label>}
           <button className="btn" disabled={busy}>Add participant</button>
         </form>
       </section>
@@ -1087,8 +1075,7 @@ function ReferralsTab({ pid, rows, reload }) {
         <input className="input" type="number" step="0.01" placeholder="Flat amount" value={form.fee_flat} onChange={e => setForm({ ...form, fee_flat: e.target.value })} data-testid="referral-flat" />
         <input className="input" type="number" placeholder="Months" value={form.duration_months} onChange={e => setForm({ ...form, duration_months: e.target.value })} style={{ width: '90px' }} data-testid="referral-months" />
         <input className="input" type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} data-testid="referral-start" />
-        <select className="input" value={form.payment_terms_override} onChange={e => setForm({ ...form, payment_terms_override: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })} data-testid="referral-terms">{['DUE_ON_RECEIPT','NET7','NET10','NET15','NET30','NET45','NET60','NET90','PWP','PWP_NET7','PWP_NET10','PWP_NET15','PWP_NET30','PWP_NET45','PWP_NET60','PWP_NET90'].map(term => <option key={term}>{term}</option>)}</select>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={form.pwp_enabled} onChange={e => setForm({ ...form, pwp_enabled: e.target.checked })} /> Paid when paid</label>
+        <select className="input" value={form.payment_terms_override} onChange={e => setForm({ ...form, payment_terms_override: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })} data-testid="referral-terms">{['DUE_ON_RECEIPT','NET7','NET10','NET15','NET30','NET45','NET60','NET90','PWP','PWP_NET7','PWP_NET10','PWP_NET15','PWP_NET30','PWP_NET45','PWP_NET60','PWP_NET90'].map(term => <option key={term} value={term}>{term === 'PWP' ? 'Paid when paid' : term.startsWith('PWP_NET') ? `Paid when paid + ${term.slice(7)} days` : term.replace('DUE_ON_RECEIPT', 'Due on receipt').replace('NET', 'Net ')}</option>)}</select>
         <button className="btn btn--primary" data-testid="referral-add-btn">Add</button>
       </form>
       {error && <p className="error" data-testid="referrals-error">Error: {error.message}</p>}
@@ -1273,111 +1260,6 @@ function ContractCell({ row }) {
         </button>
       )}
       {state.status === 'error' && <span style={{ fontSize: 12, color: '#991b1b' }} data-testid={`chain-contract-${row.id}-error`}>{state.error?.message || 'Failed'}</span>}
-    </div>
-  );
-}
-
-
-
-// ── Cycles ────────────────────────────────────────────────
-// Each placement can be on a different cadence for billing, AP, and payroll.
-// Time settlement walks these pointers when generating downstream bundles.
-function CyclesTab({ placement, reload }) {
-  const { data: cyclesData, loading: cyclesLoading } = useApi('/api/v1/payroll/cycles');
-  const cycles = cyclesData?.rows || cyclesData?.cycles || [];
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-  const [draft, setDraft] = useState({
-    billing_cycle_id: placement.billing_cycle_id || '',
-    ap_cycle_id:      placement.ap_cycle_id      || '',
-    payroll_cycle_id: placement.payroll_cycle_id || '',
-  });
-  useEffect(() => {
-    setDraft({
-      billing_cycle_id: placement.billing_cycle_id || '',
-      ap_cycle_id: placement.ap_cycle_id || '',
-      payroll_cycle_id: placement.payroll_cycle_id || '',
-    });
-  }, [placement.id, placement.billing_cycle_id, placement.ap_cycle_id, placement.payroll_cycle_id]);
-
-  const save = async () => {
-    setBusy(true); setErr(null);
-    try {
-      const patch = {};
-      ['billing_cycle_id','ap_cycle_id','payroll_cycle_id'].forEach((k) => {
-        patch[k] = draft[k] === '' ? null : Number(draft[k]);
-      });
-      await api.patch(`/modules/placements/api/placements.php?id=${placement.id}`, patch);
-      reload();
-    } catch (e) {
-      setErr(e.message || 'Save failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const Picker = ({ field, label, hint }) => (
-    <div style={{ marginBottom: 16 }}>
-      <label style={{ display: 'block', fontWeight: 500, marginBottom: 4 }}>{label}</label>
-      <select
-        className="input"
-        value={draft[field]}
-        onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
-        data-testid={`placement-cycle-${field}`}
-        style={{ width: 320 }}
-      >
-        <option value="">— None (placement excluded) —</option>
-        {cycles.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name} ({c.cadence || c.frequency || 'cycle'})
-          </option>
-        ))}
-      </select>
-      {hint && <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)', marginTop: 4 }}>{hint}</div>}
-    </div>
-  );
-
-  return (
-    <div data-testid="tab-cycles" style={{ maxWidth: 640 }}>
-      <h3 style={{ marginTop: 0 }}>Cycle assignment</h3>
-      <p style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>
-        Decoupled cadences. A single engagement can bill bi-weekly, pay vendors
-        monthly, and run W-2 payroll semi-monthly. Time settlement walks these
-        pointers when generating AR / AP / Payroll bundles for the period.
-      </p>
-
-      {cyclesLoading
-        ? <p>Loading cycles…</p>
-        : (
-          <>
-            <Picker
-              field="billing_cycle_id"
-              label="Billing cycle (AR)"
-              hint="Cadence on which this placement's hours invoice the client."
-            />
-            <Picker
-              field="ap_cycle_id"
-              label="AP cycle (vendor pay)"
-              hint="When 1099 / C2C vendor payments cut for hours on this placement."
-            />
-            <Picker
-              field="payroll_cycle_id"
-              label="Payroll cycle (W-2)"
-              hint="When W-2 employee paychecks cut for hours on this placement."
-            />
-
-            {err && <div className="alert alert--err" data-testid="placement-cycles-error">{err}</div>}
-
-            <button
-              className="btn btn--primary"
-              onClick={save}
-              disabled={busy}
-              data-testid="placement-cycles-save"
-            >
-              {busy ? 'Saving…' : 'Save cycle assignment'}
-            </button>
-          </>
-        )}
     </div>
   );
 }

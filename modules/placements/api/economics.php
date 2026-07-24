@@ -15,6 +15,24 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 $placementId = (int) ($_GET['placement_id'] ?? 0);
 
+function placementEconomicsApiPurpose(string $channel): string
+{
+    return $channel === 'ar' ? 'billing' : $channel;
+}
+
+function placementEconomicsApiCadence(int $tenantId, string $channel, mixed $raw): array
+{
+    $cadence = strtolower(trim((string) $raw));
+    if (!in_array($cadence, ['weekly','biweekly','semimonthly','monthly','adhoc'], true)) {
+        api_error('Frequency must be weekly, biweekly, semimonthly, monthly, or adhoc', 422);
+    }
+    $purpose = placementEconomicsApiPurpose($channel);
+    if (!in_array($purpose, ['billing','ap','payroll'], true)) api_error('This participant does not use a payment frequency', 422);
+    $cycleId = placementEconomicsEnsureStandardCycle($tenantId, $purpose, $cadence);
+    if (!$cycleId) api_error('Could not resolve the requested payment frequency', 422);
+    return ['cadence' => $cadence, 'cycle_id' => $cycleId, 'purpose' => $purpose];
+}
+
 if ($method === 'GET') {
     rbac_legacy_require($user, 'placements.view');
     if ($placementId <= 0) api_error('placement_id required', 400);
@@ -41,7 +59,11 @@ if ($method === 'POST' && $action === 'party') {
     $channel = (string) $body['settlement_channel'];
     if (!in_array($channel, ['ar','ap','payroll','none'], true)) api_error('Invalid settlement_channel', 422);
     $role = (string) $body['role'];
-    if (!in_array($role, ['vendor','c2c_vendor','msp','prime_vendor','sub_vendor','referrer','other'], true)) {
+    if (!in_array($role, [
+        'client','end_client','vendor','c2c_vendor','worker','employee',
+        'msp','prime_vendor','sub_vendor','referrer','commission_recipient',
+        'recruiter','account_manager','other',
+    ], true)) {
         api_error('Invalid economic party role', 422);
     }
 
@@ -74,6 +96,26 @@ if ($method === 'POST' && $action === 'party') {
     if ($channel === 'payroll' && !$userId && !$personId) {
         api_error('Payroll participants must reference an internal user or person', 422);
     }
+    if ($channel === 'payroll' && $companyId) {
+        api_error('Companies are paid through accounts payable, not payroll', 422);
+    }
+    if ($channel === 'ap' && $userId) {
+        api_error('Internal users are paid through payroll, not accounts payable', 422);
+    }
+    if ($channel === 'ar' && (!$companyId || !in_array($role, ['client','end_client'], true))) {
+        api_error('A client receivable must reference a client company', 422);
+    }
+    if ($channel === 'ar') {
+        $receivable = getDB()->prepare(
+            'SELECT id FROM placement_economic_parties
+              WHERE tenant_id = :t AND placement_id = :p AND active = 1
+                AND settlement_channel = "ar" LIMIT 1'
+        );
+        $receivable->execute(['t' => $tenantId, 'p' => $placementId]);
+        if ($receivable->fetchColumn()) {
+            api_error('This placement already has a bill-to client. Edit its frequency and payment terms instead.', 409);
+        }
+    }
     if ($displayName === '') api_error('display_name required', 422);
     if ($companyId) {
         $company = companiesGet($companyId);
@@ -87,7 +129,16 @@ if ($method === 'POST' && $action === 'party') {
     }
 
     $terms = placementEconomicsNormaliseTerms((string) ($body['payment_terms'] ?? 'NET30'));
-    $pwp = !empty($body['pwp_enabled']) || placementEconomicsTermsArePwp($terms);
+    if ($channel === 'ar' && placementEconomicsTermsArePwp($terms)) api_error('Paid when paid applies to AP, not client invoices', 422);
+    $pwp = $channel === 'ap' && (!empty($body['pwp_enabled']) || placementEconomicsTermsArePwp($terms));
+    $frequency = null;
+    if ($channel !== 'none') {
+        $frequency = placementEconomicsApiCadence(
+            $tenantId,
+            $channel,
+            $body['cadence'] ?? ($channel === 'ar' ? 'monthly' : 'biweekly')
+        );
+    }
     $vendor = null;
     if ($channel === 'ap') {
         $vendor = placementEconomicsEnsureVendor(
@@ -118,14 +169,18 @@ if ($method === 'POST' && $action === 'party') {
         'fee_basis' => (string) ($body['fee_basis'] ?? 'none'),
         'fee_pct' => $body['fee_pct'] ?? null,
         'fee_flat' => $body['fee_flat'] ?? null,
-        'payment_terms' => $channel === 'ap' ? $terms : null,
+        'payment_terms' => in_array($channel, ['ar','ap'], true) ? $terms : null,
         'pwp_enabled' => $channel === 'ap' ? $pwp : false,
-        'operating_cycle_id' => $body['operating_cycle_id'] ?? null,
+        'operating_cycle_id' => $frequency['cycle_id'] ?? null,
         'effective_from' => $body['effective_from'] ?? null,
         'effective_to' => $body['effective_to'] ?? null,
         'source_managed' => 0,
         'created_by_user_id' => $user['id'] ?? null,
     ]);
+    $partyOverrides = ['operating_cycle_id' => $frequency['cycle_id'] ?? null];
+    if (in_array($channel, ['ar','ap'], true)) $partyOverrides['payment_terms'] = $terms;
+    if ($channel === 'ap') $partyOverrides['pwp_enabled'] = $pwp;
+    placementEconomicsUpdateParty($tenantId, $partyId, $partyOverrides);
     if ($role === 'c2c_vendor' && $companyId && $vendor) {
         getDB()->prepare(
             'INSERT INTO placement_corp_details
@@ -141,6 +196,12 @@ if ($method === 'POST' && $action === 'party') {
             'p' => $placementId, 't' => $tenantId, 'c' => $companyId,
             'v' => (int) $vendor['id'], 'name' => $displayName,
             'terms' => $terms, 'pwp' => $pwp ? 1 : 0,
+        ]);
+        scopedUpdate('placements', $placementId, [
+            'vendor_pay_cycle' => $frequency['cadence'] ?? 'biweekly',
+            'ap_operating_cycle_id' => $frequency['cycle_id'] ?? null,
+            'vendor_payment_terms_override' => $terms,
+            'vendor_pwp_enabled' => $pwp ? 1 : 0,
         ]);
     }
     placementsAudit('placement.economic_party.added', [
@@ -160,6 +221,19 @@ if ($method === 'PATCH') {
     );
     if (!$before) api_error('Economic party not found', 404);
     $body = api_json_body();
+    if (array_key_exists('cadence', $body)) {
+        $frequency = placementEconomicsApiCadence($tenantId, (string) $before['settlement_channel'], $body['cadence']);
+        $body['operating_cycle_id'] = $frequency['cycle_id'];
+    }
+    if (array_key_exists('payment_terms', $body)) {
+        $body['payment_terms'] = placementEconomicsNormaliseTerms((string) $body['payment_terms']);
+        if ($before['settlement_channel'] === 'ar' && placementEconomicsTermsArePwp((string) $body['payment_terms'])) {
+            api_error('Paid when paid applies to AP, not client invoices', 422);
+        }
+        if ($before['settlement_channel'] === 'ap') {
+            $body['pwp_enabled'] = placementEconomicsTermsArePwp((string) $body['payment_terms']);
+        }
+    }
     if (array_key_exists('operating_cycle_id', $body) && $body['operating_cycle_id'] !== null && $body['operating_cycle_id'] !== '') {
         $cycle = scopedFind(
             'SELECT id, purpose FROM staffing_operating_cycles
@@ -172,6 +246,29 @@ if ($method === 'PATCH') {
         }
     }
     if (!placementEconomicsUpdateParty($tenantId, $id, $body)) api_error('No fields changed', 422);
+    $placementUpdates = [];
+    $cadence = isset($frequency) ? (string) $frequency['cadence'] : null;
+    $cycleId = array_key_exists('operating_cycle_id', $body) ? ($body['operating_cycle_id'] ?: null) : null;
+    $terms = array_key_exists('payment_terms', $body) ? (string) $body['payment_terms'] : null;
+    $sourceType = (string) $before['source_type'];
+    $role = (string) $before['role'];
+    $channel = (string) $before['settlement_channel'];
+    if ($sourceType === 'placement' && $role === 'end_client') {
+        if ($cadence !== null) $placementUpdates['client_bill_cycle'] = $cadence;
+        if (array_key_exists('operating_cycle_id', $body)) $placementUpdates['billing_operating_cycle_id'] = $cycleId;
+        if ($terms !== null) $placementUpdates['client_payment_terms_override'] = $terms;
+    }
+    if (($sourceType === 'worker' && $channel === 'ap') || $sourceType === 'corp') {
+        if ($cadence !== null) $placementUpdates['vendor_pay_cycle'] = $cadence;
+        if (array_key_exists('operating_cycle_id', $body)) $placementUpdates['ap_operating_cycle_id'] = $cycleId;
+        if ($terms !== null) $placementUpdates['vendor_payment_terms_override'] = $terms;
+        if (array_key_exists('pwp_enabled', $body)) $placementUpdates['vendor_pwp_enabled'] = !empty($body['pwp_enabled']) ? 1 : 0;
+    }
+    if ($sourceType === 'worker' && $channel === 'payroll') {
+        if ($cadence !== null) $placementUpdates['vendor_pay_cycle'] = $cadence;
+        if (array_key_exists('operating_cycle_id', $body)) $placementUpdates['payroll_operating_cycle_id'] = $cycleId;
+    }
+    if ($placementUpdates) scopedUpdate('placements', (int) $before['placement_id'], $placementUpdates);
     if ((string) $before['source_type'] === 'corp') {
         $corpUpdates = [];
         $corpParams = ['t' => $tenantId, 'p' => (int) $before['placement_id']];

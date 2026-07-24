@@ -51,7 +51,7 @@ function placementsSafeFields(string $alias = 'p'): string
              'billing_cycle_id','ap_cycle_id','payroll_cycle_id',
              'billing_operating_cycle_id','ap_operating_cycle_id','payroll_operating_cycle_id',
              'client_bill_cycle','client_bill_cycle_anchor','vendor_pay_cycle','vendor_pay_cycle_anchor',
-             'vendor_payment_terms_override','vendor_pwp_enabled',
+             'client_payment_terms_override','vendor_payment_terms_override','vendor_pwp_enabled',
              'created_by_user_id','created_at','updated_at','deleted_at'];
     return implode(', ', array_map(fn($c) => "{$alias}.{$c}", $cols));
 }

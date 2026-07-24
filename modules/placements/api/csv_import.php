@@ -59,6 +59,7 @@ CsvImportService::registerSchema('placements', [
         'account_manager_email' => ['label' => 'Account manager email', 'type' => 'email'],
         'client_bill_cycle'     => ['label' => 'Client bill cycle', 'enum' => ['weekly','biweekly','semimonthly','monthly','adhoc']],
         'client_bill_cycle_anchor' => ['label' => 'Client bill cycle anchor', 'type' => 'date'],
+        'client_payment_terms_override' => ['label' => 'Client payment terms'],
         'vendor_pay_cycle'      => ['label' => 'Vendor pay cycle', 'enum' => ['weekly','biweekly','semimonthly','monthly','adhoc']],
         'vendor_pay_cycle_anchor' => ['label' => 'Vendor pay cycle anchor', 'type' => 'date'],
         'vendor_payment_terms_override' => ['label' => 'Primary vendor payment terms'],
@@ -783,6 +784,8 @@ if ($method === 'POST' && $action === 'commit') {
             'account_manager_email' => $row['account_manager_email'] ?? null,
             'client_bill_cycle'     => $row['client_bill_cycle']     ?? null,
             'client_bill_cycle_anchor' => $row['client_bill_cycle_anchor'] ?? null,
+            'client_payment_terms_override' => trim((string) ($row['client_payment_terms_override'] ?? '')) !== ''
+                ? placementEconomicsNormaliseTerms((string) $row['client_payment_terms_override']) : null,
             'vendor_pay_cycle'      => $row['vendor_pay_cycle']      ?? null,
             'vendor_pay_cycle_anchor' => $row['vendor_pay_cycle_anchor'] ?? null,
             'vendor_payment_terms_override' => trim((string) ($row['vendor_payment_terms_override'] ?? '')) !== ''

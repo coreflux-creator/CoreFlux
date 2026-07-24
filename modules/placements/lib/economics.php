@@ -196,30 +196,52 @@ function placementEconomicsEnsureCycle(
     return (int) $st->fetchColumn() ?: null;
 }
 
+function placementEconomicsEnsureStandardCycle(int $tenantId, string $purpose, string $cadence): ?int
+{
+    $labels = [
+        'billing' => 'client billing',
+        'ap' => 'vendor payment',
+        'payroll' => 'employee payroll',
+    ];
+    $anchor = in_array($cadence, ['weekly','biweekly'], true) ? '1970-01-05'
+        : (in_array($cadence, ['semimonthly','monthly'], true) ? '1970-01-01' : null);
+    return placementEconomicsEnsureCycle(
+        $tenantId,
+        $purpose,
+        $cadence,
+        $anchor,
+        'standard_cadence',
+        $cadence,
+        ucfirst($cadence) . ' ' . ($labels[$purpose] ?? $purpose)
+    );
+}
+
 function placementEconomicsEnsureDerivedCycles(int $tenantId, array &$placement): void
 {
     $pdo = getDB();
     $updates = [];
-    $billingCadence = (string) ($placement['client_bill_cycle'] ?? '');
-    if (empty($placement['billing_operating_cycle_id']) && $billingCadence !== '') {
-        $updates['billing_operating_cycle_id'] = placementEconomicsEnsureCycle(
-            $tenantId, 'billing', $billingCadence,
-            $placement['client_bill_cycle_anchor'] ?? null,
-            'placement_cadence', $billingCadence,
-            ucfirst($billingCadence) . ' client billing'
-        );
+    $allowedCadences = ['weekly','biweekly','semimonthly','monthly','adhoc'];
+    $billingCadence = strtolower(trim((string) ($placement['client_bill_cycle'] ?? '')));
+    if (!in_array($billingCadence, $allowedCadences, true)) {
+        $billingCadence = 'monthly';
+        $updates['client_bill_cycle'] = $billingCadence;
     }
-    $payCadence = (string) ($placement['vendor_pay_cycle'] ?? '');
+    if (empty($placement['billing_operating_cycle_id'])) {
+        $updates['billing_operating_cycle_id'] = placementEconomicsEnsureStandardCycle($tenantId, 'billing', $billingCadence);
+    }
+    $payCadence = strtolower(trim((string) ($placement['vendor_pay_cycle'] ?? '')));
     $engagement = strtolower((string) ($placement['engagement_type'] ?? ''));
-    $payPurpose = $engagement === 'w2' ? 'payroll' : 'ap';
+    $payPurpose = in_array($engagement, ['w2','temp_to_perm','internal'], true) ? 'payroll' : 'ap';
+    if (!in_array($payCadence, $allowedCadences, true)) {
+        $personCadence = strtolower(trim((string) ($placement['person_pay_frequency'] ?? '')));
+        $payCadence = $payPurpose === 'payroll' && in_array($personCadence, $allowedCadences, true)
+            ? $personCadence
+            : 'biweekly';
+        $updates['vendor_pay_cycle'] = $payCadence;
+    }
     $payField = $payPurpose . '_operating_cycle_id';
-    if (empty($placement[$payField]) && $payCadence !== '') {
-        $updates[$payField] = placementEconomicsEnsureCycle(
-            $tenantId, $payPurpose, $payCadence,
-            $placement['vendor_pay_cycle_anchor'] ?? null,
-            'placement_cadence', $payCadence,
-            ucfirst($payCadence) . ($payPurpose === 'payroll' ? ' payroll' : ' vendor pay')
-        );
+    if (empty($placement[$payField])) {
+        $updates[$payField] = placementEconomicsEnsureStandardCycle($tenantId, $payPurpose, $payCadence);
     }
     $updates = array_filter($updates, static fn($value): bool => !empty($value));
     if (!$updates) return;
@@ -336,10 +358,16 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
         $pdo = getDB();
         $st = $pdo->prepare(
             'SELECT p.*, pe.first_name, pe.last_name, pe.email_primary,
-                    ec.name AS end_client_company_name
+                    pe.pay_frequency AS person_pay_frequency,
+                    ec.name AS end_client_company_name,
+                    ec.payment_terms_days AS end_client_company_terms_days,
+                    sc.payment_terms_days AS staffing_client_terms_days,
+                    t.billing_invoice_terms AS tenant_billing_terms
                FROM placements p
           LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
           LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
+          LEFT JOIN staffing_clients sc ON sc.id = p.client_id AND sc.tenant_id = p.tenant_id
+          LEFT JOIN tenants t ON t.id = p.tenant_id
               WHERE p.tenant_id = :t AND p.id = :p LIMIT 1'
         );
         $st->execute(['t' => $tenantId, 'p' => $placementId]);
@@ -375,6 +403,21 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
             }
         }
         $defaultTerms = placementEconomicsNormaliseTerms($defaultTermsRaw);
+        $clientTermsRaw = '';
+        foreach ([$options['client_payment_terms'] ?? null, $placement['client_payment_terms_override'] ?? null] as $candidate) {
+            if (trim((string) $candidate) !== '') {
+                $clientTermsRaw = (string) $candidate;
+                break;
+            }
+        }
+        if ($clientTermsRaw === '') {
+            $clientDays = $placement['staffing_client_terms_days'] ?? $placement['end_client_company_terms_days'] ?? null;
+            if ($clientDays !== null && $clientDays !== '') {
+                $clientTermsRaw = (int) $clientDays === 0 ? 'DUE_ON_RECEIPT' : 'NET' . max(0, (int) $clientDays);
+            }
+        }
+        if ($clientTermsRaw === '') $clientTermsRaw = (string) ($placement['tenant_billing_terms'] ?? 'NET30');
+        $clientTerms = placementEconomicsNormaliseTerms($clientTermsRaw, 'NET30');
         $defaultPwp = (array_key_exists('pwp_enabled', $options) && $options['pwp_enabled'] !== null
                 ? !empty($options['pwp_enabled'])
                 : !empty($placement['vendor_pwp_enabled']))
@@ -396,6 +439,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
                 'source_id' => $placementId, 'role' => 'end_client', 'display_name' => $clientName,
                 'company_id' => $placement['end_client_company_id'] ?: null,
                 'money_flow' => 'receivable', 'settlement_channel' => 'ar',
+                'payment_terms' => $clientTerms, 'pwp_enabled' => 0,
                 'operating_cycle_id' => $billingCycleId, 'source_system' => $sourceSystem,
                 'source_external_id' => $sourceExternal,
             ]);
@@ -406,7 +450,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
         if ($personName !== '' && $engagement !== 'c2c') {
             $workerChannel = in_array($engagement, ['w2','temp_to_perm','internal'], true)
                 ? 'payroll'
-                : ($engagement === '1099' ? 'ap' : 'none');
+                : 'ap';
             $vendor = null;
             if ($workerChannel === 'ap') {
                 $vendor = placementEconomicsEnsureVendor(
@@ -492,17 +536,18 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
                 : null;
             $basis = (float) ($row['portal_fee_flat'] ?? 0) > 0 ? 'portal_fee_flat'
                 : ((float) ($row['portal_fee_pct'] ?? 0) > 0 ? 'portal_fee_pct' : 'none');
+            if ($isClient) continue;
             $record([
                 'source_ref' => 'chain:' . (int) $row['id'], 'source_type' => 'chain', 'source_id' => (int) $row['id'],
                 'role' => $role, 'display_name' => $name, 'company_id' => $companyId,
                 'ap_vendor_id' => $vendor['id'] ?? null,
-                'money_flow' => $isClient ? 'receivable' : ($isPayable ? 'payable' : 'informational'),
-                'settlement_channel' => $isClient ? 'ar' : ($isPayable ? 'ap' : 'none'),
+                'money_flow' => $isPayable ? 'payable' : 'informational',
+                'settlement_channel' => $isPayable ? 'ap' : 'none',
                 'fee_basis' => $basis, 'fee_pct' => $row['portal_fee_pct'] ?? null,
                 'fee_flat' => $row['portal_fee_flat'] ?? null,
                 'payment_terms' => $isPayable ? $terms : null,
                 'pwp_enabled' => $isPayable ? ($pwp ? 1 : 0) : 0,
-                'operating_cycle_id' => $isClient ? $billingCycleId : ($isPayable ? $apCycleId : null),
+                'operating_cycle_id' => $isPayable ? $apCycleId : null,
                 'effective_from' => $placement['start_date'] ?? null,
                 'effective_to' => $placementEffectiveTo,
                 'source_system' => $sourceSystem, 'source_external_id' => $sourceExternal,
@@ -640,6 +685,33 @@ function placementEconomicsParties(int $tenantId, int $placementId): array
     return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 }
 
+function placementEconomicsReceivableContract(int $tenantId, int $placementId, bool $reconcile = true): array
+{
+    if ($reconcile) placementEconomicsReconcile($tenantId, $placementId);
+    $receivables = array_values(array_filter(
+        placementEconomicsParties($tenantId, $placementId),
+        static fn(array $row): bool => $row['money_flow'] === 'receivable'
+            && $row['settlement_channel'] === 'ar'
+    ));
+    if (count($receivables) === 0) {
+        throw new \RuntimeException("Placement #{$placementId} has no client receivable participant.");
+    }
+    if (count($receivables) > 1) {
+        throw new \RuntimeException("Placement #{$placementId} has multiple client receivable participants; choose one bill-to client.");
+    }
+    $party = $receivables[0];
+    $terms = placementEconomicsNormaliseTerms((string) ($party['payment_terms'] ?? 'NET30'));
+    return [
+        'economic_party_id' => (int) $party['id'],
+        'client_name' => (string) $party['display_name'],
+        'client_company_id' => !empty($party['company_id']) ? (int) $party['company_id'] : null,
+        'payment_terms' => $terms,
+        'payment_terms_days' => placementEconomicsTermsDays($terms, 30),
+        'operating_cycle_id' => !empty($party['operating_cycle_id']) ? (int) $party['operating_cycle_id'] : null,
+        'cadence' => $party['cycle_cadence'] ?? null,
+    ];
+}
+
 function placementEconomicsContext(int $tenantId, int $placementId, bool $reconcile = true): array
 {
     $reconcileResult = $reconcile ? placementEconomicsReconcile($tenantId, $placementId) : ['available' => true];
@@ -649,7 +721,9 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
     $pdo = getDB();
     $p = $pdo->prepare(
         'SELECT id, engagement_type, billing_operating_cycle_id, ap_operating_cycle_id,
-                payroll_operating_cycle_id, billing_cycle_id, ap_cycle_id, payroll_cycle_id
+                payroll_operating_cycle_id, billing_cycle_id, ap_cycle_id, payroll_cycle_id,
+                client_bill_cycle, vendor_pay_cycle, client_payment_terms_override,
+                vendor_payment_terms_override, vendor_pwp_enabled
            FROM placements WHERE tenant_id = :t AND id = :p LIMIT 1'
     );
     $p->execute(['t' => $tenantId, 'p' => $placementId]);
@@ -663,7 +737,9 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
     $cycles = $cyclesSt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
     $payables = array_values(array_filter($parties, static fn(array $r): bool => $r['money_flow'] === 'payable'));
+    $receivables = array_values(array_filter($parties, static fn(array $r): bool => $r['settlement_channel'] === 'ar'));
     $apPayables = array_values(array_filter($payables, static fn(array $r): bool => $r['settlement_channel'] === 'ap'));
+    $payrollPayables = array_values(array_filter($payables, static fn(array $r): bool => $r['settlement_channel'] === 'payroll'));
     $laborPayables = array_values(array_filter($payables, static fn(array $r): bool => $r['fee_basis'] === 'pay_rate'));
     $engagement = (string) ($placement['engagement_type'] ?? '');
     $requiresLaborPayee = in_array($engagement, ['w2','1099','c2c','temp_to_perm','internal'], true);
@@ -676,31 +752,39 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         }
         return true;
     }));
-    $needsApCycle = count($apPayables) > 0 && empty($placement['ap_operating_cycle_id']);
-    $needsPayrollCycle = count(array_filter($payables, static fn(array $r): bool => $r['settlement_channel'] === 'payroll')) > 0
-        && empty($placement['payroll_operating_cycle_id']);
+    $missingArSchedules = array_values(array_filter($receivables, static fn(array $r): bool => empty($r['operating_cycle_id'])));
+    $missingApSchedules = array_values(array_filter($apPayables, static fn(array $r): bool => empty($r['operating_cycle_id'])));
+    $missingPayrollSchedules = array_values(array_filter($payrollPayables, static fn(array $r): bool => empty($r['operating_cycle_id'])));
+    $missingArTerms = array_values(array_filter($receivables, static fn(array $r): bool => trim((string) ($r['payment_terms'] ?? '')) === ''));
+    $missingApTerms = array_values(array_filter($apPayables, static fn(array $r): bool =>
+        trim((string) ($r['payment_terms'] ?? $r['vendor_default_terms'] ?? '')) === ''
+    ));
     $model = placementEconomicsModel($tenantId, $placementId, $parties);
     $hasC2cVendor = count(array_filter($parties, static fn(array $r): bool =>
         $r['role'] === 'c2c_vendor' && $r['settlement_channel'] === 'ap' && !empty($r['ap_vendor_id'])
     )) > 0;
     $readiness = [
-        'receivable_parties' => count(array_filter($parties, static fn(array $r): bool => $r['money_flow'] === 'receivable')),
+        'receivable_parties' => count($receivables),
         'payable_parties' => count($payables),
         'ap_payable_parties' => count($apPayables),
         'unresolved_parties' => count($unresolved),
         'missing_receivable_party' => $requiresBilling
-            && count(array_filter($parties, static fn(array $r): bool => $r['money_flow'] === 'receivable')) === 0,
+            && count($receivables) === 0,
+        'multiple_receivable_parties' => $requiresBilling && count($receivables) > 1,
         'missing_approved_rate' => empty($model['available']),
         'missing_payable_party' => $requiresLaborPayee && count($payables) === 0,
         'missing_labor_payee' => $requiresLaborPayee && count($laborPayables) === 0,
         'multiple_labor_payees' => count($laborPayables) > 1,
         'missing_c2c_vendor' => ($placement['engagement_type'] ?? '') === 'c2c' && !$hasC2cVendor,
-        'missing_billing_cycle' => $requiresBilling && empty($placement['billing_operating_cycle_id']),
-        'missing_ap_cycle' => $needsApCycle,
-        'missing_payroll_cycle' => $needsPayrollCycle,
+        'missing_billing_cycle' => $requiresBilling && count($missingArSchedules) > 0,
+        'missing_ap_cycle' => count($missingApSchedules) > 0,
+        'missing_payroll_cycle' => count($missingPayrollSchedules) > 0,
+        'missing_ar_payment_terms' => $requiresBilling && count($missingArTerms) > 0,
+        'missing_ap_payment_terms' => count($missingApTerms) > 0,
     ];
     $readiness['ready'] = $readiness['unresolved_parties'] === 0
         && !$readiness['missing_receivable_party']
+        && !$readiness['multiple_receivable_parties']
         && !$readiness['missing_approved_rate']
         && !$readiness['missing_payable_party']
         && !$readiness['missing_labor_payee']
@@ -708,7 +792,9 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         && !$readiness['missing_c2c_vendor']
         && !$readiness['missing_billing_cycle']
         && !$readiness['missing_ap_cycle']
-        && !$readiness['missing_payroll_cycle'];
+        && !$readiness['missing_payroll_cycle']
+        && !$readiness['missing_ar_payment_terms']
+        && !$readiness['missing_ap_payment_terms'];
 
     return [
         'available' => true,

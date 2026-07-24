@@ -223,7 +223,7 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             //    server-side; anchors normalised via date_normalise.
             'client_bill_cycle', 'client_bill_cycle_anchor',
             'vendor_pay_cycle',  'vendor_pay_cycle_anchor',
-            'vendor_payment_terms_override', 'vendor_pwp_enabled',
+            'client_payment_terms_override', 'vendor_payment_terms_override', 'vendor_pwp_enabled',
             // -- placement_client_chain relationship economics. These
             //    target a linked chain row, not the placement root.
             'party_name', 'party_role', 'portal_fee_pct', 'portal_fee_flat',

@@ -136,15 +136,18 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
             // 4) Create the target shell.
             $entryIdsForPlacement = array_map(fn ($e) => (int) $e['id'], $rows);
             if ($target === 'billing') {
-                $clientName = (string) ($rows[0]['end_client_name'] ?? 'Unspecified Client');
+                $receivable = placementEconomicsReceivableContract((int) $placementsTenantId, $placementId, true);
+                $issueDate = date('Y-m-d');
                 $workDates = array_column($rows, 'work_date');
                 sort($workDates);
                 $invoice = [
                     'tenant_id'         => $tenantId,
                     'invoice_number'    => 'TS-' . date('Ymd-His') . '-P' . $placementId,
-                    'client_name'       => $clientName,
-                    'issue_date'        => date('Y-m-d'),
-                    'due_date'          => date('Y-m-d', strtotime('+30 days')),
+                    'client_name'       => $receivable['client_name'],
+                    'client_company_id' => $receivable['client_company_id'],
+                    'issue_date'        => $issueDate,
+                    'due_date'          => date('Y-m-d', strtotime('+' . (int) $receivable['payment_terms_days'] . ' days', strtotime($issueDate))),
+                    'payment_terms'     => $receivable['payment_terms'],
                     'period_start'      => reset($workDates) ?: date('Y-m-d'),
                     'period_end'        => end($workDates) ?: date('Y-m-d'),
                     'currency'          => $currency,

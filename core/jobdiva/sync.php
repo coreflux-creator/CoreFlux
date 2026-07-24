@@ -3420,9 +3420,14 @@ function jobdivaSyncPlacementEconomicOptions(array $jd): array
     $pwp = $pwpRaw === '' ? null
         : in_array($pwpRaw, ['1','true','yes','y','on','pwp','paid when paid','pay when paid'], true);
     if ($terms !== '' && placementEconomicsTermsArePwp($terms)) $pwp = true;
+    $clientTerms = jobdivaPluckFieldDeep($jd, [
+        'clientPaymentTerms', 'client_payment_terms', 'customerPaymentTerms', 'customer_payment_terms',
+        'invoicePaymentTerms', 'invoice_payment_terms', 'billingPaymentTerms', 'billing_payment_terms',
+    ]);
     return [
         'payment_terms' => $terms !== '' ? placementEconomicsNormaliseTerms($terms) : null,
         'pwp_enabled' => $pwp,
+        'client_payment_terms' => $clientTerms !== '' ? placementEconomicsNormaliseTerms($clientTerms) : null,
     ];
 }
 
@@ -3886,6 +3891,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             // Slice 5b broader-mapping additions
             'client_bill_cycle'         => ['cbc',  $clientBillCycle],
             'client_bill_cycle_anchor'  => ['cbca', $clientBillCycleAnchor],
+            'client_payment_terms_override' => ['cpto', $economicOptions['client_payment_terms']],
             'vendor_pay_cycle'          => ['vpc',  $vendorPayCycle],
             'vendor_pay_cycle_anchor'   => ['vpca', $vendorPayCycleAnchor],
             'vendor_payment_terms_override' => ['vpto', $economicOptions['payment_terms']],
@@ -3911,7 +3917,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
                 $skipped[] = $col;
                 continue;
             }
-            if ($val === null && in_array($col, ['vendor_payment_terms_override', 'vendor_pwp_enabled'], true)) {
+            if ($val === null && in_array($col, ['client_payment_terms_override', 'vendor_payment_terms_override', 'vendor_pwp_enabled'], true)) {
                 $skipped[] = $col;
                 continue;
             }
@@ -3941,14 +3947,15 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
                                   remote_policy, notes, end_client_name, end_client_company_id, client_id, staffing_job_id,
                                   client_approver_name, client_approver_email, title,
                                   recruiter_name, recruiter_email,
-                                  account_manager_name, account_manager_email,
-                                  client_bill_cycle, client_bill_cycle_anchor,
-                                  vendor_pay_cycle, vendor_pay_cycle_anchor,
+                                   account_manager_name, account_manager_email,
+                                   client_bill_cycle, client_bill_cycle_anchor,
+                                   client_payment_terms_override,
+                                   vendor_pay_cycle, vendor_pay_cycle_anchor,
                                   vendor_payment_terms_override, vendor_pwp_enabled)
          VALUES (:t, :p, :ext, :jji, :st, :sd, :ed, :aed, :dd, :eng, :ws, :wc,
                  :rp, :notes, :ecn, :ecc, :cli, :sji, :can, :cae, :ti,
                  :rn, :re, :amn, :ame,
-                 :cbc, :cbca, :vpc, :vpca, :vpto, :vpwp)'
+                  :cbc, :cbca, :cpto, :vpc, :vpca, :vpto, :vpwp)'
     )->execute([
         't'     => $tid,
         'p'     => $personId,
@@ -3979,6 +3986,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         // schema defaults when the upstream payload didn't carry one.
         'cbc'   => $clientBillCycle ?? 'monthly',
         'cbca'  => $clientBillCycleAnchor,
+        'cpto'  => $economicOptions['client_payment_terms'],
         'vpc'   => $vendorPayCycle ?? 'biweekly',
         'vpca'  => $vendorPayCycleAnchor,
         'vpto'  => $economicOptions['payment_terms'],

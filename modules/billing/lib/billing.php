@@ -8,6 +8,7 @@
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../../placements/lib/economics.php';
 
 /**
  * Atomically allocate the next invoice number for a tenant.
@@ -68,10 +69,6 @@ function billingBuildDraftFromBundle(int $tenantId, int $periodId, array $placem
     $tenant->execute(['id' => $tenantId]);
     $tcfg = $tenant->fetch(\PDO::FETCH_ASSOC) ?: [];
     $taxPct = (float) ($tcfg['billing_tax_rate_pct'] ?? 0);
-    $terms  = (string) ($tcfg['billing_invoice_terms'] ?? 'NET30');
-
-    $netDays = 30;
-    if (preg_match('/^NET(\d+)$/i', $terms, $m)) $netDays = (int) $m[1];
 
     $placeholders = [];
     $params = ['per' => $periodId];
@@ -117,12 +114,22 @@ function billingBuildDraftFromBundle(int $tenantId, int $periodId, array $placem
     }
 
     $today = date('Y-m-d');
-    $dueDate = date('Y-m-d', strtotime("+{$netDays} days"));
     $invoices = [];
 
     foreach ($groups as $key => $groupBundles) {
         $first = $groupBundles[0];
-        $client = (string) ($first['end_client_name'] ?? 'Unknown Client');
+        $contracts = [];
+        foreach (array_unique(array_map(static fn(array $row): int => (int) $row['placement_id'], $groupBundles)) as $groupPlacementId) {
+            $contract = placementEconomicsReceivableContract((int) $placementsTenantId, $groupPlacementId, true);
+            $signature = ($contract['client_company_id'] ?? 0) . '|' . $contract['client_name'] . '|' . $contract['payment_terms'];
+            $contracts[$signature] = $contract;
+        }
+        if (count($contracts) !== 1) {
+            throw new \RuntimeException('Per-client aggregation cannot combine placements with different bill-to clients or payment terms.');
+        }
+        $receivable = reset($contracts);
+        $client = (string) $receivable['client_name'];
+        $dueDate = date('Y-m-d', strtotime('+' . (int) $receivable['payment_terms_days'] . ' days', strtotime($today)));
         $billTo = $first['bill_to_address_json'] ?? null;
 
         $lines = [];
@@ -171,10 +178,12 @@ function billingBuildDraftFromBundle(int $tenantId, int $periodId, array $placem
         $invoices[] = [
             'invoice' => [
                 'client_name'   => $client,
+                'client_company_id' => $receivable['client_company_id'],
                 'bill_to_json'  => $billTo,
                 'currency'      => 'USD',
                 'issue_date'    => $today,
                 'due_date'      => $dueDate,
+                'payment_terms' => $receivable['payment_terms'],
                 'period_start'  => $period['start_date'],
                 'period_end'    => $period['end_date'],
                 'subtotal'      => round($subtotal, 2),
@@ -229,9 +238,6 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
     $tenant->execute(['id' => $tenantId]);
     $tcfg   = $tenant->fetch(\PDO::FETCH_ASSOC) ?: [];
     $taxPct = (float) ($tcfg['billing_tax_rate_pct'] ?? 0);
-    $terms  = (string) ($tcfg['billing_invoice_terms'] ?? 'NET30');
-    $netDays = 30;
-    if (preg_match('/^NET(\d+)$/i', $terms, $m)) $netDays = (int) $m[1];
 
     // Fetch entries + placement + person joined.
     $placeholders = [];
@@ -310,11 +316,21 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
     }
 
     $today   = date('Y-m-d');
-    $dueDate = date('Y-m-d', strtotime("+{$netDays} days"));
     $invoices = [];
     foreach ($groups as $key => $rows) {
         $first = $rows[0];
-        $client = (string) ($first['end_client_name'] ?? 'Unknown Client');
+        $contracts = [];
+        foreach (array_unique(array_map(static fn(array $row): int => (int) $row['placement_id'], $rows)) as $groupPlacementId) {
+            $contract = placementEconomicsReceivableContract((int) $placementsTenantId, $groupPlacementId, true);
+            $signature = ($contract['client_company_id'] ?? 0) . '|' . $contract['client_name'] . '|' . $contract['payment_terms'];
+            $contracts[$signature] = $contract;
+        }
+        if (count($contracts) !== 1) {
+            throw new \RuntimeException('Per-client aggregation cannot combine placements with different bill-to clients or payment terms.');
+        }
+        $receivable = reset($contracts);
+        $client = (string) $receivable['client_name'];
+        $dueDate = date('Y-m-d', strtotime('+' . (int) $receivable['payment_terms_days'] . ' days', strtotime($today)));
         $billTo = null;  // bill-to address json populated server-side by approval gate, not at draft time.
 
         $lines = [];
@@ -392,10 +408,12 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
         $invoices[] = [
             'invoice' => [
                 'client_name'   => $client,
+                'client_company_id' => $receivable['client_company_id'],
                 'bill_to_json'  => $billTo,
                 'currency'      => 'USD',
                 'issue_date'    => $today,
                 'due_date'      => $dueDate,
+                'payment_terms' => $receivable['payment_terms'],
                 'period_start'  => $minDate ?? $today,
                 'period_end'    => $maxDate ?? $today,
                 'subtotal'      => round($subtotal, 2),

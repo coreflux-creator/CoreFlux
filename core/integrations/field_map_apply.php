@@ -1005,7 +1005,7 @@ function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
         $s = substr($s, 0, 3);
         return strlen($s) === 3 ? $s : null;
     }
-    if (in_array($col, ['payment_terms_override', 'vendor_payment_terms_override'], true)) {
+    if (in_array($col, ['payment_terms_override', 'client_payment_terms_override', 'vendor_payment_terms_override'], true)) {
         $s = strtoupper(trim((string) $val));
         $s = str_replace([' ', '-', '_'], '', $s);
         if (in_array($s, ['DUEONRECEIPT', 'RECEIPT', 'IMMEDIATE', 'NET0'], true)) return 'DUE_ON_RECEIPT';

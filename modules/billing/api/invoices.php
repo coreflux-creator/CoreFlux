@@ -275,11 +275,12 @@ if ($method === 'POST' && $action === '') {
         );
         $clientTerms->execute(['t' => $tid, 'n' => (string) ($body['client_name'] ?? '')]);
         $perClient = $clientTerms->fetchColumn();
-        if ($perClient !== false && $perClient !== null && (int) $perClient > 0) {
+        if ($perClient !== false && $perClient !== null && (int) $perClient >= 0) {
             $netDays = (int) $perClient;
         }
     } catch (\Throwable $_) { /* staffing_clients may not exist yet — fall through */ }
 
+    $resolvedInvoiceTerms = $netDays === 0 ? 'DUE_ON_RECEIPT' : 'NET' . $netDays;
     $computed = billingComputeTax($body['lines'], $taxPct);
 
     cf_begin_transaction();
@@ -303,6 +304,7 @@ if ($method === 'POST' && $action === '') {
             'currency'          => (string) ($body['currency'] ?? 'USD'),
             'issue_date'        => (string) ($body['issue_date'] ?? date('Y-m-d')),
             'due_date'          => (string) ($body['due_date'] ?? date('Y-m-d', strtotime("+{$netDays} days"))),
+            'payment_terms'     => $resolvedInvoiceTerms,
             'po_number'         => $body['po_number'] ?? null,
             'notes_internal'    => $body['notes_internal'] ?? null,
             'notes_external'    => $body['notes_external'] ?? null,

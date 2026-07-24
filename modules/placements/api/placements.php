@@ -453,13 +453,16 @@ function _placementsRequireActiveReady(int $placementId, ?string $asOf, string $
         if (empty($readiness['ready'])) {
             $labels = [
                 'missing_receivable_party' => 'client billing recipient',
+                'multiple_receivable_parties' => 'one bill-to client',
                 'missing_payable_party' => 'worker or vendor payee',
                 'missing_labor_payee' => 'primary labor payee',
                 'multiple_labor_payees' => 'multiple primary labor payees',
                 'missing_c2c_vendor' => 'C2C corporate vendor',
-                'missing_billing_cycle' => 'billing cycle',
-                'missing_ap_cycle' => 'AP cycle',
-                'missing_payroll_cycle' => 'payroll cycle',
+                'missing_billing_cycle' => 'client billing frequency',
+                'missing_ap_cycle' => 'vendor payment frequency',
+                'missing_payroll_cycle' => 'payroll frequency',
+                'missing_ar_payment_terms' => 'client payment terms',
+                'missing_ap_payment_terms' => 'vendor payment terms',
             ];
             $blockers = [];
             foreach ($labels as $key => $label) if (!empty($readiness[$key])) $blockers[] = $label;

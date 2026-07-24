@@ -25,7 +25,9 @@ foreach ([
     'recruiter_name',
     'account_manager_name',
     'client_bill_cycle',
+    'client_payment_terms_override',
     'vendor_pay_cycle',
+    'vendor_payment_terms_override',
 ] as $field) {
     $a("schema includes {$field}", str_contains($import, "'{$field}'"));
 }
@@ -60,6 +62,8 @@ echo "\n4. Import schema exposes commissions and C2C corp details\n";
 foreach ([
     'recruiter_commission_pct',
     'account_manager_commission_pct',
+    'client_payment_terms_override',
+    'vendor_payment_terms_override',
     'lead_commission_pct',
     'team_commission_pct',
     'other_commission_pct',

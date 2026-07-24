@@ -10,6 +10,7 @@ $assert = static function (string $name, bool $ok) use (&$checks): void {
 };
 
 $migration = $read('core/migrations/126_staffing_economic_graph.sql');
+$contractMigration = $read('core/migrations/127_staffing_contract_terms.sql');
 $economics = $read('modules/placements/lib/economics.php');
 $economicsApi = $read('modules/placements/api/economics.php');
 $cyclesApi = $read('modules/placements/api/cycles.php');
@@ -22,6 +23,8 @@ $settlementCreate = $read('modules/time/lib/settlement_create.php');
 $payrollRuns = $read('modules/payroll/api/runs.php');
 $payrollLib = $read('modules/payroll/lib/payroll.php');
 $payrollCompute = $read('modules/payroll/lib/compute.php');
+$billing = $read('modules/billing/lib/billing.php');
+$billingApi = $read('modules/billing/api/invoices.php');
 $jobdiva = $read('core/jobdiva/sync.php');
 $fieldApply = $read('core/integrations/field_map_apply.php');
 $fieldMap = $read('core/integrations/field_map.php');
@@ -35,6 +38,10 @@ $assert('migration creates auditable settlement obligations',
     str_contains($migration, 'CREATE TABLE IF NOT EXISTS placement_economic_obligations'));
 $assert('migration stores placement vendor terms and PWP',
     str_contains($migration, 'vendor_payment_terms_override') && str_contains($migration, 'vendor_pwp_enabled'));
+$assert('contract migration stores client terms and invoice audit terms',
+    str_contains($contractMigration, 'client_payment_terms_override')
+    && str_contains($contractMigration, "TABLE_NAME='billing_invoices'")
+    && str_contains($contractMigration, 'ADD COLUMN payment_terms'));
 $assert('party overrides inherit terms, PWP, and cycles independently',
     str_contains($migration, 'payment_terms_overridden')
     && str_contains($migration, 'pwp_overridden')
@@ -83,6 +90,15 @@ $assert('manual C2C terms mirror to the corporate source and removal clears it',
 $assert('cycles can be created and assigned by purpose',
     str_contains($cyclesApi, "['billing','ap','payroll']")
     && str_contains($cyclesApi, "action === 'assign'"));
+$assert('ordinary frequencies resolve to reusable internal schedules',
+    str_contains($economics, 'function placementEconomicsEnsureStandardCycle')
+    && str_contains($economics, "'standard_cadence'")
+    && str_contains($economicsApi, 'placementEconomicsApiCadence'));
+$assert('W2 and employee-like engagements resolve payroll rather than AP schedules',
+    str_contains($economics, "['w2','temp_to_perm','internal']"));
+$assert('unclassified non-employee labor defaults to the vendor/AP graph',
+    str_contains($economics, ": 'ap';")
+    && !str_contains($economics, "(\$engagement === '1099' ? 'ap' : 'none')"));
 $assert('AP cycle defaults feed relationship terms and exclusions clear legacy fallbacks',
     str_contains($economics, '$apCycleTerms')
     && str_contains($cyclesApi, '$legacyMap')
@@ -114,6 +130,13 @@ $assert('automatic AR settlement writes the canonical issue date and period',
     str_contains($settlementCreate, "'issue_date'")
     && !str_contains($settlementCreate, "'invoice_date'")
     && str_contains($settlementCreate, "'period_start'"));
+$assert('AR invoice creation consumes and snapshots placement client terms',
+    str_contains($economics, 'function placementEconomicsReceivableContract')
+    && str_contains($settlementCreate, 'placementEconomicsReceivableContract')
+    && str_contains($settlementCreate, "'payment_terms'     => \$receivable['payment_terms']")
+    && !str_contains($settlementCreate, "strtotime('+30 days')")
+    && substr_count($billing, 'placementEconomicsReceivableContract') >= 2
+    && str_contains($billingApi, "'payment_terms'     => \$resolvedInvoiceTerms"));
 $assert('time settlement prefers purpose-specific cycles',
     str_contains($settlement, 'placement.billing_operating_cycle_id')
     && str_contains($settlement, 'placement.ap_operating_cycle_id')
@@ -131,6 +154,7 @@ $assert('payroll-channel participants become commission earnings with obligation
 
 $assert('JobDiva persists terms and PWP and reconciles economics',
     str_contains($jobdiva, 'jobdivaSyncPlacementEconomicOptions')
+    && str_contains($jobdiva, 'client_payment_terms_override')
     && str_contains($jobdiva, 'vendor_payment_terms_override')
     && substr_count($jobdiva, 'placementEconomicsReconcile(') >= 2);
 $assert('JobDiva does not invent vendor terms when its payload is silent',
@@ -144,7 +168,8 @@ $assert('Save and apply mapping reconciles the economic graph',
     str_contains($fieldApply, "\$integration === 'jobdiva' && \$entityType === 'placement'")
     && str_contains($fieldApply, 'placementEconomicsReconcile($tid, $placementId)'));
 $assert('JobDiva mappings can write staffing payment terms and PWP controls',
-    str_contains($fieldMap, 'vendor_payment_terms_override')
+    str_contains($fieldMap, 'client_payment_terms_override')
+    && str_contains($fieldMap, 'vendor_payment_terms_override')
     && str_contains($fieldMap, "'payment_terms_override', 'pwp_enabled', 'is_payable'")
     && str_contains($fieldApply, "'vendor_pwp_enabled'")
     && str_contains($fieldApply, "'payment_terms_override' => true"));
@@ -156,15 +181,28 @@ $assert('field mapping can populate referral recipients, fees, terms, and PWP',
 $assert('placement UI presents one Economics workflow',
     str_contains($ui, "{ slug: 'economics',   label: 'Economics' }")
     && str_contains($ui, 'function EconomicsTab'));
-$assert('economics screen normalizes companies and creates cycles in place',
+$assert('economics screen normalizes companies without exposing schedule machinery',
     str_contains($ui, '<CompanyTypeahead')
-    && str_contains($ui, "api.post('/modules/placements/api/cycles.php'"));
+    && str_contains($ui, 'Commercial terms by participant')
+    && str_contains($ui, '>Billing / payment frequency</th>')
+    && str_contains($ui, '>Payment terms</th>')
+    && !str_contains($ui, '<h4>Settlement cycles</h4>')
+    && !str_contains($ui, "api.post('/modules/placements/api/cycles.php'"));
+$assert('paid when paid is an AP term rather than a separate contract switch',
+    str_contains($ui, "term === 'PWP' ? 'Paid when paid'")
+    && !str_contains($ui, 'Paid when paid for ${party.display_name}'));
 $assert('economics screen can add company, person, or internal-user recipients',
     str_contains($ui, '<option value="company">Company or vendor</option>')
     && str_contains($ui, '<option value="person">Person</option>')
     && str_contains($ui, '<option value="user">Internal user</option>'));
+$assert('participant editor enforces one company bill-to and correct AP/payroll identities',
+    str_contains($economicsApi, 'This placement already has a bill-to client')
+    && str_contains($economicsApi, 'Companies are paid through accounts payable')
+    && str_contains($economicsApi, 'Internal users are paid through payroll'));
 $assert('economics screen exposes readiness blockers and manual participant removal',
     str_contains($ui, 'missing_c2c_vendor')
+    && str_contains($ui, 'missing_ar_payment_terms')
+    && str_contains($ui, 'multiple_receivable_parties')
     && str_contains($ui, 'multiple_labor_payees')
     && str_contains($ui, 'removeParty(party)'));
 $assert('placement activation is gated by complete economic readiness',
