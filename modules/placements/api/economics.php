@@ -151,6 +151,23 @@ if ($method === 'POST' && $action === 'party') {
             $placementId
         );
     }
+    $feeBasis = (string) ($body['fee_basis'] ?? 'none');
+    if ($channel === 'ap' && $feeBasis === 'none' && in_array($role, ['vendor','c2c_vendor','worker'], true)) {
+        $placementRow = scopedFind(
+            'SELECT engagement_type FROM placements WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => $placementId]
+        );
+        $labor = getDB()->prepare(
+            'SELECT 1 FROM placement_economic_parties
+              WHERE tenant_id = :t AND placement_id = :p AND active = 1
+                AND money_flow = "payable" AND fee_basis = "pay_rate" LIMIT 1'
+        );
+        $labor->execute(['t' => $tenantId, 'p' => $placementId]);
+        $nonW2 = in_array(strtolower((string) ($placementRow['engagement_type'] ?? '')), ['1099','c2c','direct_hire'], true);
+        if ($role === 'c2c_vendor' || $role === 'worker' || ($nonW2 && !$labor->fetchColumn())) {
+            $feeBasis = 'pay_rate';
+        }
+    }
     $sourceRef = $role === 'c2c_vendor'
         ? 'corp:' . $placementId
         : 'manual:' . bin2hex(random_bytes(8));
@@ -166,7 +183,7 @@ if ($method === 'POST' && $action === 'party') {
         'ap_vendor_id' => $vendor['id'] ?? null,
         'money_flow' => $channel === 'ar' ? 'receivable' : ($channel === 'none' ? 'informational' : 'payable'),
         'settlement_channel' => $channel,
-        'fee_basis' => (string) ($body['fee_basis'] ?? 'none'),
+        'fee_basis' => $feeBasis,
         'fee_pct' => $body['fee_pct'] ?? null,
         'fee_flat' => $body['fee_flat'] ?? null,
         'payment_terms' => in_array($channel, ['ar','ap'], true) ? $terms : null,

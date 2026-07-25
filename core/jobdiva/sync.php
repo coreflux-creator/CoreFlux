@@ -4235,6 +4235,44 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     $backgroundFeeTotal = jobdivaParseRateAmount($backgroundFeeRaw);
     $backgroundFeeTotal = $backgroundFeeTotal > 0 ? $backgroundFeeTotal : null;
 
+    $mappedRateValue = static function (string $field, array $fallbackKeys = []) use ($tid, $jd): mixed {
+        return tenantIntegrationFieldMapPluckInternal(
+            $tid,
+            'jobdiva',
+            'placement',
+            $field,
+            static fn() => $fallbackKeys ? jobdivaPluckFieldDeep($jd, $fallbackKeys) : null
+        );
+    };
+    $billAdderPct = jobdivaParsePercent($mappedRateValue('bill_adder_pct', [
+        'client bill adder percent', 'bill adder percent', 'bill adder %',
+    ]));
+    $billAdderFlat = jobdivaParseRateAmount($mappedRateValue('bill_adder_flat', [
+        'client bill adder', 'bill adder amount',
+    ]));
+    $billAdderFlat = $billAdderFlat > 0 ? $billAdderFlat : null;
+    $billDiscountPct = jobdivaParsePercent($mappedRateValue('bill_discount_pct', [
+        'client discount percent', 'bill discount percent', 'discount percent',
+    ]));
+    $billDiscountFlat = jobdivaParseRateAmount($mappedRateValue('bill_discount_flat', [
+        'client discount amount', 'bill discount amount',
+    ]));
+    $billDiscountFlat = $billDiscountFlat > 0 ? $billDiscountFlat : null;
+    $workersCompPct = jobdivaParsePercent($mappedRateValue('workers_comp_pct', [
+        'workers comp percent', 'workers compensation percent', 'workers comp %',
+    ]));
+    $benefitsLoadPct = jobdivaParsePercent($mappedRateValue('benefits_load_pct', [
+        'benefits load percent', 'benefit load percent', 'benefits %',
+    ]));
+    $otherCostPerHour = jobdivaParseRateAmount($mappedRateValue('other_cost_per_hour', [
+        'other cost per hour', 'additional cost per hour',
+    ]));
+    $otherCostPerHour = $otherCostPerHour > 0 ? $otherCostPerHour : null;
+    $otherCostFlat = jobdivaParseRateAmount($mappedRateValue('other_cost_flat', [
+        'other fixed cost', 'additional fixed cost',
+    ]));
+    $otherCostFlat = $otherCostFlat > 0 ? $otherCostFlat : null;
+
     $effectiveFrom = $startDate !== '' ? $startDate : date('Y-m-d');
 
     // Locate the current open rate row (effective_to IS NULL). Prefer an
@@ -4244,7 +4282,10 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     $existing = $pdo->prepare(
         'SELECT id, effective_from, approved_at, bill_rate, bill_rate_unit,
                 pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier,
-                adder_pct, background_fee_total, created_by_user_id
+                adder_pct, background_fee_total,
+                bill_adder_pct, bill_adder_flat, bill_discount_pct, bill_discount_flat,
+                workers_comp_pct, benefits_load_pct, other_cost_per_hour, other_cost_flat,
+                created_by_user_id
            FROM placement_rates
           WHERE tenant_id = :t AND placement_id = :p AND effective_to IS NULL
           ORDER BY (approved_at IS NULL) DESC, effective_from DESC, id DESC
@@ -4263,7 +4304,11 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
                     pay_rate  = :pr, pay_rate_unit  = :pru,
                     currency  = :cur,
                     ot_multiplier = :ot, dt_multiplier = :dt,
-                    adder_pct = :adder, background_fee_total = :bg
+                    adder_pct = :adder, background_fee_total = :bg,
+                    bill_adder_pct = :bill_adder_pct, bill_adder_flat = :bill_adder_flat,
+                    bill_discount_pct = :bill_discount_pct, bill_discount_flat = :bill_discount_flat,
+                    workers_comp_pct = :workers_comp_pct, benefits_load_pct = :benefits_load_pct,
+                    other_cost_per_hour = :other_cost_per_hour, other_cost_flat = :other_cost_flat
               WHERE id = :id'
         )->execute([
             'ef'  => $effectiveFrom,
@@ -4273,6 +4318,14 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'ot'  => $otMul, 'dt' => $dtMul,
             'adder' => $adderPct,
             'bg'    => $backgroundFeeTotal,
+            'bill_adder_pct' => $billAdderPct,
+            'bill_adder_flat' => $billAdderFlat,
+            'bill_discount_pct' => $billDiscountPct,
+            'bill_discount_flat' => $billDiscountFlat,
+            'workers_comp_pct' => $workersCompPct,
+            'benefits_load_pct' => $benefitsLoadPct,
+            'other_cost_per_hour' => $otherCostPerHour,
+            'other_cost_flat' => $otherCostFlat,
             'id'  => $rateId,
         ]);
         return true;
@@ -4289,7 +4342,15 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             && round((float) ($currentRate['ot_multiplier'] ?? 0), 4) === round($otMul, 4)
             && round((float) ($currentRate['dt_multiplier'] ?? 0), 4) === round($dtMul, 4)
             && round((float) ($currentRate['adder_pct'] ?? 0), 6) === round((float) ($adderPct ?? 0), 6)
-            && round((float) ($currentRate['background_fee_total'] ?? 0), 2) === round((float) ($backgroundFeeTotal ?? 0), 2);
+            && round((float) ($currentRate['background_fee_total'] ?? 0), 2) === round((float) ($backgroundFeeTotal ?? 0), 2)
+            && round((float) ($currentRate['bill_adder_pct'] ?? 0), 6) === round((float) ($billAdderPct ?? 0), 6)
+            && round((float) ($currentRate['bill_adder_flat'] ?? 0), 4) === round((float) ($billAdderFlat ?? 0), 4)
+            && round((float) ($currentRate['bill_discount_pct'] ?? 0), 6) === round((float) ($billDiscountPct ?? 0), 6)
+            && round((float) ($currentRate['bill_discount_flat'] ?? 0), 4) === round((float) ($billDiscountFlat ?? 0), 4)
+            && round((float) ($currentRate['workers_comp_pct'] ?? 0), 6) === round((float) ($workersCompPct ?? 0), 6)
+            && round((float) ($currentRate['benefits_load_pct'] ?? 0), 6) === round((float) ($benefitsLoadPct ?? 0), 6)
+            && round((float) ($currentRate['other_cost_per_hour'] ?? 0), 4) === round((float) ($otherCostPerHour ?? 0), 4)
+            && round((float) ($currentRate['other_cost_flat'] ?? 0), 2) === round((float) ($otherCostFlat ?? 0), 2);
         $coversPlacementStart = (string) ($currentRate['effective_from'] ?? '') <= $effectiveFrom;
         if ($sameEconomics && $coversPlacementStart) {
             return true;
@@ -4309,8 +4370,12 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         'INSERT INTO placement_rates
             (tenant_id, placement_id, effective_from, effective_to, bill_rate, bill_rate_unit,
              pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier,
-             adder_pct, background_fee_total)
-         VALUES (:t, :p, :ef, :et, :br, :bru, :pr, :pru, :cur, :ot, :dt, :adder, :bg)'
+             adder_pct, background_fee_total,
+             bill_adder_pct, bill_adder_flat, bill_discount_pct, bill_discount_flat,
+             workers_comp_pct, benefits_load_pct, other_cost_per_hour, other_cost_flat)
+         VALUES (:t, :p, :ef, :et, :br, :bru, :pr, :pru, :cur, :ot, :dt, :adder, :bg,
+                 :bill_adder_pct, :bill_adder_flat, :bill_discount_pct, :bill_discount_flat,
+                 :workers_comp_pct, :benefits_load_pct, :other_cost_per_hour, :other_cost_flat)'
     )->execute([
         't'   => $tid, 'p'   => $placementId,
         'ef'  => $effectiveFrom,
@@ -4321,6 +4386,14 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         'ot'  => $otMul, 'dt' => $dtMul,
         'adder' => $adderPct,
         'bg'    => $backgroundFeeTotal,
+        'bill_adder_pct' => $billAdderPct,
+        'bill_adder_flat' => $billAdderFlat,
+        'bill_discount_pct' => $billDiscountPct,
+        'bill_discount_flat' => $billDiscountFlat,
+        'workers_comp_pct' => $workersCompPct,
+        'benefits_load_pct' => $benefitsLoadPct,
+        'other_cost_per_hour' => $otherCostPerHour,
+        'other_cost_flat' => $otherCostFlat,
     ]);
     return true;
 }

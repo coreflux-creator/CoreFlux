@@ -31,8 +31,7 @@ export default function PlacementDetail({ session }) {
 
   const TABS = [
     { slug: 'overview',    label: 'Overview' },
-    { slug: 'economics',   label: 'Economics' },
-    { slug: 'rates',       label: 'Rates' },
+    { slug: 'economics',   label: 'Contract' },
     { slug: 'timesheets',  label: 'Timesheets' },
     { slug: 'documents',   label: 'Documents' },
     { slug: 'approval',    label: 'Approval' },
@@ -102,9 +101,9 @@ export default function PlacementDetail({ session }) {
       <Routes>
         <Route index             element={<Navigate to="overview" replace />} />
         <Route path="overview"   element={<OverviewTab    placement={placement} reload={reload} />} />
-        <Route path="economics"  element={<EconomicsTab   placement={placement} chain={chain} commissions={commissions} referrals={referrals} reload={reload} />} />
+        <Route path="economics"  element={<EconomicsTab   placement={placement} chain={chain} rates={rates} commissions={commissions} referrals={referrals} reload={reload} />} />
         <Route path="chain"      element={<Navigate to="../economics" replace />} />
-        <Route path="rates"      element={<RatesTab       pid={placement.id} rates={rates} reload={reload} />} />
+        <Route path="rates"      element={<Navigate to="../economics" replace />} />
         <Route path="commissions"element={<Navigate to="../economics" replace />} />
         <Route path="referrals"  element={<Navigate to="../economics" replace />} />
         <Route path="corp"       element={<Navigate to="../economics" replace />} />
@@ -443,7 +442,7 @@ function OverviewEdit({ placement, onClose }) {
 }
 
 // ── Chain ────────────────────────────────────────────────
-function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
+function EconomicsTab({ placement, chain, rates, commissions, referrals, reload }) {
   const path = `/modules/placements/api/economics.php?placement_id=${placement.id}`;
   const { data, loading, error, reload: reloadEconomics } = useApi(path);
   const parties = data?.parties || [];
@@ -456,7 +455,7 @@ function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
   const [partyPersonSearch, setPartyPersonSearch] = useState('');
   const usersLookup = useApi('/api/users.php');
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
-  const [partyForm, setPartyForm] = useState({ role: 'vendor', settlement_channel: 'ap', fee_basis: 'none', fee_pct: '', fee_flat: '', cadence: 'biweekly', payment_terms: 'NET30', pwp_enabled: false });
+  const [partyForm, setPartyForm] = useState({ role: 'vendor', settlement_channel: 'ap', fee_basis: 'pay_rate', fee_pct: '', fee_flat: '', cadence: 'biweekly', payment_terms: 'NET30', pwp_enabled: false });
   const partyPersonLookup = useApi(partyRecipientType === 'person' && partyPersonSearch.length >= 2 && !partyForm.person_id
     ? `/modules/people/api/people.php?q=${encodeURIComponent(partyPersonSearch)}&per_page=10`
     : null);
@@ -497,13 +496,13 @@ function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
           : partyRecipientType === 'user'
             ? (selectedUser.name || selectedUser.email)
             : partyPersonSearch,
-        fee_pct: partyForm.fee_pct === '' ? null : Number(partyForm.fee_pct),
+        fee_pct: partyForm.fee_pct === '' ? null : Number(partyForm.fee_pct) / 100,
         fee_flat: partyForm.fee_flat === '' ? null : Number(partyForm.fee_flat),
       });
       setPartyCompany(null);
       setPartyRecipientType('company');
       setPartyPersonSearch('');
-      setPartyForm({ role: 'vendor', settlement_channel: 'ap', fee_basis: 'none', fee_pct: '', fee_flat: '', cadence: 'biweekly', payment_terms: 'NET30', pwp_enabled: false });
+      setPartyForm({ role: 'vendor', settlement_channel: 'ap', fee_basis: 'pay_rate', fee_pct: '', fee_flat: '', cadence: 'biweekly', payment_terms: 'NET30', pwp_enabled: false });
       setMessage('Participant added and normalized to the shared company/vendor graph.'); refreshAll();
     } catch (e) { setMessage(`Add failed: ${e.message}`); }
     finally { setBusy(false); }
@@ -538,33 +537,42 @@ function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
   return (
     <div data-testid="tab-economics">
       <header style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
-        <div><h3 style={{ margin: 0 }}>Placement economics</h3><p style={{ color: 'var(--cf-text-secondary)', margin: '4px 0 0' }}>Every client, worker, vendor, referrer, and commission recipient involved in this engagement.</p></div>
+        <div><h3 style={{ margin: 0 }}>Placement contract</h3><p style={{ color: 'var(--cf-text-secondary)', margin: '4px 0 0' }}>Rates, client billing, labor pay, fees, and every settlement recipient for this engagement.</p></div>
         <span className={`badge badge--${readiness.ready ? 'active' : 'candidate'}`} data-testid="economics-readiness">{readiness.ready ? 'Ready for settlement' : `${readinessProblems.length} setup item${readinessProblems.length === 1 ? '' : 's'}`}</span>
       </header>
       {!readiness.ready && <div className="alert alert--warn" style={{ marginTop: 12 }}>Complete: {readinessProblems.join(', ') || 'economic setup'}.</div>}
       {message && <div className={message.includes('failed') ? 'alert alert--err' : 'alert alert--ok'} style={{ marginTop: 12 }}>{message}</div>}
 
+      <section style={{ marginTop: 24 }}>
+        <RatesTab pid={placement.id} rates={rates} reload={refreshAll} embedded />
+      </section>
+
       {model.available && <section style={{ marginTop: 24 }} data-testid="economics-model-summary">
-        <h4>Modeled hourly economics</h4>
+        <h4>Approved contract economics</h4>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16 }}>
-          {[['Bill rate', model.bill_rate], ['All hourly costs', model.modeled_hourly_cost], ['Modeled margin', model.modeled_hourly_margin]].map(([label, value]) => <div key={label}><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>{label}</span><strong>{model.currency} {Number(value).toFixed(2)} / hour</strong></div>)}
+          {[['Base client rate', model.bill_rate], ['Invoice rate', model.invoice_bill_rate ?? model.bill_rate], ['Labor pay rate', model.pay_rate], ['All hourly costs', model.modeled_hourly_cost], ['Modeled margin', model.modeled_hourly_margin]].map(([label, value]) => <div key={label}><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>{label}</span><strong>{model.currency} {Number(value).toFixed(2)} / hour</strong></div>)}
           <div><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>Margin</span><strong>{(Number(model.modeled_margin_pct) * 100).toFixed(2)}%</strong></div>
           <div><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>Fixed obligations</span><strong>{model.currency} {Number(model.fixed_obligations).toFixed(2)}</strong></div>
         </div>
-        <details style={{ marginTop: 10 }}><summary style={{ cursor: 'pointer' }}>Cost breakdown</summary><table className="data-table" style={{ marginTop: 8 }}><thead><tr><th>Recipient or cost</th><th>Basis</th><th>Channel</th><th>Amount</th></tr></thead><tbody>{[...(model.hourly_lines || []), ...(model.fixed_lines || [])].map((line, index) => <tr key={`${line.role}-${index}`}><td>{line.name}</td><td>{line.basis.replace(/_/g, ' ')}</td><td>{line.settlement_channel}</td><td>{model.currency} {Number(line.amount).toFixed(2)}{(model.hourly_lines || []).includes(line) ? ' / hour' : ''}</td></tr>)}</tbody></table></details>
+        <details style={{ marginTop: 10 }}><summary style={{ cursor: 'pointer' }}>Revenue and cost breakdown</summary><table className="data-table" style={{ marginTop: 8 }}><thead><tr><th>Item</th><th>Type</th><th>Basis</th><th>Channel</th><th>Amount</th></tr></thead><tbody>{[
+          ...(model.revenue_lines || []).map((line) => ({ ...line, lineType: 'Revenue adjustment', hourly: true })),
+          ...(model.hourly_lines || []).map((line) => ({ ...line, lineType: 'Hourly cost', hourly: true })),
+          ...(model.fixed_lines || []).map((line) => ({ ...line, lineType: 'Fixed cost', hourly: false })),
+        ].map((line, index) => <tr key={`${line.role || line.name}-${index}`}><td>{line.name}</td><td>{line.lineType}</td><td>{line.basis.replace(/_/g, ' ')}</td><td>{line.settlement_channel}</td><td>{model.currency} {Number(line.amount).toFixed(2)}{line.hourly ? ' / hour' : ''}</td></tr>)}</tbody></table></details>
       </section>}
 
       <section style={{ marginTop: 24 }}>
         <h4>Commercial terms by participant</h4>
         <table className="data-table" data-testid="economics-parties-table">
-          <thead><tr><th>Participant</th><th>Role</th><th>Flow</th><th>Calculation</th><th>Billing / payment frequency</th><th>Payment terms</th><th aria-label="Actions" /></tr></thead>
+          <thead><tr><th>Participant</th><th>Role</th><th>Flow</th><th>Calculation</th><th>Value</th><th>Billing / payment frequency</th><th>Payment terms</th><th aria-label="Actions" /></tr></thead>
           <tbody>
-            {parties.length === 0 && <tr><td colSpan={7} className="empty">No participants resolved.</td></tr>}
+            {parties.length === 0 && <tr><td colSpan={8} className="empty">No participants resolved.</td></tr>}
             {parties.map((party) => <tr key={party.id} data-testid={`economics-party-${party.id}`}>
               <td><strong>{party.display_name}</strong><div style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>{party.company_id ? `Company #${party.company_id}${party.ap_vendor_id ? ` / Vendor #${party.ap_vendor_id}` : ''}` : party.person_id ? `Person #${party.person_id}` : party.source_type}</div></td>
               <td>{party.role.replace(/_/g, ' ')}</td>
               <td>{party.settlement_channel === 'ar' ? 'Receivable' : party.settlement_channel === 'ap' ? 'Accounts payable' : party.settlement_channel === 'payroll' ? 'Payroll' : 'Informational'}</td>
-              <td>{party.fee_basis.replace(/_/g, ' ')}{party.fee_pct ? ` (${(Number(party.fee_pct) * 100).toFixed(2)}%)` : ''}{party.fee_flat ? ` ($${Number(party.fee_flat).toFixed(2)})` : ''}</td>
+              <td>{party.money_flow === 'payable' && !Number(party.source_managed) ? <select className="input" value={party.fee_basis} disabled={busy} onChange={(e) => patchParty(party.id, { fee_basis: e.target.value })}>{['none','pay_rate','per_hour','per_invoice','one_time','pct_bill','pct_margin','flat'].map((value) => <option key={value} value={value}>{value === 'pay_rate' ? 'labor pay rate' : value.replace(/_/g, ' ')}</option>)}</select> : party.fee_basis.replace(/_/g, ' ')}</td>
+              <td>{party.fee_basis === 'pay_rate' ? 'Uses labor pay rate' : ['pct_bill','pct_margin','portal_fee_pct'].includes(party.fee_basis) ? <input className="input" type="number" min="0" step="0.01" style={{ minWidth: 90 }} defaultValue={(Number(party.fee_pct || 0) * 100).toFixed(2)} disabled={busy || Number(party.source_managed)} onBlur={(e) => patchParty(party.id, { fee_pct: Number(e.target.value) / 100 })} aria-label={`Percent for ${party.display_name}`} /> : ['per_hour','per_invoice','one_time','flat','portal_fee_flat'].includes(party.fee_basis) ? <input className="input" type="number" min="0" step="0.01" style={{ minWidth: 90 }} defaultValue={Number(party.fee_flat || 0).toFixed(2)} disabled={busy || Number(party.source_managed)} onBlur={(e) => patchParty(party.id, { fee_flat: Number(e.target.value) })} aria-label={`Amount for ${party.display_name}`} /> : '-'}</td>
               <td>{party.settlement_channel !== 'none' ? <select className="input" value={party.cycle_cadence || ''} disabled={busy} onChange={(e) => patchParty(party.id, { cadence: e.target.value })} aria-label={`Frequency for ${party.display_name}`}><option value="" disabled>Choose frequency</option>{frequencyOptions.map((value) => <option key={value} value={value}>{frequencyLabel[value]}</option>)}</select> : '-'}</td>
               <td>{['ar','ap'].includes(party.settlement_channel) ? <select className="input" value={party.payment_terms || party.vendor_default_terms || 'NET30'} disabled={busy} onChange={(e) => patchParty(party.id, { payment_terms: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })} aria-label={`Payment terms for ${party.display_name}`}>{(party.settlement_channel === 'ar' ? arTermsOptions : apTermsOptions).map((term) => <option key={term} value={term}>{termsLabel(term)}</option>)}</select> : party.settlement_channel === 'payroll' ? 'Paid through payroll' : '-'}</td>
               <td>{!Number(party.source_managed) && <button type="button" className="btn btn--sm" disabled={busy} onClick={() => removeParty(party)}>Remove</button>}</td>
@@ -587,6 +595,7 @@ function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
               company_id: '', person_id: '', user_id: '',
               settlement_channel: settlementChannel,
               role: type === 'company' ? 'vendor' : type === 'person' ? 'worker' : 'commission_recipient',
+              fee_basis: type === 'user' ? 'none' : 'pay_rate',
               cadence: 'biweekly', payment_terms: 'NET30', pwp_enabled: false,
             });
           }}><option value="company">Company or vendor</option><option value="person">Person</option><option value="user">Internal user</option></select></label>
@@ -605,12 +614,13 @@ function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
               ...partyForm,
               settlement_channel: settlementChannel,
               role,
+              fee_basis: settlementChannel === 'ar' ? 'none' : settlementChannel === 'ap' ? (partyForm.fee_basis === 'none' ? 'pay_rate' : partyForm.fee_basis) : role === 'worker' ? 'pay_rate' : 'none',
               cadence: settlementChannel === 'ar' ? 'monthly' : 'biweekly',
               payment_terms: 'NET30', pwp_enabled: false,
             });
           }}>{partyRecipientType === 'company' && Number(readiness.receivable_parties || 0) === 0 && <option value="ar">Client receivable</option>}{partyRecipientType !== 'user' && <option value="ap">Vendor payable</option>}{partyRecipientType !== 'company' && <option value="payroll">Employee payroll</option>}<option value="none">Informational only</option></select></label>
-          <label><span style={{ display: 'block', fontSize: 12 }}>Calculation</span><select className="input" value={partyForm.fee_basis} onChange={(e) => setPartyForm({ ...partyForm, fee_basis: e.target.value })}>{['none','pay_rate','per_hour','per_invoice','one_time','pct_bill','pct_margin','flat'].map((value) => <option key={value}>{value.replace(/_/g, ' ')}</option>)}</select></label>
-          <label><span style={{ display: 'block', fontSize: 12 }}>Percent (decimal)</span><input className="input" type="number" step="0.0001" value={partyForm.fee_pct} onChange={(e) => setPartyForm({ ...partyForm, fee_pct: e.target.value })} placeholder="0.10 = 10%" /></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Calculation</span><select className="input" value={partyForm.fee_basis} onChange={(e) => setPartyForm({ ...partyForm, fee_basis: e.target.value })}>{['none','pay_rate','per_hour','per_invoice','one_time','pct_bill','pct_margin','flat'].map((value) => <option key={value} value={value}>{value === 'pay_rate' ? 'Labor pay rate' : value.replace(/_/g, ' ')}</option>)}</select></label>
+          <label><span style={{ display: 'block', fontSize: 12 }}>Percent %</span><input className="input" type="number" min="0" step="0.01" value={partyForm.fee_pct} onChange={(e) => setPartyForm({ ...partyForm, fee_pct: e.target.value })} placeholder="10.00" /></label>
           <label><span style={{ display: 'block', fontSize: 12 }}>Flat or hourly amount</span><input className="input" type="number" step="0.01" value={partyForm.fee_flat} onChange={(e) => setPartyForm({ ...partyForm, fee_flat: e.target.value })} placeholder="0.00" /></label>
           {partyForm.settlement_channel !== 'none' && <label><span style={{ display: 'block', fontSize: 12 }}>{partyForm.settlement_channel === 'ar' ? 'Client billing frequency' : partyForm.settlement_channel === 'ap' ? 'Vendor payment frequency' : 'Payroll frequency'}</span><select className="input" value={partyForm.cadence} onChange={(e) => setPartyForm({ ...partyForm, cadence: e.target.value })}>{frequencyOptions.map((value) => <option key={value} value={value}>{frequencyLabel[value]}</option>)}</select></label>}
           {['ar','ap'].includes(partyForm.settlement_channel) && <label><span style={{ display: 'block', fontSize: 12 }}>Payment terms</span><select className="input" value={partyForm.payment_terms} onChange={(e) => setPartyForm({ ...partyForm, payment_terms: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })}>{(partyForm.settlement_channel === 'ar' ? arTermsOptions : apTermsOptions).map((term) => <option key={term} value={term}>{termsLabel(term)}</option>)}</select></label>}
@@ -618,7 +628,7 @@ function EconomicsTab({ placement, chain, commissions, referrals, reload }) {
         </form>
       </section>
 
-      <details style={{ marginTop: 28 }}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Source details and documents</summary>
+      <details style={{ marginTop: 28 }}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Integration evidence and advanced source rules</summary>
         <div style={{ marginTop: 20 }}><ChainTab pid={placement.id} chain={chain} reload={refreshAll} /></div>
         <div style={{ marginTop: 28 }}><ReferralsTab pid={placement.id} rows={referrals} reload={refreshAll} /></div>
         <div style={{ marginTop: 28 }}><CommissionsTab pid={placement.id} rows={commissions} reload={refreshAll} /></div>
@@ -840,18 +850,40 @@ function Field({ label, children }) {
 }
 
 // ── Rates ────────────────────────────────────────────────
-function RatesTab({ pid, rates, reload }) {
-  const [form, setForm] = useState({ effective_from: new Date().toISOString().slice(0,10), bill_rate: '', pay_rate: '' });
+function RatesTab({ pid, rates, reload, embedded = false }) {
+  const emptyForm = () => ({
+    effective_from: new Date().toISOString().slice(0,10),
+    bill_rate: '', pay_rate: '', bill_rate_unit: 'hour', pay_rate_unit: 'hour', currency: 'USD',
+    ot_multiplier: '1.5', dt_multiplier: '2',
+    bill_adder_pct: '', bill_adder_flat: '', bill_discount_pct: '', bill_discount_flat: '',
+    adder_pct: '', workers_comp_pct: '', benefits_load_pct: '',
+    other_cost_per_hour: '', background_fee_total: '', other_cost_flat: '',
+  });
+  const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const draft = async (e) => {
     e.preventDefault(); setBusy(true); setError(null);
     try {
+      const numberOrNull = (value) => value === '' ? null : Number(value);
+      const percentOrNull = (value) => value === '' ? null : Number(value) / 100;
       await api.post(`/modules/placements/api/rates.php?placement_id=${pid}`, {
-        ...form, bill_rate: parseFloat(form.bill_rate), pay_rate: parseFloat(form.pay_rate),
+        ...form,
+        bill_rate: Number(form.bill_rate), pay_rate: Number(form.pay_rate),
+        ot_multiplier: Number(form.ot_multiplier), dt_multiplier: Number(form.dt_multiplier),
+        bill_adder_pct: percentOrNull(form.bill_adder_pct),
+        bill_adder_flat: numberOrNull(form.bill_adder_flat),
+        bill_discount_pct: percentOrNull(form.bill_discount_pct),
+        bill_discount_flat: numberOrNull(form.bill_discount_flat),
+        adder_pct: percentOrNull(form.adder_pct),
+        workers_comp_pct: percentOrNull(form.workers_comp_pct),
+        benefits_load_pct: percentOrNull(form.benefits_load_pct),
+        other_cost_per_hour: numberOrNull(form.other_cost_per_hour),
+        background_fee_total: numberOrNull(form.background_fee_total),
+        other_cost_flat: numberOrNull(form.other_cost_flat),
       });
-      setForm({ effective_from: new Date().toISOString().slice(0,10), bill_rate: '', pay_rate: '' });
+      setForm(emptyForm());
       reload();
     } catch (e) { setError(e); }
     finally     { setBusy(false); }
@@ -893,9 +925,9 @@ function RatesTab({ pid, rates, reload }) {
     <div data-testid="tab-rates">
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 'var(--cf-space-2)' }}>
         <div>
-          <h3 style={{ margin: 0 }}>Rates</h3>
+          <h4 style={{ margin: 0 }}>{embedded ? 'Effective-dated rate and adjustments' : 'Rates'}</h4>
           <p style={{ color: 'var(--cf-text-secondary)', margin: '4px 0 0' }}>
-            Drafts can be edited; approved rates are locked (snapshot).
+            Client revenue, labor compensation, and operating cost factors. Approved rows are locked snapshots used by billing, AP, payroll, and margin.
           </p>
         </div>
         {draftCount > 0 && (
@@ -911,7 +943,7 @@ function RatesTab({ pid, rates, reload }) {
         )}
       </header>
       <table className="data-table" data-testid="rates-table">
-        <thead><tr><th>From</th><th>To</th><th>Bill</th><th>Pay</th><th>Adjusted</th><th>Net</th><th>State</th><th></th></tr></thead>
+        <thead><tr><th>From</th><th>To</th><th>Client rate</th><th>Labor pay</th><th>Invoice rate</th><th>Margin</th><th>State</th><th></th></tr></thead>
         <tbody>
           {rates.length === 0 && <tr><td colSpan={8} className="empty" data-testid="rates-empty">No rate rows yet.</td></tr>}
           {rates.map(r => (
@@ -932,11 +964,32 @@ function RatesTab({ pid, rates, reload }) {
         </tbody>
       </table>
 
-      <form onSubmit={draft} style={{ marginTop: 'var(--cf-space-3)', display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }} data-testid="rates-draft-form">
-        <input className="input" type="date" value={form.effective_from} onChange={e => setForm({ ...form, effective_from: e.target.value })} data-testid="rates-effective-from" required />
-        <input className="input" type="number" step="0.01" placeholder="Bill ($/hr)" value={form.bill_rate} onChange={e => setForm({ ...form, bill_rate: e.target.value })} data-testid="rates-bill" required />
-        <input className="input" type="number" step="0.01" placeholder="Pay ($/hr)" value={form.pay_rate} onChange={e => setForm({ ...form, pay_rate: e.target.value })} data-testid="rates-pay" required />
-        <button className="btn btn--primary" disabled={busy} data-testid="rates-draft-btn">{busy ? '…' : 'Draft new rate'}</button>
+      <form onSubmit={draft} style={{ marginTop: 'var(--cf-space-3)' }} data-testid="rates-draft-form">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+          <Field label="Effective from"><input className="input" type="date" value={form.effective_from} onChange={e => setForm({ ...form, effective_from: e.target.value })} data-testid="rates-effective-from" required /></Field>
+          <Field label="Client bill rate"><input className="input" type="number" min="0" step="0.0001" placeholder="0.00" value={form.bill_rate} onChange={e => setForm({ ...form, bill_rate: e.target.value })} data-testid="rates-bill" required /></Field>
+          <Field label="Labor pay / vendor rate"><input className="input" type="number" min="0" step="0.0001" placeholder="0.00" value={form.pay_rate} onChange={e => setForm({ ...form, pay_rate: e.target.value })} data-testid="rates-pay" required /></Field>
+          <Field label="Unit"><select className="input" value={form.bill_rate_unit} onChange={e => setForm({ ...form, bill_rate_unit: e.target.value, pay_rate_unit: e.target.value })}>{['hour','day','week','month','project'].map((unit) => <option key={unit}>{unit}</option>)}</select></Field>
+          <Field label="Currency"><input className="input" value={form.currency} maxLength={3} onChange={e => setForm({ ...form, currency: e.target.value.toUpperCase() })} /></Field>
+          <Field label="Overtime multiplier"><input className="input" type="number" min="0" step="0.01" value={form.ot_multiplier} onChange={e => setForm({ ...form, ot_multiplier: e.target.value })} /></Field>
+          <Field label="Double-time multiplier"><input className="input" type="number" min="0" step="0.01" value={form.dt_multiplier} onChange={e => setForm({ ...form, dt_multiplier: e.target.value })} /></Field>
+        </div>
+        <details style={{ marginTop: 8 }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Adders, discounts, and employer costs</summary>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 8, marginTop: 8 }}>
+            <Field label="Client rate adder %"><input className="input" type="number" min="0" step="0.01" value={form.bill_adder_pct} onChange={e => setForm({ ...form, bill_adder_pct: e.target.value })} placeholder="0.00" /></Field>
+            <Field label="Client adder per unit"><input className="input" type="number" min="0" step="0.01" value={form.bill_adder_flat} onChange={e => setForm({ ...form, bill_adder_flat: e.target.value })} placeholder="0.00" /></Field>
+            <Field label="Client discount %"><input className="input" type="number" min="0" step="0.01" value={form.bill_discount_pct} onChange={e => setForm({ ...form, bill_discount_pct: e.target.value })} placeholder="0.00" /></Field>
+            <Field label="Client discount per unit"><input className="input" type="number" min="0" step="0.01" value={form.bill_discount_flat} onChange={e => setForm({ ...form, bill_discount_flat: e.target.value })} placeholder="0.00" /></Field>
+            <Field label="Payroll / employer load %"><input className="input" type="number" min="0" step="0.01" value={form.adder_pct} onChange={e => setForm({ ...form, adder_pct: e.target.value })} placeholder="0.00" /></Field>
+            <Field label="Workers compensation %"><input className="input" type="number" min="0" step="0.01" value={form.workers_comp_pct} onChange={e => setForm({ ...form, workers_comp_pct: e.target.value })} placeholder="0.00" /></Field>
+            <Field label="Benefits load %"><input className="input" type="number" min="0" step="0.01" value={form.benefits_load_pct} onChange={e => setForm({ ...form, benefits_load_pct: e.target.value })} placeholder="0.00" /></Field>
+            <Field label="Other recurring cost / hour"><input className="input" type="number" min="0" step="0.01" value={form.other_cost_per_hour} onChange={e => setForm({ ...form, other_cost_per_hour: e.target.value })} placeholder="0.00" /></Field>
+            <Field label="Background / onboarding cost"><input className="input" type="number" min="0" step="0.01" value={form.background_fee_total} onChange={e => setForm({ ...form, background_fee_total: e.target.value })} placeholder="0.00" /></Field>
+            <Field label="Other fixed cost"><input className="input" type="number" min="0" step="0.01" value={form.other_cost_flat} onChange={e => setForm({ ...form, other_cost_flat: e.target.value })} placeholder="0.00" /></Field>
+          </div>
+        </details>
+        <button className="btn btn--primary" style={{ marginTop: 8 }} disabled={busy} data-testid="rates-draft-btn">{busy ? 'Saving...' : 'Draft contract rate'}</button>
       </form>
       {error && <p className="error" data-testid="rates-error">Error: {error.message}</p>}
     </div>

@@ -14,6 +14,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/placements.php';
+require_once __DIR__ . '/economics.php';
 
 if (!function_exists('placementsRateApproveOne')) {
     function placementsRateIsUnsafeJobDivaAutoDraft(array $rate): bool
@@ -56,8 +57,7 @@ if (!function_exists('placementsRateApproveOne')) {
             );
         }
 
-        $chain  = placementChain((int) $rate['placement_id']);
-        $margin = placementsComputeMargin($rate, $chain);
+        $margin = placementEconomicsApprovalSnapshot((int) currentTenantId(), $rate);
 
         $pdo = getDB();
         $ownsTxn = cf_tx_begin($pdo);
@@ -91,6 +91,7 @@ if (!function_exists('placementsRateApproveOne')) {
                     approved_at = NOW(),
                     adjusted_bill_rate = :abr,
                     net_to_vendor = :ntv,
+                    economics_snapshot_json = :snapshot,
                     is_correction = :ic,
                     correction_reason = :reason
                  WHERE tenant_id = :tenant_id AND id = :id'
@@ -99,6 +100,7 @@ if (!function_exists('placementsRateApproveOne')) {
                 'uid'       => $user['id'] ?? null,
                 'abr'       => $margin['adjusted_bill_rate'],
                 'ntv'       => $margin['net_to_vendor'],
+                'snapshot'  => json_encode($margin['economics_snapshot'], JSON_UNESCAPED_SLASHES),
                 'ic'        => $isCorrection ? 1 : 0,
                 'reason'    => $correctionReason,
                 'tenant_id' => currentTenantId(),

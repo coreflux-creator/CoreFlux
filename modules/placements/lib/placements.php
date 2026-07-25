@@ -403,15 +403,23 @@ function placementsComputeMargin(array $rate, array $chain): array
     }
     $bill = (float) $rate['bill_rate'];
     $pay  = (float) $rate['pay_rate'];
-    // Flat fee per hour amortization assumed at 160 hrs/month ≈ 173.33/mo equivalent;
-    // for stored snapshot we treat flat as $/hour input directly (UI converts),
-    // OR caller divides by their billable_hours_in_period as needed.
-    $adjusted = $bill * (1 - $totalPct) - $totalFlat;
-    $net      = $adjusted - $pay;
+    $adjusted = max(0,
+        $bill * (1 + (float) ($rate['bill_adder_pct'] ?? 0) - (float) ($rate['bill_discount_pct'] ?? 0))
+        + (float) ($rate['bill_adder_flat'] ?? 0)
+        - (float) ($rate['bill_discount_flat'] ?? 0)
+    );
+    $laborLoads = $pay * (
+        (float) ($rate['adder_pct'] ?? 0)
+        + (float) ($rate['workers_comp_pct'] ?? 0)
+        + (float) ($rate['benefits_load_pct'] ?? 0)
+    );
+    $hourlyCosts = $pay + $laborLoads + (float) ($rate['other_cost_per_hour'] ?? 0)
+        + ($adjusted * $totalPct) + $totalFlat;
+    $net = $adjusted - $hourlyCosts;
     return [
         'adjusted_bill_rate'    => round($adjusted, 4),
         'net_to_vendor'         => round($net, 4),
-        'gross_margin_per_hour' => round($adjusted - $pay, 4),
+        'gross_margin_per_hour' => round($net, 4),
         'total_portal_fee_pct'  => round($totalPct, 6),
     ];
 }

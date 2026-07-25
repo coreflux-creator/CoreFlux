@@ -178,8 +178,8 @@ $assert('field mapping can populate referral recipients, fees, terms, and PWP',
     && str_contains($fieldApply, 'integrationFieldMapEnsurePlacementReferralRow')
     && str_contains($fieldApply, "'placement_referrals' => ['placement_referral']"));
 
-$assert('placement UI presents one Economics workflow',
-    str_contains($ui, "{ slug: 'economics',   label: 'Economics' }")
+$assert('placement UI presents one Contract workflow',
+    str_contains($ui, "{ slug: 'economics',   label: 'Contract' }")
     && str_contains($ui, 'function EconomicsTab'));
 $assert('economics screen normalizes companies without exposing schedule machinery',
     str_contains($ui, '<CompanyTypeahead')

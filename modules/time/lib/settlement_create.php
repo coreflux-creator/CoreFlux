@@ -136,7 +136,25 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
             // 4) Create the target shell.
             $entryIdsForPlacement = array_map(fn ($e) => (int) $e['id'], $rows);
             if ($target === 'billing') {
-                $receivable = placementEconomicsReceivableContract((int) $placementsTenantId, $placementId, true);
+                $receivableContracts = [];
+                foreach (array_unique(array_column($lines, 'rate_snapshot_id')) as $rateSnapshotId) {
+                    $contract = placementEconomicsReceivableContract(
+                        (int) $placementsTenantId,
+                        $placementId,
+                        true,
+                        (int) $rateSnapshotId
+                    );
+                    $signature = ($contract['client_company_id'] ?? 0)
+                        . '|' . $contract['client_name']
+                        . '|' . $contract['payment_terms'];
+                    $receivableContracts[$signature] = $contract;
+                }
+                if (count($receivableContracts) !== 1) {
+                    throw new TimeSettlementException(
+                        "Placement #{$placementId} spans approved contract snapshots with different bill-to terms; settle them separately."
+                    );
+                }
+                $receivable = reset($receivableContracts);
                 $issueDate = date('Y-m-d');
                 $workDates = array_column($rows, 'work_date');
                 sort($workDates);
@@ -488,47 +506,65 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
             $entriesByPlacement = [];
             foreach ($bucket['entries'] as $entry) $entriesByPlacement[(int) $entry['placement_id']][] = $entry;
             foreach ($entriesByPlacement as $placementId => $placementEntries) {
-                $hours = 0.0; $billAmount = 0.0; $payAmount = 0.0; $workDates = [];
+                $entriesByRate = [];
                 foreach ($placementEntries as $entry) {
-                    $rate = $ratesById[(int) $entry['rate_snapshot_id']] ?? null;
-                    if (!$rate) continue;
-                    $entryHours = (float) $entry['hours'];
-                    $multiplier = timeRateCategoryMultiplier($rate, (string) $entry['category']);
-                    $hours += $entryHours;
-                    $billAmount += $entryHours * $multiplier * (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0);
-                    $payAmount += $entryHours * $multiplier * (float) ($rate['pay_rate'] ?? 0);
-                    $workDates[] = (string) $entry['work_date'];
+                    $entriesByRate[(int) $entry['rate_snapshot_id']][] = $entry;
                 }
-                sort($workDates);
-                $sourceRefId = min(array_map(static fn(array $entry): int => (int) $entry['id'], $placementEntries));
-                foreach (placementEconomicsPayrollCharges($tenantId, $placementId, $hours, $billAmount, $payAmount, end($workDates) ?: null) as $charge) {
-                    $recipient = placementEconomicsPayrollEmployee($tenantId, $charge);
-                    if (!$recipient) {
-                        throw new TimeSettlementException("Payroll recipient {$charge['display_name']} is not linked to a payroll-ready employee");
+                foreach ($entriesByRate as $rateSnapshotId => $snapshotEntries) {
+                    $hours = 0.0; $billAmount = 0.0; $payAmount = 0.0; $workDates = [];
+                    foreach ($snapshotEntries as $entry) {
+                        $rate = $ratesById[$rateSnapshotId] ?? null;
+                        if (!$rate) continue;
+                        $entryHours = (float) $entry['hours'];
+                        $multiplier = timeRateCategoryMultiplier($rate, (string) $entry['category']);
+                        $hours += $entryHours;
+                        $billAmount += $entryHours * $multiplier * (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0);
+                        $payAmount += $entryHours * $multiplier * (float) ($rate['pay_rate'] ?? 0);
+                        $workDates[] = (string) $entry['work_date'];
                     }
-                    $recipientCycleId = 0;
-                    if (!empty($charge['operating_cycle_id'])) {
-                        $cycleSt = $pdo->prepare('SELECT payroll_pay_cycle_id FROM staffing_operating_cycles WHERE tenant_id = :t AND id = :id');
-                        $cycleSt->execute(['t' => $tenantId, 'id' => (int) $charge['operating_cycle_id']]);
-                        $recipientCycleId = (int) $cycleSt->fetchColumn();
-                    }
-                    if ($recipientCycleId <= 0) $recipientCycleId = (int) ($recipient['cycle_id'] ?? $bucket['cycle_id']);
-                    $recipientRun = _settlementPayrollRunForCycle($pdo, $tenantId, $recipientCycleId, $actorUserId);
-                    if (!$recipientRun) throw new TimeSettlementException("No open payroll period for {$charge['display_name']}");
-                    placementEconomicsRecordObligation(
-                        $tenantId, $placementId, (int) $charge['id'], 'time_bundle', $sourceRefId,
-                        [
-                            'period_start' => reset($workDates) ?: null,
-                            'period_end' => end($workDates) ?: null,
-                            'quantity' => $charge['calculation_quantity'],
-                            'basis_amount' => $charge['calculation_basis_amount'],
-                            'amount' => $charge['calculated_amount'],
-                            'currency' => 'USD',
-                            'status' => 'payroll',
-                            'payroll_ref_id' => (int) $recipientRun['run_id'],
-                        ]
+                    sort($workDates);
+                    $sourceRefId = min(array_map(
+                        static fn(array $entry): int => (int) $entry['id'],
+                        $snapshotEntries
+                    ));
+                    $charges = placementEconomicsPayrollCharges(
+                        $tenantId,
+                        $placementId,
+                        $hours,
+                        $billAmount,
+                        $payAmount,
+                        end($workDates) ?: null,
+                        $rateSnapshotId
                     );
-                    $created[$createdKey]['economic_earnings']++;
+                    foreach ($charges as $charge) {
+                        $recipient = placementEconomicsPayrollEmployee($tenantId, $charge);
+                        if (!$recipient) {
+                            throw new TimeSettlementException("Payroll recipient {$charge['display_name']} is not linked to a payroll-ready employee");
+                        }
+                        $recipientCycleId = 0;
+                        if (!empty($charge['operating_cycle_id'])) {
+                            $cycleSt = $pdo->prepare('SELECT payroll_pay_cycle_id FROM staffing_operating_cycles WHERE tenant_id = :t AND id = :id');
+                            $cycleSt->execute(['t' => $tenantId, 'id' => (int) $charge['operating_cycle_id']]);
+                            $recipientCycleId = (int) $cycleSt->fetchColumn();
+                        }
+                        if ($recipientCycleId <= 0) $recipientCycleId = (int) ($recipient['cycle_id'] ?? $bucket['cycle_id']);
+                        $recipientRun = _settlementPayrollRunForCycle($pdo, $tenantId, $recipientCycleId, $actorUserId);
+                        if (!$recipientRun) throw new TimeSettlementException("No open payroll period for {$charge['display_name']}");
+                        placementEconomicsRecordObligation(
+                            $tenantId, $placementId, (int) $charge['id'], 'time_bundle', $sourceRefId,
+                            [
+                                'period_start' => reset($workDates) ?: null,
+                                'period_end' => end($workDates) ?: null,
+                                'quantity' => $charge['calculation_quantity'],
+                                'basis_amount' => $charge['calculation_basis_amount'],
+                                'amount' => $charge['calculated_amount'],
+                                'currency' => 'USD',
+                                'status' => 'payroll',
+                                'payroll_ref_id' => (int) $recipientRun['run_id'],
+                            ]
+                        );
+                        $created[$createdKey]['economic_earnings']++;
+                    }
                 }
             }
 

@@ -100,15 +100,23 @@ $chain = [
 ];
 $m = placementsComputeMargin($rate, $chain);
 $assert('total_portal_fee_pct = 0.02',                         abs($m['total_portal_fee_pct']  - 0.02) < 1e-6);
-$assert('adjusted_bill_rate = 100 * 0.98 = 98.00',             abs($m['adjusted_bill_rate']    - 98.00) < 1e-4);
-$assert('net_to_vendor = 98 - 60 = 38.00',                     abs($m['net_to_vendor']         - 38.00) < 1e-4);
+$assert('portal fee does not alter the client invoice rate',   abs($m['adjusted_bill_rate']    - 100.00) < 1e-4);
+$assert('margin = 100 - 60 - 2 portal fee = 38.00',            abs($m['net_to_vendor']         - 38.00) < 1e-4);
 
 // Additive stacking (SPEC §6 decision: portal fees stack additively)
 $chain2 = [['portal_fee_pct' => 0.03], ['portal_fee_pct' => 0.02], ['portal_fee_pct' => 0.01]];
 $m2 = placementsComputeMargin(['bill_rate' => 100, 'pay_rate' => 50], $chain2);
 $assert('additive stacking: 6% total',                         abs($m2['total_portal_fee_pct'] - 0.06) < 1e-6);
-$assert('adjusted = 100 * 0.94 = 94.00',                       abs($m2['adjusted_bill_rate']   - 94.00) < 1e-4);
-$assert('net = 94 - 50 = 44.00',                               abs($m2['net_to_vendor']        - 44.00) < 1e-4);
+$assert('stacked portal costs leave invoice at 100.00',        abs($m2['adjusted_bill_rate']   - 100.00) < 1e-4);
+$assert('margin = 100 - 50 - 6 = 44.00',                       abs($m2['net_to_vendor']        - 44.00) < 1e-4);
+
+$m3 = placementsComputeMargin([
+    'bill_rate' => 100,
+    'pay_rate' => 60,
+    'bill_discount_pct' => 0.05,
+], $chain);
+$assert('explicit client discount changes invoice to 95.00',   abs($m3['adjusted_bill_rate']   - 95.00) < 1e-4);
+$assert('portal cost follows discounted revenue',              abs($m3['net_to_vendor']        - 33.10) < 1e-4);
 
 echo "\nLegacy preserved\n";
 $leg = glob(__DIR__ . '/../legacy/placements_pre_spec_*');

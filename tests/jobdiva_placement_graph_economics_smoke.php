@@ -112,7 +112,8 @@ $a('rate writer recognizes common burden/other-cost fields',
     && str_contains($sync, "'credentialing fee'"));
 $a('rate SQL writes adder/background on update and insert',
     str_contains($sync, 'adder_pct = :adder, background_fee_total = :bg')
-    && str_contains($sync, 'adder_pct, background_fee_total)'));
+    && str_contains($sync, 'adder_pct, background_fee_total,')
+    && str_contains($sync, 'bill_adder_pct, bill_adder_flat'));
 $a('placement_rates mapping no longer falls through to placement id',
     str_contains($apply, "'placement_rates' => array_merge(['placement_rates'], \$rootSelfFallback)"));
 

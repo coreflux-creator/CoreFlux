@@ -133,7 +133,8 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
         $charges = placementEconomicsApCharges(
             $tenantId, $placementId, $hours,
             (float) $b['total_amount_bill'], (float) $b['total_amount_pay'],
-            (string) $period['end_date']
+            (string) $period['end_date'],
+            !empty($b['rate_snapshot_id']) ? (int) $b['rate_snapshot_id'] : null
         );
         if (!$charges) {
             throw new \RuntimeException(
@@ -379,7 +380,11 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
         $e['_pay_rate']         = round($base * $mult, 4);
         $e['_bill_rate']        = round((float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0) * $mult, 4);
         $e['_rate_snapshot_id'] = (int) $rate['id'];
-        $party = placementEconomicsPrimaryPayable($tenantId, (int) $e['placement_id']);
+        $party = placementEconomicsPrimaryPayable(
+            $tenantId,
+            (int) $e['placement_id'],
+            (int) $rate['id']
+        );
         $e['_primary_ap_party'] = $party;
         if ($party) {
             $e['_vendor_name'] = (string) ($party['vendor_name'] ?: $party['display_name']);
@@ -531,8 +536,23 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
         $payAmount = array_sum(array_map(static fn(array $r): float => (float) $r['hours'] * (float) $r['_pay_rate'], $rows));
         $dates = array_column($rows, 'work_date');
         sort($dates);
+        $rateSnapshotIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): int => (int) ($row['_rate_snapshot_id'] ?? 0),
+            $rows
+        ))));
+        $contractSnapshotId = placementEconomicsCommonContractSnapshotId(
+            $tenantId,
+            $placementId,
+            $rateSnapshotIds
+        );
         $charges = placementEconomicsApCharges(
-            $tenantId, $placementId, $hours, $billAmount, $payAmount, end($dates) ?: $today
+            $tenantId,
+            $placementId,
+            $hours,
+            $billAmount,
+            $payAmount,
+            end($dates) ?: $today,
+            $contractSnapshotId
         );
         foreach ($charges as $charge) {
             if ((string) $charge['fee_basis'] === 'pay_rate') continue;

@@ -166,6 +166,33 @@ function placementEconomicsEnsureCycle(
     $externalId = trim((string) $externalId) ?: $cadence;
     $name = trim((string) $name) ?: sprintf('%s %s', ucfirst($cadence), strtoupper($purpose));
     $pdo = getDB();
+
+    // Reuse an existing cycle before inserting. Older builds allowed a cycle
+    // with the same purpose/name to be created under a different source. The
+    // subsequent INSERT then hit that unique key while the old source lookup
+    // returned nothing, which surfaced as "Could not resolve frequency".
+    $existing = $pdo->prepare(
+        'SELECT id FROM staffing_operating_cycles
+          WHERE tenant_id = :t AND purpose = :purpose AND active = 1
+            AND (
+                 (source_system = :source_system AND external_id = :external_id)
+                 OR name = :name
+            )
+          ORDER BY (source_system = :source_system_order AND external_id = :external_id_order) DESC, id
+          LIMIT 1'
+    );
+    $existing->execute([
+        't' => $tenantId,
+        'purpose' => $purpose,
+        'source_system' => $sourceSystem,
+        'external_id' => $externalId,
+        'name' => $name,
+        'source_system_order' => $sourceSystem,
+        'external_id_order' => $externalId,
+    ]);
+    $existingId = (int) $existing->fetchColumn();
+    if ($existingId > 0) return $existingId;
+
     $pdo->prepare(
         'INSERT INTO staffing_operating_cycles
             (tenant_id, purpose, name, cadence, anchor_date, source_system, external_id, active)
@@ -193,7 +220,24 @@ function placementEconomicsEnsureCycle(
         'source_system' => $sourceSystem,
         'external_id' => $externalId,
     ]);
-    return (int) $st->fetchColumn() ?: null;
+    $resolved = (int) $st->fetchColumn();
+    if ($resolved > 0) return $resolved;
+
+    $fallback = $pdo->prepare(
+        'SELECT id FROM staffing_operating_cycles
+          WHERE tenant_id = :t AND purpose = :purpose AND active = 1
+            AND (name = :name OR cadence = :cadence)
+          ORDER BY (name = :name_order) DESC, id
+          LIMIT 1'
+    );
+    $fallback->execute([
+        't' => $tenantId,
+        'purpose' => $purpose,
+        'name' => $name,
+        'cadence' => $cadence,
+        'name_order' => $name,
+    ]);
+    return (int) $fallback->fetchColumn() ?: null;
 }
 
 function placementEconomicsEnsureStandardCycle(int $tenantId, string $purpose, string $cadence): ?int
@@ -203,6 +247,16 @@ function placementEconomicsEnsureStandardCycle(int $tenantId, string $purpose, s
         'ap' => 'vendor payment',
         'payroll' => 'employee payroll',
     ];
+    $existing = getDB()->prepare(
+        'SELECT id FROM staffing_operating_cycles
+          WHERE tenant_id = :t AND purpose = :purpose AND cadence = :cadence AND active = 1
+          ORDER BY (source_system = "standard_cadence") DESC, id
+          LIMIT 1'
+    );
+    $existing->execute(['t' => $tenantId, 'purpose' => $purpose, 'cadence' => $cadence]);
+    $existingId = (int) $existing->fetchColumn();
+    if ($existingId > 0) return $existingId;
+
     $anchor = in_array($cadence, ['weekly','biweekly'], true) ? '1970-01-05'
         : (in_array($cadence, ['semimonthly','monthly'], true) ? '1970-01-01' : null);
     return placementEconomicsEnsureCycle(
@@ -256,6 +310,41 @@ function placementEconomicsEnsureDerivedCycles(int $tenantId, array &$placement)
         'UPDATE placements SET ' . implode(', ', $sets) . '
           WHERE tenant_id = :t AND id = :p'
     )->execute($params);
+}
+
+/**
+ * A non-W2 placement pays its base labor rate through AP. If an operator has
+ * already added exactly one AP vendor but left the old generic calculation at
+ * "none", make that vendor the labor-pay recipient. We only infer when the
+ * choice is unambiguous; multiple vendors still require an explicit choice.
+ */
+function placementEconomicsRepairPrimaryLaborPayee(int $tenantId, int $placementId, string $engagement): void
+{
+    if (!in_array(strtolower($engagement), ['1099','c2c','direct_hire'], true)) return;
+    $pdo = getDB();
+    $hasLabor = $pdo->prepare(
+        'SELECT 1 FROM placement_economic_parties
+          WHERE tenant_id = :t AND placement_id = :p AND active = 1
+            AND money_flow = "payable" AND fee_basis = "pay_rate"
+          LIMIT 1'
+    );
+    $hasLabor->execute(['t' => $tenantId, 'p' => $placementId]);
+    if ($hasLabor->fetchColumn()) return;
+
+    $candidates = $pdo->prepare(
+        'SELECT id FROM placement_economic_parties
+          WHERE tenant_id = :t AND placement_id = :p AND active = 1
+            AND source_type = "manual" AND settlement_channel = "ap"
+            AND money_flow = "payable" AND fee_basis = "none"
+          ORDER BY id'
+    );
+    $candidates->execute(['t' => $tenantId, 'p' => $placementId]);
+    $ids = array_map('intval', $candidates->fetchAll(\PDO::FETCH_COLUMN) ?: []);
+    if (count($ids) !== 1) return;
+    $pdo->prepare(
+        'UPDATE placement_economic_parties SET fee_basis = "pay_rate"
+          WHERE tenant_id = :t AND id = :id'
+    )->execute(['t' => $tenantId, 'id' => $ids[0]]);
 }
 
 function placementEconomicsUpsertParty(int $tenantId, int $placementId, array $party): int
@@ -630,6 +719,8 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
             ]);
         }
 
+        placementEconomicsRepairPrimaryLaborPayee($tenantId, $placementId, $engagement);
+
         $managedRefs = array_values(array_unique($summary['source_refs']));
         $managedSourceTypes = ['placement','worker','chain','corp','referral','commission'];
         $params = ['t' => $tenantId, 'p' => $placementId];
@@ -685,8 +776,63 @@ function placementEconomicsParties(int $tenantId, int $placementId): array
     return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 }
 
-function placementEconomicsReceivableContract(int $tenantId, int $placementId, bool $reconcile = true): array
+function placementEconomicsRateSnapshot(int $tenantId, int $placementId, ?int $rateSnapshotId): ?array
 {
+    if (!$rateSnapshotId) return null;
+    $st = getDB()->prepare(
+        'SELECT economics_snapshot_json
+           FROM placement_rates
+          WHERE tenant_id = :t AND placement_id = :p AND id = :rate_id
+            AND approved_at IS NOT NULL
+          LIMIT 1'
+    );
+    $st->execute(['t' => $tenantId, 'p' => $placementId, 'rate_id' => $rateSnapshotId]);
+    $snapshot = json_decode((string) $st->fetchColumn(), true);
+    return is_array($snapshot) && !empty($snapshot['available']) ? $snapshot : null;
+}
+
+function placementEconomicsSnapshotParties(int $tenantId, int $placementId, ?int $rateSnapshotId): ?array
+{
+    $snapshot = placementEconomicsRateSnapshot($tenantId, $placementId, $rateSnapshotId);
+    $parties = $snapshot['contract_parties'] ?? null;
+    return is_array($parties) ? array_values($parties) : null;
+}
+
+function placementEconomicsCommonContractSnapshotId(
+    int $tenantId,
+    int $placementId,
+    array $rateSnapshotIds
+): ?int {
+    $ids = array_values(array_unique(array_filter(array_map('intval', $rateSnapshotIds))));
+    if (!$ids) return null;
+    $selectedId = null;
+    $signature = null;
+    foreach ($ids as $id) {
+        $parties = placementEconomicsSnapshotParties($tenantId, $placementId, $id);
+        if ($parties === null) return null;
+        $candidate = json_encode($parties, JSON_UNESCAPED_SLASHES);
+        if ($signature !== null && $candidate !== $signature) {
+            throw new \RuntimeException(
+                "Placement #{$placementId} spans approved snapshots with different payment participants or terms; settle each contract period separately."
+            );
+        }
+        $signature = $candidate;
+        $selectedId ??= $id;
+    }
+    return $selectedId;
+}
+
+function placementEconomicsReceivableContract(
+    int $tenantId,
+    int $placementId,
+    bool $reconcile = true,
+    ?int $rateSnapshotId = null
+): array
+{
+    $snapshot = placementEconomicsRateSnapshot($tenantId, $placementId, $rateSnapshotId);
+    if (is_array($snapshot['receivable_contract'] ?? null)) {
+        return $snapshot['receivable_contract'];
+    }
     if ($reconcile) placementEconomicsReconcile($tenantId, $placementId);
     $receivables = array_values(array_filter(
         placementEconomicsParties($tenantId, $placementId),
@@ -807,31 +953,62 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
     ];
 }
 
-function placementEconomicsModel(int $tenantId, int $placementId, ?array $parties = null): array
-{
+function placementEconomicsModelForRate(
+    int $tenantId,
+    int $placementId,
+    array $rate,
+    ?array $parties = null
+): array {
     $parties = $parties ?? placementEconomicsParties($tenantId, $placementId);
-    $st = getDB()->prepare(
-        'SELECT * FROM placement_rates
-          WHERE tenant_id = :t AND placement_id = :p AND approved_at IS NOT NULL
-          ORDER BY effective_from DESC, id DESC LIMIT 1'
-    );
-    $st->execute(['t' => $tenantId, 'p' => $placementId]);
-    $rate = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
-    if (!$rate) return ['available' => false, 'hourly_lines' => [], 'fixed_lines' => []];
+    $billRate = max(0, (float) ($rate['bill_rate'] ?? 0));
+    $payRate = max(0, (float) ($rate['pay_rate'] ?? 0));
 
-    $billRate = (float) $rate['bill_rate'];
-    $payRate = (float) $rate['pay_rate'];
-    $baseMargin = max(0, $billRate - $payRate);
+    $billAdderPct = max(0, (float) ($rate['bill_adder_pct'] ?? 0));
+    $billAdderFlat = max(0, (float) ($rate['bill_adder_flat'] ?? 0));
+    $billDiscountPct = max(0, (float) ($rate['bill_discount_pct'] ?? 0));
+    $billDiscountFlat = max(0, (float) ($rate['bill_discount_flat'] ?? 0));
+    $invoiceRate = max(0, $billRate * (1 + $billAdderPct - $billDiscountPct)
+        + $billAdderFlat - $billDiscountFlat);
+
+    $revenueLines = [];
+    foreach ([
+        ['Client rate adder', 'bill_rate_pct', $billRate * $billAdderPct],
+        ['Client rate adder', 'per_hour', $billAdderFlat],
+        ['Client discount', 'bill_rate_pct', -$billRate * $billDiscountPct],
+        ['Client discount', 'per_hour', -$billDiscountFlat],
+    ] as [$name, $basis, $amount]) {
+        if (abs($amount) < 0.0001) continue;
+        $revenueLines[] = [
+            'name' => $name, 'basis' => $basis, 'amount' => round($amount, 4),
+            'settlement_channel' => 'ar',
+        ];
+    }
+
+    $laborPayees = array_values(array_filter($parties, static fn(array $party): bool =>
+        ($party['money_flow'] ?? '') === 'payable' && ($party['fee_basis'] ?? '') === 'pay_rate'
+    ));
+    $laborPayee = count($laborPayees) === 1 ? $laborPayees[0] : null;
     $hourlyLines = [];
-    $fixedLines = [];
+    if ($payRate > 0) {
+        $hourlyLines[] = [
+            'economic_party_id' => $laborPayee ? (int) $laborPayee['id'] : null,
+            'name' => $laborPayee ? (string) $laborPayee['display_name'] : 'Unassigned labor compensation',
+            'role' => $laborPayee ? (string) $laborPayee['role'] : 'labor_payee_missing',
+            'basis' => 'pay_rate',
+            'amount' => round($payRate, 4),
+            'settlement_channel' => $laborPayee ? (string) $laborPayee['settlement_channel'] : 'none',
+        ];
+    }
+
+    $baseMargin = max(0, $invoiceRate - $payRate);
     foreach ($parties as $party) {
         if (($party['money_flow'] ?? '') !== 'payable') continue;
         $basis = (string) ($party['fee_basis'] ?? 'none');
-        $pct = (float) ($party['fee_pct'] ?? 0);
-        $flat = (float) ($party['fee_flat'] ?? 0);
+        if ($basis === 'pay_rate') continue;
+        $pct = max(0, (float) ($party['fee_pct'] ?? 0));
+        $flat = max(0, (float) ($party['fee_flat'] ?? 0));
         $amount = match ($basis) {
-            'pay_rate' => $payRate,
-            'portal_fee_pct', 'pct_bill', 'bill_rate' => $billRate * $pct,
+            'portal_fee_pct', 'pct_bill', 'bill_rate' => $invoiceRate * $pct,
             'pct_margin', 'net_margin', 'gross_margin' => $baseMargin * $pct,
             'per_hour' => $flat,
             default => 0.0,
@@ -845,50 +1022,208 @@ function placementEconomicsModel(int $tenantId, int $placementId, ?array $partie
                 'amount' => round($amount, 4),
                 'settlement_channel' => (string) $party['settlement_channel'],
             ];
-        } elseif (in_array($basis, ['portal_fee_flat','per_invoice','one_time','flat'], true) && $flat > 0) {
-            $fixedLines[] = [
-                'economic_party_id' => (int) $party['id'],
-                'name' => (string) $party['display_name'],
-                'role' => (string) $party['role'],
-                'basis' => $basis,
-                'amount' => round($flat, 2),
-                'settlement_channel' => (string) $party['settlement_channel'],
-            ];
         }
     }
-    $adderPct = (float) ($rate['adder_pct'] ?? 0);
-    if ($adderPct > 0) {
+
+    foreach ([
+        ['Payroll / employer load', 'employer_load', (float) ($rate['adder_pct'] ?? 0)],
+        ['Workers compensation', 'workers_comp', (float) ($rate['workers_comp_pct'] ?? 0)],
+        ['Benefits load', 'benefits_load', (float) ($rate['benefits_load_pct'] ?? 0)],
+    ] as [$name, $role, $pct]) {
+        if ($pct <= 0 || $payRate <= 0) continue;
         $hourlyLines[] = [
-            'economic_party_id' => null, 'name' => 'Rate adder / burden', 'role' => 'rate_adder',
-            'basis' => 'pay_rate_pct', 'amount' => round($payRate * $adderPct, 4),
-            'settlement_channel' => 'payroll',
+            'economic_party_id' => null, 'name' => $name, 'role' => $role,
+            'basis' => 'pay_rate_pct', 'amount' => round($payRate * $pct, 4),
+            'settlement_channel' => 'none',
         ];
     }
-    $backgroundFee = (float) ($rate['background_fee_total'] ?? 0);
-    if ($backgroundFee > 0) {
+    $otherHourly = max(0, (float) ($rate['other_cost_per_hour'] ?? 0));
+    if ($otherHourly > 0) {
+        $hourlyLines[] = [
+            'economic_party_id' => null, 'name' => 'Other recurring cost', 'role' => 'other_cost',
+            'basis' => 'per_hour', 'amount' => round($otherHourly, 4), 'settlement_channel' => 'none',
+        ];
+    }
+
+    $fixedLines = [];
+    foreach ($parties as $party) {
+        if (($party['money_flow'] ?? '') !== 'payable') continue;
+        $basis = (string) ($party['fee_basis'] ?? 'none');
+        $flat = max(0, (float) ($party['fee_flat'] ?? 0));
+        if (!in_array($basis, ['portal_fee_flat','per_invoice','one_time','flat'], true) || $flat <= 0) continue;
         $fixedLines[] = [
-            'economic_party_id' => null, 'name' => 'Background and onboarding costs', 'role' => 'background_cost',
-            'basis' => 'fixed', 'amount' => round($backgroundFee, 2), 'settlement_channel' => 'ap',
+            'economic_party_id' => (int) $party['id'],
+            'name' => (string) $party['display_name'],
+            'role' => (string) $party['role'],
+            'basis' => $basis,
+            'amount' => round($flat, 2),
+            'settlement_channel' => (string) $party['settlement_channel'],
         ];
     }
+    foreach ([
+        ['Background and onboarding costs', 'background_cost', (float) ($rate['background_fee_total'] ?? 0)],
+        ['Other fixed cost', 'other_cost', (float) ($rate['other_cost_flat'] ?? 0)],
+    ] as [$name, $role, $amount]) {
+        if ($amount <= 0) continue;
+        $fixedLines[] = [
+            'economic_party_id' => null, 'name' => $name, 'role' => $role,
+            'basis' => 'fixed', 'amount' => round($amount, 2), 'settlement_channel' => 'none',
+        ];
+    }
+
     $hourlyCost = array_sum(array_column($hourlyLines, 'amount'));
-    $net = $billRate - $hourlyCost;
+    $net = $invoiceRate - $hourlyCost;
     return [
         'available' => true,
-        'rate_id' => (int) $rate['id'],
+        'rate_id' => (int) ($rate['id'] ?? 0),
+        'effective_from' => $rate['effective_from'] ?? null,
+        'effective_to' => $rate['effective_to'] ?? null,
+        'approved' => !empty($rate['approved_at']),
         'currency' => (string) ($rate['currency'] ?? 'USD'),
         'bill_rate' => round($billRate, 4),
+        'invoice_bill_rate' => round($invoiceRate, 4),
+        'pay_rate' => round($payRate, 4),
+        'labor_payee_resolved' => $laborPayee !== null,
+        'labor_payee_count' => count($laborPayees),
         'modeled_hourly_cost' => round($hourlyCost, 4),
         'modeled_hourly_margin' => round($net, 4),
-        'modeled_margin_pct' => $billRate > 0 ? round($net / $billRate, 6) : 0,
+        'modeled_margin_pct' => $invoiceRate > 0 ? round($net / $invoiceRate, 6) : 0,
         'fixed_obligations' => round(array_sum(array_column($fixedLines, 'amount')), 2),
+        'revenue_lines' => $revenueLines,
         'hourly_lines' => $hourlyLines,
         'fixed_lines' => $fixedLines,
     ];
 }
 
-function placementEconomicsPrimaryPayable(int $tenantId, int $placementId): ?array
+function placementEconomicsModel(int $tenantId, int $placementId, ?array $parties = null): array
 {
+    $parties = $parties ?? placementEconomicsParties($tenantId, $placementId);
+    $st = getDB()->prepare(
+        'SELECT * FROM placement_rates
+          WHERE tenant_id = :t AND placement_id = :p AND approved_at IS NOT NULL
+          ORDER BY effective_from DESC, id DESC LIMIT 1'
+    );
+    $st->execute(['t' => $tenantId, 'p' => $placementId]);
+    $rate = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+    if (!$rate) return ['available' => false, 'revenue_lines' => [], 'hourly_lines' => [], 'fixed_lines' => []];
+
+    $snapshot = json_decode((string) ($rate['economics_snapshot_json'] ?? ''), true);
+    if (is_array($snapshot) && !empty($snapshot['available'])) return $snapshot;
+    return placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties);
+}
+
+function placementEconomicsApprovalSnapshot(int $tenantId, array $rate): array
+{
+    $placementId = (int) ($rate['placement_id'] ?? 0);
+    placementEconomicsReconcile($tenantId, $placementId);
+    $parties = placementEconomicsParties($tenantId, $placementId);
+    $model = placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties);
+    if ((float) ($model['pay_rate'] ?? 0) > 0 && empty($model['labor_payee_resolved'])) {
+        $count = (int) ($model['labor_payee_count'] ?? 0);
+        throw new \RuntimeException($count > 1
+            ? 'This rate has multiple primary labor payees. Choose one worker or vendor before approval.'
+            : 'This rate has no primary labor payee. Assign the worker or vendor who receives the pay rate before approval.');
+    }
+    $portalPct = 0.0;
+    foreach ($parties as $party) {
+        if (($party['money_flow'] ?? '') === 'payable' && ($party['fee_basis'] ?? '') === 'portal_fee_pct') {
+            $portalPct += (float) ($party['fee_pct'] ?? 0);
+        }
+    }
+    $contractParties = [];
+    foreach ($parties as $party) {
+        $channel = (string) ($party['settlement_channel'] ?? 'none');
+        $terms = in_array($channel, ['ar','ap'], true)
+            ? placementEconomicsNormaliseTerms((string) (
+                $party['payment_terms'] ?: $party['vendor_default_terms'] ?: 'NET30'
+            ))
+            : null;
+        $termsPwp = $channel === 'ap' && placementEconomicsTermsArePwp($terms);
+        $resolvedPwp = $channel === 'ap' && (
+            !empty($party['pwp_enabled'])
+            || (empty($party['pwp_overridden']) && !empty($party['vendor_default_pwp']))
+            || $termsPwp
+        );
+        $contractParties[] = [
+            'id' => (int) ($party['id'] ?? 0),
+            'source_ref' => $party['source_ref'] ?? null,
+            'source_type' => $party['source_type'] ?? null,
+            'role' => $party['role'] ?? 'other',
+            'display_name' => $party['display_name'] ?? '',
+            'company_id' => !empty($party['company_id']) ? (int) $party['company_id'] : null,
+            'person_id' => !empty($party['person_id']) ? (int) $party['person_id'] : null,
+            'user_id' => !empty($party['user_id']) ? (int) $party['user_id'] : null,
+            'ap_vendor_id' => !empty($party['ap_vendor_id']) ? (int) $party['ap_vendor_id'] : null,
+            'vendor_company_id' => !empty($party['company_id']) ? (int) $party['company_id'] : null,
+            'vendor_name' => $party['vendor_name'] ?? null,
+            'vendor_type' => $party['vendor_type'] ?? null,
+            'money_flow' => $party['money_flow'] ?? 'informational',
+            'settlement_channel' => $channel,
+            'fee_basis' => $party['fee_basis'] ?? 'none',
+            'fee_pct' => isset($party['fee_pct']) ? (float) $party['fee_pct'] : null,
+            'fee_flat' => isset($party['fee_flat']) ? (float) $party['fee_flat'] : null,
+            'payment_terms' => $terms,
+            'resolved_payment_terms' => $terms !== null
+                ? placementEconomicsResolvedTerms($terms, $resolvedPwp)
+                : null,
+            'resolved_pwp' => $resolvedPwp,
+            'operating_cycle_id' => !empty($party['operating_cycle_id'])
+                ? (int) $party['operating_cycle_id']
+                : null,
+            'cycle_name' => $party['cycle_name'] ?? null,
+            'cycle_purpose' => $party['cycle_purpose'] ?? null,
+            'cycle_cadence' => $party['cycle_cadence'] ?? null,
+            'effective_from' => $party['effective_from'] ?? null,
+            'effective_to' => $party['effective_to'] ?? null,
+        ];
+    }
+    $receivable = array_values(array_filter($contractParties, static fn(array $party): bool =>
+        $party['money_flow'] === 'receivable' && $party['settlement_channel'] === 'ar'
+    ));
+    $model['contract_version'] = 1;
+    $model['contract_parties'] = $contractParties;
+    if (count($receivable) === 1) {
+        $billTo = $receivable[0];
+        $model['receivable_contract'] = [
+            'economic_party_id' => (int) $billTo['id'],
+            'client_name' => (string) $billTo['display_name'],
+            'client_company_id' => $billTo['company_id'],
+            'payment_terms' => (string) ($billTo['resolved_payment_terms'] ?? 'NET30'),
+            'payment_terms_days' => placementEconomicsTermsDays(
+                (string) ($billTo['resolved_payment_terms'] ?? 'NET30'),
+                30
+            ),
+            'operating_cycle_id' => $billTo['operating_cycle_id'],
+            'cadence' => $billTo['cycle_cadence'],
+        ];
+    }
+    return [
+        'adjusted_bill_rate' => (float) $model['invoice_bill_rate'],
+        // Legacy column name retained for compatibility. Its value is the
+        // fully modeled hourly margin, not the amount paid to the vendor.
+        'net_to_vendor' => (float) $model['modeled_hourly_margin'],
+        'gross_margin_per_hour' => (float) $model['modeled_hourly_margin'],
+        'total_portal_fee_pct' => round($portalPct, 6),
+        'economics_snapshot' => $model,
+    ];
+}
+
+function placementEconomicsPrimaryPayable(
+    int $tenantId,
+    int $placementId,
+    ?int $rateSnapshotId = null
+): ?array
+{
+    $snapshotParties = placementEconomicsSnapshotParties($tenantId, $placementId, $rateSnapshotId);
+    if ($snapshotParties !== null) {
+        $payees = array_values(array_filter($snapshotParties, static fn(array $party): bool =>
+            ($party['money_flow'] ?? '') === 'payable'
+            && ($party['settlement_channel'] ?? '') === 'ap'
+            && ($party['fee_basis'] ?? '') === 'pay_rate'
+        ));
+        if (count($payees) !== 1) return null;
+        return $payees[0];
+    }
     placementEconomicsReconcile($tenantId, $placementId);
     $st = getDB()->prepare(
         'SELECT ep.*, v.vendor_name, v.vendor_type,
@@ -925,11 +1260,14 @@ function placementEconomicsApCharges(
     float $hours,
     float $billAmount,
     float $payAmount,
-    ?string $asOf = null
+    ?string $asOf = null,
+    ?int $rateSnapshotId = null
 ): array {
     $asOf = $asOf ?: date('Y-m-d');
     $charges = [];
-    foreach (placementEconomicsParties($tenantId, $placementId) as $party) {
+    $parties = placementEconomicsSnapshotParties($tenantId, $placementId, $rateSnapshotId)
+        ?? placementEconomicsParties($tenantId, $placementId);
+    foreach ($parties as $party) {
         if (($party['money_flow'] ?? '') !== 'payable' || ($party['settlement_channel'] ?? '') !== 'ap') continue;
         if (!empty($party['effective_from']) && strcmp((string) $party['effective_from'], $asOf) > 0) continue;
         if (!empty($party['effective_to']) && strcmp((string) $party['effective_to'], $asOf) < 0) continue;
@@ -961,16 +1299,20 @@ function placementEconomicsApCharges(
         $party['calculated_amount'] = $amount;
         $party['calculation_quantity'] = $basis === 'per_hour' || $basis === 'pay_rate' ? $hours : 1;
         $party['calculation_basis_amount'] = round($basisAmount, 2);
-        $termsImplyPwp = placementEconomicsTermsArePwp(
-            (string) ($party['payment_terms'] ?: $party['vendor_default_terms'] ?: 'NET30')
-        );
-        $party['resolved_pwp'] = !empty($party['pwp_overridden'])
-            ? !empty($party['pwp_enabled']) || $termsImplyPwp
-            : !empty($party['pwp_enabled']) || !empty($party['vendor_default_pwp']) || $termsImplyPwp;
-        $party['resolved_payment_terms'] = placementEconomicsResolvedTerms(
-            (string) ($party['payment_terms'] ?: $party['vendor_default_terms'] ?: 'NET30'),
-            (bool) $party['resolved_pwp']
-        );
+        if (!array_key_exists('resolved_pwp', $party)) {
+            $termsImplyPwp = placementEconomicsTermsArePwp(
+                (string) ($party['payment_terms'] ?: $party['vendor_default_terms'] ?: 'NET30')
+            );
+            $party['resolved_pwp'] = !empty($party['pwp_overridden'])
+                ? !empty($party['pwp_enabled']) || $termsImplyPwp
+                : !empty($party['pwp_enabled']) || !empty($party['vendor_default_pwp']) || $termsImplyPwp;
+        }
+        if (empty($party['resolved_payment_terms'])) {
+            $party['resolved_payment_terms'] = placementEconomicsResolvedTerms(
+                (string) ($party['payment_terms'] ?: $party['vendor_default_terms'] ?: 'NET30'),
+                (bool) $party['resolved_pwp']
+            );
+        }
         $charges[] = $party;
     }
     return $charges;
@@ -987,11 +1329,14 @@ function placementEconomicsPayrollCharges(
     float $hours,
     float $billAmount,
     float $payAmount,
-    ?string $asOf = null
+    ?string $asOf = null,
+    ?int $rateSnapshotId = null
 ): array {
     $asOf = $asOf ?: date('Y-m-d');
     $charges = [];
-    foreach (placementEconomicsParties($tenantId, $placementId) as $party) {
+    $parties = placementEconomicsSnapshotParties($tenantId, $placementId, $rateSnapshotId)
+        ?? placementEconomicsParties($tenantId, $placementId);
+    foreach ($parties as $party) {
         if (($party['money_flow'] ?? '') !== 'payable' || ($party['settlement_channel'] ?? '') !== 'payroll') continue;
         if (($party['fee_basis'] ?? '') === 'pay_rate' || ($party['role'] ?? '') === 'worker') continue;
         if (!empty($party['effective_from']) && strcmp((string) $party['effective_from'], $asOf) > 0) continue;

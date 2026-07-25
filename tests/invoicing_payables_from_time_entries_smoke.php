@@ -39,11 +39,13 @@ $a('billing helper enforces max 500 entries',
     str_contains($billLib, 'Too many time_entry_ids (max 500 per call)'));
 $a('billing helper rejects non-approved entries',
     str_contains($billLib, 'only approved entries can be invoiced'));
-$a('billing helper resolves rate via placementCurrentRate()',
-    str_contains($billLib, 'placementCurrentRate((int) $e[\'placement_id\']'));
+$a('billing helper resolves each entry through its locked rate snapshot',
+    str_contains($billLib, 'timeRateSnapshotsById(')
+    && str_contains($billLib, "\$e['_rate_snapshot_id']")
+    && !str_contains($billLib, 'placementCurrentRate((int) $e[\'placement_id\']'));
 $a('billing helper applies OT/DT multipliers per hour_type',
-    str_contains($billLib, "'overtime'   => \$ot")
-    && str_contains($billLib, "'doubletime' => \$dt"));
+    str_contains($billLib, 'timeRateCategoryMultiplier(')
+    && str_contains($billLib, "\$e['hour_type']"));
 $a('billing helper uses source_type="time_entry" on lines',
     str_contains($billLib, "'source_type'      => 'time_entry'"));
 $a('billing helper returns invoice + lines + entry_ids',
@@ -56,8 +58,10 @@ $a('AP helper validates aggregation enum',
     str_contains($apLib, "in_array(\$aggregation, ['per_day', 'per_placement', 'per_vendor']"));
 $a('AP helper validates entry status',
     str_contains($apLib, 'only approved entries can be paid'));
-$a('AP helper recognises c2c corp vs 1099 individual',
-    str_contains($apLib, "'c2c_corp'") && str_contains($apLib, "'1099_individual'"));
+$a('AP helper resolves vendor identity and type from the canonical economic party',
+    str_contains($apLib, 'placementEconomicsPrimaryPayable(')
+    && str_contains($apLib, "\$party['vendor_type']")
+    && str_contains($apLib, "'1099_individual'"));
 $a('AP helper joins placement_corp_details for corp name',
     str_contains($apLib, 'LEFT JOIN placement_corp_details pcd ON pcd.placement_id = p.id'));
 $a('AP helper applies pay_rate * multiplier',

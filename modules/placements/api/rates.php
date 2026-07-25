@@ -169,6 +169,19 @@ if ($method === 'POST') {
     $body = api_json_body();
     api_require_fields($body, ['effective_from', 'bill_rate', 'pay_rate']);
 
+    $nullableNumber = static function (string $field) use ($body): ?float {
+        if (!array_key_exists($field, $body) || $body[$field] === null || $body[$field] === '') return null;
+        if (!is_numeric($body[$field])) api_error("{$field} must be numeric", 422);
+        return (float) $body[$field];
+    };
+    $percentFields = [
+        'adder_pct','bill_adder_pct','bill_discount_pct','workers_comp_pct','benefits_load_pct',
+    ];
+    foreach ($percentFields as $field) {
+        $value = $nullableNumber($field);
+        if ($value !== null && ($value < 0 || $value > 10)) api_error("{$field} must be between 0 and 10", 422);
+    }
+
     $id = scopedInsert('placement_rates', [
         'placement_id'    => $pid,
         'effective_from'  => $body['effective_from'],
@@ -181,6 +194,14 @@ if ($method === 'POST') {
         'ot_multiplier'   => $body['ot_multiplier']   ?? 1.5,
         'dt_multiplier'   => $body['dt_multiplier']   ?? 2.0,
         'adder_pct'       => $body['adder_pct']       ?? null,
+        'bill_adder_pct'  => $nullableNumber('bill_adder_pct'),
+        'bill_adder_flat' => $nullableNumber('bill_adder_flat'),
+        'bill_discount_pct'  => $nullableNumber('bill_discount_pct'),
+        'bill_discount_flat' => $nullableNumber('bill_discount_flat'),
+        'workers_comp_pct' => $nullableNumber('workers_comp_pct'),
+        'benefits_load_pct' => $nullableNumber('benefits_load_pct'),
+        'other_cost_per_hour' => $nullableNumber('other_cost_per_hour'),
+        'other_cost_flat' => $nullableNumber('other_cost_flat'),
         'background_fee_total' => $body['background_fee_total'] ?? null,
         'created_by_user_id'   => $user['id'] ?? null,
     ]);

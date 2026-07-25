@@ -119,8 +119,14 @@ function billingBuildDraftFromBundle(int $tenantId, int $periodId, array $placem
     foreach ($groups as $key => $groupBundles) {
         $first = $groupBundles[0];
         $contracts = [];
-        foreach (array_unique(array_map(static fn(array $row): int => (int) $row['placement_id'], $groupBundles)) as $groupPlacementId) {
-            $contract = placementEconomicsReceivableContract((int) $placementsTenantId, $groupPlacementId, true);
+        foreach ($groupBundles as $contractBundle) {
+            $groupPlacementId = (int) $contractBundle['placement_id'];
+            $contract = placementEconomicsReceivableContract(
+                (int) $placementsTenantId,
+                $groupPlacementId,
+                true,
+                !empty($contractBundle['rate_snapshot_id']) ? (int) $contractBundle['rate_snapshot_id'] : null
+            );
             $signature = ($contract['client_company_id'] ?? 0) . '|' . $contract['client_name'] . '|' . $contract['payment_terms'];
             $contracts[$signature] = $contract;
         }
@@ -320,8 +326,14 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
     foreach ($groups as $key => $rows) {
         $first = $rows[0];
         $contracts = [];
-        foreach (array_unique(array_map(static fn(array $row): int => (int) $row['placement_id'], $rows)) as $groupPlacementId) {
-            $contract = placementEconomicsReceivableContract((int) $placementsTenantId, $groupPlacementId, true);
+        foreach ($rows as $contractRow) {
+            $groupPlacementId = (int) $contractRow['placement_id'];
+            $contract = placementEconomicsReceivableContract(
+                (int) $placementsTenantId,
+                $groupPlacementId,
+                true,
+                !empty($contractRow['_rate_snapshot_id']) ? (int) $contractRow['_rate_snapshot_id'] : null
+            );
             $signature = ($contract['client_company_id'] ?? 0) . '|' . $contract['client_name'] . '|' . $contract['payment_terms'];
             $contracts[$signature] = $contract;
         }
