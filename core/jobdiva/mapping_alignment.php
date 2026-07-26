@@ -121,6 +121,46 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
         ] as $readinessKey => $issueCode) {
             $relationships['placement_graph'][$readinessKey] = (int) ($projectorReadiness[$readinessKey] ?? 0);
         }
+        $invalidAssignmentSources = _jobdivaMappingInvalidPlacementSources($pdo, $tenantId, 5000);
+        $relationships['placement_graph']['locally_disqualified_assignment_sources'] = count($invalidAssignmentSources);
+        if ($invalidAssignmentSources) {
+            $samples['locally_disqualified_assignment_sources'] = array_slice(
+                $invalidAssignmentSources,
+                0,
+                min(10, $limit)
+            );
+        }
+        _jobdivaMappingAddIssue(
+            $issues,
+            'critical',
+            'placement_non_assignment_source',
+            'placement',
+            count($invalidAssignmentSources),
+            'CoreFlux placements were created from JobDiva rows that are not qualified Starts/Assignments.',
+            'Run Repair alignment. Offer, canceled, candidate, job, and other pipeline rows will be removed from the live placements graph.'
+        );
+        _jobdivaMappingAddIssue(
+            $issues,
+            'critical',
+            'placement_unverified_assignment_source',
+            'placement',
+            _jobdivaMappingScalar(
+                $pdo,
+                "SELECT COUNT(*)
+                   FROM external_entity_mappings m
+                   JOIN placements p
+                     ON p.tenant_id = m.tenant_id
+                    AND p.id = m.internal_entity_id
+                  WHERE m.tenant_id = :t
+                    AND m.source_system = 'jobdiva'
+                    AND m.internal_entity_type = 'placement'
+                    AND m.sync_status = 'deleted_in_source'
+                    AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')",
+                ['t' => $tenantId]
+            ),
+            'CoreFlux placements are bound to JobDiva IDs that could not be verified as Starts/Assignments.',
+            'Run Repair alignment. Unused shells will be archived; financially-used records remain quarantined for review.'
+        );
         _jobdivaMappingAddIssue(
             $issues,
             'critical',
@@ -662,6 +702,167 @@ function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user, int $l
     return $summary;
 }
 
+function jobdivaMappingRepairAssignmentSources(int $tenantId, ?int $userId = null, int $limit = 5000): array
+{
+    $summary = [
+        'checked' => 0,
+        'verified' => 0,
+        'non_assignments' => 0,
+        'not_found' => 0,
+        'placements_archived' => 0,
+        'quarantined' => 0,
+        'api_errors' => 0,
+        'failed' => 0,
+        'errors' => [],
+    ];
+    $limit = max(1, min(5000, $limit));
+    $pdo = getDB();
+    if (!$pdo) {
+        $summary['failed']++;
+        $summary['errors'][] = 'No database connection';
+        return $summary;
+    }
+
+    try {
+        $st = $pdo->prepare(
+            "SELECT m.id AS mapping_id, m.external_id, m.internal_entity_id AS placement_id,
+                    m.payload_snapshot
+               FROM external_entity_mappings m
+               JOIN placements p
+                 ON p.tenant_id = m.tenant_id
+                AND p.id = m.internal_entity_id
+              WHERE m.tenant_id = :t
+                AND m.source_system = 'jobdiva'
+                AND m.internal_entity_type = 'placement'
+                AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
+              ORDER BY m.id ASC
+              LIMIT {$limit}"
+        );
+        $st->execute(['t' => $tenantId]);
+        $rows = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) {
+        $summary['failed']++;
+        $summary['errors'][] = 'query_failed: ' . $e->getMessage();
+        return $summary;
+    }
+
+    foreach ($rows as $row) {
+        $summary['checked']++;
+        $mappingId = (int) ($row['mapping_id'] ?? 0);
+        $placementId = (int) ($row['placement_id'] ?? 0);
+        $externalId = jobdivaAssignmentIdentityNormaliseId((string) ($row['external_id'] ?? ''));
+        if ($mappingId <= 0 || $placementId <= 0 || $externalId === '') {
+            $summary['failed']++;
+            if (count($summary['errors']) < 20) {
+                $summary['errors'][] = "placement {$placementId}: invalid mapping identity";
+            }
+            continue;
+        }
+
+        $exact = jobdivaFetchExactAssignmentById($tenantId, $externalId);
+        $status = (string) ($exact['status'] ?? 'error');
+        if ($status === 'verified' && is_array($exact['row'] ?? null)) {
+            $stored = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
+            if (!is_array($stored)) $stored = [];
+            foreach (['_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment'] as $assignmentKey) {
+                unset($stored[$assignmentKey]);
+            }
+            $payload = array_replace($stored, $exact['row']);
+            $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
+            $payload = jobdivaAssignmentMarkVerified(
+                $payload,
+                $externalId,
+                (string) (($exact['identity']['channel'] ?? '') ?: 'repair:exact_assignment')
+            );
+            mappingUpsert(
+                $tenantId,
+                'jobdiva',
+                'placement',
+                $externalId,
+                $placementId,
+                $payload,
+                'pull',
+                $userId
+            );
+            $pdo->prepare(
+                "UPDATE external_entity_mappings
+                    SET sync_status = 'ok', last_error = NULL, last_seen_at = NOW()
+                  WHERE tenant_id = :t AND id = :id"
+            )->execute(['t' => $tenantId, 'id' => $mappingId]);
+            $summary['verified']++;
+            continue;
+        }
+
+        $error = substr((string) ($exact['error'] ?? 'JobDiva assignment verification failed'), 0, 500);
+        if ($status === 'not_assignment') $summary['non_assignments']++;
+        if ($status === 'not_found') $summary['not_found']++;
+        if ($status === 'error') {
+            $pdo->prepare(
+                "UPDATE external_entity_mappings
+                    SET sync_status = 'error', last_error = :err
+                  WHERE tenant_id = :t AND id = :id"
+            )->execute(['err' => $error, 't' => $tenantId, 'id' => $mappingId]);
+            $summary['api_errors']++;
+            $summary['failed']++;
+            if (count($summary['errors']) < 20) {
+                $summary['errors'][] = "placement {$placementId}: {$error}";
+            }
+            continue;
+        }
+
+        $blocking = _jobdivaMappingDuplicatePlacementBlockingChildren($pdo, $tenantId, [$placementId]);
+        try {
+            $pdo->beginTransaction();
+            $pdo->prepare(
+                "UPDATE external_entity_mappings
+                    SET sync_status = 'deleted_in_source', last_error = :err
+                  WHERE tenant_id = :t AND id = :id"
+            )->execute(['err' => $error, 't' => $tenantId, 'id' => $mappingId]);
+            $pdo->prepare(
+                "UPDATE external_entity_mappings
+                    SET sync_status = 'deleted_in_source', last_error = :err
+                  WHERE tenant_id = :t
+                    AND source_system = 'jobdiva'
+                    AND internal_entity_type = 'jobdiva_assignment'
+                    AND external_id = :eid"
+            )->execute(['err' => $error, 't' => $tenantId, 'eid' => $externalId]);
+            if (!$blocking) {
+                $pdo->prepare(
+                    "UPDATE placements
+                        SET deleted_at = NOW(), updated_at = NOW()
+                      WHERE tenant_id = :t AND id = :id
+                        AND (deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00')"
+                )->execute(['t' => $tenantId, 'id' => $placementId]);
+                $summary['placements_archived']++;
+            } else {
+                $summary['quarantined']++;
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $summary['failed']++;
+            if (count($summary['errors']) < 20) {
+                $summary['errors'][] = "placement {$placementId}: " . $e->getMessage();
+            }
+        }
+    }
+
+    if (function_exists('jobdivaAudit')) {
+        try {
+            jobdivaAudit($tenantId, 'mapping_alignment_repair_assignment_sources', [
+                'ok' => $summary['failed'] === 0,
+                'direction' => 'pull',
+                'actor_user_id' => $userId,
+                'items_processed' => $summary['verified'] + $summary['placements_archived'],
+                'items_skipped' => $summary['quarantined'],
+                'items_failed' => $summary['failed'],
+                'detail' => $summary,
+            ]);
+        } catch (\Throwable $_) {}
+    }
+    return $summary;
+}
+
 function jobdivaMappingRepairCanonicalProjection(int $tenantId, ?int $userId = null, int $limit = 5000): array
 {
     $summary = [
@@ -745,8 +946,9 @@ function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5
     $startedAt = gmdate('c');
     $steps = [];
 
-    // Order matters: replay source evidence into canonical graph owners first,
-    // then clean duplicate/orphan placement shells and downstream blockers.
+    // Identity is verified before replay. A candidate/job/contact payload can
+    // enrich a placement, but it can never become one.
+    $steps['assignment_sources'] = jobdivaMappingRepairAssignmentSources($tenantId, $userId, $limit);
     $steps['canonical_projection'] = jobdivaMappingRepairCanonicalProjection($tenantId, $userId, $limit);
     $steps['duplicate_placements'] = jobdivaMappingRepairDuplicatePlacements($tenantId, $userId, min(500, $limit), false);
     $steps['client_links'] = jobdivaMappingRepairStaffingClientLinks($tenantId, $userId, $limit);
@@ -1132,6 +1334,61 @@ function _jobdivaMappingRehomePlacementMapping(\PDO $pdo, int $tenantId, string 
         'content_hash' => $hash,
         'direction' => $direction,
     ]);
+}
+
+function _jobdivaMappingInvalidPlacementSources(\PDO $pdo, int $tenantId, int $limit = 5000): array
+{
+    $limit = max(1, min(5000, $limit));
+    $rows = _jobdivaMappingRows(
+        $pdo,
+        "SELECT m.internal_entity_id AS placement_id, m.external_id, m.payload_snapshot,
+                p.title
+           FROM external_entity_mappings m
+           JOIN placements p
+             ON p.tenant_id = m.tenant_id
+            AND p.id = m.internal_entity_id
+          WHERE m.tenant_id = :t
+            AND m.source_system = 'jobdiva'
+            AND m.internal_entity_type = 'placement'
+            AND m.sync_status = 'ok'
+            AND m.payload_snapshot IS NOT NULL
+            AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
+          ORDER BY m.id ASC
+          LIMIT {$limit}",
+        ['t' => $tenantId]
+    );
+
+    $invalid = [];
+    foreach ($rows as $row) {
+        $payload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
+        if (!is_array($payload)) {
+            $invalid[] = [
+                'placement_id' => (int) ($row['placement_id'] ?? 0),
+                'external_id' => (string) ($row['external_id'] ?? ''),
+                'title' => (string) ($row['title'] ?? ''),
+                'reason' => 'invalid_payload_snapshot',
+            ];
+            continue;
+        }
+
+        // Only the root source row may establish placement eligibility.
+        // Assignment mirrors are enrichment and may be stale or cross-linked.
+        foreach (['_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment'] as $key) {
+            unset($payload[$key]);
+        }
+        $identity = jobdivaAssignmentValidate(
+            $payload,
+            (string) ($row['external_id'] ?? '')
+        );
+        if (!empty($identity['valid'])) continue;
+        $invalid[] = [
+            'placement_id' => (int) ($row['placement_id'] ?? 0),
+            'external_id' => (string) ($row['external_id'] ?? ''),
+            'title' => (string) ($row['title'] ?? ''),
+            'reason' => (string) ($identity['reason'] ?? 'invalid_assignment_source'),
+        ];
+    }
+    return $invalid;
 }
 
 function _jobdivaMappingCountsByType(\PDO $pdo, int $tenantId): array

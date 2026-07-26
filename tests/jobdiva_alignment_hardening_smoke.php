@@ -52,7 +52,8 @@ $a('applyAll coerces target values before bucketing writes',
     str_contains($apply, '$val = integrationFieldMapCoerceTargetValue($val, $m);'));
 $a('placement engagement and rate economics are explicitly coerced',
     str_contains($apply, "\$table === 'placements' && \$col === 'engagement_type'")
-    && str_contains($apply, "in_array(\$col, ['bill_rate', 'pay_rate'"));
+    && str_contains($apply, "'bill_rate', 'pay_rate', 'flat_amount'")
+    && str_contains($apply, 'return integrationFieldMapNumberValue($val);'));
 
 echo "\n3. Tenant mappings can explicitly win over built-in engagement scans\n";
 $a('field map exposes an explicit internal-field presence helper',

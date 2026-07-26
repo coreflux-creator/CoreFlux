@@ -10,6 +10,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/assignment_identity.php';
 require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
@@ -64,6 +65,7 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
             'contact_id' => 0,
         ],
         'join_stats' => [],
+        'source_identity' => ['valid' => false, 'reason' => 'not_checked'],
         'mapping_writes' => 0,
         'field_map' => ['attempted' => 0, 'written' => 0, 'skipped' => 0, 'errors' => []],
         'readiness' => ['ok' => false, 'missing' => ['not_projected'], 'warnings' => [], 'facts' => []],
@@ -95,6 +97,20 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         if (str_starts_with($externalId, 'jd:')) $externalId = substr($externalId, 3);
         if ($externalId === '') throw new \RuntimeException('missing JobDiva placement/start id');
         $summary['external_id'] = $externalId;
+
+        $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
+        $sourceIdentity = jobdivaAssignmentValidate($payload, $externalId);
+        $summary['source_identity'] = $sourceIdentity;
+        if (empty($sourceIdentity['valid'])) {
+            throw new \RuntimeException(
+                'rejected JobDiva placement projection: ' . (string) ($sourceIdentity['reason'] ?? 'unverified assignment')
+            );
+        }
+        $payload = jobdivaAssignmentMarkVerified(
+            $payload,
+            $externalId,
+            (string) ($sourceIdentity['channel'] ?? 'projector')
+        );
 
         $personId = (int) ($opts['person_id'] ?? 0);
         if ($personId <= 0 && function_exists('jobdivaPlacementsAutoCreatePerson')) {

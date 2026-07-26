@@ -81,11 +81,28 @@ function jobdivaPlacementsFetchViaSearchStart(int $tid, array $opts): array
     foreach ($candidates as $body) {
         try {
             $resp  = jobdivaCall($tid, 'POST', JOBDIVA_PATH_SEARCH_START, $body);
-            $items = jobdivaPlacementsExtractList($resp);
+            $rawItems = jobdivaPlacementsExtractList($resp);
+            $items = [];
+            $rejected = 0;
+            foreach ($rawItems as $row) {
+                if (!is_array($row)) {
+                    $rejected++;
+                    continue;
+                }
+                $assignmentId = jobdivaAssignmentRowId($row);
+                $identity = jobdivaAssignmentValidate($row, $assignmentId);
+                if ($assignmentId === '' || empty($identity['valid'])) {
+                    $rejected++;
+                    continue;
+                }
+                $items[] = jobdivaAssignmentMarkVerified($row, $assignmentId, 'searchStart:discovery');
+            }
             $attempts[] = [
                 'criteria' => array_keys($body),
                 'status'   => 'ok',
                 'count'    => count($items),
+                'raw_count'=> count($rawItems),
+                'rejected_non_assignments' => $rejected,
             ];
             if (count($items) > 0) {
                 return ['items' => $items, 'attempts' => $attempts];
@@ -135,10 +152,18 @@ function jobdivaPlacementsFetchViaTimesheets(int $tid, array $opts): array
     $attempts = [];
     foreach ($unique as $pid) {
         try {
-            $resp = jobdivaCall($tid, 'POST', JOBDIVA_PATH_SEARCH_START, ['startId' => $pid]);
-            $list = jobdivaPlacementsExtractList($resp);
-            foreach ($list as $row) $records[] = $row;
-            $attempts[] = ['startId' => $pid, 'status' => 'ok', 'count' => count($list)];
+            $exact = jobdivaFetchExactAssignmentById($tid, (string) $pid);
+            if (($exact['status'] ?? '') === 'verified' && is_array($exact['row'] ?? null)) {
+                $records[] = $exact['row'];
+                $attempts[] = ['startId' => $pid, 'status' => 'verified', 'count' => 1];
+            } else {
+                $attempts[] = [
+                    'startId' => $pid,
+                    'status' => (string) ($exact['status'] ?? 'not_found'),
+                    'count' => 0,
+                    'error' => (string) ($exact['error'] ?? ''),
+                ];
+            }
         } catch (\Throwable $e) {
             $attempts[] = ['startId' => $pid, 'status' => 'error', 'error' => substr($e->getMessage(), 0, 200)];
             // Single-ID fetch failure is non-fatal — log and continue.

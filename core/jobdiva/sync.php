@@ -26,6 +26,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/client.php';
+require_once __DIR__ . '/assignment_identity.php';
 require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../integrations/payload_field_index.php';
@@ -54,6 +55,115 @@ require_once __DIR__ . '/projector.php';
 const JOBDIVA_PATH_COMPANIES_DELTA  = '/apiv2/bi/NewUpdatedCompanyRecords';
 const JOBDIVA_PATH_CONTACTS_DELTA   = '/apiv2/bi/NewUpdatedContactRecords';
 const JOBDIVA_PATH_TIMESHEETS_DELTA = '/apiv2/bi/NewUpdatedTimesheetRecords';
+
+/**
+ * Fetch one Start/Assignment and require JobDiva to echo the same identity.
+ * A successful HTTP response containing a different row is not a match.
+ */
+function jobdivaFetchExactAssignmentById(int $tenantId, string $assignmentId): array
+{
+    $assignmentId = jobdivaAssignmentIdentityNormaliseId($assignmentId);
+    if ($tenantId <= 0 || $assignmentId === '') {
+        return ['status' => 'invalid_request', 'row' => null, 'error' => 'missing assignment id'];
+    }
+    $seenIds = [];
+    $endpointErrors = [];
+    try {
+        $detailResponse = jobdivaCall(
+            $tenantId,
+            'GET',
+            '/apiv2/bi/EmployeeAssignmentRecordsDetail',
+            null,
+            ['startId' => $assignmentId, 'userFieldsName' => '']
+        );
+        foreach (jobdivaAssignmentRowsFromResponse($detailResponse) as $row) {
+            if (!is_array($row)) continue;
+            $rowId = jobdivaAssignmentIdentityNormaliseId(
+                jobdivaAssignmentIdentityPluck($row, [
+                    'startId', 'start_id', 'STARTID', 'placementId', 'placement_id', 'id',
+                ])
+            );
+            if ($rowId !== '') $seenIds[] = $rowId;
+            if ($rowId !== $assignmentId) continue;
+            $row = jobdivaAssignmentMarkVerified(
+                $row,
+                $assignmentId,
+                'employee_assignment_records:exact'
+            );
+            $identity = jobdivaAssignmentValidate(
+                $row,
+                $assignmentId,
+                'employee_assignment_records:exact'
+            );
+            if (!empty($identity['valid'])) {
+                return [
+                    'status' => 'verified',
+                    'row' => $row,
+                    'error' => null,
+                    'seen_ids' => $seenIds,
+                    'identity' => $identity,
+                ];
+            }
+        }
+    } catch (\Throwable $e) {
+        $endpointErrors[] = 'EmployeeAssignmentRecordsDetail: ' . substr($e->getMessage(), 0, 300);
+    }
+
+    try {
+        $response = jobdivaCall(
+            $tenantId,
+            'POST',
+            '/apiv2/jobdiva/searchStart',
+            ['startId' => $assignmentId]
+        );
+        $matchedButUnqualified = null;
+        foreach (jobdivaAssignmentRowsFromResponse($response) as $row) {
+            if (!is_array($row)) continue;
+            $rowId = jobdivaAssignmentRowId($row);
+            if ($rowId !== '') $seenIds[] = $rowId;
+            if ($rowId !== $assignmentId) continue;
+            $identity = jobdivaAssignmentValidate($row, $assignmentId, 'searchStart:exact');
+            if (empty($identity['valid'])) {
+                $matchedButUnqualified = $identity;
+                continue;
+            }
+            $row = jobdivaAssignmentMarkVerified($row, $assignmentId, 'searchStart:exact');
+            return [
+                'status' => 'verified',
+                'row' => $row,
+                'error' => null,
+                'seen_ids' => $seenIds,
+                'identity' => $identity,
+            ];
+        }
+        if ($matchedButUnqualified !== null) {
+            return [
+                'status' => 'not_assignment',
+                'row' => null,
+                'error' => 'JobDiva row is not a qualified Start/Assignment: '
+                    . (string) ($matchedButUnqualified['reason'] ?? 'unqualified state'),
+                'seen_ids' => $seenIds,
+                'identity' => $matchedButUnqualified,
+            ];
+        }
+        return [
+            'status' => 'not_found',
+            'row' => null,
+            'error' => $seenIds
+                ? 'JobDiva returned different assignment ids: ' . implode(',', array_values(array_unique($seenIds)))
+                : 'JobDiva did not return a qualified assignment with the requested Start ID',
+            'seen_ids' => $seenIds,
+        ];
+    } catch (\Throwable $e) {
+        $endpointErrors[] = 'searchStart: ' . substr($e->getMessage(), 0, 300);
+        return [
+            'status' => 'error',
+            'row' => null,
+            'error' => implode('; ', $endpointErrors),
+            'seen_ids' => $seenIds,
+        ];
+    }
+}
 
 /**
  * Resilient case/space-insensitive field lookup for JobDiva BI records.
@@ -1049,14 +1159,19 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
     ]);
 
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
-    $skipReasons = ['missing_fields' => 0, 'no_person' => 0];
+    $skipReasons = ['missing_fields' => 0, 'no_person' => 0, 'invalid_assignment_source' => 0];
 
     foreach ($items as $jd) {
         try {
+            $jd = jobdivaAssignmentSanitisePayload($jd);
             $jd = jobdivaCanonicalPlacementPayload($jd, jobdivaExtractJoinedSubPayloads($jd));
-            $extId        = jobdivaPluckField($jd, [
-                'id', 'startId', 'start_id', 'placementId', 'placement_id', 'startID',
-            ]);
+            $sourceIdentity = jobdivaAssignmentValidate($jd);
+            if (empty($sourceIdentity['valid'])) {
+                $skipped++;
+                $skipReasons['invalid_assignment_source']++;
+                continue;
+            }
+            $extId        = (string) ($sourceIdentity['assignment_id'] ?? '');
             $startDate    = jobdivaPluckField($jd, [
                 'startDate', 'start_date', 'start date', 'startdate',
             ]);
@@ -1353,7 +1468,24 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
                     $resp = jobdivaCall($tid, 'POST', $cfg['endpoint'], [$bodyKey => $id]);
                 }
                 $rows = jobdivaRowsFromResponse($resp);
-                if (is_array($rows) && count($rows) > 0 && is_array($rows[0])) {
+                if ($kind === 'start') {
+                    $matchingStart = null;
+                    foreach ($rows as $row) {
+                        if (!is_array($row) || jobdivaAssignmentRowId($row) !== (string) $id) continue;
+                        $matchingStart = jobdivaAssignmentMarkVerified($row, (string) $id, 'searchStart:enrichment');
+                        break;
+                    }
+                    if ($matchingStart !== null) {
+                        $cache[$kind][$id] = $matchingStart;
+                        $diag[$kind]['succeeded']++;
+                    } else {
+                        $cache[$kind][$id] = null;
+                        $diag[$kind]['empty_response']++;
+                        if ($diag[$kind]['sample_error'] === null && count($rows) > 0) {
+                            $diag[$kind]['sample_error'] = 'searchStart returned rows, but none had the requested Start ID';
+                        }
+                    }
+                } elseif (is_array($rows) && count($rows) > 0 && is_array($rows[0])) {
                     $cache[$kind][$id] = $rows[0];
                     $diag[$kind]['succeeded']++;
                 } else {
@@ -1891,6 +2023,7 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
               WHERE tenant_id = :t
                 AND source_system = 'jobdiva'
                 AND internal_entity_type = 'placement'
+                AND sync_status = 'ok'
                 AND payload_snapshot IS NOT NULL"
         );
         $st->execute(['t' => $tenantId]);
@@ -2027,6 +2160,7 @@ function jobdivaMirrorPayloadByExternalId(int $tenantId, string $entityType, str
                 AND source_system = 'jobdiva'
                 AND internal_entity_type = :et
                 AND external_id = :eid
+                AND sync_status = 'ok'
                 AND payload_snapshot IS NOT NULL
               LIMIT 1"
         );
@@ -2049,6 +2183,8 @@ function jobdivaPlacementPayloadWithMirrors(int $tenantId, array $payload, array
         'contacts_joined'    => 0,
         'assignments_joined' => 0,
     ];
+
+    $payload = jobdivaAssignmentSanitisePayload($payload);
 
     $jobId = jobdivaPluckFieldDeep($payload, ['job id', 'jobId', 'job_id', 'jobID', 'JOBID']);
     if ($jobId !== '') {
@@ -2087,9 +2223,13 @@ function jobdivaPlacementPayloadWithMirrors(int $tenantId, array $payload, array
     if ($startId !== '') {
         $assignment = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_assignment', $startId);
         if ($assignment) {
-            $payload['_jd_start'] = $assignment;
-            $payload['assignment'] = $assignment;
-            $stats['assignments_joined']++;
+            $identity = jobdivaAssignmentValidate($assignment, $startId);
+            $context = jobdivaAssignmentContextEvidence($assignment, $payload);
+            if (!empty($identity['valid']) && !empty($context['matches'])) {
+                $payload['_jd_start'] = $assignment;
+                $payload['assignment'] = $assignment;
+                $stats['assignments_joined']++;
+            }
         }
     }
 
@@ -2123,6 +2263,7 @@ function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, in
               WHERE m.tenant_id = :t
                 AND m.source_system = 'jobdiva'
                 AND m.internal_entity_type = 'placement'
+                AND m.sync_status = 'ok'
                 AND m.payload_snapshot IS NOT NULL
                 AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
               ORDER BY m.updated_at DESC, m.id DESC
@@ -3435,6 +3576,12 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
 {
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
+    $sourceIdentity = jobdivaAssignmentValidate($jd, $extId);
+    if (empty($sourceIdentity['valid'])) {
+        throw new \RuntimeException(
+            'JobDiva placement write refused: ' . (string) ($sourceIdentity['reason'] ?? 'unverified assignment')
+        );
+    }
     $canonicalExternalId = 'jd:' . $extId;
     $forceProjection = !empty($jd['__cf_force_projection']);
     $economicOptions = jobdivaSyncPlacementEconomicOptions($jd);
@@ -4687,6 +4834,7 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
         'assignment_employee_records_errors'   => [],
         'assignment_search_start_attempts'     => 0,
         'assignment_search_start_errors'       => [],
+        'assignment_identity_rejections'       => 0,
     ];
     $pdo = getDB();
     if (!$pdo) {
@@ -4701,6 +4849,7 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
           WHERE tenant_id = :t
             AND source_system = 'jobdiva'
             AND internal_entity_type = 'placement'
+            AND sync_status = 'ok'
             AND payload_snapshot IS NOT NULL"
     );
     $st->execute(['t' => $tid]);
@@ -4821,12 +4970,29 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
         $assignmentRecords = [];
         $cap = (int) ($opts['assignment_cap'] ?? 500);
         $batch = array_slice($startIds, 0, $cap);
-        $appendAssignmentRecord = static function (mixed $row, string $startId) use (&$assignmentRecords): void {
+        $appendAssignmentRecord = static function (
+            mixed $row,
+            string $startId,
+            string $channel
+        ) use (&$assignmentRecords, &$stats): void {
             if (!is_array($row)) return;
-            $hasStartId = jobdivaPluckField($row, ['id', 'startId', 'start_id', 'startID', 'STARTID', 'placementId']);
-            if ($hasStartId === '') {
-                $row['startId'] = $startId;
-                $row['id'] = $startId;
+            $rowId = jobdivaAssignmentRowId($row);
+            if ($rowId === '' && str_contains($channel, 'employee_assignment_records')) {
+                $rowId = jobdivaAssignmentIdentityNormaliseId(
+                    jobdivaAssignmentIdentityPluck($row, [
+                        'startId', 'start_id', 'STARTID', 'placementId', 'placement_id', 'id',
+                    ])
+                );
+            }
+            if ($rowId === '' || $rowId !== jobdivaAssignmentIdentityNormaliseId($startId)) {
+                $stats['assignment_identity_rejections']++;
+                return;
+            }
+            $row = jobdivaAssignmentMarkVerified($row, $rowId, $channel);
+            $identity = jobdivaAssignmentValidate($row, $rowId, $channel);
+            if (empty($identity['valid'])) {
+                $stats['assignment_identity_rejections']++;
+                return;
             }
             $assignmentRecords[] = $row;
         };
@@ -4841,14 +5007,20 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
                 ]);
                 if (is_array($resp)) {
                     if (isset($resp['data']) && is_array($resp['data'])) {
-                        foreach ($resp['data'] as $row) $appendAssignmentRecord($row, (string) $sid);
+                        foreach ($resp['data'] as $row) {
+                            $appendAssignmentRecord($row, (string) $sid, 'employee_assignment_records:exact');
+                        }
                     } elseif (isset($resp['items']) && is_array($resp['items'])) {
-                        foreach ($resp['items'] as $row) $appendAssignmentRecord($row, (string) $sid);
+                        foreach ($resp['items'] as $row) {
+                            $appendAssignmentRecord($row, (string) $sid, 'employee_assignment_records:exact');
+                        }
                     } elseif (!empty($resp) && array_keys($resp) === range(0, count($resp) - 1)) {
-                        foreach ($resp as $row) $appendAssignmentRecord($row, (string) $sid);
+                        foreach ($resp as $row) {
+                            $appendAssignmentRecord($row, (string) $sid, 'employee_assignment_records:exact');
+                        }
                     } elseif (!empty($resp)) {
                         // Some BI endpoints return a single record (object) not wrapped.
-                        $appendAssignmentRecord($resp, (string) $sid);
+                        $appendAssignmentRecord($resp, (string) $sid, 'employee_assignment_records:exact');
                     }
                 }
             } catch (\Throwable $e) {
@@ -4889,7 +5061,9 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
                             }
                         }
                     }
-                    foreach ($list as $row) $appendAssignmentRecord($row, (string) $sid);
+                    foreach ($list as $row) {
+                        $appendAssignmentRecord($row, (string) $sid, 'searchStart:exact_fallback');
+                    }
                 } catch (\Throwable $e) {
                     $msg = $e->getMessage();
                     $ch2Errors[] = ['startId' => (string) $sid, 'error' => substr($msg, 0, 200)];

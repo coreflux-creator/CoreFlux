@@ -93,7 +93,16 @@ if ($action === 'webhook') {
             $record = $payload['data'] ?? $payload['record'] ?? $payload['placement'] ?? $payload['start'] ?? null;
             $items  = [];
             if (is_array($record)) {
-                $items = [$record];
+                $recordId = jobdivaAssignmentRowId($record);
+                $identity = jobdivaAssignmentValidate($record, $recordId);
+                if ($recordId !== '' && !empty($identity['valid'])) {
+                    $items = [jobdivaAssignmentMarkVerified($record, $recordId, 'webhook:start_event')];
+                } elseif ($recordId !== '') {
+                    $exact = jobdivaFetchExactAssignmentById($tid, $recordId);
+                    if (($exact['status'] ?? '') === 'verified' && is_array($exact['row'] ?? null)) {
+                        $items = [$exact['row']];
+                    }
+                }
             } else {
                 $startId = (string) (
                     $payload['startId']
@@ -102,8 +111,10 @@ if ($action === 'webhook') {
                     ?? ($payload['data']['id'] ?? '')
                 );
                 if ($startId !== '') {
-                    $resp = jobdivaCall($tid, 'POST', JOBDIVA_PATH_SEARCH_START, ['startId' => $startId]);
-                    $items = jobdivaPlacementsExtractList($resp);
+                    $exact = jobdivaFetchExactAssignmentById($tid, $startId);
+                    if (($exact['status'] ?? '') === 'verified' && is_array($exact['row'] ?? null)) {
+                        $items = [$exact['row']];
+                    }
                 }
             }
             if (count($items) > 0) {
