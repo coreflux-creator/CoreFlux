@@ -707,10 +707,14 @@ function jobdivaMappingRepairAssignmentSources(int $tenantId, ?int $userId = nul
     $summary = [
         'checked' => 0,
         'verified' => 0,
+        'stored_assignments_trusted' => 0,
         'non_assignments' => 0,
         'not_found' => 0,
+        'placements_restored' => 0,
         'placements_archived' => 0,
+        'archived_retained' => 0,
         'quarantined' => 0,
+        'review_required' => 0,
         'api_errors' => 0,
         'failed' => 0,
         'errors' => [],
@@ -726,15 +730,18 @@ function jobdivaMappingRepairAssignmentSources(int $tenantId, ?int $userId = nul
     try {
         $st = $pdo->prepare(
             "SELECT m.id AS mapping_id, m.external_id, m.internal_entity_id AS placement_id,
-                    m.payload_snapshot
+                    m.payload_snapshot, m.last_seen_at AS mapping_last_seen_at,
+                    p.deleted_at AS placement_deleted_at,
+                    c.last_sync_at AS connection_last_sync_at
                FROM external_entity_mappings m
                JOIN placements p
                  ON p.tenant_id = m.tenant_id
                 AND p.id = m.internal_entity_id
+               LEFT JOIN jobdiva_connections c
+                 ON c.tenant_id = m.tenant_id
               WHERE m.tenant_id = :t
                 AND m.source_system = 'jobdiva'
                 AND m.internal_entity_type = 'placement'
-                AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
               ORDER BY m.id ASC
               LIMIT {$limit}"
         );
@@ -759,54 +766,112 @@ function jobdivaMappingRepairAssignmentSources(int $tenantId, ?int $userId = nul
             continue;
         }
 
+        $stored = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
+        if (!is_array($stored)) $stored = [];
+        $stored = jobdivaAssignmentSanitisePayload($stored, $externalId);
+        $storedValidation = jobdivaAssignmentValidate($stored, $externalId);
+        $storedObservedInLatestSync = jobdivaAssignmentObservedInLatestSync(
+            $storedValidation,
+            (string) ($row['mapping_last_seen_at'] ?? ''),
+            (string) ($row['connection_last_sync_at'] ?? '')
+        );
+        $wasArchived = !empty($row['placement_deleted_at'])
+            && (string) $row['placement_deleted_at'] !== '0000-00-00 00:00:00';
+
         $exact = jobdivaFetchExactAssignmentById($tenantId, $externalId);
         $status = (string) ($exact['status'] ?? 'error');
-        if ($status === 'verified' && is_array($exact['row'] ?? null)) {
-            $stored = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
-            if (!is_array($stored)) $stored = [];
+        $decision = jobdivaAssignmentSourceDecision(
+            $exact,
+            $storedValidation,
+            $externalId,
+            $storedObservedInLatestSync
+        );
+        $action = (string) ($decision['action'] ?? 'review');
+        if ($action === 'remote_verified' || $action === 'trusted_stored') {
+            $payload = $stored;
+            $channel = (string) (($storedValidation['channel'] ?? '') ?: 'repair:stored_assignment_evidence');
+            if ($action === 'remote_verified' && is_array($exact['row'] ?? null)) {
+                $payload = $exact['row'];
+                $channel = (string) (($exact['identity']['channel'] ?? '') ?: 'repair:exact_assignment');
+            }
             foreach (['_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment'] as $assignmentKey) {
                 unset($stored[$assignmentKey]);
             }
-            $payload = array_replace($stored, $exact['row']);
+            $payload = array_replace($stored, $payload);
             $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
-            $payload = jobdivaAssignmentMarkVerified(
-                $payload,
-                $externalId,
-                (string) (($exact['identity']['channel'] ?? '') ?: 'repair:exact_assignment')
-            );
-            mappingUpsert(
-                $tenantId,
-                'jobdiva',
-                'placement',
-                $externalId,
-                $placementId,
-                $payload,
-                'pull',
-                $userId
-            );
-            $pdo->prepare(
-                "UPDATE external_entity_mappings
-                    SET sync_status = 'ok', last_error = NULL, last_seen_at = NOW()
-                  WHERE tenant_id = :t AND id = :id"
-            )->execute(['t' => $tenantId, 'id' => $mappingId]);
-            $summary['verified']++;
+            $payload = jobdivaAssignmentMarkVerified($payload, $externalId, $channel);
+            try {
+                $pdo->beginTransaction();
+                mappingUpsert(
+                    $tenantId,
+                    'jobdiva',
+                    'placement',
+                    $externalId,
+                    $placementId,
+                    $payload,
+                    'pull',
+                    $userId
+                );
+                $pdo->prepare(
+                    "UPDATE external_entity_mappings
+                        SET sync_status = 'ok', last_error = NULL, last_seen_at = NOW()
+                      WHERE tenant_id = :t AND id = :id"
+                )->execute(['t' => $tenantId, 'id' => $mappingId]);
+                $pdo->prepare(
+                    "UPDATE external_entity_mappings
+                        SET sync_status = 'ok', last_error = NULL, last_seen_at = NOW()
+                      WHERE tenant_id = :t
+                        AND source_system = 'jobdiva'
+                        AND internal_entity_type = 'jobdiva_assignment'
+                        AND external_id = :eid"
+                )->execute(['t' => $tenantId, 'eid' => $externalId]);
+                if ($wasArchived) {
+                    $pdo->prepare(
+                        "UPDATE placements
+                            SET deleted_at = NULL, updated_at = NOW()
+                          WHERE tenant_id = :t AND id = :id"
+                    )->execute(['t' => $tenantId, 'id' => $placementId]);
+                    $summary['placements_restored']++;
+                }
+                $pdo->commit();
+                if ($action === 'remote_verified') {
+                    $summary['verified']++;
+                } else {
+                    $summary['stored_assignments_trusted']++;
+                }
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                $summary['failed']++;
+                if (count($summary['errors']) < 20) {
+                    $summary['errors'][] = "placement {$placementId}: " . $e->getMessage();
+                }
+            }
             continue;
         }
 
         $error = substr((string) ($exact['error'] ?? 'JobDiva assignment verification failed'), 0, 500);
         if ($status === 'not_assignment') $summary['non_assignments']++;
         if ($status === 'not_found') $summary['not_found']++;
-        if ($status === 'error') {
+        if ($action !== 'terminal') {
             $pdo->prepare(
                 "UPDATE external_entity_mappings
                     SET sync_status = 'error', last_error = :err
                   WHERE tenant_id = :t AND id = :id"
             )->execute(['err' => $error, 't' => $tenantId, 'id' => $mappingId]);
-            $summary['api_errors']++;
-            $summary['failed']++;
+            if ($status === 'error') {
+                $summary['api_errors']++;
+                $summary['failed']++;
+            }
+            $summary['review_required']++;
+            if (!$wasArchived) $summary['quarantined']++;
             if (count($summary['errors']) < 20) {
                 $summary['errors'][] = "placement {$placementId}: {$error}";
             }
+            continue;
+        }
+
+        if ($wasArchived) {
+            $summary['archived_retained']++;
             continue;
         }
 
@@ -853,8 +918,10 @@ function jobdivaMappingRepairAssignmentSources(int $tenantId, ?int $userId = nul
                 'ok' => $summary['failed'] === 0,
                 'direction' => 'pull',
                 'actor_user_id' => $userId,
-                'items_processed' => $summary['verified'] + $summary['placements_archived'],
-                'items_skipped' => $summary['quarantined'],
+                'items_processed' => $summary['verified']
+                    + $summary['stored_assignments_trusted']
+                    + $summary['placements_archived'],
+                'items_skipped' => $summary['review_required'],
                 'items_failed' => $summary['failed'],
                 'detail' => $summary,
             ]);
@@ -960,6 +1027,7 @@ function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5
     foreach ($steps as $step) {
         $failed += (int) ($step['failed'] ?? 0);
         $changed += (int) ($step['placements_archived'] ?? 0);
+        $changed += (int) ($step['placements_restored'] ?? 0);
         $changed += (int) ($step['external_ids_restored'] ?? 0);
         $changed += (int) ($step['repaired'] ?? 0);
         $changed += (int) ($step['ended'] ?? 0);

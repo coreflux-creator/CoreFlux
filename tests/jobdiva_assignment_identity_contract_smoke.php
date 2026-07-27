@@ -95,6 +95,94 @@ $assert(
     empty(jobdivaAssignmentValidate($cancelled, '56830791')['valid'])
 );
 
+$storedActive = jobdivaAssignmentValidate($assignment, '56830791');
+$decision = jobdivaAssignmentSourceDecision(
+    ['status' => 'not_found', 'seen_ids' => []],
+    $storedActive,
+    '56830791',
+    true
+);
+$assert(
+    'inconclusive remote lookup trusts an existing source-backed Start',
+    ($decision['action'] ?? '') === 'trusted_stored'
+);
+
+$decision = jobdivaAssignmentSourceDecision(
+    ['status' => 'error', 'error' => 'HTTP 500'],
+    $storedActive,
+    '56830791',
+    true
+);
+$assert(
+    'remote API failure cannot delete a valid stored Start',
+    ($decision['action'] ?? '') === 'trusted_stored'
+);
+
+$invalidStored = jobdivaAssignmentValidate($candidate, '56830791');
+$decision = jobdivaAssignmentSourceDecision(
+    ['status' => 'not_found', 'seen_ids' => []],
+    $invalidStored,
+    '56830791'
+);
+$assert(
+    'not-found without assignment evidence requires review instead of deletion',
+    ($decision['action'] ?? '') === 'review'
+);
+
+$decision = jobdivaAssignmentSourceDecision(
+    ['status' => 'not_found', 'seen_ids' => []],
+    $storedActive,
+    '56830791',
+    false
+);
+$assert(
+    'stale stored assignment evidence cannot resurrect an archived placement',
+    ($decision['action'] ?? '') === 'review'
+);
+
+$assert(
+    'stored assignment evidence is current only when observed in the latest completed sync',
+    jobdivaAssignmentObservedInLatestSync(
+        $storedActive,
+        '2026-07-26 10:00:00',
+        '2026-07-26 10:02:00'
+    )
+        && !jobdivaAssignmentObservedInLatestSync(
+            $storedActive,
+            '2026-07-20 10:00:00',
+            '2026-07-26 10:02:00'
+        )
+);
+
+$cancelledValidation = jobdivaAssignmentValidate($cancelled, '56830791');
+$decision = jobdivaAssignmentSourceDecision(
+    [
+        'status' => 'not_assignment',
+        'seen_ids' => ['56830791'],
+        'identity' => $cancelledValidation,
+    ],
+    $invalidStored,
+    '56830791'
+);
+$assert(
+    'exact echoed terminal Start can be archived',
+    ($decision['action'] ?? '') === 'terminal'
+);
+
+$decision = jobdivaAssignmentSourceDecision(
+    [
+        'status' => 'not_assignment',
+        'seen_ids' => ['999'],
+        'identity' => $cancelledValidation,
+    ],
+    $invalidStored,
+    '56830791'
+);
+$assert(
+    'terminal state on a different Start ID cannot archive the placement',
+    ($decision['action'] ?? '') === 'review'
+);
+
 $polluted = $assignment;
 $polluted['_jd_start'] = [
     'id' => '55466185',
@@ -145,9 +233,16 @@ $assert(
         && str_contains($alignment, "'placement_non_assignment_source'")
 );
 $assert(
-    'repair reports rejected pipeline rows separately from API failures',
+    'repair reports source reconciliation paths separately from API failures',
     str_contains($alignment, "'non_assignments' => 0")
-        && str_contains($settingsUi, 'rejected pipeline rows')
+        && str_contains($settingsUi, 'trusted source snapshots')
+        && str_contains($settingsUi, 'review required')
+);
+$assert(
+    'repair restores source-backed archived assignments and never treats not-found as deletion',
+    str_contains($alignment, "'placements_restored' => 0")
+        && str_contains($alignment, 'SET deleted_at = NULL')
+        && str_contains($alignment, "if (\$action !== 'terminal')")
 );
 $assert(
     'webhook path also requires assignment identity',

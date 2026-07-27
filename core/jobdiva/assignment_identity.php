@@ -283,6 +283,69 @@ function jobdivaAssignmentValidate(array $payload, ?string $expectedId = null, ?
     ];
 }
 
+/**
+ * Decide how reconciliation should treat a placement when the exact-source
+ * lookup and the last source-backed snapshot disagree.
+ *
+ * Empty/error responses are not deletion evidence. A previously captured,
+ * structurally valid Start remains authoritative until JobDiva echoes the
+ * same Start ID with an explicit terminal lifecycle state.
+ *
+ * @return array{action:string,reason:string}
+ */
+function jobdivaAssignmentSourceDecision(
+    array $remote,
+    array $storedValidation,
+    string $expectedId,
+    bool $storedObservedInLatestSync = false
+): array {
+    $expectedId = jobdivaAssignmentIdentityNormaliseId($expectedId);
+    $remoteStatus = strtolower(trim((string) ($remote['status'] ?? 'error')));
+    if ($remoteStatus === 'verified' && is_array($remote['row'] ?? null)) {
+        return ['action' => 'remote_verified', 'reason' => 'exact_source_assignment'];
+    }
+
+    if (!empty($storedValidation['valid']) && $storedObservedInLatestSync) {
+        return ['action' => 'trusted_stored', 'reason' => 'stored_source_assignment'];
+    }
+
+    $seenIds = [];
+    foreach ((array) ($remote['seen_ids'] ?? []) as $seenId) {
+        $seenId = jobdivaAssignmentIdentityNormaliseId($seenId);
+        if ($seenId !== '') $seenIds[$seenId] = true;
+    }
+    $remoteReason = (string) (($remote['identity']['reason'] ?? '') ?: '');
+    $terminalReasons = ['rejected_assignment_state', 'offer_not_accepted'];
+    if ($remoteStatus === 'not_assignment'
+        && $expectedId !== ''
+        && isset($seenIds[$expectedId])
+        && in_array($remoteReason, $terminalReasons, true)) {
+        return ['action' => 'terminal', 'reason' => $remoteReason];
+    }
+
+    return [
+        'action' => 'review',
+        'reason' => $remoteStatus === 'not_found'
+            ? 'source_lookup_inconclusive'
+            : ($remoteReason !== '' ? $remoteReason : 'source_verification_failed'),
+    ];
+}
+
+function jobdivaAssignmentObservedInLatestSync(
+    array $storedValidation,
+    ?string $mappingLastSeenAt,
+    ?string $connectionLastSyncAt,
+    int $toleranceSeconds = 21600
+): bool {
+    if (empty($storedValidation['valid'])) return false;
+
+    $lastSeen = strtotime(trim((string) $mappingLastSeenAt));
+    $lastSync = strtotime(trim((string) $connectionLastSyncAt));
+    if ($lastSeen === false || $lastSync === false) return false;
+
+    return $lastSeen >= ($lastSync - max(0, $toleranceSeconds));
+}
+
 function jobdivaAssignmentRowsFromResponse(mixed $response): array
 {
     if (!is_array($response)) return [];
