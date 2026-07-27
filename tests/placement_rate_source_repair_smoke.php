@@ -34,7 +34,8 @@ $a('repair prefers payload snapshots but can rebuild from placement binding ids'
     && str_contains($rateApprove, '$payload[\'startId\'] = $externalId')
     && str_contains($rateApprove, '$payload[\'jobID\'] = $jobId'));
 $a('repair enriches the placement payload with local JobDiva mirrors before resolving rates',
-    str_contains($rateApprove, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats)'));
+    str_contains($rateApprove, 'jobdivaPlacementPayloadWithMirrors(')
+        && str_contains($rateApprove, "(string) (\$mapping['external_id'] ?? '')"));
 $a('repair delegates rate creation to the canonical JobDiva placement_rates writer',
     str_contains($rateApprove, 'jobdivaSyncUpsertPlacementRates($tenantId, $placementId, $startDate, $payload)'));
 $a('repair does not skip unsafe auto-drafted bill=pay rows',

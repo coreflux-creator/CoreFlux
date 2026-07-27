@@ -55,6 +55,10 @@ $a('silent source does not preserve stale imported engagement type',
 $a('strong source engagement evidence beats a generic mapped W2',
     str_contains($sync, "\$sourceEngagement !== '' && (\$mappedEngagement === '' || \$mappedEngagement === 'w2')")
     && str_contains($sync, 'flattening every placement to W2'));
+$a('worker classification is owned by the exact Start, not job or candidate facets',
+    str_contains($sync, 'Only the Start/Assignment owns the worker classification')
+    && str_contains($sync, "\$hit = \$scanNested([\n        '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',")
+    && !str_contains($sync, "\$hit = \$scanNested([\n        '_jd_candidate', 'person', 'candidate'"));
 $a('field-map enrichment cannot reapply unsafe JobDiva C2C guesses',
     str_contains($apply, 'function integrationFieldMapShouldSkipUnsafeJobDivaEngagement')
     && str_contains($apply, 'unsafe_jobdiva_engagement_c2c')
@@ -192,7 +196,8 @@ $a('JobDiva mirror writers use the external-mapping reconciler, not raw duplicat
     substr_count($sync, "mappingUpsert(\$tid, 'jobdiva', \$entityType, \$extId, \$internalSentinel, \$jd, 'pull', \$userId);") >= 2
     && !str_contains($sync, '$upsert->execute'));
 $a('backfill attaches local mirrored payloads before trying brittle live endpoints',
-    str_contains($sync, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats)'));
+    str_contains($sync, 'jobdivaPlacementPayloadWithMirrors(')
+    && str_contains($sync, '$externalId'));
 $a('full sync performs final canonical replay after mirror evidence is stored',
     str_contains($sync, "'jobdiva_final_projection'")
     && str_contains($sync, '$finalProjection = $safeRun(')

@@ -500,7 +500,12 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
                 try {
                     if (function_exists('jobdivaPlacementPayloadWithMirrors')) {
                         $mirrorStats = [];
-                        $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats);
+                        $payload = jobdivaPlacementPayloadWithMirrors(
+                            $tenantId,
+                            $payload,
+                            $mirrorStats,
+                            (string) ($row['mapping_external_id'] ?? '')
+                        );
                     }
                 } catch (\Throwable $e) {
                     error_log('[jobdiva mapping repair] payload mirror enrichment failed: ' . $e->getMessage());
@@ -788,16 +793,22 @@ function jobdivaMappingRepairAssignmentSources(int $tenantId, ?int $userId = nul
         );
         $action = (string) ($decision['action'] ?? 'review');
         if ($action === 'remote_verified' || $action === 'trusted_stored') {
+            $trustedStoredFacet = $action === 'trusted_stored'
+                ? jobdivaAssignmentFindExactFacet($stored, $externalId)
+                : null;
+            $stored = jobdivaAssignmentStripDerivedFacets($stored);
             $payload = $stored;
             $channel = (string) (($storedValidation['channel'] ?? '') ?: 'repair:stored_assignment_evidence');
             if ($action === 'remote_verified' && is_array($exact['row'] ?? null)) {
+                // The exact endpoint is the authoritative replacement, not a
+                // patch over the old snapshot. Carrying old top-level fields
+                // forward can reintroduce stale C2C/title/rate values even
+                // after nested facets were removed.
                 $payload = $exact['row'];
                 $channel = (string) (($exact['identity']['channel'] ?? '') ?: 'repair:exact_assignment');
+            } elseif ($trustedStoredFacet !== null) {
+                $payload['_jd_start'] = $trustedStoredFacet;
             }
-            foreach (['_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment'] as $assignmentKey) {
-                unset($stored[$assignmentKey]);
-            }
-            $payload = array_replace($stored, $payload);
             $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
             $payload = jobdivaAssignmentMarkVerified($payload, $externalId, $channel);
             try {

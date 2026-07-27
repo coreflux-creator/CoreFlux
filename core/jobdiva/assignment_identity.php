@@ -31,6 +31,73 @@ function jobdivaAssignmentIdentityNormaliseId(mixed $value): string
     return $id;
 }
 
+/**
+ * Return every distinct Start/Assignment identity carried by one row.
+ *
+ * jobdivaAssignmentIdentityPluck intentionally keeps the first spelling of a
+ * field. That is useful for ordinary values, but unsafe for identity: a
+ * polluted payload can contain id=56556786 and startId=57219188 at the same
+ * time. Treating either one as authoritative would project one assignment's
+ * economics into another placement.
+ */
+function jobdivaAssignmentIdentityValues(array $row, bool $genericIdIsAssignmentId = false): array
+{
+    $dedicated = [
+        'startid' => true,
+        'placementid' => true,
+        'cfjobdivaassignmentid' => true,
+    ];
+    $values = [];
+    foreach ($row as $key => $value) {
+        if (!is_string($key) || (!is_scalar($value) && $value !== null)) continue;
+        $normalisedKey = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $key));
+        $isDedicated = isset($dedicated[$normalisedKey]);
+        $isGeneric = $normalisedKey === 'id' && $genericIdIsAssignmentId;
+        if (!$isDedicated && !$isGeneric) continue;
+        $id = jobdivaAssignmentIdentityNormaliseId($value);
+        if ($id !== '') $values[$id] = true;
+    }
+    return array_keys($values);
+}
+
+function jobdivaAssignmentFacetIsList(array $facet): bool
+{
+    if ($facet === []) return false;
+    return array_keys($facet) === range(0, count($facet) - 1);
+}
+
+function jobdivaAssignmentFacetMatchingRow(
+    array $facet,
+    string $expectedId,
+    array $placement
+): ?array {
+    $expectedId = jobdivaAssignmentIdentityNormaliseId($expectedId);
+    $identities = jobdivaAssignmentIdentityValues($facet, true);
+    if (count($identities) !== 1) return null;
+    if ($expectedId !== '' && $identities[0] !== $expectedId) return null;
+    $context = jobdivaAssignmentContextEvidence($facet, $placement);
+    return !empty($context['matches']) ? $facet : null;
+}
+
+function jobdivaAssignmentFindExactFacet(array $payload, string $expectedId): ?array
+{
+    foreach (['_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment'] as $key) {
+        if (!isset($payload[$key]) || !is_array($payload[$key])) continue;
+        $facet = $payload[$key];
+        if (jobdivaAssignmentFacetIsList($facet)) {
+            foreach ($facet as $candidate) {
+                if (!is_array($candidate)) continue;
+                $match = jobdivaAssignmentFacetMatchingRow($candidate, $expectedId, $payload);
+                if ($match !== null) return $match;
+            }
+            continue;
+        }
+        $match = jobdivaAssignmentFacetMatchingRow($facet, $expectedId, $payload);
+        if ($match !== null) return $match;
+    }
+    return null;
+}
+
 function jobdivaAssignmentStructuralEvidence(array $row): array
 {
     $candidateId = jobdivaAssignmentIdentityPluck($row, [
@@ -199,11 +266,46 @@ function jobdivaAssignmentSanitisePayload(array $payload, ?string $expectedId = 
     foreach (['_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment'] as $key) {
         if (!isset($payload[$key]) || !is_array($payload[$key])) continue;
         $nested = $payload[$key];
-        $nestedId = jobdivaAssignmentRowId($nested);
-        $identityMismatch = $expectedId !== '' && $nestedId !== '' && $nestedId !== $expectedId;
-        $context = jobdivaAssignmentContextEvidence($nested, $payload);
-        if ($identityMismatch || empty($context['matches'])) unset($payload[$key]);
+        if (jobdivaAssignmentFacetIsList($nested)) {
+            $matches = [];
+            foreach ($nested as $candidate) {
+                if (!is_array($candidate)) continue;
+                $match = jobdivaAssignmentFacetMatchingRow($candidate, $expectedId, $payload);
+                if ($match !== null) $matches[] = $match;
+            }
+            if (count($matches) !== 1) {
+                unset($payload[$key]);
+                continue;
+            }
+            // Mapping paths commonly use assignment[].FIELD, while the
+            // dedicated enrichment facets are object-shaped.
+            $payload[$key] = $key === 'assignment' ? [$matches[0]] : $matches[0];
+            continue;
+        }
+
+        $match = jobdivaAssignmentFacetMatchingRow($nested, $expectedId, $payload);
+        if ($match === null) unset($payload[$key]);
     }
+    return $payload;
+}
+
+/**
+ * Remove cached enrichment facets before a newly verified Start is merged.
+ * The root Start remains intact; job/person/company/contact mirrors will be
+ * joined again from its exact source IDs during canonical projection.
+ */
+function jobdivaAssignmentStripDerivedFacets(array $payload): array
+{
+    foreach ([
+        '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
+        '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job',
+        '_jd_candidate', 'person', 'candidate', 'Candidate', 'employee', 'worker', 'jobdiva_candidate',
+        '_jd_customer', 'customer', 'Customer', 'company', 'Company', 'client', 'Client', 'jobdiva_customer',
+        '_jd_contact', 'contact', 'Contact', 'jobdiva_contact',
+    ] as $key) {
+        if (isset($payload[$key]) && is_array($payload[$key])) unset($payload[$key]);
+    }
+    unset($payload['__cf_resolved_job_title']);
     return $payload;
 }
 
@@ -216,7 +318,15 @@ function jobdivaAssignmentValidate(array $payload, ?string $expectedId = null, ?
     $records = [['label' => 'root', 'row' => $payload]];
     foreach (['_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment'] as $key) {
         if (isset($payload[$key]) && is_array($payload[$key])) {
-            $records[] = ['label' => $key, 'row' => $payload[$key]];
+            if (jobdivaAssignmentFacetIsList($payload[$key])) {
+                foreach ($payload[$key] as $index => $candidate) {
+                    if (is_array($candidate)) {
+                        $records[] = ['label' => $key . '[' . $index . ']', 'row' => $candidate];
+                    }
+                }
+            } else {
+                $records[] = ['label' => $key, 'row' => $payload[$key]];
+            }
         }
     }
 
@@ -224,6 +334,12 @@ function jobdivaAssignmentValidate(array $payload, ?string $expectedId = null, ?
     $lifecycleFailures = [];
     foreach ($records as $record) {
         $row = $record['row'];
+        $identityValues = jobdivaAssignmentIdentityValues($row, true);
+        if (count($identityValues) > 1) {
+            $mismatches = array_merge($mismatches, $identityValues);
+            if ((string) $record['label'] === 'root') break;
+            continue;
+        }
         $id = jobdivaAssignmentRowId($row);
         if ($id === '') continue;
         if ($expectedId !== '' && $id !== $expectedId) {

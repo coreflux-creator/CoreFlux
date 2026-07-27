@@ -86,7 +86,8 @@ $a('repair selects rows with missing end_client_company_id, not only missing cli
     && str_contains($service, 'OR p.end_client_company_id = 0'));
 $a('repair carries JobDiva payload snapshot for end-client fallback',
     str_contains($service, 'm.payload_snapshot')
-    && str_contains($service, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats)')
+    && str_contains($service, 'jobdivaPlacementPayloadWithMirrors(')
+    && str_contains($service, "(string) (\$row['mapping_external_id'] ?? '')")
     && str_contains($service, 'jobdivaEndClientNameFromPayload($payload)'));
 $a('repair treats JobDiva payload company name as authoritative over stale placement labels',
     str_contains($service, '$name = trim($payloadClientName);')

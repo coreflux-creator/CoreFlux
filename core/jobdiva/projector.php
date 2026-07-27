@@ -77,17 +77,6 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
     }
 
     try {
-        $joinStats = [];
-        if (empty($opts['payload_is_enriched']) && function_exists('jobdivaPlacementPayloadWithMirrors')) {
-            $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats);
-        } elseif (function_exists('jobdivaExtractJoinedSubPayloads')) {
-            $joinStats = jobdivaProjectorInferJoinStats($payload);
-            if (function_exists('jobdivaCanonicalPlacementPayload')) {
-                $payload = jobdivaCanonicalPlacementPayload($payload, jobdivaExtractJoinedSubPayloads($payload));
-            }
-        }
-        $summary['join_stats'] = $joinStats;
-
         $externalId = trim((string) ($opts['external_id'] ?? ''));
         if ($externalId === '') {
             $externalId = jobdivaProjectorPluck($payload, [
@@ -97,6 +86,21 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         if (str_starts_with($externalId, 'jd:')) $externalId = substr($externalId, 3);
         if ($externalId === '') throw new \RuntimeException('missing JobDiva placement/start id');
         $summary['external_id'] = $externalId;
+
+        // Identity sanitation must precede canonicalization. Otherwise a
+        // multi-row assignment[] facet is copied into the canonical placement
+        // graph before we know which JobDiva Start owns this placement.
+        $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
+        $joinStats = [];
+        if (empty($opts['payload_is_enriched']) && function_exists('jobdivaPlacementPayloadWithMirrors')) {
+            $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats, $externalId);
+        } elseif (function_exists('jobdivaExtractJoinedSubPayloads')) {
+            $joinStats = jobdivaProjectorInferJoinStats($payload);
+            if (function_exists('jobdivaCanonicalPlacementPayload')) {
+                $payload = jobdivaCanonicalPlacementPayload($payload, jobdivaExtractJoinedSubPayloads($payload));
+            }
+        }
+        $summary['join_stats'] = $joinStats;
 
         $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
         $sourceIdentity = jobdivaAssignmentValidate($payload, $externalId);

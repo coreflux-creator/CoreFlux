@@ -62,7 +62,8 @@ $a('mirror re-projection joins existing placement rows only',
     str_contains($sync, 'function jobdivaReprojectMirroredPlacementGraphs(')
     && str_contains($sync, 'JOIN placements p')
     && str_contains($sync, "AND m.internal_entity_type = 'placement'")
-    && str_contains($sync, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats)'));
+    && str_contains($sync, 'jobdivaPlacementPayloadWithMirrors(')
+    && str_contains($sync, '$externalId'));
 $a('mirror re-projection forces known placement id before upsert',
     str_contains($sync, "'existing_placement_id' => \$placementId")
     && str_contains($projector, "\$writePayload['__cf_existing_placement_id'] = \$existingPlacementId;")

@@ -2018,7 +2018,7 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
 
     try {
         $st = $pdo->prepare(
-            "SELECT id, payload_snapshot
+            "SELECT id, external_id, payload_snapshot
                FROM external_entity_mappings
               WHERE tenant_id = :t
                 AND source_system = 'jobdiva'
@@ -2040,14 +2040,22 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
         if (!is_string($snap) || $snap === '') continue;
         $payload = json_decode($snap, true);
         if (!is_array($payload)) continue;
-        $payload = jobdivaCanonicalPlacementPayload($payload, jobdivaExtractJoinedSubPayloads($payload));
+        $externalId = jobdivaAssignmentIdentityNormaliseId((string) ($row['external_id'] ?? ''));
+        if ($externalId === '') continue;
+        $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
         if (function_exists('jobdivaPlacementPayloadWithMirrors')) {
             $mirrorStats = [];
-            $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats);
+            $payload = jobdivaPlacementPayloadWithMirrors(
+                $tenantId,
+                $payload,
+                $mirrorStats,
+                $externalId
+            );
         }
         $placements[] = [
             'placement_index' => count($placements),
             'mapping_id' => (int) $row['id'],
+            'external_id' => $externalId,
             'payload' => $payload,
         ];
     }
@@ -2063,7 +2071,7 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
         $jd = $p['payload'];
         return empty($jd['_jd_job']) || empty($jd['_jd_candidate'])
             || empty($jd['_jd_customer'])
-            || (empty($jd['_jd_start']) && empty($jd['assignment']));
+            || empty($jd['_jd_start']);
     }));
     $enrichmentRanFor = 0;
     $enrichmentBroken = [];
@@ -2092,7 +2100,15 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
                 if (!isset($enriched[$i])) continue;
                 $newPayload = $enriched[$i];
                 if (is_array($newPayload)) {
-                    $newPayload = jobdivaCanonicalPlacementPayload($newPayload, jobdivaExtractJoinedSubPayloads($newPayload));
+                    $externalId = (string) ($p['external_id'] ?? '');
+                    $newPayload = jobdivaAssignmentSanitisePayload($newPayload, $externalId);
+                    $mirrorStats = [];
+                    $newPayload = jobdivaPlacementPayloadWithMirrors(
+                        $tenantId,
+                        $newPayload,
+                        $mirrorStats,
+                        $externalId
+                    );
                     $placements[$p['placement_index']]['payload'] = $newPayload;
                     // Persist enriched payload back so this is one-shot.
                     try {
@@ -2175,18 +2191,79 @@ function jobdivaMirrorPayloadByExternalId(int $tenantId, string $entityType, str
     }
 }
 
-function jobdivaPlacementPayloadWithMirrors(int $tenantId, array $payload, array &$stats = []): array
+function jobdivaPlacementPayloadWithMirrors(
+    int $tenantId,
+    array $payload,
+    array &$stats = [],
+    ?string $expectedStartId = null
+): array
 {
     $stats += [
         'jobs_joined'        => 0,
         'candidates_joined'  => 0,
         'contacts_joined'    => 0,
         'assignments_joined' => 0,
+        'stale_facets_removed'=> 0,
     ];
 
-    $payload = jobdivaAssignmentSanitisePayload($payload);
+    $expectedStartId = jobdivaAssignmentIdentityNormaliseId(
+        $expectedStartId ?? jobdivaAssignmentRowId($payload)
+    );
+    $payload = jobdivaAssignmentSanitisePayload($payload, $expectedStartId);
 
-    $jobId = jobdivaPluckFieldDeep($payload, ['job id', 'jobId', 'job_id', 'jobID', 'JOBID']);
+    // Resolve relation identities from the root Start only. Derived facets
+    // are precisely what may be stale, so they cannot choose their own join.
+    $jobId = jobdivaPluckField($payload, ['job id', 'jobId', 'job_id', 'jobID', 'JOBID']);
+    $candidateId = jobdivaPluckField($payload, [
+        'candidate id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID', 'employeeId',
+    ]);
+    $contactId = jobdivaPluckField($payload, [
+        'job contact id', 'jobContactId', 'job_contact_id',
+        'contactId', 'contact id', 'contact_id',
+    ]);
+
+    $dropMismatchedFacet = static function (
+        array &$target,
+        array $keys,
+        string $expectedId,
+        array $idCandidates,
+        array &$targetStats
+    ): void {
+        if ($expectedId === '') return;
+        foreach ($keys as $key) {
+            if (!isset($target[$key]) || !is_array($target[$key])) continue;
+            $facet = $target[$key];
+            $facetId = jobdivaAssignmentFacetIsList($facet)
+                ? ''
+                : jobdivaPluckField($facet, $idCandidates);
+            if ($facetId !== $expectedId) {
+                unset($target[$key]);
+                $targetStats['stale_facets_removed']++;
+            }
+        }
+    };
+    $dropMismatchedFacet(
+        $payload,
+        ['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job'],
+        $jobId,
+        ['job id', 'jobId', 'job_id', 'jobID', 'JOBID', 'id'],
+        $stats
+    );
+    $dropMismatchedFacet(
+        $payload,
+        ['_jd_candidate', 'person', 'candidate', 'Candidate', 'employee', 'worker', 'jobdiva_candidate'],
+        $candidateId,
+        ['candidate id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID', 'employeeId', 'id'],
+        $stats
+    );
+    $dropMismatchedFacet(
+        $payload,
+        ['_jd_contact', 'contact', 'Contact', 'jobdiva_contact'],
+        $contactId,
+        ['job contact id', 'jobContactId', 'job_contact_id', 'contactId', 'contact id', 'contact_id', 'id'],
+        $stats
+    );
+
     if ($jobId !== '') {
         $job = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_job', $jobId);
         if ($job) {
@@ -2196,9 +2273,6 @@ function jobdivaPlacementPayloadWithMirrors(int $tenantId, array $payload, array
         }
     }
 
-    $candidateId = jobdivaPluckFieldDeep($payload, [
-        'candidate id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID', 'employeeId',
-    ]);
     if ($candidateId !== '') {
         $candidate = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_candidate', $candidateId);
         if ($candidate) {
@@ -2207,10 +2281,6 @@ function jobdivaPlacementPayloadWithMirrors(int $tenantId, array $payload, array
         }
     }
 
-    $contactId = jobdivaPluckFieldDeep($payload, [
-        'job contact id', 'jobContactId', 'contactId', 'contact id',
-        'customer id', 'customerId', 'customer_id', 'customerID', 'CUSTOMERID',
-    ]);
     if ($contactId !== '') {
         $contact = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_contact', $contactId);
         if ($contact) {
@@ -2219,7 +2289,7 @@ function jobdivaPlacementPayloadWithMirrors(int $tenantId, array $payload, array
         }
     }
 
-    $startId = jobdivaPluckFieldDeep($payload, ['id', 'startId', 'start_id', 'startID', 'STARTID', 'placementId']);
+    $startId = $expectedStartId;
     if ($startId !== '') {
         $assignment = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_assignment', $startId);
         if ($assignment) {
@@ -2233,6 +2303,7 @@ function jobdivaPlacementPayloadWithMirrors(int $tenantId, array $payload, array
         }
     }
 
+    $payload = jobdivaAssignmentSanitisePayload($payload, $expectedStartId);
     return jobdivaCanonicalPlacementPayload($payload, jobdivaExtractJoinedSubPayloads($payload));
 }
 
@@ -2245,6 +2316,7 @@ function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, in
         'candidates_joined'   => 0,
         'contacts_joined'     => 0,
         'assignments_joined'  => 0,
+        'stale_facets_removed'=> 0,
         'mapping_writes'      => 0,
         'field_map_writes'    => 0,
         'errors'              => [],
@@ -2281,16 +2353,26 @@ function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, in
             $payload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
             if (!is_array($payload)) continue;
 
+            $placementId = (int) ($row['placement_id'] ?? 0);
+            $externalId = jobdivaAssignmentIdentityNormaliseId((string) ($row['external_id'] ?? ''));
+            if ($placementId <= 0 || $externalId === '') continue;
+
             $joinStats = [];
-            $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats);
-            foreach (['jobs_joined', 'candidates_joined', 'contacts_joined', 'assignments_joined'] as $k) {
+            $payload = jobdivaPlacementPayloadWithMirrors(
+                $tenantId,
+                $payload,
+                $joinStats,
+                $externalId
+            );
+            foreach ([
+                'jobs_joined',
+                'candidates_joined',
+                'contacts_joined',
+                'assignments_joined',
+                'stale_facets_removed',
+            ] as $k) {
                 $summary[$k] += (int) ($joinStats[$k] ?? 0);
             }
-
-            $placementId = (int) ($row['placement_id'] ?? 0);
-            $externalId = trim((string) ($row['external_id'] ?? ''));
-            if (str_starts_with($externalId, 'jd:')) $externalId = substr($externalId, 3);
-            if ($placementId <= 0 || $externalId === '') continue;
 
             $projection = jobdivaProjectorProjectPlacement($tenantId, $payload, $userId, [
                 'payload_is_enriched' => true,
@@ -2468,7 +2550,6 @@ function jobdivaPlacementPayloadHasC2CProof(array $payload): bool
 
     foreach ([
         '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
-        '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job',
     ] as $root) {
         if (isset($payload[$root]) && is_array($payload[$root]) && $scan($payload[$root], (string) $root)) {
             return true;
@@ -2546,37 +2627,17 @@ function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string 
         return null;
     };
 
-    // Placement/assignment/job facets own the engagement contract. Candidate
-    // classification is only person evidence, so scan it after placement-level
-    // evidence to avoid stale "W2 candidate" defaults masking C2C assignments.
+    // Only the Start/Assignment owns the worker classification. A Job can be
+    // open to several engagement types and a candidate can have preferences;
+    // neither is the economic contract represented by this placement.
     $hit = $scanNested([
         '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
-        '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job',
     ]);
     if ($hit !== null) return $hit;
 
     foreach ($payload as $key => $value) {
         if (is_array($value)) continue;
         $hit = $classify((string) $key, $value);
-        if ($hit !== null) return $hit;
-    }
-
-    $hit = $scanNested([
-        '_jd_candidate', 'person', 'candidate', 'Candidate',
-        'employee', 'worker', 'jobdiva_candidate',
-    ]);
-    if ($hit !== null) return $hit;
-
-    foreach ($payload as $key => $value) {
-        if (!is_array($value)) continue;
-        if (in_array((string) $key, [
-            '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
-            '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job',
-            '_jd_candidate', 'person', 'candidate', 'Candidate', 'employee', 'worker', 'jobdiva_candidate',
-        ], true)) {
-            continue;
-        }
-        $hit = $walk($value, (string) $key);
         if ($hit !== null) return $hit;
     }
 
@@ -3664,11 +3725,40 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             ]);
         }
     );
+    if ($title === '') {
+        $titleJobId = jobdivaPluckField($jd, ['job id', 'jobId', 'job_id', 'jobID', 'JOBID']);
+        if ($titleJobId !== '') {
+            $titleJob = staffingJobFindBySource($tid, 'jobdiva', $titleJobId);
+            $staffingTitle = trim((string) ($titleJob['title'] ?? ''));
+            if ($staffingTitle !== ''
+                && !preg_match('/^JobDiva (?:Job|Placement)\s+\S+$/i', $staffingTitle)) {
+                $title = $staffingTitle;
+            }
+        }
+    }
+
     // Last-resort placeholder. Kept distinct from the JobDiva ID so
     // operators can tell which placements had no Job Title available
     // (vs. genuinely synthetic ones). The Connected Sources panel
     // shows the actual JobDiva Start/Job IDs separately.
     if ($title === '') $title = 'JobDiva Placement ' . $extId;
+    if ($existingId > 0 && preg_match('/^JobDiva Placement\s+\S+$/i', $title)) {
+        try {
+            $existingTitleStmt = $pdo->prepare(
+                'SELECT title FROM placements
+                  WHERE tenant_id = :t AND id = :id
+                  LIMIT 1'
+            );
+            $existingTitleStmt->execute(['t' => $tid, 'id' => $existingId]);
+            $existingTitle = trim((string) ($existingTitleStmt->fetchColumn() ?: ''));
+            if ($existingTitle !== ''
+                && !preg_match('/^JobDiva Placement\s+\S+$/i', $existingTitle)) {
+                $title = $existingTitle;
+            }
+        } catch (\Throwable $e) {
+            error_log('[jobdiva placement sync] existing title protection failed: ' . $e->getMessage());
+        }
+    }
 
     $startDate = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'start_date', $jd,

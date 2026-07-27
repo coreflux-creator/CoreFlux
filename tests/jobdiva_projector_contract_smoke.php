@@ -38,7 +38,7 @@ echo "\n2. Placement projection owns write sequencing\n";
 $a('placement projector function exists',
     str_contains($projector, 'function jobdivaProjectorProjectPlacement(int $tenantId, array $payload'));
 $a('projector joins native mirrors before projection',
-    str_contains($projector, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats)'));
+    str_contains($projector, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats, $externalId)'));
 $a('projector resolves end client through JobDiva customer/company mappings',
     str_contains($projector, 'function jobdivaProjectorResolveEndClientCompany')
     && str_contains($projector, "foreach (['jobdiva_customer', 'company'] as \$mapType)")

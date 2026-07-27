@@ -276,7 +276,12 @@ if (!function_exists('placementsEnsureDraftRateFromSourcePayload')) {
 
             $mirrorStats = [];
             if (function_exists('jobdivaPlacementPayloadWithMirrors')) {
-                $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats);
+                $payload = jobdivaPlacementPayloadWithMirrors(
+                    $tenantId,
+                    $payload,
+                    $mirrorStats,
+                    (string) ($mapping['external_id'] ?? '')
+                );
             }
 
             $drafted = (bool) jobdivaSyncUpsertPlacementRates($tenantId, $placementId, $startDate, $payload);

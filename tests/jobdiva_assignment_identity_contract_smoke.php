@@ -197,6 +197,64 @@ $assert(
     !isset($sanitised['_jd_start'])
 );
 
+$multiAssignment = $assignment;
+$multiAssignment['assignment'] = [
+    [
+        'id' => '57219188',
+        'candidate id' => '99999',
+        'job id' => '77777',
+        'start date' => '07/01/2026',
+        'EMPLOYMENT_CATEGORY' => 'C2C',
+    ],
+    [
+        'id' => '56830791',
+        'candidate id' => (string) $assignment['candidate id'],
+        'job id' => (string) $assignment['job id'],
+        'start date' => (string) $assignment['start date'],
+        'EMPLOYMENT_CATEGORY' => 'W2',
+    ],
+];
+$sanitised = jobdivaAssignmentSanitisePayload($multiAssignment, '56830791');
+$assert(
+    'multi-row assignment facet keeps only the exact Start',
+    isset($sanitised['assignment'])
+        && count($sanitised['assignment']) === 1
+        && (string) ($sanitised['assignment'][0]['id'] ?? '') === '56830791'
+        && (string) ($sanitised['assignment'][0]['EMPLOYMENT_CATEGORY'] ?? '') === 'W2'
+);
+
+$conflictingAssignment = $assignment;
+$conflictingAssignment['assignment'] = [
+    'id' => '56830791',
+    'startId' => '57219188',
+    'candidate id' => (string) $assignment['candidate id'],
+    'job id' => (string) $assignment['job id'],
+    'start date' => (string) $assignment['start date'],
+    'EMPLOYMENT_CATEGORY' => 'C2C',
+];
+$sanitised = jobdivaAssignmentSanitisePayload($conflictingAssignment, '56830791');
+$assert(
+    'one assignment object with conflicting identity aliases is removed',
+    !isset($sanitised['assignment'])
+);
+
+$cached = $assignment;
+$cached['_jd_job'] = ['id' => '77777', 'title' => 'Stale role'];
+$cached['job'] = ['id' => '77777', 'title' => 'Stale role'];
+$cached['_jd_candidate'] = ['id' => '99999', 'name' => 'Wrong person'];
+$cached['assignment'] = [['id' => '57219188']];
+$cached['__cf_resolved_job_title'] = 'Stale role';
+$stripped = jobdivaAssignmentStripDerivedFacets($cached);
+$assert(
+    'verified-source merge strips every cached derived facet',
+    !isset($stripped['_jd_job'])
+        && !isset($stripped['job'])
+        && !isset($stripped['_jd_candidate'])
+        && !isset($stripped['assignment'])
+        && !isset($stripped['__cf_resolved_job_title'])
+        && (string) ($stripped['id'] ?? '') === '56830791'
+);
+
 $projector = (string) file_get_contents($root . '/core/jobdiva/projector.php');
 $sync = (string) file_get_contents($root . '/core/jobdiva/sync.php');
 $discovery = (string) file_get_contents($root . '/core/jobdiva/sync_placements.php');
@@ -208,6 +266,11 @@ $assert(
     'projector rejects unverified source before placement upsert',
     strpos($projector, 'jobdivaAssignmentValidate($payload, $externalId)')
         < strpos($projector, 'jobdivaSyncUpsertPlacement(')
+);
+$assert(
+    'projector sanitises assignment identity before canonicalization',
+    strpos($projector, 'jobdivaAssignmentSanitisePayload($payload, $externalId)')
+        < strpos($projector, 'jobdivaCanonicalPlacementPayload($payload, jobdivaExtractJoinedSubPayloads($payload))')
 );
 $assert(
     'placement writer has a defense-in-depth assignment guard',
@@ -243,6 +306,31 @@ $assert(
     str_contains($alignment, "'placements_restored' => 0")
         && str_contains($alignment, 'SET deleted_at = NULL')
         && str_contains($alignment, "if (\$action !== 'terminal')")
+);
+$assert(
+    'source repair replaces cached snapshots with the verified Start',
+    str_contains($alignment, 'jobdivaAssignmentStripDerivedFacets($stored)')
+        && str_contains($alignment, '$payload = $exact[\'row\'];')
+        && !str_contains($alignment, '$payload = array_replace($stored, $exact[\'row\']);')
+);
+$assert(
+    'mirror reconstruction is rooted in the mapping Start ID',
+    str_contains($sync, '?string $expectedStartId = null')
+        && str_contains($sync, '$startId = $expectedStartId;')
+        && str_contains($projector, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats, $externalId)')
+);
+$assert(
+    'contact enrichment cannot mistake a customer id for a contact id',
+    !preg_match(
+        '/\\$contactId\\s*=\\s*jobdivaPluckField\\(\\$payload,\\s*\\[[^\\]]*customer id/is',
+        $sync
+    )
+);
+$assert(
+    'force projection cannot replace a real title with a placeholder',
+    str_contains($sync, '[jobdiva placement sync] existing title protection failed:')
+        && str_contains($sync, '$title = $existingTitle;')
+        && str_contains($sync, 'staffingJobFindBySource($tid, \'jobdiva\', $titleJobId)')
 );
 $assert(
     'webhook path also requires assignment identity',
