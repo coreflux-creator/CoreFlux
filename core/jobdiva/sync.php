@@ -1379,7 +1379,7 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
                 ['ids' => ['id', 'startId', 'start_id', 'placementId'],
                  'body_key' => 'startId', 'numeric' => true],
             ],
-            'endpoint' => '/apiv2/jobdiva/searchStart',
+            'endpoint' => '/apiv2/bi/EmployeeAssignmentRecordsDetail -> /apiv2/jobdiva/searchStart',
             'inject'   => '_jd_start',
         ],
     ];
@@ -1458,6 +1458,24 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
             }
             $diag[$kind]['attempted']++;
             try {
+                if ($kind === 'start') {
+                    $exact = jobdivaFetchExactAssignmentById($tid, (string) $id);
+                    if (($exact['status'] ?? '') === 'verified' && is_array($exact['row'] ?? null)) {
+                        $cache[$kind][$id] = $exact['row'];
+                        $diag[$kind]['succeeded']++;
+                    } else {
+                        $cache[$kind][$id] = null;
+                        $diag[$kind]['empty_response']++;
+                        if ($diag[$kind]['sample_error'] === null) {
+                            $diag[$kind]['sample_error'] = substr(
+                                (string) ($exact['error'] ?? 'Exact assignment detail was unavailable'),
+                                0,
+                                240
+                            );
+                        }
+                    }
+                    continue;
+                }
                 $method = strtoupper((string) ($cfg['method'] ?? 'POST'));
                 if ($method === 'GET') {
                     $resp = jobdivaCall($tid, 'GET', $cfg['endpoint'], null, [
@@ -1468,24 +1486,7 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
                     $resp = jobdivaCall($tid, 'POST', $cfg['endpoint'], [$bodyKey => $id]);
                 }
                 $rows = jobdivaRowsFromResponse($resp);
-                if ($kind === 'start') {
-                    $matchingStart = null;
-                    foreach ($rows as $row) {
-                        if (!is_array($row) || jobdivaAssignmentRowId($row) !== (string) $id) continue;
-                        $matchingStart = jobdivaAssignmentMarkVerified($row, (string) $id, 'searchStart:enrichment');
-                        break;
-                    }
-                    if ($matchingStart !== null) {
-                        $cache[$kind][$id] = $matchingStart;
-                        $diag[$kind]['succeeded']++;
-                    } else {
-                        $cache[$kind][$id] = null;
-                        $diag[$kind]['empty_response']++;
-                        if ($diag[$kind]['sample_error'] === null && count($rows) > 0) {
-                            $diag[$kind]['sample_error'] = 'searchStart returned rows, but none had the requested Start ID';
-                        }
-                    }
-                } elseif (is_array($rows) && count($rows) > 0 && is_array($rows[0])) {
+                if (is_array($rows) && count($rows) > 0 && is_array($rows[0])) {
                     $cache[$kind][$id] = $rows[0];
                     $diag[$kind]['succeeded']++;
                 } else {
@@ -2378,7 +2379,6 @@ function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, in
                 'payload_is_enriched' => true,
                 'external_id' => $externalId,
                 'existing_placement_id' => $placementId,
-                'force_projection' => true,
                 'person_id' => (int) ($row['person_id'] ?? 0),
             ]);
             if (empty($projection['projected'])) {
@@ -3633,6 +3633,117 @@ function jobdivaSyncPlacementEconomicOptions(array $jd): array
     ];
 }
 
+function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId): array
+{
+    if ($tenantId <= 0 || $placementId <= 0) return [];
+    try {
+        $pdo = getDB();
+    } catch (\Throwable $e) {
+        return [];
+    }
+
+    $pick = static function (array $row, array $columns): array {
+        return array_intersect_key($row, array_fill_keys($columns, true));
+    };
+    $snapshot = [
+        'placement' => null,
+        'rates' => [],
+        'chain' => [],
+        'corp' => [],
+        'commissions' => [],
+        'referrals' => [],
+    ];
+    try {
+        $st = $pdo->prepare('SELECT * FROM placements WHERE tenant_id = :t AND id = :p LIMIT 1');
+        $st->execute(['t' => $tenantId, 'p' => $placementId]);
+        $row = $st->fetch(\PDO::FETCH_ASSOC);
+        if (is_array($row)) {
+            $snapshot['placement'] = $pick($row, [
+                'id', 'external_id', 'person_id', 'end_client_company_id', 'client_id', 'staffing_job_id',
+                'title', 'start_date', 'end_date', 'actual_end_date', 'due_date', 'status', 'engagement_type',
+                'worksite_state', 'worksite_country', 'remote_policy', 'notes', 'end_client_name',
+                'client_approver_name', 'client_approver_email', 'jobdiva_job_id',
+                'recruiter_name', 'recruiter_email', 'account_manager_name', 'account_manager_email',
+                'client_bill_cycle', 'client_bill_cycle_anchor', 'client_payment_terms_override',
+                'vendor_pay_cycle', 'vendor_pay_cycle_anchor', 'vendor_payment_terms_override',
+                'vendor_pwp_enabled', 'coreflux_overridden_fields',
+            ]);
+        }
+    } catch (\Throwable $e) {
+        error_log('[jobdiva projection audit] placement snapshot failed: ' . $e->getMessage());
+    }
+
+    $children = [
+        'rates' => ['placement_rates', [
+            'id', 'effective_from', 'effective_to', 'bill_rate', 'pay_rate', 'bill_rate_unit',
+            'pay_rate_unit', 'currency', 'ot_multiplier', 'dt_multiplier', 'adjusted_bill_rate',
+            'net_bill_rate', 'approval_state', 'approved_at',
+        ]],
+        'chain' => ['placement_client_chain', [
+            'id', 'position', 'company_id', 'party_name', 'party_role', 'portal_fee_pct',
+            'portal_fee_flat', 'payment_terms_override', 'pwp_enabled', 'is_payable',
+            'submittal_id', 'vms_job_id',
+        ]],
+        'corp' => ['placement_corp_details', [
+            'id', 'corp_legal_name', 'vendor_id', 'company_id', 'contact_name',
+            'contact_email', 'contact_phone',
+        ]],
+        'commissions' => ['placement_commissions', [
+            'id', 'role', 'user_id', 'split_pct', 'basis', 'flat_amount',
+            'effective_from', 'effective_to', 'notes',
+        ]],
+        'referrals' => ['placement_referrals', [
+            'id', 'referrer_type', 'referrer_vendor_name', 'referrer_company_id',
+            'referrer_user_id', 'fee_pct', 'fee_flat', 'fee_basis',
+            'payment_terms_override', 'pwp_enabled', 'duration_months', 'start_date', 'end_date',
+        ]],
+    ];
+    foreach ($children as $key => [$table, $columns]) {
+        try {
+            $st = $pdo->prepare(
+                "SELECT * FROM {$table}
+                  WHERE tenant_id = :t AND placement_id = :p
+                  ORDER BY id ASC"
+            );
+            $st->execute(['t' => $tenantId, 'p' => $placementId]);
+            while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {
+                $snapshot[$key][] = $pick($row, $columns);
+            }
+        } catch (\Throwable $e) {
+            error_log("[jobdiva projection audit] {$table} snapshot failed: " . $e->getMessage());
+        }
+    }
+    return $snapshot;
+}
+
+function jobdivaAuditPlacementProjection(
+    int $tenantId,
+    int $placementId,
+    string $externalId,
+    array $before,
+    array $after,
+    ?int $userId = null
+): void {
+    if ($before === $after) return;
+    try {
+        jobdivaAudit($tenantId, 'projection_write', [
+            'entity_type' => 'placement',
+            'direction' => 'pull',
+            'ok' => true,
+            'items_processed' => 1,
+            'actor_user_id' => $userId,
+            'detail' => [
+                'placement_id' => $placementId,
+                'external_id' => $externalId,
+                'before' => $before,
+                'after' => $after,
+            ],
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[jobdiva projection audit] write failed: ' . $e->getMessage());
+    }
+}
+
 function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId, ?int $userId = null): int
 {
     require_once __DIR__ . '/../integrations/field_map.php';
@@ -3644,7 +3755,6 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         );
     }
     $canonicalExternalId = 'jd:' . $extId;
-    $forceProjection = !empty($jd['__cf_force_projection']);
     $economicOptions = jobdivaSyncPlacementEconomicOptions($jd);
     // Look up by external_id first (placements has a `external_id` column).
     // A 2026-06 field-map regression briefly allowed tenant mappings to
@@ -3742,6 +3852,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     // (vs. genuinely synthetic ones). The Connected Sources panel
     // shows the actual JobDiva Start/Job IDs separately.
     if ($title === '') $title = 'JobDiva Placement ' . $extId;
+    $titleHasSourceEvidence = !preg_match('/^JobDiva Placement\s+\S+$/i', $title);
     if ($existingId > 0 && preg_match('/^JobDiva Placement\s+\S+$/i', $title)) {
         try {
             $existingTitleStmt = $pdo->prepare(
@@ -4084,21 +4195,20 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $vendorPayCycleAnchor = jobdivaNormaliseDate($vendorPayCycleAnchorRaw);
 
     if ($existingId > 0) {
+        $projectionBefore = jobdivaPlacementProjectionAuditSnapshot($tid, $existingId);
         // Slice 2: respect coreflux_overridden_fields — fields the user edited
         // in CoreFlux must not be reverted on the next JobDiva pull. Strip
         // any overridden field from the SET clause and audit what we skipped.
         $overrides = [];
-        if (!$forceProjection) {
-            $overrideStmt = $pdo->prepare(
-                'SELECT coreflux_overridden_fields FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
-            );
-            $overrideStmt->execute(['t' => $tid, 'id' => $existingId]);
-            $rawOverride = $overrideStmt->fetchColumn();
-            if (is_string($rawOverride) && $rawOverride !== '') {
-                $decoded = json_decode($rawOverride, true);
-                if (is_array($decoded)) {
-                    $overrides = array_values(array_filter(array_map('strval', $decoded)));
-                }
+        $overrideStmt = $pdo->prepare(
+            'SELECT coreflux_overridden_fields FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
+        );
+        $overrideStmt->execute(['t' => $tid, 'id' => $existingId]);
+        $rawOverride = $overrideStmt->fetchColumn();
+        if (is_string($rawOverride) && $rawOverride !== '') {
+            $decoded = json_decode($rawOverride, true);
+            if (is_array($decoded)) {
+                $overrides = array_values(array_filter(array_map('strval', $decoded)));
             }
         }
 
@@ -4134,11 +4244,52 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'vendor_payment_terms_override' => ['vpto', $economicOptions['payment_terms']],
             'vendor_pwp_enabled'        => ['vpwp', $economicOptions['pwp_enabled'] === null ? null : (!empty($economicOptions['pwp_enabled']) ? 1 : 0)],
         ];
+        // JobDiva Start/search responses are not shape-stable. A sparse row
+        // must never clear a richer canonical placement merely because a
+        // field is absent from this response. Only project a column when the
+        // current exact-id payload supplied evidence for that value.
+        $fieldEvidence = [
+            'start_date' => $startDate !== '',
+            'end_date' => $endDateNorm !== null,
+            'actual_end_date' => $actualEnd !== null,
+            'due_date' => $dueDate !== null,
+            'status' => $statusRaw !== ''
+                || ($endDateNorm !== null && $endDateNorm < date('Y-m-d')),
+            'engagement_type' => $sourceEngagement !== ''
+                || ($hasMappedEngagement && $mappedEngagement !== ''),
+            'worksite_state' => trim($worksiteState) !== '',
+            'worksite_country' => $worksiteCountry !== null,
+            'remote_policy' => trim($remoteRaw) !== '' && $remote !== null,
+            'notes' => trim($notes) !== '',
+            'end_client_name' => trim($endClientName) !== '',
+            'end_client_company_id' => $endClientCompanyId !== null && $endClientCompanyId > 0,
+            'client_id' => $clientId !== null && $clientId > 0,
+            'client_approver_name' => trim($approverName) !== '',
+            'client_approver_email' => trim($approverEmail) !== '',
+            'title' => $titleHasSourceEvidence,
+            'jobdiva_job_id' => trim($jobdivaJobId) !== '',
+            'staffing_job_id' => $staffingJobId !== null && $staffingJobId > 0,
+            'recruiter_name' => trim($recruiterName) !== '',
+            'recruiter_email' => trim($recruiterEmail) !== '',
+            'account_manager_name' => trim($accountManagerName) !== '',
+            'account_manager_email' => trim($accountManagerEmail) !== '',
+            'client_bill_cycle' => $clientBillCycle !== null,
+            'client_bill_cycle_anchor' => $clientBillCycleAnchor !== null,
+            'client_payment_terms_override' => $economicOptions['client_payment_terms'] !== null,
+            'vendor_pay_cycle' => $vendorPayCycle !== null,
+            'vendor_pay_cycle_anchor' => $vendorPayCycleAnchor !== null,
+            'vendor_payment_terms_override' => $economicOptions['payment_terms'] !== null,
+            'vendor_pwp_enabled' => $economicOptions['pwp_enabled'] !== null,
+        ];
         $assignments = [];
         $bindings = ['id' => $existingId];
         $skipped = [];
         foreach ($allFields as $col => [$bind, $val]) {
             if (in_array($col, $overrides, true)) {
+                $skipped[] = $col;
+                continue;
+            }
+            if (array_key_exists($col, $fieldEvidence) && !$fieldEvidence[$col]) {
                 $skipped[] = $col;
                 continue;
             }
@@ -4172,10 +4323,20 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         }
         jobdivaSyncUpsertPlacementRates($tid, $existingId, $startDate, $jd);
         jobdivaSyncUpsertPlacementChain($tid, $existingId, $endClientCompanyId, $endClientName ?: null, $jd, $userId);
-        jobdivaSyncUpsertPlacementCorpDetails($tid, $existingId, $jd, $userId, $engagement);
+        if (!empty($fieldEvidence['engagement_type'])) {
+            jobdivaSyncUpsertPlacementCorpDetails($tid, $existingId, $jd, $userId, $engagement);
+        }
         jobdivaSyncUpsertPlacementCommissions($tid, $existingId, $startDate, $jd);
         jobdivaSyncUpsertPlacementReferral($tid, $existingId, $startDate, $jd, $userId);
         placementEconomicsReconcile($tid, $existingId, jobdivaSyncPlacementEconomicOptions($jd));
+        jobdivaAuditPlacementProjection(
+            $tid,
+            $existingId,
+            $extId,
+            $projectionBefore,
+            jobdivaPlacementProjectionAuditSnapshot($tid, $existingId),
+            $userId
+        );
         return $existingId;
     }
     $pdo->prepare(
@@ -4236,6 +4397,14 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     jobdivaSyncUpsertPlacementCommissions($tid, $placementId, $startDate, $jd);
     jobdivaSyncUpsertPlacementReferral($tid, $placementId, $startDate, $jd, $userId);
     placementEconomicsReconcile($tid, $placementId, jobdivaSyncPlacementEconomicOptions($jd));
+    jobdivaAuditPlacementProjection(
+        $tid,
+        $placementId,
+        $extId,
+        [],
+        jobdivaPlacementProjectionAuditSnapshot($tid, $placementId),
+        $userId
+    );
     return $placementId;
 }
 
@@ -5058,13 +5227,14 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
     // entity_type=jobdiva_assignment regardless of which channel.
     if ($startIds) {
         $assignmentRecords = [];
+        $assignmentRecordIds = [];
         $cap = (int) ($opts['assignment_cap'] ?? 500);
         $batch = array_slice($startIds, 0, $cap);
         $appendAssignmentRecord = static function (
             mixed $row,
             string $startId,
             string $channel
-        ) use (&$assignmentRecords, &$stats): void {
+        ) use (&$assignmentRecords, &$assignmentRecordIds, &$stats): void {
             if (!is_array($row)) return;
             $rowId = jobdivaAssignmentRowId($row);
             if ($rowId === '' && str_contains($channel, 'employee_assignment_records')) {
@@ -5085,6 +5255,7 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
                 return;
             }
             $assignmentRecords[] = $row;
+            $assignmentRecordIds[$rowId] = true;
         };
 
         // --- Channel 1: EmployeeAssignmentRecordsDetail ---------------
@@ -5128,10 +5299,16 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
         // on tenants whose API user lacks BI-detail scope but still has
         // searchStart access. searchStart returns the full Start
         // payload (incl. pay rate, bill rate, dates) keyed by startId.
-        if (count($assignmentRecords) === 0) {
+        $missingStartIds = array_values(array_filter(
+            $batch,
+            static fn($sid): bool => !isset(
+                $assignmentRecordIds[jobdivaAssignmentIdentityNormaliseId($sid)]
+            )
+        ));
+        if ($missingStartIds) {
             $ch2Errors  = [];
             $ch2Attempts = 0;
-            foreach ($batch as $sid) {
+            foreach ($missingStartIds as $sid) {
                 $ch2Attempts++;
                 try {
                     $resp = jobdivaCall($tid, 'POST', '/apiv2/jobdiva/searchStart', ['startId' => (string) $sid]);
@@ -5160,7 +5337,9 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
                     error_log("[jobdiva searchStart fallback startId=$sid err] " . $msg);
                 }
             }
-            $stats['assignment_channel'] = count($assignmentRecords) > 0 ? 'search_start' : 'none';
+            $stats['assignment_channel'] = count($assignmentRecordIds) > count($batch) - count($missingStartIds)
+                ? 'employee_records+search_start'
+                : (count($assignmentRecords) > 0 ? 'search_start' : 'none');
             $stats['assignment_search_start_attempts'] = $ch2Attempts;
             $stats['assignment_search_start_errors']   = $ch2Errors;
         }

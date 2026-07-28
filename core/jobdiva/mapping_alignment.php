@@ -793,21 +793,36 @@ function jobdivaMappingRepairAssignmentSources(int $tenantId, ?int $userId = nul
         );
         $action = (string) ($decision['action'] ?? 'review');
         if ($action === 'remote_verified' || $action === 'trusted_stored') {
-            $trustedStoredFacet = $action === 'trusted_stored'
-                ? jobdivaAssignmentFindExactFacet($stored, $externalId)
-                : null;
+            $trustedStoredFacet = jobdivaAssignmentFindExactFacet($stored, $externalId);
+            $trustedMirrorFacet = null;
+            if (function_exists('jobdivaMirrorPayloadByExternalId')) {
+                $mirror = jobdivaMirrorPayloadByExternalId(
+                    $tenantId,
+                    'jobdiva_assignment',
+                    $externalId
+                );
+                if (is_array($mirror)) {
+                    $mirrorValidation = jobdivaAssignmentValidate($mirror, $externalId);
+                    if (!empty($mirrorValidation['valid'])) {
+                        $trustedMirrorFacet = $mirror;
+                    }
+                }
+            }
             $stored = jobdivaAssignmentStripDerivedFacets($stored);
             $payload = $stored;
             $channel = (string) (($storedValidation['channel'] ?? '') ?: 'repair:stored_assignment_evidence');
             if ($action === 'remote_verified' && is_array($exact['row'] ?? null)) {
-                // The exact endpoint is the authoritative replacement, not a
-                // patch over the old snapshot. Carrying old top-level fields
-                // forward can reintroduce stale C2C/title/rate values even
-                // after nested facets were removed.
+                // The exact Start owns identity and lifecycle. Rich assignment
+                // detail is a separate exact-id facet: retain it when verified
+                // because it carries classification, rates, and user fields
+                // that sparse searchStart responses omit.
                 $payload = $exact['row'];
                 $channel = (string) (($exact['identity']['channel'] ?? '') ?: 'repair:exact_assignment');
-            } elseif ($trustedStoredFacet !== null) {
-                $payload['_jd_start'] = $trustedStoredFacet;
+            }
+            $trustedFacet = $trustedMirrorFacet ?? $trustedStoredFacet;
+            if ($trustedFacet !== null) {
+                $payload['_jd_start'] = $trustedFacet;
+                $payload['assignment'] = [$trustedFacet];
             }
             $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
             $payload = jobdivaAssignmentMarkVerified($payload, $externalId, $channel);
@@ -956,15 +971,10 @@ function jobdivaMappingRepairCanonicalProjection(int $tenantId, ?int $userId = n
         'candidates_joined' => 0,
         'contacts_joined' => 0,
         'assignments_joined' => 0,
+        'projection_mode' => 'source_indexes_only',
         'errors' => [],
     ];
     $limit = max(1, min(5000, $limit));
-
-    if (!function_exists('jobdivaReprojectMirroredPlacementGraphs')) {
-        $summary['failed']++;
-        $summary['errors'][] = 'Canonical projection function is not loaded';
-        return $summary;
-    }
 
     if (function_exists('jobdivaBackfillJoinedIndexes')) {
         $backfill = jobdivaBackfillJoinedIndexes($tenantId);
@@ -978,27 +988,13 @@ function jobdivaMappingRepairCanonicalProjection(int $tenantId, ?int $userId = n
             }
         }
     }
-
-    $projection = jobdivaReprojectMirroredPlacementGraphs($tenantId, $userId, $limit);
-    $summary['checked'] = (int) ($projection['placements_seen'] ?? 0);
-    $summary['projected'] = (int) ($projection['placements_projected'] ?? 0);
-    $summary['mapping_writes'] = (int) ($projection['mapping_writes'] ?? 0);
-    $summary['field_map_writes'] = (int) ($projection['field_map_writes'] ?? 0);
-    foreach (['jobs_joined', 'candidates_joined', 'contacts_joined', 'assignments_joined'] as $k) {
-        $summary[$k] = (int) ($projection[$k] ?? 0);
-    }
-
-    foreach ((array) ($projection['errors'] ?? []) as $err) {
-        if (is_array($err)) {
-            $prefix = !empty($err['placement_id']) ? 'placement ' . (int) $err['placement_id'] . ': ' : '';
-            $summary['errors'][] = $prefix . (string) ($err['error'] ?? json_encode($err));
-        } else {
-            $summary['errors'][] = (string) $err;
-        }
-        if (count($summary['errors']) >= 10) break;
-    }
-    $summary['failed'] = count((array) ($projection['errors'] ?? []));
-    $summary['skipped'] = max(0, $summary['checked'] - $summary['projected'] - $summary['failed']);
+    // Repair alignment is structural maintenance, not a source replay.
+    // Reprojecting every placement here used to overwrite valid CoreFlux
+    // contract terms, classification, rates, and participant rules. A normal
+    // JobDiva Sync applies current source values through ownership checks;
+    // Repair only refreshes source snapshots/indexes and fixes graph links.
+    $summary['checked'] = $summary['payloads_refreshed'];
+    $summary['skipped'] = $summary['checked'];
 
     if (function_exists('jobdivaAudit')) {
         try {

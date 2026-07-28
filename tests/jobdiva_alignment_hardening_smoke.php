@@ -88,23 +88,47 @@ $a('vendor chain writer includes supplier/vendor discount aliases',
     && str_contains($sync, "'vendor discount pct'")
     && str_contains($sync, "'discount amount'"));
 
-echo "\n6. Repair alignment force-reprojects the live placement rows\n";
-$a('projector accepts and strips force_projection sentinel',
-    str_contains($projector, "\$writePayload['__cf_force_projection'] = true")
-    && str_contains($projector, "unset(\$writePayload['__cf_force_projection']);"));
-$a('placement upsert bypasses coreflux_overridden_fields only under forced repair',
-    str_contains($sync, "\$forceProjection = !empty(\$jd['__cf_force_projection']);")
-    && str_contains($sync, 'if (!$forceProjection) {')
+echo "\n6. Repair alignment cannot overwrite live placement economics\n";
+$a('force-projection override sentinel is removed',
+    !str_contains($projector, '__cf_force_projection')
+    && !str_contains($sync, "'force_projection' => true"));
+$a('placement upsert always respects coreflux_overridden_fields',
+    !str_contains($sync, '$forceProjection')
     && str_contains($sync, 'SELECT coreflux_overridden_fields FROM placements'));
-$a('mirror reproject path passes force_projection into projector',
-    str_contains($sync, "'force_projection' => true"));
+$a('repair refreshes source indexes without replaying canonical records',
+    str_contains($alignment, "'projection_mode' => 'source_indexes_only'")
+    && !str_contains(
+        substr(
+            $alignment,
+            strpos($alignment, 'function jobdivaMappingRepairCanonicalProjection('),
+            strpos($alignment, 'function jobdivaMappingRepairWorkflow(')
+                - strpos($alignment, 'function jobdivaMappingRepairCanonicalProjection(')
+        ),
+        'jobdivaReprojectMirroredPlacementGraphs('
+    ));
+$a('existing placement updates require current-payload field evidence',
+    str_contains($sync, '$fieldEvidence = [')
+    && str_contains($sync, "array_key_exists(\$col, \$fieldEvidence) && !\$fieldEvidence[\$col]"));
+$a('missing classification cannot clear C2C details',
+    str_contains($sync, "if (!empty(\$fieldEvidence['engagement_type']))")
+    && str_contains($sync, 'jobdivaSyncUpsertPlacementCorpDetails('));
+$a('normal sync enriches each Start through the exact assignment resolver',
+    str_contains($sync, "if (\$kind === 'start') {")
+    && str_contains($sync, 'jobdivaFetchExactAssignmentById($tid, (string) $id)')
+    && str_contains($sync, "'/apiv2/bi/EmployeeAssignmentRecordsDetail -> /apiv2/jobdiva/searchStart'"));
+$a('canonical projection records recoverable before and after snapshots',
+    str_contains($sync, 'function jobdivaPlacementProjectionAuditSnapshot(')
+    && str_contains($sync, "jobdivaAudit(\$tenantId, 'projection_write'")
+    && str_contains($sync, "'before' => \$before")
+    && str_contains($sync, "'after' => \$after"));
 $a('repair workflow defaults/caps to full placement-sized batches',
     str_contains($alignment, 'function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5000)')
     && str_contains($alignment, 'min(5000, $limit)')
     && str_contains($alignmentApi, '$limit = isset($body[\'limit\']) ? (int) $body[\'limit\'] : 5000')
     && str_contains($settingsUi, "repair_workflow', { limit: 5000 }"));
-$a('repair totals count projected placements, not only mapping writes',
-    str_contains($alignment, "\$changed += (int) (\$step['projected'] ?? 0);"));
+$a('repair totals count refreshed source payloads and indexes',
+    str_contains($alignment, "\$changed += (int) (\$step['payloads_refreshed'] ?? 0);")
+    && str_contains($alignment, "\$changed += (int) (\$step['subpayload_indexes_refreshed'] ?? 0);"));
 
 echo "\n7. PHP syntax\n";
 foreach ([
