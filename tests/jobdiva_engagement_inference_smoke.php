@@ -47,6 +47,9 @@ $a('C2C proof helper sees explicit source flags',
 $a('C2C proof helper ignores payee/vendor names',
     jobdivaPlacementPayloadHasC2CProof(['assignment' => ['payeeCompany' => 'Apex Consulting LLC']]) === false
     && jobdivaPlacementPayloadHasC2CProof(['vendorCompany' => 'Apex Consulting LLC']) === false);
+$a('null JobDiva crop-to-crop flag is not C2C proof',
+    jobdivaPlacementPayloadHasC2CProof(['crop to crop' => null]) === false
+    && jobdivaPlacementScalarHasC2CSignal('crop to crop', null) === false);
 
 echo "\n3. Other classifications still resolve\n";
 $a('workerType 1099 -> 1099',
@@ -63,6 +66,16 @@ $a('contractType Contract to Hire -> temp_to_perm',
 echo "\n4. Negative/absent source does not fabricate C2C\n";
 $a('crop_to_crop N keeps fallback w2',
     jobdivaInferPlacementEngagementTypeFromPayload(['crop_to_crop' => 'N'], 'w2') === 'w2');
+$a('documented null crop-to-crop flag resolves a Start to w2',
+    jobdivaInferPlacementEngagementTypeFromPayload([
+        'id' => 57065952,
+        'job id' => 28100821,
+        'candidate id' => 11989685956283,
+        'start date' => 1782734400000,
+        'startStatus' => 'Offer Accepted',
+        'position type' => 'contract',
+        'crop to crop' => null,
+    ], '') === 'w2');
 $a('silent payload preserves non-w2 fallback',
     jobdivaInferPlacementEngagementTypeFromPayload(['title' => 'Analyst'], 'c2c') === 'c2c');
 $a('silent payload with empty fallback stays empty',

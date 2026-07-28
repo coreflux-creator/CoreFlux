@@ -112,10 +112,11 @@ $a('existing placement updates require current-payload field evidence',
 $a('missing classification cannot clear C2C details',
     str_contains($sync, "if (!empty(\$fieldEvidence['engagement_type']))")
     && str_contains($sync, 'jobdivaSyncUpsertPlacementCorpDetails('));
-$a('normal sync enriches each Start through the exact assignment resolver',
+$a('normal sync reuses each exact Start snapshot before contextual lookup',
     str_contains($sync, "if (\$kind === 'start') {")
-    && str_contains($sync, 'jobdivaFetchExactAssignmentById($tid, (string) $id)')
-    && str_contains($sync, "'/apiv2/bi/EmployeeAssignmentRecordsDetail -> /apiv2/jobdiva/searchStart'"));
+    && str_contains($sync, "'searchStart:placement_snapshot'")
+    && str_contains($sync, 'jobdivaFetchExactAssignmentById($tid, (string) $id, $hint)')
+    && str_contains($sync, "'exact searchStart placement snapshot -> supported jobId/candidateid lookup'"));
 $a('canonical projection records recoverable before and after snapshots',
     str_contains($sync, 'function jobdivaPlacementProjectionAuditSnapshot(')
     && str_contains($sync, "jobdivaAudit(\$tenantId, 'projection_write'")

@@ -98,7 +98,7 @@ if ($action === 'webhook') {
                 if ($recordId !== '' && !empty($identity['valid'])) {
                     $items = [jobdivaAssignmentMarkVerified($record, $recordId, 'webhook:start_event')];
                 } elseif ($recordId !== '') {
-                    $exact = jobdivaFetchExactAssignmentById($tid, $recordId);
+                    $exact = jobdivaFetchExactAssignmentById($tid, $recordId, $record);
                     if (($exact['status'] ?? '') === 'verified' && is_array($exact['row'] ?? null)) {
                         $items = [$exact['row']];
                     }
@@ -111,7 +111,7 @@ if ($action === 'webhook') {
                     ?? ($payload['data']['id'] ?? '')
                 );
                 if ($startId !== '') {
-                    $exact = jobdivaFetchExactAssignmentById($tid, $startId);
+                    $exact = jobdivaFetchExactAssignmentById($tid, $startId, $payload);
                     if (($exact['status'] ?? '') === 'verified' && is_array($exact['row'] ?? null)) {
                         $items = [$exact['row']];
                     }

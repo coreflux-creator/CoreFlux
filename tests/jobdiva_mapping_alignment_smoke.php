@@ -155,7 +155,8 @@ $a('alignment detects and repairs unsafe JobDiva auto-drafted bill=pay rates',
     && str_contains($service, 'ABS(unsafe_pr.pay_rate - unsafe_pr.bill_rate) < 0.0001'));
 $a('canonical projection repair is exposed from alignment service',
     str_contains($service, 'function jobdivaMappingRepairCanonicalProjection(int $tenantId')
-    && str_contains($service, 'jobdivaReprojectMirroredPlacementGraphs($tenantId, $userId, $limit)')
+    && str_contains($service, "'projection_mode' => 'source_indexes_only'")
+    && !str_contains($service, 'jobdivaReprojectMirroredPlacementGraphs($tenantId, $userId, $limit)')
     && str_contains($service, 'mapping_alignment_repair_canonical_projection'));
 $a('ordered repair workflow replays canonical projection before cleanup and rate drafting',
     str_contains($service, 'function jobdivaMappingRepairWorkflow(int $tenantId, array $user')

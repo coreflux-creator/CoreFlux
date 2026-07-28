@@ -47,16 +47,22 @@ $assert(
 $marked = jobdivaAssignmentMarkVerified(
     ['startId' => '56830791'],
     '56830791',
-    'employee_assignment_records:exact'
+    'searchStart:criteria_exact'
 );
-$assert('authoritative assignment endpoint permits sparse detail', !empty(jobdivaAssignmentValidate($marked, '56830791')['valid']));
+$assert('identity marker alone cannot promote sparse detail', empty(jobdivaAssignmentValidate($marked, '56830791')['valid']));
 
 $nested = [
     'candidate id' => '12345',
     '_jd_start' => jobdivaAssignmentMarkVerified(
-        ['startId' => '56830791'],
+        [
+            'startId' => '56830791',
+            'candidate id' => '12345',
+            'job id' => '27857851',
+            'start date' => '07/01/2026',
+            'startStatus' => 'Active',
+        ],
         '56830791',
-        'employee_assignment_records:exact'
+        'searchStart:criteria_exact'
     ),
 ];
 $assert('verified nested assignment evidence is valid', !empty(jobdivaAssignmentValidate($nested, '56830791')['valid']));
@@ -335,7 +341,7 @@ $assert(
 $assert(
     'webhook path also requires assignment identity',
     str_contains($webhook, 'jobdivaAssignmentValidate($record, $recordId)')
-        && str_contains($webhook, 'jobdivaFetchExactAssignmentById($tid, $startId)')
+        && str_contains($webhook, 'jobdivaFetchExactAssignmentById($tid, $startId, $payload)')
 );
 
 exit($failures === 0 ? 0 : 1);

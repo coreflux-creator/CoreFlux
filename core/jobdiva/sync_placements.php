@@ -141,10 +141,14 @@ function jobdivaPlacementsFetchViaTimesheets(int $tid, array $opts): array
     // Reuse the resilient retry helper so timesheet-side 500s don't kill us.
     $items = jobdivaSyncFetchWithRetry($tid, JOBDIVA_PATH_TIMESHEETS_DELTA, $opts);
     $placementIds = [];
+    $placementHints = [];
     foreach ($items as $ts) {
         if (!is_array($ts)) continue;
         $pid = jobdivaPluckField($ts, ['placementId', 'placement_id', 'startId', 'start_id', 'placement id', 'start id']);
-        if ($pid !== '') $placementIds[$pid] = true;
+        if ($pid !== '') {
+            $placementIds[$pid] = true;
+            $placementHints[$pid] = $ts;
+        }
     }
     $unique = array_keys($placementIds);
 
@@ -152,7 +156,11 @@ function jobdivaPlacementsFetchViaTimesheets(int $tid, array $opts): array
     $attempts = [];
     foreach ($unique as $pid) {
         try {
-            $exact = jobdivaFetchExactAssignmentById($tid, (string) $pid);
+            $exact = jobdivaFetchExactAssignmentById(
+                $tid,
+                (string) $pid,
+                $placementHints[(string) $pid] ?? []
+            );
             if (($exact['status'] ?? '') === 'verified' && is_array($exact['row'] ?? null)) {
                 $records[] = $exact['row'];
                 $attempts[] = ['startId' => $pid, 'status' => 'verified', 'count' => 1];

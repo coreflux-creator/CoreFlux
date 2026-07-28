@@ -693,17 +693,17 @@ export default function FieldMappingStudio() {
               type="button"
               data-testid="fms-jobdiva-mirror-btn"
               onClick={async () => {
-                if (!confirm('Mirror every JobDiva Job, Candidate, and Customer referenced by your synced placements into CoreFlux?\n\nUses /apiv2/bi/JobsDetail, /CandidatesDetail, /CompaniesDetail (the by-ID endpoints from the official Swagger spec) so we don\'t rely on date-range guesswork. Will take 10-60 seconds depending on volume.')) return;
+                if (!confirm('Mirror every JobDiva Job, Candidate, Contact, and exact Start referenced by your synced placements into CoreFlux?\n\nStart rows are copied from their exact placement snapshots; legacy gaps use supported job/candidate search criteria. Will take 10-60 seconds depending on volume.')) return;
                 setFlash({ kind: 'info', text: 'Mirror sync running…' });
                 try {
                   const r = await api.post('/api/admin/integrations/jobdiva_mirror_by_placements.php', {});
                   const a_ch = r.assignment_channel || 'none';
-                  const a_ch1_errs = Array.isArray(r.assignment_employee_records_errors) ? r.assignment_employee_records_errors.length : 0;
                   const a_ch2_errs = Array.isArray(r.assignment_search_start_errors)     ? r.assignment_search_start_errors.length     : 0;
+                  const a_snapshots = Number(r.assignment_snapshot_rows || 0);
                   const assignmentSummary =
                     r.assignments_processed > 0
-                      ? `assignments ×${r.assignments_processed}/${r.unique_start_ids} via ${a_ch}`
-                      : `assignments 0/${r.unique_start_ids} — primary errors:${a_ch1_errs}, searchStart errors:${a_ch2_errs} (see Diagnose JobDiva)`;
+                      ? `assignments ×${r.assignments_processed}/${r.unique_start_ids} via ${a_ch} (${a_snapshots} exact snapshots)`
+                      : `assignments 0/${r.unique_start_ids} — supported lookup errors:${a_ch2_errs} (see Diagnose JobDiva)`;
                   setFlash({
                     kind: r.assignments_processed > 0 ? 'ok' : 'info',
                     text: `Mirror done · scanned ${r.placements_scanned} placements → ` +

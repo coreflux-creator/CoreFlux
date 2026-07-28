@@ -181,7 +181,7 @@ $a('normal placement sync enriches Start/Assignment details by default',
     && str_contains($sync, ": true;\n    \$items = jobdivaSyncEnrichRelatedEntities")
     && str_contains($sync, "'enrich_start' => \$enrichStart"));
 $a('backfill treats missing _jd_start as requiring enrichment',
-    str_contains($sync, "empty(\$jd['_jd_start']) && empty(\$jd['assignment'])"));
+    str_contains($sync, "empty(\$jd['_jd_start'])"));
 $a('backfill reattaches enriched payloads to the original placement snapshot',
     str_contains($sync, "'placement_index' => count(\$placements)")
     && str_contains($sync, '$needsEnrichment = array_values(array_filter($placements')
@@ -191,7 +191,7 @@ $a('assignment mirror rows must echo the requested Start ID before storage',
     && str_contains($sync, "if (\$rowId === '' || \$rowId !== jobdivaAssignmentIdentityNormaliseId(\$startId))")
     && str_contains($sync, "\$stats['assignment_identity_rejections']++")
     && !str_contains($sync, "\$row['startId'] = \$startId")
-    && str_contains($sync, "\$appendAssignmentRecord(\$row, (string) \$sid, 'employee_assignment_records:exact')"));
+    && str_contains($sync, "'searchStart:placement_snapshot'"));
 $a('JobDiva mirror writers use the external-mapping reconciler, not raw duplicate-key inserts',
     substr_count($sync, "mappingUpsert(\$tid, 'jobdiva', \$entityType, \$extId, \$internalSentinel, \$jd, 'pull', \$userId);") >= 2
     && !str_contains($sync, '$upsert->execute'));

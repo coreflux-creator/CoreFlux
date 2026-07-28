@@ -57,7 +57,9 @@ function jobdivaAssignmentIdentityValues(array $row, bool $genericIdIsAssignment
         $id = jobdivaAssignmentIdentityNormaliseId($value);
         if ($id !== '') $values[$id] = true;
     }
-    return array_keys($values);
+    // PHP casts numeric-string array keys to integers. Start IDs are opaque
+    // external identifiers, so keep their type stable for strict comparisons.
+    return array_map('strval', array_keys($values));
 }
 
 function jobdivaAssignmentFacetIsList(array $facet): bool
@@ -181,17 +183,6 @@ function jobdivaAssignmentLifecycleEvidence(array $row, string $channel = ''): a
                 'channel' => $channel,
             ];
         }
-    }
-
-    // EmployeeAssignmentRecordsDetail is the authoritative JobDiva
-    // assignment graph. It may omit status fields on sparse records.
-    if (str_contains($channel, 'employee_assignment_records')) {
-        return [
-            'qualified' => true,
-            'reason' => 'authoritative_assignment_endpoint',
-            'statuses' => $statuses,
-            'channel' => $channel,
-        ];
     }
 
     return [

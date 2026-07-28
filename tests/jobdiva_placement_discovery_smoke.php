@@ -71,7 +71,8 @@ $assert('uses dictionary dedupe for unique IDs',
     strpos($src, '$placementIds[$pid] = true;') !== false
     && strpos($src, 'array_keys($placementIds)') !== false);
 $assert('per-ID searchStart fetch requires exact assignment identity',
-    strpos($src, 'jobdivaFetchExactAssignmentById($tid, (string) $pid)') !== false
+    strpos($src, 'jobdivaFetchExactAssignmentById(') !== false
+    && strpos($src, '$placementHints[(string) $pid] ?? []') !== false
     && strpos($src, "'status' => 'verified'") !== false);
 $assert('single-ID failures are non-fatal',
     strpos($src, "'status' => 'error', 'error' => substr(\$e->getMessage()") !== false);
@@ -186,7 +187,7 @@ $assert('routes placement.* and start.* events into the sync pipeline',
 $assert('extracts inline payload when JobDiva sends full record',
     strpos($api, "\$payload['data'] ?? \$payload['record'] ?? \$payload['placement'] ?? \$payload['start']") !== false);
 $assert('re-fetches exact assignment via searchStart when only ID provided',
-    strpos($api, 'jobdivaFetchExactAssignmentById($tid, $startId)') !== false
+    strpos($api, 'jobdivaFetchExactAssignmentById($tid, $startId, $payload)') !== false
     && strpos($api, "(\$exact['status'] ?? '') === 'verified'") !== false);
 $assert('invokes jobdivaSyncPlacements with items_override',
     strpos($api, "jobdivaSyncPlacements(\$tid, null, ['items_override' => \$items, '_webhook' => true])") !== false);

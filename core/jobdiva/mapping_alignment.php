@@ -783,7 +783,7 @@ function jobdivaMappingRepairAssignmentSources(int $tenantId, ?int $userId = nul
         $wasArchived = !empty($row['placement_deleted_at'])
             && (string) $row['placement_deleted_at'] !== '0000-00-00 00:00:00';
 
-        $exact = jobdivaFetchExactAssignmentById($tenantId, $externalId);
+        $exact = jobdivaFetchExactAssignmentById($tenantId, $externalId, $stored);
         $status = (string) ($exact['status'] ?? 'error');
         $decision = jobdivaAssignmentSourceDecision(
             $exact,
