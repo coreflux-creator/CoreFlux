@@ -68,8 +68,8 @@ $a('mirror re-projection forces known placement id before upsert',
     str_contains($sync, "'existing_placement_id' => \$placementId")
     && str_contains($projector, "\$writePayload['__cf_existing_placement_id'] = \$existingPlacementId;")
     && str_contains($sync, '$forcedExistingId = (int) ($jd[\'__cf_existing_placement_id\'] ?? 0)'));
-$a('mirror-by-placement reports placement projection stats',
-    str_contains($sync, '$projection = jobdivaReprojectMirroredPlacementGraphs(')
+$a('mirror-by-placement reports assignment-rooted projection stats',
+    str_contains($sync, '$projection = jobdivaReprojectStoredAssignmentGraphs(')
     && str_contains($sync, "\$stats['placements_projected']"));
 
 echo "\nPlacement read model\n";

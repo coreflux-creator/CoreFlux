@@ -2,6 +2,10 @@
 /**
  * Controlled JobDiva placement reconciliation API.
  *
+ * POST ?action=stored_preview
+ * POST ?action=stored_apply {dry_run_token, selected_start_ids, confirm}
+ *
+ * CSV fallback:
  * POST ?action=inspect  {csv}
  * POST ?action=dry_run {csv, column_map}
  * POST ?action=apply   {csv, column_map, dry_run_token, selected_start_ids, confirm}
@@ -13,6 +17,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../../core/integrations/entity_mappings.php';
+require_once __DIR__ . '/../../../core/jobdiva/sync.php';
 require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../lib/jobdiva_reconciliation.php';
@@ -34,6 +39,50 @@ if ($method !== 'POST') api_error('Method not allowed', 405);
 rbac_legacy_require($user, 'placements.manage');
 
 $body = api_json_body();
+$pdo = getDB();
+$tenantId = placementsGraphTenantId() ?? currentTenantId();
+$peopleTenantId = effectiveTenantIdForModule('people') ?? $tenantId;
+
+if ($action === 'stored_preview') {
+    rbac_legacy_require($user, 'placements.financials.view');
+    $plan = jobdivaStoredAssignmentProjectionPlan($tenantId, 5000);
+    api_ok([
+        'summary' => $plan['summary'],
+        'rows' => $plan['public_rows'],
+        'dry_run_token' => $plan['dry_run_token'],
+        'safety' => $plan['safety'],
+    ]);
+}
+
+if ($action === 'stored_apply') {
+    rbac_legacy_require($user, 'placements.financials.manage');
+    if (($body['confirm'] ?? '') !== 'APPLY_STORED_JOBDIVA_ASSIGNMENTS') {
+        api_error('Explicit stored-assignment projection confirmation is required', 422);
+    }
+    $selected = is_array($body['selected_start_ids'] ?? null)
+        ? array_values(array_unique(array_map('strval', $body['selected_start_ids'])))
+        : [];
+    try {
+        $result = jobdivaApplyStoredAssignmentProjection(
+            $tenantId,
+            isset($user['id']) ? (int) $user['id'] : null,
+            $selected,
+            (string) ($body['dry_run_token'] ?? ''),
+            5000
+        );
+        api_ok($result + [
+            'ok' => true,
+            'message' => 'Selected stored JobDiva assignments were projected through the canonical CoreFlux graph.',
+        ]);
+    } catch (\InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    } catch (\RuntimeException $e) {
+        api_error($e->getMessage(), 409);
+    } catch (\Throwable $e) {
+        api_error('Stored assignment projection failed; no selected rows were written: ' . $e->getMessage(), 500);
+    }
+}
+
 $csv = (string) ($body['csv'] ?? '');
 if ($csv === '') api_error('No CSV body received', 400);
 if (strlen($csv) > 25 * 1024 * 1024) api_error('CSV exceeds the 25 MB limit', 413);
@@ -51,9 +100,6 @@ if ($action === 'dry_run') {
 }
 
 $columnMap = is_array($body['column_map'] ?? null) ? $body['column_map'] : null;
-$pdo = getDB();
-$tenantId = placementsGraphTenantId() ?? currentTenantId();
-$peopleTenantId = effectiveTenantIdForModule('people') ?? $tenantId;
 $plan = jobdivaReconciliationBuildPlan($pdo, $tenantId, $peopleTenantId, $csv, $columnMap);
 
 if ($action === 'dry_run') {

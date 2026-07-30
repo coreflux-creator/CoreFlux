@@ -1,10 +1,11 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Database,
   FileUp,
   Play,
   RefreshCw,
@@ -17,12 +18,19 @@ const ENDPOINT = '/modules/placements/api/jobdiva_reconciliation.php';
 const outcomeTone = {
   create: { bg: '#eff6ff', fg: '#1d4ed8', label: 'Create' },
   update: { bg: '#fff7ed', fg: '#c2410c', label: 'Update' },
+  restore: { bg: '#f5f3ff', fg: '#6d28d9', label: 'Restore' },
   unchanged: { bg: '#f0fdf4', fg: '#15803d', label: 'Unchanged' },
   blocked: { bg: '#fef2f2', fg: '#b91c1c', label: 'Blocked' },
 };
 
 export default function JobDivaReconciliation() {
   const fileRef = useRef(null);
+  const [storedPreview, setStoredPreview] = useState(null);
+  const [storedSelected, setStoredSelected] = useState(new Set());
+  const [storedExpanded, setStoredExpanded] = useState(new Set());
+  const [storedBusy, setStoredBusy] = useState('');
+  const [storedError, setStoredError] = useState('');
+  const [storedResult, setStoredResult] = useState(null);
   const [csv, setCsv] = useState('');
   const [fileName, setFileName] = useState('');
   const [inspect, setInspect] = useState(null);
@@ -33,6 +41,77 @@ export default function JobDivaReconciliation() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+
+  const refreshStored = useCallback(async () => {
+    setStoredBusy('preview');
+    setStoredError('');
+    try {
+      const data = await api.post(`${ENDPOINT}?action=stored_preview`, {});
+      setStoredPreview(data);
+      setStoredSelected(new Set());
+      setStoredExpanded(new Set());
+    } catch (e) {
+      setStoredError(e.message || 'Could not read the stored JobDiva assignments.');
+    } finally {
+      setStoredBusy('');
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshStored();
+  }, [refreshStored]);
+
+  const toggleStoredSelected = (startId) => {
+    setStoredSelected(current => {
+      const next = new Set(current);
+      if (next.has(startId)) next.delete(startId);
+      else next.add(startId);
+      return next;
+    });
+  };
+
+  const selectStoredOutcome = (outcome) => {
+    setStoredSelected(current => {
+      const next = new Set(current);
+      (storedPreview?.rows || [])
+        .filter(row => row.selectable && (!outcome || row.outcome === outcome))
+        .forEach(row => next.add(row.start_id));
+      return next;
+    });
+  };
+
+  const toggleStoredExpanded = (startId) => {
+    setStoredExpanded(current => {
+      const next = new Set(current);
+      if (next.has(startId)) next.delete(startId);
+      else next.add(startId);
+      return next;
+    });
+  };
+
+  const applyStored = async () => {
+    if (!storedPreview || storedSelected.size === 0) return;
+    const ok = window.confirm(
+      `Project ${storedSelected.size} verified JobDiva assignment${storedSelected.size === 1 ? '' : 's'} into CoreFlux?\n\n` +
+      'Each selected Start ID will update one canonical placement and its joined people, job, client, rate, vendor, commission, referral, and economic records. No placement will be deleted or archived.',
+    );
+    if (!ok) return;
+    setStoredBusy('apply');
+    setStoredError('');
+    try {
+      const data = await api.post(`${ENDPOINT}?action=stored_apply`, {
+        dry_run_token: storedPreview.dry_run_token,
+        selected_start_ids: Array.from(storedSelected),
+        confirm: 'APPLY_STORED_JOBDIVA_ASSIGNMENTS',
+      });
+      setStoredResult(data);
+      await refreshStored();
+    } catch (e) {
+      setStoredError(e.message || 'Stored assignment projection failed. No selected rows were written.');
+    } finally {
+      setStoredBusy('');
+    }
+  };
 
   const usedTargets = useMemo(
     () => new Set(Object.values(columnMap).filter(Boolean)),
@@ -159,7 +238,7 @@ export default function JobDivaReconciliation() {
           <Link to="../list" className="btn btn--ghost" style={{ marginBottom: 10 }}>&larr; Placements</Link>
           <h2 style={{ margin: 0 }}>JobDiva placement reconciliation</h2>
           <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: 13 }}>
-            Controlled recovery by exact JobDiva Start ID. Preview every field change before selecting records to apply.
+            Project verified JobDiva assignments and their related source records into the canonical CoreFlux graphs.
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#166534', fontSize: 12, fontWeight: 600 }}>
@@ -167,6 +246,190 @@ export default function JobDivaReconciliation() {
           No fuzzy matching / No delete or archive
         </div>
       </header>
+
+      {storedError && <div className="error" data-testid="jobdiva-stored-reconciliation-error" style={{ marginBottom: 12 }}>{storedError}</div>}
+      {storedResult && (
+        <div data-testid="jobdiva-stored-reconciliation-result" style={{
+          border: '1px solid #86efac', background: '#f0fdf4', color: '#166534',
+          borderRadius: 6, padding: '10px 12px', marginBottom: 12, fontSize: 13,
+        }}>
+          <strong>Canonical projection complete.</strong>{' '}
+          {storedResult.created || 0} created, {storedResult.updated || 0} updated, {storedResult.restored || 0} restored, {storedResult.mapping_writes || 0} identity bindings,
+          and {storedResult.field_map_writes} tenant field-map writes. No placements were deleted or archived.
+        </div>
+      )}
+
+      <section aria-labelledby="jd-stored-heading" style={{ borderTop: '1px solid #e2e8f0', padding: '16px 0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <h3 id="jd-stored-heading" style={{ margin: 0, fontSize: 16 }}>Stored JobDiva assignments</h3>
+            <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 12, maxWidth: 850 }}>
+              This is the authoritative Start/Assignment set already pulled from JobDiva. Each row joins its Job,
+              Candidate, Contact, Company, rate, and economic evidence before the canonical projector writes CoreFlux.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn"
+            onClick={refreshStored}
+            disabled={Boolean(storedBusy)}
+            data-testid="jobdiva-stored-reconciliation-refresh"
+          >
+            <RefreshCw size={15} aria-hidden="true" />
+            <span style={{ marginLeft: 6 }}>{storedBusy === 'preview' ? 'Reading source graph...' : 'Refresh source preview'}</span>
+          </button>
+        </div>
+
+        {storedPreview && (
+          <>
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+              border: '1px solid #dbe3ee', borderRadius: 6, margin: '12px 0', overflow: 'hidden',
+            }}>
+              {[
+                ['assignments', 'Assignments', '#0f172a', '#f8fafc'],
+                ['create', 'Create', '#1d4ed8', '#eff6ff'],
+                ['restore', 'Restore exact match', '#6d28d9', '#f5f3ff'],
+                ['update', 'Reproject', '#c2410c', '#fff7ed'],
+                ['fully_joined', 'Job + candidate joined', '#047857', '#ecfdf5'],
+                ['with_rates', 'Bill + pay evidence', '#166534', '#f0fdf4'],
+                ['blocked', 'Blocked', '#b91c1c', '#fef2f2'],
+              ].map(([key, label, fg, bg], index) => (
+                <div key={key} style={{
+                  padding: '10px 12px',
+                  borderLeft: index ? '1px solid #dbe3ee' : 0,
+                  background: bg,
+                }}>
+                  <div style={{ fontSize: 11, color: fg, textTransform: 'uppercase', fontWeight: 700 }}>{label}</div>
+                  <div style={{ fontSize: 21, fontWeight: 700, color: fg }}>{storedPreview.summary?.[key] || 0}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+              <button type="button" className="btn btn--ghost" onClick={() => selectStoredOutcome('update')}>Select reprojections</button>
+              <button type="button" className="btn btn--ghost" onClick={() => selectStoredOutcome('restore')}>Select restores</button>
+              <button type="button" className="btn btn--ghost" onClick={() => selectStoredOutcome('create')}>Select creates</button>
+              <button type="button" className="btn btn--ghost" onClick={() => setStoredSelected(new Set())}>Clear</button>
+            </div>
+
+            <div style={{ overflowX: 'auto', border: '1px solid #dbe3ee', borderRadius: 6 }}>
+              <table className="table" data-testid="jobdiva-stored-reconciliation-table" style={{ width: '100%', margin: 0 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 36 }} />
+                    <th>Action</th>
+                    <th>Start ID</th>
+                    <th>Assignment</th>
+                    <th>Joined source graph</th>
+                    <th>Rate evidence</th>
+                    <th>Issues</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(storedPreview.rows || []).map(row => {
+                    const isOpen = storedExpanded.has(row.start_id);
+                    const tone = outcomeTone[row.outcome] || outcomeTone.blocked;
+                    const joined = [
+                      row.joins?.assignments_joined ? 'Assignment' : null,
+                      row.joins?.jobs_joined ? 'Job' : null,
+                      row.joins?.candidates_joined ? 'Candidate' : null,
+                      row.joins?.contacts_joined ? 'Contact' : null,
+                      row.joins?.companies_joined ? 'Company' : null,
+                    ].filter(Boolean);
+                    return (
+                      <React.Fragment key={row.start_id}>
+                        <tr>
+                          <td>
+                            {row.selectable ? (
+                              <input
+                                type="checkbox"
+                                checked={storedSelected.has(row.start_id)}
+                                onChange={() => toggleStoredSelected(row.start_id)}
+                                aria-label={`Select stored Start ID ${row.start_id}`}
+                              />
+                            ) : null}
+                          </td>
+                          <td>
+                            <span style={{
+                              display: 'inline-block', padding: '2px 7px', borderRadius: 10,
+                              background: tone.bg, color: tone.fg, fontSize: 11, fontWeight: 700,
+                            }}>{tone.label === 'Update' ? 'Reproject' : tone.label}</span>
+                          </td>
+                          <td><code>{row.start_id}</code></td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{row.source?.title || row.placement_title || `JobDiva Start ${row.start_id}`}</div>
+                            <small style={{ color: '#64748b' }}>
+                              {row.source?.candidate_name || row.source?.candidate_email || `Candidate ${row.source?.candidate_id || 'unresolved'}`}
+                              {' / '}{row.source?.end_client_name || 'client unresolved'}
+                            </small>
+                            {row.placement_id ? (
+                              <div><Link to={`../${row.placement_id}/overview`}>Current PL-{row.placement_id}</Link></div>
+                            ) : null}
+                          </td>
+                          <td>
+                            <div>{joined.length ? joined.join(' + ') : 'Assignment only'}</div>
+                            <small style={{ color: '#64748b' }}>
+                              Job {row.source?.job_id || '-'} / Candidate {row.source?.candidate_id || '-'} / Company {row.source?.company_id || '-'}
+                            </small>
+                          </td>
+                          <td>
+                            <div>
+                              Bill {displayMoney(row.source?.bill_rate)} / Pay {displayMoney(row.source?.pay_rate)}
+                            </div>
+                            <small style={{ color: '#64748b' }}>
+                              {row.economics?.vendor || 'no vendor evidence'}
+                              {row.economics?.paid_when_paid ? ' / paid when paid' : ''}
+                            </small>
+                          </td>
+                          <td>
+                            <button type="button" className="btn btn--ghost" onClick={() => toggleStoredExpanded(row.start_id)}>
+                              {isOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+                              <span style={{ marginLeft: 4 }}>
+                                {row.errors?.length
+                                  ? `${row.errors.length} blocked`
+                                  : row.warnings?.length
+                                    ? `${row.warnings.length} warning${row.warnings.length === 1 ? '' : 's'}`
+                                    : 'Verified'}
+                              </span>
+                            </button>
+                          </td>
+                        </tr>
+                        {isOpen && (
+                          <tr>
+                            <td colSpan={7} style={{ background: '#f8fafc', padding: '10px 14px' }}>
+                              <StoredAssignmentDetails row={row} />
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              gap: 12, marginTop: 12, paddingTop: 12, borderTop: '1px solid #e2e8f0',
+            }}>
+              <span style={{ color: '#475569', fontSize: 13 }}>
+                {storedSelected.size} exact Start ID{storedSelected.size === 1 ? '' : 's'} selected
+              </span>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={storedSelected.size === 0 || Boolean(storedBusy)}
+                onClick={applyStored}
+                data-testid="jobdiva-stored-reconciliation-apply"
+              >
+                <Database size={15} aria-hidden="true" />
+                <span style={{ marginLeft: 6 }}>{storedBusy === 'apply' ? 'Projecting canonical graph...' : 'Project selected assignments'}</span>
+              </button>
+            </div>
+          </>
+        )}
+      </section>
 
       {error && <div className="error" data-testid="jobdiva-reconciliation-error" style={{ marginBottom: 12 }}>{error}</div>}
       {result && (
@@ -183,9 +446,9 @@ export default function JobDivaReconciliation() {
       <section aria-labelledby="jd-upload-heading" style={{ borderTop: '1px solid #e2e8f0', padding: '16px 0' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div>
-            <h3 id="jd-upload-heading" style={{ margin: 0, fontSize: 16 }}>1. Assignment export</h3>
+            <h3 id="jd-upload-heading" style={{ margin: 0, fontSize: 16 }}>CSV fallback</h3>
             <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 12 }}>
-              Use a JobDiva Start/Assignment export containing a stable Start ID column.
+              Use only when an assignment is not present in the stored JobDiva source graph. Exact Start ID remains required.
             </p>
           </div>
           <input
@@ -418,6 +681,77 @@ export default function JobDivaReconciliation() {
   );
 }
 
+function StoredAssignmentDetails({ row }) {
+  const sourcePairs = [
+    ['Candidate ID', row.source?.candidate_id],
+    ['Candidate', row.source?.candidate_name],
+    ['Candidate email', row.source?.candidate_email],
+    ['Job ID', row.source?.job_id],
+    ['Title', row.source?.title],
+    ['Contact ID', row.source?.contact_id],
+    ['Company ID', row.source?.company_id],
+    ['End client', row.source?.end_client_name],
+    ['Classification', row.source?.engagement_type],
+    ['Start', row.source?.start_date],
+    ['End', row.source?.end_date],
+  ];
+  const economicsPairs = [
+    ['Bill rate', displayMoney(row.source?.bill_rate)],
+    ['Pay rate', displayMoney(row.source?.pay_rate)],
+    ['Vendor / contractor company', row.economics?.vendor],
+    ['Referrer', row.economics?.referrer],
+    ['Commission evidence', row.economics?.commission],
+    ['Vendor terms', row.economics?.vendor_payment_terms],
+    ['Client terms', row.economics?.client_payment_terms],
+    ['Paid when paid', row.economics?.paid_when_paid === null ? null : row.economics?.paid_when_paid ? 'Yes' : 'No'],
+  ];
+  const currentGraphPairs = [
+    ['Placement', row.current?.id ? `PL-${row.current.id}` : null],
+    ['Current status', row.current?.status],
+    ['Current classification', row.current?.engagement_type],
+    ['Rate rows', row.current_graph?.rates?.length ?? 0],
+    ['Client/vendor chain rows', row.current_graph?.chain?.length ?? 0],
+    ['Corp/vendor records', row.current_graph?.corp?.length ?? 0],
+    ['Commission rows', row.current_graph?.commissions?.length ?? 0],
+    ['Referral rows', row.current_graph?.referrals?.length ?? 0],
+    ['Economic parties', row.current_graph?.economic_parties?.length ?? 0],
+    ['Time entries', row.current_graph?.time_summary?.row_count ?? 0],
+    ['Downstream AR/AP/payroll bundles', row.current_graph?.downstream_summary?.row_count ?? 0],
+  ];
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 18 }}>
+      <KeyValueList title="Assignment projection" items={sourcePairs} />
+      <KeyValueList title="Economic projection evidence" items={economicsPairs} />
+      <KeyValueList title="Current CoreFlux graph" items={currentGraphPairs} />
+      <div>
+        {row.errors?.length ? <MessageList title="Blocked" items={row.errors} color="#b91c1c" /> : null}
+        {row.warnings?.length ? <MessageList title="Missing source facets" items={row.warnings} color="#b45309" /> : null}
+        {!row.errors?.length && !row.warnings?.length ? (
+          <p style={{ margin: 0, color: '#166534', fontSize: 12 }}>
+            Exact assignment identity and referenced source facets are ready for canonical projection.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function KeyValueList({ title, items }) {
+  return (
+    <div>
+      <strong style={{ fontSize: 12 }}>{title}</strong>
+      <dl style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 0.8fr) minmax(140px, 1.2fr)', gap: '5px 10px', margin: '7px 0 0', fontSize: 12 }}>
+        {items.map(([label, value]) => (
+          <React.Fragment key={label}>
+            <dt style={{ color: '#64748b' }}>{label}</dt>
+            <dd style={{ margin: 0, color: '#0f172a', overflowWrap: 'anywhere' }}>{displayValue(value)}</dd>
+          </React.Fragment>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function DiffDetails({ row }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
@@ -468,4 +802,10 @@ function MessageList({ title, items, color }) {
 function displayValue(value) {
   if (value === null || value === undefined || value === '') return '-';
   return String(value);
+}
+
+function displayMoney(value) {
+  if (value === null || value === undefined || value === '') return '-';
+  const number = Number(value);
+  return Number.isFinite(number) ? `USD ${number.toFixed(2)}` : String(value);
 }

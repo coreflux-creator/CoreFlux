@@ -35,12 +35,20 @@ function jobdivaProjectorContract(): array
             'project_coreflux' => [
                 'owner' => 'coreflux_graphs',
                 'description' => 'Write the canonical rows downstream modules consume.',
-                'outputs' => ['people', 'companies', 'company_contacts', 'staffing_jobs', 'staffing_clients', 'placements', 'placement_client_chain', 'placement_rates', 'placement_commissions', 'time_entries'],
+                'outputs' => [
+                    'people', 'companies', 'company_contacts', 'staffing_jobs', 'staffing_clients',
+                    'placements', 'placement_client_chain', 'placement_rates', 'placement_corp_details',
+                    'placement_commissions', 'placement_referrals', 'time_entries',
+                ],
             ],
             'workflow_readiness' => [
                 'owner' => 'projector',
                 'description' => 'Check whether projected rows are usable by placement activation, time, billing, payroll, AP, and reporting.',
-                'outputs' => ['person_link', 'staffing_job_link', 'end_client_company_link', 'staffing_client_link', 'vendor_chain', 'rate_row', 'approved_rate_window'],
+                'outputs' => [
+                    'person_link', 'staffing_job_link', 'end_client_company_link', 'staffing_client_link',
+                    'vendor_chain', 'rate_row', 'approved_rate_window', 'billing_cycle',
+                    'receivable_party', 'payable_party', 'ap_or_payroll_cycle',
+                ],
             ],
             'field_map_enrichment' => [
                 'owner' => 'tenant_integration_field_map',
@@ -309,6 +317,8 @@ function jobdivaProjectorPlacementReadiness(int $tenantId, int $placementId): ar
         $pdo = getDB();
         $st = $pdo->prepare(
             'SELECT p.id, p.person_id, p.staffing_job_id, p.end_client_company_id, p.client_id, p.start_date,
+                    p.engagement_type, p.billing_operating_cycle_id, p.ap_operating_cycle_id,
+                    p.payroll_operating_cycle_id,
                     sc.company_id AS client_company_id
                FROM placements p
           LEFT JOIN staffing_clients sc ON sc.tenant_id = p.tenant_id AND sc.id = p.client_id
@@ -353,6 +363,49 @@ function jobdivaProjectorPlacementReadiness(int $tenantId, int $placementId): ar
         if ((int) $rateFacts['draft_rate_rows'] > 0) $out['warnings'][] = 'draft_rate_pending_approval';
         if ((int) $rateFacts['approved_rate_rows'] > 0 && !$rateFacts['approved_rate_covers_start']) {
             $out['warnings'][] = 'approved_rate_not_covering_placement_start';
+        }
+
+        $engagement = strtolower((string) ($row['engagement_type'] ?? ''));
+        $requiresPayroll = in_array($engagement, ['w2', 'temp_to_perm', 'internal'], true);
+        $requiresAp = in_array($engagement, ['1099', 'c2c'], true);
+        if (empty($row['billing_operating_cycle_id'])) $out['missing'][] = 'billing_cycle';
+        if ($requiresPayroll && empty($row['payroll_operating_cycle_id'])) {
+            $out['missing'][] = 'payroll_cycle';
+        }
+        if ($requiresAp && empty($row['ap_operating_cycle_id'])) {
+            $out['missing'][] = 'ap_cycle';
+        }
+
+        if (jobdivaProjectorTableExists($pdo, 'placement_economic_parties')) {
+            $partyStmt = $pdo->prepare(
+                'SELECT
+                    SUM(CASE WHEN money_flow = "receivable" AND settlement_channel = "ar" THEN 1 ELSE 0 END) AS receivable_rows,
+                    SUM(CASE WHEN money_flow = "payable" AND settlement_channel = "ap" THEN 1 ELSE 0 END) AS ap_rows,
+                    SUM(CASE WHEN money_flow = "payable" AND settlement_channel = "payroll" THEN 1 ELSE 0 END) AS payroll_rows,
+                    SUM(CASE WHEN (
+                                      money_flow = "receivable"
+                                      OR (money_flow = "payable" AND settlement_channel = "ap")
+                                  )
+                                  AND (payment_terms IS NULL OR payment_terms = "") THEN 1 ELSE 0 END) AS missing_terms_rows
+                   FROM placement_economic_parties
+                  WHERE tenant_id = :t AND placement_id = :p'
+            );
+            $partyStmt->execute(['t' => $tenantId, 'p' => $placementId]);
+            $partyFacts = $partyStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+            $receivableRows = (int) ($partyFacts['receivable_rows'] ?? 0);
+            $apRows = (int) ($partyFacts['ap_rows'] ?? 0);
+            $payrollRows = (int) ($partyFacts['payroll_rows'] ?? 0);
+            $missingTermsRows = (int) ($partyFacts['missing_terms_rows'] ?? 0);
+            $out['facts']['receivable_party_rows'] = $receivableRows;
+            $out['facts']['ap_party_rows'] = $apRows;
+            $out['facts']['payroll_party_rows'] = $payrollRows;
+            $out['facts']['economic_party_rows_missing_terms'] = $missingTermsRows;
+            if ($receivableRows <= 0) $out['missing'][] = 'receivable_party';
+            if ($requiresAp && $apRows <= 0) $out['missing'][] = 'ap_payable_party';
+            if ($requiresPayroll && $payrollRows <= 0) $out['missing'][] = 'payroll_payable_party';
+            if ($missingTermsRows > 0) $out['warnings'][] = 'economic_party_missing_payment_terms';
+        } else {
+            $out['missing'][] = 'economic_party_graph';
         }
 
         $out['missing'] = array_values(array_unique($out['missing']));

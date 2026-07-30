@@ -1213,6 +1213,26 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
                 }
             }
 
+            // Persist verified Start evidence before projecting it. The
+            // assignment mirror is the authoritative set that reconciliation
+            // and final replay use; a CoreFlux placement snapshot is only an
+            // output of this source record.
+            $jd = jobdivaAssignmentMarkVerified(
+                $jd,
+                $extId,
+                (string) ($sourceIdentity['channel'] ?? $channel ?: 'placement_sync')
+            );
+            $assignmentMirror = jobdivaMirrorStoreAndIndex(
+                $tid,
+                'jobdiva_assignment',
+                [$jd],
+                ['id', 'startId', 'start_id', 'startID', 'STARTID', 'placementId'],
+                $userId
+            );
+            if ((int) ($assignmentMirror['processed'] ?? 0) !== 1) {
+                throw new \RuntimeException("could not persist verified JobDiva assignment {$extId}");
+            }
+
             // items_override path keeps the legacy "must have person mapping"
             // behaviour so the existing smoke fixtures still work unchanged.
             // Real-sync path auto-creates a minimal person record on demand.
@@ -2242,6 +2262,7 @@ function jobdivaPlacementPayloadWithMirrors(
         'jobs_joined'        => 0,
         'candidates_joined'  => 0,
         'contacts_joined'    => 0,
+        'companies_joined'   => 0,
         'assignments_joined' => 0,
         'stale_facets_removed'=> 0,
     ];
@@ -2313,6 +2334,28 @@ function jobdivaPlacementPayloadWithMirrors(
         }
     }
 
+    // Resolve the company only from a real company identity. JobDiva's
+    // shallow `customer id` is frequently a contact id and is never safe for
+    // this join. A companyId on the Start or its exact Job mirror is safe.
+    $companyId = jobdivaPluckField($payload, [
+        'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID',
+        'endClientCompanyId', 'end_client_company_id',
+    ]);
+    if ($companyId === '') {
+        $companyId = jobdivaPluckNestedField(
+            $payload,
+            ['companyId', 'company_id', 'company id', 'companyID', 'COMPANYID', 'clientCompanyId'],
+            ['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord']
+        );
+    }
+    if ($companyId !== '') {
+        $company = jobdivaMirrorPayloadByExternalId($tenantId, 'company', $companyId);
+        if ($company) {
+            $payload['_jd_customer'] = $company;
+            $stats['companies_joined']++;
+        }
+    }
+
     if ($candidateId !== '') {
         $candidate = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_candidate', $candidateId);
         if ($candidate) {
@@ -2355,6 +2398,7 @@ function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, in
         'jobs_joined'         => 0,
         'candidates_joined'   => 0,
         'contacts_joined'     => 0,
+        'companies_joined'    => 0,
         'assignments_joined'  => 0,
         'stale_facets_removed'=> 0,
         'mapping_writes'      => 0,
@@ -2408,6 +2452,7 @@ function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, in
                 'jobs_joined',
                 'candidates_joined',
                 'contacts_joined',
+                'companies_joined',
                 'assignments_joined',
                 'stale_facets_removed',
             ] as $k) {
@@ -2435,6 +2480,571 @@ function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, in
         }
     }
 
+    return $summary;
+}
+
+/**
+ * Build an operator-readable projection plan from the authoritative stored
+ * JobDiva Start/Assignment mirrors.
+ *
+ * A placement snapshot is a projection result, not source identity. Starting
+ * here prevents deleted, duplicated, or stale CoreFlux placements from
+ * deciding which JobDiva assignments exist.
+ */
+function jobdivaStoredAssignmentProjectionPlan(
+    int $tenantId,
+    int $limit = 5000,
+    array $onlyStartIds = []
+): array {
+    require_once __DIR__ . '/../integrations/field_map.php';
+    $limit = max(1, min(5000, $limit));
+    $onlyLookup = [];
+    foreach ($onlyStartIds as $startId) {
+        $normalised = jobdivaAssignmentIdentityNormaliseId((string) $startId);
+        if ($normalised !== '') $onlyLookup[$normalised] = true;
+    }
+
+    $summary = [
+        'assignments' => 0,
+        'create' => 0,
+        'update' => 0,
+        'restore' => 0,
+        'blocked' => 0,
+        'fully_joined' => 0,
+        'missing_job' => 0,
+        'missing_candidate' => 0,
+        'missing_contact' => 0,
+        'missing_company' => 0,
+        'with_rates' => 0,
+        'with_economic_participants' => 0,
+    ];
+    $rows = [];
+    if ($tenantId <= 0) {
+        return ['summary' => $summary, 'rows' => [], 'dry_run_token' => hash('sha256', 'invalid-tenant')];
+    }
+
+    $pdo = getDB();
+    $st = $pdo->prepare(
+        "SELECT external_id, payload_snapshot, updated_at
+           FROM external_entity_mappings
+          WHERE tenant_id = :t
+            AND source_system = 'jobdiva'
+            AND internal_entity_type = 'jobdiva_assignment'
+            AND sync_status = 'ok'
+            AND payload_snapshot IS NOT NULL
+          ORDER BY updated_at DESC, id DESC
+          LIMIT {$limit}"
+    );
+    $st->execute(['t' => $tenantId]);
+
+    while ($sourceRow = $st->fetch(\PDO::FETCH_ASSOC)) {
+        $startId = jobdivaAssignmentIdentityNormaliseId((string) ($sourceRow['external_id'] ?? ''));
+        if ($onlyLookup && !isset($onlyLookup[$startId])) continue;
+        $summary['assignments']++;
+
+        $errors = [];
+        $warnings = [];
+        $payload = json_decode((string) ($sourceRow['payload_snapshot'] ?? ''), true);
+        if (!is_array($payload)) {
+            $payload = [];
+            $errors[] = 'Stored assignment payload is not valid JSON.';
+        }
+
+        $identity = $payload ? jobdivaAssignmentValidate($payload, $startId, 'stored_assignment_preview') : [
+            'valid' => false,
+            'reason' => 'missing_payload',
+        ];
+        if (empty($identity['valid'])) {
+            $errors[] = 'Assignment identity is not verified: ' . (string) ($identity['reason'] ?? 'unknown reason');
+        }
+
+        $joinStats = [];
+        $enriched = $payload
+            ? jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats, $startId)
+            : [];
+        $enrichedIdentity = $enriched
+            ? jobdivaAssignmentValidate($enriched, $startId, 'stored_assignment_preview')
+            : ['valid' => false, 'reason' => 'missing_payload'];
+        if ($payload && empty($enrichedIdentity['valid'])) {
+            $errors[] = 'Joined graph failed exact assignment validation: '
+                . (string) ($enrichedIdentity['reason'] ?? 'unknown reason');
+        }
+        $mapped = static function (
+            string $internalField,
+            callable $fallback
+        ) use ($tenantId, $enriched): mixed {
+            return tenantIntegrationFieldMapPluckInternal(
+                $tenantId,
+                'jobdiva',
+                'placement',
+                $internalField,
+                $enriched,
+                $fallback
+            );
+        };
+
+        $candidateId = $enriched ? jobdivaPluckFieldDeep($enriched, [
+            'candidate id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID', 'employeeId',
+        ]) : '';
+        $jobId = $enriched ? jobdivaPluckFieldDeep($enriched, [
+            'job id', 'jobId', 'job_id', 'jobID', 'JOBID', 'reqId', 'req_id',
+        ]) : '';
+        $contactId = $enriched ? jobdivaPluckFieldDeep($enriched, [
+            'job contact id', 'jobContactId', 'job_contact_id', 'contactId', 'contact id', 'contact_id',
+        ]) : '';
+        $companyId = $enriched ? jobdivaPluckField($enriched, [
+            'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID',
+            'endClientCompanyId', 'end_client_company_id',
+        ]) : '';
+        if ($companyId === '' && $enriched) {
+            $companyId = jobdivaPluckNestedField(
+                $enriched,
+                ['companyId', 'company_id', 'company id', 'companyID', 'COMPANYID', 'clientCompanyId'],
+                ['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord']
+            );
+        }
+        $startDateRaw = $enriched ? jobdivaPluckFieldDeep($enriched, [
+            'startDate', 'start_date', 'start date', 'startdate',
+        ]) : '';
+        $startDate = $startDateRaw !== '' ? jobdivaNormaliseDate($startDateRaw) : null;
+        if ($candidateId === '') $errors[] = 'Assignment has no candidate identity.';
+        if ($startDate === null) $errors[] = 'Assignment has no usable start date.';
+        if ($jobId !== '' && empty($joinStats['jobs_joined'])) $warnings[] = "Job {$jobId} is referenced but its mirror is unavailable.";
+        if ($candidateId !== '' && empty($joinStats['candidates_joined'])) {
+            $warnings[] = "Candidate {$candidateId} is referenced but its mirror is unavailable.";
+        }
+        if ($contactId !== '' && empty($joinStats['contacts_joined'])) {
+            $warnings[] = "Contact {$contactId} is referenced but its mirror is unavailable.";
+        }
+        if ($companyId !== '' && empty($joinStats['companies_joined'])) {
+            $warnings[] = "Company {$companyId} is referenced but its canonical company mirror is unavailable.";
+        }
+
+        $placementMapping = mappingFindInternal($tenantId, 'jobdiva', 'placement', $startId);
+        $mappedPlacementId = (int) ($placementMapping['internal_entity_id'] ?? 0);
+        $placementId = $mappedPlacementId;
+        $current = [];
+        $currentGraph = [];
+        $exactPlacementStmt = $pdo->prepare(
+            'SELECT id, deleted_at
+               FROM placements
+              WHERE tenant_id = :t
+                AND external_id IN (:canonical, :raw)
+              ORDER BY id ASC'
+        );
+        $exactPlacementStmt->execute([
+            't' => $tenantId,
+            'canonical' => 'jd:' . $startId,
+            'raw' => $startId,
+        ]);
+        $exactPlacementRows = $exactPlacementStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        $activeExactIds = [];
+        $archivedExactIds = [];
+        foreach ($exactPlacementRows as $exactPlacementRow) {
+            $exactId = (int) ($exactPlacementRow['id'] ?? 0);
+            if ($exactId <= 0) continue;
+            $deletedAt = (string) ($exactPlacementRow['deleted_at'] ?? '');
+            if ($deletedAt === '' || $deletedAt === '0000-00-00 00:00:00') {
+                $activeExactIds[] = $exactId;
+            } else {
+                $archivedExactIds[] = $exactId;
+            }
+        }
+        if (count($activeExactIds) > 1) {
+            $errors[] = 'More than one active CoreFlux placement has this exact JobDiva external identity: '
+                . implode(', ', $activeExactIds) . '.';
+        } elseif (count($activeExactIds) === 1) {
+            $placementId = $activeExactIds[0];
+            if ($mappedPlacementId !== $placementId) {
+                $warnings[] = "Exact active placement {$placementId} will replace the stale or missing JobDiva binding.";
+            }
+        } elseif ($mappedPlacementId <= 0 && count($archivedExactIds) === 1) {
+            $placementId = $archivedExactIds[0];
+            $warnings[] = "Exact archived placement {$placementId} was found without its JobDiva binding.";
+        } elseif ($mappedPlacementId <= 0 && count($archivedExactIds) > 1) {
+            $errors[] = 'More than one archived CoreFlux placement has this exact JobDiva external identity: '
+                . implode(', ', $archivedExactIds) . '.';
+        }
+        if ($placementId > 0) {
+            $placementStmt = $pdo->prepare(
+                'SELECT id, external_id, title, status, engagement_type, start_date, end_date,
+                        end_client_name, person_id, end_client_company_id, staffing_job_id, deleted_at
+                   FROM placements
+                  WHERE tenant_id = :t AND id = :id
+                  LIMIT 1'
+            );
+            $placementStmt->execute(['t' => $tenantId, 'id' => $placementId]);
+            $current = $placementStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+            if (!$current) {
+                $errors[] = "Placement mapping points to missing CoreFlux placement {$placementId}.";
+            } else {
+                $currentGraph = jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId);
+                try {
+                    $timeStmt = $pdo->prepare(
+                        'SELECT COUNT(*) AS row_count, COALESCE(SUM(hours), 0) AS total_hours,
+                                MAX(updated_at) AS latest_update
+                           FROM time_entries
+                          WHERE tenant_id = :t AND placement_id = :p'
+                    );
+                    $timeStmt->execute(['t' => $tenantId, 'p' => $placementId]);
+                    $currentGraph['time_summary'] = $timeStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+                } catch (\Throwable $e) {
+                    $currentGraph['time_summary'] = [];
+                }
+                try {
+                    $feedStmt = $pdo->prepare(
+                        'SELECT COUNT(*) AS row_count,
+                                COALESCE(SUM(total_amount_bill), 0) AS total_bill,
+                                COALESCE(SUM(total_amount_pay), 0) AS total_pay
+                           FROM time_downstream_feed
+                          WHERE tenant_id = :t AND placement_id = :p'
+                    );
+                    $feedStmt->execute(['t' => $tenantId, 'p' => $placementId]);
+                    $currentGraph['downstream_summary'] = $feedStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+                } catch (\Throwable $e) {
+                    $currentGraph['downstream_summary'] = [];
+                }
+            }
+        }
+
+        $title = $enriched ? (string) $mapped(
+            'title',
+            static fn() => jobdivaPluckFieldDeep($enriched, [
+                'jobTitle', 'job_title', 'job title', 'positionTitle', 'position_title', 'role', 'roleName', 'title',
+            ])
+        ) : '';
+        $candidateName = $enriched ? jobdivaPluckFieldDeep($enriched, [
+            'candidateName', 'candidate_name', 'candidate name', 'fullName', 'full_name', 'name',
+        ]) : '';
+        $candidateEmail = $enriched ? jobdivaPluckFieldDeep($enriched, [
+            'candidateEmail', 'candidate_email', 'candidate email', 'email', 'emailAddress', 'email_address',
+        ]) : '';
+        $endClientName = $enriched ? (string) $mapped(
+            'end_client_name',
+            static fn() => jobdivaEndClientNameFromPayload($enriched)
+        ) : '';
+        $engagementRaw = $enriched ? (string) $mapped(
+            'engagement_type',
+            static fn() => jobdivaPluckFieldDeep($enriched, [
+                'engagementType', 'engagement_type', 'workerType', 'worker_type',
+                'classification', 'employmentType', 'employment type',
+                'employmentCategory', 'employment_category', 'EMPLOYMENT_CATEGORY',
+                'positionType', 'position_type', 'position type',
+            ])
+        ) : '';
+        $engagement = $enriched
+            ? jobdivaNormalisePlacementEngagementType(
+                $engagementRaw,
+                jobdivaInferPlacementEngagementTypeFromPayload($enriched, '')
+            )
+            : '';
+        $endDateRaw = $enriched ? jobdivaPluckFieldDeep($enriched, [
+            'endDate', 'end_date', 'end date', 'enddate',
+        ]) : '';
+        $billRate = $enriched ? jobdivaParseRateAmount($mapped(
+            'bill_rate',
+            static fn() => jobdivaPluckFieldDeep($enriched, [
+                'final bill rate', 'finalBillRate', 'final_bill_rate', 'bill rate', 'billRate', 'bill_rate',
+                'client bill rate', 'clientBillRate', 'client_bill_rate',
+            ])
+        )) : 0.0;
+        $payRate = $enriched ? jobdivaParseRateAmount($mapped(
+            'pay_rate',
+            static fn() => jobdivaPluckFieldDeep($enriched, [
+                'agreed pay rate', 'agreedPayRate', 'agreed_pay_rate', 'pay rate', 'payRate', 'pay_rate',
+                'vendor pay rate', 'vendorPayRate', 'vendor_pay_rate',
+                'contractor pay rate', 'contractorPayRate', 'contractor_pay_rate',
+            ])
+        )) : 0.0;
+        $economicOptions = $enriched ? jobdivaSyncPlacementEconomicOptions($enriched) : [];
+        $economicSignals = [
+            'vendor' => $enriched ? jobdivaPluckFieldDeep($enriched, [
+                'vendorName', 'vendor_name', 'supplierName', 'supplier_name',
+                'contractorCompany', 'contractor_company', 'corpName', 'corp_name',
+            ]) : '',
+            'referrer' => $enriched ? jobdivaPluckFieldDeep($enriched, [
+                'referrerName', 'referrer_name', 'referralVendor', 'referral_vendor',
+            ]) : '',
+            'commission' => $enriched ? jobdivaPluckFieldDeep($enriched, [
+                'commissionPct', 'commission_pct', 'commissionPercent', 'commission_percent',
+                'recruiterSplit', 'recruiter_split',
+            ]) : '',
+            'vendor_payment_terms' => (string) ($economicOptions['payment_terms'] ?? ''),
+            'client_payment_terms' => (string) ($economicOptions['client_payment_terms'] ?? ''),
+            'paid_when_paid' => $economicOptions['pwp_enabled'] ?? null,
+        ];
+        $hasEconomicParticipants = count(array_filter(
+            $economicSignals,
+            static fn($value): bool => $value !== '' && $value !== null && $value !== false
+        )) > 0;
+
+        $fullyJoined = $jobId !== ''
+            && $candidateId !== ''
+            && (int) ($joinStats['jobs_joined'] ?? 0) > 0
+            && (int) ($joinStats['candidates_joined'] ?? 0) > 0;
+        if ($fullyJoined) $summary['fully_joined']++;
+        if ($jobId !== '' && empty($joinStats['jobs_joined'])) $summary['missing_job']++;
+        if ($candidateId !== '' && empty($joinStats['candidates_joined'])) $summary['missing_candidate']++;
+        if ($contactId !== '' && empty($joinStats['contacts_joined'])) $summary['missing_contact']++;
+        if ($companyId !== '' && empty($joinStats['companies_joined'])) $summary['missing_company']++;
+        if ($billRate > 0 && $payRate > 0) $summary['with_rates']++;
+        if ($hasEconomicParticipants) $summary['with_economic_participants']++;
+
+        $isArchived = !empty($current['deleted_at'])
+            && $current['deleted_at'] !== '0000-00-00 00:00:00';
+        $outcome = $isArchived ? 'restore' : ($placementId > 0 ? 'update' : 'create');
+        if ($isArchived) {
+            $warnings[] = "Placement {$placementId} is archived. It will be restored only if this exact Start ID is selected.";
+        }
+        $selectable = !$errors;
+        if (!$selectable) {
+            $outcome = 'blocked';
+            $summary['blocked']++;
+        } else {
+            $summary[$outcome]++;
+        }
+
+        $rows[] = [
+            'start_id' => $startId,
+            'outcome' => $outcome,
+            'selectable' => $selectable,
+            'placement_id' => $placementId ?: null,
+            'placement_title' => (string) ($current['title'] ?? ''),
+            'source_updated_at' => (string) ($sourceRow['updated_at'] ?? ''),
+            'identity' => $enrichedIdentity,
+            'joins' => $joinStats,
+            'source' => [
+                'candidate_id' => $candidateId,
+                'candidate_name' => $candidateName,
+                'candidate_email' => $candidateEmail,
+                'job_id' => $jobId,
+                'title' => $title,
+                'contact_id' => $contactId,
+                'company_id' => $companyId,
+                'end_client_name' => $endClientName,
+                'engagement_type' => $engagement,
+                'start_date' => $startDate,
+                'end_date' => $endDateRaw !== '' ? jobdivaNormaliseDate($endDateRaw) : null,
+                'bill_rate' => $billRate > 0 ? $billRate : null,
+                'pay_rate' => $payRate > 0 ? $payRate : null,
+            ],
+            'economics' => $economicSignals,
+            'current' => $current,
+            'current_graph' => $currentGraph,
+            'errors' => $errors,
+            'warnings' => $warnings,
+            '__payload' => $enriched,
+        ];
+    }
+
+    usort($rows, static function (array $a, array $b): int {
+        $priority = ['blocked' => 0, 'restore' => 1, 'create' => 2, 'update' => 3];
+        $byOutcome = ($priority[$a['outcome']] ?? 9) <=> ($priority[$b['outcome']] ?? 9);
+        if ($byOutcome !== 0) return $byOutcome;
+        return strcmp((string) $a['start_id'], (string) $b['start_id']);
+    });
+
+    $tokenRows = array_map(static fn(array $row): array => [
+        'start_id' => $row['start_id'],
+        'outcome' => $row['outcome'],
+        'selectable' => $row['selectable'],
+        'placement_id' => $row['placement_id'],
+        'source_updated_at' => $row['source_updated_at'],
+        'source' => $row['source'],
+        'current' => $row['current'],
+        'current_graph' => $row['current_graph'],
+    ], $rows);
+    $dryRunToken = hash('sha256', json_encode(
+        ['tenant_id' => $tenantId, 'rows' => $tokenRows],
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+    ) ?: '');
+
+    $publicRows = array_map(static function (array $row): array {
+        unset($row['__payload']);
+        return $row;
+    }, $rows);
+
+    return [
+        'summary' => $summary,
+        'rows' => $rows,
+        'public_rows' => $publicRows,
+        'dry_run_token' => $dryRunToken,
+        'safety' => [
+            'identity' => 'Exact verified JobDiva Start ID',
+            'source' => 'Stored jobdiva_assignment mirror',
+            'joins' => 'Job, candidate, contact, company, rate, and economic facets by source foreign key',
+            'writes' => 'Canonical projector only; selected rows only',
+            'deletes' => false,
+            'archives' => false,
+            'restores' => 'Explicit selection only for an exact archived Start-ID match',
+        ],
+    ];
+}
+
+function jobdivaApplyStoredAssignmentProjection(
+    int $tenantId,
+    ?int $userId,
+    array $selectedStartIds,
+    string $expectedToken,
+    int $limit = 5000
+): array {
+    $selected = [];
+    foreach ($selectedStartIds as $startId) {
+        $normalised = jobdivaAssignmentIdentityNormaliseId((string) $startId);
+        if ($normalised !== '') $selected[$normalised] = true;
+    }
+    if (!$selected) throw new \InvalidArgumentException('Select at least one verified Start ID.');
+    if (count($selected) > 500) throw new \InvalidArgumentException('Apply is limited to 500 Start IDs at a time.');
+
+    $plan = jobdivaStoredAssignmentProjectionPlan($tenantId, $limit);
+    if ($expectedToken === '' || !hash_equals((string) $plan['dry_run_token'], $expectedToken)) {
+        throw new \RuntimeException('Stored JobDiva evidence or CoreFlux records changed after preview. Refresh the preview.');
+    }
+    $rowsByStart = [];
+    foreach ($plan['rows'] as $row) $rowsByStart[(string) $row['start_id']] = $row;
+    foreach (array_keys($selected) as $startId) {
+        if (!isset($rowsByStart[$startId])) {
+            throw new \RuntimeException("Start ID {$startId} is not present in the stored assignment preview.");
+        }
+        if (empty($rowsByStart[$startId]['selectable'])) {
+            throw new \RuntimeException("Start ID {$startId} is blocked and cannot be projected.");
+        }
+    }
+
+    $pdo = getDB();
+    $result = [
+        'projected' => 0,
+        'created' => 0,
+        'updated' => 0,
+        'restored' => 0,
+        'mapping_writes' => 0,
+        'field_map_writes' => 0,
+        'rows' => [],
+    ];
+    try {
+        $pdo->beginTransaction();
+        foreach (array_keys($selected) as $startId) {
+            $row = $rowsByStart[$startId];
+            $before = !empty($row['placement_id'])
+                ? jobdivaPlacementProjectionAuditSnapshot($tenantId, (int) $row['placement_id'])
+                : [];
+            if ($row['outcome'] === 'restore' && !empty($row['placement_id'])) {
+                $pdo->prepare(
+                    'UPDATE placements
+                        SET deleted_at = NULL
+                      WHERE tenant_id = :t AND id = :id'
+                )->execute([
+                    't' => $tenantId,
+                    'id' => (int) $row['placement_id'],
+                ]);
+            }
+            $projection = jobdivaProjectorProjectPlacement(
+                $tenantId,
+                (array) $row['__payload'],
+                $userId,
+                [
+                    'payload_is_enriched' => true,
+                    'external_id' => $startId,
+                    'existing_placement_id' => (int) ($row['placement_id'] ?? 0),
+                ]
+            );
+            if (empty($projection['projected'])) {
+                throw new \RuntimeException(
+                    "Start ID {$startId}: "
+                    . implode('; ', array_map('strval', $projection['errors'] ?? ['projection failed']))
+                );
+            }
+            $placementId = (int) ($projection['placement_id'] ?? 0);
+            $after = jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId);
+            jobdivaAudit($tenantId, 'stored_assignment_reconciliation', [
+                'entity_type' => 'placement',
+                'direction' => 'pull',
+                'ok' => true,
+                'items_processed' => 1,
+                'actor_user_id' => $userId,
+                'detail' => [
+                    'start_id' => $startId,
+                    'placement_id' => $placementId,
+                    'mode' => $row['outcome'],
+                    'join_stats' => $projection['join_stats'] ?? [],
+                    'readiness' => $projection['readiness'] ?? [],
+                    'before' => $before,
+                    'after' => $after,
+                ],
+            ]);
+            $result['projected']++;
+            if ($row['outcome'] === 'create') {
+                $result['created']++;
+            } elseif ($row['outcome'] === 'restore') {
+                $result['restored']++;
+            } else {
+                $result['updated']++;
+            }
+            $result['mapping_writes'] += (int) ($projection['mapping_writes'] ?? 0);
+            $result['field_map_writes'] += (int) ($projection['field_map']['written'] ?? 0);
+            $result['rows'][] = [
+                'start_id' => $startId,
+                'placement_id' => $placementId,
+                'mode' => $row['outcome'],
+                'readiness' => $projection['readiness'] ?? [],
+            ];
+        }
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    return $result;
+}
+
+function jobdivaReprojectStoredAssignmentGraphs(int $tenantId, ?int $userId, int $limit = 5000): array
+{
+    $plan = jobdivaStoredAssignmentProjectionPlan($tenantId, $limit);
+    $pdo = getDB();
+    $summary = [
+        'assignments_seen' => (int) ($plan['summary']['assignments'] ?? 0),
+        'placements_projected' => 0,
+        'blocked' => (int) ($plan['summary']['blocked'] ?? 0),
+        'restores_pending_selection' => (int) ($plan['summary']['restore'] ?? 0),
+        'mapping_writes' => 0,
+        'field_map_writes' => 0,
+        'errors' => [],
+    ];
+    foreach ($plan['rows'] as $row) {
+        if (empty($row['selectable']) || $row['outcome'] === 'restore') continue;
+        try {
+            $pdo->beginTransaction();
+            $projection = jobdivaProjectorProjectPlacement(
+                $tenantId,
+                (array) $row['__payload'],
+                $userId,
+                [
+                    'payload_is_enriched' => true,
+                    'external_id' => (string) $row['start_id'],
+                    'existing_placement_id' => (int) ($row['placement_id'] ?? 0),
+                ]
+            );
+            if (empty($projection['projected'])) {
+                throw new \RuntimeException(implode(
+                    '; ',
+                    array_map('strval', $projection['errors'] ?? ['projection failed'])
+                ));
+            }
+            $pdo->commit();
+            $summary['placements_projected']++;
+            $summary['mapping_writes'] += (int) ($projection['mapping_writes'] ?? 0);
+            $summary['field_map_writes'] += (int) ($projection['field_map']['written'] ?? 0);
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            if (count($summary['errors']) < 50) {
+                $summary['errors'][] = [
+                    'start_id' => (string) ($row['start_id'] ?? ''),
+                    'placement_id' => (int) ($row['placement_id'] ?? 0),
+                    'error' => substr($e->getMessage(), 0, 300),
+                ];
+            }
+        }
+    }
     return $summary;
 }
 
@@ -3752,6 +4362,7 @@ function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId
         'corp' => [],
         'commissions' => [],
         'referrals' => [],
+        'economic_parties' => [],
     ];
     try {
         $st = $pdo->prepare('SELECT * FROM placements WHERE tenant_id = :t AND id = :p LIMIT 1');
@@ -3796,6 +4407,13 @@ function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId
             'id', 'referrer_type', 'referrer_vendor_name', 'referrer_company_id',
             'referrer_user_id', 'fee_pct', 'fee_flat', 'fee_basis',
             'payment_terms_override', 'pwp_enabled', 'duration_months', 'start_date', 'end_date',
+        ]],
+        'economic_parties' => ['placement_economic_parties', [
+            'id', 'source_ref', 'source_type', 'source_id', 'role', 'display_name',
+            'company_id', 'person_id', 'ap_vendor_id', 'money_flow', 'settlement_channel',
+            'fee_basis', 'fee_pct', 'fee_flat', 'payment_terms', 'pwp_enabled',
+            'operating_cycle_id', 'effective_from', 'effective_to', 'source_system',
+            'source_external_id', 'source_managed',
         ]],
     ];
     foreach ($children as $key => [$table, $columns]) {
@@ -5438,7 +6056,7 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
         $stats['assignments_processed'] = $stored['processed'];
     }
 
-    $projection = jobdivaReprojectMirroredPlacementGraphs(
+    $projection = jobdivaReprojectStoredAssignmentGraphs(
         $tid,
         $userId,
         (int) ($opts['projection_limit'] ?? 1000)
@@ -5596,7 +6214,7 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
     if ($shouldPull($config, 'placement') && empty($opts['skip_final_projection'])) {
         $finalProjection = $safeRun(
             'jobdiva_final_projection',
-            static fn() => jobdivaReprojectMirroredPlacementGraphs(
+            static fn() => jobdivaReprojectStoredAssignmentGraphs(
                 $tid,
                 $userId,
                 (int) ($opts['final_projection_limit'] ?? $opts['projection_limit'] ?? 5000)
