@@ -1,0 +1,471 @@
+import React, { useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  FileUp,
+  Play,
+  RefreshCw,
+  ShieldCheck,
+  XCircle,
+} from 'lucide-react';
+import { api } from '../../../dashboard/src/lib/api';
+
+const ENDPOINT = '/modules/placements/api/jobdiva_reconciliation.php';
+const outcomeTone = {
+  create: { bg: '#eff6ff', fg: '#1d4ed8', label: 'Create' },
+  update: { bg: '#fff7ed', fg: '#c2410c', label: 'Update' },
+  unchanged: { bg: '#f0fdf4', fg: '#15803d', label: 'Unchanged' },
+  blocked: { bg: '#fef2f2', fg: '#b91c1c', label: 'Blocked' },
+};
+
+export default function JobDivaReconciliation() {
+  const fileRef = useRef(null);
+  const [csv, setCsv] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [inspect, setInspect] = useState(null);
+  const [columnMap, setColumnMap] = useState({});
+  const [preview, setPreview] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [expanded, setExpanded] = useState(new Set());
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+
+  const usedTargets = useMemo(
+    () => new Set(Object.values(columnMap).filter(Boolean)),
+    [columnMap],
+  );
+  const mappedStartId = Object.values(columnMap).filter(v => v === 'start_id').length === 1;
+
+  const readFile = async (file) => {
+    if (!file) return;
+    setBusy('inspect');
+    setError('');
+    setPreview(null);
+    setResult(null);
+    try {
+      const text = await file.text();
+      const data = await api.post(`${ENDPOINT}?action=inspect`, { csv: text });
+      const nextMap = {};
+      (data.headers || []).forEach((_, index) => {
+        nextMap[index] = data.auto_map?.[index] || data.auto_map?.[String(index)] || '';
+      });
+      setCsv(text);
+      setFileName(file.name);
+      setInspect(data);
+      setColumnMap(nextMap);
+      setSelected(new Set());
+      setExpanded(new Set());
+    } catch (e) {
+      setError(e.message || 'Could not inspect the CSV.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const changeMapping = (index, field) => {
+    setColumnMap(current => ({ ...current, [index]: field }));
+    setPreview(null);
+    setSelected(new Set());
+    setResult(null);
+  };
+
+  const runPreview = async () => {
+    if (!csv || !mappedStartId) return;
+    setBusy('preview');
+    setError('');
+    setResult(null);
+    try {
+      const data = await api.post(`${ENDPOINT}?action=dry_run`, {
+        csv,
+        column_map: columnMap,
+      });
+      setPreview(data);
+      setSelected(new Set());
+      setExpanded(new Set());
+    } catch (e) {
+      setError(e.message || 'Dry-run failed.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const toggleSelected = (startId) => {
+    setSelected(current => {
+      const next = new Set(current);
+      if (next.has(startId)) next.delete(startId);
+      else next.add(startId);
+      return next;
+    });
+  };
+
+  const selectOutcome = (outcome) => {
+    setSelected(current => {
+      const next = new Set(current);
+      (preview?.rows || [])
+        .filter(row => row.selectable && (!outcome || row.outcome === outcome))
+        .forEach(row => next.add(row.start_id));
+      return next;
+    });
+  };
+
+  const applySelected = async () => {
+    if (!preview || selected.size === 0) return;
+    const ok = window.confirm(
+      `Apply the previewed changes for ${selected.size} exact JobDiva Start ID${selected.size === 1 ? '' : 's'}?\n\n` +
+      'This will create or update only the selected rows. It will not delete or archive placements, and approved rates remain locked.',
+    );
+    if (!ok) return;
+    setBusy('apply');
+    setError('');
+    try {
+      const data = await api.post(`${ENDPOINT}?action=apply`, {
+        csv,
+        column_map: columnMap,
+        dry_run_token: preview.dry_run_token,
+        selected_start_ids: Array.from(selected),
+        confirm: 'APPLY_EXACT_START_ID_RECONCILIATION',
+      });
+      setResult(data);
+      setSelected(new Set());
+      const refreshed = await api.post(`${ENDPOINT}?action=dry_run`, {
+        csv,
+        column_map: columnMap,
+      });
+      setPreview(refreshed);
+    } catch (e) {
+      setError(e.message || 'Apply failed. No changes were made.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const toggleExpanded = (rowNumber) => {
+    setExpanded(current => {
+      const next = new Set(current);
+      if (next.has(rowNumber)) next.delete(rowNumber);
+      else next.add(rowNumber);
+      return next;
+    });
+  };
+
+  return (
+    <section data-testid="jobdiva-reconciliation" style={{ padding: 'var(--cf-space-4, 1rem)', maxWidth: 1500 }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', marginBottom: 18 }}>
+        <div>
+          <Link to="../list" className="btn btn--ghost" style={{ marginBottom: 10 }}>&larr; Placements</Link>
+          <h2 style={{ margin: 0 }}>JobDiva placement reconciliation</h2>
+          <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: 13 }}>
+            Controlled recovery by exact JobDiva Start ID. Preview every field change before selecting records to apply.
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#166534', fontSize: 12, fontWeight: 600 }}>
+          <ShieldCheck size={17} aria-hidden="true" />
+          No fuzzy matching / No delete or archive
+        </div>
+      </header>
+
+      {error && <div className="error" data-testid="jobdiva-reconciliation-error" style={{ marginBottom: 12 }}>{error}</div>}
+      {result && (
+        <div data-testid="jobdiva-reconciliation-result" style={{
+          border: '1px solid #86efac', background: '#f0fdf4', color: '#166534',
+          borderRadius: 6, padding: '10px 12px', marginBottom: 12, fontSize: 13,
+        }}>
+          <strong>Applied successfully.</strong>{' '}
+          {result.created} created, {result.updated} updated, {result.rate_drafts} rate drafts, {result.mapping_writes} identity bindings.
+          No records were deleted or archived.
+        </div>
+      )}
+
+      <section aria-labelledby="jd-upload-heading" style={{ borderTop: '1px solid #e2e8f0', padding: '16px 0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <h3 id="jd-upload-heading" style={{ margin: 0, fontSize: 16 }}>1. Assignment export</h3>
+            <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 12 }}>
+              Use a JobDiva Start/Assignment export containing a stable Start ID column.
+            </p>
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv"
+            hidden
+            onChange={e => readFile(e.target.files?.[0])}
+            data-testid="jobdiva-reconciliation-file"
+          />
+          <button
+            type="button"
+            className="btn"
+            onClick={() => fileRef.current?.click()}
+            disabled={Boolean(busy)}
+            data-testid="jobdiva-reconciliation-choose-file"
+          >
+            <FileUp size={15} aria-hidden="true" style={{ marginRight: 6 }} />
+            {busy === 'inspect' ? 'Reading...' : fileName || 'Choose CSV'}
+          </button>
+        </div>
+      </section>
+
+      {inspect && (
+        <section aria-labelledby="jd-map-heading" style={{ borderTop: '1px solid #e2e8f0', padding: '16px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-end', marginBottom: 10 }}>
+            <div>
+              <h3 id="jd-map-heading" style={{ margin: 0, fontSize: 16 }}>2. Confirm column mapping</h3>
+              <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 12 }}>
+                One source column must map to Start ID. Unmapped columns are ignored.
+              </p>
+            </div>
+            <span style={{ fontSize: 12, color: mappedStartId ? '#166534' : '#b91c1c', fontWeight: 600 }}>
+              {mappedStartId ? 'Start ID mapped' : 'Start ID mapping required'}
+            </span>
+          </div>
+
+          <div style={{ overflowX: 'auto', border: '1px solid #dbe3ee', borderRadius: 6 }}>
+            <table className="table" data-testid="jobdiva-reconciliation-column-map" style={{ width: '100%', margin: 0 }}>
+              <thead>
+                <tr>
+                  <th>JobDiva CSV column</th>
+                  <th>CoreFlux destination</th>
+                  <th>Requirement</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(inspect.headers || []).map((header, index) => {
+                  const selectedField = columnMap[index] || '';
+                  return (
+                    <tr key={`${header}-${index}`}>
+                      <td><code>{header || `(column ${index + 1})`}</code></td>
+                      <td>
+                        <select
+                          className="input"
+                          value={selectedField}
+                          onChange={e => changeMapping(index, e.target.value)}
+                          data-testid={`jobdiva-reconciliation-map-${index}`}
+                          style={{ minWidth: 260 }}
+                        >
+                          <option value="">Ignore this column</option>
+                          {(inspect.fields || []).map(field => (
+                            <option
+                              key={field.key}
+                              value={field.key}
+                              disabled={usedTargets.has(field.key) && selectedField !== field.key}
+                            >
+                              {field.label}{field.required ? ' (required)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={{ color: selectedField === 'start_id' ? '#166534' : '#64748b', fontSize: 12 }}>
+                        {selectedField === 'start_id' ? 'Exact identity key' : 'Optional enrichment'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={!mappedStartId || Boolean(busy)}
+              onClick={runPreview}
+              data-testid="jobdiva-reconciliation-preview"
+            >
+              {busy === 'preview' ? <RefreshCw size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
+              <span style={{ marginLeft: 6 }}>{busy === 'preview' ? 'Building preview...' : 'Run dry-run'}</span>
+            </button>
+          </div>
+        </section>
+      )}
+
+      {preview && (
+        <section aria-labelledby="jd-preview-heading" style={{ borderTop: '1px solid #e2e8f0', padding: '16px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <h3 id="jd-preview-heading" style={{ margin: 0, fontSize: 16 }}>3. Review and select changes</h3>
+              <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 12 }}>
+                Creates are never inferred from titles or people. Updates apply only to the exact Start ID shown.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn--ghost" onClick={() => selectOutcome('update')}>Select updates</button>
+              <button type="button" className="btn btn--ghost" onClick={() => selectOutcome('create')}>Select creates</button>
+              <button type="button" className="btn btn--ghost" onClick={() => setSelected(new Set())}>Clear</button>
+            </div>
+          </div>
+
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+            border: '1px solid #dbe3ee', borderRadius: 6, margin: '12px 0', overflow: 'hidden',
+          }}>
+            {['create', 'update', 'unchanged', 'blocked'].map((key, index) => (
+              <div key={key} style={{
+                padding: '10px 12px',
+                borderLeft: index ? '1px solid #dbe3ee' : 0,
+                background: outcomeTone[key].bg,
+              }}>
+                <div style={{ fontSize: 11, color: outcomeTone[key].fg, textTransform: 'uppercase', fontWeight: 700 }}>{outcomeTone[key].label}</div>
+                <div style={{ fontSize: 21, fontWeight: 700, color: outcomeTone[key].fg }}>{preview.summary?.[key] || 0}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ overflowX: 'auto', border: '1px solid #dbe3ee', borderRadius: 6 }}>
+            <table className="table" data-testid="jobdiva-reconciliation-preview-table" style={{ width: '100%', margin: 0 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 36 }} />
+                  <th>Outcome</th>
+                  <th>Start ID</th>
+                  <th>CoreFlux placement</th>
+                  <th>Person resolution</th>
+                  <th>Changes</th>
+                  <th>Issues</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(preview.rows || []).map(row => {
+                  const isOpen = expanded.has(row.row_number);
+                  const rowTone = outcomeTone[row.outcome] || outcomeTone.blocked;
+                  return (
+                    <React.Fragment key={`${row.row_number}-${row.start_id}`}>
+                      <tr>
+                        <td>
+                          {row.selectable ? (
+                            <input
+                              type="checkbox"
+                              checked={selected.has(row.start_id)}
+                              onChange={() => toggleSelected(row.start_id)}
+                              aria-label={`Select Start ID ${row.start_id}`}
+                            />
+                          ) : null}
+                        </td>
+                        <td>
+                          <span style={{
+                            display: 'inline-block', padding: '2px 7px', borderRadius: 10,
+                            background: rowTone.bg, color: rowTone.fg, fontSize: 11, fontWeight: 700,
+                          }}>{rowTone.label}</span>
+                        </td>
+                        <td><code>{row.start_id || '-'}</code></td>
+                        <td>
+                          {row.placement_id
+                            ? <Link to={`../${row.placement_id}/overview`}>PL-{row.placement_id} / {row.placement_title || 'Untitled'}</Link>
+                            : <span>{row.placement_title || 'Missing placement'}</span>}
+                        </td>
+                        <td>
+                          <div>{row.person?.label || row.person?.email || 'Unresolved'}</div>
+                          <small style={{ color: '#64748b' }}>{row.person?.matched_by || 'no exact person match'}</small>
+                        </td>
+                        <td>
+                          <button type="button" className="btn btn--ghost" onClick={() => toggleExpanded(row.row_number)}>
+                            {isOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+                            <span style={{ marginLeft: 4 }}>{row.changes?.length || 0} proposed</span>
+                          </button>
+                        </td>
+                        <td>
+                          {row.errors?.length ? (
+                            <span style={{ color: '#b91c1c', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                              <XCircle size={14} aria-hidden="true" /> {row.errors.length} blocked
+                            </span>
+                          ) : row.warnings?.length || row.protected_changes?.length ? (
+                            <span style={{ color: '#b45309', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                              <AlertTriangle size={14} aria-hidden="true" /> {(row.warnings?.length || 0) + (row.protected_changes?.length || 0)}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#15803d', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                              <CheckCircle2 size={14} aria-hidden="true" /> Clear
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr>
+                          <td colSpan={7} style={{ background: '#f8fafc', padding: '10px 14px' }}>
+                            <DiffDetails row={row} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            gap: 12, marginTop: 12, paddingTop: 12, borderTop: '1px solid #e2e8f0',
+          }}>
+            <span style={{ color: '#475569', fontSize: 13 }}>{selected.size} selected for apply</span>
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={selected.size === 0 || Boolean(busy)}
+              onClick={applySelected}
+              data-testid="jobdiva-reconciliation-apply"
+            >
+              <ShieldCheck size={15} aria-hidden="true" />
+              <span style={{ marginLeft: 6 }}>{busy === 'apply' ? 'Applying verified plan...' : 'Apply selected changes'}</span>
+            </button>
+          </div>
+        </section>
+      )}
+    </section>
+  );
+}
+
+function DiffDetails({ row }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+      <div>
+        <strong style={{ fontSize: 12 }}>Proposed writes</strong>
+        {row.changes?.length ? (
+          <table style={{ width: '100%', marginTop: 6, fontSize: 12, borderCollapse: 'collapse' }}>
+            <tbody>
+              {row.changes.map((change, index) => (
+                <tr key={`${change.field}-${index}`}>
+                  <td style={{ padding: '4px 8px 4px 0', color: '#475569' }}>{change.group}</td>
+                  <td style={{ padding: 4, fontWeight: 600 }}>{change.label}</td>
+                  <td style={{ padding: 4, color: '#64748b' }}>{displayValue(change.from)}</td>
+                  <td style={{ padding: 4 }}>-&gt;</td>
+                  <td style={{ padding: 4, color: '#0f172a' }}>{displayValue(change.to)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : <p style={{ color: '#64748b', fontSize: 12 }}>No field writes proposed.</p>}
+      </div>
+      <div>
+        {row.errors?.length ? <MessageList title="Blocked" items={row.errors} color="#b91c1c" /> : null}
+        {row.warnings?.length ? <MessageList title="Warnings" items={row.warnings} color="#b45309" /> : null}
+        {row.protected_changes?.length ? (
+          <MessageList
+            title="Protected CoreFlux overrides"
+            color="#7c3aed"
+            items={row.protected_changes.map(item => `${item.label}: source proposed ${displayValue(item.to)}; retained ${displayValue(item.from)}`)}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function MessageList({ title, items, color }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <strong style={{ fontSize: 12, color }}>{title}</strong>
+      <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 12, color }}>
+        {items.map((item, index) => <li key={index}>{item}</li>)}
+      </ul>
+    </div>
+  );
+}
+
+function displayValue(value) {
+  if (value === null || value === undefined || value === '') return '-';
+  return String(value);
+}

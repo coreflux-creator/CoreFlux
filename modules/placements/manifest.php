@@ -20,6 +20,7 @@ return [
         ['name' => 'Active Placements', 'route' => 'list',         'permission' => 'placements.view'],
         ['name' => 'Expiring Soon',     'route' => 'expiring',     'permission' => 'placements.view'],
         ['name' => 'New Placement',     'route' => 'new',          'permission' => 'placements.manage'],
+        ['name' => 'JobDiva Reconcile', 'route' => 'jobdiva-reconciliation', 'permission' => 'placements.manage'],
         ['name' => 'Commissions',       'route' => 'commissions',  'permission' => 'placements.commissions.view'],
         ['name' => 'Referrals',         'route' => 'referrals',    'permission' => 'placements.referrals.manage'],
         ['name' => 'Reports',           'route' => 'reports',      'permission' => 'placements.financials.view'],
@@ -70,6 +71,7 @@ return [
         'placement.document.deleted',
         'placement.approval_contact.updated',
         'placement.csv_imported',
+        'placement.jobdiva_reconciliation.applied',
     ],
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],

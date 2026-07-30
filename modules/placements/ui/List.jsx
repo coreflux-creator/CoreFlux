@@ -5,6 +5,7 @@ import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTable
 import { fmtDate } from '../../../dashboard/src/lib/formatDate';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
+import { DatabaseZap } from 'lucide-react';
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
 const ETYPES   = ['', 'w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire'];
@@ -140,6 +141,15 @@ export default function List() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)' }}>
+          <Link
+            to="../jobdiva-reconciliation"
+            className="btn btn--ghost"
+            data-testid="placements-jobdiva-reconciliation-btn"
+            title="Preview and apply exact Start-ID placement reconciliation"
+          >
+            <DatabaseZap size={15} aria-hidden="true" style={{ marginRight: 6 }} />
+            Reconcile JobDiva
+          </Link>
           <Link to="../draft-rates" className="btn btn--ghost" data-testid="placements-draft-rates-btn" title="Review and approve draft rates across all placements">
             Draft rates queue
           </Link>

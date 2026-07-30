@@ -9,6 +9,7 @@ import PlacementDetailGraphql from './PlacementDetailGraphql';
 import Reports from './Reports';
 import CsvImport from './CsvImport';
 import DraftRatesQueue from './DraftRatesQueue';
+import JobDivaReconciliation from './JobDivaReconciliation';
 
 /**
  * Placements module entry — SPEC §7 routes.
@@ -27,6 +28,7 @@ export default function PlacementsModule({ session }) {
         <Route path="expiring"   element={<Expiring />} />
         <Route path="new"        element={<PlacementCreate />} />
         <Route path="csv_import" element={<CsvImport />} />
+        <Route path="jobdiva-reconciliation" element={<JobDivaReconciliation />} />
         <Route path="draft-rates" element={<DraftRatesQueue />} />
         <Route path="reports"    element={<Reports />} />
         <Route path="commissions"element={<List session={session} commissionsView />} />
