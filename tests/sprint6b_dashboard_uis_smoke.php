@@ -109,19 +109,16 @@ $assert('sidebar link: audit-log',                   stripos($adm, "to: '/admin/
 $assert('route: audit-log',                          stripos($adm, 'path="/audit-log"') !== false && stripos($adm, '<AuditLogViewer') !== false);
 $assert('quick-action: audit log card',              stripos($adm, 'href="/admin/audit-log"') !== false);
 
-echo "\nHeader.jsx — multi-entity switcher + inbox link\n";
+echo "\nHeader.jsx — tenant-authoritative scope + inbox link\n";
 $h = (string) file_get_contents("{$ROOT}/dashboard/src/layout/Header.jsx");
 $assert('imports api',                               stripos($h, "from '../lib/api'") !== false);
 $assert('imports Inbox icon',                        stripos($h, 'Inbox') !== false);
-$assert('imports Briefcase icon',                    stripos($h, 'Briefcase') !== false);
-$assert('GET /api/active_entity.php',                stripos($h, '/api/active_entity.php') !== false);
-$assert('POST entity_id',                            preg_match("#api\\.post\\(\\s*['\"]/api/active_entity\\.php['\"]#", $h) === 1);
-$assert('emits cf:active-entity-changed event',      stripos($h, 'cf:active-entity-changed') !== false);
+$assert('does not import Briefcase icon',            stripos($h, 'Briefcase') === false);
+$assert('does not fetch global active entity',       stripos($h, '/api/active_entity.php') === false);
+$assert('does not mutate global active entity',      stripos($h, 'cf:active-entity-changed') === false);
 $assert('header-inbox-link testid',                  stripos($h, 'data-testid="header-inbox-link"') !== false);
-$assert('header-entity-button testid',               stripos($h, 'data-testid="header-entity-button"') !== false);
-$assert('header-entity-switcher testid',             stripos($h, 'data-testid="header-entity-switcher"') !== false);
-$assert('dynamic header-entity-option- testid',      stripos($h, 'data-testid={`header-entity-option-') !== false);
-$assert('renders only when entities.length > 0',     stripos($h, 'entities.length > 0') !== false);
+$assert('global entity switcher removed',            stripos($h, 'header-entity-switcher') === false);
+$assert('tenant switcher remains authoritative',     stripos($h, 'data-testid="tenant-switcher"') !== false);
 $assert('Inbox link routes to /inbox',               preg_match('#to="/inbox"#', $h) === 1);
 
 echo "\nBacking API endpoints exist\n";

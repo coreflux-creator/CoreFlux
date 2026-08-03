@@ -13,7 +13,7 @@
  *   • modules/ap/lib/approval_router.php — `apRouteBillForApproval` now
  *     creates a workflow_instances row via workflowEnsureDefinition +
  *     workflowStart and returns `workflow_instance_id` in its result.
- *   • useActiveEntity hook exists + listens to cf:active-entity-changed.
+ *   • useActiveEntity resolves the tenant's internal accounting entity.
  *   • Accounting UI components (JournalEntries, Periods, PeriodCloseWorkflow)
  *     thread the active entity into their API calls.
  */
@@ -83,7 +83,7 @@ echo "\nuseActiveEntity hook\n";
 $uae = (string) file_get_contents("{$ROOT}/dashboard/src/lib/useActiveEntity.js");
 $assert('exports useActiveEntity',                   stripos($uae, 'export function useActiveEntity') !== false);
 $assert('GETs /api/active_entity.php',               stripos($uae, "api.get('/api/active_entity.php')") !== false);
-$assert('listens cf:active-entity-changed',          stripos($uae, "'cf:active-entity-changed'") !== false);
+$assert('does not depend on removed global selector',stripos($uae, "'cf:active-entity-changed'") === false);
 $assert('entityQuery helper returns query string',   stripos($uae, 'entityQuery') !== false && stripos($uae, 'entity_id=') !== false);
 $assert('returns activeEntityId + entities + entityQuery',
     stripos($uae, 'activeEntityId') !== false && stripos($uae, 'entities') !== false && stripos($uae, 'entityQuery') !== false);

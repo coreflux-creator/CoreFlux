@@ -20,6 +20,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/plaid_service.php';
+require_once __DIR__ . '/../core/active_entity.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -41,6 +42,13 @@ $perm = match ($purpose) {
     'tenant_funding'   => 'ap.payment.create',
 };
 rbac_legacy_require($user, $perm);
+
+$bankEntityId = null;
+if ($purpose === 'bank_feed') {
+    $entity = activeEntityResolveForTenant($tid);
+    if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
+    $bankEntityId = (int) $entity['id'];
+}
 
 // 1) exchange
 try {
@@ -104,6 +112,58 @@ foreach (($acctResp['accounts'] ?? []) as $a) {
         'type'          => substr((string) ($a['type'] ?? ''), 0, 40) ?: null,
         'subtype'       => substr((string) ($a['subtype'] ?? ''), 0, 40) ?: null,
         'is_primary'    => $isPrimary,
+    ]);
+}
+
+// A bank-rec connection targets an existing accounting_bank_accounts row.
+// Persist the actual Plaid account mapping; storing only the item-level hint
+// leaves transaction sync unable to route statement lines to the account.
+if ($purpose === 'bank_feed' && !empty($body['accounting_bank_account_id'])) {
+    $bankId = (int) $body['accounting_bank_account_id'];
+    $bank = scopedFind(
+        'SELECT id, last4 FROM accounting_bank_accounts
+          WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+        ['id' => $bankId]
+    );
+    if (!$bank) api_error('Bank account not found', 404);
+
+    $selectedIds = array_values(array_filter(array_map(
+        'strval',
+        is_array($body['selected_account_ids'] ?? null) ? $body['selected_account_ids'] : []
+    )));
+    $selectedSet = $selectedIds ? array_flip($selectedIds) : null;
+    $depositories = array_values(array_filter(
+        $acctResp['accounts'] ?? [],
+        static fn(array $a): bool =>
+            (string) ($a['type'] ?? '') === 'depository'
+            && ($selectedSet === null || isset($selectedSet[(string) ($a['account_id'] ?? '')]))
+    ));
+    $chosen = null;
+    foreach ($depositories as $a) {
+        if (!empty($bank['last4']) && (string) ($a['mask'] ?? '') === (string) $bank['last4']) {
+            $chosen = $a;
+            break;
+        }
+    }
+    if (!$chosen && count($depositories) === 1) $chosen = $depositories[0];
+    if (!$chosen) {
+        api_error('Could not identify one Plaid deposit account for this bank record; select only the matching account', 422);
+    }
+
+    $pdo = getDB();
+    $pdo->prepare(
+        "UPDATE accounting_bank_accounts
+            SET plaid_account_id = :pa,
+                feed_provider = 'plaid_transactions',
+                entity_id = COALESCE(entity_id, :eid),
+                status = 'active',
+                updated_at = NOW()
+          WHERE tenant_id = :t AND id = :id"
+    )->execute([
+        'pa' => (string) $chosen['account_id'],
+        'eid' => $bankEntityId,
+        't' => $tid,
+        'id' => $bankId,
     ]);
 }
 

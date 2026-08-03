@@ -1,15 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ChevronDown, LayoutDashboard, Shield, Building2, Inbox, Briefcase, TrendingUp, UserCog } from 'lucide-react';
+import { ChevronDown, LayoutDashboard, Shield, Building2, Inbox, TrendingUp, UserCog } from 'lucide-react';
 import { api } from '../lib/api';
 
 const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, onTenantChange }) => {
   const [moduleOpen, setModuleOpen] = useState(false);
   const [tenantOpen, setTenantOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
-  const [entityOpen, setEntityOpen] = useState(false);
-  const [entities, setEntities] = useState([]);
-  const [activeEntityId, setActiveEntityId] = useState(null);
   const [personaOpen, setPersonaOpen] = useState(false);
   const [personas, setPersonas] = useState([]);
   const [activePersonaId, setActivePersonaId] = useState(null);
@@ -22,7 +19,6 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
   const moduleRef = useRef(null);
   const tenantRef = useRef(null);
   const userRef = useRef(null);
-  const entityRef = useRef(null);
   const personaRef = useRef(null);
 
   useEffect(() => {
@@ -30,38 +26,11 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
       if (moduleRef.current && !moduleRef.current.contains(e.target)) setModuleOpen(false);
       if (tenantRef.current && !tenantRef.current.contains(e.target)) setTenantOpen(false);
       if (userRef.current && !userRef.current.contains(e.target)) setUserOpen(false);
-      if (entityRef.current && !entityRef.current.contains(e.target)) setEntityOpen(false);
       if (personaRef.current && !personaRef.current.contains(e.target)) setPersonaOpen(false);
     };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
-
-  // Sprint 6b — multi-entity switcher.
-  // Best-effort: if the active_entity API isn't available (e.g. the
-  // tenant has zero accounting_entities seeded yet) the dropdown
-  // simply doesn't render. Never blocks header rendering.
-  useEffect(() => {
-    let cancelled = false;
-    api.get('/api/active_entity.php').then(r => {
-      if (cancelled) return;
-      setEntities(r?.entities ?? []);
-      setActiveEntityId(r?.active_entity_id ?? null);
-    }).catch(() => { /* silent */ });
-    return () => { cancelled = true; };
-  }, [tenant]);
-
-  const onEntityChange = async (entityId) => {
-    try {
-      const r = await api.post('/api/active_entity.php', { entity_id: entityId });
-      setActiveEntityId(r?.active_entity_id ?? entityId);
-      setEntityOpen(false);
-      // Soft refresh so module data scoped by entity reloads.
-      window.dispatchEvent(new CustomEvent('cf:active-entity-changed', { detail: { entity_id: entityId } }));
-    } catch (e) {
-      console.error('active entity switch failed', e);
-    }
-  };
 
   // Tenant switcher inventory — pulls direct + via_parent + platform.
   // Refreshes whenever the active tenant changes (e.g. after switching).
@@ -111,7 +80,6 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
   const canSeeCfo = ['master_admin','tenant_admin','admin'].includes(user?.role)
                  || ['master_admin','tenant_admin'].includes(user?.global_role)
                  || !!user?.is_global_admin;
-  const activeEntity  = entities.find(e => e.id === activeEntityId);
   const activePersona = personas.find(p => p.id === activePersonaId);
 
   return (
@@ -211,34 +179,6 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
                     )}
                     <span style={{ color: '#64748b', marginLeft: 8, fontSize: 12 }}>
                       {p.persona_type}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Sprint 6b — Multi-entity switcher (only renders if tenant has ≥1 entity) */}
-        {entities.length > 0 && (
-          <div className={`dropdown ${entityOpen ? 'open' : ''}`} ref={entityRef} data-testid="header-entity-switcher">
-            <button className="header-btn"
-                    data-testid="header-entity-button"
-                    onClick={(e) => { e.stopPropagation(); setEntityOpen(!entityOpen); }}>
-              <Briefcase size={18} className="header-btn-icon" />
-              <span>{activeEntity ? activeEntity.code : 'Entity'}</span>
-              <ChevronDown size={14} className="caret" />
-            </button>
-            {entityOpen && (
-              <div className="dropdown-menu dropdown-menu-right">
-                {entities.map(ent => (
-                  <div key={ent.id}
-                       className={`dropdown-item ${ent.id === activeEntityId ? 'active' : ''}`}
-                       data-testid={`header-entity-option-${ent.id}`}
-                       onClick={() => onEntityChange(ent.id)}>
-                    <strong>{ent.code}</strong>
-                    <span style={{ color: '#64748b', marginLeft: 8, fontSize: 12 }}>
-                      {ent.legal_name}{ent.base_currency ? ` · ${ent.base_currency}` : ''}
                     </span>
                   </div>
                 ))}

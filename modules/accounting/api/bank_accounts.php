@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/active_entity.php';
 require_once __DIR__ . '/../lib/accounting.php';
 
 $ctx    = api_require_auth();
@@ -92,8 +93,17 @@ if ($method === 'POST') {
     rbac_legacy_require($user, 'accounting.coa.edit');
     $body = api_json_body();
     api_require_fields($body, ['name', 'gl_account_code']);
+    try {
+        $entity = activeEntityResolveForTenant(
+            (int) $ctx['tenant_id'],
+            !empty($body['entity_id']) ? (int) $body['entity_id'] : null
+        );
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
+    if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
     $id = scopedInsert('accounting_bank_accounts', [
-        'entity_id'        => isset($body['entity_id']) ? (int) $body['entity_id'] : null,
+        'entity_id'        => (int) $entity['id'],
         'name'             => (string) $body['name'],
         'gl_account_code'  => (string) $body['gl_account_code'],
         'bank_name'        => $body['bank_name']      ?? null,
@@ -112,7 +122,16 @@ if ($method === 'PUT') {
     $id   = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
-    $allowed = ['name','gl_account_code','bank_name','routing_number','last4','currency','feed_provider','plaid_account_id','status'];
+    if (array_key_exists('entity_id', $body)) {
+        try {
+            $entity = activeEntityResolveForTenant((int) $ctx['tenant_id'], (int) $body['entity_id']);
+            if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
+            $body['entity_id'] = (int) $entity['id'];
+        } catch (\Throwable $e) {
+            api_error($e->getMessage(), 422);
+        }
+    }
+    $allowed = ['entity_id','name','gl_account_code','bank_name','routing_number','last4','currency','feed_provider','plaid_account_id','status'];
     $data = [];
     foreach ($allowed as $f) if (array_key_exists($f, $body)) $data[$f] = $body[$f];
     if ($data) scopedUpdate('accounting_bank_accounts', $id, $data);

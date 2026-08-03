@@ -15,9 +15,12 @@ $tenantId  = (int) $ctx['tenant_id'];
 $method    = api_method();
 
 if ($method === 'GET') {
+    $entities = activeEntityAvailable($tenantId);
+    $resolved = activeEntityResolveForTenant($tenantId);
     api_ok([
-        'active_entity_id' => activeEntityGet($tenantId),
-        'entities'         => activeEntityAvailable($tenantId),
+        'active_entity_id' => $resolved ? (int) $resolved['id'] : null,
+        'entities'         => $entities,
+        'scope'            => 'tenant',
     ]);
 }
 

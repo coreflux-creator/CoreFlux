@@ -29,6 +29,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/plaid_service.php';
+require_once __DIR__ . '/../core/active_entity.php';
 
 $ctx      = api_require_auth();
 $user     = $ctx['user'];
@@ -90,6 +91,16 @@ if ($action === 'exchange') {
     $publicToken = trim((string) ($body['public_token'] ?? ''));
     if ($publicToken === '') api_error('public_token required', 422);
     $institution = is_array($body['institution'] ?? null) ? $body['institution'] : [];
+    try {
+        $entity = activeEntityResolveForTenant(
+            $tenantId,
+            !empty($body['entity_id']) ? (int) $body['entity_id'] : null
+        );
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
+    if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
+    $entityId = (int) $entity['id'];
 
     // Per-account opt-in: when the UI passes selected_account_ids[], only those
     // Plaid accounts get mirrored into Treasury. Unselected accounts still get
@@ -252,9 +263,11 @@ if ($action === 'exchange') {
                     // Re-activate in case it was previously hidden by a disconnect.
                     $pdo->prepare(
                         "UPDATE accounting_bank_accounts
-                            SET status = 'active', updated_at = NOW()
-                          WHERE tenant_id = :t AND id = :id AND status <> 'active'"
-                    )->execute(['t' => $tenantId, 'id' => $existingId]);
+                            SET status = 'active',
+                                entity_id = COALESCE(entity_id, :eid),
+                                updated_at = NOW()
+                          WHERE tenant_id = :t AND id = :id"
+                    )->execute(['t' => $tenantId, 'id' => $existingId, 'eid' => $entityId]);
                     $createdBank[] = $existingId;
                     continue;
                 }
@@ -291,10 +304,11 @@ if ($action === 'exchange') {
                             "UPDATE accounting_bank_accounts
                                 SET plaid_account_id = :pa,
                                     feed_provider    = 'plaid_transactions',
+                                    entity_id        = COALESCE(entity_id, :eid),
                                     status           = 'active',
                                     updated_at       = NOW()
                               WHERE tenant_id = :t AND id = :id"
-                        )->execute(['t' => $tenantId, 'pa' => $accId, 'id' => $adoptId]);
+                        )->execute(['t' => $tenantId, 'pa' => $accId, 'id' => $adoptId, 'eid' => $entityId]);
                         $createdBank[] = $adoptId;
                         continue;
                     }
@@ -363,12 +377,12 @@ if ($action === 'exchange') {
 
                 $pdo->prepare(
                     'INSERT INTO accounting_bank_accounts
-                        (tenant_id, name, gl_account_code, bank_name, last4, currency,
+                        (tenant_id, entity_id, name, gl_account_code, bank_name, last4, currency,
                          feed_provider, status, plaid_account_id, last_feed_synced_at,
                          created_at)
-                     VALUES (:t, :nm, :gl, :bk, :l4, :c, "plaid_transactions", "active", :pa, NULL, NOW())'
+                     VALUES (:t, :eid, :nm, :gl, :bk, :l4, :c, "plaid_transactions", "active", :pa, NULL, NOW())'
                 )->execute([
-                    't'  => $tenantId, 'nm' => $insName, 'gl' => $glCode,
+                    't'  => $tenantId, 'eid' => $entityId, 'nm' => $insName, 'gl' => $glCode,
                     'bk' => $bankName, 'l4' => $mask, 'c'  => 'USD', 'pa' => $accId,
                 ]);
                 $createdBank[] = (int) $pdo->lastInsertId();
@@ -537,5 +551,4 @@ if ($action === 'exchange') {
 }
 
 api_error('Unknown action: ' . $action, 422);
-
 

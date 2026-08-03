@@ -95,6 +95,7 @@ export default function PlaidLinkButton({
             employee_id:                employeeId,
             accounting_bank_account_id: accountingBankAccountId,
             institution: metadata.institution,
+            selected_account_ids:       (metadata.accounts || []).map((a) => a.id).filter(Boolean),
           });
           setStatus('done');
           onLinked && onLinked(result);

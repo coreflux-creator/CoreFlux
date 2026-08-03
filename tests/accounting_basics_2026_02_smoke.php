@@ -71,20 +71,20 @@ $rc = 0; $o = [];
 exec(escapeshellarg(PHP_BINARY) . ' -l ' . escapeshellarg($ROOT . '/core/sub_tenants.php') . ' 2>&1', $o, $rc);
 $a('php -l sub_tenants.php',                              $rc === 0);
 
-// ────────────────────────────────────────── 4) active_entity.php cross-tenant
-echo "\ncore/active_entity.php — cross-tenant entity surface\n";
+// ────────────────────────────────────────── 4) active_entity.php tenant-local
+echo "\ncore/active_entity.php — tenant-authoritative entity resolution\n";
 $ae = (string) file_get_contents($ROOT . '/core/active_entity.php');
 $a('activeEntityAvailable takes optional userId',         $c($ae, 'function activeEntityAvailable(int $tenantId, ?int $userId = null)'));
-$a('helper activeEntityResolveAllowedTenantIds',          $c($ae, 'function activeEntityResolveAllowedTenantIds(int $tenantId)'));
-$a('master tenant includes sub-tenants',                  $c($ae, "((string) (\$t['tenant_type'] ?? '')) === 'master'"));
-$a('sub-tenants pulled by parent_id',                     $c($ae, 'WHERE parent_id = :p AND is_active = 1'));
-$a('sub-tenant scope stays narrow',                       $c($ae, 'Sub-tenant: only its own entities by default'));
+$a('exports deterministic tenant resolver',               $c($ae, 'function activeEntityResolveForTenant('));
+$a('available entities stay tenant-local',                $c($ae, 'AND ae.tenant_id = :t'));
+$a('activeEntitySet validates current tenant ownership',  $c($ae, 'WHERE id = :id AND tenant_id = :t'));
+$a('cross-tenant active resolver removed',                !$c($ae, 'activeEntityResolveAllowedTenantIds'));
 $a('result rows carry tenant_id + tenant_name',           $c($ae, 't.name AS tenant_name'));
 $a('result rows carry tenant_kind',                       $c($ae, 't.tenant_type AS tenant_kind'));
-$a('result rows tag is_active_tenant',                    $c($ae, "\$r['is_active_tenant'] = \$r['tenant_id'] === \$tenantId"));
-$a('activeEntitySet validates against the allowed set',   $c($ae, 'activeEntityResolveAllowedTenantIds') && $c($ae, '$placeholders = implode'));
-$a('ORDER BY active tenant first, then master',           $c($ae, "CASE WHEN ae.tenant_id = ? THEN 0 ELSE 1 END") && $c($ae, "CASE WHEN t.tenant_type = 'master'"));
-$a('tenant-leak-allow comment present',                   $c($ae, 'tenant-leak-allow: cross-tenant by design'));
+$a('result rows are current-tenant rows',                 $c($ae, "\$r['is_active_tenant'] = true"));
+$a('resolver persists tenant-keyed session state',        $c($ae, 'active_entity_id__t{$tenantId}'));
+$a('resolver defaults deterministically',                 $c($ae, '$resolved = $resolved ?: $entities[0]'));
+$a('cross-tenant selection lives outside global state',   $c($ae, 'Consolidation and Intercompany workflows'));
 
 $rc = 0; $o = [];
 exec(escapeshellarg(PHP_BINARY) . ' -l ' . escapeshellarg($ROOT . '/core/active_entity.php') . ' 2>&1', $o, $rc);

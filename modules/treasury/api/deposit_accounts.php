@@ -15,6 +15,7 @@
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/active_entity.php';
 
 $ctx = api_require_auth();
 
@@ -97,6 +98,15 @@ switch (api_method()) {
         rbac_legacy_require($ctx['user'], 'treasury.deposit.manage');
         $body = api_json_body();
         api_require_fields($body, ['name', 'gl_account_code']);
+        try {
+            $entity = activeEntityResolveForTenant(
+                (int) $ctx['tenant_id'],
+                !empty($body['entity_id']) ? (int) $body['entity_id'] : null
+            );
+        } catch (\Throwable $e) {
+            api_error($e->getMessage(), 422);
+        }
+        if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
 
         $id = scopedInsert('accounting_bank_accounts', [
             'name'            => trim((string) $body['name']),
@@ -104,7 +114,7 @@ switch (api_method()) {
             'bank_name'       => $body['bank_name'] ?? null,
             'last4'           => $body['last4'] ?? null,
             'currency'        => $body['currency'] ?? 'USD',
-            'entity_id'       => $body['entity_id'] ?? null,
+            'entity_id'       => (int) $entity['id'],
             'status'          => 'active',
         ]);
 

@@ -6,10 +6,9 @@
  *   GET  /api/active_entity.php                 → { active_entity_id, entities[] }
  *   POST /api/active_entity.php  { entity_id }  → { active_entity_id, entity }
  *
- * Header.jsx dispatches `cf:active-entity-changed` window events whenever
- * the user picks a new entity from the Briefcase dropdown; this hook
- * listens and refreshes `activeEntityId` so every consumer re-scopes its
- * queries automatically without a page reload.
+ * Tenant switching is the global scope. The backend resolves the tenant's
+ * internal/default accounting entity so posting APIs can keep their entity_id
+ * invariant without exposing a second global selector.
  *
  * Usage:
  *   const { activeEntityId, entities, entityQuery } = useActiveEntity();
@@ -39,16 +38,6 @@ export function useActiveEntity() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-
-  useEffect(() => {
-    const handler = (e) => {
-      const eid = e?.detail?.entity_id;
-      if (eid !== undefined) setActiveEntityId(eid);
-      else load();
-    };
-    window.addEventListener('cf:active-entity-changed', handler);
-    return () => window.removeEventListener('cf:active-entity-changed', handler);
-  }, [load]);
 
   /**
    * Helper: append `?entity_id=N` (or `&entity_id=N`) to a URL when an

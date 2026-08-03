@@ -30,8 +30,12 @@ $tenantId = (int) $ctx['tenant_id'];
 rbac_legacy_require($ctx['user'], 'accounting.bank.manage');
 if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') {
     require_once __DIR__ . '/../core/plaid_service.php';
+    require_once __DIR__ . '/../core/active_entity.php';
 
     $pdo = getDB();
+    $entity = activeEntityResolveForTenant($tenantId);
+    if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
+    $entityId = (int) $entity['id'];
 
     // Self-heal: add the liability column if it isn't there yet (mirror of
     // the same guard in plaid_bank_link.php).
@@ -107,12 +111,12 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
 
                 $pdo->prepare(
                     'INSERT INTO accounting_bank_accounts
-                        (tenant_id, name, gl_account_code, bank_name, last4, currency,
+                        (tenant_id, entity_id, name, gl_account_code, bank_name, last4, currency,
                          feed_provider, status, plaid_account_id, last_feed_synced_at,
                          created_at)
-                     VALUES (:t, :nm, :gl, :bk, :l4, :c, "plaid_transactions", "active", :pa, NULL, NOW())'
+                     VALUES (:t, :eid, :nm, :gl, :bk, :l4, :c, "plaid_transactions", "active", :pa, NULL, NOW())'
                 )->execute([
-                    't'  => $tenantId, 'nm' => $insName, 'gl' => $glCode,
+                    't'  => $tenantId, 'eid' => $entityId, 'nm' => $insName, 'gl' => $glCode,
                     'bk' => $bankName, 'l4' => $mask, 'c'  => 'USD', 'pa' => $accId,
                 ]);
                 $createdBank[] = (int) $pdo->lastInsertId();
