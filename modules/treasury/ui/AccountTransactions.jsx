@@ -216,6 +216,25 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         ({r.merchant_name})
                       </span>
                     )}
+                    {Array.isArray(r.categorization) && r.categorization.length > 0 && (
+                      <div
+                        data-testid={`treasury-txn-category-${r.id}`}
+                        style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap', marginTop: 4, fontSize: 11, color: '#475569' }}
+                      >
+                        <span>{r.categorization.length > 1 ? 'Split:' : 'Category:'}</span>
+                        {r.categorization.map((category) => (
+                          <span
+                            key={`${category.line_no}-${category.account_id}`}
+                            style={{ padding: '2px 6px', borderRadius: 10, background: '#ecfdf5', color: '#065f46' }}
+                          >
+                            <code>{category.account_code}</code> {category.account_name}
+                            {r.categorization.length > 1 && (
+                              <> · {fmtMoney(Math.max(Number(category.debit), Number(category.credit)))}</>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   {type === 'liability' && (
                     <td className="muted" style={{ fontSize: 12 }}>{r.category || '—'}</td>
@@ -238,14 +257,11 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                       {r.match_status}
                     </span>
                     {r.matched_je_id && (
-                      <a
-                        href={`#/modules/accounting/journal-entries/${r.matched_je_id}`}
-                        className="muted"
-                        data-testid={`treasury-txn-je-${r.id}`}
-                        style={{ fontSize: 11, marginLeft: 6 }}
-                      >
-                        JE #{r.matched_je_id}
-                      </a>
+                      <JournalEntryHover
+                        transactionId={r.id}
+                        journalEntry={r.journal_entry}
+                        fallbackId={r.matched_je_id}
+                      />
                     )}
                   </td>
                   <td>
@@ -383,6 +399,66 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
         </table>
       )}
     </section>
+  );
+}
+
+function JournalEntryHover({ transactionId, journalEntry, fallbackId }) {
+  const [open, setOpen] = useState(false);
+  const jeId = journalEntry?.id || fallbackId;
+  const label = journalEntry?.je_number || `JE #${jeId}`;
+  const lines = journalEntry?.lines || [];
+
+  return (
+    <span
+      style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <a
+        href={`/modules/accounting/journal-entries/${jeId}`}
+        className="muted"
+        data-testid={`treasury-txn-je-${transactionId}`}
+        style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+      >
+        {label}
+      </a>
+      {open && journalEntry && (
+        <div
+          role="tooltip"
+          data-testid={`treasury-txn-je-preview-${transactionId}`}
+          style={{
+            position: 'absolute', zIndex: 30, top: 'calc(100% + 6px)', right: 0,
+            width: 380, padding: 12, borderRadius: 8,
+            border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a',
+            boxShadow: '0 10px 28px rgba(15, 23, 42, 0.18)', fontSize: 11,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
+            <strong>{journalEntry.je_number}</strong>
+            <span>{fmtDate(journalEntry.posting_date)} · {journalEntry.status}</span>
+          </div>
+          {journalEntry.memo && (
+            <div style={{ marginBottom: 8, color: '#475569' }}>{journalEntry.memo}</div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 78px 78px', gap: '4px 8px', fontVariantNumeric: 'tabular-nums' }}>
+            <strong>Account</strong><strong style={{ textAlign: 'right' }}>Debit</strong><strong style={{ textAlign: 'right' }}>Credit</strong>
+            {lines.map((line) => (
+              <React.Fragment key={`${line.line_no}-${line.account_id}`}>
+                <span><code>{line.account_code}</code> {line.account_name}</span>
+                <span style={{ textAlign: 'right' }}>{Number(line.debit) ? fmtMoney(Number(line.debit)) : '—'}</span>
+                <span style={{ textAlign: 'right' }}>{Number(line.credit) ? fmtMoney(Number(line.credit)) : '—'}</span>
+              </React.Fragment>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 14, marginTop: 8, paddingTop: 6, borderTop: '1px solid #e2e8f0', fontWeight: 600 }}>
+            <span>DR {fmtMoney(Number(journalEntry.total_debit))}</span>
+            <span>CR {fmtMoney(Number(journalEntry.total_credit))}</span>
+          </div>
+        </div>
+      )}
+    </span>
   );
 }
 

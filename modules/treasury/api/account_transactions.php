@@ -693,6 +693,77 @@ if ($type === 'deposit') {
     $sideAccountId = $accountId;  // liability_account_id IS accounting_accounts.id
 }
 
+// Enrich matched statement rows in one batch so Treasury can show the posted
+// category inline and preview the full JE without issuing one request per row.
+$matchedJeIds = [];
+foreach ($rows as $r) {
+    $jeId = (int) ($r['matched_je_id'] ?? 0);
+    if ($jeId > 0) $matchedJeIds[$jeId] = $jeId;
+}
+
+$journalById = [];
+if ($matchedJeIds) {
+    $jeParams = ['t' => $tenantId];
+    $jePlaceholders = [];
+    foreach (array_values($matchedJeIds) as $i => $jeId) {
+        $key = 'je' . $i;
+        $jePlaceholders[] = ':' . $key;
+        $jeParams[$key] = $jeId;
+    }
+
+    $jeStmt = $pdo->prepare(
+        'SELECT je.id, je.je_number, je.posting_date, je.status,
+                je.memo AS je_memo, je.total_debit, je.total_credit,
+                jel.line_no, jel.account_id, jel.debit, jel.credit,
+                jel.memo AS line_memo, aa.code AS account_code,
+                aa.name AS account_name
+           FROM accounting_journal_entries je
+           JOIN accounting_journal_entry_lines jel ON jel.je_id = je.id
+           JOIN accounting_accounts aa
+             ON aa.tenant_id = je.tenant_id AND aa.id = jel.account_id
+          WHERE je.tenant_id = :t
+            AND je.id IN (' . implode(',', $jePlaceholders) . ')
+          ORDER BY je.id, jel.line_no'
+    );
+    $jeStmt->execute($jeParams);
+
+    foreach ($jeStmt->fetchAll(PDO::FETCH_ASSOC) as $detail) {
+        $jeId = (int) $detail['id'];
+        if (!isset($journalById[$jeId])) {
+            $journalById[$jeId] = [
+                'id'           => $jeId,
+                'je_number'    => (string) $detail['je_number'],
+                'posting_date' => (string) $detail['posting_date'],
+                'status'       => (string) $detail['status'],
+                'memo'         => $detail['je_memo'],
+                'total_debit'  => (float) $detail['total_debit'],
+                'total_credit' => (float) $detail['total_credit'],
+                'lines'        => [],
+            ];
+        }
+        $journalById[$jeId]['lines'][] = [
+            'line_no'      => (int) $detail['line_no'],
+            'account_id'   => (int) $detail['account_id'],
+            'account_code' => (string) $detail['account_code'],
+            'account_name' => (string) $detail['account_name'],
+            'debit'        => (float) $detail['debit'],
+            'credit'       => (float) $detail['credit'],
+            'memo'         => $detail['line_memo'],
+        ];
+    }
+}
+
+foreach ($rows as $i => $r) {
+    $jeId = (int) ($r['matched_je_id'] ?? 0);
+    if ($jeId <= 0 || !isset($journalById[$jeId])) continue;
+
+    $rows[$i]['journal_entry'] = $journalById[$jeId];
+    $rows[$i]['categorization'] = array_values(array_filter(
+        $journalById[$jeId]['lines'],
+        static fn(array $line): bool => (int) $line['account_id'] !== $sideAccountId
+    ));
+}
+
 $subjectType = $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line';
 $cacheStmt = $pdo->prepare(
     "SELECT id, suggested_value, confidence_score, suggestion_source, draft_content
