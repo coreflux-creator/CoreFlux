@@ -26,6 +26,8 @@ $ROOT = dirname(__DIR__);
 // --- /api/admin/mail_health.php ----------------------------------
 echo "api/admin/mail_health.php\n";
 $ep = $read("{$ROOT}/api/admin/mail_health.php");
+$a('loads canonical mail bootstrap for effective driver state',
+    str_contains($ep, "require_once __DIR__ . '/../../core/mail_bootstrap.php'"));
 $a('file exists',                              $ep !== '');
 $a('api_require_auth + RBAC gate',             str_contains($ep, 'api_require_auth()')
                                             && str_contains($ep, "rbac_legacy_require(\$user, 'tenant_admin.integrations');"));

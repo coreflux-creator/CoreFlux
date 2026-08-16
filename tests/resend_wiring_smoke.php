@@ -153,6 +153,14 @@ $a('bootstrap references ResendDriver class',
     str_contains($mb, 'ResendDriver'));
 $a('bootstrap conditional on RESEND_API_KEY',
     str_contains($mb, 'RESEND_API_KEY'));
+$a('bootstrap eagerly loads host config before resolving the key',
+    str_contains($mb, "__DIR__ . '/config.local.php'")
+    && str_contains($mb, 'require_once $_mailLocalConfig'));
+$a('missing key fails through Resend unless log mode is explicit',
+    str_contains($mb, "getenv('MAIL_DRIVER')")
+    && str_contains($mb, "=== 'log'")
+    && str_contains($mb, "? new LogDriver()")
+    && str_contains($mb, ": new ResendDriver()"));
 
 echo "\n===================\n";
 echo "Resend wiring smoke: $pass ✓ / $fail ✗\n";

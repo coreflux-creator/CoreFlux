@@ -33,6 +33,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/RBAC.php';
+require_once __DIR__ . '/../../core/mail_bootstrap.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -52,6 +53,10 @@ $fromEmail = (string) getenv('RESEND_FROM_EMAIL');
 if ($fromEmail === '' && defined('RESEND_FROM_EMAIL')) {
     $fromEmail = (string) constant('RESEND_FROM_EMAIL');
 }
+$defaultDriver = 'resend';
+try {
+    $defaultDriver = cf_mail_bootstrap()->default_driver_name();
+} catch (\Throwable $_) { /* configuration status remains useful */ }
 
 // ---------- DB pull (degrades gracefully if table absent) ---------
 $pdo = getDB();
@@ -184,9 +189,12 @@ if ($pdo) {
 // ---------- Derived status banner ---------------------------------
 $status = 'silent';
 $hint   = '';
-if (!$resendConfigured) {
+if ($defaultDriver === 'log') {
     $status = 'critical';
-    $hint   = 'RESEND_API_KEY is not set — outbound mail will fall through to the log driver. Add the key to /app/core/config.local.php (or set the env var) to deliver via Resend.';
+    $hint   = 'MAIL_DRIVER=log explicitly enables local capture. No email leaves the server.';
+} elseif (!$resendConfigured) {
+    $status = 'critical';
+    $hint   = 'RESEND_API_KEY is not set — outbound sends fail visibly. Add the key to /app/core/config.local.php (or set the env var) to deliver via Resend.';
 } elseif ($tableMissing) {
     $status = 'silent';
     $hint   = 'mail_outbox table is missing in this environment — run migrations/003_mail_service.sql to start auditing sends.';
@@ -209,7 +217,7 @@ if (!$resendConfigured) {
 
 api_ok([
     'resend_configured' => $resendConfigured,
-    'default_driver'    => $resendConfigured ? 'resend' : 'log',
+    'default_driver'    => $defaultDriver,
     'from_email'        => $fromEmail !== '' ? $fromEmail : null,
     'window'            => [
         'hours' => 24,
