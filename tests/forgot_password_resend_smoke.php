@@ -31,6 +31,18 @@ $a('final fallback to first active tenant',
     str_contains($fp, 'SELECT id FROM tenants WHERE COALESCE(is_active,1) = 1 ORDER BY id ASC LIMIT 1'));
 $a('logs failures with tenant + driver + err',
     str_contains($fp, '[forgot_password] mailerSend failed'));
+$a('repairs legacy password_resets schemas before registered-user writes',
+    str_contains($fp, 'function forgotPasswordEnsureSchema')
+    && str_contains($fp, 'SHOW COLUMNS FROM password_resets')
+    && str_contains($fp, 'ALTER TABLE password_resets'));
+$a('supports legacy required token column without storing raw tokens',
+    str_contains($fp, "isset(\$passwordResetColumns['token'])")
+    && str_contains($fp, "\$insertParams[':legacy_token'] = \$tokenHash"));
+$a('mail transport exceptions preserve the non-enumerating response',
+    str_contains($fp, 'catch (Throwable $mailError)')
+    && str_contains($fp, '[forgot_password] mail_dispatch threw'));
+$a('logs the failing registered-user stage for server-side diagnosis',
+    str_contains($fp, '[forgot_password] stage='));
 $a('renders non-enumerating success message',
     str_contains($fp, "If that email is registered"));
 $a('exposes data-testids for the form',
