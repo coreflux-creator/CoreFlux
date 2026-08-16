@@ -31,19 +31,64 @@ $APP_NAME      = 'CoreFlux';
 $TOKEN_TTL_MIN = 60;
 $RESET_PATH    = '/reset_password.php';
 
-// Idempotent — keep the table on-disk so callers don't need a migration.
-$pdo->exec("
-    CREATE TABLE IF NOT EXISTS password_resets (
-        id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        user_id     INT UNSIGNED NOT NULL,
-        email       VARCHAR(255) NOT NULL,
-        token_hash  CHAR(64)     NOT NULL,
-        expires_at  DATETIME     NOT NULL,
-        used_at     DATETIME     NULL,
-        created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX (email), INDEX (user_id), INDEX (token_hash)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-");
+/**
+ * Bring legacy password_resets tables up to the shape used by CoreFlux.
+ *
+ * Some production installs already have the common Laravel-style table
+ * (email, token, created_at). CREATE TABLE IF NOT EXISTS leaves that table
+ * untouched, so the first registered-user request used to fail on user_id,
+ * token_hash, expires_at, or used_at before mail delivery was attempted.
+ * Keep this repair local and idempotent because this public flow must also
+ * work on older hosts before the normal migration runner has executed.
+ *
+ * @return array<string,bool> lowercase column-name set
+ */
+function forgotPasswordEnsureSchema(PDO $pdo): array
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id     BIGINT UNSIGNED NOT NULL,
+            email       VARCHAR(255) NOT NULL,
+            token_hash  CHAR(64)     NOT NULL,
+            expires_at  DATETIME     NOT NULL,
+            used_at     DATETIME     NULL,
+            created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX (email), INDEX (user_id), INDEX (token_hash)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ");
+
+    $readColumns = static function () use ($pdo): array {
+        $set = [];
+        foreach ($pdo->query('SHOW COLUMNS FROM password_resets')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $name = strtolower((string) ($row['Field'] ?? ''));
+            if ($name !== '') $set[$name] = true;
+        }
+        return $set;
+    };
+
+    $columns = $readColumns();
+    $repairs = [
+        // AUTO_INCREMENT may coexist with a legacy primary key when it has
+        // its own UNIQUE index. Existing rows receive stable generated ids.
+        'id'         => 'ADD COLUMN id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT UNIQUE FIRST',
+        'user_id'    => 'ADD COLUMN user_id BIGINT UNSIGNED NULL AFTER id',
+        'email'      => 'ADD COLUMN email VARCHAR(255) NULL AFTER user_id',
+        'token_hash' => 'ADD COLUMN token_hash CHAR(64) NULL AFTER email',
+        'expires_at' => 'ADD COLUMN expires_at DATETIME NULL AFTER token_hash',
+        'used_at'    => 'ADD COLUMN used_at DATETIME NULL AFTER expires_at',
+        'created_at' => 'ADD COLUMN created_at DATETIME NULL DEFAULT CURRENT_TIMESTAMP AFTER used_at',
+    ];
+    foreach ($repairs as $column => $ddl) {
+        if (isset($columns[$column])) continue;
+        $pdo->exec('ALTER TABLE password_resets ' . $ddl);
+        $columns[$column] = true;
+    }
+
+    return $columns;
+}
+
+$passwordResetColumns = forgotPasswordEnsureSchema($pdo);
 
 $successMsg = '';
 $errorMsg   = '';
@@ -54,6 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $errorMsg = 'Please enter a valid email address.';
     } else {
+        $resetStage = 'user_lookup';
         try {
             $stmt = $pdo->prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(:e) LIMIT 1');
             $stmt->execute([':e' => $email]);
@@ -61,6 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($user) {
                 $userId = (int) $user['id'];
+                $resetStage = 'tenant_resolution';
 
                 // Resolve the user's home tenant — required for Resend
                 // routing through mailerSend(). Order of preference:
@@ -99,6 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 // Invalidate any active tokens, then issue a fresh one.
+                $resetStage = 'token_invalidation';
                 $pdo->prepare('
                     UPDATE password_resets
                        SET used_at = NOW()
@@ -109,15 +157,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $tokenHash = hash('sha256', $rawToken);
                 $expiresAt = (new DateTime("+{$TOKEN_TTL_MIN} minutes"))->format('Y-m-d H:i:s');
 
-                $pdo->prepare('
-                    INSERT INTO password_resets (user_id, email, token_hash, expires_at)
-                    VALUES (:uid, :email, :hash, :exp)
-                ')->execute([
+                // A legacy Laravel-style table may retain a required `token`
+                // column. Populate it with the same one-way hash; the raw reset
+                // token must never be stored at rest.
+                $resetStage = 'token_insert';
+                $insertColumns = ['user_id', 'email', 'token_hash', 'expires_at', 'created_at'];
+                $insertValues  = [':uid', ':email', ':hash', ':exp', ':created'];
+                $insertParams  = [
                     ':uid'   => $userId,
                     ':email' => $email,
                     ':hash'  => $tokenHash,
                     ':exp'   => $expiresAt,
-                ]);
+                    ':created' => date('Y-m-d H:i:s'),
+                ];
+                if (isset($passwordResetColumns['token'])) {
+                    $insertColumns[] = 'token';
+                    $insertValues[]  = ':legacy_token';
+                    $insertParams[':legacy_token'] = $tokenHash;
+                }
+                $pdo->prepare(
+                    'INSERT INTO password_resets (' . implode(', ', $insertColumns) . ')'
+                    . ' VALUES (' . implode(', ', $insertValues) . ')'
+                )->execute($insertParams);
 
                 $host     = $_SERVER['HTTP_HOST'] ?? 'www.corefluxapp.com';
                 $resetUrl = 'https://' . $host . $RESET_PATH . '?' . http_build_query([
@@ -138,20 +199,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     . "Paste this link into your browser:\n{$resetUrl}\n\n"
                     . "The link expires in {$TOKEN_TTL_MIN} minutes. If you didn't request this, ignore this email.";
 
-                $res = mailerSend([
-                    'tenant_id' => $tenantId,
-                    'module'    => 'auth',
-                    'purpose'   => 'password_reset',
-                    'to'        => $email,
-                    'subject'   => "Reset your {$APP_NAME} password",
-                    'body_html' => $bodyHtml,
-                    'body_text' => $bodyText,
-                ]);
-                if (empty($res['ok'])) {
-                    error_log('[forgot_password] mailerSend failed for ' . $email
+                $resetStage = 'mail_dispatch';
+                try {
+                    $res = mailerSend([
+                        'tenant_id' => $tenantId,
+                        'module'    => 'auth',
+                        'purpose'   => 'password_reset',
+                        'to'        => $email,
+                        'subject'   => "Reset your {$APP_NAME} password",
+                        'body_html' => $bodyHtml,
+                        'body_text' => $bodyText,
+                    ]);
+                    if (empty($res['ok'])) {
+                        error_log('[forgot_password] mailerSend failed for ' . $email
+                            . ' tenant=' . $tenantId
+                            . ' driver=' . ($res['driver'] ?? '?')
+                            . ' err=' . ($res['error'] ?? '?'));
+                    }
+                } catch (Throwable $mailError) {
+                    // Delivery errors must not make registered addresses
+                    // distinguishable from unknown ones in the public UI.
+                    error_log('[forgot_password] mail_dispatch threw for ' . $email
                         . ' tenant=' . $tenantId
-                        . ' driver=' . ($res['driver'] ?? '?')
-                        . ' err=' . ($res['error'] ?? '?'));
+                        . ' err=' . $mailError->getMessage());
                 }
             }
 
@@ -159,7 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // the email matched a user or not.
             $successMsg = 'If that email is registered, we’ve sent a reset link. Please check your inbox.';
         } catch (Throwable $e) {
-            error_log('[forgot_password] error: ' . $e->getMessage());
+            error_log('[forgot_password] stage=' . ($resetStage ?? 'request') . ' error: ' . $e->getMessage());
             $errorMsg = 'Something went wrong. Please try again.';
         }
     }
