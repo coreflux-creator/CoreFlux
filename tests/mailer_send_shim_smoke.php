@@ -37,6 +37,10 @@ echo "\ncore/mail_bootstrap.php — config.local.php fallback\n";
 $boot = (string) file_get_contents($ROOT . '/core/mail_bootstrap.php');
 $a('checks env first, then defined() constant',
     $c($boot, "getenv('RESEND_API_KEY')") && $c($boot, "defined('RESEND_API_KEY')"));
+$a('eager-loads config.local.php for web/cron entry points',
+    $c($boot, "__DIR__ . '/config.local.php'") && $c($boot, 'require_once $_mailLocalConfig'));
+$a('LogDriver default requires explicit MAIL_DRIVER=log',
+    $c($boot, "getenv('MAIL_DRIVER')") && $c($boot, "=== 'log'"));
 
 echo "\ncore/mail/ResendDriver.php — dual key source\n";
 $drv = (string) file_get_contents($ROOT . '/core/mail/ResendDriver.php');

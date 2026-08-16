@@ -52,14 +52,14 @@ if ($resendFrom === '' && defined('RESEND_FROM_EMAIL')) {
     $resendFrom = (string) constant('RESEND_FROM_EMAIL');
 }
 
-$defaultDriver = 'log';
-$registered    = ['log'];
+$defaultDriver = 'resend';
+$registered    = [];
 try {
     $svc = cf_mail_bootstrap();
-    // Inspect via the same logic mail_bootstrap uses — if RESEND_API_KEY
-    // was set when the service booted, ResendDriver became default.
-    $defaultDriver = $resendConfigured ? 'resend' : 'log';
-    $registered    = $resendConfigured ? ['resend', 'log'] : ['log', 'resend'];
+    $defaultDriver = $svc->default_driver_name();
+    foreach (['resend', 'log'] as $driverName) {
+        if ($svc->driver($driverName) !== null) $registered[] = $driverName;
+    }
 } catch (\Throwable $e) {
     // Even if MailService can't boot, we still tell the operator the
     // env-var state so they can debug.
@@ -96,7 +96,9 @@ api_ok([
     'resend_from_email'  => $resendFrom !== '' ? $resendFrom : null,
     'registered_drivers' => $registered,
     'outbox_recent'      => $outboxRecent,
-    'hint'               => $resendConfigured
-        ? 'Resend is the active default driver. mailerSend() calls deliver via api.resend.com.'
-        : 'RESEND_API_KEY is not set. Add `define(\'RESEND_API_KEY\', \'re_…\');` to /app/core/config.local.php (or set the env var), then ensure RESEND_FROM_EMAIL is configured with a verified sender domain.',
+    'hint'               => $defaultDriver === 'log'
+        ? 'MAIL_DRIVER=log explicitly enables local capture. No email leaves the server.'
+        : ($resendConfigured
+            ? 'Resend is the active default driver. mailerSend() calls deliver via api.resend.com.'
+            : 'RESEND_API_KEY is not set. Outbound sends now fail visibly instead of being reported as sent. Add the key to /app/core/config.local.php (or set the env var), then ensure RESEND_FROM_EMAIL uses a verified sender domain.'),
 ]);

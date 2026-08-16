@@ -39,7 +39,8 @@ define('OPENAI_API_KEY', 'sk-proj-REPLACE_ME');
 // Used by core/mailer.php → mailerSend() and the Core\Mail\ResendDriver
 // registered in core/mail_bootstrap.php. When RESEND_API_KEY is set (either
 // via env var or via the define() below), every mailerSend() call routes
-// through Resend; otherwise sends are captured by the LogDriver locally.
+// through Resend. A missing key fails visibly. To capture mail locally
+// without delivery, explicitly set MAIL_DRIVER=log.
 //
 // Get a key at https://resend.com/api-keys ("Full access" recommended).
 // Verify your sending domain at https://resend.com/domains before going
@@ -49,6 +50,8 @@ define('OPENAI_API_KEY', 'sk-proj-REPLACE_ME');
 // define('RESEND_API_KEY',     're_REPLACE_ME');
 define('RESEND_FROM_EMAIL',  'no-reply@mail.corefluxapp.com');
 define('RESEND_FROM_NAME',   'CoreFlux Notifications');
+// Local/CI capture only. Never set this in production: no message is delivered.
+// putenv('MAIL_DRIVER=log');
 
 // =========================================================================
 // QuickBooks Online (QBO) — Intuit AppCenter OAuth 2.0

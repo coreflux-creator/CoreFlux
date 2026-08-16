@@ -20,6 +20,12 @@
  * Throws RuntimeException on failure.
  */
 
+// Load deployment-only mail constants before tenant sender resolution and
+// before mail_test_send computes its `resend_configured` response flag.
+$_mailerLocalConfig = __DIR__ . '/config.local.php';
+if (is_file($_mailerLocalConfig)) require_once $_mailerLocalConfig;
+unset($_mailerLocalConfig);
+
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/sim_mock_bridge.php';
 require_once __DIR__ . '/tenant_mail.php';
@@ -134,8 +140,8 @@ function _mailer_normalize_recipients($input): array {
  *   - When RESEND_API_KEY is set (env var OR define() in config.local.php),
  *     ResendDriver delivers via Resend's transactional API + writes a row
  *     to mail_outbox for audit.
- *   - When the key is missing, LogDriver captures the envelope and
- *     mail_outbox still records the attempt. No exceptions raised.
+ *   - When the key is missing, the default ResendDriver returns a visible
+ *     failed result. Set MAIL_DRIVER=log explicitly for local capture mode.
  *   - If MailService can't be bootstrapped (missing tenant context, DB
  *     down, etc.), falls back to sendEmail() which uses the legacy
  *     PHPMailer/SMTP transport — same delivery either way.

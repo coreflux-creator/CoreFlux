@@ -8,12 +8,21 @@
  *
  * Wiring rules:
  *   - RESEND_API_KEY set  → ResendDriver registered, becomes default outbound.
- *   - else                → LogDriver remains default (dev-safe).
+ *   - key missing         → ResendDriver remains default and fails visibly.
+ *   - MAIL_DRIVER=log     → LogDriver becomes default (explicit dev/test mode).
  *
  * The outbox writer inserts into `mail_outbox` via PDO if the table exists,
  * else it silently skips (so modules still function during Phase A on a
  * database that hasn't run `core/migrations/003_mail_service.sql` yet).
  */
+
+// Eager-load host-only mail configuration before checking constants. Most web
+// entry points require mail_bootstrap.php directly and do not otherwise load
+// config.local.php. Without this, a valid RESEND_API_KEY defined on the host is
+// invisible and production silently selects the non-delivering LogDriver.
+$_mailLocalConfig = __DIR__ . '/config.local.php';
+if (is_file($_mailLocalConfig)) require_once $_mailLocalConfig;
+unset($_mailLocalConfig);
 
 require_once __DIR__ . '/MailService.php';
 require_once __DIR__ . '/mail/LogDriver.php';
@@ -37,7 +46,14 @@ if (!function_exists('cf_mail_bootstrap')) {
         if ($resendKey === '' && defined('RESEND_API_KEY')) {
             $resendKey = (string) constant('RESEND_API_KEY');
         }
-        $default   = $resendKey !== '' ? new ResendDriver() : new LogDriver();
+        // Log-only delivery must be explicit. A missing production key should
+        // produce a failed send (from ResendDriver's configuration guard), not
+        // a false `sent` result from LogDriver when nothing left the server.
+        $mailDriverOverride = strtolower(trim((string) getenv('MAIL_DRIVER')));
+        $logOnly            = $mailDriverOverride === 'log';
+        $default            = $logOnly
+            ? new LogDriver()
+            : new ResendDriver();
 
         $writer = function (array $row): int {
             try {
@@ -83,12 +99,9 @@ if (!function_exists('cf_mail_bootstrap')) {
         };
 
         $booted = MailService::reset($default, $writer);
-        if ($resendKey !== '') {
-            // LogDriver still useful for debugging alongside Resend.
-            $booted->register_driver(new LogDriver());
-        } else {
-            $booted->register_driver(new ResendDriver()); // registered but not default; send fails cleanly if invoked without key
-        }
+        // Keep both drivers addressable for diagnostics and explicit overrides.
+        if ($default->driver_name() === 'resend') $booted->register_driver(new LogDriver());
+        else                                      $booted->register_driver(new ResendDriver());
         return $booted;
     }
 }
