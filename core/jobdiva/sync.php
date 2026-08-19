@@ -4644,13 +4644,8 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $tid, 'jobdiva', 'placement', 'status', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, ['status', 'startStatus', 'placementStatus'])
     );
-    $statusJd  = strtolower($statusRaw);
-    if ($statusJd === '') $statusJd = 'active';
-    $statusMap = ['active' => 'active', 'pending' => 'pending_start', 'ended' => 'ended', 'cancelled' => 'cancelled'];
-    $status    = $statusMap[$statusJd] ?? 'active';
-    if ($endDateNorm !== null && $endDateNorm !== '' && $endDateNorm < date('Y-m-d') && $status !== 'cancelled') {
-        $status = 'ended';
-    }
+    $placementLifecycle = jobdivaAssignmentCanonicalPlacementStatus($statusRaw, $endDateNorm);
+    $status = (string) $placementLifecycle['status'];
 
     // -----------------------------------------------------------------
     // Slice 4 expansion (2026-02): resolve every additional same-table

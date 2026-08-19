@@ -232,9 +232,13 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
         );
 
         $staleActiveRows = _jobdivaMappingStaleActivePlacementRows($pdo, $tenantId, 5000);
-        $relationships['placement_graph']['active_past_end_date'] = count($staleActiveRows);
+        $relationships['placement_graph']['active_past_end_date'] = count(array_filter(
+            $staleActiveRows,
+            static fn($row) => (string) ($row['lifecycle_reason'] ?? '') === 'past_end_date'
+        ));
+        $relationships['placement_graph']['active_lifecycle_drift'] = count($staleActiveRows);
         if ($staleActiveRows) {
-            $samples['active_past_end_date'] = array_slice($staleActiveRows, 0, min(10, $limit));
+            $samples['active_lifecycle_drift'] = array_slice($staleActiveRows, 0, min(10, $limit));
         }
         _jobdivaMappingAddIssue(
             $issues,
@@ -242,8 +246,8 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
             'placement_active_past_end_date',
             'placement',
             count($staleActiveRows),
-            'Active JobDiva placements have an end date in the past.',
-            'Preview stale active placements, then mark them ended so active placement, billing, payroll, and reporting views stop treating them as live.'
+            'Active CoreFlux placements disagree with the JobDiva lifecycle or have an end date in the past.',
+            'Preview placement lifecycle repair, then apply the source-backed ended, cancelled, pending, or on-hold state.'
         );
 
         if (_jobdivaMappingColumnExists($pdo, 'placements', 'end_client_company_id')) {
@@ -317,6 +321,30 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
             $relationships['placement_graph']['person_without_jobdiva_mapping'] = $missingPersonMapping;
             _jobdivaMappingAddIssue($issues, 'warn', 'placement_person_without_source_mapping', 'people', $missingPersonMapping, 'Some JobDiva placements reference people that do not have a JobDiva person mapping.', 'Re-run placement sync with candidate enrichment, or manually bind the candidate to the person record.');
         }
+    }
+
+    if (_jobdivaMappingTableExists($pdo, 'people')) {
+        $staleSourcePeople = _jobdivaMappingStaleSourcePeopleRows($pdo, $tenantId, 5000);
+        $relationships['people_graph'] = array_merge(
+            (array) ($relationships['people_graph'] ?? []),
+            ['jobdiva_people_without_live_placement' => count($staleSourcePeople)]
+        );
+        if ($staleSourcePeople) {
+            $samples['jobdiva_people_without_live_placement'] = array_slice(
+                $staleSourcePeople,
+                0,
+                min(10, $limit)
+            );
+        }
+        _jobdivaMappingAddIssue(
+            $issues,
+            'warn',
+            'jobdiva_person_without_live_placement',
+            'people',
+            count($staleSourcePeople),
+            'Former JobDiva workers are active even though their placement history has no live assignment.',
+            'Run People lifecycle repair. History is retained; candidate-only and manually maintained People records are never changed.'
+        );
     }
 
     if (_jobdivaMappingTableExists($pdo, 'staffing_clients') && _jobdivaMappingColumnExists($pdo, 'staffing_clients', 'company_id')) {
@@ -433,7 +461,7 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
 function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = null, int $limit = 500): array
 {
     $summary = ['checked' => 0, 'repaired' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => []];
-    $limit = max(1, min(1000, $limit));
+    $limit = max(1, min(5000, $limit));
     $pdo = getDB();
     if (!$pdo) {
         $summary['failed']++;
@@ -1027,6 +1055,7 @@ function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5
     $steps['duplicate_placements'] = jobdivaMappingRepairDuplicatePlacements($tenantId, $userId, min(500, $limit), false);
     $steps['client_links'] = jobdivaMappingRepairStaffingClientLinks($tenantId, $userId, $limit);
     $steps['stale_active_placements'] = jobdivaMappingRepairStaleActivePlacements($tenantId, $userId, $limit, false);
+    $steps['source_people_lifecycle'] = jobdivaMappingRepairSourcePeopleLifecycle($tenantId, $userId, $limit, false);
     $steps['source_rate_drafts'] = jobdivaMappingRepairSourceRateDrafts($tenantId, $user, $limit);
 
     $failed = 0;
@@ -1038,6 +1067,10 @@ function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5
         $changed += (int) ($step['external_ids_restored'] ?? 0);
         $changed += (int) ($step['repaired'] ?? 0);
         $changed += (int) ($step['ended'] ?? 0);
+        $changed += (int) ($step['cancelled'] ?? 0);
+        $changed += (int) ($step['pending_start'] ?? 0);
+        $changed += (int) ($step['on_hold'] ?? 0);
+        $changed += (int) ($step['inactivated'] ?? 0);
         $changed += (int) ($step['drafted'] ?? 0);
         $changed += (int) ($step['mapping_writes'] ?? 0);
         $changed += (int) ($step['field_map_writes'] ?? 0);
@@ -1090,8 +1123,19 @@ function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5
 
 function jobdivaMappingRepairStaleActivePlacements(int $tenantId, ?int $userId = null, int $limit = 500, bool $dryRun = true): array
 {
-    $summary = ['dry_run' => $dryRun, 'checked' => 0, 'ended' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => []];
-    $limit = max(1, min(1000, $limit));
+    $summary = [
+        'dry_run' => $dryRun,
+        'checked' => 0,
+        'updated' => 0,
+        'ended' => 0,
+        'cancelled' => 0,
+        'pending_start' => 0,
+        'on_hold' => 0,
+        'skipped' => 0,
+        'failed' => 0,
+        'errors' => [],
+    ];
+    $limit = max(1, min(5000, $limit));
     $pdo = getDB();
     if (!$pdo) {
         $summary['failed']++;
@@ -1112,30 +1156,36 @@ function jobdivaMappingRepairStaleActivePlacements(int $tenantId, ?int $userId =
             $summary['skipped']++;
             continue;
         }
+        $desiredStatus = (string) ($row['desired_status'] ?? 'ended');
+        if (!in_array($desiredStatus, ['ended', 'cancelled', 'pending_start', 'on_hold'], true)) {
+            $summary['skipped']++;
+            continue;
+        }
         if ($dryRun) {
-            $summary['ended']++;
+            $summary['updated']++;
+            $summary[$desiredStatus]++;
             continue;
         }
         try {
             $stmt = $pdo->prepare(
                 "UPDATE placements
-                    SET status = 'ended', updated_at = NOW()
+                    SET status = :status, updated_at = NOW()
                   WHERE tenant_id = :t
                     AND id = :id
-                    AND status = 'active'
-                    AND end_date IS NOT NULL
-                    AND end_date <> ''
-                    AND end_date < :today"
+                    AND status = 'active'"
             );
-            $stmt->execute(['t' => $tenantId, 'id' => $placementId, 'today' => date('Y-m-d')]);
+            $stmt->execute(['status' => $desiredStatus, 't' => $tenantId, 'id' => $placementId]);
             if ($stmt->rowCount() > 0) {
-                $summary['ended']++;
+                $summary['updated']++;
+                $summary[$desiredStatus]++;
                 if (function_exists('placementsAudit')) {
-                    placementsAudit('placement.status_repaired_from_jobdiva_end_date', [
+                    placementsAudit('placement.status_repaired_from_jobdiva_lifecycle', [
                         'placement_id' => $placementId,
                         'prior_status' => 'active',
-                        'status' => 'ended',
+                        'status' => $desiredStatus,
                         'end_date' => (string) ($row['end_date'] ?? ''),
+                        'source_status' => (string) ($row['source_status'] ?? ''),
+                        'reason' => (string) ($row['lifecycle_reason'] ?? ''),
                         'source' => 'jobdiva_mapping_alignment',
                     ], $placementId);
                 }
@@ -1156,7 +1206,88 @@ function jobdivaMappingRepairStaleActivePlacements(int $tenantId, ?int $userId =
                 'ok' => $summary['failed'] === 0,
                 'direction' => 'pull',
                 'actor_user_id' => $userId,
-                'items_processed' => $summary['ended'],
+                'items_processed' => $summary['updated'],
+                'items_skipped' => $summary['skipped'],
+                'items_failed' => $summary['failed'],
+                'detail' => $summary,
+            ]);
+        } catch (\Throwable $_) {}
+    }
+
+    return $summary;
+}
+
+function jobdivaMappingRepairSourcePeopleLifecycle(
+    int $tenantId,
+    ?int $userId = null,
+    int $limit = 500,
+    bool $dryRun = true
+): array {
+    $summary = ['dry_run' => $dryRun, 'checked' => 0, 'inactivated' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => []];
+    $limit = max(1, min(5000, $limit));
+    $pdo = getDB();
+    if (!$pdo) {
+        $summary['failed']++;
+        $summary['errors'][] = 'No database connection';
+        return $summary;
+    }
+    if (!_jobdivaMappingTableExists($pdo, 'people') || !_jobdivaMappingTableExists($pdo, 'placements')) {
+        $summary['failed']++;
+        $summary['errors'][] = 'Missing people or placements table';
+        return $summary;
+    }
+
+    $rows = _jobdivaMappingStaleSourcePeopleRows($pdo, $tenantId, $limit);
+    foreach ($rows as $row) {
+        $summary['checked']++;
+        $personId = (int) ($row['id'] ?? 0);
+        if ($personId <= 0) {
+            $summary['skipped']++;
+            continue;
+        }
+        if ($dryRun) {
+            $summary['inactivated']++;
+            continue;
+        }
+        try {
+            $stmt = $pdo->prepare(
+                "UPDATE people p
+                    SET p.status = 'inactive', p.updated_at = NOW()
+                  WHERE p.tenant_id = :t
+                    AND p.id = :id
+                    AND p.status IN ('active', 'bench')
+                    AND p.deleted_at IS NULL
+                    AND NOT EXISTS (
+                        SELECT 1
+                          FROM placements live
+                         WHERE live.tenant_id = p.tenant_id
+                           AND live.person_id = p.id
+                           AND (live.deleted_at IS NULL OR live.deleted_at = '0000-00-00 00:00:00')
+                           AND live.status IN ('draft', 'pending_start', 'active', 'on_hold')
+                           AND (live.end_date IS NULL OR live.end_date = '' OR live.end_date >= :today)
+                    )"
+            );
+            $stmt->execute(['t' => $tenantId, 'id' => $personId, 'today' => date('Y-m-d')]);
+            if ($stmt->rowCount() > 0) {
+                $summary['inactivated']++;
+            } else {
+                $summary['skipped']++;
+            }
+        } catch (\Throwable $e) {
+            $summary['failed']++;
+            if (count($summary['errors']) < 10) {
+                $summary['errors'][] = "person {$personId}: " . $e->getMessage();
+            }
+        }
+    }
+
+    if (function_exists('jobdivaAudit')) {
+        try {
+            jobdivaAudit($tenantId, 'mapping_alignment_repair_source_people_lifecycle', [
+                'ok' => $summary['failed'] === 0,
+                'direction' => 'pull',
+                'actor_user_id' => $userId,
+                'items_processed' => $summary['inactivated'],
                 'items_skipped' => $summary['skipped'],
                 'items_failed' => $summary['failed'],
                 'detail' => $summary,
@@ -1665,30 +1796,124 @@ function _jobdivaMappingStaleActivePlacementRows(\PDO $pdo, int $tenantId, int $
 {
     if (!_jobdivaMappingTableExists($pdo, 'placements')) return [];
     $limit = max(1, min(5000, $limit));
+    $scanLimit = 5000;
     $hasMappings = _jobdivaMappingTableExists($pdo, 'external_entity_mappings');
     $mappingJoin = $hasMappings
         ? "LEFT JOIN external_entity_mappings m
-                 ON m.tenant_id = p.tenant_id
-                AND m.internal_entity_type = 'placement'
-                AND m.internal_entity_id = p.id
-                AND m.source_system = 'jobdiva'"
+                 ON m.id = (
+                    SELECT MAX(m2.id)
+                      FROM external_entity_mappings m2
+                     WHERE m2.tenant_id = p.tenant_id
+                       AND m2.internal_entity_type = 'placement'
+                       AND m2.internal_entity_id = p.id
+                       AND m2.source_system = 'jobdiva'
+                 )"
         : '';
     $sourceWhere = $hasMappings
         ? "(p.external_id LIKE 'jd:%' OR p.title LIKE 'JobDiva Placement %' OR m.id IS NOT NULL)"
         : "(p.external_id LIKE 'jd:%' OR p.title LIKE 'JobDiva Placement %')";
-    return _jobdivaMappingRows($pdo,
-        "SELECT p.id, p.external_id, p.title, p.person_id, p.start_date, p.end_date, p.status, p.updated_at
+    $mappingFields = $hasMappings
+        ? 'm.external_id AS mapping_external_id, m.payload_snapshot'
+        : 'NULL AS mapping_external_id, NULL AS payload_snapshot';
+    $rows = _jobdivaMappingRows($pdo,
+        "SELECT p.id, p.external_id, p.title, p.person_id, p.start_date, p.end_date, p.status, p.updated_at,
+                {$mappingFields}
            FROM placements p
            {$mappingJoin}
           WHERE p.tenant_id = :t
             AND p.status = 'active'
-            AND p.end_date IS NOT NULL
-            AND p.end_date <> ''
-            AND p.end_date < :today
             AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
             AND {$sourceWhere}
-       GROUP BY p.id, p.external_id, p.title, p.person_id, p.start_date, p.end_date, p.status, p.updated_at
-       ORDER BY p.end_date ASC, p.id ASC
+       ORDER BY p.id ASC
+          LIMIT {$scanLimit}",
+        ['t' => $tenantId]
+    );
+
+    $out = [];
+    foreach ($rows as $row) {
+        $payload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
+        if (!is_array($payload)) $payload = [];
+        if ($payload && function_exists('jobdivaAssignmentStripDerivedFacets')) {
+            $payload = jobdivaAssignmentStripDerivedFacets($payload);
+        }
+        $sourceStatus = $payload
+            ? jobdivaAssignmentIdentityPluck($payload, [
+                'status', 'startStatus', 'start_status', 'start status',
+                'placementStatus', 'placement_status',
+                'assignmentStatus', 'assignment_status',
+                'employeeStatus', 'employee_status',
+            ])
+            : '';
+        $lifecycle = jobdivaAssignmentCanonicalPlacementStatus(
+            $sourceStatus,
+            (string) ($row['end_date'] ?? '')
+        );
+        $desired = (string) ($lifecycle['status'] ?? 'active');
+        if ($desired === 'active') continue;
+        $row['desired_status'] = $desired;
+        $row['lifecycle_reason'] = (string) ($lifecycle['reason'] ?? 'source_lifecycle');
+        $row['source_status'] = (string) ($lifecycle['source_status'] ?? '');
+        unset($row['payload_snapshot']);
+        $out[] = $row;
+        if (count($out) >= $limit) break;
+    }
+    return $out;
+}
+
+function _jobdivaMappingStaleSourcePeopleRows(\PDO $pdo, int $tenantId, int $limit = 500): array
+{
+    if (!_jobdivaMappingTableExists($pdo, 'people') || !_jobdivaMappingTableExists($pdo, 'placements')) {
+        return [];
+    }
+    $limit = max(1, min(5000, $limit));
+    $hasMappings = _jobdivaMappingTableExists($pdo, 'external_entity_mappings');
+    $sourceWhere = "(p.source = 'jobdiva' OR p.external_id LIKE 'jd:%')";
+    $mappingSelect = $hasMappings
+        ? "(SELECT pm.external_id
+              FROM external_entity_mappings pm
+             WHERE pm.tenant_id = p.tenant_id
+               AND pm.source_system = 'jobdiva'
+               AND pm.internal_entity_type = 'person'
+               AND pm.internal_entity_id = p.id
+          ORDER BY pm.id DESC
+             LIMIT 1)"
+        : 'NULL';
+
+    return _jobdivaMappingRows(
+        $pdo,
+        "SELECT p.id, p.external_id, {$mappingSelect} AS candidate_external_id,
+                p.first_name, p.last_name, p.email_primary, p.classification,
+                p.status, p.updated_at,
+                (SELECT COUNT(*)
+                   FROM placements historical
+                  WHERE historical.tenant_id = p.tenant_id
+                    AND historical.person_id = p.id) AS historical_placement_count,
+                (SELECT MAX(historical.end_date)
+                   FROM placements historical
+                  WHERE historical.tenant_id = p.tenant_id
+                    AND historical.person_id = p.id
+                    AND (historical.deleted_at IS NULL OR historical.deleted_at = '0000-00-00 00:00:00')) AS last_placement_end_date
+           FROM people p
+          WHERE p.tenant_id = :t
+            AND p.deleted_at IS NULL
+            AND p.status IN ('active', 'bench')
+            AND {$sourceWhere}
+            AND EXISTS (
+                SELECT 1
+                  FROM placements historical_source
+                 WHERE historical_source.tenant_id = p.tenant_id
+                   AND historical_source.person_id = p.id
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                  FROM placements live
+                 WHERE live.tenant_id = p.tenant_id
+                   AND live.person_id = p.id
+                   AND (live.deleted_at IS NULL OR live.deleted_at = '0000-00-00 00:00:00')
+                   AND live.status IN ('draft', 'pending_start', 'active', 'on_hold')
+                   AND (live.end_date IS NULL OR live.end_date = '' OR live.end_date >= :today)
+            )
+       ORDER BY p.updated_at ASC, p.id ASC
           LIMIT {$limit}",
         ['t' => $tenantId, 'today' => date('Y-m-d')]
     );

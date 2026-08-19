@@ -298,7 +298,32 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
 
     // Channel 1: existing mapping
     $mapping = mappingFindInternal($tid, 'jobdiva', 'person', $candidateExtId);
-    if ($mapping) return (int) $mapping['internal_entity_id'];
+    if ($mapping) {
+        $mappedPersonId = (int) $mapping['internal_entity_id'];
+        if ($mappedPersonId > 0) {
+            // Lifecycle repair retires source-owned people when their last
+            // assignment ends. A later verified Start must reactivate that
+            // same canonical person instead of creating another record.
+            try {
+                $pdo = getDB();
+                if ($pdo instanceof \PDO) {
+                    $stmt = $pdo->prepare(
+                        "UPDATE people
+                            SET status = 'active', updated_at = NOW()
+                          WHERE tenant_id = :t
+                            AND id = :id
+                            AND source = 'jobdiva'
+                            AND status = 'inactive'
+                            AND deleted_at IS NULL"
+                    );
+                    $stmt->execute(['t' => $tid, 'id' => $mappedPersonId]);
+                }
+            } catch (\Throwable $e) {
+                error_log('[jobdiva person sync] lifecycle reactivation failed: ' . $e->getMessage());
+            }
+        }
+        return $mappedPersonId;
+    }
 
     // Slice 4 wiring — each person field consults the tenant registry
     // first; built-in candidate lists are the fallback when no override

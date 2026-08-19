@@ -193,6 +193,68 @@ function jobdivaAssignmentLifecycleEvidence(array $row, string $channel = ''): a
     ];
 }
 
+/**
+ * Convert a JobDiva Start/Assignment lifecycle value into the placement
+ * lifecycle used throughout CoreFlux. Unknown current-source values remain
+ * active for backward compatibility; a past end date is always authoritative.
+ *
+ * @return array{status:string,reason:string,source_status:string}
+ */
+function jobdivaAssignmentCanonicalPlacementStatus(
+    string $rawStatus,
+    ?string $endDate = null,
+    ?string $today = null
+): array {
+    $sourceStatus = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', ' ', $rawStatus)));
+    $today = trim((string) $today) !== '' ? (string) $today : date('Y-m-d');
+    $endDate = trim((string) $endDate);
+    $pastEnd = $endDate !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDate) === 1 && $endDate < $today;
+
+    foreach ([
+        'cancelled', 'canceled', 'rejected', 'withdrawn', 'declined',
+        'rescinded', 'deleted', 'void', 'not started', 'did not start',
+    ] as $needle) {
+        if ($sourceStatus !== '' && str_contains($sourceStatus, $needle)) {
+            return ['status' => 'cancelled', 'reason' => 'source_terminal', 'source_status' => $sourceStatus];
+        }
+    }
+
+    foreach (['completed', 'complete', 'ended', 'terminated', 'inactive'] as $needle) {
+        if ($sourceStatus !== '' && str_contains($sourceStatus, $needle)) {
+            return ['status' => 'ended', 'reason' => 'source_completed', 'source_status' => $sourceStatus];
+        }
+    }
+
+    if ($pastEnd) {
+        return ['status' => 'ended', 'reason' => 'past_end_date', 'source_status' => $sourceStatus];
+    }
+
+    if ($sourceStatus !== '' && (
+        str_contains($sourceStatus, 'on hold')
+        || str_contains($sourceStatus, 'paused')
+    )) {
+        return ['status' => 'on_hold', 'reason' => 'source_on_hold', 'source_status' => $sourceStatus];
+    }
+
+    if ($sourceStatus !== '' && (
+        str_contains($sourceStatus, 'pending')
+        || str_contains($sourceStatus, 'scheduled start')
+        || str_contains($sourceStatus, 'ready to start')
+        || str_contains($sourceStatus, 'offer accepted')
+        || str_contains($sourceStatus, 'accepted offer')
+        || str_contains($sourceStatus, 'start accepted')
+        || str_contains($sourceStatus, 'start approved')
+    )) {
+        return ['status' => 'pending_start', 'reason' => 'source_pending', 'source_status' => $sourceStatus];
+    }
+
+    return [
+        'status' => 'active',
+        'reason' => $sourceStatus === '' ? 'source_status_missing' : 'source_current_or_unknown',
+        'source_status' => $sourceStatus,
+    ];
+}
+
 function jobdivaAssignmentContextEvidence(array $assignment, array $placement): array
 {
     $assignmentEvidence = jobdivaAssignmentStructuralEvidence($assignment);
