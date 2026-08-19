@@ -40,6 +40,7 @@ sentinels:
 - core/gusto_service.php
 - core/plaid_service.php
 - core/encryption.php
+- core/installer_helpers.php
 - core/payment_rails/plaid_transfer_driver.php
 - core/payment_rails/originate_helpers.php
 - api/gusto_oauth_start.php

@@ -30,11 +30,22 @@ function _coreflux_data_key(): string {
     $localConfig = __DIR__ . '/config.local.php';
     if (file_exists($localConfig)) require_once $localConfig;
 
-    $b64 = (defined('COREFLUX_DATA_KEY') ? COREFLUX_DATA_KEY : (getenv('COREFLUX_DATA_KEY') ?: ''));
+    $b64 = defined('COREFLUX_DATA_KEY') ? (string) COREFLUX_DATA_KEY : '';
+    if ($b64 === '') {
+        $envValue = getenv('COREFLUX_DATA_KEY');
+        $b64 = $envValue !== false ? trim((string) $envValue) : '';
+    }
+    if ($b64 === '' && isset($_SERVER['COREFLUX_DATA_KEY'])) {
+        $b64 = trim((string) $_SERVER['COREFLUX_DATA_KEY']);
+    }
+    if ($b64 === '' && isset($_ENV['COREFLUX_DATA_KEY'])) {
+        $b64 = trim((string) $_ENV['COREFLUX_DATA_KEY']);
+    }
     if (!$b64) {
         throw new RuntimeException(
-            'COREFLUX_DATA_KEY not configured. Generate with: '
-            . 'php -r \'echo base64_encode(random_bytes(32));\''
+            'COREFLUX_DATA_KEY not configured. Restore the original production key in '
+            . 'core/config.local.php or the host environment; do not generate a replacement '
+            . 'when encrypted data already exists.'
         );
     }
     $raw = base64_decode($b64, true);

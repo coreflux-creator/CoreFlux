@@ -7,6 +7,29 @@
 declare(strict_types=1);
 
 /**
+ * Read a host configuration value consistently across PHP-FPM setups.
+ * Some managed hosts expose application variables through $_SERVER/$_ENV
+ * even when getenv() is unavailable to the web worker.
+ */
+function installerConfigValue(string $name): string {
+    if (defined($name)) {
+        $value = constant($name);
+        return is_scalar($value) ? trim((string) $value) : '';
+    }
+    $value = getenv($name);
+    if ($value !== false && trim((string) $value) !== '') {
+        return trim((string) $value);
+    }
+    foreach ([$_SERVER, $_ENV] as $source) {
+        if (isset($source[$name]) && is_scalar($source[$name])) {
+            $value = trim((string) $source[$name]);
+            if ($value !== '') return $value;
+        }
+    }
+    return '';
+}
+
+/**
  * Detect whether shell exec is available on this PHP host. Cloudways and most
  * managed/shared PHP hosts disable exec()/shell_exec() via php.ini's
  * `disable_functions` for security, which raises "Call to undefined function
@@ -209,30 +232,53 @@ function runSmokeInProcess(string $localCfg): array {
     require_once $localCfg;
     $log = [];
 
-    $raw = base64_decode(defined('COREFLUX_DATA_KEY') ? COREFLUX_DATA_KEY : '', true);
-    $log[] = ['check' => 'data_key', 'ok' => ($raw !== false && strlen($raw) === 32)];
+    $encodedKey = installerConfigValue('COREFLUX_DATA_KEY');
+    $raw = $encodedKey !== '' ? base64_decode($encodedKey, true) : false;
+    $keyOk = $raw !== false && strlen($raw) === 32;
+    $keyDetail = $keyOk
+        ? '32-byte key available to the web worker'
+        : ($encodedKey === ''
+            ? 'missing; restore the original production key in core/config.local.php or the host environment. Do not generate a replacement when encrypted data already exists.'
+            : 'present but invalid; expected exactly 32 random bytes, base64-encoded');
+    $log[] = ['check' => 'data_key', 'ok' => $keyOk, 'detail' => $keyDetail];
 
-    require_once __DIR__ . '/encryption.php';
-    $plain = 'install-test-' . bin2hex(random_bytes(4));
-    $back  = decryptField(encryptField($plain));
-    $log[] = ['check' => 'encryption', 'ok' => ($back === $plain)];
+    if ($keyOk) {
+        try {
+            require_once __DIR__ . '/encryption.php';
+            $plain = 'install-test-' . bin2hex(random_bytes(4));
+            $back  = decryptField(encryptField($plain));
+            $log[] = ['check' => 'encryption', 'ok' => ($back === $plain)];
+        } catch (\Throwable $e) {
+            $log[] = ['check' => 'encryption', 'ok' => false, 'detail' => $e->getMessage()];
+        }
+    } else {
+        $log[] = [
+            'check' => 'encryption',
+            'ok' => false,
+            'detail' => 'not attempted until the original COREFLUX_DATA_KEY is restored',
+        ];
+    }
 
-    require_once __DIR__ . '/ai_service.php';
-    [$content, $latency, $model, $http, $err] = aiCallOpenAI([
-        'model' => defined('AI_MODEL_SUMMARY') ? AI_MODEL_SUMMARY : 'gpt-5.4-mini',
-        'messages' => [
-            ['role' => 'system', 'content' => 'Answer in one short word.'],
-            ['role' => 'user',   'content' => 'Reply with the single word: ready.'],
-        ],
-        'max_completion_tokens' => 30,
-    ]);
-    $log[] = [
-        'check'  => 'openai',
-        'ok'     => $content !== null,
-        'detail' => $content !== null
-            ? "model=$model, ${latency}ms"
-            : "http=$http err=" . substr((string)$err, 0, 200),
-    ];
+    try {
+        require_once __DIR__ . '/ai_service.php';
+        [$content, $latency, $model, $http, $err] = aiCallOpenAI([
+            'model' => defined('AI_MODEL_SUMMARY') ? AI_MODEL_SUMMARY : 'gpt-5.4-mini',
+            'messages' => [
+                ['role' => 'system', 'content' => 'Answer in one short word.'],
+                ['role' => 'user', 'content' => 'Reply with the single word: ready.'],
+            ],
+            'max_completion_tokens' => 30,
+        ]);
+        $log[] = [
+            'check'  => 'openai',
+            'ok'     => $content !== null,
+            'detail' => $content !== null
+                ? "model={$model}, {$latency}ms"
+                : "http=$http err=" . substr((string)$err, 0, 200),
+        ];
+    } catch (\Throwable $e) {
+        $log[] = ['check' => 'openai', 'ok' => false, 'detail' => substr($e->getMessage(), 0, 200)];
+    }
 
     $smtpOk = false; $smtpDetail = '';
     try {
