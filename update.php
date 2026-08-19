@@ -189,7 +189,19 @@ function runUpdate(): array {
         $log['steps'][] = ['name' => 'smoke test', 'ok' => false, 'detail' => 'core/config.local.php missing — run /install.php first'];
         return $log;
     }
-    $log['steps'][] = ['name' => 'smoke test', 'ok' => true, 'list' => runSmokeInProcess($localCfg)];
+    try {
+        $smokeChecks = runSmokeInProcess($localCfg);
+        $smokeOk = !array_filter($smokeChecks, static fn(array $check): bool => empty($check['ok']));
+        $log['steps'][] = ['name' => 'smoke test', 'ok' => $smokeOk, 'list' => $smokeChecks];
+    } catch (\Throwable $e) {
+        // A health probe must never discard the deployment log or make the
+        // updater appear not to have run. Surface the probe failure in place.
+        $log['steps'][] = [
+            'name' => 'smoke test',
+            'ok' => false,
+            'detail' => 'health check failed without interrupting the update: ' . $e->getMessage(),
+        ];
+    }
 
     // 5. Plaid: health check + push the canonical webhook URL to every linked
     //    Item so a domain change (or first-time setup) doesn't require any
