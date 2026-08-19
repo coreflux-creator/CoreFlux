@@ -13,7 +13,9 @@ const STATUSES        = ['', 'active', 'bench', 'inactive', 'do_not_rehire'];
 export default function Directory() {
   const [q, setQ] = useState('');
   const [classification, setClassification] = useState('');
-  const [status, setStatus] = useState('');
+  // The operational directory opens on current people. Historical and
+  // source-retired records remain available through "All statuses".
+  const [status, setStatus] = useState('active');
   const [needsReview, setNeedsReview] = useState(false);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState({ key: 'last_name', dir: 'asc' });

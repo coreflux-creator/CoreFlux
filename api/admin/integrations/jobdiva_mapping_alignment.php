@@ -8,7 +8,9 @@
  * POST action=repair_source_rate_drafts -> create missing draft rate rows
  * from JobDiva source payload snapshots.
  * POST action=repair_stale_placements -> mark active JobDiva placements
- * whose end date has passed as ended.
+ * with source lifecycle drift as ended, cancelled, pending, or on hold.
+ * POST action=repair_stale_people -> mark JobDiva-owned People records
+ * inactive when they no longer have a live placement.
  * POST action=repair_duplicate_placements -> archive duplicate placement
  * rows created by damaged source identity mappings.
  * POST action=repair_workflow -> run the ordered, safe alignment repair flow.
@@ -40,7 +42,7 @@ if ($method === 'POST' && $action === 'repair_client_links') {
         'integrations.jobdiva.manage',
     ]);
     $body = api_json_body();
-    $limit = isset($body['limit']) ? (int) $body['limit'] : 500;
+    $limit = isset($body['limit']) ? (int) $body['limit'] : 5000;
     $result = jobdivaMappingRepairStaffingClientLinks($tid, isset($user['id']) ? (int) $user['id'] : null, $limit);
     api_ok(['ok' => $result['failed'] === 0, 'repair' => $result]);
 }
@@ -73,9 +75,26 @@ if ($method === 'POST' && $action === 'repair_stale_placements') {
         'integrations.jobdiva.manage',
     ]);
     $body = api_json_body();
-    $limit = isset($body['limit']) ? (int) $body['limit'] : 500;
+    $limit = isset($body['limit']) ? (int) $body['limit'] : 5000;
     $dryRun = array_key_exists('dry_run', $body) ? (bool) $body['dry_run'] : true;
     $result = jobdivaMappingRepairStaleActivePlacements(
+        $tid,
+        isset($user['id']) ? (int) $user['id'] : null,
+        $limit,
+        $dryRun
+    );
+    api_ok(['ok' => $result['failed'] === 0, 'repair' => $result]);
+}
+
+if ($method === 'POST' && $action === 'repair_stale_people') {
+    rbac_legacy_require_any($user, [
+        'tenant_admin.integrations',
+        'integrations.jobdiva.manage',
+    ]);
+    $body = api_json_body();
+    $limit = isset($body['limit']) ? (int) $body['limit'] : 5000;
+    $dryRun = array_key_exists('dry_run', $body) ? (bool) $body['dry_run'] : true;
+    $result = jobdivaMappingRepairSourcePeopleLifecycle(
         $tid,
         isset($user['id']) ? (int) $user['id'] : null,
         $limit,

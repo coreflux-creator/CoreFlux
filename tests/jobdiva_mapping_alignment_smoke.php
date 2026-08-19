@@ -132,10 +132,16 @@ $a('duplicate repair avoids repeated PDO placeholders when restoring external id
     && str_contains($service, 'external_id <> :ext_filter')
     && str_contains($service, "'ext_set' => \$canonical")
     && str_contains($service, "'ext_filter' => \$canonical"));
-$a('stale active placement repair is exposed from alignment service',
+$a('source-backed placement lifecycle repair is exposed from alignment service',
     str_contains($service, 'placement_active_past_end_date')
     && str_contains($service, 'function jobdivaMappingRepairStaleActivePlacements')
-    && str_contains($service, 'mapping_alignment_repair_stale_active_placements'));
+    && str_contains($service, 'mapping_alignment_repair_stale_active_placements')
+    && str_contains($service, 'jobdivaAssignmentCanonicalPlacementStatus'));
+$a('source-owned People lifecycle repair preserves history by inactivating rows',
+    str_contains($service, 'function jobdivaMappingRepairSourcePeopleLifecycle')
+    && str_contains($service, 'function _jobdivaMappingStaleSourcePeopleRows')
+    && str_contains($service, "SET p.status = 'inactive'")
+    && str_contains($service, "live.status IN ('draft', 'pending_start', 'active', 'on_hold')"));
 $a('alignment report includes projector readiness drift',
     str_contains($service, 'jobdivaProjectorReadinessCounts($tenantId)')
     && str_contains($service, 'placement_missing_staffing_job')
@@ -168,9 +174,8 @@ $a('ordered repair workflow replays canonical projection before cleanup and rate
     && strpos($service, "jobdivaMappingRepairDuplicatePlacements(\$tenantId, \$userId, min(500, \$limit), false)") <
        strpos($service, "jobdivaMappingRepairSourceRateDrafts(\$tenantId, \$user, \$limit)")
     && str_contains($service, 'mapping_alignment_repair_workflow'));
-$a('JobDiva placement sync derives ended status from past end dates',
-    str_contains($sync, "\$endDateNorm < date('Y-m-d')")
-    && str_contains($sync, "\$status = 'ended';"));
+$a('JobDiva placement sync uses the shared source lifecycle normalizer',
+    str_contains($sync, 'jobdivaAssignmentCanonicalPlacementStatus($statusRaw, $endDateNorm)'));
 $a('projector distrusts external company mappings whose name conflicts with JobDiva payload',
     str_contains($projector, 'function jobdivaProjectorCompanyNameCompatible')
     && str_contains($projector, 'function jobdivaProjectorMappedCompanyIdIfNameMatches')
@@ -199,6 +204,9 @@ $a('POST repair_source_rate_drafts action is wired',
 $a('POST repair_stale_placements action is wired',
     str_contains($api, "repair_stale_placements")
     && str_contains($api, 'jobdivaMappingRepairStaleActivePlacements('));
+$a('POST repair_stale_people action is wired',
+    str_contains($api, "repair_stale_people")
+    && str_contains($api, 'jobdivaMappingRepairSourcePeopleLifecycle('));
 $a('API uses integration RBAC gates',
     str_contains($api, 'rbac_legacy_require_any')
     && str_contains($api, 'integrations.jobdiva.view')
@@ -225,6 +233,10 @@ $a('settings has stale active preview + repair buttons',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-preview-stale-placements"')
     && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-stale-placements"')
     && str_contains($ui, "repair_stale_placements"));
+$a('settings has source-owned People lifecycle preview + repair buttons',
+    str_contains($ui, 'data-testid="jobdiva-mapping-alignment-preview-stale-people"')
+    && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-stale-people"')
+    && str_contains($ui, "repair_stale_people"));
 $a('settings has source rate draft repair button and issue action',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-rate-drafts"')
     && str_contains($ui, "repair_source_rate_drafts")

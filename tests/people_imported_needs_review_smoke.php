@@ -63,7 +63,7 @@ $assert('toggle sends source=jobdiva + needs_review=1',
     strpos($ui, "params.set('source', 'jobdiva');") !== false
     && strpos($ui, "params.set('needs_review', '1');") !== false);
 $assert('useMemo dependency tracks needsReview',
-    strpos($ui, '[q, classification, status, needsReview, page]') !== false);
+    strpos($ui, '[q, classification, status, needsReview, page, sort]') !== false);
 $assert('renders toggle with friendly label',
     strpos($ui, 'Imported from JobDiva — needs review') !== false);
 $assert('toggle has stable test ids',
