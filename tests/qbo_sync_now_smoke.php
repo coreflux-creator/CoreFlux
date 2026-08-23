@@ -13,7 +13,8 @@ $service = (string) file_get_contents($root . '/core/qbo/sync_now.php');
 $api = (string) file_get_contents($root . '/api/qbo.php');
 $ui = (string) file_get_contents($root . '/dashboard/src/pages/QboSettings.jsx');
 $syncDashboard = (string) file_get_contents($root . '/dashboard/src/pages/AccountingSyncDashboard.jsx');
-$deploy = (string) file_get_contents($root . '/.github/workflows/deploy-cloudways.yml');
+$deployPath = $root . '/.github/workflows/deploy-cloudways.yml';
+$deploy = is_file($deployPath) ? (string) file_get_contents($deployPath) : null;
 $masterCron = (string) file_get_contents($root . '/cron/qbo_sync_inbound.php');
 $txnCron = (string) file_get_contents($root . '/cron/qbo_two_way_sync.php');
 $masterPull = (string) file_get_contents($root . '/core/qbo/sync_in.php');
@@ -46,8 +47,12 @@ $check('master-data Query API accepts modified_since',
     str_contains($masterPull, 'MetaData.LastUpdatedTime') && str_contains($masterPull, 'modified_since'));
 $check('transaction worker honors saved directions',
     str_contains($txnCron, "['pull', 'two_way']") && str_contains($txnCron, 'qboSyncConfigRead'));
-foreach (['qbo_sync_outbound.php','qbo_sync_inbound.php','qbo_two_way_sync.php','qbo_payments_poll.php','qbo_health_alerts.php'] as $worker) {
-    $check("deployment installs {$worker} every 15 minutes", preg_match('/(?:\\*\/15|(?:2,17,32,47|5,20,35,50|8,23,38,53|11,26,41,56|14,29,44,59)) \\* \\* \\* \\*[^\\n]*' . preg_quote($worker, '/') . '/', $deploy) === 1);
+if ($deploy !== null) {
+    foreach (['qbo_sync_outbound.php','qbo_sync_inbound.php','qbo_two_way_sync.php','qbo_payments_poll.php','qbo_health_alerts.php'] as $worker) {
+        $check("deployment installs {$worker} every 15 minutes", preg_match('/(?:\\*\/15|(?:2,17,32,47|5,20,35,50|8,23,38,53|11,26,41,56|14,29,44,59)) \\* \\* \\* \\*[^\\n]*' . preg_quote($worker, '/') . '/', $deploy) === 1);
+    }
+} else {
+    echo "[SKIP] deployment workflow assertions (repository metadata is not shipped to the web root)\n";
 }
 
 echo "QBO Sync now smoke: {$pass} passed / {$fail} failed\n";
