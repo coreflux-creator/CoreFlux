@@ -20,6 +20,7 @@ jobs:
 
       - name: Upload the QuickBooks integration
         uses: appleboy/scp-action@v1.0.0
+        continue-on-error: true
         with:
           host: ${{ secrets.CW_SSH_HOST }}
           username: ${{ secrets.CW_SSH_USER }}
@@ -41,6 +42,10 @@ jobs:
             set -eu
             APP_ROOT="${{ secrets.CW_REMOTE_PATH }}/public_html"
             cd "$APP_ROOT"
+            test -f core/migrations/129_qbo_payments_idempotency.sql
+            test -f api/qbo/account_map_manual.php
+            grep -q 'function qboApplyCapturedPayment' core/qbo/payments_client.php
+            grep -q 'spa-assets/index-rSDhZGqF.js' index.html
             php deploy/run_migrations.php
             php deploy/run_migrations.php --status | grep 'core/migrations/129_qbo_payments_idempotency.sql'
 
