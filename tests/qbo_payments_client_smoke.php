@@ -48,6 +48,11 @@ check('shadow links to coreflux_invoice_id + coreflux_payment_id',
 check('shadow surfaces error_code + error_message',
     str_contains($mig, 'error_code') && str_contains($mig, 'error_message'));
 check('shadow stores raw_payload',              str_contains($mig, 'raw_payload'));
+$idemMigPath = '/app/core/migrations/129_qbo_payments_idempotency.sql';
+$idemMig = (string) @file_get_contents($idemMigPath);
+check('durable idempotency migration exists', $idemMig !== '');
+check('durable idempotency is tenant-scoped and unique',
+    str_contains($idemMig, 'UNIQUE KEY uq_qbo_payment_context (tenant_id, context_token)'));
 
 // ─────── 2. Client module shape ───────
 echo "\n── core/qbo/payments_client.php ──\n";
@@ -58,7 +63,8 @@ foreach ([
     'qboPaymentsConfigured', 'qboPaymentsBaseUrl', 'qboPaymentsCall',
     'qboCreateCharge', 'qboGetCharge',
     'qboCreateECheck', 'qboGetECheck',
-    'qboRecordChargeShadow',
+    'qboFetchPaymentTransaction', 'qboRecordChargeShadow',
+    'qboApplyCapturedPayment',
 ] as $fn) {
     check("exports {$fn}()", str_contains($src, "function {$fn}("));
 }
@@ -81,6 +87,8 @@ check('throws QboApiException on 4xx/5xx',
 check('shadow upsert is idempotent (selects then UPDATE/INSERT)',
     str_contains($src, 'SELECT id FROM qbo_payment_charges')
     && str_contains($src, 'INSERT INTO qbo_payment_charges'));
+check('shadow upsert resolves concurrent insert races',
+    str_contains($src, '$raced = $sel->fetch') && str_contains($src, 'return $updateExisting'));
 
 // ─────── 3. Operator endpoint ───────
 echo "\n── /api/admin/qbo/payments_charge.php ──\n";
@@ -93,16 +101,46 @@ check('endpoint RBAC-gates to admin/wildcard',
 check('refuses call when payment scope absent',  str_contains($ep, 'qboPaymentsConfigured('));
 check('validates invoice exists + open',         str_contains($ep, 'billing_invoices'));
 check('rejects amount > invoice.amount_due',     str_contains($ep, 'amount exceeds invoice amount_due'));
-check('idempotency: passes context_token as Request-Id',
-    str_contains($ep, "\$contextToken = 'cf-inv-'"));
-check('on CAPTURED: inserts billing_payments with source=qbo',
-    str_contains($ep, "'qbo'") && str_contains($ep, 'INSERT INTO billing_payments'));
-check('on CAPTURED: calls billingAllocatePayment',
-    str_contains($ep, 'billingAllocatePayment('));
-check('emits audit billing.qbo_payments.captured',
-    str_contains($ep, "billingAudit('billing.qbo_payments.captured'"));
+check('idempotency: accepts and reuses caller Request-Id',
+    str_contains($ep, "\$body['idempotency_key']")
+    && str_contains($ep, 'context_token = :k')
+    && str_contains($ep, "'idempotency_key' => \$contextToken"));
+check('idempotent replay bypasses changed invoice balance/status',
+    strpos($ep, 'if (!$prior)') !== false
+    && strpos($ep, 'if (!$prior)') < strpos($ep, 'if ($amount - 0.005 >'));
+check('new intents accept only allocatable invoice statuses',
+    str_contains($ep, "['approved', 'sent', 'partially_paid']"));
+check('on CAPTURED: delegates payment creation and allocation',
+    str_contains($ep, 'qboApplyCapturedPayment('));
+check('shared capture helper inserts billing_payments with source=qbo',
+    str_contains($src, "INSERT INTO billing_payments") && str_contains($src, "'qbo'"));
+check('shared capture helper calls billingAllocatePayment',
+    str_contains($src, 'billingAllocatePayment('));
+check('shared capture helper audits billing.qbo_payments.captured',
+    str_contains($src, "billingAudit('billing.qbo_payments.captured'"));
 check('emits audit billing.qbo_payments.charge_failed on error',
     str_contains($ep, "billingAudit('billing.qbo_payments.charge_failed'"));
+
+$qboApi = (string) file_get_contents('/app/api/qbo.php');
+check('status reports granted/configured OAuth scopes and Payments readiness',
+    str_contains($qboApi, "'granted_scopes'")
+    && str_contains($qboApi, "'configured_scopes'")
+    && str_contains($qboApi, "'payments_enabled'")
+    && str_contains($qboApi, "'payments_scope_requested'"));
+$qboSettings = (string) file_get_contents('/app/dashboard/src/pages/QboSettings.jsx');
+check('settings surfaces Payments grant and re-consent action',
+    str_contains($qboSettings, 'qbo-payments-scope-status')
+    && str_contains($qboSettings, 'qbo-reconsent-btn'));
+$invoicesUi = (string) file_get_contents('/app/modules/billing/ui/InvoicesList.jsx');
+check('invoice collection CTA is gated by live Payments readiness',
+    str_contains($invoicesUi, "/api/qbo/status.php?action=status")
+    && str_contains($invoicesUi, 'qboStatus.data?.payments_enabled === true'));
+check('invoice collection CTA mirrors the backend admin gate',
+    str_contains($invoicesUi, "['master_admin', 'tenant_admin'].includes(user.global_role)")
+    && str_contains($invoicesUi, '{ enabled: canCollectViaQbo }'));
+$billingModule = (string) file_get_contents('/app/modules/billing/ui/BillingModule.jsx');
+check('billing module passes session into the invoice list',
+    str_contains($billingModule, '<InvoicesList session={session} />'));
 
 // ─────── 4. Live exercise (transport stub + SQLite mirror) ───────
 echo "\n── live behaviour ──\n";
@@ -138,6 +176,21 @@ $pdo->exec("CREATE TABLE qbo_payment_charges (
 $pdo->exec("CREATE TABLE qbo_audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INT, action TEXT,
     detail_json TEXT, created_at TEXT)");
+$pdo->exec("CREATE TABLE billing_invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INT, invoice_number TEXT,
+    client_name TEXT, currency TEXT, status TEXT, amount_due NUMERIC,
+    amount_paid NUMERIC DEFAULT 0)");
+$pdo->exec("CREATE TABLE billing_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INT, client_name TEXT,
+    received_at TEXT, method TEXT, reference TEXT, external_id TEXT,
+    source_system TEXT, amount NUMERIC, currency TEXT,
+    unallocated_amount NUMERIC, notes TEXT, created_by_user_id INT,
+    created_at TEXT,
+    UNIQUE (tenant_id, source_system, external_id))");
+$pdo->exec("CREATE TABLE billing_payment_allocations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, payment_id INT, invoice_id INT,
+    amount_applied NUMERIC, created_at TEXT,
+    UNIQUE (payment_id, invoice_id))");
 
 // Pre-load a tenant with the payment scope granted.
 $pdo->prepare("INSERT INTO qbo_connections (tenant_id, realm_id, status, environment, access_token_ct, refresh_token_ct, scope) VALUES (101, 'R-1', 'active', 'sandbox', x'00', x'00', 'com.intuit.quickbooks.accounting com.intuit.quickbooks.payment')")->execute();
@@ -170,6 +223,40 @@ if (!class_exists('QboApiException')) {
         public ?int $httpStatus = null;
         public ?string $errorCode = null;
         public ?array $raw = null;
+    }
+}
+if (!function_exists('billingAllocatePayment')) {
+    function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserId = null): array {
+        $pdo = $GLOBALS['pdo'];
+        $applied = [];
+        foreach (($request['allocations'] ?? []) as $allocation) {
+            $invoiceId = (int) $allocation['invoice_id'];
+            $amount = round((float) $allocation['amount'], 2);
+            $pdo->prepare(
+                'INSERT INTO billing_payment_allocations
+                    (payment_id, invoice_id, amount_applied, created_at)
+                 VALUES (:p, :i, :a, CURRENT_TIMESTAMP)'
+            )->execute(['p' => $paymentId, 'i' => $invoiceId, 'a' => $amount]);
+            $pdo->prepare(
+                'UPDATE billing_payments
+                    SET unallocated_amount = unallocated_amount - :a
+                  WHERE id = :p'
+            )->execute(['a' => $amount, 'p' => $paymentId]);
+            $pdo->prepare(
+                "UPDATE billing_invoices
+                    SET amount_paid = amount_paid + :a,
+                        amount_due = amount_due - :a,
+                        status = CASE WHEN amount_due - :a <= 0 THEN 'paid' ELSE 'partial' END
+                  WHERE id = :i"
+            )->execute(['a' => $amount, 'i' => $invoiceId]);
+            $applied[] = ['invoice_id' => $invoiceId, 'amount' => $amount];
+        }
+        return ['applied' => $applied];
+    }
+}
+if (!function_exists('billingAudit')) {
+    function billingAudit(string $event, array $meta = [], ?int $targetId = null): void {
+        $GLOBALS['__billing_audit'][] = compact('event', 'meta', 'targetId');
     }
 }
 
@@ -250,6 +337,49 @@ check('payload amount serialised as "125.50"',     $payload['amount'] === '125.5
 check('payload token is round-tripped',             $payload['token']  === 'tok_test_001');
 check('payload capture=true',                       $payload['capture'] === true);
 
+// Intuit's e-check debit resource requires its WEB payment mode and a
+// check number in addition to the opaque bank-account token.
+$echeckCreateWire = [];
+$GLOBALS['__qbo_transport'] = function ($method, $url, $headers, $rawBody) use (&$echeckCreateWire) {
+    $echeckCreateWire[] = compact('method', 'url', 'headers', 'rawBody');
+    return [
+        'status' => 200,
+        'body' => ['id' => 'EC-CREATE-001', 'amount' => '10.00', 'status' => 'PENDING'],
+        'headers' => [],
+    ];
+};
+$createdEcheck = qboCreateECheck(101, [
+    'amount' => 10,
+    'token' => 'bank_token_001',
+    'description' => 'Invoice INV-ACH',
+    'idempotency_key' => 'req-ach-deadbeef',
+]);
+$echeckPayload = json_decode((string) ($echeckCreateWire[0]['rawBody'] ?? ''), true);
+check('e-check create returns upstream id', $createdEcheck['id'] === 'EC-CREATE-001');
+check('e-check create uses WEB payment mode', ($echeckPayload['paymentMode'] ?? '') === 'WEB');
+check('e-check create supplies an eight-digit check number',
+    preg_match('/^\d{8}$/', (string) ($echeckPayload['checkNumber'] ?? '')) === 1);
+check('e-check create sends the opaque bank token',
+    ($echeckPayload['token'] ?? '') === 'bank_token_001');
+check('e-check request omits unsupported currency field',
+    !array_key_exists('currency', $echeckPayload));
+
+// The polling/refresh router must use the e-check resource for ACH
+// transactions instead of always calling the card endpoint.
+$echeckWire = [];
+$GLOBALS['__qbo_transport'] = function ($method, $url, $headers, $rawBody) use (&$echeckWire) {
+    $echeckWire[] = compact('method', 'url');
+    return [
+        'status' => 200,
+        'body' => ['id' => 'EC-001', 'amount' => '10.00', 'currency' => 'USD', 'status' => 'PENDING'],
+        'headers' => [],
+    ];
+};
+$echeck = qboFetchPaymentTransaction(101, 'EC-001', 'echeck');
+check('transaction router returns e-check response', $echeck['id'] === 'EC-001');
+check('transaction router uses /payments/echecks for ACH',
+    str_contains((string) ($echeckWire[0]['url'] ?? ''), '/quickbooks/v4/payments/echecks/EC-001'));
+
 // ─────── (c) Shadow row write ───────
 echo "\n── shadow row idempotent upsert ──\n";
 $shadowId = qboRecordChargeShadow(101, $resp, [
@@ -281,6 +411,48 @@ check('settled_at is populated',             !empty($shadow2['settled_at']));
 check('captured_at preserved across upsert', !empty($shadow2['captured_at']));
 $rowCount = (int) $pdo->query("SELECT COUNT(*) FROM qbo_payment_charges WHERE qbo_charge_id='CHG-AAA'")->fetchColumn();
 check('unique key prevents duplicate rows',  $rowCount === 1);
+
+// A charge that is learned as captured by either the initial request,
+// operator refresh, or the poller must create and allocate exactly one
+// CoreFlux payment.
+echo "\n── captured payment application ──\n";
+$pdo->prepare(
+    "INSERT INTO billing_invoices
+        (id, tenant_id, invoice_number, client_name, currency, status, amount_due, amount_paid)
+     VALUES (7, 101, 'INV-001', 'Acme Co', 'USD', 'sent', 125.50, 0)"
+)->execute();
+$application = qboApplyCapturedPayment(101, $settled, [
+    'coreflux_invoice_id' => 7,
+    'charge_type' => 'card',
+    'context_token' => 'req-deadbeef',
+], 9);
+check('captured charge creates and applies a CoreFlux payment', $application['applied'] === true);
+check('first application is not marked reused', $application['reused'] === false);
+$paymentId = (int) ($application['payment_id'] ?? 0);
+check('payment row is linked to QBO external id',
+    (string) $pdo->query("SELECT external_id FROM billing_payments WHERE id={$paymentId}")->fetchColumn() === 'CHG-AAA');
+check('payment row records card method',
+    (string) $pdo->query("SELECT method FROM billing_payments WHERE id={$paymentId}")->fetchColumn() === 'card');
+check('shadow links the resulting CoreFlux payment',
+    (int) $pdo->query("SELECT coreflux_payment_id FROM qbo_payment_charges WHERE qbo_charge_id='CHG-AAA'")->fetchColumn() === $paymentId);
+check('invoice is paid by the shared allocator',
+    (string) $pdo->query("SELECT status FROM billing_invoices WHERE id=7")->fetchColumn() === 'paid');
+check('exactly one allocation was created',
+    (int) $pdo->query("SELECT COUNT(*) FROM billing_payment_allocations WHERE payment_id={$paymentId}")->fetchColumn() === 1);
+
+$replay = qboApplyCapturedPayment(101, $settled, [
+    'coreflux_invoice_id' => 7,
+    'charge_type' => 'card',
+    'context_token' => 'req-deadbeef',
+], 9);
+check('captured replay resolves to the same payment', (int) $replay['payment_id'] === $paymentId);
+check('captured replay is marked reused', $replay['reused'] === true);
+check('captured replay does not duplicate payment rows',
+    (int) $pdo->query("SELECT COUNT(*) FROM billing_payments WHERE external_id='CHG-AAA'")->fetchColumn() === 1);
+check('captured replay does not duplicate allocations',
+    (int) $pdo->query("SELECT COUNT(*) FROM billing_payment_allocations WHERE payment_id={$paymentId}")->fetchColumn() === 1);
+check('capture application emitted billing audit event',
+    ($GLOBALS['__billing_audit'][0]['event'] ?? null) === 'billing.qbo_payments.captured');
 
 // ─────── (d) Error envelope ───────
 echo "\n── error envelope parsing ──\n";

@@ -1,15 +1,14 @@
 <?php
 /**
- * Smoke — Intuit hosted tokenizer (Step 6 Phase 5).
+ * Smoke — direct Intuit Payments tokenization.
  *
  * Locks:
- *   - QboPaymentsCollectModal exposes mode picker (live / paste).
- *   - Loads https://js.intuit.com/v1/intuit-js once per session.
- *   - Calls intuit.ipp.payments.tokenize() with card or bankAccount payload.
- *   - Submits the resulting token to /api/admin/qbo/payments_charge.php.
- *   - Falls back to paste mode when window.__INTUIT_PAYMENTS_KEY is unset.
- *   - spa.php exposes INTUIT_PAYMENTS_PUBLISHABLE_KEY → window.__INTUIT_PAYMENTS_KEY.
- *   - Bundle build picked up the modal (data-testids present in JS output).
+ *   - Card/bank details go from the browser straight to Intuit's
+ *     documented /quickbooks/v4/payments/tokens endpoint.
+ *   - CoreFlux receives only the opaque value token.
+ *   - The endpoint environment comes from the authenticated QBO status.
+ *   - No dependency remains on the retired/non-resolving intuit-js host.
+ *   - Paste-token mode remains available for sandbox/support diagnostics.
  */
 declare(strict_types=1);
 
@@ -20,67 +19,82 @@ function check(string $label, bool $cond) {
     else       { $failures[] = $label; echo "  ✗ {$label}\n"; }
 }
 
-echo "\nQBO Intuit hosted tokenizer smoke (Step 6 Phase 5)\n";
+echo "\nQBO direct Intuit tokenizer smoke\n";
 echo "===================================================\n\n";
 
-// ─── Modal source ───
 echo "── QboPaymentsCollectModal.jsx ──\n";
 $src = (string) file_get_contents('/app/modules/billing/ui/QboPaymentsCollectModal.jsx');
-check('reads window.__INTUIT_PAYMENTS_KEY',     str_contains($src, '__INTUIT_PAYMENTS_KEY'));
-check('reads window.__INTUIT_PAYMENTS_ENV (sandbox/prod)',
-    str_contains($src, '__INTUIT_PAYMENTS_ENV'));
-check('loads https://js.intuit.com/v1/intuit-js',
-    str_contains($src, "'https://js.intuit.com/v1/intuit-js'"));
-check('defaults mode=live when publishable key is set',
-    str_contains($src, "useState(liveAvailable ? 'live' : 'paste')"));
-check('exposes mode radio: live + paste',
-    str_contains($src, 'data-testid="qbo-payments-mode-live"') &&
-    str_contains($src, 'data-testid="qbo-payments-mode-paste"'));
-check('calls intuit.ipp.payments.init(publishableKey)',
-    str_contains($src, 'window.intuit.ipp.payments.init(publishableKey'));
-check('invokes intuit.ipp.payments.tokenize',
-    str_contains($src, 'window.intuit.ipp.payments.tokenize('));
-check('card tokenize payload includes number/expMonth/expYear/cvc',
-    str_contains($src, 'number:') &&
-    str_contains($src, 'expMonth:') &&
-    str_contains($src, 'expYear:') &&
-    str_contains($src, 'cvc:'));
-check('bank tokenize payload uses routingNumber/accountNumber',
-    str_contains($src, 'routingNumber:') &&
-    str_contains($src, 'accountNumber:') &&
-    str_contains($src, "accountType:   'CHECKING'"));
-check('error path surfaces resp.errors[0].message',
-    str_contains($src, "resp?.errors?.[0]?.message"));
-check('SDK-loading state disables submit button',
-    str_contains($src, "(mode === 'live' && !sdkReady)"));
-check('paste mode still posts to charge endpoint',
-    str_contains($src, "api.post('/api/admin/qbo/payments_charge.php'"));
-check('gracefully degrades when publishable key absent',
-    str_contains($src, "data-testid=\"qbo-payments-live-unavailable\""));
-check('SDK error renders qbo-payments-sdk-error testid',
-    str_contains($src, "data-testid=\"qbo-payments-sdk-error\""));
-check('SDK loading hint testid present',
-    str_contains($src, "data-testid=\"qbo-payments-sdk-loading\""));
-check('only one tokenize callback per submit (no infinite loop)',
-    substr_count($src, 'window.intuit.ipp.payments.tokenize(') === 1);
-check('loads SDK only once via ref guard',
-    str_contains($src, 'sdkLoaded.current = true'));
+check('defaults the QBO environment to sandbox',
+    str_contains($src, "environment = 'sandbox'"));
+check('allowlists production and otherwise uses sandbox',
+    str_contains($src, "environment === 'production' ? 'production' : 'sandbox'"));
+check('uses Intuit production token host',
+    str_contains($src, 'https://api.intuit.com'));
+check('uses Intuit sandbox token host',
+    str_contains($src, 'https://sandbox.api.intuit.com'));
+check('uses documented Payments token path',
+    str_contains($src, '/quickbooks/v4/payments/tokens'));
+check('POSTs payment details directly to token endpoint',
+    str_contains($src, 'fetch(tokenEndpoint, {')
+    && str_contains($src, "method: 'POST'"));
+check('token request carries JSON and Request-Id headers',
+    str_contains($src, "'Content-Type': 'application/json'")
+    && str_contains($src, "'Request-Id': requestId"));
+check('token request does not carry an OAuth bearer token',
+    !str_contains($src, 'Authorization:')
+    && !str_contains($src, "'Authorization'"));
+check('card token payload includes number/expiry/cvc',
+    str_contains($src, 'number:')
+    && str_contains($src, 'expMonth:')
+    && str_contains($src, 'expYear:')
+    && str_contains($src, 'cvc:'));
+check('bank token payload uses Intuit bank-account fields',
+    str_contains($src, 'routingNumber:')
+    && str_contains($src, 'accountNumber:')
+    && str_contains($src, "accountType:   'PERSONAL_CHECKING'"));
+check('bank-account name is the holder, not the bank name',
+    str_contains($src, 'name:          holder.trim()')
+    && str_contains($src, 'bankName:      bankName.trim()'));
+check('extracts only the opaque value token',
+    str_contains($src, 'return data.value;'));
+check('surfaces Intuit error envelope messages',
+    str_contains($src, 'data.errors[0]')
+    && str_contains($src, 'firstError?.message'));
+check('defaults to direct tokenization',
+    str_contains($src, "useState('direct')"));
+check('exposes direct and paste modes',
+    str_contains($src, 'data-testid="qbo-payments-mode-direct"')
+    && str_contains($src, 'data-testid="qbo-payments-mode-paste"'));
+check('shows the selected Intuit environment',
+    str_contains($src, 'data-testid="qbo-payments-token-environment"'));
+check('posts opaque token to CoreFlux charge endpoint',
+    str_contains($src, "api.post('/api/admin/qbo/payments_charge.php'")
+    && str_contains($src, 'token:      tok'));
+check('retries reuse one Request-Id per immutable payment intent',
+    str_contains($src, 'idempotencyRef.current.intent !== intent')
+    && str_contains($src, 'idempotency_key: idempotencyRef.current.key'));
+check('does not reference nonexistent intuit-js SDK or publishable key',
+    !str_contains($src, 'js.intuit.com')
+    && !str_contains($src, '__INTUIT_PAYMENTS_KEY')
+    && !str_contains($src, 'intuit.ipp.payments'));
 
-// ─── spa.php bridge ───
-echo "\n── spa.php config bridge ──\n";
+echo "\n── Environment source ──\n";
+$list = (string) file_get_contents('/app/modules/billing/ui/InvoicesList.jsx');
+check('modal receives environment from authenticated QBO status',
+    str_contains($list, 'environment={qboStatus.data?.environment}'));
 $spa = (string) file_get_contents('/app/spa.php');
-check('spa.php injects window.__INTUIT_PAYMENTS_KEY from env',
-    str_contains($spa, "window.__INTUIT_PAYMENTS_KEY = <?php echo json_encode((string) (getenv('INTUIT_PAYMENTS_PUBLISHABLE_KEY')"));
-check('spa.php injects window.__INTUIT_PAYMENTS_ENV from env',
-    str_contains($spa, "window.__INTUIT_PAYMENTS_ENV = <?php echo json_encode((string) (getenv('INTUIT_PAYMENTS_ENV')"));
-check('defaults env to sandbox',                str_contains($spa, ": 'sandbox'"));
+check('SPA does not expose obsolete Payments keys',
+    !str_contains($spa, '__INTUIT_PAYMENTS_KEY')
+    && !str_contains($spa, 'INTUIT_PAYMENTS_PUBLISHABLE_KEY'));
 
-// ─── Built bundle picked up the changes ───
+echo "\n── Server e-check shape ──\n";
+$payments = (string) file_get_contents('/app/core/qbo/payments_client.php');
+check('e-check debit declares WEB payment mode',
+    str_contains($payments, "'paymentMode' => 'WEB'"));
+check('e-check debit supplies a stable check number',
+    str_contains($payments, "'checkNumber' => substr(str_pad("));
+
 echo "\n── Vite bundle ──\n";
-// Use .deploy-version as the canonical pointer (sync_bundle.sh updates
-// it on every build). filemtime-based picking is unreliable when stale
-// bundles linger in /app/spa-assets — exactly the rake the deploy
-// version stamp was introduced to step over.
 $deployVer = (string) file_get_contents('/app/.deploy-version');
 if (preg_match('/^- spa-assets\/(index-[A-Za-z0-9_\-]+\.js)/m', $deployVer, $m)) {
     $jsBundle = $m[1];
@@ -90,14 +104,20 @@ if (preg_match('/^- spa-assets\/(index-[A-Za-z0-9_\-]+\.js)/m', $deployVer, $m))
 if ($jsBundle === '' || !is_file('/app/spa-assets/' . $jsBundle)) {
     check('Vite bundle present', false);
 } else {
-    check('Vite bundle present',  true);
+    check('Vite bundle present', true);
     $bundle = (string) file_get_contents('/app/spa-assets/' . $jsBundle);
-    check('bundle includes qbo-payments-modal testid',
-        str_contains($bundle, 'qbo-payments-modal'));
-    check('bundle includes Intuit SDK URL',
-        str_contains($bundle, 'https://js.intuit.com/v1/intuit-js'));
+    check('bundle includes payment modal and direct token path',
+        str_contains($bundle, 'qbo-payments-modal')
+        && str_contains($bundle, '/quickbooks/v4/payments/tokens'));
+    check('bundle excludes nonexistent Intuit JS SDK',
+        !str_contains($bundle, 'https://js.intuit.com/v1/intuit-js'));
+    check('bundle includes durable payment-intent Request-Id',
+        str_contains($bundle, 'idempotency_key') && str_contains($bundle, 'cf-qbo-'));
+    check('bundle includes Payments OAuth status and re-consent UI',
+        str_contains($bundle, 'qbo-payments-scope-status')
+        && str_contains($bundle, 'qbo-reconsent-btn'));
 }
 
-echo "\nqbo_intuit_tokenizer smoke: {$passes} ✓ / " . count($failures) . " ✗\n";
+echo "\nqbo direct Intuit tokenizer smoke: {$passes} ✓ / " . count($failures) . " ✗\n";
 foreach ($failures as $msg) echo "  FAIL: {$msg}\n";
 exit($failures ? 1 : 0);

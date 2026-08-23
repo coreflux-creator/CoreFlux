@@ -39,7 +39,7 @@ The 7 primitives keep the integration *correct*. The polish layer below keeps it
 | **Two-way sync** | Pull the vendor's view of our entities into shadow tables; detect drift (paid-out-of-band, balance-changed, voided-in-vendor) and surface to the operator. | QBO ✅ (`qbo_inbound_*` + `qbo_sync_drift` + 30m cron) · Others — pending |
 | **Drift badge on host UI** | The CoreFlux list page for the entity (BillsList / InvoicesList) shows the vendor-side state inline (e.g. "Paid in QBO" amber chip). | QBO ✅ (`<QboDriftBadge>`) · Others — pending |
 | **Auto-reconcile drift** | Per-tenant opt-in flag closes `paid_out_of_band` drift automatically — inserts a matching CoreFlux payment + allocates via the canonical engine so the ledger matches vendor truth without manual triage. | QBO ✅ (`core/qbo/auto_reconcile.php`, `/api/admin/qbo/auto_reconcile.php`, gated by `qbo_connections.auto_reconcile_paid_out_of_band`) · Others — pending |
-| **Inbound payments rail** | Tenant collects from their customers directly via the provider's merchant rail (cards / ACH); shadow table mirrors the upstream charge lifecycle and links it back to the originating AR invoice. | QBO ⏳ Phase 1 — client + shadow + operator endpoint live (`core/qbo/payments_client.php`, `qbo_payment_charges`, `/api/admin/qbo/payments_charge.php`); webhook + tokenizer UI pending · Others — n/a |
+| **Inbound payments rail** | Tenant collects from their customers directly via the provider's merchant rail (cards / ACH); shadow table mirrors the upstream charge lifecycle and links it back to the originating AR invoice. | QBO ✅ — tokenizer UI + durable Request-Id, card/e-check client, shadow table, capture-to-AR allocator, operator refresh, hourly polling, and triage surface (`core/qbo/payments_client.php`, `qbo_payment_charges`, `/api/admin/qbo/payments_charge.php`) · Others — n/a |
 
 ## The Rollout Order
 
@@ -56,6 +56,7 @@ Every charter primitive and polish layer terminates in an operator-visible UI:
 
 - **Charter score pill** → `IntegrationsHealthPanel` (`/admin/integrations`)
 - **Integration triage inbox** → `IntegrationTriage` (`/admin/integrations/triage`) — unified queue of QBO DLQ + QBO drift + Mercury failed PIs
+  + stale/failed/refunded QBO merchant charges
 - **Drift badge on entity lists** → BillsList + InvoicesList
 - **Per-source admin endpoints** (RBAC-gated, also reachable via curl):
   - `GET/POST /api/admin/qbo/dead_letters.php`

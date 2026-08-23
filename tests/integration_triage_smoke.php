@@ -4,8 +4,8 @@
  *
  * Locks:
  *   - endpoint exists, auth-gated
- *   - reads from all three sources (qbo_push_failures, qbo_sync_drift,
- *     payment_instructions Failed) with try/catch fallthrough so a
+ *   - reads from all four sources (qbo_push_failures, qbo_sync_drift,
+ *     qbo_payment_charges, payment_instructions Failed) with try/catch fallthrough so a
  *     missing source table doesn't break the response
  *   - merges into the unified row shape
  *   - applies severity-rank sort
@@ -38,6 +38,7 @@ check('imports both error playbooks',
     str_contains($src, 'qbo/error_playbook.php') && str_contains($src, 'mercury/error_playbook.php'));
 check('reads qbo_push_failures (qbo-dlq)',     str_contains($src, 'FROM qbo_push_failures'));
 check('reads qbo_sync_drift (qbo-drift)',      str_contains($src, 'FROM qbo_sync_drift'));
+check('reads qbo_payment_charges (qbo-payments)', str_contains($src, 'FROM qbo_payment_charges'));
 check('reads payment_instructions (mercury-failed)',
     str_contains($src, 'FROM payment_instructions'));
 check('each source wrapped in try/catch (missing tables = soft-skip)',
@@ -52,6 +53,9 @@ check('severity-rank sort applied (critical > warn > info)',
     preg_match('/usort.*?critical.*?warn.*?info/s', $src) === 1);
 check('counts payload includes by_source breakdown',
     str_contains($src, "'by_source'"));
+check('QBO payment exceptions cover failures, stale pending, and refunds',
+    str_contains($src, "status IN ('DECLINED','FAILED','REFUNDED','VOIDED')")
+    && str_contains($src, 'INTERVAL 24 HOUR'));
 
 // ────────────────────── 2. Drift fix table covers known kinds ──
 echo "\n── drift fix coverage ──\n";
@@ -91,6 +95,8 @@ check('expanded row shows playbook suggested_fix',
     str_contains($jsx, 'playbook?.suggested_fix') || str_contains($jsx, 'playbook.suggested_fix'));
 check('expanded row exposes raw vendor body when present',
     str_contains($jsx, 'vendor_raw'));
+check('frontend exposes qbo-payments source filter',
+    str_contains($jsx, "'qbo-payments': `QBO payments"));
 
 // ────────────────────── 4. Routing ──
 echo "\n── routing wired in AdminModule.jsx ──\n";

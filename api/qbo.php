@@ -42,6 +42,7 @@ require_once __DIR__ . '/../core/qbo/sync_bills.php';
 require_once __DIR__ . '/../core/qbo/sync_items.php';
 require_once __DIR__ . '/../core/qbo/sync_invoices.php';
 require_once __DIR__ . '/../core/qbo/sync_payments.php';
+require_once __DIR__ . '/../core/qbo/payments_client.php';
 
 $method = api_method();
 $action = (string) (api_query('action') ?? '');
@@ -155,6 +156,14 @@ switch ($action) {
             return $r;
         }, $audit->fetchAll(\PDO::FETCH_ASSOC) ?: []);
 
+        $grantedScopes = preg_split('/\s+/', trim((string) ($row['scope'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $configuredScopes = preg_split(
+            '/\s+/',
+            trim(qboCfg('QBO_SCOPES') ?: QBO_DEFAULT_SCOPES),
+            -1,
+            PREG_SPLIT_NO_EMPTY
+        ) ?: [];
+
         api_ok([
             'configured'        => qboConfigured(),
             'environment'       => qboEnvironment(),
@@ -163,6 +172,10 @@ switch ($action) {
             'realm_id'          => $row['realm_id']     ?? null,
             'company_name'      => $row['company_name'] ?? null,
             'scope'             => $row['scope']        ?? null,
+            'granted_scopes'    => $grantedScopes,
+            'configured_scopes' => $configuredScopes,
+            'payments_enabled'  => qboPaymentsConfigured($tid),
+            'payments_scope_requested' => in_array(QBO_PAYMENTS_SCOPE, $configuredScopes, true),
             'access_token_exp'  => $row['access_token_exp']  ?? null,
             'refresh_token_exp' => $row['refresh_token_exp'] ?? null,
             'last_probe_at'     => $row['last_probe_at']     ?? null,

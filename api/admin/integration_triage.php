@@ -10,13 +10,14 @@
  * Sources rolled together:
  *   - qbo_push_failures           (push DLQ — typed exception failures)
  *   - qbo_sync_drift              (two-way sync drift)
+ *   - qbo_payment_charges         (stale/failed/refunded merchant charges)
  *   - payment_instructions WHERE state='Failed'  (Mercury rail Failed PIs)
  *
  * Returns:
  *   {
  *     items: [
  *       {
- *         source       : 'qbo-dlq' | 'qbo-drift' | 'mercury-failed',
+ *         source       : 'qbo-dlq' | 'qbo-drift' | 'qbo-payments' | 'mercury-failed',
  *         id           : <row id in the source table>,
  *         tenant_id    : int,
  *         severity     : 'critical'|'warn'|'info',
@@ -53,12 +54,12 @@ if ($tenantId <= 0) {
 $limit = max(10, min(500, (int) ($_GET['limit'] ?? 200)));
 $wantedSources = $_GET['sources'] ?? 'all'; // comma-list or 'all'
 $wanted = $wantedSources === 'all'
-    ? ['qbo-dlq', 'qbo-drift', 'mercury-failed']
+    ? ['qbo-dlq', 'qbo-drift', 'qbo-payments', 'mercury-failed']
     : array_map('trim', explode(',', (string) $wantedSources));
 
 $items  = [];
 $counts = ['critical' => 0, 'warn' => 0, 'info' => 0, 'total' => 0,
-           'by_source' => ['qbo-dlq' => 0, 'qbo-drift' => 0, 'mercury-failed' => 0]];
+           'by_source' => ['qbo-dlq' => 0, 'qbo-drift' => 0, 'qbo-payments' => 0, 'mercury-failed' => 0]];
 $db = getDB();
 
 // ─────── 1. QBO push DLQ ───────
@@ -154,7 +155,71 @@ if (in_array('qbo-drift', $wanted, true)) {
     } catch (\Throwable $_) { /* table missing */ }
 }
 
-// ─────── 3. Mercury Failed payment instructions ───────
+// ─────── 3. QBO merchant-payment exceptions ───────
+if (in_array('qbo-payments', $wanted, true)) {
+    try {
+        $stmt = $db->prepare(
+            "SELECT id, tenant_id, qbo_charge_id, charge_type, amount_cents,
+                    currency, status, coreflux_invoice_id, coreflux_payment_id,
+                    context_token, error_code, error_message, raw_payload,
+                    created_at, updated_at
+               FROM qbo_payment_charges
+              WHERE tenant_id = :t
+                AND (
+                    error_message IS NOT NULL
+                    OR status IN ('DECLINED','FAILED','REFUNDED','VOIDED')
+                    OR (
+                        status IN ('ISSUED','PENDING','AUTHORIZED')
+                        AND created_at < (NOW() - INTERVAL 24 HOUR)
+                    )
+                )
+           ORDER BY updated_at DESC, created_at DESC
+              LIMIT {$limit}"
+        );
+        $stmt->execute(['t' => $tenantId]);
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+            $status = strtoupper((string) $r['status']);
+            $moneyMoved = in_array($status, ['REFUNDED', 'VOIDED'], true)
+                && !empty($r['coreflux_payment_id']);
+            $sev = $moneyMoved ? 'critical'
+                 : (in_array($status, ['DECLINED', 'FAILED'], true) || !empty($r['error_message']) ? 'warn' : 'info');
+            $playbook = qboErrorPlaybookLookup($r['error_code'] ?? null);
+            $playbook['summary'] = "QBO Payments {$status}";
+            $playbook['suggested_fix'] = $moneyMoved
+                ? 'This transaction already created a CoreFlux payment but is now refunded or voided in Intuit. Review the invoice and record the reversal before collecting again.'
+                : (in_array($status, ['ISSUED', 'PENDING', 'AUTHORIZED'], true)
+                    ? 'The transaction has remained pending for more than 24 hours. Check the live status in Intuit and confirm the hourly QBO payments poll is scheduled.'
+                    : 'Review the Intuit error and payment method, then retry with a new payment intent only after confirming that no charge was captured.');
+
+            $items[] = [
+                'source'    => 'qbo-payments',
+                'id'        => (int) $r['id'],
+                'tenant_id' => (int) $r['tenant_id'],
+                'severity'  => $sev,
+                'summary'   => "QBO {$r['charge_type']} {$status} — {$r['qbo_charge_id']} (\$"
+                    . number_format(((int) $r['amount_cents']) / 100, 2) . " {$r['currency']})",
+                'playbook'  => $playbook,
+                'meta'      => [
+                    'charge_id'          => $r['qbo_charge_id'],
+                    'charge_type'        => $r['charge_type'],
+                    'status'             => $status,
+                    'invoice_id'         => $r['coreflux_invoice_id'] !== null ? (int) $r['coreflux_invoice_id'] : null,
+                    'payment_id'         => $r['coreflux_payment_id'] !== null ? (int) $r['coreflux_payment_id'] : null,
+                    'request_id'         => $r['context_token'],
+                    'error_code'         => $r['error_code'],
+                    'error_message'      => $r['error_message'],
+                    'vendor_raw'         => $r['raw_payload'],
+                ],
+                'created_at' => $r['updated_at'] ?: $r['created_at'],
+                'actionable' => null,
+            ];
+            $counts['by_source']['qbo-payments']++;
+            $counts[$sev]++;
+        }
+    } catch (\Throwable $_) { /* table missing */ }
+}
+
+// ─────── 4. Mercury Failed payment instructions ───────
 if (in_array('mercury-failed', $wanted, true)) {
     try {
         $stmt = $db->prepare(

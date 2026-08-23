@@ -139,6 +139,9 @@ $a('account_map_manual lazy-requires account_import.php',
 $a('account_map_manual maps RuntimeException → 409',
     substr_count(substr($api, strpos($api, "case 'account_map_manual'"), 1200),
         "api_error(\$e->getMessage(), 409)") >= 1);
+$manualShim = (string) @file_get_contents('/app/api/qbo/account_map_manual.php');
+$a('account_map_manual path shim delegates to api/qbo.php',
+    $manualShim !== '' && $c($manualShim, "require __DIR__ . '/../qbo.php'"));
 
 // ──────────────────────────────────────────────────────────────────────
 // 4) QboSettings.jsx — Pull & import CTA + UnmappedQboAccountsCard

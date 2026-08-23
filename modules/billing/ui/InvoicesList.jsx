@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, useApiCached, bustApiCachePrefix, prefetchApi } from '../../../dashboard/src/lib/api';
+import { api, useApi, useApiCached, bustApiCachePrefix, prefetchApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { fmtDate } from '../../../dashboard/src/lib/formatDate';
@@ -13,7 +13,7 @@ import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
 
 const STATUS_FILTERS = ['all','draft','approved','sent','partially_paid','paid','void'];
 
-export default function InvoicesList() {
+export default function InvoicesList({ session }) {
   const [status, setStatus] = useState('all');
   const [showCreate, setShowCreate] = useState(false);
   const [showEntries, setShowEntries] = useState(false);
@@ -27,6 +27,16 @@ export default function InvoicesList() {
     path,
     { cacheKey: `billing-invoices-list:${path}` }
   );
+  // The charge endpoint is tenant/master-admin gated and requires the
+  // separate Intuit Payments OAuth scope. Hide the CTA when either
+  // condition is absent instead of letting users discover it via 403/412.
+  const user = session?.user || {};
+  const canCollectViaQbo = ['master_admin', 'tenant_admin'].includes(user.global_role)
+    || ['master_admin', 'tenant_admin'].includes(user.role);
+  const qboStatus = useApi('/api/qbo/status.php?action=status', { enabled: canCollectViaQbo });
+  const qboPaymentsEnabled = canCollectViaQbo
+    && qboStatus.data?.connected === true
+    && qboStatus.data?.payments_enabled === true;
   const rows = data?.rows ?? [];
   // Batch-fetch QBO drift snapshots so we can render a chip per row
   // without N+1 round-trips.
@@ -113,7 +123,9 @@ export default function InvoicesList() {
         <tbody>
           {items.length === 0 && !loading && <tr><td colSpan={9} className="empty" data-testid="billing-invoices-empty">No invoices yet.</td></tr>}
           {items.map(r => {
-            const collectable = Number(r.amount_due) > 0 && !['paid', 'void', 'cancelled', 'draft'].includes(r.status);
+            const collectable = qboPaymentsEnabled
+              && Number(r.amount_due) > 0
+              && !['paid', 'void', 'cancelled', 'draft'].includes(r.status);
             return (
             <tr key={r.id} data-testid={`billing-invoice-row-${r.id}`}>
               <td><IdBadge id={r.id} prefix="INV" /></td>
@@ -181,6 +193,7 @@ export default function InvoicesList() {
       {collectInvoice && (
         <QboPaymentsCollectModal
           invoice={collectInvoice}
+          environment={qboStatus.data?.environment}
           onClose={() => setCollectInvoice(null)}
           onCollected={() => {
             setCollectInvoice(null);

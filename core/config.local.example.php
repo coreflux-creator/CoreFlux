@@ -62,6 +62,9 @@ define('RESEND_FROM_NAME',   'CoreFlux Notifications');
 //
 // 1) Create an app at https://developer.intuit.com/app/developer/dashboard
 //    → "Just start creating an app" → pick scope "Accounting".
+//    Add "Payments" too only when the tenant-facing card/ACH collection
+//    rail is enabled; existing tenants must reconnect after this scope is
+//    added so Intuit can collect fresh consent.
 //
 // 2) From the app's "Keys & OAuth" section, grab the **Development Keys**
 //    (for sandbox testing) or **Production Keys** (after Intuit security
@@ -88,4 +91,7 @@ define('RESEND_FROM_NAME',   'CoreFlux Notifications');
 // define('QBO_CLIENT_SECRET', 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
 // define('QBO_REDIRECT_URI',  'https://yourdomain.com/api/qbo/oauth_callback.php');
 // define('QBO_ENV',           'sandbox');  // 'sandbox' | 'production'
+// Accounting sync only (least privilege):
 // define('QBO_SCOPES',        'com.intuit.quickbooks.accounting');
+// Accounting sync + card/ACH collection:
+// define('QBO_SCOPES',        'com.intuit.quickbooks.accounting com.intuit.quickbooks.payment');

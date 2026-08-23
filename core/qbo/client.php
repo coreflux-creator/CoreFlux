@@ -449,10 +449,22 @@ function qboCall(int $tenantId, string $method, string $path, ?array $body = nul
         $resp = qboRawRequest($method, $url, $body !== null ? json_encode($body) : null, $headers);
     }
     if ($resp['status'] >= 400) {
+        // A payload validation failure (400/422), duplicate document
+        // number (409), rate limit (429), or upstream 5xx does not mean
+        // the tenant's OAuth grant is broken.  Marking the whole
+        // connection `error` for those responses made every later call
+        // fail in qboAccessToken() until the tenant re-authorised.  Only
+        // an authentication/authorisation failure after the one refresh
+        // retry is allowed to poison the connection.
+        $authFailure = in_array((int) $resp['status'], [401, 403], true);
         getDB()->prepare(
-            'UPDATE qbo_connections SET status = "error", last_probe_error = :e WHERE tenant_id = :t'
+            'UPDATE qbo_connections
+                SET status = CASE WHEN :auth_failure = 1 THEN "error" ELSE status END,
+                    last_probe_error = :e
+              WHERE tenant_id = :t'
         )->execute([
             't' => $tenantId,
+            'auth_failure' => $authFailure ? 1 : 0,
             'e' => substr('HTTP ' . $resp['status'] . ' on ' . $method . ' ' . $path, 0, 500),
         ]);
         // Charter primitive #6 — capture the raw vendor response so the

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
 
 /**
@@ -9,28 +9,19 @@ import { api } from '../../../dashboard/src/lib/api';
  *   Body: { invoice_id, amount, token, type, description? }
  *
  * Two tokenizer modes:
- *   1. **Intuit hosted tokenizer SDK** (default when the publishable key
- *      is configured): loads `https://js.intuit.com/v1/intuit-js`, calls
- *      `intuit.ipp.payments.tokenize({ card: {...} })`, exchanges the
- *      response token for a CoreFlux charge in a single submit. Raw PAN
- *      stays in Intuit-controlled DOM nodes; the page only ever holds
- *      the opaque token CoreFlux relays.
- *   2. **Paste-token fallback** (when window.__INTUIT_PAYMENTS_KEY isn't
- *      set, OR the operator opts in for dev/test): operator pastes a
+ *   1. **Direct Intuit tokenization** (default): POSTs card or bank values
+ *      from this browser to Intuit's documented, unauthenticated Payments
+ *      token endpoint, then exchanges the returned opaque token for a
+ *      CoreFlux charge. The CoreFlux server never receives the raw PAN,
+ *      routing number, or bank account number.
+ *   2. **Paste-token fallback**: operator pastes a
  *      token previously generated via Intuit's developer tools. Useful
- *      for sandbox testing before domain registration completes.
- *
- * The publishable Intuit Payments key is exposed at boot via
- * window.__INTUIT_PAYMENTS_KEY (set by index.php from env when the
- * tenant has registered their domain with Intuit). If unset, the modal
- * gracefully degrades to paste mode and surfaces a helper hint.
+ *      for sandbox testing and support diagnostics.
  */
-export default function QboPaymentsCollectModal({ invoice, onClose, onCollected }) {
-  // Tokenizer mode — default to live when the publishable key is
-  // configured, otherwise force paste fallback.
-  const publishableKey = typeof window !== 'undefined' ? window.__INTUIT_PAYMENTS_KEY : '';
-  const liveAvailable  = !!publishableKey && publishableKey.length > 0;
-  const [mode, setMode] = useState(liveAvailable ? 'live' : 'paste');
+export default function QboPaymentsCollectModal({ invoice, environment = 'sandbox', onClose, onCollected }) {
+  const paymentsEnvironment = environment === 'production' ? 'production' : 'sandbox';
+  const tokenEndpoint = `${paymentsEnvironment === 'production' ? 'https://api.intuit.com' : 'https://sandbox.api.intuit.com'}/quickbooks/v4/payments/tokens`;
+  const [mode, setMode] = useState('direct');
 
   // Form state.
   const [type, setType]         = useState('card');
@@ -54,53 +45,20 @@ export default function QboPaymentsCollectModal({ invoice, onClose, onCollected 
   const [account,    setAccount]    = useState('');
   const [bankName,   setBankName]   = useState('');
 
-  const sdkLoaded = useRef(false);
-  const [sdkReady, setSdkReady] = useState(false);
-  const [sdkError, setSdkError] = useState(null);
-
-  useEffect(() => {
-    if (mode !== 'live' || sdkLoaded.current || !liveAvailable) return;
-    sdkLoaded.current = true;
-
-    // Load Intuit Payments JS SDK once per page session.
-    const SCRIPT_URL = 'https://js.intuit.com/v1/intuit-js';
-    const existing = document.querySelector(`script[src="${SCRIPT_URL}"]`);
-    const onReady = () => {
-      try {
-        if (window.intuit?.ipp?.payments?.init) {
-          window.intuit.ipp.payments.init(publishableKey, {
-            environment: window.__INTUIT_PAYMENTS_ENV || 'sandbox',
-          });
-        }
-        setSdkReady(true);
-      } catch (e) {
-        setSdkError(e.message || 'Intuit SDK init failed.');
-      }
-    };
-    if (existing) { onReady(); return; }
-    const s = document.createElement('script');
-    s.src = SCRIPT_URL;
-    s.async = true;
-    s.onload = onReady;
-    s.onerror = () => setSdkError(
-      'Could not load Intuit Payments SDK. Switch to paste-token mode or check that the domain is registered with Intuit.'
-    );
-    document.head.appendChild(s);
-  }, [mode, liveAvailable, publishableKey]);
+  // One Request-Id per immutable payment intent. Network/HTTP retries of
+  // the same invoice+amount+type reuse it, allowing Intuit and CoreFlux to
+  // return the original charge instead of double-charging the customer.
+  const idempotencyRef = useRef({ intent: '', key: '' });
 
   if (!invoice) return null;
 
-  const tokenizeLive = () => new Promise((resolve, reject) => {
-    if (!window.intuit?.ipp?.payments?.tokenize) {
-      reject(new Error('Intuit Payments SDK not loaded.'));
-      return;
-    }
+  const tokenizeDirect = async () => {
     const payload = type === 'card'
       ? {
           card: {
             number:   cardNumber.replace(/\s+/g, ''),
-            expMonth: parseInt(expMonth, 10),
-            expYear:  parseInt(expYear,  10),
+            expMonth: expMonth.trim().padStart(2, '0'),
+            expYear:  expYear.trim(),
             cvc:      cvc.trim(),
             name:     holder.trim(),
             address:  postal ? { postalCode: postal.trim() } : undefined,
@@ -110,16 +68,30 @@ export default function QboPaymentsCollectModal({ invoice, onClose, onCollected 
           bankAccount: {
             routingNumber: routing.trim(),
             accountNumber: account.trim(),
-            name:          bankName.trim() || holder.trim() || 'Bank account',
-            accountType:   'CHECKING',
+            name:          holder.trim(),
+            bankName:      bankName.trim() || undefined,
+            accountType:   'PERSONAL_CHECKING',
           },
         };
 
-    window.intuit.ipp.payments.tokenize(payload, (resp) => {
-      if (resp?.value) resolve(resp.value);
-      else reject(new Error(resp?.errors?.[0]?.message || 'Tokenization failed.'));
+    const requestId = globalThis.crypto?.randomUUID?.()
+      || `cf-token-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const response = await fetch(tokenEndpoint, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'Request-Id': requestId,
+      },
+      body: JSON.stringify(payload),
     });
-  });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data?.value) {
+      const firstError = Array.isArray(data?.errors) ? data.errors[0] : null;
+      throw new Error(firstError?.message || `Intuit tokenization failed (HTTP ${response.status}).`);
+    }
+    return data.value;
+  };
 
   const handleSubmit = async (e) => {
     e?.preventDefault?.();
@@ -135,11 +107,17 @@ export default function QboPaymentsCollectModal({ invoice, onClose, onCollected 
     setBusy(true);
     try {
       let tok = token.trim();
-      if (mode === 'live') {
-        if (!sdkReady) throw new Error('Intuit SDK is still loading. Try again in a moment.');
-        tok = await tokenizeLive();
+      if (mode === 'direct') {
+        tok = await tokenizeDirect();
       } else if (!tok) {
         throw new Error('Paste the Intuit tokenizer token before submitting.');
+      }
+
+      const intent = `${invoice.id}:${amt.toFixed(2)}:${type}`;
+      if (idempotencyRef.current.intent !== intent) {
+        const nonce = globalThis.crypto?.randomUUID?.()
+          || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        idempotencyRef.current = { intent, key: `cf-qbo-${nonce}`.slice(0, 64) };
       }
 
       const res = await api.post('/api/admin/qbo/payments_charge.php', {
@@ -147,6 +125,7 @@ export default function QboPaymentsCollectModal({ invoice, onClose, onCollected 
         amount:     amt,
         token:      tok,
         type,
+        idempotency_key: idempotencyRef.current.key,
         description: desc.trim() || undefined,
       });
       setResult(res);
@@ -185,29 +164,22 @@ export default function QboPaymentsCollectModal({ invoice, onClose, onCollected 
           </p>
         </header>
 
-        {liveAvailable && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, fontSize: 12 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-              <input type="radio" name="qbo-mode" value="live" checked={mode === 'live'}
-                     onChange={() => setMode('live')} data-testid="qbo-payments-mode-live" />
-              Live tokenizer (Intuit SDK)
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-              <input type="radio" name="qbo-mode" value="paste" checked={mode === 'paste'}
-                     onChange={() => setMode('paste')} data-testid="qbo-payments-mode-paste" />
-              Paste token (sandbox/dev)
-            </label>
-          </div>
-        )}
-        {!liveAvailable && (
-          <div data-testid="qbo-payments-live-unavailable"
-               style={{ padding: '6px 10px', borderRadius: 4, marginBottom: 8,
-                        background: '#fef3c7', color: '#92400e', fontSize: 11 }}>
-            Live tokenizer unavailable — <code>window.__INTUIT_PAYMENTS_KEY</code> is not set. Set the env
-            <code> INTUIT_PAYMENTS_PUBLISHABLE_KEY</code> after registering this pod&apos;s domain with Intuit
-            to enable card collection here. Paste-token mode remains available for sandbox.
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, fontSize: 12 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input type="radio" name="qbo-mode" value="direct" checked={mode === 'direct'}
+                   onChange={() => setMode('direct')} data-testid="qbo-payments-mode-direct" />
+            Direct tokenization (Intuit)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input type="radio" name="qbo-mode" value="paste" checked={mode === 'paste'}
+                   onChange={() => setMode('paste')} data-testid="qbo-payments-mode-paste" />
+            Paste token (sandbox/support)
+          </label>
+        </div>
+        <div data-testid="qbo-payments-token-environment"
+             style={{ marginBottom: 10, fontSize: 11, color: '#6b7280' }}>
+          Tokenizing against Intuit <strong>{paymentsEnvironment}</strong>.
+        </div>
 
         <form onSubmit={handleSubmit}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -225,7 +197,7 @@ export default function QboPaymentsCollectModal({ invoice, onClose, onCollected 
                    data-testid="qbo-payments-description" style={inputStyle} maxLength={120} />
           </Field>
 
-          {mode === 'live' && type === 'card' && (
+          {mode === 'direct' && type === 'card' && (
             <div data-testid="qbo-payments-live-card-fields">
               <Field label="Cardholder name">
                 <input value={holder} onChange={(e) => setHolder(e.target.value)} data-testid="qbo-payments-card-holder" required style={inputStyle} />
@@ -245,7 +217,7 @@ export default function QboPaymentsCollectModal({ invoice, onClose, onCollected 
               </Field>
             </div>
           )}
-          {mode === 'live' && type === 'echeck' && (
+          {mode === 'direct' && type === 'echeck' && (
             <div data-testid="qbo-payments-live-echeck-fields">
               <Field label="Account holder name">
                 <input value={holder} onChange={(e) => setHolder(e.target.value)} data-testid="qbo-payments-echeck-holder" required style={inputStyle} />
@@ -280,7 +252,6 @@ export default function QboPaymentsCollectModal({ invoice, onClose, onCollected 
             </Field>
           )}
 
-          {sdkError && <div data-testid="qbo-payments-sdk-error" style={errorStyle}>{sdkError}</div>}
           {error && <div data-testid="qbo-payments-error" style={errorStyle}>{error}</div>}
           {result?.charge && (
             <div data-testid="qbo-payments-result" style={resultStyle(result.charge.status)}>
@@ -294,17 +265,12 @@ export default function QboPaymentsCollectModal({ invoice, onClose, onCollected 
           <footer style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
             <button type="button" onClick={onClose} data-testid="qbo-payments-cancel" style={btnGhost}>Close</button>
             <button type="submit"
-                    disabled={busy || (mode === 'live' && !sdkReady)}
+                    disabled={busy}
                     data-testid="qbo-payments-submit"
-                    style={{ ...btnPrimary, opacity: (busy || (mode === 'live' && !sdkReady)) ? 0.6 : 1 }}>
+                    style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
               {busy ? 'Charging…' : `Charge $${Number(amount || 0).toFixed(2)}`}
             </button>
           </footer>
-          {mode === 'live' && !sdkReady && !sdkError && (
-            <p data-testid="qbo-payments-sdk-loading" style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
-              Loading Intuit Payments SDK…
-            </p>
-          )}
         </form>
       </div>
     </div>
