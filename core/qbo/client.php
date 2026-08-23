@@ -609,6 +609,34 @@ function qboSyncConfigWrite(int $tenantId, array $config, ?int $userId): array
 // OAuth state consumption — single-use, time-bound (30 min)
 // ---------------------------------------------------------------------
 
+/**
+ * Resolve the tenant and initiating user from an unexpired OAuth state.
+ *
+ * OAuth callbacks must not depend on a browser session cookie: modern
+ * browsers can partition or omit that cookie on a cross-site redirect. The
+ * random, single-use state nonce is the callback's authenticated context.
+ */
+function qboOAuthStateContext(string $state): ?array
+{
+    if ($state === '') return null;
+    $stmt = getDB()->prepare(
+        'SELECT tenant_id, initiator_user_id, consumed_at, created_at
+           FROM qbo_oauth_state
+          WHERE state_token = :s LIMIT 1'
+    );
+    $stmt->execute(['s' => $state]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$row || $row['consumed_at'] !== null) return null;
+    $age = time() - strtotime((string) $row['created_at']);
+    if ($age < 0 || $age > 1800) return null;
+    return [
+        'tenant_id' => (int) $row['tenant_id'],
+        'initiator_user_id' => $row['initiator_user_id'] !== null
+            ? (int) $row['initiator_user_id']
+            : null,
+    ];
+}
+
 function qboConsumeOAuthState(int $tenantId, string $state): bool
 {
     if ($state === '') return false;

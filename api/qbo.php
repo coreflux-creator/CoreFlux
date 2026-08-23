@@ -56,25 +56,29 @@ if ($action === '') {
 $action = str_replace('-', '_', strtolower($action));
 
 // ---------------------------------------------------------------------
-// OAuth callback runs BEFORE the standard auth guard because Intuit
-// redirects the browser here with no CoreFlux session header. We re-use
-// the SPA session cookie (PHPSESSID) that was minted before the redirect,
-// then verify the state nonce.
+// OAuth callback runs BEFORE the standard auth guard because Intuit redirects
+// the browser here from another site. Resolve the tenant + initiating user
+// from the unguessable, single-use state nonce rather than depending on a
+// session cookie surviving that cross-site redirect.
 // ---------------------------------------------------------------------
 if ($action === 'oauth_callback') {
     if ($method !== 'GET') api_error('Method not allowed', 405);
-    $ctx = api_require_auth();
-    $user = $ctx['user'];
-    $tid  = (int) $ctx['tenant_id'];
-
     $code     = (string) (api_query('code')    ?? '');
     $realm    = (string) (api_query('realmId') ?? '');
     $state    = (string) (api_query('state')   ?? '');
     $errParam = (string) (api_query('error')   ?? '');
 
+    $stateCtx = qboOAuthStateContext($state);
+    if ($stateCtx === null) {
+        api_error('Invalid or expired OAuth state. Click "Connect to QuickBooks" again.', 400);
+    }
+    $tid = (int) $stateCtx['tenant_id'];
+    $actorUserId = $stateCtx['initiator_user_id'] ?? null;
+
     if ($errParam !== '') {
+        qboConsumeOAuthState($tid, $state);
         qboAudit($tid, 'oauth_error', [
-            'ok' => false, 'actor_user_id' => $user['id'] ?? null,
+            'ok' => false, 'actor_user_id' => $actorUserId,
             'detail' => ['error' => $errParam],
         ]);
         // Redirect back to settings page with the error in a hash fragment.
@@ -86,13 +90,13 @@ if ($action === 'oauth_callback') {
     }
     if (!qboConsumeOAuthState($tid, $state)) {
         qboAudit($tid, 'oauth_state_rejected', [
-            'ok' => false, 'actor_user_id' => $user['id'] ?? null,
+            'ok' => false, 'actor_user_id' => $actorUserId,
             'detail' => ['state' => substr($state, 0, 8) . '…'],
         ]);
         api_error('Invalid or expired OAuth state. Click "Connect to QuickBooks" again.', 400);
     }
     try {
-        $res = qboExchangeCode($tid, $code, $realm, $user['id'] ?? null);
+        $res = qboExchangeCode($tid, $code, $realm, $actorUserId);
     } catch (\Throwable $e) {
         api_error('QBO token exchange failed: ' . $e->getMessage(), 502);
     }

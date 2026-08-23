@@ -81,6 +81,8 @@ foreach (['status', 'oauth_start', 'oauth_callback', 'disconnect', 'ping', 'sync
     $a("handles action: $act",                   $c($api, "case '$act'") || $c($api, "\$action === '$act'"));
 }
 $a('oauth_callback consumes state nonce',        $c($api, 'qboConsumeOAuthState'));
+$a('oauth_callback resolves context from state', $c($api, 'qboOAuthStateContext'));
+$a('client exposes state callback context',      $c($cli, 'function qboOAuthStateContext'));
 $a('oauth_callback exchanges code',              $c($api, 'qboExchangeCode'));
 $a('requires integrations.qbo.view for status',  $c($api, "rbac_legacy_require(\$user, 'integrations.qbo.view')"));
 $a('requires integrations.qbo.manage for write', $c($api, "rbac_legacy_require(\$user, 'integrations.qbo.manage')"));
