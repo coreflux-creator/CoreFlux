@@ -120,6 +120,7 @@ $a('connected branch testid',                    $c($ui, 'data-testid="qbo-conne
 $a('not-connected branch testid',                $c($ui, 'data-testid="qbo-not-connected"'));
 $a('not-configured branch testid',               $c($ui, 'data-testid="qbo-not-configured"'));
 $a('runtime refresh recovery testid',             $c($ui, 'data-testid="qbo-refresh-runtime-btn"'));
+$a('connected runtime refresh recovery testid',   $c($ui, 'data-testid="qbo-refresh-runtime-connected-btn"'));
 $a('sync config table testid',                   $c($ui, 'data-testid="qbo-sync-config-table"'));
 $a('per-entity direction picker testid',         $c($ui, 'data-testid={`qbo-sync-dir-${entity}`}'));
 $a('save config button testid',                  $c($ui, 'data-testid="qbo-sync-config-save"'));

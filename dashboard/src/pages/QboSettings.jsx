@@ -322,15 +322,26 @@ export default function QboSettings() {
             QuickBooks, sign in, pick the company, and consent to the requested scopes — then
             Intuit returns you here with the connection live.
           </p>
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={handleConnect}
-            disabled={busy}
-            data-testid="qbo-connect-btn"
-          >
-            {busy ? 'Redirecting…' : 'Connect to QuickBooks'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={handleConnect}
+              disabled={busy}
+              data-testid="qbo-connect-btn"
+            >
+              {busy ? 'Working…' : 'Connect to QuickBooks'}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={handleRefreshRuntime}
+              disabled={busy}
+              data-testid="qbo-refresh-runtime-connected-btn"
+            >
+              <RefreshCw size={14} style={{ marginRight: 6 }} />Refresh server configuration
+            </button>
+          </div>
         </div>
       )}
 
