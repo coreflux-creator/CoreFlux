@@ -253,7 +253,7 @@ export default function QboSettings() {
         <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>QuickBooks Online — Connection</h3>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--cf-text-secondary)' }}>
           Connect your tenant's Intuit QuickBooks Online company via OAuth 2.0. CoreFlux stores the
-          access + refresh tokens AES-256-GCM encrypted and auto-refreshes them before expiry.
+          refresh tokens AES-256-GCM encrypted at rest and access tokens in encrypted volatile memory only.
           {data.environment && (
             <> Environment: <code data-testid="qbo-environment">{data.environment}</code>.</>
           )}

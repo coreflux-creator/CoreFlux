@@ -4,7 +4,8 @@
  *
  * OAuth 2.0 against Intuit AppCenter. Per-tenant connection — each tenant
  * connects their own Intuit company; CoreFlux never holds a partner-level
- * token. Tokens are AES-256-GCM encrypted at rest.
+ * token. Refresh tokens are AES-256-GCM encrypted at rest; short-lived
+ * access tokens are kept only in an encrypted volatile cache.
  *
  * Endpoints (per https://developer.intuit.com/app/developer/qbo/docs):
  *   Authorize:    https://appcenter.intuit.com/connect/oauth2
@@ -121,6 +122,55 @@ function qboEnvironment(): string
 function qboApiBase(): string
 {
     return qboEnvironment() === 'production' ? QBO_API_BASE_PRODUCTION : QBO_API_BASE_SANDBOX;
+}
+
+function qboAccessTokenCacheKey(int $tenantId): string
+{
+    return 'coreflux:qbo:access:' . qboEnvironment() . ':' . $tenantId;
+}
+
+/** Keep an access token in encrypted volatile storage only. */
+function qboRememberAccessToken(int $tenantId, string $accessToken, int $expiresIn): void
+{
+    if ($accessToken === '') return;
+    $ttl = max(1, $expiresIn - QBO_TOKEN_SLACK_SEC);
+    $entry = [
+        'ciphertext' => encryptField($accessToken),
+        'expires_at' => time() + $ttl,
+    ];
+    $GLOBALS['__qbo_access_token_cache'][$tenantId] = $entry;
+    if (function_exists('apcu_store')) {
+        @apcu_store(qboAccessTokenCacheKey($tenantId), $entry, $ttl);
+    }
+}
+
+function qboRecallAccessToken(int $tenantId): ?string
+{
+    $entry = $GLOBALS['__qbo_access_token_cache'][$tenantId] ?? null;
+    if (!is_array($entry) && function_exists('apcu_fetch')) {
+        $found = false;
+        $cached = @apcu_fetch(qboAccessTokenCacheKey($tenantId), $found);
+        if ($found && is_array($cached)) $entry = $cached;
+    }
+    if (!is_array($entry) || (int) ($entry['expires_at'] ?? 0) <= time()) {
+        qboForgetAccessToken($tenantId);
+        return null;
+    }
+    try {
+        $token = decryptField((string) ($entry['ciphertext'] ?? ''));
+        return $token !== '' ? $token : null;
+    } catch (\Throwable $_) {
+        qboForgetAccessToken($tenantId);
+        return null;
+    }
+}
+
+function qboForgetAccessToken(int $tenantId): void
+{
+    unset($GLOBALS['__qbo_access_token_cache'][$tenantId]);
+    if (function_exists('apcu_delete')) {
+        @apcu_delete(qboAccessTokenCacheKey($tenantId));
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -284,7 +334,7 @@ function qboExchangeCode(int $tenantId, string $code, string $realmId, ?int $use
         )->execute([
             'rid' => $realmId,
             'env' => $env,
-            'at'  => encryptField($accessToken),
+            'at'  => '',
             'rt'  => encryptField($refreshToken),
             'ae'  => $accessExp,
             're'  => $refreshExp,
@@ -305,7 +355,7 @@ function qboExchangeCode(int $tenantId, string $code, string $realmId, ?int $use
             't'   => $tenantId,
             'rid' => $realmId,
             'env' => $env,
-            'at'  => encryptField($accessToken),
+            'at'  => '',
             'rt'  => encryptField($refreshToken),
             'ae'  => $accessExp,
             're'  => $refreshExp,
@@ -314,6 +364,8 @@ function qboExchangeCode(int $tenantId, string $code, string $realmId, ?int $use
         ]);
         $id = (int) $pdo->lastInsertId();
     }
+
+    qboRememberAccessToken($tenantId, $accessToken, $expiresIn);
 
     // Probe /companyinfo to capture the QBO company display name. Failure
     // is non-fatal — the tokens are saved, we just don't have a friendly
@@ -363,6 +415,7 @@ function qboDisconnect(int $tenantId, ?int $userId): void
     getDB()->prepare(
         'UPDATE qbo_connections SET status = "revoked" WHERE tenant_id = :t'
     )->execute(['t' => $tenantId]);
+    qboForgetAccessToken($tenantId);
     qboAudit($tenantId, 'disconnect', ['actor_user_id' => $userId]);
 }
 
@@ -378,11 +431,8 @@ function qboAccessToken(int $tenantId): string
         throw new \RuntimeException('QuickBooks is not connected for this tenant');
     }
 
-    $exp = $row['access_token_exp'] ? strtotime((string) $row['access_token_exp']) : 0;
-    if ($exp && $exp > (time() + QBO_TOKEN_SLACK_SEC)) {
-        $tok = decryptField((string) $row['access_token_ct']);
-        if ($tok) return $tok;
-    }
+    $tok = qboRecallAccessToken($tenantId);
+    if ($tok !== null) return $tok;
     return qboRefreshAccessToken($tenantId);
 }
 
@@ -419,12 +469,13 @@ function qboRefreshAccessToken(int $tenantId): string
                 status = "active", last_probe_error = NULL
           WHERE tenant_id = :t'
     )->execute([
-        'at' => encryptField($accessToken),
+        'at' => '',
         'rt' => encryptField($newRefresh),
         'ae' => date('Y-m-d H:i:s', time() + $expiresIn),
         're' => date('Y-m-d H:i:s', time() + $refreshExpIn),
         't'  => $tenantId,
     ]);
+    qboRememberAccessToken($tenantId, $accessToken, $expiresIn);
     qboAudit($tenantId, 'refresh_token', ['detail' => ['expires_in' => $expiresIn]]);
     return $accessToken;
 }

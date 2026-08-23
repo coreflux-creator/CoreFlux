@@ -32,6 +32,9 @@ $a('declares qbo_oauth_state',                   $c($mig, 'CREATE TABLE IF NOT E
 $a('declares qbo_sync_audit',                    $c($mig, 'CREATE TABLE IF NOT EXISTS qbo_sync_audit'));
 $a('unique tenant on connections',               $c($mig, 'UNIQUE KEY uq_qbo_tenant (tenant_id)'));
 $a('AES-256-GCM token columns',                  $c($mig, 'access_token_ct') && $c($mig, 'refresh_token_ct'));
+$volatileMig = (string) @file_get_contents($ROOT . '/core/migrations/130_qbo_volatile_access_tokens.sql');
+$a('volatile-token migration clears persisted access tokens',
+    $c($volatileMig, "SET access_token_ct = ''") && $c($volatileMig, 'OCTET_LENGTH(access_token_ct) > 0'));
 $a('environment column sandbox/production',      $c($mig, "ENUM('sandbox','production')"));
 $a('state nonce unique key',                     $c($mig, 'UNIQUE KEY uq_qbo_state'));
 $a('sync_config JSON column',                    $c($mig, 'sync_config         JSON NULL'));
@@ -61,6 +64,11 @@ foreach ([
     $a("declares $fn()",                         $c($cli, "function $fn"));
 }
 $a('uses encryptField for tokens',               substr_count($cli, 'encryptField(') >= 4);
+$a('access tokens use encrypted volatile cache only',
+    $c($cli, 'function qboRememberAccessToken')
+    && $c($cli, "'ciphertext' => encryptField(\$accessToken)")
+    && substr_count($cli, "'at'  => ''") >= 2
+    && $c($cli, "'at' => ''"));
 $a('refresh url is intuit token bearer',         $c($cli, 'oauth.platform.intuit.com/oauth2/v1/tokens/bearer'));
 $a('authorize url is appcenter',                 $c($cli, 'appcenter.intuit.com/connect/oauth2'));
 $a('sandbox + production bases declared',        $c($cli, 'sandbox-quickbooks.api.intuit.com') && $c($cli, 'quickbooks.api.intuit.com'));
