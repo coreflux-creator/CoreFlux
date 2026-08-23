@@ -34,15 +34,12 @@ export default function QboSettings() {
   const config     = draft ?? data.sync_config ?? {};
   const dirty      = draft !== null && JSON.stringify(draft) !== JSON.stringify(data.sync_config || {});
 
-  const handleConnect = async () => {
+  const handleConnect = () => {
     setBusy(true); setFlash(null);
-    try {
-      const r = await api.get('/api/qbo/oauth_start.php?action=oauth_start');
-      window.location.href = r.authorize_url;
-    } catch (e) {
-      setFlash({ kind: 'error', msg: e.message || String(e) });
-      setBusy(false);
-    }
+    // Use a top-level, same-origin handoff so PHP receives the browser
+    // session cookie before redirecting to Intuit. A background fetch can
+    // lose authentication in browsers with strict extension/privacy rules.
+    window.location.assign('/qbo-connect.php');
   };
 
   const handleRefreshRuntime = async () => {

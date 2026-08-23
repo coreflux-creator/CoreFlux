@@ -128,7 +128,7 @@ $a('connected runtime refresh recovery testid',   $c($ui, 'data-testid="qbo-refr
 $a('sync config table testid',                   $c($ui, 'data-testid="qbo-sync-config-table"'));
 $a('per-entity direction picker testid',         $c($ui, 'data-testid={`qbo-sync-dir-${entity}`}'));
 $a('save config button testid',                  $c($ui, 'data-testid="qbo-sync-config-save"'));
-$a('uses /api/qbo/oauth_start',                  $c($ui, '/api/qbo/oauth_start.php'));
+$a('uses authenticated top-level OAuth handoff', $c($ui, "window.location.assign('/qbo-connect.php')"));
 $a('uses /api/qbo/disconnect',                   $c($ui, '/api/qbo/disconnect.php'));
 $a('uses /api/qbo/ping',                         $c($ui, '/api/qbo/ping.php'));
 $a('uses protected OPcache recovery endpoint',   $c($ui, '/api/admin/opcache_flush.php'));
