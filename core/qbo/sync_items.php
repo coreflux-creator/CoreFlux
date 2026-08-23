@@ -28,6 +28,7 @@ function qboSyncItems(int $tenantId, ?int $userId, array $opts = []): array
     $start = microtime(true);
     $limit    = max(1, min(5000, (int) ($opts['limit'] ?? 1000)));
     $maxPages = max(1, min(50,   (int) ($opts['max_pages'] ?? 10)));
+    $since    = trim((string) ($opts['modified_since'] ?? ''));
 
     $conn = qboConnection($tenantId);
     if (!$conn || $conn['status'] !== 'active') {
@@ -42,7 +43,10 @@ function qboSyncItems(int $tenantId, ?int $userId, array $opts = []): array
     while ($pulled < $limit && $pages < $maxPages) {
         $pages++;
         $pageSize = min(100, $limit - $pulled);
-        $query = sprintf('SELECT * FROM Item STARTPOSITION %d MAXRESULTS %d', $startPos, $pageSize);
+        $where = $since !== ''
+            ? " WHERE MetaData.LastUpdatedTime >= '" . addslashes($since) . "'"
+            : '';
+        $query = sprintf('SELECT * FROM Item%s STARTPOSITION %d MAXRESULTS %d', $where, $startPos, $pageSize);
         $resp = qboCall($tenantId, 'GET', '/v3/company/' . $realm . '/query', null, [
             'query'        => $query,
             'minorversion' => 65,
@@ -69,13 +73,14 @@ function qboSyncItems(int $tenantId, ?int $userId, array $opts = []): array
         'entity_type' => 'item', 'direction' => 'pull', 'ok' => true,
         'actor_user_id' => $userId,
         'items_processed' => $newlyMapped, 'items_skipped' => $unchanged,
-        'detail' => ['pulled' => $pulled, 'pages' => $pages, 'services' => $services, 'other' => $other, 'latency_ms' => $latency],
+        'detail' => ['pulled' => $pulled, 'pages' => $pages, 'services' => $services, 'other' => $other, 'latency_ms' => $latency, 'modified_since' => $since],
     ]);
     return [
         'pulled' => $pulled, 'pages' => $pages,
         'newly_mapped' => $newlyMapped, 'unchanged' => $unchanged,
         'services' => $services, 'other' => $other,
         'latency_ms' => $latency,
+        'modified_since' => $since,
     ];
 }
 

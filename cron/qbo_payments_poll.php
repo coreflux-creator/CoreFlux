@@ -15,10 +15,9 @@
  * to advance `status`, `settled_at`, `error_*` fields.  A transition to
  * CAPTURED also creates and allocates the CoreFlux billing payment.
  *
- * Schedule: hourly is more than enough; settlement deltas update with
- * 24h granularity from Intuit's side.
+ * Schedule: every 15 minutes, aligned with the other QBO workflows.
  *
- *   0 * * * * php /home/master/applications/<app>/public_html/cron/qbo_payments_poll.php
+ *   11,26,41,56 * * * * php /home/master/applications/<app>/public_html/cron/qbo_payments_poll.php
  */
 declare(strict_types=1);
 

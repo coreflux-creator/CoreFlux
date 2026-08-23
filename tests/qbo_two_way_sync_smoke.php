@@ -19,6 +19,7 @@
  */
 declare(strict_types=1);
 
+$root = dirname(__DIR__);
 $passes = 0; $failures = [];
 function check(string $label, bool $cond) {
     global $passes, $failures;
@@ -31,7 +32,7 @@ echo "====================================\n\n";
 
 // ─────── 1. Migration ───────
 echo "── migration 114 ──\n";
-$migPath = '/app/core/migrations/114_qbo_two_way_sync.sql';
+$migPath = $root . '/core/migrations/114_qbo_two_way_sync.sql';
 check('migration file exists', file_exists($migPath));
 $mig = (string) file_get_contents($migPath);
 foreach (['qbo_inbound_invoices', 'qbo_inbound_payments', 'qbo_inbound_deposits',
@@ -51,7 +52,7 @@ check('Deposit shadow has fee_cents (processor-fee netting)',
 
 // ─────── 2. Module shape ───────
 echo "\n── core/qbo/sync_in_arap.php ──\n";
-$srcPath = '/app/core/qbo/sync_in_arap.php';
+$srcPath = $root . '/core/qbo/sync_in_arap.php';
 check('module exists', file_exists($srcPath));
 require_once $srcPath;
 foreach (['qboPullInvoices','qboPullPayments','qboPullDeposits',
@@ -81,23 +82,28 @@ check('voided_in_qbo has severity=critical', preg_match("/'voided_in_qbo'.*?'cri
 
 // ─────── 4. Cron ───────
 echo "\n── cron/qbo_two_way_sync.php ──\n";
-$cronPath = '/app/cron/qbo_two_way_sync.php';
+$cronPath = $root . '/cron/qbo_two_way_sync.php';
 check('cron exists', file_exists($cronPath));
 $cron = (string) file_get_contents($cronPath);
 check('cron imports sync_in_arap.php',           str_contains($cron, "sync_in_arap.php"));
 check('cron loops active qbo_connections',
     preg_match("/FROM qbo_connections\\s+WHERE status\\s*=\\s*'active'/s", $cron) === 1);
-check('cron creates tenant_qbo_two_way_state table',
-    str_contains($cron, 'CREATE TABLE IF NOT EXISTS tenant_qbo_two_way_state'));
-check('cron calls all 5 pull functions in order',
-    str_contains($cron, "['qboPullInvoices', 'qboPullPayments', 'qboPullDeposits',\n              'qboPullBills',    'qboPullBillPayments']"));
-check('cron advances since-cursor with 5-min overlap window',
-    preg_match("/strtotime\\(\\\$since\\) - 300/", $cron) === 1);
+check('cron uses shared per-workflow checkpoints',
+    str_contains($cron, 'sync_schedule.php') && str_contains($cron, 'qboSyncScheduleSince'));
+check('cron calls all 5 pull functions',
+    str_contains($cron, 'qboPullInvoices') && str_contains($cron, 'qboPullPayments')
+    && str_contains($cron, 'qboPullDeposits') && str_contains($cron, 'qboPullBills')
+    && str_contains($cron, 'qboPullBillPayments'));
+check('cron gates transaction pulls on pull/two_way direction',
+    str_contains($cron, "['pull', 'two_way']"));
+$schedule = (string) file_get_contents($root . '/core/qbo/sync_schedule.php');
+check('checkpoint helper overlaps cursor by five minutes',
+    str_contains($schedule, 'overlapSeconds = 300'));
 check('cron emits summary line',                 str_contains($cron, 'qbo_two_way_sync done:'));
 
 // ─────── 5. Admin endpoint ───────
 echo "\n── /api/admin/qbo/sync_drift.php ──\n";
-$epPath = '/app/api/admin/qbo/sync_drift.php';
+$epPath = $root . '/api/admin/qbo/sync_drift.php';
 check('endpoint exists', file_exists($epPath));
 $ep = (string) file_get_contents($epPath);
 check('endpoint calls api_require_auth',         str_contains($ep, 'api_require_auth()'));
@@ -112,7 +118,15 @@ check('POST scopes UPDATE by tenant_id',         str_contains($ep, 'AND tenant_i
 
 // ─────── 6. Live shape exercise (SQLite mirror) ───────
 echo "\n── live behaviour ──\n";
-require_once '/app/core/qbo/client.php';
+require_once $root . '/core/qbo/client.php';
+if (!in_array('sqlite', \PDO::getAvailableDrivers(), true)) {
+    echo "  ↷ skipped: pdo_sqlite is not installed in this PHP runtime\n";
+    echo "\n=========================================\n";
+    echo "qbo_two_way_sync smoke: {$passes} ✓ / " . count($failures) . " ✗ (live exercise skipped)\n";
+    echo "=========================================\n";
+    foreach ($failures as $msg) echo "  FAIL: {$msg}\n";
+    exit($failures ? 1 : 0);
+}
 
 $GLOBALS['pdo'] = new \PDO('sqlite::memory:');
 $GLOBALS['pdo']->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);

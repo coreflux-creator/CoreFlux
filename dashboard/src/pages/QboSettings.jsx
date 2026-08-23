@@ -16,6 +16,7 @@ export default function QboSettings() {
   const status = useApi('/api/qbo/status.php?action=status');
   const skipped = useApi('/api/qbo/skipped_jes.php?action=skipped_jes');
   const [busy, setBusy] = useState(false);
+  const [syncingEntity, setSyncingEntity] = useState(null);
   const [flash, setFlash] = useState(parseFlashFromUrl());
   const [draft, setDraft] = useState(null); // editable sync_config
   // Live result of the most recent CoA pull — drives the unmapped-
@@ -98,6 +99,44 @@ export default function QboSettings() {
       setFlash({ kind: 'error', msg: e.message || String(e) });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleSyncNow = async (entity) => {
+    setBusy(true); setSyncingEntity(entity); setFlash(null);
+    try {
+      const r = await api.post('/api/qbo/sync_now.php?action=sync_now', {
+        entity,
+        push_limit: 50,
+        pull_limit: 2000,
+        max_pages: 20,
+      });
+      const s = r.summary || {};
+      const parts = [];
+      for (const [key, label] of [
+        ['pulled', 'pulled'], ['pushed', 'pushed'], ['created', 'created'],
+        ['updated', 'updated'], ['matched', 'matched'], ['unchanged', 'unchanged'],
+        ['skipped', 'skipped'], ['drift_rows_written', 'drift flagged'], ['failed', 'failed'],
+      ]) {
+        if (Number(s[key] || 0) > 0) parts.push(`${s[key]} ${label}`);
+      }
+      if (parts.length === 0) parts.push('nothing new');
+      setFlash({
+        kind: r.ok === false ? 'error' : 'success',
+        msg: `${ENTITY_LABELS[entity] || entity} sync complete: ${parts.join(' · ')} (${r.latency_ms}ms)`,
+      });
+      const coa = r.runs?.pull_chart_of_accounts;
+      if (coa) {
+        setCoaPullResult(coa);
+        setAccountRowAction({});
+        cfAccounts.reload();
+      }
+      status.reload();
+      skipped.reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false); setSyncingEntity(null);
     }
   };
 
@@ -414,6 +453,8 @@ export default function QboSettings() {
             onReset={() => setDraft(null)}
             dirty={dirty}
             busy={busy}
+            syncingEntity={syncingEntity}
+            onSyncNow={handleSyncNow}
           />
 
           {/* Manual sync triggers — buttons appear per-entity based on
@@ -422,16 +463,16 @@ export default function QboSettings() {
           <ManualSyncCard
             config={data.sync_config || {}}
             busy={busy}
-            onPushJe={() => handleSyncJe(false)}
+            onPushJe={() => handleSyncNow('journal_entries')}
             onDryRunJe={() => handleSyncJe(true)}
-            onPullCustomers={() => handlePullMaster('customers')}
-            onPullVendors={() => handlePullMaster('vendors')}
-            onPullAccounts={() => handlePullMaster('accounts')}
+            onPullCustomers={() => handleSyncNow('customers')}
+            onPullVendors={() => handleSyncNow('vendors')}
+            onPullAccounts={() => handleSyncNow('chart_of_accounts')}
             onPullAccountsAndImport={() => handlePullMaster('accounts', { import_unmapped: true })}
             onPullItems={() => handleGenericSync('sync_items', 'Items', false)}
-            onPushBills={() => handleGenericSync('sync_bills', 'Bills', false)}
-            onPushInvoices={() => handleGenericSync('sync_invoices', 'Invoices', false)}
-            onPushPayments={() => handleGenericSync('sync_payments', 'Payments', false)}
+            onPushBills={() => handleSyncNow('bills')}
+            onPushInvoices={() => handleSyncNow('invoices')}
+            onPushPayments={() => handleSyncNow('payments')}
           />
 
           {/* Unmapped QBO accounts inbox — Jaz-parity surface. Lets the
@@ -478,7 +519,17 @@ const ENTITY_LABELS = {
   chart_of_accounts: 'Chart of Accounts',
 };
 
-function SyncConfigCard({ entities, config, onChange, onSave, onReset, dirty, busy }) {
+const SYNC_NOW_CAPABILITIES = {
+  journal_entries:   ['push', 'two_way'],
+  customers:         ['pull', 'two_way'],
+  vendors:           ['pull', 'two_way'],
+  invoices:          ['push', 'pull', 'two_way'],
+  bills:             ['push', 'pull', 'two_way'],
+  payments:          ['push', 'pull', 'two_way'],
+  chart_of_accounts: ['pull', 'two_way'],
+};
+
+function SyncConfigCard({ entities, config, onChange, onSave, onReset, dirty, busy, syncingEntity, onSyncNow }) {
   return (
     <div
       data-testid="qbo-sync-config"
@@ -499,6 +550,7 @@ function SyncConfigCard({ entities, config, onChange, onSave, onReset, dirty, bu
             <th style={{ padding: '6px 4px' }}>Entity</th>
             <th style={{ padding: '6px 4px' }}>Direction</th>
             <th style={{ padding: '6px 4px' }}>Behaviour</th>
+            <th style={{ padding: '6px 4px', textAlign: 'right' }}>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -506,6 +558,15 @@ function SyncConfigCard({ entities, config, onChange, onSave, onReset, dirty, bu
             const dir = config[entity] || 'off';
             const meta = DIR_META[dir] || DIR_META.off;
             const Icon = meta.icon;
+            const supported = (SYNC_NOW_CAPABILITIES[entity] || []).includes(dir);
+            const syncDisabled = busy || dirty || dir === 'off' || !supported;
+            const syncTitle = dirty
+              ? 'Save this direction before syncing.'
+              : dir === 'off'
+                ? 'Choose a direction and save it before syncing.'
+                : !supported
+                  ? `No QuickBooks ${dir.replace('_', '-')} worker exists for this workflow.`
+                  : `Run the ${meta.label.toLowerCase()} workflow immediately.`;
             return (
               <tr key={entity} data-testid={`qbo-sync-row-${entity}`} style={{ borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
                 <td style={{ padding: '8px 4px', fontWeight: 500 }}>{ENTITY_LABELS[entity] || entity}</td>
@@ -524,6 +585,20 @@ function SyncConfigCard({ entities, config, onChange, onSave, onReset, dirty, bu
                 <td style={{ padding: '8px 4px', color: 'var(--cf-text-secondary)' }}>
                   <Icon size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
                   {meta.blurb}
+                </td>
+                <td style={{ padding: '8px 4px', textAlign: 'right' }}>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => onSyncNow(entity)}
+                    disabled={syncDisabled}
+                    title={syncTitle}
+                    data-testid={`qbo-sync-now-${entity}`}
+                    style={{ fontSize: 12, padding: '3px 10px', whiteSpace: 'nowrap' }}
+                  >
+                    <RefreshCw size={11} style={{ marginRight: 4 }} />
+                    {syncingEntity === entity ? 'Syncing…' : 'Sync now'}
+                  </button>
                 </td>
               </tr>
             );
@@ -589,10 +664,10 @@ function ManualSyncCard({ config, busy, onPushJe, onDryRunJe, onPullCustomers, o
       style={{ marginTop: 24, padding: 16, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8 }}
     >
       <header style={{ marginBottom: 12 }}>
-        <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Manual sync</h4>
+        <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Additional sync tools</h4>
         <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
-          QBO sync runs on a schedule (outbound every 15 minutes; inbound nightly).
-          Use these buttons to push or pull immediately.
+          Enabled workflows run every 15 minutes and can be started from their <strong>Sync now</strong>
+          button above. These shortcuts provide direction-specific actions and previews.
         </p>
       </header>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

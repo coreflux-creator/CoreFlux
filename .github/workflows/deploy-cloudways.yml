@@ -58,7 +58,7 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/opcache_flush.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,api/webhooks/qbo.php,assets/css/legal.css,core/config.local.example.php,core/encryption.php,core/migrations/129_qbo_payments_idempotency.sql,core/migrations/130_qbo_volatile_access_tokens.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,privacy.html,qbo-connect.php,qbo-oauth-callback.php,quickbooks-connect.html,quickbooks-disconnect.html,scripts/configure_qbo.php,scripts/encryption_key_inventory.php,scripts/opcache_flush_deploy.php.template,scripts/qbo_sandbox_payment_smoke.php,scripts/recover_data_key.php,scripts/validate_data_key.php,spa-assets/index-BC5g6YJu.css,spa-assets/index-Bd7IXaN3.css,spa-assets/index-DFz7J81-.js,spa-assets/index-CzcA_UTr.js,spa-assets/index.html,spa-assets/sw.js,spa.php,terms.html,tests/data_key_recovery_smoke.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_go_live_assets_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php,tests/qbo_recaptcha_smoke.php,tests/qbo_sandbox_payment_smoke_guard_smoke.php"
+          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/accounting_sync_reconcile.php,api/admin/integration_triage.php,api/admin/opcache_flush.php,api/admin/qbo/payments_charge.php,api/qbo,api/qbo.php,api/webhooks/qbo.php,assets/css/legal.css,core/config.local.example.php,core/encryption.php,core/migrations/129_qbo_payments_idempotency.sql,core/migrations/130_qbo_volatile_access_tokens.sql,core/qbo,cron/qbo_health_alerts.php,cron/qbo_payments_poll.php,cron/qbo_sync_inbound.php,cron/qbo_sync_outbound.php,cron/qbo_token_refresh.php,cron/qbo_two_way_sync.php,dashboard/dist,dashboard/src/pages/AccountingSyncDashboard.jsx,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,privacy.html,qbo-connect.php,qbo-oauth-callback.php,quickbooks-connect.html,quickbooks-disconnect.html,scripts/configure_qbo.php,scripts/encryption_key_inventory.php,scripts/opcache_flush_deploy.php.template,scripts/qbo_sandbox_payment_smoke.php,scripts/recover_data_key.php,scripts/validate_data_key.php,spa-assets/index-BC5g6YJu.css,spa-assets/index-Bd7IXaN3.css,spa-assets/index-Gc5GuxnP.js,spa-assets/index-BO7acHuZ.js,spa-assets/index.html,spa-assets/sw.js,spa.php,terms.html,tests/data_key_recovery_smoke.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_go_live_assets_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php,tests/qbo_recaptcha_smoke.php,tests/qbo_sandbox_payment_smoke_guard_smoke.php,tests/qbo_sync_now_smoke.php"
           # Cloudways serves public_html from files owned by PHP-FPM. Extract
           # into a per-run, SSH-user-owned staging directory first so tar does
           # not fail while trying to change production file metadata.
@@ -163,8 +163,17 @@ jobs:
             test -f core/migrations/129_qbo_payments_idempotency.sql
             test -f core/migrations/130_qbo_volatile_access_tokens.sql
             test -f api/qbo/account_map_manual.php
+            test -f api/qbo/sync_now.php
+            test -f core/qbo/sync_now.php
+            test -f core/qbo/sync_schedule.php
+            test -f cron/qbo_sync_outbound.php
+            test -f cron/qbo_sync_inbound.php
+            test -f cron/qbo_two_way_sync.php
             grep -q 'function qboApplyCapturedPayment' core/qbo/payments_client.php
-            grep -q 'spa-assets/index-DFz7J81-.js' index.html
+            SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' index.html | head -n 1)"
+            test -n "$SPA_ENTRY"
+            test -f "$SPA_ENTRY"
+            grep -Fq 'Sync now' "$SPA_ENTRY"
             php deploy/run_migrations.php
             php deploy/run_migrations.php --status | grep 'core/migrations/129_qbo_payments_idempotency.sql'
             php deploy/run_migrations.php --status | grep 'core/migrations/130_qbo_volatile_access_tokens.sql'
@@ -173,6 +182,8 @@ jobs:
             php -r 'require "core/qbo/client.php"; $tid=(int)getDB()->query("SELECT tenant_id FROM qbo_connections WHERE status = \"active\" ORDER BY tenant_id LIMIT 1")->fetchColumn(); if($tid<=0){echo "QBO volatile-token live check: no active connection.\n";exit(0);} qboPing($tid, null); echo "QBO volatile-token live check: passed.\n";'
             php tests/qbo_go_live_assets_smoke.php
             php tests/qbo_recaptcha_smoke.php
+            php tests/qbo_sync_now_smoke.php
+            php -r 'require "core/qbo/sync_schedule.php"; qboSyncScheduleEnsure(); $exists=(int)getDB()->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = \"tenant_qbo_sync_state\"")->fetchColumn(); echo "QBO sync schedule state table: ",($exists === 1 ? "ready" : "missing"),PHP_EOL; exit($exists === 1 ? 0 : 1);'
             curl -fsS --max-time 20 'https://www.corefluxapp.com/privacy.html' | grep -Fq 'data-policy="coreflux-privacy-v1"'
             curl -fsS --max-time 20 'https://www.corefluxapp.com/terms.html' | grep -Fq 'data-policy="coreflux-terms-eula-v1"'
             curl -fsS --max-time 20 'https://www.corefluxapp.com/quickbooks-connect.html' | grep -Fq 'data-qbo-lifecycle="connect-reconnect"'
@@ -190,22 +201,28 @@ jobs:
             CRON_BACKUP="$HOME/.coreflux-crontab-before-qbo-$(date +%Y%m%d%H%M%S)"
             CRON_NEXT="$(mktemp)"
             (crontab -l 2>/dev/null || true) | tee "$CRON_BACKUP" \
-              | sed '/qbo_token_refresh\.php/d; /qbo_two_way_sync\.php/d; /qbo_payments_poll\.php/d; /# CoreFlux QBO workers/d' \
+              | sed '/qbo_token_refresh\.php/d; /qbo_sync_outbound\.php/d; /qbo_sync_inbound\.php/d; /qbo_two_way_sync\.php/d; /qbo_payments_poll\.php/d; /qbo_health_alerts\.php/d; /# CoreFlux QBO workers/d' \
               > "$CRON_NEXT"
             PHP_BIN="$(command -v php)"
             {
               echo '# CoreFlux QBO workers'
               echo "*/15 * * * * cd $APP_ROOT && $PHP_BIN cron/qbo_token_refresh.php >> logs/qbo_token_refresh.log 2>&1"
-              echo "*/30 * * * * cd $APP_ROOT && $PHP_BIN cron/qbo_two_way_sync.php >> logs/qbo_two_way_sync.log 2>&1"
-              echo "7 * * * * cd $APP_ROOT && $PHP_BIN cron/qbo_payments_poll.php >> logs/qbo_payments_poll.log 2>&1"
+              echo "2,17,32,47 * * * * cd $APP_ROOT && $PHP_BIN cron/qbo_sync_outbound.php >> logs/qbo_sync_outbound.log 2>&1"
+              echo "5,20,35,50 * * * * cd $APP_ROOT && $PHP_BIN cron/qbo_sync_inbound.php >> logs/qbo_sync_inbound.log 2>&1"
+              echo "8,23,38,53 * * * * cd $APP_ROOT && $PHP_BIN cron/qbo_two_way_sync.php >> logs/qbo_two_way_sync.log 2>&1"
+              echo "11,26,41,56 * * * * cd $APP_ROOT && $PHP_BIN cron/qbo_payments_poll.php >> logs/qbo_payments_poll.log 2>&1"
+              echo "14,29,44,59 * * * * cd $APP_ROOT && $PHP_BIN cron/qbo_health_alerts.php >> logs/qbo_health_alerts.log 2>&1"
+              echo "0 2 * * * cd $APP_ROOT && $PHP_BIN cron/qbo_sync_inbound.php --full >> logs/qbo_sync_inbound_full.log 2>&1"
             } >> "$CRON_NEXT"
             crontab "$CRON_NEXT"
             rm -f "$CRON_NEXT"
+            crontab -l | grep -Fq 'cron/qbo_sync_outbound.php'
+            crontab -l | grep -Fq 'cron/qbo_sync_inbound.php'
+            crontab -l | grep -Fq 'cron/qbo_two_way_sync.php'
+            crontab -l | grep -Fq 'cron/qbo_payments_poll.php'
+            crontab -l | grep -Fq 'cron/qbo_sync_inbound.php --full'
 
-            grep -q 'spa-assets/index-DFz7J81-.js' .deploy-version
-            test -f spa-assets/index-DFz7J81-.js
-            grep -q 'index-CzcA_UTr.js' spa-assets/index-DFz7J81-.js
-            test -f spa-assets/index-CzcA_UTr.js
+            grep -Fq -- "- $SPA_ENTRY" .deploy-version
             echo 'QBO config presence:'
             php -r '$p="core/config.local.php"; if (is_file($p)) require $p; foreach (["QBO_CLIENT_ID","QBO_CLIENT_SECRET","QBO_WEBHOOK_VERIFIER_TOKEN","QBO_RECAPTCHA_SITE_KEY","QBO_RECAPTCHA_SECRET_KEY","QBO_REDIRECT_URI","QBO_ENV","QBO_SCOPES"] as $k) { $v=defined($k)?constant($k):getenv($k); echo $k,"=",(is_string($v)&&trim($v)!==""?"set":"missing"),PHP_EOL; }'
             php -r 'require "core/qbo/client.php"; $db=getDB(); $s=$db->query("SELECT tenant_id, created_at, consumed_at IS NOT NULL AS consumed, TIMESTAMPDIFF(SECOND, created_at, CURRENT_TIMESTAMP) AS age_seconds FROM qbo_oauth_state ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC); $active=(int)$db->query("SELECT COUNT(*) FROM qbo_connections WHERE status = \"active\"")->fetchColumn(); $matched=false; $connects=0; if($s){$q=$db->prepare("SELECT status FROM qbo_connections WHERE tenant_id=:t LIMIT 1");$q->execute(["t"=>(int)$s["tenant_id"]]);$matched=(bool)$q->fetchColumn();$q=$db->prepare("SELECT COUNT(*) FROM qbo_sync_audit WHERE tenant_id=:t AND action=\"connect\" AND occurred_at>=:c");$q->execute(["t"=>(int)$s["tenant_id"],"c"=>$s["created_at"]]);$connects=(int)$q->fetchColumn();} $a=$db->query("SELECT action, ok, detail FROM qbo_sync_audit ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC); echo "OAuth diagnostic: state_present=",($s?"yes":"no")," consumed=",($s?(int)$s["consumed"]:-1)," age_seconds=",($s?(int)$s["age_seconds"]:-1)," connection_for_state=",($matched?"yes":"no")," connect_audits_after_state=",$connects," active_connections=",$active," last_audit=",($a?$a["action"]:"none")," last_audit_ok=",($a?(int)$a["ok"]:-1)," last_audit_detail=",($a?substr(preg_replace("/[\\r\\n]+/"," ",(string)$a["detail"]),0,500):"none"),PHP_EOL;'

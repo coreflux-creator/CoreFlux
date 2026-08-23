@@ -37,6 +37,7 @@ require_once __DIR__ . '/../../core/qbo/sync_accounts.php';
 require_once __DIR__ . '/../../core/qbo/sync_bills.php';
 require_once __DIR__ . '/../../core/qbo/sync_invoices.php';
 require_once __DIR__ . '/../../core/qbo/sync_payments.php';
+require_once __DIR__ . '/../../core/qbo/sync_now.php';
 require_once __DIR__ . '/../../core/zoho_books/client.php';
 require_once __DIR__ . '/../../core/zoho_books/sync_je.php';
 require_once __DIR__ . '/../../core/zoho_books/sync_accounts.php';
@@ -132,14 +133,17 @@ $qboDir    = $qboCfg[$spec['qbo_dir_key']] ?? 'off';
 $qboResult = ['attempted' => false, 'reason' => null];
 if (!$qboActive) {
     $qboResult['reason'] = 'not_connected';
-} elseif (!in_array($qboDir, $spec['qbo_runs_on'], true)) {
-    $qboResult['reason'] = 'direction_not_eligible';
+} elseif ($qboDir === 'off') {
+    $qboResult['reason'] = 'direction_off';
     $qboResult['current_direction'] = $qboDir;
-    $qboResult['eligible_directions'] = $spec['qbo_runs_on'];
 } else {
     try {
         $qboResult['attempted'] = true;
-        $qboResult['result']    = ($spec['qbo_runner'])($tid, $user['id'] ?? null);
+        $qboResult['result']    = qboSyncNowEntity($tid, $entityKey, $user['id'] ?? null, [
+            'push_limit' => 50,
+            'pull_limit' => 2000,
+            'max_pages'  => 20,
+        ]);
     } catch (\Throwable $e) {
         $qboResult['attempted'] = true;
         $qboResult['error']     = $e->getMessage();

@@ -1,18 +1,13 @@
 <?php
 /**
- * QBO outbound sync — cron driver.
+ * QBO outbound worker — every 15 minutes.
  *
- * Cron entry (Cloudways):
- *   Every 15 minutes:  H/15 * * * * php /home/master/applications/<app>/public_html/cron/qbo_sync_outbound.php
+ * Each configured workflow runs independently. A tenant does not need to
+ * enable Journal Entries in order for Bills, Invoices, or Payments to run.
+ * Advisory locks prevent overlap with an operator pressing "Sync now".
  *
- * Iterates every tenant with an active qbo_connections row and a sync
- * direction of `push` or `two_way` for journal entries, runs the JE push,
- * captures aggregate counts to stdout, and continues on per-tenant
- * failure. Idempotent: the driver itself short-circuits via
- * `external_entity_mappings` (already-shipped JEs are excluded by the
- * SELECT).
+ *   2,17,32,47 * * * * php /app/cron/qbo_sync_outbound.php
  */
-
 declare(strict_types=1);
 
 require_once __DIR__ . '/../core/config.php';
@@ -23,9 +18,9 @@ require_once __DIR__ . '/../core/qbo/sync_je.php';
 require_once __DIR__ . '/../core/qbo/sync_bills.php';
 require_once __DIR__ . '/../core/qbo/sync_invoices.php';
 require_once __DIR__ . '/../core/qbo/sync_payments.php';
+require_once __DIR__ . '/../core/qbo/sync_lock.php';
 
-$LIMIT_PER_TENANT = 100;
-
+$limitPerTenant = 100;
 $pdo = getDB();
 try {
     $stmt = $pdo->query("SELECT tenant_id FROM qbo_connections WHERE status = 'active' ORDER BY tenant_id");
@@ -39,60 +34,66 @@ if (!$tenants) {
     exit(0);
 }
 
-$totalPushed = 0; $totalSkipped = 0; $totalFailed = 0;
-$tenantsOk   = 0; $tenantsErr  = 0;
+$summary = ['tenants_ok' => 0, 'tenants_err' => 0, 'workflows' => 0, 'pushed' => 0, 'skipped' => 0, 'failed' => 0];
 
-foreach ($tenants as $tid) {
-    $tid = (int) $tid;
+foreach ($tenants as $tidRaw) {
+    $tid = (int) $tidRaw;
+    $tenantFailed = false;
     try {
         $cfg = qboSyncConfigRead($tid);
-        $dir = $cfg['journal_entries'] ?? 'off';
-        if (!in_array($dir, ['push', 'two_way'], true)) {
-            fwrite(STDOUT, "tenant {$tid}: journal_entries direction='{$dir}', skipping.\n");
-            continue;
-        }
-        $res = qboSyncJournalEntries($tid, null, ['limit' => $LIMIT_PER_TENANT]);
-        $totalPushed  += $res['pushed'];
-        $totalSkipped += $res['skipped_unmapped'];
-        $totalFailed  += $res['failed'];
-        $tenantsOk++;
-        fwrite(STDOUT, sprintf(
-            "tenant %d: pushed=%d skipped=%d failed=%d considered=%d (%dms)\n",
-            $tid, $res['pushed'], $res['skipped_unmapped'], $res['failed'], $res['considered'], $res['latency_ms']
-        ));
-
-        // Bills / Invoices / Payments — run each when direction allows.
-        foreach ([
-            'bills'    => 'qboSyncBills',
-            'invoices' => 'qboSyncInvoices',
-            'payments' => 'qboSyncBillPayments',
-        ] as $entity => $fn) {
-            $dir2 = $cfg[$entity] ?? 'off';
-            if (!in_array($dir2, ['push', 'two_way'], true)) continue;
-            try {
-                $r2 = $fn($tid, null, ['limit' => $LIMIT_PER_TENANT]);
-                $totalPushed  += $r2['pushed'];
-                $totalSkipped += $r2['skipped'];
-                $totalFailed  += $r2['failed'];
-                fwrite(STDOUT, sprintf(
-                    "tenant %d %s: pushed=%d skipped=%d failed=%d considered=%d (%dms)\n",
-                    $tid, $entity, $r2['pushed'], $r2['skipped'], $r2['failed'], $r2['considered'], $r2['latency_ms']
-                ));
-            } catch (\Throwable $e) {
-                fwrite(STDERR, "tenant {$tid} {$entity} failed: " . $e->getMessage() . "\n");
-            }
-        }
     } catch (\Throwable $e) {
-        $tenantsErr++;
-        fwrite(STDERR, "tenant {$tid} failed: " . $e->getMessage() . "\n");
-        qboAudit($tid, 'sync_je_cron_error', [
-            'ok' => false, 'detail' => ['error' => substr($e->getMessage(), 0, 500)],
-        ]);
+        $summary['tenants_err']++;
+        fwrite(STDERR, "tenant {$tid} config failed: {$e->getMessage()}\n");
+        continue;
     }
+
+    $jobs = [
+        'journal_entries' => 'qboSyncJournalEntries',
+        'bills'    => 'qboSyncBills',
+        'invoices' => 'qboSyncInvoices',
+        'payments' => 'qboSyncBillPayments',
+    ];
+    foreach ($jobs as $entity => $fn) {
+        $dir = $cfg[$entity] ?? 'off';
+        if (!in_array($dir, ['push', 'two_way'], true)) continue;
+        $lockName = null;
+        try {
+            $lockName = qboSyncLockAcquire($tid, $entity);
+            $res = $fn($tid, null, ['limit' => $limitPerTenant]);
+            $pushed = (int) ($res['pushed'] ?? 0);
+            $skipped = (int) ($res['skipped'] ?? $res['skipped_unmapped'] ?? 0);
+            $failed = (int) ($res['failed'] ?? 0);
+            $summary['workflows']++;
+            $summary['pushed'] += $pushed;
+            $summary['skipped'] += $skipped;
+            $summary['failed'] += $failed;
+            if ($failed > 0) $tenantFailed = true;
+            fwrite(STDOUT, sprintf(
+                "tenant %d %s: pushed=%d skipped=%d failed=%d considered=%d (%dms)\n",
+                $tid, $entity, $pushed, $skipped, $failed,
+                (int) ($res['considered'] ?? 0), (int) ($res['latency_ms'] ?? 0)
+            ));
+        } catch (\Throwable $e) {
+            $tenantFailed = true;
+            $summary['failed']++;
+            fwrite(STDERR, "tenant {$tid} {$entity} failed: {$e->getMessage()}\n");
+            qboAudit($tid, 'sync_outbound_cron_error', [
+                'ok' => false,
+                'entity_type' => $entity,
+                'direction' => 'push',
+                'detail' => ['error' => substr($e->getMessage(), 0, 500)],
+            ]);
+        } finally {
+            if ($lockName !== null) qboSyncLockRelease($lockName);
+        }
+    }
+
+    $summary[$tenantFailed ? 'tenants_err' : 'tenants_ok']++;
 }
 
 fwrite(STDOUT, sprintf(
-    "QBO cron done: tenants_ok=%d tenants_err=%d pushed=%d skipped=%d failed=%d\n",
-    $tenantsOk, $tenantsErr, $totalPushed, $totalSkipped, $totalFailed
+    "QBO cron done: tenants_ok=%d tenants_err=%d workflows=%d pushed=%d skipped=%d failed=%d\n",
+    $summary['tenants_ok'], $summary['tenants_err'], $summary['workflows'],
+    $summary['pushed'], $summary['skipped'], $summary['failed']
 ));
-exit(0);
+exit($summary['tenants_err'] > 0 ? 1 : 0);

@@ -43,6 +43,7 @@ require_once __DIR__ . '/../core/qbo/sync_items.php';
 require_once __DIR__ . '/../core/qbo/sync_invoices.php';
 require_once __DIR__ . '/../core/qbo/sync_payments.php';
 require_once __DIR__ . '/../core/qbo/payments_client.php';
+require_once __DIR__ . '/../core/qbo/sync_now.php';
 
 $method = api_method();
 $action = (string) (api_query('action') ?? '');
@@ -259,6 +260,23 @@ switch ($action) {
             api_error($e->getMessage(), 409);
         }
         api_ok(['sync_config' => $merged]);
+    }
+
+    case 'sync_now': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.qbo.manage');
+        $body = api_json_body();
+        $entity = trim((string) ($body['entity'] ?? ''));
+        if ($entity === '') api_error('entity required', 422);
+        try {
+            api_ok(qboSyncNowEntity($tid, $entity, $user['id'] ?? null, $body));
+        } catch (\InvalidArgumentException $e) {
+            api_error($e->getMessage(), 422, ['valid' => array_keys(qboSyncNowCapabilities())]);
+        } catch (\RuntimeException $e) {
+            api_error($e->getMessage(), 409);
+        } catch (\Throwable $e) {
+            api_error('QuickBooks sync failed: ' . $e->getMessage(), 502);
+        }
     }
 
     case 'sync_je': {

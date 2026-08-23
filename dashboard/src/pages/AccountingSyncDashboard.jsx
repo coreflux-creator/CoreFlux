@@ -34,7 +34,8 @@ export default function AccountingSyncDashboard() {
     const parts = [];
     if (r.qbo?.attempted) {
       const ok = !r.qbo?.error;
-      const res = r.qbo?.result || {};
+      const result = r.qbo?.result || {};
+      const res = result.summary || result;
       const counts = [];
       if (res.pushed   !== undefined) counts.push(`${res.pushed} pushed`);
       if (res.pulled   !== undefined) counts.push(`${res.pulled} pulled`);
@@ -60,7 +61,7 @@ export default function AccountingSyncDashboard() {
     setBusyKey(entity.key); setFlash(null);
     try {
       const r = await fireReconcile(entity.key);
-      setFlash({ kind: 'success', msg: `Reconcile ${entity.label}: ${formatPerSystem(r).join(' · ')}` });
+      setFlash({ kind: 'success', msg: `${entity.label} sync: ${formatPerSystem(r).join(' · ')}` });
       reload();
     } catch (e) {
       setFlash({ kind: 'error', msg: e.message || String(e) });
@@ -96,7 +97,7 @@ export default function AccountingSyncDashboard() {
     setBusyKey(null);
     setFlash({
       kind: failCount === 0 ? 'success' : 'error',
-      msg: `Reconcile-all complete: ${okCount} ok / ${failCount} failed across ${eligible.length} entities. ` + lines.join(' • '),
+      msg: `Sync-all complete: ${okCount} ok / ${failCount} failed across ${eligible.length} entities. ` + lines.join(' • '),
     });
     reload();
   };
@@ -217,7 +218,7 @@ export default function AccountingSyncDashboard() {
             style={{ whiteSpace: 'nowrap' }}
           >
             <RefreshCw size={13} style={{ marginRight: 6 }} />
-            {batchProgress ? `Running ${batchProgress.idx + 1} / ${batchProgress.total}…` : `Reconcile all (${eligibleCount})`}
+            {batchProgress ? `Running ${batchProgress.idx + 1} / ${batchProgress.total}…` : `Sync all now (${eligibleCount})`}
           </button>
         </header>
 
@@ -664,7 +665,7 @@ function EntityRow({ entity, onReconcile, busy, anyBusy }) {
   const sig   = SIGNAL_META[entity.drift_signal] || SIGNAL_META.inactive;
   const QIcon = qMeta.icon; const ZIcon = zMeta.icon;
 
-  // Show Reconcile only when at least one side has a non-`off` direction.
+  // Show Sync now only when at least one side has a non-`off` direction.
   // `inactive` rows have nothing to sync — keep them quiet.
   const canReconcile = entity.coverage !== 'neither';
   const tooltip = entity.coverage === 'neither'
@@ -720,7 +721,7 @@ function EntityRow({ entity, onReconcile, busy, anyBusy }) {
           style={{ fontSize: 12, padding: '3px 10px' }}
         >
           <RefreshCw size={11} style={{ marginRight: 4 }} />
-          {busy ? 'Running…' : 'Reconcile'}
+          {busy ? 'Syncing…' : 'Sync now'}
         </button>
       </td>
     </tr>

@@ -28,6 +28,7 @@ function qboSyncAccounts(int $tenantId, ?int $userId, array $opts = []): array
     $start    = microtime(true);
     $limit    = max(1, min(5000, (int) ($opts['limit'] ?? 2000)));
     $maxPages = max(1, min(100,  (int) ($opts['max_pages'] ?? 20)));
+    $since    = trim((string) ($opts['modified_since'] ?? ''));
 
     $conn = qboConnection($tenantId);
     if (!$conn || $conn['status'] !== 'active') {
@@ -60,7 +61,10 @@ function qboSyncAccounts(int $tenantId, ?int $userId, array $opts = []): array
     while ($pulled < $limit && $pages < $maxPages) {
         $pages++;
         $pageSize = min(QBO_PAGE_SIZE_FOR_ACCOUNTS, $limit - $pulled);
-        $query = sprintf('SELECT * FROM Account STARTPOSITION %d MAXRESULTS %d', $startPos, $pageSize);
+        $where = $since !== ''
+            ? " WHERE MetaData.LastUpdatedTime >= '" . addslashes($since) . "'"
+            : '';
+        $query = sprintf('SELECT * FROM Account%s STARTPOSITION %d MAXRESULTS %d', $where, $startPos, $pageSize);
         try {
             $resp = qboCall($tenantId, 'GET', '/v3/company/' . $realm . '/query', null, [
                 'query'        => $query,
@@ -164,6 +168,7 @@ function qboSyncAccounts(int $tenantId, ?int $userId, array $opts = []): array
             'unchanged'     => $unchanged, 'unmapped_in_qbo' => $unmapped,
             'imported'      => $imported, 'import_errors' => count($importErrors),
             'pulled'        => $pulled, 'pages' => $pages, 'latency_ms' => $latency,
+            'modified_since'=> $since,
         ],
     ]);
 
@@ -179,6 +184,7 @@ function qboSyncAccounts(int $tenantId, ?int $userId, array $opts = []): array
         'pulled'          => $pulled,
         'pages'           => $pages,
         'latency_ms'      => $latency,
+        'modified_since'  => $since,
     ];
 }
 

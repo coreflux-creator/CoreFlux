@@ -27,6 +27,7 @@
  * Opts shared by both syncers:
  *   - limit:   int (default 1000) — max records to ingest this run.
  *   - max_pages: int (default 10) — safety net against runaway loops.
+ *   - modified_since: optional ISO datetime for incremental scheduled pulls.
  */
 declare(strict_types=1);
 
@@ -63,6 +64,7 @@ function _qboSyncMasterEntity(int $tenantId, ?int $userId, array $opts, array $c
     $start    = microtime(true);
     $limit    = max(1, min(5000, (int) ($opts['limit'] ?? 1000)));
     $maxPages = max(1, min(50,    (int) ($opts['max_pages'] ?? 10)));
+    $since    = trim((string) ($opts['modified_since'] ?? ''));
 
     $conn = qboConnection($tenantId);
     if (!$conn || $conn['status'] !== 'active') {
@@ -87,7 +89,10 @@ function _qboSyncMasterEntity(int $tenantId, ?int $userId, array $opts, array $c
     while ($pulled < $limit && $pages < $maxPages) {
         $pages++;
         $pageSize = min(QBO_PAGE_SIZE, $limit - $pulled);
-        $query = sprintf('SELECT * FROM %s STARTPOSITION %d MAXRESULTS %d', $resource, $startPos, $pageSize);
+        $where = $since !== ''
+            ? " WHERE MetaData.LastUpdatedTime >= '" . addslashes($since) . "'"
+            : '';
+        $query = sprintf('SELECT * FROM %s%s STARTPOSITION %d MAXRESULTS %d', $resource, $where, $startPos, $pageSize);
         try {
             $resp = qboCall($tenantId, 'GET', '/v3/company/' . $realm . '/query', null, [
                 'query'        => $query,
@@ -143,6 +148,7 @@ function _qboSyncMasterEntity(int $tenantId, ?int $userId, array $opts, array $c
             'created' => $created, 'updated' => $updated, 'unchanged' => $unchanged,
             'failed'  => $failed,  'pulled'  => $pulled,
             'pages'   => $pages,   'latency_ms' => $latency,
+            'modified_since' => $since,
         ],
     ]);
     return [
@@ -154,6 +160,7 @@ function _qboSyncMasterEntity(int $tenantId, ?int $userId, array $opts, array $c
         'pulled'    => $pulled,
         'pages'     => $pages,
         'latency_ms'=> $latency,
+        'modified_since' => $since,
         'results'   => $results,
     ];
 }
