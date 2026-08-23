@@ -3,6 +3,14 @@ name: Deploy CoreFlux to Cloudways
 on:
   workflow_dispatch:
     inputs:
+      qbo_environment:
+        description: QuickBooks credential environment for this deployment
+        required: true
+        type: choice
+        default: sandbox
+        options:
+          - sandbox
+          - production
       data_key_recovery:
         description: Secure production data-key recovery phase
         required: true
@@ -60,14 +68,14 @@ jobs:
       - name: Install QuickBooks credentials, apply migrations, and configure workers
         uses: appleboy/ssh-action@v1.2.5
         env:
-          QBO_CLIENT_ID: ${{ secrets.QBO_CLIENT_ID }}
-          QBO_CLIENT_SECRET: ${{ secrets.QBO_CLIENT_SECRET }}
+          QBO_CLIENT_ID: ${{ inputs.qbo_environment == 'production' && secrets.QBO_PRODUCTION_CLIENT_ID || secrets.QBO_CLIENT_ID }}
+          QBO_CLIENT_SECRET: ${{ inputs.qbo_environment == 'production' && secrets.QBO_PRODUCTION_CLIENT_SECRET || secrets.QBO_CLIENT_SECRET }}
           QBO_WEBHOOK_VERIFIER_TOKEN: ${{ secrets.QBO_WEBHOOK_VERIFIER_TOKEN }}
           QBO_RECAPTCHA_SITE_KEY: ${{ secrets.QBO_RECAPTCHA_SITE_KEY }}
           QBO_RECAPTCHA_SECRET_KEY: ${{ secrets.QBO_RECAPTCHA_SECRET_KEY }}
           QBO_RECAPTCHA_ALLOWED_HOSTS: corefluxapp.com,www.corefluxapp.com
           QBO_REDIRECT_URI: https://www.corefluxapp.com/api/qbo/oauth_callback.php
-          QBO_ENV: sandbox
+          QBO_ENV: ${{ inputs.qbo_environment || 'sandbox' }}
           QBO_SCOPES: com.intuit.quickbooks.accounting com.intuit.quickbooks.payment
           DATA_KEY_RECOVERY_MODE: ${{ inputs.data_key_recovery || 'none' }}
           COREFLUX_QBO_SANDBOX_SMOKE: ${{ inputs.qbo_sandbox_payment_smoke || 'none' }}
