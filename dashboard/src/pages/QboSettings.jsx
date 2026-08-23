@@ -258,6 +258,11 @@ export default function QboSettings() {
             <> Environment: <code data-testid="qbo-environment">{data.environment}</code>.</>
           )}
         </p>
+        <p style={{ margin: '6px 0 0', fontSize: 12 }}>
+          Need help with QuickBooks?{' '}
+          <a href="mailto:support@corefluxapp.com" data-testid="qbo-support-link">Contact CoreFlux support</a>
+          {' '}and include the displayed error and Intuit request ID.
+        </p>
       </header>
 
       {flash && (

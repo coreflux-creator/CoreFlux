@@ -254,11 +254,20 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
 
           {error && <div data-testid="qbo-payments-error" style={errorStyle}>{error}</div>}
           {result?.charge && (
-            <div data-testid="qbo-payments-result" style={resultStyle(result.charge.status)}>
+            <div data-testid="qbo-payments-result" role="status" aria-label="QuickBooks payment receipt" style={resultStyle(result.charge.status)}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Payment receipt</div>
               <div><strong>Status:</strong> {result.charge.status}</div>
-              <div><strong>Charge ID:</strong> {result.charge.id}</div>
+              <div><strong>Payment amount:</strong> {formatReceiptMoney(result.receipt)}</div>
+              <div><strong>Total amount:</strong> {formatReceiptMoney(result.receipt)}</div>
+              <div><strong>Date of transaction:</strong> {formatReceiptDate(result.receipt?.transaction_at)}</div>
+              <div><strong>Payment method:</strong> {result.receipt?.payment_method || (type === 'card' ? 'Card' : 'ACH e-check')}</div>
+              <div><strong>Transaction ID:</strong> {result.receipt?.transaction_id || result.charge.id}</div>
               {result.payment_id && <div><strong>CoreFlux payment:</strong> #{result.payment_id} — allocated to invoice.</div>}
               {result.allocation_error && <div style={{ color: '#92400e' }}><strong>Allocation:</strong> {result.allocation_error}</div>}
+              <div style={{ marginTop: 8, fontSize: 11 }} data-testid="qbo-payments-processor-disclosure">
+                Payment is processed by Intuit Payments Inc., 2700 Coast Avenue, Mountain View, CA 94043.
+                {' '}Phone 1-888-536-4801. NMLS #1098819.
+              </div>
             </div>
           )}
 
@@ -275,6 +284,21 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
       </div>
     </div>
   );
+}
+
+function formatReceiptMoney(receipt) {
+  const amount = Number(receipt?.payment_amount ?? receipt?.total_amount ?? 0);
+  const currency = receipt?.currency || 'USD';
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
+}
+
+function formatReceiptDate(value) {
+  const parsed = value ? new Date(value) : new Date();
+  return Number.isNaN(parsed.getTime()) ? String(value || '') : parsed.toLocaleString();
 }
 
 function Field({ label, help, children }) {

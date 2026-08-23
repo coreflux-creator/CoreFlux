@@ -12,6 +12,8 @@
  */
 declare(strict_types=1);
 
+$root = dirname(__DIR__);
+
 $passes = 0; $failures = [];
 function check(string $label, bool $cond) {
     global $passes, $failures;
@@ -23,7 +25,7 @@ echo "\nQBO direct Intuit tokenizer smoke\n";
 echo "===================================================\n\n";
 
 echo "── QboPaymentsCollectModal.jsx ──\n";
-$src = (string) file_get_contents('/app/modules/billing/ui/QboPaymentsCollectModal.jsx');
+$src = (string) file_get_contents($root . '/modules/billing/ui/QboPaymentsCollectModal.jsx');
 check('defaults the QBO environment to sandbox',
     str_contains($src, "environment = 'sandbox'"));
 check('allowlists production and otherwise uses sandbox',
@@ -79,33 +81,33 @@ check('does not reference nonexistent intuit-js SDK or publishable key',
     && !str_contains($src, 'intuit.ipp.payments'));
 
 echo "\n── Environment source ──\n";
-$list = (string) file_get_contents('/app/modules/billing/ui/InvoicesList.jsx');
+$list = (string) file_get_contents($root . '/modules/billing/ui/InvoicesList.jsx');
 check('modal receives environment from authenticated QBO status',
     str_contains($list, 'environment={qboStatus.data?.environment}'));
-$spa = (string) file_get_contents('/app/spa.php');
+$spa = (string) file_get_contents($root . '/spa.php');
 check('SPA does not expose obsolete Payments keys',
     !str_contains($spa, '__INTUIT_PAYMENTS_KEY')
     && !str_contains($spa, 'INTUIT_PAYMENTS_PUBLISHABLE_KEY'));
 
 echo "\n── Server e-check shape ──\n";
-$payments = (string) file_get_contents('/app/core/qbo/payments_client.php');
+$payments = (string) file_get_contents($root . '/core/qbo/payments_client.php');
 check('e-check debit declares WEB payment mode',
     str_contains($payments, "'paymentMode' => 'WEB'"));
 check('e-check debit supplies a stable check number',
     str_contains($payments, "'checkNumber' => substr(str_pad("));
 
 echo "\n── Vite bundle ──\n";
-$deployVer = (string) file_get_contents('/app/.deploy-version');
+$deployVer = (string) file_get_contents($root . '/.deploy-version');
 if (preg_match('/^- spa-assets\/(index-[A-Za-z0-9_\-]+\.js)/m', $deployVer, $m)) {
     $jsBundle = $m[1];
 } else {
     $jsBundle = '';
 }
-if ($jsBundle === '' || !is_file('/app/spa-assets/' . $jsBundle)) {
+if ($jsBundle === '' || !is_file($root . '/spa-assets/' . $jsBundle)) {
     check('Vite bundle present', false);
 } else {
     check('Vite bundle present', true);
-    $bundle = (string) file_get_contents('/app/spa-assets/' . $jsBundle);
+    $bundle = (string) file_get_contents($root . '/spa-assets/' . $jsBundle);
     check('bundle includes payment modal and direct token path',
         str_contains($bundle, 'qbo-payments-modal')
         && str_contains($bundle, '/quickbooks/v4/payments/tokens'));

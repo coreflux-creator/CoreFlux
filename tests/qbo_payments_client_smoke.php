@@ -19,6 +19,8 @@
  */
 declare(strict_types=1);
 
+$root = dirname(__DIR__);
+
 $passes = 0; $failures = [];
 function check(string $label, bool $cond) {
     global $passes, $failures;
@@ -31,7 +33,7 @@ echo "============================================\n\n";
 
 // ─────── 1. Migration ───────
 echo "── migration 116 ──\n";
-$migPath = '/app/core/migrations/116_qbo_payments_api.sql';
+$migPath = $root . '/core/migrations/116_qbo_payments_api.sql';
 check('migration file exists', file_exists($migPath));
 $mig = (string) file_get_contents($migPath);
 check('migration declares qbo_payment_charges',
@@ -48,7 +50,7 @@ check('shadow links to coreflux_invoice_id + coreflux_payment_id',
 check('shadow surfaces error_code + error_message',
     str_contains($mig, 'error_code') && str_contains($mig, 'error_message'));
 check('shadow stores raw_payload',              str_contains($mig, 'raw_payload'));
-$idemMigPath = '/app/core/migrations/129_qbo_payments_idempotency.sql';
+$idemMigPath = $root . '/core/migrations/129_qbo_payments_idempotency.sql';
 $idemMig = (string) @file_get_contents($idemMigPath);
 check('durable idempotency migration exists', $idemMig !== '');
 check('durable idempotency is tenant-scoped and unique',
@@ -56,7 +58,7 @@ check('durable idempotency is tenant-scoped and unique',
 
 // ─────── 2. Client module shape ───────
 echo "\n── core/qbo/payments_client.php ──\n";
-$srcPath = '/app/core/qbo/payments_client.php';
+$srcPath = $root . '/core/qbo/payments_client.php';
 check('module exists', file_exists($srcPath));
 $src = (string) file_get_contents($srcPath);
 foreach ([
@@ -96,7 +98,7 @@ check('shadow upsert resolves concurrent insert races',
 
 // ─────── 3. Operator endpoint ───────
 echo "\n── /api/admin/qbo/payments_charge.php ──\n";
-$epPath = '/app/api/admin/qbo/payments_charge.php';
+$epPath = $root . '/api/admin/qbo/payments_charge.php';
 check('endpoint exists', file_exists($epPath));
 $ep = (string) file_get_contents($epPath);
 check('endpoint calls api_require_auth',         str_contains($ep, 'api_require_auth()'));
@@ -124,25 +126,40 @@ check('shared capture helper audits billing.qbo_payments.captured',
     str_contains($src, "billingAudit('billing.qbo_payments.captured'"));
 check('emits audit billing.qbo_payments.charge_failed on error',
     str_contains($ep, "billingAudit('billing.qbo_payments.charge_failed'"));
+check('returns a masked in-app payment receipt with the Intuit Payments disclosure',
+    str_contains($ep, 'qboBuildPaymentReceipt(')
+    && str_contains($ep, "'processor'       => 'Intuit Payments Inc.'")
+    && str_contains($ep, "'processor_nmls'  => '1098819'"));
 
-$qboApi = (string) file_get_contents('/app/api/qbo.php');
+$qboApi = (string) file_get_contents($root . '/api/qbo.php');
 check('status reports granted/configured OAuth scopes and Payments readiness',
     str_contains($qboApi, "'granted_scopes'")
     && str_contains($qboApi, "'configured_scopes'")
     && str_contains($qboApi, "'payments_enabled'")
     && str_contains($qboApi, "'payments_scope_requested'"));
-$qboSettings = (string) file_get_contents('/app/dashboard/src/pages/QboSettings.jsx');
+$qboSettings = (string) file_get_contents($root . '/dashboard/src/pages/QboSettings.jsx');
 check('settings surfaces Payments grant and re-consent action',
     str_contains($qboSettings, 'qbo-payments-scope-status')
     && str_contains($qboSettings, 'qbo-reconsent-btn'));
-$invoicesUi = (string) file_get_contents('/app/modules/billing/ui/InvoicesList.jsx');
+check('settings provides in-app QuickBooks support contact',
+    str_contains($qboSettings, 'qbo-support-link')
+    && str_contains($qboSettings, 'support@corefluxapp.com'));
+$paymentsModal = (string) file_get_contents($root . '/modules/billing/ui/QboPaymentsCollectModal.jsx');
+check('payment UI renders receipt amount, date, masked method, ID, and processor disclosure',
+    str_contains($paymentsModal, 'QuickBooks payment receipt')
+    && str_contains($paymentsModal, 'Payment amount:')
+    && str_contains($paymentsModal, 'Date of transaction:')
+    && str_contains($paymentsModal, 'Payment method:')
+    && str_contains($paymentsModal, 'Transaction ID:')
+    && str_contains($paymentsModal, 'NMLS #1098819'));
+$invoicesUi = (string) file_get_contents($root . '/modules/billing/ui/InvoicesList.jsx');
 check('invoice collection CTA is gated by live Payments readiness',
     str_contains($invoicesUi, "/api/qbo/status.php?action=status")
     && str_contains($invoicesUi, 'qboStatus.data?.payments_enabled === true'));
 check('invoice collection CTA mirrors the backend admin gate',
     str_contains($invoicesUi, "['master_admin', 'tenant_admin'].includes(user.global_role)")
     && str_contains($invoicesUi, '{ enabled: canCollectViaQbo }'));
-$billingModule = (string) file_get_contents('/app/modules/billing/ui/BillingModule.jsx');
+$billingModule = (string) file_get_contents($root . '/modules/billing/ui/BillingModule.jsx');
 check('billing module passes session into the invoice list',
     str_contains($billingModule, '<InvoicesList session={session} />'));
 
@@ -279,7 +296,7 @@ if (!function_exists('qboRawRequest')) {
 // Pull in the client by stripping the require_once so we don't load
 // the real Accounting client (which would re-declare functions we've
 // already stubbed).
-$clientSrc = file_get_contents('/app/core/qbo/payments_client.php');
+$clientSrc = file_get_contents($root . '/core/qbo/payments_client.php');
 $clientSrc = preg_replace(
     "/require_once __DIR__ \\. '\\/client\\.php';/", '', $clientSrc
 );

@@ -218,6 +218,7 @@ $result = [
     'shadow_id' => $shadowId,
     'invoice_id'=> $invoiceId,
     'reused'    => $prior !== null,
+    'receipt'   => qboBuildPaymentReceipt($charge, $type, $amount, (string) ($inv['currency'] ?? 'USD')),
 ];
 
 // 4. Apply against the invoice whenever the transaction is captured.
@@ -254,3 +255,39 @@ if (in_array($status, ['CAPTURED', 'SETTLED'], true)) {
 }
 
 api_ok($result);
+
+/**
+ * Build the customer-facing receipt without returning unmasked payment data.
+ */
+function qboBuildPaymentReceipt(array $charge, string $type, float $amount, string $currency): array
+{
+    $digits = static function (mixed $value): string {
+        $numeric = preg_replace('/\D+/', '', (string) $value) ?? '';
+        return $numeric === '' ? '' : substr($numeric, -4);
+    };
+
+    if ($type === 'echeck') {
+        $bank = (array) ($charge['bankAccount'] ?? []);
+        $last4 = $digits($bank['accountNumber'] ?? '');
+        $label = trim((string) ($bank['bankName'] ?? $bank['name'] ?? 'ACH e-check'));
+        $paymentMethod = ($label !== '' ? $label : 'ACH e-check') . ($last4 !== '' ? ' ending in ' . $last4 : '');
+    } else {
+        $card = (array) ($charge['card'] ?? []);
+        $last4 = $digits($card['number'] ?? '');
+        $brand = trim((string) ($card['type'] ?? 'Card'));
+        $paymentMethod = ($brand !== '' ? $brand : 'Card') . ($last4 !== '' ? ' ending in ' . $last4 : '');
+    }
+
+    return [
+        'payment_amount'  => number_format($amount, 2, '.', ''),
+        'total_amount'    => number_format($amount, 2, '.', ''),
+        'currency'        => strtoupper($currency !== '' ? $currency : 'USD'),
+        'transaction_at'  => (string) ($charge['created'] ?? $charge['createdAt'] ?? date(DATE_ATOM)),
+        'payment_method'  => $paymentMethod,
+        'transaction_id'  => (string) ($charge['id'] ?? ''),
+        'processor'       => 'Intuit Payments Inc.',
+        'processor_address' => '2700 Coast Avenue, Mountain View, CA 94043',
+        'processor_phone' => '1-888-536-4801',
+        'processor_nmls'  => '1098819',
+    ];
+}
