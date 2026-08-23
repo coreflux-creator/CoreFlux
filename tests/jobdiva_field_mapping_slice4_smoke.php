@@ -89,6 +89,12 @@ $assert('returns empty string when path misses',
 $assert('empty path returns empty string',       tenantIntegrationFieldMapPluckPath($payload, '') === '');
 $assert('non-scalar terminal value returns ""',
     tenantIntegrationFieldMapPluckPath($payload, 'job.meta') === '');
+$assert('boolean false terminal values remain mappable as zero',
+    tenantIntegrationFieldMapPluckPath(['enabled' => false], 'enabled') === '0');
+$assert('JobDiva dash placeholders are treated as unavailable',
+    tenantIntegrationFieldMapValueIsPresent('-') === false);
+$assert('numeric zero remains a meaningful mapped value',
+    tenantIntegrationFieldMapValueIsPresent('0') === true);
 
 echo "\nPluckInternal — registry-first with default fallback\n";
 // Prime the cache directly via the global so we can assert without a DB.
@@ -126,6 +132,66 @@ $GLOBALS['CF_FIELD_MAP_CACHE'] = [
 ];
 $assert('configured-but-missing external_field falls through to default',
     tenantIntegrationFieldMapPluckInternal(1, 'jobdiva', 'placement', 'title', $sample, $default) === 'BUILTIN');
+
+// Configured paths often resolve to JobDiva's "-" display placeholder.
+// That must not suppress the normalized assignment-contract fallback.
+$GLOBALS['CF_FIELD_MAP_CACHE'] = [
+    '1|jobdiva|placement' => [
+        'bill_rate' => ['external_field' => 'assignment.final bill rate', 'transform' => 'none'],
+        'bill_discount_pct' => ['external_field' => 'assignment.discount', 'transform' => 'percent_to_decimal'],
+    ],
+    'target|1|jobdiva|placement|placement_rates|bill_rate|self' => [
+        'external_field' => 'assignment.final bill rate',
+        'source_path' => 'assignment.final bill rate',
+        'transform' => 'none',
+    ],
+];
+$placeholderPayload = [
+    'assignment' => [
+        'final bill rate' => '-',
+        'discount' => '0',
+    ],
+];
+$assert('placeholder mapped field falls through to canonical default',
+    tenantIntegrationFieldMapPluckInternal(
+        1,
+        'jobdiva',
+        'placement',
+        'bill_rate',
+        $placeholderPayload,
+        static fn() => '62.98'
+    ) === '62.98');
+$assert('zero mapped field does not incorrectly call the default',
+    tenantIntegrationFieldMapPluckInternal(
+        1,
+        'jobdiva',
+        'placement',
+        'bill_discount_pct',
+        $placeholderPayload,
+        static fn() => '0.25'
+    ) === 0.0);
+$assert('target-address mapping also falls through on placeholders',
+    tenantIntegrationFieldMapPluckTarget(
+        1,
+        'jobdiva',
+        'placement',
+        'placement_rates',
+        'bill_rate',
+        'self',
+        $placeholderPayload,
+        static fn() => '62.98'
+    ) === '62.98');
+$assert('built-in deep pluck skips a shallow placeholder for the canonical contract',
+    jobdivaPluckFieldDeep(
+        [
+            'final bill rate' => '-',
+            '_jd_contract' => ['bill_rate' => '62.98'],
+        ],
+        ['final bill rate', 'bill_rate']
+    ) === '62.98');
+$assert('built-in pluck preserves source zero and false values',
+    jobdivaPluckField(['discount' => 0], ['discount']) === '0'
+    && jobdivaPluckField(['paid' => false], ['paid']) === '0');
 
 echo "\nCache — flushCache()\n";
 tenantIntegrationFieldMapFlushCache();

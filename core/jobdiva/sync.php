@@ -198,10 +198,24 @@ function jobdivaFetchExactAssignmentById(
  * per field, we normalise both the record keys and the candidate list to
  * lowercase-alphanumeric, then resolve once.
  *
- * Candidates are tried in order; first non-empty scalar wins. Non-scalar
+ * Candidates are tried in order; first meaningful scalar wins. Non-scalar
  * matches (arrays/objects) are skipped — JobDiva sometimes nests
  * structured payloads under a name that collides with a flat field.
  */
+function jobdivaSourceValueIsPresent(mixed $value): bool
+{
+    if (function_exists('tenantIntegrationFieldMapValueIsPresent')) {
+        return tenantIntegrationFieldMapValueIsPresent($value);
+    }
+    if ($value === null) return false;
+    if (!is_string($value)) return true;
+
+    return !in_array(strtolower(trim($value)), [
+        '', '-', '--', '—', '–',
+        'n/a', 'na', 'null', '(null)', 'not available',
+    ], true);
+}
+
 function jobdivaPluckField(array $item, array $candidates): string
 {
     $norm = [];
@@ -220,8 +234,8 @@ function jobdivaPluckField(array $item, array $candidates): string
         $v = $norm[$nk];
         if ($v === null) continue;
         if (is_scalar($v)) {
-            $s = trim((string) $v);
-            if ($s !== '') return $s;
+            $s = is_bool($v) ? ($v ? '1' : '0') : trim((string) $v);
+            if (jobdivaSourceValueIsPresent($s)) return $s;
         }
     }
     return '';

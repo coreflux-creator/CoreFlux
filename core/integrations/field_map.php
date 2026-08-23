@@ -965,14 +965,33 @@ function tenantIntegrationFieldMapPluckPathStrict(array $payload, string $path):
             $v = tenantIntegrationFieldMapFindCaseInsensitiveKey($first, $final);
         }
     }
+    if (is_bool($v)) return $v ? '1' : '0';
     return is_scalar($v) ? trim((string) $v) : '';
+}
+
+/**
+ * JobDiva commonly serializes unavailable values as display placeholders.
+ * Those values must not win over the canonical contract fallback. Numeric
+ * zero and boolean false remain meaningful mapped values.
+ */
+function tenantIntegrationFieldMapValueIsPresent(mixed $value): bool
+{
+    if ($value === null) return false;
+    if (is_array($value)) return $value !== [];
+    if (!is_string($value)) return true;
+
+    $normalised = strtolower(trim($value));
+    return !in_array($normalised, [
+        '', '-', '--', '—', '–',
+        'n/a', 'na', 'null', '(null)', 'not available',
+    ], true);
 }
 
 function tenantIntegrationFieldMapPluckPath(array $payload, string $path): string
 {
     foreach (tenantIntegrationFieldMapPluckPathSourceAliases($path) as $candidatePath) {
         $v = tenantIntegrationFieldMapPluckPathStrict($payload, $candidatePath);
-        if ($v !== '') return $v;
+        if (tenantIntegrationFieldMapValueIsPresent($v)) return $v;
     }
     return '';
 }
@@ -1003,10 +1022,10 @@ function tenantIntegrationFieldMapPluckInternal(
         $sourcePath = trim((string) ($map[$internalField]['source_path'] ?? ''));
         $externalField = trim((string) ($map[$internalField]['external_field'] ?? ''));
         $raw = $sourcePath !== '' ? tenantIntegrationFieldMapPluckPath($payload, $sourcePath) : '';
-        if ($raw === '' && $externalField !== '' && $externalField !== $sourcePath) {
+        if (!tenantIntegrationFieldMapValueIsPresent($raw) && $externalField !== '' && $externalField !== $sourcePath) {
             $raw = tenantIntegrationFieldMapPluckPath($payload, $externalField);
         }
-        if ($raw !== '') {
+        if (tenantIntegrationFieldMapValueIsPresent($raw)) {
             return tenantIntegrationFieldMapApplyTransform($raw, $map[$internalField]['transform']);
         }
         // Registry was configured but the payload didn't contain the
@@ -1104,10 +1123,10 @@ function tenantIntegrationFieldMapPluckTarget(
         $sourcePath = trim((string) ($map['source_path'] ?? ''));
         $externalField = trim((string) ($map['external_field'] ?? ''));
         $raw = $sourcePath !== '' ? tenantIntegrationFieldMapPluckPath($payload, $sourcePath) : '';
-        if ($raw === '' && $externalField !== '' && $externalField !== $sourcePath) {
+        if (!tenantIntegrationFieldMapValueIsPresent($raw) && $externalField !== '' && $externalField !== $sourcePath) {
             $raw = tenantIntegrationFieldMapPluckPath($payload, $externalField);
         }
-        if ($raw !== '') {
+        if (tenantIntegrationFieldMapValueIsPresent($raw)) {
             return tenantIntegrationFieldMapApplyTransform($raw, (string) ($map['transform'] ?? 'none'));
         }
     }
