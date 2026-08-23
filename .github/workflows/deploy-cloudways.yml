@@ -96,6 +96,7 @@ jobs:
             test "$APP_BASE" != "/"
             test "$STAGE_ROOT" = "/tmp/coreflux-qbo-deploy-${{ github.run_id }}"
             test -d "$STAGE_ROOT/core/qbo"
+            test -f "$STAGE_ROOT/scripts/opcache_flush_deploy.php.template"
             OPCACHE_ENDPOINT=""
             OPCACHE_RESPONSE=""
             OPCACHE_TEMPLATE="$APP_ROOT/scripts/opcache_flush_deploy.php.template"
@@ -149,13 +150,20 @@ jobs:
             OPCACHE_RESPONSE="/tmp/coreflux-opcache-response-${{ github.run_id }}.json"
             test "$OPCACHE_ENDPOINT" = "$APP_ROOT/api/admin/opcache_flush_deploy_${{ github.run_id }}.php"
             test "$OPCACHE_RESPONSE" = "/tmp/coreflux-opcache-response-${{ github.run_id }}.json"
-            test -f "$OPCACHE_TEMPLATE"
+            if [ ! -f "$OPCACHE_TEMPLATE" ]; then
+              echo "OPcache template missing after staged copy: $OPCACHE_TEMPLATE" >&2
+              exit 1
+            fi
             OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
             php -r '$template=file_get_contents($argv[1]); if ($template === false || substr_count($template, "__COREFLUX_OPCACHE_TOKEN__") !== 1) exit(1); $content=str_replace("__COREFLUX_OPCACHE_TOKEN__", $argv[3], $template); if (file_put_contents($argv[2], $content, LOCK_EX) === false) exit(1); chmod($argv[2], 0640);' "$OPCACHE_TEMPLATE" "$OPCACHE_ENDPOINT" "$OPCACHE_TOKEN"
             rm -f -- "$OPCACHE_TEMPLATE"
             OPCACHE_STATUS="$(curl -sS --max-time 20 -o "$OPCACHE_RESPONSE" -w '%{http_code}' -X POST -H "X-CoreFlux-Deploy-Reset: $OPCACHE_TOKEN" 'https://www.corefluxapp.com/api/admin/opcache_flush_deploy_${{ github.run_id }}.php')"
             unset OPCACHE_TOKEN
-            test "$OPCACHE_STATUS" = '200'
+            if [ "$OPCACHE_STATUS" != '200' ]; then
+              echo "OPcache reset endpoint returned HTTP $OPCACHE_STATUS." >&2
+              php -r '$r=(string) @file_get_contents($argv[1]); echo "OPcache response: ",substr(preg_replace("/[\\r\\n]+/", " ", $r), 0, 500),PHP_EOL;' "$OPCACHE_RESPONSE" >&2
+              exit 1
+            fi
             php -r '$r=json_decode((string) file_get_contents($argv[1]), true); if (!is_array($r) || ($r["ok"] ?? false) !== true) exit(1); echo "PHP OPcache reset through one-time deployment endpoint.\n";' "$OPCACHE_RESPONSE"
             rm -f -- "$OPCACHE_ENDPOINT" "$OPCACHE_RESPONSE"
             OPCACHE_ENDPOINT=""
