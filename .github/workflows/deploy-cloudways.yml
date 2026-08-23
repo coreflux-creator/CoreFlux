@@ -1,0 +1,37 @@
+name: Deploy CoreFlux to Cloudways
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coreflux-cloudways-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fast-forward production and apply migrations
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 10m
+          script_stop: true
+          script: |
+            set -eu
+            APP_ROOT="${{ secrets.CW_REMOTE_PATH }}/public_html"
+            cd "$APP_ROOT"
+            git fetch origin main
+            git merge --ff-only origin/main
+            php deploy/run_migrations.php
+            php deploy/run_migrations.php --status
+            grep -q 'spa-assets/index-rSDhZGqF.js' .deploy-version
+            test -f spa-assets/index-rSDhZGqF.js
+            echo "CoreFlux production deploy complete: $(git rev-parse --short HEAD)"
