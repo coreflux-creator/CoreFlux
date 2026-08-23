@@ -11,7 +11,7 @@
  *   - Person / Candidate           (_jd_candidate + candidate_* prefix)
  *   - End-client / Customer        (_jd_customer + customer_* prefix)
  *   - Hiring contact               (_jd_contact)
- *   - Rates / Overheads / VMS      (sub-keys of _jd_start)
+ *   - Rates / Overheads / VMS      (_jd_contract from EmployeeAssignmentRecordsDetail)
  *
  * Operator can then render the schema as a read-only detail screen
  * with sections + field labels + sample values — no manual wiring

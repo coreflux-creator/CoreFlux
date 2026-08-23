@@ -63,8 +63,8 @@ $assert('dedupes ids per kind so 100 placements at one client = 1 fetch',
 $assert('skips start re-fetch by default, opt-in via opts.enrich_start',
     strpos($sync, "if (\$kind === 'start' && empty(\$opts['enrich_start']))") !== false
     && strpos($sync, "\$diag[\$kind]['skipped_self']++") !== false);
-$assert('marks an endpoint broken on first 4xx so we stop hammering it',
-    strpos($sync, "preg_match('/\\b4\\d\\d\\b/', \$msg)") !== false
+$assert('only auth and method failures suppress the rest of an enrichment kind',
+    strpos($sync, "preg_match('/\\b(?:401|403|405)\\b/', \$msg)") !== false
     && strpos($sync, '$brokenEndpoint[$cfg[\'endpoint\']] = true;') !== false);
 
 echo "\njobdivaSyncEnrichRelatedEntities — injection\n";

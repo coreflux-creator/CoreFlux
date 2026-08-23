@@ -125,6 +125,7 @@ function jobdivaCanonicalPlacementPayload(array $payload, array $subPayloads = [
             '_jd_customer'  => 'jobdiva_customer',
             '_jd_contact'   => 'contact',
             '_jd_start'     => 'assignment',
+            '_jd_contract'  => 'assignment',
         ];
         foreach ($nested as $key => $nativeType) {
             if (isset($payload[$key]) && is_array($payload[$key]) && $payload[$key] !== []) {

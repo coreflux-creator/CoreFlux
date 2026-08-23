@@ -448,6 +448,9 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
   const parties = data?.parties || [];
   const readiness = data?.readiness || {};
   const model = data?.model || {};
+  const sourceContract = data?.source_contract || model.source_contract || {};
+  const sourceOverheads = data?.source_overheads || model.source_overheads || {};
+  const rawOverheadFields = sourceOverheads.source_fields || {};
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [partyCompany, setPartyCompany] = useState(null);
@@ -512,6 +515,27 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
   const frequencyOptions = ['weekly','biweekly','semimonthly','monthly','adhoc'];
   const frequencyLabel = { weekly: 'Weekly', biweekly: 'Bi-weekly', semimonthly: 'Semi-monthly', monthly: 'Monthly', adhoc: 'As needed' };
   const termsLabel = (term) => term === 'DUE_ON_RECEIPT' ? 'Due on receipt' : term === 'PWP' ? 'Paid when paid' : term.startsWith('PWP_NET') ? `Paid when paid + ${term.slice(7)} days` : term.replace('NET', 'Net ');
+  const sourceValue = (value, kind = '') => {
+    if (value === null || value === undefined || value === '') return '-';
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (kind === 'percent') return `${(Number(value) * 100).toFixed(2)}%`;
+    if (typeof value === 'number') return Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 });
+    return String(value);
+  };
+  const overheadSummary = [
+    ['Payroll profile', sourceOverheads.payroll_profile_id],
+    ['W-2 overhead', sourceOverheads.w2],
+    ['C2C overhead', sourceOverheads.c2c],
+    ['Payroll / employer load', sourceOverheads.payroll_load_pct, 'percent'],
+    ['Workers compensation', sourceOverheads.workers_comp_pct, 'percent'],
+    ['Benefits load', sourceOverheads.benefits_load_pct, 'percent'],
+    ['Per diem', sourceOverheads.per_diem],
+    ['Other expenses', sourceOverheads.other_expenses],
+    ['Outside commission', sourceOverheads.outside_commission],
+    ['Fixed costs', sourceOverheads.fixed_costs],
+    ['Pass through', sourceOverheads.pass_through],
+    ['Pass discount', sourceOverheads.pass_discount],
+  ].filter(([, value]) => value !== null && value !== undefined && value !== '');
   const partyRoleOptions = partyForm.settlement_channel === 'ar'
     ? ['end_client', 'client']
     : partyForm.settlement_channel === 'payroll'
@@ -559,6 +583,22 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
           ...(model.hourly_lines || []).map((line) => ({ ...line, lineType: 'Hourly cost', hourly: true })),
           ...(model.fixed_lines || []).map((line) => ({ ...line, lineType: 'Fixed cost', hourly: false })),
         ].map((line, index) => <tr key={`${line.role || line.name}-${index}`}><td>{line.name}</td><td>{line.lineType}</td><td>{line.basis.replace(/_/g, ' ')}</td><td>{line.settlement_channel}</td><td>{model.currency} {Number(line.amount).toFixed(2)}{line.hourly ? ' / hour' : ''}</td></tr>)}</tbody></table></details>
+      </section>}
+
+      {Object.keys(sourceContract).length > 0 && <section style={{ marginTop: 24 }} data-testid="jobdiva-overheads">
+        <h4>JobDiva overheads</h4>
+        {overheadSummary.length > 0 ? <table className="data-table">
+          <thead><tr><th>Overhead</th><th>JobDiva value</th><th>Economic treatment</th></tr></thead>
+          <tbody>{overheadSummary.map(([label, value, kind]) => <tr key={label}>
+            <td>{label}</td>
+            <td>{sourceValue(value, kind)}</td>
+            <td>{['Payroll / employer load','Workers compensation','Benefits load'].includes(label) ? 'Hourly cost' : label === 'Fixed costs' ? 'Fixed obligation' : 'Source contract'}</td>
+          </tr>)}</tbody>
+        </table> : <p className="empty">No assignment overhead values were reported by JobDiva.</p>}
+        {Object.keys(rawOverheadFields).length > 0 && <details style={{ marginTop: 10 }}>
+          <summary style={{ cursor: 'pointer' }}>Raw JobDiva overhead fields</summary>
+          <table className="data-table" style={{ marginTop: 8 }}><thead><tr><th>Source path</th><th>Value</th></tr></thead><tbody>{Object.entries(rawOverheadFields).map(([path, value]) => <tr key={path}><td><code>{path}</code></td><td>{sourceValue(value)}</td></tr>)}</tbody></table>
+        </details>}
       </section>}
 
       <section style={{ marginTop: 24 }}>

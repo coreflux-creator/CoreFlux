@@ -17,6 +17,8 @@
  *   6. JobsDetail?jobIds=<real>  (uses a real job id from stored placements)
  *   7. CandidatesDetail?…        (real candidate id)
  *   8. CompaniesDetail?…         (real customer id)
+ *   9. EmployeeAssignmentRecordsDetail?startId=<real Start ID>
+ *  10. EmploymentCategory / PaymentFrequency reference catalogs
  *
  * RBAC: tenant_admin.integrations. Operator clicks "🔎 Diagnose
  * JobDiva" in the Field Mapping Studio.
@@ -70,6 +72,18 @@ $probes = [
         'query' => [],
         'note'  => 'Pure no-param endpoint — lowest-friction test. 200+items proves Jobs access is live.',
     ],
+    [
+        'name'  => 'EmploymentCategory reference catalog',
+        'path'  => '/apiv2/bi/EmploymentCategory',
+        'query' => [],
+        'note'  => 'Authoritative JobDiva worker-classification values used by the assignment contract adapter.',
+    ],
+    [
+        'name'  => 'PaymentFrequency reference catalog',
+        'path'  => '/apiv2/bi/PaymentFrequency',
+        'query' => [],
+        'note'  => 'Authoritative JobDiva assignment payment cadences used for AP/payroll cycle projection.',
+    ],
 ];
 
 // Add by-ID probes using real IDs from existing placement payloads if we
@@ -93,6 +107,15 @@ if ($pdo) {
                 $jId = jobdivaPluckField($payload, ['job id', 'jobId', 'job_id', 'jobID', 'JOBID']);
                 $cId = jobdivaPluckField($payload, ['candidate id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID', 'employeeId']);
                 $uId = jobdivaPluckField($payload, ['customer id', 'customerId', 'customer_id', 'customerID', 'CUSTOMERID']);
+                $startId = jobdivaPluckField($payload, ['id', 'startId', 'start_id', 'placementId']);
+                if ($startId !== null && $startId !== '') {
+                    $probes[] = [
+                        'name'  => "EmployeeAssignmentRecordsDetail?startId=$startId",
+                        'path'  => '/apiv2/bi/EmployeeAssignmentRecordsDetail',
+                        'query' => ['startId' => (string) $startId],
+                        'note'  => 'This is the authoritative assignment financial record: classification, rates, vendor/payee, terms, cadence, referral economics, and overheads.',
+                    ];
+                }
                 if ($jId !== null && $jId !== '') {
                     $probes[] = [
                         'name'  => "JobsDetail?jobIds=$jId",
@@ -159,16 +182,7 @@ foreach ($probes as $ep) {
         $resp = jobdivaRawRequest('GET', $ep['path'], null, $ep['query'] ?? [], true, $token);
         $body = $resp['body'] ?? null;
         $isJsonArr = is_array($body);
-        $itemCount = 0;
-        if ($isJsonArr) {
-            if (isset($body['data']) && is_array($body['data'])) {
-                $itemCount = count($body['data']);
-            } elseif (isset($body['items']) && is_array($body['items'])) {
-                $itemCount = count($body['items']);
-            } elseif (!empty($body) && array_keys($body) === range(0, count($body) - 1)) {
-                $itemCount = count($body);
-            }
-        }
+        $itemCount = $isJsonArr ? count(jobdivaRowsFromResponse($resp)) : 0;
         $bodyStr  = $isJsonArr ? (string) json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : (string) $body;
         $entry['status']        = (int) ($resp['status'] ?? 0);
         $entry['item_count']    = $itemCount;
