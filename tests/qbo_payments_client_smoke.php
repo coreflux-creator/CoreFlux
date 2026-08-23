@@ -84,6 +84,10 @@ check('emits qboAudit on outbound charge creation',
     str_contains($src, "qboAudit(\$tenantId, 'payments_charge_create'"));
 check('throws QboApiException on 4xx/5xx',
     str_contains($src, '$ex = new QboApiException'));
+check('preserves Intuit troubleshooting correlation IDs',
+    str_contains($src, "\$resp['headers']['intuit_tid']")
+    && str_contains($src, "\$ex->raw['intuit_tid']")
+    && str_contains($src, "'intuit_tid' => \$intuitTid"));
 check('shadow upsert is idempotent (selects then UPDATE/INSERT)',
     str_contains($src, 'SELECT id FROM qbo_payment_charges')
     && str_contains($src, 'INSERT INTO qbo_payment_charges'));

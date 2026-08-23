@@ -72,6 +72,10 @@ $a('only post-refresh 401/403 poisons connection auth state',
     && $c($cli, 'CASE WHEN :auth_failure = 1 THEN "error" ELSE status END'));
 $a('ordinary QBO validation/upstream errors preserve connection status',
     $c($cli, 'does not mean') && $c($cli, 'last_probe_error = :e'));
+$a('captures Intuit troubleshooting correlation headers',
+    $c($cli, 'CURLOPT_HEADERFUNCTION')
+    && $c($cli, "\$resp['headers']['intuit_tid']")
+    && $c($cli, "\$ex->raw['intuit_tid']"));
 
 // ----------------------------------------------------------------- api dispatch
 echo "\napi/qbo.php — action dispatch\n";

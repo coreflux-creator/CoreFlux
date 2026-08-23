@@ -137,6 +137,10 @@ function qboPaymentsCall(
         $ex->httpStatus = (int) $resp['status'];
         $ex->errorCode  = $errCode;
         $ex->raw        = ['body' => substr($rawBody, 0, 600), 'request_id' => $idem];
+        $intuitTid = trim((string) ($resp['headers']['intuit_tid'] ?? $resp['headers']['intuit-tid'] ?? ''));
+        if ($intuitTid !== '') {
+            $ex->raw['intuit_tid'] = substr($intuitTid, 0, 200);
+        }
 
         qboAudit($tenantId, 'payments_http_error', [
             'direction' => 'outbound',
@@ -146,6 +150,7 @@ function qboPaymentsCall(
                 'status' => $resp['status'], 'error_code' => $errCode,
                 'error_message' => substr($errMsg, 0, 240),
                 'request_id' => $idem,
+                'intuit_tid' => $intuitTid,
             ],
         ]);
         throw $ex;

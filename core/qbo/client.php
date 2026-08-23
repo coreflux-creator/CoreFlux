@@ -490,6 +490,13 @@ function qboCall(int $tenantId, string $method, string $path, ?array $body = nul
         $ex->httpStatus = (int) $resp['status'];
         $ex->errorCode  = $errCode;
         $ex->raw        = ['body' => substr($rawBody, 0, 600)];
+        $intuitTid = trim((string) ($resp['headers']['intuit_tid'] ?? $resp['headers']['intuit-tid'] ?? ''));
+        if ($intuitTid !== '') {
+            // Intuit support uses this correlation ID to find the exact
+            // upstream request. Keep it with the error envelope, never in
+            // the customer-facing message.
+            $ex->raw['intuit_tid'] = substr($intuitTid, 0, 200);
+        }
         throw $ex;
     }
     if (!is_array($resp['body'])) return ['_raw' => $resp['body']];
@@ -508,12 +515,24 @@ function qboRawRequest(string $method, string $url, ?string $rawBody, array $hea
         return ($GLOBALS['__qbo_transport'])($method, $url, $headers, $rawBody);
     }
     $ch = curl_init($url);
+    $responseHeaders = [];
     $opts = [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CUSTOMREQUEST  => strtoupper($method),
         CURLOPT_HTTPHEADER     => $headers,
         CURLOPT_TIMEOUT        => 30,
         CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_HEADERFUNCTION => static function ($curl, string $line) use (&$responseHeaders): int {
+            $length = strlen($line);
+            $parts = explode(':', trim($line), 2);
+            if (count($parts) === 2) {
+                $name = strtolower(trim($parts[0]));
+                if ($name !== '') {
+                    $responseHeaders[$name] = trim($parts[1]);
+                }
+            }
+            return $length;
+        },
     ];
     if ($rawBody !== null) $opts[CURLOPT_POSTFIELDS] = $rawBody;
     curl_setopt_array($ch, $opts);
@@ -524,7 +543,7 @@ function qboRawRequest(string $method, string $url, ?string $rawBody, array $hea
     curl_close($ch);
     if ($errno) throw new \RuntimeException('QBO network error: ' . $err . ' (errno ' . $errno . ')');
     $decoded = ($raw === '' || $raw === false) ? null : json_decode((string) $raw, true);
-    return ['status' => $status, 'body' => $decoded ?? $raw, 'headers' => []];
+    return ['status' => $status, 'body' => $decoded ?? $raw, 'headers' => $responseHeaders];
 }
 
 /**
