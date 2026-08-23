@@ -90,6 +90,9 @@ define('RESEND_FROM_NAME',   'CoreFlux Notifications');
 // define('QBO_CLIENT_ID',     'ABxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
 // define('QBO_CLIENT_SECRET', 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
 // define('QBO_WEBHOOK_VERIFIER_TOKEN', 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+// define('QBO_RECAPTCHA_SITE_KEY', 'public-site-key-from-google');
+// define('QBO_RECAPTCHA_SECRET_KEY', 'private-secret-key-from-google');
+// define('QBO_RECAPTCHA_ALLOWED_HOSTS', 'corefluxapp.com,www.corefluxapp.com');
 // define('QBO_REDIRECT_URI',  'https://yourdomain.com/api/qbo/oauth_callback.php');
 // define('QBO_ENV',           'sandbox');  // 'sandbox' | 'production'
 // Accounting sync only (least privilege):

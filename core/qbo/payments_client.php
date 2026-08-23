@@ -32,6 +32,8 @@
  *
  * Public surface:
  *   qboPaymentsConfigured(int $tid): bool
+ *   qboPaymentsRecaptchaConfigured(): bool
+ *   qboVerifyPaymentsRecaptcha(string $responseToken, ?string $remoteIp=null): array
  *   qboPaymentsBaseUrl(): string
  *   qboPaymentsCall(int $tid, string $method, string $path,
  *                   ?array $body=null, ?array $query=null,
@@ -67,6 +69,67 @@ function qboPaymentsConfigured(int $tenantId): bool
     if (!$row || $row['status'] !== 'active') return false;
     $scopes = preg_split('/\s+/', trim((string) ($row['scope'] ?? '')));
     return in_array(QBO_PAYMENTS_SCOPE, (array) $scopes, true);
+}
+
+/** Payment collection stays disabled until both halves of reCAPTCHA are installed. */
+function qboPaymentsRecaptchaConfigured(): bool
+{
+    return trim(qboCfg('QBO_RECAPTCHA_SITE_KEY')) !== ''
+        && trim(qboCfg('QBO_RECAPTCHA_SECRET_KEY')) !== '';
+}
+
+/**
+ * Verify a reCAPTCHA v2 response before creating any card or e-check charge.
+ * The response token is deliberately never logged or persisted.
+ *
+ * @return array{success:bool,hostname:string,challenge_ts:string}
+ */
+function qboVerifyPaymentsRecaptcha(string $responseToken, ?string $remoteIp = null): array
+{
+    $secret = trim(qboCfg('QBO_RECAPTCHA_SECRET_KEY'));
+    $responseToken = trim($responseToken);
+    if ($secret === '' || trim(qboCfg('QBO_RECAPTCHA_SITE_KEY')) === '') {
+        throw new \RuntimeException('Payment verification is not configured.');
+    }
+    if ($responseToken === '') {
+        throw new \InvalidArgumentException('Complete the reCAPTCHA challenge before submitting payment.');
+    }
+
+    $form = ['secret' => $secret, 'response' => $responseToken];
+    if (is_string($remoteIp) && filter_var($remoteIp, FILTER_VALIDATE_IP)) {
+        $form['remoteip'] = $remoteIp;
+    }
+    $verification = qboRawRequest(
+        'POST',
+        'https://www.google.com/recaptcha/api/siteverify',
+        http_build_query($form, '', '&', PHP_QUERY_RFC3986),
+        ['Accept: application/json', 'Content-Type: application/x-www-form-urlencoded']
+    );
+    if ((int) ($verification['status'] ?? 0) !== 200 || !is_array($verification['body'] ?? null)) {
+        throw new \RuntimeException('Payment verification is temporarily unavailable. Try again.');
+    }
+
+    $body = $verification['body'];
+    if (($body['success'] ?? false) !== true) {
+        throw new \InvalidArgumentException('reCAPTCHA verification failed. Complete a new challenge and try again.');
+    }
+
+    $hostname = strtolower(rtrim(trim((string) ($body['hostname'] ?? '')), '.'));
+    $allowed = preg_split(
+        '/\s*,\s*/',
+        strtolower(trim(qboCfg('QBO_RECAPTCHA_ALLOWED_HOSTS') ?: 'corefluxapp.com,www.corefluxapp.com')),
+        -1,
+        PREG_SPLIT_NO_EMPTY
+    ) ?: [];
+    if ($hostname === '' || !in_array($hostname, $allowed, true)) {
+        throw new \InvalidArgumentException('reCAPTCHA verification was issued for an unexpected host.');
+    }
+
+    return [
+        'success' => true,
+        'hostname' => $hostname,
+        'challenge_ts' => (string) ($body['challenge_ts'] ?? ''),
+    ];
 }
 
 function qboPaymentsBaseUrl(): string

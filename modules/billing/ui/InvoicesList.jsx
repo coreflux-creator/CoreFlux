@@ -36,7 +36,8 @@ export default function InvoicesList({ session }) {
   const qboStatus = useApi('/api/qbo/status.php?action=status', { enabled: canCollectViaQbo });
   const qboPaymentsEnabled = canCollectViaQbo
     && qboStatus.data?.connected === true
-    && qboStatus.data?.payments_enabled === true;
+    && qboStatus.data?.payments_enabled === true
+    && qboStatus.data?.payments_recaptcha_enabled === true;
   const rows = data?.rows ?? [];
   // Batch-fetch QBO drift snapshots so we can render a chip per row
   // without N+1 round-trips.
@@ -194,6 +195,7 @@ export default function InvoicesList({ session }) {
         <QboPaymentsCollectModal
           invoice={collectInvoice}
           environment={qboStatus.data?.environment}
+          recaptchaSiteKey={qboStatus.data?.payments_recaptcha_site_key}
           onClose={() => setCollectInvoice(null)}
           onCollected={() => {
             setCollectInvoice(null);

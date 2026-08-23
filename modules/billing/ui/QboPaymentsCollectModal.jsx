@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
 
 /**
@@ -18,7 +18,7 @@ import { api } from '../../../dashboard/src/lib/api';
  *      token previously generated via Intuit's developer tools. Useful
  *      for sandbox testing and support diagnostics.
  */
-export default function QboPaymentsCollectModal({ invoice, environment = 'sandbox', onClose, onCollected }) {
+export default function QboPaymentsCollectModal({ invoice, environment = 'sandbox', recaptchaSiteKey = '', onClose, onCollected }) {
   const paymentsEnvironment = environment === 'production' ? 'production' : 'sandbox';
   const tokenEndpoint = `${paymentsEnvironment === 'production' ? 'https://api.intuit.com' : 'https://sandbox.api.intuit.com'}/quickbooks/v4/payments/tokens`;
   const [mode, setMode] = useState('direct');
@@ -31,6 +31,10 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
   const [busy, setBusy]         = useState(false);
   const [result, setResult]     = useState(null);
   const [error, setError]       = useState(null);
+  const [recaptchaToken, setRecaptchaToken] = useState('');
+  const [recaptchaError, setRecaptchaError] = useState('');
+  const recaptchaContainerRef = useRef(null);
+  const recaptchaWidgetRef = useRef(null);
 
   // Live tokenizer card inputs.
   const [cardNumber, setCardNumber] = useState('');
@@ -49,6 +53,55 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
   // the same invoice+amount+type reuse it, allowing Intuit and CoreFlux to
   // return the original charge instead of double-charging the customer.
   const idempotencyRef = useRef({ intent: '', key: '' });
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!recaptchaSiteKey) {
+      setRecaptchaError('Payment verification is not configured.');
+      return undefined;
+    }
+
+    const renderChallenge = () => {
+      if (cancelled || !recaptchaContainerRef.current || recaptchaWidgetRef.current !== null) return;
+      if (!globalThis.grecaptcha?.render) {
+        globalThis.setTimeout(renderChallenge, 100);
+        return;
+      }
+      recaptchaWidgetRef.current = globalThis.grecaptcha.render(recaptchaContainerRef.current, {
+        sitekey: recaptchaSiteKey,
+        callback: (value) => {
+          setRecaptchaToken(value || '');
+          setRecaptchaError('');
+        },
+        'expired-callback': () => {
+          setRecaptchaToken('');
+          setRecaptchaError('The reCAPTCHA challenge expired. Complete it again.');
+        },
+        'error-callback': () => {
+          setRecaptchaToken('');
+          setRecaptchaError('reCAPTCHA could not load. Refresh and try again.');
+        },
+      });
+    };
+
+    let script = document.querySelector('script[data-coreflux-recaptcha="v2"]');
+    if (!script) {
+      script = document.createElement('script');
+      script.src = 'https://www.google.com/recaptcha/api.js?render=explicit';
+      script.async = true;
+      script.defer = true;
+      script.dataset.corefluxRecaptcha = 'v2';
+      script.addEventListener('load', renderChallenge, { once: true });
+      script.addEventListener('error', () => {
+        if (!cancelled) setRecaptchaError('reCAPTCHA could not load. Refresh and try again.');
+      }, { once: true });
+      document.head.appendChild(script);
+    } else {
+      renderChallenge();
+    }
+
+    return () => { cancelled = true; };
+  }, [recaptchaSiteKey]);
 
   if (!invoice) return null;
 
@@ -103,6 +156,10 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
       setError('Amount must be greater than zero.');
       return;
     }
+    if (!recaptchaToken) {
+      setRecaptchaError('Complete the reCAPTCHA challenge before submitting payment.');
+      return;
+    }
 
     setBusy(true);
     try {
@@ -125,6 +182,7 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
         amount:     amt,
         token:      tok,
         type,
+        recaptcha_token: recaptchaToken,
         idempotency_key: idempotencyRef.current.key,
         description: desc.trim() || undefined,
       });
@@ -135,6 +193,10 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
     } catch (err) {
       setError(err.message || 'Charge failed.');
     } finally {
+      setRecaptchaToken('');
+      if (recaptchaWidgetRef.current !== null && globalThis.grecaptcha?.reset) {
+        globalThis.grecaptcha.reset(recaptchaWidgetRef.current);
+      }
       setBusy(false);
     }
   };
@@ -252,6 +314,15 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
             </Field>
           )}
 
+          <div data-testid="qbo-payments-recaptcha" style={{ margin: '12px 0' }}>
+            <div ref={recaptchaContainerRef} aria-label="Payment reCAPTCHA challenge" />
+            {recaptchaError && (
+              <div role="alert" style={{ marginTop: 6, color: '#991b1b', fontSize: 12 }}>
+                {recaptchaError}
+              </div>
+            )}
+          </div>
+
           {error && <div data-testid="qbo-payments-error" style={errorStyle}>{error}</div>}
           {result?.charge && (
             <div data-testid="qbo-payments-result" role="status" aria-label="QuickBooks payment receipt" style={resultStyle(result.charge.status)}>
@@ -274,9 +345,9 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
           <footer style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
             <button type="button" onClick={onClose} data-testid="qbo-payments-cancel" style={btnGhost}>Close</button>
             <button type="submit"
-                    disabled={busy}
+                    disabled={busy || !recaptchaToken}
                     data-testid="qbo-payments-submit"
-                    style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
+                    style={{ ...btnPrimary, opacity: busy || !recaptchaToken ? 0.6 : 1 }}>
               {busy ? 'Charging…' : `Charge $${Number(amount || 0).toFixed(2)}`}
             </button>
           </footer>

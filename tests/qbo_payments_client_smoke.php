@@ -105,6 +105,13 @@ check('endpoint calls api_require_auth',         str_contains($ep, 'api_require_
 check('endpoint RBAC-gates to admin/wildcard',
     str_contains($ep, "rbac_legacy_require_any") && str_contains($ep, "'master_admin'"));
 check('refuses call when payment scope absent',  str_contains($ep, 'qboPaymentsConfigured('));
+check('server verifies reCAPTCHA before creating a payment',
+    str_contains($ep, 'qboVerifyPaymentsRecaptcha(')
+    && strpos($ep, 'qboVerifyPaymentsRecaptcha(') < strpos($ep, 'qboCreateCharge('));
+check('reCAPTCHA helper verifies with Google and allowlists the production hosts',
+    str_contains($src, 'https://www.google.com/recaptcha/api/siteverify')
+    && str_contains($src, 'QBO_RECAPTCHA_ALLOWED_HOSTS')
+    && str_contains($src, 'corefluxapp.com,www.corefluxapp.com'));
 check('validates invoice exists + open',         str_contains($ep, 'billing_invoices'));
 check('rejects amount > invoice.amount_due',     str_contains($ep, 'amount exceeds invoice amount_due'));
 check('idempotency: accepts and reuses caller Request-Id',
@@ -136,11 +143,16 @@ check('status reports granted/configured OAuth scopes and Payments readiness',
     str_contains($qboApi, "'granted_scopes'")
     && str_contains($qboApi, "'configured_scopes'")
     && str_contains($qboApi, "'payments_enabled'")
-    && str_contains($qboApi, "'payments_scope_requested'"));
+    && str_contains($qboApi, "'payments_scope_requested'")
+    && str_contains($qboApi, "'payments_recaptcha_enabled'")
+    && str_contains($qboApi, "'payments_recaptcha_site_key'"));
 $qboSettings = (string) file_get_contents($root . '/dashboard/src/pages/QboSettings.jsx');
 check('settings surfaces Payments grant and re-consent action',
     str_contains($qboSettings, 'qbo-payments-scope-status')
     && str_contains($qboSettings, 'qbo-reconsent-btn'));
+check('settings surfaces reCAPTCHA readiness',
+    str_contains($qboSettings, 'qbo-payments-recaptcha-status')
+    && str_contains($qboSettings, 'reCAPTCHA v2 enabled'));
 check('settings provides in-app QuickBooks support contact',
     str_contains($qboSettings, 'qbo-support-link')
     && str_contains($qboSettings, 'support@corefluxapp.com'));
@@ -152,10 +164,15 @@ check('payment UI renders receipt amount, date, masked method, ID, and processor
     && str_contains($paymentsModal, 'Payment method:')
     && str_contains($paymentsModal, 'Transaction ID:')
     && str_contains($paymentsModal, 'NMLS #1098819'));
+check('payment UI renders reCAPTCHA v2 and sends its token to the server',
+    str_contains($paymentsModal, 'https://www.google.com/recaptcha/api.js?render=explicit')
+    && str_contains($paymentsModal, 'recaptcha_token: recaptchaToken')
+    && str_contains($paymentsModal, 'qbo-payments-recaptcha'));
 $invoicesUi = (string) file_get_contents($root . '/modules/billing/ui/InvoicesList.jsx');
 check('invoice collection CTA is gated by live Payments readiness',
     str_contains($invoicesUi, "/api/qbo/status.php?action=status")
-    && str_contains($invoicesUi, 'qboStatus.data?.payments_enabled === true'));
+    && str_contains($invoicesUi, 'qboStatus.data?.payments_enabled === true')
+    && str_contains($invoicesUi, 'qboStatus.data?.payments_recaptcha_enabled === true'));
 check('invoice collection CTA mirrors the backend admin gate',
     str_contains($invoicesUi, "['master_admin', 'tenant_admin'].includes(user.global_role)")
     && str_contains($invoicesUi, '{ enabled: canCollectViaQbo }'));

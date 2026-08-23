@@ -190,6 +190,10 @@ switch ($action) {
             'configured_scopes' => $configuredScopes,
             'payments_enabled'  => qboPaymentsConfigured($tid),
             'payments_scope_requested' => in_array(QBO_PAYMENTS_SCOPE, $configuredScopes, true),
+            'payments_recaptcha_enabled' => qboPaymentsRecaptchaConfigured(),
+            'payments_recaptcha_site_key' => qboPaymentsRecaptchaConfigured()
+                ? qboCfg('QBO_RECAPTCHA_SITE_KEY')
+                : null,
             'access_token_exp'  => $row['access_token_exp']  ?? null,
             'refresh_token_exp' => $row['refresh_token_exp'] ?? null,
             'last_probe_at'     => $row['last_probe_at']     ?? null,

@@ -3,9 +3,9 @@
  * POST /api/admin/qbo/payments_charge.php
  *
  *      Body (card):
- *        { invoice_id, amount, token, type: 'card', card?: {…}, description? }
+ *        { invoice_id, amount, token, recaptcha_token, type: 'card', card?: {…}, description? }
  *      Body (echeck):
- *        { invoice_id, amount, token, type: 'echeck', bankAccount?: {…}, description? }
+ *        { invoice_id, amount, token, recaptcha_token, type: 'echeck', bankAccount?: {…}, description? }
  *
  *      Flow:
  *        1. Validate the AR invoice belongs to the caller's tenant + has
@@ -95,6 +95,7 @@ $amount    = round((float) ($body['amount'] ?? 0), 2);
 $token     = (string) ($body['token'] ?? '');
 $type      = (string) ($body['type']  ?? 'card');
 $desc      = (string) ($body['description'] ?? '');
+$recaptchaToken = (string) ($body['recaptcha_token'] ?? '');
 $providedIdempotencyKey = trim((string) ($body['idempotency_key'] ?? ''));
 
 if ($invoiceId <= 0)               api_error('invoice_id required', 400);
@@ -110,6 +111,16 @@ if ($providedIdempotencyKey !== ''
 
 if (!qboPaymentsConfigured($tenantId)) {
     api_error('QBO Payments scope not granted — re-connect QuickBooks with the payment scope.', 412);
+}
+if (!qboPaymentsRecaptchaConfigured()) {
+    api_error('Payment verification is not configured.', 503);
+}
+try {
+    qboVerifyPaymentsRecaptcha($recaptchaToken, $_SERVER['REMOTE_ADDR'] ?? null);
+} catch (\InvalidArgumentException $e) {
+    api_error($e->getMessage(), 422);
+} catch (\Throwable $e) {
+    api_error('Payment verification is temporarily unavailable. Try again.', 503);
 }
 
 // 1. Resolve + validate the invoice within tenant scope.

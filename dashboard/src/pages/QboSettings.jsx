@@ -370,6 +370,10 @@ export default function QboSettings() {
               <dd style={{ margin: 0 }} data-testid="qbo-payments-scope-status">
                 {data.payments_enabled ? 'Enabled (card + ACH)' : 'Not granted'}
               </dd>
+              <dt style={{ color: 'var(--cf-text-secondary)' }}>Payment verification</dt>
+              <dd style={{ margin: 0 }} data-testid="qbo-payments-recaptcha-status">
+                {data.payments_recaptcha_enabled ? 'reCAPTCHA v2 enabled' : 'reCAPTCHA setup required'}
+              </dd>
               <dt style={{ color: 'var(--cf-text-secondary)' }}>Granted scopes</dt>
               <dd style={{ margin: 0, fontFamily: 'var(--cf-mono, ui-monospace)', fontSize: 11 }}>
                 {(data.granted_scopes || []).join(' · ') || '—'}
