@@ -14,7 +14,7 @@ $privacy = $read($root . '/privacy.html');
 $terms = $read($root . '/terms.html');
 $connect = $read($root . '/quickbooks-connect.html');
 $disconnect = $read($root . '/quickbooks-disconnect.html');
-$workflow = $read($root . '/.github/workflows/deploy-cloudways.yml');
+$workflowPath = $root . '/.github/workflows/deploy-cloudways.yml';
 
 $check('privacy policy is public static HTML', str_contains($privacy, 'data-policy="coreflux-privacy-v1"'));
 $check('privacy policy explains QuickBooks OAuth and records', str_contains($privacy, 'OAuth access and refresh tokens') && str_contains($privacy, 'QuickBooks records'));
@@ -25,8 +25,13 @@ $check('terms page covers Intuit and payments', str_contains($terms, 'Intuit') &
 $check('connect page routes administrators to QBO settings', str_contains($connect, 'data-qbo-lifecycle="connect-reconnect"') && str_contains($connect, 'href="/admin/integrations/qbo"'));
 $check('disconnect page explains revocation and deletion', str_contains($disconnect, 'data-qbo-lifecycle="disconnect"') && str_contains($disconnect, 'disables future QuickBooks API access') && str_contains($disconnect, 'Data deletion'));
 $check('all public pages link privacy and terms', str_contains($connect, '/privacy.html') && str_contains($connect, '/terms.html') && str_contains($disconnect, '/privacy.html') && str_contains($disconnect, '/terms.html'));
-$check('deployment includes all go-live assets', str_contains($workflow, 'assets/css/legal.css') && str_contains($workflow, 'privacy.html') && str_contains($workflow, 'terms.html') && str_contains($workflow, 'quickbooks-connect.html') && str_contains($workflow, 'quickbooks-disconnect.html'));
-$check('deployment performs public HTTP verification', str_contains($workflow, 'data-policy="coreflux-privacy-v1"') && str_contains($workflow, 'data-qbo-lifecycle="disconnect"'));
+// The repository workflow is intentionally not copied into the public web root.
+// Validate it in a checkout, while production validates only deployed assets.
+if (is_file($workflowPath)) {
+    $workflow = $read($workflowPath);
+    $check('deployment includes all go-live assets', str_contains($workflow, 'assets/css/legal.css') && str_contains($workflow, 'privacy.html') && str_contains($workflow, 'terms.html') && str_contains($workflow, 'quickbooks-connect.html') && str_contains($workflow, 'quickbooks-disconnect.html'));
+    $check('deployment performs public HTTP verification', str_contains($workflow, 'data-policy="coreflux-privacy-v1"') && str_contains($workflow, 'data-qbo-lifecycle="disconnect"'));
+}
 
 echo PHP_EOL . "QBO go-live assets smoke: {$passes} ✓ / " . count($failures) . " ✗" . PHP_EOL;
 exit($failures ? 1 : 0);
