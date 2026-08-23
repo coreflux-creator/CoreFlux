@@ -906,6 +906,7 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         trim((string) ($r['payment_terms'] ?? $r['vendor_default_terms'] ?? '')) === ''
     ));
     $model = placementEconomicsModel($tenantId, $placementId, $parties);
+    $sourceEvidence = placementEconomicsLatestSourceEvidence($tenantId, $placementId);
     $hasC2cVendor = count(array_filter($parties, static fn(array $r): bool =>
         $r['role'] === 'c2c_vendor' && $r['settlement_channel'] === 'ap' && !empty($r['ap_vendor_id'])
     )) > 0;
@@ -948,9 +949,77 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         'parties' => $parties,
         'cycles' => $cycles,
         'model' => $model,
+        'source_contract' => $sourceEvidence['source_contract'],
+        'source_overheads' => $sourceEvidence['source_overheads'],
         'readiness' => $readiness,
         'reconcile' => $reconcileResult,
     ];
+}
+
+/**
+ * Return the latest JobDiva assignment contract independently of approval.
+ * Draft rows carry the current source evidence; approved rows remain immutable
+ * snapshots and are used only when no newer source-backed draft exists.
+ *
+ * @return array{source_contract:array<string,mixed>,source_overheads:array<string,mixed>}
+ */
+function placementEconomicsLatestSourceEvidence(int $tenantId, int $placementId): array
+{
+    $empty = ['source_contract' => [], 'source_overheads' => []];
+    if ($tenantId <= 0 || $placementId <= 0) return $empty;
+
+    $st = getDB()->prepare(
+        'SELECT economics_snapshot_json
+           FROM placement_rates
+          WHERE tenant_id = :t
+            AND placement_id = :p
+            AND economics_snapshot_json IS NOT NULL
+            AND economics_snapshot_json <> ""
+          ORDER BY id DESC
+          LIMIT 20'
+    );
+    $st->execute(['t' => $tenantId, 'p' => $placementId]);
+    while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {
+        $snapshot = json_decode((string) ($row['economics_snapshot_json'] ?? ''), true);
+        if (!is_array($snapshot)) continue;
+        $contract = $snapshot['assignment_contract'] ?? $snapshot['source_contract'] ?? null;
+        if (!is_array($contract) || $contract === []) continue;
+        $overheads = $snapshot['source_overheads'] ?? $contract['overheads'] ?? [];
+        return [
+            'source_contract' => $contract,
+            'source_overheads' => is_array($overheads) ? $overheads : [],
+        ];
+    }
+
+    $mapping = getDB()->prepare(
+        'SELECT payload_snapshot
+           FROM external_entity_mappings
+          WHERE tenant_id = :t
+            AND source_system = "jobdiva"
+            AND internal_entity_type = "placement"
+            AND internal_entity_id = :p
+            AND sync_status = "ok"
+            AND payload_snapshot IS NOT NULL
+          ORDER BY updated_at DESC, id DESC
+          LIMIT 1'
+    );
+    $mapping->execute(['t' => $tenantId, 'p' => $placementId]);
+    $payload = json_decode((string) ($mapping->fetchColumn() ?: ''), true);
+    if (is_array($payload)) {
+        $contract = $payload['_jd_contract'] ?? null;
+        if (!is_array($contract) && is_array($payload['assignment'] ?? null)
+            && ($payload['assignment']['source'] ?? '') === 'EmployeeAssignmentRecordsDetail') {
+            $contract = $payload['assignment'];
+        }
+        if (is_array($contract) && $contract !== []) {
+            $overheads = $contract['overheads'] ?? [];
+            return [
+                'source_contract' => $contract,
+                'source_overheads' => is_array($overheads) ? $overheads : [],
+            ];
+        }
+    }
+    return $empty;
 }
 
 function placementEconomicsModelForRate(
@@ -1115,6 +1184,7 @@ function placementEconomicsModel(int $tenantId, int $placementId, ?array $partie
 function placementEconomicsApprovalSnapshot(int $tenantId, array $rate): array
 {
     $placementId = (int) ($rate['placement_id'] ?? 0);
+    $sourceSnapshot = json_decode((string) ($rate['economics_snapshot_json'] ?? ''), true);
     placementEconomicsReconcile($tenantId, $placementId);
     $parties = placementEconomicsParties($tenantId, $placementId);
     $model = placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties);
@@ -1182,6 +1252,13 @@ function placementEconomicsApprovalSnapshot(int $tenantId, array $rate): array
     ));
     $model['contract_version'] = 1;
     $model['contract_parties'] = $contractParties;
+    if (is_array($sourceSnapshot['assignment_contract'] ?? null)) {
+        $model['source_system'] = (string) ($sourceSnapshot['source_system'] ?? 'jobdiva');
+        $model['source_contract'] = $sourceSnapshot['assignment_contract'];
+        $model['source_overheads'] = is_array($sourceSnapshot['source_overheads'] ?? null)
+            ? $sourceSnapshot['source_overheads']
+            : ($sourceSnapshot['assignment_contract']['overheads'] ?? []);
+    }
     if (count($receivable) === 1) {
         $billTo = $receivable[0];
         $model['receivable_contract'] = [

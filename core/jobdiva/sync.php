@@ -27,6 +27,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/assignment_identity.php';
+require_once __DIR__ . '/assignment_contract.php';
 require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../integrations/payload_field_index.php';
@@ -257,7 +258,7 @@ function jobdivaPluckField(array $item, array $candidates): string
 function jobdivaPluckFieldDeep(
     array $item,
     array $candidates,
-    array $nestOrder = ['_jd_candidate', '_jd_job', '_jd_customer', '_jd_contact', '_jd_start',
+    array $nestOrder = ['_jd_contract', '_jd_candidate', '_jd_job', '_jd_customer', '_jd_contact', '_jd_start',
                        'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord',
                        'candidate', 'Candidate', 'customer', 'Customer', 'contact', 'Contact',
                        'person', 'company', 'Company', 'client', 'Client',
@@ -522,8 +523,14 @@ function jobdivaRowsFromResponse($resp): array
         $body = $resp['body'];
     }
     if (!is_array($body)) return [];
-    if (isset($body['data']) && is_array($body['data'])) return $body['data'];
-    if (isset($body['items']) && is_array($body['items'])) return $body['items'];
+    if (isset($body['data']) && is_array($body['data'])) {
+        $data = $body['data'];
+        return $data === [] || array_is_list($data) ? $data : [$data];
+    }
+    if (isset($body['items']) && is_array($body['items'])) {
+        $items = $body['items'];
+        return $items === [] || array_is_list($items) ? $items : [$items];
+    }
     if (!empty($body) && array_keys($body) === range(0, count($body) - 1)) return $body;
     return !empty($body) ? [$body] : [];
 }
@@ -1424,6 +1431,15 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
             'endpoint' => 'exact searchStart placement snapshot -> supported jobId/candidateid lookup',
             'inject'   => '_jd_start',
         ],
+        'financial' => [
+            'id_options' => [
+                ['ids' => ['id', 'startId', 'start_id', 'placementId'],
+                 'body_key' => 'startId', 'numeric' => true],
+            ],
+            'method'   => 'GET',
+            'endpoint' => '/apiv2/bi/EmployeeAssignmentRecordsDetail',
+            'inject'   => '_jd_assignment_detail',
+        ],
     ];
 
     // Helper — try the kind's id_options in order against one payload.
@@ -1454,7 +1470,7 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
             $pick = $pluckIdOption($cfg, $jd);
             if ($pick !== null) {
                 $idsByKind[$kind][$pick['id']] = $pick['body_key'];
-                if ($kind === 'start') {
+                if ($kind === 'start' || $kind === 'financial') {
                     $startHints[(string) $pick['id']] = jobdivaAssignmentStripDerivedFacets($jd);
                 }
             }
@@ -1540,11 +1556,35 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
                     $resp = jobdivaCall($tid, 'GET', $cfg['endpoint'], null, [
                         $bodyKey => $id,
                         'userFieldsName' => '',
-                    ]);
+                    ], $kind === 'financial' ? [400, 404] : []);
                 } else {
                     $resp = jobdivaCall($tid, 'POST', $cfg['endpoint'], [$bodyKey => $id]);
                 }
                 $rows = jobdivaRowsFromResponse($resp);
+                if ($kind === 'financial') {
+                    $financialRows = array_values(array_filter($rows, 'is_array'));
+                    if ($financialRows === []) {
+                        $cache[$kind][$id] = null;
+                        $diag[$kind]['empty_response']++;
+                        continue;
+                    }
+                    $contract = jobdivaAssignmentContractBuild(
+                        $financialRows,
+                        $startHints[(string) $id] ?? [],
+                        (string) $id
+                    );
+                    if ($contract !== []) {
+                        $cache[$kind][$id] = [
+                            'rows' => $financialRows,
+                            'contract' => $contract,
+                        ];
+                        $diag[$kind]['succeeded']++;
+                    } else {
+                        $cache[$kind][$id] = null;
+                        $diag[$kind]['empty_response']++;
+                    }
+                    continue;
+                }
                 if (is_array($rows) && count($rows) > 0 && is_array($rows[0])) {
                     $cache[$kind][$id] = $rows[0];
                     $diag[$kind]['succeeded']++;
@@ -1559,9 +1599,11 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
                 if ($diag[$kind]['sample_error'] === null) {
                     $diag[$kind]['sample_error'] = substr($msg, 0, 240);
                 }
-                // Heuristic: HTTP 4xx in the error message = endpoint
-                // unavailable on this tenant. Skip the rest of this kind.
-                if (preg_match('/\b4\d\d\b/', $msg)) {
+                // Authentication/method failures apply to the whole endpoint.
+                // Record-specific 400/404 responses must not suppress the rest
+                // of the batch: some tenants retain historical Starts that the
+                // financial-detail endpoint no longer returns.
+                if (preg_match('/\b(?:401|403|405)\b/', $msg)) {
                     $brokenEndpoint[$cfg['endpoint']] = true;
                     $diag[$kind]['broken_endpoint'] = true;
                 }
@@ -1580,6 +1622,12 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
             if ($pick === null) continue;
             $idStr = $pick['id'];
             if (!isset($cache[$kind][$idStr]) || $cache[$kind][$idStr] === null) continue;
+            if ($kind === 'financial') {
+                $financial = $cache[$kind][$idStr];
+                $jd['_jd_assignment_detail'] = $financial['rows'] ?? [];
+                $jd['_jd_contract'] = $financial['contract'] ?? [];
+                continue;
+            }
             $jd[$cfg['inject']] = $cache[$kind][$idStr];
         }
         // Legacy convenience field for the title pluck chain.
@@ -1656,6 +1704,7 @@ function jobdivaExtractJoinedSubPayloads(array $enriched): array
         '_jd_customer'  => 'jobdiva_customer',
         '_jd_contact'   => 'contact',
         '_jd_start'     => 'assignment',
+        '_jd_contract'  => 'assignment',
     ];
     foreach ($NESTED_MAP as $nestKey => $entityType) {
         if (isset($enriched[$nestKey]) && is_array($enriched[$nestKey]) && !empty($enriched[$nestKey])) {
@@ -2131,7 +2180,8 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
         $jd = $p['payload'];
         return empty($jd['_jd_job']) || empty($jd['_jd_candidate'])
             || empty($jd['_jd_customer'])
-            || empty($jd['_jd_start']);
+            || empty($jd['_jd_start'])
+            || empty($jd['_jd_contract']);
     }));
     $enrichmentRanFor = 0;
     $enrichmentBroken = [];
@@ -2140,14 +2190,9 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
         try {
             $items = array_map(fn($p) => $p['payload'], $needsEnrichment);
             $enrichDiag = null;
-            // enrich_start=1 is CRITICAL — without it the searchStart
-            // endpoint is skipped (the optimistic "we already have it"
-            // path), and _jd_start stays empty. Without _jd_start the
-            // assignment entity has no rates / billing / pay / overhead
-            // / VMS / division fields. Operator's literal ask: "get all
-            // the fields so I can populate a screen like this!" (the
-            // JobDiva Assignment edit screen). Flipping this on adds
-            // ONE call per placement during backfill — acceptable.
+            // The exact Start proves placement identity. The financial BI
+            // detail supplies the commercial contract and overheads. Both
+            // facets must be refreshed before replaying canonical graphs.
             $enriched = jobdivaSyncEnrichRelatedEntities(
                 $tenantId, $items, null,
                 ['enrich_start' => 1],
@@ -3254,7 +3299,7 @@ function jobdivaPlacementPayloadC2CFlagState(array $payload): ?bool
         }
     };
 
-    foreach (['_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment'] as $root) {
+    foreach (['_jd_contract', '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment'] as $root) {
         if (!isset($payload[$root]) || !is_array($payload[$root])) continue;
         $scan($payload[$root], (string) $root);
         if ($state === true) return true;
@@ -3274,6 +3319,12 @@ function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string 
     $fallback = in_array((string) $fallback, $allowed, true)
         ? (string) $fallback
         : ($fallback === '' ? '' : 'w2');
+
+    $contractEngagement = jobdivaNormalisePlacementEngagementType(
+        (string) ($payload['_jd_contract']['engagement_type'] ?? ''),
+        ''
+    );
+    if ($contractEngagement !== '') return $contractEngagement;
 
     $classify = static function (string $key, mixed $value): ?string {
         if (!is_scalar($value) && $value !== null) return null;
@@ -3336,7 +3387,7 @@ function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string 
     // open to several engagement types and a candidate can have preferences;
     // neither is the economic contract represented by this placement.
     $hit = $scanNested([
-        '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
+        '_jd_contract', '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
     ]);
     if ($hit !== null) return $hit;
 
@@ -5336,6 +5387,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'burden', 'burden %', 'burden percent', 'burdenPercent',
             'employer burden', 'employer_burden_pct', 'employer burden pct',
             'load', 'load %', 'load percent', 'benefit load', 'payroll burden',
+            'payroll_load_pct', 'payroll load pct', 'overhead percent', 'overhead pct',
         ])
     );
     $adderPct = jobdivaParsePercent($adderRaw);
@@ -5378,21 +5430,31 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     ]));
     $billDiscountFlat = $billDiscountFlat > 0 ? $billDiscountFlat : null;
     $workersCompPct = jobdivaParsePercent($mappedRateValue('workers_comp_pct', [
-        'workers comp percent', 'workers compensation percent', 'workers comp %',
+        'workers comp percent', 'workers compensation percent', 'workers comp %', 'workers_comp_pct',
     ]));
     $benefitsLoadPct = jobdivaParsePercent($mappedRateValue('benefits_load_pct', [
-        'benefits load percent', 'benefit load percent', 'benefits %',
+        'benefits load percent', 'benefit load percent', 'benefits %', 'benefits_load_pct',
     ]));
     $otherCostPerHour = jobdivaParseRateAmount($mappedRateValue('other_cost_per_hour', [
-        'other cost per hour', 'additional cost per hour',
+        'other cost per hour', 'additional cost per hour', 'other_cost_per_hour',
     ]));
     $otherCostPerHour = $otherCostPerHour > 0 ? $otherCostPerHour : null;
     $otherCostFlat = jobdivaParseRateAmount($mappedRateValue('other_cost_flat', [
-        'other fixed cost', 'additional fixed cost',
+        'other fixed cost', 'additional fixed cost', 'other_cost_flat', 'fixed costs',
     ]));
     $otherCostFlat = $otherCostFlat > 0 ? $otherCostFlat : null;
 
     $effectiveFrom = $startDate !== '' ? $startDate : date('Y-m-d');
+    $sourceContract = isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])
+        ? $jd['_jd_contract']
+        : [];
+    $sourceSnapshotJson = $sourceContract !== []
+        ? json_encode([
+            'source_system' => 'jobdiva',
+            'assignment_contract' => $sourceContract,
+            'source_overheads' => $sourceContract['overheads'] ?? [],
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+        : null;
 
     // Locate the current open rate row (effective_to IS NULL). Prefer an
     // unapproved draft so re-syncs refresh the approvable row. Approved
@@ -5404,7 +5466,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
                 adder_pct, background_fee_total,
                 bill_adder_pct, bill_adder_flat, bill_discount_pct, bill_discount_flat,
                 workers_comp_pct, benefits_load_pct, other_cost_per_hour, other_cost_flat,
-                created_by_user_id
+                economics_snapshot_json, created_by_user_id
            FROM placement_rates
           WHERE tenant_id = :t AND placement_id = :p AND effective_to IS NULL
           ORDER BY (approved_at IS NULL) DESC, effective_from DESC, id DESC
@@ -5427,7 +5489,8 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
                     bill_adder_pct = :bill_adder_pct, bill_adder_flat = :bill_adder_flat,
                     bill_discount_pct = :bill_discount_pct, bill_discount_flat = :bill_discount_flat,
                     workers_comp_pct = :workers_comp_pct, benefits_load_pct = :benefits_load_pct,
-                    other_cost_per_hour = :other_cost_per_hour, other_cost_flat = :other_cost_flat
+                    other_cost_per_hour = :other_cost_per_hour, other_cost_flat = :other_cost_flat,
+                    economics_snapshot_json = COALESCE(:economics_snapshot_json, economics_snapshot_json)
               WHERE id = :id'
         )->execute([
             'ef'  => $effectiveFrom,
@@ -5445,6 +5508,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'benefits_load_pct' => $benefitsLoadPct,
             'other_cost_per_hour' => $otherCostPerHour,
             'other_cost_flat' => $otherCostFlat,
+            'economics_snapshot_json' => $sourceSnapshotJson,
             'id'  => $rateId,
         ]);
         return true;
@@ -5491,10 +5555,12 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
              pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier,
              adder_pct, background_fee_total,
              bill_adder_pct, bill_adder_flat, bill_discount_pct, bill_discount_flat,
-             workers_comp_pct, benefits_load_pct, other_cost_per_hour, other_cost_flat)
+             workers_comp_pct, benefits_load_pct, other_cost_per_hour, other_cost_flat,
+             economics_snapshot_json)
          VALUES (:t, :p, :ef, :et, :br, :bru, :pr, :pru, :cur, :ot, :dt, :adder, :bg,
                  :bill_adder_pct, :bill_adder_flat, :bill_discount_pct, :bill_discount_flat,
-                 :workers_comp_pct, :benefits_load_pct, :other_cost_per_hour, :other_cost_flat)'
+                 :workers_comp_pct, :benefits_load_pct, :other_cost_per_hour, :other_cost_flat,
+                 :economics_snapshot_json)'
     )->execute([
         't'   => $tid, 'p'   => $placementId,
         'ef'  => $effectiveFrom,
@@ -5513,6 +5579,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         'benefits_load_pct' => $benefitsLoadPct,
         'other_cost_per_hour' => $otherCostPerHour,
         'other_cost_flat' => $otherCostFlat,
+        'economics_snapshot_json' => $sourceSnapshotJson,
     ]);
     return true;
 }

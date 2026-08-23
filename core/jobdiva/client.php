@@ -18,7 +18,7 @@
  *   jobdivaSaveConnection(int $tid, array $creds, int $userId): array
  *   jobdivaDisconnect(int $tid, int $userId): void
  *   jobdivaPing(int $tid, int $userId): array           // { ok, latency_ms, account?, error? }
- *   jobdivaCall(int $tid, string $method, string $path, ?array $body=null, ?array $query=null): array
+ *   jobdivaCall(int $tid, string $method, string $path, ?array $body=null, ?array $query=null, array $nonDegradingStatuses=[]): array
  *   jobdivaAudit(int $tid, string $action, array $opts=[]): void
  *   jobdivaWebhookVerify(int $tid, string $rawBody, string $sigHeader): bool
  */
@@ -362,7 +362,14 @@ function jobdivaSessionToken(int $tenantId): string
 /**
  * High-level call: authenticated, auto-refresh on 401 once.
  */
-function jobdivaCall(int $tenantId, string $method, string $path, ?array $body = null, ?array $query = null): array
+function jobdivaCall(
+    int $tenantId,
+    string $method,
+    string $path,
+    ?array $body = null,
+    ?array $query = null,
+    array $nonDegradingStatuses = []
+): array
 {
     $token = jobdivaSessionToken($tenantId);
     $resp  = jobdivaRawRequest($method, $path, $body, $query, /* withAuth */ true, $token);
@@ -387,12 +394,14 @@ function jobdivaCall(int $tenantId, string $method, string $path, ?array $body =
         $err = 'JobDiva ' . $method . ' ' . $path . ' → HTTP ' . $resp['status']
              . ($liUuid !== '' ? ' [li-uuid: ' . $liUuid . ']' : '')
              . "\nResponse body: " . substr($bodyStr, 0, 800);
-        getDB()->prepare(
-            'UPDATE jobdiva_connections
-                SET status = "degraded",
-                    last_sync_error = :err
-              WHERE tenant_id = :t'
-        )->execute(['t' => $tenantId, 'err' => substr($err, 0, 4000)]);
+        if (!in_array((int) $resp['status'], $nonDegradingStatuses, true)) {
+            getDB()->prepare(
+                'UPDATE jobdiva_connections
+                    SET status = "degraded",
+                        last_sync_error = :err
+                  WHERE tenant_id = :t'
+            )->execute(['t' => $tenantId, 'err' => substr($err, 0, 4000)]);
+        }
         throw new \RuntimeException($err);
     }
     return $resp['body'];

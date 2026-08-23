@@ -350,7 +350,8 @@ function jobdivaAssignmentSanitisePayload(array $payload, ?string $expectedId = 
 function jobdivaAssignmentStripDerivedFacets(array $payload): array
 {
     foreach ([
-        '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
+        '_jd_start', '_jd_assignment_detail', '_jd_contract',
+        'assignment', 'start', 'Start', 'jobdiva_assignment',
         '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job',
         '_jd_candidate', 'person', 'candidate', 'Candidate', 'employee', 'worker', 'jobdiva_candidate',
         '_jd_customer', 'customer', 'Customer', 'company', 'Company', 'client', 'Client', 'jobdiva_customer',
