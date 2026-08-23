@@ -10,8 +10,10 @@ on:
         default: none
         options:
           - none
+          - prepare
           - capture
           - restore
+          - cleanup
 
 permissions:
   contents: read
@@ -74,8 +76,29 @@ jobs:
             grep -Fq 'CURRENT_TIMESTAMP - INTERVAL 30 MINUTE' core/qbo/client.php
             grep -Fq 'return $stmt->rowCount() === 1;' core/qbo/client.php
             RECOVERY_MODE="${DATA_KEY_RECOVERY_MODE:-none}"
-            case "$RECOVERY_MODE" in none|capture|restore) ;; *) echo 'Invalid data-key recovery mode.' >&2; exit 1 ;; esac
-            php scripts/recover_data_key.php "$RECOVERY_MODE" "$APP_BASE"
+            case "$RECOVERY_MODE" in none|prepare|capture|restore|cleanup) ;; *) echo 'Invalid data-key recovery mode.' >&2; exit 1 ;; esac
+            RECOVERY_ARCHIVE="$APP_BASE/.coreflux-pre-key-recovery.tar.gz"
+            RECOVERY_ARCHIVE_TEMP="$APP_BASE/.coreflux-pre-key-recovery.tar.gz.tmp"
+            if [ "$RECOVERY_MODE" = 'prepare' ]; then
+              test "$RECOVERY_ARCHIVE" = "$APP_BASE/.coreflux-pre-key-recovery.tar.gz"
+              test "$RECOVERY_ARCHIVE_TEMP" = "$APP_BASE/.coreflux-pre-key-recovery.tar.gz.tmp"
+              test ! -e "$RECOVERY_ARCHIVE"
+              test ! -e "$RECOVERY_ARCHIVE_TEMP"
+              SOURCE_KB="$(du -sk "$APP_ROOT" "$APP_BASE/private_html" 2>/dev/null | awk '{ total += $1 } END { print total + 0 }')"
+              FREE_KB="$(df -Pk "$APP_BASE" | awk 'NR==2 { print $4 }')"
+              test "$FREE_KB" -gt $((SOURCE_KB + 102400))
+              tar -czf "$RECOVERY_ARCHIVE_TEMP" -C "$APP_BASE" public_html private_html
+              tar -tzf "$RECOVERY_ARCHIVE_TEMP" >/dev/null
+              mv "$RECOVERY_ARCHIVE_TEMP" "$RECOVERY_ARCHIVE"
+              chmod 0600 "$RECOVERY_ARCHIVE"
+              echo "Pre-recovery web-file snapshot prepared and verified; bytes=$(stat -c %s "$RECOVERY_ARCHIVE")."
+              SCRIPT_RECOVERY_MODE=none
+            elif [ "$RECOVERY_MODE" = 'cleanup' ]; then
+              SCRIPT_RECOVERY_MODE=none
+            else
+              SCRIPT_RECOVERY_MODE="$RECOVERY_MODE"
+            fi
+            php scripts/recover_data_key.php "$SCRIPT_RECOVERY_MODE" "$APP_BASE"
             php scripts/configure_qbo.php
             test -f core/migrations/129_qbo_payments_idempotency.sql
             test -f api/qbo/account_map_manual.php
@@ -113,6 +136,13 @@ jobs:
               test "$RECOVERY_ESCROW" = "$APP_BASE/.coreflux-data-key-recovery"
               rm -f -- "$RECOVERY_ESCROW"
               echo 'Data-key recovery escrow removed after verified restore.'
+            elif [ "$RECOVERY_MODE" = 'cleanup' ]; then
+              php scripts/validate_data_key.php
+              RECOVERY_ESCROW="$APP_BASE/.coreflux-data-key-recovery"
+              test "$RECOVERY_ESCROW" = "$APP_BASE/.coreflux-data-key-recovery"
+              test "$RECOVERY_ARCHIVE" = "$APP_BASE/.coreflux-pre-key-recovery.tar.gz"
+              rm -f -- "$RECOVERY_ESCROW" "$RECOVERY_ARCHIVE"
+              echo 'Verified recovery artifacts removed.'
             fi
             echo 'CoreFlux data-key config candidates (paths only):'
             find "$APP_BASE" -maxdepth 6 -type f \( -name 'config.local.php*' -o -name '.env*' -o -name '*.bak' -o -name '*.backup' \) -print0 \
