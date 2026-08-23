@@ -29,7 +29,7 @@ jobs:
           # Cloudways serves public_html from files owned by PHP-FPM. Extract
           # into a per-run, SSH-user-owned staging directory first so tar does
           # not fail while trying to change production file metadata.
-          target: ${{ secrets.CW_REMOTE_PATH }}/qbo-deploy-stage-${{ github.run_id }}
+          target: /tmp/coreflux-qbo-deploy-${{ github.run_id }}
           overwrite: true
 
       - name: Install QuickBooks credentials, apply migrations, and configure workers
@@ -51,10 +51,10 @@ jobs:
             set -eu
             APP_BASE="${{ secrets.CW_REMOTE_PATH }}"
             APP_ROOT="$APP_BASE/public_html"
-            STAGE_ROOT="$APP_BASE/qbo-deploy-stage-${{ github.run_id }}"
+            STAGE_ROOT="/tmp/coreflux-qbo-deploy-${{ github.run_id }}"
             test -n "$APP_BASE"
             test "$APP_BASE" != "/"
-            test "$STAGE_ROOT" = "$APP_BASE/qbo-deploy-stage-${{ github.run_id }}"
+            test "$STAGE_ROOT" = "/tmp/coreflux-qbo-deploy-${{ github.run_id }}"
             test -d "$STAGE_ROOT/core/qbo"
             cleanup_stage() { rm -rf -- "$STAGE_ROOT"; }
             trap cleanup_stage EXIT
