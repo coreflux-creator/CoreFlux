@@ -5594,6 +5594,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'jobdiva',
             'placement',
             $field,
+            $jd,
             static fn() => $fallbackKeys ? jobdivaPluckFieldDeep($jd, $fallbackKeys) : null
         );
     };
