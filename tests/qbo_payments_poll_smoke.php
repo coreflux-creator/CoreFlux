@@ -5,7 +5,8 @@
  * Locks:
  *   - Cron exists at /app/cron/qbo_payments_poll.php.
  *   - Selects only pending statuses (ISSUED/PENDING/CAPTURED/AUTHORIZED).
- *   - Calls qboGetCharge + qboRecordChargeShadow for each.
+ *   - Routes card/e-check retrieval, refreshes the shadow, and applies
+ *     captured transactions to CoreFlux AR exactly once.
  *   - Stamps an error_message on failures so the operator sees them.
  *   - Emits a structured summary line.
  *
@@ -39,9 +40,11 @@ check('selects only pending statuses',
 check('filters on settled_at IS NULL',             str_contains($src, 'settled_at IS NULL'));
 check('joins to qbo_connections (active only)',
     str_contains($src, "qbo_connections cn ON cn.tenant_id = c.tenant_id AND cn.status = 'active'"));
-check('calls qboGetCharge per row',                str_contains($src, 'qboGetCharge('));
+check('routes card/e-check retrieval per row',     str_contains($src, 'qboFetchPaymentTransaction('));
 check('re-upserts via qboRecordChargeShadow',      str_contains($src, 'qboRecordChargeShadow('));
+check('applies captured payments to CoreFlux AR',  str_contains($src, 'qboApplyCapturedPayment('));
 check('counts advanced statuses',                  str_contains($src, "\$totals['advanced']++"));
+check('counts newly applied payments',             str_contains($src, "\$totals['applied']++"));
 check('stamps error_message on poll failure',       str_contains($src, "'poll_error: '"));
 check('emits structured summary line',
     str_contains($src, 'qbo_payments_poll done:') && str_contains($src, 'polled=%d'));

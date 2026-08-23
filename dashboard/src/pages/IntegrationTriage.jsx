@@ -303,6 +303,7 @@ function FilterRow({ filter, setFilter, counts }) {
   const sourceLabels = {
     'qbo-dlq': `QBO push DLQ${counts ? ` (${counts.by_source['qbo-dlq']})` : ''}`,
     'qbo-drift': `QBO drift${counts ? ` (${counts.by_source['qbo-drift']})` : ''}`,
+    'qbo-payments': `QBO payments${counts ? ` (${counts.by_source['qbo-payments']})` : ''}`,
     'mercury-failed': `Mercury Failed${counts ? ` (${counts.by_source['mercury-failed']})` : ''}`,
   };
   return (
@@ -471,7 +472,7 @@ function EmptyState() {
       <div style={{ fontSize: 32, marginBottom: 8 }}>✓</div>
       <div style={{ fontWeight: 600 }}>All clear</div>
       <div style={{ fontSize: 12, color: '#15803d', marginTop: 4 }}>
-        No open push failures, drift, or failed payments across QBO + Mercury.
+        No open push failures, drift, merchant-payment exceptions, or failed payouts across QBO + Mercury.
       </div>
     </div>
   );

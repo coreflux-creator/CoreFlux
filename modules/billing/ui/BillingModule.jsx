@@ -24,7 +24,7 @@ const navItems = [
   { to: '/modules/billing/money-movement/archive', label: 'Archive' },
 ];
 
-export default function BillingModule() {
+export default function BillingModule({ session }) {
   return (
     <div className="people-directory" data-testid="billing-module">
       <header style={{ marginBottom: 'var(--cf-space-5)' }}>
@@ -52,7 +52,7 @@ export default function BillingModule() {
 
       <Routes>
         <Route index element={<Navigate to="invoices" replace />} />
-        <Route path="invoices" element={<InvoicesList />} />
+        <Route path="invoices" element={<InvoicesList session={session} />} />
         <Route path="invoices/csv_import" element={<InvoicesCsvImport />} />
         <Route path="invoices/new" element={<InvoiceCreate />} />
         <Route path="invoices/:id" element={<InvoiceDetail />} />

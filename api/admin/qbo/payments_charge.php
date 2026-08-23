@@ -16,8 +16,8 @@
  *        4. On `status=CAPTURED` (card immediate-capture path), create a
  *           billing_payments row (source_system='qbo', external_id=chargeId)
  *           and allocate against the invoice via billingAllocatePayment.
- *           ACH e-checks come back ISSUED first → real allocation waits
- *           for the settlement webhook (Phase 2).
+ *           Pending card/e-check transactions are completed by the
+ *           polling worker through the same idempotent apply helper.
  *
  * GET  /api/admin/qbo/payments_charge.php?charge_id=…
  *      Returns the persisted shadow row + the live QBO status. Used by
@@ -56,21 +56,31 @@ if ($method === 'GET') {
     } catch (\Throwable $e) {
         $shadow = null;
     }
-    // Live refresh from QBO (best-effort).
+    // Live refresh from QBO (best-effort). E-checks have a distinct
+    // retrieve endpoint, so route by the persisted shadow type.
     $live = null;
+    $application = null;
     try {
-        $live = qboGetCharge($tenantId, $chargeId);
+        $chargeType = (string) ($shadow['charge_type'] ?? 'card');
+        $live = qboFetchPaymentTransaction($tenantId, $chargeId, $chargeType);
         if (is_array($live)) {
             qboRecordChargeShadow($tenantId, $live, [
-                'charge_type' => $shadow['charge_type'] ?? 'card',
+                'charge_type' => $chargeType,
                 'coreflux_invoice_id' => $shadow['coreflux_invoice_id'] ?? null,
                 'context_token' => $shadow['context_token'] ?? null,
             ]);
+            $application = qboApplyCapturedPayment($tenantId, $live, [
+                'charge_type' => $chargeType,
+                'coreflux_invoice_id' => $shadow['coreflux_invoice_id'] ?? null,
+                'context_token' => $shadow['context_token'] ?? null,
+            ], $userId ?: null);
+            $shadowStmt->execute(['t' => $tenantId, 'c' => $chargeId]);
+            $shadow = $shadowStmt->fetch(\PDO::FETCH_ASSOC) ?: $shadow;
         }
     } catch (\Throwable $e) {
         $live = ['error' => $e->getMessage()];
     }
-    api_ok(['shadow' => $shadow, 'live' => $live]);
+    api_ok(['shadow' => $shadow, 'live' => $live, 'application' => $application]);
 }
 
 if ($method !== 'POST') {
@@ -85,12 +95,17 @@ $amount    = round((float) ($body['amount'] ?? 0), 2);
 $token     = (string) ($body['token'] ?? '');
 $type      = (string) ($body['type']  ?? 'card');
 $desc      = (string) ($body['description'] ?? '');
+$providedIdempotencyKey = trim((string) ($body['idempotency_key'] ?? ''));
 
 if ($invoiceId <= 0)               api_error('invoice_id required', 400);
 if ($amount <= 0)                  api_error('amount must be > 0', 422);
 if ($token === '')                 api_error('token required (use the Intuit tokenizer to obtain it)', 400);
 if (!in_array($type, ['card','echeck'], true)) {
     api_error("type must be 'card' or 'echeck'", 400);
+}
+if ($providedIdempotencyKey !== ''
+    && !preg_match('/^[A-Za-z0-9._:-]{8,64}$/', $providedIdempotencyKey)) {
+    api_error('idempotency_key must be 8-64 URL-safe characters', 422);
 }
 
 if (!qboPaymentsConfigured($tenantId)) {
@@ -105,31 +120,72 @@ $inv = scopedFind(
     ['id' => $invoiceId]
 );
 if (!$inv)                             api_error('Invoice not found', 404);
-if (in_array($inv['status'], ['paid','void','cancelled'], true)) {
-    api_error("Invoice {$inv['invoice_number']} is {$inv['status']}; cannot collect", 409);
-}
-if ($amount - 0.005 > (float) $inv['amount_due']) {
-    api_error('Charge amount exceeds invoice amount_due', 422);
+$contextToken = $providedIdempotencyKey !== ''
+    ? $providedIdempotencyKey
+    : ('cf-inv-' . $invoiceId . '-' . bin2hex(random_bytes(6)));
+
+// Durable retry: the browser reuses one key for the same payment intent.
+// If a prior response was lost after QBO accepted it, never POST a second
+// charge; refresh and return the already-recorded transaction instead.
+$priorStmt = getDB()->prepare(
+    'SELECT * FROM qbo_payment_charges
+      WHERE tenant_id = :t AND context_token = :k LIMIT 1'
+);
+$priorStmt->execute(['t' => $tenantId, 'k' => $contextToken]);
+$prior = $priorStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+if ($prior) {
+    if ((int) ($prior['coreflux_invoice_id'] ?? 0) !== $invoiceId
+        || (string) ($prior['charge_type'] ?? '') !== $type
+        || (int) ($prior['amount_cents'] ?? 0) !== (int) round($amount * 100)) {
+        api_error('idempotency_key was already used for a different payment intent', 409);
+    }
 }
 
-$contextToken = 'cf-inv-' . $invoiceId . '-' . bin2hex(random_bytes(6));
+// Only a brand-new intent is subject to the invoice's current balance.
+// A response may have been lost after the original request paid the
+// invoice; the same Request-Id must still replay the original result.
+if (!$prior) {
+    if (!in_array((string) $inv['status'], ['approved', 'sent', 'partially_paid'], true)) {
+        api_error("Invoice {$inv['invoice_number']} is {$inv['status']}; cannot collect", 409);
+    }
+    if ($amount - 0.005 > (float) $inv['amount_due']) {
+        api_error('Charge amount exceeds invoice amount_due', 422);
+    }
+}
 
 // 2. Fire the upstream charge.
 try {
-    $payload = [
-        'amount'          => $amount,
-        'currency'        => (string) ($inv['currency'] ?? 'USD'),
-        'token'           => $token,
-        'capture'         => true,
-        'description'     => $desc !== '' ? $desc : ('Invoice ' . $inv['invoice_number']),
-        'idempotency_key' => $contextToken,
-    ];
-    if ($type === 'card') {
-        if (!empty($body['card'])) $payload['card'] = (array) $body['card'];
-        $charge = qboCreateCharge($tenantId, $payload);
+    if ($prior) {
+        try {
+            $charge = qboFetchPaymentTransaction(
+                $tenantId,
+                (string) $prior['qbo_charge_id'],
+                (string) $prior['charge_type']
+            );
+        } catch (\Throwable $_) {
+            $charge = json_decode((string) ($prior['raw_payload'] ?? ''), true) ?: [
+                'id'       => (string) $prior['qbo_charge_id'],
+                'amount'   => number_format(((int) $prior['amount_cents']) / 100, 2, '.', ''),
+                'currency' => (string) $prior['currency'],
+                'status'   => (string) $prior['status'],
+            ];
+        }
     } else {
-        if (!empty($body['bankAccount'])) $payload['bankAccount'] = (array) $body['bankAccount'];
-        $charge = qboCreateECheck($tenantId, $payload);
+        $payload = [
+            'amount'          => $amount,
+            'currency'        => (string) ($inv['currency'] ?? 'USD'),
+            'token'           => $token,
+            'capture'         => true,
+            'description'     => $desc !== '' ? $desc : ('Invoice ' . $inv['invoice_number']),
+            'idempotency_key' => $contextToken,
+        ];
+        if ($type === 'card') {
+            if (!empty($body['card'])) $payload['card'] = (array) $body['card'];
+            $charge = qboCreateCharge($tenantId, $payload);
+        } else {
+            if (!empty($body['bankAccount'])) $payload['bankAccount'] = (array) $body['bankAccount'];
+            $charge = qboCreateECheck($tenantId, $payload);
+        }
     }
 } catch (\QboApiException $e) {
     billingAudit('billing.qbo_payments.charge_failed', [
@@ -161,63 +217,23 @@ $result = [
     'charge'    => $charge,
     'shadow_id' => $shadowId,
     'invoice_id'=> $invoiceId,
+    'reused'    => $prior !== null,
 ];
 
-// 4. Apply against the invoice when QBO immediately captured the funds.
+// 4. Apply against the invoice whenever the transaction is captured.
+// The same helper is used by GET refresh and the polling cron, so ACH
+// and delayed cards close the invoice at the moment QBO advances them.
 $status = strtoupper((string) ($charge['status'] ?? ''));
-if ($status === 'CAPTURED') {
+if (in_array($status, ['CAPTURED', 'SETTLED'], true)) {
     try {
-        $chargeId   = (string) ($charge['id'] ?? '');
-        $chargeAmt  = round(((float) ($charge['amount'] ?? $amount)), 2);
-
-        // Idempotent INSERT — UNIQUE KEY (tenant_id, source_system, external_id).
-        $pdo = getDB();
-        $pdo->prepare(
-            "INSERT INTO billing_payments
-                (tenant_id, client_name, received_at, method, reference,
-                 external_id, source_system, amount, currency, unallocated_amount,
-                 notes, created_by_user_id, created_at)
-             VALUES
-                (:t, :cn, :rd, 'card', :ref, :ext, 'qbo',
-                 :amt, :cur, :amt2, :nt, :u, CURRENT_TIMESTAMP)"
-        )->execute([
-            't'   => $tenantId,
-            'cn'  => $inv['client_name'],
-            'rd'  => date('Y-m-d'),
-            'ref' => 'QBO Charge ' . $chargeId,
-            'ext' => $chargeId,
-            'amt' => $chargeAmt,
-            'amt2'=> $chargeAmt,
-            'cur' => (string) ($inv['currency'] ?? 'USD'),
-            'nt'  => 'QBO Payments charge captured (Request-Id: ' . $contextToken . ').',
-            'u'   => $userId,
-        ]);
-        $paymentId = (int) $pdo->lastInsertId();
-
-        // Link shadow back to the billing_payments row.
-        $pdo->prepare(
-            'UPDATE qbo_payment_charges
-                SET coreflux_payment_id = :p
-              WHERE id = :id AND tenant_id = :t'
-        )->execute(['p' => $paymentId, 'id' => $shadowId, 't' => $tenantId]);
-
-        // Allocate against the invoice — re-uses the canonical engine.
-        $alloc = billingAllocatePayment(
-            $paymentId,
-            ['allocations' => [['invoice_id' => $invoiceId, 'amount' => $chargeAmt]]],
-            $userId
-        );
-        billingAudit('billing.qbo_payments.captured', [
-            'invoice_id'      => $invoiceId,
-            'amount'          => $chargeAmt,
-            'charge_id'       => $chargeId,
-            'payment_id'      => $paymentId,
-            'request_id'      => $contextToken,
-            'allocated'       => $alloc['applied'] ?? [],
-        ], $paymentId);
-
-        $result['payment_id']  = $paymentId;
-        $result['allocation'] = $alloc;
+        $application = qboApplyCapturedPayment($tenantId, $charge, [
+            'charge_type'         => $type,
+            'coreflux_invoice_id' => $invoiceId,
+            'context_token'       => $contextToken,
+        ], $userId ?: null);
+        $result['application'] = $application;
+        $result['payment_id']  = $application['payment_id'];
+        $result['allocation']  = $application['allocation'];
     } catch (\Throwable $e) {
         billingAudit('billing.qbo_payments.allocation_failed', [
             'invoice_id' => $invoiceId,
@@ -227,8 +243,8 @@ if ($status === 'CAPTURED') {
         $result['allocation_error'] = $e->getMessage();
     }
 } else {
-    // ISSUED / PENDING / DECLINED etc. — operator polls or the future
-    // settlement webhook closes the loop.
+    // ISSUED / PENDING / DECLINED etc. — the polling worker closes the
+    // loop when Intuit reports CAPTURED.
     billingAudit('billing.qbo_payments.charge_pending', [
         'invoice_id' => $invoiceId,
         'status'     => $status,

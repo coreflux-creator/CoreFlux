@@ -326,6 +326,14 @@ export default function QboSettings() {
               <dd style={{ margin: 0, fontFamily: 'var(--cf-mono, ui-monospace)' }} data-testid="qbo-realm-id">{data.realm_id || '—'}</dd>
               <dt style={{ color: 'var(--cf-text-secondary)' }}>Environment</dt>
               <dd style={{ margin: 0 }}>{data.environment || '—'}</dd>
+              <dt style={{ color: 'var(--cf-text-secondary)' }}>Payments rail</dt>
+              <dd style={{ margin: 0 }} data-testid="qbo-payments-scope-status">
+                {data.payments_enabled ? 'Enabled (card + ACH)' : 'Not granted'}
+              </dd>
+              <dt style={{ color: 'var(--cf-text-secondary)' }}>Granted scopes</dt>
+              <dd style={{ margin: 0, fontFamily: 'var(--cf-mono, ui-monospace)', fontSize: 11 }}>
+                {(data.granted_scopes || []).join(' · ') || '—'}
+              </dd>
               <dt style={{ color: 'var(--cf-text-secondary)' }}>Access token expires</dt>
               <dd style={{ margin: 0 }}>{data.access_token_exp || '—'}</dd>
               <dt style={{ color: 'var(--cf-text-secondary)' }}>Refresh token expires</dt>
@@ -342,6 +350,11 @@ export default function QboSettings() {
               <button type="button" className="btn" onClick={handlePing} disabled={busy} data-testid="qbo-ping-btn">
                 <RefreshCw size={14} style={{ marginRight: 6 }} />{busy ? 'Pinging…' : 'Test connection'}
               </button>
+              {!data.payments_enabled && data.payments_scope_requested && (
+                <button type="button" className="btn" onClick={handleConnect} disabled={busy} data-testid="qbo-reconsent-btn">
+                  <RefreshCw size={14} style={{ marginRight: 6 }} />Reconnect to enable payments
+                </button>
+              )}
               <button type="button" className="btn" onClick={handleDisconnect} disabled={busy} data-testid="qbo-disconnect-btn">
                 <XCircle size={14} style={{ marginRight: 6 }} />Disconnect
               </button>

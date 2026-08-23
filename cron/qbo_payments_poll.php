@@ -1,17 +1,19 @@
 <?php
 /**
- * QBO Payments daily polling cron — Step 6 Phase 4.
+ * QBO Payments polling cron — Step 6 Phase 4.
  *
  * QBO Payments charge lifecycle:
- *   ISSUED  → CAPTURED (immediate, on capture=true)
- *           → SETTLED (T+1 for cards, T+3 for ACH)
+ *   ISSUED / PENDING / AUTHORIZED → CAPTURED
+ *                                 → SETTLED / REFUNDED / VOIDED
  *           → REFUNDED / VOIDED
  *
  * Intuit doesn't fire a dedicated webhook for charge settlement, so
  * every pending charge (ISSUED / PENDING / CAPTURED-not-yet-SETTLED)
  * needs to be polled. We page through `qbo_payment_charges` and call
- * `qboGetCharge` for each, then re-upsert via `qboRecordChargeShadow`
- * to advance `status`, `settled_at`, `error_*` fields.
+ * the matching card/e-check retrieval endpoint, then re-upsert via
+ * `qboRecordChargeShadow`
+ * to advance `status`, `settled_at`, `error_*` fields.  A transition to
+ * CAPTURED also creates and allocates the CoreFlux billing payment.
  *
  * Schedule: hourly is more than enough; settlement deltas update with
  * 24h granularity from Intuit's side.
@@ -45,7 +47,7 @@ if (!$tenants) {
     exit(0);
 }
 
-$totals = ['tenants' => 0, 'polled' => 0, 'advanced' => 0, 'errors' => 0];
+$totals = ['tenants' => 0, 'polled' => 0, 'advanced' => 0, 'applied' => 0, 'errors' => 0];
 
 foreach ($tenants as $row) {
     $tid = (int) $row['tenant_id'];
@@ -71,12 +73,24 @@ foreach ($tenants as $row) {
         $totals['polled']++;
         $beforeStatus = (string) $c['status'];
         try {
-            $live = qboGetCharge($tid, (string) $c['qbo_charge_id']);
+            $live = qboFetchPaymentTransaction(
+                $tid,
+                (string) $c['qbo_charge_id'],
+                (string) ($c['charge_type'] ?? 'card')
+            );
             qboRecordChargeShadow($tid, $live, [
                 'charge_type'         => $c['charge_type'] ?? 'card',
                 'coreflux_invoice_id' => $c['coreflux_invoice_id'] ?: null,
                 'context_token'       => $c['context_token'] ?? null,
             ]);
+            $application = qboApplyCapturedPayment($tid, $live, [
+                'charge_type'         => $c['charge_type'] ?? 'card',
+                'coreflux_invoice_id' => $c['coreflux_invoice_id'] ?: null,
+                'context_token'       => $c['context_token'] ?? null,
+            ]);
+            if (!empty($application['applied']) && empty($application['reused'])) {
+                $totals['applied']++;
+            }
             if (strtoupper((string) ($live['status'] ?? '')) !== $beforeStatus) {
                 $totals['advanced']++;
             }
@@ -99,7 +113,7 @@ foreach ($tenants as $row) {
 }
 
 fwrite(STDOUT, sprintf(
-    "qbo_payments_poll done: tenants=%d polled=%d advanced=%d errors=%d\n",
-    $totals['tenants'], $totals['polled'], $totals['advanced'], $totals['errors']
+    "qbo_payments_poll done: tenants=%d polled=%d advanced=%d applied=%d errors=%d\n",
+    $totals['tenants'], $totals['polled'], $totals['advanced'], $totals['applied'], $totals['errors']
 ));
 exit(0);

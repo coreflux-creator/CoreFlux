@@ -66,6 +66,11 @@ $a('authorize url is appcenter',                 $c($cli, 'appcenter.intuit.com/
 $a('sandbox + production bases declared',        $c($cli, 'sandbox-quickbooks.api.intuit.com') && $c($cli, 'quickbooks.api.intuit.com'));
 $a('test transport hook supported',              $c($cli, "__qbo_transport"));
 $a('state nonce ttl 30 minutes',                 $c($cli, '$age > 1800'));
+$a('only post-refresh 401/403 poisons connection auth state',
+    $c($cli, "in_array((int) \$resp['status'], [401, 403], true)")
+    && $c($cli, 'CASE WHEN :auth_failure = 1 THEN "error" ELSE status END'));
+$a('ordinary QBO validation/upstream errors preserve connection status',
+    $c($cli, 'does not mean') && $c($cli, 'last_probe_error = :e'));
 
 // ----------------------------------------------------------------- api dispatch
 echo "\napi/qbo.php — action dispatch\n";
