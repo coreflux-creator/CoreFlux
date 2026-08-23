@@ -205,6 +205,24 @@ export default function JobDivaSettings() {
     clear(); setSyncResult(null); setBusy(b => ({ ...b, sync: true }));
     try {
       const r = await api.post('/api/jobdiva/sync.php?action=sync');
+      let contractProcessed = 0;
+      let contractProjected = 0;
+      let contractFailed = 0;
+      let cursor = 0;
+      for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
+        const batch = await api.post('/api/jobdiva/sync.php?action=assignment_contracts_batch', {
+          cursor,
+          limit: 8,
+        });
+        contractProcessed += Number(batch.processed) || 0;
+        contractProjected += Number(batch.projected) || 0;
+        contractFailed += Number(batch.failed) || 0;
+        setMsg(`Syncing JobDiva assignment contracts: ${contractProjected} projected${contractFailed ? `, ${contractFailed} unavailable` : ''}.`);
+        const nextCursor = Number(batch.cursor) || 0;
+        if (batch.done) break;
+        if (nextCursor <= cursor) throw new Error('Assignment contract sync did not advance its cursor');
+        cursor = nextCursor;
+      }
       // A3+ returns { counts: {company, contact, placement, ...}, total, latency_ms }.
       // A1 returns { ok, note, ping } only — fall back to the note.
       const counts = r.counts && typeof r.counts === 'object' ? r.counts : null;
@@ -212,12 +230,19 @@ export default function JobDivaSettings() {
                     : (counts ? Object.values(counts).reduce((a, b) => a + (Number(b) || 0), 0) : 0);
       setSyncResult({
         ok: r.ok !== false,
-        counts,
-        total,
+        counts: counts ? { ...counts, assignment_contract: contractProjected } : counts,
+        total: total + contractProjected,
         latency_ms: r.ping?.latency_ms ?? r.latency_ms ?? null,
         note: r.note || null,
         skipped_by_config: Array.isArray(r.skipped_by_config) ? r.skipped_by_config : [],
-        by_entity: r.by_entity || {},
+        by_entity: {
+          ...(r.by_entity || {}),
+          assignment_contract: {
+            processed: contractProcessed,
+            projected: contractProjected,
+            failed: contractFailed,
+          },
+        },
         ts: new Date().toISOString(),
       });
       if (!counts) setMsg(r.note || 'Sync triggered.');

@@ -75,9 +75,10 @@ $assert('preserves __cf_resolved_job_title legacy hint from _jd_job.title',
     && strpos($sync, "\$jd['__cf_resolved_job_title'] = \$title;") !== false);
 
 echo "\nWiring — placement sync calls the enricher, propagates opts\n";
-$assert('placement sync calls jobdivaSyncEnrichRelatedEntities with opts.enrich_start',
+$assert('placement sync keeps Start evidence and defers financial fan-out to batches',
     str_contains($sync, "\$enrichStart = array_key_exists('enrich_start', \$opts)")
-    && preg_match('/jobdivaSyncEnrichRelatedEntities\(\$tid, \$items, \$userId, \[\s*\'enrich_start\'\s*=>\s*\$enrichStart,\s*\]\)/', $sync) === 1);
+    && str_contains($sync, "\$enrichFinancial = array_key_exists('enrich_financial', \$opts)")
+    && preg_match('/jobdivaSyncEnrichRelatedEntities\(\$tid, \$items, \$userId, \[\s*\'enrich_start\'\s*=>\s*\$enrichStart,\s*\'enrich_financial\'\s*=>\s*\$enrichFinancial,\s*\]\)/', $sync) === 1);
 $assert('legacy jobdivaSyncResolveJobTitles still exists as thin wrapper',
     strpos($sync, 'function jobdivaSyncResolveJobTitles(int $tid, array $items, ?int $userId): array') !== false
     && strpos($sync, 'return jobdivaSyncEnrichRelatedEntities($tid, $items, $userId, []);') !== false);

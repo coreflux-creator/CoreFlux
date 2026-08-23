@@ -1183,8 +1183,16 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
     $enrichStart = array_key_exists('enrich_start', $opts)
         ? (bool) $opts['enrich_start']
         : true;
+    // EmployeeAssignmentRecordsDetail is one request per Start ID. Running
+    // that fan-out inside the main placement request exceeds common 60-second
+    // PHP limits on real tenants. The UI follows the ordinary sync with the
+    // resumable assignment-contract batch action below.
+    $enrichFinancial = array_key_exists('enrich_financial', $opts)
+        ? (bool) $opts['enrich_financial']
+        : false;
     $items = jobdivaSyncEnrichRelatedEntities($tid, $items, $userId, [
         'enrich_start' => $enrichStart,
+        'enrich_financial' => $enrichFinancial,
     ]);
 
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
@@ -1441,6 +1449,10 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
             'inject'   => '_jd_assignment_detail',
         ],
     ];
+    if (isset($opts['kinds']) && is_array($opts['kinds'])) {
+        $requestedKinds = array_fill_keys(array_map('strval', $opts['kinds']), true);
+        $configs = array_intersect_key($configs, $requestedKinds);
+    }
 
     // Helper — try the kind's id_options in order against one payload.
     // Returns ['id'=>..., 'body_key'=>...] or null.
@@ -1510,6 +1522,12 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
             // this is where JobDiva carries rates and vendor economics. The
             // `enrich_start=0` path exists only for tests or throttling.
             if ($kind === 'start' && empty($opts['enrich_start'])) {
+                $diag[$kind]['skipped_self']++;
+                continue;
+            }
+            if ($kind === 'financial'
+                && array_key_exists('enrich_financial', $opts)
+                && empty($opts['enrich_financial'])) {
                 $diag[$kind]['skipped_self']++;
                 continue;
             }
@@ -1643,6 +1661,164 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
     unset($jd);
 
     return $items;
+}
+
+/**
+ * Enrich and project a bounded page of stored JobDiva placements.
+ *
+ * EmployeeAssignmentRecordsDetail cannot be fetched in bulk. A cursor keeps
+ * every HTTP request comfortably below the host execution limit while the UI
+ * preserves one continuous Sync workflow for the operator.
+ *
+ * @return array{processed:int,projected:int,failed:int,errors:array<int,array<string,mixed>>,cursor:int,done:bool}
+ */
+function jobdivaSyncAssignmentContractsBatch(
+    int $tenantId,
+    ?int $userId,
+    int $cursor = 0,
+    int $limit = 8
+): array {
+    $cursor = max(0, $cursor);
+    $limit = max(1, min(8, $limit));
+    $result = [
+        'processed' => 0,
+        'projected' => 0,
+        'failed' => 0,
+        'errors' => [],
+        'cursor' => $cursor,
+        'done' => true,
+    ];
+    if ($tenantId <= 0) return $result;
+
+    $pdo = getDB();
+    $st = $pdo->prepare(
+        "SELECT id, external_id, internal_entity_id, payload_snapshot
+           FROM external_entity_mappings
+          WHERE tenant_id = :tenant_id
+            AND source_system = 'jobdiva'
+            AND internal_entity_type = 'placement'
+            AND sync_status = 'ok'
+            AND payload_snapshot IS NOT NULL
+            AND id > :cursor
+          ORDER BY id ASC
+          LIMIT {$limit}"
+    );
+    $st->execute(['tenant_id' => $tenantId, 'cursor' => $cursor]);
+    $rows = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    if ($rows === []) return $result;
+
+    $items = [];
+    $meta = [];
+    foreach ($rows as $row) {
+        $mappingId = (int) ($row['id'] ?? 0);
+        $result['cursor'] = max($result['cursor'], $mappingId);
+        $externalId = jobdivaAssignmentIdentityNormaliseId((string) ($row['external_id'] ?? ''));
+        $payload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
+        if ($mappingId <= 0 || $externalId === '' || !is_array($payload)) {
+            $result['failed']++;
+            $result['errors'][] = ['mapping_id' => $mappingId, 'error' => 'Invalid stored placement payload'];
+            continue;
+        }
+        $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
+        $mirrorStats = [];
+        $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats, $externalId);
+        $meta[] = [
+            'mapping_id' => $mappingId,
+            'external_id' => $externalId,
+            'placement_id' => (int) ($row['internal_entity_id'] ?? 0),
+        ];
+        $items[] = $payload;
+    }
+
+    if ($items !== []) {
+        $diagnostics = null;
+        $items = jobdivaSyncEnrichRelatedEntities(
+            $tenantId,
+            $items,
+            $userId,
+            [
+                'kinds' => ['financial'],
+                'enrich_start' => false,
+                'enrich_financial' => true,
+            ],
+            $diagnostics
+        );
+
+        foreach ($items as $index => $payload) {
+            $rowMeta = $meta[$index] ?? null;
+            if (!is_array($rowMeta)) continue;
+            $result['processed']++;
+            $contract = $payload['_jd_contract'] ?? null;
+            if (!is_array($contract) || $contract === []) {
+                $result['failed']++;
+                $result['errors'][] = [
+                    'start_id' => $rowMeta['external_id'],
+                    'error' => 'JobDiva returned no assignment financial detail',
+                ];
+                continue;
+            }
+
+            try {
+                $payload = jobdivaCanonicalPlacementPayload(
+                    $payload,
+                    jobdivaExtractJoinedSubPayloads($payload)
+                );
+                $pdo->beginTransaction();
+                $up = $pdo->prepare(
+                    'UPDATE external_entity_mappings
+                        SET payload_snapshot = :payload, updated_at = NOW()
+                      WHERE id = :mapping_id AND tenant_id = :tenant_id'
+                );
+                $up->execute([
+                    'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                    'mapping_id' => $rowMeta['mapping_id'],
+                    'tenant_id' => $tenantId,
+                ]);
+                $projection = jobdivaProjectorProjectPlacement(
+                    $tenantId,
+                    $payload,
+                    $userId,
+                    [
+                        'payload_is_enriched' => true,
+                        'external_id' => $rowMeta['external_id'],
+                        'existing_placement_id' => $rowMeta['placement_id'],
+                    ]
+                );
+                if (empty($projection['projected'])) {
+                    throw new \RuntimeException(implode(
+                        '; ',
+                        array_map('strval', $projection['errors'] ?? ['projection failed'])
+                    ));
+                }
+                $pdo->commit();
+                $result['projected']++;
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                $result['failed']++;
+                $result['errors'][] = [
+                    'start_id' => $rowMeta['external_id'],
+                    'error' => substr($e->getMessage(), 0, 300),
+                ];
+            }
+        }
+    }
+
+    $result['done'] = count($rows) < $limit;
+    jobdivaAudit($tenantId, 'sync_assignment_contracts_batch', [
+        'entity_type' => 'jobdiva_assignment_contract',
+        'direction' => 'pull',
+        'ok' => $result['failed'] === 0,
+        'items_processed' => $result['projected'],
+        'items_skipped' => 0,
+        'items_failed' => $result['failed'],
+        'detail' => [
+            'cursor' => $result['cursor'],
+            'done' => $result['done'],
+            'errors' => array_slice($result['errors'], 0, 10),
+        ],
+        'actor_user_id' => $userId,
+    ]);
+    return $result;
 }
 
 /**
