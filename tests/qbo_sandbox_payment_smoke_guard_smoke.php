@@ -16,6 +16,7 @@ $check('requires explicit one-dollar confirmation phrase', str_contains($script,
 $check('hard-gates global environment to sandbox', str_contains($script, "qboEnvironment() !== 'sandbox'"));
 $check('hard-gates selected connection to sandbox', str_contains($script, "connection['environment']") && str_contains($script, "!== 'sandbox'"));
 $check('requires exact numeric realm id', str_contains($script, "preg_match('/^\\d{6,32}$/'"));
+$check('duplicate realms require the fresh consumed OAuth tenant', str_contains($script, 'CURRENT_TIMESTAMP - INTERVAL 2 HOUR') && str_contains($script, 'ORDER BY consumed_at DESC, id DESC'));
 $check('uses Intuit sandbox token endpoint', str_contains($script, "QBO_PAYMENTS_API_SANDBOX . '/quickbooks/v4/payments/tokens'"));
 $check('charges exactly one dollar', str_contains($script, "'amount'          => 1.00"));
 $check('persists a QBO shadow for retrieval verification', str_contains($script, 'qboRecordChargeShadow') && str_contains($script, 'qboGetCharge'));

@@ -43,8 +43,27 @@ $stmt = getDB()->prepare(
 );
 $stmt->execute(['realm_id' => $realmId]);
 $connections = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+if (count($connections) > 1) {
+    // A developer sandbox company may be connected to more than one CoreFlux
+    // tenant. In that case, select only the tenant from the most recently
+    // completed OAuth handoff, and only while that handoff is still fresh.
+    $recentState = getDB()->prepare(
+        'SELECT tenant_id
+           FROM qbo_oauth_state
+          WHERE consumed_at IS NOT NULL
+            AND created_at >= CURRENT_TIMESTAMP - INTERVAL 2 HOUR
+          ORDER BY consumed_at DESC, id DESC
+          LIMIT 1'
+    );
+    $recentState->execute();
+    $recentTenantId = (int) ($recentState->fetchColumn() ?: 0);
+    $connections = array_values(array_filter(
+        $connections,
+        static fn(array $row): bool => (int) ($row['tenant_id'] ?? 0) === $recentTenantId
+    ));
+}
 if (count($connections) !== 1) {
-    fwrite(STDERR, "Refusing to charge: expected exactly one active connection for this realm.\n");
+    fwrite(STDERR, "Refusing to charge: could not uniquely match this realm to the fresh OAuth tenant.\n");
     exit(64);
 }
 
