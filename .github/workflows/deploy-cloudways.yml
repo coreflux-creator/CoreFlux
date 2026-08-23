@@ -14,6 +14,19 @@ on:
           - capture
           - restore
           - cleanup
+      qbo_sandbox_payment_smoke:
+        description: Explicitly run a $1 Intuit sandbox charge (no CoreFlux invoice/payment)
+        required: true
+        type: choice
+        default: none
+        options:
+          - none
+          - charge_one_dollar
+      qbo_sandbox_smoke_realm_id:
+        description: Exact sandbox realm ID; required only for the $1 payment smoke
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -37,7 +50,7 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/opcache_flush.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,core/config.local.example.php,core/encryption.php,core/migrations/129_qbo_payments_idempotency.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,qbo-connect.php,qbo-oauth-callback.php,scripts/configure_qbo.php,scripts/encryption_key_inventory.php,scripts/opcache_flush_deploy.php.template,scripts/recover_data_key.php,scripts/validate_data_key.php,spa-assets/index-BC5g6YJu.css,spa-assets/index-Bd7IXaN3.css,spa-assets/index-CPB4dEwN.js,spa-assets/index-FSttVP89.js,spa-assets/index.html,spa-assets/sw.js,spa.php,tests/data_key_recovery_smoke.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php"
+          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/opcache_flush.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,core/config.local.example.php,core/encryption.php,core/migrations/129_qbo_payments_idempotency.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,qbo-connect.php,qbo-oauth-callback.php,scripts/configure_qbo.php,scripts/encryption_key_inventory.php,scripts/opcache_flush_deploy.php.template,scripts/qbo_sandbox_payment_smoke.php,scripts/recover_data_key.php,scripts/validate_data_key.php,spa-assets/index-BC5g6YJu.css,spa-assets/index-Bd7IXaN3.css,spa-assets/index-CPB4dEwN.js,spa-assets/index-FSttVP89.js,spa-assets/index.html,spa-assets/sw.js,spa.php,tests/data_key_recovery_smoke.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php,tests/qbo_sandbox_payment_smoke_guard_smoke.php"
           # Cloudways serves public_html from files owned by PHP-FPM. Extract
           # into a per-run, SSH-user-owned staging directory first so tar does
           # not fail while trying to change production file metadata.
@@ -53,12 +66,14 @@ jobs:
           QBO_ENV: sandbox
           QBO_SCOPES: com.intuit.quickbooks.accounting com.intuit.quickbooks.payment
           DATA_KEY_RECOVERY_MODE: ${{ inputs.data_key_recovery || 'none' }}
+          COREFLUX_QBO_SANDBOX_SMOKE: ${{ inputs.qbo_sandbox_payment_smoke || 'none' }}
+          QBO_SANDBOX_SMOKE_REALM_ID: ${{ inputs.qbo_sandbox_smoke_realm_id || '' }}
         with:
           host: ${{ secrets.CW_SSH_HOST }}
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          envs: QBO_CLIENT_ID,QBO_CLIENT_SECRET,QBO_REDIRECT_URI,QBO_ENV,QBO_SCOPES,DATA_KEY_RECOVERY_MODE
+          envs: QBO_CLIENT_ID,QBO_CLIENT_SECRET,QBO_REDIRECT_URI,QBO_ENV,QBO_SCOPES,DATA_KEY_RECOVERY_MODE,COREFLUX_QBO_SANDBOX_SMOKE,QBO_SANDBOX_SMOKE_REALM_ID
           command_timeout: 10m
           script: |
             set -eu
@@ -139,6 +154,13 @@ jobs:
             grep -q 'spa-assets/index-FSttVP89.js' index.html
             php deploy/run_migrations.php
             php deploy/run_migrations.php --status | grep 'core/migrations/129_qbo_payments_idempotency.sql'
+
+            PAYMENT_SMOKE_MODE="${COREFLUX_QBO_SANDBOX_SMOKE:-none}"
+            case "$PAYMENT_SMOKE_MODE" in none|charge_one_dollar) ;; *) echo 'Invalid QBO sandbox payment smoke mode.' >&2; exit 1 ;; esac
+            if [ "$PAYMENT_SMOKE_MODE" = 'charge_one_dollar' ]; then
+              case "${QBO_SANDBOX_SMOKE_REALM_ID:-}" in ''|*[!0-9]*) echo 'Exact numeric sandbox realm ID is required.' >&2; exit 1 ;; esac
+              php scripts/qbo_sandbox_payment_smoke.php "$QBO_SANDBOX_SMOKE_REALM_ID"
+            fi
 
             mkdir -p logs
             CRON_BACKUP="$HOME/.coreflux-crontab-before-qbo-$(date +%Y%m%d%H%M%S)"
