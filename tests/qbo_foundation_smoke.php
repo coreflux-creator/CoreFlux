@@ -65,7 +65,8 @@ $a('refresh url is intuit token bearer',         $c($cli, 'oauth.platform.intuit
 $a('authorize url is appcenter',                 $c($cli, 'appcenter.intuit.com/connect/oauth2'));
 $a('sandbox + production bases declared',        $c($cli, 'sandbox-quickbooks.api.intuit.com') && $c($cli, 'quickbooks.api.intuit.com'));
 $a('test transport hook supported',              $c($cli, "__qbo_transport"));
-$a('state nonce ttl 30 minutes',                 $c($cli, '$age > 1800'));
+$a('state nonce ttl uses database clock',        substr_count($cli, 'CURRENT_TIMESTAMP - INTERVAL 30 MINUTE') >= 2);
+$a('state nonce consumption is atomic',          $c($cli, 'return $stmt->rowCount() === 1'));
 $a('only post-refresh 401/403 poisons connection auth state',
     $c($cli, "in_array((int) \$resp['status'], [401, 403], true)")
     && $c($cli, 'CASE WHEN :auth_failure = 1 THEN "error" ELSE status END'));

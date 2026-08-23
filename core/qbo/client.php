@@ -620,19 +620,16 @@ function qboOAuthStateContext(string $state): ?array
 {
     if ($state === '') return null;
     $stmt = getDB()->prepare(
-        'SELECT tenant_id, initiator_user_id, consumed_at, created_at
+        'SELECT tenant_id, initiator_user_id
            FROM qbo_oauth_state
-          WHERE state_token = :s LIMIT 1'
+          WHERE state_token = :s
+            AND consumed_at IS NULL
+            AND created_at >= CURRENT_TIMESTAMP - INTERVAL 30 MINUTE
+          LIMIT 1'
     );
     $stmt->execute(['s' => $state]);
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-    if (!$row || $row['consumed_at'] !== null) return null;
-    $age = time() - strtotime((string) $row['created_at']);
-    // MySQL TIMESTAMP values can be returned in the connection timezone while
-    // PHP uses the host timezone. A negative age is therefore clock skew, not
-    // evidence of a forged row (the row itself was server-generated). Keep the
-    // original upper-bound expiry check used by qboConsumeOAuthState().
-    if ($age > 1800) return null;
+    if (!$row) return null;
     return [
         'tenant_id' => (int) $row['tenant_id'],
         'initiator_user_id' => $row['initiator_user_id'] !== null
@@ -646,21 +643,15 @@ function qboConsumeOAuthState(int $tenantId, string $state): bool
     if ($state === '') return false;
     $pdo = getDB();
     $stmt = $pdo->prepare(
-        'SELECT id, tenant_id, consumed_at, created_at
-           FROM qbo_oauth_state
-          WHERE state_token = :s LIMIT 1'
+        'UPDATE qbo_oauth_state
+            SET consumed_at = CURRENT_TIMESTAMP
+          WHERE state_token = :s
+            AND tenant_id = :t
+            AND consumed_at IS NULL
+            AND created_at >= CURRENT_TIMESTAMP - INTERVAL 30 MINUTE'
     );
-    $stmt->execute(['s' => $state]);
-    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-    if (!$row) return false;
-    if ((int) $row['tenant_id'] !== $tenantId) return false;
-    if ($row['consumed_at'] !== null) return false;
-    $age = time() - strtotime((string) $row['created_at']);
-    if ($age > 1800) return false; // 30-minute window
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    $pdo->prepare('UPDATE qbo_oauth_state SET consumed_at = NOW() WHERE id = :id')
-        ->execute(['id' => (int) $row['id']]);
-    return true;
+    $stmt->execute(['s' => $state, 't' => $tenantId]);
+    return $stmt->rowCount() === 1;
 }
 
 // ---------------------------------------------------------------------
