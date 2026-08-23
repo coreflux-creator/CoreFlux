@@ -74,6 +74,8 @@ check("declares QBO_PAYMENTS_SCOPE = 'com.intuit.quickbooks.payment'",
     str_contains($src, "QBO_PAYMENTS_SCOPE = 'com.intuit.quickbooks.payment'"));
 check('declares QBO_PAYMENTS_API_SANDBOX',     str_contains($src, "QBO_PAYMENTS_API_SANDBOX"));
 check('declares QBO_PAYMENTS_API_PRODUCTION',  str_contains($src, "QBO_PAYMENTS_API_PRODUCTION"));
+check('Payments readiness rejects a connection from another environment',
+    str_contains($src, "(string) (\$row['environment'] ?? '') !== qboEnvironment()"));
 check('uses /quickbooks/v4/payments/charges path',
     str_contains($src, '/quickbooks/v4/payments/charges'));
 check('uses /quickbooks/v4/payments/echecks path',

@@ -67,6 +67,7 @@ function qboPaymentsConfigured(int $tenantId): bool
 {
     $row = qboConnection($tenantId);
     if (!$row || $row['status'] !== 'active') return false;
+    if ((string) ($row['environment'] ?? '') !== qboEnvironment()) return false;
     $scopes = preg_split('/\s+/', trim((string) ($row['scope'] ?? '')));
     return in_array(QBO_PAYMENTS_SCOPE, (array) $scopes, true);
 }

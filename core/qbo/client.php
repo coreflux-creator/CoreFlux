@@ -430,6 +430,9 @@ function qboAccessToken(int $tenantId): string
     if (!$row || $row['status'] !== 'active') {
         throw new \RuntimeException('QuickBooks is not connected for this tenant');
     }
+    if ((string) ($row['environment'] ?? '') !== qboEnvironment()) {
+        throw new \RuntimeException('QuickBooks must be reconnected for the active environment');
+    }
 
     $tok = qboRecallAccessToken($tenantId);
     if ($tok !== null) return $tok;
@@ -439,7 +442,12 @@ function qboAccessToken(int $tenantId): string
 function qboRefreshAccessToken(int $tenantId): string
 {
     $row = qboConnection($tenantId);
-    if (!$row) throw new \RuntimeException('QBO connection missing');
+    if (!$row || $row['status'] !== 'active') {
+        throw new \RuntimeException('QBO connection missing or inactive');
+    }
+    if ((string) ($row['environment'] ?? '') !== qboEnvironment()) {
+        throw new \RuntimeException('QBO connection belongs to a different environment');
+    }
     $refresh = decryptField((string) $row['refresh_token_ct']);
     if (!$refresh) throw new \RuntimeException('QBO refresh token unreadable');
 

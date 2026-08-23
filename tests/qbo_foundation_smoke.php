@@ -69,6 +69,10 @@ $a('access tokens use encrypted volatile cache only',
     && $c($cli, "'ciphertext' => encryptField(\$accessToken)")
     && substr_count($cli, "'at'  => ''") >= 2
     && $c($cli, "'at' => ''"));
+$a('access and refresh tokens reject cross-environment connections',
+    substr_count($cli, "!== qboEnvironment()") >= 2
+    && $c($cli, 'must be reconnected for the active environment')
+    && $c($cli, 'belongs to a different environment'));
 $a('refresh url is intuit token bearer',         $c($cli, 'oauth.platform.intuit.com/oauth2/v1/tokens/bearer'));
 $a('authorize url is appcenter',                 $c($cli, 'appcenter.intuit.com/connect/oauth2'));
 $a('sandbox + production bases declared',        $c($cli, 'sandbox-quickbooks.api.intuit.com') && $c($cli, 'quickbooks.api.intuit.com'));
