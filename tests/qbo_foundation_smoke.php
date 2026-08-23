@@ -107,6 +107,9 @@ $a('oauth_callback audits exchange failures',    $c($api, "'oauth_exchange_error
 $a('requires integrations.qbo.view for status',  $c($api, "rbac_legacy_require(\$user, 'integrations.qbo.view')"));
 $a('requires integrations.qbo.manage for write', $c($api, "rbac_legacy_require(\$user, 'integrations.qbo.manage')"));
 $a('returns configured + environment',           $c($api, "'configured'") && $c($api, "'environment'"));
+$a('status requires the stored connection to match the active environment',
+    $c($api, '$connectionMatchesEnvironment')
+    && $c($api, "'reconnect_required'"));
 
 // shim files exist
 foreach (['status', 'oauth_start', 'oauth_callback', 'disconnect', 'ping', 'sync_config_get', 'sync_config_set'] as $shim) {

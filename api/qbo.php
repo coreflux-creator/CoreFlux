@@ -177,12 +177,16 @@ switch ($action) {
             -1,
             PREG_SPLIT_NO_EMPTY
         ) ?: [];
+        $connectionMatchesEnvironment = $row !== null
+            && (string) ($row['environment'] ?? '') === qboEnvironment();
 
         api_ok([
             'configured'        => qboConfigured(),
             'environment'       => qboEnvironment(),
-            'connected'         => $row !== null && $row['status'] === 'active',
-            'status'            => $row['status'] ?? 'disconnected',
+            'connected'         => $connectionMatchesEnvironment && $row['status'] === 'active',
+            'status'            => $connectionMatchesEnvironment
+                ? ($row['status'] ?? 'disconnected')
+                : ($row === null ? 'disconnected' : 'reconnect_required'),
             'realm_id'          => $row['realm_id']     ?? null,
             'company_name'      => $row['company_name'] ?? null,
             'scope'             => $row['scope']        ?? null,
