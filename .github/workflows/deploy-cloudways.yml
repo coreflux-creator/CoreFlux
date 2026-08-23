@@ -37,7 +37,7 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/opcache_flush.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,core/config.local.example.php,core/encryption.php,core/migrations/129_qbo_payments_idempotency.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,qbo-oauth-callback.php,scripts/configure_qbo.php,scripts/encryption_key_inventory.php,scripts/recover_data_key.php,scripts/validate_data_key.php,spa-assets/index-BC5g6YJu.css,spa-assets/index-Bd7IXaN3.css,spa-assets/index-CIWNoDOQ.js,spa-assets/index-DwvdL3xV.js,spa-assets/index.html,spa-assets/sw.js,spa.php,tests/data_key_recovery_smoke.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php"
+          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/opcache_flush.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,core/config.local.example.php,core/encryption.php,core/migrations/129_qbo_payments_idempotency.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,qbo-oauth-callback.php,scripts/configure_qbo.php,scripts/encryption_key_inventory.php,scripts/opcache_flush_deploy.php.template,scripts/recover_data_key.php,scripts/validate_data_key.php,spa-assets/index-BC5g6YJu.css,spa-assets/index-Bd7IXaN3.css,spa-assets/index-CIWNoDOQ.js,spa-assets/index-DwvdL3xV.js,spa-assets/index.html,spa-assets/sw.js,spa.php,tests/data_key_recovery_smoke.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php"
           # Cloudways serves public_html from files owned by PHP-FPM. Extract
           # into a per-run, SSH-user-owned staging directory first so tar does
           # not fail while trying to change production file metadata.
@@ -69,8 +69,17 @@ jobs:
             test "$APP_BASE" != "/"
             test "$STAGE_ROOT" = "/tmp/coreflux-qbo-deploy-${{ github.run_id }}"
             test -d "$STAGE_ROOT/core/qbo"
-            cleanup_stage() { rm -rf -- "$STAGE_ROOT"; }
-            trap cleanup_stage EXIT
+            OPCACHE_ENDPOINT=""
+            OPCACHE_RESPONSE=""
+            OPCACHE_TEMPLATE="$APP_ROOT/scripts/opcache_flush_deploy.php.template"
+            test "$OPCACHE_TEMPLATE" = "$APP_ROOT/scripts/opcache_flush_deploy.php.template"
+            cleanup_deploy() {
+              rm -rf -- "$STAGE_ROOT"
+              if [ -n "$OPCACHE_ENDPOINT" ]; then rm -f -- "$OPCACHE_ENDPOINT"; fi
+              if [ -n "$OPCACHE_RESPONSE" ]; then rm -f -- "$OPCACHE_RESPONSE"; fi
+              rm -f -- "$OPCACHE_TEMPLATE"
+            }
+            trap cleanup_deploy EXIT
             cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
             cd "$APP_ROOT"
             grep -Fq 'CURRENT_TIMESTAMP - INTERVAL 30 MINUTE' core/qbo/client.php
@@ -109,6 +118,21 @@ jobs:
             fi
             php scripts/recover_data_key.php "$SCRIPT_RECOVERY_MODE" "$APP_BASE" "$RECOVERY_ESCROW"
             php scripts/configure_qbo.php
+            OPCACHE_ENDPOINT="$APP_ROOT/api/admin/opcache_flush_deploy_${{ github.run_id }}.php"
+            OPCACHE_RESPONSE="/tmp/coreflux-opcache-response-${{ github.run_id }}.json"
+            test "$OPCACHE_ENDPOINT" = "$APP_ROOT/api/admin/opcache_flush_deploy_${{ github.run_id }}.php"
+            test "$OPCACHE_RESPONSE" = "/tmp/coreflux-opcache-response-${{ github.run_id }}.json"
+            test -f "$OPCACHE_TEMPLATE"
+            OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
+            php -r '$template=file_get_contents($argv[1]); if ($template === false || substr_count($template, "__COREFLUX_OPCACHE_TOKEN__") !== 1) exit(1); $content=str_replace("__COREFLUX_OPCACHE_TOKEN__", $argv[3], $template); if (file_put_contents($argv[2], $content, LOCK_EX) === false) exit(1); chmod($argv[2], 0640);' "$OPCACHE_TEMPLATE" "$OPCACHE_ENDPOINT" "$OPCACHE_TOKEN"
+            rm -f -- "$OPCACHE_TEMPLATE"
+            OPCACHE_STATUS="$(curl -sS --max-time 20 -o "$OPCACHE_RESPONSE" -w '%{http_code}' -X POST -H "X-CoreFlux-Deploy-Reset: $OPCACHE_TOKEN" 'https://www.corefluxapp.com/api/admin/opcache_flush_deploy_${{ github.run_id }}.php')"
+            unset OPCACHE_TOKEN
+            test "$OPCACHE_STATUS" = '200'
+            php -r '$r=json_decode((string) file_get_contents($argv[1]), true); if (!is_array($r) || ($r["ok"] ?? false) !== true) exit(1); echo "PHP OPcache reset through one-time deployment endpoint.\n";' "$OPCACHE_RESPONSE"
+            rm -f -- "$OPCACHE_ENDPOINT" "$OPCACHE_RESPONSE"
+            OPCACHE_ENDPOINT=""
+            OPCACHE_RESPONSE=""
             test -f core/migrations/129_qbo_payments_idempotency.sql
             test -f api/qbo/account_map_manual.php
             grep -q 'function qboApplyCapturedPayment' core/qbo/payments_client.php

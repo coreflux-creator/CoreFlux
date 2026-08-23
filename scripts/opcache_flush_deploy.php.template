@@ -1,0 +1,35 @@
+<?php
+/**
+ * One-time deployment bridge for resetting the PHP-FPM OPcache.
+ *
+ * The deployment workflow replaces the token placeholder, gives this file a
+ * run-specific .php name, invokes it once, and immediately removes it. The
+ * template itself is also removed from public_html before the HTTP request.
+ */
+declare(strict_types=1);
+
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    http_response_code(404);
+    echo json_encode(['ok' => false]);
+    exit;
+}
+
+$expected = '__COREFLUX_OPCACHE_TOKEN__';
+$provided = (string) ($_SERVER['HTTP_X_COREFLUX_DEPLOY_RESET'] ?? '');
+if ($provided === '' || !hash_equals($expected, $provided)) {
+    http_response_code(404);
+    echo json_encode(['ok' => false]);
+    exit;
+}
+
+$available = function_exists('opcache_reset');
+$reset = !$available || (bool) @opcache_reset();
+http_response_code($reset ? 200 : 500);
+echo json_encode([
+    'ok' => $reset,
+    'available' => $available,
+    'reset' => $reset,
+], JSON_UNESCAPED_SLASHES);
