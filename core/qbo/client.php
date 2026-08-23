@@ -32,6 +32,14 @@
  */
 declare(strict_types=1);
 
+// Load host-local Intuit credentials directly. QBO configuration must not
+// depend on another service having loaded config.local.php earlier in the
+// request, and older production versions of encryption.php did not eagerly
+// prime these constants.
+$_qboLocalConfig = __DIR__ . '/../config.local.php';
+if (is_file($_qboLocalConfig)) require_once $_qboLocalConfig;
+unset($_qboLocalConfig);
+
 require_once __DIR__ . '/../encryption.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../config.php';
