@@ -34,6 +34,9 @@ $assert('contract batches are cursor-based and capped below the PHP timeout',
 $assert('each enriched contract is persisted and projected immediately',
     str_contains($sync, 'SET payload_snapshot = :payload')
     && str_contains($sync, 'jobdivaProjectorProjectPlacement'));
+$assert('existing placement batches preserve the canonical person identity',
+    str_contains($sync, 'p.person_id AS existing_person_id')
+    && str_contains($sync, "'person_id' => \$rowMeta['person_id']"));
 $assert('the API exposes a separately bounded contract action',
     str_contains($api, "case 'assignment_contracts_batch':")
     && str_contains($api, 'jobdivaSyncAssignmentContractsBatch'));

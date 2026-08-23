@@ -1692,15 +1692,19 @@ function jobdivaSyncAssignmentContractsBatch(
 
     $pdo = getDB();
     $st = $pdo->prepare(
-        "SELECT id, external_id, internal_entity_id, payload_snapshot
-           FROM external_entity_mappings
-          WHERE tenant_id = :tenant_id
-            AND source_system = 'jobdiva'
-            AND internal_entity_type = 'placement'
-            AND sync_status = 'ok'
-            AND payload_snapshot IS NOT NULL
-            AND id > :cursor
-          ORDER BY id ASC
+        "SELECT m.id, m.external_id, m.internal_entity_id, m.payload_snapshot,
+                p.person_id AS existing_person_id
+           FROM external_entity_mappings m
+           LEFT JOIN placements p
+             ON p.tenant_id = m.tenant_id
+            AND p.id = m.internal_entity_id
+          WHERE m.tenant_id = :tenant_id
+            AND m.source_system = 'jobdiva'
+            AND m.internal_entity_type = 'placement'
+            AND m.sync_status = 'ok'
+            AND m.payload_snapshot IS NOT NULL
+            AND m.id > :cursor
+          ORDER BY m.id ASC
           LIMIT {$limit}"
     );
     $st->execute(['tenant_id' => $tenantId, 'cursor' => $cursor]);
@@ -1726,6 +1730,7 @@ function jobdivaSyncAssignmentContractsBatch(
             'mapping_id' => $mappingId,
             'external_id' => $externalId,
             'placement_id' => (int) ($row['internal_entity_id'] ?? 0),
+            'person_id' => (int) ($row['existing_person_id'] ?? 0),
         ];
         $items[] = $payload;
     }
@@ -1782,6 +1787,7 @@ function jobdivaSyncAssignmentContractsBatch(
                         'payload_is_enriched' => true,
                         'external_id' => $rowMeta['external_id'],
                         'existing_placement_id' => $rowMeta['placement_id'],
+                        'person_id' => $rowMeta['person_id'],
                     ]
                 );
                 if (empty($projection['projected'])) {
