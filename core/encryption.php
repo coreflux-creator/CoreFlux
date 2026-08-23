@@ -19,16 +19,26 @@
 
 // Eager-load host secrets so COREFLUX_DATA_KEY is available even when this
 // file is required before any other service has primed the constants.
-$_encLocalConfig = __DIR__ . '/config.local.php';
-if (file_exists($_encLocalConfig)) require_once $_encLocalConfig;
-unset($_encLocalConfig);
+$_encLocalConfigs = [
+    __DIR__ . '/config.local.php',
+    dirname(__DIR__, 2) . '/private_html/coreflux.secrets.php',
+];
+foreach ($_encLocalConfigs as $_encLocalConfig) {
+    if (file_exists($_encLocalConfig)) require_once $_encLocalConfig;
+}
+unset($_encLocalConfig, $_encLocalConfigs);
 
 function _coreflux_data_key(): string {
     static $key = null;
     if ($key !== null) return $key;
 
-    $localConfig = __DIR__ . '/config.local.php';
-    if (file_exists($localConfig)) require_once $localConfig;
+    $localConfigs = [
+        __DIR__ . '/config.local.php',
+        dirname(__DIR__, 2) . '/private_html/coreflux.secrets.php',
+    ];
+    foreach ($localConfigs as $localConfig) {
+        if (file_exists($localConfig)) require_once $localConfig;
+    }
 
     $b64 = defined('COREFLUX_DATA_KEY') ? (string) COREFLUX_DATA_KEY : '';
     if ($b64 === '') {

@@ -2,6 +2,16 @@ name: Deploy CoreFlux to Cloudways
 
 on:
   workflow_dispatch:
+    inputs:
+      data_key_recovery:
+        description: Secure production data-key recovery phase
+        required: true
+        type: choice
+        default: none
+        options:
+          - none
+          - capture
+          - restore
 
 permissions:
   contents: read
@@ -25,7 +35,7 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/opcache_flush.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,core/config.local.example.php,core/migrations/129_qbo_payments_idempotency.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,qbo-oauth-callback.php,scripts/configure_qbo.php,scripts/encryption_key_inventory.php,spa-assets/index-BC5g6YJu.css,spa-assets/index-Bd7IXaN3.css,spa-assets/index-CIWNoDOQ.js,spa-assets/index-DwvdL3xV.js,spa-assets/index.html,spa-assets/sw.js,spa.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php"
+          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/opcache_flush.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,core/config.local.example.php,core/encryption.php,core/migrations/129_qbo_payments_idempotency.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,qbo-oauth-callback.php,scripts/configure_qbo.php,scripts/encryption_key_inventory.php,scripts/recover_data_key.php,scripts/validate_data_key.php,spa-assets/index-BC5g6YJu.css,spa-assets/index-Bd7IXaN3.css,spa-assets/index-CIWNoDOQ.js,spa-assets/index-DwvdL3xV.js,spa-assets/index.html,spa-assets/sw.js,spa.php,tests/data_key_recovery_smoke.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php"
           # Cloudways serves public_html from files owned by PHP-FPM. Extract
           # into a per-run, SSH-user-owned staging directory first so tar does
           # not fail while trying to change production file metadata.
@@ -40,12 +50,13 @@ jobs:
           QBO_REDIRECT_URI: https://www.corefluxapp.com/api/qbo/oauth_callback.php
           QBO_ENV: sandbox
           QBO_SCOPES: com.intuit.quickbooks.accounting com.intuit.quickbooks.payment
+          DATA_KEY_RECOVERY_MODE: ${{ inputs.data_key_recovery || 'none' }}
         with:
           host: ${{ secrets.CW_SSH_HOST }}
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          envs: QBO_CLIENT_ID,QBO_CLIENT_SECRET,QBO_REDIRECT_URI,QBO_ENV,QBO_SCOPES
+          envs: QBO_CLIENT_ID,QBO_CLIENT_SECRET,QBO_REDIRECT_URI,QBO_ENV,QBO_SCOPES,DATA_KEY_RECOVERY_MODE
           command_timeout: 10m
           script: |
             set -eu
@@ -62,6 +73,9 @@ jobs:
             cd "$APP_ROOT"
             grep -Fq 'CURRENT_TIMESTAMP - INTERVAL 30 MINUTE' core/qbo/client.php
             grep -Fq 'return $stmt->rowCount() === 1;' core/qbo/client.php
+            RECOVERY_MODE="${DATA_KEY_RECOVERY_MODE:-none}"
+            case "$RECOVERY_MODE" in none|capture|restore) ;; *) echo 'Invalid data-key recovery mode.' >&2; exit 1 ;; esac
+            php scripts/recover_data_key.php "$RECOVERY_MODE" "$APP_BASE"
             php scripts/configure_qbo.php
             test -f core/migrations/129_qbo_payments_idempotency.sql
             test -f api/qbo/account_map_manual.php
@@ -93,6 +107,13 @@ jobs:
             php -r 'require "core/qbo/client.php"; $db=getDB(); $s=$db->query("SELECT tenant_id, created_at, consumed_at IS NOT NULL AS consumed, TIMESTAMPDIFF(SECOND, created_at, CURRENT_TIMESTAMP) AS age_seconds FROM qbo_oauth_state ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC); $active=(int)$db->query("SELECT COUNT(*) FROM qbo_connections WHERE status = \"active\"")->fetchColumn(); $matched=false; $connects=0; if($s){$q=$db->prepare("SELECT status FROM qbo_connections WHERE tenant_id=:t LIMIT 1");$q->execute(["t"=>(int)$s["tenant_id"]]);$matched=(bool)$q->fetchColumn();$q=$db->prepare("SELECT COUNT(*) FROM qbo_sync_audit WHERE tenant_id=:t AND action=\"connect\" AND occurred_at>=:c");$q->execute(["t"=>(int)$s["tenant_id"],"c"=>$s["created_at"]]);$connects=(int)$q->fetchColumn();} $a=$db->query("SELECT action, ok, detail FROM qbo_sync_audit ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC); echo "OAuth diagnostic: state_present=",($s?"yes":"no")," consumed=",($s?(int)$s["consumed"]:-1)," age_seconds=",($s?(int)$s["age_seconds"]:-1)," connection_for_state=",($matched?"yes":"no")," connect_audits_after_state=",$connects," active_connections=",$active," last_audit=",($a?$a["action"]:"none")," last_audit_ok=",($a?(int)$a["ok"]:-1)," last_audit_detail=",($a?substr(preg_replace("/[\\r\\n]+/"," ",(string)$a["detail"]),0,500):"none"),PHP_EOL;'
             php -r 'require "core/qbo/client.php"; $db=getDB(); $s=$db->query("SELECT tenant_id, created_at FROM qbo_oauth_state ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC); $trace=[]; if($s){$q=$db->prepare("SELECT action, ok, detail FROM qbo_sync_audit WHERE tenant_id=:t AND occurred_at>=:c ORDER BY id ASC LIMIT 10");$q->execute(["t"=>(int)$s["tenant_id"],"c"=>$s["created_at"]]);foreach($q->fetchAll(PDO::FETCH_ASSOC) as $r){$trace[]=["action"=>$r["action"],"ok"=>(int)$r["ok"],"detail"=>substr(preg_replace("/[\\r\\n]+/"," ",(string)$r["detail"]),0,500)];}} echo "OAuth trace: ",json_encode($trace,JSON_UNESCAPED_SLASHES),PHP_EOL;'
             php scripts/encryption_key_inventory.php
+            if [ "$RECOVERY_MODE" = 'restore' ]; then
+              php scripts/validate_data_key.php
+              RECOVERY_ESCROW="$APP_BASE/.coreflux-data-key-recovery"
+              test "$RECOVERY_ESCROW" = "$APP_BASE/.coreflux-data-key-recovery"
+              rm -f -- "$RECOVERY_ESCROW"
+              echo 'Data-key recovery escrow removed after verified restore.'
+            fi
             echo 'CoreFlux data-key config candidates (paths only):'
             find "$APP_BASE" -maxdepth 6 -type f \( -name 'config.local.php*' -o -name '.env*' -o -name '*.bak' -o -name '*.backup' \) -print0 \
               | while IFS= read -r -d '' candidate; do
