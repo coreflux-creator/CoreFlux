@@ -45,6 +45,22 @@ export default function QboSettings() {
     }
   };
 
+  const handleRefreshRuntime = async () => {
+    setBusy(true); setFlash(null);
+    try {
+      const r = await api.post('/api/admin/opcache_flush.php', {});
+      if (r.available && !r.reset) {
+        throw new Error('The PHP cache could not be reset. Restart PHP-FPM from the hosting console.');
+      }
+      setFlash({ kind: 'success', msg: 'Server cache refreshed. Re-checking QuickBooks configuration…' });
+      status.reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     if (!window.confirm('Disconnect QuickBooks Online? Cached tokens will be revoked. No data is deleted from QBO.')) return;
     setBusy(true); setFlash(null);
@@ -276,6 +292,17 @@ export default function QboSettings() {
               Intuit Developer Dashboard <ExternalLink size={12} style={{ verticalAlign: 'middle' }} />
             </a>.
           </p>
+          <button
+            type="button"
+            className="btn"
+            onClick={handleRefreshRuntime}
+            disabled={busy}
+            data-testid="qbo-refresh-runtime-btn"
+            style={{ marginTop: 12 }}
+          >
+            <RefreshCw size={14} style={{ marginRight: 6 }} />
+            {busy ? 'Refreshing…' : 'Refresh server configuration'}
+          </button>
         </div>
       )}
 

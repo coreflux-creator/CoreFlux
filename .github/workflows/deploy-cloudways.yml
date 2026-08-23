@@ -26,7 +26,7 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,core/config.local.example.php,core/migrations/129_qbo_payments_idempotency.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,scripts/configure_qbo.php,spa-assets/index-CV3y6Kte.js,spa-assets/index-rSDhZGqF.js,spa-assets/index.html,spa-assets/sw.js,spa.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php"
+          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/opcache_flush.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,core/config.local.example.php,core/migrations/129_qbo_payments_idempotency.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,scripts/configure_qbo.php,spa-assets/index--LEYPgKE.js,spa-assets/index-BC5g6YJu.css,spa-assets/index-Bd7IXaN3.css,spa-assets/index-Czq1TYR3.js,spa-assets/index.html,spa-assets/sw.js,spa.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php"
           target: ${{ secrets.CW_REMOTE_PATH }}/public_html
           overwrite: true
 
@@ -53,7 +53,7 @@ jobs:
             test -f core/migrations/129_qbo_payments_idempotency.sql
             test -f api/qbo/account_map_manual.php
             grep -q 'function qboApplyCapturedPayment' core/qbo/payments_client.php
-            grep -q 'spa-assets/index-rSDhZGqF.js' index.html
+            grep -q 'spa-assets/index--LEYPgKE.js' index.html
             php deploy/run_migrations.php
             php deploy/run_migrations.php --status | grep 'core/migrations/129_qbo_payments_idempotency.sql'
 
@@ -73,8 +73,8 @@ jobs:
             crontab "$CRON_NEXT"
             rm -f "$CRON_NEXT"
 
-            grep -q 'spa-assets/index-rSDhZGqF.js' .deploy-version
-            test -f spa-assets/index-rSDhZGqF.js
+            grep -q 'spa-assets/index--LEYPgKE.js' .deploy-version
+            test -f spa-assets/index--LEYPgKE.js
             echo 'QBO config presence:'
             php -r '$p="core/config.local.php"; if (is_file($p)) require $p; foreach (["QBO_CLIENT_ID","QBO_CLIENT_SECRET","QBO_REDIRECT_URI","QBO_ENV","QBO_SCOPES"] as $k) { $v=defined($k)?constant($k):getenv($k); echo $k,"=",(is_string($v)&&trim($v)!==""?"set":"missing"),PHP_EOL; }'
             echo "CoreFlux QuickBooks deploy and worker schedule complete. Cron backup: $CRON_BACKUP"

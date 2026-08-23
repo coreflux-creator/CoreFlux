@@ -117,12 +117,14 @@ $a('ping (test connection) testid',              $c($ui, 'data-testid="qbo-ping-
 $a('connected branch testid',                    $c($ui, 'data-testid="qbo-connected"'));
 $a('not-connected branch testid',                $c($ui, 'data-testid="qbo-not-connected"'));
 $a('not-configured branch testid',               $c($ui, 'data-testid="qbo-not-configured"'));
+$a('runtime refresh recovery testid',             $c($ui, 'data-testid="qbo-refresh-runtime-btn"'));
 $a('sync config table testid',                   $c($ui, 'data-testid="qbo-sync-config-table"'));
 $a('per-entity direction picker testid',         $c($ui, 'data-testid={`qbo-sync-dir-${entity}`}'));
 $a('save config button testid',                  $c($ui, 'data-testid="qbo-sync-config-save"'));
 $a('uses /api/qbo/oauth_start',                  $c($ui, '/api/qbo/oauth_start.php'));
 $a('uses /api/qbo/disconnect',                   $c($ui, '/api/qbo/disconnect.php'));
 $a('uses /api/qbo/ping',                         $c($ui, '/api/qbo/ping.php'));
+$a('uses protected OPcache recovery endpoint',   $c($ui, '/api/admin/opcache_flush.php'));
 $a('uses /api/qbo/sync_config_set',              $c($ui, '/api/qbo/sync_config_set.php'));
 $a('handles callback flash from URL',            $c($ui, 'parseFlashFromUrl'));
 $a('confirms before disconnect',                 $c($ui, 'window.confirm'));
