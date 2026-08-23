@@ -70,13 +70,15 @@ if ($temp === false || file_put_contents($temp, $next, LOCK_EX) === false) {
     exit(1);
 }
 
-@chmod($temp, 0600);
+// Cloudways runs PHP-FPM as an application user in the file's www-data
+// group, while deployments arrive as the SSH owner. Group-read is therefore
+// required; all write access remains owner-only and "other" has no access.
+@chmod($temp, 0640);
 if (!rename($temp, $target)) {
     @unlink($temp);
     fwrite(STDERR, "Unable to install the host-local QuickBooks configuration.\n");
     exit(1);
 }
-@chmod($target, 0600);
+@chmod($target, 0640);
 
 fwrite(STDOUT, "QuickBooks host configuration installed (credentials withheld).\n");
-
