@@ -1763,6 +1763,19 @@ function jobdivaSyncAssignmentContractsBatch(
             $diagnostics
         );
 
+        // Resolve C2C payee identities before opening per-placement database
+        // transactions. CompaniesDetail can require a network round trip;
+        // keeping it outside the transaction avoids holding placement locks
+        // while JobDiva responds.
+        $subcontractCompanyIds = [];
+        foreach ($items as $payload) {
+            $companyExternalId = trim((string) ($payload['_jd_contract']['corporation_id'] ?? ''));
+            if ($companyExternalId !== '') $subcontractCompanyIds[$companyExternalId] = true;
+        }
+        foreach (array_keys($subcontractCompanyIds) as $companyExternalId) {
+            jobdivaSyncResolveSubcontractCompany($tenantId, (string) $companyExternalId, $userId);
+        }
+
         foreach ($items as $index => $payload) {
             $rowMeta = $meta[$index] ?? null;
             if (!is_array($rowMeta)) continue;
@@ -3933,6 +3946,117 @@ function jobdivaSyncCorpPluck(int $tid, array $jd, string $targetColumn, array $
     ));
 }
 
+/**
+ * Resolve JobDiva's subcontract company identity onto the shared company
+ * graph. The exact Assignment detail may carry only SUBCONTRACT_COMPANYID,
+ * so reuse an existing mapping first and fetch CompaniesDetail only on miss.
+ *
+ * @return array{id:int,name:string,external_id:string}|null
+ */
+function jobdivaSyncResolveSubcontractCompany(
+    int $tid,
+    string $externalId,
+    ?int $userId = null
+): ?array {
+    $externalId = trim($externalId);
+    if ($tid <= 0 || $externalId === '') return null;
+
+    $mapped = mappingFindInternal($tid, 'jobdiva', 'company', $externalId);
+    if ($mapped) {
+        $companyId = (int) ($mapped['internal_entity_id'] ?? 0);
+        if ($companyId > 0) {
+            $st = getDB()->prepare(
+                'SELECT id, name FROM companies
+                  WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL LIMIT 1'
+            );
+            $st->execute(['t' => $tid, 'id' => $companyId]);
+            $company = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+            if ($company && trim((string) ($company['name'] ?? '')) !== '') {
+                companiesAddRole($companyId, 'vendor');
+                return [
+                    'id' => $companyId,
+                    'name' => trim((string) $company['name']),
+                    'external_id' => $externalId,
+                ];
+            }
+        }
+    }
+
+    try {
+        $mirror = getDB()->prepare(
+            'SELECT payload_snapshot
+               FROM external_entity_mappings
+              WHERE tenant_id = :t AND source_system = "jobdiva"
+                AND external_id = :external_id
+                AND internal_entity_type IN ("jobdiva_company", "jobdiva_customer")
+                AND payload_snapshot IS NOT NULL
+              ORDER BY updated_at DESC, id DESC LIMIT 1'
+        );
+        $mirror->execute(['t' => $tid, 'external_id' => $externalId]);
+        $payload = json_decode((string) ($mirror->fetchColumn() ?: ''), true);
+        if (is_array($payload)) {
+            $name = trim(jobdivaPluckField($payload, [
+                'name', 'companyName', 'company_name', 'company name', 'COMPANY NAME',
+                'legalName', 'legal_name', 'legal name',
+            ]));
+            if ($name !== '') {
+                $companyId = jobdivaUpsertCompanyMapped(
+                    $tid,
+                    $externalId,
+                    $name,
+                    ['created_by_user_id' => $userId],
+                    $payload,
+                    $userId,
+                    ['vendor']
+                );
+                return ['id' => $companyId, 'name' => $name, 'external_id' => $externalId];
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('[jobdiva subcontract company] mirror lookup failed for ' . $externalId . ': ' . $e->getMessage());
+    }
+
+    try {
+        $rows = jobdivaCallBulkIds(
+            $tid,
+            '/apiv2/bi/CompaniesDetail',
+            'companyIds',
+            [$externalId],
+            [],
+            1
+        );
+        foreach ($rows as $row) {
+            if (!is_array($row)) continue;
+            $rowId = jobdivaPluckField($row, [
+                'id', 'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID',
+            ]);
+            if ($rowId !== '' && (string) $rowId !== $externalId) continue;
+            $name = trim(jobdivaPluckField($row, [
+                'name', 'companyName', 'company_name', 'company name', 'COMPANY NAME',
+                'customerName', 'customer_name', 'company',
+                'legalName', 'legal_name', 'legal name',
+            ]));
+            if ($name === '') continue;
+            $companyId = jobdivaUpsertCompanyMapped($tid, $externalId, $name, [
+                'legal_name' => jobdivaPluckField($row, ['legalName', 'legal_name', 'legal name']) ?: null,
+                'website' => jobdivaPluckField($row, ['website', 'url', 'homepage']) ?: null,
+                'phone' => jobdivaPluckField($row, ['phone', 'phoneNumber', 'phone_number']) ?: null,
+                'address_line1' => jobdivaPluckField($row, ['address1', 'address', 'street1']) ?: null,
+                'address_line2' => jobdivaPluckField($row, ['address2', 'street2', 'suite']) ?: null,
+                'city' => jobdivaPluckField($row, ['city', 'town']) ?: null,
+                'state' => jobdivaPluckField($row, ['state', 'region', 'province']) ?: null,
+                'postal_code' => jobdivaPluckField($row, ['zip', 'postal_code', 'postalCode']) ?: null,
+                'country' => jobdivaPluckField($row, ['country', 'countryCode', 'country_code']) ?: 'US',
+                'created_by_user_id' => $userId,
+            ], $row, $userId, ['vendor']);
+            return ['id' => $companyId, 'name' => $name, 'external_id' => $externalId];
+        }
+    } catch (\Throwable $e) {
+        error_log('[jobdiva subcontract company] exact company fetch failed for ' . $externalId . ': ' . $e->getMessage());
+    }
+    return null;
+}
+
 function jobdivaSyncUpsertPlacementCorpDetails(
     int $tid,
     int $placementId,
@@ -3976,6 +4100,14 @@ function jobdivaSyncUpsertPlacementCorpDetails(
         return $summary;
     }
 
+    $contract = isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])
+        ? $jd['_jd_contract']
+        : [];
+    $corpExternalId = trim((string) ($contract['corporation_id'] ?? ''));
+    $resolvedCompany = $corpExternalId !== ''
+        ? jobdivaSyncResolveSubcontractCompany($tid, $corpExternalId, $userId)
+        : null;
+
     $legalName = jobdivaSyncCorpPluck($tid, $jd, 'corp_legal_name', [
         'corp legal name', 'corp_legal_name', 'corpLegalName',
         'corporation name', 'corporationName', 'company corporation name',
@@ -3995,8 +4127,19 @@ function jobdivaSyncUpsertPlacementCorpDetails(
             'subcontractor name', 'subcontractorName',
         ]));
     }
+    if ($resolvedCompany) {
+        // SUBCONTRACT_COMPANYID is the authoritative payee identity. Loose
+        // labels elsewhere in the Start payload can name an onboarding POC
+        // or contact and must not replace the company resolved from that id.
+        $legalName = (string) $resolvedCompany['name'];
+    }
     $fields = [
         'corp_legal_name' => $legalName,
+        'company_id' => $resolvedCompany['id'] ?? null,
+        'payment_terms_override' => $contract['vendor_payment_terms'] ?? null,
+        'pwp_enabled' => array_key_exists('paid_when_paid', $contract)
+            ? (!empty($contract['paid_when_paid']) ? 1 : 0)
+            : null,
         'corp_address_line1' => jobdivaSyncCorpPluck($tid, $jd, 'corp_address_line1', [
             'corp address line1', 'corp address 1', 'corpAddress1', 'corp_address_line1',
             'vendor address line1', 'vendor address 1', 'vendorAddress1',
@@ -4424,6 +4567,160 @@ function jobdivaSyncUpsertPlacementCommissions(int $tid, int $placementId, strin
     return $summary;
 }
 
+/**
+ * Retain JobDiva's recruiter/sales allocation owners even when they cannot be
+ * linked to a CoreFlux user. These percentages describe allocation of a
+ * source-side commission pool, not the commission plan itself, so the parties
+ * remain informational until a payable CoreFlux commission rule is attached.
+ */
+function jobdivaSyncUpsertSourceAllocationParties(
+    int $tid,
+    int $placementId,
+    string $startDate,
+    ?string $endDate,
+    array $jd
+): array {
+    $summary = ['written' => 0, 'source_refs' => []];
+    $contract = isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])
+        ? $jd['_jd_contract']
+        : [];
+    if ($tid <= 0 || $placementId <= 0 || $contract === []) return $summary;
+
+    $defs = [
+        [
+            'kind' => 'recruiter',
+            'role' => 'source_recruiter_allocation',
+            'external_id' => trim((string) ($contract['primary_recruiter'] ?? '')),
+            'name' => trim(jobdivaPluckField($jd, [
+                'recruiterName', 'recruiter_name', 'recruiter', 'recruiterFullName',
+            ])),
+            'email' => trim(jobdivaPluckField($jd, ['recruiterEmail', 'recruiter_email'])),
+            'pct' => isset($contract['recruiter_allocation_pct'])
+                ? (float) $contract['recruiter_allocation_pct']
+                : null,
+        ],
+        [
+            'kind' => 'sales',
+            'role' => 'source_sales_allocation',
+            'external_id' => trim((string) ($contract['primary_sales'] ?? '')),
+            'name' => trim(jobdivaPluckField($jd, [
+                'accountManager', 'account_manager', 'accountManagerName',
+                'salesperson', 'salesPerson', 'sales rep', 'salesRep',
+                'primarySales', 'primary_sales', 'primary sales',
+            ])),
+            'email' => trim(jobdivaPluckField($jd, [
+                'accountManagerEmail', 'account_manager_email', 'salesPersonEmail', 'salespersonEmail',
+            ])),
+            'pct' => isset($contract['account_manager_allocation_pct'])
+                ? (float) $contract['account_manager_allocation_pct']
+                : null,
+        ],
+    ];
+
+    foreach ($defs as $def) {
+        $externalId = (string) $def['external_id'];
+        $name = (string) $def['name'];
+        if ($name !== '' && $externalId !== '' && $name === $externalId) $name = '';
+        if ($externalId === '' && $name === '') continue;
+        if ($name === '') {
+            $name = 'JobDiva ' . (string) $def['kind'] . ' #' . $externalId;
+        }
+        $userId = jobdivaResolvePlacementCommissionUserId(
+            $tid,
+            (string) $def['email'] !== '' ? (string) $def['email'] : null,
+            $name
+        );
+        $identity = $externalId !== ''
+            ? $externalId
+            : strtolower((string) preg_replace('/[^a-z0-9]+/i', '-', $name));
+        $sourceRef = 'jobdiva:allocation:' . (string) $def['kind'] . ':' . $identity;
+        $pct = $def['pct'];
+        if ($pct !== null && ($pct <= 0 || $pct > 1)) $pct = null;
+        $partyId = placementEconomicsUpsertParty($tid, $placementId, [
+            'source_ref' => $sourceRef,
+            'source_type' => 'integration',
+            'role' => (string) $def['role'],
+            'display_name' => $name,
+            'user_id' => $userId,
+            'money_flow' => 'informational',
+            'settlement_channel' => 'none',
+            'fee_basis' => $pct !== null ? 'pct_margin' : 'none',
+            'fee_pct' => $pct,
+            'effective_from' => $startDate !== '' ? $startDate : null,
+            'effective_to' => $endDate,
+            'source_system' => 'jobdiva',
+            'source_external_id' => $externalId !== '' ? $externalId : null,
+            'source_managed' => 1,
+        ]);
+        if ($partyId > 0) {
+            $summary['written']++;
+            $summary['source_refs'][] = $sourceRef;
+        }
+    }
+
+    $subcontractCompanyId = trim((string) ($contract['corporation_id'] ?? ''));
+    if ($subcontractCompanyId !== '') {
+        try {
+            $resolved = getDB()->prepare(
+                'SELECT company_id FROM placement_corp_details
+                  WHERE tenant_id = :t AND placement_id = :p LIMIT 1'
+            );
+            $resolved->execute(['t' => $tid, 'p' => $placementId]);
+            $resolvedCompanyId = (int) $resolved->fetchColumn();
+            if ($resolvedCompanyId <= 0) {
+                placementEconomicsUpsertParty($tid, $placementId, [
+                    'source_ref' => 'jobdiva:unresolved:subcontract_company:' . $subcontractCompanyId,
+                    'source_type' => 'integration',
+                    'role' => 'unresolved_c2c_vendor',
+                    'display_name' => 'JobDiva subcontract company #' . $subcontractCompanyId . ' (name unresolved)',
+                    'money_flow' => 'informational',
+                    'settlement_channel' => 'none',
+                    'fee_basis' => 'pay_rate',
+                    'effective_from' => $startDate !== '' ? $startDate : null,
+                    'effective_to' => $endDate,
+                    'source_system' => 'jobdiva',
+                    'source_external_id' => $subcontractCompanyId,
+                    'source_managed' => 1,
+                ]);
+            }
+            getDB()->prepare(
+                'UPDATE placement_economic_parties SET active = 0
+                  WHERE tenant_id = :t AND placement_id = :p
+                    AND source_type = "integration" AND source_system = "jobdiva"
+                    AND source_ref LIKE "jobdiva:unresolved:subcontract_company:%"
+                    AND (:resolved > 0 OR source_external_id <> :external_id)'
+            )->execute([
+                't' => $tid,
+                'p' => $placementId,
+                'resolved' => $resolvedCompanyId,
+                'external_id' => $subcontractCompanyId,
+            ]);
+        } catch (\Throwable $e) {
+            error_log('[jobdiva source participants] subcontract-company evidence failed: ' . $e->getMessage());
+        }
+    }
+
+    try {
+        $params = ['t' => $tid, 'p' => $placementId];
+        $keep = [];
+        foreach ($summary['source_refs'] as $index => $sourceRef) {
+            $key = 'ref' . $index;
+            $keep[] = ':' . $key;
+            $params[$key] = $sourceRef;
+        }
+        $sql = 'UPDATE placement_economic_parties SET active = 0
+                 WHERE tenant_id = :t AND placement_id = :p
+                   AND source_type = "integration"
+                   AND source_system = "jobdiva"
+                   AND source_ref LIKE "jobdiva:allocation:%"';
+        if ($keep !== []) $sql .= ' AND source_ref NOT IN (' . implode(',', $keep) . ')';
+        getDB()->prepare($sql)->execute($params);
+    } catch (\Throwable $e) {
+        error_log('[jobdiva source allocations] stale-party cleanup failed: ' . $e->getMessage());
+    }
+    return $summary;
+}
+
 function jobdivaNormaliseReferralBasis(string $raw, bool $hasPercent, bool $hasFlat): string
 {
     $s = strtolower(trim($raw));
@@ -4567,6 +4864,9 @@ function jobdivaSyncUpsertPlacementReferral(
 
 function jobdivaSyncPlacementEconomicOptions(array $jd): array
 {
+    $contract = isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])
+        ? $jd['_jd_contract']
+        : [];
     $terms = jobdivaPluckFieldDeep($jd, [
         'vendorPaymentTerms', 'vendor_payment_terms', 'paymentTerms', 'payment_terms',
         'supplierPaymentTerms', 'supplier_payment_terms', 'payeeTerms', 'payee_terms',
@@ -4584,9 +4884,15 @@ function jobdivaSyncPlacementEconomicOptions(array $jd): array
         'invoicePaymentTerms', 'invoice_payment_terms', 'billingPaymentTerms', 'billing_payment_terms',
     ]);
     return [
-        'payment_terms' => $terms !== '' ? placementEconomicsNormaliseTerms($terms) : null,
-        'pwp_enabled' => $pwp,
-        'client_payment_terms' => $clientTerms !== '' ? placementEconomicsNormaliseTerms($clientTerms) : null,
+        'payment_terms' => !empty($contract['vendor_payment_terms'])
+            ? placementEconomicsNormaliseTerms((string) $contract['vendor_payment_terms'])
+            : ($terms !== '' ? placementEconomicsNormaliseTerms($terms) : null),
+        'pwp_enabled' => array_key_exists('paid_when_paid', $contract)
+            ? !empty($contract['paid_when_paid'])
+            : $pwp,
+        'client_payment_terms' => !empty($contract['client_payment_terms'])
+            ? placementEconomicsNormaliseTerms((string) $contract['client_payment_terms'])
+            : ($clientTerms !== '' ? placementEconomicsNormaliseTerms($clientTerms) : null),
     ];
 }
 
@@ -4720,6 +5026,9 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         );
     }
     $canonicalExternalId = 'jd:' . $extId;
+    $assignmentContract = isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])
+        ? $jd['_jd_contract']
+        : [];
     $economicOptions = jobdivaSyncPlacementEconomicOptions($jd);
     // Look up by external_id first (placements has a `external_id` column).
     // A 2026-06 field-map regression briefly allowed tenant mappings to
@@ -4840,11 +5149,17 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $tid, 'jobdiva', 'placement', 'start_date', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, ['startDate', 'start_date', 'start date', 'startdate'])
     );
+    if (!empty($assignmentContract['start_date'])) {
+        $startDate = (string) $assignmentContract['start_date'];
+    }
     if ($startDate === '') $startDate = (string) ($jd['startDate'] ?? $jd['start_date'] ?? '');
     $endDate = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'end_date', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, ['endDate', 'end_date', 'end date', 'enddate'])
     );
+    if (!empty($assignmentContract['end_date'])) {
+        $endDate = (string) $assignmentContract['end_date'];
+    }
     // JobDiva V2 BI returns dates as epoch-milliseconds in many envelopes;
     // normalise to MySQL DATE (Y-m-d) so the prepared statement doesn't
     // 22007 the whole batch. (If the registry already specified
@@ -4891,6 +5206,9 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $tid, 'jobdiva', 'placement', 'status', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, ['status', 'startStatus', 'placementStatus'])
     );
+    if (!empty($assignmentContract['placement_status'])) {
+        $statusRaw = (string) $assignmentContract['placement_status'];
+    }
     $placementLifecycle = jobdivaAssignmentCanonicalPlacementStatus($statusRaw, $endDateNorm);
     $status = (string) $placementLifecycle['status'];
 
@@ -4949,12 +5267,18 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'worksiteState', 'worksite_state', 'state', 'workSiteState', 'jobState', 'job_state',
         ])
     );
+    if (!empty($assignmentContract['worksite_state'])) {
+        $worksiteState = (string) $assignmentContract['worksite_state'];
+    }
     $worksiteCountry = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'worksite_country', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
             'worksiteCountry', 'worksite_country', 'country', 'jobCountry', 'job_country',
         ])
     );
+    if (!empty($assignmentContract['worksite_country'])) {
+        $worksiteCountry = (string) $assignmentContract['worksite_country'];
+    }
     // worksite_country is CHAR(2) — coerce to ISO-2 if user mapped a name.
     if (strlen($worksiteCountry) > 2) {
         $worksiteCountry = strtoupper(substr($worksiteCountry, 0, 2));
@@ -4969,6 +5293,9 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'remotePolicy', 'remote_policy', 'workLocation', 'work_location', 'jobLocationType',
         ])
     );
+    if (!empty($assignmentContract['remote_policy'])) {
+        $remoteRaw = (string) $assignmentContract['remote_policy'];
+    }
     $remoteMap = [
         'onsite' => 'onsite', 'on-site' => 'onsite', 'on_site' => 'onsite',
         'hybrid' => 'hybrid',
@@ -5081,6 +5408,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $tid, 'jobdiva', 'placement', 'account_manager_name', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
             'accountManager', 'account_manager', 'accountManagerName', 'salesperson', 'salesPerson',
+            'primarySales', 'primary_sales', 'primary sales',
         ])
     );
     $accountManagerEmail = (string) tenantIntegrationFieldMapPluckInternal(
@@ -5129,6 +5457,9 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         ])
     );
     $clientBillCycle = $coerceCycle($clientBillCycleRaw);
+    if (!empty($assignmentContract['client_bill_cycle'])) {
+        $clientBillCycle = $coerceCycle((string) $assignmentContract['client_bill_cycle']);
+    }
     $clientBillCycleAnchorRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'client_bill_cycle_anchor', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
@@ -5145,6 +5476,9 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         ])
     );
     $vendorPayCycle = $coerceCycle($vendorPayCycleRaw);
+    if (!empty($assignmentContract['vendor_pay_cycle'])) {
+        $vendorPayCycle = $coerceCycle((string) $assignmentContract['vendor_pay_cycle']);
+    }
     $vendorPayCycleAnchorRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'vendor_pay_cycle_anchor', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
@@ -5288,6 +5622,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         }
         jobdivaSyncUpsertPlacementCommissions($tid, $existingId, $startDate, $jd);
         jobdivaSyncUpsertPlacementReferral($tid, $existingId, $startDate, $jd, $userId);
+        jobdivaSyncUpsertSourceAllocationParties($tid, $existingId, $startDate, $endDateNorm, $jd);
         placementEconomicsReconcile($tid, $existingId, jobdivaSyncPlacementEconomicOptions($jd));
         jobdivaAuditPlacementProjection(
             $tid,
@@ -5356,6 +5691,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     jobdivaSyncUpsertPlacementCorpDetails($tid, $placementId, $jd, $userId, $engagement);
     jobdivaSyncUpsertPlacementCommissions($tid, $placementId, $startDate, $jd);
     jobdivaSyncUpsertPlacementReferral($tid, $placementId, $startDate, $jd, $userId);
+    jobdivaSyncUpsertSourceAllocationParties($tid, $placementId, $startDate, $endDateNorm, $jd);
     placementEconomicsReconcile($tid, $placementId, jobdivaSyncPlacementEconomicOptions($jd));
     jobdivaAuditPlacementProjection(
         $tid,
@@ -5480,6 +5816,9 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
 {
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
+    $sourceContract = isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])
+        ? $jd['_jd_contract']
+        : [];
 
     // -- Resolve every rate field via the registry, with JobDiva-native
     //    default-key candidate lists shaped to the V2 BI payload.
@@ -5504,6 +5843,16 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         // searchStart frequently returns a numeric zero even when the exact
         // EmployeeAssignmentRecordsDetail contract has the real client rate.
         $billRate = jobdivaCanonicalContractPositiveRate($jd, ['bill_rate']);
+    }
+    $contractNetBillRate = jobdivaParseRateAmount(
+        $sourceContract['net_bill_rate'] ?? $sourceContract['bill_rate'] ?? null
+    );
+    $contractVmsBillRate = jobdivaParseRateAmount($sourceContract['bill_rate_in_vms'] ?? null);
+    if ($contractVmsBillRate > 0 && $contractNetBillRate > 0
+        && $contractNetBillRate < $contractVmsBillRate) {
+        // Represent the complete VMS transaction: gross client rate less the
+        // VMS/portal discount equals the exact net bill JobDiva reports.
+        $billRate = $contractVmsBillRate;
     }
     if ($billRate <= 0) {
         // No rate present — placement is rate-less (direct hire,
@@ -5659,6 +6008,14 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     $billDiscountPct = jobdivaParsePercent($mappedRateValue('bill_discount_pct', [
         'client discount percent', 'bill discount percent', 'discount percent',
     ]));
+    if (($billDiscountPct === null || $billDiscountPct <= 0)
+        && $contractVmsBillRate > 0 && $contractNetBillRate > 0
+        && $contractNetBillRate < $contractVmsBillRate) {
+        $billDiscountPct = round(
+            ($contractVmsBillRate - $contractNetBillRate) / $contractVmsBillRate,
+            6
+        );
+    }
     $billDiscountFlat = jobdivaParseRateAmount($mappedRateValue('bill_discount_flat', [
         'client discount amount', 'bill discount amount',
     ]));
@@ -5679,9 +6036,6 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     $otherCostFlat = $otherCostFlat > 0 ? $otherCostFlat : null;
 
     $effectiveFrom = $startDate !== '' ? $startDate : date('Y-m-d');
-    $sourceContract = isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])
-        ? $jd['_jd_contract']
-        : [];
     $sourceSnapshotJson = $sourceContract !== []
         ? json_encode([
             'source_system' => 'jobdiva',

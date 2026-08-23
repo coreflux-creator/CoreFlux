@@ -57,7 +57,7 @@ $a('strong source engagement evidence beats a generic mapped W2',
     && str_contains($sync, 'flattening every placement to W2'));
 $a('worker classification is owned by the exact Start, not job or candidate facets',
     str_contains($sync, 'Only the Start/Assignment owns the worker classification')
-    && str_contains($sync, "\$hit = \$scanNested([\n        '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',")
+    && str_contains($sync, "\$hit = \$scanNested([\n        '_jd_contract', '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',")
     && !str_contains($sync, "\$hit = \$scanNested([\n        '_jd_candidate', 'person', 'candidate'"));
 $a('field-map enrichment cannot reapply unsafe JobDiva C2C guesses',
     str_contains($apply, 'function integrationFieldMapShouldSkipUnsafeJobDivaEngagement')
@@ -178,7 +178,8 @@ $a('Field Mapping Studio exposes corp-details linked entity',
 echo "\n6. Assignment evidence is mandatory for JobDiva alignment\n";
 $a('normal placement sync enriches Start/Assignment details by default',
     str_contains($sync, '$enrichStart = array_key_exists(\'enrich_start\', $opts)')
-    && str_contains($sync, ": true;\n    \$items = jobdivaSyncEnrichRelatedEntities")
+    && str_contains($sync, ': true;')
+    && str_contains($sync, '$items = jobdivaSyncEnrichRelatedEntities')
     && str_contains($sync, "'enrich_start' => \$enrichStart"));
 $a('backfill treats missing _jd_start as requiring enrichment',
     str_contains($sync, "empty(\$jd['_jd_start'])"));

@@ -99,6 +99,31 @@ function jobdivaAssignmentContractPick(array $entries, array $labels): mixed
     return null;
 }
 
+/** @return array<int,array<string,mixed>> */
+function jobdivaAssignmentContractSectionRows(array $records, string $section): array
+{
+    $wanted = jobdivaAssignmentContractNormaliseKey($section);
+    $rows = [];
+    $walk = static function (mixed $node) use (&$walk, &$rows, $wanted): void {
+        if (!is_array($node)) return;
+        foreach ($node as $key => $value) {
+            if (!is_array($value)) continue;
+            if (jobdivaAssignmentContractNormaliseKey((string) $key) === $wanted) {
+                if (array_is_list($value)) {
+                    foreach ($value as $row) {
+                        if (is_array($row)) $rows[] = $row;
+                    }
+                } else {
+                    $rows[] = $value;
+                }
+            }
+            $walk($value);
+        }
+    };
+    $walk($records);
+    return $rows;
+}
+
 function jobdivaAssignmentContractAmount(mixed $raw): ?float
 {
     if ($raw === null) return null;
@@ -214,7 +239,20 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     if (!$matching) return [];
     $entries = jobdivaAssignmentContractEntries($matching);
 
+    // EmployeeAssignmentRecordsDetail repeats generic keys such as END_DATE,
+    // FREQUENCY and STATUS across sections. BILLING owns the assignment's
+    // client/lifecycle facts; SALARY owns labor-pay and subcontractor facts.
+    // Keep these entry sets separate so array order cannot change semantics.
+    $billingEntries = jobdivaAssignmentContractEntries(
+        jobdivaAssignmentContractSectionRows($matching, 'BILLING')
+    );
+    $salaryEntries = jobdivaAssignmentContractEntries(
+        jobdivaAssignmentContractSectionRows($matching, 'SALARY')
+    );
+
     $pick = static fn(array $labels): mixed => jobdivaAssignmentContractPick($entries, $labels);
+    $billingPick = static fn(array $labels): mixed => jobdivaAssignmentContractPick($billingEntries, $labels);
+    $salaryPick = static fn(array $labels): mixed => jobdivaAssignmentContractPick($salaryEntries, $labels);
     $startId = trim((string) ($pick(['Start ID', 'startId', 'start_id', 'Assignment ID', 'assignmentId']) ?? $expectedStartId));
     $employmentCategory = trim((string) $pick([
         'Employment Category', 'employmentCategory', 'employment_category', 'Employee Category',
@@ -223,8 +261,13 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     $c2c = jobdivaAssignmentContractBool($pick(['C2C', 'Corp To Corp', 'Crop To Crop', 'C2C Overheads', 'C2C Overhead']));
     $engagement = jobdivaAssignmentContractEngagement($employmentCategory, $w2, $c2c);
 
-    $paymentFrequencyRaw = $pick(['Payment Frequency', 'paymentFrequency', 'payment_frequency', 'Vendor Payment Frequency']);
-    $billingFrequencyRaw = $pick(['Billing Frequency', 'billingFrequency', 'billing_frequency', 'Invoice Frequency']);
+    $paymentFrequencyRaw = $salaryPick([
+        'Payment Frequency', 'paymentFrequency', 'payment_frequency', 'Vendor Payment Frequency',
+    ]) ?? $pick(['Payment Frequency', 'paymentFrequency', 'payment_frequency', 'Vendor Payment Frequency']);
+    $billingFrequencyRaw = $billingPick([
+        'Frequency Label', 'FREQUENCY_LABEL', 'Billing Frequency', 'billingFrequency',
+        'billing_frequency', 'Invoice Frequency',
+    ]) ?? $pick(['Billing Frequency', 'billingFrequency', 'billing_frequency', 'Invoice Frequency']);
     $paymentDue = $pick(['Payment Due', 'paymentDue', 'payment_due', 'Payment Method']);
     $netDays = $pick(['Payment Terms Days', 'paymentTermsDays', 'payment_terms_days', 'Net Days']);
     $vendorTermsRaw = $pick([
@@ -267,16 +310,62 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'Benefits Load %', 'Benefits Load Percent', 'benefitsLoadPct', 'benefits_load_pct',
     ]));
 
-    $billRate = jobdivaAssignmentContractAmount($pick(['Bill Rate', 'billRate', 'bill_rate', 'Final Bill Rate']));
-    $basePayRate = jobdivaAssignmentContractAmount($pick(['Pay Rate', 'payRate', 'pay_rate', 'Agreed Pay Rate']));
-    $vendorPayRate = jobdivaAssignmentContractAmount($pick([
+    $billRate = jobdivaAssignmentContractAmount(
+        $billingPick(['Bill Rate', 'billRate', 'bill_rate', 'Final Bill Rate'])
+        ?? $pick(['Bill Rate', 'billRate', 'bill_rate', 'Final Bill Rate'])
+    );
+    $basePayRate = jobdivaAssignmentContractAmount(
+        $salaryPick(['Salary', 'Pay Rate', 'payRate', 'pay_rate', 'Agreed Pay Rate'])
+        ?? $pick(['Pay Rate', 'payRate', 'pay_rate', 'Agreed Pay Rate'])
+    );
+    $vendorPayRate = jobdivaAssignmentContractAmount($salaryPick([
+        'Pay Rate to Vendor', 'payRateToVendor', 'pay_rate_to_vendor', 'Vendor Pay Rate',
+    ]) ?? $pick([
         'Pay Rate to Vendor', 'payRateToVendor', 'pay_rate_to_vendor', 'Vendor Pay Rate',
     ]));
     $payRate = in_array($engagement, ['c2c', '1099'], true) && $vendorPayRate !== null && $vendorPayRate > 0
         ? $vendorPayRate
         : $basePayRate;
-    $primarySales = trim((string) $pick(['Primary Sales', 'primarySales', 'primary_sales']));
+    $primarySales = trim((string) $pick([
+        'Primary Sales', 'primarySales', 'primary_sales',
+        'Primary Salesperson', 'PRIMARY_SALESPERSON', 'primarySalesperson',
+    ]));
     $primaryRecruiter = trim((string) $pick(['Primary Recruiter', 'primaryRecruiter', 'primary_recruiter']));
+
+    $startDateRaw = $billingPick(['Start Date', 'START_DATE', 'startDate', 'start_date'])
+        ?? $pick(['Start Date', 'START_DATE', 'startDate', 'start_date']);
+    $endDateRaw = $billingPick(['End Date', 'END_DATE', 'endDate', 'end_date'])
+        ?? $pick(['End Date', 'END_DATE', 'endDate', 'end_date']);
+    $actualStart = jobdivaAssignmentContractBool($billingPick(['Actual Start', 'ACTUALSTART', 'actualStart']));
+    $actualEnd = jobdivaAssignmentContractBool($billingPick(['Actual End', 'ACTUALEND', 'actualEnd']));
+    $approved = jobdivaAssignmentContractBool($billingPick(['Approved', 'APPROVED', 'approved']));
+    $closed = jobdivaAssignmentContractBool($billingPick(['Closed', 'CLOSED', 'closed']));
+    $endDate = function_exists('jobdivaNormaliseDate') ? jobdivaNormaliseDate($endDateRaw) : null;
+    if ($closed === true || $actualEnd === true || ($endDate !== null && $endDate < date('Y-m-d'))) {
+        $placementStatus = 'ended';
+    } elseif ($actualStart === true && $approved !== false) {
+        $placementStatus = 'active';
+    } elseif ($approved === true) {
+        $placementStatus = 'pending_start';
+    } else {
+        $placementStatus = '';
+    }
+
+    $vmsBillRate = jobdivaAssignmentContractAmount($billingPick([
+        'Bill Rate in Beeline', 'Bill Rate in VMS', 'billRateInBeeline', 'bill_rate_in_vms',
+    ]) ?? $pick([
+        'Bill Rate in Beeline', 'Bill Rate in VMS', 'billRateInBeeline', 'bill_rate_in_vms',
+    ]));
+    $netBillRate = jobdivaAssignmentContractAmount($billingPick([
+        'Net Bill', 'NET_BILL', 'Net Bill Rate', 'netBillRate', 'net_bill_rate',
+    ]) ?? $pick(['Net Bill', 'NET_BILL', 'Net Bill Rate', 'netBillRate', 'net_bill_rate']));
+    if (($netBillRate === null || $netBillRate <= 0) && $billRate !== null && $billRate > 0) {
+        $netBillRate = $billRate;
+    }
+    $vmsFeePct = $vmsBillRate !== null && $vmsBillRate > 0
+        && $netBillRate !== null && $netBillRate > 0 && $netBillRate < $vmsBillRate
+        ? round(($vmsBillRate - $netBillRate) / $vmsBillRate, 6)
+        : null;
 
     $contract = [
         'contract_version' => 1,
@@ -284,6 +373,17 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'start_id' => $startId,
         'employment_category' => $employmentCategory,
         'engagement_type' => $engagement,
+        'placement_status' => $placementStatus,
+        'start_date' => $startDateRaw,
+        'end_date' => $endDateRaw,
+        'actual_start' => $actualStart,
+        'actual_end' => $actualEnd,
+        'approved' => $approved,
+        'closed' => $closed,
+        'worksite_city' => $billingPick(['Working City', 'WORKING_CITY', 'worksiteCity', 'worksite_city']),
+        'worksite_state' => $billingPick(['Working State', 'WORKING_STATE', 'worksiteState', 'worksite_state']),
+        'worksite_country' => $billingPick(['Working Country', 'WORKING_COUNTRY', 'worksiteCountry', 'worksite_country']),
+        'remote_policy' => $billingPick(['Working Location', 'WORKING_LOCATION', 'workLocation', 'remotePolicy']),
         'w2_flag' => $w2,
         'c2c_flag' => $c2c,
         'bill_rate' => $billRate,
@@ -295,10 +395,9 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'pay_start' => $pick(['Pay Start', 'payStart', 'pay_start']),
         'pay_end' => $pick(['Pay End', 'payEnd', 'pay_end']),
         'currency' => $pick(['Currency', 'currencyCode', 'currency_code']),
-        'net_bill_rate' => jobdivaAssignmentContractAmount($pick(['Net Bill Rate', 'netBillRate', 'net_bill_rate'])),
-        'bill_rate_in_vms' => jobdivaAssignmentContractAmount($pick([
-            'Bill Rate in Beeline', 'Bill Rate in VMS', 'billRateInBeeline', 'bill_rate_in_vms',
-        ])),
+        'net_bill_rate' => $netBillRate,
+        'bill_rate_in_vms' => $vmsBillRate,
+        'vms_fee_pct' => $vmsFeePct,
         'pay_rate_to_vendor' => $vendorPayRate,
         'spread' => jobdivaAssignmentContractAmount($pick(['Spread', 'spread'])),
         'corporation_name' => trim((string) $pick([
@@ -307,6 +406,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         ])),
         'corporation_id' => trim((string) $pick([
             'Corporation ID', 'corporationId', 'corporation_id', 'Vendor ID', 'vendorId',
+            'Subcontract Company ID', 'SUBCONTRACT_COMPANYID', 'subcontractCompanyId',
         ])),
         'payment_frequency' => $paymentFrequencyRaw,
         'vendor_pay_cycle' => jobdivaAssignmentContractCadence($paymentFrequencyRaw),
@@ -339,12 +439,18 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'account_manager_commission_pct' => jobdivaAssignmentContractPercent($pick([
             'Primary Sales %', 'Primary Sales Percent', 'Primary Sales Split %', 'primarySalesPct',
         ])),
+        'account_manager_allocation_pct' => jobdivaAssignmentContractPercent($pick([
+            'PRISALE COMM PERCENT', 'PRISALE_COMM_PERCENT',
+        ])),
         'secondary_sales' => trim((string) $pick(['Secondary Sales', 'secondarySales', 'secondary_sales'])),
         'tertiary_sales' => trim((string) $pick(['Tertiary Sales', 'tertiarySales', 'tertiary_sales'])),
         'primary_recruiter' => $primaryRecruiter,
         'recruiter_name' => $primaryRecruiter,
         'recruiter_commission_pct' => jobdivaAssignmentContractPercent($pick([
             'Primary Recruiter %', 'Primary Recruiter Percent', 'Primary Recruiter Split %', 'primaryRecruiterPct',
+        ])),
+        'recruiter_allocation_pct' => jobdivaAssignmentContractPercent($pick([
+            'PRIREC COMM PERCENT', 'PRIREC_COMM_PERCENT',
         ])),
         'secondary_recruiter' => trim((string) $pick(['Secondary Recruiter', 'secondaryRecruiter', 'secondary_recruiter'])),
         'tertiary_recruiter' => trim((string) $pick(['Tertiary Recruiter', 'tertiaryRecruiter', 'tertiary_recruiter'])),

@@ -147,6 +147,69 @@ $assert('sales and recruiter allocation facts are retained',
     && ($c2c['recruiter_name'] ?? '') === 'Recruiter Owner'
     && abs((float) ($c2c['recruiter_commission_pct'] ?? 0) - 0.60) < 0.000001);
 
+$productionShape = [[
+    'Start ID' => '57137454',
+    'BILLING' => [[
+        'START_DATE' => '2026-07-06T00:00:00',
+        'END_DATE' => '2026-12-01T23:59:59',
+        'APPROVED' => 1,
+        'CLOSED' => 0,
+        'ACTUALSTART' => 1,
+        'ACTUALEND' => 0,
+        'FREQUENCY_LABEL' => 'Weekly',
+        'BILL_RATE' => 62.98,
+        'BILL_RATE_PER' => 'H',
+        'WORKING_LOCATION' => 'Onsite',
+        'WORKING_STATE' => 'AZ',
+        'WORKING_CITY' => 'Phoenix',
+        'WORKING_COUNTRY' => 'US',
+        'NET_BILL' => '$62.98/H',
+        'Bill_Rate_in_Beeline' => 67,
+        'PRIMARY_SALESPERSON' => '1601464',
+        'PRIMARY_RECRUITER' => '1601464',
+        'PRISALE_COMM_PERCENT' => 100,
+        'PRIREC_COMM_PERCENT' => 100,
+    ]],
+    'SALARY' => [[
+        'EFFECTIVE_DATE' => '2026-07-06T00:00:00',
+        'END_DATE' => '',
+        'SALARY' => 60,
+        'SUBCONTRACT_COMPANYID' => '12319524',
+        'PAYMENTDUE' => 'Upon Approval',
+        'PAYMENT_FREQUENCY' => 'Weekly',
+        'EMPLOYMENT_CATEGORY' => 'Subcontract',
+        'Subcontractor_Payment_terms' => 'PWP',
+        'Pay_Rate_to_Vendor' => 60,
+    ]],
+]];
+$productionContract = jobdivaAssignmentContractBuild($productionShape, [], '57137454');
+$assert('section-aware lifecycle uses BILLING rather than SALARY/Job dates',
+    ($productionContract['start_date'] ?? '') === '2026-07-06T00:00:00'
+    && ($productionContract['end_date'] ?? '') === '2026-12-01T23:59:59'
+    && ($productionContract['placement_status'] ?? '') === 'active');
+$assert('assignment worksite and onsite policy remain canonical placement facts',
+    ($productionContract['worksite_city'] ?? '') === 'Phoenix'
+    && ($productionContract['worksite_state'] ?? '') === 'AZ'
+    && ($productionContract['worksite_country'] ?? '') === 'US'
+    && ($productionContract['remote_policy'] ?? '') === 'Onsite');
+$assert('subcontract company identity and weekly AP terms are retained',
+    ($productionContract['corporation_id'] ?? '') === '12319524'
+    && ($productionContract['vendor_pay_cycle'] ?? '') === 'weekly'
+    && ($productionContract['client_bill_cycle'] ?? '') === 'weekly'
+    && ($productionContract['vendor_payment_terms'] ?? '') === 'PWP'
+    && ($productionContract['paid_when_paid'] ?? false) === true);
+$assert('VMS gross-to-net economics derive an explicit six-percent adjustment',
+    abs((float) ($productionContract['bill_rate_in_vms'] ?? 0) - 67.0) < 0.0001
+    && abs((float) ($productionContract['net_bill_rate'] ?? 0) - 62.98) < 0.0001
+    && abs((float) ($productionContract['vms_fee_pct'] ?? 0) - 0.06) < 0.000001);
+$assert('source allocation owners remain evidence without becoming fake commission plans',
+    ($productionContract['primary_sales'] ?? '') === '1601464'
+    && ($productionContract['primary_recruiter'] ?? '') === '1601464'
+    && abs((float) ($productionContract['account_manager_allocation_pct'] ?? 0) - 1.0) < 0.000001
+    && abs((float) ($productionContract['recruiter_allocation_pct'] ?? 0) - 1.0) < 0.000001
+    && !array_key_exists('account_manager_commission_pct', $productionContract)
+    && !array_key_exists('recruiter_commission_pct', $productionContract));
+
 $payload = ['_jd_contract' => $c2c, '_jd_start' => ['crop to crop' => null]];
 $assert('runtime engagement inference prefers the financial contract',
     jobdivaInferPlacementEngagementTypeFromPayload($payload, 'w2') === 'c2c');
@@ -181,6 +244,14 @@ $assert('economics API exposes source evidence before rate approval',
 $assert('placement economics has a dedicated JobDiva overheads section',
     str_contains($placementUi, 'data-testid="jobdiva-overheads"')
     && str_contains($placementUi, 'Raw JobDiva overhead fields'));
+$assert('canonical projection prefers assignment lifecycle and resolves subcontract company identity',
+    str_contains($syncSource, "\$assignmentContract['placement_status']")
+    && str_contains($syncSource, 'function jobdivaSyncResolveSubcontractCompany(')
+    && str_contains($syncSource, "'/apiv2/bi/CompaniesDetail'")
+    && str_contains($syncSource, 'function jobdivaSyncUpsertSourceAllocationParties('));
+$assert('rate projection models VMS gross rate and exact net bill without double-counting',
+    str_contains($syncSource, '$contractVmsBillRate')
+    && str_contains($syncSource, '($contractVmsBillRate - $contractNetBillRate) / $contractVmsBillRate'));
 
 echo "\nJobDiva assignment contract smoke: {$pass} ok / {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);
