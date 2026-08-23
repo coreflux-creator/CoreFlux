@@ -20,14 +20,16 @@ jobs:
 
       - name: Upload the QuickBooks integration
         uses: appleboy/scp-action@v1.0.0
-        continue-on-error: true
         with:
           host: ${{ secrets.CW_SSH_HOST }}
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
           source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/opcache_flush.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,core/config.local.example.php,core/migrations/129_qbo_payments_idempotency.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,qbo-oauth-callback.php,scripts/configure_qbo.php,spa-assets/index-BC5g6YJu.css,spa-assets/index-Bd7IXaN3.css,spa-assets/index-CIWNoDOQ.js,spa-assets/index-DwvdL3xV.js,spa-assets/index.html,spa-assets/sw.js,spa.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php"
-          target: ${{ secrets.CW_REMOTE_PATH }}/public_html
+          # Cloudways serves public_html from files owned by PHP-FPM. Extract
+          # into a per-run, SSH-user-owned staging directory first so tar does
+          # not fail while trying to change production file metadata.
+          target: ${{ secrets.CW_REMOTE_PATH }}/qbo-deploy-stage-${{ github.run_id }}
           overwrite: true
 
       - name: Install QuickBooks credentials, apply migrations, and configure workers
@@ -47,8 +49,19 @@ jobs:
           command_timeout: 10m
           script: |
             set -eu
-            APP_ROOT="${{ secrets.CW_REMOTE_PATH }}/public_html"
+            APP_BASE="${{ secrets.CW_REMOTE_PATH }}"
+            APP_ROOT="$APP_BASE/public_html"
+            STAGE_ROOT="$APP_BASE/qbo-deploy-stage-${{ github.run_id }}"
+            test -n "$APP_BASE"
+            test "$APP_BASE" != "/"
+            test "$STAGE_ROOT" = "$APP_BASE/qbo-deploy-stage-${{ github.run_id }}"
+            test -d "$STAGE_ROOT/core/qbo"
+            cleanup_stage() { rm -rf -- "$STAGE_ROOT"; }
+            trap cleanup_stage EXIT
+            cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
             cd "$APP_ROOT"
+            grep -Fq 'CURRENT_TIMESTAMP - INTERVAL 30 MINUTE' core/qbo/client.php
+            grep -Fq 'return $stmt->rowCount() === 1;' core/qbo/client.php
             php scripts/configure_qbo.php
             test -f core/migrations/129_qbo_payments_idempotency.sql
             test -f api/qbo/account_map_manual.php
