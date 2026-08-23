@@ -77,4 +77,6 @@ jobs:
             test -f spa-assets/index--LEYPgKE.js
             echo 'QBO config presence:'
             php -r '$p="core/config.local.php"; if (is_file($p)) require $p; foreach (["QBO_CLIENT_ID","QBO_CLIENT_SECRET","QBO_REDIRECT_URI","QBO_ENV","QBO_SCOPES"] as $k) { $v=defined($k)?constant($k):getenv($k); echo $k,"=",(is_string($v)&&trim($v)!==""?"set":"missing"),PHP_EOL; }'
+            stat -c 'QBO config file: mode=%a owner=%U group=%G' core/config.local.php
+            ps -eo user=,group=,comm= | awk '$3 ~ /^php-fpm/ { print "PHP-FPM process: user=" $1 " group=" $2; exit }' || true
             echo "CoreFlux QuickBooks deploy and worker schedule complete. Cron backup: $CRON_BACKUP"
