@@ -192,6 +192,22 @@ $assert('built-in deep pluck skips a shallow placeholder for the canonical contr
 $assert('built-in pluck preserves source zero and false values',
     jobdivaPluckField(['discount' => 0], ['discount']) === '0'
     && jobdivaPluckField(['paid' => false], ['paid']) === '0');
+$assert('exact-Start contract rates replace zero-valued searchStart summaries',
+    abs(jobdivaCanonicalContractPositiveRate([
+        'final bill rate' => 0,
+        '_jd_contract' => [
+            'source' => 'EmployeeAssignmentRecordsDetail',
+            'bill_rate' => 62.98,
+            'pay_rate' => 60,
+        ],
+    ], ['bill_rate']) - 62.98) < 0.0001
+    && abs(jobdivaCanonicalContractPositiveRate([
+        '_jd_contract' => ['pay_rate' => 60],
+    ], ['pay_rate', 'pay_rate_to_vendor']) - 60.0) < 0.0001);
+$assert('zero rates stay zero when the exact-Start contract has no positive rate',
+    jobdivaCanonicalContractPositiveRate([
+        '_jd_contract' => ['bill_rate' => 0],
+    ], ['bill_rate']) === 0.0);
 
 echo "\nCache — flushCache()\n";
 tenantIntegrationFieldMapFlushCache();

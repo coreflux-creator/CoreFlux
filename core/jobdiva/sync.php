@@ -5447,6 +5447,35 @@ function jobdivaSyncRemoveUnsourcedAutoDraftRate(int $tid, int $placementId, flo
     }
 }
 
+function jobdivaCanonicalContractPositiveRate(array $jd, array $fields): float
+{
+    $contracts = [];
+    if (isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])) {
+        $contracts[] = $jd['_jd_contract'];
+    }
+    $assignment = $jd['assignment'] ?? null;
+    if (is_array($assignment)) {
+        if (array_is_list($assignment)) $assignment = $assignment[0] ?? null;
+        if (is_array($assignment)) {
+            if (isset($assignment['_jd_contract']) && is_array($assignment['_jd_contract'])) {
+                $contracts[] = $assignment['_jd_contract'];
+            }
+            if (isset($assignment['contract_version']) || isset($assignment['source'])) {
+                $contracts[] = $assignment;
+            }
+        }
+    }
+
+    foreach ($contracts as $contract) {
+        foreach ($fields as $field) {
+            if (!array_key_exists($field, $contract)) continue;
+            $rate = jobdivaParseRateAmount($contract[$field]);
+            if ($rate > 0) return $rate;
+        }
+    }
+    return 0.0;
+}
+
 function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $startDate, array $jd): bool
 {
     require_once __DIR__ . '/../integrations/field_map.php';
@@ -5471,6 +5500,11 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         ])
     );
     $billRate = jobdivaParseRateAmount($billRateRaw);
+    if ($billRate <= 0) {
+        // searchStart frequently returns a numeric zero even when the exact
+        // EmployeeAssignmentRecordsDetail contract has the real client rate.
+        $billRate = jobdivaCanonicalContractPositiveRate($jd, ['bill_rate']);
+    }
     if ($billRate <= 0) {
         // No rate present — placement is rate-less (direct hire,
         // perm placement, etc). Skip writing a rate row so we don't
@@ -5513,6 +5547,9 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     // tenant field map) does not provide a real positive pay value, do
     // not create/refresh the rate row.
     $payRate = jobdivaParseRateAmount($payRateRaw);
+    if ($payRate <= 0) {
+        $payRate = jobdivaCanonicalContractPositiveRate($jd, ['pay_rate', 'pay_rate_to_vendor']);
+    }
     if ($payRate <= 0) {
         jobdivaSyncRemoveUnsourcedAutoDraftRate($tid, $placementId, $billRate);
         return false;
