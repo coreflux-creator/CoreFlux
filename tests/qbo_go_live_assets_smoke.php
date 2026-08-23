@@ -19,6 +19,7 @@ $workflowPath = $root . '/.github/workflows/deploy-cloudways.yml';
 $check('privacy policy is public static HTML', str_contains($privacy, 'data-policy="coreflux-privacy-v1"'));
 $check('privacy policy explains QuickBooks OAuth and records', str_contains($privacy, 'OAuth access and refresh tokens') && str_contains($privacy, 'QuickBooks records'));
 $check('privacy policy explains direct Intuit tokenization', str_contains($privacy, 'sent directly') && str_contains($privacy, 'raw primary account number'));
+$check('product material names Intuit Payments Inc.', str_contains($privacy, 'Intuit Payments Inc.') && str_contains($terms, 'Intuit Payments Inc.') && str_contains($connect, 'Intuit Payments Inc.'));
 $check('privacy policy covers no-sale and deletion', str_contains($privacy, 'We do not sell personal information') && str_contains($privacy, 'data-deletion requests'));
 $check('terms page is an end-user license agreement', str_contains($terms, 'End-User License Agreement') && str_contains($terms, 'limited, non-exclusive'));
 $check('terms page covers Intuit and payments', str_contains($terms, 'Intuit') && str_contains($terms, 'payment processor'));

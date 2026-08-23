@@ -18,12 +18,13 @@ if (PHP_SAPI !== 'cli') {
 $values = [
     'QBO_CLIENT_ID'     => trim((string) getenv('QBO_CLIENT_ID')),
     'QBO_CLIENT_SECRET' => trim((string) getenv('QBO_CLIENT_SECRET')),
+    'QBO_WEBHOOK_VERIFIER_TOKEN' => trim((string) getenv('QBO_WEBHOOK_VERIFIER_TOKEN')),
     'QBO_REDIRECT_URI'  => trim((string) (getenv('QBO_REDIRECT_URI') ?: 'https://www.corefluxapp.com/api/qbo/oauth_callback.php')),
     'QBO_ENV'           => trim((string) (getenv('QBO_ENV') ?: 'sandbox')),
     'QBO_SCOPES'        => trim((string) (getenv('QBO_SCOPES') ?: 'com.intuit.quickbooks.accounting com.intuit.quickbooks.payment')),
 ];
 
-foreach (['QBO_CLIENT_ID', 'QBO_CLIENT_SECRET', 'QBO_REDIRECT_URI'] as $required) {
+foreach (['QBO_CLIENT_ID', 'QBO_CLIENT_SECRET', 'QBO_WEBHOOK_VERIFIER_TOKEN', 'QBO_REDIRECT_URI'] as $required) {
     if ($values[$required] === '') {
         fwrite(STDERR, $required . " is required.\n");
         exit(1);
