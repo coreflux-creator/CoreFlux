@@ -275,12 +275,28 @@ function placementEconomicsEnsureDerivedCycles(int $tenantId, array &$placement)
     $pdo = getDB();
     $updates = [];
     $allowedCadences = ['weekly','biweekly','semimonthly','monthly','adhoc'];
+    $cycleMatches = static function (mixed $cycleId, string $purpose, string $cadence) use ($pdo, $tenantId): bool {
+        $cycleId = (int) $cycleId;
+        if ($cycleId <= 0) return false;
+        $st = $pdo->prepare(
+            'SELECT 1 FROM staffing_operating_cycles
+              WHERE tenant_id = :t AND id = :id AND purpose = :purpose
+                AND cadence = :cadence AND active = 1 LIMIT 1'
+        );
+        $st->execute([
+            't' => $tenantId,
+            'id' => $cycleId,
+            'purpose' => $purpose,
+            'cadence' => $cadence,
+        ]);
+        return (bool) $st->fetchColumn();
+    };
     $billingCadence = strtolower(trim((string) ($placement['client_bill_cycle'] ?? '')));
     if (!in_array($billingCadence, $allowedCadences, true)) {
         $billingCadence = 'monthly';
         $updates['client_bill_cycle'] = $billingCadence;
     }
-    if (empty($placement['billing_operating_cycle_id'])) {
+    if (!$cycleMatches($placement['billing_operating_cycle_id'] ?? null, 'billing', $billingCadence)) {
         $updates['billing_operating_cycle_id'] = placementEconomicsEnsureStandardCycle($tenantId, 'billing', $billingCadence);
     }
     $payCadence = strtolower(trim((string) ($placement['vendor_pay_cycle'] ?? '')));
@@ -294,7 +310,7 @@ function placementEconomicsEnsureDerivedCycles(int $tenantId, array &$placement)
         $updates['vendor_pay_cycle'] = $payCadence;
     }
     $payField = $payPurpose . '_operating_cycle_id';
-    if (empty($placement[$payField])) {
+    if (!$cycleMatches($placement[$payField] ?? null, $payPurpose, $payCadence)) {
         $updates[$payField] = placementEconomicsEnsureStandardCycle($tenantId, $payPurpose, $payCadence);
     }
     $updates = array_filter($updates, static fn($value): bool => !empty($value));

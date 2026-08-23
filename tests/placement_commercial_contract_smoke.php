@@ -69,6 +69,12 @@ $assert('snapshot preserves payment frequency and effective dates',
 $assert('cycle resolution reuses existing standard cadence cycles',
     str_contains($economics, 'function placementEconomicsEnsureStandardCycle')
     && str_contains($economics, 'name = :name OR cadence = :cadence'));
+$assert('source cadence replaces stale operating-cycle pointers',
+    str_contains($economics, '$cycleMatches = static function')
+    && str_contains($economics, "purpose = :purpose")
+    && str_contains($economics, "cadence = :cadence")
+    && str_contains($economics, "!\$cycleMatches(\$placement['billing_operating_cycle_id']")
+    && str_contains($economics, '!$cycleMatches($placement[$payField]'));
 $assert('non-W2 labor payee repair is conservative and unambiguous',
     str_contains($economics, 'function placementEconomicsRepairPrimaryLaborPayee')
     && str_contains($economics, 'if (count($ids) !== 1) return;')

@@ -368,6 +368,13 @@ function jobdivaNormaliseDate(mixed $raw): ?string
     else return null;
     if ($raw === '' || $raw === '0' || $raw === 'null') return null;
 
+    // JobDiva assignment dates are account-local business dates. Preserve
+    // the explicit calendar component instead of converting a 23:59:59
+    // end-of-day value through the web server timezone into the next UTC day.
+    if (preg_match('/^\d{4}-\d{2}-\d{2}(?:[T\s]|$)/', $raw)) {
+        return substr($raw, 0, 10);
+    }
+
     // Numeric — epoch ms or s. ctype_digit on the trimmed string avoids
     // accepting floats / negatives (JobDiva never sends those for dates).
     if (ctype_digit($raw)) {
@@ -389,9 +396,6 @@ function jobdivaNormaliseDate(mixed $raw): ?string
     $ts = strtotime($raw);
     if ($ts !== false) return gmdate('Y-m-d', $ts);
 
-    // Last resort — if it already LOOKS like Y-m-d, return as-is so the
-    // DB can complain in its own words.
-    if (preg_match('/^\d{4}-\d{2}-\d{2}/', $raw)) return substr($raw, 0, 10);
     return null;
 }
 

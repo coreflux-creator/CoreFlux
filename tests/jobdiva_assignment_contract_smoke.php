@@ -26,6 +26,9 @@ $assert = static function (string $label, bool $condition) use (&$pass, &$fail):
 echo "JobDiva assignment contract smoke\n";
 echo "=================================\n";
 
+$assert('ISO assignment end-of-day preserves the source business date',
+    jobdivaNormaliseDate('2026-12-01T23:59:59') === '2026-12-01');
+
 $w2Rows = [[
     'Start ID' => '56830791',
     'Employment Category' => 'Hourly Employee',
