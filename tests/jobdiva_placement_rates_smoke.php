@@ -82,6 +82,11 @@ $assert('missing pay_rate removes unsafe auto-draft instead of falling back to b
     strpos($sync, '$payRate = jobdivaParseRateAmount($payRateRaw);') !== false
     && strpos($sync, 'jobdivaSyncRemoveUnsourcedAutoDraftRate($tid, $placementId, $billRate);') !== false
     && strpos($sync, 'if ($payRate <= 0) $payRate = $billRate;') === false);
+$assert('exact assignment contract rates override broader tenant mappings',
+    strpos($sync, "\$contractBillRate = jobdivaCanonicalContractPositiveRate(\$jd, ['bill_rate', 'net_bill_rate']);") !== false
+    && strpos($sync, 'if ($contractBillRate > 0) $billRate = $contractBillRate;') !== false
+    && strpos($sync, "\$contractPayRate = jobdivaCanonicalContractPositiveRate(\$jd, ['pay_rate', 'pay_rate_to_vendor']);") !== false
+    && strpos($sync, 'if ($contractPayRate > 0) $payRate = $contractPayRate;') !== false);
 $assert('cleanup targets old auto-generated bill=pay drafts only',
     strpos($sync, 'function jobdivaSyncRemoveUnsourcedAutoDraftRate') !== false
     && strpos($sync, 'created_by_user_id IS NULL') !== false

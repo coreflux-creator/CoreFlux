@@ -1118,6 +1118,98 @@ function integrationFieldMapSkip(array &$summary, array $mapping, string $reason
     }
 }
 
+function integrationFieldMapJobDivaAssignmentContract(array $payload): array
+{
+    if (isset($payload['_jd_contract']) && is_array($payload['_jd_contract'])) {
+        return $payload['_jd_contract'];
+    }
+    $assignment = $payload['assignment'] ?? null;
+    if (is_array($assignment) && array_is_list($assignment)) {
+        $assignment = $assignment[0] ?? null;
+    }
+    if (!is_array($assignment)) return [];
+    if (isset($assignment['_jd_contract']) && is_array($assignment['_jd_contract'])) {
+        return $assignment['_jd_contract'];
+    }
+    if (isset($assignment['contract_version']) || isset($assignment['source'])) {
+        return $assignment;
+    }
+    return [];
+}
+
+function integrationFieldMapContractHasAny(array $contract, array $keys): bool
+{
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $contract)) continue;
+        $value = $contract[$key];
+        if (is_bool($value) || is_int($value) || is_float($value)) return true;
+        if (is_array($value) && $value !== []) return true;
+        if (trim((string) $value) !== '') return true;
+    }
+    return false;
+}
+
+/**
+ * EmployeeAssignmentRecordsDetail owns the placement's transaction contract.
+ * Tenant mappings can add fields, but must not replace exact lifecycle,
+ * cadence, payment-term, classification, or economic facts with a broader
+ * searchStart/job/candidate value.
+ */
+function integrationFieldMapJobDivaContractOwnsTarget(
+    string $integration,
+    string $entityType,
+    array $mapping,
+    array $payload
+): bool {
+    if (strtolower($integration) !== 'jobdiva' || strtolower($entityType) !== 'placement') return false;
+    $contract = integrationFieldMapJobDivaAssignmentContract($payload);
+    if ($contract === []) return false;
+
+    $table = strtolower(trim((string) ($mapping['target_table'] ?? '')));
+    $column = strtolower(trim((string) ($mapping['target_column'] ?? '')));
+    $owned = [
+        'placements' => [
+            'start_date' => ['start_date'],
+            'end_date' => ['end_date'],
+            'status' => ['placement_status'],
+            'engagement_type' => ['engagement_type'],
+            'worksite_state' => ['worksite_state'],
+            'worksite_country' => ['worksite_country'],
+            'remote_policy' => ['remote_policy'],
+            'client_bill_cycle' => ['client_bill_cycle'],
+            'vendor_pay_cycle' => ['vendor_pay_cycle'],
+            'client_payment_terms_override' => ['client_payment_terms'],
+            'vendor_payment_terms_override' => ['vendor_payment_terms'],
+            'vendor_pwp_enabled' => ['paid_when_paid'],
+        ],
+        'placement_rates' => [
+            'bill_rate' => ['bill_rate', 'net_bill_rate', 'bill_rate_in_vms'],
+            'pay_rate' => ['pay_rate', 'pay_rate_to_vendor'],
+            'bill_rate_unit' => ['bill_rate_unit'],
+            'pay_rate_unit' => ['pay_rate_unit'],
+            'currency' => ['currency'],
+            'adder_pct' => ['payroll_load_pct'],
+            'background_fee_total' => ['background_fee_total'],
+            'bill_discount_pct' => ['vms_fee_pct', 'payment_discount_pct'],
+            'workers_comp_pct' => ['workers_comp_pct'],
+            'benefits_load_pct' => ['benefits_load_pct'],
+            'other_cost_per_hour' => ['other_cost_per_hour'],
+            'other_cost_flat' => ['other_cost_flat'],
+        ],
+        'placement_corp_details' => [
+            'corp_legal_name' => ['corporation_name'],
+            'payment_terms_override' => ['vendor_payment_terms'],
+            'pwp_enabled' => ['paid_when_paid'],
+        ],
+        'placement_client_chain' => [
+            'payment_terms_override' => ['client_payment_terms', 'vendor_payment_terms'],
+            'pwp_enabled' => ['paid_when_paid'],
+        ],
+    ];
+    $evidenceKeys = $owned[$table][$column] ?? [];
+    return $evidenceKeys !== [] && integrationFieldMapContractHasAny($contract, $evidenceKeys);
+}
+
 /**
  * Apply every enabled tenant mapping to a synced record. Writes are
  * scoped per (target_table, internal_row_id) so a single mapping run
@@ -1170,6 +1262,11 @@ function integrationFieldMapApplyAll(
             continue;
         }
 
+        if (integrationFieldMapJobDivaContractOwnsTarget($integration, $entityType, $m, $payload)) {
+            integrationFieldMapSkip($summary, $m, 'authoritative_jobdiva_assignment_contract');
+            continue;
+        }
+
         // Resolve source value: source_path (dotted) takes priority,
         // legacy `external_field` (flat) is the fallback.
         $val = null;
@@ -1185,7 +1282,7 @@ function integrationFieldMapApplyAll(
                 if ($maybe !== '') $val = $maybe;
             }
         }
-        if ($val === null || $val === '') {
+        if (!tenantIntegrationFieldMapValueIsPresent($val)) {
             integrationFieldMapSkip($summary, $m, 'source_value_missing');
             continue;
         }
@@ -1195,7 +1292,7 @@ function integrationFieldMapApplyAll(
         // generalised mappings share semantics.
         if (function_exists('tenantIntegrationFieldMapApplyTransform') && !empty($m['transform'])) {
             $val = tenantIntegrationFieldMapApplyTransform($val, (string) $m['transform']);
-            if ($val === null || $val === '') {
+            if (!tenantIntegrationFieldMapValueIsPresent($val)) {
                 integrationFieldMapSkip($summary, $m, 'transform_produced_empty_value');
                 continue;
             }

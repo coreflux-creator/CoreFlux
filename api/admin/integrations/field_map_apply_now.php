@@ -61,7 +61,8 @@ rbac_legacy_require_any($user, [
 $body = api_json_body();
 $integration = strtolower(trim((string) ($body['integration'] ?? '')));
 $entityType = trim((string) ($body['entity_type'] ?? ''));
-$rootEntityType = trim((string) ($body['root_entity_type'] ?? $entityType));
+$rootEntityType = strtolower(trim((string) ($body['root_entity_type'] ?? $entityType)));
+$rootEntityType = $rootEntityType === 'placements' ? 'placement' : $rootEntityType;
 $rootInternalId = (int) ($body['root_internal_id'] ?? 0);
 $userId = isset($user['id']) ? (int) $user['id'] : null;
 
@@ -86,6 +87,30 @@ try {
         $externalId = trim((string) ($mapping['external_id'] ?? ''));
         if (str_starts_with($externalId, 'jd:')) $externalId = substr($externalId, 3);
 
+        // Apply-now is an operational refresh, not a replay of a potentially
+        // shallow/stale mapping snapshot. Pull the exact Start, assignment
+        // contract, and related JobDiva facets before projecting CoreFlux.
+        $enrichmentDiagnostics = [];
+        $enriched = jobdivaSyncEnrichRelatedEntities(
+            $tid,
+            [$payload],
+            $userId,
+            ['enrich_start' => 1],
+            $enrichmentDiagnostics
+        );
+        if (isset($enriched[0]) && is_array($enriched[0])) {
+            $payload = $enriched[0];
+        }
+        if (empty($enrichmentDiagnostics['financial']['succeeded'])
+            || empty($payload['_jd_contract'])
+            || !is_array($payload['_jd_contract'])) {
+            api_error(
+                'The authoritative JobDiva assignment contract could not be loaded; no CoreFlux fields were changed.',
+                422,
+                ['enrichment' => $enrichmentDiagnostics]
+            );
+        }
+
         $placementContext = _fieldMapApplyNowPlacementContext($tid, $rootInternalId);
         $projectionOpts = [
             'external_id' => $externalId,
@@ -109,6 +134,7 @@ try {
             'mode' => 'jobdiva_placement_projection',
             'root_entity_type' => $rootEntityType,
             'root_internal_id' => $rootInternalId,
+            'enrichment' => $enrichmentDiagnostics,
             'projection' => $projection,
         ]);
     }

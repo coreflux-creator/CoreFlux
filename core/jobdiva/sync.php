@@ -5839,11 +5839,10 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         ])
     );
     $billRate = jobdivaParseRateAmount($billRateRaw);
-    if ($billRate <= 0) {
-        // searchStart frequently returns a numeric zero even when the exact
-        // EmployeeAssignmentRecordsDetail contract has the real client rate.
-        $billRate = jobdivaCanonicalContractPositiveRate($jd, ['bill_rate']);
-    }
+    $contractBillRate = jobdivaCanonicalContractPositiveRate($jd, ['bill_rate', 'net_bill_rate']);
+    // The exact EmployeeAssignmentRecordsDetail contract owns transaction
+    // pricing; broad tenant mappings are an enrichment fallback only.
+    if ($contractBillRate > 0) $billRate = $contractBillRate;
     $contractNetBillRate = jobdivaParseRateAmount(
         $sourceContract['net_bill_rate'] ?? $sourceContract['bill_rate'] ?? null
     );
@@ -5896,9 +5895,8 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     // tenant field map) does not provide a real positive pay value, do
     // not create/refresh the rate row.
     $payRate = jobdivaParseRateAmount($payRateRaw);
-    if ($payRate <= 0) {
-        $payRate = jobdivaCanonicalContractPositiveRate($jd, ['pay_rate', 'pay_rate_to_vendor']);
-    }
+    $contractPayRate = jobdivaCanonicalContractPositiveRate($jd, ['pay_rate', 'pay_rate_to_vendor']);
+    if ($contractPayRate > 0) $payRate = $contractPayRate;
     if ($payRate <= 0) {
         jobdivaSyncRemoveUnsourcedAutoDraftRate($tid, $placementId, $billRate);
         return false;

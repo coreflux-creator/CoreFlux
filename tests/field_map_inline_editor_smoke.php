@@ -186,12 +186,26 @@ $applyNowApi = (string) file_get_contents("{$ROOT}/api/admin/integrations/field_
 $assert('apply-now endpoint reruns canonical JobDiva placement projector',
     strpos($applyNowApi, 'jobdivaProjectorProjectPlacement($tid, $payload, $userId') !== false
     && strpos($applyNowApi, "'existing_placement_id' => \$rootInternalId") !== false);
+$assert('apply-now normalises plural placement root and refreshes exact assignment detail',
+    strpos($applyNowApi, "\$rootEntityType === 'placements' ? 'placement'") !== false
+    && strpos($applyNowApi, 'jobdivaSyncEnrichRelatedEntities(') !== false
+    && strpos($applyNowApi, "empty(\$enrichmentDiagnostics['financial']['succeeded'])") !== false
+    && strpos($applyNowApi, "empty(\$payload['_jd_contract'])") !== false);
 $assert('apply-now endpoint reuses existing placement identity context',
     strpos($applyNowApi, 'function _fieldMapApplyNowPlacementContext') !== false
     && strpos($applyNowApi, 'SELECT person_id, end_client_company_id') !== false
     && strpos($applyNowApi, "\$projectionOpts['person_id']") !== false);
 $assert('apply-now endpoint falls back to direct field-map apply for non-placement bindings',
     strpos($applyNowApi, 'integrationFieldMapApplyAll($tid, $integration, $entityType, $payload') !== false);
+
+$fieldMapApply = (string) file_get_contents("{$ROOT}/core/integrations/field_map_apply.php");
+$assert('generalized apply rejects JobDiva display placeholders before coercion',
+    strpos($fieldMapApply, 'if (!tenantIntegrationFieldMapValueIsPresent($val))') !== false);
+$assert('exact assignment contract protects canonical placement transaction fields',
+    strpos($fieldMapApply, 'function integrationFieldMapJobDivaContractOwnsTarget(') !== false
+    && strpos($fieldMapApply, "'authoritative_jobdiva_assignment_contract'") !== false
+    && strpos($fieldMapApply, "'bill_rate' => ['bill_rate', 'net_bill_rate', 'bill_rate_in_vms']") !== false
+    && strpos($fieldMapApply, "'vendor_pwp_enabled' => ['paid_when_paid']") !== false);
 
 $mappingsApi = (string) file_get_contents("{$ROOT}/api/integrations/mappings.php");
 $assert('mappings endpoint loads JobDiva canonical graph helper',
