@@ -88,17 +88,27 @@ if ($action === 'oauth_callback') {
     if ($code === '' || $realm === '' || $state === '') {
         api_error('code, realmId, and state are all required', 400);
     }
+    try {
+        $res = qboExchangeCode($tid, $code, $realm, $actorUserId);
+    } catch (\Throwable $e) {
+        qboAudit($tid, 'oauth_exchange_error', [
+            'ok' => false, 'actor_user_id' => $actorUserId,
+            'detail' => [
+                'exception' => get_class($e),
+                'message' => substr($e->getMessage(), 0, 500),
+            ],
+        ]);
+        api_error('QBO token exchange failed: ' . $e->getMessage(), 502);
+    }
+    // Consume only after the token exchange and connection upsert succeed.
+    // Otherwise a browser-blocked first callback destroys the only useful
+    // retry and masks the real exchange error as an "expired state" response.
     if (!qboConsumeOAuthState($tid, $state)) {
         qboAudit($tid, 'oauth_state_rejected', [
             'ok' => false, 'actor_user_id' => $actorUserId,
             'detail' => ['state' => substr($state, 0, 8) . '…'],
         ]);
-        api_error('Invalid or expired OAuth state. Click "Connect to QuickBooks" again.', 400);
-    }
-    try {
-        $res = qboExchangeCode($tid, $code, $realm, $actorUserId);
-    } catch (\Throwable $e) {
-        api_error('QBO token exchange failed: ' . $e->getMessage(), 502);
+        api_error('QuickBooks connected, but the OAuth state could not be finalized. Re-open the integration settings.', 409);
     }
     header('Location: /admin/integrations/qbo?connected=1');
     exit;

@@ -85,6 +85,9 @@ $a('oauth_callback consumes state nonce',        $c($api, 'qboConsumeOAuthState'
 $a('oauth_callback resolves context from state', $c($api, 'qboOAuthStateContext'));
 $a('client exposes state callback context',      $c($cli, 'function qboOAuthStateContext'));
 $a('oauth_callback exchanges code',              $c($api, 'qboExchangeCode'));
+$a('oauth_callback consumes state after exchange',
+    strpos($api, '$res = qboExchangeCode') < strrpos($api, 'qboConsumeOAuthState'));
+$a('oauth_callback audits exchange failures',    $c($api, "'oauth_exchange_error'"));
 $a('requires integrations.qbo.view for status',  $c($api, "rbac_legacy_require(\$user, 'integrations.qbo.view')"));
 $a('requires integrations.qbo.manage for write', $c($api, "rbac_legacy_require(\$user, 'integrations.qbo.manage')"));
 $a('returns configured + environment',           $c($api, "'configured'") && $c($api, "'environment'"));
