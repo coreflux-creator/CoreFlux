@@ -26,22 +26,30 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,core/config.local.example.php,core/migrations/129_qbo_payments_idempotency.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,spa-assets/index-CV3y6Kte.js,spa-assets/index-rSDhZGqF.js,spa-assets/index.html,spa-assets/sw.js,spa.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php"
+          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,core/config.local.example.php,core/migrations/129_qbo_payments_idempotency.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,scripts/configure_qbo.php,spa-assets/index-CV3y6Kte.js,spa-assets/index-rSDhZGqF.js,spa-assets/index.html,spa-assets/sw.js,spa.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php"
           target: ${{ secrets.CW_REMOTE_PATH }}/public_html
           overwrite: true
 
-      - name: Apply migrations and configure QBO workers
+      - name: Install QuickBooks credentials, apply migrations, and configure workers
         uses: appleboy/ssh-action@v1.2.5
+        env:
+          QBO_CLIENT_ID: ${{ secrets.QBO_CLIENT_ID }}
+          QBO_CLIENT_SECRET: ${{ secrets.QBO_CLIENT_SECRET }}
+          QBO_REDIRECT_URI: https://www.corefluxapp.com/api/qbo/oauth_callback.php
+          QBO_ENV: sandbox
+          QBO_SCOPES: com.intuit.quickbooks.accounting com.intuit.quickbooks.payment
         with:
           host: ${{ secrets.CW_SSH_HOST }}
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
+          envs: QBO_CLIENT_ID,QBO_CLIENT_SECRET,QBO_REDIRECT_URI,QBO_ENV,QBO_SCOPES
           command_timeout: 10m
           script: |
             set -eu
             APP_ROOT="${{ secrets.CW_REMOTE_PATH }}/public_html"
             cd "$APP_ROOT"
+            php scripts/configure_qbo.php
             test -f core/migrations/129_qbo_payments_idempotency.sql
             test -f api/qbo/account_map_manual.php
             grep -q 'function qboApplyCapturedPayment' core/qbo/payments_client.php
