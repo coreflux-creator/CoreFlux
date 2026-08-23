@@ -628,7 +628,11 @@ function qboOAuthStateContext(string $state): ?array
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);
     if (!$row || $row['consumed_at'] !== null) return null;
     $age = time() - strtotime((string) $row['created_at']);
-    if ($age < 0 || $age > 1800) return null;
+    // MySQL TIMESTAMP values can be returned in the connection timezone while
+    // PHP uses the host timezone. A negative age is therefore clock skew, not
+    // evidence of a forged row (the row itself was server-generated). Keep the
+    // original upper-bound expiry check used by qboConsumeOAuthState().
+    if ($age > 1800) return null;
     return [
         'tenant_id' => (int) $row['tenant_id'],
         'initiator_user_id' => $row['initiator_user_id'] !== null
