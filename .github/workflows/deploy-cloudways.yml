@@ -15,23 +15,53 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Fast-forward production and apply migrations
-        uses: appleboy/ssh-action@v1.2.2
+      - name: Checkout production revision
+        uses: actions/checkout@v4
+
+      - name: Upload the QuickBooks integration
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: ".deploy-version,INTEGRATION_QUALITY_CHARTER.md,api/admin/integration_triage.php,api/admin/qbo/payments_charge.php,api/qbo.php,api/qbo/account_map_manual.php,core/config.local.example.php,core/migrations/129_qbo_payments_idempotency.sql,core/qbo/client.php,core/qbo/payments_client.php,cron/qbo_payments_poll.php,dashboard/dist/index.html,dashboard/src/pages/IntegrationTriage.jsx,dashboard/src/pages/QboSettings.jsx,index.html,modules/billing/ui/BillingModule.jsx,modules/billing/ui/InvoicesList.jsx,modules/billing/ui/QboPaymentsCollectModal.jsx,spa-assets/index-CV3y6Kte.js,spa-assets/index-rSDhZGqF.js,spa-assets/index.html,spa-assets/sw.js,spa.php,tests/integration_triage_smoke.php,tests/qbo_account_import_jaz_parity_smoke.php,tests/qbo_foundation_smoke.php,tests/qbo_intuit_tokenizer_smoke.php,tests/qbo_payments_client_smoke.php,tests/qbo_payments_poll_smoke.php"
+          target: ${{ secrets.CW_REMOTE_PATH }}/public_html
+          overwrite: true
+
+      - name: Apply migrations and configure QBO workers
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.CW_SSH_HOST }}
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
           command_timeout: 10m
-          script_stop: true
           script: |
             set -eu
             APP_ROOT="${{ secrets.CW_REMOTE_PATH }}/public_html"
             cd "$APP_ROOT"
-            git fetch origin main
-            git merge --ff-only origin/main
             php deploy/run_migrations.php
-            php deploy/run_migrations.php --status
+            php deploy/run_migrations.php --status | grep 'core/migrations/129_qbo_payments_idempotency.sql'
+
+            mkdir -p logs
+            CRON_BACKUP="$HOME/.coreflux-crontab-before-qbo-$(date +%Y%m%d%H%M%S)"
+            CRON_NEXT="$(mktemp)"
+            (crontab -l 2>/dev/null || true) | tee "$CRON_BACKUP" \
+              | sed '/qbo_token_refresh\.php/d; /qbo_two_way_sync\.php/d; /qbo_payments_poll\.php/d; /# CoreFlux QBO workers/d' \
+              > "$CRON_NEXT"
+            PHP_BIN="$(command -v php)"
+            {
+              echo '# CoreFlux QBO workers'
+              echo "*/15 * * * * cd $APP_ROOT && $PHP_BIN cron/qbo_token_refresh.php >> logs/qbo_token_refresh.log 2>&1"
+              echo "*/30 * * * * cd $APP_ROOT && $PHP_BIN cron/qbo_two_way_sync.php >> logs/qbo_two_way_sync.log 2>&1"
+              echo "7 * * * * cd $APP_ROOT && $PHP_BIN cron/qbo_payments_poll.php >> logs/qbo_payments_poll.log 2>&1"
+            } >> "$CRON_NEXT"
+            crontab "$CRON_NEXT"
+            rm -f "$CRON_NEXT"
+
             grep -q 'spa-assets/index-rSDhZGqF.js' .deploy-version
             test -f spa-assets/index-rSDhZGqF.js
-            echo "CoreFlux production deploy complete: $(git rev-parse --short HEAD)"
+            echo 'QBO config presence:'
+            php -r '$p="core/config.local.php"; if (is_file($p)) require $p; foreach (["QBO_CLIENT_ID","QBO_CLIENT_SECRET","QBO_REDIRECT_URI","QBO_ENV","QBO_SCOPES"] as $k) { $v=defined($k)?constant($k):getenv($k); echo $k,"=",(is_string($v)&&trim($v)!==""?"set":"missing"),PHP_EOL; }'
+            echo "CoreFlux QuickBooks deploy and worker schedule complete. Cron backup: $CRON_BACKUP"
