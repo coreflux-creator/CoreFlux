@@ -13,16 +13,19 @@ $script = $root . '/scripts/recover_data_key.php';
 $tmp = sys_get_temp_dir() . '/coreflux-key-recovery-' . bin2hex(random_bytes(6));
 $core = $tmp . '/public_html/core';
 $private = $tmp . '/private_html';
+$recovery = $tmp . '/recovery';
 mkdir($core, 0770, true);
 mkdir($private, 0770, true);
+mkdir($recovery, 0700, true);
 
 $key = base64_encode(str_repeat("K", 32));
 $config = $core . '/config.local.php';
 file_put_contents($config, "<?php\ndefine('COREFLUX_DATA_KEY', " . var_export($key, true) . ");\n");
 
-$run = static function (string $mode) use ($script, $tmp): array {
+$run = static function (string $mode) use ($script, $tmp, $recovery): array {
     $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($script) . ' '
-        . escapeshellarg($mode) . ' ' . escapeshellarg($tmp) . ' 2>&1';
+        . escapeshellarg($mode) . ' ' . escapeshellarg($tmp) . ' '
+        . escapeshellarg($recovery . '/.coreflux-data-key-recovery') . ' 2>&1';
     $output = [];
     $code = 0;
     exec($cmd, $output, $code);
@@ -32,7 +35,7 @@ $run = static function (string $mode) use ($script, $tmp): array {
 [$captureCode, $captureOutput] = $run('capture');
 $assert('capture succeeds with a valid original key', $captureCode === 0, $captureOutput);
 $assert('capture output withholds the key', !str_contains($captureOutput, $key));
-$assert('escrow is created outside restored web folders', is_file($tmp . '/.coreflux-data-key-recovery'));
+$assert('escrow is created outside restored web folders', is_file($recovery . '/.coreflux-data-key-recovery'));
 
 file_put_contents($config, "<?php\ndefine('QBO_ENV', 'sandbox');\n");
 [$restoreCode, $restoreOutput] = $run('restore');
@@ -58,4 +61,3 @@ $remove($tmp);
 
 echo "Data-key recovery smoke: {$ok} ✓ / {$bad} ✗" . PHP_EOL;
 exit($bad === 0 ? 0 : 1);
-

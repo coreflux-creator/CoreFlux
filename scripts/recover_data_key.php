@@ -5,8 +5,9 @@
  *
  * The key is never printed. Capture writes a mode-0600 escrow file outside
  * public_html/private_html so Cloudways web-file restore/rollback leaves it
- * untouched. Restore writes the key back into config.local.php and a backed-up
- * private_html secret file.
+ * untouched. The escrow path is supplied by the deploy workflow and lives in
+ * the SSH user's private home directory. Restore writes the key back into
+ * config.local.php and a backed-up private_html secret file.
  */
 declare(strict_types=1);
 
@@ -34,7 +35,17 @@ if ($mode === 'none') {
 $configPath = $appBase . '/public_html/core/config.local.php';
 $privateDir = $appBase . '/private_html';
 $privatePath = $privateDir . '/coreflux.secrets.php';
-$escrowPath = $appBase . '/.coreflux-data-key-recovery';
+$escrowArg = (string) ($argv[3] ?? '');
+$escrowDir = $escrowArg !== '' ? realpath(dirname($escrowArg)) : false;
+if ($escrowDir === false || basename($escrowArg) !== '.coreflux-data-key-recovery') {
+    fwrite(STDERR, "Unable to resolve the private recovery escrow path.\n");
+    exit(1);
+}
+$escrowPath = $escrowDir . '/.coreflux-data-key-recovery';
+if (is_link($escrowPath)) {
+    fwrite(STDERR, "The recovery escrow may not be a symbolic link.\n");
+    exit(1);
+}
 
 /** @return string|null */
 function recoveryKeyFromPhpFile(string $path): ?string
@@ -136,4 +147,3 @@ try {
     fwrite(STDERR, 'Data-key recovery failed: ' . $e->getMessage() . "\n");
     exit(1);
 }
-
