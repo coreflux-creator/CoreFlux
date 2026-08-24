@@ -37,6 +37,7 @@ import RuleProposals from './pages/RuleProposals';
 import Login from './pages/Login';
 import MagicLinkConsume from './pages/MagicLinkConsume';
 import ErrorBoundary from './components/ErrorBoundary';
+import UniversalListTools from './components/UniversalListTools';
 import { filterLayerNav } from './lib/layerNavGate';
 
 // LayerFi sandbox embed — production-safe default: nav + routes only appear
@@ -430,6 +431,8 @@ const AppContent = ({ session, usingDemo }) => {
           </span>
         </div>
       )}
+
+      <UniversalListTools routeKey={location.pathname} />
 
       <AppLayout 
         session={sessionWithActiveModule}
