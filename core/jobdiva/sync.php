@@ -3301,6 +3301,7 @@ function jobdivaApplyStoredAssignmentProjection(
                     'payload_is_enriched' => true,
                     'external_id' => $startId,
                     'existing_placement_id' => (int) ($row['placement_id'] ?? 0),
+                    'person_id' => (int) ($row['current']['person_id'] ?? 0),
                 ]
             );
             if (empty($projection['projected'])) {
@@ -3377,6 +3378,7 @@ function jobdivaReprojectStoredAssignmentGraphs(int $tenantId, ?int $userId, int
                     'payload_is_enriched' => true,
                     'external_id' => (string) $row['start_id'],
                     'existing_placement_id' => (int) ($row['placement_id'] ?? 0),
+                    'person_id' => (int) ($row['current']['person_id'] ?? 0),
                 ]
             );
             if (empty($projection['projected'])) {

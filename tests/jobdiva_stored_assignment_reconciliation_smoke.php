@@ -62,6 +62,16 @@ $assert(
     str_contains($sync, "jobdivaProjectorProjectPlacement(\n                \$tenantId,\n                (array) \$row['__payload']")
 );
 $assert(
+    'stored apply and automatic replay preserve the exact placement person identity',
+    substr_count($sync, "'person_id' => (int) (\$row['current']['person_id'] ?? 0)") >= 2
+);
+$projector = $read("$root/core/jobdiva/projector.php");
+$assert(
+    'canonical projector always loads the shared candidate resolver when needed',
+    str_contains($projector, "!function_exists('jobdivaPlacementsAutoCreatePerson')")
+    && str_contains($projector, "require_once __DIR__ . '/sync_placements.php';")
+);
+$assert(
     'stored apply is transactional',
     str_contains($sync, '$pdo->beginTransaction();')
     && str_contains($sync, 'if ($pdo->inTransaction()) $pdo->rollBack();')

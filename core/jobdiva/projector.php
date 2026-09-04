@@ -125,6 +125,13 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         );
 
         $personId = (int) ($opts['person_id'] ?? 0);
+        if ($personId <= 0 && !function_exists('jobdivaPlacementsAutoCreatePerson')) {
+            // The stored-assignment reconciliation path loads the canonical
+            // projector without running placement discovery first. Load the
+            // shared candidate resolver explicitly so projection behavior is
+            // identical for sync, repair, and operator-selected reconciliation.
+            require_once __DIR__ . '/sync_placements.php';
+        }
         if ($personId <= 0 && function_exists('jobdivaPlacementsAutoCreatePerson')) {
             $personId = (int) (jobdivaPlacementsAutoCreatePerson($tenantId, $payload, $userId) ?? 0);
         }
