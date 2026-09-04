@@ -182,7 +182,7 @@ if ($method === 'POST') {
         if ($value !== null && ($value < 0 || $value > 10)) api_error("{$field} must be between 0 and 10", 422);
     }
 
-    $id = scopedInsert('placement_rates', [
+    $rateData = [
         'placement_id'    => $pid,
         'effective_from'  => $body['effective_from'],
         'effective_to'    => $body['effective_to']    ?? null,
@@ -204,9 +204,28 @@ if ($method === 'POST') {
         'other_cost_flat' => $nullableNumber('other_cost_flat'),
         'background_fee_total' => $body['background_fee_total'] ?? null,
         'created_by_user_id'   => $user['id'] ?? null,
-    ]);
+    ];
+    $replaceDraftId = (int) ($body['replace_draft_id'] ?? 0);
+    if ($replaceDraftId > 0) {
+        $draft = scopedFind(
+            'SELECT id, placement_id, approved_at FROM placement_rates
+              WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => $replaceDraftId]
+        );
+        if (!$draft || (int) $draft['placement_id'] !== $pid) api_error('Draft rate not found on this placement', 404);
+        if (!empty($draft['approved_at'])) api_error('Approved rates are locked; create a correction instead', 409);
+        unset($rateData['placement_id'], $rateData['created_by_user_id']);
+        scopedUpdate('placement_rates', $replaceDraftId, $rateData);
+        placementsAudit('placement.rate.draft_updated', [
+            'placement_id' => $pid,
+            'rate_id' => $replaceDraftId,
+        ], $pid);
+        api_ok(['id' => $replaceDraftId, 'updated' => true]);
+    }
+
+    $id = scopedInsert('placement_rates', $rateData);
     placementsAudit('placement.rate.drafted', ['placement_id' => $pid, 'rate_id' => $id], $pid);
-    api_ok(['id' => $id], 201);
+    api_ok(['id' => $id, 'updated' => false], 201);
 }
 
 api_error('Method not allowed', 405);

@@ -28,6 +28,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/assignment_identity.php';
 require_once __DIR__ . '/assignment_contract.php';
+require_once __DIR__ . '/contract_projection.php';
 require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../integrations/payload_field_index.php';
@@ -2775,6 +2776,8 @@ function jobdivaStoredAssignmentProjectionPlan(
         'missing_company' => 0,
         'with_rates' => 0,
         'with_economic_participants' => 0,
+        'contract_complete' => 0,
+        'contract_blocked' => 0,
     ];
     $rows = [];
     if ($tenantId <= 0) {
@@ -2795,6 +2798,39 @@ function jobdivaStoredAssignmentProjectionPlan(
     );
     $st->execute(['t' => $tenantId]);
 
+    // The authoritative financial detail is fetched against a placement's
+    // exact Start ID and persisted on the placement mirror. Reconciliation
+    // starts from the native assignment inventory, so stitch only those
+    // financial facets back onto the same exact Start ID before previewing.
+    // This closes the old split where Sync knew the rates/vendor contract but
+    // Repair Alignment projected the shallower assignment row without it.
+    $financialPayloads = [];
+    try {
+        $financialStmt = $pdo->prepare(
+            "SELECT external_id, payload_snapshot
+               FROM external_entity_mappings
+              WHERE tenant_id = :t
+                AND source_system = 'jobdiva'
+                AND internal_entity_type = 'placement'
+                AND sync_status = 'ok'
+                AND payload_snapshot IS NOT NULL
+              ORDER BY updated_at DESC, id DESC
+              LIMIT {$limit}"
+        );
+        $financialStmt->execute(['t' => $tenantId]);
+        while ($financialRow = $financialStmt->fetch(\PDO::FETCH_ASSOC)) {
+            $financialStartId = jobdivaAssignmentIdentityNormaliseId((string) ($financialRow['external_id'] ?? ''));
+            if ($financialStartId === '' || isset($financialPayloads[$financialStartId])) continue;
+            $financialPayload = json_decode((string) ($financialRow['payload_snapshot'] ?? ''), true);
+            if (!is_array($financialPayload)) continue;
+            if (!is_array($financialPayload['_jd_contract'] ?? null)
+                && !is_array($financialPayload['_jd_assignment_detail'] ?? null)) continue;
+            $financialPayloads[$financialStartId] = $financialPayload;
+        }
+    } catch (\Throwable $e) {
+        error_log('[jobdiva stored assignment preview] financial mirror lookup failed: ' . $e->getMessage());
+    }
+
     while ($sourceRow = $st->fetch(\PDO::FETCH_ASSOC)) {
         $startId = jobdivaAssignmentIdentityNormaliseId((string) ($sourceRow['external_id'] ?? ''));
         if ($onlyLookup && !isset($onlyLookup[$startId])) continue;
@@ -2806,6 +2842,15 @@ function jobdivaStoredAssignmentProjectionPlan(
         if (!is_array($payload)) {
             $payload = [];
             $errors[] = 'Stored assignment payload is not valid JSON.';
+        }
+        $financialPayload = $financialPayloads[$startId] ?? null;
+        if (is_array($financialPayload)) {
+            foreach (['_jd_contract', '_jd_assignment_detail'] as $financialKey) {
+                if (!is_array($payload[$financialKey] ?? null)
+                    && is_array($financialPayload[$financialKey] ?? null)) {
+                    $payload[$financialKey] = $financialPayload[$financialKey];
+                }
+            }
         }
 
         $identity = $payload ? jobdivaAssignmentValidate($payload, $startId, 'stored_assignment_preview') : [
@@ -2965,6 +3010,23 @@ function jobdivaStoredAssignmentProjectionPlan(
             }
         }
 
+        $contractProjection = $enriched
+            ? jobdivaContractProjectionBuild($enriched, $currentGraph, $startId)
+            : jobdivaContractProjectionBuild([], $currentGraph, $startId);
+        foreach ($contractProjection['blocking_issues'] ?? [] as $check) {
+            $errors[] = (string) ($check['label'] ?? 'Contract check') . ': '
+                . (string) ($check['detail'] ?? 'blocked');
+        }
+        foreach ($contractProjection['warnings'] ?? [] as $check) {
+            $warnings[] = (string) ($check['label'] ?? 'Contract warning') . ': '
+                . (string) ($check['detail'] ?? 'source default required');
+        }
+        if (!empty($contractProjection['complete'])) {
+            $summary['contract_complete']++;
+        } else {
+            $summary['contract_blocked']++;
+        }
+
         $title = $enriched ? (string) $mapped(
             'title',
             static fn() => jobdivaPluckFieldDeep($enriched, [
@@ -2996,6 +3058,9 @@ function jobdivaStoredAssignmentProjectionPlan(
                 jobdivaInferPlacementEngagementTypeFromPayload($enriched, '')
             )
             : '';
+        if (!empty($contractProjection['placement']['engagement_type'])) {
+            $engagement = (string) $contractProjection['placement']['engagement_type'];
+        }
         $endDateRaw = $enriched ? jobdivaPluckFieldDeep($enriched, [
             'endDate', 'end_date', 'end date', 'enddate',
         ]) : '';
@@ -3006,6 +3071,9 @@ function jobdivaStoredAssignmentProjectionPlan(
                 'client bill rate', 'clientBillRate', 'client_bill_rate',
             ])
         )) : 0.0;
+        if ((float) ($contractProjection['economics']['gross_client_rate'] ?? 0) > 0) {
+            $billRate = (float) $contractProjection['economics']['gross_client_rate'];
+        }
         $payRate = $enriched ? jobdivaParseRateAmount($mapped(
             'pay_rate',
             static fn() => jobdivaPluckFieldDeep($enriched, [
@@ -3014,12 +3082,23 @@ function jobdivaStoredAssignmentProjectionPlan(
                 'contractor pay rate', 'contractorPayRate', 'contractor_pay_rate',
             ])
         )) : 0.0;
+        if ((float) ($contractProjection['economics']['labor_rate'] ?? 0) > 0) {
+            $payRate = (float) $contractProjection['economics']['labor_rate'];
+        }
         $economicOptions = $enriched ? jobdivaSyncPlacementEconomicOptions($enriched) : [];
+        $contractParticipants = array_values(array_filter(
+            $contractProjection['participants'] ?? [],
+            static fn(array $participant): bool => in_array(
+                (string) ($participant['role'] ?? ''),
+                ['c2c_vendor', 'worker'],
+                true
+            ) && (string) ($participant['settlement_channel'] ?? '') === 'ap'
+        ));
         $economicSignals = [
-            'vendor' => $enriched ? jobdivaPluckFieldDeep($enriched, [
+            'vendor' => (string) ($contractParticipants[0]['name'] ?? '') ?: ($enriched ? jobdivaPluckFieldDeep($enriched, [
                 'vendorName', 'vendor_name', 'supplierName', 'supplier_name',
                 'contractorCompany', 'contractor_company', 'corpName', 'corp_name',
-            ]) : '',
+            ]) : ''),
             'referrer' => $enriched ? jobdivaPluckFieldDeep($enriched, [
                 'referrerName', 'referrer_name', 'referralVendor', 'referral_vendor',
             ]) : '',
@@ -3030,6 +3109,8 @@ function jobdivaStoredAssignmentProjectionPlan(
             'vendor_payment_terms' => (string) ($economicOptions['payment_terms'] ?? ''),
             'client_payment_terms' => (string) ($economicOptions['client_payment_terms'] ?? ''),
             'paid_when_paid' => $economicOptions['pwp_enabled'] ?? null,
+            'invoice_rate' => $contractProjection['economics']['invoice_rate'] ?? null,
+            'gross_margin' => $contractProjection['economics']['gross_margin'] ?? null,
         ];
         $hasEconomicParticipants = count(array_filter(
             $economicSignals,
@@ -3087,6 +3168,7 @@ function jobdivaStoredAssignmentProjectionPlan(
                 'pay_rate' => $payRate > 0 ? $payRate : null,
             ],
             'economics' => $economicSignals,
+            'contract' => $contractProjection,
             'current' => $current,
             'current_graph' => $currentGraph,
             'errors' => $errors,
@@ -3111,6 +3193,11 @@ function jobdivaStoredAssignmentProjectionPlan(
         'source' => $row['source'],
         'current' => $row['current'],
         'current_graph' => $row['current_graph'],
+        'contract' => [
+            'complete' => $row['contract']['complete'] ?? false,
+            'fields' => $row['contract']['fields'] ?? [],
+            'checks' => $row['contract']['checks'] ?? [],
+        ],
     ], $rows);
     $dryRunToken = hash('sha256', json_encode(
         ['tenant_id' => $tenantId, 'rows' => $tokenRows],
@@ -3179,6 +3266,16 @@ function jobdivaApplyStoredAssignmentProjection(
         'field_map_writes' => 0,
         'rows' => [],
     ];
+    // Resolve source-owned C2C company identities before opening the write
+    // transaction. This can call JobDiva and must not hold placement locks.
+    foreach (array_keys($selected) as $startId) {
+        $contract = $rowsByStart[$startId]['contract']['source_contract'] ?? [];
+        $companyExternalId = trim((string) ($contract['corporation_id'] ?? ''));
+        if ($companyExternalId !== '') {
+            jobdivaSyncResolveSubcontractCompany($tenantId, $companyExternalId, $userId);
+        }
+    }
+
     try {
         $pdo->beginTransaction();
         foreach (array_keys($selected) as $startId) {
@@ -4945,7 +5042,10 @@ function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId
         'rates' => ['placement_rates', [
             'id', 'effective_from', 'effective_to', 'bill_rate', 'pay_rate', 'bill_rate_unit',
             'pay_rate_unit', 'currency', 'ot_multiplier', 'dt_multiplier', 'adjusted_bill_rate',
-            'net_bill_rate', 'approval_state', 'approved_at',
+            'net_bill_rate', 'adder_pct', 'bill_adder_pct', 'bill_adder_flat',
+            'bill_discount_pct', 'bill_discount_flat', 'workers_comp_pct', 'benefits_load_pct',
+            'other_cost_per_hour', 'background_fee_total', 'other_cost_flat',
+            'approval_state', 'approved_at',
         ]],
         'chain' => ['placement_client_chain', [
             'id', 'position', 'company_id', 'party_name', 'party_role', 'portal_fee_pct',
@@ -4971,6 +5071,7 @@ function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId
             'fee_basis', 'fee_pct', 'fee_flat', 'payment_terms', 'pwp_enabled',
             'operating_cycle_id', 'effective_from', 'effective_to', 'source_system',
             'source_external_id', 'source_managed',
+            'active',
         ]],
     ];
     foreach ($children as $key => [$table, $columns]) {
@@ -5926,6 +6027,9 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'billRateUnit', 'bill_rate_unit', 'BILLRATEUNIT',
         ])
     ));
+    if (!empty($sourceContract['bill_rate_unit'])) {
+        $billRateUnit = $coerceUnit((string) $sourceContract['bill_rate_unit']);
+    }
     $payRateUnit = $coerceUnit((string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'pay_rate_unit', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
@@ -5933,6 +6037,9 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'payRateUnit', 'pay_rate_unit', 'PAYRATEUNIT', 'hourly unit',
         ])
     ));
+    if (!empty($sourceContract['pay_rate_unit'])) {
+        $payRateUnit = $coerceUnit((string) $sourceContract['pay_rate_unit']);
+    }
 
     // Currency: extract from "USD/Hour" style strings if needed.
     $currencyRaw = (string) tenantIntegrationFieldMapPluckInternal(
@@ -5950,6 +6057,12 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         $currency = strtoupper(substr($currencyRaw, 0, 3));
     }
     if (strlen($currency) !== 3) $currency = 'USD';
+    if (!empty($sourceContract['currency'])) {
+        $contractCurrency = strtoupper(trim((string) $sourceContract['currency']));
+        if (preg_match('/\b([A-Z]{3})\b/', $contractCurrency, $contractCurrencyMatch)) {
+            $currency = $contractCurrencyMatch[1];
+        }
+    }
 
     $otRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'ot_multiplier', $jd,
@@ -5975,6 +6088,10 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         ])
     );
     $adderPct = jobdivaParsePercent($adderRaw);
+    if (array_key_exists('payroll_load_pct', $sourceContract)) {
+        $contractPayrollLoad = jobdivaParsePercent($sourceContract['payroll_load_pct']);
+        if ($contractPayrollLoad !== null) $adderPct = $contractPayrollLoad;
+    }
 
     $backgroundFeeRaw = tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'background_fee_total', $jd,
@@ -5989,6 +6106,10 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     );
     $backgroundFeeTotal = jobdivaParseRateAmount($backgroundFeeRaw);
     $backgroundFeeTotal = $backgroundFeeTotal > 0 ? $backgroundFeeTotal : null;
+    if (array_key_exists('background_fee_total', $sourceContract)) {
+        $contractBackgroundFee = jobdivaParseRateAmount($sourceContract['background_fee_total']);
+        $backgroundFeeTotal = $contractBackgroundFee > 0 ? $contractBackgroundFee : null;
+    }
 
     $mappedRateValue = static function (string $field, array $fallbackKeys = []) use ($tid, $jd): mixed {
         return tenantIntegrationFieldMapPluckInternal(
@@ -6025,17 +6146,33 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     $workersCompPct = jobdivaParsePercent($mappedRateValue('workers_comp_pct', [
         'workers comp percent', 'workers compensation percent', 'workers comp %', 'workers_comp_pct',
     ]));
+    if (array_key_exists('workers_comp_pct', $sourceContract)) {
+        $contractWorkersComp = jobdivaParsePercent($sourceContract['workers_comp_pct']);
+        if ($contractWorkersComp !== null) $workersCompPct = $contractWorkersComp;
+    }
     $benefitsLoadPct = jobdivaParsePercent($mappedRateValue('benefits_load_pct', [
         'benefits load percent', 'benefit load percent', 'benefits %', 'benefits_load_pct',
     ]));
+    if (array_key_exists('benefits_load_pct', $sourceContract)) {
+        $contractBenefitsLoad = jobdivaParsePercent($sourceContract['benefits_load_pct']);
+        if ($contractBenefitsLoad !== null) $benefitsLoadPct = $contractBenefitsLoad;
+    }
     $otherCostPerHour = jobdivaParseRateAmount($mappedRateValue('other_cost_per_hour', [
         'other cost per hour', 'additional cost per hour', 'other_cost_per_hour',
     ]));
     $otherCostPerHour = $otherCostPerHour > 0 ? $otherCostPerHour : null;
+    if (array_key_exists('other_cost_per_hour', $sourceContract)) {
+        $contractOtherHourly = jobdivaParseRateAmount($sourceContract['other_cost_per_hour']);
+        $otherCostPerHour = $contractOtherHourly > 0 ? $contractOtherHourly : null;
+    }
     $otherCostFlat = jobdivaParseRateAmount($mappedRateValue('other_cost_flat', [
         'other fixed cost', 'additional fixed cost', 'other_cost_flat', 'fixed costs',
     ]));
     $otherCostFlat = $otherCostFlat > 0 ? $otherCostFlat : null;
+    if (array_key_exists('other_cost_flat', $sourceContract)) {
+        $contractOtherFlat = jobdivaParseRateAmount($sourceContract['other_cost_flat']);
+        $otherCostFlat = $contractOtherFlat > 0 ? $contractOtherFlat : null;
+    }
 
     $effectiveFrom = $startDate !== '' ? $startDate : date('Y-m-d');
     $sourceSnapshotJson = $sourceContract !== []

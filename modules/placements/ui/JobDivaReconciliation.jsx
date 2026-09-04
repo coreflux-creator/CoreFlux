@@ -293,6 +293,7 @@ export default function JobDivaReconciliation() {
                 ['update', 'Reproject', '#c2410c', '#fff7ed'],
                 ['fully_joined', 'Job + candidate joined', '#047857', '#ecfdf5'],
                 ['with_rates', 'Bill + pay evidence', '#166534', '#f0fdf4'],
+                ['contract_complete', 'Complete contracts', '#166534', '#f0fdf4'],
                 ['blocked', 'Blocked', '#b91c1c', '#fef2f2'],
               ].map(([key, label, fg, bg], index) => (
                 <div key={key} style={{
@@ -378,6 +379,8 @@ export default function JobDivaReconciliation() {
                               Bill {displayMoney(row.source?.bill_rate)} / Pay {displayMoney(row.source?.pay_rate)}
                             </div>
                             <small style={{ color: '#64748b' }}>
+                              Invoice {displayMoney(row.contract?.economics?.invoice_rate)} / Margin {displayMoney(row.contract?.economics?.gross_margin)}
+                              {' / '}
                               {row.economics?.vendor || 'no vendor evidence'}
                               {row.economics?.paid_when_paid ? ' / paid when paid' : ''}
                             </small>
@@ -682,6 +685,7 @@ export default function JobDivaReconciliation() {
 }
 
 function StoredAssignmentDetails({ row }) {
+  const contract = row.contract || {};
   const sourcePairs = [
     ['Candidate ID', row.source?.candidate_id],
     ['Candidate', row.source?.candidate_name],
@@ -723,6 +727,41 @@ function StoredAssignmentDetails({ row }) {
       <KeyValueList title="Assignment projection" items={sourcePairs} />
       <KeyValueList title="Economic projection evidence" items={economicsPairs} />
       <KeyValueList title="Current CoreFlux graph" items={currentGraphPairs} />
+      <div style={{ gridColumn: '1 / -1' }}>
+        <strong style={{ fontSize: 12 }}>Canonical contract proposal</strong>
+        <table style={{ width: '100%', marginTop: 6, fontSize: 12, borderCollapse: 'collapse' }} data-testid={`jobdiva-contract-fields-${row.start_id}`}>
+          <thead><tr><th style={{ textAlign: 'left' }}>CoreFlux field</th><th style={{ textAlign: 'left' }}>Current</th><th style={{ textAlign: 'left' }}>Proposed</th><th style={{ textAlign: 'left' }}>JobDiva authority</th></tr></thead>
+          <tbody>{(contract.fields || []).map((field) => <tr key={`${field.group}-${field.field}`} style={{ background: field.changes ? '#fff7ed' : 'transparent' }}>
+            <td style={{ padding: 5 }}><span style={{ color: '#64748b' }}>{field.group}</span><br /><strong>{field.label}</strong></td>
+            <td style={{ padding: 5 }}>{displayValue(field.current)}</td>
+            <td style={{ padding: 5 }}>{displayValue(field.proposed)}</td>
+            <td style={{ padding: 5 }}><code>{field.source}</code><br /><span style={{ color: '#64748b' }}>{field.authority?.replace(/_/g, ' ')}</span></td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+      <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18 }}>
+        <div>
+          <strong style={{ fontSize: 12 }}>Contract checks</strong>
+          <table style={{ width: '100%', marginTop: 6, fontSize: 12, borderCollapse: 'collapse' }}>
+            <tbody>{(contract.checks || []).map((check) => <tr key={check.code}>
+              <td style={{ padding: 4, color: check.status === 'pass' ? '#166534' : check.status === 'warning' ? '#b45309' : '#b91c1c', fontWeight: 700 }}>{check.status === 'pass' ? 'Pass' : check.status === 'warning' ? 'Review' : 'Blocked'}</td>
+              <td style={{ padding: 4 }}><strong>{check.label}</strong><br /><span style={{ color: '#64748b' }}>{check.detail}</span></td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        <div>
+          <strong style={{ fontSize: 12 }}>Settlement participants</strong>
+          <table style={{ width: '100%', marginTop: 6, fontSize: 12, borderCollapse: 'collapse' }}>
+            <tbody>{(contract.participants || []).map((party, index) => <tr key={`${party.role}-${party.external_id || index}`}>
+              <td style={{ padding: 4 }}><strong>{party.name || party.external_id || 'Unresolved'}</strong><br /><span style={{ color: '#64748b' }}>{party.role?.replace(/_/g, ' ')}</span></td>
+              <td style={{ padding: 4 }}>{party.settlement_channel?.toUpperCase()} / {party.calculation?.replace(/_/g, ' ')}</td>
+              <td style={{ padding: 4 }}>{party.cadence || '-'} / {party.payment_terms || '-'}</td>
+            </tr>)}</tbody>
+          </table>
+          {(contract.attributions || []).length > 0 && <><strong style={{ display: 'block', fontSize: 12, marginTop: 12 }}>Attribution only</strong>
+            <ul style={{ margin: '5px 0 0', paddingLeft: 18, fontSize: 12 }}>{contract.attributions.map((owner) => <li key={`${owner.role}-${owner.name_or_id}`}>{owner.role.replace(/^source_/, '').replace(/_/g, ' ')}: {owner.name_or_id}{owner.allocation_pct ? ` (${(Number(owner.allocation_pct) * 100).toFixed(2)}% source allocation)` : ''}. No payment created.</li>)}</ul></>}
+        </div>
+      </div>
       <div>
         {row.errors?.length ? <MessageList title="Blocked" items={row.errors} color="#b91c1c" /> : null}
         {row.warnings?.length ? <MessageList title="Missing source facets" items={row.warnings} color="#b45309" /> : null}

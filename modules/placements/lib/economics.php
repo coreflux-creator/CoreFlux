@@ -922,6 +922,7 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         trim((string) ($r['payment_terms'] ?? $r['vendor_default_terms'] ?? '')) === ''
     ));
     $model = placementEconomicsModel($tenantId, $placementId, $parties);
+    $contractModel = placementEconomicsCurrentContractModel($tenantId, $placementId, $parties);
     $sourceEvidence = placementEconomicsLatestSourceEvidence($tenantId, $placementId);
     $hasC2cVendor = count(array_filter($parties, static fn(array $r): bool =>
         $r['role'] === 'c2c_vendor' && $r['settlement_channel'] === 'ap' && !empty($r['ap_vendor_id'])
@@ -965,6 +966,7 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         'parties' => $parties,
         'cycles' => $cycles,
         'model' => $model,
+        'contract_model' => $contractModel,
         'source_contract' => $sourceEvidence['source_contract'],
         'source_overheads' => $sourceEvidence['source_overheads'],
         'readiness' => $readiness,
@@ -1194,6 +1196,34 @@ function placementEconomicsModel(int $tenantId, int $placementId, ?array $partie
 
     $snapshot = json_decode((string) ($rate['economics_snapshot_json'] ?? ''), true);
     if (is_array($snapshot) && !empty($snapshot['available'])) return $snapshot;
+    return placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties);
+}
+
+/**
+ * Show the current source-backed contract before approval without weakening
+ * approval as the lock used by billing, AP, and payroll. A JobDiva draft is
+ * therefore visible and testable while downstream settlement continues to
+ * consume only an approved snapshot.
+ */
+function placementEconomicsCurrentContractModel(
+    int $tenantId,
+    int $placementId,
+    ?array $parties = null
+): array {
+    $parties = $parties ?? placementEconomicsParties($tenantId, $placementId);
+    $st = getDB()->prepare(
+        'SELECT * FROM placement_rates
+          WHERE tenant_id = :t AND placement_id = :p
+          ORDER BY (effective_to IS NULL) DESC,
+                   (approved_at IS NULL) DESC,
+                   effective_from DESC, id DESC
+          LIMIT 1'
+    );
+    $st->execute(['t' => $tenantId, 'p' => $placementId]);
+    $rate = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+    if (!$rate) {
+        return ['available' => false, 'approved' => false, 'revenue_lines' => [], 'hourly_lines' => [], 'fixed_lines' => []];
+    }
     return placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties);
 }
 

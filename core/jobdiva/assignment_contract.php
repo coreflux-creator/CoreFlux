@@ -388,13 +388,25 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'c2c_flag' => $c2c,
         'bill_rate' => $billRate,
         'pay_rate' => $payRate,
-        'bill_rate_unit' => $pick(['Bill Rate Unit', 'billRateUnit', 'bill_rate_unit']),
-        'pay_rate_unit' => $pick(['Pay Rate Unit', 'payRateUnit', 'pay_rate_unit']),
+        'bill_rate_unit' => $billingPick([
+            'Bill Rate Unit', 'billRateUnit', 'bill_rate_unit', 'Bill Rate Per', 'BILL_RATE_PER',
+        ]) ?? $pick(['Bill Rate Unit', 'billRateUnit', 'bill_rate_unit', 'Bill Rate Per', 'BILL_RATE_PER']),
+        'pay_rate_unit' => $salaryPick([
+            'Pay Rate Unit', 'payRateUnit', 'pay_rate_unit', 'Pay Rate Per', 'PAY_RATE_PER',
+            'Salary Per', 'SALARY_PER',
+        ]) ?? $pick([
+            'Pay Rate Unit', 'payRateUnit', 'pay_rate_unit', 'Pay Rate Per', 'PAY_RATE_PER',
+            'Salary Per', 'SALARY_PER',
+        ]),
         'bill_start' => $pick(['Bill Start', 'billStart', 'bill_start']),
         'bill_end' => $pick(['Bill End', 'billEnd', 'bill_end']),
         'pay_start' => $pick(['Pay Start', 'payStart', 'pay_start']),
         'pay_end' => $pick(['Pay End', 'payEnd', 'pay_end']),
-        'currency' => $pick(['Currency', 'currencyCode', 'currency_code']),
+        'currency' => $billingPick([
+            'Currency', 'currencyCode', 'currency_code', 'Bill Currency', 'BILL_CURRENCY',
+        ]) ?? $salaryPick([
+            'Currency', 'currencyCode', 'currency_code', 'Pay Currency', 'PAY_CURRENCY',
+        ]) ?? $pick(['Currency', 'currencyCode', 'currency_code']),
         'net_bill_rate' => $netBillRate,
         'bill_rate_in_vms' => $vmsBillRate,
         'vms_fee_pct' => $vmsFeePct,

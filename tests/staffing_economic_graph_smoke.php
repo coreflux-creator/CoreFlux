@@ -158,7 +158,7 @@ $assert('JobDiva persists terms and PWP and reconciles economics',
     && str_contains($jobdiva, 'vendor_payment_terms_override')
     && substr_count($jobdiva, 'placementEconomicsReconcile(') >= 2);
 $assert('JobDiva does not invent vendor terms when its payload is silent',
-    str_contains($jobdiva, "'payment_terms' => \$terms !== '' ? placementEconomicsNormaliseTerms(\$terms) : null")
+    str_contains($jobdiva, "\$terms !== '' ? placementEconomicsNormaliseTerms(\$terms) : null")
     && str_contains($jobdiva, "\$pwp = \$pwpRaw === '' ? null"));
 $assert('JobDiva projects vendor-chain economics and referrals into canonical source rows',
     str_contains($jobdiva, 'jobdivaSyncUpsertPlacementReferral')
