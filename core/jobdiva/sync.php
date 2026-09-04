@@ -3302,6 +3302,7 @@ function jobdivaApplyStoredAssignmentProjection(
                     'external_id' => $startId,
                     'existing_placement_id' => (int) ($row['placement_id'] ?? 0),
                     'person_id' => (int) ($row['current']['person_id'] ?? 0),
+                    'force_source_contract' => true,
                 ]
             );
             if (empty($projection['projected'])) {
@@ -3379,6 +3380,7 @@ function jobdivaReprojectStoredAssignmentGraphs(int $tenantId, ?int $userId, int
                     'external_id' => (string) $row['start_id'],
                     'existing_placement_id' => (int) ($row['placement_id'] ?? 0),
                     'person_id' => (int) ($row['current']['person_id'] ?? 0),
+                    'force_source_contract' => true,
                 ]
             );
             if (empty($projection['projected'])) {
@@ -4996,6 +4998,7 @@ function jobdivaSyncPlacementEconomicOptions(array $jd): array
         'client_payment_terms' => !empty($contract['client_payment_terms'])
             ? placementEconomicsNormaliseTerms((string) $contract['client_payment_terms'])
             : ($clientTerms !== '' ? placementEconomicsNormaliseTerms($clientTerms) : null),
+        'force_source_contract' => !empty($jd['__cf_force_source_contract']),
     ];
 }
 
@@ -5610,6 +5613,27 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             $decoded = json_decode($rawOverride, true);
             if (is_array($decoded)) {
                 $overrides = array_values(array_filter(array_map('strval', $decoded)));
+            }
+        }
+        if (!empty($jd['__cf_force_source_contract'])) {
+            $contractOwnedFields = [
+                'engagement_type', 'status', 'start_date', 'end_date',
+                'client_bill_cycle', 'client_bill_cycle_anchor',
+                'client_payment_terms_override', 'vendor_pay_cycle',
+                'vendor_pay_cycle_anchor', 'vendor_payment_terms_override',
+                'vendor_pwp_enabled',
+            ];
+            $retainedOverrides = array_values(array_diff($overrides, $contractOwnedFields));
+            if ($retainedOverrides !== $overrides) {
+                $pdo->prepare(
+                    'UPDATE placements SET coreflux_overridden_fields = :overrides
+                      WHERE tenant_id = :t AND id = :id'
+                )->execute([
+                    'overrides' => json_encode($retainedOverrides, JSON_UNESCAPED_SLASHES) ?: '[]',
+                    't' => $tid,
+                    'id' => $existingId,
+                ]);
+                $overrides = $retainedOverrides;
             }
         }
 

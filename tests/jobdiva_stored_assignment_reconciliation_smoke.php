@@ -65,11 +65,29 @@ $assert(
     'stored apply and automatic replay preserve the exact placement person identity',
     substr_count($sync, "'person_id' => (int) (\$row['current']['person_id'] ?? 0)") >= 2
 );
+$assert(
+    'explicit stored reconciliation replaces stale overrides on JobDiva-owned contract fields',
+    substr_count($sync, "'force_source_contract' => true") >= 2
+    && str_contains($sync, "\$contractOwnedFields = [")
+    && str_contains($sync, "'vendor_payment_terms_override'")
+    && str_contains($sync, "'vendor_pwp_enabled'")
+);
 $projector = $read("$root/core/jobdiva/projector.php");
 $assert(
     'canonical projector always loads the shared candidate resolver when needed',
     str_contains($projector, "!function_exists('jobdivaPlacementsAutoCreatePerson')")
     && str_contains($projector, "require_once __DIR__ . '/sync_placements.php';")
+);
+$assert(
+    'projector forwards explicit source-contract authority to the canonical writer',
+    str_contains($projector, "\$writePayload['__cf_force_source_contract'] = true;")
+);
+$economics = $read("$root/modules/placements/lib/economics.php");
+$assert(
+    'exact reconciliation clears stale field overrides only on source-managed participants',
+    str_contains($economics, "!empty(\$party['force_source_fields'])")
+    && str_contains($economics, 'AND source_managed = 1')
+    && str_contains($economics, "\$party['force_source_fields'] = true;")
 );
 $assert(
     'stored apply is transactional',

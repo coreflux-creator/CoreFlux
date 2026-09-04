@@ -147,6 +147,9 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         if ($existingPlacementId > 0) {
             $writePayload['__cf_existing_placement_id'] = $existingPlacementId;
         }
+        if (!empty($opts['force_source_contract'])) {
+            $writePayload['__cf_force_source_contract'] = true;
+        }
         if (!function_exists('jobdivaSyncUpsertPlacement')) {
             throw new \RuntimeException('jobdivaSyncUpsertPlacement is not loaded');
         }
