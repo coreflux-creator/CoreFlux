@@ -1,14 +1,27 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate } from '../../../dashboard/src/lib/format';
 import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
 
 const ACCOUNTING_ACCOUNTS_API = '/modules/accounting/api/accounts.php';
+const STATUS_TABS = [
+  { id: 'pending', label: 'Pending', matchStatus: 'unmatched' },
+  { id: 'posted', label: 'Posted', matchStatus: 'matched' },
+  { id: 'excluded', label: 'Excluded', matchStatus: 'ignored' },
+];
 
-const fmtMoneyOriginal = (n) =>
-  (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
-// Keep backwards compatibility for inline calls; prefer the imported fmtMoney
-// from ../../../dashboard/src/lib/format which handles null/empty/strings.
+const statusLabel = (matchStatus) => (
+  matchStatus === 'matched' ? 'Posted' : matchStatus === 'ignored' ? 'Excluded' : 'Pending'
+);
+
+const formatAccountMoney = (value, currency = 'USD') => {
+  if (value === null || value === undefined || value === '') return '—';
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency || 'USD' }).format(Number(value));
+  } catch {
+    return fmtMoney(Number(value));
+  }
+};
 
 /**
  * Shared transactions list used by both DepositDetail + LiabilityDetail.
@@ -17,12 +30,30 @@ const fmtMoneyOriginal = (n) =>
  * charges debit the counterpart account, payments credit it).
  */
 export default function AccountTransactions({ accountId, type, accountLabel }) {
-  const { data, loading, reload } = useApi(
-    `/modules/treasury/api/account_transactions.php?account_id=${accountId}&type=${type}&limit=200`
-  );
+  const [activeTab, setActiveTab] = useState('pending');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [order, setOrder] = useState('newest_first');
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkAccountId, setBulkAccountId] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  const feedPath = useMemo(() => (
+    `/modules/treasury/api/account_transactions.php?account_id=${accountId}`
+    + `&type=${type}&limit=500&status=${activeTab}&order=${order}`
+    + `&q=${encodeURIComponent(debouncedSearch)}`
+  ), [accountId, type, activeTab, order, debouncedSearch]);
+
+  const { data, loading, reload } = useApi(feedPath);
   // Postable expense / revenue accounts for the categorize dropdown. Filtered
   // to is_postable=1 (no header rows) when the API supplies it.
-  const { data: coa } = useApi(`${ACCOUNTING_ACCOUNTS_API}?action=tree`);
+  const { data: coa, mutate: mutateCoa } = useApi(`${ACCOUNTING_ACCOUNTS_API}?action=tree`);
 
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState(null);
@@ -33,6 +64,12 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const [aiBusyId, setAiBusyId] = useState(null);
   const [aiPanelByLine, setAiPanelByLine] = useState({});  // { [lineId]: aiResp }
   const [splitId, setSplitId] = useState(null);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setBulkAccountId('');
+    setBulkMsg(null);
+  }, [accountId, type, activeTab, order, debouncedSearch]);
 
   const fetchAiCat = async (lineId) => {
     setAiBusyId(lineId); setRowError(null);
@@ -51,12 +88,41 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const count = data?.count || 0;
   const inflow  = data?.inflow_total  || 0;
   const outflow = data?.outflow_total || 0;
-  const plaidItemPk         = data?.plaid_item_pk;
   const plaidItemExternalId = data?.plaid_item_external_id;
+  const currency            = data?.currency || 'USD';
+  const statusCounts        = data?.status_counts || {};
 
   const eligibleAccounts = (coa?.rows || [])
     .filter((a) => a.is_postable !== 0 && a.id !== accountId);
   const accountsById = new Map(eligibleAccounts.map((a) => [a.id, a]));
+  const selectedRows = rows.filter((row) => selectedIds.has(row.id));
+  const allVisibleSelected = rows.length > 0 && rows.every((row) => selectedIds.has(row.id));
+
+  const handleAccountCreated = (account) => {
+    mutateCoa((current) => ({
+      ...(current || {}),
+      rows: [...(current?.rows || []), account]
+        .sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''))),
+    }));
+  };
+
+  const toggleSelected = (lineId) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(lineId)) next.delete(lineId);
+      else next.add(lineId);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) rows.forEach((row) => next.delete(row.id));
+      else rows.forEach((row) => next.add(row.id));
+      return next;
+    });
+  };
 
   const lineAction = async (lineId, action, extra = {}) => {
     setRowError(null);
@@ -81,6 +147,40 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
 
   const ignoreLine  = (lineId) => lineAction(lineId, 'ignore');
   const unmatchLine = (lineId) => lineAction(lineId, 'unmatch');
+
+  const runBulkAction = async (action, extra = {}) => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+    if (action === 'categorize_and_post' && !extra.counterpart_account_id) {
+      setRowError('Choose a G/L account before posting the selected transactions.');
+      return;
+    }
+    setBulkBusy(true);
+    setBulkMsg(null);
+    setRowError(null);
+    let updated = 0;
+    const failures = [];
+    // Keep JE creation sequential so auto-numbering remains deterministic.
+    for (const lineId of ids) {
+      try {
+        await api.post(
+          `/modules/treasury/api/account_transactions.php?action=${action}`,
+          { line_id: lineId, type, ...extra }
+        );
+        updated += 1;
+      } catch (error) {
+        failures.push(`#${lineId}: ${error.message}`);
+      }
+    }
+    setBulkBusy(false);
+    setSelectedIds(new Set());
+    setBulkAccountId('');
+    setBulkMsg(`${updated} transaction${updated === 1 ? '' : 's'} updated.`);
+    if (failures.length) {
+      setRowError(`${failures.length} transaction${failures.length === 1 ? '' : 's'} could not be updated. ${failures.join(' · ')}`);
+    }
+    reload();
+  };
 
   const syncNow = async () => {
     if (!plaidItemExternalId) {
@@ -122,7 +222,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
         <div>
           <h2 style={{ marginBottom: 4 }}>{accountLabel}</h2>
           <p className="muted" style={{ fontSize: 13 }}>
-            {type === 'deposit' ? 'Bank-feed transactions' : 'Card / loan activity'} · {count} row{count === 1 ? '' : 's'} ·{' '}
+            {type === 'deposit' ? 'Bank-feed transactions' : 'Card / loan activity'} · {data?.total_count ?? count} transaction{(data?.total_count ?? count) === 1 ? '' : 's'} ·{' '}
             <span style={{ color: '#065f46' }}>Inflow {fmtMoney(inflow)}</span> ·{' '}
             <span style={{ color: '#b91c1c' }}>Outflow {fmtMoney(outflow)}</span>
           </p>
@@ -150,6 +250,81 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
         </p>
       )}
 
+      {type === 'deposit' && (
+        <div className="bank-feed-summary" data-testid="treasury-bank-feed-balances">
+          <BalanceCard
+            label="Balance in bank"
+            value={formatAccountMoney(data?.bank_balance, currency)}
+            detail={data?.balance_as_of ? `As of ${fmtDate(data.balance_as_of)}` : (plaidItemExternalId ? 'Latest bank-reported balance' : 'Connect a bank feed to see this')}
+            testId="treasury-bank-balance"
+          />
+          <BalanceCard
+            label="In the books"
+            value={formatAccountMoney(data?.gl_balance, currency)}
+            detail="Posted G/L balance"
+            testId="treasury-gl-balance"
+          />
+          <BalanceCard
+            label="Difference"
+            value={formatAccountMoney(data?.balance_difference, currency)}
+            detail={data?.balance_difference === null || data?.balance_difference === undefined
+              ? 'Available after a bank balance is received'
+              : Math.abs(Number(data.balance_difference)) < 0.005 ? 'Bank and books agree' : 'Needs review or reconciliation'}
+            tone={Math.abs(Number(data?.balance_difference || 0)) < 0.005 ? 'good' : 'warn'}
+            testId="treasury-balance-difference"
+          />
+          <BalanceCard
+            label="Available"
+            value={formatAccountMoney(data?.available_balance, currency)}
+            detail="Available to spend"
+            testId="treasury-available-balance"
+          />
+        </div>
+      )}
+
+      <div className="bank-feed-workspace" data-testid="treasury-bank-feed-workspace">
+        <div className="bank-feed-tabs" role="tablist" aria-label="Transaction status">
+          {STATUS_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              className={`bank-feed-tab${activeTab === tab.id ? ' is-active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+              data-testid={`treasury-bank-feed-tab-${tab.id}`}
+            >
+              {tab.label}
+              <span>{statusCounts[tab.id] ?? 0}</span>
+            </button>
+          ))}
+        </div>
+        <div className="bank-feed-filters">
+          <label className="bank-feed-search">
+            <span className="sr-only">Search transactions</span>
+            <input
+              type="search"
+              className="input"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search description, amount, reference…"
+              data-testid="treasury-bank-feed-search"
+            />
+          </label>
+          <select
+            className="input bank-feed-sort"
+            value={order}
+            onChange={(event) => setOrder(event.target.value)}
+            aria-label="Sort transactions"
+            data-testid="treasury-bank-feed-sort"
+          >
+            <option value="newest_first">Newest first</option>
+            <option value="oldest_first">Oldest first</option>
+            <option value="amount_desc">Largest amount</option>
+          </select>
+        </div>
+      </div>
+
       {/* CSV upload — for deposit (bank) accounts without a Plaid feed,
           or for backfilling history beyond what Plaid retains. Lines
           land in accounting_bank_statement_lines exactly like Plaid-
@@ -168,7 +343,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
         />
       )}
 
-      {loading && <p>Loading…</p>}
+      {loading && <p className="muted" data-testid="treasury-bank-feed-loading">Updating transactions…</p>}
       {!loading && rows.length === 0 && (
         <div
           data-testid={`treasury-${type}-transactions-empty`}
@@ -177,10 +352,12 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
             borderRadius: 6, textAlign: 'center', color: 'var(--cf-text-muted, #6b7280)',
           }}
         >
-          <p style={{ margin: '0 0 8px', fontSize: 14 }}>No transactions yet.</p>
-          {plaidItemExternalId
-            ? <p style={{ margin: 0, fontSize: 12 }}>Click <strong>Sync from Plaid</strong> above to pull the most recent activity.</p>
-            : <p style={{ margin: 0, fontSize: 12 }}>This account isn't connected to Plaid; transactions will appear here once a feed is wired.</p>}
+          <p style={{ margin: '0 0 8px', fontSize: 14 }}>
+            No {activeTab} transactions{debouncedSearch ? ' match this search' : ''}.
+          </p>
+          {!debouncedSearch && activeTab === 'pending' && (plaidItemExternalId
+            ? <p style={{ margin: 0, fontSize: 12 }}>Everything is reviewed. Sync from Plaid to check for new activity.</p>
+            : <p style={{ margin: 0, fontSize: 12 }}>Import a statement CSV or connect this account to start reviewing transactions.</p>)}
         </div>
       )}
 
@@ -190,22 +367,109 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
         </p>
       )}
 
+      {bulkMsg && (
+        <p className="bank-feed-bulk-success" data-testid="treasury-bank-feed-bulk-success">{bulkMsg}</p>
+      )}
+
+      {selectedRows.length > 0 && (
+        <div className="bank-feed-bulk" data-testid="treasury-bank-feed-bulk-toolbar">
+          <strong>{selectedRows.length} selected</strong>
+          {activeTab === 'pending' && (
+            <>
+              <div className="bank-feed-bulk__picker">
+                <AccountPicker
+                  accounts={eligibleAccounts}
+                  value={bulkAccountId}
+                  onChange={setBulkAccountId}
+                  onAccountCreated={handleAccountCreated}
+                  testIdPrefix="treasury-bank-feed-bulk-account"
+                  placeholder="Choose G/L account for selected…"
+                />
+              </div>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={bulkBusy || !bulkAccountId}
+                onClick={() => runBulkAction('categorize_and_post', { counterpart_account_id: Number(bulkAccountId) })}
+                data-testid="treasury-bank-feed-bulk-post"
+              >
+                {bulkBusy ? 'Updating…' : 'Post selected'}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={bulkBusy}
+                onClick={() => runBulkAction('ignore')}
+                data-testid="treasury-bank-feed-bulk-exclude"
+              >
+                Exclude selected
+              </button>
+            </>
+          )}
+          {activeTab === 'posted' && (
+            <button
+              type="button"
+              className="btn"
+              disabled={bulkBusy}
+              onClick={() => runBulkAction('unmatch')}
+              data-testid="treasury-bank-feed-bulk-unpost"
+            >
+              {bulkBusy ? 'Updating…' : 'Move selected to pending'}
+            </button>
+          )}
+          {activeTab === 'excluded' && (
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={bulkBusy}
+              onClick={() => runBulkAction('unmatch')}
+              data-testid="treasury-bank-feed-bulk-restore"
+            >
+              {bulkBusy ? 'Updating…' : 'Restore selected'}
+            </button>
+          )}
+          <button type="button" className="btn btn--ghost" onClick={() => setSelectedIds(new Set())}>
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {rows.length > 0 && (
-        <table className="data-table" data-testid={`treasury-${type}-transactions-table`}>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Description</th>
-              {type === 'liability' && <th>Category</th>}
-              <th style={{ textAlign: 'right' }}>Amount</th>
-              <th>Status</th>
-              <th style={{ width: 240 }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div className="bank-feed-table-wrap">
+          <table className="data-table bank-feed-table" data-list-tools="off" data-testid={`treasury-${type}-transactions-table`}>
+            <thead>
+              <tr>
+                <th className="bank-feed-check-cell">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisible}
+                    aria-label="Select all visible transactions"
+                    data-testid="treasury-bank-feed-select-all"
+                  />
+                </th>
+                <th>Date</th>
+                <th>Description</th>
+                {type === 'liability' && <th>Category</th>}
+                <th style={{ textAlign: 'right' }}>Amount</th>
+                {type === 'deposit' && <th style={{ textAlign: 'right' }}>Running balance</th>}
+                <th>Status</th>
+                <th style={{ minWidth: 240 }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
             {rows.map((r) => (
               <React.Fragment key={r.id}>
-                <tr data-testid={`treasury-txn-row-${r.id}`}>
+                <tr data-testid={`treasury-txn-row-${r.id}`} className={selectedIds.has(r.id) ? 'is-selected' : ''}>
+                  <td className="bank-feed-check-cell">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(r.id)}
+                      onChange={() => toggleSelected(r.id)}
+                      aria-label={`Select ${r.description || `transaction ${r.id}`}`}
+                      data-testid={`treasury-txn-select-${r.id}`}
+                    />
+                  </td>
                   <td style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                     {fmtDate(r.posted_date)}
                   </td>
@@ -246,15 +510,20 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                       color: Number(r.amount) >= 0 ? '#065f46' : '#b91c1c',
                     }}
                   >
-                    {fmtMoney(Number(r.amount))}
+                    {formatAccountMoney(r.amount, currency)}
                   </td>
+                  {type === 'deposit' && (
+                    <td className="bank-feed-running-balance" data-testid={`treasury-txn-running-balance-${r.id}`}>
+                      {formatAccountMoney(r.running_balance, currency)}
+                    </td>
+                  )}
                   <td>
                     <span className={'badge ' + (
                       r.match_status === 'matched'  ? 'badge--active' :
                       r.match_status === 'ignored'  ? '' :
                                                       'badge--warn'
                     )}>
-                      {r.match_status}
+                      {statusLabel(r.match_status)}
                     </span>
                     {r.matched_je_id && (
                       <JournalEntryHover
@@ -316,7 +585,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                           data-testid={`treasury-txn-ignore-${r.id}`}
                           style={{ padding: '2px 8px', fontSize: 11 }}
                         >
-                          Ignore
+                          Exclude
                         </button>
                       </>
                     )}
@@ -350,6 +619,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                     type={type}
                     accounts={eligibleAccounts}
                     aiSuggestion={r.ai_suggestion}
+                    onAccountCreated={handleAccountCreated}
                     onSave={(counterpartId, memo) => categorizeAndPost(
                       r.id, counterpartId, memo, r.ai_suggestion?.suggestion_id
                     )}
@@ -358,7 +628,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                 )}
                 {aiPanelByLine[r.id] && (
                   <tr data-testid={`treasury-txn-ai-result-${r.id}`}>
-                    <td colSpan={type === 'liability' ? 6 : 5}
+                    <td colSpan={7}
                         style={{ background: '#f0f9ff', padding: 12, borderLeft: '3px solid #0369a1' }}>
                       <TreasuryAiResultPanel
                         line={r}
@@ -375,11 +645,12 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                 )}
                 {splitId === r.id && (
                   <tr data-testid={`treasury-txn-split-row-${r.id}`}>
-                    <td colSpan={type === 'liability' ? 6 : 5}
+                    <td colSpan={7}
                         style={{ background: '#fefce8', padding: 12, borderLeft: '3px solid #ca8a04' }}>
                       <SplitIcPanel
                         line={r}
                         accounts={eligibleAccounts}
+                        onAccountCreated={handleAccountCreated}
                         onSubmit={async (splits) => {
                           try {
                             await api.post('/modules/treasury/api/account_transactions.php?action=split_categorize', {
@@ -395,10 +666,195 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                 )}
               </React.Fragment>
             ))}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
+  );
+}
+
+function BalanceCard({ label, value, detail, tone, testId }) {
+  return (
+    <div className={`bank-feed-balance-card${tone ? ` is-${tone}` : ''}`} data-testid={testId}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function AccountPicker({
+  accounts,
+  value,
+  onChange,
+  onAccountCreated,
+  testIdPrefix,
+  placeholder = 'Search G/L accounts…',
+  autoFocus = false,
+}) {
+  const selected = accounts.find((account) => String(account.id) === String(value));
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState(null);
+  const [draft, setDraft] = useState({ code: '', name: '', account_type: 'expense' });
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return accounts
+      .filter((account) => {
+        if (!needle) return true;
+        return [account.code, account.name, account.account_type]
+          .some((part) => String(part || '').toLowerCase().includes(needle));
+      })
+      .slice(0, 80);
+  }, [accounts, query]);
+
+  const pick = (account) => {
+    onChange(String(account.id));
+    setQuery('');
+    setOpen(false);
+    setCreating(false);
+  };
+
+  const createAccount = async (event) => {
+    event.preventDefault();
+    if (!draft.code.trim() || !draft.name.trim()) return;
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      const response = await api.post(ACCOUNTING_ACCOUNTS_API, {
+        code: draft.code.trim(),
+        name: draft.name.trim(),
+        account_type: draft.account_type,
+        is_postable: 1,
+      });
+      const account = {
+        id: Number(response.id),
+        code: draft.code.trim(),
+        name: draft.name.trim(),
+        account_type: draft.account_type,
+        is_postable: 1,
+      };
+      onAccountCreated?.(account);
+      pick(account);
+      setDraft({ code: '', name: '', account_type: 'expense' });
+    } catch (error) {
+      setCreateError(error.message || 'Could not create this account.');
+    } finally {
+      setCreateBusy(false);
+    }
+  };
+
+  return (
+    <div className="gl-account-picker" data-testid={testIdPrefix}>
+      <input
+        type="search"
+        className="input gl-account-picker__input"
+        value={open ? query : (selected ? `${selected.code} · ${selected.name}` : query)}
+        placeholder={placeholder}
+        autoFocus={autoFocus}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={`${testIdPrefix}-options`}
+        onFocus={(event) => {
+          setOpen(true);
+          setQuery('');
+          window.setTimeout(() => event.target.select(), 0);
+        }}
+        onChange={(event) => {
+          setOpen(true);
+          setQuery(event.target.value);
+          if (value) onChange('');
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') setOpen(false);
+          if (event.key === 'Enter' && filtered.length === 1 && !creating) {
+            event.preventDefault();
+            pick(filtered[0]);
+          }
+        }}
+        data-testid={`${testIdPrefix}-search`}
+      />
+      {open && (
+        <div className="gl-account-picker__menu" id={`${testIdPrefix}-options`} role="listbox">
+          <div className="gl-account-picker__options">
+            {filtered.length === 0 && (
+              <p className="muted">No matching G/L accounts.</p>
+            )}
+            {filtered.map((account) => (
+              <button
+                key={account.id}
+                type="button"
+                role="option"
+                aria-selected={String(account.id) === String(value)}
+                className="gl-account-picker__option"
+                onClick={() => pick(account)}
+                data-testid={`${testIdPrefix}-option-${account.id}`}
+              >
+                <code>{account.code}</code>
+                <span>{account.name}</span>
+                <small>{account.account_type}</small>
+              </button>
+            ))}
+          </div>
+          {!creating ? (
+            <div className="gl-account-picker__footer">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setCreating(true)}
+                data-testid={`${testIdPrefix}-add-new`}
+              >
+                + Add new G/L account
+              </button>
+              <button type="button" className="btn btn--ghost" onClick={() => setOpen(false)}>Close</button>
+            </div>
+          ) : (
+            <form className="gl-account-picker__create" onSubmit={createAccount}>
+              <strong>Add a G/L account</strong>
+              <div>
+                <input
+                  className="input"
+                  value={draft.code}
+                  onChange={(event) => setDraft({ ...draft, code: event.target.value })}
+                  placeholder="Code, e.g. 6400"
+                  data-testid={`${testIdPrefix}-new-code`}
+                />
+                <input
+                  className="input"
+                  value={draft.name}
+                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                  placeholder="Account name"
+                  data-testid={`${testIdPrefix}-new-name`}
+                />
+                <select
+                  className="input"
+                  value={draft.account_type}
+                  onChange={(event) => setDraft({ ...draft, account_type: event.target.value })}
+                  data-testid={`${testIdPrefix}-new-type`}
+                >
+                  <option value="expense">Expense</option>
+                  <option value="revenue">Revenue</option>
+                  <option value="asset">Asset</option>
+                  <option value="liability">Liability</option>
+                  <option value="equity">Equity</option>
+                </select>
+              </div>
+              {createError && <p className="error">{createError}</p>}
+              <div>
+                <button type="submit" className="btn btn--primary" disabled={createBusy || !draft.code.trim() || !draft.name.trim()}>
+                  {createBusy ? 'Creating…' : 'Create and select'}
+                </button>
+                <button type="button" className="btn" onClick={() => setCreating(false)}>Cancel</button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -508,26 +964,13 @@ function AiSuggestionPill({ suggestion, suggestedAccount, onAccept }) {
   );
 }
 
-function CategorizeRow({ line, type, accounts, aiSuggestion, onSave, onCancel }) {
+function CategorizeRow({ line, type, accounts, aiSuggestion, onAccountCreated, onSave, onCancel }) {
   // Charges (negative amount) typically debit an EXPENSE account.
   // Payments / refunds (positive amount) credit either revenue (rare for cards)
   // or, more commonly for cards, the bank deposit account that was charged
   // for the payment (asset). We default to expense for charges and asset
   // for payments; the user can override.
   const isCharge = Number(line.amount) < 0;
-  const preferredTypes = isCharge
-    ? (type === 'liability' ? ['expense']           : ['expense','asset'])
-    : (type === 'liability' ? ['asset','revenue']   : ['revenue','expense']);
-
-  const grouped = preferredTypes.map((t) => ({
-    type: t,
-    rows: accounts.filter((a) => a.account_type === t)
-                  .sort((a, b) => (a.code || '').localeCompare(b.code || '')),
-  })).filter((g) => g.rows.length);
-  const fallback = accounts
-    .filter((a) => !preferredTypes.includes(a.account_type))
-    .sort((a, b) => (a.code || '').localeCompare(b.code || ''));
-
   const [counterpartId, setCounterpartId] = useState(
     aiSuggestion?.suggested_account_id ? String(aiSuggestion.suggested_account_id) : ''
   );
@@ -543,40 +986,23 @@ function CategorizeRow({ line, type, accounts, aiSuggestion, onSave, onCancel })
 
   return (
     <tr data-testid={`treasury-txn-categorize-row-${line.id}`}>
-      <td colSpan={type === 'liability' ? 6 : 5}
+      <td colSpan={7}
           style={{ background: '#f8fafc', padding: 12 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <label style={{ fontSize: 12, color: '#475569' }}>
             {isCharge ? 'Debit' : 'Credit'} this account:
           </label>
-          <select
-            className="input"
-            value={counterpartId}
-            onChange={(e) => setCounterpartId(e.target.value)}
-            data-testid={`treasury-txn-counterpart-${line.id}`}
-            style={{ minWidth: 280 }}
-            autoFocus
-          >
-            <option value="">— Pick a GL account —</option>
-            {grouped.map((g) => (
-              <optgroup key={g.type} label={g.type.toUpperCase()}>
-                {g.rows.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} · {a.name}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-            {fallback.length > 0 && (
-              <optgroup label="OTHER">
-                {fallback.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} · {a.name} ({a.account_type})
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
+          <div style={{ minWidth: 320, flex: '0 1 420px' }}>
+            <AccountPicker
+              accounts={accounts}
+              value={counterpartId}
+              onChange={setCounterpartId}
+              onAccountCreated={onAccountCreated}
+              testIdPrefix={`treasury-txn-counterpart-${line.id}`}
+              placeholder="Search code or G/L account name…"
+              autoFocus
+            />
+          </div>
           <input
             className="input"
             placeholder="Memo (optional, defaults to description)"
@@ -686,7 +1112,7 @@ function TreasuryAiResultPanel({ line, ai, onDismiss, onAccept }) {
  * "transfer from Entity A to Entity B" line can be posted as an
  * intercompany JE in one shot.
  */
-function SplitIcPanel({ line, accounts, onSubmit, onCancel }) {
+function SplitIcPanel({ line, accounts, onAccountCreated, onSubmit, onCancel }) {
   const total = Math.abs(Number(line.amount));
   const [rows, setRows] = useState([
     { account_id: '', amount: total.toFixed(2), entity_id: '', memo: '' },
@@ -737,12 +1163,14 @@ function SplitIcPanel({ line, accounts, onSubmit, onCancel }) {
           {rows.map((r, i) => (
             <tr key={i} data-testid={`treasury-txn-split-row-input-${line.id}-${i}`}>
               <td>
-                <select value={r.account_id} onChange={e => update(i, 'account_id', e.target.value)}
-                        data-testid={`treasury-txn-split-account-${line.id}-${i}`}
-                        style={{ width: '100%' }}>
-                  <option value="">— pick —</option>
-                  {accounts.map(a => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
-                </select>
+                <AccountPicker
+                  accounts={accounts}
+                  value={r.account_id}
+                  onChange={(value) => update(i, 'account_id', value)}
+                  onAccountCreated={onAccountCreated}
+                  testIdPrefix={`treasury-txn-split-account-${line.id}-${i}`}
+                  placeholder="Search G/L account…"
+                />
               </td>
               <td>
                 <input type="number" value={r.entity_id} onChange={e => update(i, 'entity_id', e.target.value)}

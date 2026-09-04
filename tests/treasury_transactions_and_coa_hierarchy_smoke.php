@@ -52,7 +52,7 @@ $assert('GET requires account_id',           strpos($at, "account_id required") 
 $assert('type=deposit reads bank_statement_lines',
                                              strpos($at, 'FROM accounting_bank_statement_lines') !== false);
 $assert('type=liability reads treasury_liability_statement_lines',
-                                             strpos($at, 'FROM treasury_liability_statement_lines') !== false);
+                                             strpos($at, "'treasury_liability_statement_lines'") !== false);
 $assert('limit clamped 1-500',               strpos($at, 'min(500') !== false);
 $assert('returns inflow_total + outflow_total', strpos($at, "'inflow_total'") !== false
                                              && strpos($at, "'outflow_total'") !== false);
@@ -138,9 +138,10 @@ $assert('per-row Ignore button',             strpos($at_ui, 'treasury-txn-ignore
 $assert('per-row Unmatch button when matched',
                                              strpos($at_ui, 'treasury-txn-unmatch-${r.id}') !== false);
 $assert('CategorizeRow inline editor',       strpos($at_ui, 'function CategorizeRow(') !== false);
-$assert('CategorizeRow groups by expense/asset/revenue',
-                                             strpos($at_ui, "preferredTypes") !== false);
-$assert('CategorizeRow links matched JE',    strpos($at_ui, 'treasury-txn-je-${r.id}') !== false);
+$assert('CategorizeRow uses searchable G/L picker',
+                                             strpos($at_ui, 'role="combobox"') !== false
+                                             && strpos($at_ui, '+ Add new G/L account') !== false);
+$assert('CategorizeRow links matched JE',    strpos($at_ui, 'treasury-txn-je-${transactionId}') !== false);
 $assert('CategorizeRow shows live JE preview',
                                              strpos($at_ui, "Will create a balanced JE") !== false);
 

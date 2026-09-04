@@ -3,6 +3,8 @@
  * Treasury — Account Transactions API.
  *
  *   GET ?account_id=N&type=deposit|liability[&limit=100]
+ *       [&status=pending|posted|excluded|all][&q=search]
+ *       [&order=newest_first|oldest_first|amount_desc]
  *
  * Returns the flat list of statement / Plaid-fed lines for either a deposit
  * (accounting_bank_accounts) or liability (accounting_accounts where
@@ -600,22 +602,21 @@ if (api_method() !== 'GET') api_error('Method not allowed', 405);
 $accountId = (int) ($_GET['account_id'] ?? 0);
 $type      = (string) ($_GET['type']     ?? 'deposit');
 $limit     = max(1, min(500, (int) ($_GET['limit'] ?? 100)));
+$status    = (string) ($_GET['status'] ?? 'all');
+$search    = trim((string) ($_GET['q'] ?? ''));
+$order     = (string) ($_GET['order'] ?? 'newest_first');
 if ($accountId <= 0) api_error('account_id required', 422);
 if (!in_array($type, ['deposit', 'liability'], true)) {
     api_error("type must be 'deposit' or 'liability'", 422);
 }
+if (!in_array($status, ['pending', 'posted', 'excluded', 'all'], true)) {
+    api_error("status must be 'pending', 'posted', 'excluded', or 'all'", 422);
+}
+if (!in_array($order, ['newest_first', 'oldest_first', 'amount_desc'], true)) {
+    api_error("order must be 'newest_first', 'oldest_first', or 'amount_desc'", 422);
+}
 
-if ($type === 'deposit') {
-    $stmt = $pdo->prepare(
-        'SELECT id, posted_date, description, amount, bank_reference, fitid,
-                match_status, matched_je_id, created_at,
-                NULL AS merchant_name, NULL AS category
-           FROM accounting_bank_statement_lines
-          WHERE tenant_id = :t AND bank_account_id = :a
-          ORDER BY posted_date DESC, id DESC
-          LIMIT ' . $limit
-    );
-} else {
+if ($type === 'liability') {
     // Auto-create the table if a tenant hasn't run migration 003 yet —
     // mirrors the sync-endpoint guard so the first GET on a fresh deploy
     // doesn't 500 with "table not found".
@@ -646,17 +647,80 @@ if ($type === 'deposit') {
         } catch (\Throwable $_) {}
     } catch (\Throwable $_) {}
 
-    $stmt = $pdo->prepare(
-        'SELECT id, posted_date, description, amount, bank_reference, fitid,
-                merchant_name, category, match_status, matched_je_id, created_at
-           FROM treasury_liability_statement_lines
-          WHERE tenant_id = :t AND liability_account_id = :a
-          ORDER BY posted_date DESC, id DESC
-          LIMIT ' . $limit
-    );
 }
-$stmt->execute(['t' => $tenantId, 'a' => $accountId]);
+
+$table      = $type === 'deposit' ? 'accounting_bank_statement_lines' : 'treasury_liability_statement_lines';
+$accountCol = $type === 'deposit' ? 'bank_account_id' : 'liability_account_id';
+$extraCols  = $type === 'deposit'
+    ? 'NULL AS merchant_name, NULL AS category'
+    : 's.merchant_name, s.category';
+$orderBy = match ($order) {
+    'oldest_first' => 's.posted_date ASC, s.id ASC',
+    'amount_desc'  => 'ABS(s.amount) DESC, s.posted_date DESC, s.id DESC',
+    default        => 's.posted_date DESC, s.id DESC',
+};
+
+$baseWhere = ['s.tenant_id = :t', "s.{$accountCol} = :a"];
+$params    = ['t' => $tenantId, 'a' => $accountId];
+if ($search !== '') {
+    $searchFields = ['s.description', 's.bank_reference', 's.fitid', 'CAST(s.amount AS CHAR)'];
+    if ($type === 'liability') {
+        $searchFields[] = 's.merchant_name';
+        $searchFields[] = 's.category';
+    }
+    $searchParts = [];
+    foreach ($searchFields as $i => $field) {
+        $key = 'q' . $i;
+        $searchParts[] = "{$field} LIKE :{$key}";
+        $params[$key] = '%' . $search . '%';
+    }
+    $baseWhere[] = '(' . implode(' OR ', $searchParts) . ')';
+}
+
+$statusWhere = match ($status) {
+    'pending'  => "(s.match_status IS NULL OR s.match_status IN ('unmatched','pending'))",
+    'posted'   => "s.match_status = 'matched'",
+    'excluded' => "s.match_status = 'ignored'",
+    default    => null,
+};
+$rowWhere = $baseWhere;
+if ($statusWhere !== null) $rowWhere[] = $statusWhere;
+
+// Tab counts intentionally share the active search but ignore the selected tab,
+// so the user can see how many matching transactions live in every workflow state.
+$countStmt = $pdo->prepare(
+    "SELECT
+        SUM(CASE WHEN s.match_status IS NULL OR s.match_status IN ('unmatched','pending') THEN 1 ELSE 0 END) AS pending_count,
+        SUM(CASE WHEN s.match_status = 'matched' THEN 1 ELSE 0 END) AS posted_count,
+        SUM(CASE WHEN s.match_status = 'ignored' THEN 1 ELSE 0 END) AS excluded_count,
+        COUNT(*) AS total_count
+       FROM {$table} s
+      WHERE " . implode(' AND ', $baseWhere)
+);
+$countStmt->execute($params);
+$counts = $countStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+$stmt = $pdo->prepare(
+    "SELECT s.id, s.posted_date, s.description, s.amount, s.bank_reference, s.fitid,
+            s.match_status, s.matched_je_id, s.created_at, {$extraCols}
+       FROM {$table} s
+      WHERE " . implode(' AND ', $rowWhere) . "
+      ORDER BY {$orderBy}
+      LIMIT {$limit}"
+);
+$stmt->execute($params);
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Normalize older/null queue values to the UI's canonical state name.
+foreach ($rows as &$row) {
+    if ($row['match_status'] === null || $row['match_status'] === 'pending') {
+        $row['match_status'] = 'unmatched';
+    }
+    $row['id'] = (int) $row['id'];
+    $row['amount'] = (float) $row['amount'];
+    $row['matched_je_id'] = $row['matched_je_id'] !== null ? (int) $row['matched_je_id'] : null;
+}
+unset($row);
 
 // Summary so the UI can render headline stats without re-summing client-side.
 $count   = count($rows);
@@ -666,6 +730,90 @@ foreach ($rows as $r) {
     $a = (float) $r['amount'];
     if ($a >= 0) $inflow  += $a;
     else         $outflow += abs($a);
+}
+
+// Detail-level balances. The bank balance is Plaid's current balance; the
+// books balance is the posted GL total. Keeping both visible makes feed drift
+// obvious without forcing the user back to the account list.
+$bankBalance      = null;
+$availableBalance = null;
+$balanceAsOf      = null;
+$glBalance        = null;
+$currency         = 'USD';
+if ($type === 'deposit') {
+    try {
+        $balanceStmt = $pdo->prepare(
+            'SELECT ba.currency,
+                    pa.current_balance_cents, pa.available_balance_cents, pa.balance_as_of,
+                    (SELECT COALESCE(SUM(jel.debit - jel.credit), 0)
+                       FROM accounting_accounts aa
+                       LEFT JOIN accounting_journal_entries je
+                         ON je.tenant_id = aa.tenant_id AND je.status = "posted"
+                       LEFT JOIN accounting_journal_entry_lines jel
+                         ON jel.je_id = je.id AND jel.account_id = aa.id
+                      WHERE aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code) AS gl_balance
+               FROM accounting_bank_accounts ba
+               LEFT JOIN plaid_accounts pa
+                 ON pa.tenant_id = ba.tenant_id AND pa.account_id = ba.plaid_account_id
+              WHERE ba.tenant_id = :t AND ba.id = :a LIMIT 1'
+        );
+        $balanceStmt->execute(['t' => $tenantId, 'a' => $accountId]);
+        $balanceRow = $balanceStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $currency = (string) ($balanceRow['currency'] ?? 'USD');
+        $glBalance = isset($balanceRow['gl_balance']) ? (float) $balanceRow['gl_balance'] : null;
+        $bankBalance = isset($balanceRow['current_balance_cents'])
+            ? (int) $balanceRow['current_balance_cents'] / 100 : null;
+        $availableBalance = isset($balanceRow['available_balance_cents'])
+            ? (int) $balanceRow['available_balance_cents'] / 100 : null;
+        $balanceAsOf = $balanceRow['balance_as_of'] ?? null;
+    } catch (\Throwable $_) {
+        // Live balance columns may not exist on an older tenant yet. Preserve
+        // feed access and still return a useful books balance.
+        try {
+            $glStmt = $pdo->prepare(
+                'SELECT ba.currency, COALESCE(SUM(jel.debit - jel.credit), 0) AS gl_balance
+                   FROM accounting_bank_accounts ba
+                   LEFT JOIN accounting_accounts aa
+                     ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
+                   LEFT JOIN accounting_journal_entries je
+                     ON je.tenant_id = aa.tenant_id AND je.status = "posted"
+                   LEFT JOIN accounting_journal_entry_lines jel
+                     ON jel.je_id = je.id AND jel.account_id = aa.id
+                  WHERE ba.tenant_id = :t AND ba.id = :a
+                  GROUP BY ba.id, ba.currency'
+            );
+            $glStmt->execute(['t' => $tenantId, 'a' => $accountId]);
+            $balanceRow = $glStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $currency = (string) ($balanceRow['currency'] ?? 'USD');
+            $glBalance = isset($balanceRow['gl_balance']) ? (float) $balanceRow['gl_balance'] : null;
+        } catch (\Throwable $_) {}
+    }
+}
+
+// Anchor every line's running balance to the latest bank-reported balance.
+// We traverse all activity (not just the active tab/search) so filtering never
+// changes a transaction's displayed balance.
+if ($bankBalance !== null && $type === 'deposit') {
+    $activityStmt = $pdo->prepare(
+        'SELECT id, amount
+           FROM accounting_bank_statement_lines
+          WHERE tenant_id = :t AND bank_account_id = :a
+          ORDER BY posted_date DESC, id DESC'
+    );
+    $activityStmt->execute(['t' => $tenantId, 'a' => $accountId]);
+    $running = (float) $bankBalance;
+    $runningById = [];
+    foreach ($activityStmt->fetchAll(PDO::FETCH_ASSOC) as $activity) {
+        $runningById[(int) $activity['id']] = round($running, 2);
+        $running -= (float) $activity['amount'];
+    }
+    foreach ($rows as &$row) {
+        $row['running_balance'] = $runningById[(int) $row['id']] ?? null;
+    }
+    unset($row);
+} else {
+    foreach ($rows as &$row) $row['running_balance'] = null;
+    unset($row);
 }
 
 // Run AI categorization for every UNMATCHED row. Cached: if a draft suggestion
@@ -858,8 +1006,24 @@ if ($type === 'deposit') {
 api_ok([
     'rows'                  => $rows,
     'count'                 => $count,
+    'total_count'           => (int) ($counts['total_count'] ?? 0),
+    'status'                => $status,
+    'search'                => $search,
+    'order'                 => $order,
+    'status_counts'         => [
+        'pending'  => (int) ($counts['pending_count'] ?? 0),
+        'posted'   => (int) ($counts['posted_count'] ?? 0),
+        'excluded' => (int) ($counts['excluded_count'] ?? 0),
+    ],
     'inflow_total'          => round($inflow, 2),
     'outflow_total'         => round($outflow, 2),
+    'currency'              => $currency,
+    'bank_balance'          => $bankBalance !== null ? round($bankBalance, 2) : null,
+    'available_balance'     => $availableBalance !== null ? round($availableBalance, 2) : null,
+    'gl_balance'            => $glBalance !== null ? round($glBalance, 2) : null,
+    'balance_difference'    => $bankBalance !== null && $glBalance !== null
+        ? round($bankBalance - $glBalance, 2) : null,
+    'balance_as_of'         => $balanceAsOf,
     'plaid_item_pk'         => $plaidItemPk,
     'plaid_item_external_id'=> $plaidItemExternalId,
     'plaid_account_id'      => $plaidAccountId,
