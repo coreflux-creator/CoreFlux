@@ -10,7 +10,7 @@ initSession();
 
 // Check if user is logged in
 if (!isset($_SESSION['user'])) {
-    header("Location: login.php?redirect=spa");
+    header("Location: /login.php?redirect=spa");
     exit;
 }
 

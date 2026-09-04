@@ -11,7 +11,7 @@ require_once __DIR__ . '/core/memberships.php';
 initSession();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header("Location: login.html");
+    header("Location: /login.html");
     exit;
 }
 
@@ -19,7 +19,7 @@ $email = strtolower(trim((string) ($_POST['username'] ?? $_POST['email'] ?? ''))
 $password = $_POST['password'] ?? '';
 
 if (!$email || !$password) {
-    header("Location: login.html?error=missing");
+    header("Location: /login.html?error=missing");
     exit;
 }
 
@@ -27,7 +27,7 @@ require_once __DIR__ . '/core/db.php';
 $pdo = getDB();
 
 if (!$pdo) {
-    header("Location: login.html?error=db");
+    header("Location: /login.html?error=db");
     exit;
 }
 
@@ -37,17 +37,17 @@ $stmt->execute([$email]);
 $dbUser = $stmt->fetch();
 
 if (!$dbUser) {
-    header("Location: login.html?error=invalid");
+    header("Location: /login.html?error=invalid");
     exit;
 }
 
 if (!authVerifyPassword($dbUser, (string) $password)) {
-    header("Location: login.html?error=invalid");
+    header("Location: /login.html?error=invalid");
     exit;
 }
 
 if (isset($dbUser['is_active']) && (int)$dbUser['is_active'] !== 1) {
-    header("Location: login.html?error=inactive");
+    header("Location: /login.html?error=inactive");
     exit;
 }
 
@@ -202,14 +202,14 @@ $isLocalPath = is_string($next) && $next !== '' && strncmp($next, '/', 1) === 0
 if (in_array($redirect, $adminOps, true)) {
     header("Location: /{$redirect}.php");
 } elseif ($redirect === 'dashboard') {
-    header("Location: dashboard.php");
+    header("Location: /dashboard.php");
 } elseif ($isLocalPath) {
     // Land back on the deep route the SPA bounced from.
     header("Location: /spa.php" . (str_contains($next, '#') ? $next : '#' . $next));
 } elseif ($platformMode) {
     // Platform mode default landing — the admin dashboard.
-    header("Location: spa.php#/admin");
+    header("Location: /spa.php#/admin");
 } else {
-    header("Location: spa.php");
+    header("Location: /spa.php");
 }
 exit;
