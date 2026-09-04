@@ -66,6 +66,10 @@ if ($action === 'link_token') {
             'language'                       => 'en',
             'country_codes'                  => ['US'],
             'products'                       => ['transactions'],
+            // Request Plaid's maximum history window for every new Item.
+            // Existing Items keep the window selected when they were linked;
+            // older gaps are backfilled through Treasury's CSV importer.
+            'transactions'                   => ['days_requested' => 730],
             'required_if_supported_products' => ['auth'],
             'optional_products'              => ['liabilities'],
             'account_filters'                => [
@@ -551,4 +555,3 @@ if ($action === 'exchange') {
 }
 
 api_error('Unknown action: ' . $action, 422);
-

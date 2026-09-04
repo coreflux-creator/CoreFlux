@@ -12,12 +12,13 @@
  *   - qbo_sync_drift              (two-way sync drift)
  *   - qbo_payment_charges         (stale/failed/refunded merchant charges)
  *   - payment_instructions WHERE state='Failed'  (Mercury rail Failed PIs)
+ *   - purepay_payment_links       (failed/unverified/needs-review vendor payments)
  *
  * Returns:
  *   {
  *     items: [
  *       {
- *         source       : 'qbo-dlq' | 'qbo-drift' | 'qbo-payments' | 'mercury-failed',
+ *         source       : 'qbo-dlq' | 'qbo-drift' | 'qbo-payments' | 'mercury-failed' | 'purepay-failed',
  *         id           : <row id in the source table>,
  *         tenant_id    : int,
  *         severity     : 'critical'|'warn'|'info',
@@ -54,12 +55,12 @@ if ($tenantId <= 0) {
 $limit = max(10, min(500, (int) ($_GET['limit'] ?? 200)));
 $wantedSources = $_GET['sources'] ?? 'all'; // comma-list or 'all'
 $wanted = $wantedSources === 'all'
-    ? ['qbo-dlq', 'qbo-drift', 'qbo-payments', 'mercury-failed']
+    ? ['qbo-dlq', 'qbo-drift', 'qbo-payments', 'mercury-failed', 'purepay-failed']
     : array_map('trim', explode(',', (string) $wantedSources));
 
 $items  = [];
 $counts = ['critical' => 0, 'warn' => 0, 'info' => 0, 'total' => 0,
-           'by_source' => ['qbo-dlq' => 0, 'qbo-drift' => 0, 'qbo-payments' => 0, 'mercury-failed' => 0]];
+           'by_source' => ['qbo-dlq' => 0, 'qbo-drift' => 0, 'qbo-payments' => 0, 'mercury-failed' => 0, 'purepay-failed' => 0]];
 $db = getDB();
 
 // ─────── 1. QBO push DLQ ───────
@@ -276,6 +277,49 @@ if (in_array('mercury-failed', $wanted, true)) {
             $counts[$sev]++;
         }
     } catch (\Throwable $_) { /* table missing */ }
+}
+
+// ─────── 5. Pure//Pay failed or unverified payment releases ───────
+if (in_array('purepay-failed', $wanted, true)) {
+    try {
+        $stmt = $db->prepare(
+            "SELECT id, tenant_id, source_ref, core_payment_id, purepay_vendor_id,
+                    purepay_bill_id, purepay_payment_id, amount_cents, status,
+                    last_error, last_error_json, created_at, updated_at
+               FROM purepay_payment_links
+              WHERE tenant_id=:t
+                AND status IN ('failed','needs_review','pushed_unverified','posted_unverified')
+           ORDER BY updated_at DESC, id DESC LIMIT {$limit}"
+        );
+        $stmt->execute(['t'=>$tenantId]);
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+            $critical = in_array($r['status'], ['needs_review','posted_unverified'], true);
+            $sev = $critical ? 'critical' : 'warn';
+            $items[] = [
+                'source'=>'purepay-failed','id'=>(int)$r['id'],'tenant_id'=>(int)$r['tenant_id'],
+                'severity'=>$sev,
+                'summary'=>'Pure//Pay payment ' . $r['status'] . ' — ' . $r['source_ref']
+                    . ' ($' . number_format(((int)$r['amount_cents']) / 100, 2) . ')',
+                'playbook'=>[
+                    'code'=>$r['status'],'category'=>'payment_rail','severity'=>$critical?'manual_review':'fix_data',
+                    'summary'=>$r['last_error'] ?: 'Pure//Pay release requires attention',
+                    'suggested_fix'=>$critical
+                        ? 'Check the bill and payment in Pure//Pay before retrying; the public API does not document idempotency, so an uncertain POST must not be repeated blindly.'
+                        : 'Confirm the vendor has completed payout onboarding in Pure//Pay, review the provider error, then retry the CoreFlux payment.',
+                    'docs_link'=>'https://purepay.online/developers',
+                ],
+                'meta'=>[
+                    'source_ref'=>$r['source_ref'],'core_payment_id'=>$r['core_payment_id'],
+                    'bill_id'=>$r['purepay_bill_id'],'payment_id'=>$r['purepay_payment_id'],
+                    'status'=>$r['status'],'last_error'=>$r['last_error'],
+                    'vendor_raw'=>$r['last_error_json'],
+                ],
+                'created_at'=>$r['updated_at'] ?: $r['created_at'],'actionable'=>null,
+            ];
+            $counts['by_source']['purepay-failed']++;
+            $counts[$sev]++;
+        }
+    } catch (\Throwable $_) { /* migration pending */ }
 }
 
 // Order: critical first, then warn, then info; secondary by created_at desc.

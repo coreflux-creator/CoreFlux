@@ -17,6 +17,7 @@ const RAIL_OPTIONS = [
   { id: 'mercury',        label: 'Mercury'        },
   { id: 'plaid_transfer', label: 'Plaid Transfer' },
   { id: 'nacha',          label: 'NACHA file'     },
+  { id: 'purepay',        label: 'Pure//Pay'      },
 ];
 
 export default function SuggestPaymentRunModal({ onClose, onCreated }) {
@@ -73,7 +74,11 @@ export default function SuggestPaymentRunModal({ onClose, onCreated }) {
     try {
       const payloadGroups = groups
         .filter(g => selectedVendors.has(g.vendor_name))
-        .map(g => ({ vendor_name: g.vendor_name, bill_ids: g.bill_ids, method: rail }));
+        .map(g => ({
+          vendor_name: g.vendor_name,
+          bill_ids: g.bill_ids,
+          method: rail === 'plaid_transfer' ? 'plaid' : rail === 'mercury' ? 'mercury' : 'ach',
+        }));
       const res = await api.post('/modules/ap/api/bills.php?action=execute-payment-run', {
         rail, vendor_groups: payloadGroups,
       });

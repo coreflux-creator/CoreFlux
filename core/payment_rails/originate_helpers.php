@@ -42,12 +42,13 @@ function paymentRailsDecryptBank(?string $routingCt, ?string $accountCt, string 
 
 /**
  * Build a RailItem from a per-module dict.
- * Required keys in $row: external_ref, recipient_name, routing, account,
- *                        account_type, amount_cents, sec_code, description.
+ * Required keys in $row: external_ref, recipient_name, amount_cents,
+ *                        sec_code, description. Direct-bank rails additionally
+ *                        require routing/account; provider-vault rails do not.
  */
 function paymentRailsBuildItem(array $row): array
 {
-    foreach (['external_ref','recipient_name','routing','account','amount_cents','sec_code','description'] as $k) {
+    foreach (['external_ref','recipient_name','amount_cents','sec_code','description'] as $k) {
         if (!isset($row[$k]) || $row[$k] === '' || $row[$k] === null) {
             throw new PaymentRailsOriginateException("RailItem missing key: $k");
         }
@@ -55,19 +56,25 @@ function paymentRailsBuildItem(array $row): array
     if ((int) $row['amount_cents'] <= 0) {
         throw new PaymentRailsOriginateException('RailItem amount_cents must be > 0');
     }
-    return [
+    $item = [
         'external_ref'    => (string) $row['external_ref'],
         'recipient_name'  => substr((string) $row['recipient_name'], 0, 22),
-        'account_routing' => (string) $row['routing'],
-        'account_number'  => (string) $row['account'],
-        'account_type'    => in_array($row['account_type'] ?? 'checking', ['checking','savings'], true)
-                              ? $row['account_type']
-                              : 'checking',
+        'recipient_full_name' => trim((string) ($row['recipient_full_name'] ?? $row['recipient_name'])),
         'amount_cents'    => (int) $row['amount_cents'],
         'sec_code'        => (string) $row['sec_code'],
         'description'     => substr((string) $row['description'], 0, 10),
         'addenda'         => $row['addenda'] ?? null,
+        'recipient_ref'   => isset($row['recipient_ref']) ? (string) $row['recipient_ref'] : null,
+        'recipient_email' => isset($row['recipient_email']) ? (string) $row['recipient_email'] : null,
+        'invoice_number'  => isset($row['invoice_number']) ? (string) $row['invoice_number'] : null,
     ];
+    if (isset($row['routing']) && $row['routing'] !== '') $item['account_routing'] = (string) $row['routing'];
+    if (isset($row['account']) && $row['account'] !== '') $item['account_number'] = (string) $row['account'];
+    if (isset($item['account_routing']) || isset($item['account_number'])) {
+        $item['account_type'] = in_array($row['account_type'] ?? 'checking', ['checking','savings'], true)
+            ? $row['account_type'] : 'checking';
+    }
+    return $item;
 }
 
 /**

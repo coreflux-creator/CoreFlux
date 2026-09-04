@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "lint:hooks": "cd .. && node dashboard/node_modules/eslint/bin/eslint.js \"dashboard/src/**/*.{js,jsx}\" \"modules/**/ui/**/*.{js,jsx}\"",
+    "lint:hooks": "cd .. && node dashboard/node_modules/eslint/bin/eslint.js 'dashboard/src/**/*.{js,jsx}' 'modules/**/ui/**/*.{js,jsx}'",
     "prebuild": "npm run lint:hooks",
     "build": "vite build",
     "postbuild": "node ../scripts/sync_bundle.mjs",

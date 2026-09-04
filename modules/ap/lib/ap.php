@@ -842,14 +842,17 @@ function apSuggestPaymentRun(int $tenantId, int $daysAhead = 7, ?string $rail = 
         foreach ($vendorNames as $i => $vn) {
             $k = 'v' . $i; $placeholders[] = ':' . $k; $params[$k] = $vn;
         }
+        $vendorIndex = [];
         try {
             $vix = $pdo->prepare(
-                'SELECT vendor_name, default_pwp, last_bill_at
+                'SELECT vendor_name, remit_to_email, contact_email, default_pwp, last_bill_at
                    FROM ap_vendors_index
                   WHERE tenant_id = :t AND vendor_name IN (' . implode(',', $placeholders) . ')'
             );
             $vix->execute($params);
-            $vix->fetchAll(\PDO::FETCH_ASSOC);
+            foreach ($vix->fetchAll(\PDO::FETCH_ASSOC) as $vendorRow) {
+                $vendorIndex[(string) $vendorRow['vendor_name']] = $vendorRow;
+            }
         } catch (\Throwable $_) { /* graceful — no flags */ }
 
         // Mercury-specific recipient check (only when rail=mercury).
@@ -871,6 +874,17 @@ function apSuggestPaymentRun(int $tenantId, int $daysAhead = 7, ?string $rail = 
                 }
                 unset($g);
             } catch (\Throwable $_) { /* mercury_recipients table missing — leave defaults */ }
+        }
+        if ($rail === 'purepay') {
+            foreach ($groups as $vn => &$g) {
+                $vendorRow = $vendorIndex[$vn] ?? null;
+                $email = trim((string) ($vendorRow['remit_to_email'] ?? $vendorRow['contact_email'] ?? ''));
+                if (!$vendorRow || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $g['rail_eligible'] = false;
+                    $g['eligibility_note'] = 'Pure//Pay requires a valid vendor remit-to email. Add it on the AP vendor before dispatch.';
+                }
+            }
+            unset($g);
         }
     }
 
@@ -1006,7 +1020,11 @@ function apExecutePaymentRun(int $tenantId, string $rail, array $groups, ?int $u
             'tenant_id'          => $tenantId,
             'vendor_name'        => $vendorName,
             'pay_date'           => $g['pay_date'] ?? date('Y-m-d'),
-            'method'             => $g['method'] ?? $rail,
+            'method'             => $g['method'] ?? match ($rail) {
+                'plaid_transfer' => 'plaid',
+                'mercury' => 'mercury',
+                default => 'ach',
+            },
             'reference'          => 'payment-run:' . date('Ymd') . ':' . substr(bin2hex(random_bytes(3)), 0, 6),
             'amount'             => round($total, 2),
             'currency'           => $currency,

@@ -56,8 +56,9 @@ $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if ($origin && preg_match('#^https?://(localhost|127\.0\.0\.1|.*\.corefluxapp\.com|.*\.preview\.emergentagent\.com)(:\d+)?$#', $origin)) {
     header('Access-Control-Allow-Origin: ' . $origin);
     header('Vary: Origin');
-    header('Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With');
+    header('Access-Control-Allow-Headers: Authorization, Content-Type, Accept, Idempotency-Key, X-Request-ID, X-Requested-With');
     header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    header('Access-Control-Expose-Headers: Deprecation, Link, X-CoreFlux-API-Version, X-Request-ID');
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {

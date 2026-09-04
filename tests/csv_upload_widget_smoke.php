@@ -78,6 +78,9 @@ $a('onSuccess reloads the transactions list',
     str_contains($tsrc, 'onSuccess={() => reload()}'));
 $a('plaid-connected accounts get a different label',
     str_contains($tsrc, 'plaidItemExternalId'));
+$a('existing Plaid accounts are directed to CSV backfill',
+    str_contains($tsrc, 'Backfill this existing Plaid account from CSV')
+    && str_contains($tsrc, 'New Plaid connections request up to 730 days'));
 
 // 3) Payroll surface — PayPeriods table inline drawer.
 echo "\n3. Payroll PayPeriods wiring\n";

@@ -20,8 +20,10 @@ declare(strict_types=1);
 require_once __DIR__ . '/../api_bootstrap.php';
 require_once __DIR__ . '/../payment_rails.php';
 
-api_require_auth();
+$ctx = api_require_auth();
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
 
-api_ok(['rails' => paymentRailsList()]);
+$module = trim((string) ($_GET['module'] ?? ''));
+if ($module !== '' && !in_array($module, ['ap', 'payroll'], true)) api_error('Unknown module', 422);
+api_ok(['rails' => paymentRailsList((int) ($ctx['tenant_id'] ?? 0), $module !== '' ? $module : null)]);

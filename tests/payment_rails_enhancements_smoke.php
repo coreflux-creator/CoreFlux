@@ -45,8 +45,8 @@ $a('plaid fallback_to = nacha',                $pm['fallback_to'] === 'nacha');
 
 echo "\npaymentRailsList includes metadata\n";
 $list = paymentRailsList();
-$a('list returns 3 rails (nacha, plaid_transfer, mercury — Batch 2026-02)',
-    count($list) === 3);
+$a('list returns 4 rails (nacha, plaid_transfer, mercury, purepay)',
+    count($list) === 4);
 $a('every list entry has metadata key',
     !array_filter($list, fn($r) => !isset($r['metadata']) || !is_array($r['metadata'])));
 $nachaRow = array_values(array_filter($list, fn($r) => $r['id'] === 'nacha'))[0];
@@ -62,7 +62,7 @@ $src = (string) file_get_contents($ep);
 $a('endpoint requires auth',                   strpos($src, 'api_require_auth()') !== false);
 $a('endpoint GET-only',                        strpos($src, "api_method() !== 'GET'") !== false &&
                                                strpos($src, "Method not allowed") !== false);
-$a('endpoint returns paymentRailsList',        strpos($src, 'paymentRailsList()') !== false);
+$a('endpoint returns paymentRailsList',        strpos($src, 'paymentRailsList(') !== false);
 $a('endpoint requires payment_rails.php',      strpos($src, "require_once __DIR__ . '/../payment_rails.php'") !== false);
 
 echo "\nAP settings API\n";

@@ -1,0 +1,52 @@
+{
+  "provider": "purepay",
+  "label": "Pure//Pay",
+  "baseUrl": "https://purepay.online/api/v1",
+  "source": {
+    "url": "https://purepay.online/developers",
+    "retrievedAt": "2026-08-23",
+    "kind": "published developer page"
+  },
+  "authentication": {
+    "type": "http_bearer",
+    "examplePrefix": "pk_live_",
+    "scopeNote": "The published documentation states that an API key grants full access to its Pure//Pay organization."
+  },
+  "definitions": {
+    "VendorCreate": {
+      "writableProperties": ["legal_name", "email", "relationship"],
+      "required": ["legal_name", "email", "relationship"]
+    },
+    "BillCreate": {
+      "writableProperties": ["vendor_id", "amount", "bill_date", "due_date", "invoice_number"],
+      "required": ["vendor_id", "amount"]
+    },
+    "BillPay": {
+      "writableProperties": ["pay_via", "qbo_bank_account_id"],
+      "required": ["pay_via"],
+      "constraints": {
+        "pay_via.allowed": ["mercury", "wallet", "quickbooks"]
+      }
+    },
+    "Webhook": {
+      "headers": ["X-Webhook-Id", "X-Webhook-Timestamp", "X-Webhook-Signature"],
+      "events": ["bill.created", "payment.settled", "payment.failed"],
+      "signature": "HMAC-SHA256(secret, timestamp + '.' + raw_body)",
+      "signaturePrefix": "sha256="
+    }
+  },
+  "paths": {
+    "/vendors": ["GET", "POST"],
+    "/bills": ["GET", "POST"],
+    "/bills/{id}/pay": ["POST"],
+    "/payments": ["GET"],
+    "/wallet": ["GET"]
+  },
+  "limitations": [
+    "The published API does not document an idempotency header.",
+    "The published API does not expose vendor bank-account creation or payout-link creation.",
+    "The published API does not publish fee amounts or a guaranteed settlement window.",
+    "The published API documents list endpoints rather than per-resource GET endpoints."
+  ]
+}
+

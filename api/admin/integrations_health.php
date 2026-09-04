@@ -131,6 +131,22 @@ $providers = [
         'error_surface' => true,
         'mapping_fallback' => null,
     ],
+    [
+        'id'        => 'purepay',
+        'label'     => 'Pure//Pay',
+        'spec'      => $ROOT . '/spec/purepay_schema.json',
+        'snapshot'  => $ROOT . '/spec/purepay_docs',
+        'contract'  => $ROOT . '/tests/purepay_payload_contract_smoke.php',
+        'freshness' => $ROOT . '/tests/purepay_spec_freshness_smoke.php',
+        'tool'      => $ROOT . '/tools/refresh_purepay_spec.sh',
+        // POST /vendors and POST /bills are re-read from list endpoints;
+        // POST /bills/{id}/pay is verified against GET /payments.
+        'verify_create' => true,
+        // PurePayApiException carries httpStatus/errorCode/raw response.
+        'error_surface' => true,
+        // Payment rail; no chart-of-accounts mapping applies.
+        'mapping_fallback' => null,
+    ],
 ];
 
 $STALE_AFTER_DAYS = 90;

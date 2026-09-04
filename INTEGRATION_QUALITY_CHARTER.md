@@ -25,6 +25,7 @@ The charter exists because we kept hitting the same class of "we thought it work
 | **ZohoBooks** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **7/7** |
 | **Mercury**   | ✅ | ✅ | ✅ | n/a (no CoA) | ✅ | ✅ | ✅ | **6/6** |
 | **Plaid**     | 🟡 | 🟡 | n/a (read-only) | n/a | n/a | 🟡 | n/a | **3/4** |
+| **Pure//Pay** | ✅ | ✅ | ✅ | n/a (no CoA) | ✅ | ✅ | ✅ | **6/6** |
 | **LayerFi**   | n/a — SDK enforces shape | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 
 ## Post-charter polish layer (additive, applies once 7/7 is hit)
@@ -40,6 +41,7 @@ The 7 primitives keep the integration *correct*. The polish layer below keeps it
 | **Drift badge on host UI** | The CoreFlux list page for the entity (BillsList / InvoicesList) shows the vendor-side state inline (e.g. "Paid in QBO" amber chip). | QBO ✅ (`<QboDriftBadge>`) · Others — pending |
 | **Auto-reconcile drift** | Per-tenant opt-in flag closes `paid_out_of_band` drift automatically — inserts a matching CoreFlux payment + allocates via the canonical engine so the ledger matches vendor truth without manual triage. | QBO ✅ (`core/qbo/auto_reconcile.php`, `/api/admin/qbo/auto_reconcile.php`, gated by `qbo_connections.auto_reconcile_paid_out_of_band`) · Others — pending |
 | **Inbound payments rail** | Tenant collects from their customers directly via the provider's merchant rail (cards / ACH); shadow table mirrors the upstream charge lifecycle and links it back to the originating AR invoice. | QBO ✅ — tokenizer UI + durable Request-Id, card/e-check client, shadow table, capture-to-AR allocator, operator refresh, hourly polling, and triage surface (`core/qbo/payments_client.php`, `qbo_payment_charges`, `/api/admin/qbo/payments_charge.php`) · Others — n/a |
+| **Outbound vendor rail** | Tenant releases approved AP payments through a provider-owned vendor vault and wallet; CoreFlux mirrors the upstream lifecycle and never sends provider-unsupported bank fields. | Pure//Pay ✅ — encrypted tenant key, durable source-ref fence, vendor/bill/payment verification, signed webhooks, polling, liveness probe, and triage surface. |
 
 ## The Rollout Order
 

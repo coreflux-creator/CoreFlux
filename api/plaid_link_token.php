@@ -86,6 +86,11 @@ if (!empty($body['update_item_id'])) {
     if (!$accessToken) api_error('Could not decrypt access token', 500);
     $req['access_token'] = $accessToken;
     unset($req['products']);  // not allowed in update mode
+} elseif (in_array('transactions', $products, true)) {
+    // Plaid fixes the Transactions history window when a new Item is created.
+    // Request the maximum supported window now; existing Items use CSV for
+    // dates outside the window chosen during their original Link session.
+    $req['transactions'] = ['days_requested' => 730];
 }
 
 try {

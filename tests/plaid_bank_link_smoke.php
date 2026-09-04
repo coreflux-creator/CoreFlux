@@ -23,6 +23,8 @@ $assert('action=exchange branch',            strpos($src, "action === 'exchange'
 $assert("products = ['transactions'] only (auth filters out credit cards)",
                                              strpos($src, "['transactions']") !== false
                                              && strpos($src, "['auth', 'transactions']") === false);
+$assert('new Treasury Items request 730 days of transaction history',
+                                             strpos($src, "'transactions'                   => ['days_requested' => 730]") !== false);
 $assert("auth attached via required_if_supported_products",
                                              strpos($src, "'required_if_supported_products' => ['auth']") !== false);
 $assert("liabilities attached via optional_products",
@@ -129,6 +131,10 @@ echo "/api/plaid_link_token.php\n";
 $lt = file_get_contents(__DIR__ . '/../api/plaid_link_token.php');
 $assert('bank_feed default is transactions only',
                                              strpos($lt, "'bank_feed'        => ['transactions']") !== false);
+$assert('generic new Transactions Items request 730 days of history',
+                                             strpos($lt, "['days_requested' => 730]") !== false);
+$assert('update mode does not try to change the fixed history window',
+                                             strpos($lt, "} elseif (in_array('transactions', \$products, true)) {") !== false);
 $assert("bank_feed adds required_if_supported auth", strpos($lt, "'required_if_supported_products'") !== false);
 $assert("bank_feed adds optional liabilities", strpos($lt, "'optional_products'") !== false && strpos($lt, "['liabilities']") !== false);
 $assert("'liabilities' added to allowed product set",

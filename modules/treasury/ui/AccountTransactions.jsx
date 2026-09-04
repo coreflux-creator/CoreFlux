@@ -161,9 +161,9 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
           extraFields={{ bank_account_id: accountId }}
           accept=".csv,text/csv"
           label={plaidItemExternalId
-            ? 'Import a CSV (e.g. older history beyond Plaid\'s retention window)'
+            ? 'Backfill this existing Plaid account from CSV'
             : 'Import a bank statement CSV — this account isn\'t connected to Plaid'}
-          hint="Header row required. Accepted columns: Date / Posting Date · Description / Memo · Amount (or Debit + Credit) · optional Reference / Check Number. Re-uploading the same file is a no-op (deduped via synthesised fitid)."
+          hint="Use CSV for dates Plaid did not provide. New Plaid connections request up to 730 days; an existing connection keeps its original history window. Header row required. Accepted columns: Date / Posting Date · Description / Memo · Amount (or Debit + Credit) · optional Reference / Check Number. Re-uploading the same file is a no-op (deduped via synthesised fitid)."
           onSuccess={() => reload()}
         />
       )}

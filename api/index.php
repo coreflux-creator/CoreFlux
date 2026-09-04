@@ -35,8 +35,18 @@ if (!$parsed['ok']) {
     ]);
 }
 
+// Translate resource-style v1 subpaths into the query keys understood by
+// the existing endpoint implementations. Explicit query parameters always
+// win, so legacy callers retain their current behaviour.
+apiRouterApplyV1Compatibility($parsed);
+
 // Resolve module + endpoint file
-$endpointFile = apiRouterResolveFile($parsed['module_id'], $parsed['endpoint']);
+$endpointFile = apiRouterResolveFile(
+    $parsed['module_id'],
+    $parsed['endpoint'],
+    null,
+    $parsed['subpath']
+);
 if ($endpointFile === null) {
     // Distinguish "module not registered" from "endpoint file missing"
     $registry = ModuleRegistry::getInstance();
@@ -50,15 +60,26 @@ if ($endpointFile === null) {
     ]);
 }
 
-// Auth (idempotent — module file may also call api_require_auth())
-$authCtx = api_require_auth();
+// Module-level RBAC gate. Direct namespace routes (auth, webhooks, admin,
+// etc.) own their guards, while registered modules require at least the
+// base '<module>.view' permission before endpoint-specific checks run.
+$baseModulePerm = apiRouterBasePermission($parsed);
+if ($baseModulePerm !== null) {
+    // Auth is idempotent — module files may repeat this call to obtain their
+    // tenant context. Direct namespace files are intentionally dispatched
+    // before this gate because login, refresh, and signed webhooks implement
+    // their own authentication boundary.
+    $authCtx = api_require_auth();
+    rbac_legacy_require($authCtx['user'], $baseModulePerm);
+}
 
-// Module-level RBAC gate. The user must hold at least the base
-// '<module>.view' permission to reach any endpoint inside that module.
-// Per-endpoint permissions remain the module's responsibility (it can call
-// rbac_legacy_require($authCtx['user'], 'foo.bar.action') itself).
-$baseModulePerm = $parsed['module_id'] . '.view';
-rbac_legacy_require($authCtx['user'], $baseModulePerm);
+$apiVersion = $parsed['api_version'] ?? null;
+if ($apiVersion !== null) {
+    header('X-CoreFlux-API-Version: ' . $apiVersion);
+} else {
+    header('Deprecation: true');
+}
+header('Link: </api/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json"');
 
 // Stash router context for the included module file
 $GLOBALS['CF_API_REQUEST_ID'] = $requestId;

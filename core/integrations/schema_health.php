@@ -47,6 +47,8 @@ if (!function_exists('cf_schema_health_registry')) {
             // ---- Payment rails ----
             ['integration' => 'plaid',       'integration_label' => 'Plaid',             'table' => 'plaid_items',             'column' => 'access_token_ct',        'min_bytes' => 512,  'stores' => 'Plaid access token (~70 chars)'],
             ['integration' => 'mercury',     'integration_label' => 'Mercury',           'table' => 'mercury_connections',     'column' => 'api_token_ct',           'min_bytes' => 512,  'stores' => 'Mercury API token (~80 chars)'],
+            ['integration' => 'purepay',     'integration_label' => 'Pure//Pay',         'table' => 'purepay_connections',     'column' => 'api_key_ct',             'min_bytes' => 1024, 'stores' => 'Pure//Pay organization API key'],
+            ['integration' => 'purepay',     'integration_label' => 'Pure//Pay',         'table' => 'purepay_connections',     'column' => 'webhook_secret_ct',      'min_bytes' => 512,  'stores' => 'Pure//Pay webhook HMAC secret'],
 
             // ---- Staffing ----
             ['integration' => 'jobdiva',     'integration_label' => 'JobDiva',           'table' => 'jobdiva_connections',     'column' => 'password_enc',           'min_bytes' => 1024, 'stores' => 'JobDiva API user password'],

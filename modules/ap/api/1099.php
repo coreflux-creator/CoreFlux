@@ -2,8 +2,8 @@
 /**
  * AP API — 1099-NEC ledger.
  *
- *   GET  /api/ap/1099?tax_year=YYYY        → current ledger rows
- *   POST /api/ap/1099?action=rebuild&tax_year=YYYY  → recomputes from cleared payments
+ *   GET  /api/v1/ap/form-1099?tax_year=YYYY        → current ledger rows
+ *   POST /api/v1/ap/form-1099?action=rebuild&tax_year=YYYY  → recomputes from cleared payments
  *
  * Phase A0 = ledger rollup only. Actual 1099-NEC PDF generation + IRS
  * e-file deferred to Phase A1/B.

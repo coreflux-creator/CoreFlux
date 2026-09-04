@@ -20,6 +20,7 @@
  */
 declare(strict_types=1);
 
+putenv('JWT_SECRET=smoke-jwt-secret-at-least-32-characters');
 require_once __DIR__ . '/../core/jwt.php';
 
 $pass = 0; $fail = 0;
@@ -114,7 +115,7 @@ $assert('jwtVerify rejects tampered',       jwtVerify($tampered) === null);
 // Build an already-expired token by hand (jwtSign clamps min TTL to 60s).
 $h = jwtBase64UrlEncode(json_encode(['typ'=>'JWT','alg'=>'HS256']));
 $p = jwtBase64UrlEncode(json_encode(['user_id'=>1,'tenant_id'=>1,'iat'=>time()-3600,'exp'=>time()-1800]));
-$s = jwtBase64UrlEncode(hash_hmac('sha256', "{$h}.{$p}", 'coreflux-dev-jwt-secret-CHANGE-ME', true));
+$s = jwtBase64UrlEncode(hash_hmac('sha256', "{$h}.{$p}", jwtSecret(), true));
 $expired = "{$h}.{$p}.{$s}";
 $assert('jwtVerify rejects expired',        jwtVerify($expired) === null);
 $assert('jwtVerify rejects gibberish',      jwtVerify('not.a.token') === null);

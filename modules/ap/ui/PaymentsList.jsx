@@ -11,6 +11,7 @@ export default function PaymentsList() {
   const plaidEnabled = !!data?.plaid_enabled;
   const plaidTransferLinked = !!data?.plaid_transfer_linked;
   const mercuryConnected = !!data?.mercury_connected;
+  const purepayConnected = !!data?.purepay_connected;
   const [showRecord, setShowRecord] = useState(false);
   const [showAllocate, setShowAllocate] = useState(null); // payment row
   const [batching, setBatching]   = useState(false);
@@ -57,6 +58,23 @@ export default function PaymentsList() {
       reload();
     } catch (e) {
       setMercuryRow(s => ({ ...s, [p.id]: { error: e.message || String(e) } }));
+    }
+  };
+
+  const [purepayRow, setPurepayRow] = useState({});
+  const purepayEligible = (p) =>
+    purepayConnected &&
+    ['ach', 'plaid'].includes(p.method) &&
+    p.status === 'sent' &&
+    !p.rail_external_ref;
+  const sendViaPurepay = async (p) => {
+    setPurepayRow(s => ({ ...s, [p.id]: 'busy' }));
+    try {
+      const res = await api.post(`/modules/ap/api/payments.php?action=originate&id=${p.id}&rail=purepay`, {});
+      setPurepayRow(s => ({ ...s, [p.id]: { ok: true, ref: res.batch_id } }));
+      reload();
+    } catch (e) {
+      setPurepayRow(s => ({ ...s, [p.id]: { error: e.message || String(e) } }));
     }
   };
 
@@ -249,6 +267,28 @@ export default function PaymentsList() {
                 {mercuryRow[p.id] && mercuryRow[p.id].ok && (
                   <div data-testid={`ap-send-via-mercury-ok-${p.id}`} style={{ fontSize: 11, color: 'var(--cf-green, #047857)', marginTop: 4 }}>
                     ✓ Queued as {mercuryRow[p.id].ref}
+                  </div>
+                )}
+                {purepayEligible(p) && (
+                  <button
+                    className="btn btn--primary"
+                    style={{ marginLeft: 6 }}
+                    onClick={() => sendViaPurepay(p)}
+                    disabled={purepayRow[p.id] === 'busy'}
+                    data-testid={`ap-send-via-purepay-${p.id}`}
+                    title="Release this approved AP payment through the connected Pure//Pay wallet"
+                  >
+                    {purepayRow[p.id] === 'busy' ? 'Sending…' : 'Send via Pure//Pay'}
+                  </button>
+                )}
+                {purepayRow[p.id] && purepayRow[p.id].error && (
+                  <div data-testid={`ap-send-via-purepay-error-${p.id}`} style={{ fontSize: 11, color: 'var(--cf-red, #b91c1c)', marginTop: 4 }}>
+                    {purepayRow[p.id].error}
+                  </div>
+                )}
+                {purepayRow[p.id] && purepayRow[p.id].ok && (
+                  <div data-testid={`ap-send-via-purepay-ok-${p.id}`} style={{ fontSize: 11, color: 'var(--cf-green, #047857)', marginTop: 4 }}>
+                    ✓ Released through Pure//Pay ({purepayRow[p.id].ref})
                   </div>
                 )}
               </td>

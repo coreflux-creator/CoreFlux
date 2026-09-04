@@ -85,6 +85,16 @@ if ($method === 'GET') {
     } catch (\Throwable $e) {
         $mercuryConnected = false;
     }
+    $purepayConnected = false;
+    try {
+        $pp = scopedFind(
+            'SELECT status FROM purepay_connections WHERE tenant_id = :tenant_id LIMIT 1',
+            []
+        );
+        $purepayConnected = $pp && ($pp['status'] ?? '') === 'active';
+    } catch (\Throwable $e) {
+        $purepayConnected = false;
+    }
     // 4-WAY MATCH GATE — attach `pwp_blocked` flag to each row so the
     // UI can pre-warn / disable Send before the operator clicks. Single
     // GROUP BY query keeps this O(N) instead of N+1.
@@ -125,6 +135,7 @@ if ($method === 'GET') {
         'plaid_enabled'         => apPlaidConfigured(),
         'plaid_transfer_linked' => $plaidLinked,
         'mercury_connected'     => $mercuryConnected,
+        'purepay_connected'     => $purepayConnected,
     ]);
 }
 
@@ -298,15 +309,20 @@ if ($method === 'POST' && $action === 'originate_batch') {
         );
     }
 
-    // Build all RailItems before opening the transaction. Any failure here =>
-    // 422, no DB writes — the user retries after fixing vendor banking.
+    $settings = scopedFind('SELECT * FROM ap_settings WHERE tenant_id = :tenant_id LIMIT 1') ?: [];
+    $targetRail = paymentRailsResolveRail('ap', ['tenant_id' => $tid], $settings);
+
+    // Build all RailItems before opening the transaction. Provider-vault
+    // rails (Pure//Pay) use vendor identity/email and never receive CoreFlux
+    // bank numbers; direct-bank rails retain the encrypted-bank path.
     $items   = [];
     $vendors = [];
     foreach ($rows as $r) {
         $vname = $r['vendor_name'];
         if (!isset($vendors[$vname])) {
             $v = scopedFind(
-                'SELECT vendor_type, payment_routing_ct, payment_account_ct, payment_account_type
+                'SELECT id, vendor_type, remit_to_email, contact_email,
+                        payment_routing_ct, payment_account_ct, payment_account_type
                  FROM ap_vendors_index WHERE tenant_id = :tenant_id AND vendor_name = :vn LIMIT 1',
                 ['vn' => $vname]
             );
@@ -314,27 +330,32 @@ if ($method === 'POST' && $action === 'originate_batch') {
             $vendors[$vname] = $v;
         }
         $v = $vendors[$vname];
-        try {
-            $bank = paymentRailsDecryptBank(
-                $v['payment_routing_ct'] ?? null, $v['payment_account_ct'] ?? null,
-                "vendor $vname (payment #{$r['id']})"
-            );
-        } catch (\Throwable $e) {
-            api_error($e->getMessage(), 422);
-        }
-        $items[] = paymentRailsBuildItem([
+        $itemData = [
             'external_ref'   => 'ap_payment:' . $r['id'],
             'recipient_name' => (string) $vname,
-            'routing'        => $bank['routing'],
-            'account'        => $bank['account'],
-            'account_type'   => $v['payment_account_type'] ?: 'checking',
+            'recipient_ref'  => 'ap_vendor:' . (int) $v['id'],
+            'recipient_email'=> (string) ($v['remit_to_email'] ?: $v['contact_email'] ?: ''),
             'amount_cents'   => (int) round(((float) $r['amount']) * 100),
             'sec_code'       => $v['vendor_type'] === '1099_individual' ? 'ppd' : 'ccd',
             'description'    => 'AP-PAY',
-        ]);
+            'invoice_number' => (string) ($r['reference'] ?: ('PAY-' . $r['id'])),
+        ];
+        if ($targetRail !== 'purepay') {
+            try {
+                $bank = paymentRailsDecryptBank(
+                    $v['payment_routing_ct'] ?? null, $v['payment_account_ct'] ?? null,
+                    "vendor $vname (payment #{$r['id']})"
+                );
+            } catch (\Throwable $e) {
+                api_error($e->getMessage(), 422);
+            }
+            $itemData['routing'] = $bank['routing'];
+            $itemData['account'] = $bank['account'];
+            $itemData['account_type'] = $v['payment_account_type'] ?: 'checking';
+        }
+        $items[] = paymentRailsBuildItem($itemData);
     }
 
-    $settings = scopedFind('SELECT * FROM ap_settings WHERE tenant_id = :tenant_id LIMIT 1') ?: [];
     try {
         $res = paymentRailsDispatch('ap', [
             'tenant_id' => (int) currentTenantId(),
@@ -367,7 +388,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
             $itemRes = $byRef['ap_payment:' . $r['id']] ?? ['status' => $res['status'] ?? 'submitted', 'rail_external_ref' => $res['batch_id']];
             $upd->execute([
                 'r'  => $res['rail'],
-                'x'  => $itemRes['rail_external_ref'] ?? $res['batch_id'],
+                'x'  => array_key_exists('rail_external_ref', $itemRes) ? $itemRes['rail_external_ref'] : $res['batch_id'],
                 's'  => $itemRes['status']            ?? 'submitted',
                 't'  => $tid,
                 'id' => $r['id'],
@@ -441,7 +462,7 @@ if ($method === 'POST' && $action === 'originate') {
     // explicitly instead of relying on the tenant's default ap_settings rail.
     $railOverride = trim((string) ($_GET['rail'] ?? ''));
     if ($railOverride !== '') {
-        $allowedRails = ['nacha', 'plaid_transfer'];
+        $allowedRails = ['nacha', 'plaid_transfer', 'purepay'];
         if (!in_array($railOverride, $allowedRails, true)) {
             api_error("rail override must be one of: " . implode(', ', $allowedRails), 422);
         }
@@ -450,32 +471,39 @@ if ($method === 'POST' && $action === 'originate') {
 
     // Pull vendor banking + tenant settings.
     $vendor = scopedFind(
-        'SELECT id, vendor_name, vendor_type, vendor_category, payment_routing_ct,
-                payment_account_ct, payment_account_type
+        'SELECT id, vendor_name, vendor_type, vendor_category, remit_to_email, contact_email,
+                payment_routing_ct, payment_account_ct, payment_account_type
          FROM ap_vendors_index WHERE tenant_id = :tenant_id AND vendor_name = :vn LIMIT 1',
         ['vn' => $row['vendor_name']]
     );
     if (!$vendor) api_error('Vendor not found in vendor index', 422);
-    try {
-        $bank = paymentRailsDecryptBank($vendor['payment_routing_ct'] ?? null,
-                                        $vendor['payment_account_ct']  ?? null,
-                                        'vendor ' . $vendor['vendor_name']);
-    } catch (\Throwable $e) {
-        api_error($e->getMessage(), 422);
-    }
     $settings = scopedFind('SELECT * FROM ap_settings WHERE tenant_id = :tenant_id LIMIT 1') ?: [];
+    $targetRail = paymentRailsResolveRail('ap', $row, $settings);
 
-    $item = paymentRailsBuildItem([
+    $itemData = [
         'external_ref'   => 'ap_payment:' . $row['id'],
         'recipient_name' => (string) $row['vendor_name'],
-        'routing'        => $bank['routing'],
-        'account'        => $bank['account'],
-        'account_type'   => $vendor['payment_account_type'] ?: 'checking',
+        'recipient_ref'  => 'ap_vendor:' . (int) $vendor['id'],
+        'recipient_email'=> (string) ($vendor['remit_to_email'] ?: $vendor['contact_email'] ?: ''),
         'amount_cents'   => (int) round(((float) $row['amount']) * 100),
         // CCD = corporate credit (vendor pay). PPD only for individual 1099 contractors.
         'sec_code'       => $vendor['vendor_type'] === '1099_individual' ? 'ppd' : 'ccd',
         'description'    => 'AP-PAY',
-    ]);
+        'invoice_number' => (string) ($row['reference'] ?: ('PAY-' . $row['id'])),
+    ];
+    if ($targetRail !== 'purepay') {
+        try {
+            $bank = paymentRailsDecryptBank($vendor['payment_routing_ct'] ?? null,
+                                            $vendor['payment_account_ct']  ?? null,
+                                            'vendor ' . $vendor['vendor_name']);
+        } catch (\Throwable $e) {
+            api_error($e->getMessage(), 422);
+        }
+        $itemData['routing'] = $bank['routing'];
+        $itemData['account'] = $bank['account'];
+        $itemData['account_type'] = $vendor['payment_account_type'] ?: 'checking';
+    }
+    $item = paymentRailsBuildItem($itemData);
 
     try {
         $res = paymentRailsDispatch('ap', $row, $settings, [$item]);
@@ -493,7 +521,7 @@ if ($method === 'POST' && $action === 'originate') {
          WHERE tenant_id = :t AND id = :id'
     )->execute([
         'r'  => $res['rail'],
-        'x'  => $itemRes['rail_external_ref'] ?? $res['batch_id'],
+        'x'  => array_key_exists('rail_external_ref', $itemRes) ? $itemRes['rail_external_ref'] : $res['batch_id'],
         's'  => $itemRes['status'] ?? $res['status'],
         't'  => $tid,
         'id' => $id,

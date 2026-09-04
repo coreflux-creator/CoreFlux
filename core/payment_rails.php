@@ -99,12 +99,12 @@ interface PaymentRailsDriver
  * (e.g. Plaid scaffold called without keys). Callers should fall back to
  * the configured default rail (nacha) and log it.
  */
-class PaymentRailsNotConfiguredException extends \RuntimeException {}
-
 /**
  * Thrown for validation or driver-side originate failures.
  */
 class PaymentRailsOriginateException extends \RuntimeException {}
+
+class PaymentRailsNotConfiguredException extends PaymentRailsOriginateException {}
 
 /**
  * Resolve a driver instance by name. Throws InvalidArgumentException for
@@ -122,6 +122,9 @@ function paymentRailsGetDriver(string $rail): PaymentRailsDriver
         case 'mercury':
             require_once __DIR__ . '/payment_rails/mercury_driver.php';
             return new MercuryRailDriver();
+        case 'purepay':
+            require_once __DIR__ . '/payment_rails/purepay_driver.php';
+            return new PurePayRailDriver();
         default:
             throw new \InvalidArgumentException("Unknown payment rail: {$rail}");
     }
@@ -134,34 +137,56 @@ function paymentRailsGetDriver(string $rail): PaymentRailsDriver
  *
  * @return array<int, array{id: string, name: string, configured: bool, description: string, metadata: array<string, mixed>}>
  */
-function paymentRailsList(): array
+function paymentRailsList(?int $tenantId = null, ?string $module = null): array
 {
     $nacha   = paymentRailsGetDriver('nacha');
     $plaid   = paymentRailsGetDriver('plaid_transfer');
     $mercury = paymentRailsGetDriver('mercury');
-    return [
+    $purepay = paymentRailsGetDriver('purepay');
+    $configured = static function (PaymentRailsDriver $driver) use ($tenantId): bool {
+        $ready = $driver->isConfigured();
+        if ($ready && $tenantId && method_exists($driver, 'isConfiguredForTenant')) {
+            $ready = $driver->isConfiguredForTenant($tenantId);
+        }
+        return $ready;
+    };
+    $rails = [
         [
             'id'          => 'nacha',
             'name'        => 'NACHA file',
-            'configured'  => $nacha->isConfigured(),
+            'configured'  => $configured($nacha),
             'description' => 'Generate a NACHA-format ACH file. Tenant uploads it to their bank\'s cash-management portal. Zero external dependency.',
             'metadata'    => $nacha->metadata(),
         ],
         [
             'id'          => 'plaid_transfer',
             'name'        => 'Plaid Transfer (ACH API)',
-            'configured'  => $plaid->isConfigured(),
+            'configured'  => $configured($plaid),
             'description' => 'Programmatic ACH origination via Plaid. Requires Plaid Transfer pre-approval (1-2 weeks) and PLAID_CLIENT_ID + PLAID_SECRET_* env vars. Tenant must link a funding account through Plaid Link first.',
             'metadata'    => $plaid->metadata(),
         ],
         [
             'id'          => 'mercury',
             'name'        => 'Mercury (ACH)',
-            'configured'  => $mercury->isConfigured(),
+            'configured'  => $configured($mercury),
             'description' => 'Originate ACH via the tenant\'s connected Mercury operating account. Per-tenant API token + default funding source required; SoD approval gate built into the existing payment_instructions engine.',
             'metadata'    => $mercury->metadata(),
         ],
+        [
+            'id'          => 'purepay',
+            'name'        => 'Pure//Pay (ACH)',
+            'configured'  => $configured($purepay),
+            'description' => 'Create vendor bills and release ACH payments through the tenant\'s Pure//Pay wallet. Vendor payout onboarding remains in Pure//Pay; CoreFlux never sends bank numbers to this API.',
+            'metadata'    => $purepay->metadata(),
+        ],
     ];
+    if ($module !== null && $module !== '') {
+        $rails = array_values(array_filter($rails, static function (array $rail) use ($module): bool {
+            $supported = $rail['metadata']['supported_modules'] ?? null;
+            return !is_array($supported) || in_array($module, $supported, true);
+        }));
+    }
+    return $rails;
 }
 
 /**

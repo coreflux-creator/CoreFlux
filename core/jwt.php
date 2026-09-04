@@ -8,7 +8,7 @@
  *   • /api/auth/mobile_refresh.php   — rotate refresh, mint new access
  *   • core/api_bootstrap.php         — accept Authorization: Bearer alongside session cookie
  *
- * Secret: env JWT_SECRET (or fallback to APP_KEY for first-run convenience).
+ * Secret: env JWT_SECRET (or APP_KEY). Missing/weak secrets fail closed.
  * Access TTL: 8h. Refresh TTL: 30d (server-side revocable in auth_refresh_tokens).
  */
 declare(strict_types=1);
@@ -16,7 +16,9 @@ declare(strict_types=1);
 function jwtSecret(): string {
     $s = getenv('JWT_SECRET');
     if (!$s) $s = getenv('APP_KEY');
-    if (!$s) $s = 'coreflux-dev-jwt-secret-CHANGE-ME';
+    if (!$s || strlen((string) $s) < 32 || $s === 'coreflux-dev-jwt-secret-CHANGE-ME') {
+        throw new RuntimeException('JWT_SECRET or APP_KEY must contain at least 32 characters');
+    }
     return (string) $s;
 }
 

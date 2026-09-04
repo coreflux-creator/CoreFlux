@@ -32,6 +32,7 @@ import CpaFirmDashboard from './CpaFirmDashboard';
 import CpaAuditPage from './CpaAuditPage';
 import PlaidTransferSettings from '../../../modules/treasury/ui/PlaidTransferSettings';
 import MercurySettings from '../../../modules/treasury/ui/MercurySettings';
+import PurePaySettings from '../../../modules/treasury/ui/PurePaySettings';
 import QboSettings from './QboSettings';
 import JazIntegrationSettings from './JazIntegrationSettings';
 import AccountingOutbox from './AccountingOutbox';
@@ -247,6 +248,7 @@ const AdminModule = ({ session }) => {
           <Route path="/integrations/accounting-sync" element={<AccountingSyncDashboard session={session} />} />
           <Route path="/integrations/plaid"    element={<PlaidTransferSettings session={session} />} />
           <Route path="/integrations/mercury"  element={<MercurySettings session={session} />} />
+          <Route path="/integrations/purepay"  element={<PurePaySettings session={session} />} />
           <Route path="/integrations/qbo"      element={<QboSettings session={session} />} />
           <Route path="/integrations/jaz"      element={<JazIntegrationSettings session={session} />} />
           <Route path="/accounting/outbox"     element={<AccountingOutbox session={session} />} />

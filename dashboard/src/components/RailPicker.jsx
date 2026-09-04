@@ -44,7 +44,9 @@ export function RailCard({ rail, selected, onSelect, testIdPrefix = 'rail' }) {
   const m = rail.metadata || {};
   const cost = formatCost(m.cost_per_item_dollars, m.cost_pct);
   const sd = m.settlement_business_days || {};
-  const settlement = sd.min === 0
+  const settlement = sd.min == null
+    ? (m.settlement_note || 'Settlement per provider')
+    : sd.min === 0
     ? (sd.max === 0 ? 'T+0 same-day' : `T+0 to T+${sd.max}`)
     : `T+${sd.min}${sd.max && sd.max !== sd.min ? ` to T+${sd.max}` : ''}`;
   return (
@@ -77,7 +79,7 @@ export function RailCard({ rail, selected, onSelect, testIdPrefix = 'rail' }) {
       <p style={{ margin: 0, fontSize: 12, color: 'var(--cf-text-secondary, #6b7280)' }}>{rail.description}</p>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <Pill testid={`${testIdPrefix}-cost-${rail.id}`} bg="#f3f4f6" fg="#374151">{cost}</Pill>
+        <Pill testid={`${testIdPrefix}-cost-${rail.id}`} bg="#f3f4f6" fg="#374151">{m.pricing_note || cost}</Pill>
         <Pill testid={`${testIdPrefix}-settlement-${rail.id}`} bg="#f3f4f6" fg="#374151">{settlement}</Pill>
         {m.supports_same_day_ach && <Pill testid={`${testIdPrefix}-sda-${rail.id}`} bg="#ede9fe" fg="#5b21b6">Same-day ACH</Pill>}
         {m.supports_rtp           && <Pill testid={`${testIdPrefix}-rtp-${rail.id}`} bg="#ede9fe" fg="#5b21b6">RTP</Pill>}

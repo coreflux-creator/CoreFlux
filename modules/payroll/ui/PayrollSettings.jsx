@@ -4,7 +4,7 @@ import RailPicker from '../../../dashboard/src/components/RailPicker';
 import GustoConnectCard from './GustoConnectCard';
 
 export default function PayrollSettings() {
-  const { data: railsData, loading: railsLoading } = useApi('/core/api/payment_rails.php');
+  const { data: railsData, loading: railsLoading } = useApi('/core/api/payment_rails.php?module=payroll');
   const [form, setForm] = useState({
     legal_name: '',
     dba_name: '',

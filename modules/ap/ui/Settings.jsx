@@ -10,7 +10,7 @@ import RailPicker from '../../../dashboard/src/components/RailPicker';
  * support so the tenant can pick on numbers, not gut feel.
  */
 export default function APSettings() {
-  const { data: railsData, loading: railsLoading } = useApi('/core/api/payment_rails.php');
+  const { data: railsData, loading: railsLoading } = useApi('/core/api/payment_rails.php?module=ap');
   const [form, setForm]   = useState({
     disbursement_rail: 'nacha',
     nacha_company_id: '',

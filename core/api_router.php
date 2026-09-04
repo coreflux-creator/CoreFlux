@@ -158,10 +158,16 @@ function apiRouterApplyV1Compatibility(array $parsed): void {
  *
  * Caller is expected to have already loaded ModuleRegistry.
  */
-function apiRouterResolveFile(string $moduleId, string $endpoint, ?string $modulesDir = null): ?string {
+function apiRouterResolveFile(
+    string $moduleId,
+    string $endpoint,
+    ?string $modulesDir = null,
+    array $subpath = []
+): ?string {
     $root = dirname(__DIR__);
     $aliasKey = $moduleId . '/' . $endpoint;
     $aliases = [
+        'ap/form-1099' => $root . '/modules/ap/api/1099.php',
         'platform/audit-log' => $root . '/api/audit_log.php',
         'platform/workflow' => $root . '/api/workflow.php',
         'people/graph' => $root . '/api/people_graph.php',
@@ -174,7 +180,26 @@ function apiRouterResolveFile(string $moduleId, string $endpoint, ?string $modul
     }
 
     $registry = ModuleRegistry::getInstance();
-    if (!$registry->hasModule($moduleId)) return null;
+    if (!$registry->hasModule($moduleId)) {
+        // Compatibility routing for non-module API namespaces. This makes
+        // documented extensionless routes such as /api/auth/mobile_login and
+        // nested routes such as /api/admin/accounting/outbox resolve without
+        // removing their existing direct-file URLs.
+        $segments = array_merge([$moduleId, $endpoint], $subpath);
+        $normalized = array_map(
+            static fn(string $segment): string => str_replace('-', '_', $segment),
+            $segments
+        );
+
+        // Prefer an exact nested endpoint. If the remaining segments are an
+        // item/action subpath (for example /api/ai/runs/123), fall back to the
+        // base endpoint and leave the subpath available to the handler.
+        for ($count = count($normalized); $count >= 2; $count--) {
+            $candidate = $root . '/api/' . implode('/', array_slice($normalized, 0, $count)) . '.php';
+            if (file_exists($candidate)) return $candidate;
+        }
+        return null;
+    }
 
     $platformAliases = [
         'custom-field-definitions' => $root . '/api/custom_field_definitions.php',
@@ -210,6 +235,9 @@ function apiRouterBasePermission(array $parsed): ?string {
     $moduleId = (string) ($parsed['module_id'] ?? '');
     $endpoint = (string) ($parsed['endpoint'] ?? '');
     if ($moduleId === 'platform' && in_array($endpoint, ['audit-log', 'workflow'], true)) {
+        return null;
+    }
+    if (class_exists('ModuleRegistry') && !ModuleRegistry::getInstance()->hasModule($moduleId)) {
         return null;
     }
     return $moduleId !== '' ? $moduleId . '.view' : null;
