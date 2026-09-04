@@ -219,6 +219,45 @@ $assert('runtime engagement inference prefers the financial contract',
 $assert('runtime deep pluck resolves canonical contract rates',
     jobdivaPluckFieldDeep($payload, ['bill_rate']) === '71.4'
     && jobdivaPluckFieldDeep($payload, ['pay_rate']) === '68');
+$assert('single-object JobDiva detail responses remain usable',
+    jobdivaRowsFromResponse(['ID' => '12319524', 'COMPANYNAME' => 'Techvy Corp']) === [[
+        'ID' => '12319524',
+        'COMPANYNAME' => 'Techvy Corp',
+    ]]);
+$assert('placeholder company names are distinguished from source names',
+    jobdivaCompanyNameIsPlaceholder('JobDiva Company 12319524', '12319524')
+    && !jobdivaCompanyNameIsPlaceholder('Techvy Corp', '12319524'));
+
+$embeddedGraph = [
+    '_jd_assignment_detail' => [[
+        'JOB' => [[
+            'ID' => '28755448',
+            'COMPANYID' => '10803946',
+            'CONTACTID' => '44985097',
+            'CONTACTFIRSTNAME' => 'Kelly',
+            'CONTACTLASTNAME' => 'Gosciminski',
+        ]],
+        'BILLING' => [[
+            'COMPANY' => [[
+                'ID' => '10803946',
+                'COMPANYNAME' => 'TCS',
+            ]],
+        ]],
+    ]],
+];
+$embeddedContact = jobdivaAssignmentEmbeddedContact($embeddedGraph, '44985097');
+$embeddedCompany = jobdivaAssignmentEmbeddedSectionRow(
+    $embeddedGraph,
+    'COMPANY',
+    '10803946',
+    ['id', 'companyId', 'company_id', 'COMPANYID']
+);
+$assert('assignment detail supplies its exact embedded contact facet',
+    ($embeddedContact['id'] ?? '') === '44985097'
+    && ($embeddedContact['fullName'] ?? '') === 'Kelly Gosciminski');
+$assert('assignment detail supplies its exact embedded end-client company facet',
+    ($embeddedCompany['ID'] ?? '') === '10803946'
+    && ($embeddedCompany['COMPANYNAME'] ?? '') === 'TCS');
 $subPayloads = jobdivaExtractJoinedSubPayloads($payload);
 $assert('canonical assignment facet contains the normalized contract',
     ($subPayloads['assignment']['engagement_type'] ?? '') === 'c2c'
@@ -252,6 +291,10 @@ $assert('canonical projection prefers assignment lifecycle and resolves subcontr
     && str_contains($syncSource, 'function jobdivaSyncResolveSubcontractCompany(')
     && str_contains($syncSource, "'/apiv2/bi/CompaniesDetail'")
     && str_contains($syncSource, 'function jobdivaSyncUpsertSourceAllocationParties('));
+$assert('subcontract company resolver refreshes placeholders from JobDiva detail',
+    str_contains($syncSource, '!jobdivaCompanyNameIsPlaceholder(')
+    && str_contains($syncSource, "return \$placeholder;")
+    && str_contains($syncSource, 'jobdivaRowsFromResponse($resp)'));
 $assert('rate projection models VMS gross rate and exact net bill without double-counting',
     str_contains($syncSource, '$contractVmsBillRate')
     && str_contains($syncSource, '($contractVmsBillRate - $contractNetBillRate) / $contractVmsBillRate'));

@@ -554,6 +554,17 @@ function jobdivaRowsFromResponse($resp): array
     return !empty($body) ? [$body] : [];
 }
 
+function jobdivaCompanyNameIsPlaceholder(string $name, string $externalId = '', array $payload = []): bool
+{
+    if (!empty($payload['_coreflux_placeholder'])) return true;
+    $name = trim($name);
+    $externalId = trim($externalId);
+    if ($name === '') return true;
+    if (preg_match('/^JobDiva Company\s+#?\d+$/i', $name) === 1) return true;
+    return $externalId !== ''
+        && strcasecmp($name, 'JobDiva Company ' . $externalId) === 0;
+}
+
 function jobdivaEnsureStaffingClientForCompany(int $tid, int $companyId, string $name, ?int $userId): void
 {
     if ($companyId <= 0 || trim($name) === '') return;
@@ -2510,6 +2521,60 @@ function jobdivaMirrorPayloadByExternalId(int $tenantId, string $entityType, str
     }
 }
 
+function jobdivaAssignmentEmbeddedSectionRow(
+    array $payload,
+    string $section,
+    string $expectedId = '',
+    array $idKeys = ['id']
+): ?array {
+    $detail = $payload['_jd_assignment_detail'] ?? null;
+    if (!is_array($detail) || !function_exists('jobdivaAssignmentContractSectionRows')) return null;
+    foreach (jobdivaAssignmentContractSectionRows($detail, $section) as $row) {
+        if (!is_array($row)) continue;
+        if ($expectedId !== '') {
+            $rowId = jobdivaPluckField($row, $idKeys);
+            if ($rowId !== '' && $rowId !== $expectedId) continue;
+        }
+        return $row;
+    }
+    return null;
+}
+
+function jobdivaAssignmentEmbeddedContact(array $payload, string $contactId): ?array
+{
+    if ($contactId === '') return null;
+    $job = jobdivaAssignmentEmbeddedSectionRow(
+        $payload,
+        'JOB',
+        '',
+        ['id', 'jobId', 'job_id']
+    );
+    if (!$job) return null;
+    $rowContactId = jobdivaPluckField($job, [
+        'contactId', 'contact_id', 'contact id', 'CONTACTID',
+        'customerId', 'customer_id', 'CUSTOMERID',
+    ]);
+    if ($rowContactId !== $contactId) return null;
+    $first = jobdivaPluckField($job, ['contactFirstName', 'contact_first_name', 'CONTACTFIRSTNAME']);
+    $last = jobdivaPluckField($job, ['contactLastName', 'contact_last_name', 'CONTACTLASTNAME']);
+    $name = trim($first . ' ' . $last);
+    if ($name === '') {
+        $name = jobdivaPluckField($job, [
+            'contactName', 'contact_name', 'clientContact', 'CLIENT_CONTACT',
+            'submittedTo', 'submitted_to',
+        ]);
+    }
+    if ($name === '') return null;
+    return [
+        'id' => $contactId,
+        'contactId' => $contactId,
+        'firstName' => $first,
+        'lastName' => $last,
+        'name' => $name,
+        'fullName' => $name,
+    ];
+}
+
 function jobdivaPlacementPayloadWithMirrors(
     int $tenantId,
     array $payload,
@@ -2593,6 +2658,23 @@ function jobdivaPlacementPayloadWithMirrors(
         }
     }
 
+    if ($contactId === '') {
+        $contactId = jobdivaPluckNestedField(
+            $payload,
+            ['contactId', 'contact_id', 'contact id', 'CONTACTID', 'customerId', 'CUSTOMERID'],
+            ['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord']
+        );
+    }
+    if ($contactId !== '') {
+        $dropMismatchedFacet(
+            $payload,
+            ['_jd_contact', 'contact', 'Contact', 'jobdiva_contact'],
+            $contactId,
+            ['job contact id', 'jobContactId', 'job_contact_id', 'contactId', 'contact id', 'contact_id', 'id'],
+            $stats
+        );
+    }
+
     // Resolve the company only from a real company identity. JobDiva's
     // shallow `customer id` is frequently a contact id and is never safe for
     // this join. A companyId on the Start or its exact Job mirror is safe.
@@ -2608,9 +2690,25 @@ function jobdivaPlacementPayloadWithMirrors(
         );
     }
     if ($companyId !== '') {
+        $dropMismatchedFacet(
+            $payload,
+            ['_jd_customer', 'company', 'Company', 'customer', 'Customer', 'client', 'Client'],
+            $companyId,
+            ['id', 'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID'],
+            $stats
+        );
         $company = jobdivaMirrorPayloadByExternalId($tenantId, 'company', $companyId);
+        if (!$company) {
+            $company = jobdivaAssignmentEmbeddedSectionRow(
+                $payload,
+                'COMPANY',
+                $companyId,
+                ['id', 'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID']
+            );
+        }
         if ($company) {
             $payload['_jd_customer'] = $company;
+            $payload['company'] = $company;
             $stats['companies_joined']++;
         }
     }
@@ -2625,8 +2723,10 @@ function jobdivaPlacementPayloadWithMirrors(
 
     if ($contactId !== '') {
         $contact = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_contact', $contactId);
+        if (!$contact) $contact = jobdivaAssignmentEmbeddedContact($payload, $contactId);
         if ($contact) {
             $payload['_jd_contact'] = $contact;
+            $payload['contact'] = $contact;
             $stats['contacts_joined']++;
         }
     }
@@ -4066,6 +4166,8 @@ function jobdivaSyncResolveSubcontractCompany(
     $externalId = trim($externalId);
     if ($tid <= 0 || $externalId === '') return null;
 
+    $placeholder = null;
+
     $mapped = mappingFindInternal($tid, 'jobdiva', 'company', $externalId);
     if ($mapped) {
         $companyId = (int) ($mapped['internal_entity_id'] ?? 0);
@@ -4076,11 +4178,21 @@ function jobdivaSyncResolveSubcontractCompany(
             );
             $st->execute(['t' => $tid, 'id' => $companyId]);
             $company = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
-            if ($company && trim((string) ($company['name'] ?? '')) !== '') {
+            if ($company && !jobdivaCompanyNameIsPlaceholder(
+                (string) ($company['name'] ?? ''),
+                $externalId
+            )) {
                 companiesAddRole($companyId, 'vendor');
                 return [
                     'id' => $companyId,
                     'name' => trim((string) $company['name']),
+                    'external_id' => $externalId,
+                ];
+            }
+            if ($company) {
+                $placeholder = [
+                    'id' => $companyId,
+                    'name' => trim((string) ($company['name'] ?? '')),
                     'external_id' => $externalId,
                 ];
             }
@@ -4104,7 +4216,7 @@ function jobdivaSyncResolveSubcontractCompany(
                 'name', 'companyName', 'company_name', 'company name', 'COMPANY NAME',
                 'legalName', 'legal_name', 'legal name',
             ]));
-            if ($name !== '') {
+            if (!jobdivaCompanyNameIsPlaceholder($name, $externalId, $payload)) {
                 $companyId = jobdivaUpsertCompanyMapped(
                     $tid,
                     $externalId,
@@ -4159,7 +4271,7 @@ function jobdivaSyncResolveSubcontractCompany(
     } catch (\Throwable $e) {
         error_log('[jobdiva subcontract company] exact company fetch failed for ' . $externalId . ': ' . $e->getMessage());
     }
-    return null;
+    return $placeholder;
 }
 
 function jobdivaSyncUpsertPlacementCorpDetails(
@@ -6529,15 +6641,7 @@ function jobdivaCallBulkIds(
         ];
         try {
             $resp = jobdivaCall($tid, 'GET', $path, null, $query);
-            if (is_array($resp)) {
-                if (isset($resp['data']) && is_array($resp['data'])) {
-                    $all = array_merge($all, $resp['data']);
-                } elseif (isset($resp['items']) && is_array($resp['items'])) {
-                    $all = array_merge($all, $resp['items']);
-                } elseif (!empty($resp) && array_keys($resp) === range(0, count($resp) - 1)) {
-                    $all = array_merge($all, $resp);
-                }
-            }
+            $all = array_merge($all, jobdivaRowsFromResponse($resp));
         } catch (\Throwable $e) {
             error_log("[jobdiva bulk-ids $path batch=" . count($batch) . " err] " . $e->getMessage());
         }
