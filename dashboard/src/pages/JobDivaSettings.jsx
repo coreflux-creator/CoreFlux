@@ -201,78 +201,99 @@ export default function JobDivaSettings() {
     finally    { setBusy(b => ({ ...b, ping: false })); }
   };
 
+  const drainCandidateAssignments = async () => {
+    const stats = { processed: 0, staged: 0, failed: 0 };
+    let cursor = 0;
+    for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
+      const batch = await api.post('/api/jobdiva/sync.php?action=candidate_assignments_batch', {
+        cursor,
+        limit: 8,
+      });
+      stats.processed += Number(batch.candidates_processed) || 0;
+      stats.staged += Number(batch.review_staged) || 0;
+      stats.failed += Number(batch.failed) || 0;
+      setMsg(`Checking JobDiva assignments by candidate: ${stats.processed} checked, ${stats.staged} sent for exact validation.`);
+      const nextCursor = Number(batch.cursor) || 0;
+      if (batch.done) break;
+      if (nextCursor <= cursor) throw new Error('Candidate assignment discovery did not advance its cursor');
+      cursor = nextCursor;
+    }
+    return stats;
+  };
+
+  const drainAssignmentContracts = async () => {
+    const stats = { processed: 0, projected: 0, restored: 0, skippedNotCurrent: 0, failed: 0 };
+    let cursor = 0;
+    for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
+      const batch = await api.post('/api/jobdiva/sync.php?action=assignment_contracts_batch', {
+        cursor,
+        limit: 8,
+      });
+      stats.processed += Number(batch.processed) || 0;
+      stats.projected += Number(batch.projected) || 0;
+      stats.restored += Number(batch.restored) || 0;
+      stats.skippedNotCurrent += Number(batch.skipped_not_current) || 0;
+      stats.failed += Number(batch.failed) || 0;
+      setMsg(`Syncing JobDiva assignment contracts: ${stats.projected} projected${stats.failed ? `, ${stats.failed} unavailable` : ''}.`);
+      const nextCursor = Number(batch.cursor) || 0;
+      if (batch.done) break;
+      if (nextCursor <= cursor) throw new Error('Assignment contract sync did not advance its cursor');
+      cursor = nextCursor;
+    }
+    return stats;
+  };
+
+  const drainReviewAssignments = async () => {
+    const stats = {
+      processed: 0, projected: 0, created: 0, updated: 0, restored: 0,
+      demoted: 0, skippedNotCurrent: 0, unavailable: 0, unavailableIds: [],
+      failed: 0, financial: null,
+    };
+    let cursor = 0;
+    for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
+      const batch = await api.post('/api/jobdiva/sync.php?action=review_assignment_contracts_batch', {
+        cursor,
+        limit: 8,
+      });
+      stats.processed += Number(batch.processed) || 0;
+      stats.projected += Number(batch.projected) || 0;
+      stats.created += Number(batch.created) || 0;
+      stats.updated += Number(batch.updated) || 0;
+      stats.restored += Number(batch.restored) || 0;
+      stats.demoted += Number(batch.demoted) || 0;
+      stats.skippedNotCurrent += Number(batch.skipped_not_current) || 0;
+      stats.unavailable += Number(batch.unavailable) || 0;
+      stats.unavailableIds.push(...(Array.isArray(batch.unavailable_ids) ? batch.unavailable_ids : []));
+      stats.failed += Number(batch.failed) || 0;
+      if (batch.financial && typeof batch.financial === 'object') {
+        const previous = stats.financial || {};
+        stats.financial = {
+          ...batch.financial,
+          attempted: (Number(previous.attempted) || 0) + (Number(batch.financial.attempted) || 0),
+          succeeded: (Number(previous.succeeded) || 0) + (Number(batch.financial.succeeded) || 0),
+          empty_response: (Number(previous.empty_response) || 0) + (Number(batch.financial.empty_response) || 0),
+          failed: (Number(previous.failed) || 0) + (Number(batch.financial.failed) || 0),
+          fallback_attempted: (Number(previous.fallback_attempted) || 0) + (Number(batch.financial.fallback_attempted) || 0),
+          fallback_succeeded: (Number(previous.fallback_succeeded) || 0) + (Number(batch.financial.fallback_succeeded) || 0),
+        };
+      }
+      setMsg(`Validating ambiguous JobDiva assignments: ${stats.projected} current, ${stats.demoted} removed from the active roster${stats.unavailable ? `, ${stats.unavailable} unresolved` : ''}.`);
+      const nextCursor = Number(batch.cursor) || 0;
+      if (batch.done) break;
+      if (nextCursor <= cursor) throw new Error('Assignment review sync did not advance its cursor');
+      cursor = nextCursor;
+    }
+    stats.unavailableIds = [...new Set(stats.unavailableIds.map(String))];
+    return stats;
+  };
+
   const onSync = async () => {
     clear(); setSyncResult(null); setBusy(b => ({ ...b, sync: true }));
     try {
       const r = await api.post('/api/jobdiva/sync.php?action=sync');
-      let candidateAssignmentsProcessed = 0;
-      let candidateAssignmentsStaged = 0;
-      let candidateAssignmentsFailed = 0;
-      let cursor = 0;
-      for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
-        const batch = await api.post('/api/jobdiva/sync.php?action=candidate_assignments_batch', {
-          cursor,
-          limit: 8,
-        });
-        candidateAssignmentsProcessed += Number(batch.candidates_processed) || 0;
-        candidateAssignmentsStaged += Number(batch.review_staged) || 0;
-        candidateAssignmentsFailed += Number(batch.failed) || 0;
-        setMsg(`Checking JobDiva assignments by candidate: ${candidateAssignmentsProcessed} checked, ${candidateAssignmentsStaged} sent for exact validation.`);
-        const nextCursor = Number(batch.cursor) || 0;
-        if (batch.done) break;
-        if (nextCursor <= cursor) throw new Error('Candidate assignment discovery did not advance its cursor');
-        cursor = nextCursor;
-      }
-      let contractProcessed = 0;
-      let contractProjected = 0;
-      let contractRestored = 0;
-      let contractSkippedNotCurrent = 0;
-      let contractFailed = 0;
-      cursor = 0;
-      for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
-        const batch = await api.post('/api/jobdiva/sync.php?action=assignment_contracts_batch', {
-          cursor,
-          limit: 8,
-        });
-        contractProcessed += Number(batch.processed) || 0;
-        contractProjected += Number(batch.projected) || 0;
-        contractRestored += Number(batch.restored) || 0;
-        contractSkippedNotCurrent += Number(batch.skipped_not_current) || 0;
-        contractFailed += Number(batch.failed) || 0;
-        setMsg(`Syncing JobDiva assignment contracts: ${contractProjected} projected${contractFailed ? `, ${contractFailed} unavailable` : ''}.`);
-        const nextCursor = Number(batch.cursor) || 0;
-        if (batch.done) break;
-        if (nextCursor <= cursor) throw new Error('Assignment contract sync did not advance its cursor');
-        cursor = nextCursor;
-      }
-      let reviewProcessed = 0;
-      let reviewProjected = 0;
-      let reviewCreated = 0;
-      let reviewUpdated = 0;
-      let reviewRestored = 0;
-      let reviewSkippedNotCurrent = 0;
-      let reviewUnavailable = 0;
-      let reviewFailed = 0;
-      cursor = 0;
-      for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
-        const batch = await api.post('/api/jobdiva/sync.php?action=review_assignment_contracts_batch', {
-          cursor,
-          limit: 8,
-        });
-        reviewProcessed += Number(batch.processed) || 0;
-        reviewProjected += Number(batch.projected) || 0;
-        reviewCreated += Number(batch.created) || 0;
-        reviewUpdated += Number(batch.updated) || 0;
-        reviewRestored += Number(batch.restored) || 0;
-        reviewSkippedNotCurrent += Number(batch.skipped_not_current) || 0;
-        reviewUnavailable += Number(batch.unavailable) || 0;
-        reviewFailed += Number(batch.failed) || 0;
-        setMsg(`Validating ambiguous JobDiva assignments: ${reviewProjected} current assignments projected.`);
-        const nextCursor = Number(batch.cursor) || 0;
-        if (batch.done) break;
-        if (nextCursor <= cursor) throw new Error('Assignment review sync did not advance its cursor');
-        cursor = nextCursor;
-      }
+      const candidates = await drainCandidateAssignments();
+      const contracts = await drainAssignmentContracts();
+      const review = await drainReviewAssignments();
       // A3+ returns { counts: {company, contact, placement, ...}, total, latency_ms }.
       // A1 returns { ok, note, ping } only — fall back to the note.
       const counts = r.counts && typeof r.counts === 'object' ? r.counts : null;
@@ -282,36 +303,39 @@ export default function JobDivaSettings() {
         ok: r.ok !== false,
         counts: counts ? {
           ...counts,
-          assignment_contract: contractProjected,
-          assignment_review: reviewProjected,
+          assignment_contract: contracts.projected,
+          assignment_review: review.projected,
         } : counts,
-        total: total + contractProjected + reviewProjected,
+        total: total + contracts.projected + review.projected,
         latency_ms: r.ping?.latency_ms ?? r.latency_ms ?? null,
         note: r.note || null,
         skipped_by_config: Array.isArray(r.skipped_by_config) ? r.skipped_by_config : [],
         by_entity: {
           ...(r.by_entity || {}),
           candidate_assignment_discovery: {
-            processed: candidateAssignmentsProcessed,
-            review_staged: candidateAssignmentsStaged,
-            failed: candidateAssignmentsFailed,
+            processed: candidates.processed,
+            review_staged: candidates.staged,
+            failed: candidates.failed,
           },
           assignment_contract: {
-            processed: contractProcessed,
-            projected: contractProjected,
-            restored: contractRestored,
-            skipped_not_current: contractSkippedNotCurrent,
-            failed: contractFailed,
+            processed: contracts.processed,
+            projected: contracts.projected,
+            restored: contracts.restored,
+            skipped_not_current: contracts.skippedNotCurrent,
+            failed: contracts.failed,
           },
           assignment_review: {
-            processed: reviewProcessed,
-            projected: reviewProjected,
-            created: reviewCreated,
-            updated: reviewUpdated,
-            restored: reviewRestored,
-            skipped_not_current: reviewSkippedNotCurrent,
-            unavailable: reviewUnavailable,
-            failed: reviewFailed,
+            processed: review.processed,
+            projected: review.projected,
+            created: review.created,
+            updated: review.updated,
+            restored: review.restored,
+            demoted: review.demoted,
+            skipped_not_current: review.skippedNotCurrent,
+            unavailable: review.unavailable,
+            unavailable_ids: review.unavailableIds,
+            financial: review.financial,
+            failed: review.failed,
           },
         },
         ts: new Date().toISOString(),
@@ -321,6 +345,54 @@ export default function JobDivaSettings() {
       loadAlignment();
     } catch (e) { setErr(e.message); }
     finally    { setBusy(b => ({ ...b, sync: false })); }
+  };
+
+  const onReconcileAssignments = async () => {
+    clear(); setSyncResult(null); setBusy(b => ({ ...b, reconcileAssignments: true }));
+    try {
+      const candidates = await drainCandidateAssignments();
+      const review = await drainReviewAssignments();
+      const changed = review.projected + review.demoted;
+      setSyncResult({
+        ok: candidates.failed === 0 && review.failed === 0,
+        mode: 'reconcile',
+        counts: {
+          assignment_projected: review.projected,
+          assignment_demoted: review.demoted,
+        },
+        total: changed,
+        latency_ms: null,
+        note: review.unavailable > 0
+          ? `${review.unavailable} JobDiva Start ID(s) could not be verified from assignment financial detail.`
+          : 'The CoreFlux active roster was reconciled from exact JobDiva assignment contracts.',
+        skipped_by_config: [],
+        by_entity: {
+          candidate_assignment_discovery: {
+            processed: candidates.processed,
+            review_staged: candidates.staged,
+            failed: candidates.failed,
+          },
+          assignment_review: {
+            processed: review.processed,
+            projected: review.projected,
+            created: review.created,
+            updated: review.updated,
+            restored: review.restored,
+            demoted: review.demoted,
+            skipped_not_current: review.skippedNotCurrent,
+            unavailable: review.unavailable,
+            unavailable_ids: review.unavailableIds,
+            financial: review.financial,
+            failed: review.failed,
+          },
+        },
+        ts: new Date().toISOString(),
+      });
+      await loadAlignment();
+      reload();
+      setMsg(`Assignment reconciliation finished: ${review.projected} current assignment(s) confirmed, ${review.demoted} removed from the active roster${review.unavailable ? `, ${review.unavailable} unresolved` : ''}.`);
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(b => ({ ...b, reconcileAssignments: false })); }
   };
 
   const onDisconnect = async () => {
@@ -554,7 +626,9 @@ export default function JobDivaSettings() {
           </strong>
           <div data-testid="jobdiva-settings-sync-result-summary"
                style={{ marginTop: 4, fontSize: 13, color: '#1e293b' }}>
-            <strong>{syncResult.total}</strong> record{syncResult.total === 1 ? '' : 's'} imported from JobDiva
+            <strong>{syncResult.total}</strong> {syncResult.mode === 'reconcile'
+              ? `assignment change${syncResult.total === 1 ? '' : 's'} applied from exact JobDiva contracts`
+              : `record${syncResult.total === 1 ? '' : 's'} imported from JobDiva`}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
             {Object.entries(syncResult.counts)
@@ -608,6 +682,8 @@ export default function JobDivaSettings() {
                     const empty = info?.empty_response === true;
                     const fetched = info?.items_fetched;
                     const skipReasons = auditHasDetail(info?.skip_reasons) ? info.skip_reasons : null;
+                    const unavailableIds = Array.isArray(info?.unavailable_ids) ? info.unavailable_ids : [];
+                    const financial = info?.financial && typeof info.financial === 'object' ? info.financial : null;
                     const mirrorStats = info?.placements_scanned !== undefined
                       ? `${info.placements_scanned} placements scanned; ${info.jobs_processed ?? 0} jobs, ${info.candidates_processed ?? 0} candidates, ${info.customers_processed ?? 0} contacts, ${info.assignments_processed ?? 0} assignments mirrored`
                       : null;
@@ -636,6 +712,17 @@ export default function JobDivaSettings() {
                               {JSON.stringify(skipReasons)}
                             </code>
                           )}
+                          {financial && (
+                            <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-financial`} style={{ display: 'block' }}>
+                              Financial detail: {financial.succeeded ?? 0} exact; employee fallback {financial.fallback_succeeded ?? 0}/{financial.fallback_attempted ?? 0}
+                            </span>
+                          )}
+                          {unavailableIds.length > 0 && (
+                            <code data-testid={`jobdiva-settings-sync-result-diag-${entity}-unavailable-ids`}
+                                  style={{ display: 'block', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#b45309' }}>
+                              Unresolved Start IDs: {unavailableIds.join(', ')}
+                            </code>
+                          )}
                           {errs.length > 0 && (
                             <ul style={{ margin: 0, paddingLeft: 14 }} data-testid={`jobdiva-settings-sync-result-diag-${entity}-errors`}>
                               {errs.slice(0, 3).map((e, i) => (
@@ -646,7 +733,7 @@ export default function JobDivaSettings() {
                               {errs.length > 3 && <li style={{ color: '#94a3b8' }}>+{errs.length - 3} more</li>}
                             </ul>
                           )}
-                          {!sk && !def && !empty && fetched === undefined && !mirrorStats && !skipReasons && errs.length === 0 && (info?.processed ?? 0) === 0 && '—'}
+                          {!sk && !def && !empty && fetched === undefined && !mirrorStats && !skipReasons && !financial && unavailableIds.length === 0 && errs.length === 0 && (info?.processed ?? 0) === 0 && '—'}
                         </td>
                       </tr>
                     );
@@ -706,9 +793,14 @@ export default function JobDivaSettings() {
                 {busy.ping ? 'Pinging…' : 'Test connection'}
               </button>
               <button type="button" className="btn btn--ghost" data-testid="jobdiva-settings-sync"
-                      onClick={onSync} disabled={busy.sync}>
+                      onClick={onSync} disabled={busy.sync || busy.reconcileAssignments}>
                 <Activity size={12} style={{ marginRight: 3, verticalAlign: 'middle' }} />
                 {busy.sync ? 'Syncing…' : 'Sync now'}
+              </button>
+              <button type="button" className="btn btn--ghost" data-testid="jobdiva-settings-reconcile-assignments"
+                      onClick={onReconcileAssignments} disabled={busy.sync || busy.reconcileAssignments}>
+                <Wrench size={12} style={{ marginRight: 3, verticalAlign: 'middle' }} />
+                {busy.reconcileAssignments ? 'Reconciling…' : 'Reconcile assignments'}
               </button>
               <button type="button" className="btn btn--ghost" data-testid="jobdiva-settings-disconnect"
                       onClick={onDisconnect} disabled={busy.disconnect}

@@ -49,6 +49,8 @@ $assert('candidate-scoped discovery stages census omissions for exact review',
     str_contains($sync, 'function jobdivaSyncCandidateAssignmentsBatch')
     && str_contains($sync, "'candidateid' => (int) \$candidateId")
     && str_contains($sync, "'jobdiva_assignment_review'"));
+$assert('mapped review candidates are not skipped as already current',
+    str_contains($sync, "(\$placementMapping['sync_status'] ?? '') === 'ok' && \$bucket === 'current'"));
 $assert('ambiguous SearchStart rows are retained for exact contract review',
     str_contains($sync, "'jobdiva_assignment_review'")
     && str_contains($sync, 'function jobdivaSyncReviewAssignmentContractsBatch'));
@@ -59,6 +61,13 @@ $assert('review candidates project only after an explicit current contract lifec
     str_contains($sync, "EmployeeAssignmentRecordsDetail:contract_review")
     && str_contains($sync, "['active', 'pending_start', 'on_hold']")
     && str_contains($sync, "'unavailable' => 0"));
+$assert('review candidates discard stale current contracts before exact validation',
+    str_contains($sync, "\$payload['__cf_jobdiva_census_scope'] = 'review';")
+    && str_contains($sync, "unset(\$payload['_jd_assignment_detail'], \$payload['_jd_contract']);"));
+$assert('financial detail retries by exact employee and filters to the requested Start',
+    str_contains($sync, "'employeeId' => \$candidateId")
+    && str_contains($sync, "\$diag[\$kind]['fallback_attempted']++")
+    && str_contains($sync, 'jobdivaAssignmentContractRowsForStart'));
 $assert('review contracts demote stale source-bound placements when exact lifecycle is not current',
     str_contains($sync, "'demoted' => 0")
     && str_contains($sync, "['draft', 'ended', 'cancelled']")
@@ -82,15 +91,21 @@ $assert('Sync now automatically drains contract batches to completion',
     && str_contains($ui, 'nextCursor <= cursor'));
 $assert('Sync now drains exact assignment-review batches automatically',
     str_contains($ui, 'action=review_assignment_contracts_batch')
-    && str_contains($ui, 'assignment_review: reviewProjected'));
+    && str_contains($ui, 'assignment_review: review.projected'));
 $assert('Sync now checks known candidates before contract projection',
     str_contains($ui, 'action=candidate_assignments_batch')
     && str_contains($ui, 'candidate_assignment_discovery'));
+$assert('operators can reconcile assignment identity without rerunning the full mirror sync',
+    str_contains($ui, 'const onReconcileAssignments = async () =>')
+    && str_contains($ui, 'jobdiva-settings-reconcile-assignments')
+    && str_contains($ui, 'Reconcile assignments'));
 $assert('operator results include projected and unavailable contract counts',
-    str_contains($ui, 'assignment_contract: contractProjected')
-    && str_contains($ui, 'restored: contractRestored')
-    && str_contains($ui, 'skipped_not_current: contractSkippedNotCurrent')
-    && str_contains($ui, 'failed: contractFailed'));
+    str_contains($ui, 'assignment_contract: contracts.projected')
+    && str_contains($ui, 'restored: contracts.restored')
+    && str_contains($ui, 'skipped_not_current: contracts.skippedNotCurrent')
+    && str_contains($ui, 'failed: contracts.failed')
+    && str_contains($ui, 'unavailable_ids: review.unavailableIds')
+    && str_contains($ui, 'Unresolved Start IDs:'));
 
 echo "\nJobDiva assignment contract batch smoke: {$pass} ok / {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);
