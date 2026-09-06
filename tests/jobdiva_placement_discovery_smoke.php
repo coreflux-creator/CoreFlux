@@ -150,6 +150,11 @@ $assert('prefers the exact durable JobDiva person identity before email matching
     && strpos($src, '$canonicalPersonExternalId') !== false);
 $assert('reuses existing person by email_primary (case-insensitive)',
     strpos($src, 'LOWER(email_primary) = LOWER(:e)') !== false);
+$assert('email reuse binds distinct placeholders for native PDO prepares',
+    strpos($src, 'external_id = :ext_filter') !== false
+    && strpos($src, 'external_id = :ext_order') !== false
+    && strpos($src, "'ext_filter' => \$canonicalPersonExternalId") !== false
+    && strpos($src, "'ext_order' => \$canonicalPersonExternalId") !== false);
 $assert('binds mapping after email match (so future syncs are direct)',
     strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'person', \$candidateExtId, \$existingId") !== false);
 $assert('refuses to create ghost record when name fully blank',

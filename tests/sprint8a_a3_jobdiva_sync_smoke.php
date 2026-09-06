@@ -81,7 +81,7 @@ $assert('uses gmdate Y-m-d for portable output',  strpos($src, "gmdate('Y-m-d',"
 $assert('parses common string dates via strtotime',
     strpos($src, '$ts = strtotime($raw);') !== false);
 $assert('preserves Y-m-d prefix on otherwise-uninterpretable string',
-    strpos($src, "preg_match('/^\\d{4}-\\d{2}-\\d{2}/'") !== false);
+    strpos($src, "preg_match('/^\\d{4}-\\d{2}-\\d{2}(?:[T\\s]|$)/'") !== false);
 $assert('placement upsert normalises startDate before binding',
     strpos($src, "\$startDate = jobdivaNormaliseDate(\$startDate)") !== false);
 $assert('placement upsert normalises endDate (nullable) before binding',
@@ -142,8 +142,9 @@ $assert('requires sync_placements helper module',
     strpos($src, "require_once __DIR__ . '/sync_placements.php'") !== false);
 $assert('routes through jobdivaPlacementsDiscover when not items_override',
     strpos($src, 'jobdivaPlacementsDiscover($tid, $userId, $opts)') !== false);
-$assert('first-sync mode widens placement window to 365 days',
-    strpos($src, "jobdivaSyncIsFirstSync(\$tid, 'placement')") !== false);
+$assert('placement discovery uses its complete source census without a delta-window branch',
+    strpos($src, 'jobdivaPlacementsDiscover($tid, $userId, $opts)') !== false
+    && strpos($src, "jobdivaSyncIsFirstSync(\$tid, 'placement')") === false);
 $assert('auto-creates person via jobdivaPlacementsAutoCreatePerson (non-override path)',
     strpos($src, 'jobdivaPlacementsAutoCreatePerson($tid, $jd, $userId)') !== false);
 $assert('audit detail surfaces discovery channel + diagnostics',
@@ -163,8 +164,8 @@ $assert('placement upsert helper exists',         strpos($src, 'function jobdiva
 $assert("placement uses 'jd:' external_id prefix",
     strpos($src, "'jd:' . \$extId") !== false);
 $assert('placement status maps JobDiva → CoreFlux enum',
-    strpos($src, "'pending' => 'pending_start'") !== false
-    && strpos($src, "'cancelled' => 'cancelled'") !== false);
+    strpos($src, 'jobdivaAssignmentValidate($jd)') !== false
+    && strpos($src, 'jobdivaAssignmentCanonicalPlacementStatus') !== false);
 $assert("placement engagement_type uses source-evidence inference before defaulting",
     strpos($src, 'function jobdivaInferPlacementEngagementTypeFromPayload') !== false
     && strpos($src, '$sourceEngagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, \'\');') !== false

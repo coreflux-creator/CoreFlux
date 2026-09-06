@@ -685,12 +685,17 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
     $stmt = $pdo->prepare(
         "SELECT id FROM people
           WHERE tenant_id = :t AND LOWER(email_primary) = LOWER(:e) AND deleted_at IS NULL
-            AND (external_id IS NULL OR external_id = '' OR external_id = :ext OR external_id NOT LIKE 'jd:%')
-          ORDER BY CASE WHEN external_id = :ext THEN 0 WHEN external_id IS NULL OR external_id = '' THEN 1 ELSE 2 END,
+            AND (external_id IS NULL OR external_id = '' OR external_id = :ext_filter OR external_id NOT LIKE 'jd:%')
+          ORDER BY CASE WHEN external_id = :ext_order THEN 0 WHEN external_id IS NULL OR external_id = '' THEN 1 ELSE 2 END,
                    id ASC
           LIMIT 1"
     );
-    $stmt->execute(['t' => $tid, 'e' => $email, 'ext' => $canonicalPersonExternalId]);
+    $stmt->execute([
+        't' => $tid,
+        'e' => $email,
+        'ext_filter' => $canonicalPersonExternalId,
+        'ext_order' => $canonicalPersonExternalId,
+    ]);
     $existingId = (int) $stmt->fetchColumn();
     if ($existingId > 0) {
         $pdo->prepare(
