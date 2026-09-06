@@ -301,6 +301,66 @@ function jobdivaPluckNestedField(array $item, array $candidates, array $nestOrde
     return '';
 }
 
+/**
+ * Resolve the client contact attached to a JobDiva assignment.
+ *
+ * JobDiva Start payloads overload "customer name": it is the hiring
+ * contact while companyName is the actual client company. Prefer the
+ * joined contact record, then accept the Start-level name only when a
+ * contact ID and a distinct company name make that relationship clear.
+ */
+function jobdivaPlacementContactIdentity(
+    array $item,
+    string $candidateName = '',
+    string $candidateEmail = ''
+): array {
+    $contactNestOrder = ['_jd_contact', 'contact', 'Contact', 'jobdiva_contact'];
+    $name = jobdivaPluckNestedField(
+        $item,
+        ['name', 'fullName', 'full_name', 'contactName', 'contact_name'],
+        $contactNestOrder
+    );
+    if ($name === '') {
+        $first = jobdivaPluckNestedField($item, ['firstName', 'first_name', 'first name'], $contactNestOrder);
+        $last = jobdivaPluckNestedField($item, ['lastName', 'last_name', 'last name'], $contactNestOrder);
+        $name = trim($first . ' ' . $last);
+    }
+
+    $email = jobdivaPluckNestedField(
+        $item,
+        ['email', 'emailAddress', 'email_address', 'primary email', 'primaryEmail', 'workEmail', 'work_email'],
+        $contactNestOrder
+    );
+
+    if ($name === '') {
+        $contactId = jobdivaPluckFieldDeep($item, [
+            'jobContactId', 'job_contact_id', 'job contact id', 'contactId', 'contact_id', 'contact id',
+            'customerId', 'customer_id', 'customer id',
+        ]);
+        $companyName = jobdivaEndClientNameFromPayload($item);
+        $startContactName = jobdivaPluckField($item, [
+            'submittedTo', 'submitted_to', 'submitted to',
+            'customerName', 'customer_name', 'customer name',
+        ]);
+        if ($contactId !== ''
+            && $startContactName !== ''
+            && $companyName !== ''
+            && strcasecmp($startContactName, $companyName) !== 0
+            && ($candidateName === '' || strcasecmp($startContactName, $candidateName) !== 0)) {
+            $name = $startContactName;
+        }
+    }
+
+    if ($candidateName !== '' && $name !== '' && strcasecmp($name, $candidateName) === 0) {
+        $name = '';
+    }
+    if ($candidateEmail !== '' && $email !== '' && strcasecmp($email, $candidateEmail) === 0) {
+        $email = '';
+    }
+
+    return ['name' => $name, 'email' => $email];
+}
+
 function jobdivaEndClientNameFromPayload(array $item): string
 {
     $companySpecific = [
@@ -5529,18 +5589,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $tid, 'jobdiva', 'placement', 'notes', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, ['notes', 'placementNotes', 'placement_notes'])
     );
-    $contactNameKeys = ['name', 'fullName', 'full_name', 'contactName', 'contact_name', 'firstName', 'lastName'];
-    $contactEmailKeys = ['email', 'emailAddress', 'email_address', 'primary email', 'primaryEmail', 'workEmail', 'work_email'];
-    $contactNestOrder = ['_jd_contact', 'contact', 'Contact', 'jobdiva_contact'];
     $candidateNestOrder = ['_jd_candidate', 'candidate', 'Candidate', 'person', 'employee', 'worker', 'jobdiva_candidate'];
-    $resolvedContactName = jobdivaPluckNestedField($jd, $contactNameKeys, $contactNestOrder);
-    if ($resolvedContactName !== '' && !str_contains($resolvedContactName, ' ')) {
-        $first = jobdivaPluckNestedField($jd, ['firstName', 'first_name', 'first name'], $contactNestOrder);
-        $last = jobdivaPluckNestedField($jd, ['lastName', 'last_name', 'last name'], $contactNestOrder);
-        $full = trim($first . ' ' . $last);
-        if ($full !== '') $resolvedContactName = $full;
-    }
-    $resolvedContactEmail = jobdivaPluckNestedField($jd, $contactEmailKeys, $contactNestOrder);
     $candidateEmail = jobdivaPluckField($jd, [
         'candidateEmail', 'candidate_email', 'candidate email',
         'email', 'emailAddress', 'email_address', 'primary email', 'primaryEmail', 'workEmail', 'work_email',
@@ -5560,6 +5609,9 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $last = jobdivaPluckNestedField($jd, ['lastName', 'last_name', 'last name'], $candidateNestOrder);
         $candidateName = trim($first . ' ' . $last);
     }
+    $resolvedContact = jobdivaPlacementContactIdentity($jd, $candidateName, $candidateEmail);
+    $resolvedContactName = (string) ($resolvedContact['name'] ?? '');
+    $resolvedContactEmail = (string) ($resolvedContact['email'] ?? '');
     $approverName = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'client_approver_name', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
@@ -5576,6 +5628,12 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'email', 'emailAddress',
         ])
     );
+    if ($approverName === '' && $resolvedContactName !== '') {
+        $approverName = $resolvedContactName;
+    }
+    if ($approverEmail === '' && $resolvedContactEmail !== '') {
+        $approverEmail = $resolvedContactEmail;
+    }
     // Slice 5b additions — capture JobDiva metadata we previously dropped.
     // jobdiva_job_id is the JobDiva *Job* entity ID (the role/req the
     // assignment was filled against), distinct from the assignment ID

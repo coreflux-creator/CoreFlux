@@ -103,6 +103,40 @@ $contactAndCandidate = [
 $a('contact-scoped lookup does not fall through to candidate email',
     jobdivaPluckNestedField($contactAndCandidate, ['email', 'emailAddress'], ['_jd_contact', 'contact', 'Contact']) === 'jane@client.example.com');
 
+$joinedContactIdentity = jobdivaPlacementContactIdentity([
+    '_jd_contact' => [
+        'FIRSTNAME' => 'Kelly',
+        'LASTNAME' => 'Gosciminski',
+        'EMAIL' => 'kelly@example.com',
+    ],
+], 'Chaitanyadevi Ketha', 'candidate@example.com');
+$a('joined contact becomes the placement approver identity',
+    $joinedContactIdentity === ['name' => 'Kelly Gosciminski', 'email' => 'kelly@example.com']);
+
+$startContactIdentity = jobdivaPlacementContactIdentity([
+    'customer id' => '44985097',
+    'customer name' => 'Kelly Gosciminski',
+    'companyName' => 'TCS',
+], 'Chaitanyadevi Ketha', 'candidate@example.com');
+$a('Start customer person resolves when a distinct client company proves the graph edge',
+    $startContactIdentity['name'] === 'Kelly Gosciminski');
+
+$candidateContactIdentity = jobdivaPlacementContactIdentity([
+    'customer id' => '44985097',
+    'customer name' => 'Chaitanyadevi Ketha',
+    'companyName' => 'TCS',
+], 'Chaitanyadevi Ketha', 'candidate@example.com');
+$a('candidate identity cannot bleed into placement approver',
+    $candidateContactIdentity['name'] === '');
+
+$companyContactIdentity = jobdivaPlacementContactIdentity([
+    'customer id' => '44985097',
+    'customer name' => 'TCS',
+    'companyName' => 'TCS',
+], 'Chaitanyadevi Ketha', 'candidate@example.com');
+$a('client company cannot masquerade as its own contact',
+    $companyContactIdentity['name'] === '');
+
 // 1f: _jd_start for rate fields (legacy nest still works)
 $startOnly = [
     'placementId' => 999,
@@ -155,8 +189,9 @@ $a('projector end-client helper ignores top-level generic name and uses _jd_job.
 
 echo "\n2. Source-level wire-up — deep pluck is actually consumed downstream\n";
 
-$sync  = (string) file_get_contents('/app/core/jobdiva/sync.php');
-$splp  = (string) file_get_contents('/app/core/jobdiva/sync_placements.php');
+$root = dirname(__DIR__);
+$sync = (string) file_get_contents($root . '/core/jobdiva/sync.php');
+$splp = (string) file_get_contents($root . '/core/jobdiva/sync_placements.php');
 
 $a('sync_placements.php uses deep pluck for first_name',
     str_contains($splp, "jobdivaPluckFieldDeep(\$jd, [\n            'candidateFirstName'"));
@@ -188,6 +223,9 @@ $a('sync.php placement approver_email uses deep pluck',
 $a('sync.php placement approver email rejects candidate bleed',
     str_contains($sync, "strcasecmp(\$approverEmail, \$candidateEmail) === 0")
     && str_contains($sync, '$resolvedContactEmail'));
+$a('sync.php writes resolved contact into otherwise blank approver fields',
+    str_contains($sync, "if (\$approverName === '' && \$resolvedContactName !== '')")
+    && str_contains($sync, "if (\$approverEmail === '' && \$resolvedContactEmail !== '')"));
 $a('sync.php placement recruiter_name uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, [\n            'recruiterName'"));
 $a('sync.php placement account_manager_name uses deep pluck',
@@ -215,8 +253,8 @@ $a('jobdivaSyncPlacements still calls the enricher BEFORE the upsert loop',
 
 echo "\n4. PHP syntax\n";
 foreach ([
-    '/app/core/jobdiva/sync.php',
-    '/app/core/jobdiva/sync_placements.php',
+    $root . '/core/jobdiva/sync.php',
+    $root . '/core/jobdiva/sync_placements.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
