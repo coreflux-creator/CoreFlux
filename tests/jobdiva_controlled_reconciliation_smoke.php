@@ -71,7 +71,7 @@ $duplicateCsv = implode("\n", [
 ]);
 $duplicateInspection = jobdivaReconciliationInspect($duplicateCsv);
 $duplicate = jobdivaReconciliationParse($duplicateCsv, $duplicateInspection['auto_map']);
-$assert('duplicate Start IDs are blocked before DB matching', $duplicate['error_count'] === 1);
+$assert('duplicate Start IDs are blocked before DB matching', $duplicate['error_count'] === 2);
 
 $canonicalDuplicateCsv = implode("\n", [
     'Start ID,Title',

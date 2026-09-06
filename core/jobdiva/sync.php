@@ -1243,19 +1243,13 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
     // behaviour, since the test fixtures are designed for it.
     require_once __DIR__ . '/sync_placements.php';
 
-    if (!isset($opts['items_override']) && !isset($opts['modified_since'])
-        && jobdivaSyncIsFirstSync($tid, 'placement')) {
-        $opts['default_window_days'] = 365;
-        jobdivaAudit($tid, 'sync_first_backfill', [
-            'ok'     => true,
-            'detail' => ['entity' => 'placement', 'window_days' => 365],
-            'actor_user_id' => $userId,
-        ]);
-    }
-
     $discovery = jobdivaPlacementsDiscover($tid, $userId, $opts);
     $items     = $discovery['items'];
     $channel   = $discovery['channel'];
+    $terminalItems = is_array($discovery['terminal_items'] ?? null)
+        ? $discovery['terminal_items']
+        : [];
+    $authoritativeCensus = !empty($discovery['authoritative']);
 
     // Enrich every placement item with its job title BEFORE the upsert
     // loop. JobDiva's V2 BI searchStart payload contains `job id` but
@@ -1283,6 +1277,12 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
     $items = jobdivaSyncEnrichRelatedEntities($tid, $items, $userId, [
         'enrich_start' => $enrichStart,
         'enrich_financial' => $enrichFinancial,
+        // The Start row is already the assignment source. Jobs, candidates,
+        // and contacts are fetched in bulk by Mirror-by-Placements immediately
+        // after this phase, then joined by the final canonical replay. Keeping
+        // this pass Start-only removes hundreds of duplicate per-record calls
+        // and prevents JobDiva 429s from randomly truncating the graph.
+        'kinds' => ['start'],
     ]);
 
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
@@ -1394,6 +1394,33 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
         }
     }
 
+    $censusReconciliation = [
+        'authoritative' => false,
+        'current_source_ids' => 0,
+        'terminal_rows' => 0,
+        'lifecycle' => [],
+        'mappings' => [],
+    ];
+    if ($authoritativeCensus) {
+        $currentIds = is_array($discovery['current_ids'] ?? null)
+            ? array_values(array_unique(array_map('strval', $discovery['current_ids'])))
+            : [];
+        $censusReconciliation = [
+            'authoritative' => true,
+            'current_source_ids' => count($currentIds),
+            'terminal_rows' => count($terminalItems),
+            'lifecycle' => jobdivaSyncApplyTerminalAssignmentLifecycle(
+                $tid,
+                $terminalItems,
+                $userId
+            ),
+            'mappings' => jobdivaSyncReconcileAssignmentCensusMappings(
+                $tid,
+                $currentIds
+            ),
+        ];
+    }
+
     jobdivaAudit($tid, 'sync', [
         'entity_type'     => 'placement',
         'direction'       => 'pull',
@@ -1407,6 +1434,7 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
             'skip_reasons'  => $skipReasons,
             'channel'       => $channel,
             'discovery'     => $discovery['diagnostics'] ?? [],
+            'census_reconciliation' => $censusReconciliation,
         ],
     ]);
     return [
@@ -1416,7 +1444,204 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
         'errors'       => $errors,
         'channel'      => $channel,
         'skip_reasons' => $skipReasons,
+        'census'       => $discovery['diagnostics'] ?? [],
+        'census_reconciliation' => $censusReconciliation,
     ];
+}
+
+/**
+ * Apply only explicit terminal lifecycle evidence returned by JobDiva.
+ * Missing rows are quarantined at the mapping layer and never treated as
+ * deletion evidence.
+ */
+function jobdivaSyncApplyTerminalAssignmentLifecycle(
+    int $tenantId,
+    array $rows,
+    ?int $userId = null
+): array {
+    $summary = [
+        'seen' => 0,
+        'matched' => 0,
+        'updated' => 0,
+        'ended' => 0,
+        'cancelled' => 0,
+        'skipped' => 0,
+        'failed' => 0,
+        'errors' => [],
+    ];
+    if ($tenantId <= 0 || $rows === []) return $summary;
+    $pdo = getDB();
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) continue;
+        $summary['seen']++;
+        $startId = jobdivaAssignmentRowId($row);
+        if ($startId === '') {
+            $summary['skipped']++;
+            continue;
+        }
+        $desired = (string) ($row['__cf_jobdiva_canonical_status'] ?? '');
+        if (!in_array($desired, ['ended', 'cancelled'], true)) {
+            $summary['skipped']++;
+            continue;
+        }
+
+        try {
+            $mapping = mappingFindInternal($tenantId, 'jobdiva', 'placement', $startId);
+            $placementId = (int) ($mapping['internal_entity_id'] ?? 0);
+            if ($placementId <= 0) {
+                $find = $pdo->prepare(
+                    "SELECT id
+                       FROM placements
+                      WHERE tenant_id = :t
+                        AND external_id IN (:canonical, :raw)
+                   ORDER BY id ASC
+                      LIMIT 1"
+                );
+                $find->execute([
+                    't' => $tenantId,
+                    'canonical' => 'jd:' . $startId,
+                    'raw' => $startId,
+                ]);
+                $placementId = (int) ($find->fetchColumn() ?: 0);
+            }
+            if ($placementId <= 0) {
+                $summary['skipped']++;
+                continue;
+            }
+            $summary['matched']++;
+
+            $endDate = jobdivaNormaliseDate(jobdivaAssignmentIdentityPluck($row, [
+                'end date', 'endDate', 'end_date', 'assignment end date',
+            ]));
+            $update = $pdo->prepare(
+                "UPDATE placements
+                    SET status = :status,
+                        end_date = COALESCE(:end_date, end_date),
+                        updated_at = NOW()
+                  WHERE tenant_id = :t
+                    AND id = :id
+                    AND status IN ('draft', 'pending_start', 'active', 'on_hold')"
+            );
+            $update->execute([
+                'status' => $desired,
+                'end_date' => $endDate,
+                't' => $tenantId,
+                'id' => $placementId,
+            ]);
+            if ($update->rowCount() > 0) {
+                $summary['updated']++;
+                $summary[$desired]++;
+                jobdivaAudit($tenantId, 'assignment_census_lifecycle', [
+                    'entity_type' => 'placement',
+                    'direction' => 'pull',
+                    'ok' => true,
+                    'items_processed' => 1,
+                    'actor_user_id' => $userId,
+                    'detail' => [
+                        'start_id' => $startId,
+                        'placement_id' => $placementId,
+                        'status' => $desired,
+                        'source_status' => jobdivaAssignmentIdentityPluck($row, [
+                            'startStatus', 'start_status', 'start status', 'status',
+                        ]),
+                    ],
+                ]);
+            } else {
+                $summary['skipped']++;
+            }
+        } catch (\Throwable $e) {
+            $summary['failed']++;
+            if (count($summary['errors']) < 20) {
+                $summary['errors'][] = [
+                    'start_id' => $startId,
+                    'error' => substr($e->getMessage(), 0, 300),
+                ];
+            }
+        }
+    }
+
+    return $summary;
+}
+
+/**
+ * The latest complete current-assignment census owns replay eligibility.
+ * Rows absent from it remain as historical evidence but are quarantined from
+ * canonical projection and contract fan-out.
+ */
+function jobdivaSyncReconcileAssignmentCensusMappings(int $tenantId, array $currentStartIds): array
+{
+    $summary = [
+        'current_ids' => 0,
+        'restored_assignment_mappings' => 0,
+        'restored_placement_mappings' => 0,
+        'stale_assignment_mappings' => 0,
+        'stale_placement_mappings' => 0,
+    ];
+    if ($tenantId <= 0) return $summary;
+
+    $ids = [];
+    $normalisedIds = [];
+    foreach ($currentStartIds as $startId) {
+        $normalised = jobdivaAssignmentIdentityNormaliseId((string) $startId);
+        if ($normalised === '') continue;
+        $normalisedIds[$normalised] = true;
+        $ids[$normalised] = true;
+        $ids['jd:' . $normalised] = true;
+    }
+    $summary['current_ids'] = count($normalisedIds);
+    $pdo = getDB();
+    $types = ['jobdiva_assignment' => 'assignment', 'placement' => 'placement'];
+
+    foreach ($types as $entityType => $label) {
+        $params = ['t' => $tenantId, 'entity_type' => $entityType];
+        $currentSql = '';
+        if ($ids !== []) {
+            $placeholders = [];
+            $index = 0;
+            foreach (array_keys($ids) as $id) {
+                $key = 'id_' . $index++;
+                $params[$key] = $id;
+                $placeholders[] = ':' . $key;
+            }
+            $currentSql = ' AND external_id IN (' . implode(',', $placeholders) . ')';
+            $restore = $pdo->prepare(
+                "UPDATE external_entity_mappings
+                    SET sync_status = 'ok', last_error = NULL, last_seen_at = NOW()
+                  WHERE tenant_id = :t
+                    AND source_system = 'jobdiva'
+                    AND internal_entity_type = :entity_type{$currentSql}"
+            );
+            $restore->execute($params);
+            $summary['restored_' . $label . '_mappings'] = $restore->rowCount();
+        }
+
+        $staleParams = ['t' => $tenantId, 'entity_type' => $entityType];
+        $notCurrentSql = '';
+        if ($ids !== []) {
+            $placeholders = [];
+            $index = 0;
+            foreach (array_keys($ids) as $id) {
+                $key = 'stale_id_' . $index++;
+                $staleParams[$key] = $id;
+                $placeholders[] = ':' . $key;
+            }
+            $notCurrentSql = ' AND external_id NOT IN (' . implode(',', $placeholders) . ')';
+        }
+        $stale = $pdo->prepare(
+            "UPDATE external_entity_mappings
+                SET sync_status = 'stale',
+                    last_error = 'Not observed in the latest complete JobDiva current-assignment census'
+              WHERE tenant_id = :t
+                AND source_system = 'jobdiva'
+                AND internal_entity_type = :entity_type
+                AND sync_status <> 'deleted_in_source'{$notCurrentSql}"
+        );
+        $stale->execute($staleParams);
+        $summary['stale_' . $label . '_mappings'] = $stale->rowCount();
+    }
+
+    return $summary;
 }
 
 /**

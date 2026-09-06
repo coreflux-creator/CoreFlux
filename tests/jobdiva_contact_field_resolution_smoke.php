@@ -37,7 +37,8 @@ $assert('normalises keys with preg_replace',     strpos($src, "preg_replace('/[^
 $assert('normalises candidates with preg_replace',
     strpos($src, "preg_replace('/[^a-z0-9]/i', '', \$cand)") !== false);
 $assert('skips non-scalar values defensively',   strpos($src, 'if (is_scalar($v)) {') !== false);
-$assert('trims and skips empty strings',         strpos($src, 'if ($s !== \'\') return $s;') !== false);
+$assert('trims and skips empty/source-placeholder strings',
+    strpos($src, 'if (jobdivaSourceValueIsPresent($s)) return $s;') !== false);
 
 // Load + invoke the helper in-process. core/jobdiva/sync.php pulls in
 // client.php which calls getDB() at require time only via function defs,

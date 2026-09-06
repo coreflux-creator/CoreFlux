@@ -284,7 +284,7 @@ $assert(
 );
 $assert(
     'discovery marks only validated searchStart rows',
-    str_contains($discovery, "jobdivaAssignmentMarkVerified(\$row, \$assignmentId, 'searchStart:discovery')")
+    str_contains($discovery, "jobdivaAssignmentMarkVerified(\$row, \$assignmentId, 'searchStart:census')")
 );
 $assert(
     'assignment mirror never invents a missing Start ID',

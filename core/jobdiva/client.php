@@ -385,6 +385,24 @@ function jobdivaCall(
         $token = jobdivaSessionToken($tenantId);
         $resp  = jobdivaRawRequest($method, $path, $body, $query, true, $token);
     }
+
+    // JobDiva applies a fairly small tenant-wide request budget. A complete
+    // assignment sync legitimately needs several paged/detail calls, so honor
+    // Retry-After and retry a bounded number of times instead of leaving a
+    // random subset of contracts unavailable.
+    for ($rateAttempt = 0; $resp['status'] === 429 && $rateAttempt < 3; $rateAttempt++) {
+        $retryAfter = trim((string) ($resp['headers']['retry-after'] ?? ''));
+        if (ctype_digit($retryAfter)) {
+            $delaySeconds = (int) $retryAfter;
+        } elseif ($retryAfter !== '' && strtotime($retryAfter) !== false) {
+            $delaySeconds = max(1, (int) strtotime($retryAfter) - time());
+        } else {
+            $delaySeconds = 1 << $rateAttempt;
+        }
+        $delaySeconds = max(1, min(10, $delaySeconds));
+        usleep($delaySeconds * 1_000_000);
+        $resp = jobdivaRawRequest($method, $path, $body, $query, true, $token);
+    }
     if ($resp['status'] >= 400) {
         // Surface a degraded state with the full upstream payload so the
         // UI shows JobDiva's verbatim response. li-uuid included so the

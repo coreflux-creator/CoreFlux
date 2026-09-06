@@ -174,10 +174,15 @@ function mappingUpsert(
                 );
             }
         } else {
-            // Unchanged — just bump last_seen_at.
+            // Unchanged source content is still a fresh observation. Restore a
+            // mapping quarantined by an earlier census as soon as the source
+            // returns it again; otherwise an unchanged record remains stale
+            // forever and downstream replay silently skips valid data.
             $pdo->prepare(
                 'UPDATE external_entity_mappings
-                    SET last_seen_at = NOW()
+                    SET sync_status = "ok",
+                        last_error = NULL,
+                        last_seen_at = NOW()
                   WHERE id = :id AND tenant_id = :t'
             )->execute(['id' => (int) $existing['id'], 't' => $tenantId]);
         }

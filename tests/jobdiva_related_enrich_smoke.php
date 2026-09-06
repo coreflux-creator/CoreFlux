@@ -78,7 +78,7 @@ echo "\nWiring — placement sync calls the enricher, propagates opts\n";
 $assert('placement sync keeps Start evidence and defers financial fan-out to batches',
     str_contains($sync, "\$enrichStart = array_key_exists('enrich_start', \$opts)")
     && str_contains($sync, "\$enrichFinancial = array_key_exists('enrich_financial', \$opts)")
-    && preg_match('/jobdivaSyncEnrichRelatedEntities\(\$tid, \$items, \$userId, \[\s*\'enrich_start\'\s*=>\s*\$enrichStart,\s*\'enrich_financial\'\s*=>\s*\$enrichFinancial,\s*\]\)/', $sync) === 1);
+    && preg_match('/jobdivaSyncEnrichRelatedEntities\(\$tid, \$items, \$userId, \[\s*\'enrich_start\'\s*=>\s*\$enrichStart,\s*\'enrich_financial\'\s*=>\s*\$enrichFinancial,[\s\S]*?\'kinds\'\s*=>\s*\[\'start\'\],\s*\]\)/', $sync) === 1);
 $assert('legacy jobdivaSyncResolveJobTitles still exists as thin wrapper',
     strpos($sync, 'function jobdivaSyncResolveJobTitles(int $tid, array $items, ?int $userId): array') !== false
     && strpos($sync, 'return jobdivaSyncEnrichRelatedEntities($tid, $items, $userId, []);') !== false);

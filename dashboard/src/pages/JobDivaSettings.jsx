@@ -540,6 +540,12 @@ export default function JobDivaSettings() {
                     const mirrorStats = info?.placements_scanned !== undefined
                       ? `${info.placements_scanned} placements scanned; ${info.jobs_processed ?? 0} jobs, ${info.candidates_processed ?? 0} candidates, ${info.customers_processed ?? 0} contacts, ${info.assignments_processed ?? 0} assignments mirrored`
                       : null;
+                    const census = info?.census;
+                    const censusStats = census && typeof census === 'object'
+                      ? (census.complete
+                        ? `${census.active ?? 0} active; ${census.pending_start ?? 0} pending; ${census.on_hold ?? 0} on hold; ${census.terminal ?? 0} terminal; ${census.review ?? 0} need review (complete census)`
+                        : `${census.items_total ?? 0} assignment rows recovered; census incomplete, so no existing mappings were quarantined`)
+                      : null;
                     return (
                       <tr key={entity} data-testid={`jobdiva-settings-sync-result-diag-${entity}`} style={{ borderBottom: '1px solid #ede9fe' }}>
                         <td style={{ padding: '4px 6px', textTransform: 'capitalize', fontWeight: 500 }}>{entity}</td>
@@ -551,6 +557,7 @@ export default function JobDivaSettings() {
                           {def && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-deferred`} style={{ display: 'block' }}>{def}</span>}
                           {empty && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-empty`} style={{ display: 'block' }}>empty_response{info.endpoint ? ` from ${info.endpoint}` : ''}</span>}
                           {!empty && fetched !== undefined && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-fetched`} style={{ display: 'block' }}>{fetched} fetched</span>}
+                          {censusStats && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-census`} style={{ display: 'block' }}>{censusStats}</span>}
                           {mirrorStats && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-mirror`} style={{ display: 'block' }}>{mirrorStats}</span>}
                           {skipReasons && (
                             <code data-testid={`jobdiva-settings-sync-result-diag-${entity}-skip-reasons`}

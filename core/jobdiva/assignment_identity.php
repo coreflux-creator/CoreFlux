@@ -167,7 +167,7 @@ function jobdivaAssignmentLifecycleEvidence(array $row, string $channel = ''): a
         'offer accepted', 'accepted offer', 'start accepted', 'start approved',
         'scheduled start', 'pending start', 'ready to start',
         'started', 'active', 'working', 'placed', 'hired', 'on assignment',
-        'assignment active', 'completed', 'ended', 'terminated',
+        'assignment active', 'on hold', 'paused', 'completed', 'ended', 'terminated',
     ];
     foreach ($statuses as $status) {
         if (in_array($status, $qualifiedExact, true)

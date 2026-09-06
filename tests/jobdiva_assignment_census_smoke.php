@@ -1,0 +1,111 @@
+<?php
+/**
+ * JobDiva assignment census safety regression.
+ */
+declare(strict_types=1);
+
+$root = realpath(__DIR__ . '/..');
+$pass = 0;
+$fail = 0;
+$assert = static function (string $message, bool $ok) use (&$pass, &$fail): void {
+    echo '  ' . ($ok ? "\u{2713}" : "\u{2717}") . " {$message}\n";
+    $ok ? $pass++ : $fail++;
+};
+
+$discovery = (string) file_get_contents($root . '/core/jobdiva/sync_placements.php');
+$sync = (string) file_get_contents($root . '/core/jobdiva/sync.php');
+$client = (string) file_get_contents($root . '/core/jobdiva/client.php');
+$mappings = (string) file_get_contents($root . '/core/integrations/entity_mappings.php');
+$settings = (string) file_get_contents($root . '/dashboard/src/pages/JobDivaSettings.jsx');
+
+echo "JobDiva current-assignment census\n";
+$assert('uses the official SearchStartDef shape',
+    str_contains($discovery, "'startDateFrom' => \$startDateFrom")
+    && str_contains($discovery, "'maxreturned' => \$pageSize")
+    && str_contains($discovery, "'offset' => \$offset"));
+$assert('incremental modified timestamps cannot narrow the assignment census',
+    !str_contains($discovery, "\$opts['modified_since']"));
+$assert('a complete page walk is required before the census is authoritative',
+    str_contains($discovery, 'if ($rawCount < $pageSize)')
+    && str_contains($discovery, "'authoritative' => true")
+    && str_contains($discovery, "'authoritative' => false"));
+$assert('partial census and timesheet evidence are merged without stale cleanup',
+    str_contains($discovery, "array_merge(\$primary['items'] ?? [], \$fallback['items'] ?? [])"));
+$assert('current and terminal source lifecycles are kept separate',
+    str_contains($discovery, "'bucket' => 'current'")
+    && str_contains($discovery, "'bucket' => 'terminal'"));
+
+require_once $root . '/core/jobdiva/sync.php';
+require_once $root . '/core/jobdiva/sync_placements.php';
+$active = jobdivaPlacementCensusClassify([
+    'id' => 1001,
+    'candidate id' => 2001,
+    'job id' => 3001,
+    'start date' => '01/15/2026',
+    'end date' => '12/31/2099',
+    'startStatus' => 'Active',
+]);
+$ended = jobdivaPlacementCensusClassify([
+    'id' => 1002,
+    'candidate id' => 2002,
+    'job id' => 3002,
+    'start date' => '01/15/2025',
+    'end date' => '02/15/2025',
+    'startStatus' => 'Active',
+]);
+$pipeline = jobdivaPlacementCensusClassify([
+    'id' => 1003,
+    'candidate id' => 2003,
+    'job id' => 3003,
+    'start date' => '01/15/2027',
+    'startStatus' => 'Submitted',
+]);
+$held = jobdivaPlacementCensusClassify([
+    'id' => 1004,
+    'candidate id' => 2004,
+    'job id' => 3004,
+    'start date' => '01/15/2026',
+    'startStatus' => 'On Hold',
+]);
+$assert('active source row is current',
+    $active['bucket'] === 'current' && $active['status'] === 'active');
+$assert('on-hold source row is current',
+    $held['bucket'] === 'current' && $held['status'] === 'on_hold');
+$assert('past end date is terminal even when source text still says active',
+    $ended['bucket'] === 'terminal' && $ended['status'] === 'ended');
+$assert('candidate-pipeline rows cannot become placements',
+    $pipeline['bucket'] === 'review');
+
+echo "\nCanonical replay eligibility\n";
+$assert('only a complete census reconciles replay mappings',
+    str_contains($sync, 'if ($authoritativeCensus)')
+    && str_contains($sync, 'jobdivaSyncReconcileAssignmentCensusMappings('));
+$assert('absent rows are quarantined, not deleted',
+    str_contains($sync, "SET sync_status = 'stale'")
+    && !str_contains($sync, 'DELETE FROM placements WHERE'));
+$assert('only explicit terminal rows change placement lifecycle',
+    str_contains($sync, 'jobdivaSyncApplyTerminalAssignmentLifecycle(')
+    && str_contains($sync, "in_array(\$desired, ['ended', 'cancelled'], true)"));
+$assert('stored assignment replay reads healthy mappings only',
+    str_contains($sync, "internal_entity_type = 'jobdiva_assignment'")
+    && str_contains($sync, "AND sync_status = 'ok'"));
+$assert('unchanged rows recover from a prior stale census',
+    str_contains($mappings, 'SET sync_status = "ok",')
+    && str_contains($mappings, 'last_error = NULL,')
+    && str_contains($mappings, 'last_seen_at = NOW()'));
+
+echo "\nRate-limit resilience\n";
+$assert('JobDiva 429 responses honor Retry-After with bounded retries',
+    str_contains($client, "\$resp['status'] === 429")
+    && str_contains($client, "\$resp['headers']['retry-after']")
+    && str_contains($client, '$rateAttempt < 3'));
+$assert('placement discovery avoids duplicate per-record graph fetches',
+    str_contains($sync, "'kinds' => ['start']")
+    && str_contains($sync, 'jobdivaSyncMirrorByPlacements('));
+$assert('Sync results expose the census status mix to the operator',
+    str_contains($settings, 'complete census')
+    && str_contains($settings, 'census.active')
+    && str_contains($settings, 'census.terminal'));
+
+echo "\n--- {$pass} passed, {$fail} failed ---\n";
+exit($fail === 0 ? 0 : 1);

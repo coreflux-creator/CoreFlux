@@ -5,7 +5,7 @@
  * a (non-existent) "NewUpdatedStartRecords" BI delta endpoint.
  *
  * Channels under test:
- *   1. POST /apiv2/jobdiva/searchStart with date-range criteria (primary)
+ *   1. paginated POST /apiv2/jobdiva/searchStart census (primary)
  *   2. NewUpdatedTimesheetRecords → unique placementIds → per-ID searchStart
  *      (safety-net for active placements)
  *   3. Webhook ingestion of `start.created` / `placement.updated` events
@@ -42,25 +42,31 @@ $assert('exports jobdivaPlacementsAutoCreatePerson',   strpos($src, 'function jo
 $assert('declares JOBDIVA_PATH_SEARCH_START constant',
     strpos($src, "const JOBDIVA_PATH_SEARCH_START = '/apiv2/jobdiva/searchStart'") !== false);
 
-echo "\nsearchStart probe — tries multiple criterion shapes\n";
-$assert('tries startDateBegin/startDateEnd (canonical)',
-    strpos($src, "'startDateBegin'") !== false && strpos($src, "'startDateEnd'") !== false);
-$assert('tries lowercase startdatebegin/startdateenddate',
-    strpos($src, "'startdatebegin'") !== false && strpos($src, "'startdateenddate'") !== false);
-$assert('tries modifyDateBegin/modifyDateEnd',
-    strpos($src, "'modifyDateBegin'") !== false && strpos($src, "'modifyDateEnd'") !== false);
-$assert('tries dateBegin/dateEnd fallback',
-    strpos($src, "'dateBegin'") !== false && strpos($src, "'dateEnd'") !== false);
+echo "\nsearchStart census — official request contract + pagination\n";
+$assert('uses only official SearchStartDef census fields',
+    strpos($src, "'startDateFrom' => \$startDateFrom") !== false
+    && strpos($src, "'maxreturned' => \$pageSize") !== false
+    && strpos($src, "'offset' => \$offset") !== false);
+$assert('does not reinterpret modified_since as a Start-date filter',
+    strpos($src, "\$opts['modified_since']") === false
+    && strpos($src, "'startDateBegin'") === false
+    && strpos($src, "'modifyDateBegin'") === false);
 $assert('uses JobDiva m/d/Y H:i:s date format (NOT ISO-8601)',
     strpos($src, "'m/d/Y H:i:s'") !== false);
-$assert('first non-empty array response wins',
-    strpos($src, 'if (count($items) > 0) {') !== false);
-$assert('401 / authentication errors bubble up (not silently swallowed)',
-    strpos($src, "stripos(\$msg, 'HTTP 401') !== false || stripos(\$msg, 'authentication') !== false") !== false);
-$assert('records per-attempt diagnostic (criteria + status + count)',
+$assert('paginates until a short page proves completion',
+    strpos($src, 'for ($page = 0; $page < $maxPages; $page++)') !== false
+    && strpos($src, 'if ($rawCount < $pageSize)') !== false
+    && strpos($src, '$complete = true;') !== false);
+$assert('detects ignored offsets and refuses authoritative completion',
+    strpos($src, 'if ($newOnPage === 0) break;') !== false);
+$assert('separates current, terminal, and review lifecycle rows',
+    strpos($src, "\$buckets = ['current' => [], 'terminal' => [], 'review' => []]") !== false
+    && strpos($src, "'terminal_items'") !== false
+    && strpos($src, "'review_items'") !== false);
+$assert('records page-level census diagnostics',
     strpos($src, "'criteria' => array_keys(\$body)") !== false
-    && strpos($src, "'status'   => 'ok'") !== false
-    && strpos($src, "'status'   => 'error'") !== false);
+    && strpos($src, "'raw_count' => \$rawCount") !== false
+    && strpos($src, "'new_count' => \$newOnPage") !== false);
 
 echo "\nTimesheet-derived fallback\n";
 $assert('uses retry-wrapped timesheet pull',
@@ -88,10 +94,14 @@ $assert('handles single-record envelope (no list wrapper)',
 echo "\nDiscovery orchestration\n";
 $assert('items_override returns early with smoke-test channel',
     strpos($src, "'channel'     => 'items_override'") !== false);
-$assert('primary searchStart channel returned on hit',
-    strpos($src, "'channel' => 'searchStart'") !== false);
-$assert('falls back to timesheets when searchStart empty',
+$assert('complete non-empty census is authoritative',
+    strpos($src, "'channel' => 'searchStart_census'") !== false
+    && strpos($src, "'authoritative' => true") !== false);
+$assert('falls back to timesheets when searchStart is empty or incomplete',
     strpos($src, "'channel' => 'timesheets'") !== false);
+$assert('partial census rows are retained without becoming authoritative',
+    strpos($src, "array_merge(\$primary['items'] ?? [], \$fallback['items'] ?? [])") !== false
+    && strpos($src, "'authoritative' => false") !== false);
 $assert('diagnostics surfaces searchStart_attempts on fallback',
     strpos($src, "'searchStart_attempts'   => \$primary['attempts']") !== false);
 $assert('diagnostics surfaces timesheet_discovered_ids',
@@ -106,7 +116,7 @@ $assert('returns null when no candidate ID at all',
     strpos($src, "if (\$candidateExtId === '') return null;") !== false);
 $assert('reuses existing person mapping when present',
     strpos($src, "mappingFindInternal(\$tid, 'jobdiva', 'person', \$candidateExtId)") !== false
-    && strpos($src, "return (int) \$mapping['internal_entity_id']") !== false);
+    && strpos($src, 'return $mappedPersonId;') !== false);
 $assert('reuses existing person by email_primary (case-insensitive)',
     strpos($src, 'LOWER(email_primary) = LOWER(:e)') !== false);
 $assert('binds mapping after email match (so future syncs are direct)',

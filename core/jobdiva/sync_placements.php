@@ -8,7 +8,7 @@
  *   explicit criteria. This module wraps three discovery channels so the
  *   operator never has to manually sync placements:
  *
- *   1. searchStart with date-range criteria   ← primary
+ *   1. paginated searchStart census           ← primary
  *   2. timesheet-derived (NewUpdatedTimesheetRecords → unique placementIds)
  *                                              ← safety-net for active placements
  *   3. webhook ingestion (placement.* events)  ← real-time, handled in api/jobdiva.php
@@ -21,7 +21,7 @@
  * PUBLIC SURFACE
  *   jobdivaPlacementsDiscover(int $tid, ?int $userId, array $opts = []): array
  *     → { items: [...normalised placement records...],
- *         channel: 'searchStart' | 'timesheets' | 'none',
+ *         channel: 'searchStart_census' | 'timesheets' | 'none',
  *         diagnostics: { searchStart_attempts: [...], items_total: int } }
  *
  *   jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?int
@@ -39,91 +39,154 @@ require_once __DIR__ . '/../integrations/entity_mappings.php';
 const JOBDIVA_PATH_SEARCH_START = '/apiv2/jobdiva/searchStart';
 
 /**
- * Try to fetch placement records via POST /apiv2/jobdiva/searchStart with
- * date-range criteria. JobDiva's swagger doesn't pin down the exact field
- * names for date filtering on this endpoint — different tenants have
- * reported `startDateBegin`/`startDateEnd`, `dateBegin`/`dateEnd`, and
- * `modifyDateBegin`/`modifyDateEnd`. We try each shape in order and
- * accept the first non-empty array response.
+ * Fetch a complete Start/Assignment census with the request fields in
+ * JobDiva's official V2 SearchStartDef: startDateFrom, maxreturned, offset.
+ * `modified_since` is deliberately ignored here. It belongs to BI delta
+ * endpoints and must never be reinterpreted as an assignment start date.
  *
  * Returns:
- *   [ 'items' => [...], 'attempts' => [ {criteria, status, error?, count} ] ]
+ *   [ 'items' => [...current rows...], 'terminal_items' => [...],
+ *     'review_items' => [...], 'complete' => bool, 'attempts' => [...] ]
  *
  * `attempts` is exposed in the audit detail so the operator can see exactly
  * what we asked JobDiva and what came back.
  */
+function jobdivaPlacementCensusStartDate(array $opts): string
+{
+    $raw = trim((string) ($opts['census_start_date'] ?? ''));
+    if ($raw !== '') {
+        try {
+            return (new \DateTimeImmutable($raw))->format('m/d/Y H:i:s');
+        } catch (\Throwable $_) {}
+    }
+    // This is an inventory lower bound, not an incremental cursor. A broad
+    // default keeps long-running active assignments inside the census.
+    return '01/01/2000 00:00:00';
+}
+
+/** @return array{bucket:string,status:string,source_status:string} */
+function jobdivaPlacementCensusClassify(array $row): array
+{
+    $sourceStatus = jobdivaAssignmentIdentityPluck($row, [
+        'startStatus', 'start_status', 'start status',
+        'assignmentStatus', 'assignment_status', 'status',
+    ]);
+    $endDate = jobdivaNormaliseDate(jobdivaAssignmentIdentityPluck($row, [
+        'end date', 'endDate', 'end_date', 'assignment end date',
+    ]));
+    $lifecycle = jobdivaAssignmentCanonicalPlacementStatus($sourceStatus, $endDate);
+    $status = (string) ($lifecycle['status'] ?? '');
+
+    if (in_array($status, ['ended', 'cancelled'], true)) {
+        return ['bucket' => 'terminal', 'status' => $status, 'source_status' => $sourceStatus];
+    }
+
+    $evidence = jobdivaAssignmentLifecycleEvidence($row, 'searchStart:census');
+    if (!empty($evidence['qualified']) && in_array($status, ['active', 'pending_start', 'on_hold'], true)) {
+        return ['bucket' => 'current', 'status' => $status, 'source_status' => $sourceStatus];
+    }
+
+    return ['bucket' => 'review', 'status' => $status, 'source_status' => $sourceStatus];
+}
+
 function jobdivaPlacementsFetchViaSearchStart(int $tid, array $opts): array
 {
-    // Build the date window. Default 7 days; first-sync widens to 365.
-    $now = new \DateTimeImmutable('now');
-    $defaultDays = (int) ($opts['default_window_days'] ?? 7);
-    try { $from = !empty($opts['modified_since']) ? new \DateTimeImmutable((string) $opts['modified_since']) : $now->modify("-{$defaultDays} days"); }
-    catch (\Throwable $_) { $from = $now->modify("-{$defaultDays} days"); }
-    try { $to = !empty($opts['modified_until']) ? new \DateTimeImmutable((string) $opts['modified_until']) : $now; }
-    catch (\Throwable $_) { $to = $now; }
-    $fmt = 'm/d/Y H:i:s';  // JobDiva BI format (consistent with the rest of the integration)
-    $fromStr = $from->format($fmt);
-    $toStr   = $to->format($fmt);
-
-    // Criterion shapes to try, in priority order. JobDiva V2 sometimes
-    // returns 200 + empty array when the param name is wrong (silently
-    // matches "all records but filtered to none"); other shapes 400 or
-    // 500 outright. We accept any non-empty array as success.
-    $candidates = [
-        ['startDateBegin'           => $fromStr, 'startDateEnd'           => $toStr],
-        ['startdatebegin'           => $fromStr, 'startdateenddate'       => $toStr],
-        ['modifyDateBegin'          => $fromStr, 'modifyDateEnd'          => $toStr],
-        ['startDateFrom'            => $fromStr, 'startDateTo'            => $toStr],
-        ['dateBegin'                => $fromStr, 'dateEnd'                => $toStr],
-    ];
-
+    $pageSize = max(1, min(100, (int) ($opts['census_page_size'] ?? 100)));
+    $maxPages = max(1, min(250, (int) ($opts['census_max_pages'] ?? 100)));
+    $startDateFrom = jobdivaPlacementCensusStartDate($opts);
     $attempts = [];
-    foreach ($candidates as $body) {
+    $buckets = ['current' => [], 'terminal' => [], 'review' => []];
+    $seen = [];
+    $complete = false;
+    $rawTotal = 0;
+    $duplicates = 0;
+    $rejected = 0;
+
+    for ($page = 0; $page < $maxPages; $page++) {
+        $offset = $page * $pageSize;
+        $body = [
+            'startDateFrom' => $startDateFrom,
+            'maxreturned' => $pageSize,
+            'offset' => $offset,
+        ];
         try {
-            $resp  = jobdivaCall($tid, 'POST', JOBDIVA_PATH_SEARCH_START, $body);
+            $resp = jobdivaCall($tid, 'POST', JOBDIVA_PATH_SEARCH_START, $body);
             $rawItems = jobdivaPlacementsExtractList($resp);
-            $items = [];
-            $rejected = 0;
-            foreach ($rawItems as $row) {
-                if (!is_array($row)) {
-                    $rejected++;
-                    continue;
-                }
-                $assignmentId = jobdivaAssignmentRowId($row);
-                $identity = jobdivaAssignmentValidate($row, $assignmentId);
-                if ($assignmentId === '' || empty($identity['valid'])) {
-                    $rejected++;
-                    continue;
-                }
-                $items[] = jobdivaAssignmentMarkVerified($row, $assignmentId, 'searchStart:discovery');
-            }
-            $attempts[] = [
-                'criteria' => array_keys($body),
-                'status'   => 'ok',
-                'count'    => count($items),
-                'raw_count'=> count($rawItems),
-                'rejected_non_assignments' => $rejected,
-            ];
-            if (count($items) > 0) {
-                return ['items' => $items, 'attempts' => $attempts];
-            }
         } catch (\Throwable $e) {
             $attempts[] = [
+                'page' => $page + 1,
+                'offset' => $offset,
                 'criteria' => array_keys($body),
-                'status'   => 'error',
-                'error'    => substr($e->getMessage(), 0, 300),
+                'status' => 'error',
+                'error' => substr($e->getMessage(), 0, 300),
             ];
-            // 400-class errors are expected when a criterion shape is
-            // wrong; keep trying the next one. 401/500-on-auth is fatal
-            // and should bubble up so the caller knows the connection
-            // itself is broken.
-            $msg = $e->getMessage();
-            if (stripos($msg, 'HTTP 401') !== false || stripos($msg, 'authentication') !== false) {
-                throw $e;
-            }
+            break;
         }
+
+        $rawCount = count($rawItems);
+        $rawTotal += $rawCount;
+        $newOnPage = 0;
+        $pageCounts = ['current' => 0, 'terminal' => 0, 'review' => 0];
+        foreach ($rawItems as $row) {
+            if (!is_array($row)) {
+                $rejected++;
+                continue;
+            }
+            $assignmentId = jobdivaAssignmentRowId($row);
+            if ($assignmentId === '') {
+                $rejected++;
+                continue;
+            }
+            if (isset($seen[$assignmentId])) {
+                $duplicates++;
+                continue;
+            }
+            $seen[$assignmentId] = true;
+            $newOnPage++;
+            $classification = jobdivaPlacementCensusClassify($row);
+            $bucket = (string) ($classification['bucket'] ?? 'review');
+            $row['__cf_jobdiva_census_scope'] = $bucket;
+            $row['__cf_jobdiva_canonical_status'] = (string) ($classification['status'] ?? '');
+            if ($bucket === 'current') {
+                $row = jobdivaAssignmentMarkVerified($row, $assignmentId, 'searchStart:census');
+            }
+            $buckets[$bucket][$assignmentId] = $row;
+            $pageCounts[$bucket]++;
+        }
+
+        $attempts[] = [
+            'page' => $page + 1,
+            'offset' => $offset,
+            'criteria' => array_keys($body),
+            'status' => 'ok',
+            'raw_count' => $rawCount,
+            'new_count' => $newOnPage,
+            'current' => $pageCounts['current'],
+            'terminal' => $pageCounts['terminal'],
+            'review' => $pageCounts['review'],
+        ];
+
+        if ($rawCount < $pageSize) {
+            $complete = true;
+            break;
+        }
+        // An endpoint ignoring offset would otherwise make a partial first
+        // page look authoritative. No forward progress means incomplete.
+        if ($newOnPage === 0) break;
     }
-    return ['items' => [], 'attempts' => $attempts];
+
+    return [
+        'items' => array_values($buckets['current']),
+        'terminal_items' => array_values($buckets['terminal']),
+        'review_items' => array_values($buckets['review']),
+        'current_ids' => array_map('strval', array_keys($buckets['current'])),
+        'complete' => $complete,
+        'attempts' => $attempts,
+        'raw_count' => $rawTotal,
+        'duplicates' => $duplicates,
+        'rejected' => $rejected,
+        'start_date_from' => $startDateFrom,
+    ];
 }
 
 /**
@@ -200,8 +263,9 @@ function jobdivaPlacementsExtractList(mixed $resp): array
 }
 
 /**
- * Orchestrating discovery: try searchStart-with-date-range, fall back to
- * timesheet-derived if that yields nothing. Returns a normalised
+ * Orchestrating discovery: run the paginated searchStart census, falling back
+ * to timesheet-derived discovery only when the census is empty or incomplete.
+ * Returns a normalised
  * `items[]` for the placement parser to iterate.
  */
 function jobdivaPlacementsDiscover(int $tid, ?int $userId, array $opts = []): array
@@ -214,30 +278,55 @@ function jobdivaPlacementsDiscover(int $tid, ?int $userId, array $opts = []): ar
         ];
     }
 
-    // Channel 1: searchStart with date-range
+    // Channel 1: authoritative paginated searchStart census.
     $primary = jobdivaPlacementsFetchViaSearchStart($tid, $opts);
-    if (count($primary['items']) > 0) {
+    if (!empty($primary['complete']) && (int) ($primary['raw_count'] ?? 0) > 0) {
         return [
             'items'   => $primary['items'],
-            'channel' => 'searchStart',
+            'terminal_items' => $primary['terminal_items'] ?? [],
+            'review_items' => $primary['review_items'] ?? [],
+            'current_ids' => $primary['current_ids'] ?? [],
+            'authoritative' => true,
+            'channel' => 'searchStart_census',
             'diagnostics' => [
                 'searchStart_attempts' => $primary['attempts'],
                 'items_total'          => count($primary['items']),
+                'active'               => count(array_filter($primary['items'], static fn(array $row): bool => ($row['__cf_jobdiva_canonical_status'] ?? '') === 'active')),
+                'pending_start'        => count(array_filter($primary['items'], static fn(array $row): bool => ($row['__cf_jobdiva_canonical_status'] ?? '') === 'pending_start')),
+                'on_hold'              => count(array_filter($primary['items'], static fn(array $row): bool => ($row['__cf_jobdiva_canonical_status'] ?? '') === 'on_hold')),
+                'terminal'             => count($primary['terminal_items'] ?? []),
+                'review'               => count($primary['review_items'] ?? []),
+                'raw_count'            => (int) ($primary['raw_count'] ?? 0),
+                'complete'             => true,
+                'start_date_from'      => (string) ($primary['start_date_from'] ?? ''),
             ],
         ];
     }
 
     // Channel 2: timesheet-derived
     $fallback = jobdivaPlacementsFetchViaTimesheets($tid, $opts);
+    $mergedItems = [];
+    foreach (array_merge($primary['items'] ?? [], $fallback['items'] ?? []) as $row) {
+        if (!is_array($row)) continue;
+        $rowId = jobdivaAssignmentRowId($row);
+        if ($rowId === '') continue;
+        $mergedItems[$rowId] = $row;
+    }
     return [
-        'items'   => $fallback['items'],
+        'items'   => array_values($mergedItems),
+        'terminal_items' => [],
+        'review_items' => [],
+        'current_ids' => [],
+        'authoritative' => false,
         'channel' => 'timesheets',
         'diagnostics' => [
             'searchStart_attempts'   => $primary['attempts'],
-            'searchStart_yielded'    => 0,
+            'searchStart_yielded'    => count($primary['items'] ?? []),
+            'searchStart_complete'   => !empty($primary['complete']),
+            'searchStart_raw_count'  => (int) ($primary['raw_count'] ?? 0),
             'timesheet_discovered_ids' => $fallback['discovered_ids'] ?? [],
             'timesheet_fetch_attempts' => $fallback['attempts'] ?? [],
-            'items_total'            => count($fallback['items']),
+            'items_total'            => count($mergedItems),
         ],
     ];
 }

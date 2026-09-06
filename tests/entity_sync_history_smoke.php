@@ -123,11 +123,12 @@ $assert('renders drawer for placement entity',
 echo "\nJobDiva sync — actor threaded into mappingUpsert\n";
 $syncSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/sync.php");
 $assert('companies upsert passes $userId',
-    strpos($syncSrc, "mappingUpsert(\$tid, 'jobdiva', 'company', \$extId, \$companyId, \$jd, 'pull', \$userId);") !== false);
+    preg_match("/mappingUpsert\\(\\\$tid, 'jobdiva', 'company', \\\$extId, \\\$companyId, \\\$[a-zA-Z]+, 'pull', \\\$userId\\);/", $syncSrc) === 1);
 $assert('contacts upsert passes $userId',
     strpos($syncSrc, "mappingUpsert(\$tid, 'jobdiva', 'contact', \$extId, \$internalId, \$jd, 'pull', \$userId);") !== false);
+$projectorSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/projector.php");
 $assert('placements upsert passes $userId',
-    strpos($syncSrc, "mappingUpsert(\$tid, 'jobdiva', 'placement', \$extId, \$internalId, \$jd, 'pull', \$userId);") !== false);
+    strpos($projectorSrc, "mappingUpsert(\$tenantId, 'jobdiva', 'placement', \$externalId, \$placementId, \$writePayload, 'pull', \$userId);") !== false);
 $pSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/sync_placements.php");
 $assert('auto-create person upserts existing match with $userId',
     strpos($pSrc, "mappingUpsert(\$tid, 'jobdiva', 'person', \$candidateExtId, \$existingId, \$jd, 'pull', \$userId);") !== false);

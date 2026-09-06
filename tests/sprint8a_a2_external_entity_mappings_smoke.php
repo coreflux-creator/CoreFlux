@@ -95,7 +95,7 @@ $assert('upsert sets sync_status="ok" on insert+update',
 $assert('upsert clears last_error on successful sync',
     strpos($lib, 'last_error         = NULL') !== false);
 $assert('upsert bumps last_seen_at even when unchanged',
-    strpos($lib, 'SET last_seen_at = NOW()') !== false);
+    strpos($lib, 'last_seen_at = NOW()') !== false);
 $assert('upsert reconciles stale internal/external uniqueness conflicts',
     strpos($lib, '$conflictingInternal = mappingFindExternal($tenantId, $source, $entityType, $internalId)') !== false
     && strpos($lib, '$existingForInternal = mappingFindExternal($tenantId, $source, $entityType, $internalId)') !== false
