@@ -71,10 +71,11 @@ $mergedCensus = jobdivaPlacementsMergeSearchStartCensuses(
         'review_items' => [],
     ]
 );
-$assert('corroboration unions missed Start IDs and current evidence wins review',
-    count($mergedCensus['items']) === 3
-    && count($mergedCensus['review_items']) === 0
-    && $mergedCensus['current_ids'] === ['1001', '1002', '1003']);
+$assert('corroboration unions missed Start IDs and conflicting evidence requires review',
+    count($mergedCensus['items']) === 2
+    && count($mergedCensus['review_items']) === 1
+    && $mergedCensus['current_ids'] === ['1001', '1003']
+    && (string) ($mergedCensus['review_items'][0]['id'] ?? '') === '1002');
 $active = jobdivaPlacementCensusClassify([
     'id' => 1001,
     'candidate id' => 2001,

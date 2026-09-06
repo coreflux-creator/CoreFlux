@@ -212,6 +212,93 @@ function jobdivaAssignmentContractTerms(mixed $raw, mixed $paymentDue = null, mi
     return null;
 }
 
+function jobdivaAssignmentContractShallowPick(array $record, array $labels): mixed
+{
+    $values = [];
+    foreach ($record as $key => $value) {
+        if (!is_string($key) || is_array($value) || is_object($value)) continue;
+        $normalised = jobdivaAssignmentContractNormaliseKey($key);
+        if ($normalised !== '' && !array_key_exists($normalised, $values)) {
+            $values[$normalised] = $value;
+        }
+    }
+    foreach ($labels as $label) {
+        $normalised = jobdivaAssignmentContractNormaliseKey((string) $label);
+        if ($normalised !== ''
+            && array_key_exists($normalised, $values)
+            && jobdivaAssignmentContractHasValue($values[$normalised])) {
+            return $values[$normalised];
+        }
+    }
+    return null;
+}
+
+/**
+ * Keep only EmployeeAssignmentRecordsDetail rows that belong to the requested
+ * Start. Some JobDiva tenants return related employee records even when a
+ * startId filter is supplied. Those rows frequently omit Start ID but retain
+ * employeeId and jobId, so the source Start's candidate/job pair is the safe
+ * secondary identity.
+ *
+ * @param array<int,array<string,mixed>> $rows
+ * @return array<int,array<string,mixed>>
+ */
+function jobdivaAssignmentContractRowsForStart(
+    array $rows,
+    array $fallback = [],
+    string $expectedStartId = ''
+): array {
+    $expectedStartId = trim($expectedStartId);
+    $expectedCandidateId = trim((string) jobdivaAssignmentContractShallowPick($fallback, [
+        'Candidate ID', 'candidateId', 'candidate_id', 'Employee ID', 'employeeId', 'employee_id',
+    ]));
+    $expectedJobId = trim((string) jobdivaAssignmentContractShallowPick($fallback, [
+        'Job ID', 'jobId', 'job_id',
+    ]));
+    $singleRow = count($rows) === 1;
+    $matching = [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) continue;
+        $rowStartId = trim((string) jobdivaAssignmentContractShallowPick($row, [
+            'Start ID', 'startId', 'start_id', 'Assignment ID', 'assignmentId',
+        ]));
+        if ($expectedStartId !== '' && $rowStartId !== '') {
+            if ($rowStartId === $expectedStartId) $matching[] = $row;
+            continue;
+        }
+
+        $rowCandidateId = trim((string) jobdivaAssignmentContractShallowPick($row, [
+            'Candidate ID', 'candidateId', 'candidate_id', 'Employee ID', 'employeeId', 'employee_id',
+        ]));
+        $rowJobId = trim((string) jobdivaAssignmentContractShallowPick($row, [
+            'Job ID', 'jobId', 'job_id',
+        ]));
+        $contextMatched = false;
+        $contextConflicted = false;
+        foreach ([
+            [$expectedCandidateId, $rowCandidateId],
+            [$expectedJobId, $rowJobId],
+        ] as [$expected, $actual]) {
+            if ($expected === '' || $actual === '') continue;
+            if ($expected !== $actual) {
+                $contextConflicted = true;
+                break;
+            }
+            $contextMatched = true;
+        }
+        if ($contextConflicted) continue;
+        if ($contextMatched || ($singleRow && $rowStartId === '' && $rowCandidateId === '' && $rowJobId === '')) {
+            $matching[] = $row;
+        }
+    }
+
+    if ($expectedStartId === '' && $matching === []) {
+        return array_values(array_filter($rows, 'is_array'));
+    }
+    return $matching;
+}
+
 /**
  * @param array<int,array<string,mixed>> $rows
  * @return array<string,mixed>
@@ -219,22 +306,10 @@ function jobdivaAssignmentContractTerms(mixed $raw, mixed $paymentDue = null, mi
 function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], string $expectedStartId = ''): array
 {
     $expectedStartId = trim($expectedStartId);
-    $matching = [];
-    foreach ($rows as $row) {
-        if (!is_array($row)) continue;
-        $rowEntries = jobdivaAssignmentContractEntries($row);
-        $rowStartId = trim((string) jobdivaAssignmentContractPick($rowEntries, [
-            'Start ID', 'startId', 'start_id', 'Assignment ID', 'assignmentId',
-        ]));
-        if ($expectedStartId !== '' && $rowStartId !== '' && $rowStartId !== $expectedStartId) continue;
-        $matching[] = $row;
-    }
-    // Never fall back to explicitly mismatched assignment rows. Identifier-free
-    // field/value rows are already retained above; only an unscoped call may
-    // consume the full response as a fallback.
-    if (!$matching && $expectedStartId === '') {
-        $matching = array_values(array_filter($rows, 'is_array'));
-    }
+    $matching = jobdivaAssignmentContractRowsForStart($rows, $fallback, $expectedStartId);
+    // Never fall back to explicitly mismatched assignment rows. The source
+    // Start remains useful for non-financial identity and lifecycle fields,
+    // but a related employee/job row cannot provide rates or terms.
     if ($fallback) $matching[] = $fallback;
     if (!$matching) return [];
     $entries = jobdivaAssignmentContractEntries($matching);

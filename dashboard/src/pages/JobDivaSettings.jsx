@@ -205,12 +205,30 @@ export default function JobDivaSettings() {
     clear(); setSyncResult(null); setBusy(b => ({ ...b, sync: true }));
     try {
       const r = await api.post('/api/jobdiva/sync.php?action=sync');
+      let candidateAssignmentsProcessed = 0;
+      let candidateAssignmentsStaged = 0;
+      let candidateAssignmentsFailed = 0;
+      let cursor = 0;
+      for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
+        const batch = await api.post('/api/jobdiva/sync.php?action=candidate_assignments_batch', {
+          cursor,
+          limit: 8,
+        });
+        candidateAssignmentsProcessed += Number(batch.candidates_processed) || 0;
+        candidateAssignmentsStaged += Number(batch.review_staged) || 0;
+        candidateAssignmentsFailed += Number(batch.failed) || 0;
+        setMsg(`Checking JobDiva assignments by candidate: ${candidateAssignmentsProcessed} checked, ${candidateAssignmentsStaged} sent for exact validation.`);
+        const nextCursor = Number(batch.cursor) || 0;
+        if (batch.done) break;
+        if (nextCursor <= cursor) throw new Error('Candidate assignment discovery did not advance its cursor');
+        cursor = nextCursor;
+      }
       let contractProcessed = 0;
       let contractProjected = 0;
       let contractRestored = 0;
       let contractSkippedNotCurrent = 0;
       let contractFailed = 0;
-      let cursor = 0;
+      cursor = 0;
       for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
         const batch = await api.post('/api/jobdiva/sync.php?action=assignment_contracts_batch', {
           cursor,
@@ -273,6 +291,11 @@ export default function JobDivaSettings() {
         skipped_by_config: Array.isArray(r.skipped_by_config) ? r.skipped_by_config : [],
         by_entity: {
           ...(r.by_entity || {}),
+          candidate_assignment_discovery: {
+            processed: candidateAssignmentsProcessed,
+            review_staged: candidateAssignmentsStaged,
+            failed: candidateAssignmentsFailed,
+          },
           assignment_contract: {
             processed: contractProcessed,
             projected: contractProjected,

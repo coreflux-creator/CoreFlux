@@ -76,17 +76,18 @@ function jobdivaPlacementCorroborationStartDate(array $opts): string
 }
 
 /**
- * Merge independent SearchStart walks by Start ID. A qualified current row
- * wins over terminal and review observations; terminal wins over review.
- * This makes the union tolerant of JobDiva's unstable broad-query paging.
+ * Merge independent SearchStart walks by Start ID. Conflicting observations
+ * are conservative: review wins over current, and an explicit terminal row
+ * wins over both. A Start seen only as current remains current, which still
+ * lets a shifted page walk recover rows missed by the broad census.
  */
 function jobdivaPlacementsMergeSearchStartCensuses(array ...$censuses): array
 {
     $merged = ['current' => [], 'terminal' => [], 'review' => []];
     $sourceKeys = [
+        'current' => 'items',
         'review' => 'review_items',
         'terminal' => 'terminal_items',
-        'current' => 'items',
     ];
     foreach ($sourceKeys as $bucket => $sourceKey) {
         foreach ($censuses as $census) {
@@ -449,6 +450,82 @@ function jobdivaPersonExternalIdConflicts(string $personExternalId, string $cand
     return substr($personExternalId, 3) !== $candidateExtId;
 }
 
+function jobdivaPersonIdentityNormalise(string $value): string
+{
+    return strtolower((string) preg_replace('/[^a-z0-9]/i', '', trim($value)));
+}
+
+/** @return array{name:string,email:string} */
+function jobdivaPersonIdentityFromPlacement(array $jd): array
+{
+    $candidateId = jobdivaPluckField($jd, [
+        'candidate id', 'candidateId', 'candidate_id', 'employeeId', 'employee_id',
+    ]);
+    $name = jobdivaPluckField($jd, [
+        'candidateName', 'candidate_name', 'candidate name', 'employeeName', 'employee_name',
+    ]);
+    if ($name === '') {
+        $first = jobdivaPluckField($jd, [
+            'candidateFirstName', 'candidate_first_name', 'firstName', 'first_name',
+        ]);
+        $last = jobdivaPluckField($jd, [
+            'candidateLastName', 'candidate_last_name', 'lastName', 'last_name',
+        ]);
+        $name = trim($first . ' ' . $last);
+    }
+    $email = jobdivaPluckField($jd, [
+        'candidateEmail', 'candidate_email', 'candidate email', 'emailAddress', 'email',
+    ]);
+
+    // SearchStart often omits candidate email. Use only joined records whose
+    // candidate identity agrees with this Start; never inspect financial or
+    // generic joined arrays for person identity.
+    foreach (['_jd_candidate', '_jd_start'] as $key) {
+        $candidate = $jd[$key] ?? null;
+        if (!is_array($candidate)) continue;
+        $nestedId = jobdivaPluckField($candidate, [
+            'candidate id', 'candidateId', 'candidate_id', 'employeeId', 'employee_id', 'id',
+        ]);
+        if ($candidateId !== '' && $nestedId !== '' && $nestedId !== $candidateId) continue;
+        if ($name === '') {
+            $name = jobdivaPluckField($candidate, [
+                'candidateName', 'candidate_name', 'candidate name', 'fullName', 'full_name', 'name',
+            ]);
+            if ($name === '') {
+                $name = trim(
+                    jobdivaPluckField($candidate, ['firstName', 'first_name', 'candidateFirstName'])
+                    . ' '
+                    . jobdivaPluckField($candidate, ['lastName', 'last_name', 'candidateLastName'])
+                );
+            }
+        }
+        if ($email === '') {
+            $email = jobdivaPluckField($candidate, [
+                'candidateEmail', 'candidate_email', 'candidate email', 'emailAddress', 'email',
+            ]);
+        }
+    }
+
+    return ['name' => $name, 'email' => strtolower(trim($email))];
+}
+
+/**
+ * A durable candidate mapping is invalid when both independent human
+ * identifiers disagree with the current Start. Requiring both name and email
+ * avoids splitting a person after an ordinary name or email change.
+ */
+function jobdivaPersonIdentityConflicts(array $jd, array $person): bool
+{
+    $source = jobdivaPersonIdentityFromPlacement($jd);
+    $personName = trim((string) ($person['first_name'] ?? '') . ' ' . (string) ($person['last_name'] ?? ''));
+    $personEmail = strtolower(trim((string) ($person['email_primary'] ?? '')));
+    $sourceName = jobdivaPersonIdentityNormalise($source['name']);
+    $mappedName = jobdivaPersonIdentityNormalise($personName);
+    if ($sourceName === '' || $mappedName === '' || $sourceName === $mappedName) return false;
+    if ($source['email'] === '' || $personEmail === '') return false;
+    return $source['email'] !== $personEmail;
+}
+
 function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?int
 {
     require_once __DIR__ . '/../integrations/field_map.php';
@@ -478,15 +555,32 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
                 $pdo = getDB();
                 if ($pdo instanceof \PDO) {
                     $identityStmt = $pdo->prepare(
-                        'SELECT external_id FROM people
+                        'SELECT external_id, first_name, last_name, email_primary, source FROM people
                           WHERE tenant_id = :t AND id = :id
                           LIMIT 1'
                     );
                     $identityStmt->execute(['t' => $tid, 'id' => $mappedPersonId]);
-                    $mappedExternalId = $identityStmt->fetchColumn();
-                    if ($mappedExternalId === false
-                        || jobdivaPersonExternalIdConflicts((string) $mappedExternalId, $candidateExtId)) {
+                    $mappedPerson = $identityStmt->fetch(\PDO::FETCH_ASSOC);
+                    $mappedExternalId = is_array($mappedPerson)
+                        ? (string) ($mappedPerson['external_id'] ?? '')
+                        : '';
+                    $identityConflict = is_array($mappedPerson)
+                        && jobdivaPersonIdentityConflicts($jd, $mappedPerson);
+                    if (!is_array($mappedPerson)
+                        || jobdivaPersonExternalIdConflicts($mappedExternalId, $candidateExtId)
+                        || $identityConflict) {
                         mappingDelete($tid, 'jobdiva', 'person', $candidateExtId);
+                        if ($identityConflict && $mappedExternalId === $canonicalPersonExternalId) {
+                            $pdo->prepare(
+                                "UPDATE people
+                                    SET external_id = NULL, updated_at = NOW()
+                                  WHERE tenant_id = :t AND id = :id AND external_id = :ext"
+                            )->execute([
+                                't' => $tid,
+                                'id' => $mappedPersonId,
+                                'ext' => $canonicalPersonExternalId,
+                            ]);
+                        }
                         $mappedPersonId = 0;
                     }
                 }

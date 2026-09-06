@@ -34,17 +34,21 @@ $assert('contract batches are cursor-based and capped below the PHP timeout',
 $assert('each enriched contract is persisted and projected immediately',
     str_contains($sync, 'SET payload_snapshot = :payload')
     && str_contains($sync, 'jobdivaProjectorProjectPlacement'));
-$assert('existing active placement batches preserve the canonical person identity',
+$assert('existing placement batches re-resolve the canonical source person identity',
     str_contains($sync, 'p.person_id AS existing_person_id')
-    && str_contains($sync, "'person_id' => \$isArchived ? 0 : \$rowMeta['person_id']"));
+    && str_contains($sync, "'person_id' => 0"));
 $assert('ordinary contract batches exclude stale Start IDs absent from the current census',
     str_contains($sync, "AND m.sync_status = 'ok'")
     && str_contains($sync, 'p.deleted_at AS placement_deleted_at'));
 $assert('archived rows restore only from an explicit current contract lifecycle',
     str_contains($sync, "\$contractStatus !== ''")
     && str_contains($sync, "['active', 'pending_start', 'on_hold']")
-    && str_contains($sync, "'person_id' => \$isArchived ? 0")
+    && str_contains($sync, "'person_id' => 0")
     && str_contains($sync, "'force_source_contract' => true"));
+$assert('candidate-scoped discovery stages census omissions for exact review',
+    str_contains($sync, 'function jobdivaSyncCandidateAssignmentsBatch')
+    && str_contains($sync, "'candidateid' => (int) \$candidateId")
+    && str_contains($sync, "'jobdiva_assignment_review'"));
 $assert('ambiguous SearchStart rows are retained for exact contract review',
     str_contains($sync, "'jobdiva_assignment_review'")
     && str_contains($sync, 'function jobdivaSyncReviewAssignmentContractsBatch'));
@@ -69,6 +73,9 @@ $assert('the API exposes a separately bounded contract action',
 $assert('the API exposes a bounded assignment-review action',
     str_contains($api, "case 'review_assignment_contracts_batch':")
     && str_contains($api, 'jobdivaSyncReviewAssignmentContractsBatch'));
+$assert('the API exposes candidate-scoped assignment discovery',
+    str_contains($api, "case 'candidate_assignments_batch':")
+    && str_contains($api, 'jobdivaSyncCandidateAssignmentsBatch'));
 $assert('Sync now automatically drains contract batches to completion',
     str_contains($ui, "action=assignment_contracts_batch")
     && str_contains($ui, 'if (batch.done) break')
@@ -76,6 +83,9 @@ $assert('Sync now automatically drains contract batches to completion',
 $assert('Sync now drains exact assignment-review batches automatically',
     str_contains($ui, 'action=review_assignment_contracts_batch')
     && str_contains($ui, 'assignment_review: reviewProjected'));
+$assert('Sync now checks known candidates before contract projection',
+    str_contains($ui, 'action=candidate_assignments_batch')
+    && str_contains($ui, 'candidate_assignment_discovery'));
 $assert('operator results include projected and unavailable contract counts',
     str_contains($ui, 'assignment_contract: contractProjected')
     && str_contains($ui, 'restored: contractRestored')

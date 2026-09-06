@@ -127,6 +127,24 @@ $assert('an explicitly mismatched response cannot supply financial values',
     !array_key_exists('bill_rate', $mismatchOnly)
     && !array_key_exists('pay_rate', $mismatchOnly)
     && ($mismatchOnly['start_id'] ?? '') === '56848682');
+$contextFiltered = jobdivaAssignmentContractRowsForStart([
+    [
+        'employeeid' => '111',
+        'jobid' => '222',
+        'BILLING' => [['BILL_RATE' => 999]],
+    ],
+    [
+        'employeeid' => '333',
+        'jobid' => '444',
+        'BILLING' => [['BILL_RATE' => 71.40]],
+    ],
+], [
+    'candidateId' => '333',
+    'jobId' => '444',
+], '56848682');
+$assert('identifier-free related rows require the exact candidate and job context',
+    count($contextFiltered) === 1
+    && (string) ($contextFiltered[0]['employeeid'] ?? '') === '333');
 $assert('C2C labor cost is the explicit Pay Rate to Vendor',
     abs((float) ($c2c['pay_rate'] ?? 0) - 68.00) < 0.0001
     && abs((float) ($c2c['pay_rate_to_vendor'] ?? 0) - 68.00) < 0.0001);

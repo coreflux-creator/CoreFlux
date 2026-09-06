@@ -116,6 +116,7 @@ $assert('diagnostics surfaces timesheet_discovered_ids',
     strpos($src, "'timesheet_discovered_ids'") !== false);
 
 echo "\nAuto-create person resolver\n";
+require_once $path;
 $assert('resolves candidate ID via multiple shapes',
     strpos($src, "'candidate id'") !== false
     && strpos($src, "'candidateId', 'candidate_id', 'employeeId', 'employee_id'") !== false
@@ -128,6 +129,22 @@ $assert('reuses existing person mapping when present',
 $assert('rejects a candidate mapping bound to another JobDiva person identity',
     strpos($src, 'jobdivaPersonExternalIdConflicts') !== false
     && strpos($src, "mappingDelete(\$tid, 'jobdiva', 'person', \$candidateExtId)") !== false);
+$assert('rejects a durable mapping when both candidate name and email contradict the person',
+    strpos($src, 'jobdivaPersonIdentityConflicts') !== false
+    && strpos($src, 'SET external_id = NULL') !== false);
+$assert('candidate identity conflict requires both name and email disagreement',
+    jobdivaPersonIdentityConflicts(
+        [
+            'candidateId' => '123',
+            'candidateName' => 'Divya Amilineni',
+            '_jd_candidate' => ['id' => '123', 'email' => 'divya@example.com'],
+        ],
+        ['first_name' => 'Divya', 'last_name' => 'Eevuri', 'email_primary' => 'other@example.com']
+    )
+    && !jobdivaPersonIdentityConflicts(
+        ['candidateName' => 'Divya Amilineni', 'candidateEmail' => 'new@example.com'],
+        ['first_name' => 'Divya', 'last_name' => 'Amilineni', 'email_primary' => 'old@example.com']
+    ));
 $assert('prefers the exact durable JobDiva person identity before email matching',
     strpos($src, 'external_id = :ext') !== false
     && strpos($src, '$canonicalPersonExternalId') !== false);

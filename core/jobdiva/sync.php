@@ -1943,6 +1943,19 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
                         $diag[$kind]['empty_response']++;
                         continue;
                     }
+                    $financialRows = jobdivaAssignmentContractRowsForStart(
+                        $financialRows,
+                        $startHints[(string) $id] ?? [],
+                        (string) $id
+                    );
+                    if ($financialRows === []) {
+                        $cache[$kind][$id] = null;
+                        $diag[$kind]['empty_response']++;
+                        if ($diag[$kind]['sample_error'] === null) {
+                            $diag[$kind]['sample_error'] = 'JobDiva returned only records for a different assignment context';
+                        }
+                        continue;
+                    }
                     $contract = jobdivaAssignmentContractBuild(
                         $financialRows,
                         $startHints[(string) $id] ?? [],
@@ -2183,7 +2196,9 @@ function jobdivaSyncAssignmentContractsBatch(
                         'payload_is_enriched' => true,
                         'external_id' => $rowMeta['external_id'],
                         'existing_placement_id' => $rowMeta['placement_id'],
-                        'person_id' => $isArchived ? 0 : $rowMeta['person_id'],
+                        // Re-resolve the candidate on every source replay so
+                        // durable historical cross-person mappings are fixed.
+                        'person_id' => 0,
                         'force_source_contract' => true,
                     ]
                 );
@@ -2220,6 +2235,161 @@ function jobdivaSyncAssignmentContractsBatch(
             'done' => $result['done'],
             'restored' => $result['restored'],
             'skipped_not_current' => $result['skipped_not_current'],
+            'errors' => array_slice($result['errors'], 0, 10),
+        ],
+        'actor_user_id' => $userId,
+    ]);
+    return $result;
+}
+
+/**
+ * Search Starts by every known JobDiva candidate in bounded pages. The broad
+ * SearchStart census has demonstrably omitted valid rows at page boundaries;
+ * a candidate-scoped pass supplies an independent path without promoting a
+ * row on workflow text alone. Starts absent from the authoritative census are
+ * staged for the exact financial-contract review below.
+ */
+function jobdivaSyncCandidateAssignmentsBatch(
+    int $tenantId,
+    ?int $userId,
+    int $cursor = 0,
+    int $limit = 8
+): array {
+    require_once __DIR__ . '/sync_placements.php';
+    $cursor = max(0, $cursor);
+    $limit = max(1, min(8, $limit));
+    $result = [
+        'candidates_processed' => 0,
+        'starts_seen' => 0,
+        'already_current' => 0,
+        'review_staged' => 0,
+        'terminal_seen' => 0,
+        'rejected' => 0,
+        'failed' => 0,
+        'errors' => [],
+        'cursor' => $cursor,
+        'done' => true,
+    ];
+    if ($tenantId <= 0) return $result;
+
+    $pdo = getDB();
+    $st = $pdo->prepare(
+        "SELECT MAX(id) AS cursor_id, external_id
+           FROM external_entity_mappings
+          WHERE tenant_id = :tenant_id
+            AND source_system = 'jobdiva'
+            AND internal_entity_type IN ('person', 'jobdiva_candidate')
+            AND sync_status <> 'deleted_in_source'
+            AND external_id REGEXP '^[0-9]+$'
+          GROUP BY external_id
+         HAVING MAX(id) > :cursor
+          ORDER BY cursor_id ASC
+          LIMIT {$limit}"
+    );
+    $st->execute(['tenant_id' => $tenantId, 'cursor' => $cursor]);
+    $candidates = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    if ($candidates === []) return $result;
+
+    $terminalRows = [];
+    foreach ($candidates as $candidate) {
+        $candidateCursor = (int) ($candidate['cursor_id'] ?? 0);
+        $candidateId = trim((string) ($candidate['external_id'] ?? ''));
+        $result['cursor'] = max($result['cursor'], $candidateCursor);
+        if ($candidateId === '' || !ctype_digit($candidateId)) {
+            $result['rejected']++;
+            continue;
+        }
+        $result['candidates_processed']++;
+
+        try {
+            $response = jobdivaCall($tenantId, 'POST', JOBDIVA_PATH_SEARCH_START, [
+                'candidateid' => (int) $candidateId,
+                'maxreturned' => 100,
+                'offset' => 0,
+            ]);
+            foreach (jobdivaPlacementsExtractList($response) as $row) {
+                if (!is_array($row)) {
+                    $result['rejected']++;
+                    continue;
+                }
+                $rowCandidateId = jobdivaPluckField($row, [
+                    'candidate id', 'candidateId', 'candidate_id', 'candidateID',
+                    'employeeId', 'employee_id',
+                ]);
+                $startId = jobdivaAssignmentRowId($row);
+                if ($startId === '' || $rowCandidateId !== $candidateId) {
+                    $result['rejected']++;
+                    continue;
+                }
+                $result['starts_seen']++;
+                $classification = jobdivaPlacementCensusClassify($row);
+                $bucket = (string) ($classification['bucket'] ?? 'review');
+                $row['__cf_jobdiva_canonical_status'] = (string) ($classification['status'] ?? '');
+                if ($bucket === 'terminal') {
+                    $row['__cf_jobdiva_census_scope'] = 'terminal';
+                    $terminalRows[$startId] = $row;
+                    $result['terminal_seen']++;
+                    continue;
+                }
+
+                $placementMapping = mappingFindInternal($tenantId, 'jobdiva', 'placement', $startId);
+                if (($placementMapping['sync_status'] ?? '') === 'ok') {
+                    $result['already_current']++;
+                    continue;
+                }
+
+                $endDate = jobdivaNormaliseDate(jobdivaAssignmentIdentityPluck($row, [
+                    'end date', 'endDate', 'end_date', 'assignment end date',
+                ]));
+                if ($endDate !== null && $endDate < (new \DateTimeImmutable('today -90 days'))->format('Y-m-d')) {
+                    $result['rejected']++;
+                    continue;
+                }
+
+                // Candidate-scoped discovery proves the identity, but exact
+                // billing/salary lifecycle still decides whether it is live.
+                $row['__cf_jobdiva_census_scope'] = 'review';
+                $stored = jobdivaMirrorStoreAndIndex(
+                    $tenantId,
+                    'jobdiva_assignment_review',
+                    [$row],
+                    ['id', 'startId', 'start_id', 'startID', 'STARTID', 'placementId'],
+                    $userId
+                );
+                if ((int) ($stored['processed'] ?? 0) === 1) {
+                    $result['review_staged']++;
+                } else {
+                    $result['failed']++;
+                }
+            }
+        } catch (\Throwable $e) {
+            $result['failed']++;
+            if (count($result['errors']) < 20) {
+                $result['errors'][] = [
+                    'candidate_id' => $candidateId,
+                    'error' => substr($e->getMessage(), 0, 300),
+                ];
+            }
+        }
+    }
+
+    if ($terminalRows !== []) {
+        jobdivaSyncApplyTerminalAssignmentLifecycle($tenantId, array_values($terminalRows), $userId);
+    }
+    $result['done'] = count($candidates) < $limit;
+    jobdivaAudit($tenantId, 'sync_candidate_assignments_batch', [
+        'entity_type' => 'jobdiva_assignment_review',
+        'direction' => 'pull',
+        'ok' => $result['failed'] === 0,
+        'items_processed' => $result['review_staged'],
+        'items_skipped' => $result['already_current'] + $result['rejected'],
+        'items_failed' => $result['failed'],
+        'detail' => [
+            'cursor' => $result['cursor'],
+            'done' => $result['done'],
+            'candidates_processed' => $result['candidates_processed'],
+            'starts_seen' => $result['starts_seen'],
+            'terminal_seen' => $result['terminal_seen'],
             'errors' => array_slice($result['errors'], 0, 10),
         ],
         'actor_user_id' => $userId,
