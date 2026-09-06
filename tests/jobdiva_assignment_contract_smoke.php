@@ -176,6 +176,9 @@ $productionShape = [[
     'SALARY' => [[
         'EFFECTIVE_DATE' => '2026-07-06T00:00:00',
         'END_DATE' => '',
+        'APPROVED' => 1,
+        'CLOSED' => 0,
+        'STATUS' => 2,
         'SALARY' => 60,
         'SUBCONTRACT_COMPANYID' => '12319524',
         'PAYMENTDUE' => 'Upon Approval',
@@ -190,6 +193,20 @@ $assert('section-aware lifecycle uses BILLING rather than SALARY/Job dates',
     ($productionContract['start_date'] ?? '') === '2026-07-06T00:00:00'
     && ($productionContract['end_date'] ?? '') === '2026-12-01T23:59:59'
     && ($productionContract['placement_status'] ?? '') === 'active');
+$assert('active lifecycle requires the approved pay side when salary evidence exists',
+    ($productionContract['salary_approved'] ?? null) === true
+    && (string) ($productionContract['salary_status'] ?? '') === '2');
+
+$billingOnlyShape = $productionShape;
+$billingOnlyShape[0]['Start ID'] = '57862244';
+$billingOnlyShape[0]['SALARY'][0]['APPROVED'] = 0;
+$billingOnlyShape[0]['SALARY'][0]['STATUS'] = 1;
+$billingOnlyContract = jobdivaAssignmentContractBuild($billingOnlyShape, [], '57862244');
+$assert('billing-approved but pay-unapproved Start remains a draft',
+    ($billingOnlyContract['placement_status'] ?? '') === 'draft'
+    && ($billingOnlyContract['salary_approved'] ?? null) === false);
+$assert('draft financial lifecycle stays draft in the canonical placement mapper',
+    jobdivaAssignmentCanonicalPlacementStatus('draft')['status'] === 'draft');
 $assert('assignment worksite and onsite policy remain canonical placement facts',
     ($productionContract['worksite_city'] ?? '') === 'Phoenix'
     && ($productionContract['worksite_state'] ?? '') === 'AZ'

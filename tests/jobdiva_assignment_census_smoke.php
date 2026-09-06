@@ -38,8 +38,11 @@ $assert('current and terminal source lifecycles are kept separate',
 require_once $root . '/core/jobdiva/sync.php';
 require_once $root . '/core/jobdiva/sync_placements.php';
 $assert('census lower bound uses the ISO format accepted by SearchStartDef',
-    jobdivaPlacementCensusStartDate([]) === '2000-01-01'
-    && jobdivaPlacementCensusStartDate(['census_start_date' => '2026-02-03 10:11:12']) === '2026-02-03');
+    jobdivaPlacementCensusStartDate([]) === '2000-01-01T00:00:00'
+    && jobdivaPlacementCensusStartDate(['census_start_date' => '2026-02-03 10:11:12']) === '2026-02-03T10:11:12');
+$assert('page offsets overlap by one record before Start-ID dedupe',
+    str_contains($discovery, '$pageStride = max(1, $pageSize - 1)')
+    && str_contains($discovery, '$offset = $page * $pageStride'));
 $active = jobdivaPlacementCensusClassify([
     'id' => 1001,
     'candidate id' => 2001,

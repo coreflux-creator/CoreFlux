@@ -6365,6 +6365,10 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         }
 
         $allFields = [
+            // The JobDiva candidate is part of the Start's source identity.
+            // Repairing a stale candidate mapping must also move the existing
+            // placement to the corrected canonical person row.
+            'person_id'            => ['pid',   $personId],
             'start_date'           => ['sd',    $startDate],
             'end_date'             => ['ed',    $endDateNorm ?: null],
             'actual_end_date'      => ['aed',   $actualEnd ?: null],
@@ -6401,6 +6405,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         // field is absent from this response. Only project a column when the
         // current exact-id payload supplied evidence for that value.
         $fieldEvidence = [
+            'person_id' => $personId > 0,
             'start_date' => $startDate !== '',
             'end_date' => $endDateNorm !== null,
             'actual_end_date' => $actualEnd !== null,

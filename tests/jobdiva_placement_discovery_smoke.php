@@ -52,12 +52,15 @@ $assert('does not reinterpret modified_since as a Start-date filter',
     && strpos($src, "'startDateBegin'") === false
     && strpos($src, "'modifyDateBegin'") === false);
 $assert('uses the ISO date format accepted by SearchStartDef',
-    strpos($src, "format('Y-m-d')") !== false
-    && strpos($src, "return '2000-01-01';") !== false);
+    strpos($src, "format('Y-m-d\\TH:i:s')") !== false
+    && strpos($src, "return '2000-01-01T00:00:00';") !== false);
 $assert('paginates until a short page proves completion',
     strpos($src, 'for ($page = 0; $page < $maxPages; $page++)') !== false
     && strpos($src, 'if ($rawCount < $pageSize)') !== false
     && strpos($src, '$complete = true;') !== false);
+$assert('overlaps page boundaries to tolerate zero- and one-based offsets',
+    strpos($src, '$pageStride = max(1, $pageSize - 1)') !== false
+    && strpos($src, '$offset = $page * $pageStride') !== false);
 $assert('detects ignored offsets and refuses authoritative completion',
     strpos($src, 'if ($newOnPage === 0) break;') !== false);
 $assert('separates current, terminal, and review lifecycle rows',
@@ -118,6 +121,12 @@ $assert('returns null when no candidate ID at all',
 $assert('reuses existing person mapping when present',
     strpos($src, "mappingFindInternal(\$tid, 'jobdiva', 'person', \$candidateExtId)") !== false
     && strpos($src, 'return $mappedPersonId;') !== false);
+$assert('rejects a candidate mapping bound to another JobDiva person identity',
+    strpos($src, 'jobdivaPersonExternalIdConflicts') !== false
+    && strpos($src, "mappingDelete(\$tid, 'jobdiva', 'person', \$candidateExtId)") !== false);
+$assert('prefers the exact durable JobDiva person identity before email matching',
+    strpos($src, 'external_id = :ext') !== false
+    && strpos($src, '$canonicalPersonExternalId') !== false);
 $assert('reuses existing person by email_primary (case-insensitive)',
     strpos($src, 'LOWER(email_primary) = LOWER(:e)') !== false);
 $assert('binds mapping after email match (so future syncs are direct)',
@@ -159,6 +168,9 @@ $assert('Upsert UPDATE path also writes title',
     // `coreflux_overridden_fields` can selectively skip columns. Verify
     // the title column is in the allow-list dispatched into the UPDATE.
     strpos($syncSrc, "'title'                => ['ti',    \$title]") !== false);
+$assert('Upsert repairs the placement person after candidate identity correction',
+    strpos($syncSrc, "'person_id'            => ['pid',   \$personId]") !== false
+    && strpos($syncSrc, "'person_id' => \$personId > 0") !== false);
 $assert('Upsert pluck-resolves title across JobDiva key shapes',
     strpos($syncSrc, "'jobTitle', 'job_title', 'job title', 'title'") !== false);
 $assert('Upsert recovers raw Start IDs that were written into placements.external_id',

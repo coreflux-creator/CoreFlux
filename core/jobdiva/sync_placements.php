@@ -56,12 +56,12 @@ function jobdivaPlacementCensusStartDate(array $opts): string
     $raw = trim((string) ($opts['census_start_date'] ?? ''));
     if ($raw !== '') {
         try {
-            return (new \DateTimeImmutable($raw))->format('Y-m-d');
+            return (new \DateTimeImmutable($raw))->format('Y-m-d\TH:i:s');
         } catch (\Throwable $_) {}
     }
     // This is an inventory lower bound, not an incremental cursor. A broad
     // default keeps long-running active assignments inside the census.
-    return '2000-01-01';
+    return '2000-01-01T00:00:00';
 }
 
 /** @return array{bucket:string,status:string,source_status:string} */
@@ -102,8 +102,12 @@ function jobdivaPlacementsFetchViaSearchStart(int $tid, array $opts): array
     $duplicates = 0;
     $rejected = 0;
 
+    // JobDiva installations disagree on whether SearchStart's undocumented
+    // offset is zero- or one-based. Walk with a one-record overlap and dedupe
+    // by Start ID so neither interpretation can drop the boundary assignment.
+    $pageStride = max(1, $pageSize - 1);
     for ($page = 0; $page < $maxPages; $page++) {
-        $offset = $page * $pageSize;
+        $offset = $page * $pageStride;
         $body = [
             'startDateFrom' => $startDateFrom,
             'maxreturned' => $pageSize,
@@ -375,6 +379,15 @@ function jobdivaPersonClassificationFromPlacementPayload(int $tid, array $jd): s
     };
 }
 
+function jobdivaPersonExternalIdConflicts(string $personExternalId, string $candidateExtId): bool
+{
+    $personExternalId = trim($personExternalId);
+    $candidateExtId = trim($candidateExtId);
+    if ($personExternalId === '' || $candidateExtId === '') return false;
+    if (stripos($personExternalId, 'jd:') !== 0) return false;
+    return substr($personExternalId, 3) !== $candidateExtId;
+}
+
 function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?int
 {
     require_once __DIR__ . '/../integrations/field_map.php';
@@ -385,7 +398,12 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
     ]);
     if ($candidateExtId === '') return null;
 
-    // Channel 1: existing mapping
+    $canonicalPersonExternalId = 'jd:' . $candidateExtId;
+
+    // Channel 1: existing mapping. The mapping alone is not sufficient:
+    // historical alignment bugs could point candidate A at a person row whose
+    // durable external_id belongs to candidate B. Refuse that cross-candidate
+    // reuse and let the exact-id/email/create channels repair the mapping.
     $mapping = mappingFindInternal($tid, 'jobdiva', 'person', $candidateExtId);
     if ($mapping) {
         $mappedPersonId = (int) $mapping['internal_entity_id'];
@@ -398,6 +416,20 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
             try {
                 $pdo = getDB();
                 if ($pdo instanceof \PDO) {
+                    $identityStmt = $pdo->prepare(
+                        'SELECT external_id FROM people
+                          WHERE tenant_id = :t AND id = :id
+                          LIMIT 1'
+                    );
+                    $identityStmt->execute(['t' => $tid, 'id' => $mappedPersonId]);
+                    $mappedExternalId = $identityStmt->fetchColumn();
+                    if ($mappedExternalId === false
+                        || jobdivaPersonExternalIdConflicts((string) $mappedExternalId, $candidateExtId)) {
+                        mappingDelete($tid, 'jobdiva', 'person', $candidateExtId);
+                        $mappedPersonId = 0;
+                    }
+                }
+                if ($pdo instanceof \PDO && $mappedPersonId > 0) {
                     $stmt = $pdo->prepare(
                         "UPDATE people
                             SET status = 'active', deleted_at = NULL, updated_at = NOW()
@@ -410,20 +442,24 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
             } catch (\Throwable $e) {
                 error_log('[jobdiva person sync] lifecycle reactivation failed: ' . $e->getMessage());
             }
-            // Re-observation also clears stale/deleted mapping state and
-            // refreshes the source snapshot used by field mapping.
-            mappingUpsert(
-                $tid,
-                'jobdiva',
-                'person',
-                $candidateExtId,
-                $mappedPersonId,
-                $jd,
-                'pull',
-                $userId
-            );
+            if ($mappedPersonId <= 0) {
+                $mapping = null;
+            } else {
+                // Re-observation also clears stale/deleted mapping state and
+                // refreshes the source snapshot used by field mapping.
+                mappingUpsert(
+                    $tid,
+                    'jobdiva',
+                    'person',
+                    $candidateExtId,
+                    $mappedPersonId,
+                    $jd,
+                    'pull',
+                    $userId
+                );
+            }
         }
-        return $mappedPersonId;
+        if ($mappedPersonId > 0) return $mappedPersonId;
     }
 
     // Slice 4 wiring — each person field consults the tenant registry
@@ -471,15 +507,43 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
     $classification = jobdivaPersonClassificationFromPlacementPayload($tid, $jd);
 
     $pdo = getDB();
-    // Channel 2: existing person by email (covers manual-create-before-sync race).
+    // Channel 2: a person already carrying this exact JobDiva candidate ID.
     $stmt = $pdo->prepare(
         'SELECT id FROM people
-          WHERE tenant_id = :t AND LOWER(email_primary) = LOWER(:e) AND deleted_at IS NULL
+          WHERE tenant_id = :t AND external_id = :ext
+          ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, id ASC
           LIMIT 1'
     );
-    $stmt->execute(['t' => $tid, 'e' => $email]);
+    $stmt->execute(['t' => $tid, 'ext' => $canonicalPersonExternalId]);
     $existingId = (int) $stmt->fetchColumn();
     if ($existingId > 0) {
+        $pdo->prepare(
+            "UPDATE people SET status = 'active', deleted_at = NULL, updated_at = NOW()
+              WHERE tenant_id = :t AND id = :id"
+        )->execute(['t' => $tid, 'id' => $existingId]);
+        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $existingId, $jd, 'pull', $userId);
+        return $existingId;
+    }
+
+    // Channel 3: existing person by email (covers manual-create-before-sync
+    // races), excluding a row explicitly owned by another JobDiva candidate.
+    $stmt = $pdo->prepare(
+        "SELECT id FROM people
+          WHERE tenant_id = :t AND LOWER(email_primary) = LOWER(:e) AND deleted_at IS NULL
+            AND (external_id IS NULL OR external_id = '' OR external_id = :ext OR external_id NOT LIKE 'jd:%')
+          ORDER BY CASE WHEN external_id = :ext THEN 0 WHEN external_id IS NULL OR external_id = '' THEN 1 ELSE 2 END,
+                   id ASC
+          LIMIT 1"
+    );
+    $stmt->execute(['t' => $tid, 'e' => $email, 'ext' => $canonicalPersonExternalId]);
+    $existingId = (int) $stmt->fetchColumn();
+    if ($existingId > 0) {
+        $pdo->prepare(
+            "UPDATE people
+                SET external_id = CASE WHEN external_id IS NULL OR external_id = '' THEN :ext ELSE external_id END,
+                    updated_at = NOW()
+              WHERE tenant_id = :t AND id = :id"
+        )->execute(['ext' => $canonicalPersonExternalId, 't' => $tid, 'id' => $existingId]);
         // Bind the mapping so future syncs find this person directly.
         mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $existingId, $jd, 'pull', $userId);
         try {
@@ -491,7 +555,7 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
         return $existingId;
     }
 
-    // Channel 3: auto-create.
+    // Channel 4: auto-create.
     $pdo->prepare(
         'INSERT INTO people
             (tenant_id, external_id, first_name, last_name,
@@ -502,7 +566,7 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
              "unknown", "jobdiva", :u)'
     )->execute([
         't'   => $tid,
-        'ext' => 'jd:' . $candidateExtId,
+        'ext' => $canonicalPersonExternalId,
         'fn'  => $firstName,
         'ln'  => $lastName,
         'em'  => $email,

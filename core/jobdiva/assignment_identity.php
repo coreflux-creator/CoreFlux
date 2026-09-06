@@ -237,6 +237,15 @@ function jobdivaAssignmentCanonicalPlacementStatus(
     }
 
     if ($sourceStatus !== '' && (
+        str_contains($sourceStatus, 'draft')
+        || str_contains($sourceStatus, 'unapproved')
+        || str_contains($sourceStatus, 'not approved')
+        || str_contains($sourceStatus, 'awaiting approval')
+    )) {
+        return ['status' => 'draft', 'reason' => 'source_unapproved', 'source_status' => $sourceStatus];
+    }
+
+    if ($sourceStatus !== '' && (
         str_contains($sourceStatus, 'pending')
         || str_contains($sourceStatus, 'scheduled start')
         || str_contains($sourceStatus, 'ready to start')
