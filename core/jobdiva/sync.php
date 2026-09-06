@@ -1998,6 +1998,8 @@ function jobdivaSyncAssignmentContractsBatch(
     $result = [
         'processed' => 0,
         'projected' => 0,
+        'restored' => 0,
+        'skipped_not_current' => 0,
         'failed' => 0,
         'errors' => [],
         'cursor' => $cursor,
@@ -2008,15 +2010,16 @@ function jobdivaSyncAssignmentContractsBatch(
     $pdo = getDB();
     $st = $pdo->prepare(
         "SELECT m.id, m.external_id, m.internal_entity_id, m.payload_snapshot,
-                p.person_id AS existing_person_id
+                m.sync_status, p.person_id AS existing_person_id,
+                p.deleted_at AS placement_deleted_at
            FROM external_entity_mappings m
-           LEFT JOIN placements p
+           JOIN placements p
              ON p.tenant_id = m.tenant_id
             AND p.id = m.internal_entity_id
           WHERE m.tenant_id = :tenant_id
             AND m.source_system = 'jobdiva'
             AND m.internal_entity_type = 'placement'
-            AND m.sync_status = 'ok'
+            AND m.sync_status IN ('ok', 'stale')
             AND m.payload_snapshot IS NOT NULL
             AND m.id > :cursor
           ORDER BY m.id ASC
@@ -2046,6 +2049,7 @@ function jobdivaSyncAssignmentContractsBatch(
             'external_id' => $externalId,
             'placement_id' => (int) ($row['internal_entity_id'] ?? 0),
             'person_id' => (int) ($row['existing_person_id'] ?? 0),
+            'placement_deleted_at' => (string) ($row['placement_deleted_at'] ?? ''),
         ];
         $items[] = $payload;
     }
@@ -2096,6 +2100,18 @@ function jobdivaSyncAssignmentContractsBatch(
                     $payload,
                     jobdivaExtractJoinedSubPayloads($payload)
                 );
+                $isArchived = $rowMeta['placement_deleted_at'] !== ''
+                    && $rowMeta['placement_deleted_at'] !== '0000-00-00 00:00:00';
+                $contractStatus = trim((string) ($contract['placement_status'] ?? ''));
+                $contractEndDate = jobdivaNormaliseDate($contract['end_date'] ?? null);
+                $contractLifecycle = $contractStatus !== ''
+                    ? jobdivaAssignmentCanonicalPlacementStatus($contractStatus, $contractEndDate)
+                    : ['status' => ''];
+                $canRestore = !$isArchived || in_array(
+                    (string) ($contractLifecycle['status'] ?? ''),
+                    ['active', 'pending_start', 'on_hold'],
+                    true
+                );
                 $pdo->beginTransaction();
                 $up = $pdo->prepare(
                     'UPDATE external_entity_mappings
@@ -2107,6 +2123,11 @@ function jobdivaSyncAssignmentContractsBatch(
                     'mapping_id' => $rowMeta['mapping_id'],
                     'tenant_id' => $tenantId,
                 ]);
+                if (!$canRestore) {
+                    $pdo->commit();
+                    $result['skipped_not_current']++;
+                    continue;
+                }
                 $projection = jobdivaProjectorProjectPlacement(
                     $tenantId,
                     $payload,
@@ -2115,7 +2136,8 @@ function jobdivaSyncAssignmentContractsBatch(
                         'payload_is_enriched' => true,
                         'external_id' => $rowMeta['external_id'],
                         'existing_placement_id' => $rowMeta['placement_id'],
-                        'person_id' => $rowMeta['person_id'],
+                        'person_id' => $isArchived ? 0 : $rowMeta['person_id'],
+                        'force_source_contract' => true,
                     ]
                 );
                 if (empty($projection['projected'])) {
@@ -2126,6 +2148,7 @@ function jobdivaSyncAssignmentContractsBatch(
                 }
                 $pdo->commit();
                 $result['projected']++;
+                if ($isArchived) $result['restored']++;
             } catch (\Throwable $e) {
                 if ($pdo->inTransaction()) $pdo->rollBack();
                 $result['failed']++;
@@ -2148,6 +2171,8 @@ function jobdivaSyncAssignmentContractsBatch(
         'detail' => [
             'cursor' => $result['cursor'],
             'done' => $result['done'],
+            'restored' => $result['restored'],
+            'skipped_not_current' => $result['skipped_not_current'],
             'errors' => array_slice($result['errors'], 0, 10),
         ],
         'actor_user_id' => $userId,

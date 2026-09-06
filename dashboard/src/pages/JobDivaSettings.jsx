@@ -207,6 +207,8 @@ export default function JobDivaSettings() {
       const r = await api.post('/api/jobdiva/sync.php?action=sync');
       let contractProcessed = 0;
       let contractProjected = 0;
+      let contractRestored = 0;
+      let contractSkippedNotCurrent = 0;
       let contractFailed = 0;
       let cursor = 0;
       for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
@@ -216,6 +218,8 @@ export default function JobDivaSettings() {
         });
         contractProcessed += Number(batch.processed) || 0;
         contractProjected += Number(batch.projected) || 0;
+        contractRestored += Number(batch.restored) || 0;
+        contractSkippedNotCurrent += Number(batch.skipped_not_current) || 0;
         contractFailed += Number(batch.failed) || 0;
         setMsg(`Syncing JobDiva assignment contracts: ${contractProjected} projected${contractFailed ? `, ${contractFailed} unavailable` : ''}.`);
         const nextCursor = Number(batch.cursor) || 0;
@@ -240,6 +244,8 @@ export default function JobDivaSettings() {
           assignment_contract: {
             processed: contractProcessed,
             projected: contractProjected,
+            restored: contractRestored,
+            skipped_not_current: contractSkippedNotCurrent,
             failed: contractFailed,
           },
         },

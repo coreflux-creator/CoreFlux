@@ -34,9 +34,17 @@ $assert('contract batches are cursor-based and capped below the PHP timeout',
 $assert('each enriched contract is persisted and projected immediately',
     str_contains($sync, 'SET payload_snapshot = :payload')
     && str_contains($sync, 'jobdivaProjectorProjectPlacement'));
-$assert('existing placement batches preserve the canonical person identity',
+$assert('existing active placement batches preserve the canonical person identity',
     str_contains($sync, 'p.person_id AS existing_person_id')
-    && str_contains($sync, "'person_id' => \$rowMeta['person_id']"));
+    && str_contains($sync, "'person_id' => \$isArchived ? 0 : \$rowMeta['person_id']"));
+$assert('stale exact placement mappings are revalidated by authoritative contract detail',
+    str_contains($sync, "m.sync_status IN ('ok', 'stale')")
+    && str_contains($sync, 'p.deleted_at AS placement_deleted_at'));
+$assert('archived rows restore only from an explicit current contract lifecycle',
+    str_contains($sync, "\$contractStatus !== ''")
+    && str_contains($sync, "['active', 'pending_start', 'on_hold']")
+    && str_contains($sync, "'person_id' => \$isArchived ? 0")
+    && str_contains($sync, "'force_source_contract' => true"));
 $assert('rate-field overrides receive the source payload before their fallback callback',
     str_contains($sync, "            \$field,\n            \$jd,\n            static fn() => \$fallbackKeys"));
 $assert('the API exposes a separately bounded contract action',
@@ -48,6 +56,8 @@ $assert('Sync now automatically drains contract batches to completion',
     && str_contains($ui, 'nextCursor <= cursor'));
 $assert('operator results include projected and unavailable contract counts',
     str_contains($ui, 'assignment_contract: contractProjected')
+    && str_contains($ui, 'restored: contractRestored')
+    && str_contains($ui, 'skipped_not_current: contractSkippedNotCurrent')
     && str_contains($ui, 'failed: contractFailed'));
 
 echo "\nJobDiva assignment contract batch smoke: {$pass} ok / {$fail} failed\n";
