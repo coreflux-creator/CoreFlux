@@ -56,12 +56,12 @@ function jobdivaPlacementCensusStartDate(array $opts): string
     $raw = trim((string) ($opts['census_start_date'] ?? ''));
     if ($raw !== '') {
         try {
-            return (new \DateTimeImmutable($raw))->format('m/d/Y H:i:s');
+            return (new \DateTimeImmutable($raw))->format('Y-m-d');
         } catch (\Throwable $_) {}
     }
     // This is an inventory lower bound, not an incremental cursor. A broad
     // default keeps long-running active assignments inside the census.
-    return '01/01/2000 00:00:00';
+    return '2000-01-01';
 }
 
 /** @return array{bucket:string,status:string,source_status:string} */

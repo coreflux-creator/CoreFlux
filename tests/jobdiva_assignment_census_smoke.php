@@ -37,6 +37,9 @@ $assert('current and terminal source lifecycles are kept separate',
 
 require_once $root . '/core/jobdiva/sync.php';
 require_once $root . '/core/jobdiva/sync_placements.php';
+$assert('census lower bound uses the ISO format accepted by SearchStartDef',
+    jobdivaPlacementCensusStartDate([]) === '2000-01-01'
+    && jobdivaPlacementCensusStartDate(['census_start_date' => '2026-02-03 10:11:12']) === '2026-02-03');
 $active = jobdivaPlacementCensusClassify([
     'id' => 1001,
     'candidate id' => 2001,

@@ -51,8 +51,9 @@ $assert('does not reinterpret modified_since as a Start-date filter',
     strpos($src, "\$opts['modified_since']") === false
     && strpos($src, "'startDateBegin'") === false
     && strpos($src, "'modifyDateBegin'") === false);
-$assert('uses JobDiva m/d/Y H:i:s date format (NOT ISO-8601)',
-    strpos($src, "'m/d/Y H:i:s'") !== false);
+$assert('uses the ISO date format accepted by SearchStartDef',
+    strpos($src, "format('Y-m-d')") !== false
+    && strpos($src, "return '2000-01-01';") !== false);
 $assert('paginates until a short page proves completion',
     strpos($src, 'for ($page = 0; $page < $maxPages; $page++)') !== false
     && strpos($src, 'if ($rawCount < $pageSize)') !== false
