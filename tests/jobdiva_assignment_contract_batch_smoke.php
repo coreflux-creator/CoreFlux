@@ -37,23 +37,41 @@ $assert('each enriched contract is persisted and projected immediately',
 $assert('existing active placement batches preserve the canonical person identity',
     str_contains($sync, 'p.person_id AS existing_person_id')
     && str_contains($sync, "'person_id' => \$isArchived ? 0 : \$rowMeta['person_id']"));
-$assert('stale exact placement mappings are revalidated by authoritative contract detail',
-    str_contains($sync, "m.sync_status IN ('ok', 'stale')")
+$assert('ordinary contract batches exclude stale Start IDs absent from the current census',
+    str_contains($sync, "AND m.sync_status = 'ok'")
     && str_contains($sync, 'p.deleted_at AS placement_deleted_at'));
 $assert('archived rows restore only from an explicit current contract lifecycle',
     str_contains($sync, "\$contractStatus !== ''")
     && str_contains($sync, "['active', 'pending_start', 'on_hold']")
     && str_contains($sync, "'person_id' => \$isArchived ? 0")
     && str_contains($sync, "'force_source_contract' => true"));
+$assert('ambiguous SearchStart rows are retained for exact contract review',
+    str_contains($sync, "'jobdiva_assignment_review'")
+    && str_contains($sync, 'function jobdivaSyncReviewAssignmentContractsBatch'));
+$assert('review candidates contribute their Job and Candidate IDs to the bulk mirror',
+    str_contains($sync, "internal_entity_type IN ('placement', 'jobdiva_assignment_review')")
+    && str_contains($sync, "'review_candidates_scanned'"));
+$assert('review candidates project only after an explicit current contract lifecycle',
+    str_contains($sync, "EmployeeAssignmentRecordsDetail:contract_review")
+    && str_contains($sync, "['active', 'pending_start', 'on_hold']")
+    && str_contains($sync, "'unavailable' => 0"));
+$assert('financial detail lookup prefers the verified Start identity',
+    str_contains($sync, "['__cf_jobdiva_assignment_id', 'startId', 'start_id', 'placementId', 'id']"));
 $assert('rate-field overrides receive the source payload before their fallback callback',
     str_contains($sync, "            \$field,\n            \$jd,\n            static fn() => \$fallbackKeys"));
 $assert('the API exposes a separately bounded contract action',
     str_contains($api, "case 'assignment_contracts_batch':")
     && str_contains($api, 'jobdivaSyncAssignmentContractsBatch'));
+$assert('the API exposes a bounded assignment-review action',
+    str_contains($api, "case 'review_assignment_contracts_batch':")
+    && str_contains($api, 'jobdivaSyncReviewAssignmentContractsBatch'));
 $assert('Sync now automatically drains contract batches to completion',
     str_contains($ui, "action=assignment_contracts_batch")
     && str_contains($ui, 'if (batch.done) break')
     && str_contains($ui, 'nextCursor <= cursor'));
+$assert('Sync now drains exact assignment-review batches automatically',
+    str_contains($ui, 'action=review_assignment_contracts_batch')
+    && str_contains($ui, 'assignment_review: reviewProjected'));
 $assert('operator results include projected and unavailable contract counts',
     str_contains($ui, 'assignment_contract: contractProjected')
     && str_contains($ui, 'restored: contractRestored')

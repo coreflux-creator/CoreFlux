@@ -308,6 +308,25 @@ switch ($action) {
         api_ok($result);
     }
 
+    case 'review_assignment_contracts_batch': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.jobdiva.manage');
+        $row = jobdivaConnection($tid);
+        if (!$row) api_error('JobDiva is not connected', 404);
+        $body = api_json_body();
+        try {
+            $result = jobdivaSyncReviewAssignmentContractsBatch(
+                $tid,
+                $user['id'] ?? null,
+                (int) ($body['cursor'] ?? 0),
+                (int) ($body['limit'] ?? 8)
+            );
+        } catch (\Throwable $e) {
+            api_error('Assignment review sync failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($result);
+    }
+
     case 'sync_config_get': {
         // Slice A4: per-entity sync config. Returns the merged config
         // (stored ∪ defaults) so the UI can render every entity row.

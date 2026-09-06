@@ -227,6 +227,34 @@ export default function JobDivaSettings() {
         if (nextCursor <= cursor) throw new Error('Assignment contract sync did not advance its cursor');
         cursor = nextCursor;
       }
+      let reviewProcessed = 0;
+      let reviewProjected = 0;
+      let reviewCreated = 0;
+      let reviewUpdated = 0;
+      let reviewRestored = 0;
+      let reviewSkippedNotCurrent = 0;
+      let reviewUnavailable = 0;
+      let reviewFailed = 0;
+      cursor = 0;
+      for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
+        const batch = await api.post('/api/jobdiva/sync.php?action=review_assignment_contracts_batch', {
+          cursor,
+          limit: 8,
+        });
+        reviewProcessed += Number(batch.processed) || 0;
+        reviewProjected += Number(batch.projected) || 0;
+        reviewCreated += Number(batch.created) || 0;
+        reviewUpdated += Number(batch.updated) || 0;
+        reviewRestored += Number(batch.restored) || 0;
+        reviewSkippedNotCurrent += Number(batch.skipped_not_current) || 0;
+        reviewUnavailable += Number(batch.unavailable) || 0;
+        reviewFailed += Number(batch.failed) || 0;
+        setMsg(`Validating ambiguous JobDiva assignments: ${reviewProjected} current assignments projected.`);
+        const nextCursor = Number(batch.cursor) || 0;
+        if (batch.done) break;
+        if (nextCursor <= cursor) throw new Error('Assignment review sync did not advance its cursor');
+        cursor = nextCursor;
+      }
       // A3+ returns { counts: {company, contact, placement, ...}, total, latency_ms }.
       // A1 returns { ok, note, ping } only — fall back to the note.
       const counts = r.counts && typeof r.counts === 'object' ? r.counts : null;
@@ -234,8 +262,12 @@ export default function JobDivaSettings() {
                     : (counts ? Object.values(counts).reduce((a, b) => a + (Number(b) || 0), 0) : 0);
       setSyncResult({
         ok: r.ok !== false,
-        counts: counts ? { ...counts, assignment_contract: contractProjected } : counts,
-        total: total + contractProjected,
+        counts: counts ? {
+          ...counts,
+          assignment_contract: contractProjected,
+          assignment_review: reviewProjected,
+        } : counts,
+        total: total + contractProjected + reviewProjected,
         latency_ms: r.ping?.latency_ms ?? r.latency_ms ?? null,
         note: r.note || null,
         skipped_by_config: Array.isArray(r.skipped_by_config) ? r.skipped_by_config : [],
@@ -247,6 +279,16 @@ export default function JobDivaSettings() {
             restored: contractRestored,
             skipped_not_current: contractSkippedNotCurrent,
             failed: contractFailed,
+          },
+          assignment_review: {
+            processed: reviewProcessed,
+            projected: reviewProjected,
+            created: reviewCreated,
+            updated: reviewUpdated,
+            restored: reviewRestored,
+            skipped_not_current: reviewSkippedNotCurrent,
+            unavailable: reviewUnavailable,
+            failed: reviewFailed,
           },
         },
         ts: new Date().toISOString(),

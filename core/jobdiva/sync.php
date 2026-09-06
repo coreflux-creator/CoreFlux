@@ -1249,7 +1249,43 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
     $terminalItems = is_array($discovery['terminal_items'] ?? null)
         ? $discovery['terminal_items']
         : [];
+    $reviewItems = is_array($discovery['review_items'] ?? null)
+        ? $discovery['review_items']
+        : [];
     $authoritativeCensus = !empty($discovery['authoritative']);
+
+    $reviewStaging = [
+        'observed' => 0,
+        'stored' => 0,
+        'failed' => 0,
+    ];
+    if ($authoritativeCensus) {
+        // SearchStart frequently labels real, already-working assignments
+        // with workflow values that are insufficient to prove lifecycle.
+        // Retain those rows as candidates for the exact financial-detail
+        // batch instead of silently dropping them from the source graph.
+        $pdo = getDB();
+        $pdo->prepare(
+            "UPDATE external_entity_mappings
+                SET sync_status = 'stale',
+                    last_error = 'Not observed in the latest complete JobDiva assignment review census'
+              WHERE tenant_id = :tenant_id
+                AND source_system = 'jobdiva'
+                AND internal_entity_type = 'jobdiva_assignment_review'"
+        )->execute(['tenant_id' => $tid]);
+        $reviewStaging['observed'] = count($reviewItems);
+        if ($reviewItems !== []) {
+            $storedReview = jobdivaMirrorStoreAndIndex(
+                $tid,
+                'jobdiva_assignment_review',
+                $reviewItems,
+                ['id', 'startId', 'start_id', 'startID', 'STARTID', 'placementId'],
+                $userId
+            );
+            $reviewStaging['stored'] = (int) ($storedReview['processed'] ?? 0);
+            $reviewStaging['failed'] = (int) ($storedReview['failed'] ?? 0);
+        }
+    }
 
     // Enrich every placement item with its job title BEFORE the upsert
     // loop. JobDiva's V2 BI searchStart payload contains `job id` but
@@ -1435,6 +1471,7 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
             'channel'       => $channel,
             'discovery'     => $discovery['diagnostics'] ?? [],
             'census_reconciliation' => $censusReconciliation,
+            'review_staging' => $reviewStaging,
         ],
     ]);
     return [
@@ -1446,6 +1483,7 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
         'skip_reasons' => $skipReasons,
         'census'       => $discovery['diagnostics'] ?? [],
         'census_reconciliation' => $censusReconciliation,
+        'review_staging' => $reviewStaging,
     ];
 }
 
@@ -1756,7 +1794,11 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
         ],
         'financial' => [
             'id_options' => [
-                ['ids' => ['id', 'startId', 'start_id', 'placementId'],
+                // A stored payload can contain nested or legacy generic `id`
+                // values. Prefer the verified assignment marker and dedicated
+                // Start aliases so financial detail is always requested for
+                // the mapping's exact Start identity.
+                ['ids' => ['__cf_jobdiva_assignment_id', 'startId', 'start_id', 'placementId', 'id'],
                  'body_key' => 'startId', 'numeric' => true],
             ],
             'method'   => 'GET',
@@ -2019,7 +2061,7 @@ function jobdivaSyncAssignmentContractsBatch(
           WHERE m.tenant_id = :tenant_id
             AND m.source_system = 'jobdiva'
             AND m.internal_entity_type = 'placement'
-            AND m.sync_status IN ('ok', 'stale')
+            AND m.sync_status = 'ok'
             AND m.payload_snapshot IS NOT NULL
             AND m.id > :cursor
           ORDER BY m.id ASC
@@ -2042,6 +2084,11 @@ function jobdivaSyncAssignmentContractsBatch(
             continue;
         }
         $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
+        $payload = jobdivaAssignmentMarkVerified(
+            $payload,
+            $externalId,
+            'external_mapping:assignment_contract'
+        );
         $mirrorStats = [];
         $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats, $externalId);
         $meta[] = [
@@ -2173,6 +2220,247 @@ function jobdivaSyncAssignmentContractsBatch(
             'done' => $result['done'],
             'restored' => $result['restored'],
             'skipped_not_current' => $result['skipped_not_current'],
+            'errors' => array_slice($result['errors'], 0, 10),
+        ],
+        'actor_user_id' => $userId,
+    ]);
+    return $result;
+}
+
+/**
+ * Resolve SearchStart rows whose workflow status alone cannot prove whether
+ * they are live placements. Only an exact EmployeeAssignmentRecordsDetail
+ * contract with a current lifecycle may enter the canonical placement graph.
+ */
+function jobdivaSyncReviewAssignmentContractsBatch(
+    int $tenantId,
+    ?int $userId,
+    int $cursor = 0,
+    int $limit = 8
+): array {
+    $cursor = max(0, $cursor);
+    $limit = max(1, min(8, $limit));
+    $result = [
+        'processed' => 0,
+        'projected' => 0,
+        'created' => 0,
+        'updated' => 0,
+        'restored' => 0,
+        'skipped_not_current' => 0,
+        'unavailable' => 0,
+        'failed' => 0,
+        'errors' => [],
+        'cursor' => $cursor,
+        'done' => true,
+    ];
+    if ($tenantId <= 0) return $result;
+
+    $pdo = getDB();
+    $st = $pdo->prepare(
+        "SELECT id, external_id, payload_snapshot
+           FROM external_entity_mappings
+          WHERE tenant_id = :tenant_id
+            AND source_system = 'jobdiva'
+            AND internal_entity_type = 'jobdiva_assignment_review'
+            AND sync_status = 'ok'
+            AND payload_snapshot IS NOT NULL
+            AND id > :cursor
+          ORDER BY id ASC
+          LIMIT {$limit}"
+    );
+    $st->execute(['tenant_id' => $tenantId, 'cursor' => $cursor]);
+    $rows = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    if ($rows === []) return $result;
+
+    $items = [];
+    $meta = [];
+    foreach ($rows as $row) {
+        $mappingId = (int) ($row['id'] ?? 0);
+        $result['cursor'] = max($result['cursor'], $mappingId);
+        $externalId = jobdivaAssignmentIdentityNormaliseId((string) ($row['external_id'] ?? ''));
+        $payload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
+        if ($mappingId <= 0 || $externalId === '' || !is_array($payload)) {
+            $result['failed']++;
+            $result['errors'][] = ['mapping_id' => $mappingId, 'error' => 'Invalid stored review payload'];
+            continue;
+        }
+        $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
+        $payload = jobdivaAssignmentMarkVerified(
+            $payload,
+            $externalId,
+            'searchStart:contract_review'
+        );
+        $mirrorStats = [];
+        $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats, $externalId);
+        $items[] = $payload;
+        $meta[] = [
+            'mapping_id' => $mappingId,
+            'external_id' => $externalId,
+        ];
+    }
+
+    if ($items !== []) {
+        $diagnostics = null;
+        $items = jobdivaSyncEnrichRelatedEntities(
+            $tenantId,
+            $items,
+            $userId,
+            [
+                'kinds' => ['financial'],
+                'enrich_start' => false,
+                'enrich_financial' => true,
+            ],
+            $diagnostics
+        );
+
+        $subcontractCompanyIds = [];
+        foreach ($items as $payload) {
+            $companyExternalId = trim((string) ($payload['_jd_contract']['corporation_id'] ?? ''));
+            if ($companyExternalId !== '') $subcontractCompanyIds[$companyExternalId] = true;
+        }
+        foreach (array_keys($subcontractCompanyIds) as $companyExternalId) {
+            jobdivaSyncResolveSubcontractCompany($tenantId, (string) $companyExternalId, $userId);
+        }
+
+        foreach ($items as $index => $payload) {
+            $rowMeta = $meta[$index] ?? null;
+            if (!is_array($rowMeta)) continue;
+            $result['processed']++;
+            $contract = $payload['_jd_contract'] ?? null;
+            if (!is_array($contract) || $contract === []) {
+                // Historical and unapproved review candidates commonly have
+                // no financial record. Their absence is ambiguity, not a
+                // failed sync and never deletion evidence.
+                $result['unavailable']++;
+                continue;
+            }
+
+            $contractStatus = trim((string) ($contract['placement_status'] ?? ''));
+            $contractEndDate = jobdivaNormaliseDate($contract['end_date'] ?? null);
+            $contractLifecycle = $contractStatus !== ''
+                ? jobdivaAssignmentCanonicalPlacementStatus($contractStatus, $contractEndDate)
+                : ['status' => ''];
+            $canonicalStatus = (string) ($contractLifecycle['status'] ?? '');
+            if (!in_array($canonicalStatus, ['active', 'pending_start', 'on_hold'], true)) {
+                $result['skipped_not_current']++;
+                continue;
+            }
+
+            try {
+                // Exact contract lifecycle supersedes SearchStart's workflow
+                // label for this one Start. This lets the identity guard make
+                // the same decision as the canonical placement writer.
+                $payload['startStatus'] = $canonicalStatus;
+                $payload['status'] = $canonicalStatus;
+                $payload['__cf_jobdiva_census_scope'] = 'current';
+                $payload['__cf_jobdiva_canonical_status'] = $canonicalStatus;
+                $payload = jobdivaAssignmentMarkVerified(
+                    $payload,
+                    $rowMeta['external_id'],
+                    'EmployeeAssignmentRecordsDetail:contract_review'
+                );
+                $payload = jobdivaCanonicalPlacementPayload(
+                    $payload,
+                    jobdivaExtractJoinedSubPayloads($payload)
+                );
+                $identity = jobdivaAssignmentValidate($payload, $rowMeta['external_id']);
+                if (empty($identity['valid'])) {
+                    throw new \RuntimeException(
+                        'Exact assignment identity rejected: ' . (string) ($identity['reason'] ?? 'unknown')
+                    );
+                }
+
+                $existingMapping = mappingFindInternal(
+                    $tenantId,
+                    'jobdiva',
+                    'placement',
+                    $rowMeta['external_id']
+                );
+                $existingPlacementId = (int) ($existingMapping['internal_entity_id'] ?? 0);
+                $wasArchived = false;
+                if ($existingPlacementId > 0) {
+                    $placementState = $pdo->prepare(
+                        'SELECT deleted_at FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
+                    );
+                    $placementState->execute(['t' => $tenantId, 'id' => $existingPlacementId]);
+                    $deletedAt = (string) $placementState->fetchColumn();
+                    $wasArchived = $deletedAt !== '' && $deletedAt !== '0000-00-00 00:00:00';
+                }
+
+                $pdo->beginTransaction();
+                $pdo->prepare(
+                    'UPDATE external_entity_mappings
+                        SET payload_snapshot = :payload, updated_at = NOW()
+                      WHERE id = :mapping_id AND tenant_id = :tenant_id'
+                )->execute([
+                    'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                    'mapping_id' => $rowMeta['mapping_id'],
+                    'tenant_id' => $tenantId,
+                ]);
+                $assignmentMirror = jobdivaMirrorStoreAndIndex(
+                    $tenantId,
+                    'jobdiva_assignment',
+                    [$payload],
+                    ['__cf_jobdiva_assignment_id', 'startId', 'start_id', 'id'],
+                    $userId
+                );
+                if ((int) ($assignmentMirror['processed'] ?? 0) !== 1) {
+                    throw new \RuntimeException('Could not persist verified JobDiva assignment');
+                }
+                $projection = jobdivaProjectorProjectPlacement(
+                    $tenantId,
+                    $payload,
+                    $userId,
+                    [
+                        'payload_is_enriched' => true,
+                        'external_id' => $rowMeta['external_id'],
+                        'existing_placement_id' => $existingPlacementId,
+                        'person_id' => 0,
+                        'force_source_contract' => true,
+                    ]
+                );
+                if (empty($projection['projected'])) {
+                    throw new \RuntimeException(implode(
+                        '; ',
+                        array_map('strval', $projection['errors'] ?? ['projection failed'])
+                    ));
+                }
+                $pdo->commit();
+                $result['projected']++;
+                if ($existingPlacementId <= 0) {
+                    $result['created']++;
+                } elseif ($wasArchived) {
+                    $result['restored']++;
+                } else {
+                    $result['updated']++;
+                }
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                $result['failed']++;
+                $result['errors'][] = [
+                    'start_id' => $rowMeta['external_id'],
+                    'error' => substr($e->getMessage(), 0, 300),
+                ];
+            }
+        }
+    }
+
+    $result['done'] = count($rows) < $limit;
+    jobdivaAudit($tenantId, 'sync_review_assignment_contracts_batch', [
+        'entity_type' => 'jobdiva_assignment_review',
+        'direction' => 'pull',
+        'ok' => $result['failed'] === 0,
+        'items_processed' => $result['projected'],
+        'items_skipped' => $result['skipped_not_current'] + $result['unavailable'],
+        'items_failed' => $result['failed'],
+        'detail' => [
+            'cursor' => $result['cursor'],
+            'done' => $result['done'],
+            'created' => $result['created'],
+            'updated' => $result['updated'],
+            'restored' => $result['restored'],
+            'skipped_not_current' => $result['skipped_not_current'],
+            'unavailable' => $result['unavailable'],
             'errors' => array_slice($result['errors'], 0, 10),
         ],
         'actor_user_id' => $userId,
@@ -7048,6 +7336,7 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
 {
     $stats = [
         'placements_scanned'      => 0,
+        'review_candidates_scanned' => 0,
         'unique_job_ids'          => 0,
         'unique_candidate_ids'    => 0,
         'unique_customer_ids'     => 0,
@@ -7075,11 +7364,11 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
 
     // 1. Scan every jobdiva placement payload and collect IDs.
     $st = $pdo->prepare(
-        "SELECT payload_snapshot
+        "SELECT internal_entity_type, payload_snapshot
            FROM external_entity_mappings
           WHERE tenant_id = :t
             AND source_system = 'jobdiva'
-            AND internal_entity_type = 'placement'
+            AND internal_entity_type IN ('placement', 'jobdiva_assignment_review')
             AND sync_status = 'ok'
             AND payload_snapshot IS NOT NULL"
     );
@@ -7088,7 +7377,12 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
     $jobIds = $candIds = $custIds = $startIds = [];
     $assignmentSeeds = $assignmentHints = [];
     while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {
-        $stats['placements_scanned']++;
+        $isReviewCandidate = (string) ($row['internal_entity_type'] ?? '') === 'jobdiva_assignment_review';
+        if ($isReviewCandidate) {
+            $stats['review_candidates_scanned']++;
+        } else {
+            $stats['placements_scanned']++;
+        }
         $payload = json_decode((string) $row['payload_snapshot'], true);
         if (!is_array($payload)) continue;
         $rootPayload = jobdivaAssignmentStripDerivedFacets($payload);
@@ -7101,7 +7395,7 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
         if ($j !== null) $jobIds[]   = (string) $j;
         if ($c !== null) $candIds[]  = (string) $c;
         if ($u !== null) $custIds[]  = (string) $u;
-        if ($s !== null && trim((string) $s) !== '') {
+        if (!$isReviewCandidate && $s !== null && trim((string) $s) !== '') {
             $sid = jobdivaAssignmentIdentityNormaliseId((string) $s);
             $startIds[] = $sid;
             $assignmentHints[$sid] = $rootPayload;
