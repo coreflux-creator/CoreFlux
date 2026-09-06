@@ -201,10 +201,23 @@ $billingOnlyShape = $productionShape;
 $billingOnlyShape[0]['Start ID'] = '57862244';
 $billingOnlyShape[0]['SALARY'][0]['APPROVED'] = 0;
 $billingOnlyShape[0]['SALARY'][0]['STATUS'] = 1;
-$billingOnlyContract = jobdivaAssignmentContractBuild($billingOnlyShape, [], '57862244');
-$assert('billing-approved but pay-unapproved Start remains a draft',
+$billingOnlyContract = jobdivaAssignmentContractBuild(
+    $billingOnlyShape,
+    ['__cf_jobdiva_census_scope' => 'review'],
+    '57862244'
+);
+$assert('review-only billing-approved but pay-unapproved Start remains a draft',
     ($billingOnlyContract['placement_status'] ?? '') === 'draft'
-    && ($billingOnlyContract['salary_approved'] ?? null) === false);
+    && ($billingOnlyContract['salary_approved'] ?? null) === false
+    && ($billingOnlyContract['salary_lifecycle_enforced'] ?? null) === true);
+$currentBillingOnlyContract = jobdivaAssignmentContractBuild(
+    $billingOnlyShape,
+    ['__cf_jobdiva_census_scope' => 'current'],
+    '57862244'
+);
+$assert('authoritative current census is not demoted by the pay-side workflow flag',
+    ($currentBillingOnlyContract['placement_status'] ?? '') === 'active'
+    && ($currentBillingOnlyContract['salary_lifecycle_enforced'] ?? null) === false);
 $assert('draft financial lifecycle stays draft in the canonical placement mapper',
     jobdivaAssignmentCanonicalPlacementStatus('draft')['status'] === 'draft');
 $assert('assignment worksite and onsite policy remain canonical placement facts',

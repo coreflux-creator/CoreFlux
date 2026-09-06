@@ -43,6 +43,38 @@ $assert('census lower bound uses the ISO format accepted by SearchStartDef',
 $assert('page offsets overlap by one record before Start-ID dedupe',
     str_contains($discovery, '$pageStride = max(1, $pageSize - 1)')
     && str_contains($discovery, '$offset = $page * $pageStride'));
+$assert('a recent corroboration census shifts JobDiva page boundaries before ID-union',
+    str_contains($discovery, 'jobdivaPlacementCorroborationStartDate')
+    && str_contains($discovery, 'jobdivaPlacementsMergeSearchStartCensuses')
+    && str_contains($discovery, "'corroboration_start_date_from'"));
+$mergedCensus = jobdivaPlacementsMergeSearchStartCensuses(
+    [
+        'items' => [[
+            'id' => 1001, 'candidate id' => 2001, 'job id' => 3001,
+            'start date' => '01/15/2026', 'startStatus' => 'Active',
+        ]],
+        'terminal_items' => [],
+        'review_items' => [[
+            'id' => 1002, 'candidate id' => 2002, 'job id' => 3002,
+            'start date' => '01/15/2026', 'startStatus' => 'Submitted',
+        ]],
+    ],
+    [
+        'items' => [[
+            'id' => 1002, 'candidate id' => 2002, 'job id' => 3002,
+            'start date' => '01/15/2026', 'startStatus' => 'Active',
+        ], [
+            'id' => 1003, 'candidate id' => 2003, 'job id' => 3003,
+            'start date' => '01/15/2026', 'startStatus' => 'Active',
+        ]],
+        'terminal_items' => [],
+        'review_items' => [],
+    ]
+);
+$assert('corroboration unions missed Start IDs and current evidence wins review',
+    count($mergedCensus['items']) === 3
+    && count($mergedCensus['review_items']) === 0
+    && $mergedCensus['current_ids'] === ['1001', '1002', '1003']);
 $active = jobdivaPlacementCensusClassify([
     'id' => 1001,
     'candidate id' => 2001,

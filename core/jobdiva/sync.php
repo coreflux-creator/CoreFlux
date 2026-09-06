@@ -2246,6 +2246,7 @@ function jobdivaSyncReviewAssignmentContractsBatch(
         'created' => 0,
         'updated' => 0,
         'restored' => 0,
+        'demoted' => 0,
         'skipped_not_current' => 0,
         'unavailable' => 0,
         'failed' => 0,
@@ -2341,7 +2342,94 @@ function jobdivaSyncReviewAssignmentContractsBatch(
                 ? jobdivaAssignmentCanonicalPlacementStatus($contractStatus, $contractEndDate)
                 : ['status' => ''];
             $canonicalStatus = (string) ($contractLifecycle['status'] ?? '');
+
+            $existingMapping = mappingFindInternal(
+                $tenantId,
+                'jobdiva',
+                'placement',
+                $rowMeta['external_id']
+            );
+            $existingPlacementId = (int) ($existingMapping['internal_entity_id'] ?? 0);
+            if ($existingPlacementId <= 0) {
+                $findPlacement = $pdo->prepare(
+                    'SELECT id
+                       FROM placements
+                      WHERE tenant_id = :t
+                        AND external_id IN (:canonical, :raw)
+                      ORDER BY id ASC
+                      LIMIT 1'
+                );
+                $findPlacement->execute([
+                    't' => $tenantId,
+                    'canonical' => 'jd:' . $rowMeta['external_id'],
+                    'raw' => $rowMeta['external_id'],
+                ]);
+                $existingPlacementId = (int) ($findPlacement->fetchColumn() ?: 0);
+            }
+
             if (!in_array($canonicalStatus, ['active', 'pending_start', 'on_hold'], true)) {
+                // Review rows are exact Start records that SearchStart could
+                // not qualify on its own. When financial detail proves an
+                // existing source-bound placement is draft or terminal, make
+                // that lifecycle correction instead of leaving it active.
+                if ($existingPlacementId > 0
+                    && in_array($canonicalStatus, ['draft', 'ended', 'cancelled'], true)) {
+                    try {
+                        $pdo->beginTransaction();
+                        $pdo->prepare(
+                            'UPDATE external_entity_mappings
+                                SET payload_snapshot = :payload, updated_at = NOW()
+                              WHERE id = :mapping_id AND tenant_id = :tenant_id'
+                        )->execute([
+                            'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                            'mapping_id' => $rowMeta['mapping_id'],
+                            'tenant_id' => $tenantId,
+                        ]);
+                        $demote = $pdo->prepare(
+                            "UPDATE placements
+                                SET status = :status,
+                                    end_date = COALESCE(:end_date, end_date),
+                                    updated_at = NOW()
+                              WHERE tenant_id = :tenant_id
+                                AND id = :placement_id
+                                AND status IN ('draft', 'pending_start', 'active', 'on_hold')
+                                AND status <> :current_status"
+                        );
+                        $demote->execute([
+                            'status' => $canonicalStatus,
+                            'current_status' => $canonicalStatus,
+                            'end_date' => $contractEndDate,
+                            'tenant_id' => $tenantId,
+                            'placement_id' => $existingPlacementId,
+                        ]);
+                        $changed = $demote->rowCount() > 0;
+                        $pdo->commit();
+                        if ($changed) {
+                            $result['demoted']++;
+                            jobdivaAudit($tenantId, 'assignment_contract_lifecycle', [
+                                'entity_type' => 'placement',
+                                'direction' => 'pull',
+                                'ok' => true,
+                                'items_processed' => 1,
+                                'actor_user_id' => $userId,
+                                'detail' => [
+                                    'start_id' => $rowMeta['external_id'],
+                                    'placement_id' => $existingPlacementId,
+                                    'status' => $canonicalStatus,
+                                    'source' => 'EmployeeAssignmentRecordsDetail:contract_review',
+                                ],
+                            ]);
+                        }
+                    } catch (\Throwable $e) {
+                        if ($pdo->inTransaction()) $pdo->rollBack();
+                        $result['failed']++;
+                        $result['errors'][] = [
+                            'start_id' => $rowMeta['external_id'],
+                            'error' => substr($e->getMessage(), 0, 300),
+                        ];
+                        continue;
+                    }
+                }
                 $result['skipped_not_current']++;
                 continue;
             }
@@ -2370,13 +2458,6 @@ function jobdivaSyncReviewAssignmentContractsBatch(
                     );
                 }
 
-                $existingMapping = mappingFindInternal(
-                    $tenantId,
-                    'jobdiva',
-                    'placement',
-                    $rowMeta['external_id']
-                );
-                $existingPlacementId = (int) ($existingMapping['internal_entity_id'] ?? 0);
                 $wasArchived = false;
                 if ($existingPlacementId > 0) {
                     $placementState = $pdo->prepare(
@@ -2459,6 +2540,7 @@ function jobdivaSyncReviewAssignmentContractsBatch(
             'created' => $result['created'],
             'updated' => $result['updated'],
             'restored' => $result['restored'],
+            'demoted' => $result['demoted'],
             'skipped_not_current' => $result['skipped_not_current'],
             'unavailable' => $result['unavailable'],
             'errors' => array_slice($result['errors'], 0, 10),

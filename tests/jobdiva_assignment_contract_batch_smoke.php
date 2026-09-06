@@ -55,6 +55,10 @@ $assert('review candidates project only after an explicit current contract lifec
     str_contains($sync, "EmployeeAssignmentRecordsDetail:contract_review")
     && str_contains($sync, "['active', 'pending_start', 'on_hold']")
     && str_contains($sync, "'unavailable' => 0"));
+$assert('review contracts demote stale source-bound placements when exact lifecycle is not current',
+    str_contains($sync, "'demoted' => 0")
+    && str_contains($sync, "['draft', 'ended', 'cancelled']")
+    && str_contains($sync, "assignment_contract_lifecycle"));
 $assert('financial detail lookup prefers the verified Start identity',
     str_contains($sync, "['__cf_jobdiva_assignment_id', 'startId', 'start_id', 'placementId', 'id']"));
 $assert('rate-field overrides receive the source payload before their fallback callback',

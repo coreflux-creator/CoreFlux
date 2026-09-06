@@ -348,17 +348,25 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         || in_array($salaryStatus, ['2', 'approved', 'active', 'current'], true);
     $salaryBlocked = $salaryApproved === false
         || in_array($salaryStatus, ['0', '1', 'draft', 'unapproved', 'pending approval'], true);
+    $censusScope = strtolower(trim((string) ($fallback['__cf_jobdiva_census_scope'] ?? '')));
+    $enforceSalaryLifecycle = $censusScope === 'review';
     $endDate = function_exists('jobdivaNormaliseDate') ? jobdivaNormaliseDate($endDateRaw) : null;
-    if ($closed === true || $salaryClosed === true || $actualEnd === true || ($endDate !== null && $endDate < date('Y-m-d'))) {
+    if ($closed === true
+        || ($enforceSalaryLifecycle && $salaryClosed === true)
+        || $actualEnd === true
+        || ($endDate !== null && $endDate < date('Y-m-d'))) {
         $placementStatus = 'ended';
-    } elseif ($salaryBlocked && $approved === true) {
-        // JobDiva's Assignment Dashboard only treats a Start as active when
-        // both the BILLING and SALARY halves are approved. A billing-only
-        // record is a real Start, but it remains a CoreFlux draft.
+    } elseif ($enforceSalaryLifecycle && $salaryBlocked && $approved === true) {
+        // SearchStart's current census is authoritative for rows it qualifies.
+        // Only ambiguous review rows need the SALARY side to prove that a
+        // billing-approved Start is actually live.
         $placementStatus = 'draft';
-    } elseif ($actualStart === true && $approved !== false && ($salaryReady || $salaryStatus === '')) {
+    } elseif ($actualStart === true
+        && $approved !== false
+        && (!$enforceSalaryLifecycle || $salaryReady || $salaryStatus === '')) {
         $placementStatus = 'active';
-    } elseif ($approved === true && ($salaryReady || $salaryStatus === '')) {
+    } elseif ($approved === true
+        && (!$enforceSalaryLifecycle || $salaryReady || $salaryStatus === '')) {
         $placementStatus = 'pending_start';
     } else {
         $placementStatus = '';
@@ -396,6 +404,8 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'salary_approved' => $salaryApproved,
         'salary_closed' => $salaryClosed,
         'salary_status' => $salaryStatusRaw,
+        'census_scope' => $censusScope,
+        'salary_lifecycle_enforced' => $enforceSalaryLifecycle,
         'worksite_city' => $billingPick(['Working City', 'WORKING_CITY', 'worksiteCity', 'worksite_city']),
         'worksite_state' => $billingPick(['Working State', 'WORKING_STATE', 'worksiteState', 'worksite_state']),
         'worksite_country' => $billingPick(['Working Country', 'WORKING_COUNTRY', 'worksiteCountry', 'worksite_country']),

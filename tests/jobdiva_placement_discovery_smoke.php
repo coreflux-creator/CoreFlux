@@ -71,6 +71,10 @@ $assert('records page-level census diagnostics',
     strpos($src, "'criteria' => array_keys(\$body)") !== false
     && strpos($src, "'raw_count' => \$rawCount") !== false
     && strpos($src, "'new_count' => \$newOnPage") !== false);
+$assert('corroborates broad pagination with a recent independent census',
+    strpos($src, 'jobdivaPlacementCorroborationStartDate') !== false
+    && strpos($src, 'jobdivaPlacementsMergeSearchStartCensuses') !== false
+    && strpos($src, "'corroboration_searchStart_attempts'") !== false);
 
 echo "\nTimesheet-derived fallback\n";
 $assert('uses retry-wrapped timesheet pull',

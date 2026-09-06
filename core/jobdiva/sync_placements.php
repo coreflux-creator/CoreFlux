@@ -64,6 +64,51 @@ function jobdivaPlacementCensusStartDate(array $opts): string
     return '2000-01-01T00:00:00';
 }
 
+function jobdivaPlacementCorroborationStartDate(array $opts): string
+{
+    $raw = trim((string) ($opts['census_corroboration_start_date'] ?? ''));
+    if ($raw !== '') {
+        try {
+            return (new \DateTimeImmutable($raw))->format('Y-m-d\TH:i:s');
+        } catch (\Throwable $_) {}
+    }
+    return (new \DateTimeImmutable('today -3 years'))->format('Y-m-d\TH:i:s');
+}
+
+/**
+ * Merge independent SearchStart walks by Start ID. A qualified current row
+ * wins over terminal and review observations; terminal wins over review.
+ * This makes the union tolerant of JobDiva's unstable broad-query paging.
+ */
+function jobdivaPlacementsMergeSearchStartCensuses(array ...$censuses): array
+{
+    $merged = ['current' => [], 'terminal' => [], 'review' => []];
+    $sourceKeys = [
+        'review' => 'review_items',
+        'terminal' => 'terminal_items',
+        'current' => 'items',
+    ];
+    foreach ($sourceKeys as $bucket => $sourceKey) {
+        foreach ($censuses as $census) {
+            foreach ((array) ($census[$sourceKey] ?? []) as $row) {
+                if (!is_array($row)) continue;
+                $assignmentId = jobdivaAssignmentRowId($row);
+                if ($assignmentId === '') continue;
+                foreach (array_keys($merged) as $otherBucket) {
+                    unset($merged[$otherBucket][$assignmentId]);
+                }
+                $merged[$bucket][$assignmentId] = $row;
+            }
+        }
+    }
+    return [
+        'items' => array_values($merged['current']),
+        'terminal_items' => array_values($merged['terminal']),
+        'review_items' => array_values($merged['review']),
+        'current_ids' => array_map('strval', array_keys($merged['current'])),
+    ];
+}
+
 /** @return array{bucket:string,status:string,source_status:string} */
 function jobdivaPlacementCensusClassify(array $row): array
 {
@@ -282,27 +327,41 @@ function jobdivaPlacementsDiscover(int $tid, ?int $userId, array $opts = []): ar
         ];
     }
 
-    // Channel 1: authoritative paginated searchStart census.
+    // Channel 1: two independent paginated SearchStart walks. JobDiva's
+    // broad-query paging has skipped valid boundary rows in production, so a
+    // recent-start walk changes the page boundaries and corroborates the live
+    // roster while the broad walk still retains long-running assignments.
     $primary = jobdivaPlacementsFetchViaSearchStart($tid, $opts);
-    if (!empty($primary['complete']) && (int) ($primary['raw_count'] ?? 0) > 0) {
+    $corroborationOpts = $opts;
+    $corroborationOpts['census_start_date'] = jobdivaPlacementCorroborationStartDate($opts);
+    $corroboration = ($corroborationOpts['census_start_date'] === ($primary['start_date_from'] ?? ''))
+        ? $primary
+        : jobdivaPlacementsFetchViaSearchStart($tid, $corroborationOpts);
+    if (!empty($primary['complete'])
+        && !empty($corroboration['complete'])
+        && (int) ($primary['raw_count'] ?? 0) > 0) {
+        $merged = jobdivaPlacementsMergeSearchStartCensuses($primary, $corroboration);
         return [
-            'items'   => $primary['items'],
-            'terminal_items' => $primary['terminal_items'] ?? [],
-            'review_items' => $primary['review_items'] ?? [],
-            'current_ids' => $primary['current_ids'] ?? [],
+            'items'   => $merged['items'],
+            'terminal_items' => $merged['terminal_items'],
+            'review_items' => $merged['review_items'],
+            'current_ids' => $merged['current_ids'],
             'authoritative' => true,
             'channel' => 'searchStart_census',
             'diagnostics' => [
-                'searchStart_attempts' => $primary['attempts'],
-                'items_total'          => count($primary['items']),
-                'active'               => count(array_filter($primary['items'], static fn(array $row): bool => ($row['__cf_jobdiva_canonical_status'] ?? '') === 'active')),
-                'pending_start'        => count(array_filter($primary['items'], static fn(array $row): bool => ($row['__cf_jobdiva_canonical_status'] ?? '') === 'pending_start')),
-                'on_hold'              => count(array_filter($primary['items'], static fn(array $row): bool => ($row['__cf_jobdiva_canonical_status'] ?? '') === 'on_hold')),
-                'terminal'             => count($primary['terminal_items'] ?? []),
-                'review'               => count($primary['review_items'] ?? []),
-                'raw_count'            => (int) ($primary['raw_count'] ?? 0),
+                'searchStart_attempts' => array_merge($primary['attempts'], $corroboration['attempts']),
+                'primary_searchStart_attempts' => $primary['attempts'],
+                'corroboration_searchStart_attempts' => $corroboration['attempts'],
+                'items_total'          => count($merged['items']),
+                'active'               => count(array_filter($merged['items'], static fn(array $row): bool => ($row['__cf_jobdiva_canonical_status'] ?? '') === 'active')),
+                'pending_start'        => count(array_filter($merged['items'], static fn(array $row): bool => ($row['__cf_jobdiva_canonical_status'] ?? '') === 'pending_start')),
+                'on_hold'              => count(array_filter($merged['items'], static fn(array $row): bool => ($row['__cf_jobdiva_canonical_status'] ?? '') === 'on_hold')),
+                'terminal'             => count($merged['terminal_items']),
+                'review'               => count($merged['review_items']),
+                'raw_count'            => (int) ($primary['raw_count'] ?? 0) + (int) ($corroboration['raw_count'] ?? 0),
                 'complete'             => true,
                 'start_date_from'      => (string) ($primary['start_date_from'] ?? ''),
+                'corroboration_start_date_from' => (string) ($corroboration['start_date_from'] ?? ''),
             ],
         ];
     }
@@ -328,6 +387,8 @@ function jobdivaPlacementsDiscover(int $tid, ?int $userId, array $opts = []): ar
             'searchStart_yielded'    => count($primary['items'] ?? []),
             'searchStart_complete'   => !empty($primary['complete']),
             'searchStart_raw_count'  => (int) ($primary['raw_count'] ?? 0),
+            'corroboration_searchStart_attempts' => $corroboration['attempts'] ?? [],
+            'corroboration_searchStart_complete' => !empty($corroboration['complete']),
             'timesheet_discovered_ids' => $fallback['discovered_ids'] ?? [],
             'timesheet_fetch_attempts' => $fallback['attempts'] ?? [],
             'items_total'            => count($mergedItems),
