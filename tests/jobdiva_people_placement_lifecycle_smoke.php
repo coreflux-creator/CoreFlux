@@ -62,7 +62,9 @@ $assert('person re-observation also repairs stale mapping state',
     str_contains($sync, "'person',\n                \$candidateExtId,\n                \$mappedPersonId,\n                \$jd,"));
 $assert('later verified current Starts restore archived placement rows in place',
     str_contains($placementSync, "if (in_array(\$status, ['active', 'pending_start', 'on_hold'], true))")
-        && str_contains($placementSync, "\$assignments[] = 'deleted_at = NULL';"));
+        && str_contains($placementSync, "\$assignments[] = 'deleted_at = NULL';")
+        && str_contains($placementSync, "'person_id' => \$isRestore ? 0")
+        && str_contains($placementSync, "'placements_restored' => 0"));
 $assert('People directory defaults to current records but retains All statuses',
     str_contains($directory, "const [status, setStatus] = useState('active');")
         && str_contains($directory, "s === '' ? 'All statuses'"));

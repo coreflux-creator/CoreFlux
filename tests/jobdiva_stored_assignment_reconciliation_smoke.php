@@ -62,8 +62,8 @@ $assert(
     str_contains($sync, "jobdivaProjectorProjectPlacement(\n                \$tenantId,\n                (array) \$row['__payload']")
 );
 $assert(
-    'stored apply and automatic replay preserve the exact placement person identity',
-    substr_count($sync, "'person_id' => (int) (\$row['current']['person_id'] ?? 0)") >= 2
+    'stored apply preserves the exact placement person identity',
+    str_contains($sync, "'person_id' => (int) (\$row['current']['person_id'] ?? 0)")
 );
 $assert(
     'explicit stored reconciliation replaces stale overrides on JobDiva-owned contract fields',
@@ -99,16 +99,20 @@ $assert(
     str_contains($sync, "'identity' => 'Exact verified JobDiva Start ID'")
     && str_contains($sync, "'deletes' => false")
     && str_contains($sync, "'archives' => false")
+    && str_contains($sync, 'normal sync also restores an exact archived Start-ID match')
 );
 $assert(
-    'exact archived matches require an explicit restore selection',
+    'exact archived matches remain explicit in the operator preview',
     str_contains($sync, "\$outcome = \$isArchived ? 'restore'")
-    && str_contains($sync, "'restores' => 'Explicit selection only")
+    && str_contains($sync, 'Preview apply uses explicit selection')
     && str_contains($sync, "\$row['outcome'] === 'restore'")
 );
 $assert(
-    'automatic replay never restores archived rows',
-    str_contains($sync, "empty(\$row['selectable']) || \$row['outcome'] === 'restore'")
+    'automatic replay restores only explicit current source lifecycle states',
+    str_contains($sync, "\$sourceStatus !== ''")
+    && str_contains($sync, "['active', 'pending_start', 'on_hold']")
+    && str_contains($sync, "'restores_skipped_not_current'")
+    && str_contains($sync, "'person_id' => \$isRestore ? 0")
 );
 
 echo "\n4. API and UI make stored reconciliation primary\n";

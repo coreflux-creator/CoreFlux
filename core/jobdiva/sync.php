@@ -3606,7 +3606,7 @@ function jobdivaStoredAssignmentProjectionPlan(
             'writes' => 'Canonical projector only; selected rows only',
             'deletes' => false,
             'archives' => false,
-            'restores' => 'Explicit selection only for an exact archived Start-ID match',
+            'restores' => 'Preview apply uses explicit selection; normal sync also restores an exact archived Start-ID match when the detailed JobDiva contract has an explicit current lifecycle',
         ],
     ];
 }
@@ -3746,14 +3746,28 @@ function jobdivaReprojectStoredAssignmentGraphs(int $tenantId, ?int $userId, int
     $summary = [
         'assignments_seen' => (int) ($plan['summary']['assignments'] ?? 0),
         'placements_projected' => 0,
+        'placements_restored' => 0,
         'blocked' => (int) ($plan['summary']['blocked'] ?? 0),
         'restores_pending_selection' => (int) ($plan['summary']['restore'] ?? 0),
+        'restores_skipped_not_current' => 0,
         'mapping_writes' => 0,
         'field_map_writes' => 0,
         'errors' => [],
     ];
     foreach ($plan['rows'] as $row) {
-        if (empty($row['selectable']) || $row['outcome'] === 'restore') continue;
+        if (empty($row['selectable'])) continue;
+        $isRestore = ($row['outcome'] ?? '') === 'restore';
+        if ($isRestore) {
+            $sourceStatus = trim((string) ($row['contract']['placement']['status'] ?? ''));
+            $sourceEndDate = trim((string) ($row['contract']['placement']['end_date'] ?? ''));
+            $sourceLifecycle = $sourceStatus !== ''
+                ? jobdivaAssignmentCanonicalPlacementStatus($sourceStatus, $sourceEndDate ?: null)
+                : ['status' => ''];
+            if (!in_array((string) ($sourceLifecycle['status'] ?? ''), ['active', 'pending_start', 'on_hold'], true)) {
+                $summary['restores_skipped_not_current']++;
+                continue;
+            }
+        }
         try {
             $pdo->beginTransaction();
             $projection = jobdivaProjectorProjectPlacement(
@@ -3764,7 +3778,9 @@ function jobdivaReprojectStoredAssignmentGraphs(int $tenantId, ?int $userId, int
                     'payload_is_enriched' => true,
                     'external_id' => (string) $row['start_id'],
                     'existing_placement_id' => (int) ($row['placement_id'] ?? 0),
-                    'person_id' => (int) ($row['current']['person_id'] ?? 0),
+                    // Re-resolve the candidate while restoring so the same
+                    // transaction also revives the exact mapped person.
+                    'person_id' => $isRestore ? 0 : (int) ($row['current']['person_id'] ?? 0),
                     'force_source_contract' => true,
                 ]
             );
@@ -3776,6 +3792,10 @@ function jobdivaReprojectStoredAssignmentGraphs(int $tenantId, ?int $userId, int
             }
             $pdo->commit();
             $summary['placements_projected']++;
+            if ($isRestore) {
+                $summary['placements_restored']++;
+                $summary['restores_pending_selection'] = max(0, $summary['restores_pending_selection'] - 1);
+            }
             $summary['mapping_writes'] += (int) ($projection['mapping_writes'] ?? 0);
             $summary['field_map_writes'] += (int) ($projection['field_map']['written'] ?? 0);
         } catch (\Throwable $e) {
@@ -5549,7 +5569,6 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'SELECT id FROM placements
               WHERE tenant_id = :t
                 AND id = :id
-                AND (deleted_at IS NULL OR deleted_at = "0000-00-00 00:00:00")
               LIMIT 1'
         );
         $stmt->execute(['t' => $tid, 'id' => $forcedExistingId]);
