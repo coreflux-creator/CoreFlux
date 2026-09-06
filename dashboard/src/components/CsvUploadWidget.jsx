@@ -41,9 +41,18 @@ export default function CsvUploadWidget({
       const res = await fetch(`${base}${endpoint}`, {
         method: 'POST', credentials: 'include', body: form,
       });
-      const json = await res.json().catch(() => ({}));
+      const raw = await res.text();
+      let json;
+      try {
+        json = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        throw new Error(`Upload returned an invalid response (${res.status}).`);
+      }
       if (!res.ok || json.ok === false) {
-        throw new Error(json.error || json.message || `Upload failed (${res.status})`);
+        const rowErrors = Array.isArray(json.errors)
+          ? json.errors.filter(Boolean).slice(0, 3).join(' ')
+          : '';
+        throw new Error(json.error || json.message || rowErrors || `Upload failed (${res.status})`);
       }
       setResult(json);
       if (onSuccess) onSuccess(json);

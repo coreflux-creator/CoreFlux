@@ -81,6 +81,65 @@ function treasuryCsvParseAmount(?string $raw): ?float
     return $isNegParen ? -abs($v) : $v;
 }
 
+/**
+ * Keep the importer usable on hosts where mbstring is not installed.
+ */
+function treasuryCsvLimitText(string $value, int $length): string
+{
+    return function_exists('mb_substr')
+        ? mb_substr($value, 0, $length)
+        : substr($value, 0, $length);
+}
+
+/**
+ * Normalise harmless bank-feed formatting differences for cross-source
+ * duplicate detection. First Citizens, for example, sometimes emits two
+ * spaces before an account suffix while Plaid emits one.
+ */
+function treasuryCsvNormaliseDescription(string $value): string
+{
+    return strtolower(trim((string) (preg_replace('/\s+/', ' ', $value) ?? $value)));
+}
+
+/**
+ * Discover the live statement-line schema. Older production databases can
+ * pre-date the optional source audit columns, so CSV import must not fail just
+ * because a later migration has not landed yet.
+ *
+ * @return array<string,array<string,mixed>> keyed by lower-case column name
+ */
+function treasuryCsvStatementColumnInfo(PDO $pdo): array
+{
+    $driver = (string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    $info = [];
+
+    if ($driver === 'sqlite') {
+        foreach ($pdo->query('PRAGMA table_info(accounting_bank_statement_lines)')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $name = strtolower((string) ($row['name'] ?? ''));
+            if ($name !== '') {
+                $info[$name] = [
+                    'type'     => (string) ($row['type'] ?? ''),
+                    'nullable' => empty($row['notnull']),
+                    'default'  => $row['dflt_value'] ?? null,
+                ];
+            }
+        }
+        return $info;
+    }
+
+    foreach ($pdo->query('SHOW COLUMNS FROM accounting_bank_statement_lines')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $name = strtolower((string) ($row['Field'] ?? ''));
+        if ($name !== '') {
+            $info[$name] = [
+                'type'     => (string) ($row['Type'] ?? ''),
+                'nullable' => strtoupper((string) ($row['Null'] ?? 'YES')) === 'YES',
+                'default'  => $row['Default'] ?? null,
+            ];
+        }
+    }
+    return $info;
+}
+
 function treasuryImportBankCsv(
     PDO $pdo,
     int $tenantId,
@@ -114,12 +173,28 @@ function treasuryImportBankCsv(
         return $summary;
     }
 
+    try {
+        $columnInfo = treasuryCsvStatementColumnInfo($pdo);
+    } catch (\Throwable $e) {
+        $summary['errors'][] = 'could not inspect the bank statement table: ' . $e->getMessage();
+        return $summary;
+    }
+    $requiredColumns = ['tenant_id', 'bank_account_id', 'posted_date', 'description', 'amount', 'fitid'];
+    $missingColumns = array_values(array_filter(
+        $requiredColumns,
+        static fn(string $column): bool => !isset($columnInfo[$column])
+    ));
+    if ($missingColumns) {
+        $summary['errors'][] = 'bank statement table is missing required column(s): ' . implode(', ', $missingColumns);
+        return $summary;
+    }
+
     $h = fopen($filePath, 'rb');
     if (!$h) {
         $summary['errors'][] = 'fopen failed';
         return $summary;
     }
-    $headers = fgetcsv($h);
+    $headers = fgetcsv($h, null, ',', '"', '');
     if (!is_array($headers) || empty($headers)) {
         fclose($h);
         $summary['errors'][] = 'no header row';
@@ -130,7 +205,7 @@ function treasuryImportBankCsv(
         $headers[0] = substr((string) $headers[0], 3);
     }
 
-    $dateCol   = treasuryCsvFindColumn($headers, ['posted_date', 'posted date', 'date', 'posting date', 'transaction date', 'txn date']);
+    $dateCol   = treasuryCsvFindColumn($headers, ['posted_date', 'posted date', 'post date', 'date', 'posting date', 'transaction date', 'txn date']);
     $descCol   = treasuryCsvFindColumn($headers, ['description', 'memo', 'details', 'narrative', 'name']);
     $amountCol = treasuryCsvFindColumn($headers, ['amount', 'transaction amount', 'value']);
     $debitCol  = treasuryCsvFindColumn($headers, ['debit', 'withdrawal', 'debit amount']);
@@ -159,23 +234,48 @@ function treasuryImportBankCsv(
     // first, INSERT only if absent. The (tenant_id, bank_account_id,
     // fitid) UNIQUE KEY on the production table still protects against
     // races; this code path just keeps the lib testable without MySQL.
-    $check = $pdo->prepare(
-        'SELECT 1 FROM accounting_bank_statement_lines
-          WHERE tenant_id = :tid AND bank_account_id = :acc AND fitid = :fitid
-          LIMIT 1'
-    );
-    $ins = $pdo->prepare(
-        'INSERT INTO accounting_bank_statement_lines
-            (tenant_id, bank_account_id, posted_date, description, amount,
-             bank_reference, external_id, source_system, fitid, match_status, created_at)
-         VALUES
-            (:tid, :acc, :dt, :desc, :amt, :ref, :ext, :src, :fitid, "unmatched", ' .
-             ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? "datetime('now')" : 'NOW()') .
-            ')'
-    );
+    try {
+        $check = $pdo->prepare(
+            'SELECT 1 FROM accounting_bank_statement_lines
+              WHERE tenant_id = :tid AND bank_account_id = :acc AND fitid = :fitid
+              LIMIT 1'
+        );
+        $checkNatural = $pdo->prepare(
+            'SELECT description FROM accounting_bank_statement_lines
+              WHERE tenant_id = :tid AND bank_account_id = :acc
+                AND posted_date = :dt AND amount = :amt'
+        );
+
+        $insertColumns = ['tenant_id', 'bank_account_id', 'posted_date', 'description', 'amount', 'fitid'];
+        $insertValues  = [':tid', ':acc', ':dt', ':desc', ':amt', ':fitid'];
+        foreach (['bank_reference' => ':ref', 'external_id' => ':ext', 'source_system' => ':src'] as $column => $placeholder) {
+            if (isset($columnInfo[$column])) {
+                $insertColumns[] = $column;
+                $insertValues[]  = $placeholder;
+            }
+        }
+        if (isset($columnInfo['match_status'])) {
+            $insertColumns[] = 'match_status';
+            $insertValues[]  = ':match_status';
+        }
+        if (isset($columnInfo['created_at'])) {
+            $insertColumns[] = 'created_at';
+            $insertValues[]  = (string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
+                ? "datetime('now')"
+                : 'NOW()';
+        }
+        $ins = $pdo->prepare(
+            'INSERT INTO accounting_bank_statement_lines (' . implode(', ', $insertColumns) . ') VALUES (' .
+            implode(', ', $insertValues) . ')'
+        );
+    } catch (\Throwable $e) {
+        fclose($h);
+        $summary['errors'][] = 'could not prepare bank statement import: ' . $e->getMessage();
+        return $summary;
+    }
 
     $rowNum = 1;
-    while (($row = fgetcsv($h)) !== false) {
+    while (($row = fgetcsv($h, null, ',', '"', '')) !== false) {
         $rowNum++;
         $summary['rows_seen']++;
         if ($row === [null] || $row === false) { $summary['rows_skipped']++; continue; }
@@ -252,17 +352,49 @@ function treasuryImportBankCsv(
                 $summary['rows_duplicate']++;
                 continue;
             }
-            $ins->execute([
+            // Plaid and a bank CSV identify the same transaction differently.
+            // Compare the stable facts as a second de-dup key so importing
+            // older history does not duplicate rows already supplied by Plaid.
+            $checkNatural->execute([
+                'tid' => $tenantId,
+                'acc' => $bankAccountId,
+                'dt'  => $date,
+                'amt' => number_format($amount, 2, '.', ''),
+            ]);
+            $normalisedDescription = treasuryCsvNormaliseDescription($rawDesc);
+            $matchesExisting = false;
+            foreach ($checkNatural->fetchAll(PDO::FETCH_COLUMN) as $existingDescription) {
+                if (treasuryCsvNormaliseDescription((string) $existingDescription) === $normalisedDescription) {
+                    $matchesExisting = true;
+                    break;
+                }
+            }
+            if ($matchesExisting) {
+                $summary['rows_duplicate']++;
+                continue;
+            }
+
+            $insertParams = [
                 'tid'   => $tenantId,
                 'acc'   => $bankAccountId,
                 'dt'    => $date,
-                'desc'  => mb_substr($rawDesc, 0, 255),
+                'desc'  => treasuryCsvLimitText($rawDesc, 255),
                 'amt'   => $amount,
-                'ref'   => $ref !== null ? mb_substr($ref, 0, 120) : null,
-                'ext'   => $extId !== null ? mb_substr($extId, 0, 128) : null,
-                'src'   => $srcSys,
                 'fitid' => $fitid,
-            ]);
+            ];
+            if (isset($columnInfo['bank_reference'])) {
+                $insertParams['ref'] = $ref !== null ? treasuryCsvLimitText($ref, 120) : null;
+            }
+            if (isset($columnInfo['external_id'])) {
+                $insertParams['ext'] = $extId !== null ? treasuryCsvLimitText($extId, 128) : null;
+            }
+            if (isset($columnInfo['source_system'])) {
+                $insertParams['src'] = $srcSys;
+            }
+            if (isset($columnInfo['match_status'])) {
+                $insertParams['match_status'] = 'unmatched';
+            }
+            $ins->execute($insertParams);
             $summary['rows_inserted']++;
             if ($summary['date_range'][0] === null || $date < $summary['date_range'][0]) $summary['date_range'][0] = $date;
             if ($summary['date_range'][1] === null || $date > $summary['date_range'][1]) $summary['date_range'][1] = $date;

@@ -41,6 +41,9 @@ $a('findColumn matches by tolerant normalisation',
     && treasuryCsvFindColumn($h, ['check_no', 'check number']) === 4);
 $a('findColumn returns null for missing alias',
     treasuryCsvFindColumn($h, ['nonexistent']) === null);
+$a('First Citizens headers are accepted despite surrounding spaces',
+    treasuryCsvFindColumn(['Post Date', 'Description', ' Amount '], ['posted date', 'post date', 'date']) === 0
+    && treasuryCsvFindColumn(['Post Date', 'Description', ' Amount '], ['amount']) === 2);
 $a('parseAmount handles plain decimals',
     treasuryCsvParseAmount('1234.56') === 1234.56);
 $a('parseAmount strips currency symbols + commas',
@@ -179,6 +182,25 @@ $a('endpoint enforces 25MB upload cap',
     str_contains($src, '25 * 1024 * 1024'));
 $a('endpoint invokes treasuryImportBankCsv',
     str_contains($src, 'treasuryImportBankCsv($pdo, $tid, $bankAccountId, $tmp)'));
+$a('endpoint returns an actionable 422 error when every row fails',
+    str_contains($src, "api_error((string) \$summary['errors'][0], 422"));
+
+$libSrc = (string) file_get_contents(dirname(__DIR__) . '/modules/treasury/lib/csv_import.php');
+$a('importer tolerates pre-audit schemas by discovering live columns',
+    str_contains($libSrc, 'treasuryCsvStatementColumnInfo($pdo)')
+    && str_contains($libSrc, "isset(\$columnInfo['external_id'])")
+    && str_contains($libSrc, "isset(\$columnInfo['source_system'])"));
+$a('importer de-dupes matching Plaid rows by date, amount, and normalised description',
+    str_contains($libSrc, 'treasuryCsvNormaliseDescription')
+    && str_contains($libSrc, 'posted_date = :dt AND amount = :amt'));
+$a('importer does not require mbstring',
+    str_contains($libSrc, "function_exists('mb_substr')"));
+
+$migration = dirname(__DIR__) . '/core/migrations/131_treasury_csv_import_schema_repair.sql';
+$a('schema repair migration reasserts CSV audit columns',
+    file_exists($migration)
+    && str_contains((string) file_get_contents($migration), 'ADD COLUMN external_id')
+    && str_contains((string) file_get_contents($migration), 'ADD COLUMN source_system'));
 
 echo "\n===========================\n";
 echo "Treasury CSV importer smoke: $pass ✓ / $fail ✗\n";

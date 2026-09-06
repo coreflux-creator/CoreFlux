@@ -56,6 +56,11 @@ $a('exposes stable testids for widget / file / submit / error / result',
     && str_contains($wsrc, '`${testIdPrefix}-result`'));
 $a('invokes onSuccess callback when result lands',
     str_contains($wsrc, 'if (onSuccess) onSuccess(json)'));
+$a('surfaces row-level API errors instead of a generic HTTP 200 message',
+    str_contains($wsrc, 'Array.isArray(json.errors)')
+    && str_contains($wsrc, "json.errors.filter(Boolean).slice(0, 3).join(' ')"));
+$a('rejects malformed non-JSON upload responses',
+    str_contains($wsrc, 'Upload returned an invalid response'));
 $a('renders collapsible per-row error details panel',
     str_contains($wsrc, 'result.errors.length} row error')
     && str_contains($wsrc, '<details'));

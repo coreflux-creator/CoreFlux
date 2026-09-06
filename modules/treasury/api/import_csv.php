@@ -46,8 +46,7 @@ if ($size > 25 * 1024 * 1024) api_error('csv too large — split into chunks und
 $pdo = getDB();
 $summary = treasuryImportBankCsv($pdo, $tid, $bankAccountId, $tmp);
 
-api_ok([
-    'ok'              => empty($summary['errors']) || $summary['rows_inserted'] > 0,
+$payload = [
     'bank_account_id' => $bankAccountId,
     'rows_seen'       => (int) $summary['rows_seen'],
     'rows_inserted'   => (int) $summary['rows_inserted'],
@@ -55,4 +54,10 @@ api_ok([
     'rows_skipped'    => (int) $summary['rows_skipped'],
     'date_range'      => $summary['date_range'],
     'errors'          => $summary['errors'],
-]);
+];
+
+if (!empty($summary['errors']) && (int) $summary['rows_inserted'] === 0) {
+    api_error((string) $summary['errors'][0], 422, array_merge(['ok' => false], $payload));
+}
+
+api_ok(array_merge(['ok' => true], $payload));
