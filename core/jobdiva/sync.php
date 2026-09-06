@@ -6132,6 +6132,13 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             $assignments[] = "{$col} = :{$bind}";
             $bindings[$bind] = $val;
         }
+        // A complete JobDiva census can re-observe a Start that an earlier
+        // repair archived after an incomplete lookup. Current lifecycle
+        // evidence revives that exact placement row in place; terminal rows
+        // remain archived and historical children keep their original IDs.
+        if (in_array($status, ['active', 'pending_start', 'on_hold'], true)) {
+            $assignments[] = 'deleted_at = NULL';
+        }
         if (!empty($skipped)) {
             error_log("[jobdiva] placement id={$existingId} skipping CoreFlux-overridden fields: " . implode(',', $skipped));
         }

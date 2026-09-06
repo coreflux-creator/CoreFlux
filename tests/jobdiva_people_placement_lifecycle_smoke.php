@@ -35,6 +35,7 @@ $assert('unknown current source status remains active', $status('Custom Current'
 $alignment = (string) file_get_contents($root . '/core/jobdiva/mapping_alignment.php');
 $api = (string) file_get_contents($root . '/api/admin/integrations/jobdiva_mapping_alignment.php');
 $sync = (string) file_get_contents($root . '/core/jobdiva/sync_placements.php');
+$placementSync = (string) file_get_contents($root . '/core/jobdiva/sync.php');
 $directory = (string) file_get_contents($root . '/modules/people/ui/Directory.jsx');
 $settings = (string) file_get_contents($root . '/dashboard/src/pages/JobDivaSettings.jsx');
 
@@ -54,10 +55,14 @@ $assert('People with any live placement are preserved',
 $assert('repair inactivates rather than deletes historical People',
     str_contains($alignment, "SET p.status = 'inactive'")
         && !str_contains($alignment, 'mapping_alignment_repair_source_people_lifecycle_delete'));
-$assert('later JobDiva Starts reactivate source-retired People',
-    str_contains($sync, "SET status = 'active', updated_at = NOW()")
-        && str_contains($sync, "AND source = 'jobdiva'")
-        && str_contains($sync, "AND status = 'inactive'"));
+$assert('later verified JobDiva Starts restore the mapped person in place',
+    str_contains($sync, "SET status = 'active', deleted_at = NULL, updated_at = NOW()")
+        && str_contains($sync, "AND (status <> 'active' OR deleted_at IS NOT NULL)"));
+$assert('person re-observation also repairs stale mapping state',
+    str_contains($sync, "'person',\n                \$candidateExtId,\n                \$mappedPersonId,\n                \$jd,"));
+$assert('later verified current Starts restore archived placement rows in place',
+    str_contains($placementSync, "if (in_array(\$status, ['active', 'pending_start', 'on_hold'], true))")
+        && str_contains($placementSync, "\$assignments[] = 'deleted_at = NULL';"));
 $assert('People directory defaults to current records but retains All statuses',
     str_contains($directory, "const [status, setStatus] = useState('active');")
         && str_contains($directory, "s === '' ? 'All statuses'"));

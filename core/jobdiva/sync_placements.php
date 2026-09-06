@@ -390,26 +390,38 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
     if ($mapping) {
         $mappedPersonId = (int) $mapping['internal_entity_id'];
         if ($mappedPersonId > 0) {
-            // Lifecycle repair retires source-owned people when their last
-            // assignment ends. A later verified Start must reactivate that
-            // same canonical person instead of creating another record.
+            // Lifecycle repair may retire or archive a source-backed person
+            // when its placement mapping is temporarily misclassified. A
+            // later verified Start is authoritative current-use evidence:
+            // restore the same canonical person instead of leaving it hidden
+            // or creating a duplicate.
             try {
                 $pdo = getDB();
                 if ($pdo instanceof \PDO) {
                     $stmt = $pdo->prepare(
                         "UPDATE people
-                            SET status = 'active', updated_at = NOW()
+                            SET status = 'active', deleted_at = NULL, updated_at = NOW()
                           WHERE tenant_id = :t
                             AND id = :id
-                            AND source = 'jobdiva'
-                            AND status = 'inactive'
-                            AND deleted_at IS NULL"
+                            AND (status <> 'active' OR deleted_at IS NOT NULL)"
                     );
                     $stmt->execute(['t' => $tid, 'id' => $mappedPersonId]);
                 }
             } catch (\Throwable $e) {
                 error_log('[jobdiva person sync] lifecycle reactivation failed: ' . $e->getMessage());
             }
+            // Re-observation also clears stale/deleted mapping state and
+            // refreshes the source snapshot used by field mapping.
+            mappingUpsert(
+                $tid,
+                'jobdiva',
+                'person',
+                $candidateExtId,
+                $mappedPersonId,
+                $jd,
+                'pull',
+                $userId
+            );
         }
         return $mappedPersonId;
     }
