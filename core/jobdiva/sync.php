@@ -2113,7 +2113,6 @@ function jobdivaSyncAssignmentContractsBatch(
           WHERE m.tenant_id = :tenant_id
             AND m.source_system = 'jobdiva'
             AND m.internal_entity_type = 'placement'
-            AND m.sync_status <> 'deleted_in_source'
             AND m.payload_snapshot IS NOT NULL
             AND m.id > :cursor
           ORDER BY m.id ASC
