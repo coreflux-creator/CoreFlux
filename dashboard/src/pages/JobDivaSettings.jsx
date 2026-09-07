@@ -351,13 +351,15 @@ export default function JobDivaSettings() {
     clear(); setSyncResult(null); setBusy(b => ({ ...b, reconcileAssignments: true }));
     try {
       const candidates = await drainCandidateAssignments();
+      const contracts = await drainAssignmentContracts();
       const review = await drainReviewAssignments();
-      const changed = review.projected + review.demoted;
+      const projected = contracts.projected + review.projected;
+      const changed = projected + review.demoted;
       setSyncResult({
-        ok: candidates.failed === 0 && review.failed === 0,
+        ok: candidates.failed === 0 && contracts.failed === 0 && review.failed === 0,
         mode: 'reconcile',
         counts: {
-          assignment_projected: review.projected,
+          assignment_projected: projected,
           assignment_demoted: review.demoted,
         },
         total: changed,
@@ -371,6 +373,13 @@ export default function JobDivaSettings() {
             processed: candidates.processed,
             review_staged: candidates.staged,
             failed: candidates.failed,
+          },
+          assignment_contract: {
+            processed: contracts.processed,
+            projected: contracts.projected,
+            restored: contracts.restored,
+            skipped_not_current: contracts.skippedNotCurrent,
+            failed: contracts.failed,
           },
           assignment_review: {
             processed: review.processed,
@@ -390,7 +399,7 @@ export default function JobDivaSettings() {
       });
       await loadAlignment();
       reload();
-      setMsg(`Assignment reconciliation finished: ${review.projected} current assignment(s) confirmed, ${review.demoted} removed from the active roster${review.unavailable ? `, ${review.unavailable} unresolved` : ''}.`);
+      setMsg(`Assignment reconciliation finished: ${projected} current assignment(s) confirmed, ${review.demoted} removed from the active roster${review.unavailable ? `, ${review.unavailable} unresolved` : ''}.`);
     } catch (e) { setErr(e.message); }
     finally { setBusy(b => ({ ...b, reconcileAssignments: false })); }
   };

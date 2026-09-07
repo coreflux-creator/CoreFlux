@@ -97,6 +97,10 @@ $assert('Sync now checks known candidates before contract projection',
     && str_contains($ui, 'candidate_assignment_discovery'));
 $assert('operators can reconcile assignment identity without rerunning the full mirror sync',
     str_contains($ui, 'const onReconcileAssignments = async () =>')
+    && preg_match(
+        '/const onReconcileAssignments = async \(\) => \{.*?drainAssignmentContracts\(\).*?drainReviewAssignments\(\)/s',
+        $ui
+    ) === 1
     && str_contains($ui, 'jobdiva-settings-reconcile-assignments')
     && str_contains($ui, 'Reconcile assignments'));
 $assert('operator results include projected and unavailable contract counts',
