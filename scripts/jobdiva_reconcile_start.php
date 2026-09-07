@@ -12,6 +12,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 require_once __DIR__ . '/../core/jobdiva/sync.php';
+require_once __DIR__ . '/../core/jobdiva/sync_placements.php';
 
 $tenantId = (int) ($argv[1] ?? 0);
 $startId = jobdivaAssignmentIdentityNormaliseId((string) ($argv[2] ?? ''));
@@ -40,8 +41,44 @@ $mappingStmt = $pdo->prepare(
 $mappingStmt->execute(['tenant_id' => $tenantId, 'start_id' => $startId]);
 $mapping = $mappingStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 if ($mapping === []) {
-    fwrite(STDERR, "Start {$startId} is not staged for exact assignment review.\n");
-    exit(66);
+    $response = jobdivaCall($tenantId, 'POST', JOBDIVA_PATH_SEARCH_START, [
+        'candidateid' => (int) $candidateId,
+        'maxreturned' => 100,
+        'offset' => 0,
+    ]);
+    $matchedRow = null;
+    foreach (jobdivaPlacementsExtractList($response) as $row) {
+        if (!is_array($row) || jobdivaAssignmentRowId($row) !== $startId) continue;
+        $rowCandidateId = jobdivaAssignmentIdentityNormaliseId((string) jobdivaAssignmentIdentityPluck($row, [
+            'candidate id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID',
+            'employeeId', 'employee_id',
+        ]));
+        if ($rowCandidateId !== $candidateId) continue;
+        $matchedRow = $row;
+        break;
+    }
+    if (!is_array($matchedRow)) {
+        fwrite(STDERR, "JobDiva did not return Start {$startId} for candidate {$candidateId}.\n");
+        exit(66);
+    }
+    $matchedRow['__cf_jobdiva_census_scope'] = 'review';
+    $stored = jobdivaMirrorStoreAndIndex(
+        $tenantId,
+        'jobdiva_assignment_review',
+        [$matchedRow],
+        ['id', 'startId', 'start_id', 'startID', 'STARTID', 'placementId'],
+        null
+    );
+    if ((int) ($stored['processed'] ?? 0) !== 1) {
+        fwrite(STDERR, "Could not stage Start {$startId} for exact assignment review.\n");
+        exit(1);
+    }
+    $mappingStmt->execute(['tenant_id' => $tenantId, 'start_id' => $startId]);
+    $mapping = $mappingStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    if ($mapping === []) {
+        fwrite(STDERR, "Staged Start {$startId} could not be read back.\n");
+        exit(1);
+    }
 }
 
 $payload = json_decode((string) ($mapping['payload_snapshot'] ?? ''), true);

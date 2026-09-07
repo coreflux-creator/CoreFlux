@@ -94,6 +94,9 @@ $assert('the API exposes a bounded assignment-review action',
     && str_contains($api, 'jobdivaSyncReviewAssignmentContractsBatch'));
 $assert('a staged Start can be reconciled without draining the historical review queue',
     str_contains($targetedReconcile, "internal_entity_type = 'jobdiva_assignment_review'")
+    && str_contains($targetedReconcile, "'candidateid' => (int) \$candidateId")
+    && str_contains($targetedReconcile, 'jobdivaAssignmentRowId($row) !== $startId')
+    && str_contains($targetedReconcile, "'jobdiva_assignment_review'")
     && str_contains($targetedReconcile, 'max(0, $mappingId - 1)')
     && str_contains($targetedReconcile, "['active', 'pending_start', 'on_hold']"));
 $assert('the API exposes candidate-scoped assignment discovery',
