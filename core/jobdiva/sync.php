@@ -374,6 +374,13 @@ function jobdivaEndClientNameFromPayload(array $item): string
         'clientName', 'client_name', 'client name',
     ];
 
+    if (isset($item['_jd_contract']) && is_array($item['_jd_contract'])) {
+        $v = jobdivaPluckField($item['_jd_contract'], [
+            'client_company_name', 'clientCompanyName', 'endClientCompanyName',
+        ]);
+        if ($v !== '') return $v;
+    }
+
     foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
         if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
         $v = jobdivaPluckField($item[$nest], $companySpecific);
@@ -1840,7 +1847,10 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
             if ($pick !== null) {
                 $idsByKind[$kind][$pick['id']] = $pick['body_key'];
                 if ($kind === 'start' || $kind === 'financial') {
-                    $startHints[(string) $pick['id']] = jobdivaAssignmentStripDerivedFacets($jd);
+                    $startHints[(string) $pick['id']] = jobdivaAssignmentStripDerivedFacets(
+                        $jd,
+                        (string) $pick['id']
+                    );
                 }
             }
         }
@@ -1953,6 +1963,7 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
                     // requested Start/candidate/job context.
                     if ($financialRows === []) {
                         $candidateId = jobdivaPluckField($startHint, [
+                            '__cf_jobdiva_expected_candidate_id',
                             'candidate id', 'candidateId', 'candidate_id', 'candidateID',
                             'employeeId', 'employee_id',
                         ]);
@@ -6641,6 +6652,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         if (!empty($jd['__cf_force_source_contract'])) {
             $contractOwnedFields = [
                 'engagement_type', 'status', 'start_date', 'end_date',
+                'end_client_name', 'end_client_company_id', 'client_id',
                 'client_bill_cycle', 'client_bill_cycle_anchor',
                 'client_payment_terms_override', 'vendor_pay_cycle',
                 'vendor_pay_cycle_anchor', 'vendor_payment_terms_override',

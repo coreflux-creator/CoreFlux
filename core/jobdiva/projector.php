@@ -76,6 +76,7 @@ function jobdivaProjectorSourceContractDrift(
     $projection = jobdivaContractProjectionBuild($payload, $currentGraph, $expectedStartId);
     $owned = [
         'engagement_type', 'status', 'start_date', 'end_date',
+        'end_client_name',
         'bill_rate', 'pay_rate',
         'client_bill_cycle', 'vendor_pay_cycle',
         'vendor_payment_terms', 'paid_when_paid',
@@ -674,7 +675,13 @@ function jobdivaProjectorTrustedCustomerCompanyExternalId(array $payload): strin
 
 function jobdivaProjectorResolveEndClientCompany(int $tenantId, array $payload, ?int $userId): ?int
 {
-    $companyExtId = jobdivaProjectorPluck($payload, [
+    $contract = isset($payload['_jd_contract']) && is_array($payload['_jd_contract'])
+        ? $payload['_jd_contract']
+        : [];
+    $companyExtId = jobdivaProjectorPluck($contract, [
+        'client_company_id', 'clientCompanyId', 'endClientCompanyId',
+    ]);
+    if ($companyExtId === '') $companyExtId = jobdivaProjectorPluck($payload, [
         'companyId', 'company_id', 'company id', 'endClientCompanyId',
         'COMPANYID', 'companyID', 'end client company id',
     ]);
@@ -781,6 +788,13 @@ function jobdivaProjectorEndClientNameFromPayload(array $payload): string
         'customerName', 'customer_name', 'customer name',
         'clientName', 'client_name', 'client name',
     ];
+
+    if (isset($payload['_jd_contract']) && is_array($payload['_jd_contract'])) {
+        $v = jobdivaProjectorPluck($payload['_jd_contract'], [
+            'client_company_name', 'clientCompanyName', 'endClientCompanyName',
+        ]);
+        if ($v !== '') return $v;
+    }
 
     foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
         if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;

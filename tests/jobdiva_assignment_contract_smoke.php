@@ -10,6 +10,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 require_once $root . '/core/jobdiva/assignment_contract.php';
 require_once $root . '/core/jobdiva/sync.php';
+require_once $root . '/core/integrations/field_map_apply.php';
 
 $pass = 0;
 $fail = 0;
@@ -290,6 +291,10 @@ $correctCompoundAssignment = [[
         'BILL_RATE' => '74.26',
     ]],
 ]];
+$markerContext = [
+    '__cf_jobdiva_expected_candidate_id' => '6632210784858',
+    '__cf_jobdiva_expected_job_id' => '29001707',
+];
 $assert('compound financial detail rejects a different nested candidate and job',
     jobdivaAssignmentContractRowsForStart(
         $wrongCompoundAssignment,
@@ -302,6 +307,47 @@ $assert('compound financial detail accepts the exact nested candidate and job',
         $expectedAssignment,
         '57612620'
     ) === $correctCompoundAssignment);
+$assert('preserved Start markers reject another worker financial row',
+    jobdivaAssignmentContractRowsForStart(
+        $wrongCompoundAssignment,
+        $markerContext,
+        '57612620'
+    ) === []);
+$assert('preserved Start markers accept only the matching financial row',
+    jobdivaAssignmentContractRowsForStart(
+        array_merge($wrongCompoundAssignment, $correctCompoundAssignment),
+        $markerContext,
+        '57612620'
+    ) === $correctCompoundAssignment);
+$assert('identifier-free financial rows are rejected when no trusted context exists',
+    jobdivaAssignmentContractRowsForStart(
+        [['BILLING' => [['BILL_RATE' => 999]]]],
+        [],
+        '57612620'
+    ) === []);
+
+$clientContract = jobdivaAssignmentContractBuild([[
+    'Start ID' => '57612620',
+    'BILLING' => [[
+        'EMPLOYEEID' => '6632210784858',
+        'JOBID' => '29001707',
+        'COMPANY' => [[
+            'ID' => '10803946',
+            'COMPANYNAME' => 'TCS',
+        ]],
+        'BILL_RATE' => 74.26,
+    ]],
+]], $markerContext, '57612620');
+$assert('exact Assignment billing company owns the end-client identity',
+    ($clientContract['client_company_id'] ?? '') === '10803946'
+    && ($clientContract['client_company_name'] ?? '') === 'TCS');
+$assert('tenant field mappings cannot overwrite the exact billing company',
+    integrationFieldMapJobDivaContractOwnsTarget(
+        'jobdiva',
+        'placement',
+        ['target_table' => 'placements', 'target_column' => 'end_client_name'],
+        ['_jd_contract' => $clientContract]
+    ));
 $assert('placeholder company names are distinguished from source names',
     jobdivaCompanyNameIsPlaceholder('JobDiva Company 12319524', '12319524')
     && !jobdivaCompanyNameIsPlaceholder('Techvy Corp', '12319524'));

@@ -49,7 +49,7 @@ $drifted = [
 ];
 $drift = jobdivaProjectorSourceContractDrift($payload, $drifted, '57612620');
 $fields = array_column($drift, 'field');
-foreach (['status', 'engagement_type', 'start_date', 'end_date', 'bill_rate', 'pay_rate', 'client_bill_cycle', 'vendor_pay_cycle'] as $field) {
+foreach (['status', 'engagement_type', 'start_date', 'end_date', 'end_client_name', 'bill_rate', 'pay_rate', 'client_bill_cycle', 'vendor_pay_cycle'] as $field) {
     if (!in_array($field, $fields, true)) {
         fwrite(STDERR, "Missing expected drift field: {$field}\n");
         exit(1);
@@ -62,6 +62,7 @@ $aligned['placement'] = array_merge($aligned['placement'], [
     'engagement_type' => 'w2',
     'start_date' => '2026-08-11',
     'end_date' => '2027-08-17',
+    'end_client_name' => 'TCS',
     'client_bill_cycle' => 'weekly',
     'vendor_pay_cycle' => 'biweekly',
 ]);

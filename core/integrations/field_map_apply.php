@@ -1169,6 +1169,9 @@ function integrationFieldMapJobDivaContractOwnsTarget(
     $column = strtolower(trim((string) ($mapping['target_column'] ?? '')));
     $owned = [
         'placements' => [
+            'end_client_name' => ['client_company_name'],
+            'end_client_company_id' => ['client_company_id'],
+            'client_id' => ['client_company_id', 'client_company_name'],
             'start_date' => ['start_date'],
             'end_date' => ['end_date'],
             'status' => ['placement_status'],

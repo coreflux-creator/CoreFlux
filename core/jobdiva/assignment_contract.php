@@ -250,9 +250,11 @@ function jobdivaAssignmentContractRowsForStart(
 ): array {
     $expectedStartId = trim($expectedStartId);
     $expectedCandidateId = trim((string) jobdivaAssignmentContractShallowPick($fallback, [
+        '__cf_jobdiva_expected_candidate_id',
         'Candidate ID', 'candidateId', 'candidate_id', 'Employee ID', 'employeeId', 'employee_id',
     ]));
     $expectedJobId = trim((string) jobdivaAssignmentContractShallowPick($fallback, [
+        '__cf_jobdiva_expected_job_id',
         'Job ID', 'jobId', 'job_id',
     ]));
     $matching = [];
@@ -272,9 +274,10 @@ function jobdivaAssignmentContractRowsForStart(
         $rowStartId = $rowPick([
             'Start ID', 'startId', 'start_id', 'Assignment ID', 'assignmentId',
         ]);
+        $explicitStartMatch = false;
         if ($expectedStartId !== '' && $rowStartId !== '') {
-            if ($rowStartId === $expectedStartId) $matching[] = $row;
-            continue;
+            if ($rowStartId !== $expectedStartId) continue;
+            $explicitStartMatch = true;
         }
 
         $rowCandidateId = $rowPick([
@@ -284,20 +287,23 @@ function jobdivaAssignmentContractRowsForStart(
             'Job ID', 'jobId', 'job_id',
         ]);
         $contextMatched = false;
-        $contextConflicted = false;
+        $contextComplete = true;
         foreach ([
             [$expectedCandidateId, $rowCandidateId],
             [$expectedJobId, $rowJobId],
         ] as [$expected, $actual]) {
-            if ($expected === '' || $actual === '') continue;
-            if ($expected !== $actual) {
-                $contextConflicted = true;
-                break;
-            }
+            if ($expected === '') continue;
+            if ($actual === '' || $expected !== $actual) $contextComplete = false;
+            if ($actual === '' || $expected !== $actual) continue;
             $contextMatched = true;
         }
-        if ($contextConflicted) continue;
-        if ($contextMatched) $matching[] = $row;
+        if ($explicitStartMatch) {
+            if (($expectedCandidateId === '' && $expectedJobId === '') || $contextComplete) {
+                $matching[] = $row;
+            }
+            continue;
+        }
+        if ($contextComplete && $contextMatched) $matching[] = $row;
     }
 
     if ($expectedStartId === '' && $matching === []) {
@@ -331,10 +337,17 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     $salaryEntries = jobdivaAssignmentContractEntries(
         jobdivaAssignmentContractSectionRows($matching, 'SALARY')
     );
+    $billingCompanyEntries = jobdivaAssignmentContractEntries(
+        jobdivaAssignmentContractSectionRows(
+            jobdivaAssignmentContractSectionRows($matching, 'BILLING'),
+            'COMPANY'
+        )
+    );
 
     $pick = static fn(array $labels): mixed => jobdivaAssignmentContractPick($entries, $labels);
     $billingPick = static fn(array $labels): mixed => jobdivaAssignmentContractPick($billingEntries, $labels);
     $salaryPick = static fn(array $labels): mixed => jobdivaAssignmentContractPick($salaryEntries, $labels);
+    $billingCompanyPick = static fn(array $labels): mixed => jobdivaAssignmentContractPick($billingCompanyEntries, $labels);
     $startId = trim((string) ($pick(['Start ID', 'startId', 'start_id', 'Assignment ID', 'assignmentId']) ?? $expectedStartId));
     $employmentCategory = trim((string) $pick([
         'Employment Category', 'employmentCategory', 'employment_category', 'Employee Category',
@@ -492,6 +505,22 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'worksite_state' => $billingPick(['Working State', 'WORKING_STATE', 'worksiteState', 'worksite_state']),
         'worksite_country' => $billingPick(['Working Country', 'WORKING_COUNTRY', 'worksiteCountry', 'worksite_country']),
         'remote_policy' => $billingPick(['Working Location', 'WORKING_LOCATION', 'workLocation', 'remotePolicy']),
+        'client_company_name' => trim((string) ($billingCompanyPick([
+            'Company Name', 'COMPANY_NAME', 'COMPANYNAME', 'companyName',
+            'Customer Company Name', 'CLIENT_COMPANY_NAME',
+            'name',
+        ]) ?? $billingPick([
+            'Company Name', 'COMPANY_NAME', 'COMPANYNAME', 'companyName',
+            'Customer Company Name', 'CLIENT_COMPANY_NAME',
+        ]) ?? '')),
+        'client_company_id' => trim((string) ($billingCompanyPick([
+            'ID',
+            'Company ID', 'COMPANY_ID', 'COMPANYID', 'companyId',
+            'Customer Company ID', 'CLIENT_COMPANY_ID',
+        ]) ?? $billingPick([
+            'Company ID', 'COMPANY_ID', 'COMPANYID', 'companyId',
+            'Customer Company ID', 'CLIENT_COMPANY_ID',
+        ]) ?? '')),
         'w2_flag' => $w2,
         'c2c_flag' => $c2c,
         'bill_rate' => $billRate,

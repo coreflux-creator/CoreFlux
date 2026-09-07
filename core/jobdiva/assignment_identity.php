@@ -320,6 +320,81 @@ function jobdivaAssignmentMarkVerified(array $payload, string $assignmentId, str
     return $payload;
 }
 
+/**
+ * Capture the candidate/job tuple from the verified Start before cached
+ * enrichment facets are removed. EmployeeAssignmentRecordsDetail is not
+ * reliably filtered by startId in every JobDiva tenant, so this tuple is the
+ * required secondary key for financial rows that omit Start ID.
+ *
+ * @return array{start_id:string,candidate_id:string,job_id:string,start_date:string}
+ */
+function jobdivaAssignmentTrustedContext(array $payload, string $expectedId = ''): array
+{
+    $expectedId = jobdivaAssignmentIdentityNormaliseId(
+        $expectedId !== '' ? $expectedId : jobdivaAssignmentRowId($payload)
+    );
+    $context = [
+        'start_id' => $expectedId,
+        'candidate_id' => '',
+        'job_id' => '',
+        'start_date' => '',
+    ];
+
+    $markerValues = [
+        'candidate_id' => jobdivaAssignmentIdentityPluck($payload, ['__cf_jobdiva_expected_candidate_id']),
+        'job_id' => jobdivaAssignmentIdentityPluck($payload, ['__cf_jobdiva_expected_job_id']),
+        'start_date' => jobdivaAssignmentIdentityPluck($payload, ['__cf_jobdiva_expected_start_date']),
+    ];
+    foreach ($markerValues as $key => $value) {
+        if ($value !== '') $context[$key] = $value;
+    }
+    $conflicts = [];
+
+    $trustedRows = [];
+    $rootId = jobdivaAssignmentRowId($payload);
+    if ($expectedId === '' || ($rootId !== '' && $rootId === $expectedId)) {
+        $trustedRows[] = $payload;
+    }
+    if ($expectedId !== '') {
+        $exactFacet = jobdivaAssignmentFindExactFacet($payload, $expectedId);
+        if ($exactFacet !== null) $trustedRows[] = $exactFacet;
+    }
+
+    foreach ($trustedRows as $row) {
+        $evidence = jobdivaAssignmentStructuralEvidence($row);
+        foreach (['candidate_id', 'job_id', 'start_date'] as $key) {
+            $value = trim((string) ($evidence[$key] ?? ''));
+            if ($value === '' || isset($conflicts[$key])) continue;
+            if ($context[$key] !== '' && $context[$key] !== $value) {
+                // Conflicting identity is not trusted evidence.
+                $context[$key] = '';
+                $conflicts[$key] = true;
+                continue;
+            }
+            $context[$key] = $value;
+        }
+    }
+    return $context;
+}
+
+function jobdivaAssignmentPreserveTrustedContext(array $payload, string $expectedId = ''): array
+{
+    $context = jobdivaAssignmentTrustedContext($payload, $expectedId);
+    if ($context['start_id'] !== '') {
+        $payload['__cf_jobdiva_expected_start_id'] = $context['start_id'];
+    }
+    if ($context['candidate_id'] !== '') {
+        $payload['__cf_jobdiva_expected_candidate_id'] = $context['candidate_id'];
+    }
+    if ($context['job_id'] !== '') {
+        $payload['__cf_jobdiva_expected_job_id'] = $context['job_id'];
+    }
+    if ($context['start_date'] !== '') {
+        $payload['__cf_jobdiva_expected_start_date'] = $context['start_date'];
+    }
+    return $payload;
+}
+
 function jobdivaAssignmentSanitisePayload(array $payload, ?string $expectedId = null): array
 {
     $expectedId = jobdivaAssignmentIdentityNormaliseId(
@@ -356,8 +431,9 @@ function jobdivaAssignmentSanitisePayload(array $payload, ?string $expectedId = 
  * The root Start remains intact; job/person/company/contact mirrors will be
  * joined again from its exact source IDs during canonical projection.
  */
-function jobdivaAssignmentStripDerivedFacets(array $payload): array
+function jobdivaAssignmentStripDerivedFacets(array $payload, string $expectedId = ''): array
 {
+    $payload = jobdivaAssignmentPreserveTrustedContext($payload, $expectedId);
     foreach ([
         '_jd_start', '_jd_assignment_detail', '_jd_contract',
         'assignment', 'start', 'Start', 'jobdiva_assignment',

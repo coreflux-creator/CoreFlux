@@ -150,12 +150,18 @@ function jobdivaContractProjectionBuild(
     $jobId = jobdivaContractProjectionScalar($payload, [
         'job id', 'jobId', 'job_id', 'jobID', 'JOBID', 'reqId', 'req_id',
     ]);
-    $clientName = function_exists('jobdivaEndClientNameFromPayload')
-        ? trim((string) jobdivaEndClientNameFromPayload($payload))
-        : jobdivaContractProjectionScalar($payload, ['companyName', 'company_name', 'customerName']);
-    $clientExternalId = jobdivaContractProjectionScalar($payload, [
-        'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID', 'endClientCompanyId',
-    ]);
+    $clientName = trim((string) ($contract['client_company_name'] ?? ''));
+    if ($clientName === '') {
+        $clientName = function_exists('jobdivaEndClientNameFromPayload')
+            ? trim((string) jobdivaEndClientNameFromPayload($payload))
+            : jobdivaContractProjectionScalar($payload, ['companyName', 'company_name', 'customerName']);
+    }
+    $clientExternalId = trim((string) ($contract['client_company_id'] ?? ''));
+    if ($clientExternalId === '') {
+        $clientExternalId = jobdivaContractProjectionScalar($payload, [
+            'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID', 'endClientCompanyId',
+        ]);
+    }
 
     $sourceBill = jobdivaContractProjectionAmount($contract['bill_rate'] ?? null) ?? 0.0;
     $vmsBill = jobdivaContractProjectionAmount($contract['bill_rate_in_vms'] ?? null) ?? 0.0;
@@ -270,6 +276,7 @@ function jobdivaContractProjectionBuild(
         jobdivaContractProjectionField('Placement', 'status', 'Lifecycle status', $currentPlacement['status'] ?? null, $contract['placement_status'] ?? null, $sourceFor('placement_status', 'Assignment.BILLING lifecycle flags')),
         jobdivaContractProjectionField('Placement', 'start_date', 'Start date', $currentPlacement['start_date'] ?? null, $startDate, $sourceFor('start_date', 'Assignment.BILLING.START_DATE')),
         jobdivaContractProjectionField('Placement', 'end_date', 'End date', $currentPlacement['end_date'] ?? null, $endDate, $sourceFor('end_date', 'Assignment.BILLING.END_DATE')),
+        jobdivaContractProjectionField('Placement', 'end_client_name', 'Bill-to client', $currentPlacement['end_client_name'] ?? null, $clientName ?: null, $sourceFor('client_company_name', 'Assignment.BILLING.COMPANY.COMPANYNAME')),
         jobdivaContractProjectionField('Rate', 'bill_rate', 'Gross client rate', $currentRate['bill_rate'] ?? null, $grossBill > 0 ? round($grossBill, 4) : null, $sourceFor($vmsBill > 0 ? 'bill_rate_in_vms' : 'bill_rate', 'Assignment.BILLING.BILL_RATE')),
         jobdivaContractProjectionField('Rate', 'bill_discount_pct', 'VMS / client discount', $currentRate['bill_discount_pct'] ?? null, $discountPct > 0 ? round($discountPct, 6) : null, $sourceFor('net_bill_rate', 'Assignment.BILLING.NET_BILL')),
         jobdivaContractProjectionField('Rate', 'invoice_bill_rate', 'Net invoice rate', $currentRate['adjusted_bill_rate'] ?? null, $invoiceRate > 0 ? round($invoiceRate, 4) : null, $sourceFor('net_bill_rate', 'Assignment.BILLING.NET_BILL')),

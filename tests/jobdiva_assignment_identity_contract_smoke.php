@@ -260,6 +260,31 @@ $assert(
         && !isset($stripped['__cf_resolved_job_title'])
         && (string) ($stripped['id'] ?? '') === '56830791'
 );
+$assert(
+    'verified-source merge preserves the exact candidate and job identity tuple',
+    (string) ($stripped['__cf_jobdiva_expected_start_id'] ?? '') === '56830791'
+        && (string) ($stripped['__cf_jobdiva_expected_candidate_id'] ?? '') === '12345'
+        && (string) ($stripped['__cf_jobdiva_expected_job_id'] ?? '') === '27857851'
+);
+
+$facetOnly = [
+    '__cf_jobdiva_source_object' => 'assignment',
+    '__cf_jobdiva_assignment_id' => '57953568',
+    '_jd_start' => [
+        'startId' => '57953568',
+        'candidateId' => '13928466958544',
+        'jobId' => '29095468',
+        'startDate' => '2026-08-03',
+        'startStatus' => 'Active',
+    ],
+];
+$facetOnlyStripped = jobdivaAssignmentStripDerivedFacets($facetOnly, '57953568');
+$assert(
+    'facet-only Start identity survives enrichment cleanup for financial filtering',
+    (string) ($facetOnlyStripped['__cf_jobdiva_expected_candidate_id'] ?? '') === '13928466958544'
+        && (string) ($facetOnlyStripped['__cf_jobdiva_expected_job_id'] ?? '') === '29095468'
+        && !isset($facetOnlyStripped['_jd_start'])
+);
 
 $projector = (string) file_get_contents($root . '/core/jobdiva/projector.php');
 $sync = (string) file_get_contents($root . '/core/jobdiva/sync.php');

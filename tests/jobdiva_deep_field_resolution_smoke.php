@@ -186,6 +186,17 @@ $a('end-client helper ignores top-level generic name and uses _jd_job.COMPANYNAM
     jobdivaEndClientNameFromPayload($overloadedName) === 'TCS');
 $a('projector end-client helper ignores top-level generic name and uses _jd_job.COMPANYNAME',
     jobdivaProjectorEndClientNameFromPayload($overloadedName) === 'TCS');
+$exactContractClient = [
+    'companyName' => 'Michelle Lee',
+    '_jd_job' => ['COMPANYNAME' => 'Wrong Job Mirror'],
+    '_jd_contract' => [
+        'client_company_id' => '10803946',
+        'client_company_name' => 'TCS',
+    ],
+];
+$a('exact assignment billing company outranks broader Start and Job names',
+    jobdivaEndClientNameFromPayload($exactContractClient) === 'TCS'
+    && jobdivaProjectorEndClientNameFromPayload($exactContractClient) === 'TCS');
 
 echo "\n2. Source-level wire-up — deep pluck is actually consumed downstream\n";
 
