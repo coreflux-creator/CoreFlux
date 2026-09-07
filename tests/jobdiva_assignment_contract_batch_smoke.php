@@ -101,6 +101,8 @@ $assert('rate-field overrides receive the source payload before their fallback c
     str_contains($sync, "            \$field,\n            \$jd,\n            static fn() => \$fallbackKeys"));
 $assert('the exact Start billing company outranks broader Job enrichment',
     str_contains($sync, 'The Start/Assignment owns the billing company')
+    && str_contains($sync, "\$assignmentContract['client_company_name']")
+    && str_contains($sync, '$endClientName = $contractEndClientName;')
     && str_contains($projector, 'A JobDiva Start/Assignment owns the billing company')
     && preg_match(
         "/return \[\s*'_jd_start'.*?'_jd_customer'.*?'_jd_job'/s",

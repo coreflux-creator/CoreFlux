@@ -6343,6 +6343,13 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $tid, 'jobdiva', 'placement', 'end_client_name', $jd,
         static fn() => jobdivaEndClientNameFromPayload($jd)
     );
+    // The verified assignment contract is the canonical billing relationship.
+    // A legacy tenant mapping such as job.COMPANYNAME may describe the broader
+    // requisition customer and must not overwrite the Start's billing company.
+    $contractEndClientName = trim((string) ($assignmentContract['client_company_name'] ?? ''));
+    if ($contractEndClientName !== '') {
+        $endClientName = $contractEndClientName;
+    }
     $clientId = null;
     $clientBridgeName = trim($endClientName);
     if ($clientBridgeName === '' && $endClientCompanyId !== null && $endClientCompanyId > 0) {
