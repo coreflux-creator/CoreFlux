@@ -166,7 +166,9 @@ $economicsSource = (string) file_get_contents($root . '/modules/placements/lib/e
 $uiSource = (string) file_get_contents($root . '/modules/placements/ui/PlacementDetail.jsx');
 $reconciliationUi = (string) file_get_contents($root . '/modules/placements/ui/JobDivaReconciliation.jsx');
 $assert('stored reconciliation rejoins the exact financial placement mirror',
-    str_contains($syncSource, '$financialPayloads')
+    str_contains($syncSource, "internal_entity_type = 'placement'")
+    && str_contains($syncSource, "AND external_id IN (:raw, :canonical)")
+    && str_contains($syncSource, "foreach (['_jd_contract', '_jd_assignment_detail'] as \$financialKey)")
     && str_contains($syncSource, 'jobdivaContractProjectionBuild'));
 $projectorSource = (string) file_get_contents($root . '/core/jobdiva/projector.php');
 $assert('projector materializes one contract for preview and persistence',

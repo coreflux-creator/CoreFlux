@@ -3819,7 +3819,7 @@ function jobdivaStoredAssignmentProjectionPlan(
 
     $pdo = getDB();
     $st = $pdo->prepare(
-        "SELECT external_id, payload_snapshot, updated_at
+        "SELECT external_id, updated_at
            FROM external_entity_mappings
           WHERE tenant_id = :t
             AND source_system = 'jobdiva'
@@ -3831,66 +3831,65 @@ function jobdivaStoredAssignmentProjectionPlan(
     );
     $st->execute(['t' => $tenantId]);
 
-    // The authoritative financial detail is fetched against a placement's
-    // exact Start ID and persisted on the placement mirror. Reconciliation
-    // starts from the native assignment inventory, so stitch only those
-    // financial facets back onto the same exact Start ID before previewing.
-    // This closes the old split where Sync knew the rates/vendor contract but
-    // Repair Alignment projected the shallower assignment row without it.
-    $financialPayloads = [];
-    try {
-        $financialStmt = $pdo->prepare(
-            "SELECT external_id, payload_snapshot, updated_at
-               FROM external_entity_mappings
-              WHERE tenant_id = :t
-                AND source_system = 'jobdiva'
-                AND internal_entity_type = 'placement'
-                AND sync_status = 'ok'
-                AND payload_snapshot IS NOT NULL
-              ORDER BY updated_at DESC, id DESC
-              LIMIT {$limit}"
-        );
-        $financialStmt->execute(['t' => $tenantId]);
-        while ($financialRow = $financialStmt->fetch(\PDO::FETCH_ASSOC)) {
-            $financialStartId = jobdivaAssignmentIdentityNormaliseId((string) ($financialRow['external_id'] ?? ''));
-            if ($financialStartId === '' || isset($financialPayloads[$financialStartId])) continue;
-            $financialPayload = json_decode((string) ($financialRow['payload_snapshot'] ?? ''), true);
-            if (!is_array($financialPayload)) continue;
-            if (!is_array($financialPayload['_jd_contract'] ?? null)
-                && !is_array($financialPayload['_jd_assignment_detail'] ?? null)) continue;
-            // Keep only the exact financial facets needed below. A placement
-            // mirror may also contain the full joined JobDiva graph, which is
-            // far too large to retain for every assignment in a preview.
-            $financialPayloads[$financialStartId] = [
-                '_jd_contract' => is_array($financialPayload['_jd_contract'] ?? null)
-                    ? $financialPayload['_jd_contract']
-                    : null,
-                '_jd_assignment_detail' => is_array($financialPayload['_jd_assignment_detail'] ?? null)
-                    ? $financialPayload['_jd_assignment_detail']
-                    : null,
-                '__updated_at' => (string) ($financialRow['updated_at'] ?? ''),
-            ];
-        }
-    } catch (\Throwable $e) {
-        error_log('[jobdiva stored assignment preview] financial mirror lookup failed: ' . $e->getMessage());
-    }
+    // Keep large JSON mirrors out of PDO's buffered inventory query. Fetch
+    // one exact source graph at a time so preview memory is bounded by one
+    // assignment rather than the tenant's entire JobDiva history.
+    $sourcePayloadStmt = $pdo->prepare(
+        "SELECT payload_snapshot
+           FROM external_entity_mappings
+          WHERE tenant_id = :t
+            AND source_system = 'jobdiva'
+            AND internal_entity_type = 'jobdiva_assignment'
+            AND external_id = :eid
+            AND sync_status = 'ok'
+            AND payload_snapshot IS NOT NULL
+          ORDER BY updated_at DESC, id DESC
+          LIMIT 1"
+    );
+    $financialStmt = $pdo->prepare(
+        "SELECT payload_snapshot, updated_at
+           FROM external_entity_mappings
+          WHERE tenant_id = :t
+            AND source_system = 'jobdiva'
+            AND internal_entity_type = 'placement'
+            AND external_id IN (:raw, :canonical)
+            AND sync_status = 'ok'
+            AND payload_snapshot IS NOT NULL
+          ORDER BY updated_at DESC, id DESC
+          LIMIT 1"
+    );
 
     while ($sourceRow = $st->fetch(\PDO::FETCH_ASSOC)) {
-        $startId = jobdivaAssignmentIdentityNormaliseId((string) ($sourceRow['external_id'] ?? ''));
+        $sourceExternalId = (string) ($sourceRow['external_id'] ?? '');
+        $startId = jobdivaAssignmentIdentityNormaliseId($sourceExternalId);
         if ($onlyLookup && !isset($onlyLookup[$startId])) continue;
         $summary['assignments']++;
 
         $errors = [];
         $warnings = [];
-        $payload = json_decode((string) ($sourceRow['payload_snapshot'] ?? ''), true);
+        $sourcePayloadStmt->execute(['t' => $tenantId, 'eid' => $sourceExternalId]);
+        $payload = json_decode((string) ($sourcePayloadStmt->fetchColumn() ?: ''), true);
         if (!is_array($payload)) {
             $payload = [];
             $errors[] = 'Stored assignment payload is not valid JSON.';
         }
-        $financialPayload = $financialPayloads[$startId] ?? null;
+        $financialPayload = null;
         $financialUpdatedAt = '';
+        try {
+            $financialStmt->execute([
+                't' => $tenantId,
+                'raw' => $startId,
+                'canonical' => 'jd:' . $startId,
+            ]);
+            $financialRow = $financialStmt->fetch(\PDO::FETCH_ASSOC);
+            if (is_array($financialRow)) {
+                $financialPayload = json_decode((string) ($financialRow['payload_snapshot'] ?? ''), true);
+                $financialUpdatedAt = (string) ($financialRow['updated_at'] ?? '');
+            }
+        } catch (\Throwable $e) {
+            error_log('[jobdiva stored assignment preview] exact financial mirror lookup failed: ' . $e->getMessage());
+        }
         if (is_array($financialPayload)) {
-            $financialUpdatedAt = (string) ($financialPayload['__updated_at'] ?? '');
             foreach (['_jd_contract', '_jd_assignment_detail'] as $financialKey) {
                 if (!is_array($payload[$financialKey] ?? null)
                     && is_array($financialPayload[$financialKey] ?? null)) {

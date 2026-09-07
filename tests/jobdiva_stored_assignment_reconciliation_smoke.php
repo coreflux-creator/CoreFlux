@@ -131,6 +131,9 @@ $assert(
     'stored preview is memory bounded while preserving changed-evidence protection',
     str_contains($api, 'jobdivaStoredAssignmentProjectionPlan($tenantId, 5000, [], false)')
     && str_contains($sync, 'bool $includeProjectionPayloads = true')
+    && str_contains($sync, 'one exact source graph at a time')
+    && str_contains($sync, "AND external_id = :eid")
+    && !str_contains($sync, '$financialPayloads = []')
     && str_contains($sync, "'__row_token' => \$rowToken")
     && str_contains($sync, 'array_keys($selected), true')
     && str_contains($sync, 'changed while its full graph was being loaded')
