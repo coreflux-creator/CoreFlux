@@ -29,7 +29,8 @@ if (!$pdo) {
 }
 
 $placementStmt = $pdo->prepare(
-    'SELECT tenant_id, external_id, start_date, engagement_type
+    'SELECT tenant_id, external_id, person_id, end_client_company_id,
+            end_client_name, start_date, end_date, status, engagement_type
        FROM placements
       WHERE id = :id
       LIMIT 1'
@@ -124,5 +125,34 @@ try {
     if ($pdo->inTransaction()) $pdo->rollBack();
 }
 $result['after_rollback'] = $readRates();
+
+$projectorPayload = jobdivaAssignmentMarkVerified(
+    $probePayload,
+    $startId,
+    'EmployeeAssignmentRecordsDetail:rate_probe'
+);
+$projectorPayload['__cf_jobdiva_expected_start_id'] = $startId;
+try {
+    $pdo->beginTransaction();
+    $result['projector'] = jobdivaProjectorProjectPlacement(
+        $tenantId,
+        $projectorPayload,
+        null,
+        [
+            'payload_is_enriched' => true,
+            'external_id' => $startId,
+            'existing_placement_id' => $placementId,
+            'person_id' => (int) ($placement['person_id'] ?? 0),
+            'end_client_company_id' => (int) ($placement['end_client_company_id'] ?? 0),
+            'force_source_contract' => true,
+        ]
+    );
+    $result['after_projector'] = jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId);
+} catch (Throwable $e) {
+    $result['projector_error'] = $e->getMessage();
+    $result['after_projector_error'] = jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId);
+} finally {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+}
 
 echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
