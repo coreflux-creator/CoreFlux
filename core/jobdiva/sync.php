@@ -7296,14 +7296,12 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
            FROM placement_rates
           WHERE tenant_id = :t AND placement_id = :p
             AND approved_at IS NULL
-            AND created_by_user_id IS NULL
-            AND economics_snapshot_json LIKE :source_marker
+            AND JSON_UNQUOTE(JSON_EXTRACT(economics_snapshot_json, "$.source_system")) = "jobdiva"
           ORDER BY (effective_to IS NULL) DESC, id DESC'
     );
     $sourceDrafts->execute([
         't' => $tid,
         'p' => $placementId,
-        'source_marker' => '%"source_system":"jobdiva"%',
     ]);
     $sourceDraftIds = array_map('intval', $sourceDrafts->fetchAll(\PDO::FETCH_COLUMN) ?: []);
     if (count($sourceDraftIds) > 1) {
@@ -7312,7 +7310,8 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         $pdo->prepare(
             "DELETE FROM placement_rates
               WHERE tenant_id = ? AND placement_id = ?
-                AND approved_at IS NULL AND created_by_user_id IS NULL
+                AND approved_at IS NULL
+                AND JSON_UNQUOTE(JSON_EXTRACT(economics_snapshot_json, '$.source_system')) = 'jobdiva'
                 AND id IN ({$deletePlaceholders})"
         )->execute(array_merge([$tid, $placementId], $staleIds));
     }

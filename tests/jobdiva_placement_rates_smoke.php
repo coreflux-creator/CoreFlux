@@ -106,7 +106,8 @@ $assert('approved snapshots are not mutated by re-sync',
     && strpos($sync, 'Fall through to INSERT a draft correction') !== false);
 $assert('re-sync consolidates old source-managed correction drafts',
     strpos($sync, 'Keep exactly one source-managed draft') !== false
-    && strpos($sync, '%"source_system":"jobdiva"%') !== false
+    && strpos($sync, 'JSON_UNQUOTE(JSON_EXTRACT(economics_snapshot_json, "$.source_system")) = "jobdiva"') !== false
+    && strpos($sync, "JSON_UNQUOTE(JSON_EXTRACT(economics_snapshot_json, '$.source_system')) = 'jobdiva'") !== false
     && strpos($sync, '$staleIds = array_slice($sourceDraftIds, 1);') !== false);
 $assert('source correction stays current until it is approved',
     strpos($sync, '$approvedEffectiveFrom > $effectiveFrom') !== false
