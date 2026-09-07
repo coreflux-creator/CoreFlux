@@ -217,7 +217,10 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         );
         unset($writePayload['__cf_existing_placement_id']);
 
-        mappingUpsert($tenantId, 'jobdiva', 'placement', $externalId, $placementId, $writePayload, 'pull', $userId);
+        $snapshotPayload = function_exists('jobdivaAssignmentCompactSnapshotPayload')
+            ? jobdivaAssignmentCompactSnapshotPayload($writePayload, $externalId)
+            : $writePayload;
+        mappingUpsert($tenantId, 'jobdiva', 'placement', $externalId, $placementId, $snapshotPayload, 'pull', $userId);
         $summary['mapping_writes']++;
 
         if (function_exists('jobdivaIndexJoinedSubPayloads')) {

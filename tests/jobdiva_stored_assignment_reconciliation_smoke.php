@@ -139,6 +139,22 @@ $assert(
     && str_contains($sync, 'array_keys($selected), true')
     && str_contains($sync, 'changed while its full graph was being loaded')
 );
+$identity = $read("$root/core/jobdiva/assignment_identity.php");
+$assert(
+    'stored assignment snapshots cannot recursively embed the source graph',
+    str_contains($identity, 'function jobdivaAssignmentCompactSnapshotPayload(')
+    && str_contains($identity, 'function jobdivaAssignmentCompactSnapshotSql(')
+    && str_contains($sync, "jobdivaAssignmentCompactSnapshotPayload(\$jd, \$extId)")
+    && str_contains($projector, 'jobdivaAssignmentCompactSnapshotPayload($writePayload, $externalId)')
+);
+$workflow = $read("$root/.github/workflows/deploy-jobdiva-reconciliation.yml");
+$assert(
+    'deployment compacts existing recursive mirrors before exercising preview',
+    str_contains($sync, 'function jobdivaCompactStoredAssignmentMirrors(')
+    && str_contains($workflow, 'jobdivaCompactStoredAssignmentMirrors(2)')
+    && strpos($workflow, 'jobdivaCompactStoredAssignmentMirrors(2)')
+        < strpos($workflow, 'jobdivaStoredAssignmentProjectionPlan(2, 20')
+);
 $assert(
     'stored preview and apply share the same bounded page',
     str_contains($api, "'pagination' => \$plan['pagination']")

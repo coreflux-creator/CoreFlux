@@ -449,6 +449,52 @@ function jobdivaAssignmentStripDerivedFacets(array $payload, string $expectedId 
 }
 
 /**
+ * Keep one durable Start snapshot without embedding copies of the surrounding
+ * JobDiva graph. Financial detail belongs to the assignment and is retained;
+ * job, candidate, company, contact, and canonical aliases are rejoined from
+ * their own mirrors when the placement is projected.
+ */
+function jobdivaAssignmentCompactSnapshotPayload(array $payload, string $expectedId = ''): array
+{
+    $contract = is_array($payload['_jd_contract'] ?? null)
+        ? $payload['_jd_contract']
+        : null;
+    $detail = is_array($payload['_jd_assignment_detail'] ?? null)
+        ? $payload['_jd_assignment_detail']
+        : null;
+
+    $payload = jobdivaAssignmentStripDerivedFacets($payload, $expectedId);
+    if ($detail !== null && $detail !== []) $payload['_jd_assignment_detail'] = $detail;
+    if ($contract !== null && $contract !== []) $payload['_jd_contract'] = $contract;
+    return $payload;
+}
+
+/**
+ * Database-side equivalent of jobdivaAssignmentCompactSnapshotPayload().
+ * This lets maintenance and preview paths repair oversized recursive JSON
+ * without transferring and decoding the oversized value in PHP first.
+ */
+function jobdivaAssignmentCompactSnapshotSql(string $column = 'payload_snapshot'): string
+{
+    if (!preg_match('/^[A-Za-z_][A-Za-z0-9_.]*$/', $column)) {
+        throw new \InvalidArgumentException('Invalid JobDiva snapshot column');
+    }
+    $paths = [
+        '$._jd_start', '$.assignment', '$.start', '$.Start', '$.jobdiva_assignment',
+        '$._jd_job', '$.job', '$.Job', '$.jobInfo', '$.jobObj', '$.jobRecord', '$.staffing_job',
+        '$._jd_candidate', '$.person', '$.candidate', '$.Candidate', '$.employee', '$.worker',
+        '$.jobdiva_candidate', '$._jd_customer', '$.customer', '$.Customer', '$.company',
+        '$.Company', '$.client', '$.Client', '$.jobdiva_customer', '$._jd_contact',
+        '$.contact', '$.Contact', '$.jobdiva_contact',
+    ];
+    $quotedPaths = implode(', ', array_map(
+        static fn(string $path): string => "'" . str_replace("'", "''", $path) . "'",
+        $paths
+    ));
+    return "CASE WHEN JSON_VALID({$column}) THEN JSON_REMOVE({$column}, {$quotedPaths}) ELSE {$column} END";
+}
+
+/**
  * @return array{valid:bool,assignment_id:string,expected_id:string,reason:string,channel:string,evidence:array}
  */
 function jobdivaAssignmentValidate(array $payload, ?string $expectedId = null, ?string $channel = null): array

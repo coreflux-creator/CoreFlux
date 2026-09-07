@@ -856,13 +856,14 @@ function jobdivaMappingRepairAssignmentSources(int $tenantId, ?int $userId = nul
             $payload = jobdivaAssignmentMarkVerified($payload, $externalId, $channel);
             try {
                 $pdo->beginTransaction();
+                $snapshotPayload = jobdivaAssignmentCompactSnapshotPayload($payload, $externalId);
                 mappingUpsert(
                     $tenantId,
                     'jobdiva',
                     'placement',
                     $externalId,
                     $placementId,
-                    $payload,
+                    $snapshotPayload,
                     'pull',
                     $userId
                 );

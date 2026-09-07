@@ -2106,8 +2106,10 @@ function jobdivaSyncAssignmentContractsBatch(
     if ($tenantId <= 0) return $result;
 
     $pdo = getDB();
+    $compactSnapshotSql = jobdivaAssignmentCompactSnapshotSql('m.payload_snapshot');
     $st = $pdo->prepare(
-        "SELECT m.id, m.external_id, m.internal_entity_id, m.payload_snapshot,
+        "SELECT m.id, m.external_id, m.internal_entity_id,
+                {$compactSnapshotSql} AS payload_snapshot,
                 m.sync_status, p.person_id AS existing_person_id,
                 p.deleted_at AS placement_deleted_at
            FROM external_entity_mappings m
@@ -2224,8 +2226,12 @@ function jobdivaSyncAssignmentContractsBatch(
                         SET payload_snapshot = :payload, updated_at = NOW()
                       WHERE id = :mapping_id AND tenant_id = :tenant_id'
                 );
+                $snapshotPayload = jobdivaAssignmentCompactSnapshotPayload(
+                    $payload,
+                    $rowMeta['external_id']
+                );
                 $up->execute([
-                    'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                    'payload' => json_encode($snapshotPayload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
                     'mapping_id' => $rowMeta['mapping_id'],
                     'tenant_id' => $tenantId,
                 ]);
@@ -2489,11 +2495,12 @@ function jobdivaSyncReviewAssignmentContractsBatch(
     if ($tenantId <= 0) return $result;
 
     $pdo = getDB();
+    $compactSnapshotSql = jobdivaAssignmentCompactSnapshotSql('payload_snapshot');
     $runFilter = $runToken !== ''
         ? " AND JSON_UNQUOTE(JSON_EXTRACT(payload_snapshot, '$.__cf_jobdiva_review_run_token')) = :run_token"
         : '';
     $st = $pdo->prepare(
-        "SELECT id, external_id, payload_snapshot
+        "SELECT id, external_id, {$compactSnapshotSql} AS payload_snapshot
            FROM external_entity_mappings
           WHERE tenant_id = :tenant_id
             AND source_system = 'jobdiva'
@@ -2631,7 +2638,10 @@ function jobdivaSyncReviewAssignmentContractsBatch(
                                 SET payload_snapshot = :payload, updated_at = NOW()
                               WHERE id = :mapping_id AND tenant_id = :tenant_id'
                         )->execute([
-                            'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                            'payload' => json_encode(
+                                jobdivaAssignmentCompactSnapshotPayload($payload, $rowMeta['external_id']),
+                                JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+                            ),
                             'mapping_id' => $rowMeta['mapping_id'],
                             'tenant_id' => $tenantId,
                         ]);
@@ -2724,7 +2734,10 @@ function jobdivaSyncReviewAssignmentContractsBatch(
                         SET payload_snapshot = :payload, updated_at = NOW()
                       WHERE id = :mapping_id AND tenant_id = :tenant_id'
                 )->execute([
-                    'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                    'payload' => json_encode(
+                        jobdivaAssignmentCompactSnapshotPayload($payload, $rowMeta['external_id']),
+                        JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+                    ),
                     'mapping_id' => $rowMeta['mapping_id'],
                     'tenant_id' => $tenantId,
                 ]);
@@ -3283,8 +3296,9 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
     }
 
     try {
+        $compactSnapshotSql = jobdivaAssignmentCompactSnapshotSql('payload_snapshot');
         $st = $pdo->prepare(
-            "SELECT id, external_id, payload_snapshot
+            "SELECT id, external_id, {$compactSnapshotSql} AS payload_snapshot
                FROM external_entity_mappings
               WHERE tenant_id = :t
                 AND source_system = 'jobdiva'
@@ -3380,7 +3394,10 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
                               WHERE id = :id AND tenant_id = :t'
                         );
                         $up->execute([
-                            'p'  => json_encode($newPayload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                            'p'  => json_encode(
+                                jobdivaAssignmentCompactSnapshotPayload($newPayload, $externalId),
+                                JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+                            ),
                             'id' => $p['mapping_id'],
                             't'  => $tenantId,
                         ]);
@@ -3431,8 +3448,11 @@ function jobdivaMirrorPayloadByExternalId(int $tenantId, string $entityType, str
     $externalId = trim($externalId);
     if ($tenantId <= 0 || $entityType === '' || $externalId === '') return null;
     try {
+        $payloadSelect = $entityType === 'jobdiva_assignment'
+            ? jobdivaAssignmentCompactSnapshotSql('payload_snapshot')
+            : 'payload_snapshot';
         $st = getDB()->prepare(
-            "SELECT payload_snapshot
+            "SELECT {$payloadSelect} AS payload_snapshot
                FROM external_entity_mappings
               WHERE tenant_id = :t
                 AND source_system = 'jobdiva'
@@ -3700,8 +3720,10 @@ function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, in
 
     try {
         $pdo = getDB();
+        $compactSnapshotSql = jobdivaAssignmentCompactSnapshotSql('m.payload_snapshot');
         $st = $pdo->prepare(
-            "SELECT m.external_id, m.payload_snapshot, m.internal_entity_id AS placement_id,
+            "SELECT m.external_id, {$compactSnapshotSql} AS payload_snapshot,
+                    m.internal_entity_id AS placement_id,
                     p.person_id, p.end_client_company_id, p.staffing_job_id
                FROM external_entity_mappings m
                JOIN placements p
@@ -3847,8 +3869,9 @@ function jobdivaStoredAssignmentProjectionPlan(
     // Keep large JSON mirrors out of PDO's buffered inventory query. Fetch
     // one exact source graph at a time so preview memory is bounded by one
     // assignment rather than the tenant's entire JobDiva history.
+    $compactSourceSql = jobdivaAssignmentCompactSnapshotSql('payload_snapshot');
     $sourcePayloadStmt = $pdo->prepare(
-        "SELECT payload_snapshot
+        "SELECT {$compactSourceSql} AS payload_snapshot
            FROM external_entity_mappings
           WHERE tenant_id = :t
             AND source_system = 'jobdiva'
@@ -3860,7 +3883,7 @@ function jobdivaStoredAssignmentProjectionPlan(
           LIMIT 1"
     );
     $financialStmt = $pdo->prepare(
-        "SELECT payload_snapshot, updated_at
+        "SELECT {$compactSourceSql} AS payload_snapshot, updated_at
            FROM external_entity_mappings
           WHERE tenant_id = :t
             AND source_system = 'jobdiva'
@@ -7749,6 +7772,9 @@ function jobdivaMirrorStoreAndIndex(
         try {
             $extId = (string) jobdivaPluckField($jd, $idKeys);
             if ($extId === '') { $skipped++; continue; }
+            if ($entityType === 'jobdiva_assignment') {
+                $jd = jobdivaAssignmentCompactSnapshotPayload($jd, $extId);
+            }
             if ($pdo !== null) {
                 $internalSentinel = ctype_digit($extId) ? (int) $extId : abs(crc32($extId));
                 if ($internalSentinel <= 0) $internalSentinel = 1;
@@ -7768,6 +7794,50 @@ function jobdivaMirrorStoreAndIndex(
         }
     }
     return ['processed' => $processed, 'skipped' => $skipped, 'failed' => $failed];
+}
+
+/**
+ * Remove recursively embedded graph copies from existing placement and Start
+ * mirrors entirely inside MySQL. No source rows or financial contract fields
+ * are deleted; the related entities remain available through their own
+ * external mappings and are rejoined by exact foreign key when needed.
+ */
+function jobdivaCompactStoredAssignmentMirrors(int $tenantId): array
+{
+    $result = ['checked' => 0, 'compacted' => 0, 'bytes_before' => 0, 'bytes_after' => 0];
+    if ($tenantId <= 0) return $result;
+
+    $pdo = getDB();
+    $where = "tenant_id = :tenant_id
+        AND source_system = 'jobdiva'
+        AND internal_entity_type IN ('placement', 'jobdiva_assignment', 'jobdiva_assignment_review')
+        AND payload_snapshot IS NOT NULL
+        AND JSON_VALID(payload_snapshot)";
+    $compactSql = jobdivaAssignmentCompactSnapshotSql('payload_snapshot');
+    $stats = $pdo->prepare(
+        "SELECT COUNT(*) AS checked,
+                COALESCE(SUM(OCTET_LENGTH(payload_snapshot)), 0) AS bytes_before,
+                COALESCE(SUM(OCTET_LENGTH({$compactSql})), 0) AS bytes_after
+           FROM external_entity_mappings
+          WHERE {$where}"
+    );
+    $stats->execute(['tenant_id' => $tenantId]);
+    $row = $stats->fetch(\PDO::FETCH_ASSOC) ?: [];
+    $result['checked'] = (int) ($row['checked'] ?? 0);
+    $result['bytes_before'] = (int) ($row['bytes_before'] ?? 0);
+    $result['bytes_after'] = (int) ($row['bytes_after'] ?? 0);
+
+    $update = $pdo->prepare(
+        "UPDATE external_entity_mappings
+            SET payload_snapshot = {$compactSql},
+                content_hash = NULL,
+                updated_at = NOW()
+          WHERE {$where}
+            AND OCTET_LENGTH(payload_snapshot) <> OCTET_LENGTH({$compactSql})"
+    );
+    $update->execute(['tenant_id' => $tenantId]);
+    $result['compacted'] = $update->rowCount();
+    return $result;
 }
 
 /**
@@ -7822,8 +7892,9 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
     }
 
     // 1. Scan every jobdiva placement payload and collect IDs.
+    $compactSnapshotSql = jobdivaAssignmentCompactSnapshotSql('payload_snapshot');
     $st = $pdo->prepare(
-        "SELECT internal_entity_type, payload_snapshot
+        "SELECT internal_entity_type, {$compactSnapshotSql} AS payload_snapshot
            FROM external_entity_mappings
           WHERE tenant_id = :t
             AND source_system = 'jobdiva'
