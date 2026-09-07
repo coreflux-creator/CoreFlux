@@ -3785,7 +3785,8 @@ function jobdivaReprojectMirroredPlacementGraphs(int $tenantId, ?int $userId, in
 function jobdivaStoredAssignmentProjectionPlan(
     int $tenantId,
     int $limit = 5000,
-    array $onlyStartIds = []
+    array $onlyStartIds = [],
+    bool $includeProjectionPayloads = true
 ): array {
     require_once __DIR__ . '/../integrations/field_map.php';
     $limit = max(1, min(5000, $limit));
@@ -3839,7 +3840,7 @@ function jobdivaStoredAssignmentProjectionPlan(
     $financialPayloads = [];
     try {
         $financialStmt = $pdo->prepare(
-            "SELECT external_id, payload_snapshot
+            "SELECT external_id, payload_snapshot, updated_at
                FROM external_entity_mappings
               WHERE tenant_id = :t
                 AND source_system = 'jobdiva'
@@ -3857,7 +3858,18 @@ function jobdivaStoredAssignmentProjectionPlan(
             if (!is_array($financialPayload)) continue;
             if (!is_array($financialPayload['_jd_contract'] ?? null)
                 && !is_array($financialPayload['_jd_assignment_detail'] ?? null)) continue;
-            $financialPayloads[$financialStartId] = $financialPayload;
+            // Keep only the exact financial facets needed below. A placement
+            // mirror may also contain the full joined JobDiva graph, which is
+            // far too large to retain for every assignment in a preview.
+            $financialPayloads[$financialStartId] = [
+                '_jd_contract' => is_array($financialPayload['_jd_contract'] ?? null)
+                    ? $financialPayload['_jd_contract']
+                    : null,
+                '_jd_assignment_detail' => is_array($financialPayload['_jd_assignment_detail'] ?? null)
+                    ? $financialPayload['_jd_assignment_detail']
+                    : null,
+                '__updated_at' => (string) ($financialRow['updated_at'] ?? ''),
+            ];
         }
     } catch (\Throwable $e) {
         error_log('[jobdiva stored assignment preview] financial mirror lookup failed: ' . $e->getMessage());
@@ -3876,7 +3888,9 @@ function jobdivaStoredAssignmentProjectionPlan(
             $errors[] = 'Stored assignment payload is not valid JSON.';
         }
         $financialPayload = $financialPayloads[$startId] ?? null;
+        $financialUpdatedAt = '';
         if (is_array($financialPayload)) {
+            $financialUpdatedAt = (string) ($financialPayload['__updated_at'] ?? '');
             foreach (['_jd_contract', '_jd_assignment_detail'] as $financialKey) {
                 if (!is_array($payload[$financialKey] ?? null)
                     && is_array($financialPayload[$financialKey] ?? null)) {
@@ -4175,7 +4189,56 @@ function jobdivaStoredAssignmentProjectionPlan(
             $summary[$outcome]++;
         }
 
-        $rows[] = [
+        $contractPreview = array_intersect_key($contractProjection, array_fill_keys([
+            'complete', 'placement', 'economics', 'fields', 'checks',
+            'participants', 'attributions',
+        ], true));
+        $currentGraphPreview = [
+            'rates_count' => count($currentGraph['rates'] ?? []),
+            'chain_count' => count($currentGraph['chain'] ?? []),
+            'corp_count' => count($currentGraph['corp'] ?? []),
+            'commissions_count' => count($currentGraph['commissions'] ?? []),
+            'referrals_count' => count($currentGraph['referrals'] ?? []),
+            'economic_parties_count' => count($currentGraph['economic_parties'] ?? []),
+            'time_summary' => $currentGraph['time_summary'] ?? [],
+            'downstream_summary' => $currentGraph['downstream_summary'] ?? [],
+        ];
+        $sourcePreview = [
+            'candidate_id' => $candidateId,
+            'candidate_name' => $candidateName,
+            'candidate_email' => $candidateEmail,
+            'job_id' => $jobId,
+            'title' => $title,
+            'contact_id' => $contactId,
+            'company_id' => $companyId,
+            'end_client_name' => $endClientName,
+            'engagement_type' => $engagement,
+            'start_date' => $startDate,
+            'end_date' => $endDateRaw !== '' ? jobdivaNormaliseDate($endDateRaw) : null,
+            'bill_rate' => $billRate > 0 ? $billRate : null,
+            'pay_rate' => $payRate > 0 ? $payRate : null,
+        ];
+        // Hash each full joined graph while it is the only one resident. The
+        // aggregate token can then remain small without weakening the
+        // preview/apply changed-evidence guard.
+        $sourceEvidenceJson = json_encode(
+            $enriched,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+        );
+        $currentEvidenceJson = json_encode(
+            $currentGraph,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+        );
+        $rowToken = hash('sha256', json_encode([
+            'start_id' => $startId,
+            'source_updated_at' => (string) ($sourceRow['updated_at'] ?? ''),
+            'financial_updated_at' => $financialUpdatedAt,
+            'source_evidence_sha256' => hash('sha256', is_string($sourceEvidenceJson) ? $sourceEvidenceJson : ''),
+            'current_evidence_sha256' => hash('sha256', is_string($currentEvidenceJson) ? $currentEvidenceJson : ''),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '');
+        unset($sourceEvidenceJson, $currentEvidenceJson);
+
+        $row = [
             'start_id' => $startId,
             'outcome' => $outcome,
             'selectable' => $selectable,
@@ -4184,29 +4247,17 @@ function jobdivaStoredAssignmentProjectionPlan(
             'source_updated_at' => (string) ($sourceRow['updated_at'] ?? ''),
             'identity' => $enrichedIdentity,
             'joins' => $joinStats,
-            'source' => [
-                'candidate_id' => $candidateId,
-                'candidate_name' => $candidateName,
-                'candidate_email' => $candidateEmail,
-                'job_id' => $jobId,
-                'title' => $title,
-                'contact_id' => $contactId,
-                'company_id' => $companyId,
-                'end_client_name' => $endClientName,
-                'engagement_type' => $engagement,
-                'start_date' => $startDate,
-                'end_date' => $endDateRaw !== '' ? jobdivaNormaliseDate($endDateRaw) : null,
-                'bill_rate' => $billRate > 0 ? $billRate : null,
-                'pay_rate' => $payRate > 0 ? $payRate : null,
-            ],
+            'source' => $sourcePreview,
             'economics' => $economicSignals,
-            'contract' => $contractProjection,
+            'contract' => $includeProjectionPayloads ? $contractProjection : $contractPreview,
             'current' => $current,
-            'current_graph' => $currentGraph,
+            'current_graph' => $includeProjectionPayloads ? $currentGraph : $currentGraphPreview,
             'errors' => $errors,
             'warnings' => $warnings,
-            '__payload' => $enriched,
+            '__row_token' => $rowToken,
         ];
+        if ($includeProjectionPayloads) $row['__payload'] = $enriched;
+        $rows[] = $row;
     }
 
     usort($rows, static function (array $a, array $b): int {
@@ -4221,15 +4272,7 @@ function jobdivaStoredAssignmentProjectionPlan(
         'outcome' => $row['outcome'],
         'selectable' => $row['selectable'],
         'placement_id' => $row['placement_id'],
-        'source_updated_at' => $row['source_updated_at'],
-        'source' => $row['source'],
-        'current' => $row['current'],
-        'current_graph' => $row['current_graph'],
-        'contract' => [
-            'complete' => $row['contract']['complete'] ?? false,
-            'fields' => $row['contract']['fields'] ?? [],
-            'checks' => $row['contract']['checks'] ?? [],
-        ],
+        'row_token' => $row['__row_token'],
     ], $rows);
     $dryRunToken = hash('sha256', json_encode(
         ['tenant_id' => $tenantId, 'rows' => $tokenRows],
@@ -4237,7 +4280,7 @@ function jobdivaStoredAssignmentProjectionPlan(
     ) ?: '');
 
     $publicRows = array_map(static function (array $row): array {
-        unset($row['__payload']);
+        unset($row['__payload'], $row['__row_token']);
         return $row;
     }, $rows);
 
@@ -4273,18 +4316,32 @@ function jobdivaApplyStoredAssignmentProjection(
     if (!$selected) throw new \InvalidArgumentException('Select at least one verified Start ID.');
     if (count($selected) > 500) throw new \InvalidArgumentException('Apply is limited to 500 Start IDs at a time.');
 
-    $plan = jobdivaStoredAssignmentProjectionPlan($tenantId, $limit);
-    if ($expectedToken === '' || !hash_equals((string) $plan['dry_run_token'], $expectedToken)) {
+    // Validate against the same compact all-assignment plan returned to the
+    // browser, then load full joined payloads only for the selected Start IDs.
+    $previewPlan = jobdivaStoredAssignmentProjectionPlan($tenantId, $limit, [], false);
+    if ($expectedToken === '' || !hash_equals((string) $previewPlan['dry_run_token'], $expectedToken)) {
         throw new \RuntimeException('Stored JobDiva evidence or CoreFlux records changed after preview. Refresh the preview.');
     }
+    $previewRowsByStart = [];
+    foreach ($previewPlan['rows'] as $row) $previewRowsByStart[(string) $row['start_id']] = $row;
+    foreach (array_keys($selected) as $startId) {
+        if (!isset($previewRowsByStart[$startId])) {
+            throw new \RuntimeException("Start ID {$startId} is not present in the stored assignment preview.");
+        }
+        if (empty($previewRowsByStart[$startId]['selectable'])) {
+            throw new \RuntimeException("Start ID {$startId} is blocked and cannot be projected.");
+        }
+    }
+    $plan = jobdivaStoredAssignmentProjectionPlan($tenantId, $limit, array_keys($selected), true);
     $rowsByStart = [];
     foreach ($plan['rows'] as $row) $rowsByStart[(string) $row['start_id']] = $row;
     foreach (array_keys($selected) as $startId) {
-        if (!isset($rowsByStart[$startId])) {
-            throw new \RuntimeException("Start ID {$startId} is not present in the stored assignment preview.");
-        }
-        if (empty($rowsByStart[$startId]['selectable'])) {
-            throw new \RuntimeException("Start ID {$startId} is blocked and cannot be projected.");
+        if (!isset($rowsByStart[$startId])
+            || !hash_equals(
+                (string) ($previewRowsByStart[$startId]['__row_token'] ?? ''),
+                (string) ($rowsByStart[$startId]['__row_token'] ?? '')
+            )) {
+            throw new \RuntimeException("Start ID {$startId} changed while its full graph was being loaded. Refresh the preview.");
         }
     }
 

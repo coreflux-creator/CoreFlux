@@ -128,6 +128,19 @@ $assert(
     && str_contains($ui, '?action=stored_preview')
 );
 $assert(
+    'stored preview is memory bounded while preserving changed-evidence protection',
+    str_contains($api, 'jobdivaStoredAssignmentProjectionPlan($tenantId, 5000, [], false)')
+    && str_contains($sync, 'bool $includeProjectionPayloads = true')
+    && str_contains($sync, "'__row_token' => \$rowToken")
+    && str_contains($sync, 'array_keys($selected), true')
+    && str_contains($sync, 'changed while its full graph was being loaded')
+);
+$assert(
+    'compact graph counts remain visible in the stored preview',
+    str_contains($sync, "'rates_count' => count(\$currentGraph['rates'] ?? [])")
+    && str_contains($ui, 'row.current_graph?.rates_count')
+);
+$assert(
     'UI projects stored assignments through explicit selection',
     str_contains($ui, 'Project selected assignments')
     && str_contains($ui, '?action=stored_apply')

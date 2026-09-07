@@ -45,7 +45,7 @@ $peopleTenantId = effectiveTenantIdForModule('people') ?? $tenantId;
 
 if ($action === 'stored_preview') {
     rbac_legacy_require($user, 'placements.financials.view');
-    $plan = jobdivaStoredAssignmentProjectionPlan($tenantId, 5000);
+    $plan = jobdivaStoredAssignmentProjectionPlan($tenantId, 5000, [], false);
     api_ok([
         'summary' => $plan['summary'],
         'rows' => $plan['public_rows'],
