@@ -1,0 +1,77 @@
+name: Deploy JobDiva reconciliation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coreflux-cloudways-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout production revision
+        uses: actions/checkout@v4
+
+      - name: Stage JobDiva reconciliation release
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: ".deploy-version,core/jobdiva/assignment_contract.php,core/jobdiva/sync.php,dashboard/dist,dashboard/src/pages/JobDivaSettings.jsx,index.html,spa-assets/index-BBKzLZr0.js,spa-assets/index-C9j-Xq2a.js,spa-assets/index.html,spa-assets/sw.js,scripts/opcache_flush_deploy.php.template"
+          target: /tmp/coreflux-jobdiva-deploy-${{ github.run_id }}
+          overwrite: true
+
+      - name: Publish and verify JobDiva reconciliation release
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 8m
+          script: |
+            set -eu
+            APP_BASE="${{ secrets.CW_REMOTE_PATH }}"
+            APP_ROOT="$APP_BASE/public_html"
+            STAGE_ROOT="/tmp/coreflux-jobdiva-deploy-${{ github.run_id }}"
+            OPCACHE_TEMPLATE="$APP_ROOT/scripts/opcache_flush_deploy.php.template"
+            OPCACHE_ENDPOINT="$APP_ROOT/api/admin/opcache_flush_deploy_${{ github.run_id }}.php"
+            OPCACHE_RESPONSE="/tmp/coreflux-jobdiva-opcache-${{ github.run_id }}.json"
+
+            test -n "$APP_BASE"
+            test "$APP_BASE" != "/"
+            test -f "$STAGE_ROOT/core/jobdiva/assignment_contract.php"
+            test -f "$STAGE_ROOT/spa-assets/index-C9j-Xq2a.js"
+
+            cleanup_deploy() {
+              rm -rf -- "$STAGE_ROOT"
+              rm -f -- "$OPCACHE_ENDPOINT" "$OPCACHE_RESPONSE" "$OPCACHE_TEMPLATE"
+            }
+            trap cleanup_deploy EXIT
+
+            cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
+            cd "$APP_ROOT"
+
+            grep -Fq 'jobdivaAssignmentContractEntries([$row])' core/jobdiva/assignment_contract.php
+            grep -Fq 'Reconcile assignments' spa-assets/index-C9j-Xq2a.js
+            grep -Fq 'index-C9j-Xq2a.js' index.html
+
+            OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
+            php -r '$template=file_get_contents($argv[1]); if ($template === false || substr_count($template, "__COREFLUX_OPCACHE_TOKEN__") !== 1) exit(1); $content=str_replace("__COREFLUX_OPCACHE_TOKEN__", $argv[3], $template); if (file_put_contents($argv[2], $content, LOCK_EX) === false) exit(1); chmod($argv[2], 0640);' "$OPCACHE_TEMPLATE" "$OPCACHE_ENDPOINT" "$OPCACHE_TOKEN"
+            rm -f -- "$OPCACHE_TEMPLATE"
+            OPCACHE_STATUS="$(curl -sS --max-time 20 -o "$OPCACHE_RESPONSE" -w '%{http_code}' -X POST -H "X-CoreFlux-Deploy-Reset: $OPCACHE_TOKEN" "https://www.corefluxapp.com/api/admin/opcache_flush_deploy_${{ github.run_id }}.php")"
+            unset OPCACHE_TOKEN
+            test "$OPCACHE_STATUS" = "200"
+            php -r '$r=json_decode((string) file_get_contents($argv[1]), true); if (!is_array($r) || ($r["ok"] ?? false) !== true) exit(1);' "$OPCACHE_RESPONSE"
+
+            php -l core/jobdiva/assignment_contract.php
+            php -l core/jobdiva/sync.php
+            echo "Deployed and verified commit ${{ github.sha }}."
