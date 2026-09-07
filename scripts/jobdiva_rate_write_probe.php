@@ -54,6 +54,11 @@ if (($argv[1] ?? '') === '--roster') {
         $row['contract_status'] = $contract['placement_status'] ?? null;
         $row['contract_start_id'] = $contract['start_id'] ?? null;
         $row['contract_end_date'] = $contract['end_date'] ?? null;
+        $row['contract_billing_approved'] = $contract['approved'] ?? null;
+        $row['contract_billing_closed'] = $contract['closed'] ?? null;
+        $row['contract_salary_approved'] = $contract['salary_approved'] ?? null;
+        $row['contract_salary_closed'] = $contract['salary_closed'] ?? null;
+        $row['contract_salary_status'] = $contract['salary_status'] ?? null;
         $row['contract_bill_rate'] = $contract['bill_rate'] ?? null;
         $row['contract_pay_rate'] = $contract['pay_rate'] ?? null;
         $rows[] = $row;
