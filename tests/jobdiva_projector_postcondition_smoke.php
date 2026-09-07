@@ -65,8 +65,8 @@ $aligned['placement'] = array_merge($aligned['placement'], [
     'client_bill_cycle' => 'weekly',
     'vendor_pay_cycle' => 'biweekly',
 ]);
-$aligned['rates'][0]['bill_rate'] = 79.00;
-$aligned['rates'][0]['pay_rate'] = 60.00;
+$aligned['rates'][0]['bill_rate'] = '79.0000';
+$aligned['rates'][0]['pay_rate'] = '60.0000';
 if (jobdivaProjectorSourceContractDrift($payload, $aligned, '57612620') !== []) {
     fwrite(STDERR, "Aligned graph still reported source-contract drift\n");
     exit(1);

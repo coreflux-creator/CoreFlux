@@ -89,8 +89,15 @@ function jobdivaContractProjectionField(
     string $authority = 'exact_assignment'
 ): array {
     $normalise = static function (mixed $value): mixed {
-        if (is_float($value)) return round($value, 6);
-        if (is_string($value)) return trim($value);
+        if (is_int($value) || is_float($value)) return round((float) $value, 6);
+        if (is_string($value)) {
+            $value = trim($value);
+            // PDO returns DECIMAL columns as strings (for example 78.0000),
+            // while JobDiva contract amounts are floats. They represent the
+            // same business value and must not fail the write postcondition.
+            if ($value !== '' && is_numeric($value)) return round((float) $value, 6);
+            return $value;
+        }
         return $value;
     };
     return [
