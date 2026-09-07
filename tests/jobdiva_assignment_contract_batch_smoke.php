@@ -41,11 +41,13 @@ $assert('each enriched contract is persisted and projected immediately',
 $assert('existing placement batches re-resolve the canonical source person identity',
     str_contains($sync, 'p.person_id AS existing_person_id')
     && str_contains($sync, "'person_id' => 0"));
-$assert('ordinary contract batches resume from only unresolved exact contracts',
+$assert('ordinary contract batches traverse every mapped placement exactly once per cursor run',
     !str_contains($contractBatch, 'm.sync_status =')
     && !str_contains($contractBatch, 'm.sync_status <>')
-    && str_contains($contractBatch, "JSON_EXTRACT(m.payload_snapshot, '$._jd_contract.contract_version') IS NULL")
+    && !str_contains($contractBatch, "JSON_EXTRACT(m.payload_snapshot, '$._jd_contract.contract_version') IS NULL")
     && str_contains($contractBatch, 'p.deleted_at AS placement_deleted_at'));
+$assert('ordinary reconciliation refreshes cached exact contracts before classification',
+    str_contains($contractBatch, "unset(\$payload['_jd_assignment_detail'], \$payload['_jd_contract']);"));
 $assert('archived rows restore only from an explicit current contract lifecycle',
     str_contains($sync, "\$contractStatus !== ''")
     && str_contains($sync, "['active', 'pending_start', 'on_hold']")
@@ -69,7 +71,8 @@ $assert('review candidates project only after an explicit current contract lifec
     && str_contains($sync, "'unavailable' => 0"));
 $assert('review candidates discard stale current contracts before exact validation',
     str_contains($sync, "\$payload['__cf_jobdiva_census_scope'] = 'review';")
-    && str_contains($sync, "unset(\$payload['_jd_assignment_detail'], \$payload['_jd_contract']);"));
+    && substr_count($sync, "unset(\$payload['_jd_assignment_detail'], \$payload['_jd_contract']);") >= 2
+    && !str_contains($sync, "AND JSON_EXTRACT(payload_snapshot, '$._jd_contract.contract_version') IS NULL"));
 $assert('financial detail retries by exact employee and filters to the requested Start',
     str_contains($sync, "'employeeId' => \$candidateId")
     && str_contains($sync, "\$diag[\$kind]['fallback_attempted']++")

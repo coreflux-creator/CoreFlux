@@ -2117,7 +2117,6 @@ function jobdivaSyncAssignmentContractsBatch(
             AND m.source_system = 'jobdiva'
             AND m.internal_entity_type = 'placement'
             AND m.payload_snapshot IS NOT NULL
-            AND JSON_EXTRACT(m.payload_snapshot, '$._jd_contract.contract_version') IS NULL
             AND m.id > :cursor
           ORDER BY m.id ASC
           LIMIT {$limit}"
@@ -2146,6 +2145,10 @@ function jobdivaSyncAssignmentContractsBatch(
         );
         $mirrorStats = [];
         $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats, $externalId);
+        // Reconciliation is an exact source refresh, not a cache replay. The
+        // assignment mirror can carry a contract from an older run; discard it
+        // so EmployeeAssignmentRecordsDetail is fetched and reclassified now.
+        unset($payload['_jd_assignment_detail'], $payload['_jd_contract']);
         $meta[] = [
             'mapping_id' => $mappingId,
             'external_id' => $externalId,
@@ -2479,7 +2482,6 @@ function jobdivaSyncReviewAssignmentContractsBatch(
             AND internal_entity_type = 'jobdiva_assignment_review'
             AND sync_status = 'ok'
             AND payload_snapshot IS NOT NULL
-            AND JSON_EXTRACT(payload_snapshot, '$._jd_contract.contract_version') IS NULL
             AND id > :cursor
           ORDER BY id ASC
           LIMIT {$limit}"
