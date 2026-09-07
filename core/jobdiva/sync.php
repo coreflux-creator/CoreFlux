@@ -6114,8 +6114,9 @@ function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId
             'submittal_id', 'vms_job_id',
         ]],
         'corp' => ['placement_corp_details', [
-            'id', 'corp_legal_name', 'vendor_id', 'company_id', 'contact_name',
-            'contact_email', 'contact_phone',
+            'placement_id', 'corp_legal_name', 'corp_name', 'placement_corp_id',
+            'company_id', 'ap_vendor_id', 'payment_terms_override', 'pwp_enabled',
+            'corp_contact_name', 'corp_contact_email', 'corp_contact_phone',
         ]],
         'commissions' => ['placement_commissions', [
             'id', 'role', 'user_id', 'split_pct', 'basis', 'flat_amount',
@@ -6137,10 +6138,11 @@ function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId
     ];
     foreach ($children as $key => [$table, $columns]) {
         try {
+            $orderColumn = $table === 'placement_corp_details' ? 'placement_id' : 'id';
             $st = $pdo->prepare(
                 "SELECT * FROM {$table}
                   WHERE tenant_id = :t AND placement_id = :p
-                  ORDER BY id ASC"
+                  ORDER BY {$orderColumn} ASC"
             );
             $st->execute(['t' => $tenantId, 'p' => $placementId]);
             while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {

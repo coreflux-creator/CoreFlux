@@ -39,6 +39,10 @@ $assert('contract batches are cursor-based and capped below the PHP timeout',
 $assert('each enriched contract is persisted and projected immediately',
     str_contains($sync, 'SET payload_snapshot = :payload')
     && str_contains($sync, 'jobdivaProjectorProjectPlacement'));
+$assert('projection audit snapshots the placement-keyed C2C corporation row',
+    str_contains($sync, "\$orderColumn = \$table === 'placement_corp_details' ? 'placement_id' : 'id';")
+    && str_contains($sync, "'placement_id', 'corp_legal_name', 'corp_name', 'placement_corp_id'")
+    && str_contains($sync, "'company_id', 'ap_vendor_id', 'payment_terms_override', 'pwp_enabled'"));
 $assert('existing placement batches re-resolve the canonical source person identity',
     str_contains($sync, 'p.person_id AS existing_person_id')
     && str_contains($sync, "'person_id' => 0"));
