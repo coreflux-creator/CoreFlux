@@ -20,6 +20,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/accounting.php';
+require_once __DIR__ . '/account_interest.php';
 require_once __DIR__ . '/../../../core/ai_service.php';
 
 function reconciliationPacketBuild(int $tenantId, int $reconId): array
@@ -65,6 +66,9 @@ function reconciliationPacketBuild(int $tenantId, int $reconId): array
     $matchedTotal   = array_sum(array_map(fn ($r) => (float) $r['amount'], $matched));
     $unmatchedTotal = array_sum(array_map(fn ($r) => (float) $r['amount'], $unmatched));
 
+    $interestTerms = accountInterestTermsForAccount($tenantId, (int) $recon['bank_account_id']);
+    $interestRun = accountInterestRunForReconciliation($tenantId, $reconId);
+
     return [
         'reconciliation' => $recon,
         'bank_account'   => [
@@ -85,6 +89,8 @@ function reconciliationPacketBuild(int $tenantId, int $reconId): array
             'gl_balance'        => (float) $recon['gl_balance'],
             'difference'        => (float) $recon['difference'],
         ],
+        'interest_terms' => $interestTerms,
+        'interest_run' => $interestRun,
         'ai_narrative'              => $recon['ai_narrative']              ?? null,
         'ai_narrative_generated_at' => $recon['ai_narrative_generated_at'] ?? null,
     ];

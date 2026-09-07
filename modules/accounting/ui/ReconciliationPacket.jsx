@@ -27,6 +27,8 @@ export default function ReconciliationPacket() {
 
   const r = data.reconciliation || {};
   const t = data.totals || {};
+  const interestTerms = data.interest_terms || null;
+  const interestRun = data.interest_run || null;
 
   const doAction = async (action, body) => {
     setBusy(true); setErr(null);
@@ -110,6 +112,30 @@ export default function ReconciliationPacket() {
         </table>
       </div>
 
+      {(interestTerms?.interest_enabled || interestRun) && (
+        <div className="packet-section" data-testid="accounting-packet-interest">
+          <h3>Automatic interest</h3>
+          {interestRun ? (
+            <div className="packet-kv">
+              <div>Statement period:</div><div>{interestRun.period_start} to {interestRun.period_end}</div>
+              <div>Interest type:</div><div>Interest {interestRun.interest_direction}</div>
+              <div>Calculation balance:</div><div>{fmt(interestRun.balance_basis_amount)} ({interestMethodLabel(interestRun.balance_method)})</div>
+              <div>Rate:</div><div>{Number(interestRun.annual_rate_percent).toLocaleString('en-US', { maximumFractionDigits: 6 })}% APR, {interestRun.day_count} days, {dayCountLabel(interestRun.day_count_basis)}</div>
+              <div>Interest:</div><div><strong>{fmt(interestRun.interest_amount)}</strong></div>
+              <div>Posting:</div><div>{interestRun.status === 'posted' ? `${interestRun.je_number || 'Journal entry posted'}${interestRun.offset_account_name ? ` against ${interestRun.offset_account_code} - ${interestRun.offset_account_name}` : ''}` : 'Skipped because the calculated amount was below one cent'}</div>
+              {interestRun.matched_statement_line_id && <><div>Statement line:</div><div>Matched automatically</div></>}
+            </div>
+          ) : (
+            <div className="packet-kv">
+              <div>On close:</div><div>Calculate and post interest {interestTerms.interest_direction}</div>
+              <div>Rate:</div><div>{Number(interestTerms.annual_rate_percent).toLocaleString('en-US', { maximumFractionDigits: 6 })}% APR</div>
+              <div>Method:</div><div>{interestMethodLabel(interestTerms.balance_method)}, {dayCountLabel(interestTerms.day_count_basis)}</div>
+              <div>Post against:</div><div>{interestTerms.offset_account_code} - {interestTerms.offset_account_name}</div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="packet-section">
         <h3>Matched items ({t.matched_count})</h3>
         <table className="data-table" data-testid="accounting-packet-matched-table">
@@ -185,7 +211,9 @@ export default function ReconciliationPacket() {
         <h3>Workflow actions</h3>
         {err && <p className="error">{err}</p>}
         {r.status !== 'closed' && (
-          <button className="btn btn--primary" disabled={busy} onClick={() => doAction('close')} data-testid="accounting-packet-close">Close reconciliation</button>
+          <button className="btn btn--primary" disabled={busy} onClick={() => doAction('close')} data-testid="accounting-packet-close">
+            {busy ? 'Closing...' : (interestTerms?.interest_enabled ? 'Close and post interest' : 'Close reconciliation')}
+          </button>
         )}
         {r.status === 'closed' && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -202,4 +230,12 @@ function fmt(n) {
   const v = parseFloat(n);
   if (Number.isNaN(v)) return '—';
   return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function interestMethodLabel(value) {
+  return value === 'closing_balance' ? 'closing statement balance' : 'average daily balance';
+}
+
+function dayCountLabel(value) {
+  return value === 'actual_360' ? 'Actual / 360' : 'Actual / 365';
 }

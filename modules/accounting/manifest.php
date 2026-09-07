@@ -123,6 +123,8 @@ return [
         'accounting.reconciliation.packet_built',
         'accounting.reconciliation.ai_narrative_generated',
         'accounting.reconciliation.ai_narrative_accepted',
+        'accounting.bank_account.terms_updated',
+        'accounting.bank_account.interest_posted',
         'accounting.ledger.imported',
         'accounting.ledger.exported',
         'accounting.intercompany.mapping_created',
