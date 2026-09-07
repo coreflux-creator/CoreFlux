@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $sync = (string) file_get_contents($root . '/core/jobdiva/sync.php');
+$projector = (string) file_get_contents($root . '/core/jobdiva/projector.php');
 $api = (string) file_get_contents($root . '/api/jobdiva.php');
 $ui = (string) file_get_contents($root . '/dashboard/src/pages/JobDivaSettings.jsx');
 $targetedReconcile = (string) file_get_contents($root . '/scripts/jobdiva_reconcile_start.php');
@@ -98,6 +99,13 @@ $assert('financial detail lookup prefers the verified Start identity',
     str_contains($sync, "['__cf_jobdiva_assignment_id', 'startId', 'start_id', 'placementId', 'id']"));
 $assert('rate-field overrides receive the source payload before their fallback callback',
     str_contains($sync, "            \$field,\n            \$jd,\n            static fn() => \$fallbackKeys"));
+$assert('the exact Start billing company outranks broader Job enrichment',
+    str_contains($sync, 'The Start/Assignment owns the billing company')
+    && str_contains($projector, 'A JobDiva Start/Assignment owns the billing company')
+    && preg_match(
+        "/return \[\s*'_jd_start'.*?'_jd_customer'.*?'_jd_job'/s",
+        $projector
+    ) === 1);
 $assert('the API exposes a separately bounded contract action',
     str_contains($api, "case 'assignment_contracts_batch':")
     && str_contains($api, 'jobdivaSyncAssignmentContractsBatch'));

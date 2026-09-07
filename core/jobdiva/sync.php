@@ -381,21 +381,22 @@ function jobdivaEndClientNameFromPayload(array $item): string
         if ($v !== '') return $v;
     }
 
-    foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
+    // The Start/Assignment owns the billing company. The linked Job can have
+    // a different customer, so it is enrichment only and must not outrank
+    // the exact Start.
+    foreach (['_jd_start', 'assignment', 'start', 'Start'] as $nest) {
         if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
         $v = jobdivaPluckField($item[$nest], $companySpecific);
         if ($v !== '') return $v;
     }
+    $v = jobdivaPluckField($item, $companySpecific);
+    if ($v !== '') return $v;
     foreach (['_jd_customer', 'customer', 'Customer', 'company', 'Company', 'client', 'Client'] as $nest) {
         if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
         $v = jobdivaPluckField($item[$nest], array_merge($companySpecific, ['legalName', 'legal_name', 'name']));
         if ($v !== '') return $v;
     }
-
-    $v = jobdivaPluckField($item, $companySpecific);
-    if ($v !== '') return $v;
-
-    foreach (['_jd_start', 'assignment', 'start', 'Start'] as $nest) {
+    foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
         if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
         $v = jobdivaPluckField($item[$nest], $companySpecific);
         if ($v !== '') return $v;
@@ -7280,6 +7281,52 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
         : null;
 
+    // Keep exactly one source-managed draft. Older builds created a new
+    // bounded draft on every reconciliation when a later approved snapshot
+    // existed, which made the queue grow without changing current economics.
+    $sourceDrafts = $pdo->prepare(
+        'SELECT id
+           FROM placement_rates
+          WHERE tenant_id = :t AND placement_id = :p
+            AND approved_at IS NULL
+            AND created_by_user_id IS NULL
+            AND economics_snapshot_json LIKE :source_marker
+          ORDER BY (effective_to IS NULL) DESC, id DESC'
+    );
+    $sourceDrafts->execute([
+        't' => $tid,
+        'p' => $placementId,
+        'source_marker' => '%"source_system":"jobdiva"%',
+    ]);
+    $sourceDraftIds = array_map('intval', $sourceDrafts->fetchAll(\PDO::FETCH_COLUMN) ?: []);
+    if (count($sourceDraftIds) > 1) {
+        $staleIds = array_slice($sourceDraftIds, 1);
+        $deletePlaceholders = implode(',', array_fill(0, count($staleIds), '?'));
+        $pdo->prepare(
+            "DELETE FROM placement_rates
+              WHERE tenant_id = ? AND placement_id = ?
+                AND approved_at IS NULL AND created_by_user_id IS NULL
+                AND id IN ({$deletePlaceholders})"
+        )->execute(array_merge([$tid, $placementId], $staleIds));
+    }
+
+    // A correction applies from the latest approved snapshot's effective
+    // date forward. This keeps approved history immutable while ensuring one
+    // approval replaces the stale current contract downstream.
+    $approved = $pdo->prepare(
+        'SELECT effective_from
+           FROM placement_rates
+          WHERE tenant_id = :t AND placement_id = :p
+            AND approved_at IS NOT NULL
+          ORDER BY (effective_to IS NULL) DESC, effective_from DESC, id DESC
+          LIMIT 1'
+    );
+    $approved->execute(['t' => $tid, 'p' => $placementId]);
+    $approvedEffectiveFrom = trim((string) ($approved->fetchColumn() ?: ''));
+    if ($approvedEffectiveFrom !== '' && $approvedEffectiveFrom > $effectiveFrom) {
+        $effectiveFrom = $approvedEffectiveFrom;
+    }
+
     // Locate the current open rate row (effective_to IS NULL). Prefer an
     // unapproved draft so re-syncs refresh the approvable row. Approved
     // rows are locked snapshots: if JobDiva now differs, create a new draft
@@ -7338,7 +7385,6 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         return true;
     }
 
-    $draftEffectiveTo = null;
     if ($rateId > 0 && !empty($currentRate['approved_at'])) {
         $sameEconomics =
             round((float) ($currentRate['bill_rate'] ?? 0), 4) === round($billRate, 4)
@@ -7362,13 +7408,6 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         if ($sameEconomics && $coversPlacementStart) {
             return true;
         }
-        $currentEffectiveFrom = (string) ($currentRate['effective_from'] ?? '');
-        if ($currentEffectiveFrom !== '' && $currentEffectiveFrom > $effectiveFrom) {
-            $toTs = strtotime($currentEffectiveFrom . ' -1 day');
-            if ($toTs !== false) {
-                $draftEffectiveTo = date('Y-m-d', $toTs);
-            }
-        }
         // Fall through to INSERT a draft correction. The placement approval
         // helper will approve it under the normal margin/audit path.
     }
@@ -7388,7 +7427,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     )->execute([
         't'   => $tid, 'p'   => $placementId,
         'ef'  => $effectiveFrom,
-        'et'  => $draftEffectiveTo,
+        'et'  => null,
         'br'  => $billRate, 'bru' => $billRateUnit,
         'pr'  => $payRate,  'pru' => $payRateUnit,
         'cur' => $currency,

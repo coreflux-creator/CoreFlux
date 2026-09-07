@@ -68,7 +68,16 @@ if (in_array(($argv[1] ?? ''), ['--roster', '--active-roster'], true)) {
                 workers_comp_pct, benefits_load_pct, other_cost_per_hour, other_cost_flat
            FROM placement_rates
           WHERE tenant_id = :tenant_id AND placement_id = :placement_id
-          ORDER BY effective_from DESC, id DESC
+          ORDER BY (effective_to IS NULL) DESC, (approved_at IS NULL) DESC,
+                   effective_from DESC, id DESC
+          LIMIT 1'
+    );
+    $approvedRateStmt = $pdo->prepare(
+        'SELECT id, effective_from, effective_to, bill_rate, pay_rate, approved_at
+           FROM placement_rates
+          WHERE tenant_id = :tenant_id AND placement_id = :placement_id
+            AND approved_at IS NOT NULL
+          ORDER BY (effective_to IS NULL) DESC, effective_from DESC, id DESC
           LIMIT 1'
     );
     $rows = [];
@@ -105,6 +114,11 @@ if (in_array(($argv[1] ?? ''), ['--roster', '--active-roster'], true)) {
             'placement_id' => (int) ($row['id'] ?? 0),
         ]);
         $row['current_rate'] = $latestRateStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $approvedRateStmt->execute([
+            'tenant_id' => $tenantId,
+            'placement_id' => (int) ($row['id'] ?? 0),
+        ]);
+        $row['approved_rate'] = $approvedRateStmt->fetch(PDO::FETCH_ASSOC) ?: null;
         $row['economic_parties'] = array_map(
             static fn(array $party): array => [
                 'role' => $party['role'] ?? null,
@@ -192,6 +206,12 @@ if (in_array(($argv[1] ?? ''), ['--roster', '--active-roster'], true)) {
                     $issues[] = 'bill_discount_pct_mismatch';
                 }
             }
+        }
+        $approvedRate = is_array($row['approved_rate'] ?? null) ? $row['approved_rate'] : [];
+        if ($approvedRate === []
+            || !$sameAmount($approvedRate['bill_rate'] ?? 0, $expectedBill)
+            || !$sameAmount($approvedRate['pay_rate'] ?? 0, $expectedPay)) {
+            $issues[] = 'source_rate_approval_pending';
         }
         if (!empty($contract['client_bill_cycle'])
             && !$sameText($row['client_bill_cycle'] ?? '', $contract['client_bill_cycle'])) {

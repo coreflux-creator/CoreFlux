@@ -779,9 +779,9 @@ function jobdivaProjectorEnsureEndClientCompany(
 function jobdivaProjectorEndClientNestOrder(): array
 {
     return [
-        '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord',
-        '_jd_customer', 'customer', 'Customer', 'company', 'Company', 'client', 'Client',
         '_jd_start', 'assignment', 'start', 'Start',
+        '_jd_customer', 'customer', 'Customer', 'company', 'Company', 'client', 'Client',
+        '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord',
     ];
 }
 
@@ -805,21 +805,21 @@ function jobdivaProjectorEndClientNameFromPayload(array $payload): string
         if ($v !== '') return $v;
     }
 
-    foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
+    // A JobDiva Start/Assignment owns the billing company. The linked Job is
+    // useful enrichment, but can legitimately name a different customer.
+    foreach (['_jd_start', 'assignment', 'start', 'Start'] as $nest) {
         if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
         $v = jobdivaProjectorPluck($payload[$nest], $companySpecific);
         if ($v !== '') return $v;
     }
+    $v = jobdivaProjectorPluck($payload, $companySpecific);
+    if ($v !== '') return $v;
     foreach (['_jd_customer', 'customer', 'Customer', 'company', 'Company', 'client', 'Client'] as $nest) {
         if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
         $v = jobdivaProjectorPluck($payload[$nest], array_merge($companySpecific, ['legalName', 'legal_name', 'name']));
         if ($v !== '') return $v;
     }
-
-    $v = jobdivaProjectorPluck($payload, $companySpecific);
-    if ($v !== '') return $v;
-
-    foreach (['_jd_start', 'assignment', 'start', 'Start'] as $nest) {
+    foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
         if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
         $v = jobdivaProjectorPluck($payload[$nest], $companySpecific);
         if ($v !== '') return $v;

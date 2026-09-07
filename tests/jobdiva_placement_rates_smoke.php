@@ -104,6 +104,14 @@ $assert('UPDATE branch writes all draft rate columns + multipliers',
 $assert('approved snapshots are not mutated by re-sync',
     strpos($sync, "if (\$rateId > 0 && empty(\$currentRate['approved_at']))") !== false
     && strpos($sync, 'Fall through to INSERT a draft correction') !== false);
+$assert('re-sync consolidates old source-managed correction drafts',
+    strpos($sync, 'Keep exactly one source-managed draft') !== false
+    && strpos($sync, '%"source_system":"jobdiva"%') !== false
+    && strpos($sync, '$staleIds = array_slice($sourceDraftIds, 1);') !== false);
+$assert('source correction stays current until it is approved',
+    strpos($sync, '$approvedEffectiveFrom > $effectiveFrom') !== false
+    && strpos($sync, "'et'  => null") !== false
+    && strpos($sync, '$draftEffectiveTo') === false);
 $assert('INSERT branch sets effective_from to placement start_date',
     strpos($sync, '$effectiveFrom = $startDate !== \'\' ? $startDate : date(\'Y-m-d\');') !== false
     && strpos($sync, "'ef'  => \$effectiveFrom") !== false);
