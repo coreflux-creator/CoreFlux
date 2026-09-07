@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/assignment_identity.php';
+require_once __DIR__ . '/contract_projection.php';
 require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
@@ -58,6 +59,49 @@ function jobdivaProjectorContract(): array
         ],
         'canonical_graphs' => jobdivaCanonicalGraphCatalog(),
     ];
+}
+
+/**
+ * Return source-owned assignment fields that still differ after projection.
+ * The projector uses this as a write postcondition so a saved source snapshot
+ * can never be reported as a successful canonical reconciliation on its own.
+ *
+ * @return array<int,array<string,mixed>>
+ */
+function jobdivaProjectorSourceContractDrift(
+    array $payload,
+    array $currentGraph,
+    string $expectedStartId = ''
+): array {
+    $projection = jobdivaContractProjectionBuild($payload, $currentGraph, $expectedStartId);
+    $owned = [
+        'engagement_type', 'status', 'start_date', 'end_date',
+        'bill_rate', 'pay_rate',
+        'client_bill_cycle', 'vendor_pay_cycle',
+        'vendor_payment_terms', 'paid_when_paid',
+    ];
+
+    return array_values(array_filter(
+        $projection['fields'] ?? [],
+        static function (array $field) use ($owned): bool {
+            if (empty($field['changes']) || !in_array((string) ($field['field'] ?? ''), $owned, true)) {
+                return false;
+            }
+            $proposed = $field['proposed'] ?? null;
+            return $proposed !== null && (!is_string($proposed) || trim($proposed) !== '');
+        }
+    ));
+}
+
+function jobdivaProjectorSourceContractDriftMessage(array $drift): string
+{
+    $parts = [];
+    foreach (array_slice($drift, 0, 8) as $field) {
+        $current = json_encode($field['current'] ?? null, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $proposed = json_encode($field['proposed'] ?? null, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $parts[] = (string) ($field['field'] ?? 'unknown') . " {$current} -> {$proposed}";
+    }
+    return implode(', ', $parts);
 }
 
 function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $userId = null, array $opts = []): array
@@ -204,6 +248,36 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
             } catch (\Throwable $e) {
                 $summary['field_map']['errors'][] = $e->getMessage();
                 error_log('[jobdiva projector] field mapping failed: ' . $e->getMessage());
+            }
+        }
+
+        if (!empty($opts['force_source_contract'])
+            && function_exists('jobdivaPlacementProjectionAuditSnapshot')) {
+            $currentGraph = jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId);
+            $drift = jobdivaProjectorSourceContractDrift($writePayload, $currentGraph, $externalId);
+            if ($drift !== []) {
+                // One final source-authoritative write runs after tenant field
+                // mappings. This also upgrades hosts that briefly had the new
+                // reconciliation loop without its projector dependencies.
+                $retryPayload = $writePayload;
+                $retryPayload['__cf_existing_placement_id'] = $placementId;
+                $retryPayload['__cf_force_source_contract'] = true;
+                jobdivaSyncUpsertPlacement(
+                    $tenantId,
+                    $personId,
+                    $endClientCompanyId > 0 ? $endClientCompanyId : null,
+                    $retryPayload,
+                    $externalId,
+                    $userId
+                );
+                $currentGraph = jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId);
+                $drift = jobdivaProjectorSourceContractDrift($writePayload, $currentGraph, $externalId);
+            }
+            if ($drift !== []) {
+                throw new \RuntimeException(
+                    'JobDiva canonical projection did not persist: '
+                    . jobdivaProjectorSourceContractDriftMessage($drift)
+                );
             }
         }
 

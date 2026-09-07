@@ -66,6 +66,9 @@ $a('projector indexes joined canonical roots',
     str_contains($projector, 'jobdivaIndexJoinedSubPayloads($tenantId, $writePayload)'));
 $a('projector applies tenant mappings after identity resolution',
     str_contains($projector, 'jobdivaApplyPlacementFieldMappings('));
+$a('exact reconciliation verifies the canonical write after field mapping',
+    str_contains($projector, 'jobdivaProjectorSourceContractDrift(')
+    && str_contains($projector, 'JobDiva canonical projection did not persist:'));
 $a('projector emits workflow readiness',
     str_contains($projector, 'jobdivaProjectorPlacementReadiness($tenantId, $placementId)'));
 

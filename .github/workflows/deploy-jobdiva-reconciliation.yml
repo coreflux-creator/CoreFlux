@@ -25,7 +25,7 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: ".deploy-version,core/jobdiva/assignment_contract.php,core/jobdiva/sync.php,dashboard/dist,dashboard/src/pages/JobDivaSettings.jsx,index.html,spa-assets/index-BBKzLZr0.js,spa-assets/index-C9j-Xq2a.js,spa-assets/index.html,spa-assets/sw.js,scripts/opcache_flush_deploy.php.template"
+          source: ".deploy-version,core/jobdiva,core/integrations/entity_mappings.php,core/integrations/field_map.php,core/integrations/field_map_apply.php,core/integrations/payload_field_index.php,modules/placements/lib/economics.php,modules/placements/lib/jobdiva_reconciliation.php,modules/placements/api/jobdiva_reconciliation.php,modules/placements/ui/JobDivaReconciliation.jsx,dashboard/dist,dashboard/src/pages/JobDivaSettings.jsx,index.html,spa-assets/index-BBKzLZr0.js,spa-assets/index-C9j-Xq2a.js,spa-assets/index.html,spa-assets/sw.js,scripts/opcache_flush_deploy.php.template"
           target: /tmp/coreflux-jobdiva-deploy-${{ github.run_id }}
           overwrite: true
 
@@ -49,6 +49,9 @@ jobs:
             test -n "$APP_BASE"
             test "$APP_BASE" != "/"
             test -f "$STAGE_ROOT/core/jobdiva/assignment_contract.php"
+            test -f "$STAGE_ROOT/core/jobdiva/projector.php"
+            test -f "$STAGE_ROOT/core/integrations/field_map_apply.php"
+            test -f "$STAGE_ROOT/modules/placements/lib/economics.php"
             test -f "$STAGE_ROOT/spa-assets/index-C9j-Xq2a.js"
 
             cleanup_deploy() {
@@ -61,6 +64,9 @@ jobs:
             cd "$APP_ROOT"
 
             grep -Fq 'jobdivaAssignmentContractEntries([$row])' core/jobdiva/assignment_contract.php
+            grep -Fq 'jobdivaProjectorSourceContractDrift' core/jobdiva/projector.php
+            grep -Fq 'authoritative_jobdiva_assignment_contract' core/integrations/field_map_apply.php
+            grep -Fq "force_source_fields'] = true" modules/placements/lib/economics.php
             grep -Fq 'Reconcile assignments' spa-assets/index-C9j-Xq2a.js
             grep -Fq 'index-C9j-Xq2a.js' index.html
 
@@ -72,6 +78,8 @@ jobs:
             test "$OPCACHE_STATUS" = "200"
             php -r '$r=json_decode((string) file_get_contents($argv[1]), true); if (!is_array($r) || ($r["ok"] ?? false) !== true) exit(1);' "$OPCACHE_RESPONSE"
 
-            php -l core/jobdiva/assignment_contract.php
-            php -l core/jobdiva/sync.php
+            find core/jobdiva -maxdepth 1 -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+            php -l core/integrations/field_map.php
+            php -l core/integrations/field_map_apply.php
+            php -l modules/placements/lib/economics.php
             echo "Deployed and verified commit ${{ github.sha }}."
