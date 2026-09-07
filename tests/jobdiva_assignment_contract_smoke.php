@@ -272,6 +272,36 @@ $assert('single-object JobDiva detail responses remain usable',
         'ID' => '12319524',
         'COMPANYNAME' => 'Techvy Corp',
     ]]);
+$expectedAssignment = [
+    'candidateId' => '6632210784858',
+    'jobId' => '29001707',
+];
+$wrongCompoundAssignment = [[
+    'BILLING' => [[
+        'EMPLOYEEID' => '21283851419353',
+        'JOBID' => '27945325',
+        'BILL_RATE' => '74.26',
+    ]],
+]];
+$correctCompoundAssignment = [[
+    'BILLING' => [[
+        'EMPLOYEEID' => '6632210784858',
+        'JOBID' => '29001707',
+        'BILL_RATE' => '74.26',
+    ]],
+]];
+$assert('compound financial detail rejects a different nested candidate and job',
+    jobdivaAssignmentContractRowsForStart(
+        $wrongCompoundAssignment,
+        $expectedAssignment,
+        '57612620'
+    ) === []);
+$assert('compound financial detail accepts the exact nested candidate and job',
+    jobdivaAssignmentContractRowsForStart(
+        $correctCompoundAssignment,
+        $expectedAssignment,
+        '57612620'
+    ) === $correctCompoundAssignment);
 $assert('placeholder company names are distinguished from source names',
     jobdivaCompanyNameIsPlaceholder('JobDiva Company 12319524', '12319524')
     && !jobdivaCompanyNameIsPlaceholder('Techvy Corp', '12319524'));

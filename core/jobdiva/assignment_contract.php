@@ -255,25 +255,34 @@ function jobdivaAssignmentContractRowsForStart(
     $expectedJobId = trim((string) jobdivaAssignmentContractShallowPick($fallback, [
         'Job ID', 'jobId', 'job_id',
     ]));
-    $singleRow = count($rows) === 1;
     $matching = [];
 
     foreach ($rows as $row) {
         if (!is_array($row)) continue;
-        $rowStartId = trim((string) jobdivaAssignmentContractShallowPick($row, [
+        // JobDiva's BI endpoint returns a compound object whose identity is
+        // often carried inside BILLING/SALARY instead of at the top level.
+        // Read both shapes before deciding that a financial record belongs
+        // to this Start.
+        $entries = jobdivaAssignmentContractEntries([$row]);
+        $rowPick = static function (array $labels) use ($row, $entries): string {
+            $value = jobdivaAssignmentContractShallowPick($row, $labels);
+            if (jobdivaAssignmentContractHasValue($value)) return trim((string) $value);
+            return trim((string) (jobdivaAssignmentContractPick($entries, $labels) ?? ''));
+        };
+        $rowStartId = $rowPick([
             'Start ID', 'startId', 'start_id', 'Assignment ID', 'assignmentId',
-        ]));
+        ]);
         if ($expectedStartId !== '' && $rowStartId !== '') {
             if ($rowStartId === $expectedStartId) $matching[] = $row;
             continue;
         }
 
-        $rowCandidateId = trim((string) jobdivaAssignmentContractShallowPick($row, [
+        $rowCandidateId = $rowPick([
             'Candidate ID', 'candidateId', 'candidate_id', 'Employee ID', 'employeeId', 'employee_id',
-        ]));
-        $rowJobId = trim((string) jobdivaAssignmentContractShallowPick($row, [
+        ]);
+        $rowJobId = $rowPick([
             'Job ID', 'jobId', 'job_id',
-        ]));
+        ]);
         $contextMatched = false;
         $contextConflicted = false;
         foreach ([
@@ -288,9 +297,7 @@ function jobdivaAssignmentContractRowsForStart(
             $contextMatched = true;
         }
         if ($contextConflicted) continue;
-        if ($contextMatched || ($singleRow && $rowStartId === '' && $rowCandidateId === '' && $rowJobId === '')) {
-            $matching[] = $row;
-        }
+        if ($contextMatched) $matching[] = $row;
     }
 
     if ($expectedStartId === '' && $matching === []) {
