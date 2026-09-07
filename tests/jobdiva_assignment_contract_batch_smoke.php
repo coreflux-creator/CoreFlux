@@ -5,6 +5,7 @@ $root = dirname(__DIR__);
 $sync = (string) file_get_contents($root . '/core/jobdiva/sync.php');
 $api = (string) file_get_contents($root . '/api/jobdiva.php');
 $ui = (string) file_get_contents($root . '/dashboard/src/pages/JobDivaSettings.jsx');
+$targetedReconcile = (string) file_get_contents($root . '/scripts/jobdiva_reconcile_start.php');
 $contractBatch = strstr($sync, 'function jobdivaSyncAssignmentContractsBatch');
 $contractBatch = is_string($contractBatch)
     ? (string) strstr($contractBatch, 'function jobdivaSyncCandidateAssignmentsBatch', true)
@@ -91,6 +92,10 @@ $assert('the API exposes a separately bounded contract action',
 $assert('the API exposes a bounded assignment-review action',
     str_contains($api, "case 'review_assignment_contracts_batch':")
     && str_contains($api, 'jobdivaSyncReviewAssignmentContractsBatch'));
+$assert('a staged Start can be reconciled without draining the historical review queue',
+    str_contains($targetedReconcile, "internal_entity_type = 'jobdiva_assignment_review'")
+    && str_contains($targetedReconcile, 'max(0, $mappingId - 1)')
+    && str_contains($targetedReconcile, "['active', 'pending_start', 'on_hold']"));
 $assert('the API exposes candidate-scoped assignment discovery',
     str_contains($api, "case 'candidate_assignments_batch':")
     && str_contains($api, 'jobdivaSyncCandidateAssignmentsBatch'));

@@ -2,6 +2,17 @@ name: Deploy JobDiva reconciliation
 
 on:
   workflow_dispatch:
+    inputs:
+      reconcile_start_id:
+        description: Optional exact JobDiva Start ID to project after deployment
+        required: false
+        type: string
+        default: ''
+      reconcile_candidate_id:
+        description: Candidate ID that must own the exact Start
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -25,17 +36,21 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: ".deploy-version,core/jobdiva,core/integrations/entity_mappings.php,core/integrations/field_map.php,core/integrations/field_map_apply.php,core/integrations/payload_field_index.php,modules/placements/lib/economics.php,modules/placements/lib/jobdiva_reconciliation.php,modules/placements/api/jobdiva_reconciliation.php,modules/placements/ui/JobDivaReconciliation.jsx,dashboard/dist,dashboard/src/pages/JobDivaSettings.jsx,index.html,spa-assets/index-BC5g6YJu.css,spa-assets/index-BoxX86xd.js,spa-assets/index-C-3siXIe.js,spa-assets/index-CIGNKYB0.css,spa-assets/index.html,spa-assets/sw.js,scripts/jobdiva_rate_write_probe.php,scripts/opcache_flush_deploy.php.template"
+          source: ".deploy-version,core/jobdiva,core/integrations/entity_mappings.php,core/integrations/field_map.php,core/integrations/field_map_apply.php,core/integrations/payload_field_index.php,modules/placements/lib/economics.php,modules/placements/lib/jobdiva_reconciliation.php,modules/placements/api/jobdiva_reconciliation.php,modules/placements/ui/JobDivaReconciliation.jsx,dashboard/dist,dashboard/src/pages/JobDivaSettings.jsx,index.html,spa-assets/index-BC5g6YJu.css,spa-assets/index-BoxX86xd.js,spa-assets/index-C-3siXIe.js,spa-assets/index-CIGNKYB0.css,spa-assets/index.html,spa-assets/sw.js,scripts/jobdiva_rate_write_probe.php,scripts/jobdiva_reconcile_start.php,scripts/opcache_flush_deploy.php.template"
           target: /tmp/coreflux-jobdiva-deploy-${{ github.run_id }}
           overwrite: true
 
       - name: Publish and verify JobDiva reconciliation release
         uses: appleboy/ssh-action@v1.2.5
+        env:
+          RECONCILE_START_ID: ${{ inputs.reconcile_start_id }}
+          RECONCILE_CANDIDATE_ID: ${{ inputs.reconcile_candidate_id }}
         with:
           host: ${{ secrets.CW_SSH_HOST }}
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
+          envs: RECONCILE_START_ID,RECONCILE_CANDIDATE_ID
           command_timeout: 8m
           script: |
             set -eu
@@ -84,6 +99,12 @@ jobs:
             php -l core/integrations/field_map_apply.php
             php -l modules/placements/lib/economics.php
             php -l scripts/jobdiva_rate_write_probe.php
+            php -l scripts/jobdiva_reconcile_start.php
             php scripts/jobdiva_rate_write_probe.php 785 57953568 80 63
+            if [ -n "$RECONCILE_START_ID" ] || [ -n "$RECONCILE_CANDIDATE_ID" ]; then
+              test -n "$RECONCILE_START_ID"
+              test -n "$RECONCILE_CANDIDATE_ID"
+              php scripts/jobdiva_reconcile_start.php 2 "$RECONCILE_START_ID" "$RECONCILE_CANDIDATE_ID"
+            fi
             php scripts/jobdiva_rate_write_probe.php --roster 2
             echo "Deployed and verified commit ${{ github.sha }}."
