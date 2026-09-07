@@ -5,6 +5,10 @@ $root = dirname(__DIR__);
 $sync = (string) file_get_contents($root . '/core/jobdiva/sync.php');
 $api = (string) file_get_contents($root . '/api/jobdiva.php');
 $ui = (string) file_get_contents($root . '/dashboard/src/pages/JobDivaSettings.jsx');
+$contractBatch = strstr($sync, 'function jobdivaSyncAssignmentContractsBatch');
+$contractBatch = is_string($contractBatch)
+    ? (string) strstr($contractBatch, 'function jobdivaSyncCandidateAssignmentsBatch', true)
+    : '';
 
 $pass = 0;
 $fail = 0;
@@ -37,9 +41,10 @@ $assert('each enriched contract is persisted and projected immediately',
 $assert('existing placement batches re-resolve the canonical source person identity',
     str_contains($sync, 'p.person_id AS existing_person_id')
     && str_contains($sync, "'person_id' => 0"));
-$assert('ordinary contract batches exclude stale Start IDs absent from the current census',
-    str_contains($sync, "AND m.sync_status = 'ok'")
-    && str_contains($sync, 'p.deleted_at AS placement_deleted_at'));
+$assert('ordinary contract batches revalidate recoverable mappings and exclude source-confirmed deletions',
+    str_contains($contractBatch, "AND m.sync_status <> 'deleted_in_source'")
+    && !str_contains($contractBatch, "AND m.sync_status = 'ok'")
+    && str_contains($contractBatch, 'p.deleted_at AS placement_deleted_at'));
 $assert('archived rows restore only from an explicit current contract lifecycle',
     str_contains($sync, "\$contractStatus !== ''")
     && str_contains($sync, "['active', 'pending_start', 'on_hold']")
