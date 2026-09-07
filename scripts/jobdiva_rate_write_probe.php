@@ -19,10 +19,18 @@ if (!$pdo) {
     exit(70);
 }
 
-if (($argv[1] ?? '') === '--roster') {
+if (in_array(($argv[1] ?? ''), ['--roster', '--active-roster'], true)) {
     $tenantId = (int) ($argv[2] ?? 2);
+    $activeOnly = ($argv[1] ?? '') === '--active-roster';
+    $statusPredicate = $activeOnly
+        ? "p.status = 'active'"
+        : "p.status IN ('active', 'pending_start', 'on_hold')";
     $stmt = $pdo->prepare(
         "SELECT p.id, p.external_id, p.title, p.status, p.start_date, p.end_date,
+                p.engagement_type, p.end_client_name, p.end_client_company_id,
+                p.client_bill_cycle, p.client_payment_terms_override,
+                p.vendor_pay_cycle, p.vendor_payment_terms_override, p.vendor_pwp_enabled,
+                ec.name AS canonical_end_client_name,
                 pe.first_name, pe.last_name,
                 m.external_id AS mapped_start_id, m.sync_status AS mapping_status,
                 m.last_error AS mapping_error, m.payload_snapshot,
@@ -37,15 +45,32 @@ if (($argv[1] ?? '') === '--roster') {
             AND m.internal_entity_id = p.id
            LEFT JOIN placement_rates pr
              ON pr.tenant_id = p.tenant_id AND pr.placement_id = p.id
+           LEFT JOIN companies ec
+             ON ec.tenant_id = p.tenant_id AND ec.id = p.end_client_company_id
           WHERE p.tenant_id = :tenant_id
             AND p.deleted_at IS NULL
-            AND p.status IN ('active', 'pending_start', 'on_hold')
+            AND {$statusPredicate}
           GROUP BY p.id, p.external_id, p.title, p.status, p.start_date, p.end_date,
+                   p.engagement_type, p.end_client_name, p.end_client_company_id,
+                   p.client_bill_cycle, p.client_payment_terms_override,
+                   p.vendor_pay_cycle, p.vendor_payment_terms_override, p.vendor_pwp_enabled,
+                   ec.name,
                    pe.first_name, pe.last_name, m.external_id, m.sync_status,
                    m.last_error, m.payload_snapshot
           ORDER BY p.start_date DESC, p.id DESC"
     );
     $stmt->execute(['tenant_id' => $tenantId]);
+    $latestRateStmt = $pdo->prepare(
+        'SELECT id, effective_from, effective_to, bill_rate, pay_rate, currency,
+                bill_rate_unit, pay_rate_unit, approved_at, adjusted_bill_rate,
+                net_to_vendor, background_fee_total, adder_pct, bill_adder_pct,
+                bill_adder_flat, bill_discount_pct, bill_discount_flat,
+                workers_comp_pct, benefits_load_pct, other_cost_per_hour, other_cost_flat
+           FROM placement_rates
+          WHERE tenant_id = :tenant_id AND placement_id = :placement_id
+          ORDER BY effective_from DESC, id DESC
+          LIMIT 1'
+    );
     $rows = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
         $payload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
@@ -61,6 +86,99 @@ if (($argv[1] ?? '') === '--roster') {
         $row['contract_salary_status'] = $contract['salary_status'] ?? null;
         $row['contract_bill_rate'] = $contract['bill_rate'] ?? null;
         $row['contract_pay_rate'] = $contract['pay_rate'] ?? null;
+        $row['contract_bill_rate_in_vms'] = $contract['bill_rate_in_vms'] ?? null;
+        $row['contract_net_bill_rate'] = $contract['net_bill_rate'] ?? null;
+        $row['contract_client_company_name'] = $contract['client_company_name'] ?? null;
+        $row['contract_client_company_id'] = $contract['client_company_id'] ?? null;
+        $row['contract_client_bill_cycle'] = $contract['client_bill_cycle'] ?? null;
+        $row['contract_vendor_pay_cycle'] = $contract['vendor_pay_cycle'] ?? null;
+        $row['contract_client_payment_terms'] = $contract['client_payment_terms'] ?? null;
+        $row['contract_vendor_payment_terms'] = $contract['vendor_payment_terms'] ?? null;
+        $row['contract_paid_when_paid'] = $contract['paid_when_paid'] ?? null;
+        $row['contract_corporation_name'] = $contract['corporation_name'] ?? null;
+        $row['contract_corporation_id'] = $contract['corporation_id'] ?? null;
+        $row['contract_referral_vendor'] = $contract['referral_vendor'] ?? null;
+        $row['contract_referral_fee_amount'] = $contract['referral_fee_amount'] ?? null;
+        $row['contract_overheads'] = $contract['overheads'] ?? null;
+        $latestRateStmt->execute([
+            'tenant_id' => $tenantId,
+            'placement_id' => (int) ($row['id'] ?? 0),
+        ]);
+        $row['current_rate'] = $latestRateStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $row['economic_parties'] = array_map(
+            static fn(array $party): array => [
+                'role' => $party['role'] ?? null,
+                'display_name' => $party['display_name'] ?? null,
+                'company_name' => $party['company_name'] ?? null,
+                'vendor_name' => $party['vendor_name'] ?? null,
+                'money_flow' => $party['money_flow'] ?? null,
+                'settlement_channel' => $party['settlement_channel'] ?? null,
+                'fee_basis' => $party['fee_basis'] ?? null,
+                'fee_pct' => $party['fee_pct'] ?? null,
+                'fee_flat' => $party['fee_flat'] ?? null,
+                'payment_terms' => $party['payment_terms'] ?? null,
+                'pwp_enabled' => $party['pwp_enabled'] ?? null,
+                'cycle_cadence' => $party['cycle_cadence'] ?? null,
+                'source_system' => $party['source_system'] ?? null,
+                'source_external_id' => $party['source_external_id'] ?? null,
+            ],
+            placementEconomicsParties($tenantId, (int) ($row['id'] ?? 0))
+        );
+        $issues = [];
+        $sameText = static fn(mixed $a, mixed $b): bool => strtolower(trim((string) $a)) === strtolower(trim((string) $b));
+        $sameAmount = static fn(mixed $a, mixed $b): bool => abs((float) $a - (float) $b) < 0.005;
+        if (($row['mapping_status'] ?? '') !== 'ok') $issues[] = 'mapping_not_ok';
+        if (($contract['placement_status'] ?? '') !== 'active') $issues[] = 'contract_not_active';
+        if (($contract['salary_approved'] ?? null) !== true) $issues[] = 'salary_not_approved';
+        if (!$sameText($row['engagement_type'] ?? '', $contract['engagement_type'] ?? '')) {
+            $issues[] = 'classification_mismatch';
+        }
+        $canonicalClient = trim((string) ($row['canonical_end_client_name'] ?? ''));
+        if ($canonicalClient === '') $canonicalClient = trim((string) ($row['end_client_name'] ?? ''));
+        $contractClient = trim((string) ($contract['client_company_name'] ?? ''));
+        if ($contractClient === '' || !$sameText($canonicalClient, $contractClient)) {
+            $issues[] = 'client_mismatch';
+        }
+        if (!empty($contract['end_date_present'])) {
+            $expectedEnd = jobdivaNormaliseDate($contract['end_date'] ?? null) ?? '';
+            if ((string) ($row['end_date'] ?? '') !== $expectedEnd) $issues[] = 'end_date_mismatch';
+        }
+        $currentRate = is_array($row['current_rate'] ?? null) ? $row['current_rate'] : [];
+        $expectedBill = (float) ($contract['bill_rate_in_vms'] ?? $contract['bill_rate'] ?? 0);
+        if ($expectedBill <= 0) $expectedBill = (float) ($contract['bill_rate'] ?? 0);
+        $expectedPay = (float) ($contract['pay_rate_to_vendor'] ?? $contract['pay_rate'] ?? 0);
+        if ($expectedPay <= 0) $expectedPay = (float) ($contract['pay_rate'] ?? 0);
+        if ($currentRate === []) {
+            $issues[] = 'missing_rate';
+        } else {
+            if (!$sameAmount($currentRate['bill_rate'] ?? 0, $expectedBill)) $issues[] = 'bill_rate_mismatch';
+            if (!$sameAmount($currentRate['pay_rate'] ?? 0, $expectedPay)) $issues[] = 'pay_rate_mismatch';
+        }
+        if (!empty($contract['client_bill_cycle'])
+            && !$sameText($row['client_bill_cycle'] ?? '', $contract['client_bill_cycle'])) {
+            $issues[] = 'billing_frequency_mismatch';
+        }
+        if (!empty($contract['vendor_pay_cycle'])
+            && !$sameText($row['vendor_pay_cycle'] ?? '', $contract['vendor_pay_cycle'])) {
+            $issues[] = 'payment_frequency_mismatch';
+        }
+        $receivables = array_values(array_filter(
+            $row['economic_parties'],
+            static fn(array $party): bool => ($party['money_flow'] ?? '') === 'receivable'
+                && ($party['settlement_channel'] ?? '') === 'ar'
+        ));
+        if (count($receivables) !== 1) $issues[] = 'receivable_party_mismatch';
+        $laborChannel = in_array((string) ($contract['engagement_type'] ?? ''), ['c2c', '1099'], true)
+            ? 'ap'
+            : 'payroll';
+        $laborPayees = array_values(array_filter(
+            $row['economic_parties'],
+            static fn(array $party): bool => ($party['money_flow'] ?? '') === 'payable'
+                && ($party['settlement_channel'] ?? '') === $laborChannel
+                && ($party['fee_basis'] ?? '') === 'pay_rate'
+        ));
+        if (count($laborPayees) !== 1) $issues[] = 'labor_payee_mismatch';
+        $row['audit_issues'] = $issues;
         if (($contract['salary_approved'] ?? null) !== true) {
             $detailRows = is_array($payload['_jd_assignment_detail'] ?? null)
                 ? $payload['_jd_assignment_detail']
@@ -90,12 +208,25 @@ if (($argv[1] ?? '') === '--roster') {
         }
         $rows[] = $row;
     }
+    $issueCounts = [];
+    foreach ($rows as $row) {
+        foreach ($row['audit_issues'] ?? [] as $issue) {
+            $issueCounts[$issue] = ($issueCounts[$issue] ?? 0) + 1;
+        }
+    }
+    ksort($issueCounts);
     echo json_encode([
         'tenant_id' => $tenantId,
+        'scope' => $activeOnly ? 'active' : 'current',
         'count' => count($rows),
         'mapping_status_counts' => array_count_values(array_map(
             static fn(array $row): string => (string) ($row['mapping_status'] ?? 'unmapped'),
             $rows
+        )),
+        'issue_counts' => $issueCounts,
+        'clean_count' => count(array_filter(
+            $rows,
+            static fn(array $row): bool => ($row['audit_issues'] ?? []) === []
         )),
         'rows' => $rows,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;

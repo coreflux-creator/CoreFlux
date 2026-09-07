@@ -201,13 +201,18 @@ export default function JobDivaSettings() {
     finally    { setBusy(b => ({ ...b, ping: false })); }
   };
 
-  const drainCandidateAssignments = async () => {
+  const newReconciliationToken = () => (
+    globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
+
+  const drainCandidateAssignments = async (runToken) => {
     const stats = { processed: 0, staged: 0, failed: 0 };
     let cursor = 0;
     for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
       const batch = await api.post('/api/jobdiva/sync.php?action=candidate_assignments_batch', {
         cursor,
         limit: 8,
+        run_token: runToken,
       });
       stats.processed += Number(batch.candidates_processed) || 0;
       stats.staged += Number(batch.review_staged) || 0;
@@ -243,7 +248,7 @@ export default function JobDivaSettings() {
     return stats;
   };
 
-  const drainReviewAssignments = async () => {
+  const drainReviewAssignments = async (runToken) => {
     const stats = {
       processed: 0, projected: 0, created: 0, updated: 0, restored: 0,
       demoted: 0, skippedNotCurrent: 0, unavailable: 0, unavailableIds: [],
@@ -254,6 +259,7 @@ export default function JobDivaSettings() {
       const batch = await api.post('/api/jobdiva/sync.php?action=review_assignment_contracts_batch', {
         cursor,
         limit: 1,
+        run_token: runToken,
       });
       stats.processed += Number(batch.processed) || 0;
       stats.projected += Number(batch.projected) || 0;
@@ -290,10 +296,11 @@ export default function JobDivaSettings() {
   const onSync = async () => {
     clear(); setSyncResult(null); setBusy(b => ({ ...b, sync: true }));
     try {
+      const runToken = newReconciliationToken();
       const r = await api.post('/api/jobdiva/sync.php?action=sync');
-      const candidates = await drainCandidateAssignments();
+      const candidates = await drainCandidateAssignments(runToken);
       const contracts = await drainAssignmentContracts();
-      const review = await drainReviewAssignments();
+      const review = await drainReviewAssignments(runToken);
       // A3+ returns { counts: {company, contact, placement, ...}, total, latency_ms }.
       // A1 returns { ok, note, ping } only — fall back to the note.
       const counts = r.counts && typeof r.counts === 'object' ? r.counts : null;
@@ -350,9 +357,10 @@ export default function JobDivaSettings() {
   const onReconcileAssignments = async () => {
     clear(); setSyncResult(null); setBusy(b => ({ ...b, reconcileAssignments: true }));
     try {
-      const candidates = await drainCandidateAssignments();
+      const runToken = newReconciliationToken();
+      const candidates = await drainCandidateAssignments(runToken);
       const contracts = await drainAssignmentContracts();
-      const review = await drainReviewAssignments();
+      const review = await drainReviewAssignments(runToken);
       const projected = contracts.projected + review.projected;
       const changed = projected + review.demoted;
       setSyncResult({

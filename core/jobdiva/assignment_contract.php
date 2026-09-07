@@ -59,7 +59,7 @@ function jobdivaAssignmentContractEntries(array $records): array
                 $walk($value, $nextPath);
                 continue;
             }
-            if (!jobdivaAssignmentContractHasValue($value)) continue;
+            if (is_object($value)) continue;
             $entries[] = [
                 'path' => $nextPath,
                 'key' => $keyString,
@@ -93,6 +93,33 @@ function jobdivaAssignmentContractPick(array $entries, array $labels): mixed
             if ($path !== '' && str_ends_with($path, $candidate)
                 && jobdivaAssignmentContractHasValue($entry['value'] ?? null)) {
                 return $entry['value'];
+            }
+        }
+    }
+    return null;
+}
+
+function jobdivaAssignmentContractPickPresent(array $entries, array $labels, ?bool &$found = null): mixed
+{
+    $found = false;
+    $wanted = array_values(array_filter(array_map(
+        static fn(string $label): string => jobdivaAssignmentContractNormaliseKey($label),
+        $labels
+    )));
+    foreach ($wanted as $candidate) {
+        foreach ($entries as $entry) {
+            if (($entry['norm_key'] ?? '') === $candidate) {
+                $found = true;
+                return $entry['value'] ?? null;
+            }
+        }
+    }
+    foreach ($wanted as $candidate) {
+        foreach ($entries as $entry) {
+            $path = (string) ($entry['norm_path'] ?? '');
+            if ($path !== '' && str_ends_with($path, $candidate)) {
+                $found = true;
+                return $entry['value'] ?? null;
             }
         }
     }
@@ -233,6 +260,27 @@ function jobdivaAssignmentContractShallowPick(array $record, array $labels): mix
     return null;
 }
 
+function jobdivaAssignmentContractShallowPickPresent(array $record, array $labels, ?bool &$found = null): mixed
+{
+    $found = false;
+    $values = [];
+    foreach ($record as $key => $value) {
+        if (!is_string($key) || is_array($value) || is_object($value)) continue;
+        $normalised = jobdivaAssignmentContractNormaliseKey($key);
+        if ($normalised !== '' && !array_key_exists($normalised, $values)) {
+            $values[$normalised] = $value;
+        }
+    }
+    foreach ($labels as $label) {
+        $normalised = jobdivaAssignmentContractNormaliseKey((string) $label);
+        if ($normalised !== '' && array_key_exists($normalised, $values)) {
+            $found = true;
+            return $values[$normalised];
+        }
+    }
+    return null;
+}
+
 /**
  * Keep only EmployeeAssignmentRecordsDetail rows that belong to the requested
  * Start. Some JobDiva tenants return related employee records even when a
@@ -331,15 +379,14 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     // FREQUENCY and STATUS across sections. BILLING owns the assignment's
     // client/lifecycle facts; SALARY owns labor-pay and subcontractor facts.
     // Keep these entry sets separate so array order cannot change semantics.
-    $billingEntries = jobdivaAssignmentContractEntries(
-        jobdivaAssignmentContractSectionRows($matching, 'BILLING')
-    );
+    $billingRows = jobdivaAssignmentContractSectionRows($matching, 'BILLING');
+    $billingEntries = jobdivaAssignmentContractEntries($billingRows);
     $salaryEntries = jobdivaAssignmentContractEntries(
         jobdivaAssignmentContractSectionRows($matching, 'SALARY')
     );
     $billingCompanyEntries = jobdivaAssignmentContractEntries(
         jobdivaAssignmentContractSectionRows(
-            jobdivaAssignmentContractSectionRows($matching, 'BILLING'),
+            $billingRows,
             'COMPANY'
         )
     );
@@ -429,8 +476,28 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
 
     $startDateRaw = $billingPick(['Start Date', 'START_DATE', 'startDate', 'start_date'])
         ?? $pick(['Start Date', 'START_DATE', 'startDate', 'start_date']);
-    $endDateRaw = $billingPick(['End Date', 'END_DATE', 'endDate', 'end_date'])
-        ?? $pick(['End Date', 'END_DATE', 'endDate', 'end_date']);
+    // A blank END_DATE on the current Billing record means open-ended. Do
+    // not fall through to JOB.ENDDATE, which is the requisition's planning
+    // date and can retain an obsolete value after the assignment is extended.
+    $billingEndDatePresent = false;
+    $billingEndDate = jobdivaAssignmentContractPickPresent(
+        $billingEntries,
+        ['End Date', 'END_DATE', 'endDate', 'end_date'],
+        $billingEndDatePresent
+    );
+    $startEndDatePresent = false;
+    $startEndDate = jobdivaAssignmentContractShallowPickPresent(
+        $fallback,
+        ['End Date', 'END_DATE', 'endDate', 'end_date'],
+        $startEndDatePresent
+    );
+    if ($billingEndDatePresent) {
+        $endDateRaw = $billingEndDate;
+    } elseif ($startEndDatePresent) {
+        $endDateRaw = $startEndDate;
+    } else {
+        $endDateRaw = $pick(['End Date', 'END_DATE', 'endDate', 'end_date']);
+    }
     $actualStart = jobdivaAssignmentContractBool($billingPick(['Actual Start', 'ACTUALSTART', 'actualStart']));
     $actualEnd = jobdivaAssignmentContractBool($billingPick(['Actual End', 'ACTUALEND', 'actualEnd']));
     $approved = jobdivaAssignmentContractBool($billingPick(['Approved', 'APPROVED', 'approved']));
@@ -491,6 +558,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'placement_status' => $placementStatus,
         'start_date' => $startDateRaw,
         'end_date' => $endDateRaw,
+        'end_date_present' => $billingEndDatePresent || $startEndDatePresent,
         'actual_start' => $actualStart,
         'actual_end' => $actualEnd,
         'approved' => $approved,

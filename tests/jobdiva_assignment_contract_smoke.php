@@ -341,6 +341,24 @@ $clientContract = jobdivaAssignmentContractBuild([[
 $assert('exact Assignment billing company owns the end-client identity',
     ($clientContract['client_company_id'] ?? '') === '10803946'
     && ($clientContract['client_company_name'] ?? '') === 'TCS');
+$openEndedContract = jobdivaAssignmentContractBuild([[
+    'Start ID' => '57549729',
+    'JOB' => [[
+        'ENDDATE' => '2026-12-31T00:00:00',
+    ]],
+    'BILLING' => [[
+        'STARTID' => '57549729',
+        'EMPLOYEEID' => '21283855487448',
+        'JOBID' => '28137644',
+        'END_DATE' => '',
+    ]],
+]], [
+    '__cf_jobdiva_expected_candidate_id' => '21283855487448',
+    '__cf_jobdiva_expected_job_id' => '28137644',
+], '57549729');
+$assert('an explicit blank Billing end date beats the requisition end date',
+    !array_key_exists('end_date', $openEndedContract)
+    && ($openEndedContract['end_date_present'] ?? false) === true);
 $assert('tenant field mappings cannot overwrite the exact billing company',
     integrationFieldMapJobDivaContractOwnsTarget(
         'jobdiva',

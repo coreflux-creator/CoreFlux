@@ -319,7 +319,8 @@ switch ($action) {
                 $tid,
                 $user['id'] ?? null,
                 (int) ($body['cursor'] ?? 0),
-                (int) ($body['limit'] ?? 8)
+                (int) ($body['limit'] ?? 8),
+                (string) ($body['run_token'] ?? '')
             );
         } catch (\Throwable $e) {
             api_error('Candidate assignment discovery failed: ' . $e->getMessage(), 502);
@@ -338,7 +339,8 @@ switch ($action) {
                 $tid,
                 $user['id'] ?? null,
                 (int) ($body['cursor'] ?? 0),
-                (int) ($body['limit'] ?? 8)
+                (int) ($body['limit'] ?? 8),
+                (string) ($body['run_token'] ?? '')
             );
         } catch (\Throwable $e) {
             api_error('Assignment review sync failed: ' . $e->getMessage(), 502);

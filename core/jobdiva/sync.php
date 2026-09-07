@@ -2298,11 +2298,14 @@ function jobdivaSyncCandidateAssignmentsBatch(
     int $tenantId,
     ?int $userId,
     int $cursor = 0,
-    int $limit = 8
+    int $limit = 8,
+    string $runToken = ''
 ): array {
     require_once __DIR__ . '/sync_placements.php';
     $cursor = max(0, $cursor);
     $limit = max(1, min(8, $limit));
+    $runToken = preg_replace('/[^A-Za-z0-9._:-]/', '', trim($runToken)) ?? '';
+    $runToken = substr($runToken, 0, 96);
     $result = [
         'candidates_processed' => 0,
         'starts_seen' => 0,
@@ -2394,6 +2397,9 @@ function jobdivaSyncCandidateAssignmentsBatch(
                 // Candidate-scoped discovery proves the identity, but exact
                 // billing/salary lifecycle still decides whether it is live.
                 $row['__cf_jobdiva_census_scope'] = 'review';
+                if ($runToken !== '') {
+                    $row['__cf_jobdiva_review_run_token'] = $runToken;
+                }
                 $stored = jobdivaMirrorStoreAndIndex(
                     $tenantId,
                     'jobdiva_assignment_review',
@@ -2451,10 +2457,13 @@ function jobdivaSyncReviewAssignmentContractsBatch(
     int $tenantId,
     ?int $userId,
     int $cursor = 0,
-    int $limit = 1
+    int $limit = 1,
+    string $runToken = ''
 ): array {
     $cursor = max(0, $cursor);
     $limit = 1;
+    $runToken = preg_replace('/[^A-Za-z0-9._:-]/', '', trim($runToken)) ?? '';
+    $runToken = substr($runToken, 0, 96);
     $result = [
         'processed' => 0,
         'projected' => 0,
@@ -2474,6 +2483,9 @@ function jobdivaSyncReviewAssignmentContractsBatch(
     if ($tenantId <= 0) return $result;
 
     $pdo = getDB();
+    $runFilter = $runToken !== ''
+        ? " AND JSON_UNQUOTE(JSON_EXTRACT(payload_snapshot, '$.__cf_jobdiva_review_run_token')) = :run_token"
+        : '';
     $st = $pdo->prepare(
         "SELECT id, external_id, payload_snapshot
            FROM external_entity_mappings
@@ -2483,10 +2495,13 @@ function jobdivaSyncReviewAssignmentContractsBatch(
             AND sync_status = 'ok'
             AND payload_snapshot IS NOT NULL
             AND id > :cursor
+            {$runFilter}
           ORDER BY id ASC
           LIMIT {$limit}"
     );
-    $st->execute(['tenant_id' => $tenantId, 'cursor' => $cursor]);
+    $queryParams = ['tenant_id' => $tenantId, 'cursor' => $cursor];
+    if ($runToken !== '') $queryParams['run_token'] = $runToken;
+    $st->execute($queryParams);
     $rows = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     if ($rows === []) return $result;
 
@@ -6305,8 +6320,9 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $tid, 'jobdiva', 'placement', 'end_date', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, ['endDate', 'end_date', 'end date', 'enddate'])
     );
-    if (!empty($assignmentContract['end_date'])) {
-        $endDate = (string) $assignmentContract['end_date'];
+    $contractEndDateExplicit = !empty($assignmentContract['end_date_present']);
+    if ($contractEndDateExplicit) {
+        $endDate = (string) ($assignmentContract['end_date'] ?? '');
     }
     // JobDiva V2 BI returns dates as epoch-milliseconds in many envelopes;
     // normalise to MySQL DATE (Y-m-d) so the prepared statement doesn't
@@ -6717,7 +6733,8 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $fieldEvidence = [
             'person_id' => $personId > 0,
             'start_date' => $startDate !== '',
-            'end_date' => $endDateNorm !== null,
+            'end_date' => $endDateNorm !== null
+                || (!empty($jd['__cf_force_source_contract']) && $contractEndDateExplicit),
             'actual_end_date' => $actualEnd !== null,
             'due_date' => $dueDate !== null,
             'status' => $statusRaw !== ''

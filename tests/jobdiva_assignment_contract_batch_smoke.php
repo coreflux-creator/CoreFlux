@@ -58,6 +58,13 @@ $assert('candidate-scoped discovery stages census omissions for exact review',
     str_contains($sync, 'function jobdivaSyncCandidateAssignmentsBatch')
     && str_contains($sync, "'candidateid' => (int) \$candidateId")
     && str_contains($sync, "'jobdiva_assignment_review'"));
+$assert('assignment review is isolated to the current reconciliation run',
+    str_contains($sync, '__cf_jobdiva_review_run_token')
+    && str_contains($sync, "JSON_EXTRACT(payload_snapshot, '$.__cf_jobdiva_review_run_token')")
+    && substr_count($api, "(string) (\$body['run_token'] ?? '')") === 2
+    && str_contains($ui, 'const newReconciliationToken = () =>')
+    && str_contains($ui, 'drainCandidateAssignments(runToken)')
+    && str_contains($ui, 'drainReviewAssignments(runToken)'));
 $assert('mapped review candidates are not skipped as already current',
     str_contains($sync, "(\$placementMapping['sync_status'] ?? '') === 'ok' && \$bucket === 'current'"));
 $assert('ambiguous SearchStart rows are retained for exact contract review',
@@ -115,7 +122,7 @@ $assert('Sync now checks known candidates before contract projection',
 $assert('operators can reconcile assignment identity without rerunning the full mirror sync',
     str_contains($ui, 'const onReconcileAssignments = async () =>')
     && preg_match(
-        '/const onReconcileAssignments = async \(\) => \{.*?drainAssignmentContracts\(\).*?drainReviewAssignments\(\)/s',
+        '/const onReconcileAssignments = async \(\) => \{.*?drainAssignmentContracts\(\).*?drainReviewAssignments\(runToken\)/s',
         $ui
     ) === 1
     && str_contains($ui, 'jobdiva-settings-reconcile-assignments')
