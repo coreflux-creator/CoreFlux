@@ -439,29 +439,28 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     $salaryClosed = jobdivaAssignmentContractBool($salaryPick(['Closed', 'CLOSED', 'closed']));
     $salaryStatusRaw = trim((string) $salaryPick(['Status', 'STATUS', 'status']));
     $salaryStatus = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', ' ', $salaryStatusRaw)));
-    $salaryReady = $salaryApproved === true
-        || in_array($salaryStatus, ['2', 'approved', 'active', 'current'], true);
-    $salaryBlocked = $salaryApproved === false
-        || in_array($salaryStatus, ['0', '1', 'draft', 'unapproved', 'pending approval'], true);
+    // JobDiva's Assignment Dashboard defines a live assignment as an active
+    // BILLING record paired with an explicitly APPROVED SALARY record. STATUS
+    // is not approval: production rows with STATUS=2 and APPROVED=0 are absent
+    // from that dashboard and must not become CoreFlux placements.
+    $salaryReady = $salaryApproved === true;
+    $salaryBlocked = !$salaryReady;
     $censusScope = strtolower(trim((string) ($fallback['__cf_jobdiva_census_scope'] ?? '')));
-    $enforceSalaryLifecycle = $censusScope === 'review';
+    $enforceSalaryLifecycle = true;
     $endDate = function_exists('jobdivaNormaliseDate') ? jobdivaNormaliseDate($endDateRaw) : null;
     if ($closed === true
         || ($enforceSalaryLifecycle && $salaryClosed === true)
         || $actualEnd === true
         || ($endDate !== null && $endDate < date('Y-m-d'))) {
         $placementStatus = 'ended';
-    } elseif ($enforceSalaryLifecycle && $salaryBlocked && $approved === true) {
-        // SearchStart's current census is authoritative for rows it qualifies.
-        // Only ambiguous review rows need the SALARY side to prove that a
-        // billing-approved Start is actually live.
+    } elseif ($salaryBlocked && $approved === true) {
         $placementStatus = 'draft';
     } elseif ($actualStart === true
         && $approved !== false
-        && (!$enforceSalaryLifecycle || $salaryReady || $salaryStatus === '')) {
+        && $salaryReady) {
         $placementStatus = 'active';
     } elseif ($approved === true
-        && (!$enforceSalaryLifecycle || $salaryReady || $salaryStatus === '')) {
+        && $salaryReady) {
         $placementStatus = 'pending_start';
     } else {
         $placementStatus = '';
