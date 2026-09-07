@@ -36,7 +36,7 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: ".deploy-version,api/jobdiva.php,core/jobdiva,core/integrations/entity_mappings.php,core/integrations/field_map.php,core/integrations/field_map_apply.php,core/integrations/payload_field_index.php,modules/placements/lib/economics.php,modules/placements/lib/jobdiva_reconciliation.php,modules/placements/api/jobdiva_reconciliation.php,modules/placements/ui/JobDivaReconciliation.jsx,dashboard/dist,dashboard/src/pages/JobDivaSettings.jsx,index.html,spa-assets/index-BC5g6YJu.css,spa-assets/index-CIGNKYB0.css,spa-assets/index-D2G7gqcx.js,spa-assets/index-DL5i3UaB.js,spa-assets/index.html,spa-assets/sw.js,scripts/jobdiva_rate_write_probe.php,scripts/jobdiva_reconcile_start.php,scripts/opcache_flush_deploy.php.template"
+          source: ".deploy-version,api/jobdiva.php,core/jobdiva,core/integrations/entity_mappings.php,core/integrations/field_map.php,core/integrations/field_map_apply.php,core/integrations/payload_field_index.php,modules/placements/lib/economics.php,modules/placements/lib/jobdiva_reconciliation.php,modules/placements/api/jobdiva_reconciliation.php,modules/placements/ui/JobDivaReconciliation.jsx,dashboard/dist,dashboard/src/pages/JobDivaSettings.jsx,index.html,spa-assets/index-BC5g6YJu.css,spa-assets/index-CIGNKYB0.css,spa-assets/index-BzpLzty0.js,spa-assets/index-CchmncPP.js,spa-assets/index.html,spa-assets/sw.js,scripts/jobdiva_rate_write_probe.php,scripts/jobdiva_reconcile_start.php,scripts/opcache_flush_deploy.php.template"
           target: /tmp/coreflux-jobdiva-deploy-${{ github.run_id }}
           overwrite: true
 
@@ -67,8 +67,8 @@ jobs:
             test -f "$STAGE_ROOT/core/jobdiva/projector.php"
             test -f "$STAGE_ROOT/core/integrations/field_map_apply.php"
             test -f "$STAGE_ROOT/modules/placements/lib/economics.php"
-            test -f "$STAGE_ROOT/spa-assets/index-DL5i3UaB.js"
-            test -f "$STAGE_ROOT/spa-assets/index-D2G7gqcx.js"
+            test -f "$STAGE_ROOT/spa-assets/index-BzpLzty0.js"
+            test -f "$STAGE_ROOT/spa-assets/index-CchmncPP.js"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
@@ -83,8 +83,8 @@ jobs:
             grep -Fq 'jobdivaProjectorSourceContractDrift' core/jobdiva/projector.php
             grep -Fq 'authoritative_jobdiva_assignment_contract' core/integrations/field_map_apply.php
             grep -Fq "force_source_fields'] = true" modules/placements/lib/economics.php
-            grep -Fq 'Reconcile assignments' spa-assets/index-DL5i3UaB.js
-            grep -Fq 'index-DL5i3UaB.js' index.html
+            grep -Fq 'Reconcile assignments' spa-assets/index-BzpLzty0.js
+            grep -Fq 'index-BzpLzty0.js' index.html
 
             OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
             php -r '$template=file_get_contents($argv[1]); if ($template === false || substr_count($template, "__COREFLUX_OPCACHE_TOKEN__") !== 1) exit(1); $content=str_replace("__COREFLUX_OPCACHE_TOKEN__", $argv[3], $template); if (file_put_contents($argv[2], $content, LOCK_EX) === false) exit(1); chmod($argv[2], 0640);' "$OPCACHE_TEMPLATE" "$OPCACHE_ENDPOINT" "$OPCACHE_TOKEN"
@@ -100,7 +100,6 @@ jobs:
             php -l modules/placements/lib/economics.php
             php -l scripts/jobdiva_rate_write_probe.php
             php -l scripts/jobdiva_reconcile_start.php
-            php scripts/jobdiva_rate_write_probe.php 785 57953568 80 63
             if [ -n "$RECONCILE_START_ID" ] || [ -n "$RECONCILE_CANDIDATE_ID" ]; then
               test -n "$RECONCILE_START_ID"
               test -n "$RECONCILE_CANDIDATE_ID"

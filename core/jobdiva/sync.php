@@ -2381,7 +2381,12 @@ function jobdivaSyncCandidateAssignmentsBatch(
                 }
 
                 $placementMapping = mappingFindInternal($tenantId, 'jobdiva', 'placement', $startId);
-                if (($placementMapping['sync_status'] ?? '') === 'ok' && $bucket === 'current') {
+                // The mapped-contract pass immediately following discovery
+                // refreshes every existing Start from the same exact financial
+                // endpoint. Stage only unmapped discoveries here; re-staging
+                // mapped ambiguous rows fetches the same contract twice and
+                // makes a reconciliation appear to hang on JobDiva retries.
+                if (($placementMapping['sync_status'] ?? '') === 'ok') {
                     $result['already_current']++;
                     continue;
                 }

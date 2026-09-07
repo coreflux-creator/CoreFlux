@@ -109,7 +109,9 @@ if (in_array(($argv[1] ?? ''), ['--roster', '--active-roster'], true)) {
             static fn(array $party): array => [
                 'role' => $party['role'] ?? null,
                 'display_name' => $party['display_name'] ?? null,
+                'company_id' => $party['company_id'] ?? null,
                 'company_name' => $party['company_name'] ?? null,
+                'ap_vendor_id' => $party['ap_vendor_id'] ?? null,
                 'vendor_name' => $party['vendor_name'] ?? null,
                 'money_flow' => $party['money_flow'] ?? null,
                 'settlement_channel' => $party['settlement_channel'] ?? null,
@@ -127,6 +129,7 @@ if (in_array(($argv[1] ?? ''), ['--roster', '--active-roster'], true)) {
         $issues = [];
         $sameText = static fn(mixed $a, mixed $b): bool => strtolower(trim((string) $a)) === strtolower(trim((string) $b));
         $sameAmount = static fn(mixed $a, mixed $b): bool => abs((float) $a - (float) $b) < 0.005;
+        $sameRatio = static fn(mixed $a, mixed $b): bool => abs((float) $a - (float) $b) < 0.000005;
         if (($row['mapping_status'] ?? '') !== 'ok') $issues[] = 'mapping_not_ok';
         if (($contract['placement_status'] ?? '') !== 'active') $issues[] = 'contract_not_active';
         if (($contract['salary_approved'] ?? null) !== true) $issues[] = 'salary_not_approved';
@@ -144,15 +147,51 @@ if (in_array(($argv[1] ?? ''), ['--roster', '--active-roster'], true)) {
             if ((string) ($row['end_date'] ?? '') !== $expectedEnd) $issues[] = 'end_date_mismatch';
         }
         $currentRate = is_array($row['current_rate'] ?? null) ? $row['current_rate'] : [];
-        $expectedBill = (float) ($contract['bill_rate_in_vms'] ?? $contract['bill_rate'] ?? 0);
-        if ($expectedBill <= 0) $expectedBill = (float) ($contract['bill_rate'] ?? 0);
-        $expectedPay = (float) ($contract['pay_rate_to_vendor'] ?? $contract['pay_rate'] ?? 0);
-        if ($expectedPay <= 0) $expectedPay = (float) ($contract['pay_rate'] ?? 0);
+        $expectedBill = (float) ($contract['bill_rate'] ?? 0);
+        if ($expectedBill <= 0) $expectedBill = (float) ($contract['net_bill_rate'] ?? 0);
+        $netBill = (float) ($contract['net_bill_rate'] ?? $contract['bill_rate'] ?? 0);
+        $vmsBill = (float) ($contract['bill_rate_in_vms'] ?? 0);
+        if ($vmsBill > 0 && $netBill > 0 && $netBill < $vmsBill) $expectedBill = $vmsBill;
+        $expectedPay = (float) ($contract['pay_rate'] ?? 0);
+        if ($expectedPay <= 0) $expectedPay = (float) ($contract['pay_rate_to_vendor'] ?? 0);
+        $row['expected_bill_rate'] = $expectedBill;
+        $row['expected_pay_rate'] = $expectedPay;
+        $row['expected_client_name'] = $contractClient;
         if ($currentRate === []) {
             $issues[] = 'missing_rate';
         } else {
             if (!$sameAmount($currentRate['bill_rate'] ?? 0, $expectedBill)) $issues[] = 'bill_rate_mismatch';
             if (!$sameAmount($currentRate['pay_rate'] ?? 0, $expectedPay)) $issues[] = 'pay_rate_mismatch';
+            $sourceRatios = [
+                'payroll_load_pct' => 'adder_pct',
+                'workers_comp_pct' => 'workers_comp_pct',
+                'benefits_load_pct' => 'benefits_load_pct',
+            ];
+            foreach ($sourceRatios as $contractField => $rateField) {
+                if (!array_key_exists($contractField, $contract)) continue;
+                $expectedRatio = jobdivaParsePercent($contract[$contractField]);
+                if ($expectedRatio !== null && !$sameRatio($currentRate[$rateField] ?? 0, $expectedRatio)) {
+                    $issues[] = $rateField . '_mismatch';
+                }
+            }
+            $sourceAmounts = [
+                'background_fee_total' => 'background_fee_total',
+                'other_cost_per_hour' => 'other_cost_per_hour',
+                'other_cost_flat' => 'other_cost_flat',
+            ];
+            foreach ($sourceAmounts as $contractField => $rateField) {
+                if (!array_key_exists($contractField, $contract)) continue;
+                $expectedAmount = jobdivaParseRateAmount($contract[$contractField]);
+                if (!$sameAmount($currentRate[$rateField] ?? 0, max(0, $expectedAmount))) {
+                    $issues[] = $rateField . '_mismatch';
+                }
+            }
+            if ($vmsBill > 0 && $netBill > 0 && $netBill < $vmsBill) {
+                $expectedDiscount = round(($vmsBill - $netBill) / $vmsBill, 6);
+                if (!$sameRatio($currentRate['bill_discount_pct'] ?? 0, $expectedDiscount)) {
+                    $issues[] = 'bill_discount_pct_mismatch';
+                }
+            }
         }
         if (!empty($contract['client_bill_cycle'])
             && !$sameText($row['client_bill_cycle'] ?? '', $contract['client_bill_cycle'])) {
@@ -161,6 +200,19 @@ if (in_array(($argv[1] ?? ''), ['--roster', '--active-roster'], true)) {
         if (!empty($contract['vendor_pay_cycle'])
             && !$sameText($row['vendor_pay_cycle'] ?? '', $contract['vendor_pay_cycle'])) {
             $issues[] = 'payment_frequency_mismatch';
+        }
+        if (!empty($contract['client_payment_terms'])
+            && !$sameText($row['client_payment_terms_override'] ?? '', $contract['client_payment_terms'])) {
+            $issues[] = 'client_payment_terms_mismatch';
+        }
+        $isExternalLabor = in_array((string) ($contract['engagement_type'] ?? ''), ['c2c', '1099'], true);
+        if ($isExternalLabor && !empty($contract['vendor_payment_terms'])
+            && !$sameText($row['vendor_payment_terms_override'] ?? '', $contract['vendor_payment_terms'])) {
+            $issues[] = 'vendor_payment_terms_mismatch';
+        }
+        if ($isExternalLabor && array_key_exists('paid_when_paid', $contract)
+            && (bool) ($row['vendor_pwp_enabled'] ?? false) !== (bool) $contract['paid_when_paid']) {
+            $issues[] = 'paid_when_paid_mismatch';
         }
         $receivables = array_values(array_filter(
             $row['economic_parties'],
@@ -178,6 +230,13 @@ if (in_array(($argv[1] ?? ''), ['--roster', '--active-roster'], true)) {
                 && ($party['fee_basis'] ?? '') === 'pay_rate'
         ));
         if (count($laborPayees) !== 1) $issues[] = 'labor_payee_mismatch';
+        $unnormalizedPayables = array_values(array_filter(
+            $row['economic_parties'],
+            static fn(array $party): bool => ($party['money_flow'] ?? '') === 'payable'
+                && ($party['settlement_channel'] ?? '') === 'ap'
+                && empty($party['ap_vendor_id'])
+        ));
+        if ($unnormalizedPayables !== []) $issues[] = 'ap_payee_not_normalized';
         $row['audit_issues'] = $issues;
         if (($contract['salary_approved'] ?? null) !== true) {
             $detailRows = is_array($payload['_jd_assignment_detail'] ?? null)
@@ -228,7 +287,12 @@ if (in_array(($argv[1] ?? ''), ['--roster', '--active-roster'], true)) {
             $rows,
             static fn(array $row): bool => ($row['audit_issues'] ?? []) === []
         )),
-        'rows' => $rows,
+        'rows' => $activeOnly
+            ? array_values(array_filter(
+                $rows,
+                static fn(array $row): bool => ($row['audit_issues'] ?? []) !== []
+            ))
+            : $rows,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
     exit(0);
 }

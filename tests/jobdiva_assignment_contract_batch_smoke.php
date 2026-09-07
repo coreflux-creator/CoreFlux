@@ -69,8 +69,9 @@ $assert('assignment review is isolated to the current reconciliation run',
     && str_contains($ui, 'const newReconciliationToken = () =>')
     && str_contains($ui, 'drainCandidateAssignments(runToken)')
     && str_contains($ui, 'drainReviewAssignments(runToken)'));
-$assert('mapped review candidates are not skipped as already current',
-    str_contains($sync, "(\$placementMapping['sync_status'] ?? '') === 'ok' && \$bucket === 'current'"));
+$assert('candidate review does not refetch Starts covered by the mapped-contract pass',
+    str_contains($sync, "(\$placementMapping['sync_status'] ?? '') === 'ok'")
+    && !str_contains($sync, "(\$placementMapping['sync_status'] ?? '') === 'ok' && \$bucket === 'current'"));
 $assert('ambiguous SearchStart rows are retained for exact contract review',
     str_contains($sync, "'jobdiva_assignment_review'")
     && str_contains($sync, 'function jobdivaSyncReviewAssignmentContractsBatch'));
@@ -138,6 +139,11 @@ $assert('operator results include projected and unavailable contract counts',
     && str_contains($ui, 'failed: contracts.failed')
     && str_contains($ui, 'unavailable_ids: review.unavailableIds')
     && str_contains($ui, 'Unresolved Start IDs:'));
+$assert('reconciliation progress distinguishes checked, current, historical, and unavailable Starts',
+    str_contains($ui, '${stats.processed} checked')
+    && str_contains($ui, '${stats.skippedNotCurrent} not current')
+    && str_contains($ui, 'const unavailable = contracts.failed + review.unavailable;')
+    && str_contains($ui, '${contracts.projected} mapped contract(s) refreshed'));
 
 echo "\nJobDiva assignment contract batch smoke: {$pass} ok / {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

@@ -283,7 +283,7 @@ export default function JobDivaSettings() {
           fallback_succeeded: (Number(previous.fallback_succeeded) || 0) + (Number(batch.financial.fallback_succeeded) || 0),
         };
       }
-      setMsg(`Validating ambiguous JobDiva assignments: ${stats.projected} current, ${stats.demoted} removed from the active roster${stats.unavailable ? `, ${stats.unavailable} unresolved` : ''}.`);
+      setMsg(`Validating ambiguous JobDiva assignments: ${stats.processed} checked, ${stats.projected} current, ${stats.skippedNotCurrent} not current, ${stats.demoted} removed from the active roster${stats.unavailable ? `, ${stats.unavailable} unresolved` : ''}.`);
       const nextCursor = Number(batch.cursor) || 0;
       if (batch.done) break;
       if (nextCursor <= cursor) throw new Error('Assignment review sync did not advance its cursor');
@@ -363,6 +363,7 @@ export default function JobDivaSettings() {
       const review = await drainReviewAssignments(runToken);
       const projected = contracts.projected + review.projected;
       const changed = projected + review.demoted;
+      const unavailable = contracts.failed + review.unavailable;
       setSyncResult({
         ok: candidates.failed === 0 && contracts.failed === 0 && review.failed === 0,
         mode: 'reconcile',
@@ -372,8 +373,8 @@ export default function JobDivaSettings() {
         },
         total: changed,
         latency_ms: null,
-        note: review.unavailable > 0
-          ? `${review.unavailable} JobDiva Start ID(s) could not be verified from assignment financial detail.`
+        note: unavailable > 0
+          ? `${unavailable} JobDiva Start ID(s) could not be verified from assignment financial detail.`
           : 'The CoreFlux active roster was reconciled from exact JobDiva assignment contracts.',
         skipped_by_config: [],
         by_entity: {
@@ -407,7 +408,7 @@ export default function JobDivaSettings() {
       });
       await loadAlignment();
       reload();
-      setMsg(`Assignment reconciliation finished: ${projected} current assignment(s) confirmed, ${review.demoted} removed from the active roster${review.unavailable ? `, ${review.unavailable} unresolved` : ''}.`);
+      setMsg(`Assignment reconciliation finished: ${contracts.projected} mapped contract(s) refreshed, ${review.projected} additional current Start(s) confirmed, ${review.skippedNotCurrent} reviewed as not current, ${review.demoted} removed from the active roster${unavailable ? `, ${unavailable} unresolved` : ''}.`);
     } catch (e) { setErr(e.message); }
     finally { setBusy(b => ({ ...b, reconcileAssignments: false })); }
   };
