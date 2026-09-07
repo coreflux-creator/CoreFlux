@@ -25,7 +25,7 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: ".deploy-version,core/jobdiva,core/integrations/entity_mappings.php,core/integrations/field_map.php,core/integrations/field_map_apply.php,core/integrations/payload_field_index.php,modules/placements/lib/economics.php,modules/placements/lib/jobdiva_reconciliation.php,modules/placements/api/jobdiva_reconciliation.php,modules/placements/ui/JobDivaReconciliation.jsx,dashboard/dist,dashboard/src/pages/JobDivaSettings.jsx,index.html,spa-assets/index-BHLqLFjS.js,spa-assets/index-BIZZhlQ9.js,spa-assets/index.html,spa-assets/sw.js,scripts/opcache_flush_deploy.php.template"
+          source: ".deploy-version,core/jobdiva,core/integrations/entity_mappings.php,core/integrations/field_map.php,core/integrations/field_map_apply.php,core/integrations/payload_field_index.php,modules/placements/lib/economics.php,modules/placements/lib/jobdiva_reconciliation.php,modules/placements/api/jobdiva_reconciliation.php,modules/placements/ui/JobDivaReconciliation.jsx,dashboard/dist,dashboard/src/pages/JobDivaSettings.jsx,index.html,spa-assets/index-BHLqLFjS.js,spa-assets/index-BIZZhlQ9.js,spa-assets/index.html,spa-assets/sw.js,scripts/jobdiva_rate_write_probe.php,scripts/opcache_flush_deploy.php.template"
           target: /tmp/coreflux-jobdiva-deploy-${{ github.run_id }}
           overwrite: true
 
@@ -83,4 +83,6 @@ jobs:
             php -l core/integrations/field_map.php
             php -l core/integrations/field_map_apply.php
             php -l modules/placements/lib/economics.php
+            php -l scripts/jobdiva_rate_write_probe.php
+            php scripts/jobdiva_rate_write_probe.php 785 57953568 80 63
             echo "Deployed and verified commit ${{ github.sha }}."
