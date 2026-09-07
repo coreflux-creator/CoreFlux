@@ -85,6 +85,7 @@ jobs:
             spa-assets/index.html \
             spa-assets/sw.js \
             scripts/jobdiva_rate_write_probe.php \
+            scripts/jobdiva_payload_shape_probe.php \
             scripts/jobdiva_reconcile_start.php \
             scripts/opcache_flush_deploy.php.template
 
@@ -163,7 +164,9 @@ jobs:
             php -l core/integrations/field_map_apply.php
             php -l modules/placements/lib/economics.php
             php -l scripts/jobdiva_rate_write_probe.php
+            php -l scripts/jobdiva_payload_shape_probe.php
             php -l scripts/jobdiva_reconcile_start.php
+            php scripts/jobdiva_payload_shape_probe.php 2 15
             php -d memory_limit=512M -r 'require "core/jobdiva/sync.php"; $plan=jobdivaStoredAssignmentProjectionPlan(2, 20, [], false, 0); $rows=count($plan["public_rows"] ?? []); $total=(int)($plan["pagination"]["total"] ?? 0); if ($rows < 1 || $total < $rows) { fwrite(STDERR, "Stored preview returned an invalid page.\n"); exit(1); } echo "Stored preview verified: {$rows} of {$total} assignments.\n";'
             if [ -n "$RECONCILE_START_ID" ] || [ -n "$RECONCILE_CANDIDATE_ID" ]; then
               test -n "$RECONCILE_START_ID"
