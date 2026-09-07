@@ -13,6 +13,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/accounting.php';
+require_once __DIR__ . '/../lib/account_interest.php';
 require_once __DIR__ . '/../lib/reconciliation_packet.php';
 
 $ctx    = api_require_auth();
@@ -113,6 +114,14 @@ if ($method === 'POST' && $action === 'close') {
     $body = api_json_body();
     $sb = isset($body['statement_balance']) ? (float) $body['statement_balance'] : (float) $row['statement_balance'];
     $gb = isset($body['gl_balance'])        ? (float) $body['gl_balance']        : (float) $row['gl_balance'];
+    try {
+        $interest = accountInterestProcessReconciliation($tid, $id, $uid, $sb);
+        if (($interest['status'] ?? '') === 'posted') {
+            $gb = (float) $interest['gl_balance'];
+        }
+    } catch (\Throwable $e) {
+        api_error('Interest posting failed: ' . $e->getMessage(), 422);
+    }
     $db->prepare(
         'UPDATE accounting_reconciliations
          SET status = "closed", closed_at = :ts, closed_by_user_id = :u,
@@ -125,7 +134,7 @@ if ($method === 'POST' && $action === 'close') {
         'notes' => $body['notes'] ?? null, 'id' => $id, 't' => $tid,
     ]);
     accountingAudit('accounting.reconciliation.closed', ['reconciliation_id' => $id, 'difference' => round($sb - $gb, 2)], $id);
-    api_ok(['ok' => true, 'status' => 'closed']);
+    api_ok(['ok' => true, 'status' => 'closed', 'interest' => $interest]);
 }
 
 // ── action=reopen ─────────────────────────────────────────────────────────
