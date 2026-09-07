@@ -61,6 +61,33 @@ if (($argv[1] ?? '') === '--roster') {
         $row['contract_salary_status'] = $contract['salary_status'] ?? null;
         $row['contract_bill_rate'] = $contract['bill_rate'] ?? null;
         $row['contract_pay_rate'] = $contract['pay_rate'] ?? null;
+        if (($contract['salary_approved'] ?? null) !== true) {
+            $detailRows = is_array($payload['_jd_assignment_detail'] ?? null)
+                ? $payload['_jd_assignment_detail']
+                : [];
+            $matchingRows = jobdivaAssignmentContractRowsForStart(
+                $detailRows,
+                $payload,
+                (string) ($row['mapped_start_id'] ?? '')
+            );
+            foreach (['BILLING', 'SALARY'] as $section) {
+                $facts = [];
+                $entries = jobdivaAssignmentContractEntries(
+                    jobdivaAssignmentContractSectionRows($matchingRows, $section)
+                );
+                foreach ($entries as $entry) {
+                    $key = (string) ($entry['path'] ?? $entry['key'] ?? '');
+                    $value = $entry['value'] ?? null;
+                    if ($key === '' || (!is_scalar($value) && $value !== null)) continue;
+                    $normalised = strtolower((string) preg_replace('/[^a-z0-9]+/i', '_', $key));
+                    if (!preg_match('/approved|closed|actual|status|start|end|effective|active|terminate|pay|salary|bill/i', $normalised)) {
+                        continue;
+                    }
+                    $facts[$key] = $value;
+                }
+                $row[strtolower($section) . '_lifecycle'] = $facts;
+            }
+        }
         $rows[] = $row;
     }
     echo json_encode([
