@@ -34,16 +34,17 @@ $assert('the enricher supports an explicit financial-only run',
 $assert('contract batches are cursor-based and capped below the PHP timeout',
     str_contains($sync, 'function jobdivaSyncAssignmentContractsBatch')
     && str_contains($sync, 'id > :cursor')
-    && str_contains($sync, 'min(8, $limit)'));
+    && substr_count($sync, '$limit = 1;') >= 2);
 $assert('each enriched contract is persisted and projected immediately',
     str_contains($sync, 'SET payload_snapshot = :payload')
     && str_contains($sync, 'jobdivaProjectorProjectPlacement'));
 $assert('existing placement batches re-resolve the canonical source person identity',
     str_contains($sync, 'p.person_id AS existing_person_id')
     && str_contains($sync, "'person_id' => 0"));
-$assert('ordinary contract batches revalidate every mapped Start regardless of prior census status',
+$assert('ordinary contract batches resume from only unresolved exact contracts',
     !str_contains($contractBatch, 'm.sync_status =')
     && !str_contains($contractBatch, 'm.sync_status <>')
+    && str_contains($contractBatch, "JSON_EXTRACT(m.payload_snapshot, '$._jd_contract.contract_version') IS NULL")
     && str_contains($contractBatch, 'p.deleted_at AS placement_deleted_at'));
 $assert('archived rows restore only from an explicit current contract lifecycle',
     str_contains($sync, "\$contractStatus !== ''")

@@ -227,7 +227,7 @@ export default function JobDivaSettings() {
     for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
       const batch = await api.post('/api/jobdiva/sync.php?action=assignment_contracts_batch', {
         cursor,
-        limit: 8,
+        limit: 1,
       });
       stats.processed += Number(batch.processed) || 0;
       stats.projected += Number(batch.projected) || 0;
@@ -253,7 +253,7 @@ export default function JobDivaSettings() {
     for (let batchNumber = 0; batchNumber < 1000; batchNumber += 1) {
       const batch = await api.post('/api/jobdiva/sync.php?action=review_assignment_contracts_batch', {
         cursor,
-        limit: 8,
+        limit: 1,
       });
       stats.processed += Number(batch.processed) || 0;
       stats.projected += Number(batch.projected) || 0;

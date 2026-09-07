@@ -2085,10 +2085,13 @@ function jobdivaSyncAssignmentContractsBatch(
     int $tenantId,
     ?int $userId,
     int $cursor = 0,
-    int $limit = 8
+    int $limit = 1
 ): array {
     $cursor = max(0, $cursor);
-    $limit = max(1, min(8, $limit));
+    // One Start can consume both a primary and fallback JobDiva request.
+    // Keep each PHP request to one exact contract so a slow upstream record
+    // cannot roll the whole browser batch past the host execution limit.
+    $limit = 1;
     $result = [
         'processed' => 0,
         'projected' => 0,
@@ -2114,6 +2117,7 @@ function jobdivaSyncAssignmentContractsBatch(
             AND m.source_system = 'jobdiva'
             AND m.internal_entity_type = 'placement'
             AND m.payload_snapshot IS NOT NULL
+            AND JSON_EXTRACT(m.payload_snapshot, '$._jd_contract.contract_version') IS NULL
             AND m.id > :cursor
           ORDER BY m.id ASC
           LIMIT {$limit}"
@@ -2444,10 +2448,10 @@ function jobdivaSyncReviewAssignmentContractsBatch(
     int $tenantId,
     ?int $userId,
     int $cursor = 0,
-    int $limit = 8
+    int $limit = 1
 ): array {
     $cursor = max(0, $cursor);
-    $limit = max(1, min(8, $limit));
+    $limit = 1;
     $result = [
         'processed' => 0,
         'projected' => 0,
@@ -2475,6 +2479,7 @@ function jobdivaSyncReviewAssignmentContractsBatch(
             AND internal_entity_type = 'jobdiva_assignment_review'
             AND sync_status = 'ok'
             AND payload_snapshot IS NOT NULL
+            AND JSON_EXTRACT(payload_snapshot, '$._jd_contract.contract_version') IS NULL
             AND id > :cursor
           ORDER BY id ASC
           LIMIT {$limit}"
