@@ -34,6 +34,60 @@ jobs:
       - name: Checkout production revision
         uses: actions/checkout@v4
 
+      - name: Package JobDiva reconciliation release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t ENTRY_ASSETS < <(grep -oE 'index-[A-Za-z0-9_-]+\.(js|css)' index.html | sort -u)
+          test "${#ENTRY_ASSETS[@]}" -gt 0
+          BUILT_ASSETS=()
+          declare -A SEEN_ASSETS=()
+          for asset in "${ENTRY_ASSETS[@]}"; do
+            if [ -z "${SEEN_ASSETS[$asset]:-}" ]; then
+              SEEN_ASSETS[$asset]=1
+              BUILT_ASSETS+=("$asset")
+            fi
+          done
+          for ((index = 0; index < ${#BUILT_ASSETS[@]}; index++)); do
+            asset="${BUILT_ASSETS[$index]}"
+            test -f "spa-assets/$asset"
+            if [[ "$asset" == *.js ]]; then
+              mapfile -t IMPORTS < <(grep -oE 'index-[A-Za-z0-9_-]+\.(js|css)' "spa-assets/$asset" | sort -u || true)
+              for imported in "${IMPORTS[@]}"; do
+                if [ -z "${SEEN_ASSETS[$imported]:-}" ]; then
+                  SEEN_ASSETS[$imported]=1
+                  BUILT_ASSETS+=("$imported")
+                fi
+              done
+            fi
+          done
+          ROOT_ASSETS=()
+          for asset in "${BUILT_ASSETS[@]}"; do
+            test -f "spa-assets/$asset"
+            ROOT_ASSETS+=("spa-assets/$asset")
+          done
+          tar -czf coreflux-jobdiva-release.tar.gz \
+            .deploy-version \
+            api/jobdiva.php \
+            core/jobdiva \
+            core/integrations/entity_mappings.php \
+            core/integrations/field_map.php \
+            core/integrations/field_map_apply.php \
+            core/integrations/payload_field_index.php \
+            modules/placements/lib/economics.php \
+            modules/placements/lib/jobdiva_reconciliation.php \
+            modules/placements/api/jobdiva_reconciliation.php \
+            modules/placements/ui/JobDivaReconciliation.jsx \
+            dashboard/dist \
+            dashboard/src/pages/JobDivaSettings.jsx \
+            index.html \
+            "${ROOT_ASSETS[@]}" \
+            spa-assets/index.html \
+            spa-assets/sw.js \
+            scripts/jobdiva_rate_write_probe.php \
+            scripts/jobdiva_reconcile_start.php \
+            scripts/opcache_flush_deploy.php.template
+
       - name: Stage JobDiva reconciliation release
         uses: appleboy/scp-action@v1.0.0
         with:
@@ -41,7 +95,7 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: ".deploy-version,api/jobdiva.php,core/jobdiva,core/integrations/entity_mappings.php,core/integrations/field_map.php,core/integrations/field_map_apply.php,core/integrations/payload_field_index.php,modules/placements/lib/economics.php,modules/placements/lib/jobdiva_reconciliation.php,modules/placements/api/jobdiva_reconciliation.php,modules/placements/ui/JobDivaReconciliation.jsx,dashboard/dist,dashboard/src/pages/JobDivaSettings.jsx,index.html,spa-assets/index-BC5g6YJu.css,spa-assets/index-CIGNKYB0.css,spa-assets/index-BzpLzty0.js,spa-assets/index-CchmncPP.js,spa-assets/index.html,spa-assets/sw.js,scripts/jobdiva_rate_write_probe.php,scripts/jobdiva_reconcile_start.php,scripts/opcache_flush_deploy.php.template"
+          source: "coreflux-jobdiva-release.tar.gz"
           target: /tmp/coreflux-jobdiva-deploy-${{ github.run_id }}
           overwrite: true
 
@@ -69,12 +123,16 @@ jobs:
 
             test -n "$APP_BASE"
             test "$APP_BASE" != "/"
+            test -f "$STAGE_ROOT/coreflux-jobdiva-release.tar.gz"
+            tar -xzf "$STAGE_ROOT/coreflux-jobdiva-release.tar.gz" -C "$STAGE_ROOT"
+            rm -f -- "$STAGE_ROOT/coreflux-jobdiva-release.tar.gz"
             test -f "$STAGE_ROOT/core/jobdiva/assignment_contract.php"
             test -f "$STAGE_ROOT/core/jobdiva/projector.php"
             test -f "$STAGE_ROOT/core/integrations/field_map_apply.php"
             test -f "$STAGE_ROOT/modules/placements/lib/economics.php"
-            test -f "$STAGE_ROOT/spa-assets/index-BzpLzty0.js"
-            test -f "$STAGE_ROOT/spa-assets/index-CchmncPP.js"
+            SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' "$STAGE_ROOT/index.html" | head -n 1)"
+            test -n "$SPA_ENTRY"
+            test -f "$STAGE_ROOT/$SPA_ENTRY"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
@@ -89,8 +147,8 @@ jobs:
             grep -Fq 'jobdivaProjectorSourceContractDrift' core/jobdiva/projector.php
             grep -Fq 'authoritative_jobdiva_assignment_contract' core/integrations/field_map_apply.php
             grep -Fq "force_source_fields'] = true" modules/placements/lib/economics.php
-            grep -Fq 'Reconcile assignments' spa-assets/index-BzpLzty0.js
-            grep -Fq 'index-BzpLzty0.js' index.html
+            grep -Fq 'JobDiva placement reconciliation' "$SPA_ENTRY"
+            grep -Fq "$(basename "$SPA_ENTRY")" index.html
 
             OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
             php -r '$template=file_get_contents($argv[1]); if ($template === false || substr_count($template, "__COREFLUX_OPCACHE_TOKEN__") !== 1) exit(1); $content=str_replace("__COREFLUX_OPCACHE_TOKEN__", $argv[3], $template); if (file_put_contents($argv[2], $content, LOCK_EX) === false) exit(1); chmod($argv[2], 0640);' "$OPCACHE_TEMPLATE" "$OPCACHE_ENDPOINT" "$OPCACHE_TOKEN"
