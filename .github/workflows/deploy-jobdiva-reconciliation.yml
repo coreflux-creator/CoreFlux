@@ -13,6 +13,11 @@ on:
         required: false
         type: string
         default: ''
+      reconcile_pairs:
+        description: Optional comma-separated StartID:CandidateID pairs
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -45,12 +50,13 @@ jobs:
         env:
           RECONCILE_START_ID: ${{ inputs.reconcile_start_id }}
           RECONCILE_CANDIDATE_ID: ${{ inputs.reconcile_candidate_id }}
+          RECONCILE_PAIRS: ${{ inputs.reconcile_pairs }}
         with:
           host: ${{ secrets.CW_SSH_HOST }}
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          envs: RECONCILE_START_ID,RECONCILE_CANDIDATE_ID
+          envs: RECONCILE_START_ID,RECONCILE_CANDIDATE_ID,RECONCILE_PAIRS
           command_timeout: 8m
           script: |
             set -eu
@@ -104,6 +110,19 @@ jobs:
               test -n "$RECONCILE_START_ID"
               test -n "$RECONCILE_CANDIDATE_ID"
               php scripts/jobdiva_reconcile_start.php 2 "$RECONCILE_START_ID" "$RECONCILE_CANDIDATE_ID"
+            fi
+            if [ -n "$RECONCILE_PAIRS" ]; then
+              OLD_IFS="$IFS"
+              IFS=','
+              for PAIR in $RECONCILE_PAIRS; do
+                START_ID="${PAIR%%:*}"
+                CANDIDATE_ID="${PAIR#*:}"
+                test -n "$START_ID"
+                test -n "$CANDIDATE_ID"
+                test "$START_ID" != "$CANDIDATE_ID"
+                php scripts/jobdiva_reconcile_start.php 2 "$START_ID" "$CANDIDATE_ID"
+              done
+              IFS="$OLD_IFS"
             fi
             php scripts/jobdiva_rate_write_probe.php --active-roster 2
             echo "Deployed and verified commit ${{ github.sha }}."
