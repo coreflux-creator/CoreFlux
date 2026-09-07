@@ -13,6 +13,63 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../core/jobdiva/sync.php';
 
+$pdo = getDB();
+if (!$pdo) {
+    fwrite(STDERR, "No database connection.\n");
+    exit(70);
+}
+
+if (($argv[1] ?? '') === '--roster') {
+    $tenantId = (int) ($argv[2] ?? 2);
+    $stmt = $pdo->prepare(
+        "SELECT p.id, p.external_id, p.title, p.status, p.start_date, p.end_date,
+                pe.first_name, pe.last_name,
+                m.external_id AS mapped_start_id, m.sync_status AS mapping_status,
+                m.last_error AS mapping_error, m.payload_snapshot,
+                COUNT(pr.id) AS rate_rows
+           FROM placements p
+           LEFT JOIN people pe
+             ON pe.tenant_id = p.tenant_id AND pe.id = p.person_id
+           LEFT JOIN external_entity_mappings m
+             ON m.tenant_id = p.tenant_id
+            AND m.source_system = 'jobdiva'
+            AND m.internal_entity_type = 'placement'
+            AND m.internal_entity_id = p.id
+           LEFT JOIN placement_rates pr
+             ON pr.tenant_id = p.tenant_id AND pr.placement_id = p.id
+          WHERE p.tenant_id = :tenant_id
+            AND p.deleted_at IS NULL
+            AND p.status IN ('active', 'pending_start', 'on_hold')
+          GROUP BY p.id, p.external_id, p.title, p.status, p.start_date, p.end_date,
+                   pe.first_name, pe.last_name, m.external_id, m.sync_status,
+                   m.last_error, m.payload_snapshot
+          ORDER BY p.start_date DESC, p.id DESC"
+    );
+    $stmt->execute(['tenant_id' => $tenantId]);
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+        $payload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
+        $contract = is_array($payload['_jd_contract'] ?? null) ? $payload['_jd_contract'] : [];
+        unset($row['payload_snapshot']);
+        $row['contract_status'] = $contract['placement_status'] ?? null;
+        $row['contract_start_id'] = $contract['start_id'] ?? null;
+        $row['contract_end_date'] = $contract['end_date'] ?? null;
+        $row['contract_bill_rate'] = $contract['bill_rate'] ?? null;
+        $row['contract_pay_rate'] = $contract['pay_rate'] ?? null;
+        $rows[] = $row;
+    }
+    echo json_encode([
+        'tenant_id' => $tenantId,
+        'count' => count($rows),
+        'mapping_status_counts' => array_count_values(array_map(
+            static fn(array $row): string => (string) ($row['mapping_status'] ?? 'unmapped'),
+            $rows
+        )),
+        'rows' => $rows,
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+    exit(0);
+}
+
 $placementId = (int) ($argv[1] ?? 0);
 $startId = trim((string) ($argv[2] ?? ''));
 $billRate = (float) ($argv[3] ?? 0);
@@ -20,12 +77,6 @@ $payRate = (float) ($argv[4] ?? 0);
 if ($placementId <= 0 || $startId === '' || $billRate <= 0 || $payRate <= 0) {
     fwrite(STDERR, "Invalid probe arguments.\n");
     exit(64);
-}
-
-$pdo = getDB();
-if (!$pdo) {
-    fwrite(STDERR, "No database connection.\n");
-    exit(70);
 }
 
 $placementStmt = $pdo->prepare(

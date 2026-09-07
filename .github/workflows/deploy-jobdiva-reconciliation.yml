@@ -85,4 +85,5 @@ jobs:
             php -l modules/placements/lib/economics.php
             php -l scripts/jobdiva_rate_write_probe.php
             php scripts/jobdiva_rate_write_probe.php 785 57953568 80 63
+            php scripts/jobdiva_rate_write_probe.php --roster 2
             echo "Deployed and verified commit ${{ github.sha }}."
