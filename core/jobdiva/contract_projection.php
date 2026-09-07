@@ -190,7 +190,10 @@ function jobdivaContractProjectionBuild(
     $payCadence = (string) ($contract['vendor_pay_cycle'] ?? '');
     $clientTerms = (string) ($contract['client_payment_terms'] ?? '');
     $vendorTerms = (string) ($contract['vendor_payment_terms'] ?? '');
-    $pwp = !empty($contract['paid_when_paid']) || str_starts_with($vendorTerms, 'PWP');
+    $pwp = array_key_exists('paid_when_paid', $contract)
+        ? !empty($contract['paid_when_paid'])
+        : null;
+    if (str_starts_with($vendorTerms, 'PWP')) $pwp = true;
     $corporationId = trim((string) ($contract['corporation_id'] ?? ''));
     $corporationName = trim((string) ($contract['corporation_name'] ?? ''));
 
@@ -222,7 +225,7 @@ function jobdivaContractProjectionBuild(
             'role' => 'c2c_vendor', 'name' => $corporationName, 'external_id' => $corporationId,
             'money_flow' => 'payable', 'settlement_channel' => 'ap',
             'calculation' => 'pay_rate', 'cadence' => $payCadence ?: 'biweekly',
-            'payment_terms' => $vendorTerms ?: 'NET30', 'paid_when_paid' => $pwp,
+            'payment_terms' => $vendorTerms ?: 'NET30', 'paid_when_paid' => (bool) ($pwp ?? false),
             'source' => 'Assignment SALARY.SUBCONTRACT_COMPANYID',
         ];
     } elseif ($engagement === '1099') {
@@ -230,7 +233,7 @@ function jobdivaContractProjectionBuild(
             'role' => 'worker', 'name' => $candidateName, 'external_id' => $candidateId,
             'money_flow' => 'payable', 'settlement_channel' => 'ap',
             'calculation' => 'pay_rate', 'cadence' => $payCadence ?: 'biweekly',
-            'payment_terms' => $vendorTerms ?: 'NET30', 'paid_when_paid' => $pwp,
+            'payment_terms' => $vendorTerms ?: 'NET30', 'paid_when_paid' => (bool) ($pwp ?? false),
             'source' => 'Start candidate identity + Assignment SALARY',
         ];
     }

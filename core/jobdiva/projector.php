@@ -156,6 +156,15 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         $summary['join_stats'] = $joinStats;
 
         $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
+        // Downstream placement, rate, participant, and postcondition writers
+        // must consume the same exact-assignment contract. Some enriched
+        // payloads carry only the raw Assignment detail facet; materialize its
+        // canonical contract once here so preview and persistence cannot
+        // disagree and roll back otherwise-valid economics.
+        $projectionContract = jobdivaContractProjectionContract($payload);
+        if ($projectionContract !== []) {
+            $payload['_jd_contract'] = $projectionContract;
+        }
         $sourceIdentity = jobdivaAssignmentValidate($payload, $externalId);
         $summary['source_identity'] = $sourceIdentity;
         if (empty($sourceIdentity['valid'])) {

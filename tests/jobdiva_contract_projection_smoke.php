@@ -129,6 +129,14 @@ $assert('a shallow Start cannot claim contract completeness',
         $check['code'] === 'exact_assignment_contract'
     )) === 1);
 
+$rawDetailPayload = $payload;
+unset($rawDetailPayload['_jd_contract']);
+$rawDetailPayload['_jd_assignment_detail'] = $rows;
+$derivedContract = jobdivaContractProjectionContract($rawDetailPayload);
+$assert('raw exact assignment detail materializes the same canonical rates',
+    abs((float) ($derivedContract['bill_rate_in_vms'] ?? 0) - 67.0) < 0.0001
+    && abs((float) ($derivedContract['pay_rate_to_vendor'] ?? 0) - 60.0) < 0.0001);
+
 $conflictingPayees = $currentGraph;
 $conflictingPayees['economic_parties'] = [
     ['active' => 1, 'money_flow' => 'payable', 'fee_basis' => 'pay_rate'],
@@ -160,6 +168,10 @@ $reconciliationUi = (string) file_get_contents($root . '/modules/placements/ui/J
 $assert('stored reconciliation rejoins the exact financial placement mirror',
     str_contains($syncSource, '$financialPayloads')
     && str_contains($syncSource, 'jobdivaContractProjectionBuild'));
+$projectorSource = (string) file_get_contents($root . '/core/jobdiva/projector.php');
+$assert('projector materializes one contract for preview and persistence',
+    str_contains($projectorSource, '$payload[\'_jd_contract\'] = $projectionContract;')
+    && substr_count($syncSource, 'jobdivaContractProjectionContract($jd)') >= 3);
 $assert('exact contract overheads outrank broad tenant mappings',
     str_contains($syncSource, "array_key_exists('payroll_load_pct', \$sourceContract)")
     && str_contains($syncSource, "array_key_exists('workers_comp_pct', \$sourceContract)")

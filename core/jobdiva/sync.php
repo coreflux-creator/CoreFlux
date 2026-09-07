@@ -6005,9 +6005,7 @@ function jobdivaSyncUpsertPlacementReferral(
 
 function jobdivaSyncPlacementEconomicOptions(array $jd): array
 {
-    $contract = isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])
-        ? $jd['_jd_contract']
-        : [];
+    $contract = jobdivaContractProjectionContract($jd);
     $terms = jobdivaPluckFieldDeep($jd, [
         'vendorPaymentTerms', 'vendor_payment_terms', 'paymentTerms', 'payment_terms',
         'supplierPaymentTerms', 'supplier_payment_terms', 'payeeTerms', 'payee_terms',
@@ -6172,9 +6170,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         );
     }
     $canonicalExternalId = 'jd:' . $extId;
-    $assignmentContract = isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])
-        ? $jd['_jd_contract']
-        : [];
+    $assignmentContract = jobdivaContractProjectionContract($jd);
     $economicOptions = jobdivaSyncPlacementEconomicOptions($jd);
     // Look up by external_id first (placements has a `external_id` column).
     // A 2026-06 field-map regression briefly allowed tenant mappings to
@@ -6993,9 +6989,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
 {
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
-    $sourceContract = isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])
-        ? $jd['_jd_contract']
-        : [];
+    $sourceContract = jobdivaContractProjectionContract($jd);
 
     // -- Resolve every rate field via the registry, with JobDiva-native
     //    default-key candidate lists shaped to the V2 BI payload.

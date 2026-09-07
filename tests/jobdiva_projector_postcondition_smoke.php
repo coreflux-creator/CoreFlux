@@ -73,4 +73,13 @@ if (jobdivaProjectorSourceContractDrift($payload, $aligned, '57612620') !== []) 
     exit(1);
 }
 
+$missingPwpPayload = $payload;
+unset($missingPwpPayload['_jd_contract']['paid_when_paid']);
+$aligned['placement']['vendor_pwp_enabled'] = 1;
+$missingPwpDrift = jobdivaProjectorSourceContractDrift($missingPwpPayload, $aligned, '57612620');
+if (in_array('paid_when_paid', array_column($missingPwpDrift, 'field'), true)) {
+    fwrite(STDERR, "Absent paid-when-paid evidence was treated as an explicit false value\n");
+    exit(1);
+}
+
 echo "JobDiva projector postcondition smoke: ok\n";
