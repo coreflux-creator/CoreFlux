@@ -45,11 +45,20 @@ $peopleTenantId = effectiveTenantIdForModule('people') ?? $tenantId;
 
 if ($action === 'stored_preview') {
     rbac_legacy_require($user, 'placements.financials.view');
-    $plan = jobdivaStoredAssignmentProjectionPlan($tenantId, 5000, [], false);
+    $page = max(1, (int) ($body['page'] ?? 1));
+    $perPage = max(1, min(20, (int) ($body['per_page'] ?? 20)));
+    $plan = jobdivaStoredAssignmentProjectionPlan(
+        $tenantId,
+        $perPage,
+        [],
+        false,
+        ($page - 1) * $perPage
+    );
     api_ok([
         'summary' => $plan['summary'],
         'rows' => $plan['public_rows'],
         'dry_run_token' => $plan['dry_run_token'],
+        'pagination' => $plan['pagination'] + ['page' => $page, 'per_page' => $perPage],
         'safety' => $plan['safety'],
     ]);
 }
@@ -62,13 +71,16 @@ if ($action === 'stored_apply') {
     $selected = is_array($body['selected_start_ids'] ?? null)
         ? array_values(array_unique(array_map('strval', $body['selected_start_ids'])))
         : [];
+    $page = max(1, (int) ($body['page'] ?? 1));
+    $perPage = max(1, min(20, (int) ($body['per_page'] ?? 20)));
     try {
         $result = jobdivaApplyStoredAssignmentProjection(
             $tenantId,
             isset($user['id']) ? (int) $user['id'] : null,
             $selected,
             (string) ($body['dry_run_token'] ?? ''),
-            5000
+            $perPage,
+            ($page - 1) * $perPage
         );
         api_ok($result + [
             'ok' => true,

@@ -3786,10 +3786,12 @@ function jobdivaStoredAssignmentProjectionPlan(
     int $tenantId,
     int $limit = 5000,
     array $onlyStartIds = [],
-    bool $includeProjectionPayloads = true
+    bool $includeProjectionPayloads = true,
+    int $offset = 0
 ): array {
     require_once __DIR__ . '/../integrations/field_map.php';
     $limit = max(1, min(5000, $limit));
+    $offset = max(0, $offset);
     $onlyLookup = [];
     foreach ($onlyStartIds as $startId) {
         $normalised = jobdivaAssignmentIdentityNormaliseId((string) $startId);
@@ -3818,6 +3820,17 @@ function jobdivaStoredAssignmentProjectionPlan(
     }
 
     $pdo = getDB();
+    $countStmt = $pdo->prepare(
+        "SELECT COUNT(*)
+           FROM external_entity_mappings
+          WHERE tenant_id = :t
+            AND source_system = 'jobdiva'
+            AND internal_entity_type = 'jobdiva_assignment'
+            AND sync_status = 'ok'
+            AND payload_snapshot IS NOT NULL"
+    );
+    $countStmt->execute(['t' => $tenantId]);
+    $totalAssignments = (int) $countStmt->fetchColumn();
     $st = $pdo->prepare(
         "SELECT external_id, updated_at
            FROM external_entity_mappings
@@ -3827,7 +3840,7 @@ function jobdivaStoredAssignmentProjectionPlan(
             AND sync_status = 'ok'
             AND payload_snapshot IS NOT NULL
           ORDER BY updated_at DESC, id DESC
-          LIMIT {$limit}"
+          LIMIT {$limit} OFFSET {$offset}"
     );
     $st->execute(['t' => $tenantId]);
 
@@ -4288,6 +4301,13 @@ function jobdivaStoredAssignmentProjectionPlan(
         'rows' => $rows,
         'public_rows' => $publicRows,
         'dry_run_token' => $dryRunToken,
+        'pagination' => [
+            'offset' => $offset,
+            'limit' => $limit,
+            'total' => $totalAssignments,
+            'has_previous' => $offset > 0,
+            'has_next' => ($offset + count($rows)) < $totalAssignments,
+        ],
         'safety' => [
             'identity' => 'Exact verified JobDiva Start ID',
             'source' => 'Stored jobdiva_assignment mirror',
@@ -4305,7 +4325,8 @@ function jobdivaApplyStoredAssignmentProjection(
     ?int $userId,
     array $selectedStartIds,
     string $expectedToken,
-    int $limit = 5000
+    int $limit = 5000,
+    int $offset = 0
 ): array {
     $selected = [];
     foreach ($selectedStartIds as $startId) {
@@ -4317,7 +4338,7 @@ function jobdivaApplyStoredAssignmentProjection(
 
     // Validate against the same compact all-assignment plan returned to the
     // browser, then load full joined payloads only for the selected Start IDs.
-    $previewPlan = jobdivaStoredAssignmentProjectionPlan($tenantId, $limit, [], false);
+    $previewPlan = jobdivaStoredAssignmentProjectionPlan($tenantId, $limit, [], false, $offset);
     if ($expectedToken === '' || !hash_equals((string) $previewPlan['dry_run_token'], $expectedToken)) {
         throw new \RuntimeException('Stored JobDiva evidence or CoreFlux records changed after preview. Refresh the preview.');
     }
@@ -4331,7 +4352,7 @@ function jobdivaApplyStoredAssignmentProjection(
             throw new \RuntimeException("Start ID {$startId} is blocked and cannot be projected.");
         }
     }
-    $plan = jobdivaStoredAssignmentProjectionPlan($tenantId, $limit, array_keys($selected), true);
+    $plan = jobdivaStoredAssignmentProjectionPlan($tenantId, $limit, array_keys($selected), true, $offset);
     $rowsByStart = [];
     foreach ($plan['rows'] as $row) $rowsByStart[(string) $row['start_id']] = $row;
     foreach (array_keys($selected) as $startId) {

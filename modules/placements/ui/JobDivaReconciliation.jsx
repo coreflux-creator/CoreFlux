@@ -31,6 +31,7 @@ export default function JobDivaReconciliation() {
   const [storedBusy, setStoredBusy] = useState('');
   const [storedError, setStoredError] = useState('');
   const [storedResult, setStoredResult] = useState(null);
+  const [storedPage, setStoredPage] = useState(1);
   const [csv, setCsv] = useState('');
   const [fileName, setFileName] = useState('');
   const [inspect, setInspect] = useState(null);
@@ -46,7 +47,7 @@ export default function JobDivaReconciliation() {
     setStoredBusy('preview');
     setStoredError('');
     try {
-      const data = await api.post(`${ENDPOINT}?action=stored_preview`, {});
+      const data = await api.post(`${ENDPOINT}?action=stored_preview`, { page: storedPage, per_page: 20 });
       setStoredPreview(data);
       setStoredSelected(new Set());
       setStoredExpanded(new Set());
@@ -55,7 +56,7 @@ export default function JobDivaReconciliation() {
     } finally {
       setStoredBusy('');
     }
-  }, []);
+  }, [storedPage]);
 
   useEffect(() => {
     refreshStored();
@@ -102,6 +103,8 @@ export default function JobDivaReconciliation() {
       const data = await api.post(`${ENDPOINT}?action=stored_apply`, {
         dry_run_token: storedPreview.dry_run_token,
         selected_start_ids: Array.from(storedSelected),
+        page: storedPreview.pagination?.page || storedPage,
+        per_page: storedPreview.pagination?.per_page || 20,
         confirm: 'APPLY_STORED_JOBDIVA_ASSIGNMENTS',
       });
       setStoredResult(data);
@@ -287,7 +290,7 @@ export default function JobDivaReconciliation() {
               border: '1px solid #dbe3ee', borderRadius: 6, margin: '12px 0', overflow: 'hidden',
             }}>
               {[
-                ['assignments', 'Assignments', '#0f172a', '#f8fafc'],
+                ['assignments', 'Shown on page', '#0f172a', '#f8fafc'],
                 ['create', 'Create', '#1d4ed8', '#eff6ff'],
                 ['restore', 'Restore exact match', '#6d28d9', '#f5f3ff'],
                 ['update', 'Reproject', '#c2410c', '#fff7ed'],
@@ -416,9 +419,25 @@ export default function JobDivaReconciliation() {
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               gap: 12, marginTop: 12, paddingTop: 12, borderTop: '1px solid #e2e8f0',
             }}>
-              <span style={{ color: '#475569', fontSize: 13 }}>
-                {storedSelected.size} exact Start ID{storedSelected.size === 1 ? '' : 's'} selected
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  disabled={!storedPreview.pagination?.has_previous || Boolean(storedBusy)}
+                  onClick={() => setStoredPage(page => Math.max(1, page - 1))}
+                >Previous</button>
+                <span style={{ color: '#475569', fontSize: 13 }}>
+                  Page {storedPreview.pagination?.page || storedPage} of {Math.max(1, Math.ceil((storedPreview.pagination?.total || 0) / (storedPreview.pagination?.per_page || 20)))}
+                  {' / '}{storedPreview.pagination?.total || 0} stored assignments
+                  {' / '}{storedSelected.size} selected
+                </span>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  disabled={!storedPreview.pagination?.has_next || Boolean(storedBusy)}
+                  onClick={() => setStoredPage(page => page + 1)}
+                >Next</button>
+              </div>
               <button
                 type="button"
                 className="btn btn--primary"

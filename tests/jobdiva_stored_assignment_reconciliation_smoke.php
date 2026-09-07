@@ -129,14 +129,22 @@ $assert(
 );
 $assert(
     'stored preview is memory bounded while preserving changed-evidence protection',
-    str_contains($api, 'jobdivaStoredAssignmentProjectionPlan($tenantId, 5000, [], false)')
+    str_contains($api, "min(20, (int) (\$body['per_page'] ?? 20))")
     && str_contains($sync, 'bool $includeProjectionPayloads = true')
+    && str_contains($sync, 'LIMIT {$limit} OFFSET {$offset}')
     && str_contains($sync, 'one exact source graph at a time')
     && str_contains($sync, "AND external_id = :eid")
     && !str_contains($sync, '$financialPayloads = []')
     && str_contains($sync, "'__row_token' => \$rowToken")
     && str_contains($sync, 'array_keys($selected), true')
     && str_contains($sync, 'changed while its full graph was being loaded')
+);
+$assert(
+    'stored preview and apply share the same bounded page',
+    str_contains($api, "'pagination' => \$plan['pagination']")
+    && str_contains($api, '($page - 1) * $perPage')
+    && str_contains($ui, 'Page {storedPreview.pagination?.page || storedPage}')
+    && str_contains($ui, 'storedPreview.pagination?.has_next')
 );
 $assert(
     'compact graph counts remain visible in the stored preview',
