@@ -48,6 +48,7 @@ import WorkflowTimeline from './WorkflowTimeline';
 import AiReviewerDashboard from './AiReviewerDashboard';
 import ZohoBooksSettings from './ZohoBooksSettings';
 import AirtableSettings from './AirtableSettings';
+import ConnecteamSettings from './ConnecteamSettings';
 import AccountingSyncDashboard from './AccountingSyncDashboard';
 import RolesReference from './RolesReference';
 import AuditorTokensAdmin from './AuditorTokensAdmin';
@@ -263,6 +264,7 @@ const AdminModule = ({ session }) => {
           <Route path="/ai/agents"             element={<AgentRegistryAdmin session={session} />} />
           <Route path="/integrations/zoho-books" element={<ZohoBooksSettings session={session} />} />
           <Route path="/integrations/airtable" element={<AirtableSettings session={session} />} />
+          <Route path="/integrations/connecteam" element={<ConnecteamSettings session={session} />} />
           <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />
           <Route path="/integrations/field-map" element={<IntegrationFieldMapAdmin session={session} />} />
           <Route path="/integrations/field-map/studio" element={<FieldMappingStudio session={session} />} />
