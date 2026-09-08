@@ -64,6 +64,7 @@ function LiabilityList() {
               <th>Last 4</th>
               <th style={{ textAlign: 'right' }}>Bank balance</th>
               <th style={{ textAlign: 'right' }}>GL balance</th>
+              <th style={{ textAlign: 'right' }}>Difference</th>
               <th style={{ textAlign: 'right' }}>Limit</th>
               <th style={{ textAlign: 'right' }}>Util</th>
               <th>APR</th>
@@ -146,6 +147,9 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
         {r.bank_balance !== null && r.bank_balance !== undefined ? fmtMoney(r.bank_balance) : '—'}
       </td>
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.gl_balance)}</td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: r.bank_balance != null && Math.abs(Number(r.bank_balance) - Number(r.gl_balance)) >= 0.005 ? '#b45309' : undefined }}>
+        {r.bank_balance !== null && r.bank_balance !== undefined ? fmtMoney(Number(r.bank_balance) - Number(r.gl_balance)) : '—'}
+      </td>
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.credit_limit ? fmtMoney(r.credit_limit) : '—'}</td>
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{util !== null ? `${util}%` : '—'}</td>
       <td>{r.apr_pct !== null && r.apr_pct !== undefined ? `${r.apr_pct.toFixed(2)}%` : '—'}</td>
@@ -194,7 +198,7 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
     </tr>
     {err && (
       <tr data-testid={`treasury-liability-err-${r.id}`}>
-        <td colSpan={11} style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 16 }}>{err}</td>
+        <td colSpan={12} style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 16 }}>{err}</td>
       </tr>
     )}
     </>

@@ -50,10 +50,10 @@ $at = file_get_contents(__DIR__ . '/../modules/treasury/api/account_transactions
 $assert('endpoint exists',                   is_string($at) && strlen($at) > 200);
 $assert('GET requires account_id',           strpos($at, "account_id required") !== false);
 $assert('type=deposit reads bank_statement_lines',
-                                             strpos($at, 'FROM accounting_bank_statement_lines') !== false);
+                                             strpos($at, "'accounting_bank_statement_lines'") !== false);
 $assert('type=liability reads treasury_liability_statement_lines',
-                                             strpos($at, 'FROM treasury_liability_statement_lines') !== false);
-$assert('limit clamped 1-500',               strpos($at, 'min(500') !== false);
+                                             strpos($at, "'treasury_liability_statement_lines'") !== false);
+$assert('page size clamped 10-200',           strpos($at, 'max(10, min(200') !== false);
 $assert('returns inflow_total + outflow_total', strpos($at, "'inflow_total'") !== false
                                              && strpos($at, "'outflow_total'") !== false);
 $assert('returns plaid_item_external_id (string id for direct sync)',
@@ -125,7 +125,7 @@ $assert('accounts.php parses cleanly',       $lint(__DIR__ . '/../modules/accoun
 echo "Treasury UI (deposit + liability detail pages)\n";
 $at_ui = file_get_contents(__DIR__ . '/../modules/treasury/ui/AccountTransactions.jsx');
 $assert('AccountTransactions component',     strpos($at_ui, 'export default function AccountTransactions(') !== false);
-$assert('loads from account_transactions.php', strpos($at_ui, '/modules/treasury/api/account_transactions.php?account_id=') !== false);
+$assert('loads from account_transactions.php', strpos($at_ui, '/modules/treasury/api/account_transactions.php?${params.toString()}') !== false);
 $assert('Sync from Plaid button',            strpos($at_ui, 'treasury-${type}-sync-btn') !== false);
 $assert('Sync calls real endpoint directly (no proxy)',
                                              strpos($at_ui, "/api/plaid_sync_transactions.php") !== false
@@ -140,7 +140,7 @@ $assert('per-row Unmatch button when matched',
 $assert('CategorizeRow inline editor',       strpos($at_ui, 'function CategorizeRow(') !== false);
 $assert('CategorizeRow groups by expense/asset/revenue',
                                              strpos($at_ui, "preferredTypes") !== false);
-$assert('CategorizeRow links matched JE',    strpos($at_ui, 'treasury-txn-je-${r.id}') !== false);
+$assert('CategorizeRow links matched JE',    strpos($at_ui, 'treasury-txn-je-${transactionId}') !== false);
 $assert('CategorizeRow shows live JE preview',
                                              strpos($at_ui, "Will create a balanced JE") !== false);
 
