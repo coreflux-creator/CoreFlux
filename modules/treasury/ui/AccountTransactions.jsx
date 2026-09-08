@@ -11,6 +11,82 @@ const fmtMoneyOriginal = (n) =>
 // Keep backwards compatibility for inline calls; prefer the imported fmtMoney
 // from ../../../dashboard/src/lib/format which handles null/empty/strings.
 
+function DuplicateActivityRepair({ accountId, onRepaired }) {
+  const { data, loading, reload } = useApi(`/api/bank_transaction_dedupe.php?account_id=${accountId}`);
+  const [repairing, setRepairing] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  if (loading || !data || Number(data.duplicate_rows || 0) === 0) {
+    if (!result?.conflicts?.length) return null;
+  }
+
+  const duplicateRows = Number(data?.duplicate_rows || 0);
+  const generatedEntries = Number(data?.reversible_rows || 0);
+  const conflictRows = Number(data?.conflict_rows || 0);
+
+  const repair = async () => {
+    const accountingNote = generatedEntries > 0
+      ? ` CoreFlux will create ${generatedEntries} formal reversal entr${generatedEntries === 1 ? 'y' : 'ies'} for duplicate postings.`
+      : '';
+    if (!window.confirm(`Repair ${duplicateRows} duplicate bank-feed row${duplicateRows === 1 ? '' : 's'}? Original feed rows remain in the audit trail.${accountingNote}`)) return;
+
+    setRepairing(true); setError(null); setResult(null);
+    try {
+      const response = await api.post('/api/bank_transaction_dedupe.php?action=run', { account_id: accountId });
+      setResult(response);
+      await reload();
+      onRepaired();
+    } catch (e) {
+      setError(e.message || 'Duplicate repair failed');
+    } finally {
+      setRepairing(false);
+    }
+  };
+
+  return (
+    <div
+      data-testid="treasury-duplicate-activity-banner"
+      style={{
+        border: '1px solid #f59e0b', background: '#fffbeb', color: '#78350f',
+        padding: 12, marginBottom: 14, display: 'flex', gap: 12,
+        alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap',
+      }}
+    >
+      <div>
+        {duplicateRows > 0 && (
+          <>
+            <strong>{duplicateRows} duplicate bank transaction{duplicateRows === 1 ? '' : 's'} detected</strong>
+            <div style={{ fontSize: 12, marginTop: 3 }}>
+              Same bank events were replayed by a prior connection.
+              {generatedEntries > 0 ? ` ${generatedEntries} duplicate CoreFlux posting${generatedEntries === 1 ? '' : 's'} will be reversed.` : ''}
+              {conflictRows > 0 ? ` ${conflictRows} manually linked row${conflictRows === 1 ? '' : 's'} will be left for review.` : ''}
+            </div>
+          </>
+        )}
+        {result && (
+          <div style={{ fontSize: 12, marginTop: 3 }}>
+            Repaired {result.rows_marked || 0} rows and reversed {result.journal_entries_reversed || 0} duplicate postings.
+            {result.conflicts?.length ? ` ${result.conflicts.length} manual conflict${result.conflicts.length === 1 ? '' : 's'} remain.` : ''}
+          </div>
+        )}
+        {error && <div className="error" style={{ fontSize: 12, marginTop: 3 }}>{error}</div>}
+      </div>
+      {duplicateRows > 0 && (
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={repair}
+          disabled={repairing}
+          data-testid="treasury-duplicate-activity-repair"
+        >
+          {repairing ? 'Repairing...' : 'Repair duplicate activity'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /**
  * Shared transactions list used by both DepositDetail + LiabilityDetail.
  * For liability accounts, exposes row-level Categorize / Ignore / Unmatch
@@ -167,6 +243,10 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
           hint="Header row required. Accepted columns: Date / Posting Date · Description / Memo · Amount (or Debit + Credit) · optional Reference / Check Number. Re-uploading the same file is a no-op (deduped via synthesised fitid)."
           onSuccess={() => reload()}
         />
+      )}
+
+      {type === 'deposit' && (
+        <DuplicateActivityRepair accountId={accountId} onRepaired={reload} />
       )}
 
       {loading && <p>Loading…</p>}

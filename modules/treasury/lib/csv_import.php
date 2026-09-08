@@ -31,6 +31,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../../core/treasury/bank_transaction_identity.php';
+
 /**
  * Locate a column index by a list of accepted header aliases
  * (case-insensitive, whitespace/special-char tolerant).
@@ -98,7 +100,7 @@ function treasuryCsvLimitText(string $value, int $length): string
  */
 function treasuryCsvNormaliseDescription(string $value): string
 {
-    return strtolower(trim((string) (preg_replace('/\s+/', ' ', $value) ?? $value)));
+    return bankTxnNormalizeDescription($value);
 }
 
 /**
@@ -236,14 +238,15 @@ function treasuryImportBankCsv(
     // races; this code path just keeps the lib testable without MySQL.
     try {
         $check = $pdo->prepare(
-            'SELECT 1 FROM accounting_bank_statement_lines
+            'SELECT id FROM accounting_bank_statement_lines
               WHERE tenant_id = :tid AND bank_account_id = :acc AND fitid = :fitid
               LIMIT 1'
         );
         $checkNatural = $pdo->prepare(
-            'SELECT description FROM accounting_bank_statement_lines
+            'SELECT id, description FROM accounting_bank_statement_lines
               WHERE tenant_id = :tid AND bank_account_id = :acc
-                AND posted_date = :dt AND amount = :amt'
+                AND posted_date = :dt AND amount = :amt' .
+                (isset($columnInfo['duplicate_of_line_id']) ? ' AND duplicate_of_line_id IS NULL' : '')
         );
 
         $insertColumns = ['tenant_id', 'bank_account_id', 'posted_date', 'description', 'amount', 'fitid'];
@@ -275,6 +278,8 @@ function treasuryImportBankCsv(
     }
 
     $rowNum = 1;
+    $claimedLineIds = [];
+    $occurrenceCounts = [];
     while (($row = fgetcsv($h, null, ',', '"', '')) !== false) {
         $rowNum++;
         $summary['rows_seen']++;
@@ -338,8 +343,10 @@ function treasuryImportBankCsv(
         if ($extId !== null) {
             $fitid = $srcSys . '_' . substr(sha1($extId), 0, 24);
         } else {
-            $fitidSeed = $date . '|' . number_format($amount, 2, '.', '') . '|' . $rawDesc . '|' . ($ref ?? '');
-            $fitid = 'csv_' . substr(sha1($fitidSeed), 0, 24);
+            $fitidSeed = $date . '|' . number_format($amount, 2, '.', '') . '|' . treasuryCsvNormaliseDescription($rawDesc) . '|' . ($ref ?? '');
+            $occurrenceCounts[$fitidSeed] = ($occurrenceCounts[$fitidSeed] ?? 0) + 1;
+            $occurrence = $occurrenceCounts[$fitidSeed];
+            $fitid = 'csv_' . substr(sha1($fitidSeed), 0, 24) . ($occurrence > 1 ? '_' . $occurrence : '');
         }
 
         try {
@@ -348,7 +355,9 @@ function treasuryImportBankCsv(
                 'acc'   => $bankAccountId,
                 'fitid' => $fitid,
             ]);
-            if ($check->fetchColumn()) {
+            $existingFitidLineId = $check->fetchColumn();
+            if ($existingFitidLineId !== false) {
+                $claimedLineIds[(int) $existingFitidLineId] = true;
                 $summary['rows_duplicate']++;
                 continue;
             }
@@ -363,13 +372,28 @@ function treasuryImportBankCsv(
             ]);
             $normalisedDescription = treasuryCsvNormaliseDescription($rawDesc);
             $matchesExisting = false;
-            foreach ($checkNatural->fetchAll(PDO::FETCH_COLUMN) as $existingDescription) {
-                if (treasuryCsvNormaliseDescription((string) $existingDescription) === $normalisedDescription) {
+            $matchedExistingLineId = null;
+            foreach ($checkNatural->fetchAll(PDO::FETCH_ASSOC) as $existingRow) {
+                $candidateId = (int) ($existingRow['id'] ?? 0);
+                if ($candidateId <= 0 || isset($claimedLineIds[$candidateId])) continue;
+                if (bankTxnDescriptionsEquivalent((string) ($existingRow['description'] ?? ''), $normalisedDescription)) {
                     $matchesExisting = true;
+                    $matchedExistingLineId = $candidateId;
                     break;
                 }
             }
             if ($matchesExisting) {
+                $claimedLineIds[$matchedExistingLineId] = true;
+                if ($extId !== null) {
+                    bankTxnRecordAlias(
+                        $pdo,
+                        $tenantId,
+                        $bankAccountId,
+                        $matchedExistingLineId,
+                        $srcSys === 'manual' ? 'csv' : $srcSys,
+                        $extId
+                    );
+                }
                 $summary['rows_duplicate']++;
                 continue;
             }
@@ -395,6 +419,20 @@ function treasuryImportBankCsv(
                 $insertParams['match_status'] = 'unmatched';
             }
             $ins->execute($insertParams);
+            $insertedLineId = bankTxnLineIdByFitid($pdo, $tenantId, $bankAccountId, $fitid);
+            if ($insertedLineId !== null) {
+                $claimedLineIds[$insertedLineId] = true;
+                if ($extId !== null) {
+                    bankTxnRecordAlias(
+                        $pdo,
+                        $tenantId,
+                        $bankAccountId,
+                        $insertedLineId,
+                        $srcSys === 'manual' ? 'csv' : $srcSys,
+                        $extId
+                    );
+                }
+            }
             $summary['rows_inserted']++;
             if ($summary['date_range'][0] === null || $date < $summary['date_range'][0]) $summary['date_range'][0] = $date;
             if ($summary['date_range'][1] === null || $date > $summary['date_range'][1]) $summary['date_range'][1] = $date;

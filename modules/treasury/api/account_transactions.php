@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/treasury/bank_transaction_identity.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
@@ -606,12 +607,15 @@ if (!in_array($type, ['deposit', 'liability'], true)) {
 }
 
 if ($type === 'deposit') {
+    $visibleRows = bankTxnHasColumn($pdo, 'accounting_bank_statement_lines', 'duplicate_of_line_id')
+        ? ' AND duplicate_of_line_id IS NULL'
+        : '';
     $stmt = $pdo->prepare(
         'SELECT id, posted_date, description, amount, bank_reference, fitid,
                 match_status, matched_je_id, created_at,
                 NULL AS merchant_name, NULL AS category
            FROM accounting_bank_statement_lines
-          WHERE tenant_id = :t AND bank_account_id = :a
+          WHERE tenant_id = :t AND bank_account_id = :a' . $visibleRows . '
           ORDER BY posted_date DESC, id DESC
           LIMIT ' . $limit
     );
