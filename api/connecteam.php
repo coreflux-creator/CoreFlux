@@ -131,6 +131,19 @@ function connecteamApiSourceUser(int $tenantId, string $sourceUserId): array
     return $sourceUser;
 }
 
+function connecteamApiTenantContext(int $tenantId, int $peopleTenantId, int $placementsTenantId): array
+{
+    $describe = static function (int $id): array {
+        $tenant = subTenantLookup($id);
+        return ['id' => $id, 'name' => (string) ($tenant['name'] ?? "Tenant {$id}")];
+    };
+    return [
+        'workspace' => $describe($tenantId),
+        'people_catalog' => $describe($peopleTenantId),
+        'placements_catalog' => $describe($placementsTenantId),
+    ];
+}
+
 switch ($action) {
     case 'status': {
         if ($method !== 'GET') api_error('Method not allowed', 405);
@@ -167,6 +180,7 @@ switch ($action) {
                 'last_probe_error' => $row['last_probe_error'] ?? null,
                 'probe' => connecteamDecodeJsonColumn($row['capability_snapshot'] ?? null),
                 'inventory' => connecteamDecodeJsonColumn($row['inventory_snapshot'] ?? null),
+                'tenant_context' => connecteamApiTenantContext($tenantId, $peopleTenantId, $placementsTenantId),
                 'audit' => $audit,
             ]);
         } catch (\Throwable $e) {
@@ -221,12 +235,18 @@ switch ($action) {
         if ($method !== 'POST') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.connecteam.manage');
         try {
-            api_ok(['ok' => true, 'preview' => connecteamDryRunPreview(
+            $preview = connecteamDryRunPreview(
                 $tenantId,
                 $userId,
                 $peopleTenantId,
                 $placementsTenantId
-            )]);
+            );
+            $preview['tenant_context'] = connecteamApiTenantContext(
+                $tenantId,
+                $peopleTenantId,
+                $placementsTenantId
+            );
+            api_ok(['ok' => true, 'preview' => $preview]);
         } catch (ConnecteamApiException $e) {
             $code = in_array($e->httpStatus, [401, 403], true) ? $e->httpStatus : 502;
             api_error($e->getMessage(), $code);

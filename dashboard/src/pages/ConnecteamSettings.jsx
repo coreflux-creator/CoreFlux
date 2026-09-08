@@ -338,7 +338,7 @@ function ReconciliationSection({ title, icon: Icon, result, kind, busy, onLink, 
   );
 }
 
-export default function ConnecteamSettings() {
+export default function ConnecteamSettings({ session }) {
   const { data, error, loading, reload } = useApi('/api/connecteam/status.php?action=status');
   const [apiKey, setApiKey] = useState('');
   const [region, setRegion] = useState('us');
@@ -357,6 +357,7 @@ export default function ConnecteamSettings() {
   const summary = probe?.summary;
   const accountName = probe?.account?.name || data?.account?.name || 'Connecteam account';
   const capabilityGroups = useMemo(() => Object.values(probe?.capabilities || {}).length, [probe]);
+  const tenantContext = preview?.tenant_context || data?.tenant_context;
   const canPreview = probe?.capabilities?.users?.state === 'available'
     && probe?.capabilities?.jobs?.state === 'available';
 
@@ -474,6 +475,18 @@ export default function ConnecteamSettings() {
       {failure ? <Notice kind="error">{failure}</Notice> : null}
       {message ? <Notice>{message}</Notice> : null}
       {data?.migration_required ? <Notice kind="error">{data.message}</Notice> : null}
+      {tenantContext ? (
+        <div data-testid="connecteam-tenant-context" style={{ marginTop: 12, padding: '10px 12px', border: '1px solid var(--cf-border)', borderRadius: 6, background: 'var(--cf-surface-subtle, #f8fafc)', fontSize: 13 }}>
+          <strong>CoreFlux workspace:</strong> {tenantContext.workspace?.name} (#{tenantContext.workspace?.id})
+          <span style={{ margin: '0 8px', color: 'var(--cf-text-secondary)' }}>·</span>
+          <strong>People directory used for matching:</strong> {tenantContext.people_catalog?.name} (#{tenantContext.people_catalog?.id})
+          {session?.tenant_id && Number(session.tenant_id) !== Number(tenantContext.workspace?.id) ? (
+            <span style={{ display: 'block', marginTop: 6, color: '#b91c1c', fontWeight: 600 }}>
+              Workspace mismatch detected. Reload this page before running reconciliation.
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {!connected && !loading ? (
         <section data-testid="connecteam-not-connected" style={{ marginTop: 20, borderTop: '1px solid var(--cf-border)', paddingTop: 20 }}>
