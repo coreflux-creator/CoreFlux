@@ -3,6 +3,7 @@ import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import AccountTransactions from './AccountTransactions';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 const SUBTYPE_LABELS = {
   credit_card:     'Credit card',
@@ -136,8 +137,8 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
       style={{ cursor: 'pointer' }}
       onClick={() => navigate(`/modules/treasury/liabilities/${r.id}`)}
     >
-      <td><code>{r.code}</code></td>
-      <td>{r.name}</td>
+      <td><AccountLink accountId={r.id} accountCode={r.code} onClick={(e) => e.stopPropagation()}><code>{r.code}</code></AccountLink></td>
+      <td><AccountLink accountId={r.id} accountCode={r.code} onClick={(e) => e.stopPropagation()}>{r.name}</AccountLink></td>
       <td>{SUBTYPE_LABELS[r.subtype] || r.subtype || '—'}</td>
       <td>{r.institution_name || '—'}</td>
       <td>{r.last4 || '—'}</td>
@@ -214,6 +215,7 @@ function LiabilityDetail() {
     <section data-testid="treasury-liability-detail">
       <p style={{ marginBottom: 12 }}>
         <Link to="/modules/treasury/liabilities" className="muted" style={{ fontSize: 13 }} data-testid="treasury-liability-detail-back">← Back to liability accounts</Link>
+        {account && <>{' '}<AccountLink accountId={account.id} accountCode={account.code}>Account terms</AccountLink></>}
       </p>
       <AccountTransactions
         accountId={accountId}

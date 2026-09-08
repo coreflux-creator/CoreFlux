@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { Sparkles } from 'lucide-react';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 /**
  * Tax mappings — map each postable expense / revenue account onto a
@@ -217,7 +218,7 @@ export default function TaxMappings() {
               )}
               {mappings.map(m => (
                 <tr key={m.id} data-testid={`accounting-tax-mappings-mapped-row-${m.account_id}`}>
-                  <td><code>{m.code}</code></td>
+                  <td><AccountLink accountId={m.account_id} accountCode={m.code}><code>{m.code}</code></AccountLink></td>
                   <td>{m.name}</td>
                   <td style={{ fontSize: 11, color: '#64748b' }}>{m.account_type}</td>
                   <td><code>{m.tax_form_line}</code></td>
@@ -253,7 +254,7 @@ export default function TaxMappings() {
                 const ai = aiByAccount[a.id];
                 return (
                   <tr key={a.id} data-testid={`accounting-tax-mappings-unmapped-row-${a.id}`}>
-                    <td><code>{a.code}</code></td>
+                    <td><AccountLink accountId={a.id} accountCode={a.code}><code>{a.code}</code></AccountLink></td>
                     <td>
                       {a.name}
                       {ai && (

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 import JeTracePane from './JeTracePane';
 
 /**
@@ -55,7 +56,7 @@ export default function JournalEntryDetail() {
         <tbody>
           {lines.map((l, i) => (
             <tr key={l.id || i} data-testid={`accounting-je-detail-line-${i}`}>
-              <td><code style={{ fontSize: 11 }}>{l.account_code}</code> {l.account_name}</td>
+              <td><AccountLink accountId={l.account_id} accountCode={l.account_code} entityId={entry.entity_id}><code style={{ fontSize: 11 }}>{l.account_code}</code> {l.account_name}</AccountLink></td>
               <td>{l.description || '—'}</td>
               <td style={{ textAlign: 'right' }}>{fmt(l.debit)}</td>
               <td style={{ textAlign: 'right' }}>{fmt(l.credit)}</td>

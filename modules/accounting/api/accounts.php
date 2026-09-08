@@ -89,9 +89,11 @@ if ($method === 'GET' && (string) ($_GET['action'] ?? '') === 'tree') {
     api_ok(['rows' => $flat, 'types' => ACCT_TYPES]);
 }
 
-if ($method === 'GET' && !empty($_GET['id'])) {
+if ($method === 'GET' && (!empty($_GET['id']) || !empty($_GET['code']))) {
     rbac_legacy_require($user, 'accounting.coa.view');
-    $row = scopedFind('SELECT * FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id', ['id' => (int) $_GET['id']]);
+    $row = !empty($_GET['id'])
+        ? scopedFind('SELECT * FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id', ['id' => (int) $_GET['id']])
+        : scopedFind('SELECT * FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :code', ['code' => trim((string) $_GET['code'])]);
     if (!$row) api_error('Not found', 404);
     api_ok(['account' => $row]);
 }
@@ -110,8 +112,13 @@ if ($method === 'GET') {
         $params['q2'] = $params['q'];
     }
     if (!empty($_GET['active'])) { $where[] = 'active = :a'; $params['a'] = (int) !!$_GET['active']; }
+    if (!empty($_GET['postable'])) { $where[] = 'is_postable = 1'; }
     $rows = scopedQuery(
-        'SELECT id, code, name, account_type, normal_side, parent_account_id, is_postable, active
+        'SELECT id, code, name, account_type, normal_side, parent_account_id, is_postable, active,
+                (SELECT COUNT(*) FROM accounting_account_terms t
+                  WHERE t.tenant_id = accounting_accounts.tenant_id
+                    AND t.account_id = accounting_accounts.id
+                    AND t.interest_enabled = 1) AS interest_schedule_count
          FROM accounting_accounts WHERE ' . implode(' AND ', $where) . ' ORDER BY code ASC LIMIT 500',
         $params
     );

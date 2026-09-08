@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 /**
  * Tax-form export — preview + one-click CSV download.
@@ -134,7 +135,7 @@ export default function TaxExport() {
               <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12, color: '#78350f' }}>
                 {data.unmapped_summary.accounts.slice(0, 8).map(a => (
                   <li key={a.code}>
-                    <code>{a.code}</code> {a.name} — {fmt(a.balance)}
+                    <AccountLink accountId={a.account_id} accountCode={a.code}><code>{a.code}</code> {a.name}</AccountLink> — {fmt(a.balance)}
                   </li>
                 ))}
                 {data.unmapped_summary.accounts.length > 8 && (

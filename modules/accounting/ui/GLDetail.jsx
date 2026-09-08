@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 import DataWarning from '../../../dashboard/src/components/DataWarning';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 /**
  * GL Detail — every JE line that hit a single account between two dates.
@@ -102,7 +103,9 @@ export default function GLDetail() {
         <div data-testid="accounting-gl-detail-summary"
              style={{ display: 'flex', gap: 24, padding: 14, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, marginBottom: 12, flexWrap: 'wrap' }}>
           <SummaryStat label="Account">
-            <code data-testid="accounting-gl-detail-account-code">{data.account.code}</code> · {data.account.name}
+            <AccountLink accountId={data.account.id} accountCode={data.account.code} entityId={entityId}>
+              <code data-testid="accounting-gl-detail-account-code">{data.account.code}</code> · {data.account.name}
+            </AccountLink>
           </SummaryStat>
           <SummaryStat label="Opening" value={fmt(data.opening_balance)} testId="accounting-gl-detail-opening" />
           <SummaryStat label="Debits"  value={fmt(data.totals.debit)}    testId="accounting-gl-detail-total-debit" />

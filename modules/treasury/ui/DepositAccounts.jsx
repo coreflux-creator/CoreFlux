@@ -4,6 +4,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
 import AccountTransactions from './AccountTransactions';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 export default function DepositAccounts() {
   return (
@@ -133,8 +134,8 @@ function DepositRow({ row: r, onChanged, navigate }) {
       style={{ cursor: 'pointer' }}
       onClick={open}
     >
-      <td>{r.name}</td>
-      <td><code>{r.gl_account_code}</code></td>
+      <td><AccountLink accountId={r.gl_account_id} accountCode={r.gl_account_code} entityId={r.entity_id} onClick={(e) => e.stopPropagation()}>{r.name}</AccountLink></td>
+      <td><AccountLink accountId={r.gl_account_id} accountCode={r.gl_account_code} entityId={r.entity_id} onClick={(e) => e.stopPropagation()}><code>{r.gl_account_code}</code></AccountLink></td>
       <td>{r.bank_name || '—'}</td>
       <td>{r.last4 || '—'}</td>
       <td>
@@ -271,6 +272,7 @@ function DepositDetail() {
         >
           ← Back to deposit accounts
         </Link>
+        {account?.gl_account_code && <>{' '}<AccountLink accountId={account.gl_account_id} accountCode={account.gl_account_code} entityId={account.entity_id}>Account terms</AccountLink></>}
       </p>
       <AccountTransactions
         accountId={accountId}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useApi, api } from '../lib/api';
+import AccountLink from '../components/AccountLink';
 import {
   CheckCircle2, ExternalLink, RefreshCw, XCircle,
   ArrowRight, ArrowLeft, ArrowLeftRight, MinusCircle, Send,
@@ -781,7 +782,7 @@ function ZohoAccountMappingCard({ subTenantId, onFlash }) {
             {mappings.map(m => (
               <tr key={m.id} data-testid={`zoho-books-mapping-row-${m.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '6px 4px' }}>
-                  <code style={{ fontSize: 12 }}>{m.coreflux_account_code}</code>
+                  <AccountLink accountCode={m.coreflux_account_code}><code style={{ fontSize: 12 }}>{m.coreflux_account_code}</code></AccountLink>
                   <span style={{ color: '#64748b' }}> · {m.coreflux_account_name || '—'}</span>
                 </td>
                 <td style={{ padding: '6px 4px' }}>

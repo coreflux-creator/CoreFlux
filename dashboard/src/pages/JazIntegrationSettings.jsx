@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../lib/api';
+import AccountLink from '../components/AccountLink';
 
 /**
  * <JazIntegrationSettings /> — operator-facing config for the
@@ -600,7 +601,6 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
     const confirmMsg = mode === 'delete'
       ? `Permanently delete "${cfName}" from the Chart of Accounts?\n\nThis will also drop any provider mappings tied to it.\n\nWe will refuse if the account has posted journal lines or backs an active bank feed.`
       : `Hide "${cfName}" from active-account pickers (active=0)?\n\nLedger history is preserved.`;
-    // eslint-disable-next-line no-alert
     if (!window.confirm(confirmMsg)) return;
     setSavingId(cfId);
     try {
@@ -621,7 +621,6 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
       const status = e?.status ?? e?.response?.status;
       const msg    = e?.message || 'unknown error';
       if (status === 409 && mode === 'delete') {
-        // eslint-disable-next-line no-alert
         const fallback = window.confirm(
           `Cannot delete "${cfName}" — ${msg}\n\nDeactivate instead?`
         );
@@ -1214,7 +1213,7 @@ function JazAccountMappingCard({ subTenantId, onFlash }) {
             {mappings.map(m => (
               <tr key={m.id} data-testid={`jaz-mapping-row-${m.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '6px 4px' }}>
-                  <code style={{ fontSize: 12 }}>{m.coreflux_account_code}</code>
+                  <AccountLink accountCode={m.coreflux_account_code}><code style={{ fontSize: 12 }}>{m.coreflux_account_code}</code></AccountLink>
                   <span style={{ color: '#64748b' }}> · {m.coreflux_account_name || '—'}</span>
                 </td>
                 <td style={{ padding: '6px 4px' }}>

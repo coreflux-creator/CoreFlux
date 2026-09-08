@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import AccountLink from '../components/AccountLink';
 
 /**
  * <JeDraftsReview /> — operator inbox for AI-drafted journal entries.
@@ -253,7 +254,7 @@ function JeDraftDetail({ detail, loading, selectedId, busy, onReject }) {
           {lines?.map((ln) => (
             <tr key={ln.line_no} data-testid={`je-drafts-detail-line-${ln.line_no}`}>
               <td style={cellTD}>{ln.line_no}</td>
-              <td style={cellTD}><code>{ln.account_code}</code> · {ln.account_name}</td>
+              <td style={cellTD}><AccountLink accountId={ln.account_id} accountCode={ln.account_code} entityId={draft.entity_id}><code>{ln.account_code}</code> · {ln.account_name}</AccountLink></td>
               <td style={{ ...cellTD, textAlign: 'right', fontFamily: 'ui-monospace, monospace' }}>
                 {ln.debit > 0 ? Number(ln.debit).toFixed(2) : ''}
               </td>

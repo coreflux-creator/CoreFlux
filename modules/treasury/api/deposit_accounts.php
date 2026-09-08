@@ -64,7 +64,7 @@ switch (api_method()) {
             "SELECT
                 ba.id, ba.name, ba.gl_account_code, ba.bank_name, ba.last4,
                 ba.currency, ba.feed_provider, ba.last_feed_synced_at,
-                ba.status, ba.plaid_account_id, ba.entity_id,
+                ba.status, ba.plaid_account_id, ba.entity_id, aa.id AS gl_account_id,
                 pa.current_balance_cents   AS plaid_current_cents,
                 pa.available_balance_cents AS plaid_available_cents,
                 pa.balance_as_of           AS plaid_balance_as_of,

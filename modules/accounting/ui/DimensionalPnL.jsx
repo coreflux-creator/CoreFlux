@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useApi } from '../../../dashboard/src/lib/api';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 /**
  * Dimensional P&L — pivot the income statement along any active
@@ -114,7 +115,7 @@ export default function DimensionalPnL() {
                     </tr>
                     {g.rows.map(a => (
                       <tr key={a.account_id} data-testid={`accounting-dim-pnl-row-${a.code}`}>
-                        <td><code>{a.code}</code> {a.name}</td>
+                        <td><AccountLink accountId={a.account_id} accountCode={a.code}><code>{a.code}</code> {a.name}</AccountLink></td>
                         {data.dim_values.map(v => (
                           <td key={v} style={cell}>{fmt(a.per_value[v] || 0)}</td>
                         ))}

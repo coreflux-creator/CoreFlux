@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApi, api } from '../../../dashboard/src/lib/api';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 /**
  * Standard (operational) reports — 5 tabs:
@@ -110,7 +111,7 @@ function GlDetail() {
                 <tr key={i}>
                   <td><a href={`#/modules/accounting/journal-entries/${r.je_id}`}>{r.je_number}</a></td>
                   <td>{r.posting_date}</td>
-                  <td><code>{r.account_code}</code> {r.account_name}</td>
+                  <td><AccountLink accountId={r.account_id} accountCode={r.account_code} entityId={r.entity_id}><code>{r.account_code}</code> {r.account_name}</AccountLink></td>
                   <td>{r.line_memo || r.je_memo}</td>
                   <td style={{textAlign:'right'}}>{fmt(r.debit)}</td>
                   <td style={{textAlign:'right'}}>{fmt(r.credit)}</td>

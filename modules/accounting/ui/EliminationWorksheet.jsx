@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 /**
  * Intercompany Elimination Worksheet —
@@ -149,7 +150,7 @@ export default function EliminationWorksheet() {
                       <td>#{o.je_id}</td>
                       <td><code>{o.entity_id}</code></td>
                       <td><code>{o.counterparty_entity_id}</code></td>
-                      <td><code>{o.account_code}</code></td>
+                      <td><AccountLink accountId={o.account_id} accountCode={o.account_code} entityId={o.entity_id}><code>{o.account_code}</code></AccountLink></td>
                       <td style={{textAlign:'right'}}>{fmt(o.amount_signed)}</td>
                     </tr>
                   ))}

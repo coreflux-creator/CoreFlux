@@ -21,7 +21,7 @@
  * Flags:
  *   --tenant=N        Restrict to one tenant (handy for backfills)
  *   --max-rows=N      Cap per-tick (default 100)
- *   --dry-run         Print what would execute, never call adapters
+ *   --dry-run         Print what would execute, never post entries or call adapters
  */
 declare(strict_types=1);
 
@@ -29,6 +29,7 @@ require_once __DIR__ . '/../core/config.php';
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/accounting/command_service.php';
 require_once __DIR__ . '/../core/accounting/provider_adapter.php';
+require_once __DIR__ . '/../modules/accounting/lib/account_interest.php';
 
 // ---- CLI args ----------------------------------------------------
 $opts = getopt('', ['tenant::', 'max-rows::', 'dry-run']);
@@ -38,6 +39,21 @@ $dryRun     = array_key_exists('dry-run', $opts);
 
 // ---- pull eligible rows ------------------------------------------
 $pdo = getDB();
+$interest = ['tenants' => 0, 'ran' => 0, 'skipped' => 0, 'errors' => 0];
+if (!$dryRun) {
+    try {
+        $interest = accountInterestRunDueAllTenants($onlyTenant > 0 ? $onlyTenant : null);
+    } catch (\Throwable $e) {
+        // Keep the shared worker healthy while the account-terms migration is pending.
+        fwrite(STDERR, "[account_interest_worker] skipped: {$e->getMessage()}\n");
+    }
+}
+fwrite(STDOUT, sprintf(
+    "[account_interest_worker] %d tenant(s) | %d created / %d skipped / %d failed%s\n",
+    (int) $interest['tenants'], (int) $interest['ran'], (int) $interest['skipped'],
+    (int) $interest['errors'], $dryRun ? ' | dry-run' : ''
+));
+
 try {
     $sql = "SELECT id, tenant_id, sub_tenant_id, provider, command_type,
                    status, attempts, max_attempts, next_retry_at

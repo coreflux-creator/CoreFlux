@@ -17,6 +17,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { fmtMoney } from '../lib/format';
 import { X, ExternalLink } from 'lucide-react';
+import AccountLink from './AccountLink';
 
 export default function GlDetailDrilldown({
   accountCode = null,
@@ -81,7 +82,9 @@ export default function GlDetailDrilldown({
               {label || `Account ${accountCode || accountId}`}
               {data?.account && (
                 <span style={{ marginLeft: 8, fontSize: 13, color: '#64748b', fontWeight: 400 }}>
-                  <code>{data.account.code}</code> · {data.account.name}
+                  <AccountLink accountId={data.account.id} accountCode={data.account.code} entityId={entityId}>
+                    <code>{data.account.code}</code> · {data.account.name}
+                  </AccountLink>
                 </span>
               )}
             </h3>

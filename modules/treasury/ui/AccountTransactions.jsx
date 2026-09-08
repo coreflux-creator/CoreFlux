@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate } from '../../../dashboard/src/lib/format';
 import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 const ACCOUNTING_ACCOUNTS_API = '/modules/accounting/api/accounts.php';
 
@@ -227,7 +228,9 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                             key={`${category.line_no}-${category.account_id}`}
                             style={{ padding: '2px 6px', borderRadius: 10, background: '#ecfdf5', color: '#065f46' }}
                           >
-                            <code>{category.account_code}</code> {category.account_name}
+                            <AccountLink accountId={category.account_id}>
+                              <code>{category.account_code}</code> {category.account_name}
+                            </AccountLink>
                             {r.categorization.length > 1 && (
                               <> · {fmtMoney(Math.max(Number(category.debit), Number(category.credit)))}</>
                             )}
@@ -446,7 +449,9 @@ function JournalEntryHover({ transactionId, journalEntry, fallbackId }) {
             <strong>Account</strong><strong style={{ textAlign: 'right' }}>Debit</strong><strong style={{ textAlign: 'right' }}>Credit</strong>
             {lines.map((line) => (
               <React.Fragment key={`${line.line_no}-${line.account_id}`}>
-                <span><code>{line.account_code}</code> {line.account_name}</span>
+                <AccountLink accountId={line.account_id}>
+                  <code>{line.account_code}</code> {line.account_name}
+                </AccountLink>
                 <span style={{ textAlign: 'right' }}>{Number(line.debit) ? fmtMoney(Number(line.debit)) : '—'}</span>
                 <span style={{ textAlign: 'right' }}>{Number(line.credit) ? fmtMoney(Number(line.credit)) : '—'}</span>
               </React.Fragment>

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 const ACCOUNTING_ENTITIES_API = '/api/v1/accounting/entities';
 const ENTITY_RELATIONSHIPS_API = '/api/v1/accounting/entity-relationships';
@@ -292,10 +293,10 @@ function IsView({ data }) {
         <thead><tr><th>Account</th><th>Name</th><th style={{textAlign:'right'}}>Amount</th><th style={{textAlign:'right'}}>Elim</th></tr></thead>
         <tbody>
           <tr style={{background:'#f3f4f6'}}><td colSpan={4}><strong>Revenue</strong></td></tr>
-          {data.revenue.map(r => <tr key={'r'+r.code}><td><code>{r.code}</code></td><td>{r.name}</td><td style={{textAlign:'right'}}>{fmt(r.amount)}</td><td style={{textAlign:'right',color:'#b91c1c'}}>{r.amount_elim ? `(${fmt(r.amount_elim)})` : ''}</td></tr>)}
+          {data.revenue.map(r => <tr key={'r'+r.code}><td><AccountLink accountId={r.account_id} accountCode={r.code}><code>{r.code}</code></AccountLink></td><td><AccountLink accountId={r.account_id} accountCode={r.code}>{r.name}</AccountLink></td><td style={{textAlign:'right'}}>{fmt(r.amount)}</td><td style={{textAlign:'right',color:'#b91c1c'}}>{r.amount_elim ? `(${fmt(r.amount_elim)})` : ''}</td></tr>)}
           <tr><td colSpan={2} style={{fontWeight:600}}>Total revenue</td><td style={{textAlign:'right',fontWeight:600}}>{fmt(data.total_revenue)}</td><td></td></tr>
           <tr style={{background:'#f3f4f6'}}><td colSpan={4}><strong>Expense</strong></td></tr>
-          {data.expense.map(r => <tr key={'e'+r.code}><td><code>{r.code}</code></td><td>{r.name}</td><td style={{textAlign:'right'}}>{fmt(r.amount)}</td><td style={{textAlign:'right',color:'#b91c1c'}}>{r.amount_elim ? `(${fmt(r.amount_elim)})` : ''}</td></tr>)}
+          {data.expense.map(r => <tr key={'e'+r.code}><td><AccountLink accountId={r.account_id} accountCode={r.code}><code>{r.code}</code></AccountLink></td><td><AccountLink accountId={r.account_id} accountCode={r.code}>{r.name}</AccountLink></td><td style={{textAlign:'right'}}>{fmt(r.amount)}</td><td style={{textAlign:'right',color:'#b91c1c'}}>{r.amount_elim ? `(${fmt(r.amount_elim)})` : ''}</td></tr>)}
           <tr><td colSpan={2} style={{fontWeight:600}}>Total expense</td><td style={{textAlign:'right',fontWeight:600}}>{fmt(data.total_expense)}</td><td></td></tr>
           <tr style={{background: data.net_income >= 0 ? '#ecfdf5' : '#fef2f2'}}><td colSpan={2} style={{fontWeight:700}}>Net income</td><td style={{textAlign:'right',fontWeight:700}} data-testid="accounting-consol-net-income">{fmt(data.net_income)}</td><td></td></tr>
         </tbody>
@@ -315,7 +316,7 @@ function BsView({ data }) {
             <React.Fragment key={k}>
               <tr style={{background:'#f3f4f6'}}><td colSpan={4}><strong>{label}</strong></td></tr>
               {(data[k] || []).map(r => (
-                <tr key={k+r.code}><td><code>{r.code}</code></td><td>{r.name}</td><td style={{textAlign:'right'}}>{fmt(r.balance_signed)}</td><td style={{textAlign:'right',color:'#b91c1c',fontSize:11}}>{(r.debit_elim || r.credit_elim) ? `${fmt(r.debit_elim)} / ${fmt(r.credit_elim)}` : ''}</td></tr>
+                <tr key={k+r.code}><td><AccountLink accountId={r.account_id} accountCode={r.code}><code>{r.code}</code></AccountLink></td><td><AccountLink accountId={r.account_id} accountCode={r.code}>{r.name}</AccountLink></td><td style={{textAlign:'right'}}>{fmt(r.balance_signed)}</td><td style={{textAlign:'right',color:'#b91c1c',fontSize:11}}>{(r.debit_elim || r.credit_elim) ? `${fmt(r.debit_elim)} / ${fmt(r.credit_elim)}` : ''}</td></tr>
               ))}
               <tr><td colSpan={2} style={{fontWeight:600}}>Total {label.toLowerCase()}</td><td style={{textAlign:'right',fontWeight:600}}>{fmt(data['total_'+k])}</td><td></td></tr>
             </React.Fragment>
@@ -349,7 +350,7 @@ function TbView({ data }) {
         <tbody>
           {(data.rows || []).map(r => (
             <tr key={r.code}>
-              <td><code>{r.code}</code></td><td>{r.name}</td>
+              <td><AccountLink accountId={r.account_id} accountCode={r.code}><code>{r.code}</code></AccountLink></td><td><AccountLink accountId={r.account_id} accountCode={r.code}>{r.name}</AccountLink></td>
               <td style={{textAlign:'right'}}>{fmt(r.debit_gross)}</td>
               <td style={{textAlign:'right'}}>{fmt(r.credit_gross)}</td>
               <td style={{textAlign:'right',color:'#b91c1c'}}>{r.debit_elim  ? fmt(r.debit_elim)  : '—'}</td>
