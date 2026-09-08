@@ -168,8 +168,10 @@ function bankTxnClassifyDuplicateRow(PDO $pdo, int $tenantId, array $row, array 
 }
 
 /**
- * Allow an otherwise-manual duplicate to be repaired only when its accounting
- * is byte-for-byte equivalent and its IC group contains no second entity leg.
+ * Allow an otherwise-manual duplicate to be repaired only when its economic
+ * accounting is equivalent and its IC group contains no second entity leg.
+ * Free-form line memo wording is intentionally excluded; dimensions and all
+ * counterparty assignments remain part of the signature.
  */
 function bankTxnIsSingleLegExactJournalDuplicate(
     PDO $pdo,
@@ -218,7 +220,7 @@ function bankTxnIsSingleLegExactJournalDuplicate(
 function bankTxnJournalLineSignature(PDO $pdo, int $jeId): array
 {
     $stmt = $pdo->prepare(
-        'SELECT account_id, debit, credit, COALESCE(memo, "") AS memo,
+        'SELECT account_id, debit, credit,
                 COALESCE(counterparty_company_id, 0) AS counterparty_company_id,
                 COALESCE(counterparty_person_id, 0) AS counterparty_person_id,
                 COALESCE(counterparty_entity_id, 0) AS counterparty_entity_id,
@@ -233,7 +235,6 @@ function bankTxnJournalLineSignature(PDO $pdo, int $jeId): array
             (int) $line['account_id'],
             number_format((float) $line['debit'], 2, '.', ''),
             number_format((float) $line['credit'], 2, '.', ''),
-            trim((string) $line['memo']),
             (int) $line['counterparty_company_id'],
             (int) $line['counterparty_person_id'],
             (int) $line['counterparty_entity_id'],

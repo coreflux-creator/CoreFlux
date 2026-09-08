@@ -121,7 +121,7 @@ $pdo->exec("INSERT INTO accounting_journal_entries
     (14, 1, 'posted', 'manual', 'intercompany_group', NULL, 2, 'USD', 'two-leg')");
 $pdo->exec("INSERT INTO accounting_journal_entry_lines (je_id, account_id, debit, credit, memo) VALUES
     (10, 100, 1036, 0, NULL), (10, 200, 0, 1036, NULL),
-    (12, 100, 1036, 0, NULL), (12, 200, 0, 1036, NULL),
+    (12, 100, 1036, 0, 'manual debit memo'), (12, 200, 0, 1036, 'manual credit memo'),
     (13, 100, 1036, 0, NULL), (13, 200, 0, 1036, NULL),
     (14, 100, 0, 1036, NULL), (14, 200, 1036, 0, NULL)");
 $singleLegJe = [
@@ -130,7 +130,7 @@ $singleLegJe = [
 $multiLegJe = [
     'status' => 'posted', 'source_module' => 'manual', 'intercompany_group_id' => 'two-leg',
 ];
-$assert('recognizes a single-leg manual journal with identical accounting as reversible',
+$assert('recognizes equivalent accounting despite different free-form memo wording',
     bankTxnIsSingleLegExactJournalDuplicate($pdo, 1, 12, 10, $singleLegJe));
 $assert('refuses to auto-reverse a multi-leg intercompany group',
     !bankTxnIsSingleLegExactJournalDuplicate($pdo, 1, 13, 10, $multiLegJe));
