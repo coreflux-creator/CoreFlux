@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  AlertCircle, CheckCircle2, ChevronLeft, Clock3, KeyRound,
-  RefreshCw, Search, ShieldCheck, Unplug, UsersRound,
+  AlertCircle, ChevronLeft, Clock3, KeyRound, Link2,
+  RefreshCw, Search, ShieldCheck, Unlink, Unplug, UserPlus, UsersRound, X,
 } from 'lucide-react';
 import { api, useApi } from '../lib/api';
 
@@ -127,9 +127,167 @@ function InventorySamples({ probe }) {
   );
 }
 
-function ReconciliationSection({ title, icon: Icon, result }) {
+function identityLabel(identity) {
+  const source = String(identity?.source || '').replaceAll('_', ' ');
+  return `${source || 'source'}: ${identity?.external_id || '—'}`;
+}
+
+function PersonResolver({ row, busy, onLink, onUnlink, onCreate }) {
+  const [mode, setMode] = useState('');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const [localError, setLocalError] = useState('');
+  const [draft, setDraft] = useState({
+    first_name: row.source_first_name || '',
+    last_name: row.source_last_name || '',
+    email_primary: row.source_email || '',
+    phone_primary: row.source_phone || '',
+    classification: '',
+  });
+
+  useEffect(() => {
+    if (mode !== 'search') return undefined;
+    const trimmed = query.trim();
+    if (trimmed.length < 2 && !/^P?-?\d+$/i.test(trimmed)) {
+      setResults([]);
+      return undefined;
+    }
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setSearching(true);
+      setLocalError('');
+      try {
+        const response = await api.get(`/api/connecteam/people_search.php?action=people_search&q=${encodeURIComponent(trimmed)}`);
+        if (active) setResults(response.people || []);
+      } catch (error) {
+        if (active) setLocalError(error.message || 'Could not search the People directory.');
+      } finally {
+        if (active) setSearching(false);
+      }
+    }, 250);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [mode, query]);
+
+  const openSearch = () => {
+    setMode('search');
+    setQuery(row.source_email || row.source_name || '');
+    setSelectedId(row.coreflux_id || null);
+    setLocalError('');
+  };
+
+  const chosen = results.find(person => Number(person.id) === Number(selectedId));
+  const commitLink = async (personId) => {
+    setLocalError('');
+    const ok = await onLink(row, Number(personId));
+    if (ok) setMode('');
+  };
+
+  if (!mode) {
+    if (row.state === 'exact') {
+      return (
+        <button className="btn btn-secondary" type="button" disabled={busy} onClick={async () => {
+          if (!window.confirm(`Remove the Connecteam identity link for ${row.source_name || row.source_id}? The CoreFlux person will not be deleted.`)) return;
+          await onUnlink(row);
+        }} title="Remove only this Connecteam identity link">
+          <Unlink size={15} /> Unlink
+        </button>
+      );
+    }
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {row.state === 'suggested' && row.coreflux_id ? (
+          <button className="btn btn-primary" type="button" disabled={busy} onClick={() => commitLink(row.coreflux_id)}>
+            <Link2 size={15} /> Link P-{row.coreflux_id}
+          </button>
+        ) : null}
+        <button className="btn btn-secondary" type="button" disabled={busy} onClick={openSearch}>
+          <Search size={15} /> {row.coreflux_id ? 'Choose another' : 'Find person'}
+        </button>
+        <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => setMode('create')}>
+          <UserPlus size={15} /> Create person
+        </button>
+      </div>
+    );
+  }
+
+  if (mode === 'create') {
+    return (
+      <div data-testid={`connecteam-create-person-${row.source_id}`} style={{ display: 'grid', gap: 7, minWidth: 360 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <strong>Create and link</strong>
+          <button type="button" className="btn btn-secondary" onClick={() => setMode('')} title="Close"><X size={15} /></button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
+          <input aria-label="First name" placeholder="First name" value={draft.first_name} onChange={event => setDraft({ ...draft, first_name: event.target.value })} />
+          <input aria-label="Last name" placeholder="Last name" value={draft.last_name} onChange={event => setDraft({ ...draft, last_name: event.target.value })} />
+        </div>
+        <input aria-label="Email" type="email" placeholder="Email" value={draft.email_primary} onChange={event => setDraft({ ...draft, email_primary: event.target.value })} />
+        <input aria-label="Phone" type="tel" placeholder="Phone (optional)" value={draft.phone_primary} onChange={event => setDraft({ ...draft, phone_primary: event.target.value })} />
+        <select aria-label="Worker classification" value={draft.classification} onChange={event => setDraft({ ...draft, classification: event.target.value })}>
+          <option value="">Choose worker classification</option>
+          <option value="w2">W-2 employee</option>
+          <option value="1099">1099 contractor</option>
+          <option value="c2c">C2C contractor</option>
+          <option value="temp">Temporary worker</option>
+          <option value="perm">Permanent placement</option>
+          <option value="candidate">Candidate</option>
+        </select>
+        <button className="btn btn-primary" type="button" disabled={busy || !draft.classification} onClick={async () => {
+          const ok = await onCreate(row, draft);
+          if (ok) setMode('');
+        }}>
+          <UserPlus size={15} /> Create and link
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div data-testid={`connecteam-person-search-${row.source_id}`} style={{ display: 'grid', gap: 7, minWidth: 380 }}>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ position: 'relative', flex: 1 }}>
+          <Search size={15} style={{ position: 'absolute', left: 9, top: 10, color: 'var(--cf-text-secondary)' }} />
+          <input aria-label="Find CoreFlux person" value={query} onChange={event => setQuery(event.target.value)} placeholder="Name, email, phone, or P-ID" style={{ width: '100%', paddingLeft: 30 }} />
+        </div>
+        <button type="button" className="btn btn-secondary" onClick={() => setMode('')} title="Close"><X size={15} /></button>
+      </div>
+      {localError ? <span style={{ color: '#991b1b', fontSize: 12 }}>{localError}</span> : null}
+      {searching ? <span style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>Searching…</span> : null}
+      {!searching && query.trim().length >= 2 && results.length === 0 ? (
+        <span style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>No CoreFlux people found.</span>
+      ) : null}
+      {results.length ? (
+        <div style={{ maxHeight: 190, overflowY: 'auto', border: '1px solid var(--cf-border)', borderRadius: 4 }}>
+          {results.map(person => (
+            <button key={person.id} type="button" onClick={() => setSelectedId(person.id)} style={{
+              display: 'block', width: '100%', padding: '8px 10px', textAlign: 'left', border: 0,
+              borderBottom: '1px solid var(--cf-border)', cursor: 'pointer', letterSpacing: 0,
+              background: Number(selectedId) === Number(person.id) ? '#eff6ff' : 'white',
+            }}>
+              <strong>P-{person.id} · {person.name}</strong>
+              <div style={{ marginTop: 2, color: 'var(--cf-text-secondary)', fontSize: 12 }}>{person.email_primary || person.email_secondary || 'No email'} · {person.classification}</div>
+              {person.identities?.length ? <div style={{ marginTop: 2, color: '#475569', fontSize: 11 }}>{person.identities.map(identityLabel).join(' · ')}</div> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {chosen ? (
+        <button className="btn btn-primary" type="button" disabled={busy} onClick={() => commitLink(chosen.id)}>
+          <Link2 size={15} /> Link to P-{chosen.id}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function ReconciliationSection({ title, icon: Icon, result, kind, busy, onLink, onUnlink, onCreate }) {
   if (!result) return null;
   const counts = result.counts || {};
+  const isPeople = kind === 'person';
+  const headers = ['CONNECTEAM', 'RESULT', 'COREFLUX', 'BASIS'];
+  if (isPeople) headers.push('ACTION');
   return (
     <section style={{ marginTop: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -144,10 +302,10 @@ function ReconciliationSection({ title, icon: Icon, result }) {
         <SummaryCell label="Unmatched" value={counts.unmatched || 0} tone="bad" />
       </div>
       <div style={{ overflowX: 'auto', border: '1px solid var(--cf-border)', borderRadius: 6 }}>
-        <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse' }}>
+        <table style={{ width: '100%', minWidth: isPeople ? 1120 : 760, borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'var(--cf-surface-subtle, #f8fafc)' }}>
-              {['CONNECTEAM', 'RESULT', 'COREFLUX', 'BASIS'].map(label => (
+              {headers.map(label => (
                 <th key={label} style={{ padding: '9px 12px', textAlign: 'left', fontSize: 12, color: 'var(--cf-text-secondary)', borderBottom: '1px solid var(--cf-border)' }}>{label}</th>
               ))}
             </tr>
@@ -157,15 +315,21 @@ function ReconciliationSection({ title, icon: Icon, result }) {
               <tr key={`${row.source_id}-${index}`}>
                 <td style={cellStyle}>
                   <div style={{ fontWeight: 600 }}>{row.source_name || 'Unnamed'}</div>
-                  <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>{row.source_code || row.source_email || row.source_id}</div>
+                  <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>{isPeople ? `User ID ${row.source_id}` : (row.source_code || row.source_id)}</div>
+                  {isPeople && row.source_email ? <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>{row.source_email}</div> : null}
                 </td>
                 <td style={cellStyle}><Badge meta={MATCH_META[row.state] || MATCH_META.unmatched} /></td>
                 <td style={cellStyle}>{row.coreflux_name || '—'}{row.coreflux_id ? ` · ${title === 'People' ? 'P' : 'PL'}-${row.coreflux_id}` : ''}</td>
                 <td style={cellStyle}>{row.method}</td>
+                {isPeople ? (
+                  <td style={{ ...cellStyle, width: 430 }}>
+                    <PersonResolver row={row} busy={busy} onLink={onLink} onUnlink={onUnlink} onCreate={onCreate} />
+                  </td>
+                ) : null}
               </tr>
             ))}
             {!result.rows?.length ? (
-              <tr><td colSpan={4} style={{ ...cellStyle, textAlign: 'center', color: 'var(--cf-text-secondary)' }}>No rows returned.</td></tr>
+              <tr><td colSpan={headers.length} style={{ ...cellStyle, textAlign: 'center', color: 'var(--cf-text-secondary)' }}>No rows returned.</td></tr>
             ) : null}
           </tbody>
         </table>
@@ -232,6 +396,54 @@ export default function ConnecteamSettings() {
       setMessage('Dry run complete. No workforce or accounting records were changed.');
     } catch (e) { setFailure(e.message || 'Reconciliation preview failed.'); }
     finally { setBusy(''); }
+  };
+
+  const refreshPreviewAfterIdentityChange = async (successMessage) => {
+    const result = await api.post('/api/connecteam/preview.php?action=preview', {});
+    setPreview(result.preview);
+    setMessage(successMessage);
+  };
+
+  const linkPerson = async (row, personId) => {
+    clearMessages(); setBusy(`link:${row.source_id}`);
+    try {
+      await api.post('/api/connecteam/link_person.php?action=link_person', {
+        source_user_id: row.source_id,
+        person_id: personId,
+      });
+      await refreshPreviewAfterIdentityChange(`Linked ${row.source_name || 'Connecteam user'} to CoreFlux P-${personId}.`);
+      return true;
+    } catch (error) {
+      setFailure(error.message || 'Could not save the Connecteam identity link.');
+      return false;
+    } finally { setBusy(''); }
+  };
+
+  const unlinkPerson = async (row) => {
+    clearMessages(); setBusy(`unlink:${row.source_id}`);
+    try {
+      await api.post('/api/connecteam/unlink_person.php?action=unlink_person', { source_user_id: row.source_id });
+      await refreshPreviewAfterIdentityChange(`Removed the Connecteam identity link for ${row.source_name || row.source_id}.`);
+      return true;
+    } catch (error) {
+      setFailure(error.message || 'Could not remove the Connecteam identity link.');
+      return false;
+    } finally { setBusy(''); }
+  };
+
+  const createPerson = async (row, fields) => {
+    clearMessages(); setBusy(`create:${row.source_id}`);
+    try {
+      const result = await api.post('/api/connecteam/create_person.php?action=create_person', {
+        source_user_id: row.source_id,
+        ...fields,
+      });
+      await refreshPreviewAfterIdentityChange(`Created ${result.person?.name || row.source_name} as CoreFlux P-${result.person?.id} and linked the Connecteam identity.`);
+      return true;
+    } catch (error) {
+      setFailure(error.message || 'Could not create the CoreFlux person.');
+      return false;
+    } finally { setBusy(''); }
   };
 
   const disconnect = async () => {
@@ -332,11 +544,14 @@ export default function ConnecteamSettings() {
               <ShieldCheck size={18} color="#047857" />
               <h2 style={{ margin: 0, fontSize: 18 }}>Identity and placement reconciliation</h2>
             </div>
-            <p style={{ margin: '7px 0 0', color: 'var(--cf-text-secondary)', maxWidth: 1000 }}>Exact matches require a stored Connecteam identifier or an explicit CoreFlux placement code. Email, phone, and title matches remain review-only.</p>
+            <p style={{ margin: '7px 0 0', color: 'var(--cf-text-secondary)', maxWidth: 1100 }}>CoreFlux P-ID is the canonical person. JobDiva candidate IDs, Connecteam user IDs, and other source identities can all link to the same P-ID without replacing one another. Email, phone, name, and title matches remain review-only until you approve them.</p>
             {preview ? (
               <>
-                <ReconciliationSection title="People" icon={UsersRound} result={preview.people} />
-                <ReconciliationSection title="Placement jobs" icon={Clock3} result={preview.jobs} />
+                <ReconciliationSection
+                  title="People" icon={UsersRound} result={preview.people} kind="person"
+                  busy={Boolean(busy)} onLink={linkPerson} onUnlink={unlinkPerson} onCreate={createPerson}
+                />
+                <ReconciliationSection title="Placement jobs" icon={Clock3} result={preview.jobs} kind="placement" busy={Boolean(busy)} />
               </>
             ) : (
               <div style={{ marginTop: 16, padding: '20px 0', color: 'var(--cf-text-secondary)' }}>No reconciliation preview has been run.</div>

@@ -14,6 +14,28 @@ function connecteamNormalizePhone(?string $value): string
     return preg_replace('/\D+/', '', (string) $value) ?: '';
 }
 
+function connecteamNormalizeName(?string $value): string
+{
+    $value = strtolower(trim((string) $value));
+    return trim((string) preg_replace('/[^a-z0-9]+/', ' ', $value));
+}
+
+function connecteamFirstScalar(array $row, array $paths): string
+{
+    foreach ($paths as $path) {
+        $value = $row;
+        foreach (explode('.', (string) $path) as $part) {
+            if (!is_array($value) || !array_key_exists($part, $value)) {
+                $value = null;
+                break;
+            }
+            $value = $value[$part];
+        }
+        if (is_scalar($value) && trim((string) $value) !== '') return trim((string) $value);
+    }
+    return '';
+}
+
 function connecteamUserId(array $row): string
 {
     return (string) ($row['userId'] ?? $row['id'] ?? '');
@@ -21,12 +43,33 @@ function connecteamUserId(array $row): string
 
 function connecteamUserName(array $row): string
 {
-    return trim((string) ($row['fullName'] ?? (($row['firstName'] ?? '') . ' ' . ($row['lastName'] ?? ''))));
+    $full = connecteamFirstScalar($row, ['fullName', 'displayName', 'userName', 'contactDetails.fullName']);
+    return $full !== '' ? $full : trim(connecteamUserFirstName($row) . ' ' . connecteamUserLastName($row));
+}
+
+function connecteamUserFirstName(array $row): string
+{
+    return connecteamFirstScalar($row, ['firstName', 'contactDetails.firstName', 'userDetails.firstName']);
+}
+
+function connecteamUserLastName(array $row): string
+{
+    return connecteamFirstScalar($row, ['lastName', 'contactDetails.lastName', 'userDetails.lastName']);
 }
 
 function connecteamUserEmail(array $row): string
 {
-    return connecteamNormalizeEmail((string) ($row['email'] ?? $row['emailAddress'] ?? ''));
+    return connecteamNormalizeEmail(connecteamFirstScalar($row, [
+        'email', 'emailAddress', 'contactDetails.email', 'contact.email', 'userDetails.email',
+    ]));
+}
+
+function connecteamUserPhone(array $row): string
+{
+    return connecteamNormalizePhone(connecteamFirstScalar($row, [
+        'phoneNumber', 'phone', 'mobilePhone', 'contactDetails.phoneNumber',
+        'contactDetails.phone', 'contact.phone', 'userDetails.phoneNumber',
+    ]));
 }
 
 function connecteamUserPersonId(array $row): ?int
@@ -56,14 +99,21 @@ function connecteamBuildPeoplePreview(array $sourceUsers, array $people, array $
     $byExternal = [];
     $byEmail = [];
     $byPhone = [];
+    $byName = [];
     foreach ($people as $person) {
         $byId[(int) $person['id']] = $person;
         $external = strtolower(trim((string) ($person['external_id'] ?? '')));
         if (str_starts_with($external, 'connecteam:')) $byExternal[$external][] = $person;
-        $email = connecteamNormalizeEmail((string) ($person['email_primary'] ?? ''));
-        if ($email !== '') $byEmail[$email][] = $person;
-        $phone = connecteamNormalizePhone((string) ($person['phone_primary'] ?? ''));
-        if ($phone !== '') $byPhone[$phone][] = $person;
+        foreach (['email_primary', 'email_secondary'] as $field) {
+            $email = connecteamNormalizeEmail((string) ($person[$field] ?? ''));
+            if ($email !== '') $byEmail[$email][] = $person;
+        }
+        foreach (['phone_primary', 'phone_secondary'] as $field) {
+            $phone = connecteamNormalizePhone((string) ($person[$field] ?? ''));
+            if ($phone !== '') $byPhone[$phone][] = $person;
+        }
+        $name = connecteamNormalizeName(trim((string) (($person['first_name'] ?? '') . ' ' . ($person['last_name'] ?? ''))));
+        if ($name !== '') $byName[$name][] = $person;
     }
 
     $counts = ['exact' => 0, 'suggested' => 0, 'ambiguous' => 0, 'unmatched' => 0];
@@ -72,7 +122,8 @@ function connecteamBuildPeoplePreview(array $sourceUsers, array $people, array $
         if (!is_array($source)) continue;
         $sourceId = connecteamUserId($source);
         $email = connecteamUserEmail($source);
-        $phone = connecteamNormalizePhone((string) ($source['phoneNumber'] ?? $source['phone'] ?? ''));
+        $phone = connecteamUserPhone($source);
+        $name = connecteamNormalizeName(connecteamUserName($source));
         $matches = [];
         $state = 'unmatched';
         $method = 'No stable CoreFlux identity found';
@@ -95,13 +146,18 @@ function connecteamBuildPeoplePreview(array $sourceUsers, array $people, array $
             $candidates = [];
             foreach ($byEmail[$email] ?? [] as $person) $candidates[(string) $person['id']] = $person;
             foreach ($byPhone[$phone] ?? [] as $person) $candidates[(string) $person['id']] = $person;
+            if (!$candidates) {
+                foreach ($byName[$name] ?? [] as $person) $candidates[(string) $person['id']] = $person;
+            }
             $matches = array_values($candidates);
             if (count($matches) === 1) {
                 $state = 'suggested';
-                $method = $email !== '' && isset($byEmail[$email]) ? 'Unique email' : 'Unique phone';
+                $method = $email !== '' && isset($byEmail[$email])
+                    ? 'Unique email'
+                    : ($phone !== '' && isset($byPhone[$phone]) ? 'Unique phone' : 'Unique name');
             } elseif (count($matches) > 1) {
                 $state = 'ambiguous';
-                $method = 'Email/phone point to different CoreFlux people';
+                $method = 'Multiple CoreFlux people share the available identity signals';
             }
         }
         $counts[$state]++;
@@ -109,7 +165,10 @@ function connecteamBuildPeoplePreview(array $sourceUsers, array $people, array $
             $rows[] = [
                 'source_id' => $sourceId,
                 'source_name' => connecteamUserName($source),
+                'source_first_name' => connecteamUserFirstName($source),
+                'source_last_name' => connecteamUserLastName($source),
                 'source_email' => $email,
+                'source_phone' => $phone,
                 'state' => $state,
                 'method' => $method,
                 'coreflux_id' => count($matches) === 1 ? (int) $matches[0]['id'] : null,
@@ -125,6 +184,19 @@ function connecteamBuildPeoplePreview(array $sourceUsers, array $people, array $
         'counts' => $counts,
         'rows' => array_slice($rows, 0, 100),
     ];
+}
+
+function connecteamFindSourceUser(int $tenantId, string $sourceUserId): ?array
+{
+    $sourceUserId = trim($sourceUserId);
+    if ($sourceUserId === '') return null;
+    $fetch = connecteamFetchCollection(
+        $tenantId, '/users/v1/users', ['userStatus' => 'all'], ['users'], 500
+    );
+    foreach ($fetch['items'] as $user) {
+        if (is_array($user) && hash_equals($sourceUserId, connecteamUserId($user))) return $user;
+    }
+    return null;
 }
 
 function connecteamJobPlacementId(array $job): ?int
@@ -280,7 +352,8 @@ function connecteamDryRunPreview(int $tenantId, ?int $userId): array
 
     $pdo = getDB();
     $peopleStmt = $pdo->prepare(
-        'SELECT id, external_id, first_name, last_name, email_primary, phone_primary, status
+        'SELECT id, external_id, first_name, last_name,
+                email_primary, email_secondary, phone_primary, phone_secondary, status
            FROM people
           WHERE tenant_id = :t AND deleted_at IS NULL'
     );
@@ -306,6 +379,7 @@ function connecteamDryRunPreview(int $tenantId, ?int $userId): array
             'No CoreFlux records were created or changed.',
             'Email, phone, and title matches are suggestions only.',
             'Only stored Connecteam IDs or explicit placement codes/custom fields count as exact.',
+            'A CoreFlux person can retain separate JobDiva and Connecteam identities.',
             'A Connecteam job can never create a CoreFlux placement.',
         ],
     ];

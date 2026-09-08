@@ -54,6 +54,7 @@ jobs:
             .deploy-version \
             api/connecteam.php \
             api/connecteam \
+            api/integrations/mappings.php \
             core/connecteam \
             core/migrations/133_connecteam_integration_foundation.sql \
             core/rbac/legacy_map.php \
@@ -119,6 +120,7 @@ jobs:
 
             cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
             php -l api/connecteam.php
+            php -l api/integrations/mappings.php
             php -l core/connecteam/client.php
             php -l core/connecteam/reconcile.php
             php tests/connecteam_foundation_smoke.php
@@ -129,6 +131,8 @@ jobs:
             test -f "$SPA_ENTRY"
             grep -Fq 'connecteam-settings' "$SPA_ENTRY"
             grep -Fq 'Run reconciliation dry run' "$SPA_ENTRY"
+            grep -Fq 'Find CoreFlux person' "$SPA_ENTRY"
+            grep -Fq 'Create and link' "$SPA_ENTRY"
             grep -Fq -- "- $SPA_ENTRY" .deploy-version
 
             OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
