@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
 import { Section, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { PlugZap, Building2, Banknote, BookOpen, Database, TrendingUp, ChevronRight, ShieldCheck, AlertTriangle, AlertOctagon, Sparkles } from 'lucide-react';
+import { PlugZap, Building2, Banknote, BookOpen, Database, TrendingUp, ChevronRight, ShieldCheck, AlertTriangle, AlertOctagon, Sparkles, Clock3 } from 'lucide-react';
 import MailHealthCard from './MailHealthCard';
 
 /**
@@ -22,6 +22,7 @@ export default function IntegrationsHub() {
   const qbo      = useApi('/api/qbo/status.php?action=status');
   const zoho     = useApi('/api/zoho_books/status.php?action=status');
   const airtable = useApi('/api/airtable/status.php?action=status');
+  const connecteam = useApi('/api/connecteam/status.php?action=status');
   const jaz      = useApi('/api/accounting.php?action=tenant_status&provider=jaz');
   const health   = useApi('/api/admin/schema_health.php');
 
@@ -64,6 +65,12 @@ export default function IntegrationsHub() {
       : airtable.data?.configured
         ? 'not_connected'
         : 'not_configured';
+
+  const connecteamStatus = connecteam.loading
+    ? 'loading'
+    : connecteam.data?.connected
+      ? 'connected'
+      : 'not_connected';
 
   return (
     <div data-testid="integrations-hub">
@@ -109,6 +116,14 @@ export default function IntegrationsHub() {
             description="Sync companies, contacts, placements, and time entries with your JobDiva ATS."
             href="/admin/integrations/jobdiva"
             status={jobdivaStatus}
+          />
+          <IntegrationCard
+            testid="integration-card-connecteam"
+            icon={Clock3}
+            title="Connecteam"
+            description="Discover workforce, jobs, schedules, time clocks, leave, and policy access before linking approved time to CoreFlux."
+            href="/admin/integrations/connecteam"
+            status={connecteamStatus}
           />
         </ActionCardsGrid>
       </Section>
