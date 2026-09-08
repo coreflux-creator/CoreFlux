@@ -31,6 +31,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/plaid_service.php';
+require_once __DIR__ . '/../core/treasury/bank_transaction_identity.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -90,11 +91,14 @@ if (empty($accountMap)) {
 }
 
 $cursor = $item['transactions_cursor'];
+$fullHistoryReplay = ($cursor === null || $cursor === '');
+$claimedDepositLines = [];
 $results = [
     'pages'         => 0,
     'added'         => 0,
     'modified'      => 0,
     'removed'       => 0,
+    'reused'        => 0,
     'unmapped'      => 0,
     'per_account'   => [],   // keyed by plaid_account_id
 ];
@@ -107,7 +111,9 @@ while (true) {
         if (!$retried && stripos($e->errorCode, 'MUTATION_DURING_PAGINATION') !== false) {
             $retried = true;
             $cursor  = $item['transactions_cursor'];
-            $results = ['pages' => 0, 'added' => 0, 'modified' => 0, 'removed' => 0, 'unmapped' => 0, 'per_account' => []];
+            $fullHistoryReplay = ($cursor === null || $cursor === '');
+            $claimedDepositLines = [];
+            $results = ['pages' => 0, 'added' => 0, 'modified' => 0, 'removed' => 0, 'reused' => 0, 'unmapped' => 0, 'per_account' => []];
             continue;
         }
         plaidAudit('core.plaid.transactions_sync_failed', [
@@ -118,11 +124,11 @@ while (true) {
     $results['pages']++;
 
     foreach (($resp['added'] ?? []) as $t) {
-        if (_plaidRouteTxn($accountMap, $t, false, $results)) $results['added']++;
+        if (_plaidRouteTxn($accountMap, $t, false, $results, $fullHistoryReplay, $itemIdExt, $claimedDepositLines)) $results['added']++;
         else $results['unmapped']++;
     }
     foreach (($resp['modified'] ?? []) as $t) {
-        if (_plaidRouteTxn($accountMap, $t, true, $results)) $results['modified']++;
+        if (_plaidRouteTxn($accountMap, $t, true, $results, false, $itemIdExt, $claimedDepositLines)) $results['modified']++;
         else $results['unmapped']++;
     }
     foreach (($resp['removed'] ?? []) as $r) {
@@ -209,7 +215,15 @@ function _plaidBuildAccountDestinationMap(int $tenantId, int $itemPk): array {
     return $map;
 }
 
-function _plaidRouteTxn(array $map, array $t, bool $isModification, array &$results): bool {
+function _plaidRouteTxn(
+    array $map,
+    array $t,
+    bool $isModification,
+    array &$results,
+    bool $allowReplayMatch = false,
+    string $providerItemId = '',
+    array &$claimedDepositLines = []
+): bool {
     $accId = (string) ($t['account_id'] ?? '');
     if ($accId === '' || !isset($map[$accId])) return false;
     $dest  = $map[$accId];
@@ -223,6 +237,57 @@ function _plaidRouteTxn(array $map, array $t, bool $isModification, array &$resu
     $pdo = getDB();
 
     if ($dest['kind'] === 'deposit') {
+        $postedDate = (string) ($t['date'] ?? date('Y-m-d'));
+        $description = substr((string) ($t['merchant_name'] ?? $t['name'] ?? ''), 0, 255);
+        $reference = substr((string) ($t['payment_meta']['reference_number'] ?? ''), 0, 120) ?: null;
+        $lineId = bankTxnAliasLineId($pdo, $tenantId, (int) $dest['id'], 'plaid', $txnId);
+
+        if ($lineId !== null) {
+            $pdo->prepare(
+                'UPDATE accounting_bank_statement_lines
+                    SET posted_date = :d, description = :desc, amount = :amt, bank_reference = :ref
+                  WHERE tenant_id = :t AND bank_account_id = :acc AND id = :id'
+            )->execute([
+                'd' => $postedDate, 'desc' => $description, 'amt' => $signed, 'ref' => $reference,
+                't' => $tenantId, 'acc' => $dest['id'], 'id' => $lineId,
+            ]);
+            $claimedDepositLines[$lineId] = true;
+            $results['per_account'][$accId] = ($results['per_account'][$accId] ?? 0) + 1;
+            return true;
+        }
+
+        $lineId = bankTxnLineIdByFitid($pdo, $tenantId, (int) $dest['id'], $txnId);
+        if ($lineId === null && $allowReplayMatch && !$isModification) {
+            $candidate = bankTxnFindReplayCandidate(
+                $pdo,
+                $tenantId,
+                (int) $dest['id'],
+                $postedDate,
+                $signed,
+                $description,
+                $claimedDepositLines
+            );
+            if ($candidate) {
+                $lineId = (int) $candidate['id'];
+                $pdo->prepare(
+                    'UPDATE accounting_bank_statement_lines
+                        SET posted_date = :d, description = :desc, amount = :amt, bank_reference = :ref
+                      WHERE tenant_id = :t AND bank_account_id = :acc AND id = :id'
+                )->execute([
+                    'd' => $postedDate, 'desc' => $description, 'amt' => $signed, 'ref' => $reference,
+                    't' => $tenantId, 'acc' => $dest['id'], 'id' => $lineId,
+                ]);
+                bankTxnRecordAlias(
+                    $pdo, $tenantId, (int) $dest['id'], $lineId,
+                    'plaid', $txnId, $providerItemId
+                );
+                $claimedDepositLines[$lineId] = true;
+                $results['reused'] = ($results['reused'] ?? 0) + 1;
+                $results['per_account'][$accId] = ($results['per_account'][$accId] ?? 0) + 1;
+                return true;
+            }
+        }
+
         $pdo->prepare(
             'INSERT INTO accounting_bank_statement_lines
                 (tenant_id, bank_account_id, posted_date, description, amount, bank_reference, fitid, match_status)
@@ -236,12 +301,27 @@ function _plaidRouteTxn(array $map, array $t, bool $isModification, array &$resu
         )->execute([
             't'     => $tenantId,
             'acc'   => $dest['id'],
-            'd'     => (string) ($t['date'] ?? date('Y-m-d')),
-            'desc'  => substr((string) ($t['merchant_name'] ?? $t['name'] ?? ''), 0, 255),
+            'd'     => $postedDate,
+            'desc'  => $description,
             'amt'   => $signed,
-            'ref'   => substr((string) ($t['payment_meta']['reference_number'] ?? ''), 0, 120) ?: null,
+            'ref'   => $reference,
             'fitid' => $txnId,
         ]);
+        $lineId = bankTxnLineIdByFitid($pdo, $tenantId, (int) $dest['id'], $txnId);
+        if ($lineId !== null) {
+            bankTxnRecordAlias(
+                $pdo, $tenantId, (int) $dest['id'], $lineId,
+                'plaid', $txnId, $providerItemId
+            );
+            $claimedDepositLines[$lineId] = true;
+            if (bankTxnHasColumn($pdo, 'accounting_bank_statement_lines', 'external_id')) {
+                $pdo->prepare(
+                    "UPDATE accounting_bank_statement_lines
+                        SET external_id = :ext, source_system = 'plaid'
+                      WHERE tenant_id = :t AND bank_account_id = :a AND id = :id"
+                )->execute(['ext' => $txnId, 't' => $tenantId, 'a' => $dest['id'], 'id' => $lineId]);
+            }
+        }
     } else {
         $pcat = $t['personal_finance_category']['primary']
               ?? (is_array($t['category'] ?? null) ? implode(' / ', $t['category']) : null);
@@ -282,9 +362,19 @@ function _plaidMarkRemovedRouted(array $dest, string $txnId): void {
         ? 'accounting_bank_statement_lines'
         : 'treasury_liability_statement_lines';
     $col   = $dest['kind'] === 'deposit' ? 'bank_account_id' : 'liability_account_id';
+    if ($dest['kind'] === 'deposit') {
+        $lineId = bankTxnAliasLineId($pdo, $tenantId, (int) $dest['id'], 'plaid', $txnId);
+        if ($lineId !== null) {
+            $pdo->prepare(
+                "UPDATE {$table} SET match_status = 'ignored'
+                  WHERE tenant_id = :t AND {$col} = :acc AND id = :id
+                    AND match_status = 'unmatched'"
+            )->execute(['t' => $tenantId, 'acc' => $dest['id'], 'id' => $lineId]);
+            return;
+        }
+    }
     $pdo->prepare(
-        "UPDATE {$table}
-            SET match_status = 'ignored'
+        "UPDATE {$table} SET match_status = 'ignored'
           WHERE tenant_id = :t AND {$col} = :acc AND fitid = :f
             AND match_status = 'unmatched'"
     )->execute(['t' => $tenantId, 'acc' => $dest['id'], 'f' => $txnId]);
