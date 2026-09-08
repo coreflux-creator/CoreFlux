@@ -66,6 +66,84 @@ function clearRequestModuleScope(): void {
 }
 
 /**
+ * Return the tenant explicitly pinned by this browser tab, if present.
+ * The header is never trusted on its own; api_require_auth() and session.php
+ * validate access before installing it as the request-local tenant.
+ */
+function requestedTenantHeaderId(): ?int {
+    $raw = $_SERVER['HTTP_X_COREFLUX_TENANT_ID'] ?? null;
+    if ($raw === null || $raw === '') return null;
+    if (!is_string($raw) || !preg_match('/^[1-9][0-9]*$/', $raw)) {
+        throw new InvalidArgumentException('Invalid CoreFlux tenant header');
+    }
+    return (int) $raw;
+}
+
+/** Install a validated, request-local tenant without changing PHP session state. */
+function setRequestTenantId(?int $tenantId): void {
+    if ($tenantId === null) {
+        unset($GLOBALS['__cf_request_tenant_id']);
+        return;
+    }
+    if ($tenantId <= 0) throw new InvalidArgumentException('Invalid tenant id');
+    $GLOBALS['__cf_request_tenant_id'] = $tenantId;
+}
+
+/**
+ * Resolve the user's access to a tenant. Direct membership, inherited access
+ * from an administered parent, and platform-admin access mirror the tenant
+ * switcher rules. Returns the tenant row plus the effective role, or null.
+ */
+function tenantAccessContextForUser(array $user, int $tenantId): ?array {
+    if ($tenantId <= 0 || empty($user['id'])) return null;
+    $pdo = getDB();
+    if (!$pdo) return null;
+
+    $tenantStmt = $pdo->prepare(
+        'SELECT id, parent_id, tenant_type, name, is_active
+           FROM tenants WHERE id = :id AND is_active = 1 LIMIT 1'
+    );
+    $tenantStmt->execute(['id' => $tenantId]);
+    $tenant = $tenantStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$tenant) return null;
+
+    $globalRole = (string) ($user['global_role'] ?? $_SESSION['global_role'] ?? $user['role'] ?? '');
+    $isPlatformAdmin = $globalRole === 'master_admin' || (int) ($user['is_global_admin'] ?? 0) === 1;
+    if ($isPlatformAdmin) {
+        $tenant['role'] = 'master_admin';
+        $tenant['access'] = 'platform';
+        return $tenant;
+    }
+
+    require_once __DIR__ . '/memberships.php';
+    $membership = $pdo->prepare(
+        'SELECT persona_type AS role
+           FROM ' . membershipReadSourceSql() . ' src
+          WHERE src.user_id = :u AND src.tenant_id = :t
+          LIMIT 1'
+    );
+    $membership->execute(['u' => (int) $user['id'], 't' => $tenantId]);
+    $role = $membership->fetchColumn();
+    if ($role !== false && $role !== null && $role !== '') {
+        $tenant['role'] = (string) $role;
+        $tenant['access'] = 'direct';
+        return $tenant;
+    }
+
+    $parentId = (int) ($tenant['parent_id'] ?? 0);
+    if (($tenant['tenant_type'] ?? '') === 'sub' && $parentId > 0) {
+        $membership->execute(['u' => (int) $user['id'], 't' => $parentId]);
+        $parentRole = (string) ($membership->fetchColumn() ?: '');
+        if (in_array($parentRole, ['tenant_admin', 'admin', 'master_admin'], true)) {
+            $tenant['role'] = $parentRole;
+            $tenant['access'] = 'via_parent';
+            return $tenant;
+        }
+    }
+    return null;
+}
+
+/**
  * Resolve the tenant_id to bind on the current request, honouring
  * `tenant_module_scope` when a module context is detected. Falls back to
  * `currentTenantId()` when there's no module context (core endpoints,
@@ -100,6 +178,9 @@ function effectiveTenantIdForRequest(): ?int {
  * Prefers explicit session state; falls back to the first membership on the user.
  */
 function currentTenantId(): ?int {
+    if (!empty($GLOBALS['__cf_request_tenant_id'])) {
+        return (int) $GLOBALS['__cf_request_tenant_id'];
+    }
     if (session_status() === PHP_SESSION_NONE) {
         session_start();
     }

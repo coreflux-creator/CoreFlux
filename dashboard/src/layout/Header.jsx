@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ChevronDown, LayoutDashboard, Shield, Building2, Inbox, TrendingUp, UserCog } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, clearPinnedTenantId } from '../lib/api';
 
 const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, onTenantChange }) => {
   const [moduleOpen, setModuleOpen] = useState(false);
@@ -241,6 +241,7 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
                         className={`dropdown-item ${platformMode ? 'active' : ''}`}
                         onClick={() => {
                           if (!platformMode) {
+                            clearPinnedTenantId();
                             window.location.href = '/switch_tenant.php?platform=1&next=/spa.php';
                           }
                           setTenantOpen(false);
@@ -383,7 +384,7 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
               <Link to="/profile" className="dropdown-item" onClick={() => setUserOpen(false)}>Profile</Link>
               <Link to="/settings" className="dropdown-item" onClick={() => setUserOpen(false)}>Settings</Link>
               <hr className="dropdown-divider" />
-              <a href="/logout.php" className="dropdown-item" style={{ color: '#ef4444' }}>Logout</a>
+              <a href="/logout.php" className="dropdown-item" style={{ color: '#ef4444' }} onClick={clearPinnedTenantId}>Logout</a>
             </div>
           )}
         </div>

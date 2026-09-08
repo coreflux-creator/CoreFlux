@@ -56,7 +56,7 @@ $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if ($origin && preg_match('#^https?://(localhost|127\.0\.0\.1|.*\.corefluxapp\.com|.*\.preview\.emergentagent\.com)(:\d+)?$#', $origin)) {
     header('Access-Control-Allow-Origin: ' . $origin);
     header('Vary: Origin');
-    header('Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With');
+    header('Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With, X-CoreFlux-Tenant-Id');
     header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
 }
 
@@ -154,8 +154,9 @@ function api_require_auth(bool $requireTenant = true): array {
             api_error('Not authenticated', 401);
         }
     }
-    $user     = getCurrentUser();
-    $tenantId = currentTenantId();
+    $user            = getCurrentUser();
+    $sessionTenantId = currentTenantId();
+    $tenantId        = $sessionTenantId;
 
     // -----------------------------------------------------------------
     // Auditor mode — read-only enforcement at the bootstrap layer.
@@ -209,6 +210,42 @@ function api_require_auth(bool $requireTenant = true): array {
             }
         } catch (\Throwable $_) { /* keep session view */ }
     }
+    if (is_array($user)) {
+        $user['global_role'] = $globalRole;
+        if ($isPlatformMA) $user['is_global_admin'] = 1;
+    }
+
+    // Browser tabs keep an independent tenant pin. Validate it before using
+    // it so a tenant switch in one tab cannot silently redirect another tab's
+    // API requests into a different workspace.
+    $requestedTenantId = null;
+    $requestedTenantAccess = null;
+    try {
+        $requestedTenantId = requestedTenantHeaderId();
+    } catch (\InvalidArgumentException $e) {
+        api_error($e->getMessage(), 400);
+    }
+    if ($requestedTenantId !== null) {
+        if (($user['auth_via'] ?? '') === 'jwt' && (int) $sessionTenantId !== $requestedTenantId) {
+            api_error('JWT tenant does not match the requested tenant', 403);
+        }
+        if ((int) $sessionTenantId === $requestedTenantId) {
+            setRequestTenantId($requestedTenantId);
+        } else {
+            try {
+                $requestedTenantAccess = tenantAccessContextForUser($user ?? [], $requestedTenantId);
+            } catch (\Throwable $e) {
+                api_error('Could not verify the requested tenant', 500);
+            }
+            if (!$requestedTenantAccess) {
+                api_error('Forbidden: this tab is pinned to a tenant you cannot access', 403, [
+                    'requested_tenant_id' => $requestedTenantId,
+                ]);
+            }
+            setRequestTenantId($requestedTenantId);
+        }
+        $tenantId = $requestedTenantId;
+    }
 
     if ($requireTenant && !$tenantId && !$isPlatformMA) {
         api_error('No tenant context', 400);
@@ -225,7 +262,9 @@ function api_require_auth(bool $requireTenant = true): array {
     // identified this user as `master_admin`/`is_global_admin=1`, that role
     // CANNOT be downgraded by a per-tenant `user_tenants` row. The platform
     // role is the floor; per-tenant role is only the override for non-globals.
-    $effectiveRole = $isPlatformMA ? 'master_admin' : ($user['role'] ?? 'employee');
+    $effectiveRole = $isPlatformMA
+        ? 'master_admin'
+        : (string) ($requestedTenantAccess['role'] ?? $user['role'] ?? 'employee');
     if (!$isPlatformMA && $user && $tenantId) {
         try {
             $st = getDB()->prepare(
@@ -239,7 +278,7 @@ function api_require_auth(bool $requireTenant = true): array {
                 $effectiveRole = (string) $r;
                 // Mirror back to the session so downstream code that reads
                 // $_SESSION['user']['role'] directly sees the active value.
-                if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
+                if ($requestedTenantId === null && isset($_SESSION['user']) && is_array($_SESSION['user'])) {
                     $_SESSION['user']['role'] = $effectiveRole;
                 }
             }
@@ -279,12 +318,17 @@ function api_require_auth(bool $requireTenant = true): array {
                 $personaType  = (string) ($membership['persona_type'] ?? '');
                 if ($personaType !== '' && !$isPlatformMA) {
                     $effectiveRole = $personaType;
-                    if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
+                    if ($requestedTenantId === null && isset($_SESSION['user']) && is_array($_SESSION['user'])) {
                         $_SESSION['user']['role'] = $effectiveRole;
                     }
                 }
             }
         } catch (\Throwable $_) { /* legacy fall-through */ }
+    }
+
+    if (is_array($user)) {
+        $user['role'] = $effectiveRole;
+        $user['global_role'] = $globalRole;
     }
 
     return [

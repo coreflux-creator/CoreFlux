@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, Check } from 'lucide-react';
+import { pinTenantId } from '../lib/api';
 
 /**
  * Post-login tenant picker. Lists user's accessible tenants and routes to
@@ -16,6 +17,7 @@ const TenantPicker = ({ session }) => {
   useEffect(() => {
     if (tenants.length === 1) {
       setRedirecting(true);
+      pinTenantId(tenants[0].id);
       window.location.href = `/switch_tenant.php?tenant_id=${tenants[0].id}&next=/spa.php`;
     }
   }, [tenants]);
@@ -52,6 +54,7 @@ const TenantPicker = ({ session }) => {
             <a
               key={t.id || t.name}
               href={`/switch_tenant.php?tenant_id=${t.id}&next=/spa.php`}
+              onClick={() => pinTenantId(t.id)}
               className="card card--interactive"
               data-testid={`tenant-picker-option-${t.id}`}
               style={{

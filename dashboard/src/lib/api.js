@@ -17,6 +17,24 @@
 const BASE = ''; // same-origin; override via VITE_API_BASE if ever needed
 const ENV_BASE =
   (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE) || '';
+const TAB_TENANT_KEY = 'coreflux.tab_tenant_id';
+
+export function getPinnedTenantId() {
+  if (typeof window === 'undefined' || !window.sessionStorage) return null;
+  const value = window.sessionStorage.getItem(TAB_TENANT_KEY);
+  return value && /^[1-9][0-9]*$/.test(value) ? value : null;
+}
+
+export function pinTenantId(tenantId) {
+  if (typeof window === 'undefined' || !window.sessionStorage) return;
+  const value = String(tenantId ?? '');
+  if (/^[1-9][0-9]*$/.test(value)) window.sessionStorage.setItem(TAB_TENANT_KEY, value);
+}
+
+export function clearPinnedTenantId() {
+  if (typeof window === 'undefined' || !window.sessionStorage) return;
+  window.sessionStorage.removeItem(TAB_TENANT_KEY);
+}
 
 function joinUrl(path) {
   const base = ENV_BASE || BASE;
@@ -27,12 +45,14 @@ function joinUrl(path) {
 
 async function request(method, path, body, options = {}) {
   const url = joinUrl(path);
+  const pinnedTenantId = getPinnedTenantId();
   const init = {
     method,
     credentials: 'include',
     headers: {
       Accept: 'application/json',
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(pinnedTenantId ? { 'X-CoreFlux-Tenant-Id': pinnedTenantId } : {}),
       ...(options.headers || {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),

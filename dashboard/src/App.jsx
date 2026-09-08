@@ -38,6 +38,7 @@ import Login from './pages/Login';
 import MagicLinkConsume from './pages/MagicLinkConsume';
 import ErrorBoundary from './components/ErrorBoundary';
 import { filterLayerNav } from './lib/layerNavGate';
+import { clearPinnedTenantId, getPinnedTenantId, pinTenantId } from './lib/api';
 
 // LayerFi sandbox embed — production-safe default: nav + routes only appear
 // when VITE_ENABLE_LAYER_SANDBOX === 'true' at build time. Keeps the native
@@ -249,9 +250,13 @@ const useSession = () => {
 
     const fetchSession = async () => {
       try {
-        const res = await fetch('/session.php', {
+        const pinnedTenantId = getPinnedTenantId();
+        let res = await fetch('/session.php', {
           credentials: 'include',
-          headers: { 'Accept': 'application/json' }
+          headers: {
+            'Accept': 'application/json',
+            ...(pinnedTenantId ? { 'X-CoreFlux-Tenant-Id': pinnedTenantId } : {}),
+          }
         });
 
         if (res.status === 401) {
@@ -264,6 +269,8 @@ const useSession = () => {
 
         const data = await res.json();
         if (!data.user || data.error) throw new Error(data.error || 'Invalid session');
+        if (data.tenant_id) pinTenantId(data.tenant_id);
+        else clearPinnedTenantId();
 
         // Merge in SPA-side modules that aren't yet enabled in tenant_modules
         // for this tenant. Lets newly-launched modules (Staffing during its
@@ -388,6 +395,7 @@ const AppContent = ({ session, usingDemo }) => {
       alert('Tenant switching requires PHP backend.');
       return;
     }
+    pinTenantId(tenantId);
     window.location.href = `/switch_tenant.php?tenant_id=${tenantId}&next=/spa.php`;
   };
 

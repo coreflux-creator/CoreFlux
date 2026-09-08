@@ -29,8 +29,45 @@ $activeModule = $_SESSION['active_module'] ?? null;
 // logged out. Reading from getUserModules() each call eliminates that.
 require_once __DIR__ . '/core/modules.php';
 require_once __DIR__ . '/core/db.php';
+require_once __DIR__ . '/core/tenant_scope.php';
+require_once __DIR__ . '/core/memberships.php';
+
 $role    = $user['role']        ?? $_SESSION['role']        ?? 'employee';
 $globalRole = $user['global_role'] ?? $_SESSION['global_role'] ?? $role;
+
+// A tab may be pinned to a different accessible tenant than the shared PHP
+// session. Resolve that tenant without mutating session state, so opening or
+// switching another tab cannot make this page silently change workspaces.
+try {
+    $requestedTenantId = requestedTenantHeaderId();
+} catch (InvalidArgumentException $e) {
+    http_response_code(400);
+    echo json_encode(['error' => $e->getMessage()]);
+    exit;
+}
+if ($requestedTenantId !== null) {
+    if ((int) $tenantId !== $requestedTenantId) {
+        try {
+            $tenantAccess = tenantAccessContextForUser($user, $requestedTenantId);
+        } catch (Throwable $e) {
+            http_response_code(500);
+            echo json_encode(['error' => 'Could not verify the requested tenant']);
+            exit;
+        }
+        if (!$tenantAccess) {
+            http_response_code(403);
+            echo json_encode(['error' => 'This tab is pinned to a tenant you cannot access']);
+            exit;
+        }
+        $tenant = (string) ($tenantAccess['name'] ?? '');
+        if ($globalRole !== 'master_admin' && empty($user['is_global_admin'])) {
+            $role = (string) ($tenantAccess['role'] ?? $role);
+        }
+    }
+    $tenantId = $requestedTenantId;
+    setRequestTenantId($tenantId);
+}
+
 $modules = function_exists('getUserModules')
     ? getUserModules($role)
     : ($_SESSION['modules'] ?? []);
@@ -139,7 +176,7 @@ $response = [
         'first_name' => $user['first_name'] ?? $user['name'] ?? 'User',
         'last_name' => $user['last_name'] ?? '',
         'email' => $user['email'] ?? '',
-        'role' => $user['role'] ?? 'employee',
+        'role' => $role,
         'global_role' => $user['global_role'] ?? $_SESSION['global_role'] ?? 'employee',
         'is_global_admin' => (int) ($user['is_global_admin'] ?? 0),
         'platform_mode' => (bool) ($_SESSION['platform_mode'] ?? false),
