@@ -24,6 +24,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/RBAC.php';
+require_once __DIR__ . '/../../core/sub_tenants.php';
 require_once __DIR__ . '/../../core/integrations/entity_mappings.php';
 require_once __DIR__ . '/../../core/jobdiva/canonical_graph.php';
 
@@ -118,6 +119,18 @@ $ctx  = api_require_auth();
 $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
+function _integrationMappingsTenantId(int $activeTenantId, string $entityType): int
+{
+    $module = match (strtolower($entityType)) {
+        'person', 'employee' => 'people',
+        'placement' => 'placements',
+        'company' => 'companies',
+        default => null,
+    };
+    if ($module === null) return $activeTenantId;
+    return effectiveTenantIdForModule($module, $activeTenantId) ?? $activeTenantId;
+}
+
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
 // Sprint 8a originally required `integrations.jobdiva.view`; we now have
 // QBO + Airtable + Zoho all surfacing into this read-only mapping
@@ -139,14 +152,15 @@ switch ($action) {
         $internalId = (int) (api_query('internal_id') ?? 0);
         if ($entityType === '') api_error('entity_type required', 422);
         if ($internalId <= 0)   api_error('internal_id required', 422);
-        $rows = mappingListForInternal($tid, $entityType, $internalId);
+        $mappingTenantId = _integrationMappingsTenantId($tid, $entityType);
+        $rows = mappingListForInternal($mappingTenantId, $entityType, $internalId);
         // Coerce numeric ids for the SPA.
         $rows = array_map(static function ($r) use ($entityType) {
             $r['id'] = (int) $r['id'];
             $r['internal_entity_type'] = $r['internal_entity_type'] ?? $entityType;
             return $r;
         }, $rows);
-        $rows = array_map(static fn($r) => _integrationMappingsJobDivaCanonicalizeRowPayload($tid, $r), $rows);
+        $rows = array_map(static fn($r) => _integrationMappingsJobDivaCanonicalizeRowPayload($mappingTenantId, $r), $rows);
         api_ok([
             'entity_type' => $entityType,
             'internal_id' => $internalId,
@@ -161,7 +175,8 @@ switch ($action) {
         if ($source === '')     api_error('source_system required', 422);
         if ($entityType === '') api_error('entity_type required', 422);
         if ($externalId === '') api_error('external_id required', 422);
-        $row = mappingFindInternal($tid, $source, $entityType, $externalId);
+        $mappingTenantId = _integrationMappingsTenantId($tid, $entityType);
+        $row = mappingFindInternal($mappingTenantId, $source, $entityType, $externalId);
         api_ok(['mapping' => $row]);
     }
 
@@ -172,7 +187,8 @@ switch ($action) {
         if ($source === '')     api_error('source_system required', 422);
         if ($entityType === '') api_error('entity_type required', 422);
         if ($internalId <= 0)   api_error('internal_id required', 422);
-        $row = mappingFindExternal($tid, $source, $entityType, $internalId);
+        $mappingTenantId = _integrationMappingsTenantId($tid, $entityType);
+        $row = mappingFindExternal($mappingTenantId, $source, $entityType, $internalId);
         api_ok(['mapping' => $row]);
     }
 }

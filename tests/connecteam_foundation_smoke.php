@@ -31,6 +31,7 @@ $assert('API exposes source-specific person links', $contains($api, "case 'link_
 $assert('API exposes safe unlink', $contains($api, "case 'unlink_person'"));
 $assert('API supports Connecteam-only person creation', $contains($api, "case 'create_person'"));
 $assert('API exposes disconnect', $contains($api, "case 'disconnect'"));
+$assert('API resolves shared People and Placement catalogs', $contains($api, "effectiveTenantIdForModule('people'") && $contains($api, "effectiveTenantIdForModule('placements'"));
 $assert('reconciliation forbids job-created placements', $contains($reconcile, 'A Connecteam job can never create a CoreFlux placement.'));
 $assert('reconciliation uses universal identity links', $contains($reconcile, 'external_entity_mappings') && $contains($reconcile, 'source_system = "connecteam"'));
 
@@ -171,6 +172,7 @@ $assert('integration hub card is mounted', $contains($hub, 'integration-card-con
 $assert('view RBAC is registered', $contains($rbac, "'integrations.connecteam.view'"));
 $assert('manage RBAC is registered', $contains($rbac, "'integrations.connecteam.manage'"));
 $assert('person source panel permits Connecteam viewers', $contains($mappingApi, "'integrations.connecteam.view'"));
+$assert('person source panel resolves shared catalog scope', $contains($mappingApi, '_integrationMappingsTenantId') && $contains($mappingApi, "'person', 'employee' => 'people'"));
 
 echo "\n=========================================\n";
 echo "Connecteam foundation smoke: {$pass} ok / {$fail} fail\n";

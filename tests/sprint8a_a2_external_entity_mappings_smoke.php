@@ -181,16 +181,16 @@ $assert('action list_for_internal validates entity_type + internal_id',
     && strpos($api, "if (\$entityType === '') api_error('entity_type required', 422)") !== false
     && strpos($api, "if (\$internalId <= 0)   api_error('internal_id required', 422)") !== false);
 $assert('action list_for_internal calls mappingListForInternal',
-    strpos($api, 'mappingListForInternal($tid, $entityType, $internalId)') !== false);
+    strpos($api, 'mappingListForInternal($mappingTenantId, $entityType, $internalId)') !== false);
 $assert('action find_internal validates all 3 inputs',
     strpos($api, "case 'find_internal'") !== false
     && strpos($api, "if (\$source === '')     api_error('source_system required', 422)") !== false
     && strpos($api, "if (\$externalId === '') api_error('external_id required', 422)") !== false);
 $assert('action find_internal calls mappingFindInternal',
-    strpos($api, 'mappingFindInternal($tid, $source, $entityType, $externalId)') !== false);
+    strpos($api, 'mappingFindInternal($mappingTenantId, $source, $entityType, $externalId)') !== false);
 $assert('action find_external validates internal_id',
     strpos($api, "case 'find_external'") !== false
-    && strpos($api, 'mappingFindExternal($tid, $source, $entityType, $internalId)') !== false);
+    && strpos($api, 'mappingFindExternal($mappingTenantId, $source, $entityType, $internalId)') !== false);
 $assert('unknown action returns 400',            strpos($api, "api_error('Unknown action: ' . \$action, 400)") !== false);
 $assert('kebab-case action coerced to snake',    strpos($api, "str_replace('-', '_', (string) (api_query('action') ?? 'list_for_internal'))") !== false);
 $assert('coerces row id to int for SPA',         strpos($api, "\$r['id'] = (int) \$r['id']") !== false);
