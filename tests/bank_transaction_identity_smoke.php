@@ -73,7 +73,22 @@ $pdo->exec('CREATE TABLE accounting_journal_entries (
     status TEXT NOT NULL,
     source_module TEXT,
     source_ref_type TEXT,
-    source_ref_id INTEGER
+    source_ref_id INTEGER,
+    entity_id INTEGER NOT NULL DEFAULT 1,
+    currency TEXT NOT NULL DEFAULT "USD",
+    intercompany_group_id TEXT
+)');
+$pdo->exec('CREATE TABLE accounting_journal_entry_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    je_id INTEGER NOT NULL,
+    account_id INTEGER NOT NULL,
+    debit NUMERIC NOT NULL DEFAULT 0,
+    credit NUMERIC NOT NULL DEFAULT 0,
+    memo TEXT,
+    counterparty_company_id INTEGER,
+    counterparty_person_id INTEGER,
+    counterparty_entity_id INTEGER,
+    dim_json TEXT
 )');
 $pdo->exec('CREATE TABLE accounting_subledger_links (
     tenant_id INTEGER NOT NULL,
@@ -96,9 +111,29 @@ foreach ([
 ] as $r) {
     $insert->execute(['d' => $r[0], 'n' => $r[1], 'a' => $r[2], 'f' => $r[3], 's' => $r[4], 'j' => $r[5]]);
 }
-$pdo->exec("INSERT INTO accounting_journal_entries VALUES
-    (10, 1, 'posted', 'treasury_feed', 'bank_statement_line', 1),
-    (11, 1, 'posted', 'treasury_feed', 'bank_statement_line', 2)");
+$pdo->exec("INSERT INTO accounting_journal_entries
+    (id, tenant_id, status, source_module, source_ref_type, source_ref_id, entity_id, currency, intercompany_group_id)
+    VALUES
+    (10, 1, 'posted', 'treasury_feed', 'bank_statement_line', 1, 1, 'USD', NULL),
+    (11, 1, 'posted', 'treasury_feed', 'bank_statement_line', 2, 1, 'USD', NULL),
+    (12, 1, 'posted', 'manual', 'intercompany_group', NULL, 1, 'USD', 'single-leg'),
+    (13, 1, 'posted', 'manual', 'intercompany_group', NULL, 1, 'USD', 'two-leg'),
+    (14, 1, 'posted', 'manual', 'intercompany_group', NULL, 2, 'USD', 'two-leg')");
+$pdo->exec("INSERT INTO accounting_journal_entry_lines (je_id, account_id, debit, credit, memo) VALUES
+    (10, 100, 1036, 0, NULL), (10, 200, 0, 1036, NULL),
+    (12, 100, 1036, 0, NULL), (12, 200, 0, 1036, NULL),
+    (13, 100, 1036, 0, NULL), (13, 200, 0, 1036, NULL),
+    (14, 100, 0, 1036, NULL), (14, 200, 1036, 0, NULL)");
+$singleLegJe = [
+    'status' => 'posted', 'source_module' => 'manual', 'intercompany_group_id' => 'single-leg',
+];
+$multiLegJe = [
+    'status' => 'posted', 'source_module' => 'manual', 'intercompany_group_id' => 'two-leg',
+];
+$assert('recognizes a single-leg manual journal with identical accounting as reversible',
+    bankTxnIsSingleLegExactJournalDuplicate($pdo, 1, 12, 10, $singleLegJe));
+$assert('refuses to auto-reverse a multi-leg intercompany group',
+    !bankTxnIsSingleLegExactJournalDuplicate($pdo, 1, 13, 10, $multiLegJe));
 
 $preview = bankTxnDuplicatePreview($pdo, 1, 63);
 $assert('finds exact replay and compact-description replay clusters', $preview['cluster_count'] === 2);
