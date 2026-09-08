@@ -10,7 +10,11 @@ initSession();
 
 // Check if user is logged in
 if (!isset($_SESSION['user'])) {
-    header("Location: /login.php?redirect=spa");
+    $next = (string) ($_SERVER['REQUEST_URI'] ?? '/');
+    if ($next === '' || !str_starts_with($next, '/') || str_starts_with($next, '//')) {
+        $next = '/';
+    }
+    header('Location: /login.html?next=' . rawurlencode($next));
     exit;
 }
 
