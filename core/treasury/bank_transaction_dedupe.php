@@ -117,7 +117,8 @@ function bankTxnClassifyDuplicateRow(PDO $pdo, int $tenantId, array $row, array 
     }
 
     $stmt = $pdo->prepare(
-        'SELECT id, status, source_module, source_ref_type, source_ref_id
+        'SELECT id, status, source_module, source_ref_type, source_ref_id,
+                entity_id, currency, intercompany_group_id
            FROM accounting_journal_entries
           WHERE tenant_id = :t AND id = :id LIMIT 1'
     );
@@ -152,7 +153,95 @@ function bankTxnClassifyDuplicateRow(PDO $pdo, int $tenantId, array $row, array 
             return ['action' => 'reverse_and_mark', 'reason' => 'duplicate CoreFlux-generated journal entry'];
         }
     }
+
+    if (($je['status'] ?? '') === 'posted'
+        && ($je['source_module'] ?? '') === 'manual'
+        && $canonicalJeId > 0
+        && bankTxnIsSingleLegExactJournalDuplicate($pdo, $tenantId, $jeId, $canonicalJeId, $je)
+    ) {
+        return [
+            'action' => 'reverse_and_mark',
+            'reason' => 'single-leg manual journal exactly duplicates the canonical accounting entry',
+        ];
+    }
     return ['action' => 'conflict', 'reason' => 'manually matched or unrelated journal entry'];
+}
+
+/**
+ * Allow an otherwise-manual duplicate to be repaired only when its accounting
+ * is byte-for-byte equivalent and its IC group contains no second entity leg.
+ */
+function bankTxnIsSingleLegExactJournalDuplicate(
+    PDO $pdo,
+    int $tenantId,
+    int $duplicateJeId,
+    int $canonicalJeId,
+    array $duplicateJe
+): bool {
+    $groupId = trim((string) ($duplicateJe['intercompany_group_id'] ?? ''));
+    if ($groupId === '') return false;
+
+    $group = $pdo->prepare(
+        'SELECT COUNT(*) FROM accounting_journal_entries
+          WHERE tenant_id = :t AND intercompany_group_id = :g AND status = "posted"'
+    );
+    $group->execute(['t' => $tenantId, 'g' => $groupId]);
+    if ((int) $group->fetchColumn() !== 1) return false;
+
+    $headers = $pdo->prepare(
+        'SELECT id, status, entity_id, currency
+           FROM accounting_journal_entries
+          WHERE tenant_id = :t AND id IN (:duplicate, :canonical)'
+    );
+    $headers->execute([
+        't' => $tenantId,
+        'duplicate' => $duplicateJeId,
+        'canonical' => $canonicalJeId,
+    ]);
+    $byId = [];
+    foreach ($headers->fetchAll(PDO::FETCH_ASSOC) as $header) {
+        $byId[(int) $header['id']] = $header;
+    }
+    if (count($byId) !== 2) return false;
+    foreach ([$duplicateJeId, $canonicalJeId] as $id) {
+        if (($byId[$id]['status'] ?? '') !== 'posted') return false;
+    }
+    if ((int) $byId[$duplicateJeId]['entity_id'] !== (int) $byId[$canonicalJeId]['entity_id']) return false;
+    if (strtoupper((string) $byId[$duplicateJeId]['currency']) !== strtoupper((string) $byId[$canonicalJeId]['currency'])) return false;
+
+    $duplicateSignature = bankTxnJournalLineSignature($pdo, $duplicateJeId);
+    $canonicalSignature = bankTxnJournalLineSignature($pdo, $canonicalJeId);
+    return $duplicateSignature !== [] && $duplicateSignature === $canonicalSignature;
+}
+
+/** @return array<int,string> */
+function bankTxnJournalLineSignature(PDO $pdo, int $jeId): array
+{
+    $stmt = $pdo->prepare(
+        'SELECT account_id, debit, credit, COALESCE(memo, "") AS memo,
+                COALESCE(counterparty_company_id, 0) AS counterparty_company_id,
+                COALESCE(counterparty_person_id, 0) AS counterparty_person_id,
+                COALESCE(counterparty_entity_id, 0) AS counterparty_entity_id,
+                COALESCE(dim_json, "") AS dim_json
+           FROM accounting_journal_entry_lines
+          WHERE je_id = :je'
+    );
+    $stmt->execute(['je' => $jeId]);
+    $signature = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $line) {
+        $signature[] = implode('|', [
+            (int) $line['account_id'],
+            number_format((float) $line['debit'], 2, '.', ''),
+            number_format((float) $line['credit'], 2, '.', ''),
+            trim((string) $line['memo']),
+            (int) $line['counterparty_company_id'],
+            (int) $line['counterparty_person_id'],
+            (int) $line['counterparty_entity_id'],
+            trim((string) $line['dim_json']),
+        ]);
+    }
+    sort($signature, SORT_STRING);
+    return $signature;
 }
 
 function bankTxnDuplicatePreview(PDO $pdo, int $tenantId, int $bankAccountId): array
