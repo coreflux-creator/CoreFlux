@@ -25,6 +25,7 @@ import React from 'react';
 import { ChevronRight } from 'lucide-react';
 import { fmtMoney } from '../lib/format';
 import { variance } from '../lib/useReportPeriod';
+import AccountLink from './AccountLink';
 
 export default function ComparisonTable({
   columns,
@@ -85,15 +86,22 @@ export default function ComparisonTable({
             : null;
 
           const clickable = typeof r.onDrill === 'function';
+          const accountCode = r.accountCode || null;
 
           return (
             <tr key={r.code || `${kind}-${idx}`} style={trStyle}
                 data-testid={r.testIdPrefix || `${testIdPrefix}-row-${r.code || idx}`}>
               <td style={tdCell}>
-                {r.code ? <code style={{ fontSize: 11, color: '#475569' }}>{r.code}</code> : ''}
+                {r.code ? (
+                  <AccountLink accountId={r.accountId} accountCode={accountCode} entityId={r.entityId}>
+                    <code style={{ fontSize: 11, color: '#475569' }}>{r.code}</code>
+                  </AccountLink>
+                ) : ''}
               </td>
               <td style={{ ...tdCell, paddingLeft: 10 + indent }}>
-                {r.label}
+                <AccountLink accountId={r.accountId} accountCode={accountCode} entityId={r.entityId}>
+                  {r.label}
+                </AccountLink>
               </td>
               {columns.map(col => (
                 <td key={col.key} style={{ ...tdCell, textAlign: 'right',

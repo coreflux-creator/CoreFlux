@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 export default function TreasuryOverview() {
   const dep = useApi('/modules/treasury/api/deposit_accounts.php');
@@ -66,12 +67,12 @@ export default function TreasuryOverview() {
         ) : (
           <table className="data-table" data-testid="treasury-overview-deposits-table">
             <thead>
-              <tr><th>Name</th><th>Bank</th><th>Last 4</th><th>Feed</th><th style={{ textAlign: 'right' }}>Bank balance</th></tr>
+              <tr><th>Name</th><th>Bank</th><th>Last 4</th><th>Feed</th><th style={{ textAlign: 'right' }}>Bank balance</th><th></th></tr>
             </thead>
             <tbody>
               {depositRows.slice(0, 5).map((r) => (
                 <tr key={r.id}>
-                  <td><Link to={`../deposits/${r.id}`}>{r.name}</Link></td>
+                  <td><AccountLink accountId={r.gl_account_id} accountCode={r.gl_account_code} entityId={r.entity_id}>{r.name}</AccountLink></td>
                   <td>{r.bank_name || '—'}</td>
                   <td>{r.last4 || '—'}</td>
                   <td>
@@ -84,6 +85,7 @@ export default function TreasuryOverview() {
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {fmtMoney(balanceOf(r))}
                   </td>
+                  <td><Link to={`../deposits/${r.id}`}>Activity</Link></td>
                 </tr>
               ))}
             </tbody>
@@ -106,12 +108,12 @@ export default function TreasuryOverview() {
         ) : (
           <table className="data-table" data-testid="treasury-overview-liabilities-table">
             <thead>
-              <tr><th>Name</th><th>Type</th><th>Last 4</th><th style={{ textAlign: 'right' }}>Outstanding</th><th style={{ textAlign: 'right' }}>Limit</th></tr>
+              <tr><th>Name</th><th>Type</th><th>Last 4</th><th style={{ textAlign: 'right' }}>Outstanding</th><th style={{ textAlign: 'right' }}>Limit</th><th></th></tr>
             </thead>
             <tbody>
               {liabilityRows.slice(0, 5).map((r) => (
                 <tr key={r.id}>
-                  <td><Link to={`../liabilities/${r.id}`}>{r.name}</Link></td>
+                  <td><AccountLink accountId={r.id} accountCode={r.code}>{r.name}</AccountLink></td>
                   <td>{(r.subtype || 'other_liability').replace('_', ' ')}</td>
                   <td>{r.last4 || '—'}</td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
@@ -120,6 +122,7 @@ export default function TreasuryOverview() {
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {r.credit_limit ? fmtMoney(r.credit_limit) : '—'}
                   </td>
+                  <td><Link to={`../liabilities/${r.id}`}>Activity</Link></td>
                 </tr>
               ))}
             </tbody>

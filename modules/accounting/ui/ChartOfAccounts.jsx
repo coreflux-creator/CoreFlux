@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 const TYPES = ['asset','liability','equity','revenue','expense'];
 const NORMAL = { asset: 'debit', expense: 'debit', liability: 'credit', equity: 'credit', revenue: 'credit' };
@@ -75,7 +76,7 @@ function descendantSet(rows, accountId) {
 
 export default function ChartOfAccounts() {
   const { data, loading, error, reload } = useApi('/modules/accounting/api/accounts.php');
-  const rows = data?.rows ?? [];
+  const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
   const [form, setForm]       = useState({ code: '', name: '', account_type: 'expense' });
   const [busy, setBusy]       = useState(false);
   const [seedBusy, setSeedBusy] = useState(false);
@@ -226,11 +227,15 @@ export default function ChartOfAccounts() {
               <td>
                 <span style={{ display: 'inline-block', width: depth * 20 }} aria-hidden />
                 {depth > 0 && <span style={{ color: '#94a3b8', marginRight: 6 }}>└─</span>}
-                <code>{r.code}</code>
-                {' '}
-                <span style={{ fontWeight: r.is_postable ? 400 : 600 }}>{r.name}</span>
+                <AccountLink accountId={r.id} accountCode={r.code} data-testid={`accounting-account-open-${r.code}`}>
+                  <code>{r.code}</code>{' '}
+                  <span style={{ fontWeight: r.is_postable ? 400 : 600 }}>{r.name}</span>
+                </AccountLink>
                 {!r.is_postable && (
                   <span className="badge" style={{ marginLeft: 6, fontSize: 10 }}>header</span>
+                )}
+                {Number(r.interest_schedule_count) > 0 && (
+                  <span className="badge" style={{ marginLeft: 6, fontSize: 10 }}>interest terms</span>
                 )}
               </td>
               <td>{r.account_type}</td>

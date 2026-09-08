@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
 import { AlertTriangle, ArrowLeft } from 'lucide-react';
+import AccountLink from '../components/AccountLink';
 
 /**
  * Missing-dimension review page (Sprint 7f.4).
@@ -51,7 +52,7 @@ export default function MissingDimensions() {
               {byAccount.map(a => (
                 <tr key={a.account_id}
                     data-testid={`missing-dims-account-row-${a.account_id}`}>
-                  <td><code>{a.account_code}</code> {a.account_name}</td>
+                  <td><AccountLink accountId={a.account_id} accountCode={a.account_code}><code>{a.account_code}</code> {a.account_name}</AccountLink></td>
                   <td>
                     {a.missing_dim_keys.map(k => (
                       <span key={k} className="badge"
@@ -80,7 +81,7 @@ export default function MissingDimensions() {
                 <tr key={r.line_id} data-testid={`missing-dims-row-${r.line_id}`}>
                   <td style={{ fontSize: 12, color: '#64748b' }}>{r.posting_date}</td>
                   <td><code>{r.je_number}</code></td>
-                  <td><code>{r.account_code}</code> {r.account_name}</td>
+                  <td><AccountLink accountId={r.account_id} accountCode={r.account_code}><code>{r.account_code}</code> {r.account_name}</AccountLink></td>
                   <td style={{ fontSize: 12 }}>{r.description}</td>
                   <td>
                     {r.missing_dim_keys.map(k => (

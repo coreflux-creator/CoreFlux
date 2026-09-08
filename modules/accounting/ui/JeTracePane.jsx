@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApi } from '../../../dashboard/src/lib/api';
 import { ChevronDown, ChevronRight, GitBranch, Sparkles, FileText, User, Bot } from 'lucide-react';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 /**
  * JE Trace pane — drills a posted journal entry back through:
@@ -218,7 +219,7 @@ function InterpretationRow({ row, highlight }) {
           <tbody>
             {row.proposed_je.lines.map((l, i) => (
               <tr key={i}>
-                <td style={{ padding: 3 }}><code>{l.account_code}</code></td>
+                <td style={{ padding: 3 }}><AccountLink accountId={l.account_id} accountCode={l.account_code} entityId={l.entity_id}><code>{l.account_code}</code></AccountLink></td>
                 <td style={{ padding: 3, textAlign: 'right' }}>{Number(l.debit  || 0).toFixed(2)}</td>
                 <td style={{ padding: 3, textAlign: 'right' }}>{Number(l.credit || 0).toFixed(2)}</td>
               </tr>

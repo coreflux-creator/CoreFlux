@@ -1,4 +1,4 @@
-name: Deploy account interest automation
+name: Deploy general account terms
 
 on:
   workflow_dispatch:
@@ -52,16 +52,48 @@ jobs:
           done
           tar -czf coreflux-account-interest-release.tar.gz \
             .deploy-version \
+            cron/accounting_outbox_worker.php \
             dashboard/dist \
+            dashboard/src/components/AccountLink.jsx \
+            dashboard/src/components/ComparisonTable.jsx \
+            dashboard/src/components/GlDetailDrilldown.jsx \
+            dashboard/src/pages/JazIntegrationSettings.jsx \
+            dashboard/src/pages/JeDraftsReview.jsx \
+            dashboard/src/pages/MissingDimensions.jsx \
+            dashboard/src/pages/TransactionsToReview.jsx \
+            dashboard/src/pages/ZohoBooksSettings.jsx \
             index.html \
+            modules/accounting/api/account_terms.php \
+            modules/accounting/api/accounts.php \
             modules/accounting/api/bank_accounts.php \
             modules/accounting/api/reconciliations.php \
             modules/accounting/lib/account_interest.php \
             modules/accounting/lib/reconciliation_packet.php \
             modules/accounting/manifest.php \
             modules/accounting/migrations/026_bank_account_interest_terms.sql \
+            modules/accounting/migrations/027_general_account_terms.sql \
+            modules/accounting/ui/AccountDetail.jsx \
+            modules/accounting/ui/AccountingModule.jsx \
             modules/accounting/ui/BankReconciliation.jsx \
+            modules/accounting/ui/ChartOfAccounts.jsx \
+            modules/accounting/ui/Consolidation.jsx \
+            modules/accounting/ui/DimensionalPnL.jsx \
+            modules/accounting/ui/EliminationWorksheet.jsx \
+            modules/accounting/ui/GLDetail.jsx \
+            modules/accounting/ui/IntercompanyMappings.jsx \
+            modules/accounting/ui/JeTracePane.jsx \
+            modules/accounting/ui/JournalEntries.jsx \
+            modules/accounting/ui/JournalEntryDetail.jsx \
             modules/accounting/ui/ReconciliationPacket.jsx \
+            modules/accounting/ui/StandardReports.jsx \
+            modules/accounting/ui/TaxExport.jsx \
+            modules/accounting/ui/TaxMappings.jsx \
+            modules/treasury/api/deposit_accounts.php \
+            modules/treasury/ui/AccountTransactions.jsx \
+            modules/treasury/ui/DepositAccounts.jsx \
+            modules/treasury/ui/LiabilityAccounts.jsx \
+            modules/treasury/ui/SavedRules.jsx \
+            modules/treasury/ui/TreasuryOverview.jsx \
             "${ROOT_ASSETS[@]}" \
             spa-assets/index.html \
             spa-assets/sw.js \
@@ -101,7 +133,7 @@ jobs:
             test -f "$STAGE_ROOT/coreflux-account-interest-release.tar.gz"
             tar -xzf "$STAGE_ROOT/coreflux-account-interest-release.tar.gz" -C "$STAGE_ROOT"
             rm -f -- "$STAGE_ROOT/coreflux-account-interest-release.tar.gz"
-            test -f "$STAGE_ROOT/modules/accounting/migrations/026_bank_account_interest_terms.sql"
+            test -f "$STAGE_ROOT/modules/accounting/migrations/027_general_account_terms.sql"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
@@ -113,23 +145,32 @@ jobs:
             cp --no-preserve=mode,ownership,timestamps \
               "$STAGE_ROOT/modules/accounting/migrations/026_bank_account_interest_terms.sql" \
               "$APP_ROOT/modules/accounting/migrations/026_bank_account_interest_terms.sql"
+            cp --no-preserve=mode,ownership,timestamps \
+              "$STAGE_ROOT/modules/accounting/migrations/027_general_account_terms.sql" \
+              "$APP_ROOT/modules/accounting/migrations/027_general_account_terms.sql"
             cd "$APP_ROOT"
             php deploy/run_migrations.php
-            php deploy/run_migrations.php --status | grep -F 'modules/accounting/migrations/026_bank_account_interest_terms.sql'
+            php deploy/run_migrations.php --status | grep -F 'modules/accounting/migrations/027_general_account_terms.sql'
 
             cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
             SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' index.html | head -n 1)"
             test -n "$SPA_ENTRY"
             test -f "$SPA_ENTRY"
-            grep -Fq 'accounting-interest-terms' "$SPA_ENTRY"
-            grep -Fq 'Close and post interest' "$SPA_ENTRY"
+            grep -Fq 'accounting-account-detail' "$SPA_ENTRY"
+            grep -Fq 'Terms and automatic interest' "$SPA_ENTRY"
+            ! grep -Fq 'Close and post interest' "$SPA_ENTRY"
 
             php -l modules/accounting/lib/account_interest.php
+            php -l modules/accounting/api/account_terms.php
+            php -l modules/accounting/api/accounts.php
             php -l modules/accounting/api/bank_accounts.php
             php -l modules/accounting/api/reconciliations.php
             php -l modules/accounting/lib/reconciliation_packet.php
+            php -l cron/accounting_outbox_worker.php
             php tests/accounting_bank_interest_smoke.php
-            php -r 'require "core/api_bootstrap.php"; $db=getDB(); foreach (["accounting_bank_account_terms", "accounting_bank_interest_runs"] as $table) { $q=$db->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:name"); $q->execute(["name"=>$table]); if ((int)$q->fetchColumn() !== 1) { fwrite(STDERR, "$table missing\n"); exit(1); } } echo "Interest schema verified.\n";'
+            php tests/accounting_phase2_a2_smoke.php
+            php tests/accounting_phase2_a4_smoke.php
+            php -r 'require "core/api_bootstrap.php"; $db=getDB(); foreach (["accounting_account_terms", "accounting_account_interest_runs"] as $table) { $q=$db->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:name"); $q->execute(["name"=>$table]); if ((int)$q->fetchColumn() !== 1) { fwrite(STDERR, "$table missing\n"); exit(1); } } $q=$db->query("SELECT COUNT(*) FROM accounting_account_terms WHERE next_post_date IS NOT NULL AND interest_enabled=1"); echo "General account interest schema verified; scheduled=" . (int)$q->fetchColumn() . "\n";'
 
             OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
             php -r '$template=file_get_contents($argv[1]); if ($template === false || substr_count($template, "__COREFLUX_OPCACHE_TOKEN__") !== 1) exit(1); $content=str_replace("__COREFLUX_OPCACHE_TOKEN__", $argv[3], $template); if (file_put_contents($argv[2], $content, LOCK_EX) === false) exit(1); chmod($argv[2], 0640);' "$OPCACHE_TEMPLATE" "$OPCACHE_ENDPOINT" "$OPCACHE_TOKEN"

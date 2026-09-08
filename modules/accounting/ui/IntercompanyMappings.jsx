@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 const ACCOUNTING_ENTITIES_API = '/api/v1/accounting/entities';
 const ACCOUNTING_ACCOUNTS_API = '/api/v1/accounting/accounts';
@@ -97,8 +98,8 @@ export default function IntercompanyMappings() {
             <tr key={m.id} data-testid={`accounting-ic-row-${m.id}`}>
               <td>{m.from_entity_name || m.from_entity_id}</td>
               <td>{m.to_entity_name || m.to_entity_id}</td>
-              <td><code>{m.due_from_account_code}</code></td>
-              <td><code>{m.due_to_account_code}</code></td>
+              <td><AccountLink accountCode={m.due_from_account_code} entityId={m.from_entity_id}><code>{m.due_from_account_code}</code></AccountLink></td>
+              <td><AccountLink accountCode={m.due_to_account_code} entityId={m.to_entity_id}><code>{m.due_to_account_code}</code></AccountLink></td>
               <td>{m.notes}</td>
               <td><span className="badge">{Number(m.active) === 1 ? 'active' : 'inactive'}</span></td>
               <td>{Number(m.active) === 1 && <button className="btn btn--ghost" onClick={() => remove(m.id)} data-testid={`accounting-ic-remove-${m.id}`}>Deactivate</button>}</td>

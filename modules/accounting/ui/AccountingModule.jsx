@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import ChartOfAccounts from './ChartOfAccounts';
+import AccountDetail from './AccountDetail';
 import JournalEntries from './JournalEntries';
 import JournalEntryCreate from './JournalEntryCreate';
 import JournalEntryDetail from './JournalEntryDetail';
@@ -78,6 +79,8 @@ export default function AccountingModule({ session }) {
         <Route path="missing-dimensions" element={<MissingDimensions />} />
         <Route path="ai-agents" element={<Navigate to="/ai-agents" replace />} />
         <Route path="accounts" element={<ChartOfAccounts session={session} />} />
+        <Route path="accounts/detail" element={<AccountDetail session={session} />} />
+        <Route path="accounts/:id" element={<AccountDetail session={session} />} />
         <Route path="journal"  element={<JournalEntries  session={session} />} />
         <Route path="journal/new"  element={<JournalEntryCreate session={session} />} />
         <Route path="journal-entries"        element={<JournalEntries  session={session} />} />

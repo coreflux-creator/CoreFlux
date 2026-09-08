@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../lib/api';
 import TransactionRecommendationCard from '../components/TransactionRecommendationCard';
+import AccountLink from '../components/AccountLink';
 import {
   AlertCircle, ArrowRight, ArrowUpRight, CheckCircle2, ChevronDown,
   Receipt, RefreshCw, Sparkles, SkipForward, Wallet,
@@ -291,10 +292,12 @@ export default function TransactionsToReview() {
                       <div data-testid={`transactions-to-review-ai-result-${r.id}`}
                            style={{ background: '#fff', border: '1px solid #ddd6fe', borderRadius: 8, padding: 10, fontSize: 12, marginBottom: 10 }}>
                         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                          <code style={{ fontFamily: 'ui-monospace, monospace', color: '#5b21b6', fontWeight: 600 }}>
-                            {ai.account_code || '—'}
-                          </code>
-                          {ai.account_name && <span style={{ color: '#475569' }}>· {ai.account_name}</span>}
+                          <AccountLink accountId={ai.account_id} accountCode={ai.account_code}>
+                            <code style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 600 }}>
+                              {ai.account_code || '—'}
+                            </code>
+                            {ai.account_name && <span style={{ color: '#475569' }}> · {ai.account_name}</span>}
+                          </AccountLink>
                           {ai.confidence != null && (
                             <span style={badgePill(ai.confidence >= 0.8 ? '#059669' : ai.confidence >= 0.5 ? '#d97706' : '#dc2626')}>
                               {Math.round(ai.confidence * 100)}% confidence

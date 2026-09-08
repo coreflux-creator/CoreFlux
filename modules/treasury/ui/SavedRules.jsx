@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApi } from '../../../dashboard/src/lib/api';
 import { fmtRelative } from '../../../dashboard/src/lib/format';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 /**
  * SavedRules — surfaces every (merchant → account) mapping the system has
@@ -129,14 +130,14 @@ export default function SavedRules() {
                 <td className="muted" style={{ fontSize: 12 }}>{r.signal_kind}</td>
                 <td>
                   {r.account_code ? (
-                    <span>
+                    <AccountLink accountId={r.account_id} accountCode={r.account_code}>
                       <code>{r.account_code}</code> {r.account_name}
                       {r.account_type && (
                         <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}>
                           ({r.account_type})
                         </span>
                       )}
-                    </span>
+                    </AccountLink>
                   ) : (
                     <span className="muted">— (account deleted)</span>
                   )}

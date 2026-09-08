@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 /**
  * Journal Entries — list, detail, manual post, reverse.
@@ -109,7 +110,7 @@ function Detail({ id, onBack }) {
           {lines.map((l) => (
             <tr key={l.id} data-testid={`accounting-journal-line-${l.line_no}`}>
               <td>{l.line_no}</td>
-              <td><code>{l.account_code}</code> {l.account_name}</td>
+              <td><AccountLink accountId={l.account_id} accountCode={l.account_code} entityId={je.entity_id}><code>{l.account_code}</code> {l.account_name}</AccountLink></td>
               <td style={{ textAlign: 'right' }}>{fmt(l.debit)}</td>
               <td style={{ textAlign: 'right' }}>{fmt(l.credit)}</td>
               <td style={{ color: '#666' }}>{l.memo || '—'}</td>

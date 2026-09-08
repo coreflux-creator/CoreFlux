@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate, fmtDateTime } from '../../../dashboard/src/lib/format';
 import ReconciliationPacket from './ReconciliationPacket';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
 import PlaidLinkButton from '../../../dashboard/src/components/PlaidLinkButton';
+import AccountLink from '../../../dashboard/src/components/AccountLink';
 
 /**
  * Bank Reconciliation module.
@@ -142,13 +143,8 @@ function AccountsList() {
                 style={{ opacity: a.status === 'closed' ? 0.55 : 1 }}>
               <td>
                 <Link to={`${a.id}`} data-testid={`accounting-bank-account-link-${a.id}`}>{a.name}</Link>
-                {!!Number(a.interest_enabled) && (
-                  <div style={{ marginTop: 3, fontSize: 11, color: '#475569' }}>
-                    {Number(a.annual_rate_percent).toLocaleString('en-US', { maximumFractionDigits: 6 })}% APR, interest {a.interest_direction}
-                  </div>
-                )}
               </td>
-              <td><code>{a.gl_account_code}</code></td>
+              <td><AccountLink accountId={a.gl_account_id} accountCode={a.gl_account_code} entityId={a.entity_id}><code>{a.gl_account_code}</code></AccountLink></td>
               <td>{a.bank_name || '—'}</td>
               <td>{a.last4 || '—'}</td>
               <td>{a.feed_provider || 'manual'}{a.plaid_account_id ? ' · plaid' : ''}</td>
@@ -262,17 +258,23 @@ function AccountDetail() {
           />
           <Link to="rules" className="btn btn--ghost" data-testid="accounting-bank-rules-link">Rules</Link>
           <Link to={`/modules/accounting/bank-rec/reconciliations/${id}`} className="btn btn--ghost" data-testid="accounting-bank-packets-link">Reconciliations</Link>
+          {bankAccount?.gl_account_code && (
+            <AccountLink
+              accountId={bankAccount.gl_account_id}
+              accountCode={bankAccount.gl_account_code}
+              entityId={bankAccount.entity_id}
+              className="btn btn--ghost"
+              data-testid="accounting-bank-ledger-account-link"
+            >Account terms</AccountLink>
+          )}
           <button className="btn btn--ghost" onClick={applyRules} disabled={busy === 'apply'} data-testid="accounting-bank-apply-rules">
             {busy === 'apply' ? 'Applying…' : 'Apply rules now'}
           </button>
         </div>
       </header>
 
-      {accountApi.loading && <p>Loading account terms...</p>}
+      {accountApi.loading && <p>Loading account...</p>}
       {accountApi.error && <p className="error">{accountApi.error.message}</p>}
-      {accountApi.data && (
-        <AccountInterestTerms data={accountApi.data} reload={accountApi.reload} />
-      )}
 
       <form onSubmit={importCsv} style={{ marginBottom: 16 }}>
         <details>
@@ -306,186 +308,6 @@ function AccountDetail() {
           ))}
         </tbody>
       </table>
-    </section>
-  );
-}
-
-function AccountInterestTerms({ data, reload }) {
-  const terms = data?.interest_terms || null;
-  const offsetAccounts = useMemo(() => data?.interest_offset_accounts || [], [data?.interest_offset_accounts]);
-  const runs = data?.interest_runs || [];
-  const [form, setForm] = useState({
-    statement_cadence: 'monthly',
-    interest_enabled: false,
-    interest_direction: 'earned',
-    annual_rate_percent: '',
-    balance_method: 'average_daily_balance',
-    day_count_basis: 'actual_365',
-    offset_account_id: '',
-    effective_from: '',
-    maturity_date: '',
-    terms_note: '',
-  });
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    const direction = terms?.interest_direction || 'earned';
-    const defaultCode = direction === 'earned' ? '7100' : '9100';
-    const defaultOffset = offsetAccounts.find(a => a.code === defaultCode);
-    setForm({
-      statement_cadence: terms?.statement_cadence || 'monthly',
-      interest_enabled: Boolean(terms?.interest_enabled),
-      interest_direction: direction,
-      annual_rate_percent: terms?.annual_rate_percent ?? '',
-      balance_method: terms?.balance_method || 'average_daily_balance',
-      day_count_basis: terms?.day_count_basis || 'actual_365',
-      offset_account_id: String(terms?.offset_account_id || defaultOffset?.id || ''),
-      effective_from: terms?.effective_from || '',
-      maturity_date: terms?.maturity_date || '',
-      terms_note: terms?.terms_note || '',
-    });
-  }, [terms, offsetAccounts]);
-
-  const applicableAccounts = offsetAccounts.filter(a => form.interest_direction === 'earned'
-    ? ['revenue', 'other_income'].includes(a.account_type)
-    : ['expense', 'other_expense', 'cost_of_goods_sold'].includes(a.account_type));
-
-  const changeDirection = (direction) => {
-    const defaultCode = direction === 'earned' ? '7100' : '9100';
-    const allowedTypes = direction === 'earned'
-      ? ['revenue', 'other_income']
-      : ['expense', 'other_expense', 'cost_of_goods_sold'];
-    const currentAllowed = offsetAccounts.some(a => String(a.id) === String(form.offset_account_id) && allowedTypes.includes(a.account_type));
-    const defaultOffset = offsetAccounts.find(a => a.code === defaultCode)
-      || offsetAccounts.find(a => allowedTypes.includes(a.account_type));
-    setForm({
-      ...form,
-      interest_direction: direction,
-      offset_account_id: currentAllowed ? form.offset_account_id : String(defaultOffset?.id || ''),
-    });
-  };
-
-  const save = async (event) => {
-    event.preventDefault();
-    setBusy(true); setErr(null); setSaved(false);
-    try {
-      await api.put(`/modules/accounting/api/bank_accounts.php?action=terms&id=${data.account.id}`, {
-        ...form,
-        annual_rate_percent: form.annual_rate_percent === '' ? 0 : Number(form.annual_rate_percent),
-        offset_account_id: form.offset_account_id ? Number(form.offset_account_id) : null,
-      });
-      setSaved(true);
-      await reload();
-    } catch (e) { setErr(e.message); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <section
-      data-testid="accounting-interest-terms"
-      style={{ borderTop: '1px solid var(--cf-border, #e2e8f0)', borderBottom: '1px solid var(--cf-border, #e2e8f0)', padding: '18px 0', marginBottom: 18 }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
-        <div>
-          <h3 style={{ margin: 0, fontSize: 16 }}>Account terms and automatic interest</h3>
-          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 13 }}>
-            Save the terms once. CoreFlux calculates and posts one interest entry when each reconciliation closes.
-          </p>
-        </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
-          <input
-            type="checkbox"
-            checked={form.interest_enabled}
-            onChange={e => setForm({ ...form, interest_enabled: e.target.checked })}
-            data-testid="accounting-interest-enabled"
-          />
-          Auto-post interest at statement close
-        </label>
-      </div>
-
-      <form onSubmit={save}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
-          <label style={{ fontSize: 12, color: '#475569' }}>
-            Statement frequency
-            <select className="input" value={form.statement_cadence} onChange={e => setForm({ ...form, statement_cadence: e.target.value })} style={{ display: 'block', width: '100%', marginTop: 4 }} data-testid="accounting-interest-cadence">
-              <option value="monthly">Monthly</option>
-              <option value="quarterly">Quarterly</option>
-              <option value="annual">Annual</option>
-              <option value="custom">Custom statement period</option>
-            </select>
-          </label>
-          <label style={{ fontSize: 12, color: '#475569' }}>
-            Interest entry
-            <select className="input" value={form.interest_direction} onChange={e => changeDirection(e.target.value)} disabled={!form.interest_enabled} style={{ display: 'block', width: '100%', marginTop: 4 }} data-testid="accounting-interest-direction">
-              <option value="earned">Interest earned</option>
-              <option value="charged">Interest charged</option>
-            </select>
-          </label>
-          <label style={{ fontSize: 12, color: '#475569' }}>
-            Annual rate (APR %)
-            <input className="input" type="number" min="0" max="1000" step="0.000001" value={form.annual_rate_percent} onChange={e => setForm({ ...form, annual_rate_percent: e.target.value })} disabled={!form.interest_enabled} required={form.interest_enabled} style={{ display: 'block', width: '100%', marginTop: 4 }} data-testid="accounting-interest-rate" />
-          </label>
-          <label style={{ fontSize: 12, color: '#475569' }}>
-            Balance calculation
-            <select className="input" value={form.balance_method} onChange={e => setForm({ ...form, balance_method: e.target.value })} disabled={!form.interest_enabled} style={{ display: 'block', width: '100%', marginTop: 4 }} data-testid="accounting-interest-balance-method">
-              <option value="average_daily_balance">Average daily balance</option>
-              <option value="closing_balance">Closing statement balance</option>
-            </select>
-          </label>
-          <label style={{ fontSize: 12, color: '#475569' }}>
-            Day-count basis
-            <select className="input" value={form.day_count_basis} onChange={e => setForm({ ...form, day_count_basis: e.target.value })} disabled={!form.interest_enabled} style={{ display: 'block', width: '100%', marginTop: 4 }} data-testid="accounting-interest-day-count">
-              <option value="actual_365">Actual / 365</option>
-              <option value="actual_360">Actual / 360</option>
-            </select>
-          </label>
-          <label style={{ fontSize: 12, color: '#475569' }}>
-            Post against
-            <select className="input" value={form.offset_account_id} onChange={e => setForm({ ...form, offset_account_id: e.target.value })} disabled={!form.interest_enabled} required={form.interest_enabled} style={{ display: 'block', width: '100%', marginTop: 4 }} data-testid="accounting-interest-offset-account">
-              <option value="">Choose ledger account</option>
-              {applicableAccounts.map(account => <option key={account.id} value={account.id}>{account.code} - {account.name}</option>)}
-            </select>
-          </label>
-          <label style={{ fontSize: 12, color: '#475569' }}>
-            Effective from
-            <input className="input" type="date" value={form.effective_from} onChange={e => setForm({ ...form, effective_from: e.target.value })} style={{ display: 'block', width: '100%', marginTop: 4 }} data-testid="accounting-interest-effective-from" />
-          </label>
-          <label style={{ fontSize: 12, color: '#475569' }}>
-            Maturity date
-            <input className="input" type="date" value={form.maturity_date} onChange={e => setForm({ ...form, maturity_date: e.target.value })} style={{ display: 'block', width: '100%', marginTop: 4 }} data-testid="accounting-interest-maturity-date" />
-          </label>
-        </div>
-        <label style={{ display: 'block', fontSize: 12, color: '#475569', marginTop: 12 }}>
-          Other account terms
-          <textarea className="input" rows={2} maxLength={4000} value={form.terms_note} onChange={e => setForm({ ...form, terms_note: e.target.value })} placeholder="Compounding, rate changes, minimums, or other agreement details" style={{ display: 'block', width: '100%', marginTop: 4, resize: 'vertical' }} data-testid="accounting-interest-terms-note" />
-        </label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
-          <button className="btn btn--primary" type="submit" disabled={busy} data-testid="accounting-interest-save">{busy ? 'Saving...' : 'Save account terms'}</button>
-          {saved && <span style={{ color: '#047857', fontSize: 13 }} data-testid="accounting-interest-saved">Terms saved</span>}
-          {err && <span className="error" data-testid="accounting-interest-error">{err}</span>}
-        </div>
-      </form>
-
-      {runs.length > 0 && (
-        <details style={{ marginTop: 16 }}>
-          <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Interest posting history ({runs.length})</summary>
-          <table className="data-table" style={{ marginTop: 8 }} data-testid="accounting-interest-history">
-            <thead><tr><th>Statement period</th><th>Calculation balance</th><th>APR</th><th>Interest</th><th>Journal entry</th><th>Status</th></tr></thead>
-            <tbody>{runs.map(run => (
-              <tr key={run.id}>
-                <td>{fmtDate(run.period_start)} to {fmtDate(run.period_end)}</td>
-                <td>{fmtMoney(run.balance_basis_amount)}</td>
-                <td>{Number(run.annual_rate_percent).toLocaleString('en-US', { maximumFractionDigits: 6 })}%</td>
-                <td>{fmtMoney(run.interest_amount)}</td>
-                <td>{run.je_number || '-'}</td>
-                <td><span className="badge">{run.status}</span></td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </details>
-      )}
     </section>
   );
 }
@@ -748,7 +570,7 @@ function RulesList() {
             <tr key={r.id} data-testid={`accounting-bank-rule-row-${r.id}`} style={r.created_via === 'ai_learned' ? { background: '#fafbff' } : undefined}>
               <td>{r.name}{r.created_via === 'ai_learned' && <span data-testid={`accounting-bank-rule-learned-${r.id}`} style={{ marginLeft: 6, fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#e0e7ff', color: '#3730a3' }}>learned</span>}</td>
               <td><code style={{ fontSize: 11 }}>{r.pattern_kind}: {r.pattern}</code></td>
-              <td><code>{r.target_account_code}</code></td>
+              <td><AccountLink accountCode={r.target_account_code}><code>{r.target_account_code}</code></AccountLink></td>
               <td>{r.direction}</td>
               <td>
                 {r.is_approved
