@@ -26,11 +26,15 @@ $assert('probe is explicitly read only', $contains($client, "'read_only' => true
 $assert('API exposes connect', $contains($api, "case 'connect'"));
 $assert('API exposes probe', $contains($api, "case 'probe'"));
 $assert('API exposes dry-run preview', $contains($api, "case 'preview'"));
+$assert('API exposes people search', $contains($api, "case 'people_search'"));
+$assert('API exposes source-specific person links', $contains($api, "case 'link_person'") && $contains($api, "'connecteam', 'person'"));
+$assert('API exposes safe unlink', $contains($api, "case 'unlink_person'"));
+$assert('API supports Connecteam-only person creation', $contains($api, "case 'create_person'"));
 $assert('API exposes disconnect', $contains($api, "case 'disconnect'"));
 $assert('reconciliation forbids job-created placements', $contains($reconcile, 'A Connecteam job can never create a CoreFlux placement.'));
 $assert('reconciliation uses universal identity links', $contains($reconcile, 'external_entity_mappings') && $contains($reconcile, 'source_system = "connecteam"'));
 
-foreach (['status', 'connect', 'probe', 'preview', 'disconnect'] as $shim) {
+foreach (['status', 'connect', 'probe', 'preview', 'people_search', 'link_person', 'unlink_person', 'create_person', 'disconnect'] as $shim) {
     $assert("{$shim} endpoint shim exists", file_exists($ROOT . "/api/connecteam/{$shim}.php"));
 }
 
@@ -113,6 +117,21 @@ $peoplePreview = connecteamBuildPeoplePreview(
 $assert('stored user ID is exact', $peoplePreview['counts']['exact'] === 1);
 $assert('email match stays review-only', $peoplePreview['counts']['suggested'] === 1);
 $assert('unknown person stays unmatched', $peoplePreview['counts']['unmatched'] === 1);
+$namePreview = connecteamBuildPeoplePreview(
+    [['userId' => '104', 'firstName' => 'Katherine', 'lastName' => 'Johnson']],
+    [['id' => 4, 'external_id' => null, 'first_name' => 'Katherine', 'last_name' => 'Johnson', 'email_primary' => 'kj@coreflux.test', 'phone_primary' => '']]
+);
+$assert('unique normalized name is a reviewable suggestion', $namePreview['counts']['suggested'] === 1 && $namePreview['rows'][0]['method'] === 'Unique name');
+$nestedContactPreview = connecteamBuildPeoplePreview(
+    [['userId' => '105', 'contactDetails' => ['firstName' => 'Dorothy', 'lastName' => 'Vaughan', 'email' => 'dorothy@example.com']]],
+    [['id' => 5, 'external_id' => null, 'first_name' => 'Dorothy', 'last_name' => 'Vaughan', 'email_primary' => 'dorothy@example.com', 'phone_primary' => '']]
+);
+$assert('nested Connecteam contact details participate in matching', $nestedContactPreview['counts']['suggested'] === 1);
+$secondaryIdentityPreview = connecteamBuildPeoplePreview(
+    [['userId' => '106', 'firstName' => 'Mary', 'lastName' => 'Jackson', 'email' => 'mj@example.com']],
+    [['id' => 6, 'external_id' => null, 'first_name' => 'Mary', 'last_name' => 'Jackson', 'email_primary' => 'mary@coreflux.test', 'email_secondary' => 'mj@example.com', 'phone_primary' => '', 'phone_secondary' => '']]
+);
+$assert('secondary CoreFlux contact fields participate in matching', $secondaryIdentityPreview['counts']['suggested'] === 1);
 
 $jobsPreview = connecteamBuildJobsPreview(
     [
@@ -140,13 +159,18 @@ $ui = (string) file_get_contents($ROOT . '/dashboard/src/pages/ConnecteamSetting
 $admin = (string) file_get_contents($ROOT . '/dashboard/src/pages/AdminModule.jsx');
 $hub = (string) file_get_contents($ROOT . '/dashboard/src/pages/IntegrationsHub.jsx');
 $rbac = (string) file_get_contents($ROOT . '/core/rbac/legacy_map.php');
+$mappingApi = (string) file_get_contents($ROOT . '/api/integrations/mappings.php');
 $assert('settings page has connection input', $contains($ui, 'data-testid="connecteam-api-key-input"'));
 $assert('settings page has capability table', $contains($ui, 'data-testid="connecteam-capabilities-table"'));
 $assert('settings page has reconciliation dry run', $contains($ui, 'data-testid="connecteam-preview-btn"'));
+$assert('settings page can search and link an existing person', $contains($ui, 'connecteam-person-search-') && $contains($ui, 'Link to P-'));
+$assert('settings page can create and link a person', $contains($ui, 'connecteam-create-person-') && $contains($ui, 'Create and link'));
+$assert('settings page explains multi-source identity', $contains($ui, 'can all link to the same P-ID'));
 $assert('admin route is mounted', $contains($admin, '/integrations/connecteam'));
 $assert('integration hub card is mounted', $contains($hub, 'integration-card-connecteam'));
 $assert('view RBAC is registered', $contains($rbac, "'integrations.connecteam.view'"));
 $assert('manage RBAC is registered', $contains($rbac, "'integrations.connecteam.manage'"));
+$assert('person source panel permits Connecteam viewers', $contains($mappingApi, "'integrations.connecteam.view'"));
 
 echo "\n=========================================\n";
 echo "Connecteam foundation smoke: {$pass} ok / {$fail} fail\n";

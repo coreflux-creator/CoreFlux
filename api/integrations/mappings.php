@@ -128,6 +128,7 @@ rbac_legacy_require_any($user, [
     'integrations.airtable.view',
     'integrations.qbo.view',
     'integrations.zoho.view',
+    'integrations.connecteam.view',
 ]);
 
 $action = strtolower(str_replace('-', '_', (string) (api_query('action') ?? 'list_for_internal')));
