@@ -339,8 +339,15 @@ function connecteamStoredLinks(int $tenantId, string $entityType): array
     return $links;
 }
 
-function connecteamDryRunPreview(int $tenantId, ?int $userId): array
+function connecteamDryRunPreview(
+    int $tenantId,
+    ?int $userId,
+    ?int $peopleTenantId = null,
+    ?int $placementsTenantId = null
+): array
 {
+    $peopleTenantId = $peopleTenantId ?? $tenantId;
+    $placementsTenantId = $placementsTenantId ?? $tenantId;
     $userFetch = connecteamFetchCollection(
         $tenantId, '/users/v1/users', ['userStatus' => 'all'], ['users'], 500
     );
@@ -357,7 +364,7 @@ function connecteamDryRunPreview(int $tenantId, ?int $userId): array
            FROM people
           WHERE tenant_id = :t AND deleted_at IS NULL'
     );
-    $peopleStmt->execute(['t' => $tenantId]);
+    $peopleStmt->execute(['t' => $peopleTenantId]);
     $people = $peopleStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
     $placementsStmt = $pdo->prepare(
@@ -365,14 +372,19 @@ function connecteamDryRunPreview(int $tenantId, ?int $userId): array
            FROM placements
           WHERE tenant_id = :t AND deleted_at IS NULL'
     );
-    $placementsStmt->execute(['t' => $tenantId]);
+    $placementsStmt->execute(['t' => $placementsTenantId]);
     $placements = $placementsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
     $preview = [
         'read_only' => true,
         'generated_at' => gmdate('c'),
-        'people' => connecteamBuildPeoplePreview($users, $people, connecteamStoredLinks($tenantId, 'person')),
-        'jobs' => connecteamBuildJobsPreview($jobs, $placements, connecteamStoredLinks($tenantId, 'placement')),
+        'people' => connecteamBuildPeoplePreview($users, $people, connecteamStoredLinks($peopleTenantId, 'person')),
+        'jobs' => connecteamBuildJobsPreview($jobs, $placements, connecteamStoredLinks($placementsTenantId, 'placement')),
+        'scope' => [
+            'connection_tenant_id' => $tenantId,
+            'people_tenant_id' => $peopleTenantId,
+            'placements_tenant_id' => $placementsTenantId,
+        ],
         'source_pages' => ['users' => $userFetch['pages'], 'jobs' => $jobFetch['pages']],
         'truncated' => ['users' => $userFetch['truncated'], 'jobs' => $jobFetch['truncated']],
         'rules' => [

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
+require_once __DIR__ . '/../core/sub_tenants.php';
 require_once __DIR__ . '/../core/connecteam/client.php';
 require_once __DIR__ . '/../core/connecteam/reconcile.php';
 require_once __DIR__ . '/../core/integrations/entity_mappings.php';
@@ -24,6 +25,8 @@ $ctx = api_require_auth();
 $user = $ctx['user'];
 $tenantId = (int) $ctx['tenant_id'];
 $userId = isset($user['id']) ? (int) $user['id'] : null;
+$peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
+$placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
 
 function connecteamDecodeJsonColumn($value): ?array
 {
@@ -218,7 +221,12 @@ switch ($action) {
         if ($method !== 'POST') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.connecteam.manage');
         try {
-            api_ok(['ok' => true, 'preview' => connecteamDryRunPreview($tenantId, $userId)]);
+            api_ok(['ok' => true, 'preview' => connecteamDryRunPreview(
+                $tenantId,
+                $userId,
+                $peopleTenantId,
+                $placementsTenantId
+            )]);
         } catch (ConnecteamApiException $e) {
             $code = in_array($e->httpStatus, [401, 403], true) ? $e->httpStatus : 502;
             api_error($e->getMessage(), $code);
@@ -231,7 +239,7 @@ switch ($action) {
         if ($method !== 'GET') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.connecteam.manage');
         rbac_legacy_require($user, 'people.view');
-        api_ok(['people' => connecteamApiPeopleSearch($tenantId, (string) (api_query('q') ?? ''))]);
+        api_ok(['people' => connecteamApiPeopleSearch($peopleTenantId, (string) (api_query('q') ?? ''))]);
     }
 
     case 'link_person': {
@@ -242,17 +250,17 @@ switch ($action) {
         $sourceUserId = trim((string) ($body['source_user_id'] ?? ''));
         $personId = (int) ($body['person_id'] ?? 0);
         if ($personId <= 0) api_error('person_id required', 422);
-        $person = connecteamApiPerson($tenantId, $personId);
+        $person = connecteamApiPerson($peopleTenantId, $personId);
         if (!$person) api_error('CoreFlux person not found', 404);
         $sourceUser = connecteamApiSourceUser($tenantId, $sourceUserId);
 
-        $sourceConflict = mappingFindInternal($tenantId, 'connecteam', 'person', $sourceUserId);
+        $sourceConflict = mappingFindInternal($peopleTenantId, 'connecteam', 'person', $sourceUserId);
         if ($sourceConflict && (int) $sourceConflict['internal_entity_id'] !== $personId) {
             api_error('This Connecteam user is already linked to another CoreFlux person. Unlink it first.', 409, [
                 'conflict_person_id' => (int) $sourceConflict['internal_entity_id'],
             ]);
         }
-        $personConflict = mappingFindExternal($tenantId, 'connecteam', 'person', $personId);
+        $personConflict = mappingFindExternal($peopleTenantId, 'connecteam', 'person', $personId);
         if ($personConflict && (string) $personConflict['external_id'] !== $sourceUserId) {
             api_error('This CoreFlux person already has a different Connecteam identity. Unlink it first.', 409, [
                 'conflict_source_user_id' => (string) $personConflict['external_id'],
@@ -260,13 +268,17 @@ switch ($action) {
         }
 
         $mapping = mappingUpsert(
-            $tenantId, 'connecteam', 'person', $sourceUserId, $personId,
+            $peopleTenantId, 'connecteam', 'person', $sourceUserId, $personId,
             $sourceUser, 'pull', $userId
         );
         connecteamAudit($tenantId, 'person_linked', [
             'actor_user_id' => $userId,
             'items_inspected' => 1,
-            'detail' => ['source_user_id' => $sourceUserId, 'person_id' => $personId],
+            'detail' => [
+                'source_user_id' => $sourceUserId,
+                'person_id' => $personId,
+                'people_tenant_id' => $peopleTenantId,
+            ],
         ]);
         api_ok([
             'ok' => true,
@@ -286,15 +298,16 @@ switch ($action) {
         $body = api_json_body();
         $sourceUserId = trim((string) ($body['source_user_id'] ?? ''));
         if ($sourceUserId === '') api_error('source_user_id required', 422);
-        $mapping = mappingFindInternal($tenantId, 'connecteam', 'person', $sourceUserId);
+        $mapping = mappingFindInternal($peopleTenantId, 'connecteam', 'person', $sourceUserId);
         if (!$mapping) api_error('Connecteam identity link not found', 404);
-        mappingDelete($tenantId, 'connecteam', 'person', $sourceUserId);
+        mappingDelete($peopleTenantId, 'connecteam', 'person', $sourceUserId);
         connecteamAudit($tenantId, 'person_unlinked', [
             'actor_user_id' => $userId,
             'items_inspected' => 1,
             'detail' => [
                 'source_user_id' => $sourceUserId,
                 'person_id' => (int) $mapping['internal_entity_id'],
+                'people_tenant_id' => $peopleTenantId,
             ],
         ]);
         api_ok(['ok' => true]);
@@ -316,7 +329,7 @@ switch ($action) {
         if ($firstName === '' || $lastName === '') api_error('First and last name are required', 422);
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) api_error('A valid email is required', 422);
         if (!in_array($classification, $allowed, true)) api_error('Choose a valid worker classification', 422);
-        if (mappingFindInternal($tenantId, 'connecteam', 'person', $sourceUserId)) {
+        if (mappingFindInternal($peopleTenantId, 'connecteam', 'person', $sourceUserId)) {
             api_error('This Connecteam user is already linked', 409);
         }
         $duplicate = getDB()->prepare(
@@ -328,7 +341,7 @@ switch ($action) {
               LIMIT 1'
         );
         $duplicate->execute([
-            't' => $tenantId,
+            't' => $peopleTenantId,
             'email_primary' => $email,
             'email_secondary' => $email,
         ]);
@@ -343,7 +356,7 @@ switch ($action) {
         try {
             $pdo->beginTransaction();
             $personId = scopedInsert('people', [
-                'tenant_id' => $tenantId,
+                'tenant_id' => $peopleTenantId,
                 'first_name' => $firstName,
                 'last_name' => $lastName,
                 'email_primary' => $email,
@@ -355,7 +368,7 @@ switch ($action) {
                 'created_by_user_id' => $userId,
             ]);
             mappingUpsert(
-                $tenantId, 'connecteam', 'person', $sourceUserId, $personId,
+                $peopleTenantId, 'connecteam', 'person', $sourceUserId, $personId,
                 $sourceUser, 'pull', $userId
             );
             $pdo->commit();
@@ -370,6 +383,7 @@ switch ($action) {
             'id' => $personId,
             'classification' => $classification,
             'source' => 'connecteam',
+            'people_tenant_id' => $peopleTenantId,
         ], $personId);
         if ($classification === 'w2') {
             require_once __DIR__ . '/../modules/people/lib/employees.php';
@@ -378,11 +392,15 @@ switch ($action) {
         connecteamAudit($tenantId, 'person_created_and_linked', [
             'actor_user_id' => $userId,
             'items_inspected' => 1,
-            'detail' => ['source_user_id' => $sourceUserId, 'person_id' => $personId],
+            'detail' => [
+                'source_user_id' => $sourceUserId,
+                'person_id' => $personId,
+                'people_tenant_id' => $peopleTenantId,
+            ],
         ]);
         api_ok([
             'ok' => true,
-            'person' => connecteamApiPerson($tenantId, $personId),
+            'person' => connecteamApiPerson($peopleTenantId, $personId),
             'identity' => ['source' => 'connecteam', 'external_id' => $sourceUserId],
         ], 201);
     }
