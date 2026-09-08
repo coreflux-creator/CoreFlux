@@ -240,7 +240,7 @@ const useSession = () => {
     // check would redirect users away from the very page that authenticates
     // them.
     const path = typeof window !== 'undefined' ? window.location.pathname : '';
-    const isPublicRoute = path === '/login' || path.startsWith('/auth/m/');
+    const isPublicRoute = path === '/login' || path === '/login.html' || path.startsWith('/auth/m/');
     if (isPublicRoute) {
       setSession({ __public: true });
       setLoading(false);
@@ -255,9 +255,9 @@ const useSession = () => {
         });
 
         if (res.status === 401) {
-          // Not authenticated → punt to the SPA login route.
+          // Not authenticated: use the maintained static login entrypoint.
           const next = encodeURIComponent(window.location.pathname + window.location.hash);
-          window.location.replace(`/login?next=${next}`);
+          window.location.replace(`/login.html?next=${next}`);
           return;
         }
         if (!res.ok) throw new Error(`session.php ${res.status}`);
@@ -544,7 +544,7 @@ const App = () => {
           <p style={{ color: 'var(--cf-text-secondary)', marginBottom: 20 }}>
             {session.__error}
           </p>
-          <a href="/login" className="btn btn--primary" data-testid="session-error-login-link">
+          <a href="/login.html" className="btn btn--primary" data-testid="session-error-login-link">
             Sign in again
           </a>
         </div>

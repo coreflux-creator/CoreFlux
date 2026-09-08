@@ -122,7 +122,7 @@ $a('skips session check for /login',           str_contains($ap, "path === '/log
 $a('skips session check for /auth/m/*',        str_contains($ap, "path.startsWith('/auth/m/')"));
 $a('renders Login on public path',             str_contains($ap, '<Route path="/login"        element={<Login />} />'));
 $a('renders MagicLinkConsume on token path',   str_contains($ap, '<Route path="/auth/m/:token" element={<MagicLinkConsume />} />'));
-$a('401 redirect uses /login (not .html)',     str_contains($ap, "/login?next="));
+$a('401 redirect uses maintained login.html', str_contains($ap, "/login.html?next="));
 
 echo "\n--- " . ($pass + $fail) . " assertions, $fail failed ---\n";
 exit($fail ? 1 : 0);

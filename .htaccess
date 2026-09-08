@@ -10,6 +10,13 @@
     RewriteEngine On
     RewriteBase /
 
+    # The public root is the authenticated app, not the generated static
+    # shell. spa.php sends signed-out visitors to the maintained login page.
+    RewriteRule ^$ spa.php [L,QSA]
+
+    # Repair legacy SPA login URLs that older bundles and bookmarks may use.
+    RewriteRule ^login/?$ /login.html [R=302,L,NE]
+
     # Pass through real files/dirs (PHP endpoints, assets, api router, etc.)
     RewriteCond %{REQUEST_FILENAME} -f [OR]
     RewriteCond %{REQUEST_FILENAME} -d

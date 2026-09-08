@@ -203,6 +203,10 @@ if (in_array($redirect, $adminOps, true)) {
     header("Location: /{$redirect}.php");
 } elseif ($redirect === 'dashboard') {
     header("Location: /dashboard.php");
+} elseif ($isLocalPath && $next === '/') {
+    // Keep the canonical root after a root-page sign-in. Apache routes it
+    // through spa.php, which now sees the authenticated session.
+    header("Location: /");
 } elseif ($isLocalPath) {
     // Land back on the deep route the SPA bounced from.
     header("Location: /spa.php" . (str_contains($next, '#') ? $next : '#' . $next));
