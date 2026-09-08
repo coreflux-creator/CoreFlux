@@ -2,18 +2,18 @@
 /**
  * Treasury — Account Transactions API.
  *
- *   GET ?account_id=N&type=deposit|liability[&limit=100]
+ *   GET ?account_id=N&type=deposit|liability[&q=...&status=...&direction=...]
+ *       [&date_from=YYYY-MM-DD&date_to=YYYY-MM-DD&amount_min=N&amount_max=N]
+ *       [&category_account_id=N&sort_by=date|description|amount|status]
+ *       [&sort_dir=asc|desc&page=1&per_page=50]
  *
  * Returns the flat list of statement / Plaid-fed lines for either a deposit
  * (accounting_bank_accounts) or liability (accounting_accounts where
  * type='liability') account, newest first. Used by the deposit / liability
  * detail drawers in Treasury so users can see the actual feed data.
  *
- *   POST ?action=sync (body: { plaid_item_pk: int })
- *
- * Convenience trigger that calls /api/plaid_sync_transactions.php for the
- * given Plaid item PK so users can refresh from the same place they're
- * viewing the data.
+ *   POST ?action=bulk_update
+ *        { account_id, type, line_ids[], bulk_action=ignore|restore|unmatch }
  *
  * Permission: `accounting.bank.manage`.
  */
@@ -30,9 +30,9 @@ $pdo = getDB();
 
 if (api_method() === 'POST') {
     $action = (string) ($_GET['action'] ?? '');
-    if (!in_array($action, ['ignore', 'unmatch', 'categorize_and_post', 'match', 'split_categorize'], true)) {
+    if (!in_array($action, ['ignore', 'unmatch', 'categorize_and_post', 'match', 'split_categorize', 'bulk_update'], true)) {
         api_error(
-            "POST requires action=ignore|unmatch|categorize_and_post|match|split_categorize. "
+            "POST requires action=ignore|unmatch|categorize_and_post|match|split_categorize|bulk_update. "
             . "To pull from Plaid, call /api/plaid_sync_transactions.php directly.",
             422
         );
@@ -49,6 +49,52 @@ if (api_method() === 'POST') {
         ? 'accounting_bank_statement_lines'
         : 'treasury_liability_statement_lines';
     $col   = $type === 'deposit' ? 'bank_account_id' : 'liability_account_id';
+
+    if ($action === 'bulk_update') {
+        $accountId = (int) ($body['account_id'] ?? 0);
+        $bulkAction = (string) ($body['bulk_action'] ?? '');
+        $lineIds = array_values(array_unique(array_filter(
+            array_map('intval', (array) ($body['line_ids'] ?? [])),
+            static fn(int $id): bool => $id > 0
+        )));
+        if ($accountId <= 0) api_error('account_id required', 422);
+        if (!$lineIds || count($lineIds) > 500) api_error('Select between 1 and 500 rows', 422);
+        if (!in_array($bulkAction, ['ignore', 'restore', 'unmatch'], true)) {
+            api_error('bulk_action must be ignore, restore, or unmatch', 422);
+        }
+
+        $params = ['t' => $tenantId, 'a' => $accountId];
+        $placeholders = [];
+        foreach ($lineIds as $i => $id) {
+            $key = 'line' . $i;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $id;
+        }
+
+        $statusGuard = match ($bulkAction) {
+            'ignore'  => " AND match_status = 'unmatched'",
+            'restore' => " AND match_status = 'ignored'",
+            'unmatch' => " AND match_status = 'matched'",
+        };
+        $set = match ($bulkAction) {
+            'ignore'  => "match_status = 'ignored'",
+            'restore' => "match_status = 'unmatched'",
+            'unmatch' => "match_status = 'unmatched', matched_je_id = NULL",
+        };
+
+        $stmt = $pdo->prepare(
+            "UPDATE {$table} SET {$set}
+              WHERE tenant_id = :t AND {$col} = :a
+                AND id IN (" . implode(',', $placeholders) . "){$statusGuard}"
+        );
+        $stmt->execute($params);
+        api_ok([
+            'ok'       => true,
+            'action'   => $bulkAction,
+            'selected' => count($lineIds),
+            'updated'  => $stmt->rowCount(),
+        ]);
+    }
 
     // Ensure migration 004 cols exist on first POST in case the deploy hasn't run yet.
     if ($type === 'liability') {
@@ -600,25 +646,25 @@ if (api_method() !== 'GET') api_error('Method not allowed', 405);
 
 $accountId = (int) ($_GET['account_id'] ?? 0);
 $type      = (string) ($_GET['type']     ?? 'deposit');
-$limit     = max(1, min(500, (int) ($_GET['limit'] ?? 100)));
+$limit     = max(10, min(200, (int) ($_GET['per_page'] ?? $_GET['limit'] ?? 50)));
+$page      = max(1, (int) ($_GET['page'] ?? 1));
+$offset    = ($page - 1) * $limit;
 if ($accountId <= 0) api_error('account_id required', 422);
 if (!in_array($type, ['deposit', 'liability'], true)) {
     api_error("type must be 'deposit' or 'liability'", 422);
 }
 
+$table = $type === 'deposit'
+    ? 'accounting_bank_statement_lines'
+    : 'treasury_liability_statement_lines';
+$accountColumn = $type === 'deposit' ? 'bank_account_id' : 'liability_account_id';
+
+$where = ['tenant_id = :t', $accountColumn . ' = :a'];
+$params = ['t' => $tenantId, 'a' => $accountId];
 if ($type === 'deposit') {
-    $visibleRows = bankTxnHasColumn($pdo, 'accounting_bank_statement_lines', 'duplicate_of_line_id')
-        ? ' AND duplicate_of_line_id IS NULL'
-        : '';
-    $stmt = $pdo->prepare(
-        'SELECT id, posted_date, description, amount, bank_reference, fitid,
-                match_status, matched_je_id, created_at,
-                NULL AS merchant_name, NULL AS category
-           FROM accounting_bank_statement_lines
-          WHERE tenant_id = :t AND bank_account_id = :a' . $visibleRows . '
-          ORDER BY posted_date DESC, id DESC
-          LIMIT ' . $limit
-    );
+    if (bankTxnHasColumn($pdo, 'accounting_bank_statement_lines', 'duplicate_of_line_id')) {
+        $where[] = 'duplicate_of_line_id IS NULL';
+    }
 } else {
     // Auto-create the table if a tenant hasn't run migration 003 yet —
     // mirrors the sync-endpoint guard so the first GET on a fresh deploy
@@ -650,27 +696,109 @@ if ($type === 'deposit') {
         } catch (\Throwable $_) {}
     } catch (\Throwable $_) {}
 
-    $stmt = $pdo->prepare(
-        'SELECT id, posted_date, description, amount, bank_reference, fitid,
-                merchant_name, category, match_status, matched_je_id, created_at
-           FROM treasury_liability_statement_lines
-          WHERE tenant_id = :t AND liability_account_id = :a
-          ORDER BY posted_date DESC, id DESC
-          LIMIT ' . $limit
-    );
 }
-$stmt->execute(['t' => $tenantId, 'a' => $accountId]);
+
+$query = trim((string) ($_GET['q'] ?? ''));
+if ($query !== '') {
+    $parts = ['description LIKE :qd', 'bank_reference LIKE :qr'];
+    $params['qd'] = '%' . $query . '%';
+    $params['qr'] = '%' . $query . '%';
+    if ($type === 'liability') {
+        $parts[] = 'merchant_name LIKE :qm';
+        $parts[] = 'category LIKE :qc';
+        $params['qm'] = '%' . $query . '%';
+        $params['qc'] = '%' . $query . '%';
+    }
+    $where[] = '(' . implode(' OR ', $parts) . ')';
+}
+
+$status = (string) ($_GET['status'] ?? '');
+if (in_array($status, ['unmatched', 'matched', 'ignored'], true)) {
+    $where[] = 'match_status = :status';
+    $params['status'] = $status;
+}
+
+$direction = (string) ($_GET['direction'] ?? '');
+if ($direction === 'inflow') $where[] = 'amount >= 0';
+if ($direction === 'outflow') $where[] = 'amount < 0';
+
+$dateFrom = trim((string) ($_GET['date_from'] ?? ''));
+$dateTo = trim((string) ($_GET['date_to'] ?? ''));
+if ($dateFrom !== '') { $where[] = 'posted_date >= :date_from'; $params['date_from'] = $dateFrom; }
+if ($dateTo !== '') { $where[] = 'posted_date <= :date_to'; $params['date_to'] = $dateTo; }
+
+if (isset($_GET['amount_min']) && $_GET['amount_min'] !== '') {
+    $where[] = 'amount >= :amount_min';
+    $params['amount_min'] = (float) $_GET['amount_min'];
+}
+if (isset($_GET['amount_max']) && $_GET['amount_max'] !== '') {
+    $where[] = 'amount <= :amount_max';
+    $params['amount_max'] = (float) $_GET['amount_max'];
+}
+
+$categoryAccountId = (int) ($_GET['category_account_id'] ?? 0);
+if ($categoryAccountId > 0) {
+    $where[] = 'EXISTS (SELECT 1 FROM accounting_journal_entry_lines filter_jel
+                         WHERE filter_jel.je_id = matched_je_id
+                           AND filter_jel.account_id = :category_account_id)';
+    $params['category_account_id'] = $categoryAccountId;
+}
+
+$sortColumns = [
+    'date'        => 'posted_date',
+    'description' => 'description',
+    'amount'      => 'amount',
+    'status'      => 'match_status',
+    'created'     => 'created_at',
+];
+$sortBy = (string) ($_GET['sort_by'] ?? 'date');
+$sortColumn = $sortColumns[$sortBy] ?? $sortColumns['date'];
+$sortDir = strtolower((string) ($_GET['sort_dir'] ?? 'desc')) === 'asc' ? 'ASC' : 'DESC';
+$whereSql = implode(' AND ', $where);
+
+$summaryStmt = $pdo->prepare(
+    "SELECT COUNT(*) AS row_count,
+            COALESCE(SUM(CASE WHEN amount >= 0 THEN amount ELSE 0 END), 0) AS inflow_total,
+            COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) AS outflow_total,
+            SUM(match_status = 'unmatched') AS unmatched_count,
+            SUM(match_status = 'matched') AS matched_count,
+            SUM(match_status = 'ignored') AS ignored_count
+       FROM {$table}
+      WHERE {$whereSql}"
+);
+$summaryStmt->execute($params);
+$summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+$totalWhere = ['tenant_id = :tt', $accountColumn . ' = :ta'];
+if ($type === 'deposit' && bankTxnHasColumn($pdo, 'accounting_bank_statement_lines', 'duplicate_of_line_id')) {
+    $totalWhere[] = 'duplicate_of_line_id IS NULL';
+}
+$totalStmt = $pdo->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE ' . implode(' AND ', $totalWhere));
+$totalStmt->execute(['tt' => $tenantId, 'ta' => $accountId]);
+$totalCount = (int) $totalStmt->fetchColumn();
+
+$selectFields = $type === 'deposit'
+    ? 'id, posted_date, description, amount, bank_reference, fitid,
+       match_status, matched_je_id, created_at,
+       NULL AS merchant_name, NULL AS category,
+       ai_suggested_account_code, ai_suggested_rule_id, applied_rule_id'
+    : 'id, posted_date, description, amount, bank_reference, fitid,
+       merchant_name, category, match_status, matched_je_id, created_at,
+       NULL AS ai_suggested_account_code, NULL AS ai_suggested_rule_id, NULL AS applied_rule_id';
+
+$stmt = $pdo->prepare(
+    "SELECT {$selectFields}
+       FROM {$table}
+      WHERE {$whereSql}
+      ORDER BY {$sortColumn} {$sortDir}, id {$sortDir}
+      LIMIT {$limit} OFFSET {$offset}"
+);
+$stmt->execute($params);
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Summary so the UI can render headline stats without re-summing client-side.
-$count   = count($rows);
-$inflow  = 0.0;
-$outflow = 0.0;
-foreach ($rows as $r) {
-    $a = (float) $r['amount'];
-    if ($a >= 0) $inflow  += $a;
-    else         $outflow += abs($a);
-}
+$count   = (int) ($summary['row_count'] ?? 0);
+$inflow  = (float) ($summary['inflow_total'] ?? 0);
+$outflow = (float) ($summary['outflow_total'] ?? 0);
 
 // Run AI categorization for every UNMATCHED row. Cached: if a draft suggestion
 // already exists for a (line_id, feature_key) we re-use it instead of calling
@@ -859,11 +987,80 @@ if ($type === 'deposit') {
     } catch (\Throwable $_) {}
 }
 
+$balance = [
+    'institution_balance' => null,
+    'available_balance'   => null,
+    'ledger_balance'      => 0.0,
+    'difference'          => null,
+    'currency'            => 'USD',
+    'institution_as_of'   => null,
+    'ledger_as_of'        => date('Y-m-d H:i:s'),
+];
+if ($type === 'deposit') {
+    $balanceStmt = $pdo->prepare(
+        "SELECT ba.currency, ba.last_feed_synced_at,
+                pa.current_balance_cents, pa.available_balance_cents, pa.balance_as_of,
+                COALESCE(SUM(CASE WHEN je.status = 'posted' THEN jel.debit - jel.credit ELSE 0 END), 0) AS ledger_balance
+           FROM accounting_bank_accounts ba
+           LEFT JOIN plaid_accounts pa
+             ON pa.tenant_id = ba.tenant_id AND pa.account_id = ba.plaid_account_id
+           LEFT JOIN accounting_accounts aa
+             ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
+           LEFT JOIN accounting_journal_entry_lines jel ON jel.account_id = aa.id
+           LEFT JOIN accounting_journal_entries je
+             ON je.tenant_id = ba.tenant_id AND je.id = jel.je_id
+          WHERE ba.tenant_id = :t AND ba.id = :a
+          GROUP BY ba.id"
+    );
+} else {
+    $balanceStmt = $pdo->prepare(
+        "SELECT COALESCE(aa.currency, pa.iso_currency_code, 'USD') AS currency,
+                pa.current_balance_cents, pa.available_balance_cents, pa.balance_as_of,
+                COALESCE(SUM(CASE WHEN je.status = 'posted' THEN jel.credit - jel.debit ELSE 0 END), 0) AS ledger_balance
+           FROM accounting_accounts aa
+           LEFT JOIN treasury_liability_accounts tla
+             ON tla.tenant_id = aa.tenant_id AND tla.account_id = aa.id
+           LEFT JOIN plaid_accounts pa
+             ON pa.tenant_id = aa.tenant_id AND pa.account_id = tla.plaid_account_id
+           LEFT JOIN accounting_journal_entry_lines jel ON jel.account_id = aa.id
+           LEFT JOIN accounting_journal_entries je
+             ON je.tenant_id = aa.tenant_id AND je.id = jel.je_id
+          WHERE aa.tenant_id = :t AND aa.id = :a
+          GROUP BY aa.id"
+    );
+}
+$balanceStmt->execute(['t' => $tenantId, 'a' => $accountId]);
+$balanceRow = $balanceStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+$balance['currency'] = (string) ($balanceRow['currency'] ?? 'USD');
+$balance['ledger_balance'] = round((float) ($balanceRow['ledger_balance'] ?? 0), 2);
+$balance['institution_as_of'] = $balanceRow['balance_as_of']
+    ?? $balanceRow['last_feed_synced_at']
+    ?? null;
+if (isset($balanceRow['current_balance_cents'])) {
+    $balance['institution_balance'] = round(((int) $balanceRow['current_balance_cents']) / 100, 2);
+    $balance['difference'] = round($balance['institution_balance'] - $balance['ledger_balance'], 2);
+}
+if (isset($balanceRow['available_balance_cents'])) {
+    $balance['available_balance'] = round(((int) $balanceRow['available_balance_cents']) / 100, 2);
+}
+
 api_ok([
     'rows'                  => $rows,
     'count'                 => $count,
+    'total_count'           => $totalCount,
     'inflow_total'          => round($inflow, 2),
     'outflow_total'         => round($outflow, 2),
+    'status_counts'         => [
+        'unmatched' => (int) ($summary['unmatched_count'] ?? 0),
+        'matched'   => (int) ($summary['matched_count'] ?? 0),
+        'ignored'   => (int) ($summary['ignored_count'] ?? 0),
+    ],
+    'balance'               => $balance,
+    'pagination'            => [
+        'page'        => $page,
+        'per_page'    => $limit,
+        'total_pages' => max(1, (int) ceil($count / $limit)),
+    ],
     'plaid_item_pk'         => $plaidItemPk,
     'plaid_item_external_id'=> $plaidItemExternalId,
     'plaid_account_id'      => $plaidAccountId,

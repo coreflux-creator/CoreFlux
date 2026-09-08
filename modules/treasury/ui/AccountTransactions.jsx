@@ -1,4 +1,8 @@
-import React, { useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import {
+  ArrowDown, ArrowUp, ArrowUpDown, CheckSquare, ChevronLeft, ChevronRight,
+  ListFilter, RefreshCw, Save, Search, SlidersHorizontal, WandSparkles, X,
+} from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate } from '../../../dashboard/src/lib/format';
 import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
@@ -94,9 +98,31 @@ function DuplicateActivityRepair({ accountId, onRepaired }) {
  * charges debit the counterpart account, payments credit it).
  */
 export default function AccountTransactions({ accountId, type, accountLabel }) {
-  const { data, loading, reload } = useApi(
-    `/modules/treasury/api/account_transactions.php?account_id=${accountId}&type=${type}&limit=200`
-  );
+  const [filters, setFilters] = useState({
+    q: '', status: '', direction: '', dateFrom: '', dateTo: '',
+    amountMin: '', amountMax: '', categoryAccountId: '',
+  });
+  const [sort, setSort] = useState({ by: 'date', dir: 'desc' });
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(50);
+  const deferredQuery = useDeferredValue(filters.q);
+  const requestUrl = useMemo(() => {
+    const params = new URLSearchParams({
+      account_id: String(accountId), type, page: String(page),
+      per_page: String(perPage), sort_by: sort.by, sort_dir: sort.dir,
+    });
+    const values = { ...filters, q: deferredQuery };
+    const names = {
+      q: 'q', status: 'status', direction: 'direction', dateFrom: 'date_from',
+      dateTo: 'date_to', amountMin: 'amount_min', amountMax: 'amount_max',
+      categoryAccountId: 'category_account_id',
+    };
+    Object.entries(names).forEach(([key, name]) => {
+      if (values[key] !== '') params.set(name, String(values[key]));
+    });
+    return `/modules/treasury/api/account_transactions.php?${params.toString()}`;
+  }, [accountId, type, page, perPage, sort, filters, deferredQuery]);
+  const { data, loading, error: loadError, reload } = useApi(requestUrl);
   // Postable expense / revenue accounts for the categorize dropdown. Filtered
   // to is_postable=1 (no header rows) when the API supplies it.
   const { data: coa } = useApi(`${ACCOUNTING_ACCOUNTS_API}?action=tree`);
@@ -110,6 +136,12 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const [aiBusyId, setAiBusyId] = useState(null);
   const [aiPanelByLine, setAiPanelByLine] = useState({});  // { [lineId]: aiResp }
   const [splitId, setSplitId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkAccountId, setBulkAccountId] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [showRule, setShowRule] = useState(false);
 
   const fetchAiCat = async (lineId) => {
     setAiBusyId(lineId); setRowError(null);
@@ -126,14 +158,25 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
 
   const rows  = data?.rows || [];
   const count = data?.count || 0;
+  const totalCount = data?.total_count ?? count;
   const inflow  = data?.inflow_total  || 0;
   const outflow = data?.outflow_total || 0;
+  const balance = data?.balance || {};
+  const statusCounts = data?.status_counts || {};
+  const pagination = data?.pagination || { page, per_page: perPage, total_pages: 1 };
   const plaidItemPk         = data?.plaid_item_pk;
   const plaidItemExternalId = data?.plaid_item_external_id;
 
   const eligibleAccounts = (coa?.rows || [])
     .filter((a) => a.is_postable !== 0 && a.id !== accountId);
   const accountsById = new Map(eligibleAccounts.map((a) => [a.id, a]));
+  const selectedRows = rows.filter((row) => selectedIds.includes(row.id));
+  const allPageSelected = rows.length > 0 && rows.every((row) => selectedIds.includes(row.id));
+  const hasFilters = Object.values(filters).some((value) => value !== '');
+
+  useEffect(() => { setPage(1); }, [deferredQuery, filters.status, filters.direction,
+    filters.dateFrom, filters.dateTo, filters.amountMin, filters.amountMax, filters.categoryAccountId]);
+  useEffect(() => { setSelectedIds([]); }, [requestUrl]);
 
   const lineAction = async (lineId, action, extra = {}) => {
     setRowError(null);
@@ -158,6 +201,63 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
 
   const ignoreLine  = (lineId) => lineAction(lineId, 'ignore');
   const unmatchLine = (lineId) => lineAction(lineId, 'unmatch');
+
+  const toggleRow = (lineId) => setSelectedIds((current) => (
+    current.includes(lineId) ? current.filter((id) => id !== lineId) : [...current, lineId]
+  ));
+  const togglePage = () => setSelectedIds(allPageSelected ? [] : rows.map((row) => row.id));
+
+  const runBulkState = async (bulkAction) => {
+    if (!selectedRows.length) return;
+    const labels = { ignore: 'ignore', restore: 'restore', unmatch: 'unmatch' };
+    if (bulkAction === 'unmatch'
+      && !window.confirm('Unmatch the selected transactions? Their journal entries will remain posted, but the bank links will be cleared.')) return;
+    setBulkBusy(true); setRowError(null); setBulkNotice(null);
+    try {
+      const result = await api.post('/modules/treasury/api/account_transactions.php?action=bulk_update', {
+        account_id: accountId, type, line_ids: selectedRows.map((row) => row.id), bulk_action: bulkAction,
+      });
+      setBulkNotice(`${result.updated || 0} transaction${result.updated === 1 ? '' : 's'} ${labels[bulkAction]}d.`);
+      setSelectedIds([]);
+      reload();
+    } catch (e) {
+      setRowError(`Bulk update failed: ${e.message}`);
+    } finally { setBulkBusy(false); }
+  };
+
+  const runBulkCategorize = async () => {
+    const accountIdToUse = Number(bulkAccountId || 0);
+    const pending = selectedRows.filter((row) => row.match_status === 'unmatched');
+    if (!accountIdToUse || !pending.length) return;
+    setBulkBusy(true); setRowError(null); setBulkNotice(null);
+    let updated = 0;
+    try {
+      for (const row of pending) {
+        await api.post('/modules/treasury/api/account_transactions.php?action=categorize_and_post', {
+          line_id: row.id, type, counterpart_account_id: accountIdToUse,
+          memo: row.description || row.merchant_name || null,
+          ai_suggestion_id: row.ai_suggestion?.suggestion_id || null,
+        });
+        updated += 1;
+      }
+      setBulkNotice(`${updated} transaction${updated === 1 ? '' : 's'} categorized and posted.`);
+      setSelectedIds([]); setBulkAccountId(''); reload();
+    } catch (e) {
+      setRowError(`Bulk categorize stopped after ${updated}: ${e.message}`);
+      reload();
+    } finally { setBulkBusy(false); }
+  };
+
+  const changeSort = (by) => setSort((current) => (
+    current.by === by
+      ? { by, dir: current.dir === 'asc' ? 'desc' : 'asc' }
+      : { by, dir: by === 'description' || by === 'status' ? 'asc' : 'desc' }
+  ));
+  const setFilter = (name, value) => setFilters((current) => ({ ...current, [name]: value }));
+  const clearFilters = () => setFilters({
+    q: '', status: '', direction: '', dateFrom: '', dateTo: '',
+    amountMin: '', amountMax: '', categoryAccountId: '',
+  });
 
   const syncNow = async () => {
     if (!plaidItemExternalId) {
@@ -199,12 +299,27 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
         <div>
           <h2 style={{ marginBottom: 4 }}>{accountLabel}</h2>
           <p className="muted" style={{ fontSize: 13 }}>
-            {type === 'deposit' ? 'Bank-feed transactions' : 'Card / loan activity'} · {count} row{count === 1 ? '' : 's'} ·{' '}
+            {type === 'deposit' ? 'Bank activity' : 'Card / loan activity'} · {count === totalCount ? count : `${count} of ${totalCount}`} transaction{totalCount === 1 ? '' : 's'} ·{' '}
             <span style={{ color: '#065f46' }}>Inflow {fmtMoney(inflow)}</span> ·{' '}
             <span style={{ color: '#b91c1c' }}>Outflow {fmtMoney(outflow)}</span>
           </p>
         </div>
-        {plaidItemExternalId && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {type === 'deposit' && (
+            <button
+              type="button" className="btn btn--ghost"
+              onClick={() => setShowRule((value) => !value)}
+              disabled={selectedRows.length === 0}
+              title={selectedRows.length ? 'Create a categorization rule from the selected activity' : 'Select at least one transaction to create a rule'}
+              data-testid="treasury-create-rule-btn"
+            >
+              <WandSparkles size={14} style={{ marginRight: 5, verticalAlign: 'middle' }} /> Set rule
+            </button>
+          )}
+          <button type="button" className="btn btn--ghost" onClick={reload} title="Refresh account activity">
+            <RefreshCw size={14} style={{ verticalAlign: 'middle' }} />
+          </button>
+          {plaidItemExternalId && (
           <button
             onClick={syncNow}
             disabled={syncing}
@@ -213,8 +328,59 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
           >
             {syncing ? 'Syncing…' : 'Sync from Plaid'}
           </button>
-        )}
+          )}
+        </div>
       </header>
+
+      <BalanceStrip balance={balance} connected={!!plaidItemExternalId} type={type} />
+
+      <div data-testid="treasury-transaction-toolbar" style={toolbarStyle}>
+        <label style={{ position: 'relative', flex: '1 1 280px', minWidth: 220 }}>
+          <Search size={15} style={{ position: 'absolute', left: 10, top: 10, color: '#64748b' }} />
+          <input
+            className="input" value={filters.q} onChange={(event) => setFilter('q', event.target.value)}
+            placeholder="Search description, reference, merchant, or category"
+            data-testid="treasury-transactions-search" style={{ width: '100%', paddingLeft: 32 }}
+          />
+        </label>
+        <select className="input" value={filters.status} onChange={(event) => setFilter('status', event.target.value)} data-testid="treasury-transactions-status-filter">
+          <option value="">All statuses</option>
+          <option value="unmatched">Unmatched</option>
+          <option value="matched">Matched</option>
+          <option value="ignored">Ignored</option>
+        </select>
+        <select className="input" value={filters.direction} onChange={(event) => setFilter('direction', event.target.value)} data-testid="treasury-transactions-direction-filter">
+          <option value="">All money flows</option>
+          <option value="inflow">Money in</option>
+          <option value="outflow">Money out</option>
+        </select>
+        <button type="button" className="btn btn--ghost" onClick={() => setShowFilters((value) => !value)} aria-expanded={showFilters}>
+          <SlidersHorizontal size={14} style={{ marginRight: 5, verticalAlign: 'middle' }} /> Filters
+        </button>
+        {hasFilters && (
+          <button type="button" className="btn btn--ghost" onClick={clearFilters} title="Clear filters">
+            <X size={14} style={{ verticalAlign: 'middle' }} />
+          </button>
+        )}
+      </div>
+
+      {showFilters && (
+        <div data-testid="treasury-transaction-advanced-filters" style={advancedFiltersStyle}>
+          <label style={filterLabelStyle}>From<input type="date" className="input" value={filters.dateFrom} onChange={(e) => setFilter('dateFrom', e.target.value)} /></label>
+          <label style={filterLabelStyle}>To<input type="date" className="input" value={filters.dateTo} onChange={(e) => setFilter('dateTo', e.target.value)} /></label>
+          <label style={filterLabelStyle}>Amount from<input type="number" step="0.01" className="input" value={filters.amountMin} onChange={(e) => setFilter('amountMin', e.target.value)} placeholder="-500.00" /></label>
+          <label style={filterLabelStyle}>Amount to<input type="number" step="0.01" className="input" value={filters.amountMax} onChange={(e) => setFilter('amountMax', e.target.value)} placeholder="500.00" /></label>
+          <label style={{ ...filterLabelStyle, minWidth: 240 }}>Posted category<select className="input" value={filters.categoryAccountId} onChange={(e) => setFilter('categoryAccountId', e.target.value)}><option value="">All categories</option>{eligibleAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label>
+        </div>
+      )}
+
+      {showRule && type === 'deposit' && (
+        <QuickRuleBuilder
+          accountId={accountId} selectedRows={selectedRows} accounts={eligibleAccounts}
+          onCancel={() => setShowRule(false)}
+          onSaved={(message) => { setShowRule(false); setSelectedIds([]); setBulkNotice(message); reload(); }}
+        />
+      )}
 
       {syncMsg && (
         <p data-testid={`treasury-${type}-sync-success`} style={{ color: '#065f46', fontSize: 13, marginBottom: 12 }}>
@@ -225,6 +391,10 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
         <p className="error" data-testid={`treasury-${type}-sync-error`} style={{ marginBottom: 12 }}>
           {syncErr}
         </p>
+      )}
+      {loadError && <p className="error" data-testid="treasury-transactions-load-error">{loadError.message}</p>}
+      {bulkNotice && (
+        <p data-testid="treasury-bulk-success" style={{ color: '#065f46', fontSize: 13, marginBottom: 12 }}>{bulkNotice}</p>
       )}
 
       {/* CSV upload — for deposit (bank) accounts without a Plaid feed,
@@ -258,8 +428,10 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
             borderRadius: 6, textAlign: 'center', color: 'var(--cf-text-muted, #6b7280)',
           }}
         >
-          <p style={{ margin: '0 0 8px', fontSize: 14 }}>No transactions yet.</p>
-          {plaidItemExternalId
+          <p style={{ margin: '0 0 8px', fontSize: 14 }}>{hasFilters ? 'No transactions match these filters.' : 'No transactions yet.'}</p>
+          {hasFilters
+            ? <button type="button" className="btn btn--ghost" onClick={clearFilters}>Clear filters</button>
+            : plaidItemExternalId
             ? <p style={{ margin: 0, fontSize: 12 }}>Click <strong>Sync from Plaid</strong> above to pull the most recent activity.</p>
             : <p style={{ margin: 0, fontSize: 12 }}>This account isn't connected to Plaid; transactions will appear here once a feed is wired.</p>}
         </div>
@@ -271,15 +443,48 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
         </p>
       )}
 
+      <div style={statusSummaryStyle} data-testid="treasury-transaction-status-summary">
+        <span><ListFilter size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />Filtered activity</span>
+        <span><strong>{statusCounts.unmatched || 0}</strong> unmatched</span>
+        <span><strong>{statusCounts.matched || 0}</strong> matched</span>
+        <span><strong>{statusCounts.ignored || 0}</strong> ignored</span>
+      </div>
+
+      {selectedRows.length > 0 && (
+        <div style={bulkBarStyle} data-testid="treasury-bulk-actions">
+          <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+            <CheckSquare size={14} style={{ marginRight: 5, verticalAlign: 'middle' }} />
+            {selectedRows.length} selected
+          </span>
+          <select className="input" value={bulkAccountId} onChange={(event) => setBulkAccountId(event.target.value)} style={{ minWidth: 250 }} aria-label="Bulk category">
+            <option value="">Choose category</option>
+            {eligibleAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
+          </select>
+          <button type="button" className="btn btn--primary" onClick={runBulkCategorize}
+            disabled={bulkBusy || !bulkAccountId || !selectedRows.some((row) => row.match_status === 'unmatched')}>
+            Categorize and post
+          </button>
+          <button type="button" className="btn btn--ghost" onClick={() => runBulkState('ignore')}
+            disabled={bulkBusy || !selectedRows.some((row) => row.match_status === 'unmatched')}>Ignore</button>
+          <button type="button" className="btn btn--ghost" onClick={() => runBulkState('restore')}
+            disabled={bulkBusy || !selectedRows.some((row) => row.match_status === 'ignored')}>Restore</button>
+          <button type="button" className="btn btn--ghost" onClick={() => runBulkState('unmatch')}
+            disabled={bulkBusy || !selectedRows.some((row) => row.match_status === 'matched')}>Unmatch</button>
+          <button type="button" className="btn btn--ghost" onClick={() => setSelectedIds([])} disabled={bulkBusy} title="Clear selection"><X size={14} /></button>
+        </div>
+      )}
+
       {rows.length > 0 && (
+        <>
         <table className="data-table" data-testid={`treasury-${type}-transactions-table`}>
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Description</th>
+              <th style={{ width: 36 }}><input type="checkbox" checked={allPageSelected} onChange={togglePage} aria-label="Select all visible transactions" /></th>
+              <SortableHeader label="Date" sortKey="date" sort={sort} onSort={changeSort} />
+              <SortableHeader label="Description" sortKey="description" sort={sort} onSort={changeSort} />
               {type === 'liability' && <th>Category</th>}
-              <th style={{ textAlign: 'right' }}>Amount</th>
-              <th>Status</th>
+              <SortableHeader label="Amount" sortKey="amount" sort={sort} onSort={changeSort} align="right" />
+              <SortableHeader label="Status" sortKey="status" sort={sort} onSort={changeSort} />
               <th style={{ width: 240 }}>Actions</th>
             </tr>
           </thead>
@@ -287,6 +492,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
             {rows.map((r) => (
               <React.Fragment key={r.id}>
                 <tr data-testid={`treasury-txn-row-${r.id}`}>
+                  <td><input type="checkbox" checked={selectedIds.includes(r.id)} onChange={() => toggleRow(r.id)} aria-label={`Select ${r.description || 'transaction'}`} /></td>
                   <td style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                     {fmtDate(r.posted_date)}
                   </td>
@@ -296,6 +502,9 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                       <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>
                         ({r.merchant_name})
                       </span>
+                    )}
+                    {r.bank_reference && (
+                      <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>Reference {r.bank_reference}</div>
                     )}
                     {Array.isArray(r.categorization) && r.categorization.length > 0 && (
                       <div
@@ -345,6 +554,11 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         journalEntry={r.journal_entry}
                         fallbackId={r.matched_je_id}
                       />
+                    )}
+                    {!r.matched_je_id && r.ai_suggested_account_code && (
+                      <div style={{ fontSize: 11, color: r.applied_rule_id ? '#065f46' : '#92400e', marginTop: 4 }}>
+                        {r.applied_rule_id ? 'Rule applied' : 'Rule suggested'} · {r.ai_suggested_account_code}
+                      </div>
                     )}
                   </td>
                   <td>
@@ -441,7 +655,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                 )}
                 {aiPanelByLine[r.id] && (
                   <tr data-testid={`treasury-txn-ai-result-${r.id}`}>
-                    <td colSpan={type === 'liability' ? 6 : 5}
+                    <td colSpan={type === 'liability' ? 7 : 6}
                         style={{ background: '#f0f9ff', padding: 12, borderLeft: '3px solid #0369a1' }}>
                       <TreasuryAiResultPanel
                         line={r}
@@ -458,7 +672,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                 )}
                 {splitId === r.id && (
                   <tr data-testid={`treasury-txn-split-row-${r.id}`}>
-                    <td colSpan={type === 'liability' ? 6 : 5}
+                    <td colSpan={type === 'liability' ? 7 : 6}
                         style={{ background: '#fefce8', padding: 12, borderLeft: '3px solid #ca8a04' }}>
                       <SplitIcPanel
                         line={r}
@@ -480,10 +694,148 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
             ))}
           </tbody>
         </table>
+        <div style={paginationStyle} data-testid="treasury-transaction-pagination">
+          <span>
+            Showing {((pagination.page - 1) * pagination.per_page) + 1}–{Math.min(pagination.page * pagination.per_page, count)} of {count}
+          </span>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Rows
+            <select className="input" value={perPage} onChange={(event) => { setPerPage(Number(event.target.value)); setPage(1); }} style={{ padding: '5px 26px 5px 8px' }}>
+              {[25, 50, 100, 200].map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </label>
+          <button type="button" className="btn btn--ghost" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={pagination.page <= 1} title="Previous page"><ChevronLeft size={15} /></button>
+          <span>Page {pagination.page} of {pagination.total_pages}</span>
+          <button type="button" className="btn btn--ghost" onClick={() => setPage((value) => Math.min(pagination.total_pages, value + 1))} disabled={pagination.page >= pagination.total_pages} title="Next page"><ChevronRight size={15} /></button>
+        </div>
+        </>
       )}
     </section>
   );
 }
+
+function BalanceStrip({ balance, connected, type }) {
+  const institutionLabel = type === 'deposit' ? 'Bank balance' : 'Institution balance';
+  const difference = balance.difference;
+  const isBalanced = difference !== null && difference !== undefined && Math.abs(Number(difference)) < 0.005;
+  return (
+    <section style={balanceStripStyle} data-testid="treasury-account-balances">
+      <BalanceMetric
+        label={institutionLabel}
+        value={balance.institution_balance == null ? (connected ? 'Unavailable' : 'Not connected') : fmtMoney(balance.institution_balance)}
+        detail={balance.institution_as_of ? `As of ${fmtDate(balance.institution_as_of)}` : 'Latest institution feed'}
+      />
+      <BalanceMetric
+        label="Available balance"
+        value={balance.available_balance == null ? 'Unavailable' : fmtMoney(balance.available_balance)}
+        detail="Institution-reported funds available"
+      />
+      <BalanceMetric
+        label="Ledger balance"
+        value={fmtMoney(balance.ledger_balance || 0)}
+        detail="Posted CoreFlux journal entries"
+      />
+      <BalanceMetric
+        label="Difference"
+        value={difference == null ? 'Unavailable' : fmtMoney(difference)}
+        detail={difference == null ? 'Connect a feed to compare' : (isBalanced ? 'Bank and ledger agree' : 'Unposted or reconciling activity')}
+        tone={difference == null || isBalanced ? 'neutral' : 'warning'}
+      />
+    </section>
+  );
+}
+
+function BalanceMetric({ label, value, detail, tone = 'neutral' }) {
+  return (
+    <div style={{ minWidth: 170, flex: '1 1 180px' }}>
+      <div style={{ fontSize: 11, color: '#64748b' }}>{label}</div>
+      <strong style={{ display: 'block', marginTop: 3, fontSize: 16, color: tone === 'warning' ? '#b45309' : '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{value}</strong>
+      <div style={{ marginTop: 3, fontSize: 11, color: '#94a3b8' }}>{detail}</div>
+    </div>
+  );
+}
+
+function SortableHeader({ label, sortKey, sort, onSort, align = 'left' }) {
+  const active = sort.by === sortKey;
+  const Icon = !active ? ArrowUpDown : (sort.dir === 'asc' ? ArrowUp : ArrowDown);
+  return (
+    <th style={{ textAlign: align }}>
+      <button
+        type="button" onClick={() => onSort(sortKey)}
+        style={{ border: 0, background: 'transparent', padding: 0, color: 'inherit', font: 'inherit', fontWeight: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+        aria-label={`Sort by ${label}`}
+      >
+        {label}<Icon size={12} />
+      </button>
+    </th>
+  );
+}
+
+function QuickRuleBuilder({ accountId, selectedRows, accounts, onSaved, onCancel }) {
+  const source = selectedRows[0] || {};
+  const sourceText = String(source.merchant_name || source.description || '').trim();
+  const existingCategory = source.categorization?.[0]?.account_id || '';
+  const signs = new Set(selectedRows.map((row) => Number(row.amount) < 0 ? 'debit' : 'credit'));
+  const [form, setForm] = useState({
+    name: sourceText ? `Categorize ${sourceText.slice(0, 55)}` : '',
+    pattern_kind: 'contains',
+    pattern: sourceText,
+    target_account_id: String(existingCategory),
+    direction: signs.size === 1 ? [...signs][0] : 'any',
+    is_approved: false,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const setField = (name, value) => setForm((current) => ({ ...current, [name]: value }));
+  const save = async (event) => {
+    event.preventDefault();
+    const target = accounts.find((account) => String(account.id) === String(form.target_account_id));
+    if (!target) return;
+    setSaving(true); setError(null);
+    try {
+      await api.post('/modules/accounting/api/bank_rules.php', {
+        bank_account_id: accountId,
+        name: form.name.trim(), pattern_kind: form.pattern_kind, pattern: form.pattern.trim(),
+        target_account_code: target.code, direction: form.direction,
+        is_approved: form.is_approved, created_via: 'manual',
+      });
+      const applied = await api.post(`/modules/accounting/api/bank_statements.php?action=apply_rules&bank_account_id=${accountId}`, {});
+      onSaved(`Rule saved. ${applied.auto_applied || 0} transaction${applied.auto_applied === 1 ? '' : 's'} matched automatically and ${applied.suggested || 0} suggested for review.`);
+    } catch (e) {
+      setError(e.message || 'Could not save rule');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <form onSubmit={save} style={ruleBuilderStyle} data-testid="treasury-quick-rule-builder">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div><strong>Create categorization rule</strong><div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Apply the same treatment when future bank descriptions match.</div></div>
+        <button type="button" className="btn btn--ghost" onClick={onCancel} title="Close"><X size={14} /></button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) 150px minmax(220px, 2fr) minmax(220px, 1.5fr) 130px', gap: 8, marginTop: 12 }}>
+        <label style={filterLabelStyle}>Rule name<input className="input" value={form.name} onChange={(e) => setField('name', e.target.value)} required /></label>
+        <label style={filterLabelStyle}>Match<select className="input" value={form.pattern_kind} onChange={(e) => setField('pattern_kind', e.target.value)}><option value="contains">Contains</option><option value="starts_with">Starts with</option><option value="equals">Equals</option><option value="regex">Pattern</option></select></label>
+        <label style={filterLabelStyle}>Bank description<input className="input" value={form.pattern} onChange={(e) => setField('pattern', e.target.value)} required /></label>
+        <label style={filterLabelStyle}>Post to<select className="input" value={form.target_account_id} onChange={(e) => setField('target_account_id', e.target.value)} required><option value="">Choose category</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label>
+        <label style={filterLabelStyle}>Flow<select className="input" value={form.direction} onChange={(e) => setField('direction', e.target.value)}><option value="any">Any</option><option value="debit">Money out</option><option value="credit">Money in</option></select></label>
+      </div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}><input type="checkbox" checked={form.is_approved} onChange={(e) => setField('is_approved', e.target.checked)} />Apply automatically to matching activity</label>
+        <button className="btn btn--primary" disabled={saving || !form.name.trim() || !form.pattern.trim() || !form.target_account_id}><Save size={14} style={{ marginRight: 5, verticalAlign: 'middle' }} />{saving ? 'Saving...' : 'Save rule'}</button>
+        <a className="btn btn--ghost" href={`/modules/accounting/bank-rec/${accountId}/rules`}>Manage account rules</a>
+        {error && <span className="error" style={{ fontSize: 12 }}>{error}</span>}
+      </div>
+    </form>
+  );
+}
+
+const balanceStripStyle = { display: 'flex', gap: 18, padding: '14px 0', marginBottom: 14, borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap' };
+const toolbarStyle = { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' };
+const advancedFiltersStyle = { display: 'flex', gap: 8, alignItems: 'flex-end', padding: '10px 0 14px', flexWrap: 'wrap' };
+const filterLabelStyle = { display: 'flex', flexDirection: 'column', gap: 4, color: '#475569', fontSize: 11 };
+const statusSummaryStyle = { display: 'flex', gap: 18, padding: '8px 0', marginBottom: 8, color: '#475569', fontSize: 12, borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap' };
+const bulkBarStyle = { display: 'flex', gap: 8, alignItems: 'center', padding: 10, marginBottom: 8, background: '#eff6ff', border: '1px solid #bfdbfe', flexWrap: 'wrap' };
+const ruleBuilderStyle = { padding: 12, marginBottom: 14, background: '#f8fafc', border: '1px solid #cbd5e1' };
+const paginationStyle = { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, padding: '12px 0', fontSize: 12, color: '#475569', flexWrap: 'wrap' };
 
 function JournalEntryHover({ transactionId, journalEntry, fallbackId }) {
   const [open, setOpen] = useState(false);
@@ -628,7 +980,7 @@ function CategorizeRow({ line, type, accounts, aiSuggestion, onSave, onCancel })
 
   return (
     <tr data-testid={`treasury-txn-categorize-row-${line.id}`}>
-      <td colSpan={type === 'liability' ? 6 : 5}
+      <td colSpan={type === 'liability' ? 7 : 6}
           style={{ background: '#f8fafc', padding: 12 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <label style={{ fontSize: 12, color: '#475569' }}>

@@ -63,7 +63,9 @@ function DepositList() {
               <th>Name</th><th>GL code</th><th>Bank</th><th>Last 4</th>
               <th>Feed</th><th>Last sync</th>
               <th style={{ textAlign: 'right' }}>Bank balance</th>
+              <th style={{ textAlign: 'right' }}>Available</th>
               <th style={{ textAlign: 'right' }}>GL balance</th>
+              <th style={{ textAlign: 'right' }}>Difference</th>
               <th></th>
             </tr>
           </thead>
@@ -150,7 +152,13 @@ function DepositRow({ row: r, onChanged, navigate }) {
         {r.bank_balance !== null && r.bank_balance !== undefined ? fmtMoney(r.bank_balance) : '—'}
       </td>
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+        {r.available_balance !== null && r.available_balance !== undefined ? fmtMoney(r.available_balance) : '—'}
+      </td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
         {fmtMoney(r.gl_balance)}
+      </td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: r.bank_balance != null && Math.abs(Number(r.bank_balance) - Number(r.gl_balance)) >= 0.005 ? '#b45309' : undefined }}>
+        {r.bank_balance !== null && r.bank_balance !== undefined ? fmtMoney(Number(r.bank_balance) - Number(r.gl_balance)) : '—'}
       </td>
       <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
         <Link
@@ -199,7 +207,7 @@ function DepositRow({ row: r, onChanged, navigate }) {
     </tr>
     {err && (
       <tr data-testid={`treasury-deposit-err-${r.id}`}>
-        <td colSpan={9} style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 16 }}>{err}</td>
+        <td colSpan={11} style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 16 }}>{err}</td>
       </tr>
     )}
     </>
