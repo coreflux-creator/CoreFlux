@@ -7,6 +7,7 @@ require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/sub_tenants.php';
 require_once __DIR__ . '/../core/connecteam/client.php';
 require_once __DIR__ . '/../core/connecteam/reconcile.php';
+require_once __DIR__ . '/../core/connecteam/work_routing.php';
 require_once __DIR__ . '/../core/integrations/entity_mappings.php';
 require_once __DIR__ . '/../modules/people/lib/audit.php';
 require_once __DIR__ . '/../modules/people/lib/people.php';
@@ -144,6 +145,23 @@ function connecteamApiTenantContext(int $tenantId, int $peopleTenantId, int $pla
     ];
 }
 
+function connecteamApiWorkRoutePerson(int $peopleTenantId, string $sourceUserId): ?array
+{
+    if ($sourceUserId === '') return null;
+    $mapping = mappingFindInternal($peopleTenantId, 'connecteam', 'person', $sourceUserId);
+    if (!$mapping) return null;
+    $person = connecteamApiPerson($peopleTenantId, (int) $mapping['internal_entity_id']);
+    return $person ?: null;
+}
+
+function connecteamApiWorkSource(array $catalog, string $kind, string $id): ?array
+{
+    foreach (($catalog[$kind] ?? []) as $item) {
+        if ((string) ($item['id'] ?? '') === $id) return $item;
+    }
+    return null;
+}
+
 switch ($action) {
     case 'status': {
         if ($method !== 'GET') api_error('Method not allowed', 405);
@@ -253,6 +271,301 @@ switch ($action) {
         } catch (\Throwable $e) {
             api_error('Connecteam preview failed: ' . $e->getMessage(), 502);
         }
+    }
+
+    case 'routing': {
+        if ($method !== 'GET') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.connecteam.view');
+        try {
+            api_ok([
+                'routing' => connecteamWorkRoutingSnapshot($tenantId, $peopleTenantId, $placementsTenantId),
+                'tenant_context' => connecteamApiTenantContext($tenantId, $peopleTenantId, $placementsTenantId),
+            ]);
+        } catch (ConnecteamApiException $e) {
+            api_error($e->getMessage(), in_array($e->httpStatus, [401, 403], true) ? $e->httpStatus : 502);
+        } catch (\Throwable $e) {
+            if (str_contains(strtolower($e->getMessage()), 'connecteam_work_')
+                || str_contains(strtolower($e->getMessage()), 'connecteam_overhead_')) {
+                api_error('Connecteam work routing is pending database migration 134.', 503);
+            }
+            api_error('Could not load Connecteam work routing: ' . $e->getMessage(), 500);
+        }
+    }
+
+    case 'save_overhead': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.connecteam.manage');
+        $body = api_json_body();
+        $id = (int) ($body['id'] ?? 0);
+        $code = strtoupper(trim((string) ($body['code'] ?? '')));
+        $name = trim((string) ($body['name'] ?? ''));
+        $department = trim((string) ($body['department'] ?? ''));
+        $timeCategory = trim((string) ($body['time_category'] ?? 'regular_nonbillable'));
+        $accountId = (int) ($body['accounting_account_id'] ?? 0);
+        if ($code === '' || !preg_match('/^[A-Z0-9][A-Z0-9_.-]{0,63}$/', $code)) {
+            api_error('Overhead code must use letters, numbers, dots, dashes, or underscores', 422);
+        }
+        if ($name === '') api_error('Overhead name is required', 422);
+        if (!in_array($timeCategory, CONNECTEAM_OVERHEAD_TIME_CATEGORIES, true)) {
+            api_error('Choose a nonbillable overhead time category', 422);
+        }
+        if ($accountId > 0) {
+            $account = getDB()->prepare(
+                'SELECT id FROM accounting_accounts WHERE tenant_id = :t AND id = :id AND active = 1 LIMIT 1'
+            );
+            $account->execute(['t' => $tenantId, 'id' => $accountId]);
+            if (!$account->fetchColumn()) api_error('The selected expense account is not available in this workspace', 422);
+        }
+        $payload = [
+            'code' => $code,
+            'name' => $name,
+            'department' => $department !== '' ? $department : null,
+            'accounting_account_id' => $accountId > 0 ? $accountId : null,
+            'time_category' => $timeCategory,
+        ];
+        try {
+            if ($id > 0) {
+                $stmt = getDB()->prepare(
+                    'UPDATE connecteam_overhead_categories
+                        SET code = :code, name = :name, department = :department,
+                            accounting_account_id = :accounting_account_id, time_category = :time_category
+                      WHERE tenant_id = :tenant_id AND id = :id AND active = 1'
+                );
+                $stmt->execute($payload + ['tenant_id' => $tenantId, 'id' => $id]);
+                if ($stmt->rowCount() === 0) api_error('Overhead category not found or unchanged', 404);
+            } else {
+                $stmt = getDB()->prepare(
+                    'INSERT INTO connecteam_overhead_categories
+                        (tenant_id, code, name, department, accounting_account_id, time_category, created_by_user_id)
+                     VALUES
+                        (:tenant_id, :code, :name, :department, :accounting_account_id, :time_category, :created_by)'
+                );
+                $stmt->execute($payload + ['tenant_id' => $tenantId, 'created_by' => $userId]);
+                $id = (int) getDB()->lastInsertId();
+            }
+        } catch (\PDOException $e) {
+            if ((string) $e->getCode() === '23000') api_error('That overhead code already exists', 409);
+            throw $e;
+        }
+        connecteamAudit($tenantId, 'overhead_category_saved', [
+            'actor_user_id' => $userId,
+            'items_inspected' => 1,
+            'detail' => ['id' => $id, 'code' => $code],
+        ]);
+        api_ok(['ok' => true, 'id' => $id]);
+    }
+
+    case 'delete_overhead': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.connecteam.manage');
+        $body = api_json_body();
+        $id = (int) ($body['id'] ?? 0);
+        if ($id <= 0) api_error('id required', 422);
+        $used = getDB()->prepare(
+            'SELECT COUNT(*) FROM connecteam_work_routes
+              WHERE tenant_id = :t AND overhead_category_id = :id AND active = 1'
+        );
+        $used->execute(['t' => $tenantId, 'id' => $id]);
+        if ((int) $used->fetchColumn() > 0) api_error('Remove active work routes before deleting this overhead category', 409);
+        $stmt = getDB()->prepare(
+            'UPDATE connecteam_overhead_categories SET active = 0 WHERE tenant_id = :t AND id = :id AND active = 1'
+        );
+        $stmt->execute(['t' => $tenantId, 'id' => $id]);
+        if ($stmt->rowCount() === 0) api_error('Overhead category not found', 404);
+        connecteamAudit($tenantId, 'overhead_category_deleted', [
+            'actor_user_id' => $userId, 'items_inspected' => 1, 'detail' => ['id' => $id],
+        ]);
+        api_ok(['ok' => true]);
+    }
+
+    case 'save_route': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.connecteam.manage');
+        $body = api_json_body();
+        $routeId = (int) ($body['id'] ?? 0);
+        $sourceJobId = trim((string) ($body['source_job_id'] ?? ''));
+        $sourceSubJobId = trim((string) ($body['source_sub_job_id'] ?? ''));
+        $sourceUserId = trim((string) ($body['source_user_id'] ?? ''));
+        $destination = trim((string) ($body['destination_type'] ?? ''));
+        try {
+            $effectiveFrom = connecteamWorkDate((string) ($body['effective_from'] ?? ''), 'effective_from');
+            $effectiveTo = trim((string) ($body['effective_to'] ?? ''));
+            if ($effectiveTo !== '') {
+                $effectiveTo = connecteamWorkDate($effectiveTo, 'effective_to');
+                if ($effectiveTo < $effectiveFrom) api_error('effective_to must be on or after effective_from', 422);
+            }
+        } catch (\InvalidArgumentException $e) {
+            api_error($e->getMessage(), 422);
+        }
+        if ($sourceJobId === '') api_error('Choose a Connecteam work category', 422);
+        if (!in_array($destination, ['placement', 'overhead'], true)) api_error('Choose a CoreFlux destination', 422);
+
+        $catalog = connecteamRoutingSourceCatalog($tenantId, $peopleTenantId);
+        $sourceJob = connecteamApiWorkSource($catalog, 'jobs', $sourceJobId);
+        if (!$sourceJob) api_error('That Connecteam work category is no longer available', 422);
+        $sourceUser = $sourceUserId !== '' ? connecteamApiWorkSource($catalog, 'users', $sourceUserId) : null;
+        if ($sourceUserId !== '' && !$sourceUser) api_error('That Connecteam worker is no longer available', 422);
+        $person = connecteamApiWorkRoutePerson($peopleTenantId, $sourceUserId);
+
+        $placementId = null;
+        $overheadId = null;
+        $timeCategory = trim((string) ($body['time_category'] ?? ($destination === 'placement' ? 'regular_billable' : 'regular_nonbillable')));
+        if (!in_array($timeCategory, CONNECTEAM_ROUTE_TIME_CATEGORIES, true)) api_error('Choose a valid time category', 422);
+        if ($destination === 'placement') {
+            if ($sourceUserId === '' || !$person) api_error('Placement routes require a Connecteam worker linked to a CoreFlux person', 422);
+            $placementId = (int) ($body['placement_id'] ?? 0);
+            $placement = getDB()->prepare(
+                'SELECT id, person_id, title, start_date, end_date
+                   FROM placements
+                  WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL LIMIT 1'
+            );
+            $placement->execute(['t' => $placementsTenantId, 'id' => $placementId]);
+            $placementRow = $placement->fetch(\PDO::FETCH_ASSOC) ?: null;
+            if (!$placementRow) api_error('Choose an available CoreFlux placement', 422);
+            if ((int) $placementRow['person_id'] !== (int) $person['id']) {
+                api_error('The selected placement belongs to a different CoreFlux person', 422);
+            }
+            if ($effectiveFrom < (string) $placementRow['start_date']
+                || (!empty($placementRow['end_date']) && $effectiveFrom > (string) $placementRow['end_date'])) {
+                api_error('The route start date must fall within the placement dates', 422);
+            }
+            if (!empty($placementRow['end_date'])) {
+                if ($effectiveTo !== '' && $effectiveTo > (string) $placementRow['end_date']) {
+                    api_error('The route end date cannot be after the placement end date', 422);
+                }
+                if ($effectiveTo === '') $effectiveTo = (string) $placementRow['end_date'];
+            }
+        } else {
+            $overheadId = (int) ($body['overhead_category_id'] ?? 0);
+            $overhead = getDB()->prepare(
+                'SELECT id, time_category FROM connecteam_overhead_categories
+                  WHERE tenant_id = :t AND id = :id AND active = 1 LIMIT 1'
+            );
+            $overhead->execute(['t' => $tenantId, 'id' => $overheadId]);
+            $overheadRow = $overhead->fetch(\PDO::FETCH_ASSOC) ?: null;
+            if (!$overheadRow) api_error('Choose an available overhead destination', 422);
+            $timeCategory = (string) $overheadRow['time_category'];
+        }
+
+        $overlap = getDB()->prepare(
+            'SELECT id FROM connecteam_work_routes
+              WHERE tenant_id = :tenant_id
+                AND source_job_id = :source_job_id
+                AND source_sub_job_id = :source_sub_job_id
+                AND source_user_id = :source_user_id
+                AND active = 1
+                AND id <> :id
+                AND effective_from <= :effective_to
+                AND (effective_to IS NULL OR effective_to >= :effective_from)
+              LIMIT 1'
+        );
+        $overlap->execute([
+            'tenant_id' => $tenantId,
+            'source_job_id' => $sourceJobId,
+            'source_sub_job_id' => $sourceSubJobId,
+            'source_user_id' => $sourceUserId,
+            'id' => $routeId,
+            'effective_to' => $effectiveTo !== '' ? $effectiveTo : '9999-12-31',
+            'effective_from' => $effectiveFrom,
+        ]);
+        if ($overlap->fetchColumn()) api_error('This worker and work category already have an overlapping route', 409);
+
+        $params = [
+            'tenant_id' => $tenantId,
+            'source_job_id' => $sourceJobId,
+            'source_sub_job_id' => $sourceSubJobId,
+            'source_job_name' => (string) $sourceJob['name'],
+            'source_user_id' => $sourceUserId,
+            'source_user_name' => $sourceUser ? (string) $sourceUser['name'] : null,
+            'person_id' => $person ? (int) $person['id'] : null,
+            'destination_type' => $destination,
+            'placement_id' => $placementId,
+            'overhead_category_id' => $overheadId,
+            'time_category' => $timeCategory,
+            'effective_from' => $effectiveFrom,
+            'effective_to' => $effectiveTo !== '' ? $effectiveTo : null,
+            'priority' => max(0, min(1000, (int) ($body['priority'] ?? 100))),
+        ];
+        try {
+            if ($routeId > 0) {
+                $stmt = getDB()->prepare(
+                    'UPDATE connecteam_work_routes
+                        SET source_job_id = :source_job_id, source_sub_job_id = :source_sub_job_id,
+                            source_job_name = :source_job_name, source_user_id = :source_user_id,
+                            source_user_name = :source_user_name, person_id = :person_id,
+                            destination_type = :destination_type, placement_id = :placement_id,
+                            overhead_category_id = :overhead_category_id, time_category = :time_category,
+                            effective_from = :effective_from, effective_to = :effective_to, priority = :priority
+                      WHERE tenant_id = :tenant_id AND id = :id AND active = 1'
+                );
+                $stmt->execute($params + ['id' => $routeId]);
+                if ($stmt->rowCount() === 0) api_error('Work route not found or unchanged', 404);
+            } else {
+                $stmt = getDB()->prepare(
+                    'INSERT INTO connecteam_work_routes
+                        (tenant_id, source_job_id, source_sub_job_id, source_job_name,
+                         source_user_id, source_user_name, person_id, destination_type,
+                         placement_id, overhead_category_id, time_category, effective_from,
+                         effective_to, priority, created_by_user_id)
+                     VALUES
+                        (:tenant_id, :source_job_id, :source_sub_job_id, :source_job_name,
+                         :source_user_id, :source_user_name, :person_id, :destination_type,
+                         :placement_id, :overhead_category_id, :time_category, :effective_from,
+                         :effective_to, :priority, :created_by)'
+                );
+                $stmt->execute($params + ['created_by' => $userId]);
+                $routeId = (int) getDB()->lastInsertId();
+            }
+        } catch (\PDOException $e) {
+            if ((string) $e->getCode() === '23000') api_error('That route already exists', 409);
+            throw $e;
+        }
+        connecteamAudit($tenantId, 'work_route_saved', [
+            'actor_user_id' => $userId,
+            'items_inspected' => 1,
+            'detail' => ['id' => $routeId, 'source_job_id' => $sourceJobId, 'source_user_id' => $sourceUserId, 'destination_type' => $destination],
+        ]);
+        api_ok(['ok' => true, 'id' => $routeId]);
+    }
+
+    case 'delete_route': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.connecteam.manage');
+        $body = api_json_body();
+        $id = (int) ($body['id'] ?? 0);
+        if ($id <= 0) api_error('id required', 422);
+        $stmt = getDB()->prepare(
+            'UPDATE connecteam_work_routes SET active = 0 WHERE tenant_id = :t AND id = :id AND active = 1'
+        );
+        $stmt->execute(['t' => $tenantId, 'id' => $id]);
+        if ($stmt->rowCount() === 0) api_error('Work route not found', 404);
+        connecteamAudit($tenantId, 'work_route_deleted', [
+            'actor_user_id' => $userId, 'items_inspected' => 1, 'detail' => ['id' => $id],
+        ]);
+        api_ok(['ok' => true]);
+    }
+
+    case 'time_preview': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.connecteam.manage');
+        $body = api_json_body();
+        $startDate = (string) ($body['start_date'] ?? date('Y-m-d', strtotime('-13 days')));
+        $endDate = (string) ($body['end_date'] ?? date('Y-m-d'));
+        try {
+            $timePreview = connecteamTimePreview($tenantId, $peopleTenantId, $startDate, $endDate);
+        } catch (\InvalidArgumentException $e) {
+            api_error($e->getMessage(), 422);
+        } catch (ConnecteamApiException $e) {
+            api_error($e->getMessage(), in_array($e->httpStatus, [401, 403], true) ? $e->httpStatus : 502);
+        } catch (\Throwable $e) {
+            api_error('Could not preview Connecteam time: ' . $e->getMessage(), 500);
+        }
+        connecteamAudit($tenantId, 'time_routing_preview', [
+            'actor_user_id' => $userId,
+            'items_inspected' => (int) $timePreview['source_count'],
+            'detail' => ['start_date' => $startDate, 'end_date' => $endDate, 'counts' => $timePreview['counts']],
+        ]);
+        api_ok(['ok' => true, 'preview' => $timePreview]);
     }
 
     case 'people_search': {

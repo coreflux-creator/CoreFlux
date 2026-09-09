@@ -81,8 +81,8 @@ function connecteamCapabilityDefinitions(): array
         'jobs' => [
             'label' => 'Jobs and sub-jobs', 'group' => 'Work',
             'path' => '/jobs/v1/jobs?limit=500&includeDeleted=false',
-            'collections' => ['jobs'], 'direction' => 'CoreFlux to Connecteam',
-            'destination' => 'Placement execution jobs',
+            'collections' => ['jobs'], 'direction' => 'Connecteam context; CoreFlux routes',
+            'destination' => 'Work categories used by time routing',
         ],
         'schedulers' => [
             'label' => 'Schedules and shifts', 'group' => 'Work',
