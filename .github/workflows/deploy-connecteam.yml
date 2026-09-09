@@ -57,16 +57,19 @@ jobs:
             api/integrations/mappings.php \
             core/connecteam \
             core/migrations/133_connecteam_integration_foundation.sql \
+            core/migrations/134_connecteam_work_routing.sql \
             core/rbac/legacy_map.php \
             dashboard/dist/index.html \
             dashboard/src/pages/AdminModule.jsx \
             dashboard/src/pages/ConnecteamSettings.jsx \
+            dashboard/src/pages/ConnecteamWorkRouting.jsx \
             dashboard/src/pages/IntegrationsHub.jsx \
             index.html \
             scripts/opcache_flush_deploy.php.template \
             spa-assets/index.html \
             spa-assets/sw.js \
             tests/connecteam_foundation_smoke.php \
+            tests/connecteam_work_routing_smoke.php \
             "${ROOT_ASSETS[@]}"
 
       - name: Stage Connecteam release
@@ -103,6 +106,7 @@ jobs:
             tar -xzf "$STAGE_ROOT/coreflux-connecteam-release.tar.gz" -C "$STAGE_ROOT"
             rm -f -- "$STAGE_ROOT/coreflux-connecteam-release.tar.gz"
             test -f "$STAGE_ROOT/core/migrations/133_connecteam_integration_foundation.sql"
+            test -f "$STAGE_ROOT/core/migrations/134_connecteam_work_routing.sql"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
@@ -111,20 +115,21 @@ jobs:
             trap cleanup_deploy EXIT
 
             mkdir -p "$APP_ROOT/core/migrations"
-            cp --no-preserve=mode,ownership,timestamps \
-              "$STAGE_ROOT/core/migrations/133_connecteam_integration_foundation.sql" \
-              "$APP_ROOT/core/migrations/133_connecteam_integration_foundation.sql"
+            cp --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/core/migrations/13{3,4}_connecteam_*.sql "$APP_ROOT/core/migrations/"
             cd "$APP_ROOT"
             php deploy/run_migrations.php
             php deploy/run_migrations.php --status | grep -F 'core/migrations/133_connecteam_integration_foundation.sql'
+            php deploy/run_migrations.php --status | grep -F 'core/migrations/134_connecteam_work_routing.sql'
 
             cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
             php -l api/connecteam.php
             php -l api/integrations/mappings.php
             php -l core/connecteam/client.php
             php -l core/connecteam/reconcile.php
+            php -l core/connecteam/work_routing.php
             php tests/connecteam_foundation_smoke.php
-            php -r 'require "core/api_bootstrap.php"; $db=getDB(); foreach (["connecteam_connections", "connecteam_sync_audit"] as $table) { $q=$db->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:name"); $q->execute(["name"=>$table]); if ((int)$q->fetchColumn() !== 1) { fwrite(STDERR, "$table missing\n"); exit(1); } } echo "Connecteam schema verified.\n";'
+            php tests/connecteam_work_routing_smoke.php
+            php -r 'require "core/api_bootstrap.php"; $db=getDB(); foreach (["connecteam_connections", "connecteam_sync_audit", "connecteam_overhead_categories", "connecteam_work_routes", "connecteam_time_staging"] as $table) { $q=$db->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:name"); $q->execute(["name"=>$table]); if ((int)$q->fetchColumn() !== 1) { fwrite(STDERR, "$table missing\n"); exit(1); } } echo "Connecteam schema verified.\n";'
 
             SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' index.html | head -n 1)"
             test -n "$SPA_ENTRY"
@@ -133,6 +138,8 @@ jobs:
             grep -Fq 'Run reconciliation dry run' "$SPA_ENTRY"
             grep -Fq 'Find CoreFlux person' "$SPA_ENTRY"
             grep -Fq 'Create and link' "$SPA_ENTRY"
+            grep -Fq 'Work assignment and time routing' "$SPA_ENTRY"
+            grep -Fq 'Approved time routing preview' "$SPA_ENTRY"
             grep -Fq -- "- $SPA_ENTRY" .deploy-version
 
             OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
@@ -146,4 +153,5 @@ jobs:
             PURGE_STATUS="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X PURGE -H 'Host: www.corefluxapp.com' 'http://127.0.0.1/' || true)"
             case "$PURGE_STATUS" in 200|204) ;; *) echo "Homepage cache purge failed with HTTP $PURGE_STATUS." >&2; exit 1 ;; esac
             curl -fsS --max-time 20 "https://www.corefluxapp.com/$SPA_ENTRY" | grep -Fq 'connecteam-settings'
+            curl -fsS --max-time 20 "https://www.corefluxapp.com/$SPA_ENTRY" | grep -Fq 'Work assignment and time routing'
             echo "Deployed and verified Connecteam integration at commit ${{ github.sha }}."
