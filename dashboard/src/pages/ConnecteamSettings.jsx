@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  AlertCircle, ChevronLeft, Clock3, KeyRound, Link2,
+  AlertCircle, ChevronLeft, KeyRound, Link2,
   RefreshCw, Search, ShieldCheck, Unlink, Unplug, UserPlus, UsersRound, X,
 } from 'lucide-react';
 import { api, useApi } from '../lib/api';
+import ConnecteamWorkRouting from './ConnecteamWorkRouting';
 
 const STATE_META = {
   available: { label: 'Available', color: '#047857', bg: '#d1fae5' },
@@ -347,6 +348,7 @@ export default function ConnecteamSettings({ session }) {
   const [failure, setFailure] = useState('');
   const [liveProbe, setLiveProbe] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [routingRevision, setRoutingRevision] = useState(0);
 
   useEffect(() => {
     if (data?.region) setRegion(data.region);
@@ -402,6 +404,7 @@ export default function ConnecteamSettings({ session }) {
   const refreshPreviewAfterIdentityChange = async (successMessage) => {
     const result = await api.post('/api/connecteam/preview.php?action=preview', {});
     setPreview(result.preview);
+    setRoutingRevision(value => value + 1);
     setMessage(successMessage);
   };
 
@@ -555,21 +558,20 @@ export default function ConnecteamSettings({ session }) {
           <section style={{ marginTop: 28, borderTop: '1px solid var(--cf-border)', paddingTop: 20 }} data-testid="connecteam-reconciliation">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <ShieldCheck size={18} color="#047857" />
-              <h2 style={{ margin: 0, fontSize: 18 }}>Identity and placement reconciliation</h2>
+              <h2 style={{ margin: 0, fontSize: 18 }}>People identity reconciliation</h2>
             </div>
-            <p style={{ margin: '7px 0 0', color: 'var(--cf-text-secondary)', maxWidth: 1100 }}>CoreFlux P-ID is the canonical person. JobDiva candidate IDs, Connecteam user IDs, and other source identities can all link to the same P-ID without replacing one another. Email, phone, name, and title matches remain review-only until you approve them.</p>
+            <p style={{ margin: '7px 0 0', color: 'var(--cf-text-secondary)', maxWidth: 1100 }}>CoreFlux P-ID is the canonical person. JobDiva candidate IDs, Connecteam user IDs, and other source identities can all link to the same P-ID without replacing one another. Email, phone, and name matches remain review-only until you approve them.</p>
             {preview ? (
-              <>
-                <ReconciliationSection
-                  title="People" icon={UsersRound} result={preview.people} kind="person"
-                  busy={Boolean(busy)} onLink={linkPerson} onUnlink={unlinkPerson} onCreate={createPerson}
-                />
-                <ReconciliationSection title="Placement jobs" icon={Clock3} result={preview.jobs} kind="placement" busy={Boolean(busy)} />
-              </>
+              <ReconciliationSection
+                title="People" icon={UsersRound} result={preview.people} kind="person"
+                busy={Boolean(busy)} onLink={linkPerson} onUnlink={unlinkPerson} onCreate={createPerson}
+              />
             ) : (
               <div style={{ marginTop: 16, padding: '20px 0', color: 'var(--cf-text-secondary)' }}>No reconciliation preview has been run.</div>
             )}
           </section>
+
+          <ConnecteamWorkRouting connected={connected} revision={routingRevision} />
         </div>
       ) : null}
     </div>
