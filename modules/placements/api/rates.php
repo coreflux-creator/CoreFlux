@@ -176,6 +176,7 @@ if ($method === 'POST') {
     };
     $percentFields = [
         'adder_pct','bill_adder_pct','bill_discount_pct','workers_comp_pct','benefits_load_pct',
+        'c2c_overhead_pct',
     ];
     foreach ($percentFields as $field) {
         $value = $nullableNumber($field);
@@ -200,6 +201,7 @@ if ($method === 'POST') {
         'bill_discount_flat' => $nullableNumber('bill_discount_flat'),
         'workers_comp_pct' => $nullableNumber('workers_comp_pct'),
         'benefits_load_pct' => $nullableNumber('benefits_load_pct'),
+        'c2c_overhead_pct' => $nullableNumber('c2c_overhead_pct'),
         'other_cost_per_hour' => $nullableNumber('other_cost_per_hour'),
         'other_cost_flat' => $nullableNumber('other_cost_flat'),
         'background_fee_total' => $body['background_fee_total'] ?? null,

@@ -218,7 +218,7 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             'adder_pct', 'background_fee_total',
             'bill_adder_pct', 'bill_adder_flat',
             'bill_discount_pct', 'bill_discount_flat',
-            'workers_comp_pct', 'benefits_load_pct',
+            'workers_comp_pct', 'benefits_load_pct', 'c2c_overhead_pct',
             'other_cost_per_hour', 'other_cost_flat',
             // -- placements (cycle config, migration 002_cycles +
             //    002_cycle_config). Mappable so JobDiva tenants can

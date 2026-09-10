@@ -651,6 +651,7 @@ function integrationFieldMapInsertPlacementRateRow(
     $billDiscountFlat = array_key_exists('bill_discount_flat', $set) ? integrationFieldMapNumberValue($set['bill_discount_flat']) : null;
     $workersCompPct = array_key_exists('workers_comp_pct', $set) ? integrationFieldMapPercentValue($set['workers_comp_pct']) : null;
     $benefitsLoadPct = array_key_exists('benefits_load_pct', $set) ? integrationFieldMapPercentValue($set['benefits_load_pct']) : null;
+    $c2cOverheadPct = array_key_exists('c2c_overhead_pct', $set) ? integrationFieldMapPercentValue($set['c2c_overhead_pct']) : null;
     $otherCostPerHour = array_key_exists('other_cost_per_hour', $set) ? integrationFieldMapNumberValue($set['other_cost_per_hour']) : null;
     $otherCostFlat = array_key_exists('other_cost_flat', $set) ? integrationFieldMapNumberValue($set['other_cost_flat']) : null;
 
@@ -662,13 +663,15 @@ function integrationFieldMapInsertPlacementRateRow(
                  bill_rate, bill_rate_unit, pay_rate, pay_rate_unit, currency,
                  ot_multiplier, dt_multiplier, adder_pct, background_fee_total,
                  bill_adder_pct, bill_adder_flat, bill_discount_pct, bill_discount_flat,
-                 workers_comp_pct, benefits_load_pct, other_cost_per_hour, other_cost_flat)
+                 workers_comp_pct, benefits_load_pct, c2c_overhead_pct,
+                 other_cost_per_hour, other_cost_flat)
              VALUES
                 (:t, :p, :ef, :et,
                  :br, :bru, :pr, :pru, :cur,
                  :ot, :dt, :adder, :bg,
                  :bill_adder_pct, :bill_adder_flat, :bill_discount_pct, :bill_discount_flat,
-                 :workers_comp_pct, :benefits_load_pct, :other_cost_per_hour, :other_cost_flat)'
+                 :workers_comp_pct, :benefits_load_pct, :c2c_overhead_pct,
+                 :other_cost_per_hour, :other_cost_flat)'
         )->execute([
             't' => $tenantId,
             'p' => $placementId,
@@ -689,6 +692,7 @@ function integrationFieldMapInsertPlacementRateRow(
             'bill_discount_flat' => $billDiscountFlat,
             'workers_comp_pct' => $workersCompPct,
             'benefits_load_pct' => $benefitsLoadPct,
+            'c2c_overhead_pct' => $c2cOverheadPct,
             'other_cost_per_hour' => $otherCostPerHour,
             'other_cost_flat' => $otherCostFlat,
         ]);
@@ -1196,6 +1200,7 @@ function integrationFieldMapJobDivaContractOwnsTarget(
             'bill_discount_pct' => ['vms_fee_pct', 'payment_discount_pct'],
             'workers_comp_pct' => ['workers_comp_pct'],
             'benefits_load_pct' => ['benefits_load_pct'],
+            'c2c_overhead_pct' => ['c2c_overhead_pct'],
             'other_cost_per_hour' => ['other_cost_per_hour'],
             'other_cost_flat' => ['other_cost_flat'],
         ],

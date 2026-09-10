@@ -947,10 +947,10 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
     $missingApTerms = array_values(array_filter($apPayables, static fn(array $r): bool =>
         trim((string) ($r['payment_terms'] ?? $r['vendor_default_terms'] ?? '')) === ''
     ));
-    $tenantDefaults = staffingEconomicsTenantW2Defaults($tenantId, $pdo);
-    $tenantW2Defaults = $engagement === 'w2' ? $tenantDefaults : null;
-    $model = placementEconomicsModel($tenantId, $placementId, $parties, $tenantW2Defaults);
-    $contractModel = placementEconomicsCurrentContractModel($tenantId, $placementId, $parties, $tenantW2Defaults);
+    $tenantDefaults = staffingEconomicsTenantDefaults($tenantId, $pdo);
+    $classificationDefaults = in_array($engagement, ['w2', 'c2c'], true) ? $tenantDefaults : null;
+    $model = placementEconomicsModel($tenantId, $placementId, $parties, $classificationDefaults, $engagement);
+    $contractModel = placementEconomicsCurrentContractModel($tenantId, $placementId, $parties, $classificationDefaults, $engagement);
     $sourceEvidence = placementEconomicsLatestSourceEvidence($tenantId, $placementId);
     $sourceOverheads = is_array($sourceEvidence['source_overheads'] ?? null)
         ? $sourceEvidence['source_overheads']
@@ -958,6 +958,12 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
     $w2OverheadEnabled = ($placement['engagement_type'] ?? '') === 'w2'
         && !empty($sourceOverheads['w2']);
     $missingW2OverheadCost = placementEconomicsMissingW2OverheadCost(
+        $placement,
+        $sourceOverheads,
+        $model
+    );
+    $c2cOverheadEnabled = $engagement === 'c2c' && !empty($sourceOverheads['c2c']);
+    $missingC2cOverheadCost = placementEconomicsMissingC2COverheadCost(
         $placement,
         $sourceOverheads,
         $model
@@ -986,6 +992,9 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         'w2_overhead_enabled' => $w2OverheadEnabled,
         'w2_overhead_cost_configured' => $w2OverheadEnabled && !$missingW2OverheadCost,
         'missing_w2_overhead_cost' => $missingW2OverheadCost,
+        'c2c_overhead_enabled' => $c2cOverheadEnabled,
+        'c2c_overhead_cost_configured' => $c2cOverheadEnabled && !$missingC2cOverheadCost,
+        'missing_c2c_overhead_cost' => $missingC2cOverheadCost,
     ];
     $readiness['ready'] = $readiness['unresolved_parties'] === 0
         && !$readiness['missing_receivable_party']
@@ -1000,7 +1009,8 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         && !$readiness['missing_payroll_cycle']
         && !$readiness['missing_ar_payment_terms']
         && !$readiness['missing_ap_payment_terms']
-        && !$readiness['missing_w2_overhead_cost'];
+        && !$readiness['missing_w2_overhead_cost']
+        && !$readiness['missing_c2c_overhead_cost'];
 
     return [
         'available' => true,
@@ -1010,6 +1020,7 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         'model' => $model,
         'contract_model' => $contractModel,
         'tenant_w2_defaults' => $tenantDefaults,
+        'tenant_economics_defaults' => $tenantDefaults,
         'source_contract' => $sourceEvidence['source_contract'],
         'source_overheads' => $sourceEvidence['source_overheads'],
         'readiness' => $readiness,
@@ -1088,7 +1099,8 @@ function placementEconomicsModelForRate(
     int $placementId,
     array $rate,
     ?array $parties = null,
-    ?array $tenantW2Defaults = null
+    ?array $tenantDefaults = null,
+    ?string $engagementType = null
 ): array {
     $parties = $parties ?? placementEconomicsParties($tenantId, $placementId);
     $billRate = max(0, (float) ($rate['bill_rate'] ?? 0));
@@ -1119,6 +1131,15 @@ function placementEconomicsModelForRate(
         ($party['money_flow'] ?? '') === 'payable' && ($party['fee_basis'] ?? '') === 'pay_rate'
     ));
     $laborPayee = count($laborPayees) === 1 ? $laborPayees[0] : null;
+    if ($engagementType === null || $engagementType === '') {
+        $engagementType = match (true) {
+            ($laborPayee['role'] ?? '') === 'c2c_vendor' => 'c2c',
+            ($laborPayee['settlement_channel'] ?? '') === 'payroll' => 'w2',
+            default => '',
+        };
+    }
+    $isW2 = $engagementType === 'w2';
+    $isC2C = $engagementType === 'c2c';
     $hourlyLines = [];
     if ($payRate > 0) {
         $hourlyLines[] = [
@@ -1156,7 +1177,9 @@ function placementEconomicsModelForRate(
         }
     }
 
-    $resolvedEmployerCosts = staffingEconomicsResolveW2Costs($rate, $tenantW2Defaults);
+    $resolvedEmployerCosts = $isW2
+        ? staffingEconomicsResolveW2Costs($rate, $tenantDefaults)
+        : staffingEconomicsResolveW2Costs([], null);
     foreach ([
         ['Payroll / employer load', 'employer_load', (float) $resolvedEmployerCosts['rates']['adder_pct']],
         ['Workers compensation', 'workers_comp', (float) $resolvedEmployerCosts['rates']['workers_comp_pct']],
@@ -1166,6 +1189,19 @@ function placementEconomicsModelForRate(
         $hourlyLines[] = [
             'economic_party_id' => null, 'name' => $name, 'role' => $role,
             'basis' => 'pay_rate_pct', 'amount' => round($payRate * $pct, 4),
+            'settlement_channel' => 'none',
+        ];
+    }
+    $resolvedC2COverhead = $isC2C
+        ? staffingEconomicsResolveC2COverhead($rate, $tenantDefaults)
+        : staffingEconomicsResolveC2COverhead([], null);
+    if ($resolvedC2COverhead['rate'] > 0 && $payRate > 0) {
+        $hourlyLines[] = [
+            'economic_party_id' => null,
+            'name' => 'C2C overhead / load',
+            'role' => 'c2c_overhead',
+            'basis' => 'pay_rate_pct',
+            'amount' => round($payRate * $resolvedC2COverhead['rate'], 4),
             'settlement_channel' => 'none',
         ];
     }
@@ -1223,7 +1259,10 @@ function placementEconomicsModelForRate(
         'fixed_obligations' => round(array_sum(array_column($fixedLines, 'amount')), 2),
         'employer_cost_rates' => $resolvedEmployerCosts['rates'],
         'employer_cost_sources' => $resolvedEmployerCosts['sources'],
-        'tenant_w2_defaults' => $tenantW2Defaults,
+        'c2c_overhead_rate' => $resolvedC2COverhead['rate'],
+        'c2c_overhead_source' => $resolvedC2COverhead['source'],
+        'tenant_w2_defaults' => $tenantDefaults,
+        'tenant_economics_defaults' => $tenantDefaults,
         'revenue_lines' => $revenueLines,
         'hourly_lines' => $hourlyLines,
         'fixed_lines' => $fixedLines,
@@ -1239,11 +1278,32 @@ function placementEconomicsW2DefaultsForPlacement(int $tenantId, int $placementI
     return $stmt->fetchColumn() === 'w2' ? staffingEconomicsTenantW2Defaults($tenantId) : null;
 }
 
+function placementEconomicsDefaultsForPlacement(int $tenantId, int $placementId): ?array
+{
+    $stmt = getDB()->prepare(
+        'SELECT engagement_type FROM placements WHERE tenant_id = :tenant_id AND id = :placement_id LIMIT 1'
+    );
+    $stmt->execute(['tenant_id' => $tenantId, 'placement_id' => $placementId]);
+    return in_array((string) $stmt->fetchColumn(), ['w2', 'c2c'], true)
+        ? staffingEconomicsTenantDefaults($tenantId)
+        : null;
+}
+
+function placementEconomicsEngagementForPlacement(int $tenantId, int $placementId): string
+{
+    $stmt = getDB()->prepare(
+        'SELECT engagement_type FROM placements WHERE tenant_id = :tenant_id AND id = :placement_id LIMIT 1'
+    );
+    $stmt->execute(['tenant_id' => $tenantId, 'placement_id' => $placementId]);
+    return (string) ($stmt->fetchColumn() ?: '');
+}
+
 function placementEconomicsModel(
     int $tenantId,
     int $placementId,
     ?array $parties = null,
-    ?array $tenantW2Defaults = null
+    ?array $tenantDefaults = null,
+    ?string $engagementType = null
 ): array
 {
     $parties = $parties ?? placementEconomicsParties($tenantId, $placementId);
@@ -1258,8 +1318,9 @@ function placementEconomicsModel(
 
     $snapshot = json_decode((string) ($rate['economics_snapshot_json'] ?? ''), true);
     if (is_array($snapshot) && !empty($snapshot['available'])) return $snapshot;
-    $tenantW2Defaults = $tenantW2Defaults ?? placementEconomicsW2DefaultsForPlacement($tenantId, $placementId);
-    return placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties, $tenantW2Defaults);
+    $engagementType = $engagementType ?? placementEconomicsEngagementForPlacement($tenantId, $placementId);
+    $tenantDefaults = $tenantDefaults ?? placementEconomicsDefaultsForPlacement($tenantId, $placementId);
+    return placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties, $tenantDefaults, $engagementType);
 }
 
 /**
@@ -1272,7 +1333,8 @@ function placementEconomicsCurrentContractModel(
     int $tenantId,
     int $placementId,
     ?array $parties = null,
-    ?array $tenantW2Defaults = null
+    ?array $tenantDefaults = null,
+    ?string $engagementType = null
 ): array {
     $parties = $parties ?? placementEconomicsParties($tenantId, $placementId);
     $st = getDB()->prepare(
@@ -1292,8 +1354,9 @@ function placementEconomicsCurrentContractModel(
         $snapshot = json_decode((string) ($rate['economics_snapshot_json'] ?? ''), true);
         if (is_array($snapshot) && !empty($snapshot['available'])) return $snapshot;
     }
-    $tenantW2Defaults = $tenantW2Defaults ?? placementEconomicsW2DefaultsForPlacement($tenantId, $placementId);
-    return placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties, $tenantW2Defaults);
+    $engagementType = $engagementType ?? placementEconomicsEngagementForPlacement($tenantId, $placementId);
+    $tenantDefaults = $tenantDefaults ?? placementEconomicsDefaultsForPlacement($tenantId, $placementId);
+    return placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties, $tenantDefaults, $engagementType);
 }
 
 /**
@@ -1320,14 +1383,29 @@ function placementEconomicsMissingW2OverheadCost(
     return true;
 }
 
+function placementEconomicsMissingC2COverheadCost(
+    array $placement,
+    array $sourceOverheads,
+    array $model
+): bool {
+    if (($placement['engagement_type'] ?? '') !== 'c2c' || empty($sourceOverheads['c2c']) || empty($model['available'])) {
+        return false;
+    }
+    if (($model['c2c_overhead_source'] ?? '') === 'placement_override') {
+        return false;
+    }
+    return (float) ($model['c2c_overhead_rate'] ?? 0) <= 0;
+}
+
 function placementEconomicsApprovalSnapshot(int $tenantId, array $rate): array
 {
     $placementId = (int) ($rate['placement_id'] ?? 0);
     $sourceSnapshot = json_decode((string) ($rate['economics_snapshot_json'] ?? ''), true);
     placementEconomicsReconcile($tenantId, $placementId);
     $parties = placementEconomicsParties($tenantId, $placementId);
-    $tenantW2Defaults = placementEconomicsW2DefaultsForPlacement($tenantId, $placementId);
-    $model = placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties, $tenantW2Defaults);
+    $engagementType = placementEconomicsEngagementForPlacement($tenantId, $placementId);
+    $tenantDefaults = placementEconomicsDefaultsForPlacement($tenantId, $placementId);
+    $model = placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties, $tenantDefaults, $engagementType);
     if ((float) ($model['pay_rate'] ?? 0) > 0 && empty($model['labor_payee_resolved'])) {
         $count = (int) ($model['labor_payee_count'] ?? 0);
         throw new \RuntimeException($count > 1

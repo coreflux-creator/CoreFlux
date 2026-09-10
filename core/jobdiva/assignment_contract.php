@@ -126,6 +126,22 @@ function jobdivaAssignmentContractPickPresent(array $entries, array $labels, ?bo
     return null;
 }
 
+function jobdivaAssignmentContractProfileSelected(array $entries, array $tokens): bool
+{
+    $tokens = array_values(array_filter(array_map(
+        static fn(string $token): string => jobdivaAssignmentContractNormaliseKey($token),
+        $tokens
+    )));
+    foreach ($entries as $entry) {
+        $key = (string) ($entry['norm_key'] ?? '');
+        if ($key === '' || !jobdivaAssignmentContractBool($entry['value'] ?? null)) continue;
+        foreach ($tokens as $token) {
+            if ($token !== '' && str_contains($key, $token)) return true;
+        }
+    }
+    return false;
+}
+
 /** @return array<int,array<string,mixed>> */
 function jobdivaAssignmentContractSectionRows(array $records, string $section): array
 {
@@ -399,8 +415,10 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     $employmentCategory = trim((string) $pick([
         'Employment Category', 'employmentCategory', 'employment_category', 'Employee Category',
     ]));
-    $w2 = jobdivaAssignmentContractBool($pick(['W2', 'W-2', 'W2 Overheads', 'W2 Overhead']));
-    $c2c = jobdivaAssignmentContractBool($pick(['C2C', 'Corp To Corp', 'Crop To Crop', 'C2C Overheads', 'C2C Overhead']));
+    $w2 = jobdivaAssignmentContractBool($pick(['W2', 'W-2', 'W2 Overheads', 'W2 Overhead']))
+        || jobdivaAssignmentContractProfileSelected($entries, ['w2']);
+    $c2c = jobdivaAssignmentContractBool($pick(['C2C', 'Corp To Corp', 'Crop To Crop', 'C2C Overheads', 'C2C Overhead']))
+        || jobdivaAssignmentContractProfileSelected($entries, ['c2c', 'corp to corp', 'crop to crop']);
     $engagement = jobdivaAssignmentContractEngagement($employmentCategory, $w2, $c2c);
 
     $paymentFrequencyRaw = $salaryPick([
@@ -445,6 +463,10 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'Overhead %', 'Overheads %', 'Overhead Percent', 'Payroll Load %', 'Payroll Load Percent',
     ]);
     $overheadPct = jobdivaAssignmentContractPercent($overheadPercentRaw);
+    $c2cOverheadPct = jobdivaAssignmentContractPercent($pick([
+        'C2C Overhead %', 'C2C Overheads %', 'C2C Overhead Percent',
+        'C2C Load %', 'C2C Load Percent', 'c2cOverheadPct', 'c2c_overhead_pct',
+    ]));
     $workersCompPct = jobdivaAssignmentContractPercent($pick([
         'Workers Comp %', 'Workers Comp Percent', 'workersCompPct', 'workers_comp_pct',
     ]));
@@ -673,6 +695,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'payroll_load_pct' => $overheadPct,
         'workers_comp_pct' => $workersCompPct,
         'benefits_load_pct' => $benefitsLoadPct,
+        'c2c_overhead_pct' => $c2cOverheadPct,
         'other_cost_per_hour' => jobdivaAssignmentContractAmount($pick([
             'Other Cost Per Hour', 'Other Costs Per Hour', 'otherCostPerHour', 'other_cost_per_hour',
         ])),
@@ -686,6 +709,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
             'payroll_load_pct' => $overheadPct,
             'workers_comp_pct' => $workersCompPct,
             'benefits_load_pct' => $benefitsLoadPct,
+            'c2c_overhead_pct' => $c2cOverheadPct,
             'per_diem' => jobdivaAssignmentContractAmount($pick(['Per Diem', 'perDiem', 'per_diem'])),
             'other_expenses' => jobdivaAssignmentContractAmount($pick(['Other Expenses', 'otherExpenses', 'other_expenses'])),
             'outside_commission' => jobdivaAssignmentContractAmount($pick([

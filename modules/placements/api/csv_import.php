@@ -81,6 +81,7 @@ CsvImportService::registerSchema('placements', [
         'bill_discount_flat'=> ['label' => 'Client discount per unit', 'type' => 'number'],
         'workers_comp_pct'  => ['label' => 'Workers comp %', 'type' => 'number'],
         'benefits_load_pct' => ['label' => 'Benefits load %', 'type' => 'number'],
+        'c2c_overhead_pct'  => ['label' => 'C2C overhead %', 'type' => 'number'],
         'other_cost_per_hour' => ['label' => 'Other recurring cost per hour', 'type' => 'number'],
         'other_cost_flat'   => ['label' => 'Other fixed cost', 'type' => 'number'],
         'msp_name'          => ['label' => 'MSP name'],
@@ -208,6 +209,7 @@ function placementsCsvBuildRatePayload(array $row): ?array
         'bill_discount_flat' => placementsCsvBlankToNull($row['bill_discount_flat'] ?? null),
         'workers_comp_pct' => placementsCsvPercentToDecimal($row['workers_comp_pct'] ?? null),
         'benefits_load_pct' => placementsCsvPercentToDecimal($row['benefits_load_pct'] ?? null),
+        'c2c_overhead_pct' => placementsCsvPercentToDecimal($row['c2c_overhead_pct'] ?? null),
         'other_cost_per_hour' => placementsCsvBlankToNull($row['other_cost_per_hour'] ?? null),
         'other_cost_flat' => placementsCsvBlankToNull($row['other_cost_flat'] ?? null),
         'background_fee_total' => ($row['background_fee_total'] ?? '') !== ''

@@ -4,7 +4,8 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $read = static fn(string $path): string => (string) file_get_contents($root . '/' . $path);
 
-$migration = $read('core/migrations/128_placement_commercial_contract.sql');
+$migration = $read('core/migrations/128_placement_commercial_contract.sql')
+    . $read('core/migrations/136_c2c_overhead_load.sql');
 $economics = $read('modules/placements/lib/economics.php');
 $approval = $read('modules/placements/lib/rate_approve.php');
 $ratesApi = $read('modules/placements/api/rates.php');
@@ -37,6 +38,7 @@ $rateFields = [
     'bill_discount_flat',
     'workers_comp_pct',
     'benefits_load_pct',
+    'c2c_overhead_pct',
     'other_cost_per_hour',
     'other_cost_flat',
 ];
@@ -102,11 +104,12 @@ $assert('placement has one Contract workflow containing rates and participants',
     && !str_contains($ui, "{ slug: 'rates'")
     && str_contains($ui, '<RatesTab')
     && str_contains($ui, 'Commercial terms by participant'));
-$assert('contract editor exposes revenue adjustments and labor cost loads',
-    str_contains($ui, 'Adders, discounts, and employer costs')
+$assert('contract editor exposes revenue adjustments and classification cost loads',
+    str_contains($ui, 'Adders, discounts, and operating costs')
     && str_contains($ui, 'Client discount %')
     && str_contains($ui, 'Workers compensation %')
     && str_contains($ui, 'Benefits load %')
+    && str_contains($ui, 'C2C overhead / load %')
     && str_contains($ui, 'Other recurring cost / hour'));
 $assert('W-2 overhead without a numeric rate blocks settlement-ready margin',
     str_contains($economics, 'function placementEconomicsMissingW2OverheadCost')
@@ -123,6 +126,7 @@ $model = placementEconomicsModelForRate(1, 1, [
     'adder_pct' => 0.10,
     'workers_comp_pct' => 0.02,
     'benefits_load_pct' => 0.03,
+    'c2c_overhead_pct' => 0.04,
     'other_cost_per_hour' => 1,
     'other_cost_flat' => 25,
     'currency' => 'USD',
@@ -149,13 +153,17 @@ $model = placementEconomicsModelForRate(1, 1, [
 $assert('economic model applies client discount only to AR',
     abs((float) $model['invoice_bill_rate'] - 95.00) < 0.0001);
 $assert('economic model counts labor and every hourly obligation once',
-    abs((float) $model['modeled_hourly_cost'] - 75.40) < 0.0001);
+    abs((float) $model['modeled_hourly_cost'] - 68.80) < 0.0001);
 $assert('economic model produces deterministic margin',
-    abs((float) $model['modeled_hourly_margin'] - 19.60) < 0.0001);
+    abs((float) $model['modeled_hourly_margin'] - 26.20) < 0.0001);
 $assert('economic model carries fixed obligations separately',
     abs((float) $model['fixed_obligations'] - 25.00) < 0.0001);
 $assert('economic model resolves the non-W2 labor recipient',
     !empty($model['labor_payee_resolved']) && (int) $model['labor_payee_count'] === 1);
+$assert('C2C economics includes its load without applying W-2 burden',
+    abs((float) ($model['c2c_overhead_rate'] ?? 0) - 0.04) < 0.000001
+    && count(array_filter($model['hourly_lines'], static fn(array $line): bool => ($line['role'] ?? '') === 'c2c_overhead')) === 1
+    && count(array_filter($model['hourly_lines'], static fn(array $line): bool => in_array(($line['role'] ?? ''), ['employer_load','workers_comp','benefits_load'], true))) === 0);
 $assert('W-2 source flag alone does not qualify as an employer cost',
     placementEconomicsMissingW2OverheadCost(
         ['engagement_type' => 'w2'],
@@ -167,6 +175,18 @@ $assert('an explicit approved employer load resolves the W-2 overhead requiremen
         ['engagement_type' => 'w2'],
         ['w2' => true],
         ['available' => true, 'hourly_lines' => [['role' => 'employer_load', 'amount' => 7.2]]]
+    ));
+$assert('selected C2C overhead profile requires a numeric default or override',
+    placementEconomicsMissingC2COverheadCost(
+        ['engagement_type' => 'c2c'],
+        ['c2c' => true],
+        ['available' => true, 'c2c_overhead_rate' => 0, 'c2c_overhead_source' => 'tenant_default']
+    ));
+$assert('explicit zero can intentionally waive C2C overhead',
+    !placementEconomicsMissingC2COverheadCost(
+        ['engagement_type' => 'c2c'],
+        ['c2c' => true],
+        ['available' => true, 'c2c_overhead_rate' => 0, 'c2c_overhead_source' => 'placement_override']
     ));
 $inheritedModel = placementEconomicsModelForRate(1, 1, [
     'id' => 13, 'bill_rate' => 100, 'pay_rate' => 60, 'currency' => 'USD',
