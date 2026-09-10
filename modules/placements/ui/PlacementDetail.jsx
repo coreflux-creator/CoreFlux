@@ -536,6 +536,19 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
     ['Pass through', sourceOverheads.pass_through],
     ['Pass discount', sourceOverheads.pass_discount],
   ].filter(([, value]) => value !== null && value !== undefined && value !== '');
+  const overheadTreatment = (label, value) => {
+    if (label === 'W-2 overhead') {
+      if (!value) return 'Not applicable';
+      return readiness.w2_overhead_cost_configured
+        ? 'Enabled · included through approved employer-cost rates'
+        : 'Enabled · numeric cost rate missing from margin';
+    }
+    if (label === 'C2C overhead') return value ? 'Classification flag; vendor rate is the labor cost' : 'Not applicable';
+    if (['Payroll / employer load','Workers compensation','Benefits load'].includes(label)) return 'Hourly cost included in margin';
+    if (label === 'Fixed costs') return 'Fixed obligation';
+    if (['Per diem','Other expenses','Outside commission'].includes(label)) return 'Source evidence; requires an explicit cost rule';
+    return 'Source contract reference';
+  };
   const partyRoleOptions = partyForm.settlement_channel === 'ar'
     ? ['end_client', 'client']
     : partyForm.settlement_channel === 'payroll'
@@ -553,6 +566,7 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
     readiness.missing_payroll_cycle && 'Payroll frequency',
     readiness.missing_ar_payment_terms && 'Client payment terms',
     readiness.missing_ap_payment_terms && 'Vendor payment terms',
+    readiness.missing_w2_overhead_cost && 'W-2 employer cost rate',
     readiness.unresolved_parties > 0 && `${readiness.unresolved_parties} unresolved recipient(s)`,
   ].filter(Boolean);
   if (loading) return <p>Loading placement economics...</p>;
@@ -568,11 +582,14 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
       {message && <div className={message.includes('failed') ? 'alert alert--err' : 'alert alert--ok'} style={{ marginTop: 12 }}>{message}</div>}
 
       <section style={{ marginTop: 24 }}>
-        <RatesTab pid={placement.id} rates={rates} reload={refreshAll} embedded />
+        <RatesTab pid={placement.id} rates={rates} reload={refreshAll} embedded employerCostsRequired={readiness.missing_w2_overhead_cost} />
       </section>
 
       {model.available && <section style={{ marginTop: 24 }} data-testid="economics-model-summary">
-        <h4>Approved contract economics</h4>
+        <h4>Approved contract economics{readiness.missing_w2_overhead_cost ? ' · provisional' : ''}</h4>
+        {readiness.missing_w2_overhead_cost && <div className="alert alert--warn" data-testid="w2-overhead-margin-warning" style={{ marginBottom: 12 }}>
+          JobDiva marks W-2 overhead as enabled but supplied no numeric employer-cost rate. The margin below excludes payroll burden, workers compensation, and benefits until an approved rate correction supplies at least one of those costs.
+        </div>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16 }}>
           {[['Base client rate', model.bill_rate], ['Invoice rate', model.invoice_bill_rate ?? model.bill_rate], ['Labor pay rate', model.pay_rate], ['All hourly costs', model.modeled_hourly_cost], ['Modeled margin', model.modeled_hourly_margin]].map(([label, value]) => <div key={label}><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>{label}</span><strong>{model.currency} {Number(value).toFixed(2)} / hour</strong></div>)}
           <div><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>Margin</span><strong>{(Number(model.modeled_margin_pct) * 100).toFixed(2)}%</strong></div>
@@ -592,7 +609,7 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
           <tbody>{overheadSummary.map(([label, value, kind]) => <tr key={label}>
             <td>{label}</td>
             <td>{sourceValue(value, kind)}</td>
-            <td>{['Payroll / employer load','Workers compensation','Benefits load'].includes(label) ? 'Hourly cost' : label === 'Fixed costs' ? 'Fixed obligation' : 'Source contract'}</td>
+            <td>{overheadTreatment(label, value)}</td>
           </tr>)}</tbody>
         </table> : <p className="empty">No assignment overhead values were reported by JobDiva.</p>}
         {Object.keys(rawOverheadFields).length > 0 && <details style={{ marginTop: 10 }}>
@@ -890,7 +907,7 @@ function Field({ label, children }) {
 }
 
 // ── Rates ────────────────────────────────────────────────
-function RatesTab({ pid, rates, reload, embedded = false }) {
+function RatesTab({ pid, rates, reload, embedded = false, employerCostsRequired = false }) {
   const emptyForm = () => ({
     effective_from: new Date().toISOString().slice(0,10),
     bill_rate: '', pay_rate: '', bill_rate_unit: 'hour', pay_rate_unit: 'hour', currency: 'USD',
@@ -1014,8 +1031,11 @@ function RatesTab({ pid, rates, reload, embedded = false }) {
           <Field label="Overtime multiplier"><input className="input" type="number" min="0" step="0.01" value={form.ot_multiplier} onChange={e => setForm({ ...form, ot_multiplier: e.target.value })} /></Field>
           <Field label="Double-time multiplier"><input className="input" type="number" min="0" step="0.01" value={form.dt_multiplier} onChange={e => setForm({ ...form, dt_multiplier: e.target.value })} /></Field>
         </div>
-        <details style={{ marginTop: 8 }}>
+        <details style={{ marginTop: 8 }} defaultOpen={employerCostsRequired}>
           <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Adders, discounts, and employer costs</summary>
+          {employerCostsRequired && <div className="alert alert--warn" style={{ marginTop: 8 }}>
+            Required: enter the applicable payroll/employer load, workers compensation, or benefits percentage before approving this W-2 contract correction.
+          </div>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 8, marginTop: 8 }}>
             <Field label="Client rate adder %"><input className="input" type="number" min="0" step="0.01" value={form.bill_adder_pct} onChange={e => setForm({ ...form, bill_adder_pct: e.target.value })} placeholder="0.00" /></Field>
             <Field label="Client adder per unit"><input className="input" type="number" min="0" step="0.01" value={form.bill_adder_flat} onChange={e => setForm({ ...form, bill_adder_flat: e.target.value })} placeholder="0.00" /></Field>

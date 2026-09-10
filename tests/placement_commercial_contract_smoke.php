@@ -102,6 +102,11 @@ $assert('contract editor exposes revenue adjustments and labor cost loads',
     && str_contains($ui, 'Workers compensation %')
     && str_contains($ui, 'Benefits load %')
     && str_contains($ui, 'Other recurring cost / hour'));
+$assert('W-2 overhead without a numeric rate blocks settlement-ready margin',
+    str_contains($economics, 'function placementEconomicsMissingW2OverheadCost')
+    && str_contains($economics, "'missing_w2_overhead_cost'")
+    && str_contains($ui, 'w2-overhead-margin-warning')
+    && str_contains($ui, 'numeric cost rate missing from margin'));
 
 require_once $root . '/modules/placements/lib/economics.php';
 $model = placementEconomicsModelForRate(1, 1, [
@@ -145,6 +150,18 @@ $assert('economic model carries fixed obligations separately',
     abs((float) $model['fixed_obligations'] - 25.00) < 0.0001);
 $assert('economic model resolves the non-W2 labor recipient',
     !empty($model['labor_payee_resolved']) && (int) $model['labor_payee_count'] === 1);
+$assert('W-2 source flag alone does not qualify as an employer cost',
+    placementEconomicsMissingW2OverheadCost(
+        ['engagement_type' => 'w2'],
+        ['w2' => true],
+        ['available' => true, 'hourly_lines' => [['role' => 'worker', 'amount' => 60]]]
+    ));
+$assert('an explicit approved employer load resolves the W-2 overhead requirement',
+    !placementEconomicsMissingW2OverheadCost(
+        ['engagement_type' => 'w2'],
+        ['w2' => true],
+        ['available' => true, 'hourly_lines' => [['role' => 'employer_load', 'amount' => 7.2]]]
+    ));
 
 echo "Placement commercial contract smoke: {$pass} OK / {$fail} FAIL\n";
 exit($fail === 0 ? 0 : 1);

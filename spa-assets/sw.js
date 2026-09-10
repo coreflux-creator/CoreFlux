@@ -11,7 +11,7 @@
  * primarily rely on this SW for offline shell + faster repeat loads.
  */
 
-const CACHE_VERSION = 'coreflux-Cx2l6SKm';
+const CACHE_VERSION = 'coreflux-DOjVzgyc';
 const APP_SHELL = [
   '/',
   '/spa.php',
