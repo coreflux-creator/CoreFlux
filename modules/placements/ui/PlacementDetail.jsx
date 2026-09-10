@@ -451,6 +451,10 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
   const contractModel = data?.contract_model || model;
   const sourceContract = data?.source_contract || model.source_contract || {};
   const sourceOverheads = data?.source_overheads || model.source_overheads || {};
+  const tenantW2Defaults = data?.tenant_w2_defaults || {};
+  const tenantW2DefaultTotal = Number(tenantW2Defaults.payroll_load_pct || 0)
+    + Number(tenantW2Defaults.workers_comp_pct || 0)
+    + Number(tenantW2Defaults.benefits_load_pct || 0);
   const rawOverheadFields = sourceOverheads.source_fields || {};
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -542,7 +546,9 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
       if (!value) return 'Not applicable';
       return readiness.w2_overhead_cost_configured
         ? 'Enabled · included through approved employer-cost rates'
-        : 'Enabled · numeric cost rate missing from margin';
+        : tenantW2DefaultTotal > 0
+          ? 'Enabled · tenant default awaits approved rate correction'
+          : 'Enabled · numeric cost rate missing from margin';
     }
     if (label === 'C2C overhead') return value ? 'Classification flag; vendor rate is the labor cost' : 'Not applicable';
     if (['Payroll / employer load','Workers compensation','Benefits load'].includes(label)) return 'Hourly cost included in margin';
@@ -585,13 +591,15 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
       {message && <div className={message.includes('failed') ? 'alert alert--err' : 'alert alert--ok'} style={{ marginTop: 12 }}>{message}</div>}
 
       <section style={{ marginTop: 24 }}>
-        <RatesTab pid={placement.id} rates={rates} startDate={placement.start_date} reload={refreshAll} embedded employerCostsRequired={readiness.missing_w2_overhead_cost} />
+        <RatesTab pid={placement.id} rates={rates} startDate={placement.start_date} reload={refreshAll} embedded employerCostsRequired={readiness.missing_w2_overhead_cost} tenantW2Defaults={tenantW2Defaults} isW2={placement.engagement_type === 'w2'} />
       </section>
 
       {contractModel.available && <section style={{ marginTop: 24 }} data-testid="economics-model-summary">
         <h4>{contractModel.approved ? 'Approved contract economics' : 'Current draft economics'}{readiness.missing_w2_overhead_cost ? ' · provisional' : ''}</h4>
         {readiness.missing_w2_overhead_cost && <div className="alert alert--warn" data-testid="w2-overhead-margin-warning" style={{ marginBottom: 12 }}>
-          JobDiva marks W-2 overhead as enabled but supplied no numeric employer-cost rate. The margin below excludes payroll burden, workers compensation, and benefits until an approved rate correction supplies at least one of those costs.
+          JobDiva marks W-2 overhead as enabled but supplied no numeric employer-cost rate. {tenantW2DefaultTotal > 0
+            ? 'Tenant defaults are configured, but this approved rate does not yet lock them. Draft and approve a rate correction to apply them.'
+            : 'The margin below excludes payroll burden, workers compensation, and benefits until tenant defaults or an approved placement override supplies those costs.'}
         </div>}
         {!contractModel.approved && <p style={{ color: 'var(--cf-text-secondary)', margin: '4px 0 12px', fontSize: 13 }}>This is the complete source-backed preview. Billing, AP, and payroll will use it only after approval.</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16 }}>
@@ -946,7 +954,7 @@ function rateDraftForm(rate, startDate) {
   };
 }
 
-function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCostsRequired = false }) {
+function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCostsRequired = false, tenantW2Defaults = {}, isW2 = false }) {
   const sourceDraft = rates.find((rate) => !rate.approved_at) || null;
   const latestRate = sourceDraft || rates[0] || null;
   const [form, setForm] = useState(() => rateDraftForm(latestRate, startDate));
@@ -957,12 +965,22 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
     setForm(rateDraftForm(latestRate, startDate));
   }, [latestRate, startDate]);
 
+  const inheritedPct = (field) => Number(tenantW2Defaults[field] || 0);
+  const effectivePct = (value, defaultField) => value === null || value === undefined || value === ''
+    ? (isW2 ? inheritedPct(defaultField) : 0)
+    : Number(value);
+  const defaultLabel = (field) => `Tenant default ${(inheritedPct(field) * 100).toFixed(2)}%`;
+  const tenantDefaultTotal = inheritedPct('payroll_load_pct') + inheritedPct('workers_comp_pct') + inheritedPct('benefits_load_pct');
+
   const previewRate = (rate) => {
     const bill = Number(rate.bill_rate || 0);
     const pay = Number(rate.pay_rate || 0);
     const invoice = bill * (1 + Number(rate.bill_adder_pct || 0) - Number(rate.bill_discount_pct || 0))
       + Number(rate.bill_adder_flat || 0) - Number(rate.bill_discount_flat || 0);
-    const laborAndLoad = pay * (1 + Number(rate.adder_pct || 0) + Number(rate.workers_comp_pct || 0) + Number(rate.benefits_load_pct || 0))
+    const laborAndLoad = pay * (1
+      + effectivePct(rate.adder_pct, 'payroll_load_pct')
+      + effectivePct(rate.workers_comp_pct, 'workers_comp_pct')
+      + effectivePct(rate.benefits_load_pct, 'benefits_load_pct'))
       + Number(rate.other_cost_per_hour || 0);
     return { invoice: Math.max(0, invoice), margin: invoice - laborAndLoad };
   };
@@ -1051,9 +1069,9 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
           {rates.length === 0 && <tr><td colSpan={8} className="empty" data-testid="rates-empty">No rate rows yet.</td></tr>}
           {rates.map(r => {
             const preview = previewRate(r);
-            const invoiceRate = r.adjusted_bill_rate !== null && r.adjusted_bill_rate !== undefined && r.adjusted_bill_rate !== ''
+            const invoiceRate = r.approved_at && r.adjusted_bill_rate !== null && r.adjusted_bill_rate !== undefined && r.adjusted_bill_rate !== ''
               ? Number(r.adjusted_bill_rate) : preview.invoice;
-            const marginRate = r.net_to_vendor !== null && r.net_to_vendor !== undefined && r.net_to_vendor !== ''
+            const marginRate = r.approved_at && r.net_to_vendor !== null && r.net_to_vendor !== undefined && r.net_to_vendor !== ''
               ? Number(r.net_to_vendor) : preview.margin;
             return <tr key={r.id} data-testid={`rate-row-${r.id}`}>
               <td>{r.effective_from}</td>
@@ -1085,16 +1103,19 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
         <details style={{ marginTop: 8 }} defaultOpen={employerCostsRequired}>
           <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Adders, discounts, and employer costs</summary>
           {employerCostsRequired && <div className="alert alert--warn" style={{ marginTop: 8 }}>
-            Required: enter the applicable payroll/employer load, workers compensation, or benefits percentage before approving this W-2 contract correction.
+            {tenantDefaultTotal > 0
+              ? 'Tenant W-2 defaults are available. Draft and approve this correction; leave a field blank to inherit its default.'
+              : <>Set tenant W-2 defaults in <Link to="/settings/staffing-economics">Staffing economics</Link>, or enter a placement override below.</>}
           </div>}
+          {isW2 && <p style={{ margin: '8px 0', color: 'var(--cf-text-secondary)', fontSize: 13 }}>Blank fields inherit tenant defaults. Enter zero to override a default for this placement.</p>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 8, marginTop: 8 }}>
             <Field label="Client rate adder %"><input className="input" type="number" min="0" step="0.01" value={form.bill_adder_pct} onChange={e => setForm({ ...form, bill_adder_pct: e.target.value })} placeholder="0.00" /></Field>
             <Field label="Client adder per unit"><input className="input" type="number" min="0" step="0.01" value={form.bill_adder_flat} onChange={e => setForm({ ...form, bill_adder_flat: e.target.value })} placeholder="0.00" /></Field>
             <Field label="Client discount %"><input className="input" type="number" min="0" step="0.01" value={form.bill_discount_pct} onChange={e => setForm({ ...form, bill_discount_pct: e.target.value })} placeholder="0.00" /></Field>
             <Field label="Client discount per unit"><input className="input" type="number" min="0" step="0.01" value={form.bill_discount_flat} onChange={e => setForm({ ...form, bill_discount_flat: e.target.value })} placeholder="0.00" /></Field>
-            <Field label="Payroll / employer load %"><input className="input" type="number" min="0" step="0.01" value={form.adder_pct} onChange={e => setForm({ ...form, adder_pct: e.target.value })} placeholder="0.00" /></Field>
-            <Field label="Workers compensation %"><input className="input" type="number" min="0" step="0.01" value={form.workers_comp_pct} onChange={e => setForm({ ...form, workers_comp_pct: e.target.value })} placeholder="0.00" /></Field>
-            <Field label="Benefits load %"><input className="input" type="number" min="0" step="0.01" value={form.benefits_load_pct} onChange={e => setForm({ ...form, benefits_load_pct: e.target.value })} placeholder="0.00" /></Field>
+            <Field label="Payroll / employer load %"><input className="input" type="number" min="0" step="0.01" value={form.adder_pct} onChange={e => setForm({ ...form, adder_pct: e.target.value })} placeholder={isW2 ? defaultLabel('payroll_load_pct') : '0.00'} /></Field>
+            <Field label="Workers compensation %"><input className="input" type="number" min="0" step="0.01" value={form.workers_comp_pct} onChange={e => setForm({ ...form, workers_comp_pct: e.target.value })} placeholder={isW2 ? defaultLabel('workers_comp_pct') : '0.00'} /></Field>
+            <Field label="Benefits load %"><input className="input" type="number" min="0" step="0.01" value={form.benefits_load_pct} onChange={e => setForm({ ...form, benefits_load_pct: e.target.value })} placeholder={isW2 ? defaultLabel('benefits_load_pct') : '0.00'} /></Field>
             <Field label="Other recurring cost / hour"><input className="input" type="number" min="0" step="0.01" value={form.other_cost_per_hour} onChange={e => setForm({ ...form, other_cost_per_hour: e.target.value })} placeholder="0.00" /></Field>
             <Field label="Background / onboarding cost"><input className="input" type="number" min="0" step="0.01" value={form.background_fee_total} onChange={e => setForm({ ...form, background_fee_total: e.target.value })} placeholder="0.00" /></Field>
             <Field label="Other fixed cost"><input className="input" type="number" min="0" step="0.01" value={form.other_cost_flat} onChange={e => setForm({ ...form, other_cost_flat: e.target.value })} placeholder="0.00" /></Field>

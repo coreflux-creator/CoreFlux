@@ -168,6 +168,20 @@ $assert('an explicit approved employer load resolves the W-2 overhead requiremen
         ['w2' => true],
         ['available' => true, 'hourly_lines' => [['role' => 'employer_load', 'amount' => 7.2]]]
     ));
+$inheritedModel = placementEconomicsModelForRate(1, 1, [
+    'id' => 13, 'bill_rate' => 100, 'pay_rate' => 60, 'currency' => 'USD',
+    'adder_pct' => null, 'workers_comp_pct' => null, 'benefits_load_pct' => 0,
+], [[
+    'id' => 1, 'display_name' => 'Employee', 'role' => 'worker',
+    'money_flow' => 'payable', 'settlement_channel' => 'payroll', 'fee_basis' => 'pay_rate',
+]], [
+    'payroll_load_pct' => 0.10, 'workers_comp_pct' => 0.02, 'benefits_load_pct' => 0.04,
+]);
+$assert('tenant W-2 defaults flow through the canonical margin model',
+    abs((float) $inheritedModel['modeled_hourly_cost'] - 67.2) < 0.0001
+    && abs((float) $inheritedModel['modeled_hourly_margin'] - 32.8) < 0.0001
+    && ($inheritedModel['employer_cost_sources']['adder_pct'] ?? '') === 'tenant_default'
+    && ($inheritedModel['employer_cost_sources']['benefits_load_pct'] ?? '') === 'placement_override');
 
 echo "Placement commercial contract smoke: {$pass} OK / {$fail} FAIL\n";
 exit($fail === 0 ? 0 : 1);

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Section, Card } from '../components/UIComponents';
-import { Bell, Moon, Globe, Lock, Mail, ChevronRight, PlugZap } from 'lucide-react';
+import { Bell, Moon, Globe, Lock, Mail, ChevronRight, PlugZap, Calculator } from 'lucide-react';
 
 const SettingsPage = ({ session }) => {
   return (
@@ -12,6 +12,23 @@ const SettingsPage = ({ session }) => {
       </div>
 
       <div style={{ display: 'grid', gap: 'var(--cf-space-5)', maxWidth: '600px' }}>
+        <Link to="/settings/staffing-economics" style={{ textDecoration: 'none', color: 'inherit' }} data-testid="settings-staffing-economics-link">
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-4)' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--cf-green-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--cf-green)' }}>
+                  <Calculator size={20} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 500 }}>Staffing economics</div>
+                  <div style={{ fontSize: 'var(--cf-text-sm)', color: 'var(--cf-text-secondary)' }}>W-2 employer-cost defaults and placement inheritance</div>
+                </div>
+              </div>
+              <ChevronRight size={18} style={{ color: 'var(--cf-text-secondary)' }} />
+            </div>
+          </Card>
+        </Link>
+
         {/* Integrations — single pane of glass for all external connectors */}
         <Link to="/admin/integrations" style={{ textDecoration: 'none', color: 'inherit' }} data-testid="settings-integrations-link">
           <Card>

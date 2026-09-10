@@ -9,6 +9,7 @@ import AuditSnapshot from './pages/AuditSnapshot';
 import ReportsModule from '../../modules/reports/ui/ReportsModule';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
+import StaffingEconomicsSettings from './pages/StaffingEconomicsSettings';
 import MailSettingsPage from './pages/MailSettingsPage';
 import NotificationSendersPage from './pages/NotificationSendersPage';
 import AdminModule from './pages/AdminModule';
@@ -467,6 +468,7 @@ const AppContent = ({ session, usingDemo }) => {
           {/* Profile & Settings */}
           <Route path="/profile" element={<ProfilePage session={session} />} />
           <Route path="/settings" element={<SettingsPage session={session} />} />
+          <Route path="/settings/staffing-economics" element={<StaffingEconomicsSettings session={session} />} />
           <Route path="/settings/mail" element={<MailSettingsPage session={session} />} />
           <Route path="/settings/notifications" element={<NotificationSendersPage session={session} />} />
           {/* Cross-module approval inbox (Sprint 6b) */}
