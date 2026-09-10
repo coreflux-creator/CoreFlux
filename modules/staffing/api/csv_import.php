@@ -17,6 +17,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
+require_once __DIR__ . '/../lib/clients.php';
 
 use Core\CsvImportService;
 
@@ -54,7 +55,8 @@ CsvImportService::registerSchema('staffing_clients', [
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
-$tid    = (int) $ctx['tenant_id'];
+$tid    = staffingClientCatalogTenantId((int) $ctx['tenant_id']);
+setRequestModuleScope('placements');
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
@@ -164,7 +166,7 @@ if ($method === 'POST' && $action === 'commit') {
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
 
-    $result = CsvImportService::commit('staffing_clients', $csv, function (array $row) use ($updateExisting) {
+    $result = CsvImportService::commit('staffing_clients', $csv, function (array $row) use ($updateExisting, $tid) {
         $externalId   = isset($row['external_id'])   && $row['external_id']   !== '' ? (string) $row['external_id']   : null;
         $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
 
@@ -174,14 +176,14 @@ if ($method === 'POST' && $action === 'commit') {
         $existing = null;
         if ($externalId !== null) {
             $existing = scopedFind(
-                'SELECT id FROM staffing_clients
+                'SELECT id, company_id FROM staffing_clients
                   WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
                 ['s' => $sourceSystem, 'e' => $externalId]
             );
         }
         if (!$existing) {
             $existing = scopedFind(
-                'SELECT id FROM staffing_clients WHERE tenant_id = :tenant_id AND name = :n',
+                'SELECT id, company_id FROM staffing_clients WHERE tenant_id = :tenant_id AND name = :n',
                 ['n' => $row['name']]
             );
         }
@@ -210,11 +212,15 @@ if ($method === 'POST' && $action === 'commit') {
             'status'                => $row['status']                ?? 'active',
             'notes'                 => $row['notes']                 ?? null,
         ];
-        if ($existing) {
-            scopedUpdate('staffing_clients', (int) $existing['id'], $payload);
-            return (int) $existing['id'];
-        }
-        return scopedInsert('staffing_clients', $payload);
+        $clientRef = staffingClientEnsureForCompany(
+            $tid,
+            !empty($existing['company_id']) ? (int) $existing['company_id'] : null,
+            (string) $row['name'],
+            $payload + ['sync_company_patch' => true]
+        );
+        $clientId = (int) $clientRef['client_id'];
+        scopedUpdate('staffing_clients', $clientId, $payload + ['company_id' => $clientRef['company_id']]);
+        return $clientId;
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
 
     api_ok($result);

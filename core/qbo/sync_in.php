@@ -34,6 +34,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/conflict_rules.php';
+require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
 
 const QBO_PAGE_SIZE = 100;
 
@@ -176,7 +177,7 @@ function _qboSyncMasterEntity(int $tenantId, ?int $userId, array $opts, array $c
  *   1. existing mapping (source='quickbooks_online', entity_type='customer', external_id=QBO Id)
  *   2. UNIQUE KEY uq_sc_tenant_name → match by name (auto-link an existing
  *      manually-created client and bind the mapping)
- *   3. INSERT new staffing_clients row.
+ *   3. ensure one canonical company/client row in the shared placement catalog.
  */
 function qboUpsertCustomer(int $tenantId, array $qbo): array
 {
@@ -189,17 +190,59 @@ function qboUpsertCustomer(int $tenantId, array $qbo): array
     $email       = trim((string) ($qbo['PrimaryEmailAddr']['Address']  ?? ''));
     $phone       = trim((string) ($qbo['PrimaryPhone']['FreeFormNumber'] ?? ''));
     $addr        = is_array($qbo['BillAddr'] ?? null) ? $qbo['BillAddr'] : [];
+    $countryRaw  = trim((string) ($addr['Country'] ?? ''));
+    $country     = in_array(strtolower($countryRaw), ['us', 'usa', 'united states', 'united states of america'], true)
+        ? 'US'
+        : ($countryRaw !== '' ? strtoupper(substr($countryRaw, 0, 2)) : null);
 
     $pdo = getDB();
+    $clientTenantId = staffingClientCatalogTenantId($tenantId);
     $mapping = mappingFindInternal($tenantId, QBO_SOURCE, 'customer', $qboId);
     $internalId = $mapping ? (int) $mapping['internal_entity_id'] : 0;
+    $existing = null;
+
+    // Old releases could map customers to sub-tenant-local rows. Trust a
+    // mapping only when it points into the shared placement/client catalog.
+    if ($internalId) {
+        $stmt = $pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id = :t AND id = :id LIMIT 1');
+        $stmt->execute(['t' => $clientTenantId, 'id' => $internalId]);
+        $existing = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        $snapshot = !empty($mapping['payload_snapshot'])
+            ? json_decode((string) $mapping['payload_snapshot'], true)
+            : null;
+        $mappedName = is_array($snapshot) ? trim((string) ($snapshot['DisplayName'] ?? $snapshot['CompanyName'] ?? '')) : '';
+        $catalogName = trim((string) ($existing['name'] ?? ''));
+        if (!$existing || ($mappedName !== ''
+            && strcasecmp($catalogName, $mappedName) !== 0
+            && strcasecmp($catalogName, $displayName) !== 0)) {
+            $internalId = 0;
+            $existing = null;
+        }
+    }
 
     if (!$internalId) {
-        // Fall back to name match (existing manually-created clients).
-        $stmt = $pdo->prepare('SELECT id FROM staffing_clients WHERE tenant_id = :t AND name = :n LIMIT 1');
-        $stmt->execute(['t' => $tenantId, 'n' => $displayName]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        $internalId = $row ? (int) $row['id'] : 0;
+        // JobDiva, placements, CSV, and QBO converge on this same row.
+        $stmt = $pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id = :t AND name = :n LIMIT 1');
+        $stmt->execute(['t' => $clientTenantId, 'n' => $displayName]);
+        $existing = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        $internalId = $existing ? (int) $existing['id'] : 0;
+    }
+
+    $status = 'active';
+    if (array_key_exists('Active', $qbo) && empty($qbo['Active'])) {
+        $activePlacement = $pdo->prepare(
+            "SELECT 1 FROM placements
+              WHERE tenant_id = :t
+                AND status = 'active'
+                AND (client_id = :client_id OR end_client_name = :name)
+              LIMIT 1"
+        );
+        $activePlacement->execute([
+            't' => $clientTenantId,
+            'client_id' => $internalId ?: 0,
+            'name' => $displayName,
+        ]);
+        $status = $activePlacement->fetchColumn() ? 'active' : 'inactive';
     }
 
     $payload = [
@@ -208,74 +251,37 @@ function qboUpsertCustomer(int $tenantId, array $qbo): array
         'primary_contact_email' => $email !== '' ? $email : null,
         'primary_contact_phone' => $phone !== '' ? $phone : null,
         'billing_address_line1' => isset($addr['Line1']) ? (string) $addr['Line1'] : null,
+        'billing_address_line2' => isset($addr['Line2']) ? (string) $addr['Line2'] : null,
         'billing_city'          => isset($addr['City'])  ? (string) $addr['City']  : null,
         'billing_state'         => isset($addr['CountrySubDivisionCode']) ? substr((string) $addr['CountrySubDivisionCode'], 0, 40) : null,
         'billing_postal_code'   => isset($addr['PostalCode']) ? (string) $addr['PostalCode'] : null,
-        'billing_country'       => isset($addr['Country']) ? substr((string) $addr['Country'], 0, 2) : null,
-        'status'                => !empty($qbo['Active']) ? 'active' : 'inactive',
+        'billing_country'       => $country,
+        'status'                => $status,
     ];
-    $action = 'unchanged';
-    if (!$internalId) {
-        $pdo->prepare(
-            'INSERT INTO staffing_clients
-                (tenant_id, name, legal_name, primary_contact_email, primary_contact_phone,
-                 billing_address_line1, billing_city, billing_state, billing_postal_code, billing_country, status)
-             VALUES
-                (:t, :n, :ln, :em, :ph, :a1, :ci, :st, :pc, :co, :s)'
-        )->execute([
-            't'  => $tenantId,
-            'n'  => $payload['name'],
-            'ln' => $payload['legal_name'],
-            'em' => $payload['primary_contact_email'],
-            'ph' => $payload['primary_contact_phone'],
-            'a1' => $payload['billing_address_line1'],
-            'ci' => $payload['billing_city'],
-            'st' => $payload['billing_state'],
-            'pc' => $payload['billing_postal_code'],
-            'co' => $payload['billing_country'],
-            's'  => $payload['status'],
-        ]);
-        $internalId = (int) $pdo->lastInsertId();
-        $action = 'created';
-    } else {
+    $action = $internalId ? 'unchanged' : 'created';
+    if ($internalId) {
         // Slice 5 — conflict detection for two_way customers.
-        $existing = $pdo->prepare('SELECT *, updated_at FROM staffing_clients WHERE id = :id AND tenant_id = :t LIMIT 1');
-        $existing->execute(['id' => $internalId, 't' => $tenantId]);
-        $cur = $existing->fetch(\PDO::FETCH_ASSOC) ?: [];
+        $cur = $existing ?: [];
         $conflict = qboDetectConflict($tenantId, 'customer', $internalId, $qboId, $qbo, $cur['updated_at'] ?? null);
         if ($conflict['winner'] === 'coreflux') {
             // CoreFlux side wins → don't overwrite locally; pretend no change.
             return ['internal_id' => $internalId, 'action' => 'conflict_coreflux_wins'];
         }
-        // Content-hash dirty check via mappingUpsert handles "did anything
-        // actually change?"; if so we issue the UPDATE.
-        $changed = false;
         foreach ($payload as $k => $v) {
-            if ((string) ($cur[$k] ?? '') !== (string) ($v ?? '')) { $changed = true; break; }
-        }
-        if ($changed) {
-            $pdo->prepare(
-                'UPDATE staffing_clients
-                    SET legal_name = :ln, primary_contact_email = :em, primary_contact_phone = :ph,
-                        billing_address_line1 = :a1, billing_city = :ci, billing_state = :st,
-                        billing_postal_code = :pc, billing_country = :co, status = :s
-                  WHERE id = :id AND tenant_id = :t'
-            )->execute([
-                'ln' => $payload['legal_name'],
-                'em' => $payload['primary_contact_email'],
-                'ph' => $payload['primary_contact_phone'],
-                'a1' => $payload['billing_address_line1'],
-                'ci' => $payload['billing_city'],
-                'st' => $payload['billing_state'],
-                'pc' => $payload['billing_postal_code'],
-                'co' => $payload['billing_country'],
-                's'  => $payload['status'],
-                'id' => $internalId,
-                't'  => $tenantId,
-            ]);
-            $action = 'updated';
+            if ((string) ($cur[$k] ?? '') !== (string) ($v ?? '')) {
+                $action = 'updated';
+                break;
+            }
         }
     }
+
+    $clientRef = staffingClientEnsureForCompany(
+        $clientTenantId,
+        !empty($existing['company_id']) ? (int) $existing['company_id'] : null,
+        $displayName,
+        $payload + ['sync_company_patch' => true]
+    );
+    $internalId = (int) $clientRef['client_id'];
 
     $row = mappingUpsert($tenantId, QBO_SOURCE, 'customer', $qboId, $internalId, $qbo, 'pull');
     if (!$row['changed'] && $action === 'unchanged') $action = 'unchanged';
