@@ -30,10 +30,11 @@ function check(string $label, bool $cond) {
 
 echo "\nRBAC persona-type wildcard smoke\n";
 echo "==================================\n\n";
+$root = dirname(__DIR__);
 
 // ─── Source-level check ───
 echo "── /app/core/rbac/permissions.php ──\n";
-$src = (string) file_get_contents('/app/core/rbac/permissions.php');
+$src = (string) file_get_contents($root . '/core/rbac/permissions.php');
 check('persona_type wildcard shortcut declared',
     str_contains($src, "in_array(\$personaType, ['master_admin', 'tenant_admin'], true)"));
 check('shortcut returns true (grants everything)',
@@ -90,7 +91,7 @@ $pdo->prepare("INSERT INTO membership_module_access (membership_id, module_key, 
 // Load the resolver. Strip its require_once of ../db.php (we have a
 // stub registered already) so we don't trip "Cannot redeclare getDB".
 if (!function_exists('getDB')) { function getDB(): \PDO { return $GLOBALS['pdo']; } }
-$permSrc = (string) file_get_contents('/app/core/rbac/permissions.php');
+$permSrc = (string) file_get_contents($root . '/core/rbac/permissions.php');
 $permSrc = preg_replace("/require_once __DIR__ \\. '\\/\\.\\.\\/db\\.php';/", '', $permSrc);
 $permSrc = preg_replace('/^\s*<\?php/', '', $permSrc);
 eval($permSrc);
