@@ -198,6 +198,7 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
         $obligations = [];
         $lineNo = 1;
         $subtotal = 0.0;
+        $seenEconomicItems = [];
 
         foreach ($groupItems as $item) {
             $b = $item['bundle'];
@@ -205,24 +206,29 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
             $hours = (float) $b['total_hours_billable'];
             if ($hours <= 0) continue;
             $isLabor = (string) $charge['fee_basis'] === 'pay_rate';
+            $economicItemId = (int) ($charge['economic_item_id'] ?? 0);
+            if ($economicItemId > 0 && isset($seenEconomicItems[$economicItemId])) continue;
+            if ($economicItemId > 0) $seenEconomicItems[$economicItemId] = true;
             $quantity = ($isLabor || (string) $charge['fee_basis'] === 'per_hour') ? $hours : 1.0;
             $sub = (float) $charge['calculated_amount'];
             $unitPrice = $quantity > 0 ? round($sub / $quantity, 4) : $sub;
 
             $consultant = trim(($b['first_name'] ?? '') . ' ' . ($b['last_name'] ?? '')) ?: 'Consultant';
-            $desc = sprintf(
-                '%s — %s (period %s → %s)',
-                $b['placement_title'] ?: ('Placement #' . $b['placement_id']),
-                $consultant,
-                $period['start_date'],
-                $period['end_date']
-            );
+            $desc = $economicItemId > 0
+                ? (string) ($charge['item_description'] ?? 'One-time placement item')
+                : sprintf(
+                    '%s — %s (period %s → %s)',
+                    $b['placement_title'] ?: ('Placement #' . $b['placement_id']),
+                    $consultant,
+                    $period['start_date'],
+                    $period['end_date']
+                );
 
             $lines[] = [
                 'line_no'                 => $lineNo++,
-                'source_type'             => $isLabor ? 'time' : 'economic_party',
-                'item_type'               => $isLabor ? 'labor' : 'other',
-                'source_ref_id'           => (int) $b['id'],
+                'source_type'             => $economicItemId > 0 ? 'economic_item' : ($isLabor ? 'time' : 'economic_party'),
+                'item_type'               => $economicItemId > 0 ? 'fixed_fee' : ($isLabor ? 'labor' : 'other'),
+                'source_ref_id'           => $economicItemId > 0 ? $economicItemId : (int) $b['id'],
                 'placement_id'            => (int) $b['placement_id'],
                 'rate_snapshot_id'        => $b['rate_snapshot_id'] ? (int) $b['rate_snapshot_id'] : null,
                 'description'             => $desc,
@@ -239,8 +245,8 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
             $obligations[] = [
                 'economic_party_id' => (int) $charge['id'],
                 'placement_id' => (int) $b['placement_id'],
-                'source_type' => 'time_bundle',
-                'source_ref_id' => (int) $b['id'],
+                'source_type' => $economicItemId > 0 ? 'economic_item' : 'time_bundle',
+                'source_ref_id' => $economicItemId > 0 ? $economicItemId : (int) $b['id'],
                 'period_start' => $period['start_date'],
                 'period_end' => $period['end_date'],
                 'quantity' => $quantity,
@@ -275,7 +281,10 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
                 'pwp_status'    => $isPwp ? 'awaiting_ar' : 'not_pwp',
             ],
             'lines'      => $lines,
-            'bundle_ids' => array_map(fn ($l) => $l['source_ref_id'], $lines),
+            'bundle_ids' => array_values(array_unique(array_map(
+                static fn(array $groupItem): int => (int) $groupItem['bundle']['id'],
+                $groupItems
+            ))),
             'obligations' => $obligations,
         ];
     }
@@ -557,14 +566,20 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
         foreach ($charges as $charge) {
             if ((string) $charge['fee_basis'] === 'pay_rate') continue;
             $amount = (float) $charge['calculated_amount'];
-            if ($amount <= 0) continue;
+            if ($amount <= 0 && empty($charge['economic_item_id'])) continue;
+            if (abs($amount) < 0.005) continue;
             $quantity = (float) $charge['calculation_quantity'];
+            $economicItemId = (int) ($charge['economic_item_id'] ?? 0);
             $termsForCharge = placementEconomicsNormaliseTerms((string) $charge['resolved_payment_terms']);
             $pwpForCharge = !empty($charge['resolved_pwp']);
             $daysForCharge = placementEconomicsTermsDays($termsForCharge, $netDays);
             $sourceRef = (int) $rows[0]['id'];
-            $obligationSourceType = (string) $charge['fee_basis'] === 'one_time' ? 'manual' : 'time_entry';
-            $obligationSourceRef = $obligationSourceType === 'manual' ? $placementId : $sourceRef;
+            $obligationSourceType = $economicItemId > 0
+                ? 'economic_item'
+                : ((string) $charge['fee_basis'] === 'one_time' ? 'manual' : 'time_entry');
+            $obligationSourceRef = $economicItemId > 0
+                ? $economicItemId
+                : ($obligationSourceType === 'manual' ? $placementId : $sourceRef);
             $bills[] = [
                 'bill' => [
                     'vendor_name' => (string) ($charge['vendor_name'] ?: $charge['display_name']),
@@ -589,12 +604,14 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
                 ],
                 'lines' => [[
                     'line_no' => 1,
-                    'source_type' => 'economic_party',
-                    'item_type' => 'other',
-                    'source_ref_id' => (int) $charge['id'],
+                    'source_type' => $economicItemId > 0 ? 'economic_item' : 'economic_party',
+                    'item_type' => $economicItemId > 0 ? 'fixed_fee' : 'other',
+                    'source_ref_id' => $economicItemId > 0 ? $economicItemId : (int) $charge['id'],
                     'placement_id' => $placementId,
                     'rate_snapshot_id' => null,
-                    'description' => (string) $charge['display_name'] . ' - ' . str_replace('_', ' ', (string) $charge['fee_basis']),
+                    'description' => $economicItemId > 0
+                        ? (string) ($charge['item_description'] ?? 'One-time placement item')
+                        : (string) $charge['display_name'] . ' - ' . str_replace('_', ' ', (string) $charge['fee_basis']),
                     'quantity' => $quantity,
                     'unit' => $quantity === 1.0 ? 'fee' : 'hour',
                     'unit_price' => $quantity > 0 ? round($amount / $quantity, 4) : $amount,

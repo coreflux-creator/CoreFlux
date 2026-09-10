@@ -818,6 +818,157 @@ function placementEconomicsParties(int $tenantId, int $placementId): array
     return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 }
 
+/** Named placement-level amounts that are applied once to a downstream flow. */
+function placementEconomicsItems(int $tenantId, int $placementId, bool $includeVoided = false): array
+{
+    try {
+        $statusWhere = $includeVoided ? '' : ' AND i.status <> "void"';
+        $st = getDB()->prepare(
+            'SELECT i.*, ep.display_name AS recipient_name, ep.role AS recipient_role,
+                    o.id AS obligation_id, o.status AS obligation_status,
+                    o.ar_invoice_id, o.ap_bill_id, o.payroll_ref_id
+               FROM placement_economic_items i
+          LEFT JOIN placement_economic_parties ep
+                 ON ep.tenant_id = i.tenant_id AND ep.id = i.economic_party_id
+          LEFT JOIN placement_economic_obligations o
+                 ON o.tenant_id = i.tenant_id
+                AND o.source_type = "economic_item"
+                AND o.source_ref_id = i.id
+                AND o.economic_party_id = i.economic_party_id
+                AND o.status <> "void"
+              WHERE i.tenant_id = :t AND i.placement_id = :p' . $statusWhere . '
+              ORDER BY i.apply_on, i.id'
+        );
+        $st->execute(['t' => $tenantId, 'p' => $placementId]);
+        $rows = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as &$row) {
+            $row['settlement_status'] = $row['status'] === 'void'
+                ? 'void'
+                : ($row['settlement_channel'] === 'none'
+                    ? 'margin_only'
+                    : (!empty($row['obligation_id']) ? 'applied' : 'pending'));
+        }
+        unset($row);
+        return $rows;
+    } catch (\Throwable $e) {
+        if (str_contains(strtolower($e->getMessage()), 'placement_economic_items')) return [];
+        throw $e;
+    }
+}
+
+function placementEconomicsCreateItem(int $tenantId, int $placementId, array $item): int
+{
+    $st = getDB()->prepare(
+        'INSERT INTO placement_economic_items
+            (tenant_id, placement_id, economic_party_id, description, settlement_channel,
+             direction, amount, currency, apply_on, taxable, status,
+             source_system, source_external_id, source_managed, created_by_user_id)
+         VALUES
+            (:t, :p, :party, :description, :channel,
+             :direction, :amount, :currency, :apply_on, :taxable, "active",
+             :source_system, :source_external_id, :source_managed, :created_by)'
+    );
+    $st->execute([
+        't' => $tenantId,
+        'p' => $placementId,
+        'party' => $item['economic_party_id'] ?? null,
+        'description' => trim((string) ($item['description'] ?? '')),
+        'channel' => (string) ($item['settlement_channel'] ?? 'none'),
+        'direction' => (string) ($item['direction'] ?? 'charge'),
+        'amount' => round((float) ($item['amount'] ?? 0), 2),
+        'currency' => strtoupper((string) ($item['currency'] ?? 'USD')),
+        'apply_on' => (string) ($item['apply_on'] ?? date('Y-m-d')),
+        'taxable' => !empty($item['taxable']) ? 1 : 0,
+        'source_system' => $item['source_system'] ?? null,
+        'source_external_id' => $item['source_external_id'] ?? null,
+        'source_managed' => !empty($item['source_managed']) ? 1 : 0,
+        'created_by' => $item['created_by_user_id'] ?? null,
+    ]);
+    return (int) getDB()->lastInsertId();
+}
+
+/** Items due on or before this settlement period that have not been consumed. */
+function placementEconomicsDueItems(
+    int $tenantId,
+    int $placementId,
+    string $channel,
+    string $periodEnd
+): array {
+    if (!in_array($channel, ['ar','ap','payroll'], true)) return [];
+    try {
+        $st = getDB()->prepare(
+            'SELECT i.*, ep.display_name AS recipient_name, ep.role AS recipient_role,
+                    ep.company_id, ep.person_id, ep.user_id, ep.ap_vendor_id,
+                    ep.payment_terms, ep.pwp_enabled, ep.pwp_overridden, ep.operating_cycle_id,
+                    v.vendor_name, v.vendor_type, v.default_terms AS vendor_default_terms,
+                    COALESCE(v.default_pwp, 0) AS vendor_default_pwp
+               FROM placement_economic_items i
+               JOIN placement_economic_parties ep
+                 ON ep.tenant_id = i.tenant_id AND ep.id = i.economic_party_id
+                AND ep.placement_id = i.placement_id AND ep.active = 1
+          LEFT JOIN ap_vendors_index v
+                 ON v.tenant_id = ep.tenant_id AND v.id = ep.ap_vendor_id
+              WHERE i.tenant_id = :t AND i.placement_id = :p
+                AND i.status = "active" AND i.settlement_channel = :channel
+                AND i.apply_on <= :period_end
+                AND ep.settlement_channel = i.settlement_channel
+                AND NOT EXISTS (
+                    SELECT 1 FROM placement_economic_obligations o
+                     WHERE o.tenant_id = i.tenant_id
+                       AND o.source_type = "economic_item"
+                       AND o.source_ref_id = i.id
+                       AND o.economic_party_id = i.economic_party_id
+                       AND o.status <> "void"
+                )
+              ORDER BY i.apply_on, i.id'
+        );
+        $st->execute(['t' => $tenantId, 'p' => $placementId, 'channel' => $channel, 'period_end' => $periodEnd]);
+        $rows = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as &$row) {
+            $row['signed_amount'] = round((float) $row['amount'] * ($row['direction'] === 'credit' ? -1 : 1), 2);
+        }
+        unset($row);
+        return $rows;
+    } catch (\Throwable $e) {
+        if (str_contains(strtolower($e->getMessage()), 'placement_economic_items')) return [];
+        throw $e;
+    }
+}
+
+/** Add live one-time economics to an approved or draft rate model. */
+function placementEconomicsDecorateModelWithItems(int $tenantId, int $placementId, array $model): array
+{
+    if (empty($model['available'])) return $model;
+    $items = placementEconomicsItems($tenantId, $placementId);
+    $lines = [];
+    $revenue = 0.0;
+    $cost = 0.0;
+    foreach ($items as $item) {
+        $signed = round((float) $item['amount'] * ($item['direction'] === 'credit' ? -1 : 1), 2);
+        $isRevenue = $item['settlement_channel'] === 'ar';
+        if ($isRevenue) $revenue += $signed;
+        else $cost += $signed;
+        $lines[] = [
+            'economic_item_id' => (int) $item['id'],
+            'economic_party_id' => $item['economic_party_id'] ? (int) $item['economic_party_id'] : null,
+            'name' => (string) $item['description'],
+            'recipient_name' => $item['recipient_name'] ?? null,
+            'basis' => 'one_time',
+            'amount' => $signed,
+            'settlement_channel' => (string) $item['settlement_channel'],
+            'apply_on' => (string) $item['apply_on'],
+            'settlement_status' => (string) $item['settlement_status'],
+            'economic_effect' => $isRevenue ? 'revenue' : 'cost',
+        ];
+    }
+    $model['one_time_lines'] = $lines;
+    $model['one_time_revenue'] = round($revenue, 2);
+    $model['one_time_cost'] = round($cost, 2);
+    $model['one_time_net_impact'] = round($revenue - $cost, 2);
+    $model['fixed_obligations'] = round((float) ($model['fixed_obligations'] ?? 0) + $cost, 2);
+    return $model;
+}
+
 function placementEconomicsRateSnapshot(int $tenantId, int $placementId, ?int $rateSnapshotId): ?array
 {
     if (!$rateSnapshotId) return null;
@@ -1016,6 +1167,7 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         'available' => true,
         'placement' => $placement,
         'parties' => $parties,
+        'items' => placementEconomicsItems($tenantId, $placementId),
         'cycles' => $cycles,
         'model' => $model,
         'contract_model' => $contractModel,
@@ -1314,13 +1466,19 @@ function placementEconomicsModel(
     );
     $st->execute(['t' => $tenantId, 'p' => $placementId]);
     $rate = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
-    if (!$rate) return ['available' => false, 'revenue_lines' => [], 'hourly_lines' => [], 'fixed_lines' => []];
+    if (!$rate) return ['available' => false, 'revenue_lines' => [], 'hourly_lines' => [], 'fixed_lines' => [], 'one_time_lines' => []];
 
     $snapshot = json_decode((string) ($rate['economics_snapshot_json'] ?? ''), true);
-    if (is_array($snapshot) && !empty($snapshot['available'])) return $snapshot;
+    if (is_array($snapshot) && !empty($snapshot['available'])) {
+        return placementEconomicsDecorateModelWithItems($tenantId, $placementId, $snapshot);
+    }
     $engagementType = $engagementType ?? placementEconomicsEngagementForPlacement($tenantId, $placementId);
     $tenantDefaults = $tenantDefaults ?? placementEconomicsDefaultsForPlacement($tenantId, $placementId);
-    return placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties, $tenantDefaults, $engagementType);
+    return placementEconomicsDecorateModelWithItems(
+        $tenantId,
+        $placementId,
+        placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties, $tenantDefaults, $engagementType)
+    );
 }
 
 /**
@@ -1348,15 +1506,21 @@ function placementEconomicsCurrentContractModel(
     $st->execute(['t' => $tenantId, 'p' => $placementId]);
     $rate = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
     if (!$rate) {
-        return ['available' => false, 'approved' => false, 'revenue_lines' => [], 'hourly_lines' => [], 'fixed_lines' => []];
+        return ['available' => false, 'approved' => false, 'revenue_lines' => [], 'hourly_lines' => [], 'fixed_lines' => [], 'one_time_lines' => []];
     }
     if (!empty($rate['approved_at'])) {
         $snapshot = json_decode((string) ($rate['economics_snapshot_json'] ?? ''), true);
-        if (is_array($snapshot) && !empty($snapshot['available'])) return $snapshot;
+        if (is_array($snapshot) && !empty($snapshot['available'])) {
+            return placementEconomicsDecorateModelWithItems($tenantId, $placementId, $snapshot);
+        }
     }
     $engagementType = $engagementType ?? placementEconomicsEngagementForPlacement($tenantId, $placementId);
     $tenantDefaults = $tenantDefaults ?? placementEconomicsDefaultsForPlacement($tenantId, $placementId);
-    return placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties, $tenantDefaults, $engagementType);
+    return placementEconomicsDecorateModelWithItems(
+        $tenantId,
+        $placementId,
+        placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties, $tenantDefaults, $engagementType)
+    );
 }
 
 /**
@@ -1610,6 +1774,29 @@ function placementEconomicsApCharges(
         }
         $charges[] = $party;
     }
+    foreach (placementEconomicsDueItems($tenantId, $placementId, 'ap', $asOf) as $item) {
+        $amount = (float) ($item['signed_amount'] ?? 0);
+        if (abs($amount) < 0.005 || empty($item['ap_vendor_id'])) continue;
+        $terms = placementEconomicsNormaliseTerms(
+            (string) ($item['payment_terms'] ?: $item['vendor_default_terms'] ?: 'NET30')
+        );
+        $pwp = !empty($item['pwp_enabled'])
+            || !empty($item['vendor_default_pwp'])
+            || placementEconomicsTermsArePwp($terms);
+        $economicItemId = (int) $item['id'];
+        $item['id'] = (int) $item['economic_party_id'];
+        $item['economic_item_id'] = $economicItemId;
+        $item['display_name'] = (string) ($item['recipient_name'] ?? 'Vendor');
+        $item['item_description'] = (string) $item['description'];
+        $item['fee_basis'] = 'one_time';
+        $item['fee_flat'] = $amount;
+        $item['calculated_amount'] = round($amount, 2);
+        $item['calculation_quantity'] = 1.0;
+        $item['calculation_basis_amount'] = 0.0;
+        $item['resolved_payment_terms'] = placementEconomicsResolvedTerms($terms, $pwp);
+        $item['resolved_pwp'] = $pwp;
+        $charges[] = $item;
+    }
     return $charges;
 }
 
@@ -1664,6 +1851,21 @@ function placementEconomicsPayrollCharges(
         $party['calculation_basis_amount'] = round($basisAmount, 2);
         $charges[] = $party;
     }
+    foreach (placementEconomicsDueItems($tenantId, $placementId, 'payroll', $asOf) as $item) {
+        $amount = (float) ($item['signed_amount'] ?? 0);
+        if ($amount <= 0) continue;
+        $economicItemId = (int) $item['id'];
+        $item['id'] = (int) $item['economic_party_id'];
+        $item['economic_item_id'] = $economicItemId;
+        $item['display_name'] = (string) ($item['recipient_name'] ?? 'Employee');
+        $item['item_description'] = (string) $item['description'];
+        $item['fee_basis'] = 'one_time';
+        $item['fee_flat'] = $amount;
+        $item['calculated_amount'] = round($amount, 2);
+        $item['calculation_quantity'] = 1.0;
+        $item['calculation_basis_amount'] = 0.0;
+        $charges[] = $item;
+    }
     return $charges;
 }
 
@@ -1708,23 +1910,24 @@ function placementEconomicsRecordObligation(
     int $sourceRefId,
     array $values
 ): int {
-    if (!in_array($sourceType, ['time_bundle','time_entry','ar_invoice','manual'], true)) {
+    if (!in_array($sourceType, ['time_bundle','time_entry','ar_invoice','manual','economic_item'], true)) {
         throw new \InvalidArgumentException('Invalid economic obligation source');
     }
     $pdo = getDB();
     $pdo->prepare(
         'INSERT INTO placement_economic_obligations
             (tenant_id, placement_id, economic_party_id, source_type, source_ref_id,
-             period_start, period_end, quantity, basis_amount, amount, currency, status, ap_bill_id, payroll_ref_id)
+             period_start, period_end, quantity, basis_amount, amount, currency, status, ap_bill_id, ar_invoice_id, payroll_ref_id)
          VALUES
             (:t, :p, :party, :source_type, :source_ref_id,
-             :period_start, :period_end, :quantity, :basis_amount, :amount, :currency, :status, :ap_bill_id, :payroll_ref_id)
+             :period_start, :period_end, :quantity, :basis_amount, :amount, :currency, :status, :ap_bill_id, :ar_invoice_id, :payroll_ref_id)
          ON DUPLICATE KEY UPDATE
              period_start = VALUES(period_start), period_end = VALUES(period_end),
              quantity = VALUES(quantity), basis_amount = VALUES(basis_amount), amount = VALUES(amount),
              currency = VALUES(currency),
-             status = IF(status IN ("paid","void"), status, VALUES(status)),
+             status = IF(status = "paid", status, VALUES(status)),
              ap_bill_id = COALESCE(VALUES(ap_bill_id), ap_bill_id),
+             ar_invoice_id = COALESCE(VALUES(ar_invoice_id), ar_invoice_id),
              payroll_ref_id = COALESCE(VALUES(payroll_ref_id), payroll_ref_id)'
     )->execute([
         't' => $tenantId, 'p' => $placementId, 'party' => $economicPartyId,
@@ -1737,6 +1940,7 @@ function placementEconomicsRecordObligation(
         'currency' => $values['currency'] ?? 'USD',
         'status' => $values['status'] ?? 'projected',
         'ap_bill_id' => $values['ap_bill_id'] ?? null,
+        'ar_invoice_id' => $values['ar_invoice_id'] ?? null,
         'payroll_ref_id' => $values['payroll_ref_id'] ?? null,
     ]);
     $st = $pdo->prepare(
@@ -1749,6 +1953,47 @@ function placementEconomicsRecordObligation(
         'source_ref_id' => $sourceRefId, 'party' => $economicPartyId,
     ]);
     return (int) $st->fetchColumn();
+}
+
+function placementEconomicsRecordItemObligation(
+    int $tenantId,
+    int $economicItemId,
+    string $status,
+    ?int $arInvoiceId = null,
+    ?int $apBillId = null,
+    ?int $payrollRefId = null,
+    ?string $periodStart = null,
+    ?string $periodEnd = null
+): int {
+    $st = getDB()->prepare(
+        'SELECT * FROM placement_economic_items
+          WHERE tenant_id = :t AND id = :id AND status = "active" LIMIT 1'
+    );
+    $st->execute(['t' => $tenantId, 'id' => $economicItemId]);
+    $item = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+    if (!$item || empty($item['economic_party_id'])) {
+        throw new \RuntimeException("One-time item #{$economicItemId} is unavailable or has no settlement recipient");
+    }
+    $amount = round((float) $item['amount'] * ($item['direction'] === 'credit' ? -1 : 1), 2);
+    return placementEconomicsRecordObligation(
+        $tenantId,
+        (int) $item['placement_id'],
+        (int) $item['economic_party_id'],
+        'economic_item',
+        $economicItemId,
+        [
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd,
+            'quantity' => 1,
+            'basis_amount' => 0,
+            'amount' => $amount,
+            'currency' => (string) $item['currency'],
+            'status' => $status,
+            'ar_invoice_id' => $arInvoiceId,
+            'ap_bill_id' => $apBillId,
+            'payroll_ref_id' => $payrollRefId,
+        ]
+    );
 }
 
 function placementEconomicsUpdateParty(int $tenantId, int $partyId, array $changes): bool
