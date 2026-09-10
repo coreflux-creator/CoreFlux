@@ -213,6 +213,16 @@ function api_require_auth(bool $requireTenant = true): array {
     if (is_array($user)) {
         $user['global_role'] = $globalRole;
         if ($isPlatformMA) $user['is_global_admin'] = 1;
+
+        // Keep the canonical session user in step with the context returned
+        // below. Permission helpers such as api_can() intentionally reload
+        // the authenticated user from the session; without this hydration a
+        // platform role stored in the legacy top-level session key is visible
+        // to the page shell but disappears inside the RBAC bridge.
+        if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
+            $_SESSION['user']['global_role'] = $globalRole;
+            if ($isPlatformMA) $_SESSION['user']['is_global_admin'] = 1;
+        }
     }
 
     // Browser tabs keep an independent tenant pin. Validate it before using
