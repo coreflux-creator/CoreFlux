@@ -150,5 +150,5 @@ jobs:
             OPCACHE_STATUS="$(curl -sS --max-time 20 -o "$OPCACHE_RESPONSE" -w '%{http_code}' -X POST -H "X-CoreFlux-Deploy-Reset: $OPCACHE_TOKEN" "https://www.corefluxapp.com/api/admin/opcache_flush_deploy_${{ github.run_id }}.php")"
             unset OPCACHE_TOKEN
             test "$OPCACHE_STATUS" = "200"
-            php -r '$r=json_decode((string) file_get_contents($argv[1]), true); if (!is_array($r) || ($r["ok"] ?? false) !== true) exit(1);'
+            php -r '$r=json_decode((string) file_get_contents($argv[1]), true); if (!is_array($r) || ($r["ok"] ?? false) !== true) exit(1);' "$OPCACHE_RESPONSE"
             echo "Deployed and verified commit ${{ github.sha }}."
