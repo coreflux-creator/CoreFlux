@@ -11,6 +11,6 @@ SET @sql := IF(@tbl>0 AND @col=0,'ALTER TABLE placement_rates ADD COLUMN c2c_ove
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 INSERT IGNORE INTO integration_writable_targets
-    (module, target_table, target_column, data_type, description, linked_entity)
+    (target_module, target_table, target_column, value_type, description, default_linked_entity)
 VALUES
     ('placements', 'placement_rates', 'c2c_overhead_pct', 'number', 'C2C overhead percent of vendor labor pay', 'placement_rates');
