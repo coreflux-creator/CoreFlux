@@ -379,6 +379,21 @@ function api_require_can(string $module, string $action = 'read', ?int $subTenan
 }
 
 /**
+ * Enforce a legacy permission using the already-resolved request context.
+ * Platform administrators are identified during api_require_auth(), so do
+ * not discard that authoritative result and reconstruct it from a narrower
+ * session/user shape inside the dual RBAC bridge.
+ */
+function api_require_legacy_permission(array $ctx, string $permission): void {
+    $role = (string) ($ctx['role'] ?? '');
+    $globalRole = (string) ($ctx['global_role'] ?? $ctx['user']['global_role'] ?? '');
+    if ($role === 'master_admin' || $globalRole === 'master_admin' || !empty($ctx['is_global_admin'])) {
+        return;
+    }
+    rbac_legacy_require((array) ($ctx['user'] ?? []), $permission);
+}
+
+/**
  * Require one of the given roles. Emits 403 if not permitted.
  */
 function api_require_role(array $allowedRoles): array {

@@ -138,6 +138,8 @@ $a('auth hydrates global-admin flag into canonical session user',
     $c($bootSrc, "\$_SESSION['user']['is_global_admin'] = 1"));
 $a('resolver honors authenticated global admin context', $c($permSrc, "['global_role']") && $c($permSrc, "['is_global_admin']"));
 $a('defines api_require_can() helper',                    $c($bootSrc, 'function api_require_can('));
+$a('defines context-aware legacy permission helper',     $c($bootSrc, 'function api_require_legacy_permission('));
+$a('context-aware helper preserves platform admins',     $c($bootSrc, "\$globalRole === 'master_admin'") && $c($bootSrc, "!empty(\$ctx['is_global_admin'])"));
 $a('reads active_persona_id from session',                $c($bootSrc, "active_persona_id"));
 $a('guards on class_exists(RBACResolver)',                $c($bootSrc, "class_exists('RBACResolver')"));
 
