@@ -102,6 +102,10 @@ check('master_admin can write staffing',        RBACResolver::can(1, 101, 'staff
 check('master_admin can admin accounting',      RBACResolver::can(1, 101, 'accounting', 'admin'));
 check('master_admin can post journal entries',  RBACResolver::can(1, 101, 'accounting', 'write'));
 check('master_admin can hit cfo module',         RBACResolver::can(1, 101, 'cfo', 'admin'));
+check('authenticated global role bypass survives the API bridge',
+    RBACResolver::can(['id' => 999, 'global_role' => 'master_admin'], 101, 'staffing', 'read'));
+check('authenticated global-admin flag bypass survives the API bridge',
+    RBACResolver::can(['id' => 998, 'is_global_admin' => 1], 101, 'placements', 'admin'));
 
 // tenant_admin same shortcut.
 check('tenant_admin can read timesheets',       RBACResolver::can(2, 101, 'staffing', 'read'));

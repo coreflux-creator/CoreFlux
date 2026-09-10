@@ -70,6 +70,8 @@ jobs:
             .deploy-version \
             api/jobdiva.php \
             api/staffing_economics_settings.php \
+            core/api_bootstrap.php \
+            core/rbac/permissions.php \
             core/staffing_economics.php \
             core/migrations/135_tenant_staffing_economics_defaults.sql \
             core/migrations/136_c2c_overhead_load.sql \
@@ -112,6 +114,8 @@ jobs:
             tests/tenant_staffing_economics_defaults_smoke.php \
             tests/staffing_client_catalog_sync_smoke.php \
             tests/qbo_slice3_smoke.php \
+            tests/rbac_b2_smoke.php \
+            tests/rbac_persona_wildcard_smoke.php \
             scripts/opcache_flush_deploy.php.template
 
       - name: Stage JobDiva reconciliation release
@@ -202,6 +206,8 @@ jobs:
             php deploy/run_migrations.php --status | grep -F 'core/migrations/136_c2c_overhead_load.sql'
             php deploy/run_migrations.php --status | grep -F 'core/migrations/137_staffing_client_catalog_backfill.sql'
             php -l core/staffing_economics.php
+            php -l core/api_bootstrap.php
+            php -l core/rbac/permissions.php
             php -l api/staffing_economics_settings.php
             find core/jobdiva -maxdepth 1 -type f -name '*.php' -print0 | xargs -0 -n1 php -l
             php -l core/integrations/field_map.php
@@ -243,5 +249,7 @@ jobs:
             php scripts/jobdiva_rate_write_probe.php --active-roster 2
             php tests/staffing_client_catalog_sync_smoke.php
             php tests/qbo_slice3_smoke.php
+            php tests/rbac_b2_smoke.php
+            php tests/rbac_persona_wildcard_smoke.php
             php -r 'require "modules/staffing/lib/clients.php"; $pdo=getDB(); $activeTenant=2; $catalogTenant=staffingClientCatalogTenantId($activeTenant); $placements=(int)$pdo->query("SELECT COUNT(DISTINCT end_client_name) FROM placements WHERE tenant_id={$catalogTenant} AND end_client_name IS NOT NULL AND TRIM(end_client_name)<>\"\"")->fetchColumn(); $clients=(int)$pdo->query("SELECT COUNT(*) FROM staffing_clients WHERE tenant_id={$catalogTenant}")->fetchColumn(); $unlinked=(int)$pdo->query("SELECT COUNT(*) FROM placements WHERE tenant_id={$catalogTenant} AND end_client_name IS NOT NULL AND TRIM(end_client_name)<>\"\" AND client_id IS NULL")->fetchColumn(); $list=staffingClientCatalogQuery($catalogTenant, "SELECT id, name, status FROM staffing_clients WHERE tenant_id = :tenant_id ORDER BY name ASC LIMIT 5"); if ($placements > 0 && ($clients < 1 || $unlinked > 0 || count($list) < 1)) { fwrite(STDERR, "Client catalog failed: active_tenant={$activeTenant}, catalog_tenant={$catalogTenant}, placement_clients={$placements}, clients={$clients}, list_rows=".count($list).", unlinked={$unlinked}.\n"); exit(1); } echo "Client catalog verified: active_tenant={$activeTenant}, catalog_tenant={$catalogTenant}, placement_clients={$placements}, clients={$clients}, list_rows=".count($list).", unlinked={$unlinked}.\n";'
             echo "Deployed and verified commit ${{ github.sha }}."
