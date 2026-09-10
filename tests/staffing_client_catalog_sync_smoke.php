@@ -18,6 +18,10 @@ $assert('client API separates active and shared catalog tenants',
     && str_contains($clientsApi, 'staffingClientCatalogTenantId($activeTenantId)'));
 $assert('client API pins scoped CRUD to placements catalog',
     str_contains($clientsApi, "setRequestModuleScope('placements')"));
+$assert('client API binds the resolved catalog tenant directly',
+    str_contains($clientsApi, 'staffingClientCatalogQuery(')
+    && str_contains($clientsApi, 'staffingClientCatalogFind(')
+    && str_contains($clientsApi, 'staffingClientCatalogUpdate('));
 $assert('client stats retain isolated financial tenant',
     str_contains($clientsApi, "'tenant_id' => \$activeTenantId"));
 
@@ -40,6 +44,15 @@ $assert('client CSV import converges through company/client bridge',
     && !str_contains($csvImport, "return scopedInsert('staffing_clients'"));
 $assert('client bridge preserves existing commercial terms when a source omits them',
     str_contains($clientLib, ': ($existing ? null : 30)'));
+$assert('client catalog helpers never re-resolve an already resolved tenant',
+    str_contains($clientLib, 'function staffingClientCatalogQuery(')
+    && str_contains($clientLib, "\$params['tenant_id'] = \$tenantId")
+    && str_contains($clientLib, 'function staffingClientCatalogUpdate('));
+
+$clientsUi = $read($root . '/modules/staffing/ui/Clients.jsx');
+$assert('client UI surfaces API failures instead of reporting an empty catalog',
+    str_contains($clientsUi, 'staffing-clients-error')
+    && str_contains($clientsUi, '!loading && !error && rows.length === 0'));
 
 $qbo = $read($root . '/core/qbo/sync_in.php');
 $assert('QBO customers resolve in shared client tenant',

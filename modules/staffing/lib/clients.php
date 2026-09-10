@@ -21,6 +21,57 @@ function staffingClientCatalogTenantId(int $activeTenantId): int
 }
 
 /**
+ * Execute a client-catalog query against the already-resolved catalog tenant.
+ *
+ * Client identity follows the placements graph, while the request itself may
+ * originate from an isolated sub-tenant. Do not ask scopedQuery() to resolve
+ * that boundary a second time: bind the catalog tenant explicitly.
+ */
+function staffingClientCatalogQuery(int $tenantId, string $sql, array $params = []): array
+{
+    $pdo = getDB();
+    if (!$pdo) return [];
+    if (!str_contains($sql, ':tenant_id')) {
+        throw new \InvalidArgumentException('Client catalog query must include :tenant_id');
+    }
+    $params['tenant_id'] = $tenantId;
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+}
+
+function staffingClientCatalogFind(int $tenantId, string $sql, array $params = []): ?array
+{
+    $rows = staffingClientCatalogQuery($tenantId, $sql, $params);
+    return $rows[0] ?? null;
+}
+
+function staffingClientCatalogUpdate(int $tenantId, int $clientId, array $patch): int
+{
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+
+    unset($patch['id'], $patch['tenant_id'], $patch['created_at']);
+    if (!$patch) return 0;
+    $patch['updated_at'] = $patch['updated_at'] ?? date('Y-m-d H:i:s');
+
+    $sets = [];
+    $params = ['tenant_id' => $tenantId, 'id' => $clientId];
+    foreach ($patch as $column => $value) {
+        if (!preg_match('/^[a-z_][a-z0-9_]*$/', (string) $column)) {
+            throw new \InvalidArgumentException("Invalid client column: {$column}");
+        }
+        $sets[] = "`{$column}` = :{$column}";
+        $params[$column] = $value;
+    }
+    $stmt = $pdo->prepare(
+        'UPDATE staffing_clients SET ' . implode(', ', $sets) . ' WHERE tenant_id = :tenant_id AND id = :id'
+    );
+    $stmt->execute($params);
+    return $stmt->rowCount();
+}
+
+/**
  * Ensure the staffing client consumer row exists for a canonical company.
  *
  * People/Companies owns organization identity. Staffing consumes that graph

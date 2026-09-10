@@ -67,14 +67,22 @@ if ($method === 'GET' && $action === 'list') {
              WHERE " . implode(' AND ', $where) . "
              ORDER BY {$sortExpr} {$sortDir}, c.id DESC
              LIMIT " . $limit;
-    api_ok(['rows' => scopedQuery($sql, array_merge($params, ['placements_tid' => $placementsTenantId]))]);
+    api_ok(['rows' => staffingClientCatalogQuery(
+        $tenantId,
+        $sql,
+        array_merge($params, ['placements_tid' => $placementsTenantId])
+    )]);
 }
 
 if ($method === 'GET' && $action === 'get') {
     rbac_legacy_require($user, 'staffing.view');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
-    $row = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    $row = staffingClientCatalogFind(
+        $tenantId,
+        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $id]
+    );
     if (!$row) api_error('Not found', 404);
     api_ok(['client' => $row]);
 }
@@ -86,7 +94,11 @@ if ($method === 'POST' && $action === 'create') {
     if ($name === '') api_error('name required', 422);
 
     // Reject duplicate names.
-    $existing = scopedFind('SELECT id FROM staffing_clients WHERE tenant_id = :tenant_id AND name = :n', ['n' => $name]);
+    $existing = staffingClientCatalogFind(
+        $tenantId,
+        'SELECT id FROM staffing_clients WHERE tenant_id = :tenant_id AND name = :n',
+        ['n' => $name]
+    );
     if ($existing) api_error("Client '{$name}' already exists", 409, ['existing_id' => $existing['id']]);
 
     $clientRef = staffingClientEnsureForCompany($tenantId, null, $name, [
@@ -111,8 +123,12 @@ if ($method === 'POST' && $action === 'create') {
         'notes'      => $b['notes']      ?? null,
         'msa_status' => $b['msa_status'] ?? 'none',
     ], static fn($v) => $v !== null);
-    if ($postCreatePatch) scopedUpdate('staffing_clients', $id, $postCreatePatch);
-    $client = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if ($postCreatePatch) staffingClientCatalogUpdate($tenantId, $id, $postCreatePatch);
+    $client = staffingClientCatalogFind(
+        $tenantId,
+        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $id]
+    );
     staffingClientAudit($tenantId, $actorUserId, 'staffing.client.created', $id, [
         'source' => 'staffing_clients_api',
         'after' => staffingClientAuditSnapshot($client ?: ['id' => $id, 'name' => $name]),
@@ -125,7 +141,11 @@ if ($method === 'POST' && $action === 'update') {
     $b  = api_json_body();
     $id = (int) ($b['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
-    $existing = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :i', ['i' => $id]);
+    $existing = staffingClientCatalogFind(
+        $tenantId,
+        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :i',
+        ['i' => $id]
+    );
     if (!$existing) api_error('Not found', 404);
 
     $allowed = [
@@ -149,8 +169,12 @@ if ($method === 'POST' && $action === 'update') {
     } elseif (!empty($existing['company_id'])) {
         staffingClientApplyCompanyPatch($tenantId, (int) $existing['company_id'], $patch + ['name' => $existing['name']]);
     }
-    scopedUpdate('staffing_clients', $id, $patch);
-    $client = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    staffingClientCatalogUpdate($tenantId, $id, $patch);
+    $client = staffingClientCatalogFind(
+        $tenantId,
+        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $id]
+    );
     staffingClientAudit($tenantId, $actorUserId, 'staffing.client.updated', $id, [
         'source' => 'staffing_clients_api',
         'changed_fields' => array_keys($patch),
@@ -166,10 +190,18 @@ if ($method === 'POST' && $action === 'delete') {
     $id = (int) ($b['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
     // Soft delete — flip status to closed. Keeps FK links intact for history.
-    $existing = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :i', ['i' => $id]);
+    $existing = staffingClientCatalogFind(
+        $tenantId,
+        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :i',
+        ['i' => $id]
+    );
     if (!$existing) api_error('Not found', 404);
-    scopedUpdate('staffing_clients', $id, ['status' => 'closed']);
-    $client = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    staffingClientCatalogUpdate($tenantId, $id, ['status' => 'closed']);
+    $client = staffingClientCatalogFind(
+        $tenantId,
+        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $id]
+    );
     staffingClientAudit($tenantId, $actorUserId, 'staffing.client.closed', $id, [
         'source' => 'staffing_clients_api',
         'before' => staffingClientAuditSnapshot($existing),
