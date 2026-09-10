@@ -949,6 +949,16 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
     $model = placementEconomicsModel($tenantId, $placementId, $parties);
     $contractModel = placementEconomicsCurrentContractModel($tenantId, $placementId, $parties);
     $sourceEvidence = placementEconomicsLatestSourceEvidence($tenantId, $placementId);
+    $sourceOverheads = is_array($sourceEvidence['source_overheads'] ?? null)
+        ? $sourceEvidence['source_overheads']
+        : [];
+    $w2OverheadEnabled = ($placement['engagement_type'] ?? '') === 'w2'
+        && !empty($sourceOverheads['w2']);
+    $missingW2OverheadCost = placementEconomicsMissingW2OverheadCost(
+        $placement,
+        $sourceOverheads,
+        $model
+    );
     $hasC2cVendor = count(array_filter($parties, static fn(array $r): bool =>
         $r['role'] === 'c2c_vendor' && $r['settlement_channel'] === 'ap' && !empty($r['ap_vendor_id'])
     )) > 0;
@@ -970,6 +980,9 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         'missing_payroll_cycle' => count($missingPayrollSchedules) > 0,
         'missing_ar_payment_terms' => $requiresBilling && count($missingArTerms) > 0,
         'missing_ap_payment_terms' => count($missingApTerms) > 0,
+        'w2_overhead_enabled' => $w2OverheadEnabled,
+        'w2_overhead_cost_configured' => $w2OverheadEnabled && !$missingW2OverheadCost,
+        'missing_w2_overhead_cost' => $missingW2OverheadCost,
     ];
     $readiness['ready'] = $readiness['unresolved_parties'] === 0
         && !$readiness['missing_receivable_party']
@@ -983,7 +996,8 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         && !$readiness['missing_ap_cycle']
         && !$readiness['missing_payroll_cycle']
         && !$readiness['missing_ar_payment_terms']
-        && !$readiness['missing_ap_payment_terms'];
+        && !$readiness['missing_ap_payment_terms']
+        && !$readiness['missing_w2_overhead_cost'];
 
     return [
         'available' => true,
@@ -1250,6 +1264,30 @@ function placementEconomicsCurrentContractModel(
         return ['available' => false, 'approved' => false, 'revenue_lines' => [], 'hourly_lines' => [], 'fixed_lines' => []];
     }
     return placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties);
+}
+
+/**
+ * A JobDiva W-2 overhead flag says employer costs apply, but it is not a
+ * monetary rate. Do not present margin as settlement-ready until an approved
+ * rate contains at least one explicit employer-cost component.
+ */
+function placementEconomicsMissingW2OverheadCost(
+    array $placement,
+    array $sourceOverheads,
+    array $model
+): bool {
+    if (($placement['engagement_type'] ?? '') !== 'w2' || empty($sourceOverheads['w2']) || empty($model['available'])) {
+        return false;
+    }
+
+    foreach (($model['hourly_lines'] ?? []) as $line) {
+        if (!is_array($line)) continue;
+        if (in_array((string) ($line['role'] ?? ''), ['employer_load', 'workers_comp', 'benefits_load'], true)
+            && (float) ($line['amount'] ?? 0) > 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 function placementEconomicsApprovalSnapshot(int $tenantId, array $rate): array
