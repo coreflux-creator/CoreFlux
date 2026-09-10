@@ -175,14 +175,16 @@ if ($method === 'POST' && $action === 'commit') {
         // / manual rows without an external_id.
         $existing = null;
         if ($externalId !== null) {
-            $existing = scopedFind(
+            $existing = staffingClientCatalogFind(
+                $tid,
                 'SELECT id, company_id FROM staffing_clients
                   WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
                 ['s' => $sourceSystem, 'e' => $externalId]
             );
         }
         if (!$existing) {
-            $existing = scopedFind(
+            $existing = staffingClientCatalogFind(
+                $tid,
                 'SELECT id, company_id FROM staffing_clients WHERE tenant_id = :tenant_id AND name = :n',
                 ['n' => $row['name']]
             );
@@ -219,7 +221,7 @@ if ($method === 'POST' && $action === 'commit') {
             $payload + ['sync_company_patch' => true]
         );
         $clientId = (int) $clientRef['client_id'];
-        scopedUpdate('staffing_clients', $clientId, $payload + ['company_id' => $clientRef['company_id']]);
+        staffingClientCatalogUpdate($tid, $clientId, $payload + ['company_id' => $clientRef['company_id']]);
         return $clientId;
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
 

@@ -22,7 +22,7 @@ export default function Clients() {
   const [statusFilter, setStatusFilter] = useState('active');
   const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
   const path = `/modules/staffing/api/clients.php?action=list&status=${statusFilter}&q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort.key)}&dir=${encodeURIComponent(sort.dir)}`;
-  const { data, loading, reload } = useApi(path, [path]);
+  const { data, error, loading, reload } = useApi(path);
   const rows = data?.rows ?? [];
   const { items, sortKey, sortDir, headerProps } = useTableList(rows, {
     defaultSort: { key: 'name', dir: 'asc' },
@@ -117,7 +117,12 @@ export default function Clients() {
       </header>
 
       {loading && <p>Loading…</p>}
-      {!loading && rows.length === 0 && <p className="empty" data-testid="staffing-clients-empty">No clients found.</p>}
+      {!loading && error && (
+        <div className="error" data-testid="staffing-clients-error">
+          Client directory could not be loaded: {error.message || 'Request failed'}
+        </div>
+      )}
+      {!loading && !error && rows.length === 0 && <p className="empty" data-testid="staffing-clients-empty">No clients found.</p>}
       {rows.length > 0 && (
         <table className="data-table" data-testid="staffing-clients-table">
           <thead>
