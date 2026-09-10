@@ -53,7 +53,7 @@ export default function PlacementCreate() {
     bill_rate_unit: 'hour', pay_rate_unit: 'hour',
     currency: 'USD',
     overtime_multiplier: '1.5', doubletime_multiplier: '2.0',
-    adder_pct: '', background_fee_total: '',
+    adder_pct: '', c2c_overhead_pct: '', background_fee_total: '',
   });
   const [commissions, setCommissions] = useState([]);
   const [referral, setReferral] = useState(null);
@@ -153,6 +153,7 @@ export default function PlacementCreate() {
           overtime_multiplier:   Number(rate.overtime_multiplier   || 1.5),
           doubletime_multiplier: Number(rate.doubletime_multiplier || 2.0),
           adder_pct:            rate.adder_pct ? Number(rate.adder_pct) / 100 : null,
+          c2c_overhead_pct:     rate.c2c_overhead_pct === '' ? null : Number(rate.c2c_overhead_pct) / 100,
           background_fee_total: rate.background_fee_total ? Number(rate.background_fee_total) : null,
         });
       }
@@ -348,7 +349,8 @@ export default function PlacementCreate() {
             <Field label="Effective from"><input className="input" type="date" value={rate.effective_from} onChange={setRateF('effective_from')} data-testid="placement-create-rate-effective" placeholder={form.start_date} /></Field>
             <Field label="OT mult"><input className="input" type="number" step="0.01" value={rate.overtime_multiplier} onChange={setRateF('overtime_multiplier')} data-testid="placement-create-rate-ot" /></Field>
             <Field label="DT mult"><input className="input" type="number" step="0.01" value={rate.doubletime_multiplier} onChange={setRateF('doubletime_multiplier')} data-testid="placement-create-rate-dt" /></Field>
-            <Field label="Adder %"><input className="input" type="number" step="0.01" value={rate.adder_pct} onChange={setRateF('adder_pct')} data-testid="placement-create-rate-adder" placeholder="e.g. 22 for 22% employer burden" /></Field>
+            {form.engagement_type === 'w2' && <Field label="Employer load %"><input className="input" type="number" step="0.01" value={rate.adder_pct} onChange={setRateF('adder_pct')} data-testid="placement-create-rate-adder" placeholder="Blank uses tenant default" /></Field>}
+            {form.engagement_type === 'c2c' && <Field label="C2C overhead %"><input className="input" type="number" step="0.01" value={rate.c2c_overhead_pct} onChange={setRateF('c2c_overhead_pct')} data-testid="placement-create-rate-c2c-overhead" placeholder="Blank uses tenant default" /></Field>}
             <Field label="Background fee ($)"><input className="input" type="number" step="0.01" value={rate.background_fee_total} onChange={setRateF('background_fee_total')} data-testid="placement-create-rate-bgfee" placeholder="one-time" /></Field>
           </Row>
 

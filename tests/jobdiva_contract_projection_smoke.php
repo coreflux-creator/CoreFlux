@@ -50,6 +50,8 @@ $rows = [[
         'Pay_Rate_to_Vendor' => 60,
     ]],
     'OVERHEADS' => [[
+        'C2C' => 1,
+        'C2C Overhead %' => '2.5%',
         'Payroll Load %' => '2.5%',
         'Workers Comp %' => '1%',
         'Fixed Costs' => 120,
@@ -92,7 +94,7 @@ $assert('gross, VMS adjustment, invoice, labor, and margin reconcile',
     && abs((float) $proposal['economics']['client_adjustment_amount'] - 4.02) < 0.0001
     && abs((float) $proposal['economics']['invoice_rate'] - 62.98) < 0.0001
     && abs((float) $proposal['economics']['labor_rate'] - 60.0) < 0.0001
-    && abs((float) $proposal['economics']['gross_margin'] - 0.88) < 0.0001);
+    && abs((float) $proposal['economics']['gross_margin'] - 1.48) < 0.0001);
 $assert('C2C labor becomes one AP vendor recipient with weekly PWP terms',
     count(array_filter($proposal['participants'], static fn(array $party): bool =>
         $party['role'] === 'c2c_vendor'
@@ -108,6 +110,7 @@ $assert('sales and recruiter allocation stay attribution-only',
 $assert('overhead source fields become modeled rate fields',
     abs((float) ($contract['payroll_load_pct'] ?? 0) - 0.025) < 0.000001
     && abs((float) ($contract['workers_comp_pct'] ?? 0) - 0.01) < 0.000001
+    && abs((float) ($contract['c2c_overhead_pct'] ?? 0) - 0.025) < 0.000001
     && abs((float) ($contract['other_cost_flat'] ?? 0) - 120.0) < 0.0001);
 $assert('preview exposes current-to-proposed field changes with JobDiva authority',
     count(array_filter($proposal['changes'], static fn(array $field): bool =>

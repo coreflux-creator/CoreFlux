@@ -100,7 +100,7 @@ $c2cRows = [
         'Subcontractor Payment Terms' => 'Pay When Paid',
         'Payment Discount %' => '2%',
         'W2' => 0,
-        'C2C' => 1,
+        'C2C' => 0,
         'Referral Vendor' => 'Referral Example LLC',
         'Referral Fee Amount' => '$500.00',
         'Referral Vendor Payment terms' => 'Net 30',
@@ -109,7 +109,8 @@ $c2cRows = [
         'Primary Recruiter' => 'Recruiter Owner',
         'Primary Recruiter %' => '60%',
         'Overheads' => [
-            'C2C Overheads' => 1,
+            'TCS_C2C' => 1,
+            'C2C Overhead %' => '4.25%',
             'Fixed Costs' => '$125.00',
             'Other Cost Per Hour' => '$1.50',
         ],
@@ -151,6 +152,10 @@ $assert('C2C labor cost is the explicit Pay Rate to Vendor',
     && abs((float) ($c2c['pay_rate_to_vendor'] ?? 0) - 68.00) < 0.0001);
 $assert('C2C corporation becomes the payee company source',
     ($c2c['corporation_name'] ?? '') === 'Invent Example LLC');
+$assert('C2C overhead stays separate from vendor labor pay',
+    !empty($c2c['overheads']['c2c'])
+    && abs((float) ($c2c['c2c_overhead_pct'] ?? 0) - 0.0425) < 0.000001
+    && abs((float) ($c2c['overheads']['c2c_overhead_pct'] ?? 0) - 0.0425) < 0.000001);
 $assert('PWP and cadence normalize for AP',
     ($c2c['vendor_payment_terms'] ?? '') === 'PWP'
     && ($c2c['paid_when_paid'] ?? false) === true

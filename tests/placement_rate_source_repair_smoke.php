@@ -80,6 +80,12 @@ $a('writer compares approved economics and returns when current approved row is 
 $a('writer inserts a draft correction instead of mutating approved rows',
     str_contains($jobdivaSync, 'Fall through to INSERT a draft correction')
     && str_contains($jobdivaSync, '(tenant_id, placement_id, effective_from, effective_to, bill_rate'));
+$a('selected C2C profiles force old approved snapshots through a correction',
+    str_contains($jobdivaSync, '$needsC2cModelUpgrade')
+    && str_contains($jobdivaSync, "array_key_exists('c2c_overhead_rate', \$currentEconomicsSnapshot)"));
+$a('C2C inheritance remains distinct from an explicit zero waiver',
+    str_contains($jobdivaSync, '$sameNullablePercent')
+    && str_contains($jobdivaSync, "'c2c_overhead_pct' => \$c2cOverheadPct"));
 $a('approval refuses unsafe JobDiva auto-drafts where bill equals pay',
     str_contains($rateApprove, 'function placementsRateIsUnsafeJobDivaAutoDraft')
     && str_contains($rateApprove, 'abs((float) ($rate[\'bill_rate\'] ?? 0) - (float) ($rate[\'pay_rate\'] ?? 0))')

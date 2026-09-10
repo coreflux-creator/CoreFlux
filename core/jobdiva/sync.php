@@ -7362,6 +7362,22 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         $contractBenefitsLoad = jobdivaParsePercent($sourceContract['benefits_load_pct']);
         if ($contractBenefitsLoad !== null) $benefitsLoadPct = $contractBenefitsLoad;
     }
+    $c2cOverheadPct = jobdivaParsePercent($mappedRateValue('c2c_overhead_pct', [
+        'c2c overhead percent', 'c2c overhead %', 'c2c load percent', 'c2c load %',
+        'c2c_overhead_pct',
+    ]));
+    if (array_key_exists('c2c_overhead_pct', $sourceContract)) {
+        $contractC2cOverhead = jobdivaParsePercent($sourceContract['c2c_overhead_pct']);
+        if ($contractC2cOverhead !== null) $c2cOverheadPct = $contractC2cOverhead;
+    }
+    if ($c2cOverheadPct === null
+        && ($sourceContract['engagement_type'] ?? '') === 'c2c'
+        && array_key_exists('c2c_flag', $sourceContract)) {
+        // A selected JobDiva C2C overhead profile inherits the tenant's
+        // numeric rule. An explicitly unselected profile is an intentional
+        // zero so it cannot accidentally inherit a tenant load.
+        $c2cOverheadPct = !empty($sourceContract['c2c_flag']) ? null : 0.0;
+    }
     $otherCostPerHour = jobdivaParseRateAmount($mappedRateValue('other_cost_per_hour', [
         'other cost per hour', 'additional cost per hour', 'other_cost_per_hour',
     ]));
@@ -7442,7 +7458,8 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
                 pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier,
                 adder_pct, background_fee_total,
                 bill_adder_pct, bill_adder_flat, bill_discount_pct, bill_discount_flat,
-                workers_comp_pct, benefits_load_pct, other_cost_per_hour, other_cost_flat,
+                workers_comp_pct, benefits_load_pct, c2c_overhead_pct,
+                other_cost_per_hour, other_cost_flat,
                 economics_snapshot_json, created_by_user_id
            FROM placement_rates
           WHERE tenant_id = :t AND placement_id = :p AND effective_to IS NULL
@@ -7466,6 +7483,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
                     bill_adder_pct = :bill_adder_pct, bill_adder_flat = :bill_adder_flat,
                     bill_discount_pct = :bill_discount_pct, bill_discount_flat = :bill_discount_flat,
                     workers_comp_pct = :workers_comp_pct, benefits_load_pct = :benefits_load_pct,
+                    c2c_overhead_pct = :c2c_overhead_pct,
                     other_cost_per_hour = :other_cost_per_hour, other_cost_flat = :other_cost_flat,
                     economics_snapshot_json = COALESCE(:economics_snapshot_json, economics_snapshot_json)
               WHERE id = :id'
@@ -7483,6 +7501,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'bill_discount_flat' => $billDiscountFlat,
             'workers_comp_pct' => $workersCompPct,
             'benefits_load_pct' => $benefitsLoadPct,
+            'c2c_overhead_pct' => $c2cOverheadPct,
             'other_cost_per_hour' => $otherCostPerHour,
             'other_cost_flat' => $otherCostFlat,
             'economics_snapshot_json' => $sourceSnapshotJson,
@@ -7492,8 +7511,18 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     }
 
     if ($rateId > 0 && !empty($currentRate['approved_at'])) {
-        $sameEconomics =
-            round((float) ($currentRate['bill_rate'] ?? 0), 4) === round($billRate, 4)
+        $currentEconomicsSnapshot = json_decode((string) ($currentRate['economics_snapshot_json'] ?? ''), true);
+        $needsC2cModelUpgrade = !empty($sourceContract['c2c_flag'])
+            && (!is_array($currentEconomicsSnapshot)
+                || !array_key_exists('c2c_overhead_rate', $currentEconomicsSnapshot));
+        $sameNullablePercent = static function (mixed $current, mixed $proposed): bool {
+            $currentBlank = $current === null || $current === '';
+            $proposedBlank = $proposed === null || $proposed === '';
+            if ($currentBlank || $proposedBlank) return $currentBlank && $proposedBlank;
+            return round((float) $current, 6) === round((float) $proposed, 6);
+        };
+        $sameEconomics = !$needsC2cModelUpgrade
+            && round((float) ($currentRate['bill_rate'] ?? 0), 4) === round($billRate, 4)
             && round((float) ($currentRate['pay_rate'] ?? 0), 4) === round($payRate, 4)
             && strtolower((string) ($currentRate['bill_rate_unit'] ?? '')) === strtolower($billRateUnit)
             && strtolower((string) ($currentRate['pay_rate_unit'] ?? '')) === strtolower($payRateUnit)
@@ -7508,6 +7537,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             && round((float) ($currentRate['bill_discount_flat'] ?? 0), 4) === round((float) ($billDiscountFlat ?? 0), 4)
             && round((float) ($currentRate['workers_comp_pct'] ?? 0), 6) === round((float) ($workersCompPct ?? 0), 6)
             && round((float) ($currentRate['benefits_load_pct'] ?? 0), 6) === round((float) ($benefitsLoadPct ?? 0), 6)
+            && $sameNullablePercent($currentRate['c2c_overhead_pct'] ?? null, $c2cOverheadPct)
             && round((float) ($currentRate['other_cost_per_hour'] ?? 0), 4) === round((float) ($otherCostPerHour ?? 0), 4)
             && round((float) ($currentRate['other_cost_flat'] ?? 0), 2) === round((float) ($otherCostFlat ?? 0), 2);
         $coversPlacementStart = (string) ($currentRate['effective_from'] ?? '') <= $effectiveFrom;
@@ -7524,11 +7554,13 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
              pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier,
              adder_pct, background_fee_total,
              bill_adder_pct, bill_adder_flat, bill_discount_pct, bill_discount_flat,
-             workers_comp_pct, benefits_load_pct, other_cost_per_hour, other_cost_flat,
+             workers_comp_pct, benefits_load_pct, c2c_overhead_pct,
+             other_cost_per_hour, other_cost_flat,
              economics_snapshot_json)
          VALUES (:t, :p, :ef, :et, :br, :bru, :pr, :pru, :cur, :ot, :dt, :adder, :bg,
                  :bill_adder_pct, :bill_adder_flat, :bill_discount_pct, :bill_discount_flat,
-                 :workers_comp_pct, :benefits_load_pct, :other_cost_per_hour, :other_cost_flat,
+                 :workers_comp_pct, :benefits_load_pct, :c2c_overhead_pct,
+                 :other_cost_per_hour, :other_cost_flat,
                  :economics_snapshot_json)'
     )->execute([
         't'   => $tid, 'p'   => $placementId,
@@ -7546,6 +7578,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         'bill_discount_flat' => $billDiscountFlat,
         'workers_comp_pct' => $workersCompPct,
         'benefits_load_pct' => $benefitsLoadPct,
+        'c2c_overhead_pct' => $c2cOverheadPct,
         'other_cost_per_hour' => $otherCostPerHour,
         'other_cost_flat' => $otherCostFlat,
         'economics_snapshot_json' => $sourceSnapshotJson,

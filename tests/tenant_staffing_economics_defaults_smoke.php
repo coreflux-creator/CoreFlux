@@ -10,7 +10,8 @@ $assert = static function (string $label, bool $ok) use (&$pass, &$fail): void {
     $ok ? $pass++ : $fail++;
 };
 
-$migration = file_get_contents($root . '/core/migrations/135_tenant_staffing_economics_defaults.sql');
+$migration = file_get_contents($root . '/core/migrations/135_tenant_staffing_economics_defaults.sql')
+    . file_get_contents($root . '/core/migrations/136_c2c_overhead_load.sql');
 $helper = file_get_contents($root . '/core/staffing_economics.php');
 $api = file_get_contents($root . '/api/staffing_economics_settings.php');
 $economics = file_get_contents($root . '/modules/placements/lib/economics.php');
@@ -19,7 +20,7 @@ $settingsUi = file_get_contents($root . '/dashboard/src/pages/StaffingEconomicsS
 $settingsIndex = file_get_contents($root . '/dashboard/src/pages/SettingsPage.jsx');
 $app = file_get_contents($root . '/dashboard/src/App.jsx');
 
-echo "Tenant W-2 economics defaults\n";
+echo "Tenant staffing economics defaults\n";
 $assert('migration stores three tenant W-2 percentages',
     str_contains($migration, 'w2_payroll_load_pct')
     && str_contains($migration, 'w2_workers_comp_pct')
@@ -30,12 +31,16 @@ $assert('tenant settings API is tenant-scoped and permission-gated',
 $assert('tenant settings API upserts one policy row per tenant',
     str_contains($api, 'ON DUPLICATE KEY UPDATE')
     && str_contains($api, 'tenant_staffing_economics_defaults'));
+$assert('migration and settings keep C2C overhead separate from W-2 costs',
+    str_contains($migration, 'c2c_overhead_pct')
+    && str_contains($api, "'c2c_overhead_pct'")
+    && str_contains($settingsUi, 'staffing-default-c2c-overhead'));
 $assert('placement model resolves inherited employer costs',
     str_contains($economics, 'staffingEconomicsResolveW2Costs')
     && str_contains($economics, "'employer_cost_sources'"));
-$assert('approved snapshots resolve defaults at approval time',
-    str_contains($economics, 'placementEconomicsW2DefaultsForPlacement')
-    && str_contains($economics, '$model = placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties, $tenantW2Defaults)'));
+$assert('approved snapshots resolve classification defaults at approval time',
+    str_contains($economics, 'placementEconomicsDefaultsForPlacement')
+    && str_contains($economics, '$model = placementEconomicsModelForRate($tenantId, $placementId, $rate, $parties, $tenantDefaults, $engagementType)'));
 $assert('placement editor explains inheritance and explicit zero override',
     str_contains($placementUi, 'Blank fields inherit tenant defaults')
     && str_contains($placementUi, 'Enter zero to override a default'));
@@ -64,6 +69,12 @@ $assert('nonzero placement value overrides tenant default',
     abs($resolved['rates']['benefits_load_pct'] - 0.06) < 0.000001
     && $resolved['sources']['benefits_load_pct'] === 'placement_override');
 
-echo "Tenant W-2 economics defaults: {$pass} OK / {$fail} FAIL\n";
-exit($fail === 0 ? 0 : 1);
+$c2cInherited = staffingEconomicsResolveC2COverhead(['c2c_overhead_pct' => null], ['c2c_overhead_pct' => 0.05]);
+$c2cWaived = staffingEconomicsResolveC2COverhead(['c2c_overhead_pct' => 0], ['c2c_overhead_pct' => 0.05]);
+$assert('blank C2C load inherits its independent tenant default',
+    abs($c2cInherited['rate'] - 0.05) < 0.000001 && $c2cInherited['source'] === 'tenant_default');
+$assert('explicit C2C zero is an intentional placement waiver',
+    abs($c2cWaived['rate']) < 0.000001 && $c2cWaived['source'] === 'placement_override');
 
+echo "Tenant staffing economics defaults: {$pass} OK / {$fail} FAIL\n";
+exit($fail === 0 ? 0 : 1);

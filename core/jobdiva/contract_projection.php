@@ -179,10 +179,13 @@ function jobdivaContractProjectionBuild(
     $payrollLoadPct = max(0.0, (float) ($contract['payroll_load_pct'] ?? 0));
     $workersCompPct = max(0.0, (float) ($contract['workers_comp_pct'] ?? 0));
     $benefitsLoadPct = max(0.0, (float) ($contract['benefits_load_pct'] ?? 0));
+    $c2cOverheadPct = max(0.0, (float) ($contract['c2c_overhead_pct'] ?? 0));
     $otherHourly = max(0.0, (float) ($contract['other_cost_per_hour'] ?? 0));
     $fixedCosts = max(0.0, (float) ($contract['other_cost_flat'] ?? 0));
-    $hourlyCosts = $laborRate * (1 + $payrollLoadPct + $workersCompPct + $benefitsLoadPct)
-        + $otherHourly;
+    $classificationLoadPct = $engagement === 'w2'
+        ? $payrollLoadPct + $workersCompPct + $benefitsLoadPct
+        : ($engagement === 'c2c' ? $c2cOverheadPct : 0.0);
+    $hourlyCosts = $laborRate * (1 + $classificationLoadPct) + $otherHourly;
     $margin = $invoiceRate - $hourlyCosts;
     $marginPct = $invoiceRate > 0 ? $margin / $invoiceRate : 0.0;
 
@@ -287,6 +290,7 @@ function jobdivaContractProjectionBuild(
         jobdivaContractProjectionField('Overhead', 'payroll_load_pct', 'Payroll / employer load', $currentRate['adder_pct'] ?? null, $payrollLoadPct ?: null, $sourceFor('payroll_load_pct', 'Assignment.OVERHEADS')),
         jobdivaContractProjectionField('Overhead', 'workers_comp_pct', 'Workers compensation', $currentRate['workers_comp_pct'] ?? null, $workersCompPct ?: null, $sourceFor('workers_comp_pct', 'Assignment.OVERHEADS')),
         jobdivaContractProjectionField('Overhead', 'benefits_load_pct', 'Benefits load', $currentRate['benefits_load_pct'] ?? null, $benefitsLoadPct ?: null, $sourceFor('benefits_load_pct', 'Assignment.OVERHEADS')),
+        jobdivaContractProjectionField('Overhead', 'c2c_overhead_pct', 'C2C overhead / load', $currentRate['c2c_overhead_pct'] ?? null, $c2cOverheadPct ?: null, $sourceFor('c2c_overhead_pct', 'Assignment.OVERHEADS')),
         jobdivaContractProjectionField('Overhead', 'other_cost_per_hour', 'Other recurring cost', $currentRate['other_cost_per_hour'] ?? null, $otherHourly ?: null, $sourceFor('other_cost_per_hour', 'Assignment.OVERHEADS')),
         jobdivaContractProjectionField('Overhead', 'other_cost_flat', 'Fixed costs', $currentRate['other_cost_flat'] ?? null, $fixedCosts ?: null, $sourceFor('other_cost_flat', 'Assignment.OVERHEADS')),
         jobdivaContractProjectionField('Settlement', 'client_bill_cycle', 'Client billing frequency', $currentPlacement['client_bill_cycle'] ?? null, $clientCadence ?: null, $sourceFor('client_bill_cycle', 'Assignment.BILLING.FREQUENCY_LABEL')),

@@ -1,5 +1,5 @@
 <?php
-/** Tenant-level W-2 employer-cost defaults. */
+/** Tenant-level staffing cost defaults. */
 
 declare(strict_types=1);
 
@@ -14,15 +14,20 @@ $method = api_method();
 rbac_legacy_require($user, 'tenant.manage');
 
 if ($method === 'GET') {
-    api_ok(['defaults' => staffingEconomicsTenantW2Defaults($tenantId)]);
+    api_ok(['defaults' => staffingEconomicsTenantDefaults($tenantId)]);
 }
 
 if ($method === 'PUT' || $method === 'POST') {
     $body = api_json_body();
-    $fields = ['payroll_load_pct', 'workers_comp_pct', 'benefits_load_pct'];
+    $fields = ['payroll_load_pct', 'workers_comp_pct', 'benefits_load_pct', 'c2c_overhead_pct'];
+    $current = staffingEconomicsTenantDefaults($tenantId);
     $values = [];
     foreach ($fields as $field) {
-        if (!array_key_exists($field, $body) || !is_numeric($body[$field])) {
+        if (!array_key_exists($field, $body)) {
+            $values[$field] = (float) ($current[$field] ?? 0);
+            continue;
+        }
+        if (!is_numeric($body[$field])) {
             api_error("{$field} must be a numeric decimal", 422);
         }
         $value = (float) $body[$field];
@@ -35,13 +40,16 @@ if ($method === 'PUT' || $method === 'POST') {
     $pdo = getDB();
     $stmt = $pdo->prepare(
         'INSERT INTO tenant_staffing_economics_defaults
-            (tenant_id, w2_payroll_load_pct, w2_workers_comp_pct, w2_benefits_load_pct, updated_by_user_id)
+            (tenant_id, w2_payroll_load_pct, w2_workers_comp_pct, w2_benefits_load_pct,
+             c2c_overhead_pct, updated_by_user_id)
          VALUES
-            (:tenant_id, :payroll_load_pct, :workers_comp_pct, :benefits_load_pct, :updated_by_user_id)
+            (:tenant_id, :payroll_load_pct, :workers_comp_pct, :benefits_load_pct,
+             :c2c_overhead_pct, :updated_by_user_id)
          ON DUPLICATE KEY UPDATE
             w2_payroll_load_pct = VALUES(w2_payroll_load_pct),
             w2_workers_comp_pct = VALUES(w2_workers_comp_pct),
             w2_benefits_load_pct = VALUES(w2_benefits_load_pct),
+            c2c_overhead_pct = VALUES(c2c_overhead_pct),
             updated_by_user_id = VALUES(updated_by_user_id)'
     );
     $stmt->execute($values + [
@@ -66,8 +74,7 @@ if ($method === 'PUT' || $method === 'POST') {
         error_log('[staffing_economics_settings] audit failed: ' . $e->getMessage());
     }
 
-    api_ok(['ok' => true, 'defaults' => staffingEconomicsTenantW2Defaults($tenantId, $pdo)]);
+    api_ok(['ok' => true, 'defaults' => staffingEconomicsTenantDefaults($tenantId, $pdo)]);
 }
 
 api_error('Method not allowed', 405);
-
