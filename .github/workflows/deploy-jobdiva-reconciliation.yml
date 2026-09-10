@@ -71,6 +71,8 @@ jobs:
             api/jobdiva.php \
             api/staffing_economics_settings.php \
             core/api_bootstrap.php \
+            core/tenant_scope.php \
+            core/sub_tenants.php \
             core/rbac/permissions.php \
             core/staffing_economics.php \
             core/migrations/135_tenant_staffing_economics_defaults.sql \
@@ -207,6 +209,8 @@ jobs:
             php deploy/run_migrations.php --status | grep -F 'core/migrations/137_staffing_client_catalog_backfill.sql'
             php -l core/staffing_economics.php
             php -l core/api_bootstrap.php
+            php -l core/tenant_scope.php
+            php -l core/sub_tenants.php
             php -l core/rbac/permissions.php
             php -l api/staffing_economics_settings.php
             find core/jobdiva -maxdepth 1 -type f -name '*.php' -print0 | xargs -0 -n1 php -l
