@@ -21,7 +21,7 @@ return [
 
     'actions' => [
         ['name' => 'Overview',           'route' => 'overview',           'permission' => 'staffing.view'],
-        ['name' => 'Clients',            'route' => 'clients',            'permission' => 'staffing.view'],
+        ['name' => 'Clients',            'route' => 'clients',            'permission' => 'placements.view'],
         ['name' => 'Jobs',               'route' => 'jobs',               'permission' => 'staffing.view'],
         ['name' => 'Placements',         'route' => 'placements',         'permission' => 'staffing.view'],
         ['name' => 'Timesheets',         'route' => 'timesheets',         'permission' => 'staffing.time.view'],
