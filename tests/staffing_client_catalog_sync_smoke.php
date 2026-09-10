@@ -18,6 +18,10 @@ $assert('client API separates active and shared catalog tenants',
     && str_contains($clientsApi, 'staffingClientCatalogTenantId($activeTenantId)'));
 $assert('client API pins scoped CRUD to placements catalog',
     str_contains($clientsApi, "setRequestModuleScope('placements')"));
+$assert('client API uses the shared placements permission boundary',
+    substr_count($clientsApi, "'placements.view'") === 3
+    && substr_count($clientsApi, "'placements.manage'") === 3
+    && !str_contains($clientsApi, "'staffing.clients.manage'"));
 $assert('client API binds the resolved catalog tenant directly',
     str_contains($clientsApi, 'staffingClientCatalogQuery(')
     && str_contains($clientsApi, 'staffingClientCatalogFind(')
@@ -39,6 +43,10 @@ foreach (['csv_import.php', 'csv_export.php'] as $file) {
         && str_contains($source, "setRequestModuleScope('placements')"));
 }
 $csvImport = $read($root . '/modules/staffing/api/csv_import.php');
+$assert('client CSV read/export use placements view and commit uses placements manage',
+    str_contains($csvImport, "rbac_legacy_require(\$user, 'placements.manage')")
+    && !str_contains($csvImport, "rbac_legacy_require(\$user, 'staffing.view')")
+    && str_contains($read($root . '/modules/staffing/api/csv_export.php'), "rbac_legacy_require(\$user, 'placements.view')"));
 $assert('client CSV import converges through company/client bridge',
     str_contains($csvImport, 'staffingClientEnsureForCompany(')
     && !str_contains($csvImport, "return scopedInsert('staffing_clients'"));
