@@ -15,12 +15,15 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
 require_once __DIR__ . '/../../../core/export_service.php';
+require_once __DIR__ . '/../lib/clients.php';
 
 use Core\CsvExportService;
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
-$tenantId = (int) $ctx['tenant_id'];
+$activeTenantId = (int) $ctx['tenant_id'];
+$tenantId = staffingClientCatalogTenantId($activeTenantId);
+setRequestModuleScope('placements');
 $userId = (int) ($user['id'] ?? 0);
 rbac_legacy_require($user, 'staffing.export.run');
 // Delegated tenant scope sentinel for legacy CSV smokes: :tenant_id.
@@ -51,7 +54,7 @@ if ($tplId > 0) {
 
 $rows = exportDatasetFetchStaffingClients($tenantId, $datasetOptions);
 
-exportDatasetAudit($tenantId, $userId ?: null, 'staffing.clients.exported', null, exportDatasetAuditMeta([
+exportDatasetAudit($activeTenantId, $userId ?: null, 'staffing.clients.exported', null, exportDatasetAuditMeta([
     'dataset' => 'staffing_clients',
     'format' => 'csv',
     'mode' => 'raw',

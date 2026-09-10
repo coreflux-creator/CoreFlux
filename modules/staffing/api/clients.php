@@ -19,8 +19,10 @@ require_once __DIR__ . '/../lib/clients.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
-$tenantId = (int) ($ctx['tenant_id'] ?? currentTenantId());
-$placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+$activeTenantId = (int) ($ctx['tenant_id'] ?? currentTenantId());
+$tenantId = staffingClientCatalogTenantId($activeTenantId);
+$placementsTenantId = $tenantId;
+setRequestModuleScope('placements');
 $actorUserId = isset($user['id']) ? (int) $user['id'] : null;
 $method = api_method();
 $action = $_GET['action'] ?? 'list';
@@ -202,7 +204,7 @@ if ($method === 'GET' && $action === 'stats') {
                 AND p.client_id = :id
                 AND v.work_date >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01')"
         );
-        $stmt->execute(['tenant_id' => $tenantId, 'placements_tid' => $placementsTenantId, 'id' => $id]);
+        $stmt->execute(['tenant_id' => $activeTenantId, 'placements_tid' => $placementsTenantId, 'id' => $id]);
         $rev = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
         $stats['mtd_revenue'] = (float) ($rev['r'] ?? 0);
     } catch (\Throwable $_) {

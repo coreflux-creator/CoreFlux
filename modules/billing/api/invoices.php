@@ -23,10 +23,12 @@ require_once __DIR__ . '/../lib/invoice_pdf.php';
 require_once __DIR__ . '/../lib/workflow.php';
 require_once __DIR__ . '/../../ap/lib/ap.php';   // apNormalizeItemType() — shared item_type vocabulary
 require_once __DIR__ . '/../../ap/lib/pwp.php';  // apPwpAutoLinkForArInvoice() — pay-when-paid auto-link
+require_once __DIR__ . '/../../staffing/lib/clients.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
+$clientCatalogTenantId = staffingClientCatalogTenantId($tid);
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
@@ -124,7 +126,7 @@ if ($method === 'POST' && $action === 'from-time-entries') {
             $inv['invoice_number']     = billingNextInvoiceNumber($tid);
             $inv['created_by_user_id'] = $user['id'] ?? null;
 
-            $clientCid = companiesUpsertByName($tid, (string) $inv['client_name'], [
+            $clientCid = companiesUpsertByName($clientCatalogTenantId, (string) $inv['client_name'], [
                 'created_by_user_id' => $user['id'] ?? null,
             ], ['client']);
             companiesBumpUsage($clientCid);
@@ -193,7 +195,7 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
             $inv['invoice_number'] = billingNextInvoiceNumber($tid);
             $inv['created_by_user_id'] = $user['id'] ?? null;
 
-            $clientCid = companiesUpsertByName($tid, (string) $inv['client_name'], [
+            $clientCid = companiesUpsertByName($clientCatalogTenantId, (string) $inv['client_name'], [
                 'created_by_user_id' => $user['id'] ?? null,
             ], ['client']);
             companiesBumpUsage($clientCid);
@@ -273,7 +275,7 @@ if ($method === 'POST' && $action === '') {
             "SELECT payment_terms_days FROM staffing_clients
               WHERE tenant_id = :t AND name = :n AND payment_terms_days IS NOT NULL LIMIT 1"
         );
-        $clientTerms->execute(['t' => $tid, 'n' => (string) ($body['client_name'] ?? '')]);
+        $clientTerms->execute(['t' => $clientCatalogTenantId, 'n' => (string) ($body['client_name'] ?? '')]);
         $perClient = $clientTerms->fetchColumn();
         if ($perClient !== false && $perClient !== null && (int) $perClient >= 0) {
             $netDays = (int) $perClient;
@@ -289,7 +291,7 @@ if ($method === 'POST' && $action === '') {
         require_once __DIR__ . '/../../people/lib/companies.php';
         $clientCompanyId = !empty($body['client_company_id']) ? (int) $body['client_company_id'] : null;
         if (!$clientCompanyId) {
-            $clientCompanyId = companiesUpsertByName($tid, (string) $body['client_name'], [
+            $clientCompanyId = companiesUpsertByName($clientCatalogTenantId, (string) $body['client_name'], [
                 'created_by_user_id' => $user['id'] ?? null,
             ], ['client']);
             companiesBumpUsage($clientCompanyId);

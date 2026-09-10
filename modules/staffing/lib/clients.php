@@ -3,7 +3,22 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
+
+/**
+ * Client identity follows the shared placements/companies catalog. Financial
+ * activity can remain isolated in a sub-tenant while every entity sees the
+ * same customer record and company id.
+ */
+function staffingClientCatalogTenantId(int $activeTenantId): int
+{
+    try {
+        return effectiveTenantIdForModule('placements', $activeTenantId) ?? $activeTenantId;
+    } catch (\Throwable $_) {
+        return $activeTenantId;
+    }
+}
 
 /**
  * Ensure the staffing client consumer row exists for a canonical company.
@@ -30,7 +45,8 @@ function staffingClientEnsureForCompany(int $tenantId, ?int $companyId, string $
 
     $company = null;
     if ($companyId && $companyId > 0) {
-        $stmt = $pdo->prepare('SELECT id, name, legal_name, industry, primary_contact_name, primary_contact_email, primary_contact_phone, city, state, country
+        $stmt = $pdo->prepare('SELECT id, name, legal_name, industry, primary_contact_name, primary_contact_email, primary_contact_phone,
+                                      address_line1, address_line2, city, state, postal_code, country
                                  FROM companies
                                 WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL
                                 LIMIT 1');
@@ -39,10 +55,27 @@ function staffingClientEnsureForCompany(int $tenantId, ?int $companyId, string $
     }
 
     if (!$company) {
-        $companyId = companiesUpsertByName($tenantId, $name, [
-            'created_by_user_id' => $extra['created_by_user_id'] ?? null,
-        ], ['client']);
-        $company = companiesGet((int) $companyId);
+        $companyPatch = [
+            'legal_name'             => $extra['legal_name'] ?? null,
+            'primary_contact_name'   => $extra['primary_contact_name'] ?? null,
+            'primary_contact_email'  => $extra['primary_contact_email'] ?? null,
+            'primary_contact_phone'  => $extra['primary_contact_phone'] ?? null,
+            'address_line1'          => $extra['billing_address_line1'] ?? null,
+            'address_line2'          => $extra['billing_address_line2'] ?? null,
+            'city'                   => $extra['billing_city'] ?? null,
+            'state'                  => $extra['billing_state'] ?? null,
+            'postal_code'            => $extra['billing_postal_code'] ?? null,
+            'country'                => $extra['billing_country'] ?? null,
+            'created_by_user_id'     => $extra['created_by_user_id'] ?? null,
+        ];
+        $companyId = companiesUpsertByName($tenantId, $name, $companyPatch, ['client']);
+        $stmt = $pdo->prepare('SELECT id, name, legal_name, industry, primary_contact_name, primary_contact_email, primary_contact_phone,
+                                      address_line1, address_line2, city, state, postal_code, country
+                                 FROM companies
+                                WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL
+                                LIMIT 1');
+        $stmt->execute(['t' => $tenantId, 'id' => $companyId]);
+        $company = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     } else {
         companiesAddRole((int) $company['id'], 'client');
     }
@@ -70,11 +103,18 @@ function staffingClientEnsureForCompany(int $tenantId, ?int $companyId, string $
         'primary_contact_name'   => $company['primary_contact_name'] ?? ($extra['primary_contact_name'] ?? null),
         'primary_contact_email'  => $company['primary_contact_email'] ?? ($extra['primary_contact_email'] ?? null),
         'primary_contact_phone'  => $company['primary_contact_phone'] ?? ($extra['primary_contact_phone'] ?? null),
+        'billing_address_line1'  => $company['address_line1'] ?? ($extra['billing_address_line1'] ?? null),
+        'billing_address_line2'  => $company['address_line2'] ?? ($extra['billing_address_line2'] ?? null),
         'billing_city'           => $company['city'] ?? ($extra['billing_city'] ?? null),
         'billing_state'          => $company['state'] ?? ($extra['billing_state'] ?? null),
+        'billing_postal_code'    => $company['postal_code'] ?? ($extra['billing_postal_code'] ?? null),
         'billing_country'        => $company['country'] ?? ($extra['billing_country'] ?? 'US'),
-        'payment_terms_days'     => isset($extra['payment_terms_days']) ? (int) $extra['payment_terms_days'] : 30,
-        'status'                 => $extra['status'] ?? 'active',
+        'payment_terms_days'     => array_key_exists('payment_terms_days', $extra)
+            ? (int) $extra['payment_terms_days']
+            : ($existing ? null : 30),
+        'status'                 => array_key_exists('status', $extra)
+            ? $extra['status']
+            : ($existing ? null : 'active'),
     ];
 
     if ($existing) {
@@ -123,8 +163,11 @@ function staffingClientApplyCompanyPatch(int $tenantId, int $companyId, array $p
         'primary_contact_name' => 'primary_contact_name',
         'primary_contact_email' => 'primary_contact_email',
         'primary_contact_phone' => 'primary_contact_phone',
+        'billing_address_line1' => 'address_line1',
+        'billing_address_line2' => 'address_line2',
         'billing_city' => 'city',
         'billing_state' => 'state',
+        'billing_postal_code' => 'postal_code',
         'billing_country' => 'country',
     ];
     $sets = [];

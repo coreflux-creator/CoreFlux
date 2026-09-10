@@ -21,12 +21,14 @@ require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/sync_je.php'; // QBO_SOURCE
 require_once __DIR__ . '/sync_items.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
+require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
 
 function qboResolveCustomerRef(int $tenantId, string $clientName): ?array
 {
     $pdo = getDB();
+    $clientTenantId = staffingClientCatalogTenantId($tenantId);
     $stmt = $pdo->prepare('SELECT id FROM staffing_clients WHERE tenant_id = :t AND name = :n LIMIT 1');
-    $stmt->execute(['t' => $tenantId, 'n' => $clientName]);
+    $stmt->execute(['t' => $clientTenantId, 'n' => $clientName]);
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);
     if (!$row) return null;
     $cid = (int) $row['id'];
