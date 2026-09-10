@@ -132,6 +132,10 @@ $a('uses RBACResolver::activeMembership',                 $c($bootSrc, 'RBACReso
 $a('uses RBACResolver::isGlobalAdmin',                    $c($bootSrc, 'RBACResolver::isGlobalAdmin'));
 $a('defines api_can() helper',                            $c($bootSrc, 'function api_can('));
 $a('api_can preserves the authenticated user context',   $c($bootSrc, 'RBACResolver::can($user,'));
+$a('auth hydrates global role into canonical session user',
+    $c($bootSrc, "\$_SESSION['user']['global_role'] = \$globalRole"));
+$a('auth hydrates global-admin flag into canonical session user',
+    $c($bootSrc, "\$_SESSION['user']['is_global_admin'] = 1"));
 $a('resolver honors authenticated global admin context', $c($permSrc, "['global_role']") && $c($permSrc, "['is_global_admin']"));
 $a('defines api_require_can() helper',                    $c($bootSrc, 'function api_require_can('));
 $a('reads active_persona_id from session',                $c($bootSrc, "active_persona_id"));
