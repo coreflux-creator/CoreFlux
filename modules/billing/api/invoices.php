@@ -29,6 +29,7 @@ $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $clientCatalogTenantId = staffingClientCatalogTenantId($tid);
+$placementsTenantId = effectiveTenantIdForModule('placements', $tid) ?? $tid;
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
@@ -147,6 +148,18 @@ if ($method === 'POST' && $action === 'from-time-entries') {
                        :description, :quantity, :unit, :unit_price, :subtotal, :tax_rate_pct, :tax_amount, :total)'
                 );
                 $stmt->execute($l);
+                if (($l['source_type'] ?? '') === 'economic_item') {
+                    placementEconomicsRecordItemObligation(
+                        (int) $placementsTenantId,
+                        (int) $l['source_ref_id'],
+                        'projected',
+                        $invId,
+                        null,
+                        null,
+                        $inv['period_start'] ?? null,
+                        $inv['period_end'] ?? null
+                    );
+                }
             }
 
             billingAudit('billing.invoice.created', [
@@ -215,6 +228,18 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
                        :description, :quantity, :unit, :unit_price, :subtotal, :tax_rate_pct, :tax_amount, :total)'
                 );
                 $stmt->execute($l);
+                if (($l['source_type'] ?? '') === 'economic_item') {
+                    placementEconomicsRecordItemObligation(
+                        (int) $placementsTenantId,
+                        (int) $l['source_ref_id'],
+                        'projected',
+                        $invId,
+                        null,
+                        null,
+                        $inv['period_start'] ?? null,
+                        $inv['period_end'] ?? null
+                    );
+                }
             }
 
             // Mark bundles consumed
@@ -393,6 +418,11 @@ if ($method === 'POST' && $action === 'approve') {
     // newly approved invoice. Best-effort, no-op when no Jaz wiring;
     // never blocks the approval.
     if (($updated['status'] ?? null) === 'approved') {
+        getDB()->prepare(
+            'UPDATE placement_economic_obligations SET status = "billed"
+              WHERE tenant_id = :tenant_id AND ar_invoice_id = :invoice_id
+                AND status = "projected"'
+        )->execute(['tenant_id' => $placementsTenantId, 'invoice_id' => $id]);
         require_once __DIR__ . '/../../../core/accounting/command_service.php';
         accountingTryEnqueueDraft($tid, 'invoice', $updated, $user['id'] ?? null);
     }
@@ -538,6 +568,14 @@ if ($method === 'POST' && $action === 'void') {
             'UPDATE billing_invoices SET status = "void", voided_at = NOW(),
              voided_by_user_id = :u, void_reason = :r WHERE id = :id'
         )->execute(['u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id]);
+
+        if (!$hasPayments) {
+            $pdo->prepare(
+                'UPDATE placement_economic_obligations
+                    SET status = "void"
+                  WHERE tenant_id = :tenant_id AND ar_invoice_id = :invoice_id'
+            )->execute(['tenant_id' => $placementsTenantId, 'invoice_id' => $id]);
+        }
 
         $pdo->commit();
     } catch (\Throwable $e) {

@@ -42,6 +42,50 @@ function billingNextInvoiceNumber(int $tenantId): string
     }
 }
 
+/** Add due placement one-time client charges/credits to an invoice draft. */
+function billingAppendOneTimeItems(
+    int $tenantId,
+    array $placementIds,
+    string $periodEnd,
+    float $taxPct,
+    array $placementTitles,
+    array &$lines,
+    int &$lineNo,
+    float &$subtotal,
+    float &$taxTotal
+): void {
+    foreach (array_values(array_unique(array_map('intval', $placementIds))) as $placementId) {
+        foreach (placementEconomicsDueItems($tenantId, $placementId, 'ar', $periodEnd) as $item) {
+            $amount = round((float) ($item['signed_amount'] ?? 0), 2);
+            if (abs($amount) < 0.005) continue;
+            $lineTaxPct = !empty($item['taxable']) ? $taxPct : 0.0;
+            $tax = round($amount * ($lineTaxPct / 100), 2);
+            $title = trim((string) ($placementTitles[$placementId] ?? ''));
+            $description = $title !== ''
+                ? $title . ' - ' . (string) $item['description']
+                : (string) $item['description'];
+            $lines[] = [
+                'line_no' => $lineNo++,
+                'source_type' => 'economic_item',
+                'item_type' => $item['direction'] === 'credit' ? 'discount' : 'fixed_fee',
+                'source_ref_id' => (int) $item['id'],
+                'placement_id' => $placementId,
+                'rate_snapshot_id' => null,
+                'description' => $description,
+                'quantity' => 1.0,
+                'unit' => 'each',
+                'unit_price' => $amount,
+                'subtotal' => $amount,
+                'tax_rate_pct' => $lineTaxPct,
+                'tax_amount' => $tax,
+                'total' => round($amount + $tax, 2),
+            ];
+            $subtotal += $amount;
+            $taxTotal += $tax;
+        }
+    }
+}
+
 /**
  * Build draft invoice header(s) + lines from a closed time period's `ar`
  * bundles. Returns an array of {invoice, lines} ready for insertion.
@@ -179,6 +223,23 @@ function billingBuildDraftFromBundle(int $tenantId, int $periodId, array $placem
             $taxTotal += $tax;
         }
 
+        $bundleIds = array_map(static fn(array $bundle): int => (int) $bundle['id'], $groupBundles);
+        $placementTitles = [];
+        foreach ($groupBundles as $bundle) {
+            $placementTitles[(int) $bundle['placement_id']] = (string) ($bundle['placement_title'] ?? '');
+        }
+        billingAppendOneTimeItems(
+            (int) $placementsTenantId,
+            array_column($groupBundles, 'placement_id'),
+            (string) $period['end_date'],
+            $taxPct,
+            $placementTitles,
+            $lines,
+            $lineNo,
+            $subtotal,
+            $taxTotal
+        );
+
         if (empty($lines)) continue; // group had only zero-hour bundles
 
         $invoices[] = [
@@ -200,7 +261,7 @@ function billingBuildDraftFromBundle(int $tenantId, int $periodId, array $placem
                 'status'        => 'draft',
             ],
             'lines'        => $lines,
-            'bundle_ids'   => array_map(fn ($l) => $l['source_ref_id'], $lines),
+            'bundle_ids'   => $bundleIds,
         ];
     }
 
@@ -415,6 +476,22 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
             $subtotal += $sub;
             $taxTotal += $tax;
         }
+        $entryIdsForInvoice = array_values(array_unique(array_merge(...array_column($lines, '_entry_ids'))));
+        $placementTitles = [];
+        foreach ($rows as $row) {
+            $placementTitles[(int) $row['placement_id']] = (string) ($row['placement_title'] ?? '');
+        }
+        billingAppendOneTimeItems(
+            (int) $placementsTenantId,
+            array_column($rows, 'placement_id'),
+            $maxDate ?? $today,
+            $taxPct,
+            $placementTitles,
+            $lines,
+            $lineNo,
+            $subtotal,
+            $taxTotal
+        );
         if (empty($lines)) continue;
 
         $invoices[] = [
@@ -437,7 +514,7 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
             ],
             'lines'        => $lines,
             'bundle_ids'   => [],   // entry-driven, no bundle consumption
-            'entry_ids'    => array_merge(...array_column($lines, '_entry_ids')),
+            'entry_ids'    => $entryIdsForInvoice,
         ];
     }
     return $invoices;

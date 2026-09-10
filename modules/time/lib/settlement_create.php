@@ -158,6 +158,18 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
                 $issueDate = date('Y-m-d');
                 $workDates = array_column($rows, 'work_date');
                 sort($workDates);
+                $periodStart = reset($workDates) ?: date('Y-m-d');
+                $periodEnd = end($workDates) ?: date('Y-m-d');
+                $oneTimeItems = placementEconomicsDueItems(
+                    (int) $placementsTenantId,
+                    $placementId,
+                    'ar',
+                    $periodEnd
+                );
+                foreach ($oneTimeItems as $item) {
+                    $totalAmount += (float) ($item['signed_amount'] ?? 0);
+                }
+                $totalAmount = round($totalAmount, 2);
                 $invoice = [
                     'tenant_id'         => $tenantId,
                     'invoice_number'    => 'TS-' . date('Ymd-His') . '-P' . $placementId,
@@ -166,8 +178,8 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
                     'issue_date'        => $issueDate,
                     'due_date'          => date('Y-m-d', strtotime('+' . (int) $receivable['payment_terms_days'] . ' days', strtotime($issueDate))),
                     'payment_terms'     => $receivable['payment_terms'],
-                    'period_start'      => reset($workDates) ?: date('Y-m-d'),
-                    'period_end'        => end($workDates) ?: date('Y-m-d'),
+                    'period_start'      => $periodStart,
+                    'period_end'        => $periodEnd,
                     'currency'          => $currency,
                     'subtotal'          => $totalAmount,
                     'tax_total'         => 0,
@@ -184,7 +196,7 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
                     'INSERT INTO billing_invoice_lines
                        (invoice_id, line_no, source_type, item_type, source_ref_id, placement_id,
                         rate_snapshot_id, description, quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total)
-                     VALUES (?, ?, "time", "time_hourly", ?, ?, ?, ?, ?, "hour", ?, ?, 0, 0, ?)'
+                     VALUES (?, ?, "time", "labor", ?, ?, ?, ?, ?, "hour", ?, ?, 0, 0, ?)'
                 );
                 foreach ($lines as $l) {
                     $lstmt->execute([
@@ -192,13 +204,44 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
                         $l['quantity'], $l['unit_price'], $l['subtotal'], $l['subtotal'],
                     ]);
                 }
+                $itemStmt = $pdo->prepare(
+                    'INSERT INTO billing_invoice_lines
+                       (invoice_id, line_no, source_type, item_type, source_ref_id, placement_id,
+                        rate_snapshot_id, description, quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total)
+                     VALUES (?, ?, "economic_item", ?, ?, ?, NULL, ?, 1, "each", ?, ?, 0, 0, ?)'
+                );
+                foreach ($oneTimeItems as $item) {
+                    $amount = round((float) ($item['signed_amount'] ?? 0), 2);
+                    if (abs($amount) < 0.005) continue;
+                    $itemStmt->execute([
+                        $invId,
+                        $i++,
+                        $item['direction'] === 'credit' ? 'discount' : 'fixed_fee',
+                        (int) $item['id'],
+                        $placementId,
+                        (string) $item['description'],
+                        $amount,
+                        $amount,
+                        $amount,
+                    ]);
+                    placementEconomicsRecordItemObligation(
+                        (int) $placementsTenantId,
+                        (int) $item['id'],
+                        'projected',
+                        $invId,
+                        null,
+                        null,
+                        $periodStart,
+                        $periodEnd
+                    );
+                }
                 $created[$placementId] = [
                     'target_id'   => $invId,
                     'kind'        => 'invoice',
                     'invoice_number' => $invoice['invoice_number'],
                     'currency'    => $currency,
                     'total'       => $totalAmount,
-                    'line_count'  => count($lines),
+                    'line_count'  => count($lines) + count($oneTimeItems),
                 ];
                 $targetRefForStamp = $invId;
             } else {  // ap
@@ -506,6 +549,7 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
             $entriesByPlacement = [];
             foreach ($bucket['entries'] as $entry) $entriesByPlacement[(int) $entry['placement_id']][] = $entry;
             foreach ($entriesByPlacement as $placementId => $placementEntries) {
+                $seenPayrollItems = [];
                 $entriesByRate = [];
                 foreach ($placementEntries as $entry) {
                     $entriesByRate[(int) $entry['rate_snapshot_id']][] = $entry;
@@ -537,6 +581,9 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
                         $rateSnapshotId
                     );
                     foreach ($charges as $charge) {
+                        $economicItemId = (int) ($charge['economic_item_id'] ?? 0);
+                        if ($economicItemId > 0 && isset($seenPayrollItems[$economicItemId])) continue;
+                        if ($economicItemId > 0) $seenPayrollItems[$economicItemId] = true;
                         $recipient = placementEconomicsPayrollEmployee($tenantId, $charge);
                         if (!$recipient) {
                             throw new TimeSettlementException("Payroll recipient {$charge['display_name']} is not linked to a payroll-ready employee");
@@ -551,7 +598,11 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
                         $recipientRun = _settlementPayrollRunForCycle($pdo, $tenantId, $recipientCycleId, $actorUserId);
                         if (!$recipientRun) throw new TimeSettlementException("No open payroll period for {$charge['display_name']}");
                         placementEconomicsRecordObligation(
-                            $tenantId, $placementId, (int) $charge['id'], 'time_bundle', $sourceRefId,
+                            $tenantId,
+                            $placementId,
+                            (int) $charge['id'],
+                            $economicItemId > 0 ? 'economic_item' : 'time_bundle',
+                            $economicItemId > 0 ? $economicItemId : $sourceRefId,
                             [
                                 'period_start' => reset($workDates) ?: null,
                                 'period_end' => end($workDates) ?: null,

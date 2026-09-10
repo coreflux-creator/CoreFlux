@@ -51,6 +51,90 @@ if ($method === 'POST' && $action === 'reconcile') {
     api_ok(['result' => $result, 'context' => placementEconomicsContext($tenantId, $placementId, false)]);
 }
 
+if ($method === 'POST' && $action === 'item') {
+    rbac_legacy_require($user, 'placements.financials.manage');
+    if ($placementId <= 0) api_error('placement_id required', 400);
+    $body = api_json_body();
+    api_require_fields($body, ['description', 'settlement_channel', 'amount', 'apply_on']);
+    $description = trim((string) $body['description']);
+    $channel = strtolower(trim((string) $body['settlement_channel']));
+    $direction = strtolower(trim((string) ($body['direction'] ?? 'charge')));
+    $amount = is_numeric($body['amount']) ? round((float) $body['amount'], 2) : 0.0;
+    $currency = strtoupper(trim((string) ($body['currency'] ?? 'USD')));
+    $applyOn = trim((string) $body['apply_on']);
+    if ($description === '') api_error('Description required', 422);
+    if (!in_array($channel, ['ar','ap','payroll','none'], true)) api_error('Invalid destination', 422);
+    if (!in_array($direction, ['charge','credit'], true)) api_error('Invalid item effect', 422);
+    if ($channel === 'payroll' && $direction === 'credit') {
+        api_error('Payroll deductions require a payroll deduction rule; this item can only add earnings', 422);
+    }
+    if ($channel === 'ap' && $direction === 'credit') {
+        api_error('Vendor credits must use the vendor-credit workflow; this item can only increase a payable', 422);
+    }
+    if ($amount <= 0) api_error('Amount must be greater than zero', 422);
+    if (!preg_match('/^[A-Z]{3}$/', $currency)) api_error('Currency must be a three-letter code', 422);
+    $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $applyOn);
+    if (!$date || $date->format('Y-m-d') !== $applyOn) api_error('Apply date must be a valid date', 422);
+
+    $rateCurrency = scopedFind(
+        'SELECT currency FROM placement_rates
+          WHERE tenant_id = :tenant_id AND placement_id = :placement_id
+          ORDER BY (approved_at IS NOT NULL) DESC, effective_from DESC, id DESC
+          LIMIT 1',
+        ['placement_id' => $placementId]
+    );
+    if ($rateCurrency && strtoupper((string) $rateCurrency['currency']) !== $currency) {
+        api_error('One-time items must use the placement contract currency', 422);
+    }
+
+    $partyId = !empty($body['economic_party_id']) ? (int) $body['economic_party_id'] : null;
+    if ($channel !== 'none') {
+        if (!$partyId && $channel === 'ar') {
+            $st = getDB()->prepare(
+                'SELECT id FROM placement_economic_parties
+                  WHERE tenant_id = :t AND placement_id = :p AND active = 1
+                    AND settlement_channel = "ar" ORDER BY id LIMIT 2'
+            );
+            $st->execute(['t' => $tenantId, 'p' => $placementId]);
+            $ids = array_map('intval', array_column($st->fetchAll(\PDO::FETCH_ASSOC), 'id'));
+            if (count($ids) === 1) $partyId = $ids[0];
+        }
+        if (!$partyId) api_error('Choose the recipient for this item', 422);
+        $party = scopedFind(
+            'SELECT id, settlement_channel FROM placement_economic_parties
+              WHERE tenant_id = :tenant_id AND placement_id = :placement_id
+                AND id = :id AND active = 1',
+            ['placement_id' => $placementId, 'id' => $partyId]
+        );
+        if (!$party || (string) $party['settlement_channel'] !== $channel) {
+            api_error('The selected recipient does not match this item destination', 422);
+        }
+    } else {
+        $partyId = null;
+    }
+
+    $id = placementEconomicsCreateItem($tenantId, $placementId, [
+        'economic_party_id' => $partyId,
+        'description' => $description,
+        'settlement_channel' => $channel,
+        'direction' => $direction,
+        'amount' => $amount,
+        'currency' => $currency,
+        'apply_on' => $applyOn,
+        'taxable' => $channel === 'ar' && !empty($body['taxable']),
+        'created_by_user_id' => $user['id'] ?? null,
+    ]);
+    placementsAudit('placement.economic_item.added', [
+        'placement_id' => $placementId,
+        'economic_item_id' => $id,
+        'settlement_channel' => $channel,
+        'economic_party_id' => $partyId,
+        'amount' => $amount,
+        'direction' => $direction,
+    ], $placementId);
+    api_ok(['id' => $id, 'context' => placementEconomicsContext($tenantId, $placementId, false)], 201);
+}
+
 if ($method === 'POST' && $action === 'party') {
     rbac_legacy_require($user, 'placements.manage');
     if ($placementId <= 0) api_error('placement_id required', 400);
@@ -314,6 +398,33 @@ if ($method === 'PATCH') {
         'fields' => array_keys($body),
     ], (int) $before['placement_id'], ['before' => $before, 'after' => $after]);
     api_ok(['ok' => true, 'party' => $after]);
+}
+
+if ($method === 'DELETE' && $action === 'item') {
+    rbac_legacy_require($user, 'placements.financials.manage');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 400);
+    $item = scopedFind(
+        'SELECT * FROM placement_economic_items WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $id]
+    );
+    if (!$item) api_error('One-time item not found', 404);
+    if (!empty($item['source_managed'])) api_error('This item is managed by its source integration', 409);
+    $used = getDB()->prepare(
+        'SELECT 1 FROM placement_economic_obligations
+          WHERE tenant_id = :t AND source_type = "economic_item"
+            AND source_ref_id = :id AND status <> "void" LIMIT 1'
+    );
+    $used->execute(['t' => $tenantId, 'id' => $id]);
+    if ($used->fetchColumn()) api_error('This item has already been applied and cannot be removed', 409);
+    getDB()->prepare(
+        'UPDATE placement_economic_items SET status = "void"
+          WHERE tenant_id = :t AND id = :id'
+    )->execute(['t' => $tenantId, 'id' => $id]);
+    placementsAudit('placement.economic_item.removed', [
+        'placement_id' => (int) $item['placement_id'], 'economic_item_id' => $id,
+    ], (int) $item['placement_id']);
+    api_ok(['ok' => true]);
 }
 
 if ($method === 'DELETE') {

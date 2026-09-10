@@ -808,11 +808,13 @@ if ($method === 'POST' && $action === 'void') {
              voided_by_user_id = :u, void_reason = :r WHERE id = :id'
         )->execute(['u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id]);
 
-        $pdo->prepare(
-            'UPDATE placement_economic_obligations
-                SET status = "void"
-              WHERE tenant_id = :tenant_id AND ap_bill_id = :bill_id'
-        )->execute(['tenant_id' => $tid, 'bill_id' => $id]);
+        if (!$hasPayments) {
+            $pdo->prepare(
+                'UPDATE placement_economic_obligations
+                    SET status = "void"
+                  WHERE tenant_id = :tenant_id AND ap_bill_id = :bill_id'
+            )->execute(['tenant_id' => $tid, 'bill_id' => $id]);
+        }
 
         $pdo->commit();
     } catch (\Throwable $e) {

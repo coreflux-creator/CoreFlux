@@ -105,7 +105,7 @@ $assert('placement has one Contract workflow containing rates and participants',
     && str_contains($ui, '<RatesTab')
     && str_contains($ui, 'Commercial terms by participant'));
 $assert('contract editor exposes revenue adjustments and classification cost loads',
-    str_contains($ui, 'Adders, discounts, and operating costs')
+    str_contains($ui, 'Recurring rate adjustments and operating costs')
     && str_contains($ui, 'Client discount %')
     && str_contains($ui, 'Workers compensation %')
     && str_contains($ui, 'Benefits load %')
