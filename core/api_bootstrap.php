@@ -353,7 +353,7 @@ function api_can(string $module, string $action = 'read', ?int $subTenantId = nu
     $tenantId = currentTenantId();
     if (!$user || !$tenantId || !class_exists('RBACResolver')) return false;
     $personaId = isset($_SESSION['active_persona_id']) ? (int) $_SESSION['active_persona_id'] : null;
-    return RBACResolver::can((int) ($user['id'] ?? 0), (int) $tenantId, $module, $action, $subTenantId, $personaId);
+    return RBACResolver::can($user, (int) $tenantId, $module, $action, $subTenantId, $personaId);
 }
 
 /**

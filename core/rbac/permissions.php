@@ -64,6 +64,12 @@ final class RBACResolver
         if ($userId <= 0) return false;
         if (!isset(self::LEVEL_RANK[$action])) return false;
 
+        if (is_array($userOrId)) {
+            $isTrustedGlobalAdmin = (string) ($userOrId['global_role'] ?? '') === 'master_admin'
+                || (int) ($userOrId['is_global_admin'] ?? 0) === 1;
+            if ($isTrustedGlobalAdmin) return true;
+        }
+
         // Global admin bypass.
         if (self::isGlobalAdmin($userId)) return true;
 

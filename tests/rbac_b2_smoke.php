@@ -74,6 +74,8 @@ RBACResolver::resetCache();
 $a('returns false on userId=0',                           RBACResolver::can(0, 1, 'people', 'read') === false);
 $a('returns false on invalid action',                     RBACResolver::can(1, 1, 'people', 'bogus') === false);
 $a('returns false on userId=0 via array input',           RBACResolver::can(['id' => 0], 1, 'people', 'read') === false);
+$a('global context still requires a valid user id',       RBACResolver::can(['id' => 0, 'global_role' => 'master_admin'], 1, 'people', 'read') === false);
+$a('global context still requires a valid action',        RBACResolver::can(['id' => 1, 'global_role' => 'master_admin'], 1, 'people', 'bogus') === false);
 
 // ----------------------------------------------------------------- legacy fall-through when DB absent
 echo "\nDB-absent fall-throughs\n";
@@ -129,6 +131,8 @@ $a('$ctx exposes is_global_admin',                        $c($bootSrc, "'is_glob
 $a('uses RBACResolver::activeMembership',                 $c($bootSrc, 'RBACResolver::activeMembership'));
 $a('uses RBACResolver::isGlobalAdmin',                    $c($bootSrc, 'RBACResolver::isGlobalAdmin'));
 $a('defines api_can() helper',                            $c($bootSrc, 'function api_can('));
+$a('api_can preserves the authenticated user context',   $c($bootSrc, 'RBACResolver::can($user,'));
+$a('resolver honors authenticated global admin context', $c($permSrc, "['global_role']") && $c($permSrc, "['is_global_admin']"));
 $a('defines api_require_can() helper',                    $c($bootSrc, 'function api_require_can('));
 $a('reads active_persona_id from session',                $c($bootSrc, "active_persona_id"));
 $a('guards on class_exists(RBACResolver)',                $c($bootSrc, "class_exists('RBACResolver')"));
