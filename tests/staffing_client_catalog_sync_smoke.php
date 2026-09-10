@@ -44,9 +44,9 @@ foreach (['csv_import.php', 'csv_export.php'] as $file) {
 }
 $csvImport = $read($root . '/modules/staffing/api/csv_import.php');
 $assert('client CSV read/export use placements view and commit uses placements manage',
-    str_contains($csvImport, "rbac_legacy_require(\$user, 'placements.manage')")
-    && !str_contains($csvImport, "rbac_legacy_require(\$user, 'staffing.view')")
-    && str_contains($read($root . '/modules/staffing/api/csv_export.php'), "rbac_legacy_require(\$user, 'placements.view')"));
+    str_contains($csvImport, "api_require_legacy_permission(\$ctx, 'placements.manage')")
+    && !str_contains($csvImport, "api_require_legacy_permission(\$ctx, 'staffing.view')")
+    && str_contains($read($root . '/modules/staffing/api/csv_export.php'), "api_require_legacy_permission(\$ctx, 'placements.view')"));
 $assert('client CSV import converges through company/client bridge',
     str_contains($csvImport, 'staffingClientEnsureForCompany(')
     && !str_contains($csvImport, "return scopedInsert('staffing_clients'"));

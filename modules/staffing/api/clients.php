@@ -28,7 +28,7 @@ $method = api_method();
 $action = $_GET['action'] ?? 'list';
 
 if ($method === 'GET' && $action === 'list') {
-    rbac_legacy_require($user, 'placements.view');
+    api_require_legacy_permission($ctx, 'placements.view');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['status'])) { $where[] = 'status = :s'; $params['s'] = $_GET['status']; }
@@ -75,7 +75,7 @@ if ($method === 'GET' && $action === 'list') {
 }
 
 if ($method === 'GET' && $action === 'get') {
-    rbac_legacy_require($user, 'placements.view');
+    api_require_legacy_permission($ctx, 'placements.view');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
     $row = staffingClientCatalogFind(
@@ -88,7 +88,7 @@ if ($method === 'GET' && $action === 'get') {
 }
 
 if ($method === 'POST' && $action === 'create') {
-    rbac_legacy_require($user, 'placements.manage');
+    api_require_legacy_permission($ctx, 'placements.manage');
     $b = api_json_body();
     $name = trim((string) ($b['name'] ?? ''));
     if ($name === '') api_error('name required', 422);
@@ -137,7 +137,7 @@ if ($method === 'POST' && $action === 'create') {
 }
 
 if ($method === 'POST' && $action === 'update') {
-    rbac_legacy_require($user, 'placements.manage');
+    api_require_legacy_permission($ctx, 'placements.manage');
     $b  = api_json_body();
     $id = (int) ($b['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
@@ -185,7 +185,7 @@ if ($method === 'POST' && $action === 'update') {
 }
 
 if ($method === 'POST' && $action === 'delete') {
-    rbac_legacy_require($user, 'placements.manage');
+    api_require_legacy_permission($ctx, 'placements.manage');
     $b  = api_json_body();
     $id = (int) ($b['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
@@ -211,7 +211,7 @@ if ($method === 'POST' && $action === 'delete') {
 }
 
 if ($method === 'GET' && $action === 'stats') {
-    rbac_legacy_require($user, 'placements.view');
+    api_require_legacy_permission($ctx, 'placements.view');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
 
