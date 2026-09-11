@@ -7,7 +7,8 @@ import {
   Wrench, Folder, AlertTriangle, FileSearch, Coins, HandCoins,
   Wallet, Network, Boxes, Layers, ListChecks, Gauge, Target, Hourglass,
   ClipboardCheck, FileCheck2, Mail, Repeat, BarChart, Activity, Tags,
-  CheckSquare, Inbox, BadgeDollarSign, FilePlus2, FolderTree, Sparkles
+  CheckSquare, Inbox, BadgeDollarSign, FilePlus2, FolderTree, Sparkles,
+  Scale
 } from 'lucide-react';
 
 /**
@@ -34,10 +35,15 @@ const iconMap = {
   // Accounting
   'chart_of_accounts': BookOpen,        'chart-of-accounts': BookOpen,
   'coa':               BookOpen,
+  'accounts':          BookOpen,
   'journal':           FileText,
   'journal_entries':   FileText,        'journal-entries':   FileText,
   'general_ledger':    Layers,          'general-ledger':    Layers,
   'trial_balance':     BarChart3,       'trial-balance':     BarChart3,
+  'trial':             BarChart3,
+  'pnl':               TrendingUp,
+  'balance':           Scale,
+  'cash_flow':         Activity,        'cash-flow':         Activity,
   'standard_reports':  PieChart,        'standard-reports':  PieChart,
   'periods':           Calendar,
   'dimensions':        Tags,
@@ -49,8 +55,10 @@ const iconMap = {
   'recurring':         Repeat,
   'recurring_journal_entries': Repeat,  'recurring-journal-entries': Repeat,
   'entities':          Building2,
-  'consolidation':     Network,
+  'consolidation':     Boxes,
   'intercompany':      Network,
+  'elimination':       Layers,
+  'import':            FilePlus2,
   'fx':                Coins,
   'allocations':       Boxes,
   'bookkeeping':       BookOpen,
