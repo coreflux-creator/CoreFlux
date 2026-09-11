@@ -541,11 +541,12 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
             }
         }
 
-        $payloadClientName = $payload && function_exists('jobdivaEndClientNameFromPayload')
-            ? jobdivaEndClientNameFromPayload($payload)
-            : '';
+        $evidence = $payload && function_exists('jobdivaProjectorAssignmentClientEvidence')
+            ? jobdivaProjectorAssignmentClientEvidence($payload)
+            : ['authoritative' => false, 'name' => ''];
+        $name = trim((string) ($evidence['name'] ?? ''));
 
-        if ($payloadClientName !== '' && function_exists('jobdivaProjectorResolveEndClientCompany')) {
+        if (!empty($evidence['authoritative']) && function_exists('jobdivaProjectorResolveEndClientCompany')) {
             try {
                 $resolvedCompanyId = jobdivaProjectorResolveEndClientCompany($tenantId, $payload, $userId);
                 if ($resolvedCompanyId !== null && $resolvedCompanyId > 0) {
@@ -556,32 +557,30 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
             }
         }
 
-        $name = trim($payloadClientName);
-        if ($name === '') $name = trim((string) ($row['end_client_name'] ?? ''));
-        if ($name === '') $name = trim((string) ($row['company_name'] ?? ''));
-        if ($name === '') $name = trim((string) ($row['existing_client_name'] ?? ''));
-        if ($name === '') $name = trim($payloadClientName);
-        if ($name === '' && $companyId !== null && $companyId > 0) {
-            try {
-                $nameStmt = $pdo->prepare(
-                    'SELECT name FROM companies
-                      WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL
-                      LIMIT 1'
-                );
-                $nameStmt->execute(['t' => $tenantId, 'id' => $companyId]);
-                $name = trim((string) ($nameStmt->fetchColumn() ?: ''));
-            } catch (\Throwable $e) {
-                error_log('[jobdiva mapping repair] company-name lookup failed: ' . $e->getMessage());
-            }
-        }
-        if ($name === '') {
+        // Without exact assignment billing evidence, repair may only re-link
+        // an already-established company/client pair. It must never create a
+        // client from legacy free text, a contact name, or a requisition name.
+        $existingCanonicalClient = $companyId !== null
+            ? staffingClientFindForCompany($tenantId, $companyId)
+            : null;
+        if (empty($evidence['authoritative']) && !$existingCanonicalClient) {
             $summary['skipped']++;
             continue;
         }
+        if ($name === '' && $existingCanonicalClient) {
+            $name = trim((string) ($existingCanonicalClient['name'] ?? ''));
+        }
         try {
-            $clientRef = staffingClientEnsureForCompany($tenantId, $companyId, $name, [
-                'created_by_user_id' => $userId,
-            ]);
+            $clientRef = !empty($evidence['authoritative'])
+                ? staffingClientEnsureForCompany($tenantId, $companyId, $name, [
+                    'created_by_user_id' => $userId,
+                    'status' => 'active',
+                ])
+                : [
+                    'client_id' => (int) $existingCanonicalClient['id'],
+                    'company_id' => (int) $existingCanonicalClient['company_id'],
+                    'name' => (string) $existingCanonicalClient['name'],
+                ];
             $clientId = (int) ($clientRef['client_id'] ?? 0);
             if ($clientId <= 0) {
                 $summary['skipped']++;

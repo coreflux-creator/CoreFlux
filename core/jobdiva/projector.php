@@ -685,50 +685,53 @@ function jobdivaProjectorTrustedCustomerCompanyExternalId(array $payload): strin
     return '';
 }
 
+/**
+ * The only JobDiva fact that can establish a CoreFlux client relationship.
+ * Requisition customer, contact, and generic company names are enrichment;
+ * EmployeeAssignmentRecordsDetail.BILLING.COMPANY owns the bill-to identity.
+ *
+ * @return array{authoritative:bool,name:string,external_id:string,source:string}
+ */
+function jobdivaProjectorAssignmentClientEvidence(array $payload): array
+{
+    $contract = jobdivaContractProjectionContract($payload);
+    $name = trim((string) ($contract['client_company_name'] ?? ''));
+    $externalId = trim((string) ($contract['client_company_id'] ?? ''));
+    $source = trim((string) ($contract['source'] ?? ''));
+    return [
+        'authoritative' => $name !== '' && $source === 'EmployeeAssignmentRecordsDetail',
+        'name' => $name,
+        'external_id' => $externalId,
+        'source' => $source,
+    ];
+}
+
 function jobdivaProjectorResolveEndClientCompany(int $tenantId, array $payload, ?int $userId): ?int
 {
-    $contract = isset($payload['_jd_contract']) && is_array($payload['_jd_contract'])
-        ? $payload['_jd_contract']
-        : [];
-    $companyExtId = jobdivaProjectorPluck($contract, [
-        'client_company_id', 'clientCompanyId', 'endClientCompanyId',
-    ]);
-    if ($companyExtId === '') $companyExtId = jobdivaProjectorPluck($payload, [
-        'companyId', 'company_id', 'company id', 'endClientCompanyId',
-        'COMPANYID', 'companyID', 'end client company id',
-    ]);
-    $endClientName = jobdivaProjectorEndClientNameFromPayload($payload);
+    $evidence = jobdivaProjectorAssignmentClientEvidence($payload);
+    if (empty($evidence['authoritative'])) return null;
+
+    $companyExtId = (string) $evidence['external_id'];
+    $endClientName = (string) $evidence['name'];
     if ($companyExtId !== '') {
         $companyId = jobdivaProjectorMappedCompanyIdIfNameMatches($tenantId, 'company', $companyExtId, $endClientName);
-        if ($companyId !== null && $companyId > 0) return $companyId;
-        if ($endClientName !== '') {
-            return jobdivaProjectorEnsureEndClientCompany(
-                $tenantId,
-                $endClientName,
-                $userId,
-                $payload,
-                $companyExtId,
-                'company'
-            );
+        if ($companyId !== null && $companyId > 0) {
+            staffingClientEnsureForCompany($tenantId, $companyId, $endClientName, [
+                'created_by_user_id' => $userId,
+                'status' => 'active',
+            ]);
+            return $companyId;
         }
     }
 
-    $customerExtId = jobdivaProjectorTrustedCustomerCompanyExternalId($payload);
-    if ($customerExtId !== '') {
-        foreach (['jobdiva_customer', 'company'] as $mapType) {
-            $companyId = jobdivaProjectorMappedCompanyIdIfNameMatches($tenantId, $mapType, $customerExtId, $endClientName);
-            if ($companyId !== null && $companyId > 0) return $companyId;
-        }
-        if ($endClientName !== '' && function_exists('jobdivaResolveOrAutoCreateEndClient')) {
-            return jobdivaResolveOrAutoCreateEndClient($tenantId, $customerExtId, $endClientName, $userId, $payload);
-        }
-    }
-
-    if ($endClientName !== '') {
-        return jobdivaProjectorEnsureEndClientCompany($tenantId, $endClientName, $userId, $payload);
-    }
-
-    return null;
+    return jobdivaProjectorEnsureEndClientCompany(
+        $tenantId,
+        $endClientName,
+        $userId,
+        $payload,
+        $companyExtId,
+        $companyExtId !== '' ? 'company' : 'jobdiva_customer'
+    );
 }
 
 function jobdivaProjectorEnsureEndClientCompany(
@@ -746,6 +749,7 @@ function jobdivaProjectorEnsureEndClientCompany(
         if (function_exists('staffingClientEnsureForCompany')) {
             $clientRef = staffingClientEnsureForCompany($tenantId, null, $name, [
                 'created_by_user_id' => $userId,
+                'status' => 'active',
             ]);
             $companyId = (int) ($clientRef['company_id'] ?? 0);
         } elseif (function_exists('companiesUpsertByName')) {

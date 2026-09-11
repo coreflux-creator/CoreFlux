@@ -131,6 +131,7 @@ export default function Clients() {
               <th {...headerProps('industry', 'staffing-clients-sort')}>Industry <SortIndicator active={sortKey === 'industry'} dir={sortDir} /></th>
               <th {...headerProps('active_placements', 'staffing-clients-sort')}>Active Placements <SortIndicator active={sortKey === 'active_placements'} dir={sortDir} /></th>
               <th {...headerProps('primary_contact_email', 'staffing-clients-sort')}>Contact <SortIndicator active={sortKey === 'primary_contact_email'} dir={sortDir} /></th>
+              <th {...headerProps('source', 'staffing-clients-sort')}>Source <SortIndicator active={sortKey === 'source'} dir={sortDir} /></th>
               <th {...headerProps('payment_terms_days', 'staffing-clients-sort')}>Terms <SortIndicator active={sortKey === 'payment_terms_days'} dir={sortDir} /></th>
               <th {...headerProps('status', 'staffing-clients-sort')}>Status <SortIndicator active={sortKey === 'status'} dir={sortDir} /></th>
             </tr>
@@ -142,6 +143,7 @@ export default function Clients() {
                 <td>{r.industry || '—'}</td>
                 <td style={{ textAlign:'center', fontWeight: 600 }}>{r.active_placements}</td>
                 <td>{r.primary_contact_email ? <><div>{r.primary_contact_name}</div><div style={{ fontSize:'0.75em', color:'var(--cf-text-muted)' }}>{r.primary_contact_email}</div></> : '—'}</td>
+                <td>{r.source_label || 'Manual'}</td>
                 <td>Net {r.payment_terms_days}</td>
                 <td><code>{r.status}</code></td>
               </tr>

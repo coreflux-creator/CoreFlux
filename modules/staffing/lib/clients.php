@@ -46,6 +46,184 @@ function staffingClientCatalogFind(int $tenantId, string $sql, array $params = [
     return $rows[0] ?? null;
 }
 
+function staffingClientFindForCompany(int $tenantId, ?int $companyId): ?array
+{
+    if (!$companyId || $companyId <= 0) return null;
+    return staffingClientCatalogFind(
+        $tenantId,
+        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND company_id = :company_id LIMIT 1',
+        ['company_id' => $companyId]
+    );
+}
+
+/**
+ * Reassert the placement -> client consumer link from canonical company
+ * identity. `placements.client_id` is a convenience pointer; it must never
+ * disagree with `placements.end_client_company_id`.
+ */
+function staffingClientRelinkCanonicalPlacements(int $tenantId): int
+{
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+    $stmt = $pdo->prepare(
+        'UPDATE placements p
+           JOIN staffing_clients canonical
+             ON canonical.tenant_id = p.tenant_id
+            AND canonical.company_id = p.end_client_company_id
+      LEFT JOIN staffing_clients current_client
+             ON current_client.tenant_id = p.tenant_id
+            AND current_client.id = p.client_id
+            SET p.client_id = canonical.id,
+                p.end_client_name = canonical.name,
+                p.updated_at = NOW()
+          WHERE p.tenant_id = :tenant_id
+            AND p.deleted_at IS NULL
+            AND p.end_client_company_id IS NOT NULL
+            AND (
+                 p.client_id IS NULL
+              OR current_client.id IS NULL
+              OR current_client.company_id IS NULL
+              OR current_client.company_id <> p.end_client_company_id
+            )'
+    );
+    $stmt->execute(['tenant_id' => $tenantId]);
+    return $stmt->rowCount();
+}
+
+/**
+ * Retire client rows created only because the generic JobDiva company/contact
+ * importer used to promote every organization. Source companies, contacts,
+ * placements, and mappings remain untouched.
+ */
+function staffingClientRetireUnsupportedJobDivaPromotions(int $tenantId): int
+{
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+    $stmt = $pdo->prepare(
+        "UPDATE staffing_clients sc
+           JOIN external_entity_mappings company_map
+             ON company_map.tenant_id = sc.tenant_id
+            AND company_map.source_system = 'jobdiva'
+            AND company_map.internal_entity_type = 'company'
+            AND company_map.internal_entity_id = sc.company_id
+      LEFT JOIN placements p
+             ON p.tenant_id = sc.tenant_id
+            AND p.end_client_company_id = sc.company_id
+            AND p.deleted_at IS NULL
+      LEFT JOIN external_entity_mappings customer_map
+             ON customer_map.tenant_id = sc.tenant_id
+            AND customer_map.internal_entity_type = 'customer'
+            AND customer_map.internal_entity_id = sc.id
+            AND customer_map.source_system IN ('qbo', 'quickbooks_online', 'zoho', 'zoho_books')
+      LEFT JOIN audit_log manual_audit
+             ON manual_audit.tenant_id = sc.tenant_id
+            AND manual_audit.target_id = sc.id
+            AND manual_audit.event IN ('staffing.client.created', 'staffing.client.updated')
+            SET sc.status = 'inactive', sc.updated_at = NOW()
+          WHERE sc.tenant_id = :tenant_id
+            AND sc.status = 'active'
+            AND p.id IS NULL
+            AND customer_map.id IS NULL
+            AND manual_audit.id IS NULL
+            AND (sc.external_id IS NULL OR TRIM(sc.external_id) = '')"
+    );
+    $stmt->execute(['tenant_id' => $tenantId]);
+    $retired = $stmt->rowCount();
+
+    $roleStmt = $pdo->prepare(
+        "DELETE cr FROM company_roles cr
+           JOIN staffing_clients sc ON sc.company_id = cr.company_id AND sc.tenant_id = :tenant_id
+           JOIN external_entity_mappings company_map
+             ON company_map.tenant_id = sc.tenant_id
+            AND company_map.source_system = 'jobdiva'
+            AND company_map.internal_entity_type = 'company'
+            AND company_map.internal_entity_id = sc.company_id
+      LEFT JOIN placements p
+             ON p.tenant_id = sc.tenant_id
+            AND p.end_client_company_id = sc.company_id
+            AND p.deleted_at IS NULL
+      LEFT JOIN external_entity_mappings customer_map
+             ON customer_map.tenant_id = sc.tenant_id
+            AND customer_map.internal_entity_type = 'customer'
+            AND customer_map.internal_entity_id = sc.id
+      LEFT JOIN audit_log manual_audit
+             ON manual_audit.tenant_id = sc.tenant_id
+            AND manual_audit.target_id = sc.id
+            AND manual_audit.event IN ('staffing.client.created', 'staffing.client.updated')
+          WHERE cr.role = 'client'
+            AND sc.status = 'inactive'
+            AND p.id IS NULL
+            AND customer_map.id IS NULL
+            AND manual_audit.id IS NULL
+            AND (sc.external_id IS NULL OR TRIM(sc.external_id) = '')"
+    );
+    $roleStmt->execute(['tenant_id' => $tenantId]);
+    return $retired;
+}
+
+/**
+ * QuickBooks Customer includes both top-level customers and sub-customers or
+ * jobs. Keep sub-customer mappings for accounting history, but do not present
+ * them as separate active end clients unless a placement independently uses
+ * that exact canonical company.
+ */
+function staffingClientRetireQboSubcustomers(int $tenantId): int
+{
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+    $stmt = $pdo->prepare(
+        "UPDATE staffing_clients sc
+           JOIN external_entity_mappings customer_map
+             ON customer_map.tenant_id = sc.tenant_id
+            AND customer_map.internal_entity_type = 'customer'
+            AND customer_map.internal_entity_id = sc.id
+            AND customer_map.source_system IN ('qbo', 'quickbooks_online')
+      LEFT JOIN placements p
+             ON p.tenant_id = sc.tenant_id
+            AND p.end_client_company_id = sc.company_id
+            AND p.deleted_at IS NULL
+      LEFT JOIN audit_log manual_audit
+             ON manual_audit.tenant_id = sc.tenant_id
+            AND manual_audit.target_id = sc.id
+            AND manual_audit.event IN ('staffing.client.created', 'staffing.client.updated')
+            SET sc.status = 'inactive', sc.updated_at = NOW()
+          WHERE sc.tenant_id = :tenant_id
+            AND sc.status = 'active'
+            AND p.id IS NULL
+            AND manual_audit.id IS NULL
+            AND JSON_VALID(customer_map.payload_snapshot)
+            AND (
+                 COALESCE(JSON_UNQUOTE(JSON_EXTRACT(customer_map.payload_snapshot, '$.ParentRef.value')), '') <> ''
+              OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(customer_map.payload_snapshot, '$.Job')), 'false')) = 'true'
+            )"
+    );
+    $stmt->execute(['tenant_id' => $tenantId]);
+    return $stmt->rowCount();
+}
+
+function staffingClientCatalogIntegritySummary(int $tenantId): array
+{
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+    $queries = [
+        'active_clients' => "SELECT COUNT(*) FROM staffing_clients WHERE tenant_id = :t AND status = 'active'",
+        'canonical_companies' => 'SELECT COUNT(DISTINCT end_client_company_id) FROM placements WHERE tenant_id = :t AND deleted_at IS NULL AND end_client_company_id IS NOT NULL',
+        'client_company_mismatches' => 'SELECT COUNT(*)
+             FROM placements p
+        LEFT JOIN staffing_clients sc ON sc.tenant_id = p.tenant_id AND sc.id = p.client_id
+            WHERE p.tenant_id = :t AND p.deleted_at IS NULL AND p.end_client_company_id IS NOT NULL
+              AND (sc.id IS NULL OR sc.company_id IS NULL OR sc.company_id <> p.end_client_company_id)',
+        'active_jobdiva_placeholders' => "SELECT COUNT(*) FROM staffing_clients WHERE tenant_id = :t AND status = 'active' AND name REGEXP '^JobDiva Company [0-9]+$'",
+    ];
+    $summary = [];
+    foreach ($queries as $key => $sql) {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute(['t' => $tenantId]);
+        $summary[$key] = (int) $stmt->fetchColumn();
+    }
+    return $summary;
+}
+
 function staffingClientCatalogUpdate(int $tenantId, int $clientId, array $patch): int
 {
     $pdo = getDB();

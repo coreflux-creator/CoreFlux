@@ -194,6 +194,8 @@ function qboUpsertCustomer(int $tenantId, array $qbo): array
     $country     = in_array(strtolower($countryRaw), ['us', 'usa', 'united states', 'united states of america'], true)
         ? 'US'
         : ($countryRaw !== '' ? strtoupper(substr($countryRaw, 0, 2)) : null);
+    $isSubcustomer = !empty($qbo['Job'])
+        || trim((string) ($qbo['ParentRef']['value'] ?? '')) !== '';
 
     $pdo = getDB();
     $clientTenantId = staffingClientCatalogTenantId($tenantId);
@@ -229,12 +231,19 @@ function qboUpsertCustomer(int $tenantId, array $qbo): array
     }
 
     $status = 'active';
-    if (array_key_exists('Active', $qbo) && empty($qbo['Active'])) {
+    if ($isSubcustomer || (array_key_exists('Active', $qbo) && empty($qbo['Active']))) {
         $activePlacement = $pdo->prepare(
-            "SELECT 1 FROM placements
-              WHERE tenant_id = :t
-                AND status = 'active'
-                AND (client_id = :client_id OR end_client_name = :name)
+            "SELECT 1 FROM placements p
+         LEFT JOIN staffing_clients sc
+                ON sc.tenant_id = p.tenant_id
+               AND sc.id = :client_id
+              WHERE p.tenant_id = :t
+                AND p.status = 'active'
+                AND p.deleted_at IS NULL
+                AND (
+                     p.end_client_company_id = sc.company_id
+                  OR (sc.id IS NULL AND p.end_client_name = :name)
+                )
               LIMIT 1"
         );
         $activePlacement->execute([
