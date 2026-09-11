@@ -23,9 +23,18 @@ const iconMap = {
   // Generic
   'overview': Gauge,
   'dashboard': LayoutGrid,
+  'list':               ListChecks,
+  'new':                FilePlus2,
+  'expiring':           Hourglass,
+  'commissions':        BadgeDollarSign,
+  'referrals':          HandCoins,
+  'csv_import':         FilePlus2,       'csv-import':         FilePlus2,
+  'export':             FileText,
 
   // Accounting
   'chart_of_accounts': BookOpen,        'chart-of-accounts': BookOpen,
+  'coa':               BookOpen,
+  'journal':           FileText,
   'journal_entries':   FileText,        'journal-entries':   FileText,
   'general_ledger':    Layers,          'general-ledger':    Layers,
   'trial_balance':     BarChart3,       'trial-balance':     BarChart3,
@@ -33,14 +42,27 @@ const iconMap = {
   'periods':           Calendar,
   'dimensions':        Tags,
   'close':             ClipboardCheck,
+  'approval_queue':    ClipboardCheck,  'approval-queue':    ClipboardCheck,
   'bank_rec':          Banknote,        'bank-rec':          Banknote,
+  'reconcile':         Banknote,
   'reconciliations':   Banknote,
   'recurring':         Repeat,
   'recurring_journal_entries': Repeat,  'recurring-journal-entries': Repeat,
   'entities':          Building2,
   'consolidation':     Network,
+  'intercompany':      Network,
   'fx':                Coins,
   'allocations':       Boxes,
+  'bookkeeping':       BookOpen,
+  'transactions_to_review': ListChecks, 'transactions-to-review': ListChecks,
+  'gl_detail':         Layers,          'gl-detail':         Layers,
+  'dim_pnl':           BarChart3,       'dim-pnl':           BarChart3,
+  'tax_mappings':      Tags,            'tax-mappings':      Tags,
+  'tax_export':        FileText,        'tax-export':        FileText,
+  'posting_rules':     Wrench,          'posting-rules':     Wrench,
+  'rule_sandbox':      Sparkles,        'rule-sandbox':      Sparkles,
+  'events':            Activity,
+  'audit':             ScrollText,
 
   // Treasury
   'deposits':          Wallet,          'deposit-accounts':  Wallet,
@@ -54,12 +76,19 @@ const iconMap = {
   'vendors':           Building2,
   'payments':          BadgeDollarSign,
   'aging':             Hourglass,       'ap-aging':          Hourglass,
+  'credits':           Receipt,
+  'dunning':           AlertTriangle,
+  'tax':               Settings,
   'approvals':         CheckSquare,
+  'expenses':          Receipt,
+  '1099':              ScrollText,
 
   // Billing / AR
   'accounts_receivable': Receipt,       'accounts-receivable': Receipt,
   'invoices':          FileText,
   'customers':         Users,
+  'clients':           Building2,
+  'jobs':              Briefcase,
   'collections':       AlertTriangle,
   'remittances':       FileCheck2,
 
@@ -76,6 +105,12 @@ const iconMap = {
   // Time
   'enter_time':        Clock,           'enter-time':        Clock,
   'timesheets':        FileText,
+  'entries':           Clock,
+  'review':            ClipboardCheck,
+  'missing':           AlertTriangle,
+  'settlement':        Coins,
+  'categories':        Tags,
+  'bulk':              FilePlus2,
   'pay_periods':       CalendarClock,   'pay-periods':       CalendarClock,
   'pay_schedules':     Calendar,        'pay-schedules':     Calendar,
   'approvals_queue':   CheckSquare,
@@ -88,11 +123,19 @@ const iconMap = {
   'org_chart':         Network,         'org-chart':         Network,
   'hiring_pipeline':   Briefcase,       'hiring-pipeline':   Briefcase,
   'placements':        Briefcase,
+  'pipeline':          Briefcase,
   'onboarding':        FilePlus2,
   'workers':           Users,
+  'documents':         Folder,
+  'custom_fields':     Wrench,           'custom-fields':     Wrench,
 
   // Payroll
   'runs':              Banknote,
+  'cycles':            Repeat,
+  'anomalies':         AlertTriangle,
+  'payroll_readiness': ClipboardCheck,   'payroll-readiness': ClipboardCheck,
+  'billing_readiness': Receipt,          'billing-readiness': Receipt,
+  'profitability':     TrendingUp,
   'paystubs':          Receipt,
   'taxes':             FileCheck2,
   'forecasts':         TrendingUp,
@@ -141,8 +184,11 @@ const Sidebar = ({ activeModule }) => {
               <NavLink
                 to={path}
                 className={`sidebar-link ${isActive ? 'active' : ''}`}
+                data-route={route}
               >
-                <IconComponent size={18} className="sidebar-icon" />
+                <span className="sidebar-icon-wrap" aria-hidden="true">
+                  <IconComponent size={17} className="sidebar-icon" />
+                </span>
                 <span>{item.name}</span>
               </NavLink>
             </div>

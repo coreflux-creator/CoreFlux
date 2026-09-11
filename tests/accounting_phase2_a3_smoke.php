@@ -96,9 +96,9 @@ $a('exits non-zero on errors',                         strpos($cron, "exit(\$tot
 echo "\nAccountingModule.jsx — route wiring\n";
 $mod = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/AccountingModule.jsx');
 $a('imports RecurringJournalEntries',                  strpos($mod, "from './RecurringJournalEntries'") !== false);
-$a('Recurring tab',                                    strpos($mod, 'to="recurring"') !== false);
+$a('Recurring grouped navigation',                     strpos($mod, "to: 'recurring'") !== false);
 $a('Recurring nested route (with /*)',                 strpos($mod, 'path="recurring/*"') !== false);
-$a('tab label = "Recurring JEs"',                      strpos($mod, 'label="Recurring JEs"') !== false);
+$a('navigation label = "Recurring entries"',          strpos($mod, "label: 'Recurring entries'") !== false);
 
 echo "\nRecurringJournalEntries.jsx — UI test-ids\n";
 $ui = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/RecurringJournalEntries.jsx');

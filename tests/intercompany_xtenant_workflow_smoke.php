@@ -245,8 +245,8 @@ echo "\n── AccountingModule wiring ──\n";
 $mod = $read('modules/accounting/ui/AccountingModule.jsx');
 $a('XTenantIntercompany import present',
     str_contains($mod, "import XTenantIntercompany from './XTenantIntercompany'"));
-$a('Cross-tenant IC tab label present',
-    str_contains($mod, 'label="Cross-tenant IC"'));
+$a('Cross-tenant IC grouped navigation present',
+    str_contains($mod, "to: 'xtenant-ic', label: 'Cross-tenant IC'"));
 $a('Cross-tenant IC route mounted',
     str_contains($mod, 'path="xtenant-ic"')
     && str_contains($mod, '<XTenantIntercompany'));

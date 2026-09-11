@@ -97,7 +97,7 @@ $a('AI narrative panel',                       $contains($ui, 'accounting-ic-eli
 echo "\nAccountingModule.jsx — Elimination tab\n";
 $mod = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/AccountingModule.jsx');
 $a('imports EliminationWorksheet',             $contains($mod, "from './EliminationWorksheet'"));
-$a('Elimination tab',                          $contains($mod, 'to="elimination"'));
+$a('Elimination grouped navigation',           $contains($mod, "to: 'elimination', label: 'Elimination'"));
 $a('Elimination route',                        $contains($mod, 'path="elimination"'));
 
 echo "\nmanifests\n";

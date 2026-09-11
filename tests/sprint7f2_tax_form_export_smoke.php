@@ -108,7 +108,7 @@ $assert('row testid template',
 echo "\nWiring — AccountingV1Module + App sidebar + BookkeepingOverview\n";
 $mod = (string) file_get_contents("{$ROOT}/modules/accounting/ui/AccountingModule.jsx");
 $assert('imports TaxExport',                     strpos($mod, "import TaxExport from './TaxExport'") !== false);
-$assert('sub-nav Tax export tab',                strpos($mod, '<Tab to="tax-export" label="Tax export" />') !== false);
+$assert('grouped navigation includes Tax export', strpos($mod, "to: 'tax-export', label: 'Tax export'") !== false);
 $assert('mounts /tax-export route',              strpos($mod, 'path="tax-export" element={<TaxExport />}') !== false);
 
 $app = (string) file_get_contents("{$ROOT}/dashboard/src/App.jsx");

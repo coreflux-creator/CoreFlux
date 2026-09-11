@@ -58,86 +58,82 @@ export default function BulkEditBar({
   return (
     <div
       data-testid={`${testid}-toolbar`}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 'var(--cf-space-2)', flexWrap: 'wrap',
-        padding: 'var(--cf-space-2) var(--cf-space-3)', marginBottom: 'var(--cf-space-3)',
-        background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 6,
-      }}
+      className="bulk-edit-bar"
     >
-      <CheckSquare size={16} aria-hidden="true" />
-      <strong data-testid={`${testid}-selected-count`}>
-        {count} {noun}{count === 1 ? '' : 's'} selected
-      </strong>
-      <span style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>Change</span>
-      <select
-        className="input"
-        value={field.key}
-        onChange={event => setFieldKey(event.target.value)}
-        disabled={busy}
-        aria-label="Field to update"
-        data-testid={`${testid}-field`}
-        style={{ minWidth: 150 }}
-      >
-        {fields.map(candidate => (
-          <option key={candidate.key} value={candidate.key}>{candidate.label}</option>
-        ))}
-      </select>
+      <div className="bulk-edit-bar__selection">
+        <span className="bulk-edit-bar__icon" aria-hidden="true"><CheckSquare size={16} /></span>
+        <strong data-testid={`${testid}-selected-count`}>{count}</strong>
+        <span>{noun}{count === 1 ? '' : 's'} selected</span>
+      </div>
 
-      {field.type === 'select' ? (
+      <div className="bulk-edit-bar__controls">
+        <span className="bulk-edit-bar__label">Update</span>
         <select
           className="input"
-          value={value}
-          onChange={event => setValue(event.target.value)}
+          value={field.key}
+          onChange={event => setFieldKey(event.target.value)}
           disabled={busy}
-          aria-label={`New ${field.label}`}
-          data-testid={`${testid}-value`}
-          style={{ minWidth: 180, maxWidth: 320 }}
+          aria-label="Field to update"
+          data-testid={`${testid}-field`}
         >
-          {field.placeholder && <option value="" disabled={!field.allowBlank}>{field.placeholder}</option>}
-          {options.map(option => (
-            <option key={String(option.value)} value={String(option.value)} disabled={option.disabled}>
-              {option.label}
-            </option>
+          {fields.map(candidate => (
+            <option key={candidate.key} value={candidate.key}>{candidate.label}</option>
           ))}
         </select>
-      ) : (
-        <input
-          className="input"
-          type={field.type === 'number' ? 'number' : 'text'}
-          min={field.min}
-          max={field.max}
-          step={field.step}
-          placeholder={field.placeholder || `New ${field.label}`}
-          value={value}
-          onChange={event => setValue(event.target.value)}
-          disabled={busy}
-          aria-label={`New ${field.label}`}
-          data-testid={`${testid}-value`}
-          style={{ minWidth: 180, maxWidth: 320 }}
-        />
-      )}
 
-      <button
-        type="button"
-        className="btn btn--primary"
-        disabled={!valueReady || busy}
-        onClick={apply}
-        data-testid={`${testid}-apply`}
-      >
-        {busy ? 'Applying…' : 'Apply to selected'}
-      </button>
-      <button
-        type="button"
-        className="btn btn--ghost"
-        disabled={busy}
-        onClick={onClear}
-        title="Clear selection"
-        aria-label="Clear selection"
-        data-testid={`${testid}-clear`}
-        style={{ width: 34, height: 34, padding: 0, display: 'inline-grid', placeItems: 'center' }}
-      >
-        <X size={16} aria-hidden="true" />
-      </button>
+        {field.type === 'select' ? (
+          <select
+            className="input"
+            value={value}
+            onChange={event => setValue(event.target.value)}
+            disabled={busy}
+            aria-label={`New ${field.label}`}
+            data-testid={`${testid}-value`}
+          >
+            {field.placeholder && <option value="" disabled={!field.allowBlank}>{field.placeholder}</option>}
+            {options.map(option => (
+              <option key={String(option.value)} value={String(option.value)} disabled={option.disabled}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            className="input"
+            type={field.type === 'number' ? 'number' : 'text'}
+            min={field.min}
+            max={field.max}
+            step={field.step}
+            placeholder={field.placeholder || `New ${field.label}`}
+            value={value}
+            onChange={event => setValue(event.target.value)}
+            disabled={busy}
+            aria-label={`New ${field.label}`}
+            data-testid={`${testid}-value`}
+          />
+        )}
+
+        <button
+          type="button"
+          className="btn btn--primary"
+          disabled={!valueReady || busy}
+          onClick={apply}
+          data-testid={`${testid}-apply`}
+        >
+          {busy ? 'Applying…' : 'Apply'}
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost btn--icon"
+          disabled={busy}
+          onClick={onClear}
+          title="Clear selection"
+          aria-label="Clear selection"
+          data-testid={`${testid}-clear`}
+        >
+          <X size={16} aria-hidden="true" />
+        </button>
+      </div>
     </div>
   );
 }
