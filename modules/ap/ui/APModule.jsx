@@ -1,5 +1,6 @@
 import React from 'react';
-import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import ModuleTabs from '../../../dashboard/src/components/ModuleTabs';
 import BillsList from './BillsList';
 import BillCreate from './BillCreate';
 import BillDetail from './BillDetail';
@@ -23,11 +24,11 @@ import WeeklyQueue from './WeeklyQueue';
 
 const navItems = [
   { to: '/modules/ap/bills',            label: 'Bills' },
-  { to: '/modules/ap/weekly-queue',     label: 'Weekly Queue' },
   { to: '/modules/ap/approvals',        label: 'Approvals' },
   { to: '/modules/ap/payments',         label: 'Payments' },
   { to: '/modules/ap/vendors',          label: 'Vendors' },
   { to: '/modules/ap/expenses',         label: 'Expenses' },
+  { to: '/modules/ap/weekly-queue',     label: 'Weekly Queue' },
   { to: '/modules/ap/recurring',        label: 'Recurring' },
   { to: '/modules/ap/purchase-orders',  label: 'POs' },
   { to: '/modules/ap/vendor-uploads',   label: 'Vendor uploads' },
@@ -40,27 +41,11 @@ const navItems = [
 export default function APModule() {
   return (
     <div className="people-directory" data-testid="ap-module">
-      <header style={{ marginBottom: 'var(--cf-space-5)' }}>
-        <h2 style={{ margin: '0 0 var(--cf-space-3)' }}>Accounts Payable</h2>
-        <nav style={{ display: 'flex', gap: 'var(--cf-space-3)', borderBottom: '1px solid var(--cf-border, #e5e7eb)', flexWrap: 'wrap' }}>
-          {navItems.map(n => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              data-testid={`ap-nav-${n.label.toLowerCase()}`}
-              style={({ isActive }) => ({
-                padding: '8px 12px',
-                borderBottom: isActive ? '2px solid var(--cf-text, #111827)' : '2px solid transparent',
-                marginBottom: '-1px',
-                textDecoration: 'none',
-                color: isActive ? 'var(--cf-text, #111827)' : 'var(--cf-text-secondary, #6b7280)',
-                fontWeight: isActive ? 600 : 400,
-              })}
-            >
-              {n.label}
-            </NavLink>
-          ))}
-        </nav>
+      <header className="module-workspace-header">
+        <span className="workspace-eyebrow">Money out</span>
+        <h1>Accounts payable</h1>
+        <p>Review obligations, approve bills, and control vendor payments.</p>
+        <ModuleTabs items={navItems.map(n => ({ ...n, testId: `ap-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Accounts payable sections" testId="ap-section-nav" />
       </header>
 
       <Routes>

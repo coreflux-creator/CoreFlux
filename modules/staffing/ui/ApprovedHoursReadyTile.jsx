@@ -19,7 +19,6 @@ import { useApi } from '../../../dashboard/src/lib/api';
 const VARIANTS = {
   billing: {
     title:  'Approved hours ready to invoice',
-    gradient:  'linear-gradient(135deg, #2563eb, #7c3aed)',
     cta:    'Bill these hours →',
     fields: (d) => [
       { label: 'Hours',      value: Number(d.hours ?? 0).toFixed(2) },
@@ -33,7 +32,6 @@ const VARIANTS = {
   },
   ap: {
     title:  'Approved hours ready to pay',
-    gradient:  'linear-gradient(135deg, #059669, #2563eb)',
     cta:    'Bill these to AP →',
     fields: (d) => [
       { label: 'Hours',      value: Number(d.hours ?? 0).toFixed(2) },
@@ -47,7 +45,6 @@ const VARIANTS = {
   },
   payroll: {
     title:  'Approved W-2 hours ready for payroll',
-    gradient:  'linear-gradient(135deg, #db2777, #f59e0b)',
     cta:    'Start a payroll run →',
     fields: (d) => [
       { label: 'Hours',     value: Number(d.hours ?? 0).toFixed(2) },
@@ -73,21 +70,12 @@ export default function ApprovedHoursReadyTile({ variant = 'billing', onPick, to
 
   return (
     <div data-testid={`approved-hours-ready-${variant}`}
-         style={{
-           background: '#0f172a', color: '#fff', borderRadius: 12, padding: 18,
-           position: 'relative', overflow: 'hidden', minHeight: 130, marginBottom: 16,
-         }}>
-      <div style={{
-        position: 'absolute', inset: 0,
-        background: v.gradient, opacity: isEmpty ? 0.20 : 0.55,
-      }} />
-      <div style={{ position: 'relative' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+         className={`approved-hours-ready approved-hours-ready--${variant}${isEmpty ? ' is-empty' : ''}`}>
+      <div className="approved-hours-ready__content">
+        <div className="approved-hours-ready__header">
           <div>
-            <div style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.75)' }}>
-              Approved hours
-            </div>
-            <h3 style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 600 }}
+            <div className="workspace-eyebrow">Approved hours</div>
+            <h3
                 data-testid={`approved-hours-ready-${variant}-title`}>{v.title}</h3>
           </div>
           {!isEmpty && (
@@ -97,24 +85,20 @@ export default function ApprovedHoursReadyTile({ variant = 'billing', onPick, to
           )}
         </div>
 
-        {loading && <p style={{ marginTop: 12, color: 'rgba(255,255,255,0.7)' }} data-testid={`approved-hours-ready-${variant}-loading`}>Counting hours…</p>}
+        {loading && <p className="approved-hours-ready__loading" data-testid={`approved-hours-ready-${variant}-loading`}>Counting hours...</p>}
 
         {!loading && (
           <>
-            <div style={{ display: 'flex', gap: 26, marginTop: 14 }}
+            <div className="approved-hours-ready__stats"
                  data-testid={`approved-hours-ready-${variant}-stats`}>
               {v.fields(bucket).map(f => (
                 <div key={f.label}>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    {f.label}
-                  </div>
-                  <div style={{ fontSize: 24, fontWeight: 700, marginTop: 2 }}>
-                    {f.value}
-                  </div>
+                  <span>{f.label}</span>
+                  <strong>{f.value}</strong>
                 </div>
               ))}
             </div>
-            <p style={{ marginTop: 12, fontSize: 12, color: 'rgba(255,255,255,0.85)' }}
+            <p className="approved-hours-ready__sub"
                data-testid={`approved-hours-ready-${variant}-sub`}>
               {v.sub(bucket)}
             </p>
@@ -130,12 +114,7 @@ function CtaButton({ as: As = 'button', children, ...rest }) {
   return (
     <Comp
       {...rest}
-      style={{
-        background: '#fff', color: '#0f172a',
-        padding: '8px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600,
-        border: 0, cursor: 'pointer', textDecoration: 'none',
-        whiteSpace: 'nowrap',
-      }}
+      className="btn btn--primary"
     >
       {children}
     </Comp>

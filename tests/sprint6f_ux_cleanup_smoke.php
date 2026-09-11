@@ -38,26 +38,32 @@ $assert('ReportsModule no longer renders <ReportsSidebar/>',
     stripos($rm, '<ReportsSidebar') === false);
 $assert('ReportsModule explanatory comment present',      stripos($rm, 'dropped the inner ReportsSidebar wrapper') !== false);
 
-echo "\nGlobal Sidebar — expanded iconMap (per-route variety)\n";
+echo "\nGlobal Sidebar — compact workspace navigation\n";
 $sb = (string) file_get_contents("{$ROOT}/dashboard/src/layout/Sidebar.jsx");
-foreach ([
-    'Gauge','BookOpen','FileText','Layers','BarChart3','Calendar','Tags','ClipboardCheck',
-    'Banknote','Repeat','Building2','Network','Coins','Wallet','HandCoins','Activity','Wrench',
-    'CreditCard','Receipt','BadgeDollarSign','Hourglass','CheckSquare','PieChart','FileSearch',
-    'AlertTriangle','Folder','Clock','CalendarClock','Briefcase','UserCircle','Users','FilePlus2',
-    'FileCheck2','TrendingUp','BarChart','ScrollText','Shield','Settings','Sparkles','FolderTree',
-    'Mail','Inbox','ListChecks','Target',
-] as $icon) {
-    $assert("imports lucide icon: {$icon}",  stripos($sb, $icon) !== false);
-}
-foreach ([
-    'staffing-overview','executive-snapshot','client-profitability','rate-spread','overtime-watch',
-    'custom-reports','other-reports','dimensions','close','bank-rec','reconciliations','recurring',
-    'audit-log','ai-accuracy','export-templates','deposit-accounts','liability-accounts',
-    'placements','onboarding','mail','inbox','tasks','goals',
-] as $route) {
-    $assert("iconMap key registered: '{$route}'", stripos($sb, "'{$route}'") !== false);
-}
+$assert('workspace navigation is data-driven',             str_contains($sb, 'const WORKSPACE_ITEMS = ['));
+$assert('primary business areas remain directly available',
+    str_contains($sb, "label: 'People'")
+    && str_contains($sb, "label: 'Placements'")
+    && str_contains($sb, "label: 'Billing'")
+    && str_contains($sb, "label: 'Accounts payable'")
+    && str_contains($sb, "label: 'Accounting'")
+    && str_contains($sb, "label: 'Treasury'"));
+$assert('operations are grouped away from primary modules',
+    str_contains($sb, '<SidebarGroup label="Operations">')
+    && str_contains($sb, "label: 'Approvals'")
+    && str_contains($sb, "label: 'Month-end close'")
+    && str_contains($sb, "label: 'Connections'"));
+$assert('assistant and settings remain anchored in the rail',
+    str_contains($sb, 'Ask CoreFlux')
+    && str_contains($sb, 'Workspace settings'));
+$assert('workspace destinations use distinct familiar icons',
+    str_contains($sb, 'LayoutGrid')
+    && str_contains($sb, 'Users')
+    && str_contains($sb, 'Briefcase')
+    && str_contains($sb, 'Receipt')
+    && str_contains($sb, 'CreditCard')
+    && str_contains($sb, 'BookOpen')
+    && str_contains($sb, 'Wallet'));
 
 echo "\nDashboard module cards — per-module icon + colour\n";
 $ui = (string) file_get_contents("{$ROOT}/dashboard/src/components/UIComponents.jsx");

@@ -275,7 +275,7 @@ $a('explains debit → verify → submit flow in header',
 echo "\nUI — TreasuryModule.jsx wiring\n";
 $tm = (string) file_get_contents(__DIR__ . '/../modules/treasury/ui/TreasuryModule.jsx');
 $a('imports MercuryPayments',                    $c($tm, "import MercuryPayments from './MercuryPayments'"));
-$a('Mercury Payments tab in nav',                $c($tm, 'TreasuryTab to="mercury-payments"'));
+$a('Mercury Payments tab in nav',                $c($tm, "{ to: '/modules/treasury/mercury-payments', label: 'Mercury Payments' }") && $c($tm, '<ModuleTabs'));
 $a('Mercury Payments route mounted',
     $c($tm, '<Route path="mercury-payments" element={<MercuryPayments />} />'));
 

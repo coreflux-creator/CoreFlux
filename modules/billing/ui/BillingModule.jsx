@@ -1,5 +1,6 @@
 import React from 'react';
-import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import ModuleTabs from '../../../dashboard/src/components/ModuleTabs';
 import InvoicesList from './InvoicesList';
 import InvoiceCreate from './InvoiceCreate';
 import InvoiceDetail from './InvoiceDetail';
@@ -27,27 +28,11 @@ const navItems = [
 export default function BillingModule({ session }) {
   return (
     <div className="people-directory" data-testid="billing-module">
-      <header style={{ marginBottom: 'var(--cf-space-5)' }}>
-        <h2 style={{ margin: '0 0 var(--cf-space-3)' }}>Billing</h2>
-        <nav style={{ display: 'flex', gap: 'var(--cf-space-3)', borderBottom: '1px solid var(--cf-border, #e5e7eb)' }}>
-          {navItems.map(n => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              data-testid={`billing-nav-${n.label.toLowerCase()}`}
-              style={({ isActive }) => ({
-                padding: '8px 12px',
-                borderBottom: isActive ? '2px solid var(--cf-text, #111827)' : '2px solid transparent',
-                marginBottom: '-1px',
-                textDecoration: 'none',
-                color: isActive ? 'var(--cf-text, #111827)' : 'var(--cf-text-secondary, #6b7280)',
-                fontWeight: isActive ? 600 : 400,
-              })}
-            >
-              {n.label}
-            </NavLink>
-          ))}
-        </nav>
+      <header className="module-workspace-header">
+        <span className="workspace-eyebrow">Money in</span>
+        <h1>Billing</h1>
+        <p>Invoice clients, collect cash, and manage receivables.</p>
+        <ModuleTabs items={navItems.map(n => ({ ...n, testId: `billing-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Billing sections" testId="billing-section-nav" />
       </header>
 
       <Routes>

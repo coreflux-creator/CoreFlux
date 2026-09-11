@@ -103,7 +103,8 @@ $a('SweepRulesAdmin imported',
 $a('Route /sweep-rules registered',
     str_contains($tmod, '<Route path="sweep-rules"'));
 $a('Tab link added',
-    str_contains($tmod, '<TreasuryTab to="sweep-rules"'));
+    str_contains($tmod, "{ to: '/modules/treasury/sweep-rules', label: 'Sweep Rules' }")
+    && str_contains($tmod, '<ModuleTabs'));
 
 echo "\n6. PHP syntax\n";
 foreach ([

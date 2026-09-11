@@ -296,7 +296,10 @@ const useSession = () => {
         // Hard-failure path. Only opt into demo when the dev explicitly
         // sets window.__CF_FORCE_DEMO__ = true (offline dev). Otherwise
         // show a clean error rather than silently masking real bugs.
-        if (typeof window !== 'undefined' && window.__CF_FORCE_DEMO__ === true) {
+        const localDemo = typeof window !== 'undefined'
+          && ['127.0.0.1', 'localhost'].includes(window.location.hostname)
+          && new URLSearchParams(window.location.search).get('demo') === '1';
+        if (typeof window !== 'undefined' && (window.__CF_FORCE_DEMO__ === true || localDemo)) {
           const demoSession = { ...DEMO_SESSION };
           demoSession.modules = filterLayerNav(demoSession.modules, demoSession.user);
           demoSession.active_module = demoSession.modules[0];
@@ -405,12 +408,6 @@ const AppContent = ({ session, usingDemo }) => {
     active_module: activeModule
   };
 
-  // Determine if we should show sidebar
-  const isMainDashboard = location.pathname === '/' || location.pathname === '/dashboard';
-  const isAdminPage = location.pathname.startsWith('/admin');
-  const isProfileOrSettings = location.pathname === '/profile' || location.pathname === '/settings';
-  const showSidebar = !isMainDashboard && !isAdminPage && !isProfileOrSettings;
-
   return (
     <>
       {usingDemo && (
@@ -444,7 +441,6 @@ const AppContent = ({ session, usingDemo }) => {
         session={sessionWithActiveModule}
         onModuleChange={handleModuleChange}
         onTenantChange={handleTenantChange}
-        showSidebar={showSidebar}
       >
         <ErrorBoundary>
           <Routes>
