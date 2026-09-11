@@ -53,6 +53,7 @@ jobs:
           tar -czf coreflux-root-routing-release.tar.gz \
             .deploy-version \
             .htaccess \
+            assets/brand \
             auth/logout.php \
             dashboard/dist \
             dashboard/src/App.jsx \
@@ -103,6 +104,8 @@ jobs:
             rm -f -- "$STAGE_ROOT/coreflux-root-routing-release.tar.gz"
             test -f "$STAGE_ROOT/.htaccess"
             test -f "$STAGE_ROOT/spa.php"
+            test -f "$STAGE_ROOT/assets/brand/coreflux-logo.png"
+            test -f "$STAGE_ROOT/assets/brand/coreflux-mark.png"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
@@ -146,4 +149,6 @@ jobs:
             grep -Eiq '^location: https?://[^/]+/login\.html\?next=%2F|^location: /login\.html\?next=%2F' "$LEGACY_HEADERS"
             curl -fsSL --max-time 20 'https://www.corefluxapp.com/' -o "$LOGIN_BODY"
             grep -Fq 'Welcome Back' "$LOGIN_BODY"
+            curl -fsS --max-time 20 'https://www.corefluxapp.com/assets/brand/coreflux-logo.png' -o /dev/null
+            curl -fsS --max-time 20 'https://www.corefluxapp.com/assets/brand/coreflux-mark.png' -o /dev/null
             echo "Deployed and verified root dashboard routing at commit ${{ github.sha }}."

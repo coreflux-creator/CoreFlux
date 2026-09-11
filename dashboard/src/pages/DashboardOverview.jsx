@@ -113,23 +113,23 @@ function KpiSnapshotStrip() {
 }
 
 function SnapshotTile({ label, value, sub, tone, testid }) {
-  const accent = tone === 'warn' ? '#f59e0b' : '#334155';
-  const color  = tone === 'warn' ? '#b45309' : '#0f172a';
+  const accent = tone === 'warn' ? '#f59e0b' : 'var(--cf-accent)';
+  const color  = tone === 'warn' ? '#b45309' : 'var(--cf-primary)';
   return (
     <div data-testid={testid}
          style={{
            background: '#fff',
-           border: '1px solid #e2e8f0',
+           border: '1px solid var(--cf-border)',
            borderLeft: `3px solid ${accent}`,
            borderRadius: 6, padding: '12px 14px',
          }}>
-      <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4,
-                    color: '#64748b', marginBottom: 4 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0,
+                    color: 'var(--cf-text-secondary)', marginBottom: 4 }}>
         {label}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color, letterSpacing: '-0.02em',
+      <div style={{ fontSize: 22, fontWeight: 700, color, letterSpacing: 0,
                     lineHeight: 1.15, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 11, color: 'var(--cf-text-muted)', marginTop: 4 }}>{sub}</div>}
     </div>
   );
 }

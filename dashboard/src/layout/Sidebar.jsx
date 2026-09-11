@@ -11,6 +11,8 @@ import {
   Scale
 } from 'lucide-react';
 
+const corefluxMark = '/assets/brand/coreflux-mark.png';
+
 /**
  * Per-route icon map. Each known route gets a distinct lucide-react icon
  * so the sidebar reads at a glance instead of being a wall of identical
@@ -205,6 +207,7 @@ const Sidebar = ({ activeModule }) => {
       </nav>
       
       <div className="sidebar-footer">
+        <img src={corefluxMark} alt="" aria-hidden="true" />
         <small>CoreFlux v1.0</small>
       </div>
     </aside>
