@@ -49,6 +49,7 @@ if ($method === 'GET') {
         'status'          => $_GET['status']          ?? null,
         'person_id'       => $_GET['person_id']       ?? null,
         'end_client'      => $_GET['end_client']      ?? null,
+        'end_client_company_id' => $_GET['end_client_company_id'] ?? null,
         'engagement_type' => $_GET['engagement_type'] ?? null,
         'start_after'     => $_GET['start_after']     ?? null,
         'end_before'      => $_GET['end_before']      ?? null,
@@ -119,7 +120,7 @@ if ($method === 'POST') {
             // Capture pre-update status/start date for activation readiness
             // and draft-to-non-active rate catch-up.
             $prior = scopedFind(
-                'SELECT status FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
+                'SELECT status, external_id, coreflux_overridden_fields FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
                 ['id' => $pid]
             );
             if (!$prior) {
@@ -146,6 +147,17 @@ if ($method === 'POST') {
             $before = placementAuditRow($pid) ?? array_merge($priorReady, $prior);
             $rows = scopedUpdate('placements', $pid, ['status' => $newStatus]);
             if ($rows > 0) {
+                if (str_starts_with((string) ($prior['external_id'] ?? ''), 'jd:')) {
+                    $currentOverrides = [];
+                    if (!empty($prior['coreflux_overridden_fields'])) {
+                        $decoded = json_decode((string) $prior['coreflux_overridden_fields'], true);
+                        if (is_array($decoded)) $currentOverrides = array_values(array_filter(array_map('strval', $decoded)));
+                    }
+                    if (!in_array('status', $currentOverrides, true)) {
+                        $currentOverrides[] = 'status';
+                        scopedUpdate('placements', $pid, ['coreflux_overridden_fields' => json_encode($currentOverrides)]);
+                    }
+                }
                 $updated++;
                 $totalAutoApproved += $autoApproved;
                 placementsAudit('placement.status_changed', [
@@ -164,6 +176,7 @@ if ($method === 'POST') {
                         'via'             => 'bulk_status',
                     ], $pid);
                 }
+                placementEconomicsReconcile((int) $ctx['tenant_id'], $pid);
                 $results[] = ['id' => $pid, 'ok' => true, 'rates_auto_approved' => $autoApproved];
             } else {
                 $skipped++;
@@ -177,6 +190,116 @@ if ($method === 'POST') {
             'status'               => $newStatus,
             'rates_auto_approved'  => $totalAutoApproved,
             'results'              => $results,
+        ]);
+    }
+
+    // Bulk-edit operational placement fields. Status changes stay on the
+    // dedicated bulk_status path because activation has additional rate and
+    // readiness rules. These fields use the same client bridge, audit trail,
+    // economics reconciliation, and JobDiva override contract as a one-row
+    // edit, so the next integration sync cannot silently undo the operator.
+    if ($action === 'bulk_update') {
+        rbac_legacy_require($user, 'placements.manage');
+        $body = api_json_body();
+        $ids = is_array($body['ids'] ?? null) ? array_values(array_unique(array_map('intval', $body['ids']))) : [];
+        $ids = array_values(array_filter($ids, static fn ($n) => $n > 0));
+        $field = (string) ($body['field'] ?? '');
+        $value = $body['value'] ?? null;
+        $allowedFields = ['engagement_type','end_client_company_id','remote_policy','worksite_state','worksite_country'];
+        if (!$ids) api_error('ids[] required', 422);
+        if (count($ids) > 500) api_error('Too many ids (max 500 per call)', 422);
+        if (!in_array($field, $allowedFields, true)) {
+            api_error('Invalid bulk field', 422, ['allowed' => $allowedFields]);
+        }
+
+        if ($field === 'engagement_type') {
+            $value = strtolower(trim((string) $value));
+            if (!in_array($value, ALLOWED_ETYPE, true)) {
+                api_error('Invalid engagement_type', 422, ['allowed' => ALLOWED_ETYPE]);
+            }
+        } elseif ($field === 'remote_policy') {
+            $raw = trim((string) $value);
+            $value = placementsNormalizeRemotePolicy($raw);
+            if ($raw !== '' && $value === null) {
+                api_error('Invalid remote_policy', 422, ['allowed' => ALLOWED_REMOTE]);
+            }
+        } elseif ($field === 'end_client_company_id') {
+            $value = (int) $value;
+            if ($value <= 0 || !companiesGet($value)) api_error('Client company not found', 422);
+        } else {
+            $value = trim((string) $value);
+            if ($value === '') api_error("{$field} cannot be blank", 422);
+            if (strlen($value) > 100) api_error("{$field} is too long", 422);
+        }
+
+        $updated = 0; $skipped = 0; $failed = 0; $results = [];
+        foreach ($ids as $pid) {
+            try {
+                $existing = placementGet($pid);
+                if (!$existing) {
+                    $skipped++;
+                    $results[] = ['id' => $pid, 'ok' => false, 'reason' => 'not_found'];
+                    continue;
+                }
+                $patch = [$field => $value];
+                if ($field === 'end_client_company_id') {
+                    $company = companiesGet((int) $value);
+                    if (!$company) throw new \RuntimeException('Client company not found');
+                    $clientRef = staffingClientEnsureForCompany(
+                        currentTenantId(),
+                        (int) $company['id'],
+                        (string) $company['name'],
+                        ['created_by_user_id' => $user['id'] ?? null]
+                    );
+                    $patch = [
+                        'client_id' => $clientRef['client_id'],
+                        'end_client_company_id' => $clientRef['company_id'],
+                        'end_client_name' => $clientRef['name'],
+                    ];
+                }
+
+                $before = placementAuditRow($pid) ?? $existing;
+                $changed = scopedUpdate('placements', $pid, $patch);
+                $isJobDivaSourced = str_starts_with((string) ($existing['external_id'] ?? ''), 'jd:');
+                if ($isJobDivaSourced) {
+                    $current = [];
+                    if (!empty($existing['coreflux_overridden_fields'])) {
+                        $decoded = json_decode((string) $existing['coreflux_overridden_fields'], true);
+                        if (is_array($decoded)) $current = array_values(array_filter(array_map('strval', $decoded)));
+                    }
+                    $merged = array_values(array_unique(array_merge($current, array_keys($patch))));
+                    if ($merged !== $current) {
+                        scopedUpdate('placements', $pid, ['coreflux_overridden_fields' => json_encode($merged)]);
+                    }
+                }
+                if ($changed > 0) {
+                    $updated++;
+                    placementsAudit('placement.updated', [
+                        'id' => $pid,
+                        'fields' => array_keys($patch),
+                        'via' => 'bulk_update',
+                    ], $pid, [
+                        'before' => $before,
+                        'after' => placementAuditRow($pid),
+                    ]);
+                    placementEconomicsReconcile((int) $ctx['tenant_id'], $pid);
+                    $results[] = ['id' => $pid, 'ok' => true];
+                } else {
+                    $skipped++;
+                    $results[] = ['id' => $pid, 'ok' => true, 'reason' => 'no_change'];
+                }
+            } catch (\Throwable $e) {
+                $failed++;
+                $results[] = ['id' => $pid, 'ok' => false, 'reason' => $e->getMessage()];
+            }
+        }
+        api_ok([
+            'ok' => $failed === 0,
+            'updated' => $updated,
+            'skipped' => $skipped,
+            'failed' => $failed,
+            'field' => $field,
+            'results' => $results,
         ]);
     }
 

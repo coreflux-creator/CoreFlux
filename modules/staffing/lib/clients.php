@@ -564,6 +564,7 @@ function staffingClientApplyCompanyPatch(int $tenantId, int $companyId, array $p
         'billing_state' => 'state',
         'billing_postal_code' => 'postal_code',
         'billing_country' => 'country',
+        'payment_terms_days' => 'payment_terms_days',
     ];
     $sets = [];
     $params = ['tenant_id' => $tenantId, 'id' => $companyId];

@@ -21,7 +21,7 @@
  *   - placements CsvImport.jsx passes "View N drafts" CTA + draft
  *     rates CTA derived from imported_count
  *   - PlacementsModule routes /draft-rates to DraftRatesQueue
- *   - List.jsx shows bulk toolbar only on isDraftView
+ *   - List.jsx exposes the shared bulk editor on every placement view
  */
 declare(strict_types=1);
 
@@ -31,14 +31,15 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$placements = (string) file_get_contents('/app/modules/placements/api/placements.php');
-$rates      = (string) file_get_contents('/app/modules/placements/api/rates.php');
-$rateApprLib = (string) file_get_contents('/app/modules/placements/lib/rate_approve.php');
-$csvImp     = (string) file_get_contents('/app/modules/placements/ui/CsvImport.jsx');
-$importPg   = (string) file_get_contents('/app/dashboard/src/components/CsvImportPage.jsx');
-$list       = (string) file_get_contents('/app/modules/placements/ui/List.jsx');
-$module     = (string) file_get_contents('/app/modules/placements/ui/PlacementsModule.jsx');
-$queue      = (string) file_get_contents('/app/modules/placements/ui/DraftRatesQueue.jsx');
+$root = dirname(__DIR__);
+$placements = (string) file_get_contents($root . '/modules/placements/api/placements.php');
+$rates      = (string) file_get_contents($root . '/modules/placements/api/rates.php');
+$rateApprLib = (string) file_get_contents($root . '/modules/placements/lib/rate_approve.php');
+$csvImp     = (string) file_get_contents($root . '/modules/placements/ui/CsvImport.jsx');
+$importPg   = (string) file_get_contents($root . '/dashboard/src/components/CsvImportPage.jsx');
+$list       = (string) file_get_contents($root . '/modules/placements/ui/List.jsx');
+$module     = (string) file_get_contents($root . '/modules/placements/ui/PlacementsModule.jsx');
+$queue      = (string) file_get_contents($root . '/modules/placements/ui/DraftRatesQueue.jsx');
 
 echo "\n1. Placements bulk_status endpoint\n";
 $a('handles action=bulk_status',           str_contains($placements, "\$action === 'bulk_status'"));
@@ -66,8 +67,8 @@ $a('helper emits placement.rate.approved audit', str_contains($rateApprLib, "pla
 $a('helper supersedes prior approved rows',
    str_contains($rateApprLib, 'SET effective_to = DATE_SUB(:eff_set, INTERVAL 1 DAY)')
    && str_contains($rateApprLib, 'superseded_by = :new_id_set'));
-$a('helper computes margin from chain via placementsComputeMargin',
-   str_contains($rateApprLib, 'placementsComputeMargin($rate, $chain)'));
+$a('helper computes the canonical economics approval snapshot',
+   str_contains($rateApprLib, 'placementEconomicsApprovalSnapshot((int) currentTenantId(), $rate)'));
 $a('single ?action=approve now calls placementsRateApproveOne',
    (bool) preg_match("/action === 'approve'.*?placementsRateApproveOne\(\\\$id, \\\$user, \\\$isCorrection, \\\$correctionReason\)/s", $rates));
 $a('single approve still maps known errors to 404/409',
@@ -123,22 +124,19 @@ echo "\n6. PlacementsModule routes draft-rates → DraftRatesQueue\n";
 $a('imports DraftRatesQueue',                  str_contains($module, "import DraftRatesQueue from './DraftRatesQueue';"));
 $a('declares <Route path="draft-rates" />',    str_contains($module, '<Route path="draft-rates" element={<DraftRatesQueue />} />'));
 
-echo "\n7. List.jsx bulk toolbar gated to draft view\n";
+echo "\n7. List.jsx shared bulk editor\n";
 $a('reads initial status from ?status= URL param',
    str_contains($list, "searchParams.get('status') ?? 'active'"));
-$a('isDraftView = (status === draft)',         str_contains($list, "const isDraftView = status === 'draft';"));
-$a('promotion targets exclude terminal states',
-   str_contains($list, "const PROMOTE_TO = ['pending_start', 'active', 'on_hold'];"));
-$a('bulk toolbar testid present',              str_contains($list, "data-testid=\"placements-bulk-toolbar\""));
-$a('bulk toolbar hidden when not on draft view',
-   str_contains($list, '{isDraftView && rows.length > 0 && (')
-   || str_contains($list, '{isDraftView && items.length > 0 && ('));
+$a('imports the shared BulkEditBar',            str_contains($list, "components/BulkEditBar"));
+$a('bulk editor is available for all statuses', str_contains($list, '<BulkEditBar')
+                                                && !str_contains($list, 'isDraftView &&'));
 $a('select-all checkbox testid',               str_contains($list, "data-testid=\"placements-bulk-select-all\""));
 $a('per-row select testid uses row id',        str_contains($list, 'data-testid={`placement-row-select-${p.id}`}'));
-$a('bulk button per status target',            str_contains($list, 'data-testid={`placements-bulk-to-${s}`}'));
-$a('confirms before bulk update',              str_contains($list, 'if (!confirm(`Mark ${selected.size} placement'));
+$a('shared editor has placement test id',       str_contains($list, 'testid="placements-bulk"'));
+$a('confirms before bulk update',               str_contains($list, 'if (!confirm(`Change ${label.toLowerCase()}'));
 $a('POSTs to bulk_status endpoint',            str_contains($list, "/modules/placements/api/placements.php?action=bulk_status"));
-$a('reloads list after successful bulk',       str_contains($list, 'setSelected(new Set());'));
+$a('POSTs other fields to bulk_update',         str_contains($list, "/modules/placements/api/placements.php?action=bulk_update"));
+$a('reloads list after successful bulk',        str_contains($list, 'bustApiCachePrefix(\'placements-list:\')'));
 $a('Draft rates queue button shows in header', str_contains($list, 'data-testid="placements-draft-rates-btn"'));
 
 echo "\n8. DraftRatesQueue page contracts\n";
@@ -163,8 +161,8 @@ $a('queue can approve every currently shown draft rate',
 
 echo "\n9. PHP syntax\n";
 foreach ([
-    '/app/modules/placements/api/placements.php',
-    '/app/modules/placements/api/rates.php',
+    $root . '/modules/placements/api/placements.php',
+    $root . '/modules/placements/api/rates.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
