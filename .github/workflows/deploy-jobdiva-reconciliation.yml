@@ -110,10 +110,15 @@ jobs:
             dashboard/dist \
             dashboard/src/App.jsx \
             dashboard/src/components/BulkEditBar.jsx \
+            dashboard/src/components/ExportTemplatePicker.jsx \
+            dashboard/src/components/LineChart.jsx \
+            dashboard/src/layout/Sidebar.jsx \
             dashboard/src/pages/JobDivaSettings.jsx \
             dashboard/src/pages/SettingsPage.jsx \
             dashboard/src/pages/StaffingEconomicsSettings.jsx \
+            dashboard/src/styles.css \
             index.html \
+            modules/accounting/ui/AccountingModule.jsx \
             "${ROOT_ASSETS[@]}" \
             spa-assets/index.html \
             spa-assets/sw.js \
@@ -125,6 +130,7 @@ jobs:
             tests/staffing_client_catalog_integrity_smoke.php \
             tests/directory_bulk_controls_smoke.php \
             tests/placements_bulk_approve_drafts_queue_smoke.php \
+            tests/ui_polish_smoke.php \
             tests/jobdiva_contract_projection_smoke.php \
             tests/qbo_slice3_smoke.php \
             tests/rbac_b2_smoke.php \
@@ -213,8 +219,9 @@ jobs:
             grep -Fq 'Placement billing company' modules/staffing/api/clients.php
             grep -Fq "action === 'bulk_update'" modules/placements/api/placements.php
             grep -Fq "action === 'bulk_update'" modules/staffing/api/clients.php
-            grep -Fq 'Apply to selected' "$SPA_ENTRY"
-            grep -Fq 'Search any placement field' "$SPA_ENTRY"
+            grep -Fq 'directory-page__header' "$SPA_ENTRY"
+            grep -Fq 'Search placements, people, clients, IDs' "$SPA_ENTRY"
+            grep -Fq 'accounting-more-trigger' "$SPA_ENTRY"
             grep -Fq "$(basename "$SPA_ENTRY")" index.html
 
             OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
@@ -283,6 +290,7 @@ jobs:
             php tests/staffing_client_catalog_integrity_smoke.php
             php tests/directory_bulk_controls_smoke.php
             php tests/placements_bulk_approve_drafts_queue_smoke.php
+            php tests/ui_polish_smoke.php
             php tests/jobdiva_contract_projection_smoke.php
             php tests/qbo_slice3_smoke.php
             php tests/rbac_b2_smoke.php
