@@ -169,7 +169,7 @@ $a('explanatory copy: suggested vs auto-apply',    stripos($ui, 'auto-apply') !=
 echo "\nAccountingModule routes Bank Rec\n";
 $mod = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/AccountingModule.jsx');
 $a('imports BankReconciliation',                   strpos($mod, "from './BankReconciliation'") !== false);
-$a('Bank Rec tab',                                 strpos($mod, 'to="bank-rec"') !== false);
+$a('Bank reconciliation primary navigation',      strpos($mod, "to: 'bank-rec', label: 'Bank reconciliation'") !== false);
 $a('Bank Rec route',                               strpos($mod, 'path="bank-rec/*"') !== false);
 
 echo PHP_EOL . "Total: $pass passed, $fail failed" . PHP_EOL;

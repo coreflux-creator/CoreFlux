@@ -91,8 +91,8 @@ echo "\nAccountingModule wiring\n";
 $am = (string) file_get_contents("{$ROOT}/modules/accounting/ui/AccountingModule.jsx");
 $assert('imports DimensionsAdmin',                   stripos($am, "import DimensionsAdmin from './DimensionsAdmin'") !== false);
 $assert('imports PeriodCloseWorkflow',               stripos($am, "import PeriodCloseWorkflow from './PeriodCloseWorkflow'") !== false);
-$assert('tab: dimensions',                           stripos($am, 'to="dimensions"') !== false);
-$assert('tab: close',                                stripos($am, 'to="close"') !== false);
+$assert('navigation: dimensions',                    stripos($am, "to: 'dimensions'") !== false);
+$assert('navigation: close',                         stripos($am, "to: 'close'") !== false);
 $assert('route: dimensions',                         stripos($am, 'path="dimensions"') !== false && stripos($am, '<DimensionsAdmin') !== false);
 $assert('route: close',                              stripos($am, 'path="close"')      !== false && stripos($am, '<PeriodCloseWorkflow') !== false);
 

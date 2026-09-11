@@ -124,7 +124,7 @@ $a('deactivate action',                         $contains($map, 'accounting-ic-r
 echo "\nAccountingModule.jsx — wiring\n";
 $mod = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/AccountingModule.jsx');
 $a('imports IntercompanyMappings',              $contains($mod, "from './IntercompanyMappings'"));
-$a('Intercompany tab',                          $contains($mod, 'to="intercompany"'));
+$a('Intercompany grouped navigation',           $contains($mod, "to: 'intercompany', label: 'Intercompany'"));
 $a('Intercompany route',                        $contains($mod, 'path="intercompany"'));
 
 echo "\nBankReconciliation.jsx — per-line IC split button\n";

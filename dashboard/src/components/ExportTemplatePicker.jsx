@@ -65,7 +65,7 @@ export default function ExportTemplatePicker({
     <div style={{ position: 'relative', display: 'inline-block' }} data-testid={testid}>
       <button
         type="button"
-        className="btn btn--primary"
+        className="btn"
         onClick={() => !disabled && setOpen((v) => !v)}
         disabled={disabled}
         data-testid={`${testid}-trigger`}

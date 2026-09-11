@@ -6,7 +6,10 @@ import { fmtDate } from '../../../dashboard/src/lib/formatDate';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
-import { DatabaseZap, Pencil } from 'lucide-react';
+import {
+  Briefcase, DatabaseZap, Download, FileSpreadsheet, Pencil, Plus,
+  RefreshCw, Search, Upload, Zap,
+} from 'lucide-react';
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
 const ETYPES   = ['', 'w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal'];
@@ -138,65 +141,79 @@ export default function List() {
   };
 
   return (
-    <section className="people-directory" data-testid="placements-list">
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
-        <div>
-          <h2>Placements</h2>
-          <p style={{ color: 'var(--cf-text-secondary)' }} data-testid="placements-count">
+    <section className="people-directory directory-page" data-testid="placements-list">
+      <header className="directory-page__header">
+        <div className="directory-page__title-lockup">
+          <span className="directory-page__title-icon directory-page__title-icon--blue" aria-hidden="true">
+            <Briefcase size={21} />
+          </span>
+          <div>
+            <span className="directory-page__eyebrow">Staffing operations</span>
+            <h2>Placements</h2>
+            <p className="directory-page__description" data-testid="placements-count">
             {!data ? 'Loading…' : (
               <>
-                {total} total
+                {total} placement{total === 1 ? '' : 's'}
                 {elapsedMs != null && (
-                  <span data-testid="placements-rest-perf" style={{ marginLeft: 8, fontSize: 'var(--cf-text-xs)', color: '#64748b', fontWeight: 600 }}>
-                    ⌁ {Math.round(elapsedMs)}ms via /api (REST)
+                  <span className="sr-only" data-testid="placements-rest-perf">
+                    Loaded in {Math.round(elapsedMs)} milliseconds
                   </span>
                 )}
               </>
             )}
-          </p>
+            </p>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 'var(--cf-space-2)' }}>
+        <div className="directory-page__actions">
           <Link
             to="../jobdiva-reconciliation"
-            className="btn btn--ghost"
+            className="btn"
             data-testid="placements-jobdiva-reconciliation-btn"
             title="Preview and apply exact Start-ID placement reconciliation"
           >
-            <DatabaseZap size={15} aria-hidden="true" style={{ marginRight: 6 }} />
+            <DatabaseZap size={16} aria-hidden="true" />
             Reconcile JobDiva
           </Link>
           <Link to="../draft-rates" className="btn btn--ghost" data-testid="placements-draft-rates-btn" title="Review and approve draft rates across all placements">
+            <FileSpreadsheet size={16} aria-hidden="true" />
             Draft rates queue
           </Link>
           <Link to="../list-graphql" className="btn btn--ghost" data-testid="placements-try-graphql-btn" title="Same data, fetched via the new federated GraphQL endpoint">
-            ⚡ Try GraphQL (beta)
+            <Zap size={16} aria-hidden="true" /> GraphQL
           </Link>
-          <Link to="../csv_import" className="btn" data-testid="placements-csv-btn">Import CSV</Link>
-          <a href="/api/v1/placements/csv-export" className="btn" data-testid="placements-csv-export-btn">Export CSV</a>
+          <Link to="../csv_import" className="btn" data-testid="placements-csv-btn"><Upload size={16} aria-hidden="true" /> Import</Link>
+          <a href="/api/v1/placements/csv-export" className="btn" data-testid="placements-csv-export-btn"><Download size={16} aria-hidden="true" /> Export</a>
           <ExportTemplatePicker
             dataset="placements_directory"
             buildHref={buildTemplateExportHref}
-            label="Export via template"
+            label="Templates"
             testid="placements-export-template"
           />
-          <Link to="../new"        className="btn btn--primary" data-testid="placements-new-btn">+ New Placement</Link>
+          <Link to="../new" className="btn btn--primary" data-testid="placements-new-btn"><Plus size={16} aria-hidden="true" /> New placement</Link>
         </div>
       </header>
 
-      <div style={{ display: 'flex', gap: 'var(--cf-space-2)', marginBottom: 'var(--cf-space-3)', flexWrap: 'wrap' }}>
-        <input className="input" type="search" placeholder="Search any placement field…" value={q}
-               onChange={e => { setQ(e.target.value); setPage(1); }} data-testid="placements-search" />
-        <select className="input" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }} data-testid="placements-status-filter">
-          {STATUSES.map(s => <option key={s} value={s}>{s === '' ? 'All statuses' : s}</option>)}
-        </select>
-        <select className="input" value={engagementType} onChange={e => { setETYPE(e.target.value); setPage(1); }} data-testid="placements-etype-filter">
-          {ETYPES.map(s => <option key={s} value={s}>{s === '' ? 'All types' : s}</option>)}
-        </select>
-        <select className="input" value={endClientCompanyId} onChange={e => { setEndClientCompanyId(e.target.value); setPage(1); }} data-testid="placements-client-filter">
-          <option value="">All end clients</option>
-          {activeClients.filter(client => client.company_id).map(client => <option key={client.id} value={client.company_id}>{client.name}</option>)}
-        </select>
-        <button className="btn btn--ghost" onClick={reload} data-testid="placements-refresh">Refresh</button>
+      <div className="directory-filter-bar">
+        <div className="directory-filter-bar__search">
+          <Search size={17} aria-hidden="true" />
+          <input className="input" type="search" placeholder="Search placements, people, clients, IDs…" value={q}
+                 onChange={e => { setQ(e.target.value); setPage(1); }} data-testid="placements-search" />
+        </div>
+        <div className="directory-filter-bar__filters">
+          <select className="input" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }} aria-label="Placement status" data-testid="placements-status-filter">
+            {STATUSES.map(s => <option key={s} value={s}>{s === '' ? 'All statuses' : s.replaceAll('_', ' ')}</option>)}
+          </select>
+          <select className="input" value={engagementType} onChange={e => { setETYPE(e.target.value); setPage(1); }} aria-label="Worker type" data-testid="placements-etype-filter">
+            {ETYPES.map(s => <option key={s} value={s}>{s === '' ? 'All worker types' : s.replaceAll('_', ' ')}</option>)}
+          </select>
+          <select className="input" value={endClientCompanyId} onChange={e => { setEndClientCompanyId(e.target.value); setPage(1); }} aria-label="End client" data-testid="placements-client-filter">
+            <option value="">All end clients</option>
+            {activeClients.filter(client => client.company_id).map(client => <option key={client.id} value={client.company_id}>{client.name}</option>)}
+          </select>
+          <button className="btn btn--ghost btn--icon" onClick={reload} data-testid="placements-refresh" title="Refresh placements" aria-label="Refresh placements">
+            <RefreshCw size={17} aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       <BulkEditBar
@@ -230,7 +247,7 @@ export default function List() {
       {loading && <p>Loading…</p>}
       {error && <p className="error" data-testid="placements-error">Error: {error.message}</p>}
 
-      <div style={{ overflowX: 'auto' }}>
+      <div className="data-table-wrap">
       <table className="data-table" data-testid="placements-table">
         <thead>
           <tr>
@@ -294,7 +311,7 @@ export default function List() {
                   </Link>
                 ) : (p.end_client_display_name || p.end_client_name || '—')}
               </td>
-              <td>{p.engagement_type}</td>
+              <td><span className={`badge badge--${p.engagement_type}`}>{p.engagement_type}</span></td>
               <td><span className={`badge badge--${p.status}`}>{p.status}</span></td>
               <td>{fmtDate(p.start_date)}</td>
               <td>{fmtDate(p.due_date)}</td>
@@ -317,7 +334,7 @@ export default function List() {
       </table>
       </div>
 
-      <div style={{ marginTop: 'var(--cf-space-3)', display: 'flex', gap: 'var(--cf-space-2)', alignItems: 'center' }}>
+      <div className="table-pagination">
         <button className="btn" disabled={page <= 1} onClick={() => setPage(p => p - 1)} data-testid="placements-prev">Prev</button>
         <span data-testid="placements-page-indicator">Page {page} of {lastPage}</span>
         <button className="btn" disabled={page >= lastPage} onClick={() => setPage(p => p + 1)} data-testid="placements-next">Next</button>

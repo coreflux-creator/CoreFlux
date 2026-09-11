@@ -135,10 +135,10 @@ $assert('live AccountingModule mounts /transactions-to-review route',
     strpos($liveMod, 'path="transactions-to-review" element={<TransactionsToReview />}') !== false);
 $assert('live AccountingModule mounts /bookkeeping route',
     strpos($liveMod, 'path="bookkeeping" element={<BookkeepingOverview />}') !== false);
-$assert('live AccountingModule sub-nav has Tx-to-Review tab',
-    strpos($liveMod, '<Tab to="transactions-to-review" label="Tx to Review" />') !== false);
-$assert('live AccountingModule sub-nav has Bookkeeping tab',
-    strpos($liveMod, '<Tab to="bookkeeping" label="Bookkeeping" />') !== false);
+$assert('live AccountingModule primary nav has Transactions',
+    strpos($liveMod, "to: 'transactions-to-review', label: 'Transactions'") !== false);
+$assert('live AccountingModule primary nav has Bookkeeping',
+    strpos($liveMod, "to: 'bookkeeping', label: 'Bookkeeping'") !== false);
 
 $app = (string) file_get_contents("{$ROOT}/dashboard/src/App.jsx");
 $assert("App sidebar carries 'Transactions to Review' nav action",

@@ -1,5 +1,10 @@
-import React, { useState } from 'react';
-import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom';
+import {
+  AlertTriangle, BarChart3, BookOpen, Building2, Calendar, CheckSquare,
+  ChevronDown, FileText, GitBranch, Landmark, Layers, ListChecks, Network,
+  Repeat, Scale, Settings, Sparkles, TrendingUp, Upload, Wallet,
+} from 'lucide-react';
 import ChartOfAccounts from './ChartOfAccounts';
 import AccountDetail from './AccountDetail';
 import JournalEntries from './JournalEntries';
@@ -38,38 +43,64 @@ const LAYER_SANDBOX_ENABLED =
   typeof import.meta !== 'undefined' &&
   String(import.meta.env?.VITE_ENABLE_LAYER_SANDBOX) === 'true';
 
+const PRIMARY_NAV = [
+  { to: 'bookkeeping', label: 'Bookkeeping', Icon: BookOpen },
+  { to: 'transactions-to-review', label: 'Transactions', Icon: ListChecks },
+  { to: 'accounts', label: 'Chart of accounts', Icon: Landmark },
+  { to: 'journal', label: 'Journal entries', Icon: FileText },
+  { to: 'bank-rec', label: 'Bank reconciliation', Icon: Scale },
+  { to: 'reports', label: 'Reports', Icon: BarChart3 },
+];
+
+const MORE_NAV = [
+  {
+    label: 'Financial statements',
+    items: [
+      { to: 'trial', label: 'Trial balance', Icon: Scale },
+      { to: 'pnl', label: 'Income statement', Icon: TrendingUp },
+      { to: 'balance', label: 'Balance sheet', Icon: BookOpen },
+      { to: 'cash-flow', label: 'Cash flow', Icon: Wallet },
+      { to: 'gl-detail', label: 'GL detail', Icon: Layers },
+      { to: 'dim-pnl', label: 'Dimensional P&L', Icon: BarChart3 },
+    ],
+  },
+  {
+    label: 'Review and automation',
+    items: [
+      { to: 'ai-agents', label: 'AI agents', Icon: Sparkles },
+      { to: 'recurring', label: 'Recurring entries', Icon: Repeat },
+      { to: 'missing-dimensions', label: 'Missing dimensions', Icon: AlertTriangle },
+      { to: 'close', label: 'Close workflow', Icon: CheckSquare },
+    ],
+  },
+  {
+    label: 'Data and configuration',
+    items: [
+      { to: 'tax-mappings', label: 'Tax mappings', Icon: Settings },
+      { to: 'tax-export', label: 'Tax export', Icon: FileText },
+      { to: 'import', label: 'Import', Icon: Upload },
+      { to: 'periods', label: 'Periods', Icon: Calendar },
+      { to: 'dimensions', label: 'Dimensions', Icon: Settings },
+    ],
+  },
+  {
+    label: 'Multi-entity',
+    items: [
+      { to: 'intercompany', label: 'Intercompany', Icon: GitBranch },
+      { to: 'xtenant-ic', label: 'Cross-tenant IC', Icon: Network },
+      { to: 'elimination', label: 'Elimination', Icon: Layers },
+      { to: 'consolidation', label: 'Consolidation', Icon: Building2 },
+    ],
+  },
+];
+
 /**
  * Accounting Module — Phase 0 + 1 + 2 UI
  */
 export default function AccountingModule({ session }) {
   return (
     <div data-testid="accounting-module">
-      <nav style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e5e7eb', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <Tab to="bookkeeping" label="Bookkeeping" />
-        <Tab to="ai-agents" label="AI Agents" />
-        <Tab to="transactions-to-review" label="Tx to Review" />
-        <Tab to="accounts" label="Chart of Accounts" />
-        <Tab to="journal"  label="Journal Entries" />
-        <Tab to="trial"    label="Trial Balance" />
-        <Tab to="pnl"      label="Income Statement" />
-        <Tab to="balance"  label="Balance Sheet" />
-        <Tab to="cash-flow" label="Cash Flow" />
-        <Tab to="bank-rec"  label="Bank Rec" />
-        <Tab to="recurring" label="Recurring JEs" />
-        <Tab to="reports"   label="Reports" />
-        <Tab to="gl-detail" label="GL Detail" />
-        <Tab to="dim-pnl"   label="Dimensional P&L" />
-        <Tab to="tax-mappings" label="Tax mappings" />
-        <Tab to="tax-export" label="Tax export" />
-        <Tab to="import"    label="Import" />
-        <Tab to="intercompany" label="Intercompany" />
-        <Tab to="xtenant-ic"   label="Cross-tenant IC" />
-        <Tab to="elimination"  label="Elimination" />
-        <Tab to="consolidation" label="Consolidation" />
-        <Tab to="periods"  label="Periods" />
-        <Tab to="dimensions" label="Dimensions" />
-        <Tab to="close"      label="Close workflow" />
-      </nav>
+      <AccountingNav />
       <Routes>
         <Route index           element={<Navigate to="accounts" replace />} />
         <Route path="bookkeeping" element={<BookkeepingOverview />} />
@@ -116,20 +147,63 @@ export default function AccountingModule({ session }) {
   );
 }
 
-function Tab({ to, label }) {
+function AccountingNav() {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const menuRef = useRef(null);
+  const location = useLocation();
+  const moreRoutes = MORE_NAV.flatMap(group => group.items.map(item => item.to));
+  const moreActive = moreRoutes.some(route => location.pathname.includes(`/accounting/${route}`));
+
+  useEffect(() => {
+    const close = event => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) setMoreOpen(false);
+    };
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, []);
+
+  return (
+    <nav className="accounting-nav" aria-label="Accounting sections" data-testid="accounting-section-nav">
+      <div className="accounting-nav__primary">
+        {PRIMARY_NAV.map(item => <AccountingNavLink key={item.to} item={item} />)}
+      </div>
+      <div className="accounting-nav__more" ref={menuRef}>
+        <button
+          type="button"
+          className={`accounting-nav__more-button${moreActive ? ' is-active' : ''}`}
+          aria-expanded={moreOpen}
+          onClick={event => { event.stopPropagation(); setMoreOpen(open => !open); }}
+          data-testid="accounting-more-trigger"
+        >
+          More <ChevronDown size={15} aria-hidden="true" />
+        </button>
+        {moreOpen && (
+          <div className="accounting-nav__menu" data-testid="accounting-more-menu">
+            {MORE_NAV.map(group => (
+              <section className="accounting-nav__group" key={group.label}>
+                <h3>{group.label}</h3>
+                {group.items.map(item => (
+                  <AccountingNavLink key={item.to} item={item} menu onSelect={() => setMoreOpen(false)} />
+                ))}
+              </section>
+            ))}
+          </div>
+        )}
+      </div>
+    </nav>
+  );
+}
+
+function AccountingNavLink({ item, menu = false, onSelect }) {
+  const { to, label, Icon } = item;
   return (
     <NavLink
       to={to}
       data-testid={`accounting-tab-${to}`}
-      className={({ isActive }) => (isActive ? 'tab tab--active' : 'tab')}
-      style={({ isActive }) => ({
-        padding: '0.5rem 1rem',
-        borderBottom: isActive ? '2px solid #2563eb' : '2px solid transparent',
-        color: isActive ? '#2563eb' : '#444',
-        fontWeight: isActive ? 600 : 400,
-        textDecoration: 'none',
-      })}
+      className={({ isActive }) => `${menu ? 'accounting-nav__menu-link' : 'accounting-nav__link'}${isActive ? ' is-active' : ''}`}
+      onClick={onSelect}
     >
+      <Icon size={16} aria-hidden="true" />
       {label}
     </NavLink>
   );

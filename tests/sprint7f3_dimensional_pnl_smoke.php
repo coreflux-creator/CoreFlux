@@ -98,7 +98,7 @@ echo "\nWiring — AccountingV1Module + App sidebar\n";
 $mod = (string) file_get_contents("{$ROOT}/modules/accounting/ui/AccountingModule.jsx");
 $assert('imports DimensionalPnL',                strpos($mod, "import DimensionalPnL from './DimensionalPnL'") !== false);
 $assert('mounts /dim-pnl route',                 strpos($mod, 'path="dim-pnl" element={<DimensionalPnL />}') !== false);
-$assert('sub-nav Dimensional P&L tab',           strpos($mod, '<Tab to="dim-pnl"   label="Dimensional P&L" />') !== false);
+$assert('grouped navigation includes Dimensional P&L', strpos($mod, "to: 'dim-pnl', label: 'Dimensional P&L'") !== false);
 
 $app = (string) file_get_contents("{$ROOT}/dashboard/src/App.jsx");
 $assert('sidebar Dimensional P&L action',

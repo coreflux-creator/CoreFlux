@@ -106,7 +106,7 @@ $a('IS/BS/TB views render',
 echo "\nAccountingModule.jsx — Consolidation tab\n";
 $mod = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/AccountingModule.jsx');
 $a('imports Consolidation',                          $c($mod, "from './Consolidation'"));
-$a('Consolidation tab',                              $c($mod, 'to="consolidation"'));
+$a('Consolidation grouped navigation',               $c($mod, "to: 'consolidation', label: 'Consolidation'"));
 $a('Consolidation route',                            $c($mod, 'path="consolidation"'));
 
 echo "\nmanifest.php\n";

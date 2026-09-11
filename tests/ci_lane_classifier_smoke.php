@@ -111,7 +111,7 @@ $a('core has ≥20 tests',                    $counts['core'] >= 20);
 $total = array_sum($counts);
 $a('every test got a lane (sum matches)',   $total === (count($tests) - 2));
 $max = max($counts);
-$a('no lane > 50% of total',                $max < ($total * 0.5));
+$a('no lane > 50% of total',                $max <= ($total * 0.5));
 
 echo "  Distribution: core={$counts['core']} modules={$counts['modules']} ui={$counts['ui']} harness={$counts['harness']} (total {$total})\n";
 

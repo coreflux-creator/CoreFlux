@@ -4,7 +4,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
-import { Pencil } from 'lucide-react';
+import { Building2, Download, Pencil, Plus, Search, Upload, Zap } from 'lucide-react';
 
 /**
  * Staffing → Clients — list, create, edit.
@@ -158,47 +158,60 @@ export default function Clients() {
   };
 
   return (
-    <section className="people-directory" data-testid="staffing-clients">
-      <header style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'var(--cf-space-3)', flexWrap:'wrap', gap:'var(--cf-space-3)' }}>
-        <div>
-          <h2>Clients</h2>
-          <p style={{ color:'var(--cf-text-secondary)' }}>End-clients you place workers with. Linked from Placements.</p>
+    <section className="people-directory directory-page" data-testid="staffing-clients">
+      <header className="directory-page__header">
+        <div className="directory-page__title-lockup">
+          <span className="directory-page__title-icon directory-page__title-icon--green" aria-hidden="true">
+            <Building2 size={21} />
+          </span>
+          <div>
+            <span className="directory-page__eyebrow">Customer directory</span>
+            <h2>Clients</h2>
+            <p className="directory-page__description">
+              {loading ? 'Loading clients…' : `${rows.length} client${rows.length === 1 ? '' : 's'} in this view`}
+            </p>
+          </div>
         </div>
-        <div style={{ display:'flex', gap:'var(--cf-space-2)', flexWrap:'wrap', alignItems:'center' }}>
-          <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Search any client field…"
-                 data-testid="staffing-clients-search"
-                 style={{ padding:'6px 10px', border:'1px solid var(--cf-border, #e5e7eb)', borderRadius: 4, fontSize:'0.9em' }} />
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-                  data-testid="staffing-clients-status-filter"
-                  style={{ padding:'6px 10px', border:'1px solid var(--cf-border, #e5e7eb)', borderRadius: 4, fontSize:'0.9em' }}>
+        <div className="directory-page__actions">
+          <button className="btn btn--primary" onClick={openNew} data-testid="staffing-clients-new"><Plus size={16} aria-hidden="true" /> New client</button>
+          <Link to="csv_import" className="btn" data-testid="staffing-clients-import-csv"><Upload size={16} aria-hidden="true" /> Import</Link>
+          <a className="btn" href={`/api/v1/staffing/csv-export${exportSearch() ? `?${exportSearch()}` : ''}`} data-testid="staffing-clients-export-csv"><Download size={16} aria-hidden="true" /> Export</a>
+          <ExportTemplatePicker
+            dataset="staffing_clients"
+            buildHref={buildTemplateExportHref}
+            label="Templates"
+            testid="staffing-clients-export-template"
+          />
+          <Link to="../clients-graphql" className="btn btn--ghost" data-testid="staffing-clients-switch-gql"><Zap size={16} aria-hidden="true" /> GraphQL</Link>
+        </div>
+      </header>
+
+      <div className="directory-filter-bar">
+        <div className="directory-filter-bar__search">
+          <Search size={17} aria-hidden="true" />
+          <input className="input" type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Search clients, contacts, IDs, sources…"
+                 data-testid="staffing-clients-search" />
+        </div>
+        <div className="directory-filter-bar__filters">
+          <select className="input" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                  aria-label="Client status" data-testid="staffing-clients-status-filter">
             <option value="active">Active</option>
             <option value="prospect">Prospect</option>
             <option value="on_hold">On hold</option>
             <option value="inactive">Inactive</option>
             <option value="closed">Closed</option>
-            <option value="">All</option>
+            <option value="">All statuses</option>
           </select>
-          <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}
-                  data-testid="staffing-clients-source-filter"
-                  style={{ padding:'6px 10px', border:'1px solid var(--cf-border, #e5e7eb)', borderRadius: 4, fontSize:'0.9em' }}>
+          <select className="input" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}
+                  aria-label="Client source" data-testid="staffing-clients-source-filter">
             <option value="">All sources</option>
             <option value="placement">Placement-linked</option>
             <option value="accounting">Accounting synced</option>
             <option value="jobdiva">JobDiva synced</option>
             <option value="manual">Manual</option>
           </select>
-          <button className="btn btn--primary" onClick={openNew} data-testid="staffing-clients-new">+ New Client</button>
-          <Link to="csv_import" className="btn" data-testid="staffing-clients-import-csv">Import CSV</Link>
-          <a className="btn" href={`/api/v1/staffing/csv-export${exportSearch() ? `?${exportSearch()}` : ''}`} data-testid="staffing-clients-export-csv">Export CSV</a>
-          <ExportTemplatePicker
-            dataset="staffing_clients"
-            buildHref={buildTemplateExportHref}
-            label="Export via template"
-            testid="staffing-clients-export-template"
-          />
-          <Link to="../clients-graphql" className="btn btn--ghost" data-testid="staffing-clients-switch-gql">⚡ GraphQL pilot</Link>
         </div>
-      </header>
+      </div>
 
       <BulkEditBar
         count={selected.size}
@@ -234,7 +247,7 @@ export default function Clients() {
       )}
       {!loading && !error && rows.length === 0 && <p className="empty" data-testid="staffing-clients-empty">No clients found.</p>}
       {rows.length > 0 && (
-        <div style={{ overflowX:'auto' }}>
+        <div className="data-table-wrap">
         <table className="data-table" data-testid="staffing-clients-table">
           <thead>
             <tr>
@@ -275,10 +288,10 @@ export default function Clients() {
                   ) : r.active_placements}
                 </td>
                 <td>{r.primary_contact_email ? <><div>{r.primary_contact_name}</div><div style={{ fontSize:'0.75em', color:'var(--cf-text-muted)' }}>{r.primary_contact_email}</div></> : '—'}</td>
-                <td>{r.source_label || 'Manual'}</td>
-                <td>Net {r.payment_terms_days}</td>
-                <td>{r.msa_status || 'none'}</td>
-                <td><code>{r.status}</code></td>
+                <td><span className="source-chip">{r.source_label || 'Manual'}</span></td>
+                <td><span className="terms-chip">Net {r.payment_terms_days}</span></td>
+                <td><span className={`badge badge--${r.msa_status || 'none'}`}>{r.msa_status || 'none'}</span></td>
+                <td><span className={`badge badge--${r.status}`}>{String(r.status).replaceAll('_', ' ')}</span></td>
                 <td onClick={event => event.stopPropagation()}>
                   <button type="button" className="btn btn--ghost" onClick={() => openEdit(r)}
                           title={`Edit ${r.name}`} aria-label={`Edit ${r.name}`} data-testid={`staffing-client-edit-${r.id}`}

@@ -145,8 +145,8 @@ $assert('imports GLDetail',                      strpos($mod, "import GLDetail f
 $assert('imports TaxMappings',                   strpos($mod, "import TaxMappings from './TaxMappings'") !== false);
 $assert('mounts /gl-detail route',               strpos($mod, 'path="gl-detail" element={<GLDetail />}') !== false);
 $assert('mounts /tax-mappings route',            strpos($mod, 'path="tax-mappings" element={<TaxMappings />}') !== false);
-$assert('sub-nav GL Detail tab',                 strpos($mod, '<Tab to="gl-detail" label="GL Detail" />') !== false);
-$assert('sub-nav Tax mappings tab',              strpos($mod, '<Tab to="tax-mappings" label="Tax mappings" />') !== false);
+$assert('grouped navigation includes GL detail', strpos($mod, "to: 'gl-detail', label: 'GL detail'") !== false);
+$assert('grouped navigation includes Tax mappings', strpos($mod, "to: 'tax-mappings', label: 'Tax mappings'") !== false);
 
 $app = (string) file_get_contents("{$ROOT}/dashboard/src/App.jsx");
 $assert("sidebar GL Detail action",

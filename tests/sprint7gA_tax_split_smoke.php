@@ -103,8 +103,8 @@ $assert('AccountingModule no longer imports AIAgents directly',
     strpos($am, "import AIAgents from") === false);
 $assert('AccountingModule keeps legacy /ai-agents redirect alias',
     strpos($am, '<Route path="ai-agents" element={<Navigate to="/ai-agents" replace />} />') !== false);
-$assert('AccountingModule still exposes "AI Agents" sub-nav tab (now redirects)',
-    strpos($am, '<Tab to="ai-agents" label="AI Agents" />') !== false);
+$assert('AccountingModule exposes AI agents in grouped navigation (now redirects)',
+    strpos($am, "to: 'ai-agents', label: 'AI agents'") !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

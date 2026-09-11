@@ -85,7 +85,7 @@ $mod = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/Accountin
 $a('imports JournalEntryCreate',                       strpos($mod, "from './JournalEntryCreate'") !== false);
 $a('imports JournalEntryDetail',                       strpos($mod, "from './JournalEntryDetail'") !== false);
 $a('imports CashFlowStatement',                        strpos($mod, "from './CashFlowStatement'") !== false);
-$a('Cash Flow tab',                                    strpos($mod, 'to="cash-flow"') !== false);
+$a('Cash flow grouped navigation',                     strpos($mod, "to: 'cash-flow', label: 'Cash flow'") !== false);
 $a('Cash Flow route',                                  strpos($mod, 'path="cash-flow"') !== false);
 $a('JE detail route /:id',                             strpos($mod, 'path="journal-entries/:id"') !== false);
 $a('JE create route /new',                             strpos($mod, 'path="journal-entries/new"') !== false);
