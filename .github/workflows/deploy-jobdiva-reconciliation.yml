@@ -109,6 +109,7 @@ jobs:
             modules/billing/api/invoices.php \
             dashboard/dist \
             dashboard/src/App.jsx \
+            dashboard/src/components/AccountLink.jsx \
             dashboard/src/components/BulkEditBar.jsx \
             dashboard/src/components/ExportTemplatePicker.jsx \
             dashboard/src/components/LineChart.jsx \
@@ -119,6 +120,9 @@ jobs:
             dashboard/src/styles.css \
             index.html \
             modules/accounting/ui/AccountingModule.jsx \
+            modules/accounting/ui/ChartOfAccounts.jsx \
+            modules/accounting/ui/JournalEntries.jsx \
+            modules/accounting/ui/StandardReports.jsx \
             "${ROOT_ASSETS[@]}" \
             spa-assets/index.html \
             spa-assets/sw.js \

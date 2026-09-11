@@ -1,6 +1,17 @@
 import React, { useState } from 'react';
-import { useApi, api } from '../../../dashboard/src/lib/api';
+import { useApi } from '../../../dashboard/src/lib/api';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
+import {
+  Activity, BarChart3, ClipboardCheck, Download, FileClock, ScrollText,
+} from 'lucide-react';
+
+const REPORT_TABS = [
+  ['gl_detail', 'GL detail', 'accounting-report-tab-gl_detail', BarChart3],
+  ['unposted_jes', 'Unposted entries', 'accounting-report-tab-unposted_jes', FileClock],
+  ['approval_queue', 'Approval queue', 'accounting-report-tab-approval_queue', ClipboardCheck],
+  ['audit_log', 'Audit log', 'accounting-report-tab-audit_log', ScrollText],
+  ['account_activity', 'Account activity', 'accounting-report-tab-account_activity', Activity],
+];
 
 /**
  * Standard (operational) reports — 5 tabs:
@@ -15,31 +26,24 @@ import AccountLink from '../../../dashboard/src/components/AccountLink';
 export default function StandardReports() {
   const [tab, setTab] = useState('gl_detail');
   return (
-    <section data-testid="accounting-standard-reports">
-      <h2 style={{ margin: '0 0 8px' }}>Standard reports</h2>
-      <nav style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e5e7eb', marginBottom: 16, flexWrap: 'wrap' }}>
-        {[
-          ['gl_detail',        'GL Detail',        'accounting-report-tab-gl_detail'],
-          ['unposted_jes',     'Unposted JEs',     'accounting-report-tab-unposted_jes'],
-          ['approval_queue',   'Approval Queue',   'accounting-report-tab-approval_queue'],
-          ['audit_log',        'Audit Log',        'accounting-report-tab-audit_log'],
-          ['account_activity', 'Account Activity', 'accounting-report-tab-account_activity'],
-        ].map(([k, label, tid]) => (
+    <section className="report-page" data-testid="accounting-standard-reports">
+      <header className="report-page__header">
+        <div className="report-page__title">
+          <span className="report-page__icon" aria-hidden="true"><BarChart3 size={18} /></span>
+          <div>
+            <h2>Standard reports</h2>
+            <p className="report-page__meta">Five operational ledger views</p>
+          </div>
+        </div>
+      </header>
+      <nav className="report-tabs" aria-label="Standard reports">
+        {REPORT_TABS.map(([k, label, tid, Icon]) => (
           <button
             key={k}
             data-testid={tid}
-            className={tab === k ? 'tab tab--active' : 'tab'}
-            style={{
-              padding: '0.5rem 1rem',
-              border: 'none',
-              background: 'none',
-              borderBottom: tab === k ? '2px solid #2563eb' : '2px solid transparent',
-              color: tab === k ? '#2563eb' : '#444',
-              fontWeight: tab === k ? 600 : 400,
-              cursor: 'pointer',
-            }}
+            className={`report-tab${tab === k ? ' is-active' : ''}`}
             onClick={() => setTab(k)}
-          >{label}</button>
+          ><Icon size={15} aria-hidden="true" />{label}</button>
         ))}
       </nav>
       {tab === 'gl_detail'        && <GlDetail />}
@@ -53,16 +57,28 @@ export default function StandardReports() {
 
 function FilterBar({ children, onExport, exportTestId }) {
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-      {children}
-      <span style={{ flex: 1 }} />
+    <div className="report-filter-bar">
+      <div className="report-filter-bar__fields">{children}</div>
       {onExport && (
         <button
-          className="btn btn--ghost"
+          className="btn"
           onClick={onExport}
           data-testid={exportTestId}
-        >⬇ Export CSV</button>
+        ><Download size={15} aria-hidden="true" />Export CSV</button>
       )}
+    </div>
+  );
+}
+
+function ReportSummary({ items, testId }) {
+  return (
+    <div className="report-summary" data-testid={testId}>
+      {items.map(item => (
+        <div className="report-summary__item" key={item.label}>
+          <span className="report-summary__label">{item.label}</span>
+          <span className="report-summary__value">{item.value}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -101,9 +117,15 @@ function GlDetail() {
       {error && <p className="error">{error.message}</p>}
       {data && (
         <>
-          <p style={{ fontSize: 13, color: '#444' }} data-testid="accounting-report-gl-summary">
-            {data.count} lines · Debits {fmt(data.total_debit)} · Credits {fmt(data.total_credit)}
-          </p>
+          <ReportSummary
+            testId="accounting-report-gl-summary"
+            items={[
+              { label: 'Lines', value: data.count },
+              { label: 'Debits', value: fmt(data.total_debit) },
+              { label: 'Credits', value: fmt(data.total_credit) },
+            ]}
+          />
+          <div className="data-table-wrap">
           <table className="data-table" data-testid="accounting-report-gl-detail-table">
             <thead><tr><th>JE</th><th>Date</th><th>Account</th><th>Memo</th><th style={{textAlign:'right'}}>Debit</th><th style={{textAlign:'right'}}>Credit</th><th>Source</th></tr></thead>
             <tbody>
@@ -120,6 +142,7 @@ function GlDetail() {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -139,7 +162,8 @@ function Unposted() {
       {error && <p className="error">{error.message}</p>}
       {data && (
         <>
-          <p style={{ fontSize: 13 }} data-testid="accounting-report-unposted-summary">{data.count} entries</p>
+          <ReportSummary testId="accounting-report-unposted-summary" items={[{ label: 'Unposted entries', value: data.count }]} />
+          <div className="data-table-wrap">
           <table className="data-table" data-testid="accounting-report-unposted-table">
             <thead><tr><th>JE</th><th>Date</th><th>Status</th><th>Source</th><th>Memo</th><th style={{textAlign:'right'}}>Debit</th><th style={{textAlign:'right'}}>Credit</th></tr></thead>
             <tbody>
@@ -156,6 +180,7 @@ function Unposted() {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -175,7 +200,8 @@ function ApprovalQueue() {
       {error && <p className="error">{error.message}</p>}
       {data && (
         <>
-          <p style={{ fontSize: 13 }} data-testid="accounting-report-approval-summary">{data.count} draft JEs awaiting approval</p>
+          <ReportSummary testId="accounting-report-approval-summary" items={[{ label: 'Awaiting approval', value: data.count }]} />
+          <div className="data-table-wrap">
           <table className="data-table" data-testid="accounting-report-approval-table">
             <thead><tr><th>JE</th><th>Date</th><th>Source</th><th>Memo</th><th style={{textAlign:'right'}}>Amount</th><th>Created</th></tr></thead>
             <tbody>
@@ -191,6 +217,7 @@ function ApprovalQueue() {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -223,7 +250,8 @@ function AuditLog() {
       {error && <p className="error">{error.message}</p>}
       {data && (
         <>
-          <p style={{ fontSize: 13 }} data-testid="accounting-report-audit-summary">{data.count} accounting events</p>
+          <ReportSummary testId="accounting-report-audit-summary" items={[{ label: 'Accounting events', value: data.count }]} />
+          <div className="data-table-wrap">
           <table className="data-table" data-testid="accounting-report-audit-table">
             <thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Target</th><th>Meta</th></tr></thead>
             <tbody>
@@ -240,6 +268,7 @@ function AuditLog() {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -263,15 +292,21 @@ function AccountActivity() {
         <label>From <input type="date" className="input" value={from} onChange={e => setFrom(e.target.value)} data-testid="accounting-report-account-from" /></label>
         <label>To <input type="date" className="input" value={to} onChange={e => setTo(e.target.value)} data-testid="accounting-report-account-to" /></label>
       </FilterBar>
-      {!code && <p style={{color:'#666'}}>Enter an account code to see activity.</p>}
+      {!code && <div className="report-empty-prompt">Choose an account to view activity.</div>}
       {loading && <p>Loading…</p>}
       {error && <p className="error">{error.message}</p>}
       {data && (
         <>
-          <p style={{ fontSize: 13 }} data-testid="accounting-report-account-summary">
-            {data.count} lines · Debits {fmt(data.total_debit)} · Credits {fmt(data.total_credit)} ·
-            <strong> Ending balance {fmt(data.ending_balance)}</strong>
-          </p>
+          <ReportSummary
+            testId="accounting-report-account-summary"
+            items={[
+              { label: 'Lines', value: data.count },
+              { label: 'Debits', value: fmt(data.total_debit) },
+              { label: 'Credits', value: fmt(data.total_credit) },
+              { label: 'Ending balance', value: fmt(data.ending_balance) },
+            ]}
+          />
+          <div className="data-table-wrap">
           <table className="data-table" data-testid="accounting-report-account-table">
             <thead><tr><th>JE</th><th>Date</th><th>Memo</th><th style={{textAlign:'right'}}>Debit</th><th style={{textAlign:'right'}}>Credit</th><th style={{textAlign:'right'}}>Running balance</th></tr></thead>
             <tbody>
@@ -287,6 +322,7 @@ function AccountActivity() {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
