@@ -25,6 +25,10 @@ $templates = (string) file_get_contents($root . '/dashboard/src/components/Expor
 $accounting = (string) file_get_contents($root . '/modules/accounting/ui/AccountingModule.jsx');
 $placements = (string) file_get_contents($root . '/modules/placements/ui/List.jsx');
 $clients = (string) file_get_contents($root . '/modules/staffing/ui/Clients.jsx');
+$reports = (string) file_get_contents($root . '/modules/accounting/ui/StandardReports.jsx');
+$coa = (string) file_get_contents($root . '/modules/accounting/ui/ChartOfAccounts.jsx');
+$journal = (string) file_get_contents($root . '/modules/accounting/ui/JournalEntries.jsx');
+$accountLink = (string) file_get_contents($root . '/dashboard/src/components/AccountLink.jsx');
 
 echo "\n1. Shared visual system\n";
 $assert('sidebar icons use a consistent visual container',
@@ -98,6 +102,30 @@ $assert('less frequent accounting tools are grouped in the More menu',
 $assert('old unstructured accounting tab strip is gone',
     !str_contains($accounting, "<nav style={{ display: 'flex'")
     && !str_contains($accounting, 'function Tab('));
+
+echo "\n4. Modern accounting density\n";
+$assert('typography uses a distinct UI face and financial mono face',
+    str_contains($styles, "family=IBM+Plex+Mono")
+    && str_contains($styles, "family=Manrope")
+    && str_contains($styles, '--cf-font-mono'));
+$assert('reports use structured tabs, filters, summaries, and contained tables',
+    str_contains($reports, 'className="report-page"')
+    && str_contains($reports, 'className="report-tabs"')
+    && str_contains($reports, 'className="report-filter-bar"')
+    && str_contains($reports, '<ReportSummary')
+    && str_contains($reports, 'className="data-table-wrap"'));
+$assert('chart of accounts has search and a focused add flow',
+    str_contains($coa, 'accounting-accounts-search')
+    && str_contains($coa, 'accounting-accounts-add-trigger')
+    && str_contains($coa, 'visibleTree.map')
+    && str_contains($coa, 'className="inline-create-form"'));
+$assert('account links inherit the shared interactive treatment',
+    str_contains($accountLink, 'className={`account-link')
+    && str_contains($styles, '.account-link'));
+$assert('journal entries use the shared ledger header and table container',
+    str_contains($journal, 'className="ledger-page"')
+    && str_contains($journal, 'className="ledger-page-header"')
+    && str_contains($journal, 'className="data-table-wrap"'));
 
 echo "\nUI polish smoke: {$pass} passed / {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

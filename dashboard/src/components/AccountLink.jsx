@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 
 /** Canonical navigation to a CoreFlux ledger-account workspace. */
-export default function AccountLink({ accountId, accountCode, entityId, children, style, ...props }) {
+export default function AccountLink({ accountId, accountCode, entityId, children, style, className = '', ...props }) {
   if (!accountId && !accountCode) return <span style={style}>{children}</span>;
   const base = accountId
     ? `/modules/accounting/accounts/${accountId}`
@@ -13,7 +13,8 @@ export default function AccountLink({ accountId, accountCode, entityId, children
   return (
     <Link
       to={to}
-      style={{ color: '#075fc7', textDecoration: 'none', ...style }}
+      className={`account-link${className ? ` ${className}` : ''}`}
+      style={style}
       {...props}
     >
       {children}

@@ -1,6 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
+import {
+  Database, Landmark, MoveRight, Network, Plus, Search, X,
+} from 'lucide-react';
 
 const TYPES = ['asset','liability','equity','revenue','expense'];
 const NORMAL = { asset: 'debit', expense: 'debit', liability: 'credit', equity: 'credit', revenue: 'credit' };
@@ -83,6 +86,8 @@ export default function ChartOfAccounts() {
   const [autoBusy, setAutoBusy] = useState(false);
   const [notice, setNotice]   = useState(null);
   const [typeFilter, setTypeFilter] = useState('');
+  const [search, setSearch]   = useState('');
+  const [showAdd, setShowAdd] = useState(false);
   const [moveTarget, setMoveTarget] = useState(null);   // {id, code, name, account_type, parent_account_id}
 
   const filtered = useMemo(
@@ -90,6 +95,25 @@ export default function ChartOfAccounts() {
     [rows, typeFilter]
   );
   const tree = useMemo(() => buildTree(filtered), [filtered]);
+  const visibleTree = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return tree;
+
+    const byId = new Map(filtered.map(row => [row.id, row]));
+    const visibleIds = new Set();
+    filtered.forEach(row => {
+      const haystack = `${row.code || ''} ${row.name || ''} ${row.account_type || ''}`.toLowerCase();
+      if (!haystack.includes(needle)) return;
+      let current = row;
+      let guard = 0;
+      while (current && guard < 8) {
+        visibleIds.add(current.id);
+        current = byId.get(current.parent_account_id);
+        guard += 1;
+      }
+    });
+    return tree.filter(({ row }) => visibleIds.has(row.id));
+  }, [filtered, search, tree]);
 
   const add = async (e) => {
     e.preventDefault();
@@ -97,6 +121,7 @@ export default function ChartOfAccounts() {
     try {
       await api.post('/modules/accounting/api/accounts.php', form);
       setForm({ code: '', name: '', account_type: 'expense' });
+      setShowAdd(false);
       reload();
     } catch (err) { setNotice({ type: 'err', text: err.message }); }
     finally       { setBusy(false); }
@@ -145,25 +170,16 @@ export default function ChartOfAccounts() {
   };
 
   return (
-    <section data-testid="accounting-accounts">
-      <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
-        <div>
-          <h2 style={{ margin: 0 }}>Chart of Accounts</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>
-            Tenant-shared accounts. Indented = parent / child. Move accounts under any same-type parent (e.g. group AmEx + Discover under "Credit Cards").
-          </p>
+    <section className="ledger-page" data-testid="accounting-accounts">
+      <header className="ledger-page-header">
+        <div className="ledger-page-header__title">
+          <span className="ledger-page-header__icon" aria-hidden="true"><Landmark size={18} /></span>
+          <div>
+            <h2>Chart of accounts</h2>
+            <p className="ledger-page-header__meta">{rows.length} accounts</p>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <select
-            className="input"
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            data-testid="accounting-accounts-type-filter"
-            style={{ maxWidth: 160 }}
-          >
-            <option value="">All types</option>
-            {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+        <div className="ledger-page-header__actions">
           <button
             type="button"
             className="btn btn--ghost"
@@ -171,7 +187,7 @@ export default function ChartOfAccounts() {
             onClick={autoGroupPlaid}
             disabled={autoBusy}
           >
-            {autoBusy ? 'Grouping…' : 'Auto-group Plaid liabilities'}
+            <Network size={14} aria-hidden="true" />{autoBusy ? 'Grouping…' : 'Group connected accounts'}
           </button>
           <button
             type="button"
@@ -180,7 +196,17 @@ export default function ChartOfAccounts() {
             onClick={seed}
             disabled={seedBusy}
           >
-            {seedBusy ? 'Seeding…' : 'Seed standard COA'}
+            <Database size={14} aria-hidden="true" />{seedBusy ? 'Seeding…' : 'Seed standard accounts'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => setShowAdd(open => !open)}
+            aria-expanded={showAdd}
+            data-testid="accounting-accounts-add-trigger"
+          >
+            {showAdd ? <X size={15} aria-hidden="true" /> : <Plus size={15} aria-hidden="true" />}
+            {showAdd ? 'Close' : 'Add account'}
           </button>
         </div>
       </header>
@@ -198,37 +224,75 @@ export default function ChartOfAccounts() {
         </p>
       )}
 
-      <form onSubmit={add} style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }} data-testid="accounting-accounts-form">
-        <input className="input" placeholder="Code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} data-testid="accounting-accounts-code" required style={{ maxWidth: 100 }} />
-        <input className="input" placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-accounts-name" required style={{ flex: 1, minWidth: 200 }} />
-        <select className="input" value={form.account_type} onChange={(e) => setForm({ ...form, account_type: e.target.value })} data-testid="accounting-accounts-type">
-          {TYPES.map((t) => <option key={t} value={t}>{t} ({NORMAL[t]})</option>)}
-        </select>
-        <button className="btn btn--primary" data-testid="accounting-accounts-add" disabled={busy}>{busy ? '…' : 'Add account'}</button>
-      </form>
+      <div className="account-toolbar">
+        <div className="account-toolbar__filters">
+          <label className="compact-search">
+            <Search size={15} aria-hidden="true" />
+            <input
+              className="input"
+              type="search"
+              value={search}
+              onChange={event => setSearch(event.target.value)}
+              placeholder="Search account number, name, or type"
+              aria-label="Search chart of accounts"
+              data-testid="accounting-accounts-search"
+            />
+          </label>
+          <select
+            className="input"
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            data-testid="accounting-accounts-type-filter"
+            aria-label="Account type"
+            style={{ width: 180 }}
+          >
+            <option value="">All account types</option>
+            {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <span className="ledger-page-header__meta">{visibleTree.length} shown</span>
+      </div>
+
+      {showAdd && (
+        <form onSubmit={add} className="inline-create-form" data-testid="accounting-accounts-form">
+          <input className="input" placeholder="Number" aria-label="Account number" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} data-testid="accounting-accounts-code" required />
+          <input className="input" placeholder="Account name" aria-label="Account name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-accounts-name" required />
+          <select className="input" aria-label="Account type" value={form.account_type} onChange={(e) => setForm({ ...form, account_type: e.target.value })} data-testid="accounting-accounts-type">
+            {TYPES.map((t) => <option key={t} value={t}>{t} ({NORMAL[t]})</option>)}
+          </select>
+          <button className="btn btn--primary" data-testid="accounting-accounts-add" disabled={busy}>{busy ? 'Adding…' : 'Add account'}</button>
+          <button type="button" className="btn btn--ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+        </form>
+      )}
 
       {loading && <p>Loading…</p>}
       {error   && <p className="error">Error: {error.message}</p>}
 
-      <table className="data-table" style={{ width: '100%' }} data-testid="accounting-accounts-table">
+      <div className="data-table-wrap">
+      <table className="data-table" data-testid="accounting-accounts-table">
         <thead>
           <tr>
-            <th style={{ width: '40%' }}>Account</th>
-            <th>Type</th><th>Normal</th><th>Postable</th><th>Active</th>
-            <th style={{ width: 130 }}></th>
+            <th style={{ width: 120 }}>Number</th>
+            <th>Account name</th>
+            <th>Type</th><th>Normal</th><th>Posting</th><th>Status</th>
+            <th style={{ width: 90 }}>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {tree.length === 0 && (
-            <tr><td colSpan={6} className="empty" data-testid="accounting-accounts-empty">No accounts yet. Click <em>Seed standard COA</em> to get started.</td></tr>
+          {visibleTree.length === 0 && (
+            <tr><td colSpan={7} className="empty" data-testid="accounting-accounts-empty">No accounts match.</td></tr>
           )}
-          {tree.map(({ row: r, depth }) => (
+          {visibleTree.map(({ row: r, depth }) => (
             <tr key={r.id} data-testid={`accounting-accounts-row-${r.code}`}>
               <td>
+                <AccountLink accountId={r.id} accountCode={r.code} className="account-code">
+                  {r.code}
+                </AccountLink>
+              </td>
+              <td>
                 <span style={{ display: 'inline-block', width: depth * 20 }} aria-hidden />
-                {depth > 0 && <span style={{ color: '#94a3b8', marginRight: 6 }}>└─</span>}
+                {depth > 0 && <span style={{ color: '#9eaaa7', marginRight: 6 }}>└</span>}
                 <AccountLink accountId={r.id} accountCode={r.code} data-testid={`accounting-account-open-${r.code}`}>
-                  <code>{r.code}</code>{' '}
                   <span style={{ fontWeight: r.is_postable ? 400 : 600 }}>{r.name}</span>
                 </AccountLink>
                 {!r.is_postable && (
@@ -240,23 +304,24 @@ export default function ChartOfAccounts() {
               </td>
               <td>{r.account_type}</td>
               <td>{r.normal_side}</td>
-              <td>{r.is_postable ? '✓' : '—'}</td>
-              <td>{r.active ? '✓' : '—'}</td>
+              <td>{r.is_postable ? 'Posting' : 'Header'}</td>
+              <td><span className={`account-status${r.active ? ' account-status--active' : ''}`}>{r.active ? 'Active' : 'Inactive'}</span></td>
               <td>
                 <button
                   type="button"
                   className="btn btn--ghost"
                   data-testid={`accounting-accounts-move-${r.code}`}
                   onClick={() => setMoveTarget(r)}
-                  style={{ padding: '2px 8px', fontSize: 12 }}
+                  style={{ padding: '2px 7px', fontSize: 11 }}
                 >
-                  Move…
+                  <MoveRight size={13} aria-hidden="true" />Move
                 </button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
 
       {moveTarget && (
         <MoveDialog
