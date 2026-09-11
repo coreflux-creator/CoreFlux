@@ -18,8 +18,10 @@ $assert = static function (string $message, bool $ok) use (&$pass, &$fail): void
 };
 
 $root = dirname(__DIR__);
+$header = (string) file_get_contents($root . '/dashboard/src/layout/Header.jsx');
 $sidebar = (string) file_get_contents($root . '/dashboard/src/layout/Sidebar.jsx');
 $styles = (string) file_get_contents($root . '/dashboard/src/styles.css');
+$deploy = (string) file_get_contents($root . '/.github/workflows/deploy-root-routing.yml');
 $bulk = (string) file_get_contents($root . '/dashboard/src/components/BulkEditBar.jsx');
 $templates = (string) file_get_contents($root . '/dashboard/src/components/ExportTemplatePicker.jsx');
 $accounting = (string) file_get_contents($root . '/modules/accounting/ui/AccountingModule.jsx');
@@ -31,6 +33,18 @@ $journal = (string) file_get_contents($root . '/modules/accounting/ui/JournalEnt
 $accountLink = (string) file_get_contents($root . '/dashboard/src/components/AccountLink.jsx');
 
 echo "\n1. Shared visual system\n";
+$assert('application shell uses the supplied CoreFlux brand assets',
+    str_contains($header, 'coreflux-logo.png')
+    && str_contains($sidebar, 'coreflux-mark.png'));
+$assert('brand palette and typography follow the CoreFlux guide',
+    str_contains($styles, '--cf-primary: #0a2540')
+    && str_contains($styles, '--cf-accent: #007fff')
+    && str_contains($styles, "family=Montserrat")
+    && str_contains($styles, "--cf-font: 'Montserrat'"));
+$assert('production release packages and verifies the CoreFlux brand assets',
+    str_contains($deploy, 'assets/brand')
+    && str_contains($deploy, 'coreflux-logo.png')
+    && str_contains($deploy, 'coreflux-mark.png'));
 $assert('sidebar icons use a consistent visual container',
     str_contains($sidebar, 'className="sidebar-icon-wrap"')
     && str_contains($styles, '.sidebar-icon-wrap'));
@@ -106,7 +120,7 @@ $assert('old unstructured accounting tab strip is gone',
 echo "\n4. Modern accounting density\n";
 $assert('typography uses a distinct UI face and financial mono face',
     str_contains($styles, "family=IBM+Plex+Mono")
-    && str_contains($styles, "family=Manrope")
+    && str_contains($styles, "family=Montserrat")
     && str_contains($styles, '--cf-font-mono'));
 $assert('reports use structured tabs, filters, summaries, and contained tables',
     str_contains($reports, 'className="report-page"')

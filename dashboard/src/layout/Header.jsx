@@ -3,6 +3,9 @@ import { Link, useLocation } from 'react-router-dom';
 import { ChevronDown, LayoutDashboard, Shield, Building2, Inbox, TrendingUp, UserCog } from 'lucide-react';
 import { api, clearPinnedTenantId } from '../lib/api';
 
+const corefluxLogo = '/assets/brand/coreflux-logo.png';
+const corefluxMark = '/assets/brand/coreflux-mark.png';
+
 const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, onTenantChange }) => {
   const [moduleOpen, setModuleOpen] = useState(false);
   const [tenantOpen, setTenantOpen] = useState(false);
@@ -88,13 +91,19 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
       <div className="header-left">
         <Link to="/" className="logo">
           <img 
-            src="/assets/icons/logo.png" 
+            src={corefluxLogo}
             alt="CoreFlux" 
-            className="logo-img"
+            className="logo-img logo-img--full"
             onError={(e) => { 
               e.target.onerror = null;
-              e.target.src = '/assets/logo.png';
+              e.target.src = '/assets/icons/logo.png';
             }}
+          />
+          <img
+            src={corefluxMark}
+            alt=""
+            aria-hidden="true"
+            className="logo-img logo-img--mark"
           />
         </Link>
       </div>

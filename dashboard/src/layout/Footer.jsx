@@ -1,11 +1,13 @@
 import React from 'react';
 
+const corefluxMark = '/assets/brand/coreflux-mark.png';
+
 const Footer = () => (
   <footer className="cf-footer">
     <p>
       Powered by 
       <img 
-        src="/dashboard/assets/icons/swirl-logo.png" 
+        src={corefluxMark}
         alt="CoreFlux" 
         onError={(e) => { e.target.style.display = 'none'; }}
       />
