@@ -1,5 +1,6 @@
 import React from 'react';
-import { Routes, Route, Navigate, NavLink, Link } from 'react-router-dom';
+import { Routes, Route, Navigate, Link } from 'react-router-dom';
+import ModuleTabs from '../../../dashboard/src/components/ModuleTabs';
 import TreasuryOverview   from './TreasuryOverview';
 import DepositAccounts    from './DepositAccounts';
 import LiabilityAccounts  from './LiabilityAccounts';
@@ -21,29 +22,29 @@ import TreasuryScenarioCompare  from '../../../dashboard/src/pages/TreasuryScena
  * forecasts) but no longer hosts tenant-level API token forms.
  */
 export default function TreasuryModule({ session }) {
+  const navItems = [
+    { to: '/modules/treasury/overview', label: 'Overview' },
+    { to: '/modules/treasury/forecast', label: 'Liquidity Forecast' },
+    { to: '/modules/treasury/deposits', label: 'Deposit accounts' },
+    { to: '/modules/treasury/liabilities', label: 'Liability accounts' },
+    { to: '/modules/treasury/reconciliation', label: 'Reconciliation' },
+    { to: '/modules/treasury/scenario', label: 'What-If Scenario' },
+    { to: '/modules/treasury/compare', label: 'Compare Scenarios' },
+    { to: '/modules/treasury/rules', label: 'Saved Rules' },
+    { to: '/modules/treasury/recipients', label: 'Recipients' },
+    { to: '/modules/treasury/mercury-payments', label: 'Mercury Payments' },
+    { to: '/modules/treasury/sweep-rules', label: 'Sweep Rules' },
+    { to: '/modules/treasury/sweep-destinations', label: 'Sweep destinations' },
+    { to: '/modules/treasury/mercury-webhooks', label: 'Webhooks' },
+  ];
   return (
     <div className="treasury-module" data-testid="treasury-module">
-      <nav
-        className="treasury-module__tabs"
-        style={{
-          display: 'flex', gap: 16, borderBottom: '1px solid var(--cf-border, #e5e7eb)',
-          padding: '0 24px', marginBottom: 16,
-        }}
-      >
-        <TreasuryTab to="overview"    label="Overview" />
-        <TreasuryTab to="forecast"    label="Liquidity Forecast" />
-        <TreasuryTab to="scenario"    label="What-If Scenario" />
-        <TreasuryTab to="compare"     label="Compare Scenarios" />
-        <TreasuryTab to="deposits"    label="Deposit Accounts" />
-        <TreasuryTab to="liabilities" label="Liability Accounts" />
-        <TreasuryTab to="rules"       label="Saved Rules" />
-        <TreasuryTab to="recipients"  label="Recipients" />
-        <TreasuryTab to="mercury-payments" label="Mercury Payments" />
-        <TreasuryTab to="reconciliation"   label="Reconciliation" />
-        <TreasuryTab to="sweep-rules"      label="Sweep Rules" />
-        <TreasuryTab to="sweep-destinations" label="Sweep Destinations" />
-        <TreasuryTab to="mercury-webhooks"   label="Webhooks" />
-      </nav>
+      <header className="module-workspace-header">
+        <span className="workspace-eyebrow">Cash and capital</span>
+        <h1>Treasury</h1>
+        <p>Monitor accounts, liquidity, obligations, and cash movement.</p>
+        <ModuleTabs items={navItems} primaryCount={5} label="Treasury sections" testId="treasury-section-nav" />
+      </header>
       <Routes>
         <Route index                element={<Navigate to="overview" replace />} />
         <Route path="overview"      element={<TreasuryOverview session={session} />} />
@@ -73,7 +74,6 @@ export default function TreasuryModule({ session }) {
     </div>
   );
 }
-
 function IntegrationSettingsBanner() {
   return (
     <div
@@ -93,28 +93,5 @@ function IntegrationSettingsBanner() {
         Admin → Integrations
       </Link>.
     </div>
-  );
-}
-
-function TreasuryTab({ to, label }) {
-  return (
-    <NavLink
-      to={to}
-      end={to === 'overview'}
-      data-testid={`treasury-tab-${to}`}
-      className={({ isActive }) =>
-        'treasury-module__tab' + (isActive ? ' treasury-module__tab--active' : '')
-      }
-      style={({ isActive }) => ({
-        padding: '12px 4px',
-        fontSize: 13,
-        fontWeight: 500,
-        textDecoration: 'none',
-        color: isActive ? 'var(--cf-accent)' : 'var(--cf-text-muted, #94a3b8)',
-        borderBottom: isActive ? '2px solid var(--cf-accent)' : '2px solid transparent',
-      })}
-    >
-      {label}
-    </NavLink>
   );
 }

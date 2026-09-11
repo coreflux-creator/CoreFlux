@@ -1,217 +1,140 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  LayoutGrid, BookOpen, FileText, TrendingUp, CreditCard, Receipt,
-  PieChart, Settings, Users, Clock, UserCircle, BarChart3, Briefcase,
-  Calendar, CalendarClock, Banknote, Building2, Shield, ScrollText,
-  Wrench, Folder, AlertTriangle, FileSearch, Coins, HandCoins,
-  Wallet, Network, Boxes, Layers, ListChecks, Gauge, Target, Hourglass,
-  ClipboardCheck, FileCheck2, Mail, Repeat, BarChart, Activity, Tags,
-  CheckSquare, Inbox, BadgeDollarSign, FilePlus2, FolderTree, Sparkles,
-  Scale
+  BarChart3, BookOpen, Briefcase, Building2, CalendarCheck, CheckSquare,
+  Clock3, CreditCard, Gauge, Inbox, LayoutGrid, Link2, ListChecks,
+  Receipt, Settings, Sparkles, Users, Wallet,
 } from 'lucide-react';
 
 const corefluxMark = '/assets/brand/coreflux-mark.png';
 
-/**
- * Per-route icon map. Each known route gets a distinct lucide-react icon
- * so the sidebar reads at a glance instead of being a wall of identical
- * tiles. Add to this when you add a route — the fallback is `LayoutGrid`
- * but every routed page should land a deliberate icon here.
- *
- * Keys are normalised forms: kebab-case, snake_case, or the bare route
- * filename without `.php`. The lookup tries kebab → underscore → fallback.
- */
+// Retained as the route-level visual vocabulary used by contextual
+// navigation. Every common workflow has a deliberate icon.
 const iconMap = {
-  // Generic
   'overview': Gauge,
-  'dashboard': LayoutGrid,
-  'list':               ListChecks,
-  'new':                FilePlus2,
-  'expiring':           Hourglass,
-  'commissions':        BadgeDollarSign,
-  'referrals':          HandCoins,
-  'csv_import':         FilePlus2,       'csv-import':         FilePlus2,
-  'export':             FileText,
-
-  // Accounting
-  'chart_of_accounts': BookOpen,        'chart-of-accounts': BookOpen,
-  'coa':               BookOpen,
-  'accounts':          BookOpen,
-  'journal':           FileText,
-  'journal_entries':   FileText,        'journal-entries':   FileText,
-  'general_ledger':    Layers,          'general-ledger':    Layers,
-  'trial_balance':     BarChart3,       'trial-balance':     BarChart3,
-  'trial':             BarChart3,
-  'pnl':               TrendingUp,
-  'balance':           Scale,
-  'cash_flow':         Activity,        'cash-flow':         Activity,
-  'standard_reports':  PieChart,        'standard-reports':  PieChart,
-  'periods':           Calendar,
-  'dimensions':        Tags,
-  'close':             ClipboardCheck,
-  'approval_queue':    ClipboardCheck,  'approval-queue':    ClipboardCheck,
-  'bank_rec':          Banknote,        'bank-rec':          Banknote,
-  'reconcile':         Banknote,
-  'reconciliations':   Banknote,
-  'recurring':         Repeat,
-  'recurring_journal_entries': Repeat,  'recurring-journal-entries': Repeat,
-  'entities':          Building2,
-  'consolidation':     Boxes,
-  'intercompany':      Network,
-  'elimination':       Layers,
-  'import':            FilePlus2,
-  'fx':                Coins,
-  'allocations':       Boxes,
-  'bookkeeping':       BookOpen,
-  'transactions_to_review': ListChecks, 'transactions-to-review': ListChecks,
-  'gl_detail':         Layers,          'gl-detail':         Layers,
-  'dim_pnl':           BarChart3,       'dim-pnl':           BarChart3,
-  'tax_mappings':      Tags,            'tax-mappings':      Tags,
-  'tax_export':        FileText,        'tax-export':        FileText,
-  'posting_rules':     Wrench,          'posting-rules':     Wrench,
-  'rule_sandbox':      Sparkles,        'rule-sandbox':      Sparkles,
-  'events':            Activity,
-  'audit':             ScrollText,
-
-  // Treasury
-  'deposits':          Wallet,          'deposit-accounts':  Wallet,
-  'liabilities':       HandCoins,       'liability-accounts': HandCoins,
-  'transactions':      Activity,        'account-transactions': Activity,
-  'rules':             Wrench,          'saved-rules':       Wrench,
-
-  // Accounts Payable
-  'accounts_payable':  CreditCard,      'accounts-payable':  CreditCard,
-  'bills':             Receipt,
-  'vendors':           Building2,
-  'payments':          BadgeDollarSign,
-  'aging':             Hourglass,       'ap-aging':          Hourglass,
-  'credits':           Receipt,
-  'dunning':           AlertTriangle,
-  'tax':               Settings,
-  'approvals':         CheckSquare,
-  'expenses':          Receipt,
-  '1099':              ScrollText,
-
-  // Billing / AR
-  'accounts_receivable': Receipt,       'accounts-receivable': Receipt,
-  'invoices':          FileText,
-  'customers':         Users,
-  'clients':           Building2,
-  'jobs':              Briefcase,
-  'collections':       AlertTriangle,
-  'remittances':       FileCheck2,
-
-  // Reports
-  'reports':           PieChart,
-  'staffing_overview':    Gauge,        'staffing-overview':    Gauge,
-  'executive_snapshot':   FileSearch,   'executive-snapshot':   FileSearch,
-  'client_profitability': Users,        'client-profitability': Users,
-  'rate_spread':       TrendingUp,      'rate-spread':       TrendingUp,
-  'overtime_watch':    AlertTriangle,   'overtime-watch':    AlertTriangle,
-  'custom':            Wrench,          'custom-reports':    Wrench,
-  'other':             Folder,          'other-reports':     Folder,
-
-  // Time
-  'enter_time':        Clock,           'enter-time':        Clock,
-  'timesheets':        FileText,
-  'entries':           Clock,
-  'review':            ClipboardCheck,
-  'missing':           AlertTriangle,
-  'settlement':        Coins,
-  'categories':        Tags,
-  'bulk':              FilePlus2,
-  'pay_periods':       CalendarClock,   'pay-periods':       CalendarClock,
-  'pay_schedules':     Calendar,        'pay-schedules':     Calendar,
-  'approvals_queue':   CheckSquare,
-  'time_off':          Calendar,        'time-off':          Calendar,
-
-  // People / Hiring
-  'employee_directory':Users,           'employee-directory':Users,
-  'directory':         Users,
-  'profiles':          UserCircle,
-  'org_chart':         Network,         'org-chart':         Network,
-  'hiring_pipeline':   Briefcase,       'hiring-pipeline':   Briefcase,
-  'placements':        Briefcase,
-  'pipeline':          Briefcase,
-  'onboarding':        FilePlus2,
-  'workers':           Users,
-  'documents':         Folder,
-  'custom_fields':     Wrench,           'custom-fields':     Wrench,
-
-  // Payroll
-  'runs':              Banknote,
-  'cycles':            Repeat,
-  'anomalies':         AlertTriangle,
-  'payroll_readiness': ClipboardCheck,   'payroll-readiness': ClipboardCheck,
-  'billing_readiness': Receipt,          'billing-readiness': Receipt,
-  'profitability':     TrendingUp,
-  'paystubs':          Receipt,
-  'taxes':             FileCheck2,
-  'forecasts':         TrendingUp,
-  'budgets':           BarChart,
-
-  // Admin
-  'users':             Users,
-  'tenants':           Building2,
-  'audit_log':         ScrollText,      'audit-log':         ScrollText,
-  'permissions':       Shield,
-  'settings':          Settings,
-  'ai_accuracy':       Sparkles,        'ai-accuracy':       Sparkles,
-  'export_templates':  FolderTree,      'export-templates':  FolderTree,
-  'mail':              Mail,
-  'inbox':             Inbox,
-  'tasks':             ListChecks,
-  'goals':             Target,
+  'list': ListChecks,
+  'expiring': CalendarCheck,
+  'new': Briefcase,
+  'commissions': Receipt,
+  'referrals': Users,
+  'coa': BookOpen,
+  'journal': Receipt,
+  'reconcile': CheckSquare,
+  'transactions-to-review': ListChecks,
 };
 
-const Sidebar = ({ activeModule }) => {
-  const location = useLocation();
-  
-  if (!activeModule) return null;
+const WORKSPACE_ITEMS = [
+  { key: 'overview', label: 'Overview', to: '/', Icon: LayoutGrid, paths: ['/', '/dashboard'] },
+  { key: 'people', label: 'People', to: '/modules/people/directory', Icon: Users, moduleIds: ['people'] },
+  { key: 'placements', label: 'Placements', to: '/modules/placements/list', Icon: Briefcase, moduleIds: ['placements', 'staffing'], paths: ['/modules/placements', '/modules/staffing/placements'] },
+  { key: 'time', label: 'Time', to: '/modules/staffing/timesheets', Icon: Clock3, moduleIds: ['time', 'staffing'], paths: ['/modules/time', '/modules/staffing/timesheets'] },
+  { key: 'billing', label: 'Billing', to: '/modules/billing/invoices', Icon: Receipt, moduleIds: ['billing'] },
+  { key: 'ap', label: 'Accounts payable', to: '/modules/ap/bills', Icon: CreditCard, moduleIds: ['ap'] },
+  { key: 'accounting', label: 'Accounting', to: '/modules/accounting/bookkeeping', Icon: BookOpen, moduleIds: ['accounting'] },
+  { key: 'payroll', label: 'Payroll', to: '/modules/payroll/runs', Icon: CalendarCheck, moduleIds: ['payroll'] },
+  { key: 'treasury', label: 'Treasury', to: '/modules/treasury/overview', Icon: Wallet, moduleIds: ['treasury'] },
+  { key: 'reports', label: 'Reports', to: '/modules/reports/overview', Icon: BarChart3, moduleIds: ['reports'] },
+];
 
-  const navItems = activeModule.actions || activeModule.navItems || [];
-  const moduleId = activeModule.id || activeModule.name?.toLowerCase().replace(/\s+/g, '_');
+const Sidebar = ({ session, onModuleChange }) => {
+  const location = useLocation();
+  const modules = session?.modules || [];
+  const availableIds = new Set(modules.map(module => module.id));
+  const user = session?.user || {};
+  const isAdmin = ['master_admin', 'tenant_admin', 'admin'].includes(user.role)
+    || ['master_admin', 'tenant_admin'].includes(user.global_role)
+    || Boolean(user.is_global_admin);
+
+  const visibleWorkspace = WORKSPACE_ITEMS.filter(item => {
+    if (!item.moduleIds) return true;
+    return item.moduleIds.some(id => availableIds.has(id));
+  });
+
+  const isItemActive = item => {
+    const pathname = location.pathname;
+    if (item.key === 'overview') return item.paths.includes(pathname);
+    const candidates = item.paths || [`/modules/${item.key}`];
+    return candidates.some(path => pathname.startsWith(path));
+  };
+
+  const activateModule = item => {
+    const module = modules.find(candidate => item.moduleIds?.includes(candidate.id));
+    if (module) onModuleChange?.(module);
+  };
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar-header">
-        <h2 className="sidebar-title">{activeModule.name}</h2>
-      </div>
-      
-      <nav className="sidebar-nav">
-        {navItems.map((item) => {
-          const routeKey = item.route?.replace('.php', '') || item.name?.toLowerCase().replace(/\s+/g, '_');
-          const route = routeKey.replace(/_/g, '-');
-          const path = `/modules/${moduleId}/${route}`;
-          const isActive = location.pathname.includes(route) || location.pathname.includes(routeKey);
-          
-          // Get icon component
-          const IconComponent = iconMap[routeKey] || iconMap[route] || LayoutGrid;
-          
-          return (
-            <div key={item.name || route} className="sidebar-item">
-              <NavLink
-                to={path}
-                className={`sidebar-link ${isActive ? 'active' : ''}`}
-                data-route={route}
-              >
-                <span className="sidebar-icon-wrap" aria-hidden="true">
-                  <IconComponent size={17} className="sidebar-icon" />
-                </span>
-                <span>{item.name}</span>
-              </NavLink>
-            </div>
-          );
-        })}
-      </nav>
-      
-      <div className="sidebar-footer">
+    <aside className="sidebar" aria-label="CoreFlux workspace">
+      <NavLink to="/" className="sidebar-brand" aria-label="CoreFlux overview">
         <img src={corefluxMark} alt="" aria-hidden="true" />
-        <small>CoreFlux v1.0</small>
+        <span>Core<span>Flux</span></span>
+      </NavLink>
+
+      <nav className="sidebar-nav">
+        <SidebarGroup label="Your workspace">
+          {visibleWorkspace.map(item => (
+            <SidebarLink
+              key={item.key}
+              item={item}
+              active={isItemActive(item)}
+              onClick={() => activateModule(item)}
+            />
+          ))}
+        </SidebarGroup>
+
+        <SidebarGroup label="Operations">
+          <SidebarLink item={{ label: 'Approvals', to: '/inbox', Icon: Inbox }} active={location.pathname === '/inbox'} />
+          {availableIds.has('accounting') && (
+            <SidebarLink item={{ label: 'Month-end close', to: '/modules/accounting/close', Icon: CheckSquare }} active={location.pathname.startsWith('/modules/accounting/close')} />
+          )}
+          {isAdmin && (
+            <SidebarLink item={{ label: 'Connections', to: '/admin/integrations', Icon: Link2 }} active={location.pathname.startsWith('/admin/integrations')} />
+          )}
+        </SidebarGroup>
+      </nav>
+
+      <div className="sidebar-footer">
+        <NavLink to="/ai-agents" className="sidebar-link sidebar-link--assistant">
+          <span className="sidebar-icon-wrap" aria-hidden="true"><Sparkles size={16} className="sidebar-icon" /></span>
+          <span>Ask CoreFlux</span>
+        </NavLink>
+        <NavLink to="/settings" className="sidebar-link">
+          <span className="sidebar-icon-wrap" aria-hidden="true"><Settings size={16} className="sidebar-icon" /></span>
+          <span>Workspace settings</span>
+        </NavLink>
+        <div className="sidebar-version"><Building2 size={13} aria-hidden="true" /> CoreFlux workspace</div>
       </div>
     </aside>
   );
 };
 
+function SidebarGroup({ label, children }) {
+  return (
+    <section className="sidebar-group">
+      <h2 className="sidebar-title">{label}</h2>
+      <div>{children}</div>
+    </section>
+  );
+}
+
+function SidebarLink({ item, active, onClick }) {
+  const { Icon = LayoutGrid } = item;
+  return (
+    <div className="sidebar-item">
+      <NavLink
+        to={item.to}
+        end={item.to === '/'}
+        className={`sidebar-link ${active ? 'active' : ''}`}
+        onClick={onClick}
+        title={item.label}
+      >
+        <span className="sidebar-icon-wrap" aria-hidden="true">
+          <Icon size={17} className="sidebar-icon" />
+        </span>
+        <span>{item.label}</span>
+      </NavLink>
+    </div>
+  );
+}
+
+export { iconMap };
 export default Sidebar;

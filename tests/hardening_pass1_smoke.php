@@ -76,7 +76,7 @@ echo "\nSavedRules UI page wired into Treasury module\n";
 $tm = (string) file_get_contents(__DIR__ . '/../modules/treasury/ui/TreasuryModule.jsx');
 _h('TreasuryModule imports SavedRules',                 str_contains($tm, "import SavedRules"));
 _h('TreasuryModule has /rules route',                   str_contains($tm, 'path="rules"'));
-_h('TreasuryModule has Saved Rules tab',                str_contains($tm, 'Saved Rules'));
+_h('TreasuryModule has Saved Rules tab',                str_contains($tm, "{ to: '/modules/treasury/rules', label: 'Saved Rules' }") && str_contains($tm, '<ModuleTabs'));
 
 $sr = (string) file_get_contents(__DIR__ . '/../modules/treasury/ui/SavedRules.jsx');
 _h('SavedRules calls /api/ai_categorization_rules',     str_contains($sr, '/api/ai_categorization_rules.php'));

@@ -100,7 +100,12 @@ const MORE_NAV = [
 export default function AccountingModule({ session }) {
   return (
     <div data-testid="accounting-module">
-      <AccountingNav />
+      <header className="module-workspace-header">
+        <span className="workspace-eyebrow">Financial controls</span>
+        <h1>Accounting</h1>
+        <p>Keep the books, review activity, and close with confidence.</p>
+        <AccountingNav />
+      </header>
       <Routes>
         <Route index           element={<Navigate to="accounts" replace />} />
         <Route path="bookkeeping" element={<BookkeepingOverview />} />

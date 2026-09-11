@@ -8,7 +8,7 @@ import ExportTemplatePicker from '../../../dashboard/src/components/ExportTempla
 import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
 import {
   Briefcase, DatabaseZap, Download, FileSpreadsheet, Pencil, Plus,
-  RefreshCw, Search, Upload, Zap,
+  MoreHorizontal, RefreshCw, Search, Upload, Zap,
 } from 'lucide-react';
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
@@ -178,20 +178,32 @@ export default function List() {
             <FileSpreadsheet size={16} aria-hidden="true" />
             Draft rates queue
           </Link>
-          <Link to="../list-graphql" className="btn btn--ghost" data-testid="placements-try-graphql-btn" title="Same data, fetched via the new federated GraphQL endpoint">
-            <Zap size={16} aria-hidden="true" /> GraphQL
-          </Link>
-          <Link to="../csv_import" className="btn" data-testid="placements-csv-btn"><Upload size={16} aria-hidden="true" /> Import</Link>
-          <a href="/api/v1/placements/csv-export" className="btn" data-testid="placements-csv-export-btn"><Download size={16} aria-hidden="true" /> Export</a>
-          <ExportTemplatePicker
-            dataset="placements_directory"
-            buildHref={buildTemplateExportHref}
-            label="Templates"
-            testid="placements-export-template"
-          />
+          <details className="action-overflow">
+            <summary className="btn" aria-label="More placement actions"><MoreHorizontal size={16} aria-hidden="true" /> More</summary>
+            <div className="action-overflow__menu">
+              <Link to="../list-graphql" className="action-overflow__item" data-testid="placements-try-graphql-btn" title="Same data, fetched via the new federated GraphQL endpoint">
+                <Zap size={15} aria-hidden="true" /> GraphQL view
+              </Link>
+              <Link to="../csv_import" className="action-overflow__item" data-testid="placements-csv-btn"><Upload size={15} aria-hidden="true" /> Import CSV</Link>
+              <a href="/api/v1/placements/csv-export" className="action-overflow__item" data-testid="placements-csv-export-btn"><Download size={15} aria-hidden="true" /> Export CSV</a>
+              <ExportTemplatePicker
+                dataset="placements_directory"
+                buildHref={buildTemplateExportHref}
+                label="Templates"
+                testid="placements-export-template"
+              />
+            </div>
+          </details>
           <Link to="../new" className="btn btn--primary" data-testid="placements-new-btn"><Plus size={16} aria-hidden="true" /> New placement</Link>
         </div>
       </header>
+
+      <div className="page-kpi-strip" aria-label="Placement summary">
+        <PageKpi label="Matching placements" value={total} />
+        <PageKpi label="W-2 on this page" value={items.filter(row => row.engagement_type === 'w2').length} />
+        <PageKpi label="C2C on this page" value={items.filter(row => row.engagement_type === 'c2c').length} />
+        <PageKpi label="Ending in 30 days" value={items.filter(row => isWithinThirtyDays(row.end_date)).length} tone="amber" />
+      </div>
 
       <div className="directory-filter-bar">
         <div className="directory-filter-bar__search">
@@ -341,4 +353,21 @@ export default function List() {
       </div>
     </section>
   );
+}
+
+function PageKpi({ label, value, tone = 'blue' }) {
+  return (
+    <div className={`page-kpi page-kpi--${tone}`}>
+      <span>{label}</span>
+      <strong>{Number(value || 0).toLocaleString()}</strong>
+    </div>
+  );
+}
+
+function isWithinThirtyDays(value) {
+  if (!value) return false;
+  const date = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  const days = (date.getTime() - today.getTime()) / 86400000;
+  return days >= 0 && days <= 30;
 }

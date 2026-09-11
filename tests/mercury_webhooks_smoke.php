@@ -195,7 +195,7 @@ $a('per-event row has dynamic testid',            str_contains($jsx, "data-testi
 echo "\nmodules/treasury/ui/TreasuryModule.jsx\n";
 $tm = $read("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");
 $a('imports MercuryWebhookConfig',                str_contains($tm, "import MercuryWebhookConfig   from './MercuryWebhookConfig';"));
-$a('tab renders "Webhooks"',                      str_contains($tm, '<TreasuryTab to="mercury-webhooks"   label="Webhooks" />'));
+$a('tab renders "Webhooks"',                      str_contains($tm, "{ to: '/modules/treasury/mercury-webhooks', label: 'Webhooks' }") && str_contains($tm, '<ModuleTabs'));
 $a('route mounts MercuryWebhookConfig',           str_contains($tm, '<Route path="mercury-webhooks"   element={<MercuryWebhookConfig />}'));
 
 // --- PHP syntax checks ------------------------------------------

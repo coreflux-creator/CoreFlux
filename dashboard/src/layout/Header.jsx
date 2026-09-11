@@ -1,16 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { ChevronDown, LayoutDashboard, Shield, Building2, Inbox, TrendingUp, UserCog } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { ChevronDown, Shield, Building2, Inbox, Search, TrendingUp, UserCog } from 'lucide-react';
 import { api, clearPinnedTenantId } from '../lib/api';
 
 const corefluxLogo = '/assets/brand/coreflux-logo.png';
 const corefluxMark = '/assets/brand/coreflux-mark.png';
 
-const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, onTenantChange }) => {
-  const [moduleOpen, setModuleOpen] = useState(false);
+const Header = ({ user, modules, tenant, tenants, onModuleChange, onTenantChange }) => {
   const [tenantOpen, setTenantOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [personaOpen, setPersonaOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const [personas, setPersonas] = useState([]);
   const [activePersonaId, setActivePersonaId] = useState(null);
   // Manageable tenants (direct + via_parent + platform) — authoritative
@@ -18,21 +19,35 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
   // `tenants` prop until /api/admin/manageable_tenants.php returns.
   const [manageable, setManageable] = useState(null);
   const location = useLocation();
+  const navigate = useNavigate();
 
-  const moduleRef = useRef(null);
   const tenantRef = useRef(null);
   const userRef = useRef(null);
   const personaRef = useRef(null);
+  const searchRef = useRef(null);
+  const searchInputRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (moduleRef.current && !moduleRef.current.contains(e.target)) setModuleOpen(false);
       if (tenantRef.current && !tenantRef.current.contains(e.target)) setTenantOpen(false);
       if (userRef.current && !userRef.current.contains(e.target)) setUserOpen(false);
       if (personaRef.current && !personaRef.current.contains(e.target)) setPersonaOpen(false);
+      if (searchRef.current && !searchRef.current.contains(e.target)) setSearchOpen(false);
     };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const focusSearch = event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        setSearchOpen(true);
+      }
+    };
+    document.addEventListener('keydown', focusSearch);
+    return () => document.removeEventListener('keydown', focusSearch);
   }, []);
 
   // Tenant switcher inventory — pulls direct + via_parent + platform.
@@ -84,6 +99,30 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
                  || ['master_admin','tenant_admin'].includes(user?.global_role)
                  || !!user?.is_global_admin;
   const activePersona = personas.find(p => p.id === activePersonaId);
+  const searchDestinations = [
+    { label: 'Workspace overview', detail: 'Dashboard', to: '/' },
+    { label: 'Approval inbox', detail: 'Operations', to: '/inbox' },
+    { label: 'Ask CoreFlux', detail: 'AI workspace', to: '/ai-agents' },
+    ...(modules || []).flatMap(module => [
+      { label: module.name, detail: 'Workspace', to: `/modules/${module.id}/overview`, module },
+      ...(module.actions || []).map(action => ({
+        label: action.name,
+        detail: module.name,
+        to: `/modules/${module.id}/${String(action.route || 'overview').replace('.php', '')}`,
+        module,
+      })),
+    ]),
+  ];
+  const searchResults = search.trim()
+    ? searchDestinations.filter(item => `${item.label} ${item.detail}`.toLowerCase().includes(search.trim().toLowerCase())).slice(0, 8)
+    : searchDestinations.slice(0, 6);
+  const openDestination = item => {
+    if (!item) return;
+    if (item.module) onModuleChange?.(item.module);
+    navigate(item.to);
+    setSearch('');
+    setSearchOpen(false);
+  };
 
   return (
     <header className="header">
@@ -108,57 +147,55 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
         </Link>
       </div>
 
-      {/* Center - Dashboard & Module Selector */}
+      {/* Center - workspace navigation + command search */}
       <div className="header-center">
-        <Link to="/" className={`header-btn ${isOnDashboard ? 'active' : ''}`}>
-          <LayoutDashboard size={18} className="header-btn-icon" />
-          <span>Dashboard</span>
+        <Link to="/" className={`header-workspace-link ${isOnDashboard ? 'active' : ''}`}>
+          Workspace
         </Link>
 
         {canSeeCfo && (
-          <Link to="/cfo" className={`header-btn ${isOnCfo ? 'active' : ''}`} data-testid="header-cfo-link">
-            <TrendingUp size={18} className="header-btn-icon" />
-            <span>CFO</span>
+          <Link to="/cfo" className={`header-workspace-link ${isOnCfo ? 'active' : ''}`} data-testid="header-cfo-link">
+            <TrendingUp size={15} aria-hidden="true" />
+            <span>CFO overview</span>
           </Link>
         )}
-        
-        {modules && modules.length > 0 && (
-          <div className={`dropdown ${moduleOpen ? 'open' : ''}`} ref={moduleRef}>
-            <button 
-              className="header-btn"
-              onClick={(e) => { e.stopPropagation(); setModuleOpen(!moduleOpen); }}
-            >
-              <span>{activeModule?.name || 'Select Module'}</span>
-              <ChevronDown size={16} className="caret" />
-            </button>
-            
-            {moduleOpen && (
-              <div className="dropdown-menu">
-                {modules.map((mod) => (
-                  <Link
-                    key={mod.id || mod.name}
-                    to={`/modules/${mod.id}/overview`}
-                    className={`dropdown-item ${mod.id === activeModule?.id ? 'active' : ''}`}
-                    onClick={() => {
-                      onModuleChange?.(mod);
-                      setModuleOpen(false);
-                    }}
-                  >
-                    {mod.name}
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+
+        <div className="header-search" ref={searchRef}>
+          <Search size={16} aria-hidden="true" />
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={search}
+            placeholder="Search anything..."
+            aria-label="Search CoreFlux"
+            onFocus={() => setSearchOpen(true)}
+            onChange={event => { setSearch(event.target.value); setSearchOpen(true); }}
+            onKeyDown={event => {
+              if (event.key === 'Enter') openDestination(searchResults[0]);
+              if (event.key === 'Escape') setSearchOpen(false);
+            }}
+          />
+          <kbd>Ctrl K</kbd>
+          {searchOpen && (
+            <div className="header-search-results" role="listbox">
+              <div className="header-search-label">Navigate to</div>
+              {searchResults.map(item => (
+                <button key={`${item.detail}-${item.to}`} type="button" onClick={() => openDestination(item)}>
+                  <span>{item.label}</span><small>{item.detail}</small>
+                </button>
+              ))}
+              {!searchResults.length && <p>No matching workspace or workflow.</p>}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Right - Admin, Tenant & User */}
       <div className="header-right">
         {/* Sprint 6b — quick link to cross-module approval inbox */}
-        <Link to="/inbox" className={`header-btn ${isOnInbox ? 'active' : ''}`} data-testid="header-inbox-link">
+        <Link to="/inbox" className={`header-icon-btn ${isOnInbox ? 'active' : ''}`} data-testid="header-inbox-link" aria-label="Open approval inbox" title="Approval inbox">
           <Inbox size={18} className="header-btn-icon" />
-          <span>Inbox</span>
+          <span className="header-notification-dot" aria-hidden="true" />
         </Link>
 
         {/* RBAC B5 — Persona switcher (only renders when user has ≥2 personas in current tenant) */}
@@ -197,9 +234,8 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
         )}
 
         {(user?.global_role === 'master_admin' || user?.global_role === 'tenant_admin' || user?.is_global_admin) && (
-          <Link to="/admin" className="header-btn" data-testid="header-admin-link">
+          <Link to="/admin" className="header-icon-btn" data-testid="header-admin-link" aria-label="Open administration" title="Administration">
             <Shield size={18} className="header-btn-icon" />
-            <span>Admin Panel</span>
           </Link>
         )}
         

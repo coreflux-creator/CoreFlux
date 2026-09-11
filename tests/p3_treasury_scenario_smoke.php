@@ -132,7 +132,7 @@ echo "\nRouting — TreasuryModule\n";
 $tm = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");
 $assert('imports TreasuryScenario',               strpos($tm, "import TreasuryScenario         from '../../../dashboard/src/pages/TreasuryScenario'") !== false);
 $assert('mounts /scenario route',                 strpos($tm, '<Route path="scenario"      element={<TreasuryScenario />} />') !== false);
-$assert('adds "What-If Scenario" tab',            strpos($tm, '<TreasuryTab to="scenario"    label="What-If Scenario" />') !== false);
+$assert('adds "What-If Scenario" tab',            strpos($tm, "{ to: '/modules/treasury/scenario', label: 'What-If Scenario' }") !== false && strpos($tm, '<ModuleTabs') !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

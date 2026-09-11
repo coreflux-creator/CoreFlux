@@ -116,7 +116,7 @@ echo "\nRouting — TreasuryModule\n";
 $tm = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");
 $assert('imports LiquidityForecast page',          strpos($tm, "import LiquidityForecast        from '../../../dashboard/src/pages/LiquidityForecast'") !== false);
 $assert('mounts /forecast route',                  strpos($tm, '<Route path="forecast"      element={<LiquidityForecast />} />') !== false);
-$assert('adds Liquidity Forecast nav tab',         strpos($tm, '<TreasuryTab to="forecast"    label="Liquidity Forecast" />') !== false);
+$assert('adds Liquidity Forecast nav tab',         strpos($tm, "{ to: '/modules/treasury/forecast', label: 'Liquidity Forecast' }") !== false && strpos($tm, '<ModuleTabs') !== false);
 
 echo "\nAuto-reverse migration 024\n";
 $mig = (string) file_get_contents("{$ROOT}/core/migrations/024_auto_reversing_accruals.sql");

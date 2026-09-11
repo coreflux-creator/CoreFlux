@@ -131,7 +131,7 @@ echo "\nRouting — TreasuryModule\n";
 $tm = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");
 $assert('imports TreasuryScenarioCompare',       strpos($tm, "import TreasuryScenarioCompare  from '../../../dashboard/src/pages/TreasuryScenarioCompare'") !== false);
 $assert('mounts /compare route',                 strpos($tm, '<Route path="compare"       element={<TreasuryScenarioCompare />} />') !== false);
-$assert('adds "Compare Scenarios" tab',          strpos($tm, '<TreasuryTab to="compare"     label="Compare Scenarios" />') !== false);
+$assert('adds "Compare Scenarios" tab',          strpos($tm, "{ to: '/modules/treasury/compare', label: 'Compare Scenarios' }") !== false && strpos($tm, '<ModuleTabs') !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

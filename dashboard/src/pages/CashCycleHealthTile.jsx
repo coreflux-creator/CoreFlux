@@ -1,7 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Activity } from 'lucide-react';
-import { Section } from '../components/UIComponents';
 import { useApi } from '../lib/api';
 import { fmtMoney } from '../lib/format';
 import KpiNote from '../components/KpiNote';
@@ -57,23 +56,22 @@ export default function CashCycleHealthTile() {
   const dsoColor = { good: '#16a34a', neutral: '#0f172a', warn: '#a16207', bad: '#dc2626' }[dsoTone];
 
   return (
-    <Section
-      title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Activity size={16} /> Cash cycle health</span>}
-      action={
-        <div style={{ display: 'inline-flex', gap: 8 }}>
-          <Link to="/modules/billing/money-movement" className="btn btn--ghost" data-testid="cash-cycle-health-money-movement" style={{ fontSize: 13 }}>
-            Weekly digest <ArrowRight size={14} />
+    <section className="workspace-panel dashboard-cash-cycle" data-testid="cash-cycle-health-tile">
+      <div className="workspace-panel__header">
+        <div>
+          <span className="workspace-eyebrow"><Activity size={13} aria-hidden="true" /> Cash management</span>
+          <h2>Cash cycle health</h2>
+        </div>
+        <div className="dashboard-cash-cycle__actions">
+          <Link to="/modules/billing/money-movement" className="text-link" data-testid="cash-cycle-health-money-movement">
+            Weekly digest <ArrowRight size={14} aria-hidden="true" />
           </Link>
-          <Link to="/modules/ap/weekly-queue" className="btn btn--ghost" data-testid="cash-cycle-health-drill-in" style={{ fontSize: 13 }}>
-            Open AP weekly queue <ArrowRight size={14} />
+          <Link to="/modules/ap/weekly-queue" className="text-link" data-testid="cash-cycle-health-drill-in">
+            AP queue <ArrowRight size={14} aria-hidden="true" />
           </Link>
         </div>
-      }
-    >
-      <div
-        data-testid="cash-cycle-health-tile"
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}
-      >
+      </div>
+      <div className="dashboard-cash-cycle__stats">
         <Stat
           label="Days sales outstanding"
           value={dso == null ? '—' : `${dso} d`}
@@ -110,10 +108,7 @@ export default function CashCycleHealthTile() {
       {blocked > 0 && (
         <div
           data-testid="cash-cycle-blocked-banner"
-          style={{
-            marginTop: 12, padding: '10px 14px', borderRadius: 6, background: '#fef3c7',
-            borderLeft: '4px solid #a16207', color: '#7c2d12', fontSize: 13,
-          }}
+          className="dashboard-cash-cycle__alert"
         >
           <strong>{blocked}</strong> AP bill{blocked === 1 ? '' : 's'} blocked in the weekly queue —{' '}
           <Link to="/modules/ap/weekly-queue" style={{ color: '#7c2d12', textDecoration: 'underline' }}>
@@ -121,21 +116,16 @@ export default function CashCycleHealthTile() {
           </Link>
         </div>
       )}
-    </Section>
+    </section>
   );
 }
 
 function Stat({ label, value, sub, color, testid, noteKey, note, canWrite, onNoteSaved }) {
   return (
-    <div
-      data-testid={testid}
-      style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px' }}
-    >
-      <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--cf-text-secondary)', marginBottom: 4 }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)', marginTop: 2 }}>{sub}</div>}
+    <div className="cash-cycle-stat" data-testid={testid}>
+      <div className="cash-cycle-stat__label">{label}</div>
+      <div className="cash-cycle-stat__value" style={{ color }}>{value}</div>
+      {sub && <div className="cash-cycle-stat__sub">{sub}</div>}
       {noteKey && <KpiNote noteKey={noteKey} note={note} canWrite={canWrite} onSaved={onNoteSaved} />}
     </div>
   );

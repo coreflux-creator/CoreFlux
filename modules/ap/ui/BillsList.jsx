@@ -56,7 +56,7 @@ export default function BillsList() {
   };
 
   return (
-    <section data-testid="ap-bills-list">
+    <section className="module-list-page" data-testid="ap-bills-list">
       {activeEntity && (
         <div data-testid="ap-bills-entity-scope"
              style={{ fontSize: 12, color: '#1e40af', marginBottom: 8 }}>
@@ -64,23 +64,18 @@ export default function BillsList() {
         </div>
       )}
       <ApprovedHoursReadyTile variant="ap" onPick={() => setShowFromEntries(true)} />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div className="module-list-toolbar">
+        <div className="segmented-filter" aria-label="Bill status">
           {STATUS_FILTERS.map(s => (
             <button
               key={s}
               data-testid={`ap-bills-filter-${s}`}
               onClick={() => setStatus(s)}
-              style={{
-                padding: '4px 10px', borderRadius: 999, border: '1px solid var(--cf-border, #e5e7eb)',
-                background: status === s ? 'var(--cf-text, #111827)' : 'transparent',
-                color: status === s ? '#fff' : 'var(--cf-text-secondary, #6b7280)',
-                fontSize: 12, cursor: 'pointer',
-              }}
+              className={status === s ? 'is-active' : ''}
             >{s.replace('_', ' ')}</button>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="module-list-toolbar__actions">
           <Link to="new" className="btn btn--primary" data-testid="ap-new-bill">+ New bill</Link>
           <button className="btn btn--ghost" onClick={() => setShowFromBundle(true)} data-testid="ap-new-from-time-bundle">
             New from time bundle
@@ -88,10 +83,9 @@ export default function BillsList() {
           <button className="btn btn--ghost" onClick={() => setShowFromEntries(true)} data-testid="ap-bills-new-from-time-entries">
             New from approved hours (day-level)
           </button>
-          <button className="btn btn--primary" onClick={() => setShowSuggestRun(true)}
-                  style={{ background: 'linear-gradient(135deg, #059669, #2563eb)', border: 0 }}
+          <button className="btn" onClick={() => setShowSuggestRun(true)}
                   data-testid="ap-bills-suggest-payment-run">
-            ✨ Suggest payment run
+            Suggest payment run
           </button>
           <Link to="csv_import" className="btn" data-testid="ap-bills-import-csv">Import CSV</Link>
           <a className="btn" href={`/api/v1/ap/bills-csv-export${status !== 'all' ? `?status=${status}` : ''}`} data-testid="ap-bills-export-all-csv">Export all (CSV)</a>
@@ -104,7 +98,7 @@ export default function BillsList() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+      <div className="module-list-search">
         <input
           type="search"
           className="input"
@@ -112,10 +106,8 @@ export default function BillsList() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           data-testid="ap-bills-search"
-          style={{ maxWidth: 320 }}
         />
-        <span style={{ fontSize: 11, color: 'var(--cf-text-secondary, #6b7280)' }}
-              data-testid="ap-bills-match-count">
+        <span data-testid="ap-bills-match-count">
           {items.length} of {rows.length}
         </span>
       </div>
@@ -133,6 +125,7 @@ export default function BillsList() {
       {loading && <p>Loading…</p>}
       {error && <p className="error" data-testid="ap-bills-error">Error: {error.message}</p>}
 
+      <div className="data-table-wrap">
       <table className="data-table" data-testid="ap-bills-table">
         <thead>
           <tr>
@@ -193,6 +186,7 @@ export default function BillsList() {
           ))}
         </tbody>
       </table>
+      </div>
 
       {showFromBundle && (
         <BillFromTimeBundleModal
