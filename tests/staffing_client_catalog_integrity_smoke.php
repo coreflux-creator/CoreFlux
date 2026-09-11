@@ -57,6 +57,17 @@ $assert('QuickBooks sub-customers are not promoted as active top-level clients',
 $assert('catalog repair relinks before retiring unsupported promotions',
     strpos($repair, 'staffingClientRelinkCanonicalPlacements')
         < strpos($repair, 'staffingClientRetireUnsupportedJobDivaPromotions'));
+$assert('exact JobDiva assignment clients carry integration provenance',
+    str_contains($clients, "'source_system'")
+    && substr_count($read($root . '/core/jobdiva/projector.php'), "'source_system' => 'jobdiva'") >= 2
+    && str_contains($repair, 'staffingClientRetireUnsupportedLegacyRows')
+    && str_contains($repair, 'staffingClientRetireJobDivaPlaceholders'));
+$assert('catalog integrity rejects synthetic and unsupported active clients',
+    str_contains($clients, 'active_unproven_clients')
+    && str_contains($clients, 'active_placements_with_inactive_client')
+    && str_contains($repair, "after['active_unproven_clients']"));
+$assert('explicit CSV client imports retain audit provenance',
+    str_contains($read($root . '/modules/staffing/api/csv_import.php'), 'staffing.client.imported'));
 $assert('cleanup preserves source graphs and only inactivates consumer rows',
     str_contains($clients, "SET sc.status = 'inactive'")
     && !str_contains($clients, 'DELETE FROM companies')

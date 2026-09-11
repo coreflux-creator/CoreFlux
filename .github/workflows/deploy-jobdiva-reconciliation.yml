@@ -271,5 +271,5 @@ jobs:
             php tests/qbo_slice3_smoke.php
             php tests/rbac_b2_smoke.php
             php tests/rbac_persona_wildcard_smoke.php
-            php -r 'require "modules/staffing/lib/clients.php"; $catalogTenant=staffingClientCatalogTenantId(2); $summary=staffingClientCatalogIntegritySummary($catalogTenant); if (($summary["active_clients"] ?? 0) < 1 || ($summary["client_company_mismatches"] ?? 0) > 0 || ($summary["active_jobdiva_placeholders"] ?? 0) > 0) { fwrite(STDERR, "Client catalog failed: ".json_encode($summary)."\n"); exit(1); } echo "Client catalog verified: ".json_encode($summary)."\n";'
+            php -r 'require "modules/staffing/lib/clients.php"; $catalogTenant=staffingClientCatalogTenantId(2); $summary=staffingClientCatalogIntegritySummary($catalogTenant); if (($summary["active_clients"] ?? 0) < 1 || ($summary["client_company_mismatches"] ?? 0) > 0 || ($summary["active_jobdiva_placeholders"] ?? 0) > 0 || ($summary["active_unproven_clients"] ?? 0) > 0 || ($summary["active_placements_with_inactive_client"] ?? 0) > 0) { fwrite(STDERR, "Client catalog failed: ".json_encode($summary)."\n"); exit(1); } echo "Client catalog verified: ".json_encode($summary)."\n";'
             echo "Deployed and verified commit ${{ github.sha }}."

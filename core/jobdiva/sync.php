@@ -6476,6 +6476,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         try {
             $clientRef = staffingClientEnsureForCompany($tid, $endClientCompanyId, $clientBridgeName, [
                 'created_by_user_id' => $userId,
+                'source_system' => 'jobdiva',
             ]);
             $clientId = (int) ($clientRef['client_id'] ?? 0) ?: null;
             if (!empty($clientRef['company_id'])) {
