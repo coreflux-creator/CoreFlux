@@ -20,7 +20,7 @@ $assert('client API pins scoped CRUD to placements catalog',
     str_contains($clientsApi, "setRequestModuleScope('placements')"));
 $assert('client API uses the shared placements permission boundary',
     substr_count($clientsApi, "'placements.view'") === 3
-    && substr_count($clientsApi, "'placements.manage'") === 3
+    && substr_count($clientsApi, "'placements.manage'") === 4
     && !str_contains($clientsApi, "'staffing.clients.manage'"));
 $assert('client API binds the resolved catalog tenant directly',
     str_contains($clientsApi, 'staffingClientCatalogQuery(')
