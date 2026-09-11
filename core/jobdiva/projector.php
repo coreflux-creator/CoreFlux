@@ -719,6 +719,7 @@ function jobdivaProjectorResolveEndClientCompany(int $tenantId, array $payload, 
             staffingClientEnsureForCompany($tenantId, $companyId, $endClientName, [
                 'created_by_user_id' => $userId,
                 'status' => 'active',
+                'source_system' => 'jobdiva',
             ]);
             return $companyId;
         }
@@ -750,6 +751,7 @@ function jobdivaProjectorEnsureEndClientCompany(
             $clientRef = staffingClientEnsureForCompany($tenantId, null, $name, [
                 'created_by_user_id' => $userId,
                 'status' => 'active',
+                'source_system' => 'jobdiva',
             ]);
             $companyId = (int) ($clientRef['company_id'] ?? 0);
         } elseif (function_exists('companiesUpsertByName')) {

@@ -162,6 +162,131 @@ function staffingClientRetireUnsupportedJobDivaPromotions(int $tenantId): int
 }
 
 /**
+ * Retire legacy client rows that have no trustworthy business provenance.
+ *
+ * Older projection paths could create a staffing client from a candidate,
+ * contact, requisition customer, or chain label. Those rows defaulted to
+ * source_system=manual even though no user created them. A real client must
+ * now be supported by at least one of:
+ *   - a non-JobDiva placement created or imported directly in CoreFlux;
+ *   - an accounting customer mapping;
+ *   - an explicit client create/update/import audit event; or
+ *   - a named integration source (exact JobDiva assignment clients are
+ *     stamped source_system=jobdiva by the projector before this runs).
+ *
+ * Rows are only inactivated. Source companies, mappings, placements, and
+ * accounting history remain available for audit and recovery.
+ */
+function staffingClientRetireUnsupportedLegacyRows(int $tenantId): int
+{
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+
+    $unsupported = "sc.tenant_id = :tenant_id
+        AND sc.status = 'active'
+        AND COALESCE(sc.source_system, 'manual') = 'manual'
+        AND customer_map.id IS NULL
+        AND manual_audit.id IS NULL
+        AND NOT EXISTS (
+            SELECT 1
+              FROM placements direct_placement
+             WHERE direct_placement.tenant_id = sc.tenant_id
+               AND direct_placement.end_client_company_id = sc.company_id
+               AND direct_placement.deleted_at IS NULL
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM external_entity_mappings placement_map
+                    WHERE placement_map.tenant_id = direct_placement.tenant_id
+                      AND placement_map.source_system = 'jobdiva'
+                      AND placement_map.internal_entity_type = 'placement'
+                      AND placement_map.internal_entity_id = direct_placement.id
+               )
+        )";
+
+    $stmt = $pdo->prepare(
+        "UPDATE staffing_clients sc
+      LEFT JOIN external_entity_mappings customer_map
+             ON customer_map.tenant_id = sc.tenant_id
+            AND customer_map.internal_entity_type = 'customer'
+            AND customer_map.internal_entity_id = sc.id
+            AND customer_map.source_system IN ('qbo', 'quickbooks_online', 'zoho', 'zoho_books')
+      LEFT JOIN audit_log manual_audit
+             ON manual_audit.tenant_id = sc.tenant_id
+            AND manual_audit.target_id = sc.id
+            AND manual_audit.event IN ('staffing.client.created', 'staffing.client.updated', 'staffing.client.imported')
+            SET sc.status = 'inactive', sc.updated_at = NOW()
+          WHERE {$unsupported}"
+    );
+    $stmt->execute(['tenant_id' => $tenantId]);
+    $retired = $stmt->rowCount();
+
+    $roleStmt = $pdo->prepare(
+        "DELETE cr FROM company_roles cr
+           JOIN staffing_clients sc
+             ON sc.tenant_id = :tenant_id
+            AND sc.company_id = cr.company_id
+      LEFT JOIN external_entity_mappings customer_map
+             ON customer_map.tenant_id = sc.tenant_id
+            AND customer_map.internal_entity_type = 'customer'
+            AND customer_map.internal_entity_id = sc.id
+            AND customer_map.source_system IN ('qbo', 'quickbooks_online', 'zoho', 'zoho_books')
+      LEFT JOIN audit_log manual_audit
+             ON manual_audit.tenant_id = sc.tenant_id
+            AND manual_audit.target_id = sc.id
+            AND manual_audit.event IN ('staffing.client.created', 'staffing.client.updated', 'staffing.client.imported')
+          WHERE cr.role = 'client'
+            AND sc.status = 'inactive'
+            AND COALESCE(sc.source_system, 'manual') = 'manual'
+            AND customer_map.id IS NULL
+            AND manual_audit.id IS NULL
+            AND NOT EXISTS (
+                SELECT 1
+                  FROM placements direct_placement
+                 WHERE direct_placement.tenant_id = sc.tenant_id
+                   AND direct_placement.end_client_company_id = sc.company_id
+                   AND direct_placement.deleted_at IS NULL
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM external_entity_mappings placement_map
+                        WHERE placement_map.tenant_id = direct_placement.tenant_id
+                          AND placement_map.source_system = 'jobdiva'
+                          AND placement_map.internal_entity_type = 'placement'
+                          AND placement_map.internal_entity_id = direct_placement.id
+                   )
+            )"
+    );
+    $roleStmt->execute(['tenant_id' => $tenantId]);
+    return $retired;
+}
+
+/** Synthetic names are never valid client identities, even for history. */
+function staffingClientRetireJobDivaPlaceholders(int $tenantId): int
+{
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+    $stmt = $pdo->prepare(
+        "UPDATE staffing_clients
+            SET status = 'inactive', updated_at = NOW()
+          WHERE tenant_id = :tenant_id
+            AND status = 'active'
+            AND name REGEXP '^JobDiva Company [0-9]+$'"
+    );
+    $stmt->execute(['tenant_id' => $tenantId]);
+    $retired = $stmt->rowCount();
+
+    $pdo->prepare(
+        "DELETE cr FROM company_roles cr
+           JOIN staffing_clients sc
+             ON sc.tenant_id = :tenant_id
+            AND sc.company_id = cr.company_id
+          WHERE cr.role = 'client'
+            AND sc.status = 'inactive'
+            AND sc.name REGEXP '^JobDiva Company [0-9]+$'"
+    )->execute(['tenant_id' => $tenantId]);
+    return $retired;
+}
+
+/**
  * QuickBooks Customer includes both top-level customers and sub-customers or
  * jobs. Keep sub-customer mappings for accounting history, but do not present
  * them as separate active end clients unless a placement independently uses
@@ -214,6 +339,44 @@ function staffingClientCatalogIntegritySummary(int $tenantId): array
             WHERE p.tenant_id = :t AND p.deleted_at IS NULL AND p.end_client_company_id IS NOT NULL
               AND (sc.id IS NULL OR sc.company_id IS NULL OR sc.company_id <> p.end_client_company_id)',
         'active_jobdiva_placeholders' => "SELECT COUNT(*) FROM staffing_clients WHERE tenant_id = :t AND status = 'active' AND name REGEXP '^JobDiva Company [0-9]+$'",
+        'active_unproven_clients' => "SELECT COUNT(*)
+             FROM staffing_clients sc
+        LEFT JOIN external_entity_mappings customer_map
+               ON customer_map.tenant_id = sc.tenant_id
+              AND customer_map.internal_entity_type = 'customer'
+              AND customer_map.internal_entity_id = sc.id
+              AND customer_map.source_system IN ('qbo', 'quickbooks_online', 'zoho', 'zoho_books')
+        LEFT JOIN audit_log manual_audit
+               ON manual_audit.tenant_id = sc.tenant_id
+              AND manual_audit.target_id = sc.id
+              AND manual_audit.event IN ('staffing.client.created', 'staffing.client.updated', 'staffing.client.imported')
+            WHERE sc.tenant_id = :t
+              AND sc.status = 'active'
+              AND COALESCE(sc.source_system, 'manual') = 'manual'
+              AND customer_map.id IS NULL
+              AND manual_audit.id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                    FROM placements direct_placement
+                   WHERE direct_placement.tenant_id = sc.tenant_id
+                     AND direct_placement.end_client_company_id = sc.company_id
+                     AND direct_placement.deleted_at IS NULL
+                     AND NOT EXISTS (
+                         SELECT 1
+                           FROM external_entity_mappings placement_map
+                          WHERE placement_map.tenant_id = direct_placement.tenant_id
+                            AND placement_map.source_system = 'jobdiva'
+                            AND placement_map.internal_entity_type = 'placement'
+                            AND placement_map.internal_entity_id = direct_placement.id
+                     )
+              )",
+        'active_placements_with_inactive_client' => "SELECT COUNT(*)
+             FROM placements p
+             JOIN staffing_clients sc ON sc.tenant_id = p.tenant_id AND sc.id = p.client_id
+            WHERE p.tenant_id = :t
+              AND p.status = 'active'
+              AND p.deleted_at IS NULL
+              AND sc.status <> 'active'",
     ];
     $summary = [];
     foreach ($queries as $key => $sql) {
@@ -341,6 +504,9 @@ function staffingClientEnsureForCompany(int $tenantId, ?int $companyId, string $
         'payment_terms_days'     => array_key_exists('payment_terms_days', $extra)
             ? (int) $extra['payment_terms_days']
             : ($existing ? null : 30),
+        'source_system'          => array_key_exists('source_system', $extra)
+            ? (string) $extra['source_system']
+            : null,
         'status'                 => array_key_exists('status', $extra)
             ? $extra['status']
             : ($existing ? null : 'active'),

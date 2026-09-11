@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../lib/clients.php';
+require_once __DIR__ . '/../lib/client_audit.php';
 
 use Core\CsvImportService;
 
@@ -166,7 +167,7 @@ if ($method === 'POST' && $action === 'commit') {
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
 
-    $result = CsvImportService::commit('staffing_clients', $csv, function (array $row) use ($updateExisting, $tid) {
+    $result = CsvImportService::commit('staffing_clients', $csv, function (array $row) use ($updateExisting, $tid, $user) {
         $externalId   = isset($row['external_id'])   && $row['external_id']   !== '' ? (string) $row['external_id']   : null;
         $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
 
@@ -222,6 +223,11 @@ if ($method === 'POST' && $action === 'commit') {
         );
         $clientId = (int) $clientRef['client_id'];
         staffingClientCatalogUpdate($tid, $clientId, $payload + ['company_id' => $clientRef['company_id']]);
+        staffingClientAudit($tid, isset($user['id']) ? (int) $user['id'] : null, 'staffing.client.imported', $clientId, [
+            'source' => 'staffing_clients_csv',
+            'operation' => $existing ? 'updated' : 'created',
+            'fields' => array_keys(array_filter($payload, static fn($value) => $value !== null && $value !== '')),
+        ]);
         return $clientId;
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
 
