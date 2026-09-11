@@ -85,7 +85,9 @@ $a('selected C2C profiles force old approved snapshots through a correction',
     && str_contains($jobdivaSync, "array_key_exists('c2c_overhead_rate', \$currentEconomicsSnapshot)"));
 $a('C2C inheritance remains distinct from an explicit zero waiver',
     str_contains($jobdivaSync, '$sameNullablePercent')
-    && str_contains($jobdivaSync, "'c2c_overhead_pct' => \$c2cOverheadPct"));
+    && str_contains($jobdivaSync, "'c2c_overhead_pct' => \$c2cOverheadPct")
+    && str_contains($jobdivaSync, "array_key_exists('c2c', \$sourceContract['overheads'])")
+    && str_contains($jobdivaSync, '$sourceC2cOverheadEnabled ? null : 0.0'));
 $a('approval refuses unsafe JobDiva auto-drafts where bill equals pay',
     str_contains($rateApprove, 'function placementsRateIsUnsafeJobDivaAutoDraft')
     && str_contains($rateApprove, 'abs((float) ($rate[\'bill_rate\'] ?? 0) - (float) ($rate[\'pay_rate\'] ?? 0))')

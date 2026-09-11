@@ -1292,6 +1292,38 @@ function placementEconomicsModelForRate(
     }
     $isW2 = $engagementType === 'w2';
     $isC2C = $engagementType === 'c2c';
+    $sourceC2COverheadEnabled = null;
+    $sourceSnapshot = json_decode((string) ($rate['economics_snapshot_json'] ?? ''), true);
+    if (is_array($sourceSnapshot)) {
+        $sourceContract = $sourceSnapshot['assignment_contract']
+            ?? $sourceSnapshot['source_contract']
+            ?? [];
+        $sourceOverheads = $sourceSnapshot['source_overheads']
+            ?? (is_array($sourceContract) ? ($sourceContract['overheads'] ?? []) : []);
+        $rawSourceFlag = null;
+        $sourceFlagPresent = false;
+        if (is_array($sourceOverheads) && array_key_exists('c2c', $sourceOverheads)) {
+            $rawSourceFlag = $sourceOverheads['c2c'];
+            $sourceFlagPresent = true;
+        } elseif (is_array($sourceContract) && array_key_exists('c2c_flag', $sourceContract)) {
+            $rawSourceFlag = $sourceContract['c2c_flag'];
+            $sourceFlagPresent = true;
+        }
+        if ($sourceFlagPresent) {
+            if (is_bool($rawSourceFlag)) {
+                $sourceC2COverheadEnabled = $rawSourceFlag;
+            } elseif (is_numeric($rawSourceFlag)) {
+                $sourceC2COverheadEnabled = (float) $rawSourceFlag > 0;
+            } else {
+                $normalisedFlag = strtolower(trim((string) $rawSourceFlag));
+                if (in_array($normalisedFlag, ['yes','true','on','checked'], true)) {
+                    $sourceC2COverheadEnabled = true;
+                } elseif (in_array($normalisedFlag, ['no','false','off','unchecked'], true)) {
+                    $sourceC2COverheadEnabled = false;
+                }
+            }
+        }
+    }
     $hourlyLines = [];
     if ($payRate > 0) {
         $hourlyLines[] = [
@@ -1345,7 +1377,7 @@ function placementEconomicsModelForRate(
         ];
     }
     $resolvedC2COverhead = $isC2C
-        ? staffingEconomicsResolveC2COverhead($rate, $tenantDefaults)
+        ? staffingEconomicsResolveC2COverhead($rate, $tenantDefaults, $sourceC2COverheadEnabled)
         : staffingEconomicsResolveC2COverhead([], null);
     if ($resolvedC2COverhead['rate'] > 0 && $payRate > 0) {
         $hourlyLines[] = [
@@ -1355,6 +1387,7 @@ function placementEconomicsModelForRate(
             'basis' => 'pay_rate_pct',
             'amount' => round($payRate * $resolvedC2COverhead['rate'], 4),
             'settlement_channel' => 'none',
+            'source' => $resolvedC2COverhead['source'],
         ];
     }
     $otherHourly = max(0, (float) ($rate['other_cost_per_hour'] ?? 0));

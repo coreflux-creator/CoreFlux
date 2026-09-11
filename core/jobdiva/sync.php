@@ -7129,6 +7129,15 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
     $sourceContract = jobdivaContractProjectionContract($jd);
+    $sourceC2cOverheadEnabled = null;
+    if (array_key_exists('c2c_flag', $sourceContract)) {
+        $sourceC2cOverheadEnabled = jobdivaAssignmentContractBool($sourceContract['c2c_flag']);
+    } elseif (is_array($sourceContract['overheads'] ?? null)
+        && array_key_exists('c2c', $sourceContract['overheads'])) {
+        // Older stored assignment contracts expose the same source fact only
+        // inside the overheads object. Preserve an explicit false value.
+        $sourceC2cOverheadEnabled = jobdivaAssignmentContractBool($sourceContract['overheads']['c2c']);
+    }
 
     // -- Resolve every rate field via the registry, with JobDiva-native
     //    default-key candidate lists shaped to the V2 BI payload.
@@ -7372,11 +7381,11 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     }
     if ($c2cOverheadPct === null
         && ($sourceContract['engagement_type'] ?? '') === 'c2c'
-        && array_key_exists('c2c_flag', $sourceContract)) {
+        && $sourceC2cOverheadEnabled !== null) {
         // A selected JobDiva C2C overhead profile inherits the tenant's
         // numeric rule. An explicitly unselected profile is an intentional
         // zero so it cannot accidentally inherit a tenant load.
-        $c2cOverheadPct = !empty($sourceContract['c2c_flag']) ? null : 0.0;
+        $c2cOverheadPct = $sourceC2cOverheadEnabled ? null : 0.0;
     }
     $otherCostPerHour = jobdivaParseRateAmount($mappedRateValue('other_cost_per_hour', [
         'other cost per hour', 'additional cost per hour', 'other_cost_per_hour',
@@ -7512,7 +7521,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
 
     if ($rateId > 0 && !empty($currentRate['approved_at'])) {
         $currentEconomicsSnapshot = json_decode((string) ($currentRate['economics_snapshot_json'] ?? ''), true);
-        $needsC2cModelUpgrade = !empty($sourceContract['c2c_flag'])
+        $needsC2cModelUpgrade = $sourceC2cOverheadEnabled === true
             && (!is_array($currentEconomicsSnapshot)
                 || !array_key_exists('c2c_overhead_rate', $currentEconomicsSnapshot));
         $sameNullablePercent = static function (mixed $current, mixed $proposed): bool {
