@@ -52,7 +52,7 @@ function placementsSafeFields(string $alias = 'p'): string
              'billing_operating_cycle_id','ap_operating_cycle_id','payroll_operating_cycle_id',
              'client_bill_cycle','client_bill_cycle_anchor','vendor_pay_cycle','vendor_pay_cycle_anchor',
              'client_payment_terms_override','vendor_payment_terms_override','vendor_pwp_enabled',
-             'created_by_user_id','created_at','updated_at','deleted_at'];
+             'coreflux_overridden_fields','created_by_user_id','created_at','updated_at','deleted_at'];
     return implode(', ', array_map(fn($c) => "{$alias}.{$c}", $cols));
 }
 
@@ -137,10 +137,27 @@ function placementsList(array $filters = []): array
     $params = [];
     if (!empty($filters['q'])) {
         // Distinct placeholders required by PDO_MYSQL native prepares.
-        $where[]          = '(p.title LIKE :q OR p.end_client_name LIKE :q2 OR p.external_id = :qexact)';
-        $params['q']      = '%' . $filters['q'] . '%';
-        $params['q2']     = $params['q'];
-        $params['qexact'] = $filters['q'];
+        $where[] = '(CAST(p.id AS CHAR) LIKE :q_id
+                  OR p.title LIKE :q_title
+                  OR sj.title LIKE :q_job_title
+                  OR CAST(p.person_id AS CHAR) LIKE :q_person_id
+                  OR pe.first_name LIKE :q_first
+                  OR pe.last_name LIKE :q_last
+                  OR CONCAT_WS(\' \', pe.first_name, pe.last_name) LIKE :q_person
+                  OR pe.email_primary LIKE :q_email
+                  OR COALESCE(ec.name, p.end_client_name) LIKE :q_client
+                  OR p.external_id LIKE :q_external
+                  OR p.status LIKE :q_status
+                  OR p.engagement_type LIKE :q_type
+                  OR CAST(p.start_date AS CHAR) LIKE :q_start
+                  OR CAST(p.due_date AS CHAR) LIKE :q_due
+                  OR CAST(p.end_date AS CHAR) LIKE :q_end
+                  OR p.worksite_state LIKE :q_state
+                  OR p.worksite_country LIKE :q_country)';
+        $like = '%' . trim((string) $filters['q']) . '%';
+        foreach (['q_id','q_title','q_job_title','q_person_id','q_first','q_last','q_person','q_email','q_client','q_external','q_status','q_type','q_start','q_due','q_end','q_state','q_country'] as $key) {
+            $params[$key] = $like;
+        }
     }
     if (!empty($filters['status'])) {
         $where[] = 'p.status = :status';
@@ -153,6 +170,10 @@ function placementsList(array $filters = []): array
     if (!empty($filters['end_client'])) {
         $where[] = 'p.end_client_name = :end_client';
         $params['end_client'] = $filters['end_client'];
+    }
+    if (!empty($filters['end_client_company_id'])) {
+        $where[] = 'p.end_client_company_id = :end_client_company_id';
+        $params['end_client_company_id'] = (int) $filters['end_client_company_id'];
     }
     if (!empty($filters['engagement_type'])) {
         $where[] = 'p.engagement_type = :etype';
@@ -197,15 +218,15 @@ function placementsList(array $filters = []): array
         ? "{$sortExpr} {$sortDir}, pe.first_name {$sortDir}, p.id {$tieDir}"
         : "{$sortExpr} {$sortDir}, p.id {$tieDir}";
 
-    $total = (int) (scopedFind("SELECT COUNT(*) AS c FROM placements p WHERE {$whereSql}", $params)['c'] ?? 0);
+    $joins = ' LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
+               LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
+               LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id ';
+    $total = (int) (scopedFind("SELECT COUNT(*) AS c FROM placements p {$joins} WHERE {$whereSql}", $params)['c'] ?? 0);
     $rows  = scopedQuery(
         'SELECT ' . placementsSafeFields() . ', pe.first_name, pe.last_name, pe.email_primary,
                 COALESCE(ec.name, p.end_client_name) AS end_client_display_name,
                 sj.title AS staffing_job_title
-         FROM placements p
-         LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
-         LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
-         LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id
+         FROM placements p ' . $joins . '
          WHERE ' . $whereSql . '
          ORDER BY ' . $orderSql . '
          LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,

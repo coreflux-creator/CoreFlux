@@ -87,6 +87,8 @@ jobs:
             core/integrations/field_map_apply.php \
             core/integrations/payload_field_index.php \
             modules/placements/lib/economics.php \
+            modules/placements/lib/placements.php \
+            modules/placements/api/placements.php \
             modules/placements/lib/jobdiva_reconciliation.php \
             modules/placements/api/csv_export.php \
             modules/placements/api/csv_import.php \
@@ -94,6 +96,7 @@ jobs:
             modules/placements/api/rates.php \
             modules/placements/ui/PlacementCreate.jsx \
             modules/placements/ui/PlacementDetail.jsx \
+            modules/placements/ui/List.jsx \
             modules/placements/ui/JobDivaReconciliation.jsx \
             modules/staffing/api/clients.php \
             modules/staffing/api/csv_import.php \
@@ -106,6 +109,7 @@ jobs:
             modules/billing/api/invoices.php \
             dashboard/dist \
             dashboard/src/App.jsx \
+            dashboard/src/components/BulkEditBar.jsx \
             dashboard/src/pages/JobDivaSettings.jsx \
             dashboard/src/pages/SettingsPage.jsx \
             dashboard/src/pages/StaffingEconomicsSettings.jsx \
@@ -119,6 +123,8 @@ jobs:
             tests/tenant_staffing_economics_defaults_smoke.php \
             tests/staffing_client_catalog_sync_smoke.php \
             tests/staffing_client_catalog_integrity_smoke.php \
+            tests/directory_bulk_controls_smoke.php \
+            tests/placements_bulk_approve_drafts_queue_smoke.php \
             tests/jobdiva_contract_projection_smoke.php \
             tests/qbo_slice3_smoke.php \
             tests/rbac_b2_smoke.php \
@@ -173,7 +179,9 @@ jobs:
             test -f "$STAGE_ROOT/core/migrations/140_staffing_client_catalog_integrity.sql"
             test -f "$STAGE_ROOT/api/staffing_economics_settings.php"
             test -f "$STAGE_ROOT/modules/placements/lib/economics.php"
+            test -f "$STAGE_ROOT/modules/placements/api/placements.php"
             test -f "$STAGE_ROOT/modules/staffing/api/clients.php"
+            test -f "$STAGE_ROOT/dashboard/src/components/BulkEditBar.jsx"
             test -f "$STAGE_ROOT/modules/staffing/lib/client_audit.php"
             test -f "$STAGE_ROOT/modules/staffing/lib/jobs.php"
             test -f "$STAGE_ROOT/scripts/repair_staffing_client_catalog.php"
@@ -203,6 +211,10 @@ jobs:
             grep -Fq 'staffingClientCatalogTenantId' core/qbo/sync_in.php
             grep -Fq 'EmployeeAssignmentRecordsDetail.BILLING.COMPANY' core/jobdiva/projector.php
             grep -Fq 'Placement billing company' modules/staffing/api/clients.php
+            grep -Fq "action === 'bulk_update'" modules/placements/api/placements.php
+            grep -Fq "action === 'bulk_update'" modules/staffing/api/clients.php
+            grep -Fq 'Apply to selected' "$SPA_ENTRY"
+            grep -Fq 'Search any placement field' "$SPA_ENTRY"
             grep -Fq "$(basename "$SPA_ENTRY")" index.html
 
             OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
@@ -228,6 +240,8 @@ jobs:
             php -l core/integrations/field_map.php
             php -l core/integrations/field_map_apply.php
             php -l modules/placements/lib/economics.php
+            php -l modules/placements/lib/placements.php
+            php -l modules/placements/api/placements.php
             php -l modules/placements/api/csv_export.php
             php -l modules/placements/api/csv_import.php
             php -l modules/placements/api/rates.php
@@ -267,6 +281,8 @@ jobs:
             php scripts/repair_staffing_client_catalog.php 2
             php tests/staffing_client_catalog_sync_smoke.php
             php tests/staffing_client_catalog_integrity_smoke.php
+            php tests/directory_bulk_controls_smoke.php
+            php tests/placements_bulk_approve_drafts_queue_smoke.php
             php tests/jobdiva_contract_projection_smoke.php
             php tests/qbo_slice3_smoke.php
             php tests/rbac_b2_smoke.php

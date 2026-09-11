@@ -6,6 +6,7 @@
  *   GET    get    ?id=N
  *   POST   create body: { name, legal_name, industry, primary_contact_*, billing_*, status, payment_terms_days, notes }
  *   POST   update body: { id, ...fields }
+ *   POST   bulk_update body: { ids[], field, value }
  *   POST   delete body: { id } → status=closed (soft delete)
  *
  *   GET    stats  ?id=N → { active_placements, mtd_revenue, ar_outstanding }
@@ -29,15 +30,65 @@ $action = $_GET['action'] ?? 'list';
 
 if ($method === 'GET' && $action === 'list') {
     api_require_legacy_permission($ctx, 'placements.view');
-    $where  = ['tenant_id = :tenant_id'];
+    $where  = ['c.tenant_id = :tenant_id'];
     $params = [];
-    if (!empty($_GET['status'])) { $where[] = 'status = :s'; $params['s'] = $_GET['status']; }
+    if (!empty($_GET['status'])) { $where[] = 'c.status = :s'; $params['s'] = $_GET['status']; }
     if (!empty($_GET['q']))      {
         // Distinct placeholders required by PDO_MYSQL native prepares.
-        $where[]      = '(name LIKE :q OR legal_name LIKE :q2 OR primary_contact_email LIKE :q3)';
-        $params['q']  = '%' . $_GET['q'] . '%';
-        $params['q2'] = $params['q'];
-        $params['q3'] = $params['q'];
+        $where[] = '(c.name LIKE :q_name
+                  OR c.legal_name LIKE :q_legal
+                  OR c.industry LIKE :q_industry
+                  OR c.primary_contact_name LIKE :q_contact
+                  OR c.primary_contact_email LIKE :q_email
+                  OR c.primary_contact_phone LIKE :q_phone
+                  OR c.billing_city LIKE :q_city
+                  OR c.billing_state LIKE :q_state
+                  OR c.billing_country LIKE :q_country
+                  OR c.external_id LIKE :q_external
+                  OR c.source_system LIKE :q_source
+                  OR c.status LIKE :q_status
+                  OR c.msa_status LIKE :q_msa
+                  OR CAST(c.payment_terms_days AS CHAR) LIKE :q_terms)';
+        $like = '%' . trim((string) $_GET['q']) . '%';
+        foreach (['q_name','q_legal','q_industry','q_contact','q_email','q_phone','q_city','q_state','q_country','q_external','q_source','q_status','q_msa','q_terms'] as $key) {
+            $params[$key] = $like;
+        }
+    }
+    $source = strtolower(trim((string) ($_GET['source'] ?? '')));
+    if ($source === 'placement') {
+        $where[] = 'EXISTS (
+            SELECT 1 FROM placements sp
+             WHERE sp.tenant_id = :source_placement_tid
+               AND sp.end_client_company_id = c.company_id
+               AND sp.status = \'active\'
+               AND sp.deleted_at IS NULL
+        )';
+        $params['source_placement_tid'] = $placementsTenantId;
+    } elseif ($source === 'accounting') {
+        $where[] = 'EXISTS (
+            SELECT 1 FROM external_entity_mappings sem
+             WHERE sem.tenant_id = c.tenant_id
+               AND sem.internal_entity_type = \'customer\'
+               AND sem.internal_entity_id = c.id
+        )';
+    } elseif ($source === 'jobdiva') {
+        $where[] = 'LOWER(c.source_system) = \'jobdiva\'';
+    } elseif ($source === 'manual') {
+        $where[] = 'COALESCE(NULLIF(LOWER(c.source_system), \'\'), \'manual\') = \'manual\'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM placements smp
+                         WHERE smp.tenant_id = :source_manual_tid
+                           AND smp.end_client_company_id = c.company_id
+                           AND smp.status = \'active\'
+                           AND smp.deleted_at IS NULL
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM external_entity_mappings sme
+                         WHERE sme.tenant_id = c.tenant_id
+                           AND sme.internal_entity_type = \'customer\'
+                           AND sme.internal_entity_id = c.id
+                    )';
+        $params['source_manual_tid'] = $placementsTenantId;
     }
     $limit = max(1, min(500, (int) ($_GET['limit'] ?? 100)));
     $sortMap = [
@@ -46,6 +97,7 @@ if ($method === 'GET' && $action === 'list') {
         'active_placements'     => 'active_placements',
         'primary_contact_email' => 'c.primary_contact_email',
         'payment_terms_days'    => 'c.payment_terms_days',
+        'msa_status'            => 'c.msa_status',
         'source'                => 'source_label',
         'status'                => 'c.status',
         'created_at'            => 'c.created_at',
@@ -54,7 +106,7 @@ if ($method === 'GET' && $action === 'list') {
     $sortExpr = $sortMap[$sortKey] ?? $sortMap['name'];
     $sortDir = strtolower((string) ($_GET['dir'] ?? 'asc')) === 'desc' ? 'DESC' : 'ASC';
     $sql = "SELECT c.id, c.company_id, c.name, c.legal_name, c.industry, c.status, c.payment_terms_days,
-                   c.primary_contact_name, c.primary_contact_email,
+                   c.primary_contact_name, c.primary_contact_email, c.primary_contact_phone,
                    c.billing_city, c.billing_state, c.billing_country,
                    c.msa_status, c.created_at, c.source_system, c.external_id,
                    CASE
@@ -86,6 +138,101 @@ if ($method === 'GET' && $action === 'list') {
         $sql,
         array_merge($params, ['placements_tid' => $placementsTenantId])
     )]);
+}
+
+if ($method === 'POST' && $action === 'bulk_update') {
+    api_require_legacy_permission($ctx, 'placements.manage');
+    $b = api_json_body();
+    $ids = is_array($b['ids'] ?? null) ? array_values(array_unique(array_map('intval', $b['ids']))) : [];
+    $ids = array_values(array_filter($ids, static fn($id) => $id > 0));
+    $field = (string) ($b['field'] ?? '');
+    $value = $b['value'] ?? null;
+    $allowed = ['status','payment_terms_days','industry','msa_status'];
+    if (!$ids) api_error('ids[] required', 422);
+    if (count($ids) > 500) api_error('Too many ids (max 500 per call)', 422);
+    if (!in_array($field, $allowed, true)) api_error('Invalid bulk field', 422, ['allowed' => $allowed]);
+
+    if ($field === 'status') {
+        $value = strtolower(trim((string) $value));
+        $statuses = ['active','prospect','on_hold','inactive','closed'];
+        if (!in_array($value, $statuses, true)) api_error('Invalid status', 422, ['allowed' => $statuses]);
+    } elseif ($field === 'msa_status') {
+        $value = strtolower(trim((string) $value));
+        $msaStatuses = ['none','draft','executed','expired'];
+        if (!in_array($value, $msaStatuses, true)) api_error('Invalid msa_status', 422, ['allowed' => $msaStatuses]);
+    } elseif ($field === 'payment_terms_days') {
+        if (!is_numeric($value)) api_error('payment_terms_days must be numeric', 422);
+        $value = (int) $value;
+        if ($value < 0 || $value > 365) api_error('payment_terms_days must be between 0 and 365', 422);
+    } else {
+        $value = trim((string) $value);
+        if ($value === '') api_error('industry cannot be blank', 422);
+        if (strlen($value) > 120) api_error('industry is too long', 422);
+    }
+
+    $updated = 0; $skipped = 0; $failed = 0; $results = [];
+    foreach ($ids as $id) {
+        try {
+            $existing = staffingClientCatalogFind(
+                $tenantId,
+                'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id',
+                ['id' => $id]
+            );
+            if (!$existing) {
+                $skipped++;
+                $results[] = ['id' => $id, 'ok' => false, 'reason' => 'not_found'];
+                continue;
+            }
+            if ($field === 'status' && in_array($value, ['inactive','closed'], true) && !empty($existing['company_id'])) {
+                $active = staffingClientCatalogFind(
+                    $tenantId,
+                    'SELECT COUNT(*) AS c FROM placements
+                      WHERE tenant_id = :tenant_id
+                        AND end_client_company_id = :company_id
+                        AND status = \'active\'
+                        AND deleted_at IS NULL',
+                    ['company_id' => (int) $existing['company_id']]
+                );
+                if ((int) ($active['c'] ?? 0) > 0) {
+                    throw new \RuntimeException('Client has active placements');
+                }
+            }
+            if ((string) ($existing[$field] ?? '') === (string) $value) {
+                $skipped++;
+                $results[] = ['id' => $id, 'ok' => true, 'reason' => 'no_change'];
+                continue;
+            }
+            $before = staffingClientAuditSnapshot($existing);
+            staffingClientCatalogUpdate($tenantId, $id, [$field => $value]);
+            if (!empty($existing['company_id']) && in_array($field, ['industry','payment_terms_days'], true)) {
+                staffingClientApplyCompanyPatch($tenantId, (int) $existing['company_id'], [$field => $value]);
+            }
+            $after = staffingClientCatalogFind(
+                $tenantId,
+                'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id',
+                ['id' => $id]
+            );
+            staffingClientAudit($tenantId, $actorUserId, 'staffing.client.updated', $id, [
+                'source' => 'bulk_update',
+                'changed_fields' => [$field],
+                'before' => $before,
+                'after' => staffingClientAuditSnapshot($after ?: []),
+            ]);
+            $updated++;
+            $results[] = ['id' => $id, 'ok' => true];
+        } catch (\Throwable $e) {
+            $failed++;
+            $results[] = ['id' => $id, 'ok' => false, 'reason' => $e->getMessage()];
+        }
+    }
+    api_ok([
+        'ok' => $failed === 0,
+        'updated' => $updated,
+        'skipped' => $skipped,
+        'failed' => $failed,
+        'field' => $field,
+        'results' => $results,
+    ]);
 }
 
 if ($method === 'GET' && $action === 'get') {
