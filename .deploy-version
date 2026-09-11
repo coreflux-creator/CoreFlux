@@ -3,6 +3,7 @@ This file is rewritten on every Emergent commit. update.php compares its
 contents against the latest entry in coreflux_migrations + the existence
 of recent files to prove the server is on HEAD (not 10 commits behind).
 sentinels:
+- core/migrations/139_c2c_source_no_waiver.sql
 - core/migrations/138_placement_one_time_items.sql
 - modules/billing/migrations/012_economic_item_source.sql
 - modules/ap/migrations/019_economic_item_source.sql
@@ -300,7 +301,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-ujD9_b91.js
+- spa-assets/index-BwcxI8PH.js
 - spa-assets/index-BC5g6YJu.css
 last_known_features:
 - placements.economics.one_time_items
@@ -980,3 +981,5 @@ e.php
 - api/plaid_bank_link.php
 - tests/plaid_bank_link_hy093_smoke.php
 - bugfix.plaid_bank_link_duplicate_named_placeholder_hy093
+- jobdiva.c2c_no_waives_tenant_overhead
+- placements.c2c_overhead_visible_override

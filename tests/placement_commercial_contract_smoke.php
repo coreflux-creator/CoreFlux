@@ -109,7 +109,8 @@ $assert('contract editor exposes revenue adjustments and classification cost loa
     && str_contains($ui, 'Client discount %')
     && str_contains($ui, 'Workers compensation %')
     && str_contains($ui, 'Benefits load %')
-    && str_contains($ui, 'C2C overhead / load %')
+    && str_contains($ui, 'Applied C2C overhead %')
+    && str_contains($ui, 'JobDiva says No, so this placement uses 0%')
     && str_contains($ui, 'Other recurring cost / hour'));
 $assert('W-2 overhead without a numeric rate blocks settlement-ready margin',
     str_contains($economics, 'function placementEconomicsMissingW2OverheadCost')
@@ -164,6 +165,25 @@ $assert('C2C economics includes its load without applying W-2 burden',
     abs((float) ($model['c2c_overhead_rate'] ?? 0) - 0.04) < 0.000001
     && count(array_filter($model['hourly_lines'], static fn(array $line): bool => ($line['role'] ?? '') === 'c2c_overhead')) === 1
     && count(array_filter($model['hourly_lines'], static fn(array $line): bool => in_array(($line['role'] ?? ''), ['employer_load','workers_comp','benefits_load'], true))) === 0);
+$sourceWaivedModel = placementEconomicsModelForRate(1, 1, [
+    'id' => 100,
+    'bill_rate' => 100,
+    'pay_rate' => 60,
+    'c2c_overhead_pct' => null,
+    'currency' => 'USD',
+    'economics_snapshot_json' => json_encode([
+        'source_system' => 'jobdiva',
+        'source_overheads' => ['c2c' => false],
+    ]),
+], [[
+    'id' => 2, 'display_name' => 'Contractor LLC', 'role' => 'c2c_vendor',
+    'money_flow' => 'payable', 'settlement_channel' => 'ap', 'fee_basis' => 'pay_rate',
+]], ['c2c_overhead_pct' => 0.07], 'c2c');
+$assert('JobDiva C2C No suppresses a tenant default in the canonical margin model',
+    abs((float) ($sourceWaivedModel['c2c_overhead_rate'] ?? -1)) < 0.000001
+    && ($sourceWaivedModel['c2c_overhead_source'] ?? '') === 'source_waiver'
+    && count(array_filter($sourceWaivedModel['hourly_lines'], static fn(array $line): bool => ($line['role'] ?? '') === 'c2c_overhead')) === 0
+    && abs((float) ($sourceWaivedModel['modeled_hourly_margin'] ?? 0) - 40.0) < 0.0001);
 $assert('W-2 source flag alone does not qualify as an employer cost',
     placementEconomicsMissingW2OverheadCost(
         ['engagement_type' => 'w2'],

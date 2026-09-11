@@ -120,7 +120,11 @@ function staffingEconomicsResolveW2Costs(array $rate, ?array $tenantDefaults): a
  *
  * @return array{rate:float,source:string}
  */
-function staffingEconomicsResolveC2COverhead(array $rate, ?array $tenantDefaults): array
+function staffingEconomicsResolveC2COverhead(
+    array $rate,
+    ?array $tenantDefaults,
+    ?bool $sourceEnabled = null
+): array
 {
     $hasOverride = array_key_exists('c2c_overhead_pct', $rate)
         && $rate['c2c_overhead_pct'] !== null
@@ -130,6 +134,12 @@ function staffingEconomicsResolveC2COverhead(array $rate, ?array $tenantDefaults
             'rate' => max(0.0, (float) $rate['c2c_overhead_pct']),
             'source' => 'placement_override',
         ];
+    }
+    // An explicit source-system "No" is a business rule, not missing data.
+    // It must waive the tenant default unless an operator enters a placement
+    // override above.
+    if ($sourceEnabled === false) {
+        return ['rate' => 0.0, 'source' => 'source_waiver'];
     }
     if ($tenantDefaults !== null) {
         return [

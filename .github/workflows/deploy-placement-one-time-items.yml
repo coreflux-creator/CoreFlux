@@ -52,7 +52,10 @@ jobs:
           done
           tar -czf coreflux-placement-items-release.tar.gz \
             .deploy-version \
+            core/migrations/139_c2c_source_no_waiver.sql \
             core/migrations/138_placement_one_time_items.sql \
+            core/staffing_economics.php \
+            core/jobdiva/sync.php \
             dashboard/dist \
             index.html \
             modules/ap/api/bills.php \
@@ -70,7 +73,9 @@ jobs:
             spa-assets/sw.js \
             scripts/opcache_flush_deploy.php.template \
             tests/placement_commercial_contract_smoke.php \
+            tests/placement_rate_source_repair_smoke.php \
             tests/placement_one_time_items_smoke.php \
+            tests/tenant_staffing_economics_defaults_smoke.php \
             tests/staffing_economic_graph_smoke.php \
             tests/jobdiva_contract_projection_smoke.php
 
@@ -108,6 +113,7 @@ jobs:
             tar -xzf "$STAGE_ROOT/coreflux-placement-items-release.tar.gz" -C "$STAGE_ROOT"
             rm -f -- "$STAGE_ROOT/coreflux-placement-items-release.tar.gz"
             test -f "$STAGE_ROOT/core/migrations/138_placement_one_time_items.sql"
+            test -f "$STAGE_ROOT/core/migrations/139_c2c_source_no_waiver.sql"
             test -f "$STAGE_ROOT/modules/ap/migrations/019_economic_item_source.sql"
             test -f "$STAGE_ROOT/modules/billing/migrations/012_economic_item_source.sql"
 
@@ -125,14 +131,18 @@ jobs:
             grep -Fq 'One-time items' "$SPA_ENTRY"
             grep -Fq 'Margin-only cost' "$SPA_ENTRY"
             grep -Fq 'Payroll earning' "$SPA_ENTRY"
+            grep -Fq 'JobDiva says No, so this placement uses 0%' "$SPA_ENTRY"
 
             php deploy/run_migrations.php
             php deploy/run_migrations.php --status | grep -F 'core/migrations/138_placement_one_time_items.sql'
+            php deploy/run_migrations.php --status | grep -F 'core/migrations/139_c2c_source_no_waiver.sql'
             php deploy/run_migrations.php --status | grep -F 'modules/ap/migrations/019_economic_item_source.sql'
             php deploy/run_migrations.php --status | grep -F 'modules/billing/migrations/012_economic_item_source.sql'
             php -r 'require "core/api_bootstrap.php"; $db=getDB(); foreach (["placement_economic_items", "placement_economic_obligations"] as $table) { $q=$db->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:name"); $q->execute(["name"=>$table]); if ((int)$q->fetchColumn() !== 1) { fwrite(STDERR, "$table missing\n"); exit(1); } } foreach ([["placement_economic_obligations","source_type"],["billing_invoice_lines","source_type"],["ap_bill_lines","source_type"]] as [$table,$column]) { $q=$db->prepare("SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=:table AND column_name=:column"); $q->execute(["table"=>$table,"column"=>$column]); if (!str_contains((string)$q->fetchColumn(), "economic_item")) { fwrite(STDERR, "$table.$column missing economic_item\n"); exit(1); } } echo "Placement one-time item schema verified.\n";'
 
             php -l modules/placements/lib/economics.php
+            php -l core/staffing_economics.php
+            php -l core/jobdiva/sync.php
             php -l modules/placements/api/economics.php
             php -l modules/billing/lib/billing.php
             php -l modules/billing/api/invoices.php
@@ -141,6 +151,8 @@ jobs:
             php -l modules/time/lib/settlement_create.php
             php tests/placement_one_time_items_smoke.php
             php tests/placement_commercial_contract_smoke.php
+            php tests/placement_rate_source_repair_smoke.php
+            php tests/tenant_staffing_economics_defaults_smoke.php
             php tests/staffing_economic_graph_smoke.php
             php tests/jobdiva_contract_projection_smoke.php
 

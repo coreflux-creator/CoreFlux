@@ -452,6 +452,17 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
   const contractModel = data?.contract_model || model;
   const sourceContract = data?.source_contract || model.source_contract || {};
   const sourceOverheads = data?.source_overheads || model.source_overheads || {};
+  const sourceFlag = (value) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value > 0;
+    const normalised = String(value ?? '').trim().toLowerCase();
+    if (['yes', 'true', '1', 'on', 'checked'].includes(normalised)) return true;
+    if (['no', 'false', '0', 'off', 'unchecked'].includes(normalised)) return false;
+    return null;
+  };
+  const sourceC2COverhead = Object.prototype.hasOwnProperty.call(sourceOverheads, 'c2c')
+    ? sourceFlag(sourceOverheads.c2c)
+    : null;
   const tenantEconomicsDefaults = data?.tenant_economics_defaults || data?.tenant_w2_defaults || {};
   const tenantW2DefaultTotal = Number(tenantEconomicsDefaults.payroll_load_pct || 0)
     + Number(tenantEconomicsDefaults.workers_comp_pct || 0)
@@ -650,7 +661,7 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
       {message && <div className={message.includes('failed') ? 'alert alert--err' : 'alert alert--ok'} style={{ marginTop: 12 }}>{message}</div>}
 
       <section style={{ marginTop: 24 }}>
-        <RatesTab pid={placement.id} rates={rates} startDate={placement.start_date} reload={refreshAll} embedded employerCostsRequired={readiness.missing_w2_overhead_cost} c2cCostsRequired={readiness.missing_c2c_overhead_cost} tenantEconomicsDefaults={tenantEconomicsDefaults} isW2={placement.engagement_type === 'w2'} isC2C={placement.engagement_type === 'c2c'} />
+        <RatesTab pid={placement.id} rates={rates} startDate={placement.start_date} reload={refreshAll} embedded employerCostsRequired={readiness.missing_w2_overhead_cost} c2cCostsRequired={readiness.missing_c2c_overhead_cost} tenantEconomicsDefaults={tenantEconomicsDefaults} isW2={placement.engagement_type === 'w2'} isC2C={placement.engagement_type === 'c2c'} sourceC2COverhead={sourceC2COverhead} />
       </section>
 
       <section style={{ marginTop: 24 }} data-testid="economics-one-time-items">
@@ -1034,10 +1045,16 @@ function Field({ label, children }) {
 }
 
 // ── Rates ────────────────────────────────────────────────
-function rateDraftForm(rate, startDate) {
+function rateDraftForm(rate, startDate, sourceC2COverhead = null) {
   const percentInput = (value) => value === null || value === undefined || value === ''
     ? ''
     : Number(value) * 100;
+  const sourceAdjustedC2C = (rate?.c2c_overhead_pct === null
+      || rate?.c2c_overhead_pct === undefined
+      || rate?.c2c_overhead_pct === '')
+    && sourceC2COverhead === false
+      ? 0
+      : rate?.c2c_overhead_pct;
   return {
     replace_draft_id: rate && !rate.approved_at ? rate.id : null,
     effective_from: rate?.effective_from || startDate || new Date().toISOString().slice(0,10),
@@ -1052,28 +1069,32 @@ function rateDraftForm(rate, startDate) {
     adder_pct: percentInput(rate?.adder_pct),
     workers_comp_pct: percentInput(rate?.workers_comp_pct),
     benefits_load_pct: percentInput(rate?.benefits_load_pct),
-    c2c_overhead_pct: percentInput(rate?.c2c_overhead_pct),
+    c2c_overhead_pct: percentInput(sourceAdjustedC2C),
     other_cost_per_hour: rate?.other_cost_per_hour ?? '',
     background_fee_total: rate?.background_fee_total ?? '',
     other_cost_flat: rate?.other_cost_flat ?? '',
   };
 }
 
-function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCostsRequired = false, c2cCostsRequired = false, tenantEconomicsDefaults = {}, isW2 = false, isC2C = false }) {
+function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCostsRequired = false, c2cCostsRequired = false, tenantEconomicsDefaults = {}, isW2 = false, isC2C = false, sourceC2COverhead = null }) {
   const sourceDraft = rates.find((rate) => !rate.approved_at) || null;
   const latestRate = sourceDraft || rates[0] || null;
-  const [form, setForm] = useState(() => rateDraftForm(latestRate, startDate));
+  const [form, setForm] = useState(() => rateDraftForm(latestRate, startDate, sourceC2COverhead));
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setForm(rateDraftForm(latestRate, startDate));
-  }, [latestRate, startDate]);
+    setForm(rateDraftForm(latestRate, startDate, sourceC2COverhead));
+  }, [latestRate, startDate, sourceC2COverhead]);
 
   const inheritedPct = (field) => Number(tenantEconomicsDefaults[field] || 0);
   const effectivePct = (value, defaultField, applies) => value === null || value === undefined || value === ''
     ? (applies ? inheritedPct(defaultField) : 0)
     : Number(value);
+  const effectiveC2CPct = (value) => (value === null || value === undefined || value === '')
+    && sourceC2COverhead === false
+      ? 0
+      : effectivePct(value, 'c2c_overhead_pct', true);
   const defaultLabel = (field) => `Tenant default ${(inheritedPct(field) * 100).toFixed(2)}%`;
   const tenantDefaultTotal = inheritedPct('payroll_load_pct') + inheritedPct('workers_comp_pct') + inheritedPct('benefits_load_pct');
 
@@ -1087,7 +1108,7 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
         + effectivePct(rate.workers_comp_pct, 'workers_comp_pct', true)
         + effectivePct(rate.benefits_load_pct, 'benefits_load_pct', true)
       : isC2C
-        ? effectivePct(rate.c2c_overhead_pct, 'c2c_overhead_pct', true)
+        ? effectiveC2CPct(rate.c2c_overhead_pct)
         : 0;
     const laborAndLoad = pay * (1 + classificationLoad)
       + Number(rate.other_cost_per_hour || 0);
@@ -1210,6 +1231,19 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
           <Field label="Overtime multiplier"><input className="input" type="number" min="0" step="0.01" value={form.ot_multiplier} onChange={e => setForm({ ...form, ot_multiplier: e.target.value })} /></Field>
           <Field label="Double-time multiplier"><input className="input" type="number" min="0" step="0.01" value={form.dt_multiplier} onChange={e => setForm({ ...form, dt_multiplier: e.target.value })} /></Field>
         </div>
+        {isC2C && <div data-testid="rates-c2c-overhead-control" style={{ borderTop: '1px solid var(--cf-border)', borderBottom: '1px solid var(--cf-border)', padding: '12px 0 2px', marginTop: 2, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))', gap: 16, alignItems: 'start' }}>
+          <div>
+            <strong>Placement C2C overhead</strong>
+            <div style={{ color: 'var(--cf-text-secondary)', fontSize: 13, marginTop: 4 }}>
+              {sourceC2COverhead === false
+                ? 'JobDiva says No, so this placement uses 0%. Enter a percentage to override JobDiva for this placement.'
+                : sourceC2COverhead === true
+                  ? `JobDiva says Yes. Blank uses the tenant default of ${(inheritedPct('c2c_overhead_pct') * 100).toFixed(2)}%. Enter 0 to waive it.`
+                  : `No source flag is available. Blank uses the tenant default of ${(inheritedPct('c2c_overhead_pct') * 100).toFixed(2)}%. Enter 0 to waive it.`}
+            </div>
+          </div>
+          <Field label="Applied C2C overhead %"><input className="input" type="number" min="0" step="0.01" value={form.c2c_overhead_pct} onChange={e => setForm({ ...form, c2c_overhead_pct: e.target.value })} placeholder={defaultLabel('c2c_overhead_pct')} data-testid="rates-c2c-overhead" /></Field>
+        </div>}
         <details style={{ marginTop: 8 }} defaultOpen={employerCostsRequired || c2cCostsRequired}>
           <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Recurring rate adjustments and operating costs</summary>
           {employerCostsRequired && <div className="alert alert--warn" style={{ marginTop: 8 }}>
@@ -1232,7 +1266,6 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
             {isW2 && <Field label="Payroll / employer load %"><input className="input" type="number" min="0" step="0.01" value={form.adder_pct} onChange={e => setForm({ ...form, adder_pct: e.target.value })} placeholder={defaultLabel('payroll_load_pct')} /></Field>}
             {isW2 && <Field label="Workers compensation %"><input className="input" type="number" min="0" step="0.01" value={form.workers_comp_pct} onChange={e => setForm({ ...form, workers_comp_pct: e.target.value })} placeholder={defaultLabel('workers_comp_pct')} /></Field>}
             {isW2 && <Field label="Benefits load %"><input className="input" type="number" min="0" step="0.01" value={form.benefits_load_pct} onChange={e => setForm({ ...form, benefits_load_pct: e.target.value })} placeholder={defaultLabel('benefits_load_pct')} /></Field>}
-            {isC2C && <Field label="C2C overhead / load %"><input className="input" type="number" min="0" step="0.01" value={form.c2c_overhead_pct} onChange={e => setForm({ ...form, c2c_overhead_pct: e.target.value })} placeholder={defaultLabel('c2c_overhead_pct')} data-testid="rates-c2c-overhead" /></Field>}
             <Field label="Other recurring cost / hour"><input className="input" type="number" min="0" step="0.01" value={form.other_cost_per_hour} onChange={e => setForm({ ...form, other_cost_per_hour: e.target.value })} placeholder="0.00" /></Field>
           </div>
         </details>
