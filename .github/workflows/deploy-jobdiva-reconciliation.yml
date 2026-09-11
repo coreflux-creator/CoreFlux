@@ -78,6 +78,7 @@ jobs:
             core/migrations/135_tenant_staffing_economics_defaults.sql \
             core/migrations/136_c2c_overhead_load.sql \
             core/migrations/137_staffing_client_catalog_backfill.sql \
+            core/migrations/140_staffing_client_catalog_integrity.sql \
             core/jobdiva \
             core/qbo/sync_in.php \
             core/qbo/sync_invoices.php \
@@ -100,6 +101,7 @@ jobs:
             modules/staffing/manifest.php \
             modules/staffing/lib/clients.php \
             modules/staffing/lib/client_audit.php \
+            modules/staffing/lib/jobs.php \
             modules/staffing/ui/Clients.jsx \
             modules/billing/api/invoices.php \
             dashboard/dist \
@@ -113,8 +115,11 @@ jobs:
             spa-assets/sw.js \
             scripts/jobdiva_rate_write_probe.php \
             scripts/jobdiva_reconcile_start.php \
+            scripts/repair_staffing_client_catalog.php \
             tests/tenant_staffing_economics_defaults_smoke.php \
             tests/staffing_client_catalog_sync_smoke.php \
+            tests/staffing_client_catalog_integrity_smoke.php \
+            tests/jobdiva_contract_projection_smoke.php \
             tests/qbo_slice3_smoke.php \
             tests/rbac_b2_smoke.php \
             tests/rbac_persona_wildcard_smoke.php \
@@ -165,10 +170,13 @@ jobs:
             test -f "$STAGE_ROOT/core/migrations/135_tenant_staffing_economics_defaults.sql"
             test -f "$STAGE_ROOT/core/migrations/136_c2c_overhead_load.sql"
             test -f "$STAGE_ROOT/core/migrations/137_staffing_client_catalog_backfill.sql"
+            test -f "$STAGE_ROOT/core/migrations/140_staffing_client_catalog_integrity.sql"
             test -f "$STAGE_ROOT/api/staffing_economics_settings.php"
             test -f "$STAGE_ROOT/modules/placements/lib/economics.php"
             test -f "$STAGE_ROOT/modules/staffing/api/clients.php"
             test -f "$STAGE_ROOT/modules/staffing/lib/client_audit.php"
+            test -f "$STAGE_ROOT/modules/staffing/lib/jobs.php"
+            test -f "$STAGE_ROOT/scripts/repair_staffing_client_catalog.php"
             SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' "$STAGE_ROOT/index.html" | head -n 1)"
             test -n "$SPA_ENTRY"
             test -f "$STAGE_ROOT/$SPA_ENTRY"
@@ -193,6 +201,8 @@ jobs:
             grep -Fq 'JobDiva placement reconciliation' "$SPA_ENTRY"
             grep -Fq "setRequestModuleScope('placements')" modules/staffing/api/clients.php
             grep -Fq 'staffingClientCatalogTenantId' core/qbo/sync_in.php
+            grep -Fq 'EmployeeAssignmentRecordsDetail.BILLING.COMPANY' core/jobdiva/projector.php
+            grep -Fq 'Placement billing company' modules/staffing/api/clients.php
             grep -Fq "$(basename "$SPA_ENTRY")" index.html
 
             OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
@@ -207,6 +217,7 @@ jobs:
             php deploy/run_migrations.php --status | grep -F 'core/migrations/135_tenant_staffing_economics_defaults.sql'
             php deploy/run_migrations.php --status | grep -F 'core/migrations/136_c2c_overhead_load.sql'
             php deploy/run_migrations.php --status | grep -F 'core/migrations/137_staffing_client_catalog_backfill.sql'
+            php deploy/run_migrations.php --status | grep -F 'core/migrations/140_staffing_client_catalog_integrity.sql'
             php -l core/staffing_economics.php
             php -l core/api_bootstrap.php
             php -l core/tenant_scope.php
@@ -225,11 +236,13 @@ jobs:
             php -l modules/staffing/api/csv_export.php
             php -l modules/staffing/lib/clients.php
             php -l modules/staffing/lib/client_audit.php
+            php -l modules/staffing/lib/jobs.php
             php -l core/qbo/sync_in.php
             php -l core/qbo/sync_invoices.php
             php -l modules/billing/api/invoices.php
             php -l scripts/jobdiva_rate_write_probe.php
             php -l scripts/jobdiva_reconcile_start.php
+            php -l scripts/repair_staffing_client_catalog.php
             php -r 'require "core/jobdiva/sync.php"; $r=jobdivaCompactStoredAssignmentMirrors(2); $growth=($r["bytes_after"] ?? 0) > ($r["bytes_before"] ?? 0); echo ($growth ? "WARNING: JobDiva mirror compaction increased storage; continuing because publication and functional probes are authoritative.\n" : ""); echo "JobDiva mirrors compacted: {$r["compacted"]} of {$r["checked"]}; {$r["bytes_before"]} -> {$r["bytes_after"]} bytes.\n";'
             php -d memory_limit=512M -r 'require "core/jobdiva/sync.php"; $plan=jobdivaStoredAssignmentProjectionPlan(2, 20, [], false, 0); $rows=count($plan["public_rows"] ?? []); $total=(int)($plan["pagination"]["total"] ?? 0); if ($rows < 1 || $total < $rows) { fwrite(STDERR, "Stored preview returned an invalid page.\n"); exit(1); } echo "Stored preview verified: {$rows} of {$total} assignments.\n";'
             if [ -n "$RECONCILE_START_ID" ] || [ -n "$RECONCILE_CANDIDATE_ID" ]; then
@@ -251,9 +264,12 @@ jobs:
               IFS="$OLD_IFS"
             fi
             php scripts/jobdiva_rate_write_probe.php --active-roster 2
+            php scripts/repair_staffing_client_catalog.php 2
             php tests/staffing_client_catalog_sync_smoke.php
+            php tests/staffing_client_catalog_integrity_smoke.php
+            php tests/jobdiva_contract_projection_smoke.php
             php tests/qbo_slice3_smoke.php
             php tests/rbac_b2_smoke.php
             php tests/rbac_persona_wildcard_smoke.php
-            php -r 'require "modules/staffing/lib/clients.php"; $pdo=getDB(); $activeTenant=2; $catalogTenant=staffingClientCatalogTenantId($activeTenant); $placements=(int)$pdo->query("SELECT COUNT(DISTINCT end_client_name) FROM placements WHERE tenant_id={$catalogTenant} AND end_client_name IS NOT NULL AND TRIM(end_client_name)<>\"\"")->fetchColumn(); $clients=(int)$pdo->query("SELECT COUNT(*) FROM staffing_clients WHERE tenant_id={$catalogTenant}")->fetchColumn(); $unlinked=(int)$pdo->query("SELECT COUNT(*) FROM placements WHERE tenant_id={$catalogTenant} AND end_client_name IS NOT NULL AND TRIM(end_client_name)<>\"\" AND client_id IS NULL")->fetchColumn(); $list=staffingClientCatalogQuery($catalogTenant, "SELECT id, name, status FROM staffing_clients WHERE tenant_id = :tenant_id ORDER BY name ASC LIMIT 5"); if ($placements > 0 && ($clients < 1 || $unlinked > 0 || count($list) < 1)) { fwrite(STDERR, "Client catalog failed: active_tenant={$activeTenant}, catalog_tenant={$catalogTenant}, placement_clients={$placements}, clients={$clients}, list_rows=".count($list).", unlinked={$unlinked}.\n"); exit(1); } echo "Client catalog verified: active_tenant={$activeTenant}, catalog_tenant={$catalogTenant}, placement_clients={$placements}, clients={$clients}, list_rows=".count($list).", unlinked={$unlinked}.\n";'
+            php -r 'require "modules/staffing/lib/clients.php"; $catalogTenant=staffingClientCatalogTenantId(2); $summary=staffingClientCatalogIntegritySummary($catalogTenant); if (($summary["active_clients"] ?? 0) < 1 || ($summary["client_company_mismatches"] ?? 0) > 0 || ($summary["active_jobdiva_placeholders"] ?? 0) > 0) { fwrite(STDERR, "Client catalog failed: ".json_encode($summary)."\n"); exit(1); } echo "Client catalog verified: ".json_encode($summary)."\n";'
             echo "Deployed and verified commit ${{ github.sha }}."

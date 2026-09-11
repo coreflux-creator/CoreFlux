@@ -102,22 +102,11 @@ function staffingJobEnsureFromJobDivaPayload(int $tenantId, string $externalId, 
         if ($mapped) $companyId = (int) $mapped['internal_entity_id'];
     }
 
-    $clientId = null;
-    $clientName = staffingJobPluck($payload, [
-        'clientName', 'client_name', 'client name', 'companyName', 'company_name',
-        'customerName', 'customer_name', 'customer name', 'endClientName', 'end_client_name',
-    ]);
-    if ($clientName !== '') {
-        try {
-            $clientRef = staffingClientEnsureForCompany($tenantId, $companyId, $clientName, [
-                'created_by_user_id' => $actorUserId,
-            ]);
-            $clientId = (int) ($clientRef['client_id'] ?? 0) ?: null;
-            $companyId = !empty($clientRef['company_id']) ? (int) $clientRef['company_id'] : $companyId;
-        } catch (\Throwable $e) {
-            error_log('[staffing jobs] client bridge failed: ' . $e->getMessage());
-        }
-    }
+    // A requisition's company is not necessarily the assignment's bill-to
+    // company. Jobs may reference an existing client, but only an exact
+    // assignment BILLING.COMPANY contract may create a client consumer row.
+    $client = staffingClientFindForCompany($tenantId, $companyId);
+    $clientId = $client ? (int) $client['id'] : null;
 
     $country = strtoupper(staffingJobPluck($payload, ['country', 'jobCountry', 'job_country', 'worksiteCountry']));
     if ($country === '') $country = null;

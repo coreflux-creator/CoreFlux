@@ -670,7 +670,7 @@ function jobdivaUpsertCompanyMapped(
     array $patch,
     array $payload,
     ?int $userId,
-    array $roles = ['client']
+    array $roles = []
 ): int {
     $name = trim($name);
     if ($extId === '' || $name === '') throw new \InvalidArgumentException('company external id and name required');
@@ -788,7 +788,9 @@ function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
                 'created_by_user_id'   => $userId,
             ];
 
-            $companyId = jobdivaUpsertCompanyMapped($tid, $extId, $name, $patch, $jd, $userId, ['client']);
+            // This endpoint is a general organization directory. A company
+            // becomes a staffing client only through assignment billing data.
+            $companyId = jobdivaUpsertCompanyMapped($tid, $extId, $name, $patch, $jd, $userId, []);
             // Phase 2 — apply tenant mappings against the BI company payload.
             try {
                 require_once __DIR__ . '/../integrations/field_map_apply.php';
@@ -926,7 +928,7 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
                                 'postal_code'        => $jdCo['zip']     ?? $jdCo['postal_code'] ?? null,
                                 'country'            => $jdCo['country'] ?? 'US',
                                 'created_by_user_id' => $userId,
-                            ], $jdCo, $userId, ['client']);
+                            ], $jdCo, $userId, []);
                             $companyMapping = mappingFindInternal($tid, 'jobdiva', 'company', $companyExtId);
                             $companyMappingCache[$companyCacheKey] = $companyMapping ?: null;
                             $skipReasons['backfilled_companies'] = ($skipReasons['backfilled_companies'] ?? 0) + 1;
@@ -951,7 +953,7 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
                 $placeholderId = jobdivaUpsertCompanyMapped($tid, (string) $companyExtId, $placeholderName, [
                     'notes' => 'Placeholder created from JobDiva contact sync; later JobDiva company detail can enrich this record.',
                     'created_by_user_id' => $userId,
-                ], $placeholderPayload, $userId, ['client']);
+                ], $placeholderPayload, $userId, []);
                 $companyMapping = mappingFindInternal($tid, 'jobdiva', 'company', $companyExtId);
                 $companyMappingCache[$companyCacheKey] = $companyMapping ?: null;
                 if ($placeholderId > 0) {
@@ -6451,7 +6453,12 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         $endClientName = $contractEndClientName;
     }
     $clientId = null;
-    $clientBridgeName = trim($endClientName);
+    $clientEvidence = function_exists('jobdivaProjectorAssignmentClientEvidence')
+        ? jobdivaProjectorAssignmentClientEvidence($jd)
+        : ['authoritative' => false, 'name' => '', 'external_id' => ''];
+    $clientBridgeName = !empty($clientEvidence['authoritative'])
+        ? trim((string) ($clientEvidence['name'] ?? ''))
+        : '';
     if ($clientBridgeName === '' && $endClientCompanyId !== null && $endClientCompanyId > 0) {
         try {
             $nameStmt = $pdo->prepare(
@@ -6480,6 +6487,11 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         } catch (\Throwable $e) {
             error_log('[jobdiva placement sync] staffing client bridge failed: ' . $e->getMessage());
         }
+    } elseif ($endClientCompanyId !== null && $endClientCompanyId > 0) {
+        // Preserve a previously established canonical relationship without
+        // promoting a weak job/company label into the client directory.
+        $existingClient = staffingClientFindForCompany($tid, $endClientCompanyId);
+        $clientId = $existingClient ? (int) $existingClient['id'] : null;
     }
     $statusRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'status', $jd,

@@ -84,13 +84,13 @@ $a('repair function exists and uses staffing bridge',
 $a('repair selects rows with missing end_client_company_id, not only missing client_id',
     str_contains($service, 'OR p.end_client_company_id IS NULL')
     && str_contains($service, 'OR p.end_client_company_id = 0'));
-$a('repair carries JobDiva payload snapshot for end-client fallback',
+$a('repair rebuilds exact assignment billing evidence from stored mirrors',
     str_contains($service, 'm.payload_snapshot')
     && str_contains($service, 'jobdivaPlacementPayloadWithMirrors(')
     && str_contains($service, "(string) (\$row['mapping_external_id'] ?? '')")
-    && str_contains($service, 'jobdivaEndClientNameFromPayload($payload)'));
-$a('repair treats JobDiva payload company name as authoritative over stale placement labels',
-    str_contains($service, '$name = trim($payloadClientName);')
+    && str_contains($service, 'jobdivaProjectorAssignmentClientEvidence($payload)'));
+$a('repair treats exact assignment billing company as authoritative over stale placement labels',
+    str_contains($service, "!empty(\$evidence['authoritative'])")
     && str_contains($service, 'jobdivaProjectorCompanyNameKey((string) ($row[\'end_client_name\'] ?? \'\'))')
     && str_contains($service, 'end_client_name = :end_client_name'));
 $a('repair resolves canonical company through projector end-client rules',

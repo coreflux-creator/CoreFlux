@@ -46,6 +46,7 @@ if ($method === 'GET' && $action === 'list') {
         'active_placements'     => 'active_placements',
         'primary_contact_email' => 'c.primary_contact_email',
         'payment_terms_days'    => 'c.payment_terms_days',
+        'source'                => 'source_label',
         'status'                => 'c.status',
         'created_at'            => 'c.created_at',
     ];
@@ -55,15 +56,28 @@ if ($method === 'GET' && $action === 'list') {
     $sql = "SELECT c.id, c.company_id, c.name, c.legal_name, c.industry, c.status, c.payment_terms_days,
                    c.primary_contact_name, c.primary_contact_email,
                    c.billing_city, c.billing_state, c.billing_country,
-                   c.msa_status, c.created_at,
+                   c.msa_status, c.created_at, c.source_system, c.external_id,
+                   CASE
+                     WHEN COALESCE(p.cnt, 0) > 0 THEN 'Placement billing company'
+                     WHEN EXISTS (
+                       SELECT 1 FROM external_entity_mappings em
+                        WHERE em.tenant_id = c.tenant_id
+                          AND em.internal_entity_type = 'customer'
+                          AND em.internal_entity_id = c.id
+                     ) THEN 'Accounting customer'
+                     WHEN c.source_system <> 'manual' THEN c.source_system
+                     ELSE 'Manual'
+                   END AS source_label,
                    COALESCE(p.cnt, 0) AS active_placements
               FROM staffing_clients c
               LEFT JOIN (
-                  SELECT client_id, COUNT(*) AS cnt
+                  SELECT end_client_company_id, COUNT(*) AS cnt
                     FROM placements
                    WHERE tenant_id = :placements_tid AND status = 'active'
-                   GROUP BY client_id
-              ) p ON p.client_id = c.id
+                     AND deleted_at IS NULL
+                     AND end_client_company_id IS NOT NULL
+                   GROUP BY end_client_company_id
+              ) p ON p.end_client_company_id = c.company_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY {$sortExpr} {$sortDir}, c.id DESC
              LIMIT " . $limit;
@@ -217,10 +231,14 @@ if ($method === 'GET' && $action === 'stats') {
 
     $activeStmt = getDB()->prepare(
         "SELECT COUNT(*) AS c
-           FROM placements
-          WHERE tenant_id = :placements_tid
-            AND client_id = :id
-            AND status = 'active'"
+           FROM placements p
+           JOIN staffing_clients sc
+             ON sc.tenant_id = p.tenant_id
+            AND sc.company_id = p.end_client_company_id
+          WHERE p.tenant_id = :placements_tid
+            AND sc.id = :id
+            AND p.status = 'active'
+            AND p.deleted_at IS NULL"
     );
     $activeStmt->execute(['placements_tid' => $placementsTenantId, 'id' => $id]);
     $active = $activeStmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -232,8 +250,9 @@ if ($method === 'GET' && $action === 'stats') {
             "SELECT COALESCE(SUM(v.revenue), 0) AS r
                FROM v_timesheet_day_fin v
                JOIN placements p ON p.id = v.placement_id AND p.tenant_id = :placements_tid
+               JOIN staffing_clients sc ON sc.tenant_id = p.tenant_id AND sc.company_id = p.end_client_company_id
               WHERE v.tenant_id = :tenant_id
-                AND p.client_id = :id
+                AND sc.id = :id
                 AND v.work_date >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01')"
         );
         $stmt->execute(['tenant_id' => $activeTenantId, 'placements_tid' => $placementsTenantId, 'id' => $id]);

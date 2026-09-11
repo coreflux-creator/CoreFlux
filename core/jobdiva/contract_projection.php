@@ -151,17 +151,7 @@ function jobdivaContractProjectionBuild(
         'job id', 'jobId', 'job_id', 'jobID', 'JOBID', 'reqId', 'req_id',
     ]);
     $clientName = trim((string) ($contract['client_company_name'] ?? ''));
-    if ($clientName === '') {
-        $clientName = function_exists('jobdivaEndClientNameFromPayload')
-            ? trim((string) jobdivaEndClientNameFromPayload($payload))
-            : jobdivaContractProjectionScalar($payload, ['companyName', 'company_name', 'customerName']);
-    }
     $clientExternalId = trim((string) ($contract['client_company_id'] ?? ''));
-    if ($clientExternalId === '') {
-        $clientExternalId = jobdivaContractProjectionScalar($payload, [
-            'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID', 'endClientCompanyId',
-        ]);
-    }
 
     $sourceBill = jobdivaContractProjectionAmount($contract['bill_rate'] ?? null) ?? 0.0;
     $vmsBill = jobdivaContractProjectionAmount($contract['bill_rate_in_vms'] ?? null) ?? 0.0;

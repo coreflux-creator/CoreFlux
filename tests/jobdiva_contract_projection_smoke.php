@@ -40,6 +40,10 @@ $rows = [[
         'PRIMARY_RECRUITER' => '1601464',
         'PRISALE_COMM_PERCENT' => 100,
         'PRIREC_COMM_PERCENT' => 100,
+        'COMPANY' => [[
+            'ID' => '3003',
+            'COMPANYNAME' => 'Example Client',
+        ]],
     ]],
     'SALARY' => [[
         'SALARY' => 60,

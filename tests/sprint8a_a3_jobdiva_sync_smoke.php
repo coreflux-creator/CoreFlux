@@ -6,7 +6,7 @@
  *   - core/jobdiva/sync.php parses + exports drivers
  *   - Each driver pulls items via jobdivaSyncFetchItems (testable via
  *     items_override) and binds via mappingUpsert with source_system='jobdiva'
- *   - Companies driver upserts into companies via companiesUpsertByName + tags 'client'
+ *   - Companies driver upserts organizations without promoting them to clients
  *   - Contacts driver resolves company via mappingFindInternal first
  *   - Placements driver resolves person identity before projection; the
  *     non-override path can auto-create a minimal person anchor.
@@ -95,11 +95,11 @@ $assert('falls back across name key spellings',   strpos($src, "\$jd['companyNam
 $assert('upserts companies through JobDiva mapping-aware helper',
     strpos($src, 'function jobdivaUpsertCompanyMapped(') !== false
     && strpos($src, 'jobdivaUpsertCompanyMapped($tid, $extId, $name, $patch, $jd, $userId') !== false);
-$assert("tags 'client' role on backfilled company", strpos($src, "['client']") !== false);
-$assert('bridges JobDiva client companies into staffing_clients',
-    strpos($src, 'function jobdivaEnsureStaffingClientForCompany(') !== false
-    && strpos($src, 'staffingClientEnsureForCompany($tid, $companyId, $name') !== false
-    && strpos($src, 'jobdivaEnsureStaffingClientForCompany($tid, $companyId, $name, $userId)') !== false);
+$assert('generic company feed does not promote every organization to client',
+    strpos($src, 'jobdivaUpsertCompanyMapped($tid, $extId, $name, $patch, $jd, $userId, [])') !== false);
+$assert('assignment projector owns staffing client promotion',
+    strpos($projectorSrc, 'jobdivaProjectorAssignmentClientEvidence') !== false
+    && strpos($projectorSrc, "'EmployeeAssignmentRecordsDetail'") !== false);
 $assert('binds mapping (company)',
     strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'company', \$extId, \$companyId, \$payload, 'pull', \$userId)") !== false);
 $assert('skips records missing extId or name',    strpos($src, "if (\$extId === '' || \$name === '') { \$skipped++; continue; }") !== false);
@@ -135,7 +135,8 @@ $assert('contact sync caches parent company mapping/backfill attempts',
     && strpos($src, '$companyBackfillMisses') !== false);
 $assert('contact sync can preserve contacts with placeholder parent companies',
     strpos($src, "'placeholder_companies'") !== false
-    && strpos($src, 'JobDiva Company ') !== false);
+    && strpos($src, 'JobDiva Company ') !== false
+    && strpos($src, '], $placeholderPayload, $userId, []);') !== false);
 
 echo "\nPlacements driver — discovery via searchStart + timesheet fallback (2026-02 follow-on)\n";
 $assert('requires sync_placements helper module',
