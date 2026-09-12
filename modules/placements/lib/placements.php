@@ -209,6 +209,9 @@ function placementsList(array $filters = []): array
         'end_date'          => 'p.end_date',
         'created_at'        => 'p.created_at',
         'updated_at'        => 'p.updated_at',
+        'bill_rate'         => 'cr.bill_rate',
+        'pay_rate'          => 'cr.pay_rate',
+        'margin'            => 'cr.net_to_vendor',
     ];
     $sortKey = (string) ($filters['sort'] ?? 'start_date');
     $sortExpr = $sortMap[$sortKey] ?? $sortMap['start_date'];
@@ -220,18 +223,63 @@ function placementsList(array $filters = []): array
 
     $joins = ' LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
                LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
-               LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id ';
+               LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id
+               LEFT JOIN placement_rates cr ON cr.id = (
+                    SELECT cr2.id
+                      FROM placement_rates cr2
+                     WHERE cr2.tenant_id = p.tenant_id
+                       AND cr2.placement_id = p.id
+                       AND cr2.approved_at IS NOT NULL
+                       AND cr2.effective_from <= CURRENT_DATE
+                       AND (cr2.effective_to IS NULL OR cr2.effective_to >= CURRENT_DATE)
+                     ORDER BY cr2.effective_from DESC, cr2.id DESC
+                     LIMIT 1
+               ) ';
     $total = (int) (scopedFind("SELECT COUNT(*) AS c FROM placements p {$joins} WHERE {$whereSql}", $params)['c'] ?? 0);
     $rows  = scopedQuery(
         'SELECT ' . placementsSafeFields() . ', pe.first_name, pe.last_name, pe.email_primary,
                 COALESCE(ec.name, p.end_client_name) AS end_client_display_name,
-                sj.title AS staffing_job_title
+                sj.title AS staffing_job_title,
+                cr.bill_rate AS current_bill_rate,
+                cr.pay_rate AS current_pay_rate,
+                cr.adjusted_bill_rate AS current_adjusted_bill_rate,
+                cr.net_to_vendor AS current_margin_amount,
+                cr.economics_snapshot_json AS current_economics_snapshot_json
          FROM placements p ' . $joins . '
          WHERE ' . $whereSql . '
          ORDER BY ' . $orderSql . '
          LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
+
+    // The placement directory is an economics work surface, not only an
+    // assignment index. Flatten the approved contract snapshot into stable
+    // list fields so the UI can show the rate, loaded cost, and margin without
+    // issuing one detail request per placement.
+    foreach ($rows as &$row) {
+        $snapshot = json_decode((string) ($row['current_economics_snapshot_json'] ?? ''), true);
+        if (!is_array($snapshot)) $snapshot = [];
+        $billRate = isset($row['current_adjusted_bill_rate'])
+            ? (float) $row['current_adjusted_bill_rate']
+            : (isset($row['current_bill_rate']) ? (float) $row['current_bill_rate'] : null);
+        $payRate = isset($row['current_pay_rate']) ? (float) $row['current_pay_rate'] : null;
+        $loadedCost = isset($snapshot['modeled_hourly_cost'])
+            ? (float) $snapshot['modeled_hourly_cost']
+            : $payRate;
+        $marginAmount = isset($snapshot['modeled_hourly_margin'])
+            ? (float) $snapshot['modeled_hourly_margin']
+            : (isset($row['current_margin_amount']) ? (float) $row['current_margin_amount'] : null);
+        $marginPct = isset($snapshot['modeled_margin_pct'])
+            ? (float) $snapshot['modeled_margin_pct']
+            : (($billRate && $marginAmount !== null) ? ($marginAmount / $billRate) : null);
+
+        $row['current_invoice_rate'] = $billRate;
+        $row['current_loaded_cost'] = $loadedCost;
+        $row['current_margin_amount'] = $marginAmount;
+        $row['current_margin_pct'] = $marginPct;
+        unset($row['current_economics_snapshot_json']);
+    }
+    unset($row);
     return ['rows' => $rows, 'total' => $total, 'page' => $page, 'per_page' => $perPage];
 }
 

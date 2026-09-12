@@ -29,6 +29,9 @@ $ap = (string) file_get_contents($root . '/modules/ap/ui/APModule.jsx');
 $billing = (string) file_get_contents($root . '/modules/billing/ui/BillingModule.jsx');
 $treasury = (string) file_get_contents($root . '/modules/treasury/ui/TreasuryModule.jsx');
 $placements = (string) file_get_contents($root . '/modules/placements/ui/List.jsx');
+$placementLib = (string) file_get_contents($root . '/modules/placements/lib/placements.php');
+$apBills = (string) file_get_contents($root . '/modules/ap/ui/BillsList.jsx');
+$apBillsApi = (string) file_get_contents($root . '/modules/ap/api/bills.php');
 
 echo "\n1. Persistent workspace shell\n";
 $assert('the application layout keeps the workspace rail visible',
@@ -53,7 +56,8 @@ $assert('home combines live KPIs, trend data, and attention queues',
     && str_contains($dashboard, '<LineChart')
     && str_contains($dashboard, 'Needs attention'));
 $assert('module cards remain compact routes into real work',
-    str_contains($dashboard, '<span className="workspace-eyebrow">Workspaces</span>')
+    str_contains($dashboard, 'workspace-section--modules')
+    && str_contains($dashboard, 'Your workspace')
     && str_contains($dashboard, 'ModuleCards'));
 
 echo "\n3. Module information architecture\n";
@@ -68,12 +72,26 @@ $assert('high-volume finance modules share the tab architecture',
 $assert('placements opens with an operational KPI summary and action overflow',
     str_contains($placements, 'page-kpi-strip')
     && str_contains($placements, 'action-overflow'));
+$assert('placements exposes approved economics in the operating table',
+    str_contains($placements, 'current_invoice_rate')
+    && str_contains($placements, 'current_loaded_cost')
+    && str_contains($placements, 'current_margin_pct')
+    && str_contains($placementLib, 'current_economics_snapshot_json'));
+$assert('accounts payable provides stable workflow totals and status views',
+    str_contains($apBills, 'ap-summary-strip')
+    && str_contains($apBills, 'Ready to pay')
+    && str_contains($apBillsApi, 'ready_amount')
+    && str_contains($apBillsApi, "statusFilter === 'ready_to_pay'")
+    && str_contains($apBillsApi, "statusFilter === 'needs_review'")
+    && str_contains($apBillsApi, 'pending_count'));
 
 echo "\n4. Responsive workspace\n";
 $assert('workspace chrome and operational controls adapt on smaller screens',
     str_contains($styles, '--cf-sidebar-width')
     && str_contains($styles, '.module-list-toolbar__actions')
     && str_contains($styles, '.approved-hours-ready__stats')
+    && str_contains($styles, '.operational-surface')
+    && str_contains($styles, '.record-view-tabs')
     && str_contains($styles, '@media (max-width: 620px)'));
 
 echo "\nWorkspace shell: {$pass} passed, {$fail} failed\n";

@@ -290,7 +290,17 @@ if ($method === 'GET') {
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['vendor_name'])) { $where[] = 'vendor_name = :vn';  $params['vn'] = $_GET['vendor_name']; }
-    if (!empty($_GET['status']))      { $where[] = 'status = :st';       $params['st'] = $_GET['status']; }
+    if (!empty($_GET['status'])) {
+        $statusFilter = (string) $_GET['status'];
+        if ($statusFilter === 'ready_to_pay') {
+            $where[] = "status IN ('approved', 'partially_paid')";
+        } elseif ($statusFilter === 'needs_review') {
+            $where[] = "status IN ('inbox', 'pending_review', 'disputed')";
+        } else {
+            $where[] = 'status = :st';
+            $params['st'] = $statusFilter;
+        }
+    }
     if (!empty($_GET['source']))      { $where[] = 'source = :src';      $params['src'] = $_GET['source']; }
     if (!empty($_GET['due_before']))  { $where[] = 'due_date < :db';     $params['db'] = $_GET['due_before']; }
     if (!empty($_GET['placement_id'])) { $where[] = 'placement_id = :pid'; $params['pid'] = (int) $_GET['placement_id']; }
@@ -308,7 +318,41 @@ if ($method === 'GET') {
         $params
     );
     $cnt  = scopedQuery('SELECT COUNT(*) AS c FROM ap_bills WHERE ' . implode(' AND ', $where), $params);
-    api_ok(['rows' => $rows, 'total' => (int) ($cnt[0]['c'] ?? 0), 'page' => $page, 'per_page' => $perPage]);
+
+    // Summary totals intentionally ignore the active status tab so the four
+    // workflow signals remain stable while an operator moves between queues.
+    // Entity scope still applies because the header switcher defines the
+    // accounting boundary for the entire page.
+    $summaryWhere = ['tenant_id = :tenant_id'];
+    $summaryParams = [];
+    if (!empty($_GET['entity_id'])) {
+        $summaryWhere[] = 'entity_id = :summary_eid';
+        $summaryParams['summary_eid'] = (int) $_GET['entity_id'];
+    }
+    $summary = scopedFind(
+        'SELECT
+            COUNT(*) AS total_count,
+            SUM(CASE WHEN status NOT IN (\'paid\', \'void\') THEN 1 ELSE 0 END) AS open_count,
+            COALESCE(SUM(CASE WHEN status NOT IN (\'paid\', \'void\') THEN amount_due ELSE 0 END), 0) AS open_amount,
+            COALESCE(SUM(CASE WHEN status IN (\'approved\', \'partially_paid\') THEN amount_due ELSE 0 END), 0) AS ready_amount,
+            SUM(CASE WHEN status IN (\'approved\', \'partially_paid\') THEN 1 ELSE 0 END) AS ready_count,
+            SUM(CASE WHEN status = \'pending_approval\' THEN 1 ELSE 0 END) AS pending_count,
+            SUM(CASE WHEN status IN (\'inbox\', \'pending_review\', \'disputed\') THEN 1 ELSE 0 END) AS review_count,
+            SUM(CASE WHEN status = \'approved\' THEN 1 ELSE 0 END) AS approved_count,
+            SUM(CASE WHEN status = \'partially_paid\' THEN 1 ELSE 0 END) AS partially_paid_count,
+            SUM(CASE WHEN status = \'paid\' THEN 1 ELSE 0 END) AS paid_count,
+            SUM(CASE WHEN status = \'void\' THEN 1 ELSE 0 END) AS void_count
+         FROM ap_bills WHERE ' . implode(' AND ', $summaryWhere),
+        $summaryParams
+    ) ?: [];
+
+    api_ok([
+        'rows' => $rows,
+        'total' => (int) ($cnt[0]['c'] ?? 0),
+        'page' => $page,
+        'per_page' => $perPage,
+        'summary' => $summary,
+    ]);
 }
 
 if ($method === 'POST' && $action === 'suggest-payment-run') {

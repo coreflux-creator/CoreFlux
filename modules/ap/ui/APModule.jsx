@@ -4,7 +4,6 @@ import ModuleTabs from '../../../dashboard/src/components/ModuleTabs';
 import BillsList from './BillsList';
 import BillCreate from './BillCreate';
 import BillDetail from './BillDetail';
-import BillFromTimeBundleModal from './BillFromTimeBundleModal'; // eslint-disable-line no-unused-vars
 import PaymentsList from './PaymentsList';
 import PaymentsCsvImport from './PaymentsCsvImport';
 import VendorsList from './VendorsList';
@@ -42,9 +41,9 @@ export default function APModule() {
   return (
     <div className="people-directory" data-testid="ap-module">
       <header className="module-workspace-header">
-        <span className="workspace-eyebrow">Money out</span>
-        <h1>Accounts payable</h1>
-        <p>Review obligations, approve bills, and control vendor payments.</p>
+        <span className="workspace-eyebrow">Accounts payable / bills</span>
+        <h1>Bills &amp; payments</h1>
+        <p>From approved work to payment-ready obligations.</p>
         <ModuleTabs items={navItems.map(n => ({ ...n, testId: `ap-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Accounts payable sections" testId="ap-section-nav" />
       </header>
 
