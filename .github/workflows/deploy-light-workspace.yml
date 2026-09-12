@@ -60,6 +60,7 @@ jobs:
             core/mail/M365GraphDriver.php \
             dashboard/dist \
             dashboard/src/App.jsx \
+            dashboard/src/lib/api.js \
             dashboard/src/components/ComparisonTable.jsx \
             dashboard/src/components/MetricCard.jsx \
             dashboard/src/components/ModuleTabs.jsx \
