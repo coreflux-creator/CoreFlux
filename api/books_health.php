@@ -152,7 +152,7 @@ if ($tt) {
 
 // Period readiness — open period whose end_date is past
 $periodStmt = $pdo->prepare(
-    "SELECT id, period_number, fiscal_year, start_date, end_date, status
+    "SELECT id, period_number, YEAR(end_date) AS fiscal_year, start_date, end_date, status
        FROM accounting_periods
       WHERE tenant_id = :t" . ($entityId ? ' AND entity_id = :e' : '') . "
         AND start_date <= :d_lo

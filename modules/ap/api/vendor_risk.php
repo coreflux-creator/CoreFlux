@@ -21,9 +21,9 @@ $action    = (string) (api_query('action') ?? '');
 if ($method === 'GET' && $action === 'high_risk') {
     rbac_legacy_require($user, 'ap.view');
     $rows = scopedQuery(
-        "SELECT vr.*, v.name AS vendor_name
+        "SELECT vr.*, v.vendor_name
            FROM ap_vendor_risk vr
-           LEFT JOIN ap_vendors v ON v.id = vr.vendor_id AND v.tenant_id = vr.tenant_id
+           LEFT JOIN ap_vendors_index v ON v.id = vr.vendor_id AND v.tenant_id = vr.tenant_id
           WHERE vr.tenant_id = :tenant_id AND vr.risk_level IN ('medium','high')
           ORDER BY vr.risk_score DESC"
     );

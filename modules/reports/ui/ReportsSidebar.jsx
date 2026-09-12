@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileText, Users, TrendingUp, AlertTriangle, Wrench, Folder } from 'lucide-react';
+import { LayoutDashboard, FileText, Users, TrendingUp, AlertTriangle } from 'lucide-react';
 
 /**
  * Reports module sidebar.
@@ -24,13 +24,6 @@ export default function ReportsSidebar() {
         { to: '/modules/reports/client_profitability', label: 'Client Profitability', Icon: Users,       testid: 'reports-link-client-profitability' },
         { to: '/modules/reports/rate_spread',          label: 'Rate & Spread',        Icon: TrendingUp,  testid: 'reports-link-rate-spread' },
         { to: '/modules/reports/overtime_watch',       label: 'Overtime Watch',       Icon: AlertTriangle, testid: 'reports-link-overtime' },
-      ],
-    },
-    {
-      title: 'Build',
-      items: [
-        { to: '/modules/reports/custom', label: 'Custom Reports', Icon: Wrench,  testid: 'reports-link-custom' },
-        { to: '/modules/reports/other',  label: 'Other Reports',  Icon: Folder,  testid: 'reports-link-other' },
       ],
     },
   ];

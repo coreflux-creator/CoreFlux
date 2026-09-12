@@ -146,6 +146,13 @@ final class RbacLegacyMap
             'tenant_admin.integrations'          => ['integrations', 'admin'],
 
             // ── payroll ───────────────────────────────────────────────────
+            'payroll.run.create'                => ['payroll', 'write'],
+            'payroll.run.compute'               => ['payroll', 'write'],
+            'payroll.run.build'                 => ['payroll', 'write'],
+            'payroll.run.approve'               => ['payroll', 'admin'],
+            'payroll.run.disburse'              => ['payroll', 'admin'],
+            'payroll.run.post'                  => ['payroll', 'admin'],
+            'payroll.run.reverse'               => ['payroll', 'admin'],
             'payroll.runs.approve'               => ['payroll', 'admin'],
 
             // ── people ────────────────────────────────────────────────────

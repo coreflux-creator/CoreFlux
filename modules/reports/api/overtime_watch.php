@@ -99,8 +99,12 @@ $stmt = $pdo->prepare(
      LEFT JOIN people pe ON pe.id = v.employee_id AND pe.tenant_id = :people_tid
      WHERE v.tenant_id = :t AND v.work_date BETWEEN :from_ AND :to
      GROUP BY v.employee_id, worker_name
-     HAVING total_hours > 0
-     ORDER BY (ot_hours / total_hours) DESC, ot_hours DESC
+     HAVING SUM(v.hours) > 0
+     ORDER BY (
+        SUM(CASE WHEN v.is_overtime = 1 THEN v.hours ELSE 0 END)
+        / NULLIF(SUM(v.hours), 0)
+     ) DESC,
+     SUM(CASE WHEN v.is_overtime = 1 THEN v.hours ELSE 0 END) DESC
      LIMIT 20"
 );
 $stmt->execute($params);
@@ -126,8 +130,8 @@ $stmt = $pdo->prepare(
      LEFT JOIN placements pl ON pl.id = v.placement_id AND pl.tenant_id = :placements_tid
      WHERE v.tenant_id = :t AND v.work_date BETWEEN :from_ AND :to
      GROUP BY client
-     HAVING ot_hours > 0
-     ORDER BY ot_hours DESC
+     HAVING SUM(CASE WHEN v.is_overtime = 1 THEN v.hours ELSE 0 END) > 0
+     ORDER BY SUM(CASE WHEN v.is_overtime = 1 THEN v.hours ELSE 0 END) DESC
      LIMIT 20"
 );
 $stmt->execute($params);

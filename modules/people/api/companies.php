@@ -24,6 +24,13 @@ $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
+$requireCompany = static function (int $companyId): array {
+    if ($companyId <= 0) api_error('id required', 400);
+    $company = companiesGet($companyId);
+    if (!$company) api_error('Not found', 404);
+    return $company;
+};
+
 if ($method === 'GET' && !empty($_GET['id'])) {
     rbac_legacy_require($user, 'people.view');
     $row = companiesGet((int) $_GET['id']);
@@ -31,11 +38,17 @@ if ($method === 'GET' && !empty($_GET['id'])) {
     api_ok(['company' => $row]);
 }
 
+if ($method === 'GET' && $action === 'duplicates') {
+    rbac_legacy_require($user, 'people.manage');
+    api_ok(['groups' => companiesDuplicateCandidates($tid)]);
+}
+
 if ($method === 'GET') {
     rbac_legacy_require($user, 'people.view');
     $res = companiesList([
         'q'        => $_GET['q']        ?? null,
         'role'     => $_GET['role']     ?? null,
+        'roles'    => $_GET['roles']    ?? null,
         'status'   => $_GET['status']   ?? null,
         'sort'     => $_GET['sort']     ?? null,
         'dir'      => $_GET['dir']      ?? null,
@@ -43,11 +56,6 @@ if ($method === 'GET') {
         'per_page' => $_GET['per_page'] ?? 50,
     ]);
     api_ok($res + ['available_roles' => COMPANY_ROLES]);
-}
-
-if ($method === 'GET' && $action === 'duplicates') {
-    rbac_legacy_require($user, 'people.manage');
-    api_ok(['groups' => companiesDuplicateCandidates($tid)]);
 }
 
 if ($method === 'POST' && $action === 'merge') {
@@ -79,6 +87,61 @@ if ($method === 'POST' && $action === 'upsert') {
     $id = companiesUpsertByName($tid, (string) $body['name'], $extra, $roles);
     companiesAudit('company.upserted', ['id' => $id, 'name' => $body['name'], 'roles' => $roles], $id);
     api_ok(['id' => $id, 'company' => companiesGet($id)], 201);
+}
+
+if ($method === 'POST' && $action === 'bulk_update') {
+    rbac_legacy_require($user, 'people.manage');
+    $body = api_json_body();
+    $ids = is_array($body['ids'] ?? null)
+        ? array_values(array_unique(array_map('intval', $body['ids'])))
+        : [];
+    $ids = array_values(array_filter($ids, static fn($id) => $id > 0));
+    $field = (string) ($body['field'] ?? '');
+    $value = trim((string) ($body['value'] ?? ''));
+    $allowed = ['status', 'default_terms', 'currency', 'industry'];
+
+    if (!$ids) api_error('ids[] required', 422);
+    if (count($ids) > 500) api_error('Too many ids (max 500 per call)', 422);
+    if (!in_array($field, $allowed, true)) api_error('Invalid bulk field', 422, ['allowed' => $allowed]);
+    if ($field === 'status' && !in_array(strtolower($value), ['prospect', 'active', 'inactive', 'blacklisted'], true)) {
+        api_error('Invalid status', 422);
+    }
+    if ($field === 'currency') {
+        $value = strtoupper($value);
+        if (!preg_match('/^[A-Z]{3}$/', $value)) api_error('Currency must be a 3-letter code', 422);
+    }
+    if ($field === 'status') $value = strtolower($value);
+    if ($field === 'default_terms' && ($value === '' || strlen($value) > 50)) api_error('Payment terms must be 1-50 characters', 422);
+    if ($field === 'industry' && strlen($value) > 120) api_error('Industry must be 120 characters or fewer', 422);
+
+    $updated = 0;
+    $skipped = 0;
+    $failed = 0;
+    foreach ($ids as $id) {
+        try {
+            $company = companiesGet($id);
+            if (!$company) {
+                $skipped++;
+                continue;
+            }
+            if ((string) ($company[$field] ?? '') === $value) {
+                $skipped++;
+                continue;
+            }
+            scopedUpdate('companies', $id, [$field => $value]);
+            companiesAudit('company.updated', [
+                'id' => $id,
+                'source' => 'bulk_update',
+                'fields' => [$field],
+                'before' => [$field => $company[$field] ?? null],
+                'after' => [$field => $value],
+            ], $id);
+            $updated++;
+        } catch (\Throwable $e) {
+            $failed++;
+        }
+    }
+    api_ok(['ok' => $failed === 0, 'updated' => $updated, 'skipped' => $skipped, 'failed' => $failed]);
 }
 
 if ($method === 'POST' && $action === '') {
@@ -122,10 +185,21 @@ if ($method === 'POST' && $action === '') {
     api_ok(['id' => $id, 'company' => companiesGet($id)], 201);
 }
 
+if ($method === 'PATCH' && $action === 'address') {
+    rbac_legacy_require($user, 'people.manage');
+    $aid = (int) ($_GET['id'] ?? 0);
+    $body = api_json_body();
+    foreach (['id','tenant_id','company_id','created_at'] as $k) unset($body[$k]);
+    if (!$body) api_error('No fields to update', 422);
+    $rows = scopedUpdate('company_addresses', $aid, $body);
+    if ($rows === 0) api_error('Not found or no change', 404);
+    api_ok(['ok' => true]);
+}
+
 if ($method === 'PATCH') {
     rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
-    if ($id <= 0) api_error('id required', 400);
+    $requireCompany($id);
     $body = api_json_body();
     foreach (['id','tenant_id','created_at','created_by_user_id','deleted_at'] as $k) unset($body[$k]);
     $allowed = array_intersect_key($body, array_flip([
@@ -161,6 +235,7 @@ if ($method === 'PATCH') {
 if ($method === 'POST' && $action === 'add-role') {
     rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
+    $requireCompany($id);
     $body = api_json_body();
     api_require_fields($body, ['role']);
     companiesAddRole($id, (string) $body['role']);
@@ -170,6 +245,7 @@ if ($method === 'POST' && $action === 'add-role') {
 if ($method === 'POST' && $action === 'remove-role') {
     rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
+    $requireCompany($id);
     $body = api_json_body();
     api_require_fields($body, ['role']);
     companiesRemoveRole($id, (string) $body['role']);
@@ -179,6 +255,7 @@ if ($method === 'POST' && $action === 'remove-role') {
 if ($method === 'POST' && $action === 'add-contact') {
     rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
+    $requireCompany($id);
     $body = api_json_body();
     api_require_fields($body, ['name']);
     $cid = scopedInsert('company_contacts', [
@@ -201,6 +278,14 @@ if ($method === 'POST' && $action === 'add-contact') {
     api_ok(['contact_id' => $cid, 'contacts' => companyContacts($id)], 201);
 }
 
+if ($method === 'DELETE' && $action === 'address') {
+    rbac_legacy_require($user, 'people.manage');
+    $aid = (int) ($_GET['id'] ?? 0);
+    $rows = scopedDelete('company_addresses', $aid);
+    if ($rows === 0) api_error('Not found', 404);
+    api_ok(['ok' => true]);
+}
+
 if ($method === 'DELETE') {
     rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
@@ -214,6 +299,7 @@ if ($method === 'DELETE') {
 if ($method === 'POST' && $action === 'add-address') {
     rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
+    $requireCompany($id);
     $body = api_json_body();
     api_require_fields($body, ['line1','city']);
     $kind = (string) ($body['kind'] ?? 'hq');
@@ -244,25 +330,6 @@ if ($method === 'POST' && $action === 'add-address') {
     ]);
     companiesAudit('company.address.added', ['company_id' => $id, 'address_id' => $aid, 'kind' => $kind], $id);
     api_ok(['address_id' => $aid, 'addresses' => companyAddresses($id)], 201);
-}
-
-if ($method === 'PATCH' && $action === 'address') {
-    rbac_legacy_require($user, 'people.manage');
-    $aid = (int) ($_GET['id'] ?? 0);
-    $body = api_json_body();
-    foreach (['id','tenant_id','company_id','created_at'] as $k) unset($body[$k]);
-    if (!$body) api_error('No fields to update', 422);
-    $rows = scopedUpdate('company_addresses', $aid, $body);
-    if ($rows === 0) api_error('Not found or no change', 404);
-    api_ok(['ok' => true]);
-}
-
-if ($method === 'DELETE' && $action === 'address') {
-    rbac_legacy_require($user, 'people.manage');
-    $aid = (int) ($_GET['id'] ?? 0);
-    $rows = scopedDelete('company_addresses', $aid);
-    if ($rows === 0) api_error('Not found', 404);
-    api_ok(['ok' => true]);
 }
 
 api_error('Method not allowed', 405);

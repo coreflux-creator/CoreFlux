@@ -1,6 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
+import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
 import {
   Database, Landmark, MoveRight, Network, Plus, Search, X,
 } from 'lucide-react';
@@ -24,14 +26,20 @@ const DEFAULT_COA = [
  * Returns array of { row, depth } where children are listed directly
  * after their parent. Cycle-safe (caps depth at 6).
  */
-function buildTree(rows) {
+function buildTree(rows, sort = { key: 'code', dir: 'asc' }) {
   const byParent = new Map();   // parent_id (or null) → child rows
   rows.forEach((r) => {
     const pid = r.parent_account_id || 0;
     if (!byParent.has(pid)) byParent.set(pid, []);
     byParent.get(pid).push(r);
   });
-  byParent.forEach((arr) => arr.sort((a, b) => (a.code || '').localeCompare(b.code || '')));
+  const direction = sort.dir === 'desc' ? -1 : 1;
+  byParent.forEach((arr) => arr.sort((a, b) => {
+    if (sort.key === 'active' || sort.key === 'is_postable') {
+      return (Number(a[sort.key]) - Number(b[sort.key])) * direction;
+    }
+    return String(a[sort.key] ?? '').localeCompare(String(b[sort.key] ?? ''), undefined, { numeric: true }) * direction;
+  }));
 
   const out = [];
   const seen = new Set();
@@ -86,15 +94,23 @@ export default function ChartOfAccounts() {
   const [autoBusy, setAutoBusy] = useState(false);
   const [notice, setNotice]   = useState(null);
   const [typeFilter, setTypeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch]   = useState('');
+  const [sort, setSort] = useState({ key: 'code', dir: 'asc' });
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [moveTarget, setMoveTarget] = useState(null);   // {id, code, name, account_type, parent_account_id}
 
   const filtered = useMemo(
-    () => (typeFilter ? rows.filter((r) => r.account_type === typeFilter) : rows),
-    [rows, typeFilter]
+    () => rows.filter((row) => (
+      (!typeFilter || row.account_type === typeFilter)
+      && (statusFilter === '' || Number(row.active) === Number(statusFilter))
+    )),
+    [rows, typeFilter, statusFilter]
   );
-  const tree = useMemo(() => buildTree(filtered), [filtered]);
+  const tree = useMemo(() => buildTree(filtered, sort), [filtered, sort]);
   const visibleTree = useMemo(() => {
     const needle = search.trim().toLowerCase();
     if (!needle) return tree;
@@ -114,6 +130,63 @@ export default function ChartOfAccounts() {
     });
     return tree.filter(({ row }) => visibleIds.has(row.id));
   }, [filtered, search, tree]);
+
+  useEffect(() => {
+    setSelected(new Set());
+    setBulkResult(null);
+  }, [search, typeFilter, statusFilter, sort]);
+
+  const toggleSort = (key) => setSort(current => ({
+    key,
+    dir: current.key === key && current.dir === 'asc' ? 'desc' : 'asc',
+  }));
+  const sortProps = (key) => ({
+    role: 'button',
+    tabIndex: 0,
+    'aria-sort': sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none',
+    onClick: () => toggleSort(key),
+    onKeyDown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleSort(key);
+      }
+    },
+  });
+  const toggleRow = (id) => setSelected(current => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const visibleRows = visibleTree.map(item => item.row);
+  const allVisible = visibleRows.length > 0 && visibleRows.every(row => selected.has(row.id));
+  const toggleAll = () => setSelected(current => {
+    const next = new Set(current);
+    if (allVisible) visibleRows.forEach(row => next.delete(row.id));
+    else visibleRows.forEach(row => next.add(row.id));
+    return next;
+  });
+  const bulkFields = useMemo(() => [
+    { key: 'active', label: 'Status', type: 'select', placeholder: 'Choose status', options: [{ value: '1', label: 'Active' }, { value: '0', label: 'Inactive' }] },
+    { key: 'is_postable', label: 'Posting', type: 'select', placeholder: 'Choose posting behavior', options: [{ value: '1', label: 'Posting account' }, { value: '0', label: 'Header account' }] },
+  ], []);
+  const bulkUpdate = async (field, value, label) => {
+    if (!selected.size) return;
+    if (!confirm(`Change ${label.toLowerCase()} for ${selected.size} selected account${selected.size === 1 ? '' : 's'}?`)) return;
+    setBulkBusy(true);
+    setBulkResult(null);
+    try {
+      const result = await api.post('/modules/accounting/api/accounts.php?action=bulk_update', {
+        ids: Array.from(selected), field, value,
+      });
+      setBulkResult(result);
+      setSelected(new Set());
+      reload();
+    } catch (bulkError) {
+      setBulkResult({ error: bulkError?.message || String(bulkError) });
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   const add = async (e) => {
     e.preventDefault();
@@ -249,6 +322,18 @@ export default function ChartOfAccounts() {
             <option value="">All account types</option>
             {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
+          <select
+            className="input"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            data-testid="accounting-accounts-status-filter"
+            aria-label="Account status"
+            style={{ width: 160 }}
+          >
+            <option value="">All statuses</option>
+            <option value="1">Active</option>
+            <option value="0">Inactive</option>
+          </select>
         </div>
         <span className="ledger-page-header__meta">{visibleTree.length} shown</span>
       </div>
@@ -268,22 +353,42 @@ export default function ChartOfAccounts() {
       {loading && <p>Loading…</p>}
       {error   && <p className="error">Error: {error.message}</p>}
 
+      <BulkEditBar
+        count={selected.size}
+        noun="account"
+        fields={bulkFields}
+        busy={bulkBusy}
+        onApply={bulkUpdate}
+        onClear={() => setSelected(new Set())}
+        testid="accounting-accounts-bulk"
+      />
+      {bulkResult && (
+        <p className={bulkResult.error ? 'error' : 'success'} data-testid="accounting-accounts-bulk-result">
+          {bulkResult.error || `Updated ${bulkResult.updated}; skipped ${bulkResult.skipped}; failed ${bulkResult.failed}.`}
+        </p>
+      )}
+
       <div className="data-table-wrap">
       <table className="data-table" data-testid="accounting-accounts-table">
         <thead>
           <tr>
-            <th style={{ width: 120 }}>Number</th>
-            <th>Account name</th>
-            <th>Type</th><th>Normal</th><th>Posting</th><th>Status</th>
+            <th style={{ width: 32 }}><input type="checkbox" checked={allVisible} onChange={toggleAll} aria-label="Select all visible accounts" data-testid="accounting-accounts-select-all" /></th>
+            <th {...sortProps('code')} style={{ width: 120 }}>Number <SortIndicator active={sort.key === 'code'} dir={sort.dir} /></th>
+            <th {...sortProps('name')}>Account name <SortIndicator active={sort.key === 'name'} dir={sort.dir} /></th>
+            <th {...sortProps('account_type')}>Type <SortIndicator active={sort.key === 'account_type'} dir={sort.dir} /></th>
+            <th>Normal</th>
+            <th {...sortProps('is_postable')}>Posting <SortIndicator active={sort.key === 'is_postable'} dir={sort.dir} /></th>
+            <th {...sortProps('active')}>Status <SortIndicator active={sort.key === 'active'} dir={sort.dir} /></th>
             <th style={{ width: 90 }}>Actions</th>
           </tr>
         </thead>
         <tbody>
           {visibleTree.length === 0 && (
-            <tr><td colSpan={7} className="empty" data-testid="accounting-accounts-empty">No accounts match.</td></tr>
+            <tr><td colSpan={8} className="empty" data-testid="accounting-accounts-empty">No accounts match.</td></tr>
           )}
           {visibleTree.map(({ row: r, depth }) => (
             <tr key={r.id} data-testid={`accounting-accounts-row-${r.code}`}>
+              <td><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} aria-label={`Select ${r.code} ${r.name}`} data-testid={`accounting-account-select-${r.id}`} /></td>
               <td>
                 <AccountLink accountId={r.id} accountCode={r.code} className="account-code">
                   {r.code}

@@ -110,12 +110,12 @@ $assert('plaid_bank_link.php parses cleanly',$lint(__DIR__ . '/../api/plaid_bank
 // ─── Accounts API: tree + auto_group_plaid actions ───
 echo "modules/accounting/api/accounts.php (tree + auto_group_plaid)\n";
 $ac = file_get_contents(__DIR__ . '/../modules/accounting/api/accounts.php');
-$assert('?action=auto_group_plaid handler',  strpos($ac, "action'] ?? '') === 'auto_group_plaid'") !== false);
+$assert('?action=auto_group_plaid handler',  strpos($ac, "\$action === 'auto_group_plaid'") !== false);
 $assert('auto_group_plaid loads plaid_service',
                                              strpos($ac, "require_once __DIR__ . '/../../../core/plaid_service.php'") !== false);
 $assert('auto_group_plaid requires accounting.coa.manage perm',
                                              strpos($ac, "'accounting.coa.manage'") !== false);
-$assert('?action=tree returns rows',         strpos($ac, "action'] ?? '') === 'tree'") !== false);
+$assert('?action=tree returns rows',         strpos($ac, "\$action === 'tree'") !== false);
 $assert('PATCH supports parent_account_id',  strpos($ac, "if (\$method === 'PATCH')") !== false);
 $assert('audits accounting.coa.auto_grouped_plaid',
                                              strpos($ac, "'accounting.coa.auto_grouped_plaid'") !== false);

@@ -16,11 +16,12 @@ $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
+$action = (string) ($_GET['action'] ?? '');
 
 const ACCT_TYPES = ['asset','liability','equity','revenue','expense'];
 const NORMAL_DEFAULT = ['asset' => 'debit','expense' => 'debit','liability' => 'credit','equity' => 'credit','revenue' => 'credit'];
 
-if ($method === 'POST' && (string) ($_GET['action'] ?? '') === 'auto_group_plaid') {
+if ($method === 'POST' && $action === 'auto_group_plaid') {
     rbac_legacy_require($user, 'accounting.coa.manage');
     require_once __DIR__ . '/../../../core/plaid_service.php';
 
@@ -71,7 +72,7 @@ if ($method === 'POST' && (string) ($_GET['action'] ?? '') === 'auto_group_plaid
     ]);
 }
 
-if ($method === 'GET' && (string) ($_GET['action'] ?? '') === 'tree') {
+if ($method === 'GET' && $action === 'tree') {
     rbac_legacy_require($user, 'accounting.coa.view');
     $type = $_GET['type'] ?? null;
     $where  = ['tenant_id = :tenant_id', 'active = 1'];
@@ -111,7 +112,10 @@ if ($method === 'GET') {
         $params['q']  = '%' . $_GET['q'] . '%';
         $params['q2'] = $params['q'];
     }
-    if (!empty($_GET['active'])) { $where[] = 'active = :a'; $params['a'] = (int) !!$_GET['active']; }
+    if (array_key_exists('active', $_GET) && $_GET['active'] !== '') {
+        $where[] = 'active = :a';
+        $params['a'] = (int) ((string) $_GET['active'] === '1');
+    }
     if (!empty($_GET['postable'])) { $where[] = 'is_postable = 1'; }
     $rows = scopedQuery(
         'SELECT id, code, name, account_type, normal_side, parent_account_id, is_postable, active,
@@ -123,6 +127,53 @@ if ($method === 'GET') {
         $params
     );
     api_ok(['rows' => $rows, 'types' => ACCT_TYPES]);
+}
+
+if ($method === 'POST' && $action === 'bulk_update') {
+    rbac_legacy_require($user, 'accounting.coa.manage');
+    $body = api_json_body();
+    $ids = is_array($body['ids'] ?? null)
+        ? array_values(array_unique(array_map('intval', $body['ids'])))
+        : [];
+    $ids = array_values(array_filter($ids, static fn($id) => $id > 0));
+    $field = (string) ($body['field'] ?? '');
+    $value = (string) ($body['value'] ?? '');
+    if (!$ids) api_error('ids[] required', 422);
+    if (count($ids) > 500) api_error('Too many ids (max 500 per call)', 422);
+    if (!in_array($field, ['active', 'is_postable'], true)) api_error('Invalid bulk field', 422);
+    if (!in_array($value, ['0', '1'], true)) api_error('Value must be 0 or 1', 422);
+
+    $updated = 0;
+    $skipped = 0;
+    $failed = 0;
+    foreach ($ids as $id) {
+        try {
+            $account = scopedFind(
+                'SELECT id, code, active, is_postable FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id',
+                ['id' => $id]
+            );
+            if (!$account) {
+                $skipped++;
+                continue;
+            }
+            if ((int) $account[$field] === (int) $value) {
+                $skipped++;
+                continue;
+            }
+            scopedUpdate('accounting_accounts', $id, [$field => (int) $value]);
+            accountingAudit('accounting.account.updated', [
+                'id' => $id,
+                'source' => 'bulk_update',
+                'fields' => [$field],
+                'before' => [$field => (int) $account[$field]],
+                'after' => [$field => (int) $value],
+            ], $id);
+            $updated++;
+        } catch (\Throwable $e) {
+            $failed++;
+        }
+    }
+    api_ok(['ok' => $failed === 0, 'updated' => $updated, 'skipped' => $skipped, 'failed' => $failed]);
 }
 
 if ($method === 'POST') {
@@ -155,10 +206,49 @@ if ($method === 'PATCH') {
     rbac_legacy_require($user, 'accounting.coa.manage');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
+    $current = scopedFind(
+        'SELECT id, account_type, parent_account_id FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $id]
+    );
+    if (!$current) api_error('Not found', 404);
     $body = api_json_body();
-    foreach (['id','tenant_id','created_at'] as $k) unset($body[$k]);
+    $body = array_intersect_key($body, array_flip([
+        'code', 'name', 'account_type', 'normal_side', 'parent_account_id',
+        'is_postable', 'currency', 'description', 'active',
+    ]));
     if (isset($body['account_type']) && !in_array($body['account_type'], ACCT_TYPES, true)) {
         api_error('Invalid account_type', 422);
+    }
+    if (isset($body['normal_side']) && !in_array($body['normal_side'], ['debit', 'credit'], true)) {
+        api_error('normal_side must be debit|credit', 422);
+    }
+    foreach (['is_postable', 'active'] as $booleanField) {
+        if (array_key_exists($booleanField, $body)) $body[$booleanField] = (int) !!$body[$booleanField];
+    }
+    if (array_key_exists('parent_account_id', $body)) {
+        $parentId = (int) ($body['parent_account_id'] ?? 0);
+        $body['parent_account_id'] = $parentId > 0 ? $parentId : null;
+        if ($parentId > 0) {
+            if ($parentId === $id) api_error('An account cannot be its own parent', 422);
+            $parent = scopedFind(
+                'SELECT id, account_type, parent_account_id FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id',
+                ['id' => $parentId]
+            );
+            if (!$parent) api_error('Parent account not found', 404);
+            $resultType = (string) ($body['account_type'] ?? $current['account_type']);
+            if ((string) $parent['account_type'] !== $resultType) api_error('Parent account must have the same type', 422);
+            $cursor = $parent;
+            $guard = 0;
+            while (!empty($cursor['parent_account_id']) && $guard < 500) {
+                if ((int) $cursor['parent_account_id'] === $id) api_error('Parent selection would create a cycle', 422);
+                $cursor = scopedFind(
+                    'SELECT id, parent_account_id FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id',
+                    ['id' => (int) $cursor['parent_account_id']]
+                );
+                if (!$cursor) break;
+                $guard++;
+            }
+        }
     }
     if (!$body) api_error('No fields to update', 422);
     $rows = scopedUpdate('accounting_accounts', $id, $body);

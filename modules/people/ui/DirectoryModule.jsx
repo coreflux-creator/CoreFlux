@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Routes, Route, NavLink, Navigate, useNavigate, useParams, Link } from 'react-router-dom';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSourcesBadge';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
 
 /**
  * Directory module — shared engine for Clients and Vendors views.
@@ -65,23 +68,91 @@ export default function DirectoryModule({ mode = 'clients' }) {
 function DirectoryList({ cfg, mode }) {
   const [q, setQ] = useState('');
   const [subRole, setSubRole] = useState('');
-  // Build query: hits companies API but filters server-side by role one-of cfg.roleSet.
-  // Server takes single role; for "any vendor-flavor" we fetch all-roles client-side
-  // when no subRole is set, then filter to cfg.roleSet locally.
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
+
   const params = new URLSearchParams();
   if (q) params.set('q', q);
   if (subRole) params.set('role', subRole);
-  const { data, loading, error } = useApi('/modules/people/api/companies.php' + (params.toString() ? '?' + params.toString() : ''));
-  const allRows = data?.rows ?? [];
-  const rows = subRole
-    ? allRows
-    : allRows.filter(r => (r.roles || []).some(role => cfg.roleSet.includes(role)));
+  else params.set('roles', cfg.roleSet.join(','));
+  if (statusFilter) params.set('status', statusFilter);
+  params.set('sort', sort.key);
+  params.set('dir', sort.dir);
+  params.set('page', String(page));
+  params.set('per_page', '50');
+  const { data, loading, error, reload } = useApi(`/modules/people/api/companies.php?${params.toString()}`);
+  const rows = data?.rows ?? [];
+  const total = Number(data?.total || 0);
+  const totalPages = Math.max(1, Math.ceil(total / 50));
+
+  useEffect(() => { setPage(1); }, [q, subRole, statusFilter, mode]);
+  useEffect(() => {
+    setSelected(new Set());
+    setBulkResult(null);
+  }, [q, subRole, statusFilter, sort, page, mode]);
+
+  const toggleSort = (key) => setSort(current => ({
+    key,
+    dir: current.key === key && current.dir === 'asc' ? 'desc' : 'asc',
+  }));
+  const sortProps = (key) => ({
+    role: 'button',
+    tabIndex: 0,
+    'aria-sort': sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none',
+    onClick: () => toggleSort(key),
+    onKeyDown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleSort(key);
+      }
+    },
+  });
+  const toggleRow = (id) => setSelected(current => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const allOnPage = rows.length > 0 && rows.every(row => selected.has(row.id));
+  const toggleAll = () => setSelected(current => {
+    const next = new Set(current);
+    if (allOnPage) rows.forEach(row => next.delete(row.id));
+    else rows.forEach(row => next.add(row.id));
+    return next;
+  });
+  const bulkFields = useMemo(() => [
+    { key: 'status', label: 'Status', type: 'select', placeholder: 'Choose status', options: ['prospect', 'active', 'inactive', 'blacklisted'] },
+    { key: 'default_terms', label: 'Payment terms', type: 'text', placeholder: 'For example, NET30' },
+    { key: 'currency', label: 'Currency', type: 'text', placeholder: 'USD' },
+    { key: 'industry', label: 'Industry', type: 'text', placeholder: 'Industry' },
+  ], []);
+  const bulkUpdate = async (field, value, label) => {
+    if (!selected.size) return;
+    if (!confirm(`Change ${label.toLowerCase()} for ${selected.size} selected ${cfg.listLabel}${selected.size === 1 ? '' : 's'}?`)) return;
+    setBulkBusy(true);
+    setBulkResult(null);
+    try {
+      const result = await api.post('/modules/people/api/companies.php?action=bulk_update', {
+        ids: Array.from(selected), field, value,
+      });
+      setBulkResult(result);
+      setSelected(new Set());
+      reload();
+    } catch (bulkError) {
+      setBulkResult({ error: bulkError?.message || String(bulkError) });
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   return (
     <div data-testid={`${mode}-list`}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', gap: 8, flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ margin: 0 }}>{cfg.label}</h2>
+          <h1 style={{ margin: 0 }}>{cfg.label}</h1>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--cf-text-secondary)' }}>{cfg.description}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -96,33 +167,76 @@ function DirectoryList({ cfg, mode }) {
           <option value="">All {cfg.label.toLowerCase()}</option>
           {cfg.roleSet.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
+        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} data-testid={`${mode}-status-filter`}>
+          <option value="">All statuses</option>
+          <option value="prospect">prospect</option><option value="active">active</option>
+          <option value="inactive">inactive</option><option value="blacklisted">blacklisted</option>
+        </select>
       </div>
+
+      <BulkEditBar
+        count={selected.size}
+        noun={cfg.listLabel}
+        fields={bulkFields}
+        busy={bulkBusy}
+        onApply={bulkUpdate}
+        onClear={() => setSelected(new Set())}
+        testid={`${mode}-bulk`}
+      />
+      {bulkResult && (
+        <p className={bulkResult.error ? 'error' : 'success'} data-testid={`${mode}-bulk-result`}>
+          {bulkResult.error || `Updated ${bulkResult.updated}; skipped ${bulkResult.skipped}; failed ${bulkResult.failed}.`}
+        </p>
+      )}
 
       {loading && <p>Loading…</p>}
       {error && <p className="error">Error: {error.message}</p>}
 
       <table className="data-table" data-testid={`${mode}-table`}>
-        <thead><tr><th>ID</th><th>Name</th><th>Roles</th><th>Primary contact</th><th>Location</th><th style={{textAlign:'right'}}>Used</th></tr></thead>
+        <thead><tr>
+          <th style={{ width: 32 }}><input type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label={`Select all ${cfg.label.toLowerCase()} on this page`} data-testid={`${mode}-select-all`} /></th>
+          <th {...sortProps('id')}>ID <SortIndicator active={sort.key === 'id'} dir={sort.dir} /></th>
+          <th {...sortProps('name')}>Name <SortIndicator active={sort.key === 'name'} dir={sort.dir} /></th>
+          <th>Roles</th>
+          <th {...sortProps('status')}>Status <SortIndicator active={sort.key === 'status'} dir={sort.dir} /></th>
+          <th {...sortProps('primary_contact_name')}>Primary contact <SortIndicator active={sort.key === 'primary_contact_name'} dir={sort.dir} /></th>
+          <th {...sortProps('city')}>Location <SortIndicator active={sort.key === 'city'} dir={sort.dir} /></th>
+          <th {...sortProps('default_terms')}>Terms <SortIndicator active={sort.key === 'default_terms'} dir={sort.dir} /></th>
+          <th {...sortProps('use_count')} style={{textAlign:'right'}}>Used <SortIndicator active={sort.key === 'use_count'} dir={sort.dir} /></th>
+          <th aria-label="Actions" />
+        </tr></thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={6} className="empty" data-testid={`${mode}-empty`}>No {cfg.label.toLowerCase()} yet — auto-created when placements reference them, or click "+ New {cfg.listLabel}".</td></tr>}
+          {rows.length === 0 && !loading && <tr><td colSpan={10} className="empty" data-testid={`${mode}-empty`}>No {cfg.label.toLowerCase()} match these filters.</td></tr>}
           {rows.map(c => {
             const alsoOther = (c.roles || []).some(role => cfg.crossRoles.includes(role));
             return (
               <tr key={c.id} data-testid={`${mode}-row-${c.id}`}>
+                <td><input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleRow(c.id)} aria-label={`Select ${c.name}`} data-testid={`${mode}-select-${c.id}`} /></td>
                 <td><IdBadge id={c.id} prefix="C" /></td>
                 <td>
                   <Link to={String(c.id)} data-testid={`${mode}-link-${c.id}`}>{c.name}</Link>
                   {alsoOther && <span title={`Also acts as ${cfg.crossLabel}`} className="badge" style={{ marginLeft: 6, fontSize: 10 }}>also {cfg.crossLabel}</span>}
                 </td>
                 <td>{(c.roles || []).filter(r => cfg.roleSet.includes(r)).map(r => <span key={r} className="badge" style={{ marginRight: 4 }}>{r}</span>)}</td>
+                <td><span className={`badge badge--${c.status}`}>{c.status}</span></td>
                 <td>{c.primary_contact_name || '—'}{c.primary_contact_email && <div style={{ fontSize: 11, color: '#6b7280' }}>{c.primary_contact_email}</div>}</td>
                 <td>{c.city ? `${c.city}, ${c.state || c.country || ''}` : '—'}</td>
+                <td>{c.default_terms || '—'}{c.currency && <div style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>{c.currency}</div>}</td>
                 <td style={{ textAlign: 'right' }}>{c.use_count}</td>
+                <td><Link to={String(c.id)} className="btn btn--ghost btn--icon" aria-label={`Open ${c.name}`} title={`Open ${cfg.listLabel}`}><ChevronRight size={16} aria-hidden="true" /></Link></td>
               </tr>
             );
           })}
         </tbody>
       </table>
+      <div className="pagination" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+        <span>{total} {cfg.label.toLowerCase()}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="btn btn--ghost btn--icon" type="button" disabled={page <= 1} onClick={() => setPage(current => current - 1)} aria-label="Previous page"><ChevronLeft size={16} aria-hidden="true" /></button>
+          <span>Page {page} of {totalPages}</span>
+          <button className="btn btn--ghost btn--icon" type="button" disabled={page >= totalPages} onClick={() => setPage(current => current + 1)} aria-label="Next page"><ChevronRight size={16} aria-hidden="true" /></button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -171,7 +285,7 @@ function DirectoryCreate({ cfg, mode }) {
   return (
     <div data-testid={`${mode}-create`}>
       <Link to=".." style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← {cfg.label}</Link>
-      <h2 style={{ marginTop: 8 }}>New {cfg.listLabel}</h2>
+      <h1 style={{ marginTop: 8 }}>New {cfg.listLabel}</h1>
 
       <SectionTitle>Identity</SectionTitle>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, maxWidth: 900 }}>
@@ -294,10 +408,10 @@ function DirectoryDetail({ cfg, mode }) {
   return (
     <div data-testid={`${mode}-detail`}>
       <Link to=".." style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← {cfg.label}</Link>
-      <h2 style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }} data-testid={`${mode}-detail-name`}>
+      <h1 style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }} data-testid={`${mode}-detail-name`}>
         <span>{c.name}</span>
         <IdBadge id={c.id} prefix="C" title={`Company ID ${c.id} — click to copy for CSV imports`} />
-      </h2>
+      </h1>
       <p style={{ margin: '4px 0', color: 'var(--cf-text-secondary)', fontSize: 14 }}>
         {c.legal_name && c.legal_name !== c.name ? `${c.legal_name} · ` : ''}
         {c.city ? `${c.city}, ${c.state || c.country || ''}` : ''}

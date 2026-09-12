@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useApi } from '../../../dashboard/src/lib/api';
+import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
+import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
 
 const API = '/modules/people/api/people.php';
 
@@ -19,6 +20,9 @@ export default function Directory() {
   const [needsReview, setNeedsReview] = useState(false);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState({ key: 'last_name', dir: 'asc' });
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
 
   const path = useMemo(() => {
     const params = new URLSearchParams();
@@ -57,11 +61,58 @@ export default function Directory() {
     return `/api/v1/people/csv-export?${params.toString()}`;
   };
 
+  useEffect(() => {
+    setSelected(new Set());
+    setBulkResult(null);
+  }, [q, classification, status, needsReview, page]);
+
+  const toggleRow = (id) => {
+    setSelected(previous => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const allOnPage = items.length > 0 && items.every(row => selected.has(row.id));
+  const toggleAll = () => {
+    setSelected(previous => {
+      const next = new Set(previous);
+      if (allOnPage) items.forEach(row => next.delete(row.id));
+      else items.forEach(row => next.add(row.id));
+      return next;
+    });
+  };
+  const bulkFields = useMemo(() => [
+    { key: 'status', label: 'Status', type: 'select', placeholder: 'Choose status', options: STATUSES.filter(Boolean).map(value => ({ value, label: value.replaceAll('_', ' ') })) },
+    { key: 'classification', label: 'Classification', type: 'select', placeholder: 'Choose classification', options: CLASSIFICATIONS.filter(Boolean) },
+    { key: 'work_auth_status', label: 'Work authorization', type: 'select', placeholder: 'Choose work authorization', options: ['unknown', 'citizen', 'green_card', 'h1b', 'opt', 'cpt', 'tn', 'other'].map(value => ({ value, label: value.replaceAll('_', ' ') })) },
+    { key: 'employment_type', label: 'Employment type', type: 'select', placeholder: 'Choose employment type', options: ['full_time', 'part_time', 'contractor', 'intern', 'temp'].map(value => ({ value, label: value.replaceAll('_', ' ') })) },
+    { key: 'pay_frequency', label: 'Pay frequency', type: 'select', placeholder: 'Choose pay frequency', options: ['weekly', 'biweekly', 'semimonthly', 'monthly'] },
+  ], []);
+  const bulkUpdate = async (field, value, label) => {
+    if (!selected.size) return;
+    if (!confirm(`Change ${label.toLowerCase()} for ${selected.size} selected ${selected.size === 1 ? 'person' : 'people'}?`)) return;
+    setBulkBusy(true);
+    setBulkResult(null);
+    try {
+      const result = await api.post(`${API}?action=bulk_update`, {
+        ids: Array.from(selected), field, value,
+      });
+      setBulkResult({ ...result, label, value });
+      setSelected(new Set());
+      reload();
+    } catch (e) {
+      setBulkResult({ error: e?.message || String(e) });
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   return (
     <section className="people-directory" data-testid="people-directory">
       <header className="people-directory__header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <div>
-          <h2>People Directory</h2>
+          <h1>People Directory</h1>
           <p className="people-directory__subtitle" data-testid="people-directory-count">
             {data ? `${total} total` : 'Loading…'}
           </p>
@@ -134,6 +185,24 @@ export default function Directory() {
         </button>
       </div>
 
+      <BulkEditBar
+        count={selected.size}
+        noun="person"
+        fields={bulkFields}
+        busy={bulkBusy}
+        onApply={bulkUpdate}
+        onClear={() => setSelected(new Set())}
+        testid="people-bulk"
+      />
+
+      {bulkResult && (
+        <div className={bulkResult.error ? 'error' : 'success'} data-testid="people-bulk-result">
+          {bulkResult.error
+            ? `Bulk update failed: ${bulkResult.error}`
+            : `Updated ${bulkResult.updated}; skipped ${bulkResult.skipped}; failed ${bulkResult.failed}.`}
+        </div>
+      )}
+
       {loading && <p data-testid="people-directory-loading">Loading…</p>}
       {error && <p className="error" data-testid="people-directory-error">Error: {error.message}</p>}
 
@@ -142,6 +211,15 @@ export default function Directory() {
           <table className="data-table" data-testid="people-directory-table" style={{ width: '100%' }}>
             <thead>
               <tr>
+                <th style={{ width: 32 }}>
+                  <input
+                    type="checkbox"
+                    checked={allOnPage}
+                    onChange={toggleAll}
+                    aria-label="Select all people on this page"
+                    data-testid="people-bulk-select-all"
+                  />
+                </th>
                 <th {...headerProps('id', 'people-directory-sort')}>ID <SortIndicator active={sortKey === 'id'} dir={sortDir} /></th>
                 <th {...headerProps('last_name', 'people-directory-sort')}>Name <SortIndicator active={sortKey === 'last_name'} dir={sortDir} /></th>
                 <th {...headerProps('email_primary', 'people-directory-sort')}>Email <SortIndicator active={sortKey === 'email_primary'} dir={sortDir} /></th>
@@ -153,7 +231,7 @@ export default function Directory() {
             </thead>
             <tbody>
               {items.length === 0 && (
-                <tr><td colSpan={7} className="empty" data-testid="people-directory-empty">No people match.</td></tr>
+                <tr><td colSpan={8} className="empty" data-testid="people-directory-empty">No people match.</td></tr>
               )}
               {items.map((p) => {
                 // A row "needs review" iff it carries one of the synthetic
@@ -169,6 +247,15 @@ export default function Directory() {
                   || (p.last_name && p.last_name.startsWith('Candidate-'));
                 return (
                 <tr key={p.id} data-testid={`people-row-${p.id}`}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(p.id)}
+                      onChange={() => toggleRow(p.id)}
+                      aria-label={`Select ${p.preferred_name || p.first_name} ${p.last_name}`}
+                      data-testid={`people-row-select-${p.id}`}
+                    />
+                  </td>
                   <td><IdBadge id={p.id} prefix="P" /></td>
                   <td>
                     <Link to={`../${p.id}`} data-testid={`people-row-link-${p.id}`}>

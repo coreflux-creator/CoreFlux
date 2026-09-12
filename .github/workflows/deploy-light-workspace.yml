@@ -59,7 +59,11 @@ jobs:
             about.html \
             accounting.html \
             admin/index.html \
+            api/admin/integrations_health.php \
+            api/ai/exceptions.php \
+            api/ai_accuracy.php \
             api/ap/approve_by_email.php \
+            api/books_health.php \
             api/gusto_oauth_callback.php \
             api/mail_connections.php \
             api/staffing/approve_timesheet_by_email.php \
@@ -67,8 +71,10 @@ jobs:
             assets/css/signup.html \
             assets/css/styles.css \
             auditor.php \
+            core/api_bootstrap.php \
             core/modules.php \
             core/rbac/legacy_map.php \
+            core/storage_register.php \
             core/mail/M365GraphDriver.php \
             core/views/admin/tenant_edit.php \
             crm.html \
@@ -84,6 +90,8 @@ jobs:
             dashboard/src/layout/Sidebar.jsx \
             dashboard/src/pages/MasterTenantsAdmin.jsx \
             dashboard/src/pages/DashboardOverview.jsx \
+            dashboard/src/pages/GraphqlSandbox.jsx \
+            dashboard/src/pages/LayerFiToggleCard.jsx \
             dashboard/src/pages/MailConnectionsCard.jsx \
             dashboard/src/pages/MailSettingsPage.jsx \
             dashboard/src/pages/MailSuppressionsCard.jsx \
@@ -97,19 +105,46 @@ jobs:
             login.html \
             login.php \
             login2.html \
+            modules/accounting/api/accounts.php \
+            modules/accounting/ui/ChartOfAccounts.jsx \
             modules/accounting/ui/StandardReports.jsx \
+            modules/ap/api/1099.php \
+            modules/ap/api/approval_policies.php \
             modules/ap/api/bills.php \
             modules/ap/api/bill_approvals.php \
+            modules/ap/api/vendor_risk.php \
             modules/ap/api/vendor_portal.php \
             modules/ap/api/weekly_queue.php \
+            modules/ap/lib/vendor_risk.php \
             modules/ap/ui/APModule.jsx \
             modules/ap/ui/BillsList.jsx \
             modules/ap/ui/WeeklyQueue.jsx \
+            modules/billing/api/invoices.php \
+            modules/billing/lib/invoice_pdf.php \
             modules/billing/ui/BillingModule.jsx \
+            modules/payroll/lib/payroll.php \
+            modules/payroll/lib/workflow.php \
+            modules/payroll/lib/workflow_sync.php \
+            modules/payroll/manifest.php \
+            modules/payroll/migrations/001_init.sql \
+            modules/payroll/migrations/006_run_enterprise_controls.sql \
             modules/payroll/ui/GustoConnectCard.jsx \
             modules/payroll/ui/PayPeriods.jsx \
+            modules/people/api/companies.php \
+            modules/people/api/documents.php \
+            modules/people/api/people.php \
+            modules/people/lib/companies.php \
+            modules/people/lib/people.php \
+            modules/people/ui/Directory.jsx \
+            modules/people/ui/DirectoryModule.jsx \
+            modules/people/ui/PersonDetail.jsx \
+            modules/placements/api/documents.php \
             modules/placements/lib/placements.php \
             modules/placements/ui/List.jsx \
+            modules/placements/ui/PlacementDetail.jsx \
+            modules/reports/api/overtime_watch.php \
+            modules/reports/ui/ReportsModule.jsx \
+            modules/reports/ui/ReportsSidebar.jsx \
             modules/staffing/api/timesheet_email_approver.php \
             modules/staffing/api/csv_export.php \
             modules/time/api/intake.php \
@@ -120,6 +155,8 @@ jobs:
             people.html \
             pricing.html \
             reporting.html \
+            deploy/run_migrations.php \
+            scripts/ci_lane_classifier.sh \
             scripts/ap_weekly_queue_sunday.php \
             scripts/billing_recurring_generate.php \
             scripts/opcache_flush_deploy.php.template \
@@ -130,14 +167,36 @@ jobs:
             switch_tenant.php \
             tax.html \
             tests/login_redirect_paths_smoke.php \
+            tests/ai_accuracy_query_smoke.php \
+            tests/ap_1099_print_schema_smoke.php \
+            tests/ap_policy_and_vendor_risk_schema_smoke.php \
+            tests/ap_vendor_categories_attachments_smoke.php \
+            tests/authenticated_admin_surfaces_smoke.php \
+            tests/books_health_period_schema_smoke.php \
+            tests/chart_of_accounts_controls_smoke.php \
+            tests/ci_lane_classifier_smoke.php \
+            tests/company_directory_workflow_smoke.php \
             tests/csv_ai_assisted_mapping_smoke.php \
             tests/csv_external_id_wave2_smoke.php \
             tests/csv_importers_subtenant_scope_smoke.php \
             tests/csv_phase_b_smoke.php \
             tests/csv_universal_import_export_smoke.php \
             tests/export_templates_smoke.php \
+            tests/document_upload_bridge_smoke.php \
+            tests/integrations_health_endpoint_smoke.php \
+            tests/invoice_pdf_schema_smoke.php \
             tests/m365_graph_smoke.php \
+            tests/payroll_phase_a1_smoke.php \
+            tests/payroll_workflow_bridge_smoke.php \
+            tests/people_bulk_edit_smoke.php \
+            tests/people_search_and_request_race_smoke.php \
+            tests/reports_overtime_query_smoke.php \
             tests/sitewide_navigation_smoke.php \
+            tests/specific_get_action_routing_smoke.php \
+            tests/sweep_destination_ui_and_divergence_smoke.php \
+            tests/treasury_connection_error_copy_smoke.php \
+            tests/treasury_transactions_and_coa_hierarchy_smoke.php \
+            tests/unfinished_route_redirects_smoke.php \
             tests/workspace_shell_smoke.php \
             wealth.html \
             "${ROOT_ASSETS[@]}"
@@ -179,6 +238,7 @@ jobs:
             rm -f -- "$ARCHIVE"
             test -f "$STAGE_ROOT/modules/ap/api/bills.php"
             test -f "$STAGE_ROOT/modules/placements/lib/placements.php"
+            test -f "$STAGE_ROOT/modules/payroll/migrations/006_run_enterprise_controls.sql"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
@@ -189,19 +249,69 @@ jobs:
             cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
             cd "$APP_ROOT"
 
-            php -l modules/ap/api/bills.php
-            php -l modules/placements/lib/placements.php
-            php -l api/mail_connections.php
-            php -l core/mail/M365GraphDriver.php
+            for PHP_FILE in \
+              api/admin/integrations_health.php \
+              api/ai/exceptions.php \
+              api/ai_accuracy.php \
+              api/books_health.php \
+              core/api_bootstrap.php \
+              core/storage_register.php \
+              modules/accounting/api/accounts.php \
+              modules/ap/api/1099.php \
+              modules/ap/api/approval_policies.php \
+              modules/ap/api/bills.php \
+              modules/ap/api/vendor_risk.php \
+              modules/ap/lib/vendor_risk.php \
+              modules/billing/api/invoices.php \
+              modules/billing/lib/invoice_pdf.php \
+              modules/payroll/lib/payroll.php \
+              modules/payroll/lib/workflow.php \
+              modules/payroll/lib/workflow_sync.php \
+              modules/people/api/companies.php \
+              modules/people/api/documents.php \
+              modules/people/api/people.php \
+              modules/people/lib/companies.php \
+              modules/people/lib/people.php \
+              modules/placements/api/documents.php \
+              modules/placements/lib/placements.php \
+              modules/reports/api/overtime_watch.php; do
+              php -l "$PHP_FILE"
+            done
+
+            php deploy/run_migrations.php
+            php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/006_run_enterprise_controls.sql'
+
             php tests/login_redirect_paths_smoke.php
+            php tests/ai_accuracy_query_smoke.php
+            php tests/ap_1099_print_schema_smoke.php
+            php tests/ap_policy_and_vendor_risk_schema_smoke.php
+            php tests/ap_vendor_categories_attachments_smoke.php
+            php tests/authenticated_admin_surfaces_smoke.php
+            php tests/books_health_period_schema_smoke.php
+            php tests/chart_of_accounts_controls_smoke.php
+            php tests/ci_lane_classifier_smoke.php
+            php tests/company_directory_workflow_smoke.php
             php tests/csv_ai_assisted_mapping_smoke.php
             php tests/csv_external_id_wave2_smoke.php
             php tests/csv_importers_subtenant_scope_smoke.php
             php tests/csv_phase_b_smoke.php
             php tests/csv_universal_import_export_smoke.php
             php tests/export_templates_smoke.php
+            php tests/document_upload_bridge_smoke.php
+            php tests/integrations_health_endpoint_smoke.php
+            php tests/invoice_pdf_schema_smoke.php
             php tests/m365_graph_smoke.php
+            php tests/payroll_phase_a1_smoke.php
+            php tests/payroll_workflow_bridge_smoke.php
+            php tests/people_bulk_edit_smoke.php
+            php tests/people_search_and_request_race_smoke.php
+            php tests/reports_overtime_query_smoke.php
             php tests/sitewide_navigation_smoke.php
+            php tests/specific_get_action_routing_smoke.php
+            php tests/sweep_destination_ui_and_divergence_smoke.php
+            php tests/treasury_connection_error_copy_smoke.php
+            php tests/treasury_transactions_and_coa_hierarchy_smoke.php
+            php tests/unfinished_route_redirects_smoke.php
             php tests/workspace_shell_smoke.php
 
             SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' index.html | head -n 1)"

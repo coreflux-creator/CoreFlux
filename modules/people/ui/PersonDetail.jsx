@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, NavLink, Routes, Route, Navigate } from 'react-router-dom';
+import { ExternalLink, Upload } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSourcesBadge';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
@@ -41,10 +43,10 @@ export default function PersonDetail({ session }) {
       <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <button onClick={() => nav('..')} className="btn btn--ghost" data-testid="person-detail-back">← Directory</button>
-          <h2 data-testid="person-detail-name" style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h1 data-testid="person-detail-name" style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span>{person.preferred_name || person.first_name} {person.last_name}</span>
             <IdBadge id={person.id} prefix="P" title={`Person ID ${person.id} — click to copy for CSV imports`} />
-          </h2>
+          </h1>
           <p style={{ color: '#666' }}>
             <span data-testid="person-detail-classification" className={`badge badge--${person.classification}`}>{person.classification}</span>
             {' '}
@@ -258,6 +260,48 @@ function DocumentsTab({ personId }) {
   const path = `/modules/people/api/documents.php?person_id=${personId}`;
   const { data, loading, error, reload } = useApi(path);
   const docs = data?.documents ?? [];
+  const [docType, setDocType] = useState('other');
+  const [expiresAt, setExpiresAt] = useState('');
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  const upload = async (event) => {
+    event.preventDefault();
+    if (!file) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const uploaded = await uploadFileViaPresignedPost(
+        `/modules/people/api/documents.php?action=upload_url&person_id=${personId}&doc_type=${docType}&file_name=${encodeURIComponent(file.name)}`,
+        file
+      );
+      await api.post(`/modules/people/api/documents.php?person_id=${personId}`, {
+        ...uploaded,
+        doc_type: docType,
+        expires_at: expiresAt || null,
+      });
+      setFile(null);
+      setExpiresAt('');
+      setMessage({ ok: true, text: `${uploaded.filename} uploaded.` });
+      reload();
+    } catch (uploadError) {
+      setMessage({ ok: false, text: uploadError?.message || String(uploadError) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openDocument = async (id) => {
+    setMessage(null);
+    try {
+      const result = await api.get(`/modules/people/api/documents.php?id=${id}`);
+      if (!result?.signed_url) throw new Error('A download link could not be created.');
+      window.open(result.signed_url, '_blank', 'noopener,noreferrer');
+    } catch (openError) {
+      setMessage({ ok: false, text: openError?.message || String(openError) });
+    }
+  };
 
   return (
     <div data-testid="tab-documents">
@@ -265,13 +309,27 @@ function DocumentsTab({ personId }) {
         <h3>Documents</h3>
         <button className="btn btn--ghost" onClick={reload} data-testid="tab-documents-refresh">Refresh</button>
       </header>
-      <p style={{ color: '#666' }}>Documents stored via Core StorageService (S3 in prod).</p>
+      <form onSubmit={upload} className="filter-bar" style={{ alignItems: 'end', marginBottom: 'var(--cf-space-3)' }} data-testid="person-document-upload">
+        <label>Type
+          <select className="input" value={docType} onChange={(event) => setDocType(event.target.value)}>
+            {['resume', 'offer', 'i9', 'w4', 'w9', 'nda', 'contract', 'passport', 'visa', 'license', 'other'].map((type) => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </label>
+        <label>Expires<input className="input" type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
+        <label>File<input className="input" type="file" onChange={(event) => setFile(event.target.files?.[0] || null)} data-testid="person-document-file" /></label>
+        <button className="btn btn--primary" type="submit" disabled={busy || !file} data-testid="person-document-submit">
+          <Upload size={16} aria-hidden="true" /> {busy ? 'Uploading…' : 'Upload'}
+        </button>
+      </form>
+      {message && <p className={message.ok ? 'success' : 'error'} data-testid="person-document-message">{message.text}</p>}
       {loading && <p>Loading…</p>}
       {error && <p className="error">Error: {error.message}</p>}
       <table className="data-table" data-testid="tab-documents-table" style={{ width: '100%' }}>
-        <thead><tr><th>Type</th><th>File</th><th>Signed</th><th>Expires</th><th>Uploaded</th></tr></thead>
+        <thead><tr><th>Type</th><th>File</th><th>Signed</th><th>Expires</th><th>Uploaded</th><th aria-label="Actions" /></tr></thead>
         <tbody>
-          {docs.length === 0 && <tr><td colSpan={5} className="empty" data-testid="tab-documents-empty">No documents yet.</td></tr>}
+          {docs.length === 0 && <tr><td colSpan={6} className="empty" data-testid="tab-documents-empty">No documents yet.</td></tr>}
           {docs.map(d => (
             <tr key={d.id} data-testid={`document-row-${d.id}`}>
               <td>{d.doc_type}</td>
@@ -279,6 +337,7 @@ function DocumentsTab({ personId }) {
               <td>{d.signed ? `✓ ${(d.signed_at || '').slice(0, 10)}` : '—'}</td>
               <td>{d.expires_at?.slice(0, 10) || '—'}</td>
               <td>{(d.created_at || '').slice(0, 10)}</td>
+              <td><button className="btn btn--ghost btn--icon" type="button" onClick={() => openDocument(d.id)} aria-label={`Open ${d.file_name || 'document'}`} title="Open document"><ExternalLink size={16} aria-hidden="true" /></button></td>
             </tr>
           ))}
         </tbody>

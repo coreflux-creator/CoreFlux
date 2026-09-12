@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, NavLink, Routes, Route, Navigate, Link } from 'react-router-dom';
+import { ExternalLink, Upload } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
@@ -48,7 +49,7 @@ export default function PlacementDetail({ session }) {
             data-testid="placement-detail-switch-gql"
             style={{ marginLeft: 'var(--cf-space-2)' }}
           >⚡ GraphQL pilot</Link>
-          <h2 data-testid="placement-detail-title" style={{ marginTop: 'var(--cf-space-2)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <h1 data-testid="placement-detail-title" style={{ marginTop: 'var(--cf-space-2)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span>{placement.title}</span>
             <IdBadge id={placement.id} prefix="PL" title={`Placement ID ${placement.id} — click to copy for CSV imports`} />
             {placement.person_id && (
@@ -67,7 +68,7 @@ export default function PlacementDetail({ session }) {
                 <IdBadge id={placement.person_id} prefix="P" />
               </span>
             )}
-          </h2>
+          </h1>
           <p style={{ color: 'var(--cf-text-secondary)' }}>
             <span className={`badge badge--${placement.status}`} data-testid="placement-detail-status">{placement.status}</span>{' '}
             <span className={`badge badge--${placement.engagement_type}`} data-testid="placement-detail-etype">{placement.engagement_type}</span>{' · '}
@@ -1457,20 +1458,82 @@ function CorpTab({ pid }) {
 }
 
 // ── Documents ────────────────────────────────────────────
-function DocumentsTab({ rows }) {
+function DocumentsTab({ pid, rows, reload }) {
+  const [docType, setDocType] = useState('other');
+  const [effectiveFrom, setEffectiveFrom] = useState('');
+  const [effectiveTo, setEffectiveTo] = useState('');
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  const upload = async (event) => {
+    event.preventDefault();
+    if (!file) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const uploaded = await uploadFileViaPresignedPost(
+        `/modules/placements/api/documents.php?action=upload_url&placement_id=${pid}&file_name=${encodeURIComponent(file.name)}`,
+        file
+      );
+      await api.post(`/modules/placements/api/documents.php?placement_id=${pid}`, {
+        ...uploaded,
+        doc_type: docType,
+        effective_from: effectiveFrom || null,
+        effective_to: effectiveTo || null,
+      });
+      setFile(null);
+      setEffectiveFrom('');
+      setEffectiveTo('');
+      setMessage({ ok: true, text: `${uploaded.filename} uploaded.` });
+      reload();
+    } catch (error) {
+      setMessage({ ok: false, text: error?.message || String(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openDocument = async (id) => {
+    setMessage(null);
+    try {
+      const result = await api.get(`/modules/placements/api/documents.php?id=${id}`);
+      if (!result?.signed_url) throw new Error('A download link could not be created.');
+      window.open(result.signed_url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      setMessage({ ok: false, text: error?.message || String(error) });
+    }
+  };
+
   return (
     <div data-testid="tab-documents">
       <h3>Documents</h3>
-      <p style={{ color: 'var(--cf-text-secondary)' }}>Stored via Core StorageService (S3). Upload UI ships in the next pass — for now this view shows already-uploaded docs.</p>
+      <form onSubmit={upload} className="filter-bar" style={{ alignItems: 'end', marginBottom: 'var(--cf-space-3)' }} data-testid="placement-document-upload">
+        <label>Type
+          <select className="input" value={docType} onChange={(event) => setDocType(event.target.value)}>
+            {['msa', 'sow', 'work_order', 'rate_sheet', 'timesheet_template', 'poc', 'noc', 'other'].map((type) => (
+              <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>
+            ))}
+          </select>
+        </label>
+        <label>Effective from<input className="input" type="date" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} /></label>
+        <label>Effective to<input className="input" type="date" value={effectiveTo} onChange={(event) => setEffectiveTo(event.target.value)} /></label>
+        <label>File<input className="input" type="file" onChange={(event) => setFile(event.target.files?.[0] || null)} data-testid="placement-document-file" /></label>
+        <button className="btn btn--primary" type="submit" disabled={busy || !file} data-testid="placement-document-submit">
+          <Upload size={16} aria-hidden="true" /> {busy ? 'Uploading…' : 'Upload'}
+        </button>
+      </form>
+      {message && <p className={message.ok ? 'success' : 'error'} data-testid="placement-document-message">{message.text}</p>}
       <table className="data-table" data-testid="documents-table">
-        <thead><tr><th>Type</th><th>File</th><th>Effective</th><th>Uploaded</th></tr></thead>
+        <thead><tr><th>Type</th><th>File</th><th>Effective</th><th>Uploaded</th><th aria-label="Actions" /></tr></thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={4} className="empty" data-testid="documents-empty">No documents yet.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={5} className="empty" data-testid="documents-empty">No documents yet.</td></tr>}
           {rows.map(d => (
             <tr key={d.id} data-testid={`document-row-${d.id}`}>
               <td>{d.doc_type}</td><td>{d.file_name || `#${d.storage_object_id}`}</td>
               <td>{d.effective_from || '—'}{d.effective_to ? ` → ${d.effective_to}` : ''}</td>
               <td>{(d.created_at || '').slice(0, 10)}</td>
+              <td><button className="btn btn--ghost btn--icon" type="button" onClick={() => openDocument(d.id)} aria-label={`Open ${d.file_name || 'document'}`} title="Open document"><ExternalLink size={16} aria-hidden="true" /></button></td>
             </tr>
           ))}
         </tbody>

@@ -28,10 +28,12 @@
  */
 
 require_once __DIR__ . '/../../core/api_bootstrap.php';
-require_once __DIR__ . '/../../core/RBAC.php';
-require_once __DIR__ . '/../../core/rbac/legacy_map.php';
-
-rbac_legacy_require_any($currentUser ?? [], ['master_admin', 'tenant_admin', '*']);
+$ctx = api_require_auth();
+$role = (string) ($ctx['role'] ?? 'employee');
+$isGlobalAdmin = (bool) ($ctx['is_global_admin'] ?? false);
+if (!$isGlobalAdmin && !in_array($role, ['master_admin', 'tenant_admin'], true)) {
+    api_error('Forbidden - admin only', 403);
+}
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($method !== 'GET') {

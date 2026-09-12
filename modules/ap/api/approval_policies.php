@@ -98,9 +98,16 @@ function _apFetchBillForRouting(int $tenantId, int $billId): ?array {
     if (!$pdo) return null;
     try {
         $stmt = $pdo->prepare(
-            "SELECT b.*, v.vendor_type
+            "SELECT b.*, v.id AS indexed_vendor_id,
+                    v.vendor_type AS indexed_vendor_type,
+                    (SELECT bl.gl_expense_account_code
+                       FROM ap_bill_lines bl
+                      WHERE bl.bill_id = b.id AND bl.gl_expense_account_code IS NOT NULL
+                      ORDER BY bl.line_no ASC
+                      LIMIT 1) AS default_gl_code
                FROM ap_bills b
-               LEFT JOIN ap_vendors v ON v.id = b.vendor_id AND v.tenant_id = b.tenant_id
+               LEFT JOIN ap_vendors_index v
+                 ON v.tenant_id = b.tenant_id AND v.vendor_name = b.vendor_name
               WHERE b.tenant_id = :t AND b.id = :b LIMIT 1"
         );
         $stmt->execute(['t' => $tenantId, 'b' => $billId]);
@@ -109,9 +116,9 @@ function _apFetchBillForRouting(int $tenantId, int $billId): ?array {
         return [
             'id'             => (int) $row['id'],
             'entity_id'      => isset($row['entity_id']) ? (int) $row['entity_id'] : null,
-            'total_amount'   => (float) ($row['total_amount'] ?? 0),
-            'vendor_id'      => isset($row['vendor_id']) ? (int) $row['vendor_id'] : null,
-            'vendor_type'    => $row['vendor_type'] ?? null,
+            'total_amount'   => (float) ($row['total'] ?? 0),
+            'vendor_id'      => isset($row['indexed_vendor_id']) ? (int) $row['indexed_vendor_id'] : null,
+            'vendor_type'    => $row['indexed_vendor_type'] ?? ($row['vendor_type'] ?? null),
             'gl_account_code'=> $row['default_gl_code'] ?? null,
         ];
     } catch (\Throwable $_) { return null; }
