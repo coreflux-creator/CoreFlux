@@ -28,7 +28,6 @@ import TreasuryModule from '../../modules/treasury/ui/TreasuryModule';
 import VendorPortal from './pages/VendorPortal';
 import ScenarioShare from './pages/ScenarioShare';
 import FinanceModule from './modules/FinanceModule';
-import GenericModule from './modules/GenericModule';
 import WorkflowInbox from './pages/WorkflowInbox';
 import AIAgents from './pages/AIAgents';
 import CsvBulkImport from './pages/CsvBulkImport';
@@ -520,9 +519,10 @@ const AppContent = ({ session, usingDemo }) => {
           {/* Public share-link viewer — token-only auth, no platform-user
               session needed. Mounts independently of any module. */}
           <Route path="/share/scenario"       element={<ScenarioShare />} />
-          {/* All other modules fall through to GenericModule
-              "Coming soon" panel until Phase 4 module implementation ships. */}
-          <Route path="/modules/:moduleId/*" element={<GenericModule session={session} activeModule={activeModule} />} />
+          {/* Unavailable and unknown destinations return to the workspace rather
+              than leaving the user on an empty or unfinished screen. */}
+          <Route path="/modules/:moduleId/*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </ErrorBoundary>
       </AppLayout>
