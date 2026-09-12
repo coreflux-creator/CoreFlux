@@ -240,6 +240,11 @@ if (!function_exists('currentTenantId')) {
 if (!function_exists('currentSubTenantId')) {
     function currentSubTenantId(): ?int { return null; }
 }
+if (!function_exists('effectiveTenantIdForModule')) {
+    function effectiveTenantIdForModule(string $moduleKey, ?int $tenantId = null): ?int {
+        return $tenantId ?? currentTenantId();
+    }
+}
 if (!function_exists('scopedFind')) {
     function scopedFind(string $sql, array $params = []): ?array {
         $pdo = getDB();
