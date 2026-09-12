@@ -301,7 +301,7 @@ function apBillApprovalNotify(\PDO $pdo, int $tenantId, int $billId, ?array $bil
     require_once __DIR__ . '/../../../core/email_approval.php';
     $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host  = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    $threadUrl = "{$proto}://{$host}/#/modules/ap/bills/{$billId}";
+    $threadUrl = "{$proto}://{$host}/modules/ap/bills/{$billId}";
 
     $logIns = $pdo->prepare(
         'INSERT INTO ap_bill_approval_notifications

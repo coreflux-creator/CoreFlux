@@ -43,6 +43,24 @@ body {
   font-weight: 500;
 }
 
+.nav-links .dropdown-trigger {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #003366;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 500;
+}
+
+.nav-links a:focus-visible,
+.nav-links .dropdown-trigger:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid #087df1;
+  outline-offset: 4px;
+}
+
 .get-started {
   padding: 8px 16px;
   background-color: #002c70;
@@ -79,7 +97,8 @@ body {
   text-decoration: none;
 }
 
-.dropdown:hover .dropdown-content {
+.dropdown:hover .dropdown-content,
+.dropdown:focus-within .dropdown-content {
   display: block;
 }
 

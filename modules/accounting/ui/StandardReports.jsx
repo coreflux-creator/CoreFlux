@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
 import {
@@ -131,7 +132,7 @@ function GlDetail() {
             <tbody>
               {(data.rows || []).map((r, i) => (
                 <tr key={i}>
-                  <td><a href={`#/modules/accounting/journal-entries/${r.je_id}`}>{r.je_number}</a></td>
+                  <td><Link to={`/modules/accounting/journal-entries/${r.je_id}`}>{r.je_number}</Link></td>
                   <td>{r.posting_date}</td>
                   <td><AccountLink accountId={r.account_id} accountCode={r.account_code} entityId={r.entity_id}><code>{r.account_code}</code> {r.account_name}</AccountLink></td>
                   <td>{r.line_memo || r.je_memo}</td>
@@ -207,7 +208,7 @@ function ApprovalQueue() {
             <tbody>
               {(data.rows || []).map(r => (
                 <tr key={r.id}>
-                  <td><a href={`#/modules/accounting/journal-entries/${r.id}`}>{r.je_number}</a></td>
+                  <td><Link to={`/modules/accounting/journal-entries/${r.id}`}>{r.je_number}</Link></td>
                   <td>{r.posting_date}</td>
                   <td>{r.source_module}</td>
                   <td>{r.memo}</td>

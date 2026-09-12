@@ -74,7 +74,7 @@ foreach ($tenants as $tid) {
 
     $sender = cf_tenant_mail_sender($tid, 'ap');
     $base   = defined('APP_URL') ? rtrim((string) APP_URL, '/') : (getenv('APP_URL') ?: '');
-    $queueUrl = $base . '/#/modules/ap/weekly-queue';
+    $queueUrl = $base . '/modules/ap/weekly-queue';
 
     foreach ($apUsers as $u) {
         if (empty($u['email']) || !filter_var($u['email'], FILTER_VALIDATE_EMAIL)) continue;

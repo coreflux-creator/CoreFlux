@@ -50,7 +50,7 @@ _a('accepts username or email field',           str_contains($lp, "\$_POST['user
 _a('normalizes display name via auth helper',   str_contains($lp, 'authUserNameParts($dbUser'));
 _a('reads next from POST or GET',               str_contains($lp, "\$_POST['next']") && str_contains($lp, "\$_GET['next']"));
 _a('rejects scheme/host (open-redirect guard)', str_contains($lp, "strncmp(\$next, '/', 1) === 0") && str_contains($lp, "strncmp(\$next, '//', 2) !== 0"));
-_a('preserves SPA hash when bouncing back',     str_contains($lp, "str_contains(\$next, '#')"));
+_a('returns directly to canonical deep link',   str_contains($lp, "header(\"Location: {\$next}\")") && !str_contains($lp, 'spa.php#'));
 _a('legacy ?redirect=dashboard path still works', str_contains($lp, "\$redirect === 'dashboard'"));
 
 echo "\nauth/login.php - legacy wrapper\n";

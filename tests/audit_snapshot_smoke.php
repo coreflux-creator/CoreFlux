@@ -69,7 +69,7 @@ $a('CFODashboard toolbar exposes "Audit snapshot" link',
 // 5. /auditor.php redirects to snapshot --------------------------------------
 $entry = (string) file_get_contents($ROOT . '/auditor.php');
 $a('/auditor.php default landing is the audit snapshot',
-    str_contains($entry, '/spa.php#/cfo/audit-snapshot'));
+    str_contains($entry, '/cfo/audit-snapshot'));
 
 // 6. Auditor role permitted by CFO gates --------------------------------------
 $bootstrap = (string) file_get_contents($ROOT . '/core/api_bootstrap.php');

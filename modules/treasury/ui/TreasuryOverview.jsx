@@ -25,8 +25,9 @@ export default function TreasuryOverview() {
         <div>
           <h2>Treasury</h2>
           <p className="muted">
-            Cash positions, credit exposure, and bank-feed health — one view.
-            Dashboards + 13-week forecast coming soon.
+            Cash positions, credit exposure, and bank-feed health in one view.
+            {' '}Use the <Link to="../forecast">13-week forecast</Link> to plan ahead or
+            {' '}compare <Link to="../scenario">cash scenarios</Link> before committing.
           </p>
         </div>
       </header>

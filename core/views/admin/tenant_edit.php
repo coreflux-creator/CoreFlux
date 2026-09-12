@@ -9,6 +9,6 @@
 declare(strict_types=1);
 
 $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
-$path = $id > 0 ? '/spa.php#/admin/tenants?edit=' . $id : '/spa.php#/admin/tenants';
+$path = $id > 0 ? '/admin/tenants?edit=' . $id : '/admin/tenants';
 header('Location: ' . $path, true, 302);
 exit;

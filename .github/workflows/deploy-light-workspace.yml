@@ -56,8 +56,21 @@ jobs:
           tar -czf coreflux-light-workspace-release.tar.gz \
             .deploy-version \
             .htaccess \
+            about.html \
+            accounting.html \
+            admin/index.html \
+            api/ap/approve_by_email.php \
+            api/gusto_oauth_callback.php \
             api/mail_connections.php \
+            api/staffing/approve_timesheet_by_email.php \
+            approvers/signup.html \
+            assets/css/signup.html \
+            assets/css/styles.css \
+            auditor.php \
+            core/modules.php \
             core/mail/M365GraphDriver.php \
+            core/views/admin/tenant_edit.php \
+            crm.html \
             dashboard/dist \
             dashboard/src/App.jsx \
             dashboard/src/lib/api.js \
@@ -68,6 +81,7 @@ jobs:
             dashboard/src/layout/AppLayout.jsx \
             dashboard/src/layout/Header.jsx \
             dashboard/src/layout/Sidebar.jsx \
+            dashboard/src/pages/MasterTenantsAdmin.jsx \
             dashboard/src/pages/DashboardOverview.jsx \
             dashboard/src/pages/MailConnectionsCard.jsx \
             dashboard/src/pages/MailSettingsPage.jsx \
@@ -77,21 +91,47 @@ jobs:
             dashboard/src/pages/SettingsPage.jsx \
             dashboard/src/pages/StaffingEconomicsSettings.jsx \
             dashboard/src/styles.css \
+            finance.html \
             index.html \
+            login.html \
+            login.php \
+            login2.html \
+            modules/accounting/ui/StandardReports.jsx \
             modules/ap/api/bills.php \
+            modules/ap/api/bill_approvals.php \
+            modules/ap/api/vendor_portal.php \
+            modules/ap/api/weekly_queue.php \
             modules/ap/ui/APModule.jsx \
             modules/ap/ui/BillsList.jsx \
+            modules/ap/ui/WeeklyQueue.jsx \
             modules/billing/ui/BillingModule.jsx \
+            modules/payroll/ui/GustoConnectCard.jsx \
+            modules/payroll/ui/PayPeriods.jsx \
             modules/placements/lib/placements.php \
             modules/placements/ui/List.jsx \
+            modules/staffing/api/timesheet_email_approver.php \
+            modules/time/api/intake.php \
+            modules/time/manifest.php \
+            modules/time/ui/TimeModule.jsx \
+            modules/treasury/ui/TreasuryOverview.jsx \
             modules/treasury/ui/TreasuryModule.jsx \
+            people.html \
+            pricing.html \
+            reporting.html \
+            scripts/ap_weekly_queue_sunday.php \
+            scripts/billing_recurring_generate.php \
             scripts/opcache_flush_deploy.php.template \
+            signup.html \
             spa-assets/index.html \
             spa-assets/sw.js \
             spa.php \
+            switch_tenant.php \
+            tax.html \
             tests/login_redirect_paths_smoke.php \
             tests/m365_graph_smoke.php \
+            tests/sitewide_navigation_smoke.php \
             tests/workspace_shell_smoke.php \
+            wealth.html \
             "${ROOT_ASSETS[@]}"
 
       - name: Stage light workspace release
@@ -147,6 +187,7 @@ jobs:
             php -l core/mail/M365GraphDriver.php
             php tests/login_redirect_paths_smoke.php
             php tests/m365_graph_smoke.php
+            php tests/sitewide_navigation_smoke.php
             php tests/workspace_shell_smoke.php
 
             SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' index.html | head -n 1)"

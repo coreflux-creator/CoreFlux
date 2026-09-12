@@ -103,7 +103,7 @@ function cf_email_approval_render(string $state, ?array $res, string $message): 
         default         => ['⚠️', 'Could not complete',     '#7c2d12'],
     };
     $base = apEmailApprovalBaseUrl();
-    $inboxUrl = "{$base}/#/modules/ap/approvals";
+    $inboxUrl = "{$base}/modules/ap/approvals";
     return '<!doctype html><html lang="en"><head><meta charset="utf-8">'
          . '<meta name="viewport" content="width=device-width,initial-scale=1">'
          . '<title>' . $h($title) . ' — CoreFlux</title>'

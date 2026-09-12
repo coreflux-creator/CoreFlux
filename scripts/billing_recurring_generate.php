@@ -130,7 +130,7 @@ function bric_render_html(array $generated): string {
          . '<th style="text-align:left;padding:6px;font-size:11px;color:#64748b;text-transform:uppercase">Period</th>'
          . '<th style="text-align:right;padding:6px;font-size:11px;color:#64748b;text-transform:uppercase">Amount</th>'
          . '</tr></thead><tbody>' . $rows . '</tbody></table>'
-         . '<p style="margin-top:16px"><a href="/#/modules/billing/contracts" style="background:#0f172a;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:13px;display:inline-block">Open contracts → </a></p>'
+         . '<p style="margin-top:16px"><a href="/modules/billing/contracts" style="background:#0f172a;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:13px;display:inline-block">Open contracts → </a></p>'
          . '</div>';
 }
 

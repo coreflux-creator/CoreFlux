@@ -10,8 +10,7 @@ import TimesheetUpload from './TimesheetUpload';
 import IntakeQueue from './IntakeQueue';
 
 /**
- * Time Module — Phase A routes.
- * Inbox (AI) and Missing Timesheets routes scaffold stubs — full Phase C.
+ * Time Module routes.
  */
 export default function TimeModule({ session }) {
   return (
@@ -28,7 +27,7 @@ export default function TimeModule({ session }) {
         <Route path="reports"   element={<Reports />} />
         <Route path="bulk"      element={<CsvImport />} />
         <Route path="categories"element={<Categories />} />
-        <Route path="inbox"     element={<ComingSoon title="Inbox (AI)" notes="Phase C: AI email parsing depends on MailService M365/Gmail drivers." />} />
+        <Route path="inbox"     element={<Navigate to="/modules/time/intake" replace />} />
         <Route path="missing"   element={<ComingSoon title="Missing Timesheets" notes="Phase C: combined dashboard of AI-unreadable + expected-not-received placements." />} />
       </Routes>
     </div>

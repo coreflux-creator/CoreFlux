@@ -125,7 +125,7 @@ if ($method === 'POST' && $action === 'webhook') {
                 'to'       => $from,
                 'subject'  => 'Got your timesheet — ready to review',
                 'body_html'=> '<p>We processed your timesheet upload. Open CoreFlux to confirm and submit:</p>'
-                    . '<p><a href="/#/modules/time/intake">Open the intake queue →</a></p>',
+                    . '<p><a href="/modules/time/intake">Open the intake queue →</a></p>',
             ]);
         } catch (\Throwable $_) { /* swallow */ }
     }
@@ -309,4 +309,3 @@ if ($method === 'POST' && $action === 'record_alias') {
 }
 
 api_error('Method not allowed', 405);
-

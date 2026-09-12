@@ -18,11 +18,17 @@ foreach (['/auth/m/', '/vendor/portal', '/share/scenario'] as $path) {
         $failures[] = "Token-authenticated SPA route is not public in spa.php: {$path}.";
     }
 }
-if (preg_match('/header\(["\']Location: (?!\/)/', $login)) {
+if (preg_match('/header\(["\']Location: (?!\/|\{\$next\})/', $login)) {
     $failures[] = 'Login handler contains a relative redirect.';
 }
 if (!str_contains($login, '$isLocalPath && $next === \'/\'')) {
     $failures[] = 'Root sign-in does not return to the canonical root.';
+}
+if (!str_contains($login, 'header("Location: {$next}")') || str_contains($login, 'Location: /spa.php#')) {
+    $failures[] = 'Deep-link sign-in does not return to the canonical requested path.';
+}
+if (!str_contains($login, 'header("Location: /admin")')) {
+    $failures[] = 'Platform sign-in does not return to the canonical admin route.';
 }
 if (!str_contains($logout, 'Location: /login.html')) {
     $failures[] = 'Logout redirect does not use login.html.';

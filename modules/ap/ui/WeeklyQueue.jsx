@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import PwpReleasedNudge from '../../../dashboard/src/components/PwpReleasedNudge';
 
@@ -133,7 +134,7 @@ export default function WeeklyQueue() {
                     title={eligibleRow ? 'Select to finalize' : 'Not eligible — clear the blocker first'}
                   />
                 </td>
-                <td><a href={`#/modules/ap/bills/${b.id}`} style={{ color: 'var(--cf-text)', fontWeight: 600 }}>{b.bill_number || b.internal_ref}</a></td>
+                <td><Link to={`/modules/ap/bills/${b.id}`} style={{ color: 'var(--cf-text)', fontWeight: 600 }}>{b.bill_number || b.internal_ref}</Link></td>
                 <td>{b.vendor_name}</td>
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${Number(b.amount_due).toFixed(2)}</td>
                 <td>

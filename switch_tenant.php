@@ -35,15 +35,18 @@ $globalRole  = $user['global_role']  ?? $_SESSION['global_role']  ?? $role;
 $isGlobalAdm = (int) ($user['is_global_admin'] ?? 0) === 1;
 $isPlatformMA= ($globalRole === 'master_admin') || $isGlobalAdm;
 $targetId    = (int) ($_REQUEST['tenant_id'] ?? 0);
-$nextPath    = $_REQUEST['next'] ?? '/spa.php';
+$nextPath    = $_REQUEST['next'] ?? '/';
 // Special sentinel: tenant_id=0 (or ?platform=1) clears the active tenant
 // and returns master_admin to platform mode (no tenant pinned).
 $wantPlatform= isset($_REQUEST['platform']) && $_REQUEST['platform']
             || (isset($_REQUEST['tenant_id']) && (int) $_REQUEST['tenant_id'] === 0);
 
 // Whitelist redirect target to local paths only.
-if (!is_string($nextPath) || strncmp($nextPath, '/', 1) !== 0) {
-    $nextPath = '/spa.php';
+if (!is_string($nextPath)
+    || strncmp($nextPath, '/', 1) !== 0
+    || strncmp($nextPath, '//', 2) === 0
+) {
+    $nextPath = '/';
 }
 
 // Platform-mode toggle — master_admin only.
@@ -61,7 +64,7 @@ if ($wantPlatform) {
     if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
         $_SESSION['user']['role'] = 'master_admin';
     }
-    header('Location: ' . ($nextPath === '/spa.php' ? '/spa.php#/admin' : $nextPath));
+    header('Location: ' . (in_array($nextPath, ['/', '/spa.php'], true) ? '/admin' : $nextPath));
     exit;
 }
 

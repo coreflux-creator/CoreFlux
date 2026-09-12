@@ -72,7 +72,7 @@ try {
 }
 
 $base = staffingEmailApprovalBaseUrl();
-$threadUrl = "{$base}/#/modules/staffing/approvals?focus={$tsId}";
+$threadUrl = "{$base}/modules/staffing/approvals?focus={$tsId}";
 
 $html = staffingEmailApprovalBodyHtml(
     $header,
