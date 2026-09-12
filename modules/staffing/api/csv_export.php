@@ -25,7 +25,7 @@ $activeTenantId = (int) $ctx['tenant_id'];
 $tenantId = staffingClientCatalogTenantId($activeTenantId);
 setRequestModuleScope('placements');
 $userId = (int) ($user['id'] ?? 0);
-api_require_legacy_permission($ctx, 'placements.view');
+api_require_legacy_permission($ctx, 'staffing.export.run');
 // Delegated tenant scope sentinel for legacy CSV smokes: :tenant_id.
 
 $datasetOptions = [

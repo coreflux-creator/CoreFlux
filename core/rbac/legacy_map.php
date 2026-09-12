@@ -185,6 +185,7 @@ final class RbacLegacyMap
             'reports.view'                       => ['reports', 'read'],
 
             // ── staffing ──────────────────────────────────────────────────
+            'staffing.export.run'                => ['placements', 'read'],
             'staffing.view'                      => ['staffing', 'read'],
 
             // ── tenant (PARKED — platform gate, keep legacy) ──────────────

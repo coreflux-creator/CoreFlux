@@ -68,6 +68,7 @@ jobs:
             assets/css/styles.css \
             auditor.php \
             core/modules.php \
+            core/rbac/legacy_map.php \
             core/mail/M365GraphDriver.php \
             core/views/admin/tenant_edit.php \
             crm.html \
@@ -110,6 +111,7 @@ jobs:
             modules/placements/lib/placements.php \
             modules/placements/ui/List.jsx \
             modules/staffing/api/timesheet_email_approver.php \
+            modules/staffing/api/csv_export.php \
             modules/time/api/intake.php \
             modules/time/manifest.php \
             modules/time/ui/TimeModule.jsx \
@@ -128,6 +130,12 @@ jobs:
             switch_tenant.php \
             tax.html \
             tests/login_redirect_paths_smoke.php \
+            tests/csv_ai_assisted_mapping_smoke.php \
+            tests/csv_external_id_wave2_smoke.php \
+            tests/csv_importers_subtenant_scope_smoke.php \
+            tests/csv_phase_b_smoke.php \
+            tests/csv_universal_import_export_smoke.php \
+            tests/export_templates_smoke.php \
             tests/m365_graph_smoke.php \
             tests/sitewide_navigation_smoke.php \
             tests/workspace_shell_smoke.php \
@@ -186,6 +194,12 @@ jobs:
             php -l api/mail_connections.php
             php -l core/mail/M365GraphDriver.php
             php tests/login_redirect_paths_smoke.php
+            php tests/csv_ai_assisted_mapping_smoke.php
+            php tests/csv_external_id_wave2_smoke.php
+            php tests/csv_importers_subtenant_scope_smoke.php
+            php tests/csv_phase_b_smoke.php
+            php tests/csv_universal_import_export_smoke.php
+            php tests/export_templates_smoke.php
             php tests/m365_graph_smoke.php
             php tests/sitewide_navigation_smoke.php
             php tests/workspace_shell_smoke.php

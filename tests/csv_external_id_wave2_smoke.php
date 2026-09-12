@@ -89,13 +89,15 @@ $a("detects external_id header aliases",
     $c($tr, "treasuryCsvFindColumn(\$headers, ['external_id', 'source_id', 'mercury_id', 'plaid_transaction_id', 'transaction_id']"));
 $a("detects source_system header alias",
     $c($tr, "treasuryCsvFindColumn(\$headers, ['source_system', 'source']"));
-$a("INSERT carries external_id + source_system",  $c($tr, 'bank_reference, external_id, source_system, fitid'));
+$a("INSERT carries external_id + source_system",  $c($tr, "'external_id' => ':ext'")
+                                                && $c($tr, "'source_system' => ':src'"));
 $a("validates source_system against enum",         $c($tr, "['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other'], true)"));
 $a("when external_id present, uses it as fitid seed",
                                                   $c($tr, "\$fitid = \$srcSys . '_' . substr(sha1(\$extId), 0, 24)"));
 $a("legacy date|amount|desc fitid seed still works",
                                                   $c($tr, '$fitidSeed = $date . \'|\' . number_format($amount'));
-$a("execute binds :ext and :src",                 $c($tr, "'ext'   => \$extId !== null ? mb_substr(\$extId, 0, 128)"));
+$a("execute binds :ext and :src",                 $c($tr, "\$insertParams['ext']")
+                                                && $c($tr, "\$insertParams['src']"));
 
 // ----------------------------------------------------------------- syntax
 echo "\nSyntax sanity\n";
