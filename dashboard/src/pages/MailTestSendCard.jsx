@@ -97,6 +97,7 @@ export default function MailTestSendCard({ canWrite = true }) {
         <input
           type="email" required placeholder="you@yourdomain.com"
           className="input" value={recipient}
+          aria-label="Test email recipient"
           onChange={(e) => setRecipient(e.target.value)}
           disabled={!canWrite || busy}
           data-testid="admin-mail-test-send-recipient"

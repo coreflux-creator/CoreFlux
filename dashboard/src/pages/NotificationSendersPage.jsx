@@ -101,16 +101,15 @@ const NotificationSendersPage = () => {
           Notification senders
         </h1>
         <p style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>
-          Customise the display name and reply-to address per email purpose. Toggle off to mute an entire category.
-          The sending domain stays as <code data-testid="notif-platform-from">{platform?.from_email || 'not configured'}</code>
-          {!platformConfigured && (
-            <span style={{ color: 'var(--cf-orange, #c2410c)', marginLeft: 6 }} data-testid="notif-platform-warn">
-              <AlertTriangle size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-              RESEND_FROM_EMAIL not set — sends will fail until the platform key is configured.
-            </span>
-          )}
-          .
+          Customize the display name and reply-to address for each email purpose. Turn a purpose off to pause those messages.
+          {' '}The sending address is <code data-testid="notif-platform-from">{platform?.from_email || 'not configured'}</code>.
         </p>
+        {!platformConfigured && (
+          <div className="alert alert--warn" role="alert" data-testid="notif-platform-warn">
+            <AlertTriangle size={14} />
+            The platform sender address is not configured, so outbound email cannot be sent. Set <code>RESEND_FROM_EMAIL</code> in the platform configuration.
+          </div>
+        )}
       </header>
 
       {flash && (
@@ -171,7 +170,8 @@ const NotificationSendersPage = () => {
                   </label>
                   <input
                     type="text"
-                    data-testid={`notif-${p.key}-from-name`}
+                     data-testid={`notif-${p.key}-from-name`}
+                     aria-label={`${p.label} display name`}
                     value={draft.from_name}
                     onChange={(e) => updateDraft(p.key, 'from_name', e.target.value)}
                     placeholder={`e.g. ${p.resolved?.from_name || 'Acme Staffing ' + p.label}`}
@@ -188,7 +188,8 @@ const NotificationSendersPage = () => {
                   </label>
                   <input
                     type="email"
-                    data-testid={`notif-${p.key}-reply-to`}
+                     data-testid={`notif-${p.key}-reply-to`}
+                     aria-label={`${p.label} Reply-To address`}
                     value={draft.reply_to}
                     onChange={(e) => updateDraft(p.key, 'reply_to', e.target.value)}
                     placeholder="replies@yourdomain.com (optional)"

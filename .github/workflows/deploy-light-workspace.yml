@@ -55,6 +55,9 @@ jobs:
 
           tar -czf coreflux-light-workspace-release.tar.gz \
             .deploy-version \
+            .htaccess \
+            api/mail_connections.php \
+            core/mail/M365GraphDriver.php \
             dashboard/dist \
             dashboard/src/App.jsx \
             dashboard/src/components/ComparisonTable.jsx \
@@ -65,6 +68,13 @@ jobs:
             dashboard/src/layout/Header.jsx \
             dashboard/src/layout/Sidebar.jsx \
             dashboard/src/pages/DashboardOverview.jsx \
+            dashboard/src/pages/MailConnectionsCard.jsx \
+            dashboard/src/pages/MailSettingsPage.jsx \
+            dashboard/src/pages/MailSuppressionsCard.jsx \
+            dashboard/src/pages/MailTestSendCard.jsx \
+            dashboard/src/pages/NotificationSendersPage.jsx \
+            dashboard/src/pages/SettingsPage.jsx \
+            dashboard/src/pages/StaffingEconomicsSettings.jsx \
             dashboard/src/styles.css \
             index.html \
             modules/ap/api/bills.php \
@@ -78,6 +88,8 @@ jobs:
             spa-assets/index.html \
             spa-assets/sw.js \
             spa.php \
+            tests/login_redirect_paths_smoke.php \
+            tests/m365_graph_smoke.php \
             tests/workspace_shell_smoke.php \
             "${ROOT_ASSETS[@]}"
 
@@ -129,6 +141,10 @@ jobs:
 
             php -l modules/ap/api/bills.php
             php -l modules/placements/lib/placements.php
+            php -l api/mail_connections.php
+            php -l core/mail/M365GraphDriver.php
+            php tests/login_redirect_paths_smoke.php
+            php tests/m365_graph_smoke.php
             php tests/workspace_shell_smoke.php
 
             SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' index.html | head -n 1)"
@@ -153,4 +169,11 @@ jobs:
             STYLE_NAME="$(basename "$SPA_STYLE")"
             curl -fsS --max-time 30 "https://www.corefluxapp.com/spa-assets/$ENTRY_NAME?release=${{ github.sha }}" | grep -Fq 'Your business, in focus.'
             curl -fsS --max-time 30 -o /dev/null "https://www.corefluxapp.com/spa-assets/$STYLE_NAME?release=${{ github.sha }}"
+
+            for ROUTE in inbox ai-agents cfo data/bulk-import admin modules/placements/list sim vendor/portal share/scenario; do
+              HEADERS="$(mktemp)"
+              curl -sS --max-time 30 -o /dev/null -D "$HEADERS" "https://www.corefluxapp.com/$ROUTE?release=${{ github.sha }}"
+              grep -Eiq '^location: /login\.html\?next=' "$HEADERS"
+              rm -f -- "$HEADERS"
+            done
             echo "Deployed and verified the light workspace at commit ${{ github.sha }}."

@@ -17,13 +17,19 @@
     # Repair legacy SPA login URLs that older bundles and bookmarks may use.
     RewriteRule ^login/?$ /login.html [R=302,L,NE]
 
-    # Pass through real files/dirs (PHP endpoints, assets, api router, etc.)
-    RewriteCond %{REQUEST_FILENAME} -f [OR]
-    RewriteCond %{REQUEST_FILENAME} -d
+    # Real endpoints and assets always win, including PHP APIs nested under
+    # directories that also contain SPA routes.
+    RewriteCond %{REQUEST_FILENAME} -f
     RewriteRule ^ - [L]
 
-    # Known SPA root paths → spa.php
-    RewriteRule ^(modules|admin|settings|profile|dashboard)(/.*)?$ spa.php [L,QSA]
+    # Known SPA paths must be resolved before the directory pass-through.
+    # Several route namespaces (notably /admin and /modules) also exist as
+    # physical directories, but their extensionless UI URLs belong to React.
+    RewriteRule ^(admin|ai-agents|ai|auth/m|cfo|dashboard|data|exec|inbox|modules|profile|select-tenant|settings|share/scenario|sim|vendor/portal)(/.*)?$ spa.php [L,QSA]
+
+    # Leave all other real directories alone.
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
 </IfModule>
 
 # Hide hidden files (.git, .env, .htaccess itself)

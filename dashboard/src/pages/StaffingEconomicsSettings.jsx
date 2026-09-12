@@ -78,9 +78,9 @@ export default function StaffingEconomicsSettings() {
       {loading ? <p>Loading...</p> : <form onSubmit={save} data-testid="staffing-economics-form">
         <h2 style={{ fontSize: 16, margin: '0 0 12px' }}>W-2 employer costs</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14 }}>
-          <label><span>Payroll and employer load %</span><input className="input" type="number" min="0" max="500" step="0.01" value={form.payroll_load_pct} onChange={e => setForm({ ...form, payroll_load_pct: e.target.value })} data-testid="staffing-default-payroll-load" required /></label>
-          <label><span>Workers compensation %</span><input className="input" type="number" min="0" max="500" step="0.01" value={form.workers_comp_pct} onChange={e => setForm({ ...form, workers_comp_pct: e.target.value })} data-testid="staffing-default-workers-comp" required /></label>
-          <label><span>Benefits load %</span><input className="input" type="number" min="0" max="500" step="0.01" value={form.benefits_load_pct} onChange={e => setForm({ ...form, benefits_load_pct: e.target.value })} data-testid="staffing-default-benefits-load" required /></label>
+          <label><span>Payroll and employer load %</span><input className="input" aria-label="Payroll and employer load percentage" type="number" min="0" max="500" step="0.01" value={form.payroll_load_pct} onChange={e => setForm({ ...form, payroll_load_pct: e.target.value })} data-testid="staffing-default-payroll-load" required /></label>
+          <label><span>Workers compensation %</span><input className="input" aria-label="Workers compensation percentage" type="number" min="0" max="500" step="0.01" value={form.workers_comp_pct} onChange={e => setForm({ ...form, workers_comp_pct: e.target.value })} data-testid="staffing-default-workers-comp" required /></label>
+          <label><span>Benefits load %</span><input className="input" aria-label="Benefits load percentage" type="number" min="0" max="500" step="0.01" value={form.benefits_load_pct} onChange={e => setForm({ ...form, benefits_load_pct: e.target.value })} data-testid="staffing-default-benefits-load" required /></label>
         </div>
         <div style={{ marginTop: 18, padding: 12, border: '1px solid var(--cf-border)', borderRadius: 6 }}>
           <span style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>Combined default employer cost</span>
@@ -88,7 +88,7 @@ export default function StaffingEconomicsSettings() {
         </div>
         <div style={{ borderTop: '1px solid var(--cf-border)', marginTop: 20, paddingTop: 18 }}>
           <h2 style={{ fontSize: 16, margin: '0 0 12px' }}>C2C overhead</h2>
-          <label style={{ display: 'block', maxWidth: 280 }}><span>C2C overhead / load %</span><input className="input" type="number" min="0" max="500" step="0.01" value={form.c2c_overhead_pct} onChange={e => setForm({ ...form, c2c_overhead_pct: e.target.value })} data-testid="staffing-default-c2c-overhead" required /></label>
+          <label style={{ display: 'block', maxWidth: 280 }}><span>C2C overhead / load %</span><input className="input" aria-label="C2C overhead percentage" type="number" min="0" max="500" step="0.01" value={form.c2c_overhead_pct} onChange={e => setForm({ ...form, c2c_overhead_pct: e.target.value })} data-testid="staffing-default-c2c-overhead" required /></label>
         </div>
         <p style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>
           Blank W-2 employer-cost and C2C overhead fields inherit the matching tenant default. A placement value, including zero, overrides that default. Approved rates remain locked until a rate correction is approved.

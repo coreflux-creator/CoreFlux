@@ -78,9 +78,16 @@ $assert('mail address returned',               $me['mail'] === 'test@acme.com');
 
 echo "\n/api endpoint files\n";
 $api = (string) file_get_contents(__DIR__ . '/../api/mail_connections.php');
+$src = (string) file_get_contents(__DIR__ . '/../core/mail/M365GraphDriver.php');
 $assert('api/mail_connections.php exists',     strlen($api) > 0);
 $o = []; $rc = 0; @exec('php -l ' . escapeshellarg(__DIR__ . '/../api/mail_connections.php') . ' 2>&1', $o, $rc);
 $assert('api/mail_connections.php parses',     $rc === 0);
+$assert('connection API reads canonical last_error column',
+    strpos($api, 'last_error AS error_message') !== false
+    && strpos($api, 'SET status = "revoked", last_error = NULL') !== false);
+$assert('M365 driver writes canonical last_error column',
+    strpos($src, 'last_error = NULL') !== false
+    && strpos($src, 'last_error = :e') !== false);
 foreach (['oauth_start','list_folders','watch_folder','poll_now'] as $a) {
     $assert("has action={$a}",                  strpos($api, "action === '{$a}'") !== false);
 }

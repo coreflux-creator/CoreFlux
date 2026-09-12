@@ -137,7 +137,7 @@ export default function MailConnectionsCard({ flash }) {
                 <button className="btn" onClick={() => openPicker(c.id)} disabled={busy === 'list-' + c.id} data-testid={`mail-pick-folder-${c.id}`}>
                   {busy === 'list-' + c.id ? 'Loading folders…' : 'Pick folder…'}
                 </button>
-                <button className="btn btn--ghost" onClick={() => revoke(c.id)} disabled={busy === 'revoke-' + c.id} data-testid={`mail-revoke-${c.id}`}>
+                <button className="btn btn--ghost" aria-label={`Disconnect ${c.account_address}`} title="Disconnect mailbox" onClick={() => revoke(c.id)} disabled={busy === 'revoke-' + c.id} data-testid={`mail-revoke-${c.id}`}>
                   <Trash2 size={14} />
                 </button>
               </div>
