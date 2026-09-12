@@ -13,6 +13,11 @@ $failures = [];
 if (!str_contains($spa, "Location: /login.html?next=")) {
     $failures[] = 'SPA unauthenticated redirect does not use login.html.';
 }
+foreach (['/auth/m/', '/vendor/portal', '/share/scenario'] as $path) {
+    if (!str_contains($spa, $path)) {
+        $failures[] = "Token-authenticated SPA route is not public in spa.php: {$path}.";
+    }
+}
 if (preg_match('/header\(["\']Location: (?!\/)/', $login)) {
     $failures[] = 'Login handler contains a relative redirect.';
 }
@@ -24,6 +29,18 @@ if (!str_contains($logout, 'Location: /login.html')) {
 }
 if (!str_contains($app, '/login.html?next=') || str_contains($app, '/login?next=')) {
     $failures[] = 'Dashboard session expiry does not use login.html.';
+}
+foreach (['/auth/m/:token', '/vendor/portal', '/share/scenario'] as $path) {
+    if (!str_contains($app, '<Route path="' . $path . '"')) {
+        $failures[] = "Public React route is missing: {$path}.";
+    }
+}
+$apiClient = (string) file_get_contents($root . '/dashboard/src/lib/api.js');
+if (!str_contains($apiClient, 'if (res.status === 401) redirectExpiredSession()')) {
+    $failures[] = 'Shared API client does not redirect an expired session.';
+}
+if (!str_contains($apiClient, 'window.location.search')) {
+    $failures[] = 'Expired-session redirect does not preserve the query string.';
 }
 $rootRule = strpos($htaccess, 'RewriteRule ^$ spa.php [L,QSA]');
 $filePass = strpos($htaccess, 'RewriteCond %{REQUEST_FILENAME} -f');
