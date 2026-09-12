@@ -56,17 +56,24 @@ jobs:
           tar -czf coreflux-light-workspace-release.tar.gz \
             .deploy-version \
             dashboard/dist \
+            dashboard/src/App.jsx \
             dashboard/src/components/ComparisonTable.jsx \
             dashboard/src/components/MetricCard.jsx \
+            dashboard/src/components/ModuleTabs.jsx \
             dashboard/src/components/ReportShell.jsx \
+            dashboard/src/layout/AppLayout.jsx \
+            dashboard/src/layout/Header.jsx \
+            dashboard/src/layout/Sidebar.jsx \
             dashboard/src/pages/DashboardOverview.jsx \
             dashboard/src/styles.css \
             index.html \
             modules/ap/api/bills.php \
             modules/ap/ui/APModule.jsx \
             modules/ap/ui/BillsList.jsx \
+            modules/billing/ui/BillingModule.jsx \
             modules/placements/lib/placements.php \
             modules/placements/ui/List.jsx \
+            modules/treasury/ui/TreasuryModule.jsx \
             scripts/opcache_flush_deploy.php.template \
             spa-assets/index.html \
             spa-assets/sw.js \
