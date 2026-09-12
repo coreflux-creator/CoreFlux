@@ -121,6 +121,7 @@ jobs:
             OPCACHE_TEMPLATE="$APP_ROOT/scripts/opcache_flush_deploy.php.template"
             OPCACHE_ENDPOINT="$APP_ROOT/api/admin/opcache_flush_deploy_${{ github.run_id }}.php"
             OPCACHE_RESPONSE="/tmp/coreflux-light-workspace-opcache-${{ github.run_id }}.json"
+            ENTRY_RESPONSE="/tmp/coreflux-light-workspace-entry-${{ github.run_id }}.js"
 
             test -n "$APP_BASE"
             test "$APP_BASE" != "/"
@@ -132,7 +133,7 @@ jobs:
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
-              rm -f -- "$OPCACHE_ENDPOINT" "$OPCACHE_RESPONSE"
+              rm -f -- "$OPCACHE_ENDPOINT" "$OPCACHE_RESPONSE" "$ENTRY_RESPONSE"
             }
             trap cleanup_deploy EXIT
 
@@ -167,7 +168,8 @@ jobs:
 
             ENTRY_NAME="$(basename "$SPA_ENTRY")"
             STYLE_NAME="$(basename "$SPA_STYLE")"
-            curl -fsS --max-time 30 "https://www.corefluxapp.com/spa-assets/$ENTRY_NAME?release=${{ github.sha }}" | grep -Fq 'Your business, in focus.'
+            curl -fsS --max-time 30 -o "$ENTRY_RESPONSE" "https://www.corefluxapp.com/spa-assets/$ENTRY_NAME?release=${{ github.sha }}"
+            grep -Fq 'Your business, in focus.' "$ENTRY_RESPONSE"
             curl -fsS --max-time 30 -o /dev/null "https://www.corefluxapp.com/spa-assets/$STYLE_NAME?release=${{ github.sha }}"
 
             for ROUTE in inbox ai-agents cfo data/bulk-import admin modules/placements/list sim vendor/portal share/scenario; do
