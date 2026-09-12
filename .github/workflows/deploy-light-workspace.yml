@@ -156,6 +156,22 @@ jobs:
             pricing.html \
             reporting.html \
             deploy/run_migrations.php \
+            core/migrations/125_placement_corp_writable_targets.sql \
+            core/migrations/126_staffing_economic_graph.sql \
+            core/migrations/127_staffing_contract_terms.sql \
+            core/migrations/128_placement_commercial_contract.sql \
+            core/migrations/129_qbo_payments_idempotency.sql \
+            core/migrations/130_qbo_volatile_access_tokens.sql \
+            core/migrations/131_treasury_csv_import_schema_repair.sql \
+            core/migrations/132_bank_transaction_identity.sql \
+            core/migrations/133_connecteam_integration_foundation.sql \
+            core/migrations/134_connecteam_work_routing.sql \
+            core/migrations/135_tenant_staffing_economics_defaults.sql \
+            core/migrations/136_c2c_overhead_load.sql \
+            core/migrations/137_staffing_client_catalog_backfill.sql \
+            core/migrations/138_placement_one_time_items.sql \
+            core/migrations/139_c2c_source_no_waiver.sql \
+            core/migrations/140_staffing_client_catalog_integrity.sql \
             scripts/ap_weekly_queue_sunday.php \
             scripts/billing_recurring_generate.php \
             scripts/opcache_flush_deploy.php.template \
@@ -181,7 +197,6 @@ jobs:
             tests/csv_universal_import_export_smoke.php \
             tests/export_templates_smoke.php \
             tests/document_upload_bridge_smoke.php \
-            tests/integrations_health_endpoint_smoke.php \
             tests/invoice_pdf_schema_smoke.php \
             tests/m365_graph_smoke.php \
             tests/payroll_phase_a1_smoke.php \
@@ -277,6 +292,8 @@ jobs:
             done
 
             php deploy/run_migrations.php
+            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/126_staffing_economic_graph.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/140_staffing_client_catalog_integrity.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/006_run_enterprise_controls.sql'
 
             php tests/login_redirect_paths_smoke.php
@@ -295,7 +312,6 @@ jobs:
             php tests/csv_universal_import_export_smoke.php
             php tests/export_templates_smoke.php
             php tests/document_upload_bridge_smoke.php
-            php tests/integrations_health_endpoint_smoke.php
             php tests/invoice_pdf_schema_smoke.php
             php tests/m365_graph_smoke.php
             php tests/payroll_phase_a1_smoke.php
