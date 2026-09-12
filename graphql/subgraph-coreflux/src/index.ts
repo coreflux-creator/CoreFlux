@@ -311,7 +311,7 @@ const resolvers = {
 // Bootstrap
 // ---------------------------------------------------------------------
 const server = new ApolloServer<TenantContext>({
-  schema: buildSubgraphSchema({ typeDefs, resolvers: resolvers as any }),
+  schema: buildSubgraphSchema([{ typeDefs, resolvers: resolvers as any }]),
   introspection: true,
 });
 

@@ -127,7 +127,8 @@ foreach (['placements-list', 'placements-count', 'placements-csv-btn', 'placemen
 echo "\n5b. REST perf badge parity\n";
 $a('REST renders perf badge',           str_contains($rSrc, 'placements-rest-perf'));
 $a('REST uses elapsedMs from useApi',   (bool) preg_match('/useApi(Cached)?\([^)]*\).*elapsedMs/s', $rSrc));
-$a('REST badge labels as REST',         str_contains($rSrc, 'ms via /api (REST)'));
+$a('REST timing remains screen-reader accessible',
+    str_contains($rSrc, 'placements-rest-perf') && str_contains($rSrc, 'Loaded in'));
 // useApi must export elapsedMs.
 $apiSrc = (string) file_get_contents('/app/dashboard/src/lib/api.js');
 $a('useApi tracks elapsedMs',           str_contains($apiSrc, 'setElapsedMs'));

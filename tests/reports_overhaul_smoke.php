@@ -29,6 +29,7 @@ echo "Reports Overhaul Pass 0 + Pass 1 smoke\n";
 echo "======================================\n\n";
 
 $ROOT = dirname(__DIR__);
+$styles = (string) file_get_contents("{$ROOT}/dashboard/src/styles.css");
 
 // --- Pass 0: foundation primitives exist + contracts ---------------
 echo "Pass 0 — Foundation primitives\n";
@@ -40,7 +41,8 @@ $a('ReportShell accepts period prop',                strpos($shell, 'period,') !
 $a('ReportShell accepts kpis slot',                  strpos($shell, 'kpis,') !== false);
 $a('ReportShell renders compare-mode select',        strpos($shell, '-compare-mode') !== false);
 $a('ReportShell singleDate prop (BS / TB use this)', strpos($shell, 'singleDate') !== false);
-$a('ReportShell sticky header (position:sticky)',    strpos($shell, "position: 'sticky'") !== false);
+$a('ReportShell uses the redesigned report header', strpos($shell, 'className="report-shell__header"') !== false
+    && strpos($shell, "position: 'static'") !== false);
 
 $card   = (string) file_get_contents("{$ROOT}/dashboard/src/components/MetricCard.jsx");
 $a('MetricCard.jsx exists', $card !== '');
@@ -191,7 +193,9 @@ $a('Consolidated header sticky',                     strpos($cons, "position: 's
 $a('Consolidated KPI 3px accent border-left',        strpos($cons, 'borderLeft: `3px solid ${accent}`') !== false);
 
 $dov = (string) file_get_contents("{$ROOT}/dashboard/src/pages/DashboardOverview.jsx");
-$a('DashboardOverview SnapshotTile 3px accent',      strpos($dov, 'borderLeft: `3px solid ${accent}`') !== false);
+$a('DashboardOverview SnapshotTile keeps a color trim',
+    strpos($dov, 'workspace-kpi--${tone}') !== false
+    && strpos($styles, '.workspace-kpi::before') !== false);
 $a('DashboardOverview SnapshotTile tabular-nums',    strpos($dov, "fontVariantNumeric: 'tabular-nums'") !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";

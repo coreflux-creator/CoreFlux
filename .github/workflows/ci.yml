@@ -39,6 +39,21 @@ jobs:
       - name: Expose legacy test workspace path
         run: sudo ln -sfn "$GITHUB_WORKSPACE" /app
 
+      - name: Set up Node for GraphQL smoke services
+        if: matrix.lane == 'core'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build GraphQL smoke services
+        if: matrix.lane == 'core'
+        run: |
+          for d in subgraph-coreflux subgraph-jobdiva mcp-server; do
+            npm ci --prefix "graphql/$d"
+            npm run build --prefix "graphql/$d"
+          done
+          npm ci --prefix graphql/router
+
       - name: Smoke suite — lane ${{ matrix.lane }}
         run: bash scripts/ci_smoke_all.sh --lane=${{ matrix.lane }}
 

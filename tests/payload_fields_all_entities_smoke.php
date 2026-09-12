@@ -29,7 +29,8 @@ _ok('endpoint routes entity_type=* correctly');
 
 // The endpoint must STILL handle the legacy two modes (discovery + path-listing).
 assert(str_contains($contents, 'sources'),                 'discovery mode preserved');
-assert(str_contains($contents, "'entity_type' => \$entityType"), 'path-listing mode preserved');
+assert(str_contains($contents, "'entity_type' => \$integration === 'jobdiva'")
+    && str_contains($contents, "'paths'       => \$integration === 'jobdiva'"), 'path-listing mode preserved');
 _ok('legacy modes (discovery, path-listing) preserved');
 
 echo "\n🎯 payload_fields_all_entities_smoke — ALL PASS\n";

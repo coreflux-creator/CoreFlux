@@ -11,6 +11,7 @@ import SuggestPaymentRunModal from './SuggestPaymentRunModal';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 import { QboDriftBadge, useQboDriftBadges } from '../../../dashboard/src/components/QboDriftBadge';
 import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 import {
   ChevronRight, CreditCard, Download, MoreHorizontal, Plus, Search, Upload,
 } from 'lucide-react';
@@ -158,6 +159,7 @@ export default function BillsList() {
                     data-testid="ap-bills-select-all"
                   />
                 </th>
+                <th {...headerProps('id', 'ap-bills-sort')}>ID <SortIndicator active={sortKey === 'id'} dir={sortDir} /></th>
                 <th {...headerProps('vendor_name', 'ap-bills-sort')}>Vendor / Bill <SortIndicator active={sortKey === 'vendor_name'} dir={sortDir} /></th>
                 <th {...headerProps('bill_date', 'ap-bills-sort')}>Bill date <SortIndicator active={sortKey === 'bill_date'} dir={sortDir} /></th>
                 <th {...headerProps('due_date', 'ap-bills-sort')}>Due <SortIndicator active={sortKey === 'due_date'} dir={sortDir} /></th>
@@ -169,10 +171,11 @@ export default function BillsList() {
               </tr>
             </thead>
             <tbody>
-              {items.length === 0 && !loading && <tr><td colSpan={9} className="empty" data-testid="ap-bills-empty">No bills match this view.</td></tr>}
+              {items.length === 0 && !loading && <tr><td colSpan={10} className="empty" data-testid="ap-bills-empty">No bills match this view.</td></tr>}
               {items.map(r => (
                 <tr key={r.id} data-testid={`ap-bill-row-${r.id}`} className={sel.has(r.id) ? 'is-selected' : ''}>
                   <td><input type="checkbox" checked={sel.has(r.id)} onChange={() => sel.toggle(r.id)} data-testid={`ap-bill-select-${r.id}`} /></td>
+                  <td><IdBadge id={r.id} prefix="B" /></td>
                   <td>
                     <div className="entity-cell">
                       <span className={`entity-avatar entity-avatar--${Number(r.id) % 4}`}>{initials(r.vendor_name)}</span>

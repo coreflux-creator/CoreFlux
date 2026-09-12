@@ -128,7 +128,7 @@ $assert('contacts upsert passes $userId',
     strpos($syncSrc, "mappingUpsert(\$tid, 'jobdiva', 'contact', \$extId, \$internalId, \$jd, 'pull', \$userId);") !== false);
 $projectorSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/projector.php");
 $assert('placements upsert passes $userId',
-    strpos($projectorSrc, "mappingUpsert(\$tenantId, 'jobdiva', 'placement', \$externalId, \$placementId, \$writePayload, 'pull', \$userId);") !== false);
+    strpos($projectorSrc, "mappingUpsert(\$tenantId, 'jobdiva', 'placement', \$externalId, \$placementId, \$snapshotPayload, 'pull', \$userId);") !== false);
 $pSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/sync_placements.php");
 $assert('auto-create person upserts existing match with $userId',
     strpos($pSrc, "mappingUpsert(\$tid, 'jobdiva', 'person', \$candidateExtId, \$existingId, \$jd, 'pull', \$userId);") !== false);

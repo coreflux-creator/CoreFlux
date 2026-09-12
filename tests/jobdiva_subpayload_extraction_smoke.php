@@ -197,7 +197,7 @@ $a('backfill invokes jobdivaSyncEnrichRelatedEntities on the missing batch',
 $a('backfill persists the enriched payload back to external_entity_mappings',
     str_contains($syncSrc, 'UPDATE external_entity_mappings')
     && str_contains($syncSrc, 'SET payload_snapshot = :p')
-    && str_contains($syncSrc, 'json_encode($newPayload'));
+    && str_contains($syncSrc, 'jobdivaAssignmentCompactSnapshotPayload($newPayload, $externalId)'));
 $a('summary surfaces enrichment_ran_for + enrichment_errors',
     str_contains($syncSrc, "\$summary['enrichment_ran_for'] = \$enrichmentRanFor")
     && str_contains($syncSrc, "\$summary['enrichment_errors']  = \$enrichmentBroken"));

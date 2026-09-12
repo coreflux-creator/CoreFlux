@@ -175,6 +175,7 @@ $qBody = ['Fault' => ['Error' => [['code' => '6210', 'Message' => 'Business Vali
 $GLOBALS['__qbo_transport'] = function ($method, $url, $headers, $body) use ($qBody) {
     return ['status' => 400, 'body' => $qBody, 'headers' => []];
 };
+qboRememberAccessToken(9999, 'q-access-token', 3600);
 
 $caughtQ = null;
 try {

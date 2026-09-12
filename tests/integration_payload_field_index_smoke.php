@@ -143,9 +143,10 @@ $a('GET only',
 $a('RBAC gate tenant_admin.integrations',
     str_contains($api, "rbac_legacy_require(\$user, 'tenant_admin.integrations')"));
 $a('source-discovery mode (no integration arg) returns sources[]',
-    str_contains($api, "api_ok([\n        'sources' => integrationPayloadFieldIndexSources(\$tid)"));
+    str_contains($api, "'sources' => jobdivaCanonicalizePayloadSources(\$sources)"));
 $a('path-listing mode returns paths[]',
-    str_contains($api, "'paths'       => integrationPayloadFieldIndexList(\$tid, \$integration, \$entityType, \$limit)"));
+    str_contains($api, "'paths'       => \$integration === 'jobdiva'")
+    && str_contains($api, 'integrationPayloadFieldIndexList($tid, $integration, $entityType, $limit)'));
 
 echo "\n7. PHP syntax\n";
 foreach ([

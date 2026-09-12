@@ -73,8 +73,8 @@ echo "\n── cron/qbo_two_way_sync.php ──\n";
 $cron = (string) file_get_contents('/app/cron/qbo_two_way_sync.php');
 check('cron requires auto_reconcile module',  str_contains($cron, "qbo/auto_reconcile.php"));
 check('cron invokes qboAutoReconcileTenant',  str_contains($cron, 'qboAutoReconcileTenant('));
-check('cron gates auto-recon behind tenant success',
-    preg_match('/if \(\$tenantOk\) \{\s*try \{\s*\$arc = qboAutoReconcileTenant/', $cron) === 1);
+check('cron gates auto-recon behind completed tenant work',
+    preg_match('/if \(\$ranAny && \$tenantOk\) \{\s*try \{\s*\$arc = qboAutoReconcileTenant/', $cron) === 1);
 check('cron emits auto_reconciled in summary line',
     str_contains($cron, 'auto_reconciled=%d') && str_contains($cron, 'auto_payments=%d'));
 
