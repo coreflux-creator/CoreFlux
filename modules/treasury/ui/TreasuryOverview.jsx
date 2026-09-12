@@ -4,6 +4,22 @@ import { useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
 
+function plaidIssueText(code, message) {
+  const detail = `${code || ''} ${message || ''}`.toUpperCase();
+  if (detail.includes('ITEM_NOT_FOUND') || detail.includes('CANNOT BE FOUND')) {
+    return 'Connection no longer available. Reconnect or disconnect it.';
+  }
+  if (detail.includes('ITEM_LOGIN_REQUIRED') || detail.includes('LOGIN_REQUIRED')) {
+    return 'Bank sign-in needs to be renewed.';
+  }
+  return message || code || 'Connection needs attention.';
+}
+
+function maskedConnectionId(itemId) {
+  if (!itemId) return 'Connection ID unavailable';
+  return `Connection …${String(itemId).slice(-6)}`;
+}
+
 export default function TreasuryOverview() {
   const dep = useApi('/modules/treasury/api/deposit_accounts.php');
   const lia = useApi('/modules/treasury/api/liability_accounts.php');
@@ -216,9 +232,7 @@ function PlaidHealthBanner() {
             {needing.length} bank connection{needing.length === 1 ? '' : 's'} need attention
           </strong>
           <p className="muted" style={{ fontSize: 13, margin: '4px 0 0' }}>
-            Balances and transactions won't refresh until these are reconnected.
-            This is almost always because the bank's login / MFA credentials
-            have expired — one click puts you through Plaid's re-auth flow.
+            Reconnect to restore balance and transaction updates.
           </p>
         </div>
       </div>
@@ -236,8 +250,7 @@ function PlaidHealthBanner() {
               <strong>{item.institution_name || item.item_id}</strong>
               {item.last_error_code && (
                 <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
-                  {item.last_error_code}
-                  {item.last_error_message ? ` — ${item.last_error_message}` : ''}
+                  {plaidIssueText(item.last_error_code, item.last_error_message)}
                 </span>
               )}
             </div>
@@ -365,14 +378,14 @@ function ConnectedInstitutions({ onChanged }) {
               <tr key={r.id} data-testid={`treasury-plaid-item-row-${r.id}`}>
                 <td>
                   <strong>{r.institution_name || '—'}</strong>
-                  <div className="muted" style={{ fontSize: 11 }}>{r.item_id}</div>
+                  <div className="muted" style={{ fontSize: 11 }} title={r.item_id || undefined}>{maskedConnectionId(r.item_id)}</div>
                 </td>
                 <td>
                   {r.status === 'linked' && <span className="badge badge--active">linked</span>}
                   {r.status === 'disconnected' && <span className="badge">disconnected</span>}
                   {r.status === 'error' && <span className="badge" style={{ background: '#fee2e2', color: '#991b1b' }}>error</span>}
                   {r.last_error_message && (
-                    <div className="muted" style={{ fontSize: 11 }}>{r.last_error_message}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>{plaidIssueText(r.last_error_code, r.last_error_message)}</div>
                   )}
                 </td>
                 <td style={{ textAlign: 'right' }}>{r.account_count}</td>

@@ -121,12 +121,12 @@ $a('DirectoryModule detail header renders C-prefixed badge next to name',
 
 echo "\n5. Column-header bumps consistent\n";
 $colSpanFiles = [
-    '/app/modules/people/ui/Directory.jsx'       => 'colSpan={7}',
+    '/app/modules/people/ui/Directory.jsx'       => 'colSpan={8}',
     '/app/modules/ap/ui/VendorsList.jsx'         => 'colSpan={9}',
     '/app/modules/ap/ui/BillsList.jsx'           => 'colSpan={10}',
     '/app/modules/billing/ui/InvoicesList.jsx'   => 'colSpan={9}',
     '/app/modules/billing/ui/PaymentsList.jsx'   => 'colSpan={8}',
-    '/app/modules/people/ui/DirectoryModule.jsx' => 'colSpan={6}',
+    '/app/modules/people/ui/DirectoryModule.jsx' => 'colSpan={10}',
 ];
 foreach ($colSpanFiles as $path => $needle) {
     $src = (string) file_get_contents($path);

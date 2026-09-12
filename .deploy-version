@@ -301,8 +301,8 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-DMSpZcOr.js
-- spa-assets/index-3iAUMgVr.css
+- spa-assets/index-BmcolcfA.js
+- spa-assets/index-BYh8AV2a.css
 last_known_features:
 - placements.economics.one_time_items
 - placements.economics.one_time_items.downstream_settlement

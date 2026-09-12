@@ -65,7 +65,7 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     api_ok(['invoice' => $inv, 'lines' => $lines, 'allocations' => $allocations, 'token' => $token]);
 }
 
-if ($method === 'GET') {
+if ($method === 'GET' && $action === '') {
     rbac_legacy_require($user, 'billing.view');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];

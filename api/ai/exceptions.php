@@ -32,7 +32,7 @@ $action = (string) ($_GET['action'] ?? '');
 
 $canView = rbac_legacy_can($user, 'ai.audit.view') || rbac_legacy_can($user, 'accounting.review');
 
-if ($method === 'GET') {
+if ($method === 'GET' && $action === '') {
     if (!$canView) api_error('Forbidden', 403);
     $status = (string) ($_GET['status'] ?? 'open');
     if (!in_array($status, ['open','assigned','resolved','dismissed','all'], true)) {

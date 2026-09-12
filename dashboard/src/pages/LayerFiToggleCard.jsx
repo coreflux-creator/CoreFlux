@@ -29,7 +29,13 @@ export default function LayerFiToggleCard() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try { setStatus(await client.status()); }
-    catch (e) { setError(e.message || 'Failed to load LayerFi status'); }
+    catch (e) {
+      if (e.status === 404) {
+        setStatus({ featureUnavailable: true });
+      } else {
+        setError(e.message || 'Failed to load LayerFi status');
+      }
+    }
     finally { setLoading(false); }
   }, [client]);
 
@@ -38,6 +44,25 @@ export default function LayerFiToggleCard() {
   const gov = status?.governance;
   const canToggle = !!status?.canToggle;
   const toggleOn  = gov ? (gov.dbEnabled ?? gov.effective) : !!status?.allowed;
+
+  if (status?.featureUnavailable) {
+    return (
+      <section
+        data-testid="layerfi-unavailable-card"
+        style={{
+          background: 'var(--cf-surface, white)',
+          border: '1px solid var(--cf-border, #e5e7eb)',
+          borderRadius: 8,
+          padding: 16,
+        }}
+      >
+        <h3 style={{ margin: '0 0 6px', fontSize: 14 }}>LayerFi sandbox</h3>
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--cf-text-secondary, #6b7280)' }}>
+          Not enabled in this environment.
+        </p>
+      </section>
+    );
+  }
 
   const onToggle = async () => {
     setBusy(true); setError(null); setToast(null);

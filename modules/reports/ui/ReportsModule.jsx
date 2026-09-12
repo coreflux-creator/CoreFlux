@@ -39,18 +39,9 @@ export default function ReportsModule({ session }) {
         <Route path="exec"     element={<Navigate to="../executive_snapshot" replace />} />
         <Route path="finance"  element={<Navigate to="../overview" replace />} />
         <Route path="staffing" element={<Navigate to="../overview" replace />} />
-        <Route path="custom"   element={<ComingSoon title="Custom Report Builder" notes="Phase 2: drag-drop field catalog, group/filter/sort, calculated fields, save + export." />} />
-        <Route path="other"    element={<ComingSoon title="Other Reports" notes="Phase 2: full report directory across industries with category chips and search." />} />
+        <Route path="custom"   element={<Navigate to="../overview" replace />} />
+        <Route path="other"    element={<Navigate to="../overview" replace />} />
       </Routes>
     </div>
-  );
-}
-
-function ComingSoon({ title, notes }) {
-  return (
-    <section data-testid="reports-coming-soon" className="people-directory">
-      <h2>{title}</h2>
-      <p className="empty">{notes}</p>
-    </section>
   );
 }

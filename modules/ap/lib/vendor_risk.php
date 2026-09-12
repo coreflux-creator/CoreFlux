@@ -72,10 +72,19 @@ function apVendorRiskRecompute(int $tenantId, int $vendorId): array {
     $factors = [];
     $score = 0;
 
-    // Read vendor metadata. The schema may vary across deployments — read defensively.
+    // Read vendor metadata from the AP index and its linked company record.
     $vendor = null;
     try {
-        $stmt = $pdo->prepare("SELECT * FROM ap_vendors WHERE tenant_id = :t AND id = :v LIMIT 1");
+        $stmt = $pdo->prepare(
+            "SELECT v.*, c.w9_on_file, c.coi_on_file, c.coi_expires_on
+               FROM ap_vendors_index v
+               LEFT JOIN companies c
+                 ON c.id = v.company_id
+                AND c.tenant_id = v.tenant_id
+                AND c.deleted_at IS NULL
+              WHERE v.tenant_id = :t AND v.id = :v
+              LIMIT 1"
+        );
         $stmt->execute(['t' => $tenantId, 'v' => $vendorId]);
         $vendor = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     } catch (\Throwable $_) { $vendor = null; }
@@ -88,27 +97,55 @@ function apVendorRiskRecompute(int $tenantId, int $vendorId): array {
     }
 
     // Rule: missing W-9 (only for 1099-eligible vendors).
-    if (!empty($vendor['is_1099_eligible']) && empty($vendor['w9_on_file'])) {
+    $hasApprovedW9 = !empty($vendor['w9_on_file']);
+    if (!$hasApprovedW9) {
+        try {
+            $w9 = $pdo->prepare(
+                "SELECT 1 FROM ap_vendor_portal_documents
+                  WHERE tenant_id = :t AND vendor_id = :v
+                    AND document_type = 'w9' AND status = 'approved'
+                  LIMIT 1"
+            );
+            $w9->execute(['t' => $tenantId, 'v' => $vendorId]);
+            $hasApprovedW9 = (bool) $w9->fetchColumn();
+        } catch (\Throwable $_) { /* vendor documents may not be installed yet */ }
+    }
+    if (!empty($vendor['requires_1099']) && !$hasApprovedW9) {
         $factors[] = 'missing_w9';
         $score += 20;
     }
 
     // Rule: missing or expired COI.
-    if (empty($vendor['coi_on_file']) || (!empty($vendor['coi_expiry']) && strtotime((string) $vendor['coi_expiry']) < time())) {
+    $hasApprovedCoi = !empty($vendor['coi_on_file']);
+    if (!$hasApprovedCoi) {
+        try {
+            $coi = $pdo->prepare(
+                "SELECT 1 FROM ap_vendor_portal_documents
+                  WHERE tenant_id = :t AND vendor_id = :v
+                    AND document_type = 'coi' AND status = 'approved'
+                  LIMIT 1"
+            );
+            $coi->execute(['t' => $tenantId, 'v' => $vendorId]);
+            $hasApprovedCoi = (bool) $coi->fetchColumn();
+        } catch (\Throwable $_) { /* vendor documents may not be installed yet */ }
+    }
+    if (!$hasApprovedCoi || (!empty($vendor['coi_expires_on']) && strtotime((string) $vendor['coi_expires_on']) < time())) {
         $factors[] = 'missing_coi';
         $score += 10;
     }
 
-    // Rule: bank-account change in last 7 days (look in vendor portal docs / banking history).
+    // Rule: an approved banking form changed in the last 7 days.
     try {
         $bankStmt = $pdo->prepare(
-            "SELECT updated_at FROM ap_vendor_banking
+            "SELECT COALESCE(reviewed_at, uploaded_at) AS changed_at
+               FROM ap_vendor_portal_documents
               WHERE tenant_id = :t AND vendor_id = :v
-              ORDER BY updated_at DESC LIMIT 1"
+                AND document_type = 'banking_form' AND status = 'approved'
+              ORDER BY COALESCE(reviewed_at, uploaded_at) DESC LIMIT 1"
         );
         $bankStmt->execute(['t' => $tenantId, 'v' => $vendorId]);
         $bankRow = $bankStmt->fetch(PDO::FETCH_ASSOC);
-        if ($bankRow && !empty($bankRow['updated_at']) && strtotime((string) $bankRow['updated_at']) > (time() - 7 * 86400)) {
+        if ($bankRow && !empty($bankRow['changed_at']) && strtotime((string) $bankRow['changed_at']) > (time() - 7 * 86400)) {
             $factors[] = 'bank_account_change';
             $score += 25;
         }
@@ -117,12 +154,12 @@ function apVendorRiskRecompute(int $tenantId, int $vendorId): array {
     // Rule: high volume (last 30 days > $50k).
     try {
         $vol = $pdo->prepare(
-            "SELECT COALESCE(SUM(total_amount), 0) AS s
+            "SELECT COALESCE(SUM(total), 0) AS s
                FROM ap_bills
-              WHERE tenant_id = :t AND vendor_id = :v
+              WHERE tenant_id = :t AND vendor_name = :n
                 AND bill_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)"
         );
-        $vol->execute(['t' => $tenantId, 'v' => $vendorId]);
+        $vol->execute(['t' => $tenantId, 'n' => (string) $vendor['vendor_name']]);
         if ((float) $vol->fetchColumn() > 50000.0) {
             $factors[] = 'high_volume';
             $score += 10;

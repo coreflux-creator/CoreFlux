@@ -20,7 +20,7 @@ $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
-if ($method === 'GET') {
+if ($method === 'GET' && $action === '') {
     rbac_legacy_require($user, 'ap.1099.view');
     $year = (int) ($_GET['tax_year'] ?? date('Y'));
     if ($year < 2000 || $year > 2100) api_error('invalid tax_year', 422);
@@ -128,7 +128,9 @@ if ($method === 'GET' && $action === 'print') {
     // PDF library needed; the browser's print dialog produces an archival
     // copy. Phase B can swap this for actual PDF generation + IRS e-file.
     rbac_legacy_require($user, 'ap.1099.view');
+    rbac_legacy_require($user, 'ap.vendor.view_pii');
     $year = (int) ($_GET['tax_year'] ?? date('Y'));
+    if ($year < 2000 || $year > 2100) api_error('invalid tax_year', 422);
     $vendorIds = isset($_GET['vendor_ids']) ? array_filter(array_map('intval', explode(',', $_GET['vendor_ids']))) : [];
 
     $where = ['l.tenant_id = :t', 'l.tax_year = :y', 'l.requires_1099_nec = 1'];
@@ -139,20 +141,58 @@ if ($method === 'GET' && $action === 'print') {
         foreach ($vendorIds as $i => $v) $params['v' . $i] = $v;
     }
 
-    $rows = $GLOBALS['__pdo'] ?? getDB();
-    $stmt = $rows->prepare(
-        "SELECT l.*, v.tax_id_full, v.address_line1, v.address_line2,
-                v.city, v.state, v.zip, t.legal_name AS payer_name,
-                t.tax_id AS payer_tin, t.address_line1 AS payer_addr1,
-                t.address_line2 AS payer_addr2, t.city AS payer_city,
-                t.state AS payer_state, t.zip AS payer_zip
+    $pdo = $GLOBALS['__pdo'] ?? getDB();
+    $stmt = $pdo->prepare(
+        "SELECT l.*, v.id AS vendor_id, v.tax_id_full_ct AS vendor_tax_id_ct,
+                COALESCE(v.tax_id_last4, l.tax_id_last4) AS vendor_tax_id_last4,
+                c.address_line1, c.address_line2, c.city, c.state,
+                c.postal_code AS zip, c.country
            FROM ap_1099_ledger l
-           LEFT JOIN ap_vendors v ON v.id = l.vendor_id AND v.tenant_id = l.tenant_id
-           LEFT JOIN tenants t ON t.id = l.tenant_id
+           LEFT JOIN ap_vendors_index v
+             ON v.tenant_id = l.tenant_id
+            AND (v.id = l.vendor_id OR (l.vendor_id IS NULL AND v.vendor_name = l.vendor_name))
+           LEFT JOIN companies c
+             ON c.id = v.company_id
+            AND c.tenant_id = l.tenant_id
+            AND c.deleted_at IS NULL
           WHERE " . implode(' AND ', $where)
     );
     $stmt->execute($params);
     $forms = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $payerStmt = $pdo->prepare(
+        'SELECT e.legal_name, e.tax_id_ct, e.address_json, t.name AS tenant_name
+           FROM tenants t
+           LEFT JOIN accounting_entities e
+             ON e.id = (
+                SELECT e2.id
+                  FROM accounting_entities e2
+                 WHERE e2.tenant_id = t.id AND e2.active = 1
+                 ORDER BY e2.id ASC
+                 LIMIT 1
+             )
+          WHERE t.id = :t
+          LIMIT 1'
+    );
+    $payerStmt->execute(['t' => $tid]);
+    $payer = $payerStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $payerAddress = json_decode((string) ($payer['address_json'] ?? ''), true);
+    if (!is_array($payerAddress)) $payerAddress = [];
+    $payer['payer_name'] = $payer['legal_name'] ?: ($payer['tenant_name'] ?? '');
+    $payer['payer_tin'] = !empty($payer['tax_id_ct']) ? decryptField($payer['tax_id_ct']) : null;
+    $payer['payer_addr1'] = $payerAddress['address_line1'] ?? $payerAddress['line1'] ?? '';
+    $payer['payer_addr2'] = $payerAddress['address_line2'] ?? $payerAddress['line2'] ?? '';
+    $payer['payer_city'] = $payerAddress['city'] ?? '';
+    $payer['payer_state'] = $payerAddress['state'] ?? '';
+    $payer['payer_zip'] = $payerAddress['postal_code'] ?? $payerAddress['zip'] ?? '';
+
+    foreach ($forms as &$form) {
+        $form = array_merge($form, $payer);
+        $taxIdCiphertext = $form['vendor_tax_id_ct'] ?? $form['tax_id_full_ct'] ?? null;
+        $form['tax_id_full'] = !empty($taxIdCiphertext) ? decryptField($taxIdCiphertext) : null;
+        unset($form['vendor_tax_id_ct'], $form['tax_id_full_ct'], $form['tax_id_ct'], $form['address_json']);
+    }
+    unset($form);
 
     apAudit('ap.1099.print_rendered', ['tax_year' => $year, 'count' => count($forms)], null);
 
@@ -172,10 +212,13 @@ function render1099NecHtml(int $year, array $forms): string {
         $recipientBlock = h(($f['vendor_name'] ?? '')) . '<br>'
             . h(($f['address_line1'] ?? '')) . ' ' . h(($f['address_line2'] ?? '')) . '<br>'
             . h(($f['city'] ?? '')) . ', ' . h(($f['state'] ?? '')) . ' ' . h(($f['zip'] ?? ''));
-        $tin    = $f['tax_id_full'] ?? ('***-**-' . ($f['tax_id_last4'] ?? '****'));
+        $tin    = $f['tax_id_full'] ?? ('***-**-' . ($f['vendor_tax_id_last4'] ?? '****'));
         $amount = number_format((float) $f['total_paid'], 2);
+        $vendorId = (int) ($f['vendor_id'] ?? 0);
+        $payerTin = h($f['payer_tin'] ?? 'Not configured');
+        $recipientTin = h($tin);
         $rows  .= <<<H
-<div class="form-1099" data-vendor="{$f['vendor_id']}">
+<div class="form-1099" data-vendor="{$vendorId}">
   <header>
     <h2>Form 1099-NEC — Tax Year {$year}</h2>
     <p class="muted">Nonemployee Compensation</p>
@@ -190,8 +233,8 @@ function render1099NecHtml(int $year, array $forms): string {
       <td class="block">{$recipientBlock}</td>
     </tr>
     <tr>
-      <td class="label">PAYER's TIN: <strong>{$f['payer_tin']}</strong></td>
-      <td class="label">RECIPIENT's TIN: <strong>{$tin}</strong></td>
+      <td class="label">PAYER's TIN: <strong>{$payerTin}</strong></td>
+      <td class="label">RECIPIENT's TIN: <strong>{$recipientTin}</strong></td>
     </tr>
     <tr>
       <td colspan="2" class="box1">

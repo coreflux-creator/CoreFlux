@@ -117,32 +117,40 @@ export const api = {
  * Hook-friendly helper: returns { data, error, loading, reload }.
  * Kept dependency-free so any module can use it without pulling swr/react-query.
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export function useApi(path, { enabled = true } = {}) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(Boolean(enabled));
   const [elapsedMs, setElapsedMs] = useState(null);
+  const requestSequence = useRef(0);
 
   const load = useCallback(async () => {
     if (!enabled || !path) return;
+    const sequence = ++requestSequence.current;
     setLoading(true);
     setError(null);
     const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     try {
       const result = await api.get(path);
+      if (sequence !== requestSequence.current) return;
       setData(result);
     } catch (e) {
+      if (sequence !== requestSequence.current) return;
       setError(e);
     } finally {
+      if (sequence !== requestSequence.current) return;
       const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       setElapsedMs(t1 - t0);
       setLoading(false);
     }
   }, [path, enabled]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    return () => { requestSequence.current += 1; };
+  }, [load]);
 
   // `mutate` lets callers patch the cached data in place without
   // triggering a refetch — used for optimistic updates after a POST
@@ -268,13 +276,21 @@ export function useApiCached(path, options = {}) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(Boolean(enabled) && !cached);
   const [elapsedMs, setElapsedMs] = useState(null);
+  const requestSequence = useRef(0);
 
   const load = useCallback(async () => {
     if (!enabled || !path) return;
+    const sequence = ++requestSequence.current;
     setError(null);
     const fresh = __apiCache.get(key);
     const isFresh = fresh && (Date.now() - fresh.ts) < ttlMs;
-    if (!fresh) setLoading(true);
+    if (fresh) {
+      setData(fresh.data);
+      setLoading(false);
+    } else {
+      setData(null);
+      setLoading(true);
+    }
     const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     try {
       // Fresh hit + revalidateOnMount=false → skip the network call.
@@ -283,17 +299,23 @@ export function useApiCached(path, options = {}) {
         return;
       }
       const result = await _fetchDeduped(path, key);
+      if (sequence !== requestSequence.current) return;
       setData(result);
     } catch (e) {
+      if (sequence !== requestSequence.current) return;
       setError(e);
     } finally {
+      if (sequence !== requestSequence.current) return;
       const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       setElapsedMs(t1 - t0);
       setLoading(false);
     }
   }, [path, key, enabled, ttlMs, revalidateOnMount]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    return () => { requestSequence.current += 1; };
+  }, [load]);
 
   const mutate = useCallback((updater) => {
     setData(prev => {

@@ -202,10 +202,12 @@ function _invoiceLoad(PDO $pdo, int $invoiceId): ?array {
 
 function _invoiceLines(PDO $pdo, int $invoiceId, int $tenantId): array {
     $st = $pdo->prepare(
-        'SELECT line_no, description, quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total
-           FROM billing_invoice_lines
-          WHERE invoice_id = :id AND tenant_id = :t
-          ORDER BY line_no ASC'
+        'SELECT l.line_no, l.description, l.quantity, l.unit, l.unit_price,
+                l.subtotal, l.tax_rate_pct, l.tax_amount, l.total
+           FROM billing_invoice_lines l
+           JOIN billing_invoices i ON i.id = l.invoice_id
+          WHERE l.invoice_id = :id AND i.tenant_id = :t
+          ORDER BY l.line_no ASC'
     );
     $st->execute(['id' => $invoiceId, 't' => $tenantId]);
     return $st->fetchAll();

@@ -123,13 +123,17 @@ $totals['from_date']           = $fromDate;
 
 // 5. Training-history snapshot — how much has the moat compounded?
 $histStmt = $pdo->prepare(
-    'SELECT signal_kind, COUNT(*) AS rows, SUM(accept_count) AS total_accepts
+    'SELECT signal_kind, COUNT(*) AS history_rows, SUM(accept_count) AS total_accepts
        FROM ai_categorization_history
       WHERE tenant_id = :t
       GROUP BY signal_kind'
 );
 $histStmt->execute(['t' => $tenantId]);
-$historySnapshot = $histStmt->fetchAll(PDO::FETCH_ASSOC);
+$historySnapshot = array_map(static function (array $row): array {
+    $row['rows'] = (int) $row['history_rows'];
+    unset($row['history_rows']);
+    return $row;
+}, $histStmt->fetchAll(PDO::FETCH_ASSOC));
 
 api_ok([
     'features'         => $features,

@@ -29,13 +29,14 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$destApi  = (string) file_get_contents('/app/api/admin/treasury/sweep_destinations.php');
-$divApi   = (string) file_get_contents('/app/api/admin/treasury/sweep_divergence.php');
-$destUi   = (string) file_get_contents('/app/modules/treasury/ui/SweepDestinations.jsx');
-$bannerUi = (string) file_get_contents('/app/modules/treasury/ui/SweepDivergenceBanner.jsx');
-$modUi    = (string) file_get_contents('/app/modules/treasury/ui/TreasuryModule.jsx');
-$rulesUi  = (string) file_get_contents('/app/modules/treasury/ui/SweepRulesAdmin.jsx');
-$recCore  = (string) file_get_contents('/app/core/mercury_recipients.php');
+$root = dirname(__DIR__);
+$destApi  = (string) file_get_contents($root . '/api/admin/treasury/sweep_destinations.php');
+$divApi   = (string) file_get_contents($root . '/api/admin/treasury/sweep_divergence.php');
+$destUi   = (string) file_get_contents($root . '/modules/treasury/ui/SweepDestinations.jsx');
+$bannerUi = (string) file_get_contents($root . '/modules/treasury/ui/SweepDivergenceBanner.jsx');
+$modUi    = (string) file_get_contents($root . '/modules/treasury/ui/TreasuryModule.jsx');
+$rulesUi  = (string) file_get_contents($root . '/modules/treasury/ui/SweepRulesAdmin.jsx');
+$recCore  = (string) file_get_contents($root . '/core/mercury_recipients.php');
 
 echo "\n1. /api/admin/treasury/sweep_destinations.php — contract\n";
 $a('declares strict_types',
@@ -139,7 +140,7 @@ $a('DRY-RUN mode pill rendered when live_mode is false',
 
 echo "\n5. TreasuryModule.jsx wiring\n";
 $a('imports SweepDestinations',
-    str_contains($modUi, "import SweepDestinations      from './SweepDestinations';"));
+    (bool) preg_match("/import\\s+SweepDestinations\\s+from\\s+'\\.\\/SweepDestinations';/", $modUi));
 $a('renders sweep-destinations tab',
     str_contains($modUi, "{ to: '/modules/treasury/sweep-destinations', label: 'Sweep destinations' }"));
 $a('mounts route',
@@ -157,9 +158,9 @@ $a('subquery pulls account_type from default bank method',
 
 echo "\n8. PHP syntax\n";
 foreach ([
-    '/app/api/admin/treasury/sweep_destinations.php',
-    '/app/api/admin/treasury/sweep_divergence.php',
-    '/app/core/mercury_recipients.php',
+    $root . '/api/admin/treasury/sweep_destinations.php',
+    $root . '/api/admin/treasury/sweep_divergence.php',
+    $root . '/core/mercury_recipients.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);

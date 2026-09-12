@@ -996,8 +996,10 @@ a:hover {
     color: var(--cf-text);
 }
 
+.people-directory h1,
 .people-directory h2,
 .person-create h2,
+.person-detail h1,
 .person-detail h2,
 [data-testid="pipeline-page"] h2,
 [data-testid="document-vault"] h2,

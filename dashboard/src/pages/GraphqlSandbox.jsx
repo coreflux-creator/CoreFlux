@@ -21,6 +21,11 @@ function useIntrospection() {
 
   useEffect(() => {
     const ctrl = new AbortController();
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      ctrl.abort();
+    }, 8000);
     fetch(GRAPHQL_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -28,16 +33,26 @@ function useIntrospection() {
       signal: ctrl.signal,
     })
       .then(async (r) => {
+        if (!r.ok) throw new Error(`Endpoint returned HTTP ${r.status}`);
         const json = await r.json();
         if (json.errors) throw new Error(json.errors[0]?.message || 'GraphQL error');
         const types = (json.data?.__schema?.types || []).filter(t => !t.name.startsWith('__'));
         setState({ loading: false, ok: true, types: types.length, error: null });
       })
       .catch((e) => {
-        if (e.name === 'AbortError') return;
+        if (e.name === 'AbortError') {
+          if (timedOut) {
+            setState({ loading: false, ok: false, types: 0, error: 'The endpoint did not respond within 8 seconds.' });
+          }
+          return;
+        }
         setState({ loading: false, ok: false, types: 0, error: e.message || String(e) });
-      });
-    return () => ctrl.abort();
+      })
+      .finally(() => window.clearTimeout(timeout));
+    return () => {
+      window.clearTimeout(timeout);
+      ctrl.abort();
+    };
   }, []);
 
   return state;
@@ -168,7 +183,7 @@ const GraphqlSandbox = () => {
         <ul style={{ paddingLeft: 24, color: 'var(--cf-text-secondary)', lineHeight: 1.8 }}>
           <li><strong>Explore the schema</strong> — every Placement, Person, Company, and JobDiva field is documented inline.</li>
           <li><strong>Write a query</strong> — Apollo Sandbox autocompletes as you type and shows live errors.</li>
-          <li><strong>Test with auth</strong> — paste a JWT from the browser DevTools <code>Application → Cookies</code> tab into the <code>Authorization: Bearer ...</code> header in Sandbox.</li>
+          <li><strong>Test with auth</strong> — use an approved CoreFlux API access token in the <code>Authorization: Bearer ...</code> header in Sandbox.</li>
           <li><strong>Export to code</strong> — the Sandbox can generate ready-to-paste fetch / Apollo Client / curl snippets for any query.</li>
         </ul>
       </Section>

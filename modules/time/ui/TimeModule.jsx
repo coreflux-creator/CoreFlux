@@ -28,17 +28,8 @@ export default function TimeModule({ session }) {
         <Route path="bulk"      element={<CsvImport />} />
         <Route path="categories"element={<Categories />} />
         <Route path="inbox"     element={<Navigate to="/modules/time/intake" replace />} />
-        <Route path="missing"   element={<ComingSoon title="Missing Timesheets" notes="Phase C: combined dashboard of AI-unreadable + expected-not-received placements." />} />
+        <Route path="missing"   element={<Navigate to="/modules/time/intake" replace />} />
       </Routes>
     </div>
-  );
-}
-
-function ComingSoon({ title, notes }) {
-  return (
-    <section className="people-directory" data-testid="time-coming-soon">
-      <h2>{title}</h2>
-      <p className="empty">{notes}</p>
-    </section>
   );
 }

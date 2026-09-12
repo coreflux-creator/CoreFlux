@@ -79,6 +79,20 @@ function companiesList(array $filters = []): array
     if (!empty($filters['role'])) {
         $where[] = 'EXISTS (SELECT 1 FROM company_roles cr WHERE cr.company_id = c.id AND cr.role = :role)';
         $params['role'] = $filters['role'];
+    } elseif (!empty($filters['roles'])) {
+        $requestedRoles = is_array($filters['roles'])
+            ? $filters['roles']
+            : explode(',', (string) $filters['roles']);
+        $requestedRoles = array_values(array_intersect(COMPANY_ROLES, array_map('trim', $requestedRoles)));
+        if ($requestedRoles) {
+            $roleParams = [];
+            foreach ($requestedRoles as $index => $role) {
+                $key = 'role_' . $index;
+                $roleParams[] = ':' . $key;
+                $params[$key] = $role;
+            }
+            $where[] = 'EXISTS (SELECT 1 FROM company_roles cr WHERE cr.company_id = c.id AND cr.role IN (' . implode(',', $roleParams) . '))';
+        }
     }
     if (!empty($filters['status'])) {
         $where[] = 'c.status = :status';
@@ -89,8 +103,12 @@ function companiesList(array $filters = []): array
     $page    = max(1, (int) ($filters['page'] ?? 1));
     $offset  = ($page - 1) * $perPage;
     $sortMap = [
+        'id'           => 'c.id',
         'name'         => 'c.name',
         'legal_name'   => 'c.legal_name',
+        'primary_contact_name' => 'c.primary_contact_name',
+        'default_terms'=> 'c.default_terms',
+        'city'         => 'c.city',
         'status'       => 'c.status',
         'use_count'    => 'c.use_count',
         'last_used_at' => 'c.last_used_at',
@@ -102,6 +120,7 @@ function companiesList(array $filters = []): array
 
     $rows = scopedQuery(
         'SELECT c.id, c.name, c.legal_name, c.status, c.city, c.state, c.country,
+                c.default_terms, c.currency, c.industry,
                 c.primary_contact_name, c.primary_contact_email, c.use_count, c.last_used_at,
                 (SELECT GROUP_CONCAT(role) FROM company_roles cr WHERE cr.company_id = c.id) AS roles_csv
          FROM companies c

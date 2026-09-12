@@ -80,6 +80,80 @@ if ($method === 'POST') {
         api_ok(['ok' => true, 'id' => $id, 'status' => $newStatus]);
     }
 
+    if ($action === 'bulk_update') {
+        rbac_legacy_require($user, 'people.manage');
+        $body = api_json_body();
+        $ids = is_array($body['ids'] ?? null)
+            ? array_values(array_unique(array_map('intval', $body['ids'])))
+            : [];
+        $ids = array_values(array_filter($ids, static fn($id) => $id > 0));
+        $field = (string) ($body['field'] ?? '');
+        $value = strtolower(trim((string) ($body['value'] ?? '')));
+        $allowedValues = [
+            'status' => ['active', 'bench', 'inactive', 'do_not_rehire'],
+            'classification' => ['w2', '1099', 'c2c', 'temp', 'perm', 'candidate', 'alumni'],
+            'work_auth_status' => ['unknown', 'citizen', 'green_card', 'h1b', 'opt', 'cpt', 'tn', 'other'],
+            'employment_type' => ['full_time', 'part_time', 'contractor', 'intern', 'temp'],
+            'pay_frequency' => ['weekly', 'biweekly', 'semimonthly', 'monthly'],
+        ];
+
+        if (!$ids) api_error('ids[] required', 422);
+        if (count($ids) > 500) api_error('Too many ids (max 500 per call)', 422);
+        if (!isset($allowedValues[$field])) {
+            api_error('Invalid bulk field', 422, ['allowed' => array_keys($allowedValues)]);
+        }
+        if (!in_array($value, $allowedValues[$field], true)) {
+            api_error("Invalid {$field}", 422, ['allowed' => $allowedValues[$field]]);
+        }
+
+        $updated = 0;
+        $skipped = 0;
+        $failed = 0;
+        $results = [];
+        foreach ($ids as $id) {
+            try {
+                $existing = peopleGet($id);
+                if (!$existing) {
+                    $skipped++;
+                    $results[] = ['id' => $id, 'ok' => false, 'reason' => 'not_found'];
+                    continue;
+                }
+                if ((string) ($existing[$field] ?? '') === $value) {
+                    $skipped++;
+                    $results[] = ['id' => $id, 'ok' => true, 'reason' => 'no_change'];
+                    continue;
+                }
+                scopedUpdate('people', $id, [$field => $value]);
+                peopleAudit('people.updated', [
+                    'id' => $id,
+                    'source' => 'bulk_update',
+                    'fields' => [$field],
+                    'before' => [$field => $existing[$field] ?? null],
+                    'after' => [$field => $value],
+                ], $id);
+                $updated++;
+                $results[] = ['id' => $id, 'ok' => true];
+            } catch (\Throwable $e) {
+                $failed++;
+                $results[] = ['id' => $id, 'ok' => false, 'reason' => $e->getMessage()];
+            }
+        }
+
+        if (($field === 'classification' && $value === 'w2') || ($field === 'status' && $value === 'active')) {
+            require_once __DIR__ . '/../lib/employees.php';
+            try { peopleEnsureEmployeesFromW2(); } catch (\Throwable $_) { /* dashboard backfill is the fallback */ }
+        }
+
+        api_ok([
+            'ok' => $failed === 0,
+            'updated' => $updated,
+            'skipped' => $skipped,
+            'failed' => $failed,
+            'field' => $field,
+            'results' => $results,
+        ]);
+    }
+
     // Default POST = create
     rbac_legacy_require($user, 'people.manage');
     $body = api_json_body();

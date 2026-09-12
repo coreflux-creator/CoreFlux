@@ -37,8 +37,9 @@ check('api endpoint exists', is_file($apiPath));
 $api = (string) file_get_contents($apiPath);
 check('GET-only guard', str_contains($api, "method_not_allowed"));
 check('RBAC gated to master_admin/tenant_admin',
-    str_contains($api, "rbac_legacy_require_any") &&
-    str_contains($api, "'master_admin'") && str_contains($api, "'tenant_admin'"));
+    str_contains($api, '$ctx = api_require_auth();') &&
+    str_contains($api, "['master_admin', 'tenant_admin']") &&
+    str_contains($api, "['is_global_admin']"));
 check('emits providers + stale_after_days + generated_at_iso',
     str_contains($api, "'providers'") &&
     str_contains($api, "'stale_after_days'") &&

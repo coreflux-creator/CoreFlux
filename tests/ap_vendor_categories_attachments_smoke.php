@@ -30,7 +30,7 @@ echo "\nstorage_register helper\n";
 $reg = (string) file_get_contents(__DIR__ . '/../core/storage_register.php');
 $a('helper file exists',                            strlen($reg) > 0);
 $a('registerStorageObject() exists',                strpos($reg, 'function registerStorageObject') !== false);
-$a('idempotent on s3_key',                          strpos($reg, 'SELECT id FROM storage_objects WHERE s3_key = :k LIMIT 1') !== false);
+$a('idempotent on tenant + s3_key',                 strpos($reg, 'SELECT id FROM storage_objects WHERE tenant_id = :t AND s3_key = :k LIMIT 1') !== false);
 $a('returns existing id when found',                strpos($reg, 'if ($found > 0) return $found') !== false);
 
 echo "\nAP bills.php attachment endpoints\n";
