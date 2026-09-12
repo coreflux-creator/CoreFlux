@@ -242,7 +242,11 @@ const useSession = () => {
     // check would redirect users away from the very page that authenticates
     // them.
     const path = typeof window !== 'undefined' ? window.location.pathname : '';
-    const isPublicRoute = path === '/login' || path === '/login.html' || path.startsWith('/auth/m/');
+    const isPublicRoute = path === '/login'
+      || path === '/login.html'
+      || path.startsWith('/auth/m/')
+      || path === '/vendor/portal'
+      || path === '/share/scenario';
     if (isPublicRoute) {
       setSession({ __public: true });
       setLoading(false);
@@ -262,7 +266,9 @@ const useSession = () => {
 
         if (res.status === 401) {
           // Not authenticated: use the maintained static login entrypoint.
-          const next = encodeURIComponent(window.location.pathname + window.location.hash);
+          const next = encodeURIComponent(
+            window.location.pathname + window.location.search + window.location.hash
+          );
           window.location.replace(`/login.html?next=${next}`);
           return;
         }
@@ -536,6 +542,8 @@ const App = () => {
         <Routes>
           <Route path="/login"        element={<Login />} />
           <Route path="/auth/m/:token" element={<MagicLinkConsume />} />
+          <Route path="/vendor/portal" element={<VendorPortal />} />
+          <Route path="/share/scenario" element={<ScenarioShare />} />
           <Route path="*"              element={<Login />} />
         </Routes>
       </Router>

@@ -18,6 +18,22 @@ const BASE = ''; // same-origin; override via VITE_API_BASE if ever needed
 const ENV_BASE =
   (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE) || '';
 const TAB_TENANT_KEY = 'coreflux.tab_tenant_id';
+let authRedirectStarted = false;
+
+function redirectExpiredSession() {
+  if (typeof window === 'undefined' || authRedirectStarted) return;
+  const path = window.location.pathname;
+  const isPublicRoute = path === '/login'
+    || path === '/login.html'
+    || path.startsWith('/auth/m/')
+    || path === '/vendor/portal'
+    || path === '/share/scenario';
+  if (isPublicRoute) return;
+
+  authRedirectStarted = true;
+  const next = encodeURIComponent(path + window.location.search + window.location.hash);
+  window.location.replace(`/login.html?next=${next}`);
+}
 
 export function getPinnedTenantId() {
   if (typeof window === 'undefined' || !window.sessionStorage) return null;
@@ -80,6 +96,7 @@ async function request(method, path, body, options = {}) {
   }
 
   if (!res.ok) {
+    if (res.status === 401) redirectExpiredSession();
     const err = new Error((data && data.error) || res.statusText || 'Request failed');
     err.status = res.status;
     err.data = data;

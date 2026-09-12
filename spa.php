@@ -8,9 +8,18 @@ require_once __DIR__ . '/core/data.php';
 
 initSession();
 
-// Check if user is logged in
-if (!isset($_SESSION['user'])) {
-    $next = (string) ($_SERVER['REQUEST_URI'] ?? '/');
+// Most SPA routes require the platform session. Token-authenticated entry
+// points must still be able to boot React before they establish their own
+// scoped session.
+$requestUri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
+$requestPath = parse_url($requestUri, PHP_URL_PATH);
+$requestPath = is_string($requestPath) ? rtrim($requestPath, '/') : '/';
+$publicRoute = $requestPath === '/vendor/portal'
+    || $requestPath === '/share/scenario'
+    || str_starts_with($requestPath, '/auth/m/');
+
+if (!isset($_SESSION['user']) && !$publicRoute) {
+    $next = $requestUri;
     if ($next === '' || !str_starts_with($next, '/') || str_starts_with($next, '//')) {
         $next = '/';
     }
