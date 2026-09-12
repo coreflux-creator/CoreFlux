@@ -156,7 +156,6 @@ jobs:
             pricing.html \
             reporting.html \
             deploy/run_migrations.php \
-            scripts/ci_lane_classifier.sh \
             scripts/ap_weekly_queue_sunday.php \
             scripts/billing_recurring_generate.php \
             scripts/opcache_flush_deploy.php.template \
@@ -174,7 +173,6 @@ jobs:
             tests/authenticated_admin_surfaces_smoke.php \
             tests/books_health_period_schema_smoke.php \
             tests/chart_of_accounts_controls_smoke.php \
-            tests/ci_lane_classifier_smoke.php \
             tests/company_directory_workflow_smoke.php \
             tests/csv_ai_assisted_mapping_smoke.php \
             tests/csv_external_id_wave2_smoke.php \
@@ -289,7 +287,6 @@ jobs:
             php tests/authenticated_admin_surfaces_smoke.php
             php tests/books_health_period_schema_smoke.php
             php tests/chart_of_accounts_controls_smoke.php
-            php tests/ci_lane_classifier_smoke.php
             php tests/company_directory_workflow_smoke.php
             php tests/csv_ai_assisted_mapping_smoke.php
             php tests/csv_external_id_wave2_smoke.php
