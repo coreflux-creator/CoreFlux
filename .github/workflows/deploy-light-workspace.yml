@@ -1,0 +1,149 @@
+name: Deploy light workspace
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coreflux-cloudways-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout production revision
+        uses: actions/checkout@v4
+
+      - name: Package light workspace release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t ENTRY_ASSETS < <(grep -oE 'index-[A-Za-z0-9_-]+\.(js|css)' index.html | sort -u)
+          test "${#ENTRY_ASSETS[@]}" -gt 0
+
+          BUILT_ASSETS=()
+          declare -A SEEN_ASSETS=()
+          for asset in "${ENTRY_ASSETS[@]}"; do
+            if [ -z "${SEEN_ASSETS[$asset]:-}" ]; then
+              SEEN_ASSETS[$asset]=1
+              BUILT_ASSETS+=("$asset")
+            fi
+          done
+          for ((index = 0; index < ${#BUILT_ASSETS[@]}; index++)); do
+            asset="${BUILT_ASSETS[$index]}"
+            test -f "spa-assets/$asset"
+            if [[ "$asset" == *.js ]]; then
+              mapfile -t IMPORTS < <(grep -oE 'index-[A-Za-z0-9_-]+\.(js|css)' "spa-assets/$asset" | sort -u || true)
+              for imported in "${IMPORTS[@]}"; do
+                if [ -z "${SEEN_ASSETS[$imported]:-}" ]; then
+                  SEEN_ASSETS[$imported]=1
+                  BUILT_ASSETS+=("$imported")
+                fi
+              done
+            fi
+          done
+
+          ROOT_ASSETS=()
+          for asset in "${BUILT_ASSETS[@]}"; do
+            test -f "spa-assets/$asset"
+            ROOT_ASSETS+=("spa-assets/$asset")
+          done
+
+          tar -czf coreflux-light-workspace-release.tar.gz \
+            .deploy-version \
+            dashboard/dist \
+            dashboard/src/components/ComparisonTable.jsx \
+            dashboard/src/components/MetricCard.jsx \
+            dashboard/src/components/ReportShell.jsx \
+            dashboard/src/pages/DashboardOverview.jsx \
+            dashboard/src/styles.css \
+            index.html \
+            modules/ap/api/bills.php \
+            modules/ap/ui/APModule.jsx \
+            modules/ap/ui/BillsList.jsx \
+            modules/placements/lib/placements.php \
+            modules/placements/ui/List.jsx \
+            scripts/opcache_flush_deploy.php.template \
+            spa-assets/index.html \
+            spa-assets/sw.js \
+            spa.php \
+            tests/workspace_shell_smoke.php \
+            "${ROOT_ASSETS[@]}"
+
+      - name: Stage light workspace release
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: coreflux-light-workspace-release.tar.gz
+          target: /tmp/coreflux-light-workspace-${{ github.run_id }}
+          overwrite: true
+
+      - name: Publish and verify light workspace release
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 8m
+          script: |
+            set -eu
+            APP_BASE="${{ secrets.CW_REMOTE_PATH }}"
+            APP_ROOT="$APP_BASE/public_html"
+            STAGE_ROOT="/tmp/coreflux-light-workspace-${{ github.run_id }}"
+            ARCHIVE="$STAGE_ROOT/coreflux-light-workspace-release.tar.gz"
+            OPCACHE_TEMPLATE="$APP_ROOT/scripts/opcache_flush_deploy.php.template"
+            OPCACHE_ENDPOINT="$APP_ROOT/api/admin/opcache_flush_deploy_${{ github.run_id }}.php"
+            OPCACHE_RESPONSE="/tmp/coreflux-light-workspace-opcache-${{ github.run_id }}.json"
+
+            test -n "$APP_BASE"
+            test "$APP_BASE" != "/"
+            test -f "$ARCHIVE"
+            tar -xzf "$ARCHIVE" -C "$STAGE_ROOT"
+            rm -f -- "$ARCHIVE"
+            test -f "$STAGE_ROOT/modules/ap/api/bills.php"
+            test -f "$STAGE_ROOT/modules/placements/lib/placements.php"
+
+            cleanup_deploy() {
+              rm -rf -- "$STAGE_ROOT"
+              rm -f -- "$OPCACHE_ENDPOINT" "$OPCACHE_RESPONSE"
+            }
+            trap cleanup_deploy EXIT
+
+            cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
+            cd "$APP_ROOT"
+
+            php -l modules/ap/api/bills.php
+            php -l modules/placements/lib/placements.php
+            php tests/workspace_shell_smoke.php
+
+            SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' index.html | head -n 1)"
+            SPA_STYLE="$(sed -n 's#.*href="/\(spa-assets/index-[^"]*\.css\)".*#\1#p' index.html | head -n 1)"
+            test -n "$SPA_ENTRY"
+            test -n "$SPA_STYLE"
+            test -f "$SPA_ENTRY"
+            test -f "$SPA_STYLE"
+            grep -Fq -- "- $SPA_ENTRY" .deploy-version
+            grep -Fq -- "- $SPA_STYLE" .deploy-version
+            grep -Fq 'Your business, in focus.' "$SPA_ENTRY"
+            grep -Fq 'Loaded cost' "$SPA_ENTRY"
+
+            OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
+            php -r '$template=file_get_contents($argv[1]); if ($template === false || substr_count($template, "__COREFLUX_OPCACHE_TOKEN__") !== 1) exit(1); $content=str_replace("__COREFLUX_OPCACHE_TOKEN__", $argv[3], $template); if (file_put_contents($argv[2], $content, LOCK_EX) === false) exit(1); chmod($argv[2], 0640);' "$OPCACHE_TEMPLATE" "$OPCACHE_ENDPOINT" "$OPCACHE_TOKEN"
+            OPCACHE_STATUS="$(curl -sS --max-time 20 -o "$OPCACHE_RESPONSE" -w '%{http_code}' -X POST -H "X-CoreFlux-Deploy-Reset: $OPCACHE_TOKEN" "https://www.corefluxapp.com/api/admin/opcache_flush_deploy_${{ github.run_id }}.php")"
+            unset OPCACHE_TOKEN
+            test "$OPCACHE_STATUS" = "200"
+            php -r '$r=json_decode((string) file_get_contents($argv[1]), true); if (!is_array($r) || ($r["ok"] ?? false) !== true) exit(1);' "$OPCACHE_RESPONSE"
+
+            ENTRY_NAME="$(basename "$SPA_ENTRY")"
+            STYLE_NAME="$(basename "$SPA_STYLE")"
+            curl -fsS --max-time 30 "https://www.corefluxapp.com/spa-assets/$ENTRY_NAME?release=${{ github.sha }}" | grep -Fq 'Your business, in focus.'
+            curl -fsS --max-time 30 -o /dev/null "https://www.corefluxapp.com/spa-assets/$STYLE_NAME?release=${{ github.sha }}"
+            echo "Deployed and verified the light workspace at commit ${{ github.sha }}."
