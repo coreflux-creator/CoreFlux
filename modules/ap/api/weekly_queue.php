@@ -207,7 +207,7 @@ function ap_weekly_queue_notify_current_step(int $tenantId, int $billId): int {
     if (!$svc) return 0;
 
     $base = apEmailApprovalBaseUrl();
-    $threadUrl = $base . '/#/modules/ap/bills/' . $billId;
+    $threadUrl = $base . '/modules/ap/bills/' . $billId;
     $sent = 0;
     foreach ($approvers as $a) {
         if (empty($a['email']) || !filter_var($a['email'], FILTER_VALIDATE_EMAIL)) continue;

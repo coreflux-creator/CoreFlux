@@ -25,8 +25,9 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$people = (string) file_get_contents('/app/modules/people/api/csv_import.php');
-$time   = (string) file_get_contents('/app/modules/time/api/csv_import.php');
+$root   = dirname(__DIR__);
+$people = (string) file_get_contents($root . '/modules/people/api/csv_import.php');
+$time   = (string) file_get_contents($root . '/modules/time/api/csv_import.php');
 
 echo "\n1. People CSV importer\n";
 $a('require_once core/sub_tenants.php',
@@ -52,8 +53,8 @@ $a('rationale comment present',
 
 echo "\n3. PHP syntax\n";
 foreach ([
-    '/app/modules/people/api/csv_import.php',
-    '/app/modules/time/api/csv_import.php',
+    $root . '/modules/people/api/csv_import.php',
+    $root . '/modules/time/api/csv_import.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);

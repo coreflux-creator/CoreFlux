@@ -177,7 +177,7 @@ check('invoice collection CTA is gated by live Payments readiness',
     && str_contains($invoicesUi, 'qboStatus.data?.payments_recaptcha_enabled === true'));
 check('invoice collection CTA mirrors the backend admin gate',
     str_contains($invoicesUi, "['master_admin', 'tenant_admin'].includes(user.global_role)")
-    && str_contains($invoicesUi, '{ enabled: canCollectViaQbo }'));
+    && str_contains($invoicesUi, 'enabled: canCollectViaQbo'));
 $billingModule = (string) file_get_contents($root . '/modules/billing/ui/BillingModule.jsx');
 check('billing module passes session into the invoice list',
     str_contains($billingModule, '<InvoicesList session={session} />'));

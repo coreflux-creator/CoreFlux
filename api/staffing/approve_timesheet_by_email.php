@@ -104,7 +104,7 @@ function cf_staffing_email_approval_render(string $state, ?array $res, string $m
         default         => ['⚠️', 'Could not complete',     '#7c2d12'],
     };
     $base = staffingEmailApprovalBaseUrl();
-    $inboxUrl = "{$base}/#/modules/staffing/approvals";
+    $inboxUrl = "{$base}/modules/staffing/approvals";
     return '<!doctype html><html lang="en"><head><meta charset="utf-8">'
          . '<meta name="viewport" content="width=device-width,initial-scale=1">'
          . '<title>' . $h($title) . ' — CoreFlux</title>'

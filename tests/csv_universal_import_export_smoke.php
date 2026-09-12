@@ -81,7 +81,8 @@ foreach ([
     $a("{$name} csv_export file exists",     $body !== '');
     $a("{$name} uses CsvExportService",      str_contains($body, 'Core\\CsvExportService'));
     $a("{$name} streams as attachment",      str_contains($body, '->stream('));
-    $a("{$name} enforces RBAC",              str_contains($body, 'rbac_legacy_require'));
+    $a("{$name} enforces RBAC",              str_contains($body, 'api_require_legacy_permission')
+                                              || str_contains($body, 'rbac_legacy_require'));
     $a("{$name} scoped to tenant",           str_contains($body, ':tenant_id'));
 }
 

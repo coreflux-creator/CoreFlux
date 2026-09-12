@@ -104,6 +104,7 @@ $pdo->prepare("INSERT INTO qbo_connections (tenant_id,realm_id,company_name,envi
 $GLOBALS['__qbo_transport'] = function ($method, $url, $headers, $body) {
     return ['status' => 200, 'body' => ['JournalEntry' => ['Id' => 'JE-42']], 'headers' => []];
 };
+qboRememberAccessToken(9999, 'access-token-plain', 3600);
 $r = qboVerifyCreate(9999, 'journal_entry', 'JE-42', 'active');
 check('qboVerifyCreate happy path verified=true',   $r['verified'] === true);
 check('qboVerifyCreate downstream_status=recorded', $r['downstream_status'] === 'recorded');

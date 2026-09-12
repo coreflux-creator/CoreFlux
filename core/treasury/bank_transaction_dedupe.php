@@ -211,24 +211,26 @@ function bankTxnIsSingleLegExactJournalDuplicate(
     if ((int) $byId[$duplicateJeId]['entity_id'] !== (int) $byId[$canonicalJeId]['entity_id']) return false;
     if (strtoupper((string) $byId[$duplicateJeId]['currency']) !== strtoupper((string) $byId[$canonicalJeId]['currency'])) return false;
 
-    $duplicateSignature = bankTxnJournalLineSignature($pdo, $duplicateJeId);
-    $canonicalSignature = bankTxnJournalLineSignature($pdo, $canonicalJeId);
+    $duplicateSignature = bankTxnJournalLineSignature($pdo, $tenantId, $duplicateJeId);
+    $canonicalSignature = bankTxnJournalLineSignature($pdo, $tenantId, $canonicalJeId);
     return $duplicateSignature !== [] && $duplicateSignature === $canonicalSignature;
 }
 
 /** @return array<int,string> */
-function bankTxnJournalLineSignature(PDO $pdo, int $jeId): array
+function bankTxnJournalLineSignature(PDO $pdo, int $tenantId, int $jeId): array
 {
     $stmt = $pdo->prepare(
-        'SELECT account_id, debit, credit,
-                COALESCE(counterparty_company_id, 0) AS counterparty_company_id,
-                COALESCE(counterparty_person_id, 0) AS counterparty_person_id,
-                COALESCE(counterparty_entity_id, 0) AS counterparty_entity_id,
-                COALESCE(dim_json, "") AS dim_json
-           FROM accounting_journal_entry_lines
-          WHERE je_id = :je'
+        'SELECT l.account_id, l.debit, l.credit,
+                COALESCE(l.counterparty_company_id, 0) AS counterparty_company_id,
+                COALESCE(l.counterparty_person_id, 0) AS counterparty_person_id,
+                COALESCE(l.counterparty_entity_id, 0) AS counterparty_entity_id,
+                COALESCE(l.dim_json, "") AS dim_json
+           FROM accounting_journal_entry_lines l
+           JOIN accounting_journal_entries je
+             ON je.id = l.je_id AND je.tenant_id = :tenant_id
+          WHERE l.je_id = :je'
     );
-    $stmt->execute(['je' => $jeId]);
+    $stmt->execute(['tenant_id' => $tenantId, 'je' => $jeId]);
     $signature = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $line) {
         $signature[] = implode('|', [

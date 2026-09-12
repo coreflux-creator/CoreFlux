@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Building2, Plus, Edit2, Power, X, Save, Layers } from 'lucide-react';
 import { api, useApi } from '../lib/api';
 import { Card } from '../components/UIComponents';
@@ -34,7 +35,7 @@ export default function MasterTenantsAdmin({ session }) {
           <p style={{ color: 'var(--cf-text-secondary)', fontSize: 14 }}>
             Top-level customer organizations. Each has its own user pool, modules,
             and (optionally) sub-tenants. Manage sub-tenants under{' '}
-            <a href="/spa.php#/admin/sub-tenants">Sub-Tenants</a>.
+            <Link to="/admin/sub-tenants">Sub-Tenants</Link>.
           </p>
         </div>
         <button
@@ -85,10 +86,10 @@ export default function MasterTenantsAdmin({ session }) {
                   <td style={{ textAlign: 'right' }}>{t.user_count}</td>
                   <td style={{ textAlign: 'right' }}>
                     {t.sub_count > 0 && (
-                      <a href="/spa.php#/admin/sub-tenants"
+                      <Link to="/admin/sub-tenants"
                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--cf-accent)' }}>
                         <Layers size={12} /> {t.sub_count}
-                      </a>
+                      </Link>
                     )}
                     {t.sub_count === 0 && '—'}
                   </td>

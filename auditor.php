@@ -42,7 +42,7 @@ if (!$ok) {
 // Default landing is the printable Audit Snapshot — the one-page summary
 // that's actually useful to the auditor. They can navigate into the full
 // CFO dashboard or other modules from there.
-$next = '/spa.php#/cfo/audit-snapshot';
+$next = '/cfo/audit-snapshot';
 header('Location: ' . $next);
 exit;
 

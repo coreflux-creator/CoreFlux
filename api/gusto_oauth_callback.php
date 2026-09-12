@@ -19,7 +19,8 @@ require_once __DIR__ . '/../core/gusto_service.php';
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
 if (!isAuthenticated()) {
     // Bounce through login then come back here.
-    header('Location: /login.php?redirect=' . urlencode($_SERVER['REQUEST_URI'] ?? '/'));
+    $next = (string) ($_SERVER['REQUEST_URI'] ?? '/api/gusto_oauth_callback.php');
+    header('Location: /login.html?next=' . rawurlencode($next));
     exit;
 }
 
@@ -77,7 +78,7 @@ function _gustoCallbackBounce(bool $ok, string $reason, ?string $detail = null, 
     $params = ['gusto' => $ok ? 'ok' : 'err', 'reason' => $reason];
     if ($detail)        $params['detail']        = substr($detail, 0, 240);
     if ($connectionId)  $params['connection_id'] = (string) $connectionId;
-    $url = '/spa.php#/modules/payroll/settings?' . http_build_query($params);
+    $url = '/modules/payroll/settings?' . http_build_query($params);
     header('Location: ' . $url, true, 302);
     exit;
 }

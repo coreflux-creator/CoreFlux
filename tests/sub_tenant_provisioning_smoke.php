@@ -106,7 +106,7 @@ $assert("legacy alias active_tenant_id",              strpos($sw, "\$_SESSION['a
 $assert('whitelists ?next= to local paths',           strpos($sw, "strncmp(\$nextPath, '/', 1) !== 0") !== false);
 $assert('updates last_active_at',                     strpos($sw, 'subTenantTouchLastActive(') !== false);
 $assert('rejects inactive tenants',                   strpos($sw, 'tenant_inactive') !== false);
-$assert("default redirect = /spa.php",                strpos($sw, "= '/spa.php'") !== false);
+$assert("default redirect = workspace root",          strpos($sw, "= '/'") !== false);
 $assert('PHP parses cleanly',                         _php_lint(__DIR__ . '/../switch_tenant.php'));
 
 // ─── Module list coverage ───

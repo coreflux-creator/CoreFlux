@@ -40,6 +40,7 @@ type Company
 {
   id: ID!
   name: String!
+  status: String
   industry: String
   website: String
   phone: String

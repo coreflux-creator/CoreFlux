@@ -14,7 +14,7 @@ return [
     'id'          => 'time',
     'name'        => 'Time',
     'icon'        => '/assets/icons/icon-time.png',
-    'description' => 'Time entries, AI inbox parsing, tokenized client approvals, downstream feeds.',
+    'description' => 'Time entry, timesheet intake, approvals, settlement, and reporting.',
     'version'     => '0.1.0',
 
     'actions' => [
@@ -23,9 +23,7 @@ return [
         ['name' => 'Intake Queue',       'route' => 'intake',     'permission' => 'time.review'],
         ['name' => 'Review Queue',       'route' => 'review',     'permission' => 'time.review'],
         ['name' => 'Settlement',         'route' => 'settlement', 'permission' => 'time.settlement.view.billing'],
-        ['name' => 'Inbox (AI)',         'route' => 'inbox',      'permission' => 'time.review'],
         ['name' => 'Bulk Upload',        'route' => 'bulk',       'permission' => 'time.bulk_upload'],
-        ['name' => 'Missing Timesheets', 'route' => 'missing',    'permission' => 'time.dashboard.missing'],
         ['name' => 'Pay Periods',        'route' => 'periods',    'permission' => 'time.period.close'],
         ['name' => 'Reports',            'route' => 'reports',    'permission' => 'time.view'],
     ],

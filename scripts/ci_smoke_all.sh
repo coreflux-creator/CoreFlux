@@ -79,6 +79,7 @@ for f in tests/*_smoke.php; do
         FAIL=$((FAIL+1))
         FAILED_LIST="$FAILED_LIST\n  $name"
         echo "  FAIL   $name (exit=$rc)"
+        echo "$out" | grep -E '(^|[[:space:]])(FAIL|✗)|Fatal error|Uncaught|failed' | sed 's/^/         /' || true
         echo "$out" | tail -10 | sed 's/^/         /'
     fi
 done

@@ -209,11 +209,11 @@ if (in_array($redirect, $adminOps, true)) {
     header("Location: /");
 } elseif ($isLocalPath) {
     // Land back on the deep route the SPA bounced from.
-    header("Location: /spa.php" . (str_contains($next, '#') ? $next : '#' . $next));
+    header("Location: {$next}");
 } elseif ($platformMode) {
     // Platform mode default landing — the admin dashboard.
-    header("Location: /spa.php#/admin");
+    header("Location: /admin");
 } else {
-    header("Location: /spa.php");
+    header("Location: /");
 }
 exit;

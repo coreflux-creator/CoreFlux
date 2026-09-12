@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useApi, api } from '../../../dashboard/src/lib/api';
 import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
 
 export default function PayPeriods() {
+  const navigate = useNavigate();
   const periodsApi = useApi('/modules/payroll/api/pay_periods.php');
   const schedulesApi = useApi('/modules/payroll/api/pay_schedules.php');
   const periods = periodsApi.data?.periods ?? [];
@@ -23,8 +24,7 @@ export default function PayPeriods() {
     setBusy(`run-${periodId}`);
     try {
       const res = await api.post('/modules/payroll/api/runs.php', { pay_period_id: periodId });
-      window.location.assign(`#/modules/payroll/runs/${res.id}`);
-      window.location.reload();
+      navigate(`/modules/payroll/runs/${res.id}`);
     } finally { setBusy(null); }
   };
 
@@ -111,8 +111,7 @@ export default function PayPeriods() {
                       onSuccess={(r) => {
                         setCsvPeriodId(null);
                         if (r?.run_id) {
-                          window.location.assign(`#/modules/payroll/runs/${r.run_id}`);
-                          window.location.reload();
+                          navigate(`/modules/payroll/runs/${r.run_id}`);
                         }
                       }}
                     />

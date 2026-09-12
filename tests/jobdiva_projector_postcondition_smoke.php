@@ -26,6 +26,7 @@ $payload = [
         'client_bill_cycle' => 'weekly',
         'vendor_pay_cycle' => 'biweekly',
         'paid_when_paid' => false,
+        'client_company_name' => 'TCS',
     ],
 ];
 

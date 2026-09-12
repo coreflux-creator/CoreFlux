@@ -63,7 +63,7 @@ $assert('mock TenantsPage removed',           strpos($ad, 'const TenantsPage = (
 
 echo "Legacy PHP form redirected\n";
 $legacy = file_get_contents(__DIR__ . '/../core/views/admin/tenant_edit.php');
-$assert('redirects to SPA',                   strpos($legacy, '/spa.php#/admin/tenants') !== false
+$assert('redirects to SPA',                   strpos($legacy, '/admin/tenants') !== false
                                              && strpos($legacy, "header('Location") !== false);
 $assert('legacy form HTML removed',           strpos($legacy, '</form>') === false);
 $assert('PHP parses cleanly',                 $lint(__DIR__ . '/../core/views/admin/tenant_edit.php'));

@@ -32,17 +32,21 @@ export default function GustoConnectCard() {
 
   useEffect(() => {
     load();
-    const hash = window.location.hash || '';
-    const qIdx = hash.indexOf('?');
-    if (qIdx >= 0) {
-      const params = new URLSearchParams(hash.slice(qIdx + 1));
-      if (params.has('gusto')) {
-        setBounce({
-          ok: params.get('gusto') === 'ok',
-          reason: params.get('reason'),
-          detail: params.get('detail'),
-        });
-      }
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('gusto')) {
+      setBounce({
+        ok: params.get('gusto') === 'ok',
+        reason: params.get('reason'),
+        detail: params.get('detail'),
+      });
+
+      ['gusto', 'reason', 'detail', 'connection_id'].forEach((key) => params.delete(key));
+      const query = params.toString();
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`,
+      );
     }
   }, []);
 

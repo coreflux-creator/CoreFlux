@@ -127,7 +127,8 @@ foreach (['placements-list', 'placements-count', 'placements-csv-btn', 'placemen
 echo "\n5b. REST perf badge parity\n";
 $a('REST renders perf badge',           str_contains($rSrc, 'placements-rest-perf'));
 $a('REST uses elapsedMs from useApi',   (bool) preg_match('/useApi(Cached)?\([^)]*\).*elapsedMs/s', $rSrc));
-$a('REST badge labels as REST',         str_contains($rSrc, 'ms via /api (REST)'));
+$a('REST timing remains screen-reader accessible',
+    str_contains($rSrc, 'placements-rest-perf') && str_contains($rSrc, 'Loaded in'));
 // useApi must export elapsedMs.
 $apiSrc = (string) file_get_contents('/app/dashboard/src/lib/api.js');
 $a('useApi tracks elapsedMs',           str_contains($apiSrc, 'setElapsedMs'));
@@ -135,7 +136,8 @@ $a('useApi returns elapsedMs',          (bool) preg_match('/return\s*\{[^}]*elap
 $a('useApi uses performance.now',       str_contains($apiSrc, 'performance.now'));
 
 echo "\n6. Sentry cross-checks\n";
-exec('php -d zend.assertions=1 /app/tests/auth_gate_static_analyzer_smoke.php 2>&1', $ag, $agRc);
+$authGateTest = __DIR__ . '/auth_gate_static_analyzer_smoke.php';
+exec('php -d zend.assertions=1 ' . escapeshellarg($authGateTest) . ' 2>&1', $ag, $agRc);
 $a('auth-gate sentry still green', $agRc === 0,
     'last lines: ' . implode(' | ', array_slice($ag, -5)));
 

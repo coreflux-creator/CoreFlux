@@ -49,7 +49,7 @@ $a('billing helper applies OT/DT multipliers per hour_type',
 $a('billing helper uses source_type="time_entry" on lines',
     str_contains($billLib, "'source_type'      => 'time_entry'"));
 $a('billing helper returns invoice + lines + entry_ids',
-    str_contains($billLib, "'entry_ids'    => array_merge")
+    str_contains($billLib, "'entry_ids'    => \$entryIdsForInvoice")
     && str_contains($billLib, "'bundle_ids'   => [],"));
 
 $a('apBuildDraftFromTimeEntries() defined',

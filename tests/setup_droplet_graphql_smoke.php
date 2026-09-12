@@ -85,7 +85,8 @@ echo "\n--help / runtime fail-closed\n";
 if ($hasBash) {
     exec('bash ' . escapeshellarg($script) . ' 2>&1', $rOut, $rRc);
     $joined = implode("\n", $rOut);
-    $a('runs pre-flight (mentions ERROR or required)', $rRc !== 0 && stripos($joined, 'required') !== false);
+    $a('runs pre-flight (mentions ERROR or required)', $rRc !== 0
+        && (stripos($joined, 'ERROR') !== false || stripos($joined, 'required') !== false));
 } else {
     $a('pre-flight required-env guard is present when bash is unavailable locally',
         str_contains($src, 'COREFLUX_API_BASE env var is required')

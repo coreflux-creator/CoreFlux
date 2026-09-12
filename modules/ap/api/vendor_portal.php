@@ -158,7 +158,7 @@ if ($method === 'GET' && $action === 'redeem') {
     ]);
 
     apAudit('ap.vendor.portal_session_opened', ['vendor_id' => $row['vendor_id']], (int) $row['vendor_id']);
-    header('Location: /#/vendor/portal', true, 302);
+    header('Location: /vendor/portal', true, 302);
     exit;
 }
 

@@ -124,13 +124,14 @@ const DEMO_SESSION = {
       id: 'time',
       name: 'Time',
       icon: '/assets/icons/icon-time.png',
-      description: 'Time entries, AI inbox parsing, tokenized client approvals, downstream feeds.',
+      description: 'Time entry, timesheet intake, approvals, settlement, and reporting.',
       actions: [
         { name: 'My Time',            route: 'entries' },
+        { name: 'Upload Timesheet',   route: 'upload' },
+        { name: 'Intake Queue',       route: 'intake' },
         { name: 'Review Queue',       route: 'review' },
-        { name: 'Inbox (AI)',         route: 'inbox' },
+        { name: 'Settlement',         route: 'settlement' },
         { name: 'Bulk Upload',        route: 'bulk' },
-        { name: 'Missing Timesheets', route: 'missing' },
         { name: 'Pay Periods',        route: 'periods' },
         { name: 'Reports',            route: 'reports' },
       ]
@@ -352,7 +353,7 @@ const AppContent = ({ session, usingDemo }) => {
 
   // Platform-mode landing: master_admin without a pinned tenant lands on /admin.
   // Runs once when the session resolves; respects deep-links so a master_admin
-  // who hit /spa.php#/modules/ap directly isn't yanked away.
+  // who opened a module deep link directly isn't yanked away.
   useEffect(() => {
     if (!session) return;
     const isPlatform = session.platform_mode || session.user?.platform_mode;

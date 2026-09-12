@@ -131,9 +131,11 @@ $a('rejects missing code or state',              strpos($cb, "missing_params") !
 $a('consumes OAuth state via service helper',    strpos($cb, 'gustoConsumeOAuthState') !== false);
 $a('exchanges code for token',                   strpos($cb, 'gustoExchangeCodeForToken') !== false);
 $a('persists encrypted tokens',                  strpos($cb, 'gustoSaveConnection') !== false);
-$a('bounces back to Payroll Settings page',      strpos($cb, '/spa.php#/modules/payroll/settings') !== false);
+$a('bounces back to Payroll Settings page',      strpos($cb, '/modules/payroll/settings') !== false);
+$a('callback avoids obsolete hash routing',      strpos($cb, '/spa.php#/modules/payroll/settings') === false);
 $a('audit emits connected on success',           strpos($cb, "'payroll.gusto.connected'") !== false);
-$a('redirects unauthenticated user to login',    strpos($cb, '/login.php?redirect=') !== false);
+$a('redirects unauthenticated user to login',    strpos($cb, '/login.html?next=') !== false);
+$a('login bounce preserves OAuth callback URL',  strpos($cb, 'rawurlencode($next)') !== false);
 
 echo "\napi/gusto_webhook.php — webhook receiver\n";
 $wh = (string) file_get_contents(__DIR__ . '/../api/gusto_webhook.php');
@@ -202,7 +204,8 @@ $a('disconnect button testid',                   strpos($gcc, 'gusto-connect-dis
 $a('not-configured branch testid',               strpos($gcc, 'gusto-connect-not-configured') !== false);
 $a('connected company name testid',              strpos($gcc, 'gusto-connect-company-name') !== false);
 $a('uses /api/gusto_oauth_start.php for connect', strpos($gcc, '/api/gusto_oauth_start.php') !== false);
-$a('reads bounce params from hash',              strpos($gcc, 'gusto-connect-bounce-ok') !== false);
+$a('reads bounce params from query string',      strpos($gcc, 'window.location.search') !== false);
+$a('cleans one-shot bounce params from URL',     strpos($gcc, 'window.history.replaceState') !== false);
 
 echo "\nUI — PayrollSettings embeds Gusto card\n";
 $ps = (string) file_get_contents(__DIR__ . '/../modules/payroll/ui/PayrollSettings.jsx');

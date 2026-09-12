@@ -92,7 +92,8 @@ $a('cron resolves recipients via roles',            str_contains($cronSrc, "'ap_
 $a('cron schema fallback if user_tenants absent',   str_contains($cronSrc, '/* schema absence — leave invoice list empty */') || str_contains($cronSrc, "Schema fallback"));
 $a('subject reports past-due + due-soon counts',    str_contains($cronSrc, "Weekly AP queue — %d past due"));
 $a('idempotency key per (tenant, user, day)',       str_contains($cronSrc, "'ap-weekly-queue-' . \$tid . '-' . \$u['id'] . '-' . date('Y-m-d')"));
-$a('email links to /modules/ap/weekly-queue',       str_contains($cronSrc, "/#/modules/ap/weekly-queue"));
+$a('email links to /modules/ap/weekly-queue',       str_contains($cronSrc, "/modules/ap/weekly-queue"));
+$a('email avoids obsolete hash routing',            !str_contains($cronSrc, "/#/modules/ap/weekly-queue"));
 
 echo "\napBillApprovalNotify now uses email-approval tokens\n";
 $baSrc = (string) file_get_contents(__DIR__ . '/../modules/ap/api/bill_approvals.php');

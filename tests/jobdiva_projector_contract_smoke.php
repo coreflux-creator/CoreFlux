@@ -41,8 +41,8 @@ $a('projector joins native mirrors before projection',
     str_contains($projector, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats, $externalId)'));
 $a('projector resolves end client through JobDiva customer/company mappings',
     str_contains($projector, 'function jobdivaProjectorResolveEndClientCompany')
-    && str_contains($projector, "foreach (['jobdiva_customer', 'company'] as \$mapType)")
-    && str_contains($projector, 'jobdivaProjectorTrustedCustomerCompanyExternalId($payload)'));
+    && str_contains($projector, 'jobdivaProjectorAssignmentClientEvidence($payload)')
+    && str_contains($projector, "jobdivaProjectorMappedCompanyIdIfNameMatches(\$tenantId, 'company'"));
 $a('projector does not treat shallow placement customer id as company identity',
     str_contains($projector, 'function jobdivaProjectorTrustedCustomerCompanyExternalId')
     && str_contains($projector, 'Placement-level `customer id` is not safe as a company identity')

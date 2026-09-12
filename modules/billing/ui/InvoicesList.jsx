@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, useApi, useApiCached, bustApiCachePrefix, prefetchApi } from '../../../dashboard/src/lib/api';
+import { api, useApiCached, bustApiCachePrefix, prefetchApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { fmtDate } from '../../../dashboard/src/lib/formatDate';
@@ -33,7 +33,10 @@ export default function InvoicesList({ session }) {
   const user = session?.user || {};
   const canCollectViaQbo = ['master_admin', 'tenant_admin'].includes(user.global_role)
     || ['master_admin', 'tenant_admin'].includes(user.role);
-  const qboStatus = useApi('/api/qbo/status.php?action=status', { enabled: canCollectViaQbo });
+  const qboStatus = useApiCached('/api/qbo/status.php?action=status', {
+    enabled: canCollectViaQbo,
+    cacheKey: 'qbo-status:invoice-collections',
+  });
   const qboPaymentsEnabled = canCollectViaQbo
     && qboStatus.data?.connected === true
     && qboStatus.data?.payments_enabled === true

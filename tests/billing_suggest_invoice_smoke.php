@@ -32,10 +32,11 @@ $a('filters entries to placement + approved + billable + hours>0',
     && str_contains($lib, "te.hours > 0"));
 $a('cuts off entries after last invoice date',
     str_contains($lib, "'te.work_date > :cutoff'"));
-$a('computes per-entry bill_rate via placementCurrentRate()',
-    str_contains($lib, 'placementCurrentRate($placementId, (string) $e[\'work_date\'])'));
-$a('applies OT/DT multipliers per hour_type',
-    str_contains($lib, "'overtime'   => \$ot"));
+$a('computes per-entry bill_rate from the locked rate snapshot',
+    str_contains($lib, "\$ratesById[\$rateId]")
+    && str_contains($lib, "\$rate['adjusted_bill_rate'] ?? \$rate['bill_rate']"));
+$a('applies category multiplier per hour_type',
+    str_contains($lib, 'timeRateCategoryMultiplier($rate'));
 $a('rule-based: short span (≤7d) → per_placement',
     str_contains($lib, '$aggregation = \'per_placement\';')
     && str_contains($lib, '$daySpan <= 7'));

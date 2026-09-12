@@ -94,7 +94,7 @@ $a('ReconciliationWorkbench imported',
 $a('Route /reconciliation registered',
     str_contains($tmod, '<Route path="reconciliation"'));
 $a('Treasury tab link added',
-    str_contains($tmod, '<TreasuryTab to="reconciliation"'));
+    str_contains($tmod, "{ to: '/modules/treasury/reconciliation', label: 'Reconciliation' }"));
 
 echo "\n5. PHP syntax\n";
 foreach ([

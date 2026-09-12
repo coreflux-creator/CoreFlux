@@ -95,7 +95,7 @@ $a('/auditor.php calls auditorRedeemAndStart',
 $a('/auditor.php renders an error page for bad tokens',
     str_contains($entry, '_auditorErrorPage'));
 $a('/auditor.php default landing is the audit snapshot',
-    str_contains($entry, "'/spa.php#/cfo/audit-snapshot'"));
+    str_contains($entry, "'/cfo/audit-snapshot'"));
 
 // 6. Admin CRUD endpoint -----------------------------------------------------
 $adm = (string) file_get_contents($ROOT . '/api/admin/auditor_tokens.php');

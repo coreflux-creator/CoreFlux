@@ -31,9 +31,10 @@ $assert('plaid_service.php eager-loads config.local.php',
 $assert('plaid_service.php at file scope (not inside function)',
         strpos($plaid, 'function plaidConfigured') > strpos($plaid, '_plaidLocalConfig'));
 $assert('encryption.php eager-loads config.local.php',
-        strpos($enc, "_encLocalConfig = __DIR__ . '/config.local.php'") !== false);
+        strpos($enc, "__DIR__ . '/config.local.php'") !== false
+        && strpos($enc, 'private_html/coreflux.secrets.php') !== false);
 $assert('encryption.php at file scope',
-        strpos($enc, 'function _coreflux_data_key') > strpos($enc, '_encLocalConfig'));
+        strpos($enc, 'function _coreflux_data_key') > strpos($enc, '$_encLocalConfigs'));
 
 // 2. Bulk export
 echo "2. ExpensesList bulk-select export\n";
@@ -65,11 +66,11 @@ $assert('idempotent guard',             strpos($mig, 'information_schema.columns
 $assert('billing_cycle index',          strpos($mig, 'idx_pl_billing_cycle') !== false);
 
 $pd = file_get_contents(__DIR__ . '/../modules/placements/ui/PlacementDetail.jsx');
-$assert('Cycles tab declared',          strpos($pd, "slug: 'cycles'") !== false);
-$assert('CyclesTab component',          strpos($pd, 'function CyclesTab(') !== false);
-$assert('billing_cycle_id picker',      strpos($pd, 'data-testid={`placement-cycle-${field}`}') !== false);
-$assert('cycles save button',           strpos($pd, 'data-testid="placement-cycles-save"') !== false);
-$assert('PATCH placement endpoint',     strpos($pd, '/modules/placements/api/placements.php?id=') !== false);
+$assert('legacy Cycles links into Contract', strpos($pd, '<Route path="cycles"     element={<Navigate to="../economics" replace />} />') !== false);
+$assert('Contract editor is mounted',   strpos($pd, 'function EconomicsTab(') !== false);
+$assert('participant cadence picker',   strpos($pd, 'aria-label={`Frequency for ${party.display_name}`}') !== false);
+$assert('participant terms picker',     strpos($pd, 'aria-label={`Payment terms for ${party.display_name}`}') !== false);
+$assert('terms persist through economics endpoint', strpos($pd, 'api.patch(`/modules/placements/api/economics.php?id=${id}`') !== false);
 
 // 4. Plaid Transfer go-live
 echo "4. Plaid Transfer originate + link\n";

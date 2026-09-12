@@ -51,7 +51,8 @@ $a('two-step UX with confirm=1 gate',             str_contains($ep, "\$confirm !
 $a('reject always passes through note prompt',    str_contains($ep, "\$action === 'reject'") && str_contains($ep, 'cf_staffing_email_approval_render_note_prompt'));
 $a('renders note prompt with form testid',        str_contains($ep, "data-testid=\"staffing-email-approval-note-prompt\""));
 $a('renders receipt page with testid',            str_contains($ep, "data-testid=\"staffing-email-approval-receipt\""));
-$a('receipt links back to staffing approvals',    str_contains($ep, '/#/modules/staffing/approvals'));
+$a('receipt links back to staffing approvals',    str_contains($ep, '/modules/staffing/approvals'));
+$a('receipt avoids obsolete hash routing',         !str_contains($ep, '/#/modules/staffing/approvals'));
 $a('noindex header set',                          str_contains($ep, "X-Robots-Tag: noindex"));
 
 echo "\nAdmin mint endpoint\n";

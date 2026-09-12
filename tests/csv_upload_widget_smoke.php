@@ -103,7 +103,7 @@ $a('points endpoint at /api/payroll/import_csv.php',
 $a('passes pay_period_id={p.id} + run_type=regular as extraFields',
     str_contains($psrc, 'extraFields={{ pay_period_id: p.id, run_type: \'regular\' }}'));
 $a('onSuccess routes to the new run detail page',
-    str_contains($psrc, '#/modules/payroll/runs/${r.run_id}'));
+    str_contains($psrc, '/modules/payroll/runs/${r.run_id}'));
 $a('uses React.Fragment so two <tr> rows share one key',
     str_contains($psrc, '<React.Fragment key={p.id}>'));
 

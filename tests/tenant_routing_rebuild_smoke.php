@@ -42,7 +42,7 @@ $a('login.php skips tenant pin for master_admin',
 $a('login.php hydrates full tenant inventory for platform_mode',
     str_contains($login, 'getAllTenants()'));
 $a('login.php landing redirect honors platform_mode',
-    str_contains($login, 'spa.php#/admin'));
+    str_contains($login, 'Location: /admin'));
 $a('session sets platform_mode flag',           str_contains($login, "_SESSION['platform_mode']"));
 
 // --------------- 3. switch_tenant.php --------------------------------------

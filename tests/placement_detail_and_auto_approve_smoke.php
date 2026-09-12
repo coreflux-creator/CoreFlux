@@ -129,7 +129,7 @@ $a('promotion audit and response include rates_auto_approved',
 
 echo "\n6. bulk_status also fires the auto-approve side effect\n";
 $a('bulk_status captures pre-update status per row',
-   str_contains($placements, "'SELECT status FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL'"));
+   str_contains($placements, "'SELECT status, external_id, coreflux_overridden_fields FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL'"));
 $a('bulk_status calls auto-approve for draft promotions and any active promotion',
    str_contains($placements, '$shouldAutoApproveRates = $prior')
    && str_contains($placements, "|| \$newStatus === 'active'"));

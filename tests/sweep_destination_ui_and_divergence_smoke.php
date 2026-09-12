@@ -141,8 +141,7 @@ echo "\n5. TreasuryModule.jsx wiring\n";
 $a('imports SweepDestinations',
     str_contains($modUi, "import SweepDestinations      from './SweepDestinations';"));
 $a('renders sweep-destinations tab',
-    str_contains($modUi, 'data-testid={`treasury-tab-${to}`}')
-    && str_contains($modUi, '"sweep-destinations"'));
+    str_contains($modUi, "{ to: '/modules/treasury/sweep-destinations', label: 'Sweep destinations' }"));
 $a('mounts route',
     str_contains($modUi, '<Route path="sweep-destinations" element={<SweepDestinations />} />'));
 

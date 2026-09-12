@@ -240,6 +240,11 @@ if (!function_exists('currentTenantId')) {
 if (!function_exists('currentSubTenantId')) {
     function currentSubTenantId(): ?int { return null; }
 }
+if (!function_exists('effectiveTenantIdForModule')) {
+    function effectiveTenantIdForModule(string $moduleKey, ?int $tenantId = null): ?int {
+        return $tenantId ?? currentTenantId();
+    }
+}
 if (!function_exists('scopedFind')) {
     function scopedFind(string $sql, array $params = []): ?array {
         $pdo = getDB();
@@ -266,6 +271,7 @@ if (!function_exists('scopedQuery')) {
 // which requires MySQL drivers absent in the sandbox).
 $libBody = (string) file_get_contents('/app/modules/staffing/lib/lifecycle.php');
 $libBody = preg_replace("/require_once __DIR__ \\. '\\/\\.\\.\\/\\.\\.\\/\\.\\.\\/core\\/tenant_scope\\.php';/", '', $libBody);
+$libBody = preg_replace("/require_once __DIR__ \\. '\\/\\.\\.\\/\\.\\.\\/\\.\\.\\/core\\/sub_tenants\\.php';/", '', $libBody);
 $libBody = preg_replace('/^\s*<\?php/', '', $libBody);
 $libBody = preg_replace('/declare\(strict_types=1\);/', '', $libBody);
 eval($libBody);
