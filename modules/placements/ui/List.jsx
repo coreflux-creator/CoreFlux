@@ -5,6 +5,7 @@ import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTable
 import { fmtDate } from '../../../dashboard/src/lib/formatDate';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 import {
   ChevronRight, DatabaseZap, Download, FileSpreadsheet, Plus,
   MoreHorizontal, RefreshCw, Search, Upload, Zap,
@@ -310,7 +311,10 @@ export default function List() {
                       <Link className="entity-primary" to={`/modules/people/${p.person_id}`} data-testid={`placement-person-link-${p.id}`}>
                         {p.first_name ? `${p.first_name} ${p.last_name}` : `Person ${p.person_id}`}
                       </Link>
-                      <span className="entity-secondary">PL-{p.id}</span>
+                      <span className="entity-secondary">
+                        <IdBadge id={p.id} prefix="PL" />{' '}
+                        <IdBadge id={p.person_id} prefix="P" />
+                      </span>
                     </span>
                   </div>
                 ) : '—'}

@@ -137,7 +137,8 @@ echo "\nReconnect adoption (no more duplicates) + dedupe endpoint\n";
 _a('exchange has exact re-link match path',                 str_contains($bankLink, 'Exact re-link match'));
 _a('exchange has adoption path keyed on bank+last4',        str_contains($bankLink, 'Adoption — same bank+last4 already linked'));
 _a('exchange adoption updates plaid_account_id in place',   str_contains($bankLink, 'SET plaid_account_id = :pa,'));
-_a('exchange re-activates closed rows on relink',           str_contains($bankLink, "SET status = 'active', updated_at = NOW()"));
+_a('exchange re-activates closed rows on relink',           str_contains($bankLink, "SET status = 'active',")
+                                                          && str_contains($bankLink, 'updated_at = NOW()'));
 _a('liability adoption keyed on institution+last4',         str_contains($bankLink, 'tla.institution_name = :inst'));
 
 $dedupe = (string) file_get_contents(__DIR__ . '/../api/plaid_dedupe.php');

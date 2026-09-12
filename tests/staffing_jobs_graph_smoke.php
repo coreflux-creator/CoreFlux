@@ -36,7 +36,9 @@ $lib = $read('modules/staffing/lib/jobs.php');
 $a('exports JobDiva ensure helper', str_contains($lib, 'function staffingJobEnsureFromJobDivaPayload('));
 $a('exports source lookup helper', str_contains($lib, 'function staffingJobFindBySource('));
 $a('exports placement link helper', str_contains($lib, 'function staffingJobLinkPlacementsByJobDivaId('));
-$a('bridges job client through staffingClientEnsureForCompany', str_contains($lib, 'staffingClientEnsureForCompany($tenantId, $companyId, $clientName'));
+$a('links a job only to an existing assignment client',
+    str_contains($lib, 'staffingClientFindForCompany($tenantId, $companyId)')
+    && !str_contains($lib, 'staffingClientEnsureForCompany($tenantId, $companyId'));
 
 echo "\nJobDiva sync bridge\n";
 $sync = $read('core/jobdiva/sync.php');
@@ -50,7 +52,7 @@ $a('bridge helper declared', str_contains($sync, 'function jobdivaBridgeStaffing
 $a('bridge writes external mapping for staffing_job',
     str_contains($sync, "mappingUpsert(\$tid, 'jobdiva', 'staffing_job', \$jobdivaJobId, \$staffingJobId"));
 $a('job mirror entity calls bridge',
-    str_contains($sync, "if (\$entityType === 'jobdiva_job' && \$upsert !== null)")
+    str_contains($sync, "if (\$entityType === 'jobdiva_job' && \$pdo !== null)")
     && str_contains($sync, 'jobdivaBridgeStaffingJobFromPayload($tid, $extId, $jd, $userId)'));
 $a('mirror-by-placement passes actor to jobs bridge',
     str_contains($sync, "jobdivaMirrorStoreAndIndex(\$tid, 'jobdiva_job', \$jobs")

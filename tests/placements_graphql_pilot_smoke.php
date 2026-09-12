@@ -135,7 +135,8 @@ $a('useApi returns elapsedMs',          (bool) preg_match('/return\s*\{[^}]*elap
 $a('useApi uses performance.now',       str_contains($apiSrc, 'performance.now'));
 
 echo "\n6. Sentry cross-checks\n";
-exec('php -d zend.assertions=1 /app/tests/auth_gate_static_analyzer_smoke.php 2>&1', $ag, $agRc);
+$authGateTest = __DIR__ . '/auth_gate_static_analyzer_smoke.php';
+exec('php -d zend.assertions=1 ' . escapeshellarg($authGateTest) . ' 2>&1', $ag, $agRc);
 $a('auth-gate sentry still green', $agRc === 0,
     'last lines: ' . implode(' | ', array_slice($ag, -5)));
 
