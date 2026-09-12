@@ -119,11 +119,11 @@ function DeltaPill({ testId, curr, prior, label, inverse, format }) {
 }
 
 const cardStyle = {
-  background: '#fff',
-  border: '1px solid #e2e8f0',
+  background: 'transparent',
+  border: 0,
   borderLeft: '3px solid #334155',
-  borderRadius: 6,
-  padding: '12px 14px',
+  borderRadius: 0,
+  padding: '12px 16px',
   display: 'flex', flexDirection: 'column', gap: 4,
   transition: 'box-shadow 120ms ease, transform 120ms ease',
 };
@@ -132,11 +132,11 @@ const topRowStyle = {
 };
 const labelStyle = {
   fontSize: 11, color: '#64748b', textTransform: 'uppercase',
-  letterSpacing: 0.4, fontWeight: 600,
+  letterSpacing: 0, fontWeight: 600,
 };
 const valueStyle = {
   fontSize: 22, fontWeight: 700, color: '#0f172a',
-  letterSpacing: '-0.02em',
+  letterSpacing: 0,
   lineHeight: 1.15,
 };
 const comparisonsStyle = {

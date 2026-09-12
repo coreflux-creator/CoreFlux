@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ModuleCards, Section, ActionCardsGrid, ActionCard } from '../components/UIComponents';
 import {
   ArrowRight, Building2, CheckCircle2, CircleAlert, FileClock,
-  FlaskConical, History, Layers, Upload, Users,
+  FlaskConical, History, Layers, Receipt, Upload, Users,
 } from 'lucide-react';
 import SubTenantSummaryCard from './SubTenantSummaryCard';
 import SetupChecklistWidget from './SetupChecklistWidget';
@@ -18,7 +18,7 @@ import { fmtMoney } from '../lib/format';
  * exceptions that need attention beside the trend view.
  */
 const DashboardOverview = ({ session, onModuleChange }) => {
-  const { modules = [], user, tenant } = session;
+  const { modules = [], user } = session;
   const isAdmin = user?.role === 'admin' || user?.global_role === 'master_admin' || user?.global_role === 'tenant_admin';
   const isManager = isAdmin || user?.role === 'manager';
   const { data, loading } = useApi(isManager ? '/api/exec_dashboard.php?weeks=12' : null);
@@ -34,27 +34,37 @@ const DashboardOverview = ({ session, onModuleChange }) => {
 
       <header className="workspace-home__header">
         <div>
-          <span className="workspace-eyebrow">{tenant || 'CoreFlux'} workspace</span>
-          <h1>{greeting}, {firstName}.</h1>
-          <p>Here is what is happening across your business.</p>
+          <span className="workspace-eyebrow">Workspace / overview</span>
+          <h1>Your business, in focus.</h1>
+          <p>A clear view of what is moving, and what needs your attention.</p>
         </div>
         <div className="workspace-home__period">
-          <span>Reporting window</span>
+          <span>{greeting}, {firstName}</span>
           <strong>{formatRange(data?.range)}</strong>
         </div>
       </header>
 
       {isManager && <KpiSnapshotStrip data={data} loading={loading} />}
 
+      <section className="workspace-section workspace-section--modules">
+        <div className="workspace-section__header">
+          <div>
+            <h2>Your workspace</h2>
+          </div>
+          <p>Reorder &nbsp;&middot;&nbsp; Edit shortcuts</p>
+        </div>
+        <ModuleCards modules={modules} onModuleClick={onModuleChange} />
+      </section>
+
       <div className="workspace-home__body">
         <section className="workspace-panel workspace-panel--trend">
           <div className="workspace-panel__header">
             <div>
-              <span className="workspace-eyebrow">Performance</span>
               <h2>Revenue and gross margin</h2>
+              <p>Year to date &middot; weekly</p>
             </div>
             <Link to="/modules/reports/exec" className="text-link" data-testid="dashboard-open-reports">
-              Open full reports <ArrowRight size={14} aria-hidden="true" />
+              Explore performance <ArrowRight size={14} aria-hidden="true" />
             </Link>
           </div>
           <div className="workspace-chart-legend" aria-hidden="true">
@@ -74,7 +84,6 @@ const DashboardOverview = ({ session, onModuleChange }) => {
         <section className="workspace-panel workspace-panel--attention">
           <div className="workspace-panel__header">
             <div>
-              <span className="workspace-eyebrow">Open items</span>
               <h2>Needs attention</h2>
             </div>
             <Link to="/inbox" className="text-link">View all <ArrowRight size={14} aria-hidden="true" /></Link>
@@ -85,6 +94,13 @@ const DashboardOverview = ({ session, onModuleChange }) => {
             value={fmtMoney(finance.ar_aging?.d90_plus || 0)}
             label="AR aged 90+ days"
             to="/modules/billing/aging"
+          />
+          <AttentionItem
+            Icon={Receipt}
+            tone="blue"
+            value={fmtMoney(finance.ap_aging?.total || 0)}
+            label="open vendor obligations"
+            to="/modules/ap/bills"
           />
           <AttentionItem
             Icon={FileClock}
@@ -102,17 +118,6 @@ const DashboardOverview = ({ session, onModuleChange }) => {
           />
         </section>
       </div>
-
-      <section className="workspace-section">
-        <div className="workspace-section__header">
-          <div>
-            <span className="workspace-eyebrow">Workspaces</span>
-            <h2>Run the business</h2>
-          </div>
-          <p>Each area shares the same people, placements, terms, and financial events.</p>
-        </div>
-        <ModuleCards modules={modules} onModuleClick={onModuleChange} />
-      </section>
 
       {isManager && <CashCycleHealthTile />}
 
@@ -139,20 +144,18 @@ function KpiSnapshotStrip({ data, loading }) {
 
   return (
     <div className="workspace-kpi-strip" data-testid="dashboard-snapshot-strip">
-      <SnapshotTile label="Revenue MTD" value={loading ? '...' : fmtMoney(f.revenue?.mtd || 0)} sub={`YTD ${fmtMoney(f.revenue?.ytd || 0)}`} testid="snapshot-revenue" />
-      <SnapshotTile label="Gross margin" value={loading ? '...' : fmtMoney(f.margin?.mtd || 0)} sub={`${Number(f.margin?.gross_pct || 0).toFixed(1)}% of revenue`} tone="green" testid="snapshot-margin" />
-      <SnapshotTile label="Open AP" value={loading ? '...' : fmtMoney(f.ap_aging?.total || 0)} sub="Outstanding vendor obligations" tone="amber" testid="snapshot-ap" />
-      <SnapshotTile label="Open AR" value={loading ? '...' : fmtMoney(f.ar_aging?.total || 0)} sub={`${fmtMoney(f.ar_aging?.d90_plus || 0)} aged 90+`} tone="blue" testid="snapshot-ar" />
-      <SnapshotTile label="Active headcount" value={loading ? '...' : fmtN(s.headcount?.active || 0)} sub={`${fmtN(s.active_placements || 0)} active placements`} tone="teal" testid="snapshot-headcount" />
+      <SnapshotTile label="Revenue this month" value={loading ? '...' : fmtMoney(f.revenue?.mtd || 0)} sub={`YTD ${fmtMoney(f.revenue?.ytd || 0)}`} testid="snapshot-revenue" />
+      <SnapshotTile label="Gross profit" value={loading ? '...' : fmtMoney(f.margin?.mtd || 0)} sub={`${Number(f.margin?.gross_pct || 0).toFixed(1)}% gross margin`} tone="green" testid="snapshot-margin" />
+      <SnapshotTile label="Active people" value={loading ? '...' : fmtN(s.headcount?.active || 0)} sub={`${fmtN(s.active_placements || 0)} active placements`} tone="teal" testid="snapshot-headcount" />
+      <SnapshotTile label="Outstanding receivables" value={loading ? '...' : fmtMoney(f.ar_aging?.total || 0)} sub={`${fmtMoney(f.ar_aging?.d90_plus || 0)} aged 90+`} tone="blue" testid="snapshot-ar" />
+      <div className="sr-only" data-testid="snapshot-ap">{fmtMoney(f.ap_aging?.total || 0)}</div>
     </div>
   );
 }
 
 function SnapshotTile({ label, value, sub, tone = 'navy', testid }) {
-  const accent = tone === 'green' ? '#1db486' : tone === 'amber' ? '#f2a51a' : tone === 'blue' ? '#1683f8' : tone === 'teal' ? '#17a5a0' : '#0a2540';
   return (
-    <div className={`workspace-kpi workspace-kpi--${tone}`} data-testid={testid}
-         style={{ borderLeft: `3px solid ${accent}` }}>
+    <div className={`workspace-kpi workspace-kpi--${tone}`} data-testid={testid}>
       <div className="workspace-kpi__label">{label}</div>
       <div className="workspace-kpi__value" style={{ fontVariantNumeric: 'tabular-nums' }}>{value}</div>
       <div className="workspace-kpi__sub">{sub}</div>

@@ -62,8 +62,8 @@ export default function ReportShell({
 }) {
   const [flash, setFlash] = useState(null);
   return (
-    <section data-testid={`${testIdPrefix}-shell`} style={shellStyle}>
-      <header data-testid={`${testIdPrefix}-header`} style={headerStyle}>
+    <section className="report-shell" data-testid={`${testIdPrefix}-shell`} style={shellStyle}>
+      <header className="report-shell__header" data-testid={`${testIdPrefix}-header`} style={headerStyle}>
         <div style={{ flex: 1, minWidth: 240 }}>
           <h1 style={titleStyle} data-testid={`${testIdPrefix}-title`}>{title}</h1>
           {subtitle && (
@@ -71,7 +71,7 @@ export default function ReportShell({
           )}
         </div>
 
-        <div style={controlsStyle}>
+        <div className="report-shell__controls" style={controlsStyle}>
           {customControls}
           {period && (
             <>
@@ -146,12 +146,12 @@ export default function ReportShell({
       )}
 
       {kpis && (
-        <div data-testid={`${testIdPrefix}-kpi-band`} style={kpiBandStyle}>
+        <div className="report-shell__kpi-band" data-testid={`${testIdPrefix}-kpi-band`} style={kpiBandStyle}>
           {kpis}
         </div>
       )}
 
-      <div data-testid={`${testIdPrefix}-body`} style={bodyStyle}>
+      <div className="report-shell__body" data-testid={`${testIdPrefix}-body`} style={bodyStyle}>
         {children}
       </div>
     </section>
@@ -160,28 +160,29 @@ export default function ReportShell({
 
 const shellStyle = {
   display: 'flex', flexDirection: 'column', gap: 16,
-  paddingBottom: 32,
+  padding: '26px 28px 32px', background: '#fff',
+  border: '1px solid #dfe7f0', borderRadius: 8,
 };
 const headerStyle = {
-  position: 'sticky', top: 0, zIndex: 5,
-  background: 'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
-  padding: '12px 0 14px',
+  position: 'static',
+  background: '#fff',
+  padding: '0 0 18px',
   display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
   gap: 16, flexWrap: 'wrap',
   borderBottom: '1px solid #e2e8f0',
-  marginBottom: 4,
+  marginBottom: 0,
 };
 const titleStyle = {
   margin: 0,
-  fontSize: 22, fontWeight: 700,
+  fontSize: 28, fontWeight: 700,
   color: '#0f172a',
-  letterSpacing: '-0.01em',
+  letterSpacing: 0,
 };
 const subtitleStyle = {
   margin: '4px 0 0', fontSize: 13, color: '#64748b',
 };
 const controlsStyle = {
-  display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap',
+  display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap',
 };
 const dateLabelStyle = {
   display: 'flex', flexDirection: 'column', gap: 2,
@@ -199,10 +200,11 @@ const selectStyle = {
 const kpiBandStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-  gap: 12,
+  gap: 0,
+  borderBottom: '1px solid #e8edf3',
 };
 const bodyStyle = {
-  display: 'flex', flexDirection: 'column', gap: 20,
+  display: 'flex', flexDirection: 'column', gap: 14,
 };
 
 // ---------------------------------------------------------------------------

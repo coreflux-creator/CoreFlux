@@ -147,7 +147,7 @@ const tableStyle = {
 };
 const thLeft = {
   textAlign: 'left', padding: '8px 10px',
-  fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4,
+  fontSize: 10, textTransform: 'uppercase', letterSpacing: 0,
   color: '#64748b', borderBottom: '1px solid #e2e8f0', fontWeight: 600,
 };
 const thRight = { ...thLeft, textAlign: 'right' };
