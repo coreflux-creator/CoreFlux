@@ -47,7 +47,8 @@ if ($method === 'GET') {
     rbac_legacy_require($user, 'tenant.manage');
     $pdo = getDB();
     $cs = $pdo->prepare(
-        'SELECT id, provider, purpose, display_name, account_address, oauth_expires_at, status, error_message, created_at
+        'SELECT id, provider, purpose, display_name, account_address, oauth_expires_at, status,
+                last_error AS error_message, created_at
          FROM tenant_mail_connections WHERE tenant_id = :tid ORDER BY id DESC'
     );
     $cs->execute(['tid' => $tid]);
@@ -158,7 +159,7 @@ if ($method === 'DELETE') {
     if (!$row) api_error('Not found', 404);
 
     $pdo = getDB();
-    $pdo->prepare('UPDATE tenant_mail_connections SET status = "revoked", error_message = NULL WHERE id = :id AND tenant_id = :tid')
+    $pdo->prepare('UPDATE tenant_mail_connections SET status = "revoked", last_error = NULL WHERE id = :id AND tenant_id = :tid')
         ->execute(['id' => $id, 'tid' => $tid]);
     api_ok(['ok' => true]);
 }

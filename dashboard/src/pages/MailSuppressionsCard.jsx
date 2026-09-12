@@ -95,6 +95,8 @@ export default function MailSuppressionsCard() {
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button type="button" className="btn"
+                  aria-label="Refresh suppressed recipients"
+                  title="Refresh"
                   data-testid="admin-mail-suppressions-refresh"
                   onClick={load} disabled={loading || busy}>
             <RefreshCw size={13} />
@@ -111,6 +113,7 @@ export default function MailSuppressionsCard() {
         <input
           type="search"
           data-testid="admin-mail-suppressions-search"
+          aria-label="Search suppressed recipients"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') load(); }}
@@ -150,7 +153,8 @@ export default function MailSuppressionsCard() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <input
               type="email" required
-              data-testid="admin-mail-suppressions-add-email"
+               data-testid="admin-mail-suppressions-add-email"
+               aria-label="Email address to suppress"
               value={addEmail}
               onChange={(e) => setAddEmail(e.target.value)}
               placeholder="email@example.com"
@@ -159,7 +163,8 @@ export default function MailSuppressionsCard() {
             />
             <input
               type="text"
-              data-testid="admin-mail-suppressions-add-notes"
+               data-testid="admin-mail-suppressions-add-notes"
+               aria-label="Suppression notes"
               value={addNotes}
               onChange={(e) => setAddNotes(e.target.value)}
               placeholder="Optional notes (why is this address suppressed?)"
@@ -228,6 +233,7 @@ export default function MailSuppressionsCard() {
                   <td style={{ padding: '6px', textAlign: 'right' }}>
                     <button type="button" className="btn"
                             data-testid={`admin-mail-suppressions-remove-${r.id}`}
+                            aria-label={`Resume sending to ${r.email}`}
                             onClick={() => remove(r)}
                             disabled={busy}
                             style={{ fontSize: 11, padding: '2px 6px' }}

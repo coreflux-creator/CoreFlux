@@ -34,6 +34,17 @@ if (!str_contains($htaccess, 'RewriteRule ^login/?$ /login.html')) {
     $failures[] = 'Legacy /login URL is not repaired.';
 }
 
+$spaRule = strpos($htaccess, 'RewriteRule ^(admin|ai-agents|ai|auth/m|cfo|dashboard|data|exec|inbox|modules|profile|select-tenant|settings|share/scenario|sim|vendor/portal)');
+$dirPass = strpos($htaccess, 'RewriteCond %{REQUEST_FILENAME} -d');
+if ($spaRule === false || $dirPass === false || $spaRule > $dirPass) {
+    $failures[] = 'Known SPA paths are not routed before physical directories.';
+}
+foreach (['admin', 'ai-agents', 'ai', 'auth/m', 'cfo', 'data', 'exec', 'inbox', 'modules', 'select-tenant', 'share/scenario', 'sim', 'vendor/portal'] as $path) {
+    if (!str_contains($htaccess, $path)) {
+        $failures[] = "SPA route namespace missing from Apache fallback: {$path}.";
+    }
+}
+
 foreach ($failures as $failure) echo "FAIL {$failure}\n";
-if ($failures === []) echo "Login redirect paths: 7 ok / 0 failed\n";
+if ($failures === []) echo "Login and SPA redirect paths: ok\n";
 exit($failures === [] ? 0 : 1);

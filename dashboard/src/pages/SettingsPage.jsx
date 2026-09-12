@@ -96,7 +96,7 @@ const SettingsPage = ({ session }) => {
               </div>
             </div>
             <label style={{ position: 'relative', display: 'inline-block', width: '50px', height: '28px' }}>
-              <input type="checkbox" style={{ opacity: 0, width: 0, height: 0 }} />
+              <input type="checkbox" aria-label="Dark mode" style={{ opacity: 0, width: 0, height: 0 }} />
               <span style={{
                 position: 'absolute',
                 cursor: 'pointer',
@@ -132,7 +132,7 @@ const SettingsPage = ({ session }) => {
                 <div style={{ fontSize: 'var(--cf-text-sm)', color: 'var(--cf-text-secondary)' }}>Select your preferred language</div>
               </div>
             </div>
-            <select style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--cf-border)', background: 'white', fontSize: 'var(--cf-text-sm)' }}>
+            <select aria-label="Language" style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--cf-border)', background: 'white', fontSize: 'var(--cf-text-sm)' }}>
               <option>English</option>
               <option>Spanish</option>
               <option>French</option>

@@ -274,7 +274,7 @@ class M365GraphDriver implements MailDriver
         $stmt = $pdo->prepare(
             'UPDATE tenant_mail_connections
              SET oauth_access_token_ct = :a, oauth_refresh_token_ct = :r,
-                 oauth_expires_at = :e, oauth_scope = :s, status = "active", error_message = NULL
+                 oauth_expires_at = :e, oauth_scope = :s, status = "active", last_error = NULL
              WHERE id = :id'
         );
         $stmt->bindValue('a',  $access  ? encryptField($access)  : null, $access  ? \PDO::PARAM_LOB : \PDO::PARAM_NULL);
@@ -330,7 +330,7 @@ class M365GraphDriver implements MailDriver
     {
         $pdo = getDB();
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $pdo->prepare('UPDATE tenant_mail_connections SET status = :s, error_message = :e WHERE id = :id')
+        $pdo->prepare('UPDATE tenant_mail_connections SET status = :s, last_error = :e WHERE id = :id')
             ->execute(['s' => $status, 'e' => $errorMessage, 'id' => $id]);
     }
 

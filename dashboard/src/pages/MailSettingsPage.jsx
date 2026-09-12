@@ -119,6 +119,7 @@ const MailSettingsPage = () => {
                 <input
                   type="email"
                   className="input"
+                  aria-label="Reply-To address"
                   placeholder="approvals@your-agency.com"
                   value={form.reply_to}
                   onChange={(e) => setForm(f => ({ ...f, reply_to: e.target.value }))}
@@ -145,6 +146,7 @@ const MailSettingsPage = () => {
                 <input
                   type="text"
                   className="input"
+                  aria-label="Sender display name"
                   placeholder="Your Company Name"
                   maxLength={120}
                   value={form.from_name_override}
