@@ -174,8 +174,18 @@ jobs:
 
             for ROUTE in inbox ai-agents cfo data/bulk-import admin modules/placements/list sim vendor/portal share/scenario; do
               HEADERS="$(mktemp)"
-              curl -sS --max-time 30 -o /dev/null -D "$HEADERS" "https://www.corefluxapp.com/$ROUTE?release=${{ github.sha }}"
-              grep -Eiq '^location: /login\.html\?next=' "$HEADERS"
+              if ! curl -sSL --max-time 30 -o /dev/null -D "$HEADERS" "https://www.corefluxapp.com/$ROUTE?release=${{ github.sha }}"; then
+                echo "Production route check could not load /$ROUTE." >&2
+                cat "$HEADERS" >&2
+                rm -f -- "$HEADERS"
+                exit 1
+              fi
+              if ! grep -Eiq '^location: (https://www\.corefluxapp\.com)?/login\.html\?next=' "$HEADERS"; then
+                echo "Production route /$ROUTE did not pass through the authenticated app entry point." >&2
+                cat "$HEADERS" >&2
+                rm -f -- "$HEADERS"
+                exit 1
+              fi
               rm -f -- "$HEADERS"
             done
             echo "Deployed and verified the light workspace at commit ${{ github.sha }}."
