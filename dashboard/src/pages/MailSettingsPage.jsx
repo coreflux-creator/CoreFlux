@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { Section, Card } from '../components/UIComponents';
-import { Mail, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Mail, CheckCircle2 } from 'lucide-react';
 import MailConnectionsCard from './MailConnectionsCard';
 import MailTestSendCard from './MailTestSendCard';
 import MailSuppressionsCard from './MailSuppressionsCard';
@@ -158,22 +158,6 @@ const MailSettingsPage = () => {
             </div>
           </Card>
 
-          {/* Future Model C teaser */}
-          <Card>
-            <div style={{ display: 'flex', gap: 'var(--cf-space-4)', alignItems: 'flex-start', opacity: 0.7 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 8, background: 'var(--cf-amber-bg, #fffbeb)', color: 'var(--cf-amber, #b45309)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <AlertTriangle size={20} />
-              </div>
-              <div>
-                <h3 style={{ margin: '0 0 4px' }}>Custom sending domain <span className="badge badge--info" style={{ marginLeft: 8, fontSize: 11 }}>coming soon</span></h3>
-                <p style={{ margin: 0, color: 'var(--cf-text-secondary)', fontSize: 14 }}>
-                  Want emails to actually come FROM your own domain (e.g.
-                  <code> timesheets@your-agency.com</code>)? That requires a one-time
-                  DNS setup. We'll guide you through it when this feature ships.
-                </p>
-              </div>
-            </div>
-          </Card>
 
           {/* Inbound mailbox connections (Phase B Slice 2a) */}
           <MailConnectionsCard flash={flash} />
