@@ -36,6 +36,9 @@ jobs:
           chmod +x scripts/sync_bundle.sh
           chmod +x scripts/ci_smoke_all.sh scripts/ci_sim_scenarios.sh scripts/ci_lane_classifier.sh
 
+      - name: Expose legacy test workspace path
+        run: sudo ln -sfn "$GITHUB_WORKSPACE" /app
+
       - name: Smoke suite — lane ${{ matrix.lane }}
         run: bash scripts/ci_smoke_all.sh --lane=${{ matrix.lane }}
 
