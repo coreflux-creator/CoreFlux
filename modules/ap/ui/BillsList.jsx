@@ -38,7 +38,7 @@ export default function BillsList() {
   const rows = data?.rows ?? [];
   const summary = data?.summary ?? {};
   const qboDrift = useQboDriftBadges('bill', rows.map(row => row.id));
-  const selection = useBulkSelection(rows.map(row => row.id));
+  const sel = useBulkSelection(rows.map(row => row.id));
 
   const {
     items, sortKey, sortDir, search, setSearch, headerProps,
@@ -50,9 +50,9 @@ export default function BillsList() {
   });
 
   const exportSelected = () => {
-    if (!selection.size) return;
+    if (!sel.size) return;
     const anchor = document.createElement('a');
-    anchor.href = `/modules/ap/api/export.php?type=bills&ids=${selection.ids.join(',')}`;
+    anchor.href = `/modules/ap/api/export.php?type=bills&ids=${sel.ids.join(',')}`;
     anchor.rel = 'noopener';
     anchor.click();
   };
@@ -133,11 +133,11 @@ export default function BillsList() {
           </details>
         </div>
 
-        {selection.size > 0 && (
+        {sel.size > 0 && (
           <div className="selection-bar" data-testid="ap-bills-bulk-bar">
-            <span><strong>{selection.size}</strong> selected</span>
+            <span><strong>{sel.size}</strong> selected</span>
             <button className="btn btn--primary" onClick={exportSelected} data-testid="ap-bills-export-selected">Export selected</button>
-            <button className="btn btn--ghost" onClick={selection.clear} data-testid="ap-bills-clear-selection">Clear</button>
+            <button className="btn btn--ghost" onClick={sel.clear} data-testid="ap-bills-clear-selection">Clear</button>
           </div>
         )}
 
@@ -151,9 +151,9 @@ export default function BillsList() {
                 <th style={{ width: 32 }}>
                   <input
                     type="checkbox"
-                    checked={selection.allSelected}
-                    ref={element => { if (element) element.indeterminate = selection.someSelected; }}
-                    onChange={selection.toggleAll}
+                    checked={sel.allSelected}
+                    ref={element => { if (element) element.indeterminate = sel.someSelected; }}
+                    onChange={sel.toggleAll}
                     disabled={!rows.length}
                     data-testid="ap-bills-select-all"
                   />
@@ -170,34 +170,34 @@ export default function BillsList() {
             </thead>
             <tbody>
               {items.length === 0 && !loading && <tr><td colSpan={9} className="empty" data-testid="ap-bills-empty">No bills match this view.</td></tr>}
-              {items.map(bill => (
-                <tr key={bill.id} data-testid={`ap-bill-row-${bill.id}`} className={selection.has(bill.id) ? 'is-selected' : ''}>
-                  <td><input type="checkbox" checked={selection.has(bill.id)} onChange={() => selection.toggle(bill.id)} data-testid={`ap-bill-select-${bill.id}`} /></td>
+              {items.map(r => (
+                <tr key={r.id} data-testid={`ap-bill-row-${r.id}`} className={sel.has(r.id) ? 'is-selected' : ''}>
+                  <td><input type="checkbox" checked={sel.has(r.id)} onChange={() => sel.toggle(r.id)} data-testid={`ap-bill-select-${r.id}`} /></td>
                   <td>
                     <div className="entity-cell">
-                      <span className={`entity-avatar entity-avatar--${Number(bill.id) % 4}`}>{initials(bill.vendor_name)}</span>
+                      <span className={`entity-avatar entity-avatar--${Number(r.id) % 4}`}>{initials(r.vendor_name)}</span>
                       <span>
                         <Link
                           className="entity-primary"
-                          to={`/modules/ap/bills/${bill.id}`}
-                          data-testid={`ap-bill-link-${bill.id}`}
-                          onMouseEnter={() => prefetchApi(`/modules/ap/api/bill_detail.php?id=${bill.id}`, `ap-bill-detail:${bill.id}`)}
+                          to={`/modules/ap/bills/${r.id}`}
+                          data-testid={`ap-bill-link-${r.id}`}
+                          onMouseEnter={() => prefetchApi(`/modules/ap/api/bill_detail.php?id=${r.id}`, `ap-bill-detail:${r.id}`)}
                         >
-                          {bill.vendor_name || 'Unnamed vendor'}
+                          {r.vendor_name || 'Unnamed vendor'}
                         </Link>
                         <span className="entity-secondary">
-                          {bill.internal_ref || bill.bill_number || `B-${bill.id}`}{bill.placement_id ? ` · PL-${bill.placement_id}` : ''}
+                          {r.internal_ref || r.bill_number || `B-${r.id}`}{r.placement_id ? ` · PL-${r.placement_id}` : ''}
                         </span>
                       </span>
                     </div>
                   </td>
-                  <td>{fmtDate(bill.bill_date)}</td>
-                  <td>{fmtDate(bill.due_date)}</td>
-                  <td className="numeric-cell">{formatCurrency(bill.total, bill.currency)}</td>
-                  <td className="numeric-cell">{formatCurrency(bill.amount_due, bill.currency)}</td>
-                  <td><span className={`badge badge--${bill.status}`}>{String(bill.status).replaceAll('_', ' ')}</span><QboDriftBadge entry={qboDrift[bill.id]} /></td>
-                  <td><span className="source-label">{String(bill.source || bill.vendor_type || 'manual').replaceAll('_', ' ')}</span></td>
-                  <td><Link to={`/modules/ap/bills/${bill.id}`} className="row-open-link" aria-label={`Open bill ${bill.internal_ref || bill.id}`}><ChevronRight size={17} aria-hidden="true" /></Link></td>
+                  <td>{fmtDate(r.bill_date)}</td>
+                  <td>{fmtDate(r.due_date)}</td>
+                  <td className="numeric-cell">{formatCurrency(r.total, r.currency)}</td>
+                  <td className="numeric-cell">{formatCurrency(r.amount_due, r.currency)}</td>
+                  <td><span className={`badge badge--${r.status}`}>{String(r.status).replaceAll('_', ' ')}</span><QboDriftBadge entry={qboDrift[r.id]} /></td>
+                  <td><span className="source-label">{String(r.source || r.vendor_type || 'manual').replaceAll('_', ' ')}</span></td>
+                  <td><Link to={`/modules/ap/bills/${r.id}`} className="row-open-link" aria-label={`Open bill ${r.internal_ref || r.id}`}><ChevronRight size={17} aria-hidden="true" /></Link></td>
                 </tr>
               ))}
             </tbody>

@@ -279,15 +279,18 @@ export default function List() {
             <th {...headerProps('last_name', 'placements-sort')}>Person <SortIndicator active={sortKey === 'last_name'} dir={sortDir} /></th>
             <th {...headerProps('title', 'placements-sort')}>Engagement / Client <SortIndicator active={sortKey === 'title'} dir={sortDir} /></th>
             <th {...headerProps('engagement_type', 'placements-sort')}>Type <SortIndicator active={sortKey === 'engagement_type'} dir={sortDir} /></th>
+            <th {...headerProps('status', 'placements-sort')}>Status <SortIndicator active={sortKey === 'status'} dir={sortDir} /></th>
             <th {...headerProps('bill_rate', 'placements-sort')} className="numeric-cell">Bill rate <SortIndicator active={sortKey === 'bill_rate'} dir={sortDir} /></th>
             <th {...headerProps('pay_rate', 'placements-sort')} className="numeric-cell">Loaded cost <SortIndicator active={sortKey === 'pay_rate'} dir={sortDir} /></th>
             <th {...headerProps('margin', 'placements-sort')} className="numeric-cell">Margin <SortIndicator active={sortKey === 'margin'} dir={sortDir} /></th>
+            <th {...headerProps('start_date', 'placements-sort')}>Starts <SortIndicator active={sortKey === 'start_date'} dir={sortDir} /></th>
+            <th {...headerProps('due_date', 'placements-sort')}>Due <SortIndicator active={sortKey === 'due_date'} dir={sortDir} /></th>
             <th {...headerProps('end_date', 'placements-sort')}>Ends <SortIndicator active={sortKey === 'end_date'} dir={sortDir} /></th>
             <th style={{ width: 36 }} aria-label="Open" />
           </tr>
         </thead>
         <tbody>
-          {items.length === 0 && <tr><td colSpan={9} className="empty" data-testid="placements-empty">No placements match.</td></tr>}
+          {items.length === 0 && <tr><td colSpan={12} className="empty" data-testid="placements-empty">No placements match.</td></tr>}
           {items.map(p => (
             <tr key={p.id} data-testid={`placement-row-${p.id}`}>
               <td>
@@ -307,7 +310,7 @@ export default function List() {
                       <Link className="entity-primary" to={`/modules/people/${p.person_id}`} data-testid={`placement-person-link-${p.id}`}>
                         {p.first_name ? `${p.first_name} ${p.last_name}` : `Person ${p.person_id}`}
                       </Link>
-                      <span className="entity-secondary">PL-{p.id} · {String(p.status || '').replaceAll('_', ' ')}</span>
+                      <span className="entity-secondary">PL-{p.id}</span>
                     </span>
                   </div>
                 ) : '—'}
@@ -330,11 +333,14 @@ export default function List() {
                 ) : <span className="entity-secondary">{p.end_client_display_name || p.end_client_name || 'No client linked'}</span>}
               </td>
               <td><span className={`badge badge--${p.engagement_type}`}>{p.engagement_type}</span></td>
+              <td><span className={`badge badge--${p.status}`}>{String(p.status || '').replaceAll('_', ' ')}</span></td>
               <td className="numeric-cell">{formatRate(p.current_invoice_rate)}</td>
               <td className="numeric-cell">{formatRate(p.current_loaded_cost)}</td>
               <td className={`numeric-cell ${marginTone(p.current_margin_pct)}`}>
                 {formatMargin(p.current_margin_pct)}
               </td>
+              <td>{fmtDate(p.start_date)}</td>
+              <td>{fmtDate(p.due_date)}</td>
               <td>{fmtDate(p.end_date)}</td>
               <td>
                 <Link

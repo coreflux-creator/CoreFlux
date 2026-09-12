@@ -4038,6 +4038,7 @@ textarea.input {
 }
 
 .operational-table { min-width: 900px; }
+.placements-surface .operational-table { min-width: 1180px; }
 
 .entity-cell {
     display: flex;
