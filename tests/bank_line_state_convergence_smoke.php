@@ -15,6 +15,8 @@ $treasury = (string) file_get_contents($root . '/modules/treasury/api/account_tr
 $check('shared match transition exists', str_contains($lib, 'function bankRecMarkLineMatched('));
 $check('shared transition records match metadata', str_contains($lib, 'matched_at = NOW()') && str_contains($lib, 'matched_by_user_id = :user_id'));
 $check('historical repair exists', str_contains($lib, 'function bankRecRepairPostedMatches('));
+$check('bank reconciliation loads canonical transaction identity helpers', str_contains($bankApi, 'bank_transaction_identity.php'));
+$check('bank reconciliation excludes duplicate audit copies', str_contains($bankApi, 'duplicate_of_line_id IS NULL'));
 $check('repair only uses posted journals', substr_count($lib, 'je.status = "posted"') >= 3);
 $check('repair recognizes direct Treasury source lineage', str_contains($lib, 'je.source_module = "treasury_feed"') && str_contains($lib, 'je.source_ref_type = "bank_statement_line"'));
 $check('repair recognizes regular and split subledger lineage', str_contains($lib, 'CONCAT("bank_line:", bl.id)') && str_contains($lib, 'CONCAT("bank_line:split:", bl.id)'));
