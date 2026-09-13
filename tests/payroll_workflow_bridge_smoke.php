@@ -42,6 +42,14 @@ $checks = [
         && str_contains($legacyMap, "'payroll.runs.view'")
         && RbacLegacyMap::resolve('payroll.view') === ['payroll', 'read']
         && RbacLegacyMap::resolve('payroll.runs.view') === ['payroll', 'read'],
+    'read-only payroll requests honor either RBAC grant during cutover' =>
+        str_contains($runs, 'function _payrollRequireRead(')
+        && str_contains($runs, 'if ($legacyOk || $membershipOk) return;')
+        && str_contains($runs, "_payrollRequireRead(\$user, 'payroll.view')")
+        && str_contains($runs, "_payrollRequireRead(\$user, 'payroll.reports.view')"),
+    'payroll writes remain on the strict bridge' =>
+        str_contains($runs, "rbac_legacy_require(\$user, 'payroll.run.create')")
+        && str_contains($runs, "rbac_legacy_require(\$user, 'payroll.run.approve')"),
 ];
 
 foreach ($checks as $label => $passed) {
