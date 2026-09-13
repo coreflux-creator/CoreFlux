@@ -37,7 +37,7 @@ $assert('dimension lookup tenant-scoped + active',
     && strpos($ep, "AND active = 1") !== false);
 $assert('returns 404 if dimension not found',    strpos($ep, "Dimension '{\$dimKey}' not found or inactive") !== false);
 $assert('joins JE lines + entries + accounts',
-    strpos($ep, 'FROM accounting_journal_lines jl') !== false
+    strpos($ep, 'FROM accounting_journal_entry_lines jl') !== false
     && strpos($ep, 'JOIN accounting_journal_entries je') !== false
     && strpos($ep, 'JOIN accounting_accounts a') !== false);
 $assert('posted-only filter',                    strpos($ep, "je.status = 'posted'") !== false);

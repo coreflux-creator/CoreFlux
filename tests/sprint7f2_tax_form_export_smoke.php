@@ -42,7 +42,7 @@ $assert('rejects start > end',                   strpos($ep, '$start > $end') !=
 $assert('format whitelist json|csv',             strpos($ep, "['json', 'csv']") !== false);
 $assert('joins mappings → accounts → JE lines',
     strpos($ep, 'JOIN accounting_accounts a ON a.id = m.account_id') !== false
-    && strpos($ep, 'LEFT JOIN accounting_journal_lines jl') !== false
+    && strpos($ep, 'LEFT JOIN accounting_journal_entry_lines jl') !== false
     && strpos($ep, 'LEFT JOIN accounting_journal_entries je') !== false);
 $assert('posted-only filter',                    strpos($ep, "je.status = 'posted'") !== false);
 $assert('entity_id filter applied',              strpos($ep, 'je.entity_id = :eid') !== false);

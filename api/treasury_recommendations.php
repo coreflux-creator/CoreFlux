@@ -1209,8 +1209,8 @@ function treasuryRecommendationVarianceActuals(int $tenantId, string $startDate,
                 COALESCE(SUM(jl.debit - jl.credit), 0) AS net
            FROM accounting_bank_accounts ba
            JOIN accounting_accounts aa ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
-           JOIN accounting_journal_lines jl ON jl.account_id = aa.id AND jl.tenant_id = aa.tenant_id
-           JOIN accounting_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+           JOIN accounting_journal_entry_lines jl ON jl.account_id = aa.id AND jl.tenant_id = aa.tenant_id
+           JOIN accounting_journal_entries je ON je.id = jl.je_id AND je.status = 'posted'
           WHERE ba.tenant_id = :t
             AND ba.status = 'active'
             AND je.posting_date BETWEEN :s AND :e

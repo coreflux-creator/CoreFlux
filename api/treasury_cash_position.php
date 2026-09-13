@@ -55,8 +55,8 @@ $banks = $baStmt->fetchAll(\PDO::FETCH_ASSOC);
 // 2) For each bank account compute GL balance.
 $balStmt = $pdo->prepare(
     "SELECT COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0) AS bal
-       FROM accounting_journal_lines jl
-       JOIN accounting_journal_entries je ON je.id = jl.journal_entry_id
+       FROM accounting_journal_entry_lines jl
+       JOIN accounting_journal_entries je ON je.id = jl.je_id
       WHERE je.tenant_id = :t
         AND je.status   = 'posted'
         AND je.posting_date <= :a

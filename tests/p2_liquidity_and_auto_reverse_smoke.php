@@ -55,7 +55,7 @@ $libSrc  = (string) file_get_contents($libPath);
 $assert('starting_cash sums active bank accounts via GL',
     strpos($libSrc, 'FROM accounting_bank_accounts ba') !== false
     && strpos($libSrc, "ba.status = 'active'") !== false
-    && strpos($libSrc, 'JOIN accounting_journal_lines') !== false);
+    && strpos($libSrc, 'JOIN accounting_journal_entry_lines') !== false);
 $assert('only posted JEs feed starting_cash',
     strpos($libSrc, "je.status = 'posted'") !== false);
 $assert('AR uses amount_due fallback to total - amount_paid',

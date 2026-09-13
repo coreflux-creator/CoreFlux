@@ -86,8 +86,8 @@ $entityWhere = $entityId ? 'AND je.entity_id = :eid' : '';
 $openSql = "SELECT
             COALESCE(SUM(jl.debit), 0)  AS d,
             COALESCE(SUM(jl.credit), 0) AS c
-       FROM accounting_journal_lines jl
-       JOIN accounting_journal_entries je ON je.id = jl.journal_entry_id
+       FROM accounting_journal_entry_lines jl
+       JOIN accounting_journal_entries je ON je.id = jl.je_id
       WHERE jl.tenant_id = :t
         AND jl.account_id = :aid
         AND je.posting_date < :start
@@ -108,9 +108,9 @@ $opening = $normalSide === 'credit'
 $linesSql = "SELECT je.id AS je_id, je.je_number, je.posting_date, je.memo,
                     je.source_module, je.source_ref_type, je.source_ref_id,
                     jl.debit, jl.credit, jl.description, jl.counterparty_company_id,
-                    jl.dimension_values
-               FROM accounting_journal_lines jl
-               JOIN accounting_journal_entries je ON je.id = jl.journal_entry_id
+                    jl.dim_json AS dimension_values
+               FROM accounting_journal_entry_lines jl
+               JOIN accounting_journal_entries je ON je.id = jl.je_id
               WHERE jl.tenant_id = :t
                 AND jl.account_id = :aid
                 AND je.posting_date BETWEEN :start AND :end

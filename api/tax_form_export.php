@@ -83,11 +83,11 @@ $sql = "SELECT m.id            AS mapping_id,
                COUNT(jl.id) AS n
           FROM accounting_tax_mappings m
           JOIN accounting_accounts a ON a.id = m.account_id AND a.tenant_id = m.tenant_id
-     LEFT JOIN accounting_journal_lines jl
+     LEFT JOIN accounting_journal_entry_lines jl
             ON jl.tenant_id  = m.tenant_id
            AND jl.account_id = m.account_id
      LEFT JOIN accounting_journal_entries je
-            ON je.id = jl.journal_entry_id
+            ON je.id = jl.je_id
            AND je.posting_date BETWEEN :start AND :end
            AND je.status = 'posted'
            {$entityWhere}
@@ -142,11 +142,11 @@ $unmappedSql = "SELECT a.id, a.code, a.name, a.normal_side,
                        COALESCE(SUM(jl.debit), 0)  AS d,
                        COALESCE(SUM(jl.credit), 0) AS c
                   FROM accounting_accounts a
-             LEFT JOIN accounting_journal_lines jl
+             LEFT JOIN accounting_journal_entry_lines jl
                     ON jl.tenant_id  = a.tenant_id
                    AND jl.account_id = a.id
              LEFT JOIN accounting_journal_entries je
-                    ON je.id = jl.journal_entry_id
+                    ON je.id = jl.je_id
                    AND je.posting_date BETWEEN :start AND :end
                    AND je.status = 'posted'
                    {$entityWhere}
