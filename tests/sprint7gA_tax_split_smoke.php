@@ -67,7 +67,7 @@ $assert("aiAgentContextSalesTax reads accounting_accounts (sales-tax surface)",
 $assert("aiAgentContextSalesTax checks billing_invoices for recent activity",
     preg_match("/aiAgentContextSalesTax.*?billing_invoices/s", $lib) === 1);
 $assert("aiAgentContextPayrollTax inspects journal_lines for posting cadence",
-    preg_match("/aiAgentContextPayrollTax.*?accounting_journal_lines/s", $lib) === 1);
+    preg_match("/aiAgentContextPayrollTax.*?accounting_journal_entry_lines/s", $lib) === 1);
 $assert("aiAgentContextPartnerDistributions filters on equity / distribution / draw",
     strpos($lib, "account_type = 'equity'") !== false
     && strpos($lib, "LIKE '%distribution%'") !== false

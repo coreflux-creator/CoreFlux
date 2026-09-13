@@ -57,12 +57,12 @@ if (!$dims) {
 }
 
 // 2. Fetch posted lines in window with their account + dim_values JSON.
-$sql = "SELECT jl.id AS line_id, jl.account_id, jl.dimension_values,
+$sql = "SELECT jl.id AS line_id, jl.account_id, jl.dim_json AS dimension_values,
                jl.description, jl.debit, jl.credit,
                je.id AS je_id, je.je_number, je.posting_date,
-               a.account_code, a.account_name
-          FROM accounting_journal_lines jl
-          JOIN accounting_journal_entries je ON je.id = jl.journal_entry_id
+               a.code AS account_code, a.name AS account_name
+          FROM accounting_journal_entry_lines jl
+          JOIN accounting_journal_entries je ON je.id = jl.je_id
           JOIN accounting_accounts a         ON a.id  = jl.account_id
          WHERE jl.tenant_id = :t
            AND je.status    = 'posted'

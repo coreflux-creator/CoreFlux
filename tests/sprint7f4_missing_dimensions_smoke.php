@@ -62,8 +62,8 @@ $bh = (string) file_get_contents("{$ROOT}/api/books_health.php");
 $assert('declares missing_dims envelope',         strpos($bh, "\$missingDims = ['count' => 0, 'sample_accounts' => []]") !== false);
 $assert('guards on accounting_dimensions table existing',
     strpos($bh, "SHOW TABLES LIKE 'accounting_dimensions'") !== false);
-$assert('guards on dimension_values column existing',
-    strpos($bh, "AND COLUMN_NAME = 'dimension_values'") !== false);
+$assert('guards on canonical dimension JSON column existing',
+    strpos($bh, "AND COLUMN_NAME = 'dim_json'") !== false);
 $assert('requires dimensions lib only when needed',
     strpos($bh, "require_once __DIR__ . '/../modules/accounting/lib/dimensions.php'") !== false);
 $assert('uses 90-day window for dashboard tile',  strpos($bh, "strtotime('-90 days')") !== false);

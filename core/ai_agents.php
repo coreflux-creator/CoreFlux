@@ -357,8 +357,8 @@ function aiAgentContextSalesTax(int $tenantId): array
         $a = $pdo->prepare(
             "SELECT COUNT(*) FROM accounting_accounts
               WHERE tenant_id = :t
-                AND (LOWER(account_name) LIKE '%sales tax%'
-                     OR LOWER(account_name) LIKE '%use tax%')"
+                AND (LOWER(name) LIKE '%sales tax%'
+                     OR LOWER(name) LIKE '%use tax%')"
         );
         $a->execute(['t' => $tenantId]);
         $ctx['sales_tax_account_count_bucket'] = aiAgentBucketCount((int) $a->fetchColumn());
@@ -388,28 +388,28 @@ function aiAgentContextPayrollTax(int $tenantId): array
         $a = $pdo->prepare(
             "SELECT COUNT(*) FROM accounting_accounts
               WHERE tenant_id = :t
-                AND (LOWER(account_name) LIKE '%payroll tax%'
-                     OR LOWER(account_name) LIKE '%fica%'
-                     OR LOWER(account_name) LIKE '%futa%'
-                     OR LOWER(account_name) LIKE '%suta%'
-                     OR LOWER(account_name) LIKE '%federal withholding%'
-                     OR LOWER(account_name) LIKE '%state withholding%')"
+                AND (LOWER(name) LIKE '%payroll tax%'
+                     OR LOWER(name) LIKE '%fica%'
+                     OR LOWER(name) LIKE '%futa%'
+                     OR LOWER(name) LIKE '%suta%'
+                     OR LOWER(name) LIKE '%federal withholding%'
+                     OR LOWER(name) LIKE '%state withholding%')"
         );
         $a->execute(['t' => $tenantId]);
         $ctx['payroll_tax_account_count_bucket'] = aiAgentBucketCount((int) $a->fetchColumn());
     }
-    if ($pdo->query("SHOW TABLES LIKE 'accounting_journal_lines'")->fetchColumn()) {
+    if ($pdo->query("SHOW TABLES LIKE 'accounting_journal_entry_lines'")->fetchColumn()) {
         $p = $pdo->prepare(
             "SELECT COUNT(DISTINCT jl.account_id)
-               FROM accounting_journal_lines jl
+               FROM accounting_journal_entry_lines jl
                JOIN accounting_accounts a       ON a.id = jl.account_id
-               JOIN accounting_journal_entries je ON je.id = jl.journal_entry_id
+               JOIN accounting_journal_entries je ON je.id = jl.je_id
               WHERE jl.tenant_id = :t
                 AND je.status = 'posted'
                 AND je.posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-                AND (LOWER(a.account_name) LIKE '%payroll tax%'
-                     OR LOWER(a.account_name) LIKE '%fica%'
-                     OR LOWER(a.account_name) LIKE '%futa%')"
+                AND (LOWER(a.name) LIKE '%payroll tax%'
+                     OR LOWER(a.name) LIKE '%fica%'
+                     OR LOWER(a.name) LIKE '%futa%')"
         );
         $p->execute(['t' => $tenantId]);
         $ctx['recently_posted_payroll_tax_account_count_bucket'] = aiAgentBucketCount((int) $p->fetchColumn());
@@ -427,26 +427,26 @@ function aiAgentContextPartnerDistributions(int $tenantId): array
             "SELECT COUNT(*) FROM accounting_accounts
               WHERE tenant_id = :t
                 AND (account_type = 'equity'
-                     OR LOWER(account_name) LIKE '%distribution%'
-                     OR LOWER(account_name) LIKE '%draw%')"
+                     OR LOWER(name) LIKE '%distribution%'
+                     OR LOWER(name) LIKE '%draw%')"
         );
         $a->execute(['t' => $tenantId]);
         $ctx['equity_account_count_bucket'] = aiAgentBucketCount((int) $a->fetchColumn());
     }
     if ($pdo->query("SHOW TABLES LIKE 'accounting_journal_entries'")->fetchColumn()
-        && $pdo->query("SHOW TABLES LIKE 'accounting_journal_lines'")->fetchColumn()) {
+        && $pdo->query("SHOW TABLES LIKE 'accounting_journal_entry_lines'")->fetchColumn()) {
         $d = $pdo->prepare(
             "SELECT COUNT(*) FROM accounting_journal_entries je
               WHERE je.tenant_id = :t
                 AND je.status = 'posted'
                 AND je.posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
                 AND EXISTS (
-                    SELECT 1 FROM accounting_journal_lines jl
+                    SELECT 1 FROM accounting_journal_entry_lines jl
                        JOIN accounting_accounts a ON a.id = jl.account_id
-                     WHERE jl.journal_entry_id = je.id
+                     WHERE jl.je_id = je.id
                        AND (a.account_type = 'equity'
-                            OR LOWER(a.account_name) LIKE '%distribution%'
-                            OR LOWER(a.account_name) LIKE '%draw%')
+                            OR LOWER(a.name) LIKE '%distribution%'
+                            OR LOWER(a.name) LIKE '%draw%')
                 )"
         );
         $d->execute(['t' => $tenantId]);

@@ -74,11 +74,11 @@ $sql = "SELECT a.id   AS account_id,
                a.name AS name,
                a.account_type,
                a.normal_side,
-               jl.dimension_values,
+               jl.dim_json AS dimension_values,
                jl.debit,
                jl.credit
-          FROM accounting_journal_lines jl
-          JOIN accounting_journal_entries je ON je.id = jl.journal_entry_id
+          FROM accounting_journal_entry_lines jl
+          JOIN accounting_journal_entries je ON je.id = jl.je_id
           JOIN accounting_accounts a        ON a.id = jl.account_id AND a.tenant_id = jl.tenant_id
          WHERE jl.tenant_id = :t
            AND je.posting_date BETWEEN :start AND :end

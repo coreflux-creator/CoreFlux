@@ -217,8 +217,8 @@ if ($hasDimsTbl) {
     $hasJlDimsCol = (bool) $pdo->query(
         "SELECT COUNT(*) FROM information_schema.COLUMNS
           WHERE TABLE_SCHEMA = DATABASE()
-            AND TABLE_NAME = 'accounting_journal_lines'
-            AND COLUMN_NAME = 'dimension_values'"
+            AND TABLE_NAME = 'accounting_journal_entry_lines'
+            AND COLUMN_NAME = 'dim_json'"
     )->fetchColumn();
 }
 if ($hasDimsTbl && $hasJlDimsCol) {
@@ -227,9 +227,10 @@ if ($hasDimsTbl && $hasJlDimsCol) {
     if ($dimRegistry) {
         // Quick scan: posted lines in last 90 days.
         $mdSince = date('Y-m-d', strtotime('-90 days'));
-        $mdSql = "SELECT jl.account_id, jl.dimension_values, a.account_code, a.account_name
-                    FROM accounting_journal_lines jl
-                    JOIN accounting_journal_entries je ON je.id = jl.journal_entry_id
+        $mdSql = "SELECT jl.account_id, jl.dim_json AS dimension_values,
+                         a.code AS account_code, a.name AS account_name
+                    FROM accounting_journal_entry_lines jl
+                    JOIN accounting_journal_entries je ON je.id = jl.je_id
                     JOIN accounting_accounts a         ON a.id  = jl.account_id
                    WHERE jl.tenant_id = :t AND je.status = 'posted'
                      AND je.posting_date >= :s"
@@ -278,8 +279,8 @@ $plStmt = $pdo->prepare(
     "SELECT DATE_FORMAT(je.posting_date, '%Y-%m') AS month,
             a.account_type,
             SUM(jl.credit - jl.debit) AS net
-       FROM accounting_journal_lines jl
-       JOIN accounting_journal_entries je ON je.id = jl.journal_entry_id
+       FROM accounting_journal_entry_lines jl
+       JOIN accounting_journal_entries je ON je.id = jl.je_id
        JOIN accounting_accounts a ON a.id = jl.account_id
       WHERE je.tenant_id = :t
         AND je.status = 'posted'

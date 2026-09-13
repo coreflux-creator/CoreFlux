@@ -64,18 +64,26 @@ jobs:
             api/ai_accuracy.php \
             api/ap/approve_by_email.php \
             api/books_health.php \
+            api/dimensional_pnl.php \
             api/exec_dashboard.php \
+            api/gl_detail.php \
             api/gusto_oauth_callback.php \
             api/mail_connections.php \
+            api/missing_dimensions.php \
             api/staffing/approve_timesheet_by_email.php \
+            api/tax_form_export.php \
+            api/treasury_cash_position.php \
+            api/treasury_recommendations.php \
             approvers/signup.html \
             assets/css/signup.html \
             assets/css/styles.css \
             auditor.php \
             core/api_bootstrap.php \
+            core/ai_agents.php \
             core/modules.php \
             core/rbac/legacy_map.php \
             core/storage_register.php \
+            core/treasury/liquidity_projection.php \
             core/mail/M365GraphDriver.php \
             core/views/admin/tenant_edit.php \
             crm.html \
@@ -190,6 +198,7 @@ jobs:
             core/migrations/138_placement_one_time_items.sql \
             core/migrations/139_c2c_source_no_waiver.sql \
             core/migrations/140_staffing_client_catalog_integrity.sql \
+            core/migrations/141_payroll_module_access_backfill.sql \
             scripts/ap_weekly_queue_sunday.php \
             scripts/billing_recurring_generate.php \
             scripts/opcache_flush_deploy.php.template \
@@ -200,6 +209,7 @@ jobs:
             switch_tenant.php \
             tax.html \
             tests/login_redirect_paths_smoke.php \
+            tests/live_basic_error_regressions_smoke.php \
             tests/ai_accuracy_query_smoke.php \
             tests/ap_1099_print_schema_smoke.php \
             tests/ap_policy_and_vendor_risk_schema_smoke.php \
@@ -227,6 +237,11 @@ jobs:
             tests/reports_overtime_query_smoke.php \
             tests/sitewide_navigation_smoke.php \
             tests/specific_get_action_routing_smoke.php \
+            tests/sprint7f2_tax_form_export_smoke.php \
+            tests/sprint7f3_dimensional_pnl_smoke.php \
+            tests/sprint7f4_missing_dimensions_smoke.php \
+            tests/sprint7gA_tax_split_smoke.php \
+            tests/p2_liquidity_and_auto_reverse_smoke.php \
             tests/sweep_destination_ui_and_divergence_smoke.php \
             tests/treasury_connection_error_copy_smoke.php \
             tests/treasury_transactions_and_coa_hierarchy_smoke.php \
@@ -289,10 +304,18 @@ jobs:
               api/ai/exceptions.php \
               api/ai_accuracy.php \
               api/books_health.php \
+              api/dimensional_pnl.php \
               api/exec_dashboard.php \
+              api/gl_detail.php \
+              api/missing_dimensions.php \
+              api/tax_form_export.php \
+              api/treasury_cash_position.php \
+              api/treasury_recommendations.php \
               core/api_bootstrap.php \
+              core/ai_agents.php \
               core/rbac/legacy_map.php \
               core/storage_register.php \
+              core/treasury/liquidity_projection.php \
               modules/accounting/api/accounts.php \
               modules/accounting/api/bank_statements.php \
               modules/accounting/lib/bank_rec.php \
@@ -324,10 +347,12 @@ jobs:
             php deploy/run_migrations.php
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/126_staffing_economic_graph.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/140_staffing_client_catalog_integrity.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/141_payroll_module_access_backfill.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/006_run_enterprise_controls.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/billing/migrations/013_item_catalog.sql'
 
             php tests/login_redirect_paths_smoke.php
+            php tests/live_basic_error_regressions_smoke.php
             php tests/ai_accuracy_query_smoke.php
             php tests/ap_1099_print_schema_smoke.php
             php tests/ap_policy_and_vendor_risk_schema_smoke.php
