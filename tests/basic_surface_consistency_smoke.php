@@ -21,6 +21,8 @@ $checks = [
         RbacLegacyMap::resolve('payroll.view') === ['payroll', 'read']
         && RbacLegacyMap::resolve('payroll.runs.view') === ['payroll', 'read'],
     'dashboard placement totals use the Placements catalog scope' =>
+        str_contains($dashboardApi, "require_once __DIR__ . '/../core/sub_tenants.php'")
+        &&
         str_contains($dashboardApi, "effectiveTenantIdForModule('placements', \$tenantId) ?? \$tenantId")
         && !str_contains($dashboardApi, "effectiveTenantIdForModule('staffing'"),
     'dashboard headcount is distinct people on active placements' =>
@@ -29,6 +31,7 @@ $checks = [
     'report headcount uses the same active-placement population' =>
         str_contains($staffingMetrics, 'COUNT(DISTINCT person_id) AS c')
         && str_contains($staffingMetrics, "status = 'active'")
+        && str_contains($staffingMetrics, "require_once __DIR__ . '/../../../core/sub_tenants.php'")
         && str_contains($staffingMetrics, "effectiveTenantIdForModule('placements', \$tenantId) ?? \$tenantId")
         && substr_count($staffingMetrics, "'t'=>\$placementsTenantId") === 3,
     'placement type summaries cover all filtered rows' =>
