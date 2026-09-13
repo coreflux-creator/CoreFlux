@@ -16,6 +16,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/treasury/bank_transaction_identity.php';
 require_once __DIR__ . '/../lib/accounting.php';
 require_once __DIR__ . '/../lib/bank_rec.php';
 
@@ -33,6 +34,9 @@ if ($method === 'GET') {
     }
     $where  = ['tenant_id = :tenant_id', 'bank_account_id = :b'];
     $params = ['b' => $bid];
+    if (bankTxnHasColumn($pdo, 'accounting_bank_statement_lines', 'duplicate_of_line_id')) {
+        $where[] = 'duplicate_of_line_id IS NULL';
+    }
     if (!empty($_GET['match_status'])) {
         $where[] = 'match_status = :ms';
         $params['ms'] = (string) $_GET['match_status'];
