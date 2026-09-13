@@ -93,7 +93,7 @@ function staffingWeeklySeries(int $tenantId, string $from, string $to, array $fi
 
 /**
  * Headcount stats for the selected period.
- *   active_at_end     — distinct person_id with any approved time in last week of range
+ *   active            — distinct people on currently active placements
  *   new_starts        — placements with start_date in range
  *   terminations      — placements with actual_end_date or end_date in range AND status in ended/cancelled
  *
@@ -103,25 +103,13 @@ function staffingHeadcount(int $tenantId, string $from, string $to): array {
     $pdo = getDB();
     if (!$pdo) return ['active'=>0,'new_starts'=>0,'terminations'=>0,'net_change'=>0];
 
-    $active = (int) $pdo->prepare(
-        "SELECT COUNT(DISTINCT person_id)
-           FROM placements
-          WHERE tenant_id = :t AND deleted_at IS NULL
-            AND start_date <= :to
-            AND (end_date IS NULL OR end_date >= :from_)
-            AND status IN ('active','pending_start','on_hold')"
-    )->execute(['t'=>$tenantId,'to'=>$to,'from_'=>$from]) ? 0 : 0;
-
-    // Execute properly (the prepare above was just for illustration; redo).
     $stmt = $pdo->prepare(
         "SELECT COUNT(DISTINCT person_id) AS c
            FROM placements
           WHERE tenant_id = :t AND deleted_at IS NULL
-            AND start_date <= :to
-            AND (end_date IS NULL OR end_date >= :from_)
-            AND status IN ('active','pending_start','on_hold')"
+            AND status = 'active'"
     );
-    $stmt->execute(['t'=>$tenantId,'to'=>$to,'from_'=>$from]);
+    $stmt->execute(['t'=>$tenantId]);
     $active = (int) ($stmt->fetchColumn() ?: 0);
 
     $stmt = $pdo->prepare(

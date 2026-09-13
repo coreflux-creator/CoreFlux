@@ -8,9 +8,10 @@
  *     reports_ai_explain, exec_filters) call setRequestModuleScope('staffing')
  *     so a shared-mode sub-tenant correctly resolves to the master parent's
  *     id for catalog reads.
- *   - exec_dashboard.php carries two distinct tenant placeholders (`:t` for
- *     isolated financial tables, `:ct` for shared catalog tables) so it
- *     doesn't conflate the two scopes inside the same endpoint.
+ *   - exec_dashboard.php keeps workspace KPIs on the active tenant, even when
+ *     some catalog modules are configured as shared with a parent tenant.
+ *   - The endpoint carries two distinct tenant placeholders (`:t` and `:ct`)
+ *     so mixed financial/staffing queries remain valid under native prepares.
  */
 declare(strict_types=1);
 
@@ -68,14 +69,16 @@ foreach ($endpoints as $f) {
     $a("$base derives \$tenantId via effectiveTenantIdForRequest()", $usesEff);
 }
 
-// ----------------------------------------------------------------- exec_dashboard.php has dual-scope split
+// ----------------------------------------------------------------- exec_dashboard.php has workspace-local scope
 $execSrc = file_get_contents('/app/api/exec_dashboard.php');
-$a('exec_dashboard.php defines $catalogTid for shared-catalog queries',
-   str_contains($execSrc, '$catalogTid'));
+$a('exec_dashboard.php pins staffing KPIs to the active workspace',
+   str_contains($execSrc, '$catalogTid = $tenantId;'));
+$a('exec_dashboard.php does not roll KPIs up through shared staffing scope',
+   !str_contains($execSrc, "effectiveTenantIdForModule('staffing'"));
 $a('exec_dashboard.php binds :ct on placement subqueries',
    str_contains($execSrc, "p.tenant_id = :ct"));
-$a('exec_dashboard.php people queries use :ct',
-   str_contains($execSrc, "FROM people\n          WHERE tenant_id = :ct"));
+$a('exec_dashboard.php derives headcount from distinct active placement people',
+   str_contains($execSrc, 'COUNT(DISTINCT p.person_id) AS c'));
 $a('exec_dashboard.php financial queries still use :t (billing_invoices)',
    str_contains($execSrc, "billing_invoices\n          WHERE tenant_id = :t"));
 $a('exec_dashboard.php financial queries still use :t (ap_bills)',

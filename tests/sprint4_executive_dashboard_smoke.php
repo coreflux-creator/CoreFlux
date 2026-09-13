@@ -44,8 +44,13 @@ _a('payroll mtd/qtd/ytd + last_run_total', str_contains($api, "'last_run_total'"
 
 echo "\nStaffing shape\n";
 _a('headcount split w2/c2c/1099/perm', str_contains($api, "contractors_w2") && str_contains($api, "contractors_c2c") && str_contains($api, "contractors_1099") && str_contains($api, "'perm'"));
-_a('new_starts pulled from people.hire_date',     str_contains($api, "WHERE tenant_id = :ct AND hire_date >= :s"));
-_a('terminations from people.termination_date',   str_contains($api, "termination_date >= :s"));
+_a('active headcount is distinct people on active placements',
+    str_contains($api, 'COUNT(DISTINCT p.person_id) AS c') && str_contains($api, "p.status = 'active'"));
+_a('new_starts are placement starts in the selected period',
+    str_contains($api, 'p.start_date BETWEEN :start_from AND :start_to'));
+_a('terminations are placement endings in the selected period',
+    str_contains($api, "p.status IN ('ended', 'cancelled')")
+    && str_contains($api, 'COALESCE(p.actual_end_date, p.end_date) BETWEEN :term_from AND :term_to'));
 _a('net_change = starts − terminations',          str_contains($api, "\$staffing['new_starts']['period'] - \$staffing['terminations']['period']"));
 _a('active_placements respects filters',          str_contains($api, "p.status = 'active'") && str_contains($api, "\$placementWhereSql"));
 _a('ending_soon (30 days)',                       str_contains($api, "+30 days"));
@@ -68,10 +73,13 @@ _a('hits /api/exec_dashboard.php',       str_contains($ui, '/api/exec_dashboard.
 _a('hits /api/exec_filters.php',         str_contains($ui, '/api/exec_filters.php'));
 _a('time-window presets (4/12/26/52/104)',str_contains($ui, '4w') && str_contains($ui, '52w') && str_contains($ui, '104w'));
 _a('filter pills hide/show',             str_contains($ui, 'data-testid="exec-toggle-filters"'));
+_a('staffing flow uses explicit placement labels',
+    str_contains($ui, 'Placement starts vs. endings')
+    && str_contains($ui, 'Net placement change'));
 
 foreach (['kpi-revenue','kpi-run-rate','kpi-margin','kpi-payroll',
           'kpi-headcount','kpi-new-starts','kpi-terminations','kpi-net-change',
-          'kpi-active-placements','kpi-new-placements','kpi-ending-soon','kpi-billable-hours'] as $tid) {
+          'kpi-active-placements','kpi-upcoming-starts','kpi-ending-soon','kpi-billable-hours'] as $tid) {
     _a("renders $tid card",              str_contains($ui, "testid=\"$tid\"") || str_contains($ui, "testid={\"$tid\"}"));
 }
 _a('AR aging card drilldown',            str_contains($ui, 'aging-ar') && str_contains($ui, '/modules/billing/aging'));

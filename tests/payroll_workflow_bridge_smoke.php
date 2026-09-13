@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 $root = realpath(__DIR__ . '/..');
+require_once "{$root}/core/rbac/legacy_map.php";
 $files = [
     'modules/payroll/api/runs.php',
     'modules/payroll/lib/payroll.php',
@@ -36,6 +37,11 @@ $checks = [
     'schema migration adds workflow evidence' => str_contains($migration, 'workflow_instance_id') && str_contains($migration, 'computed_by_user_id'),
     'manifest declares create and compute permissions' => str_contains($manifest, "'payroll.run.create'") && str_contains($manifest, "'payroll.run.compute'"),
     'legacy RBAC maps create and compute permissions' => str_contains($legacyMap, "'payroll.run.create'") && str_contains($legacyMap, "'payroll.run.compute'"),
+    'legacy RBAC maps payroll list permissions to read access' =>
+        str_contains($legacyMap, "'payroll.view'")
+        && str_contains($legacyMap, "'payroll.runs.view'")
+        && RbacLegacyMap::resolve('payroll.view') === ['payroll', 'read']
+        && RbacLegacyMap::resolve('payroll.runs.view') === ['payroll', 'read'],
 ];
 
 foreach ($checks as $label => $passed) {

@@ -31,7 +31,9 @@ $a('DSO computation references revenue last 90', str_contains($exec, 'DSO — AR
 $a('DPO computation references bills  last 90', str_contains($exec, 'DPO — AP balance'));
 $a('unapplied cash sums billing_payments',    str_contains($exec, 'billing_payments'));
 $a('upcoming_starts (next 30 days)',          str_contains($exec, 'upcoming_starts') && str_contains($exec, "+30 days"));
-$a('upcoming_terminations (next 30 days)',    str_contains($exec, "upcoming_terminations") && str_contains($exec, "termination_date BETWEEN"));
+$a('upcoming_terminations (next 30 days)',
+    str_contains($exec, "upcoming_terminations")
+    && str_contains($exec, 'COALESCE(p.actual_end_date, p.end_date) BETWEEN :a AND :b'));
 $a('compare.scalars block in api_ok',         str_contains($exec, "'scalars'   => \$prevScalars"));
 $a('prevScalars include revenue + payroll',   str_contains($exec, "'revenue'") && str_contains($exec, "'payroll'") && str_contains($exec, "'window_from'"));
 

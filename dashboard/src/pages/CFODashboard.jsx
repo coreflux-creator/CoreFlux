@@ -44,8 +44,8 @@ const WIDGETS = [
   { key: 'finance.payroll',        title: 'Payroll (YTD)',          group: 'finance' },
   { key: 'staffing.headcount',     title: 'Headcount',              group: 'staffing'},
   { key: 'staffing.upcoming',      title: 'Upcoming Starts / Terms',group: 'staffing'},
-  { key: 'staffing.new_starts',    title: 'New Starts',             group: 'staffing'},
-  { key: 'staffing.terminations',  title: 'Terminations',           group: 'staffing'},
+  { key: 'staffing.new_starts',    title: 'Placement Starts',       group: 'staffing'},
+  { key: 'staffing.terminations',  title: 'Placement Endings',      group: 'staffing'},
   { key: 'staffing.placements',    title: 'Placements',             group: 'staffing'},
 ];
 
@@ -379,7 +379,7 @@ function renderWidgetCard(spec, data) {
               <div style={{ fontSize:22, fontWeight:600, color:'#16a34a' }} data-testid="cfo-upcoming-starts">{s.upcoming_starts ?? 0}</div>
             </div>
             <div>
-              <div style={{ fontSize:11, color:'#64748b' }}>Terminations (30d)</div>
+              <div style={{ fontSize:11, color:'#64748b' }}>Placement endings (30d)</div>
               <div style={{ fontSize:22, fontWeight:600, color:'#dc2626' }} data-testid="cfo-upcoming-terms">{s.upcoming_terminations ?? 0}</div>
             </div>
           </div>

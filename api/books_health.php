@@ -159,8 +159,9 @@ $periodStmt = $pdo->prepare(
         AND end_date   >= :d_hi
       ORDER BY start_date DESC LIMIT 1"
 );
-$pp = ['t' => $tid, 'd_lo' => $asOf, 'd_hi' => $asOf]; if ($entityId) $pp['e'] = $entityId;
-$periodStmt->execute($pp);
+$currentPeriodParams = ['t' => $tid, 'd_lo' => $asOf, 'd_hi' => $asOf];
+if ($entityId) $currentPeriodParams['e'] = $entityId;
+$periodStmt->execute($currentPeriodParams);
 $currentPeriod = $periodStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
 
 $readyStmt = $pdo->prepare(
@@ -168,7 +169,9 @@ $readyStmt = $pdo->prepare(
       WHERE tenant_id = :t" . ($entityId ? ' AND entity_id = :e' : '') . "
         AND status = 'open' AND end_date < :d"
 );
-$readyStmt->execute($pp);
+$readyParams = ['t' => $tid, 'd' => $asOf];
+if ($entityId) $readyParams['e'] = $entityId;
+$readyStmt->execute($readyParams);
 $tasks['period_ready_to_close'] = (int) $readyStmt->fetchColumn();
 
 // ──────────────────────────────────────────────────────────────────

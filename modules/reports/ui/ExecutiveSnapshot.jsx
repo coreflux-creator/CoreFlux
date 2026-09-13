@@ -98,24 +98,24 @@ export default function ExecutiveSnapshot() {
           />
           <KpiTile
             testid="exec-headcount"
-            label="Active headcount"
+            label="Active people"
             value={reportFmt.num(s.headcount_active)}
-            sub={`${reportFmt.signed(s.net_headcount_change)} this period`}
+            sub={`${reportFmt.signed(s.net_headcount_change)} net placement change`}
             tone={s.net_headcount_change >= 0 ? 'positive' : 'negative'}
-            to="/people"
+            to="/modules/placements/list?status=active"
           />
           <KpiTile
             testid="exec-new-starts"
-            label="New starts"
+            label="Placement starts"
             value={reportFmt.num(s.new_starts)}
-            to="/placements?filter=new"
+            to="/modules/placements/list"
           />
           <KpiTile
             testid="exec-terminations"
-            label="Terminations"
+            label="Placement endings"
             value={reportFmt.num(s.terminations)}
             tone={s.terminations > 0 ? 'negative' : 'muted'}
-            to="/placements?filter=terminated"
+            to="/modules/placements/list"
           />
           <KpiTile
             testid="exec-rev-runrate"

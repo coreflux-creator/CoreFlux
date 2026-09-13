@@ -50,22 +50,10 @@ $user      = $ctx['user'];
 $role      = $ctx['role'] ?? 'employee';
 $tenantId  = (int) (currentTenantId() ?? 0);
 if (!$tenantId) api_error('No active tenant', 400);
-// Sub-tenant scope:
-//   $tenantId    — the active (sub-)tenant; used for ISOLATED tables
-//                  (billing_invoices, ap_bills, billing_payments, payroll_runs,
-//                  time_entries — every row stamped with this id).
-//   $catalogTid  — the same tenant unless the active tenant is a sub running
-//                  in `shared` mode for the staffing module, in which case it
-//                  resolves up to the master parent's id. Used for SHARED
-//                  catalog tables (placements, people, placement_rates,
-//                  placement_commissions, tenant_end_clients).
-// Two distinct placeholders (`:t` / `:ct`) carry these through every query
-// below so financial figures stay tenant-local while catalog joins resolve
-// against the master's shared catalog.
-require_once __DIR__ . '/../core/sub_tenants.php';
-$catalogTid = function_exists('effectiveTenantIdForModule')
-    ? ((int) (effectiveTenantIdForModule('staffing', $tenantId) ?: $tenantId))
-    : $tenantId;
+// Dashboard KPIs always describe the active workspace. Shared staffing catalogs
+// may power pickers, but rolling a parent catalog into a sub-tenant dashboard
+// makes headcount and placement totals disagree with the workspace list pages.
+$catalogTid = $tenantId;
 
 if (!in_array($role, ['master_admin', 'tenant_admin', 'admin', 'manager'], true)) {
     api_error('Forbidden — exec dashboard requires manager+', 403);
@@ -122,14 +110,14 @@ $recruiterId    = (int) api_query('recruiter_id', 0);
 $placementType  = (string) api_query('placement_type', '');
 $worksiteState  = (string) api_query('worksite_state', '');
 
-$placementWhere = ['p.tenant_id = :ct'];
+$placementWhere = ['p.tenant_id = :ct', 'p.deleted_at IS NULL'];
 $pwParams       = ['ct' => $catalogTid];
 if ($placementType !== '')  { $placementWhere[] = 'p.engagement_type = :pt'; $pwParams['pt'] = $placementType; }
 if ($worksiteState !== '')  { $placementWhere[] = 'p.worksite_state  = :ws'; $pwParams['ws'] = $worksiteState; }
-if ($clientId)              { $placementWhere[] = 'p.end_client_name IN (SELECT client_name FROM tenant_end_clients WHERE id = :cid AND tenant_id = :ct)'; $pwParams['cid'] = $clientId; }
+if ($clientId)              { $placementWhere[] = 'p.end_client_name IN (SELECT client_name FROM tenant_end_clients WHERE id = :cid AND tenant_id = p.tenant_id)'; $pwParams['cid'] = $clientId; }
 if ($recruiterId) {
     $placementWhere[] = "p.id IN (SELECT placement_id FROM placement_commissions
-                                   WHERE tenant_id = :ct AND user_id = :rid AND role = 'recruiter')";
+                                   WHERE tenant_id = p.tenant_id AND user_id = :rid AND role = 'recruiter')";
     $pwParams['rid'] = $recruiterId;
 }
 $placementWhereSql = implode(' AND ', $placementWhere);
@@ -361,49 +349,68 @@ $staffing = [
     'billable_hours'   => ['period' => 0, 'trend' => []],
 ];
 
-if (_execRowsExist($pdo, 'people')) {
-    $hc = _execSafeFetch($pdo,
-        "SELECT classification, COUNT(*) AS c FROM people
-          WHERE tenant_id = :ct AND status = 'active'
-       GROUP BY classification",
-        ['ct' => $catalogTid]
+if (_execRowsExist($pdo, 'placements')) {
+    $headcountRows = _execSafeFetch($pdo,
+        "SELECT COUNT(DISTINCT p.person_id) AS c
+           FROM placements p
+          WHERE $placementWhereSql
+            AND p.status = 'active'
+            AND p.person_id IS NOT NULL",
+        $pwParams
     );
-    foreach ($hc as $r) {
-        $staffing['headcount']['active'] += (int) $r['c'];
-        switch ($r['classification']) {
-            case 'w2':       $staffing['headcount']['contractors_w2']   = (int) $r['c']; break;
-            case 'c2c':      $staffing['headcount']['contractors_c2c']  = (int) $r['c']; break;
-            case '1099':     $staffing['headcount']['contractors_1099'] = (int) $r['c']; break;
-            case 'perm':     $staffing['headcount']['perm']             = (int) $r['c']; break;
+    $staffing['headcount']['active'] = (int) ($headcountRows[0]['c'] ?? 0);
+
+    $headcountByType = _execSafeFetch($pdo,
+        "SELECT p.engagement_type AS classification, COUNT(DISTINCT p.person_id) AS c
+           FROM placements p
+          WHERE $placementWhereSql
+            AND p.status = 'active'
+            AND p.person_id IS NOT NULL
+       GROUP BY p.engagement_type",
+        $pwParams
+    );
+    foreach ($headcountByType as $r) {
+        switch (strtolower((string) ($r['classification'] ?? ''))) {
+            case 'w2':   $staffing['headcount']['contractors_w2']   = (int) $r['c']; break;
+            case 'c2c':  $staffing['headcount']['contractors_c2c']  = (int) $r['c']; break;
+            case '1099': $staffing['headcount']['contractors_1099'] = (int) $r['c']; break;
+            case 'perm': $staffing['headcount']['perm']             = (int) $r['c']; break;
         }
     }
 
     $startsRows = _execSafeFetch($pdo,
-        "SELECT hire_date AS d, 1 AS v FROM people
-          WHERE tenant_id = :ct AND hire_date >= :s",
-        ['ct' => $catalogTid, 's' => $from->format('Y-m-d')]
+        "SELECT p.start_date AS d, 1 AS v FROM placements p
+          WHERE $placementWhereSql
+            AND p.start_date BETWEEN :start_from AND :start_to",
+        array_merge($pwParams, [
+            'start_from' => $from->format('Y-m-d'),
+            'start_to'   => $to->format('Y-m-d'),
+        ])
     );
     $staffing['new_starts']['trend']  = _execTrendlineFromRows($from, $to, $startsRows, 'd', 'v');
     $staffing['new_starts']['period'] = array_sum(array_column($startsRows, 'v'));
 
     $termRows = _execSafeFetch($pdo,
-        "SELECT termination_date AS d, 1 AS v FROM people
-          WHERE tenant_id = :ct AND termination_date >= :s",
-        ['ct' => $catalogTid, 's' => $from->format('Y-m-d')]
+        "SELECT COALESCE(p.actual_end_date, p.end_date) AS d, 1 AS v FROM placements p
+          WHERE $placementWhereSql
+            AND p.status IN ('ended', 'cancelled')
+            AND COALESCE(p.actual_end_date, p.end_date) BETWEEN :term_from AND :term_to",
+        array_merge($pwParams, [
+            'term_from' => $from->format('Y-m-d'),
+            'term_to'   => $to->format('Y-m-d'),
+        ])
     );
     $staffing['terminations']['trend']  = _execTrendlineFromRows($from, $to, $termRows, 'd', 'v');
     $staffing['terminations']['period'] = array_sum(array_column($termRows, 'v'));
 
     $netTrend = [];
-    foreach ($staffing['new_starts']['trend'] as $i => $s) {
+    foreach ($staffing['new_starts']['trend'] as $i => $start) {
         $term = $staffing['terminations']['trend'][$i]['amount'] ?? 0;
-        $netTrend[] = ['week' => $s['week'], 'amount' => $s['amount'] - $term];
+        $netTrend[] = ['week' => $start['week'], 'amount' => $start['amount'] - $term];
     }
     $staffing['net_change']['trend']  = $netTrend;
     $staffing['net_change']['period'] = $staffing['new_starts']['period'] - $staffing['terminations']['period'];
-}
 
-if (_execRowsExist($pdo, 'placements')) {
     $plRows = _execSafeFetch($pdo,
         "SELECT COUNT(*) AS c FROM placements p WHERE $placementWhereSql AND p.status = 'active'",
         $pwParams
@@ -488,22 +495,24 @@ if (_execRowsExist($pdo, 'billing_payments')) {
     $finance['unapplied_cash'] = round(max(0, (float) ($rows[0]['v'] ?? 0)), 2);
 }
 
-// Upcoming starts (hire_date in next 30 days) + upcoming terms (termination_date in next 30 days).
-if (_execRowsExist($pdo, 'people')) {
+// Upcoming placement starts and endings in the next 30 days.
+if (_execRowsExist($pdo, 'placements')) {
     $soon = $today->modify('+30 days')->format('Y-m-d');
     $upStarts = _execSafeFetch($pdo,
-        "SELECT COUNT(*) AS c FROM people
-          WHERE tenant_id = :ct AND status = 'active'
-            AND hire_date BETWEEN :a AND :b",
-        ['ct' => $catalogTid, 'a' => $today->format('Y-m-d'), 'b' => $soon]
+        "SELECT COUNT(*) AS c FROM placements p
+          WHERE $placementWhereSql
+            AND p.status IN ('draft', 'pending_start', 'active', 'on_hold')
+            AND p.start_date BETWEEN :a AND :b",
+        array_merge($pwParams, ['a' => $today->format('Y-m-d'), 'b' => $soon])
     );
     $staffing['upcoming_starts'] = (int) ($upStarts[0]['c'] ?? 0);
 
     $upTerms = _execSafeFetch($pdo,
-        "SELECT COUNT(*) AS c FROM people
-          WHERE tenant_id = :ct
-            AND termination_date BETWEEN :a AND :b",
-        ['ct' => $catalogTid, 'a' => $today->format('Y-m-d'), 'b' => $soon]
+        "SELECT COUNT(*) AS c FROM placements p
+          WHERE $placementWhereSql
+            AND p.status = 'active'
+            AND COALESCE(p.actual_end_date, p.end_date) BETWEEN :a AND :b",
+        array_merge($pwParams, ['a' => $today->format('Y-m-d'), 'b' => $soon])
     );
     $staffing['upcoming_terminations'] = (int) ($upTerms[0]['c'] ?? 0);
 } else {
@@ -543,17 +552,20 @@ if ($compareEnabled) {
         );
         $prevScalars['payroll'] = round((float) ($r[0]['v'] ?? 0), 2);
     }
-    if (_execRowsExist($pdo, 'people')) {
+    if (_execRowsExist($pdo, 'placements')) {
         $r = _execSafeFetch($pdo,
-            "SELECT COUNT(*) AS c FROM people
-              WHERE tenant_id = :ct AND hire_date BETWEEN :a AND :b",
-            ['ct' => $catalogTid, 'a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')]
+            "SELECT COUNT(*) AS c FROM placements p
+              WHERE $placementWhereSql
+                AND p.start_date BETWEEN :a AND :b",
+            array_merge($pwParams, ['a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')])
         );
         $prevScalars['new_starts'] = (int) ($r[0]['c'] ?? 0);
         $r = _execSafeFetch($pdo,
-            "SELECT COUNT(*) AS c FROM people
-              WHERE tenant_id = :ct AND termination_date BETWEEN :a AND :b",
-            ['ct' => $catalogTid, 'a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')]
+            "SELECT COUNT(*) AS c FROM placements p
+              WHERE $placementWhereSql
+                AND p.status IN ('ended', 'cancelled')
+                AND COALESCE(p.actual_end_date, p.end_date) BETWEEN :a AND :b",
+            array_merge($pwParams, ['a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')])
         );
         $prevScalars['terminations'] = (int) ($r[0]['c'] ?? 0);
     }
