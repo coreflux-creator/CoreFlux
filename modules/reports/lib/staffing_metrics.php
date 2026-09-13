@@ -18,6 +18,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../../core/sub_tenants.php';
+
 /**
  * Period KPI totals. Returns ints/floats; caller is responsible for rounding.
  *

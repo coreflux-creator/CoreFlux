@@ -44,6 +44,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
+require_once __DIR__ . '/../core/sub_tenants.php';
 
 $ctx       = api_require_auth();
 $user      = $ctx['user'];
