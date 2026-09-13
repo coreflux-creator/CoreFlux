@@ -24,6 +24,29 @@ require_once __DIR__ . '/../lib/workflow.php';
 $ctx = api_require_auth();
 $user = $ctx['user'];
 
+/**
+ * Payroll reads are already granted by the membership resolver on some
+ * inherited tenant scopes where the legacy role table has no local row.
+ * During the RBAC cutover, either explicit grant is sufficient for a
+ * read-only request; write and approval actions remain dual-gated below.
+ */
+function _payrollRequireRead(array $user, string $permission): void {
+    [$module, $action] = RbacLegacyMap::resolve($permission);
+    if ($action !== 'read') {
+        throw new \LogicException('Payroll read gate received a non-read permission');
+    }
+
+    $legacyOk = RBAC::hasPermission($user, $permission);
+    $membershipOk = api_can($module, $action);
+    if ($legacyOk || $membershipOk) return;
+
+    api_error("Forbidden: missing permission '{$permission}'", 403, [
+        'required'        => $permission,
+        'required_module' => $module,
+        'required_action' => $action,
+    ]);
+}
+
 function _payrollMarkEconomicObligationsPaid(int $runId): void {
     try {
         getDB()->prepare(
@@ -44,7 +67,7 @@ function _payrollMarkEconomicObligationsPaid(int $runId): void {
 // Audit-logged via payrollAudit().
 // --------------------------------------------------------------------
 if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', 'export_run', 'export_template'], true)) {
-    rbac_legacy_require($user, 'payroll.reports.view');
+    _payrollRequireRead($user, 'payroll.reports.view');
     $runId  = (int) ($_GET['id'] ?? 0);
     $action = (string) $_GET['action'];
     if ($runId <= 0) api_error('id required', 400);
@@ -156,7 +179,7 @@ if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', '
 
 switch (api_method()) {
     case 'GET': {
-        rbac_legacy_require($user, 'payroll.view');
+        _payrollRequireRead($user, 'payroll.view');
         $id = (int) (api_query('id') ?? 0);
         if ($id) {
             api_ok(_payrollRunDetail($id));

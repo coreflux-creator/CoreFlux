@@ -147,6 +147,7 @@ jobs:
             modules/payroll/lib/payroll.php \
             modules/payroll/lib/workflow.php \
             modules/payroll/lib/workflow_sync.php \
+            modules/payroll/api/runs.php \
             modules/payroll/manifest.php \
             modules/payroll/migrations/001_init.sql \
             modules/payroll/migrations/006_run_enterprise_controls.sql \
@@ -331,6 +332,7 @@ jobs:
               modules/payroll/lib/payroll.php \
               modules/payroll/lib/workflow.php \
               modules/payroll/lib/workflow_sync.php \
+              modules/payroll/api/runs.php \
               modules/people/api/companies.php \
               modules/people/api/documents.php \
               modules/people/api/people.php \
