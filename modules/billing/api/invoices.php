@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/mail_bootstrap.php';
 require_once __DIR__ . '/../../../core/tenant_mail.php';
+require_once __DIR__ . '/../../../core/active_entity.php';
 require_once __DIR__ . '/../lib/billing.php';
 require_once __DIR__ . '/../lib/invoice_pdf.php';
 require_once __DIR__ . '/../lib/workflow.php';
@@ -401,6 +402,15 @@ if ($method === 'POST' && $action === '') {
 
     $resolvedInvoiceTerms = $netDays === 0 ? 'DUE_ON_RECEIPT' : 'NET' . $netDays;
     $computed = billingComputeTax($body['lines'], $taxPct);
+    try {
+        $issuingEntity = activeEntityResolveForTenant(
+            $tid,
+            !empty($body['entity_id']) ? (int) $body['entity_id'] : null
+        );
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
+    if (!$issuingEntity) api_error('An active issuing entity is required', 422);
 
     cf_begin_transaction();
     try {
@@ -418,7 +428,7 @@ if ($method === 'POST' && $action === '') {
             'invoice_number'    => billingNextInvoiceNumber($tid),
             'client_name'       => (string) $body['client_name'],
             'client_company_id' => $clientCompanyId,
-            'entity_id'         => !empty($body['entity_id']) ? (int) $body['entity_id'] : null,
+            'entity_id'         => (int) $issuingEntity['id'],
             'bill_to_json'      => isset($body['bill_to']) ? json_encode($body['bill_to']) : null,
             'currency'          => (string) ($body['currency'] ?? 'USD'),
             'issue_date'        => $issueDate,

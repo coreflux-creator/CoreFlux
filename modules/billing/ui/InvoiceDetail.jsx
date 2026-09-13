@@ -23,6 +23,7 @@ export default function InvoiceDetail() {
   const canEdit = inv.status === 'draft' && lines.every((line) => line.source_type === 'manual');
   const canApprove = inv.status === 'draft';
   const canSend = inv.status === 'approved';
+  const canPost = ['approved', 'sent', 'partially_paid', 'paid'].includes(inv.status) && !inv.journal_entry_id;
   const canVoid = inv.status !== 'void';
 
   const run = async (label, fn) => {
@@ -32,9 +33,16 @@ export default function InvoiceDetail() {
   };
 
   const approve = () => run('approve', () => api.post(`/api/v1/billing/invoices?action=approve&id=${id}`, {}));
+  const post = () => run('post', () => api.post(`/api/v1/billing/invoices?action=post&id=${id}`, {}));
   const send    = () => run('send',    async () => {
     const res = await api.post(`/api/v1/billing/invoices?action=send&id=${id}`, { to: sendTo });
     setShowSend(false);
+    try {
+      await api.post(`/api/v1/billing/invoices?action=post&id=${id}`, {});
+    } catch (e) {
+      await reload();
+      throw new Error(`Invoice was sent, but it could not be posted to the ledger: ${e.message}`);
+    }
     if (res.email_status !== 'sent') alert(`Token created but email status: ${res.email_status} (${res.email_error || 'no detail'})`);
     if (res.pdf_attached === false && res.pdf_error) alert(`PDF could not be generated: ${res.pdf_error}\nEmail sent without attachment.`);
   });
@@ -69,6 +77,7 @@ export default function InvoiceDetail() {
           <button className="btn btn--ghost" onClick={downloadPdf} data-testid="billing-invoice-download-pdf" title="Download PDF">Download</button>
           {canApprove && <button className="btn btn--primary" onClick={approve} disabled={busy==='approve'} data-testid="billing-invoice-approve">{busy==='approve' ? 'Approving…' : 'Approve'}</button>}
           {canSend && <button className="btn btn--primary" onClick={() => setShowSend(true)} data-testid="billing-invoice-send-open">Send</button>}
+          {canPost && <button className="btn btn--ghost" onClick={post} disabled={busy==='post'} data-testid="billing-invoice-post">{busy==='post' ? 'Posting…' : 'Post to ledger'}</button>}
           {canVoid && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="billing-invoice-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}
         </div>
       </div>

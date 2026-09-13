@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import LineItemEditor, { blankLine } from '../../../dashboard/src/components/LineItemEditor';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
+import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 
 /**
  * Manual Billing invoice creator — supports any item_type. Time-bundle-driven
@@ -13,6 +14,7 @@ export default function InvoiceCreate() {
   const nav = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
+  const { activeEntityId, loaded: activeEntityLoaded } = useActiveEntity();
   const accountsApi = useApi('/modules/accounting/api/accounts.php?type=revenue&active=1');
   const itemsApi = useApi('/modules/billing/api/items.php?active=1&per_page=500');
   const invoiceApi = useApi(isEdit ? `/api/v1/billing/invoices?id=${id}` : null, { enabled: isEdit });
@@ -28,6 +30,7 @@ export default function InvoiceCreate() {
   const [notesExt, setNotesExt] = useState('');
   const [lines, setLines]     = useState([blankLine('fixed_fee')]);
   const [hydrated, setHydrated] = useState(false);
+  const [entityInitialized, setEntityInitialized] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
@@ -58,6 +61,16 @@ export default function InvoiceCreate() {
     })) : [blankLine('fixed_fee')]);
     setHydrated(true);
   }, [hydrated, invoiceApi.data, isEdit]);
+
+  useEffect(() => {
+    if (entityInitialized || !activeEntityLoaded || (isEdit && !hydrated)) return;
+    if (entityId) {
+      setEntityInitialized(true);
+      return;
+    }
+    setEntityId(activeEntityId ?? null);
+    setEntityInitialized(true);
+  }, [activeEntityId, activeEntityLoaded, entityId, entityInitialized, hydrated, isEdit]);
 
   const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
   const taxableSubtotal = lines.reduce((sum, line) => (
@@ -145,7 +158,14 @@ export default function InvoiceCreate() {
             <input type="number" step="0.001" className="input" value={taxPct} onChange={(e) => setTaxPct(e.target.value)} data-testid="billing-invoice-create-tax" />
           </Field>
           <div>
-            <EntityPicker value={entityId} onChange={setEntityId} testId="billing-invoice-create-entity" label="Issuing entity" />
+            <EntityPicker
+              value={entityId}
+              onChange={setEntityId}
+              testId="billing-invoice-create-entity"
+              label="Issuing entity"
+              required
+              allowNone={false}
+            />
           </div>
         </div>
 

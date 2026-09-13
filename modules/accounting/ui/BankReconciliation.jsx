@@ -327,6 +327,16 @@ function BankLineRow({ line, reload, bankAccount }) {
     finally { setBusy(null); }
   };
 
+  const reviewInvoiceMatches = () => {
+    setErr(null);
+    setAi({
+      action: 'suggest_match',
+      candidates: line.invoice_matches || [],
+      review_required: true,
+      note: 'Exact-balance invoice candidates found for this receipt.',
+    });
+  };
+
   return (
     <>
       <tr data-testid={`accounting-bank-line-${line.id}`}>
@@ -335,15 +345,32 @@ function BankLineRow({ line, reload, bankAccount }) {
         <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: line.amount < 0 ? '#991b1b' : '#065f46' }}>{fmtMoney(line.amount)}</td>
         <td><span data-testid={`accounting-bank-line-status-${line.match_status}`}>{line.match_status}</span></td>
         <td style={{ fontSize: 11 }}>
-          {line.applied_rule_id ? <span data-testid={`accounting-bank-line-applied-${line.id}`} style={{ background: '#d1fae5', color: '#065f46', padding: '2px 6px', borderRadius: 4 }}>⚙ Rule applied</span>
+          {line.invoice_match ? (
+              <span
+                data-testid={`accounting-bank-line-invoice-match-${line.id}`}
+                style={{
+                  background: line.invoice_match.can_apply_payment ? '#d1fae5' : '#fef3c7',
+                  color: line.invoice_match.can_apply_payment ? '#065f46' : '#92400e',
+                  padding: '2px 6px', borderRadius: 4,
+                }}
+              >
+                {line.invoice_match.status === 'draft' ? 'Draft invoice' : 'Invoice'} {line.invoice_match.invoice_number}
+              </span>
+            )
+            : line.applied_rule_id ? <span data-testid={`accounting-bank-line-applied-${line.id}`} style={{ background: '#d1fae5', color: '#065f46', padding: '2px 6px', borderRadius: 4 }}>⚙ Rule applied</span>
             : line.ai_suggested_rule_id ? <span data-testid={`accounting-bank-line-rule-suggested-${line.id}`} style={{ background: '#dbeafe', color: '#1e40af', padding: '2px 6px', borderRadius: 4 }}>✨ Rule suggested</span>
             : line.ai_suggested_account_code ? <span data-testid={`accounting-bank-line-cat-suggested-${line.id}`} style={{ background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: 4 }}>✨ Cat. {line.ai_suggested_account_code}</span>
             : '—'}
         </td>
         <td>
           <div style={{ display: 'flex', gap: 4 }}>
-            <button className="btn btn--ghost" onClick={() => callAi('suggest_match')}      disabled={busy} data-testid={`accounting-bank-ai-match-${line.id}`}>
-              {busy === 'suggest_match' ? '…' : 'AI match'}
+            <button
+              className={line.invoice_match ? 'btn btn--primary' : 'btn btn--ghost'}
+              onClick={line.invoice_match ? reviewInvoiceMatches : () => callAi('suggest_match')}
+              disabled={busy}
+              data-testid={`accounting-bank-ai-match-${line.id}`}
+            >
+              {busy === 'suggest_match' ? '…' : line.invoice_match ? 'Review match' : 'Find match'}
             </button>
             <button className="btn btn--ghost" onClick={() => callAi('suggest_categorize')} disabled={busy} data-testid={`accounting-bank-ai-cat-${line.id}`}>
               {busy === 'suggest_categorize' ? '…' : 'AI cat.'}
@@ -394,7 +421,7 @@ function BankLineRow({ line, reload, bankAccount }) {
 }
 
 function AiResultPanel({ line, ai, onDismiss, onAccepted }) {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(null);
   const [err, setErr]   = useState(null);
 
   const isCategorize = ai.action === 'suggest_categorize';
@@ -410,7 +437,7 @@ function AiResultPanel({ line, ai, onDismiss, onAccepted }) {
   const suggestionId       = sug.suggestion_id ?? null;
 
   const accept = async () => {
-    setBusy(true); setErr(null);
+    setBusy('categorize'); setErr(null);
     try {
       if (isCategorize && suggestedAccountId) {
         await api.post('/modules/accounting/api/account_transactions.php?action=categorize_and_post', {
@@ -425,7 +452,30 @@ function AiResultPanel({ line, ai, onDismiss, onAccepted }) {
       }
       onAccepted?.();
     } catch (e) { setErr(e.message); }
-    finally { setBusy(false); }
+    finally { setBusy(null); }
+  };
+
+  const acceptMatch = async (candidate) => {
+    const candidateKey = candidate.candidate_type === 'invoice'
+      ? `invoice:${candidate.invoice_id}`
+      : `journal:${candidate.je_id}`;
+    setBusy(candidateKey); setErr(null);
+    try {
+      if (candidate.candidate_type === 'invoice') {
+        if (!candidate.can_apply_payment) return;
+        await api.post(`/modules/accounting/api/bank_statements.php?action=match_invoice&line_id=${line.id}`, {
+          invoice_id: candidate.invoice_id,
+        });
+      } else if (candidate.je_id) {
+        await api.post(`/modules/accounting/api/bank_statements.php?action=match&line_id=${line.id}`, {
+          je_id: candidate.je_id,
+        });
+      } else {
+        return;
+      }
+      onAccepted?.();
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(null); }
   };
 
   // Categorize-result rendering
@@ -465,9 +515,9 @@ function AiResultPanel({ line, ai, onDismiss, onAccepted }) {
         {err && <p className="error" style={{ marginTop: 6 }}>{err}</p>}
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
           {!noSuggest && (
-            <button className="btn btn--primary" disabled={busy} onClick={accept}
+            <button className="btn btn--primary" disabled={Boolean(busy)} onClick={accept}
                     data-testid={`ai-result-accept-${line.id}`}>
-              {busy ? 'Posting…' : 'Accept & post'}
+              {busy === 'categorize' ? 'Posting…' : 'Accept & post'}
             </button>
           )}
           <button className="btn btn--ghost" onClick={onDismiss} data-testid={`accounting-bank-ai-dismiss-${line.id}`}>Dismiss</button>
@@ -481,22 +531,62 @@ function AiResultPanel({ line, ai, onDismiss, onAccepted }) {
   return (
     <div data-testid={`ai-result-${ai.action}-${line.id}`}>
       <div style={{ fontSize: 12, color: '#0369a1', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-        ✨ AI {isMatch ? 'match suggestion' : isRule ? 'rule suggestion' : ai.action}
+        {isMatch ? 'Suggested match' : `✨ AI ${isRule ? 'rule suggestion' : ai.action}`}
       </div>
       {ai.ai_unavailable && (
         <p style={{ color: '#92400e', margin: '4px 0', fontSize: 13 }}>{ai.note || 'AI is currently unavailable.'}</p>
       )}
+      {!ai.ai_unavailable && ai.note && (
+        <p style={{ color: '#475569', margin: '4px 0 8px', fontSize: 13 }}>{ai.note}</p>
+      )}
       {!candidates.length && !ai.ai_unavailable && (
         <p style={{ color: '#475569', margin: '4px 0', fontSize: 13 }}>No suggestions available for this line.</p>
       )}
-      {candidates.slice(0, 5).map((c, i) => (
-        <div key={i} data-testid={`ai-result-candidate-${line.id}-${i}`}
-             style={{ padding: 8, background: '#fff', borderRadius: 6, marginBottom: 6, border: '1px solid #e0f2fe', fontSize: 13 }}>
-          <strong>{c.label || c.title || c.name || `Candidate ${i + 1}`}</strong>
-          {c.score !== undefined && <span style={{ marginLeft: 8, fontSize: 11, color: '#475569' }}>score: {Number(c.score).toFixed(2)}</span>}
-          {c.reasoning && <div style={{ color: '#475569', marginTop: 2 }}>{c.reasoning}</div>}
+      {candidates.slice(0, 5).map((c, i) => {
+        const key = c.candidate_type === 'invoice' ? `invoice:${c.invoice_id}` : `journal:${c.je_id}`;
+        const invoiceNeedsPosting = c.candidate_type === 'invoice' && c.status !== 'draft' && !c.journal_entry_id;
+        return (
+        <div key={key || i} data-testid={`ai-result-candidate-${line.id}-${i}`}
+             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: 10, background: '#fff', borderRadius: 6, marginBottom: 6, border: '1px solid #e0f2fe', fontSize: 13 }}>
+          <div>
+            <strong>{c.label || c.title || c.name || `Candidate ${i + 1}`}</strong>
+            {c.score !== undefined && <span style={{ marginLeft: 8, fontSize: 11, color: '#475569' }}>{Math.round(Number(c.score) * 100)}% fit</span>}
+            {c.candidate_type === 'invoice' && (
+              <div style={{ color: '#334155', marginTop: 3 }}>
+                {fmtMoney(c.amount_due)} due · {c.status.replace('_', ' ')} · due {fmtDate(c.due_date)}
+              </div>
+            )}
+            {c.candidate_type === 'journal_entry' && (
+              <div style={{ color: '#334155', marginTop: 3 }}>Posted {fmtDate(c.posting_date)} · {c.source_module || 'journal entry'}</div>
+            )}
+            {c.reasoning && <div style={{ color: '#64748b', marginTop: 2, fontSize: 12 }}>{c.reasoning}</div>}
+          </div>
+          {c.candidate_type === 'invoice' ? (
+            c.can_apply_payment ? (
+              <button
+                className="btn btn--primary"
+                disabled={Boolean(busy)}
+                onClick={() => acceptMatch(c)}
+                data-testid={`accounting-bank-apply-invoice-${line.id}-${c.invoice_id}`}
+              >{busy === key ? 'Applying…' : 'Apply payment'}</button>
+            ) : (
+              <Link
+                className="btn btn--ghost"
+                to={`/modules/billing/invoices/${c.invoice_id}`}
+                data-testid={`accounting-bank-open-invoice-${line.id}-${c.invoice_id}`}
+              >{c.status === 'draft' ? 'Open draft' : invoiceNeedsPosting ? 'Post invoice' : 'Open invoice'}</Link>
+            )
+          ) : c.je_id ? (
+            <button
+              className="btn btn--primary"
+              disabled={Boolean(busy)}
+              onClick={() => acceptMatch(c)}
+              data-testid={`accounting-bank-accept-journal-${line.id}-${c.je_id}`}
+            >{busy === key ? 'Matching…' : 'Match line'}</button>
+          ) : null}
         </div>
-      ))}
+      );})}
+      {err && <p className="error" style={{ marginTop: 6 }}>{err}</p>}
       <button className="btn btn--ghost" onClick={onDismiss} data-testid={`accounting-bank-ai-dismiss-${line.id}`}>Dismiss</button>
     </div>
   );

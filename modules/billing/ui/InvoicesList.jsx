@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApiCached, bustApiCachePrefix, prefetchApi } from '../../../dashboard/src/lib/api';
-import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { fmtDate } from '../../../dashboard/src/lib/formatDate';
 import InvoiceFromTimeBundleModal from './InvoiceFromTimeBundleModal';
@@ -19,10 +18,8 @@ export default function InvoicesList({ session }) {
   const [showCreate, setShowCreate] = useState(false);
   const [showEntries, setShowEntries] = useState(false);
   const [collectInvoice, setCollectInvoice] = useState(null);
-  const { activeEntityId, activeEntity } = useActiveEntity();
   const qs = new URLSearchParams();
   if (status !== 'all') qs.set('status', status);
-  if (activeEntityId)   qs.set('entity_id', String(activeEntityId));
   const path = '/api/v1/billing/invoices' + (qs.toString() ? `?${qs}` : '');
   const { data, loading, error, reload } = useApiCached(
     path,
@@ -58,12 +55,6 @@ export default function InvoicesList({ session }) {
 
   return (
     <section data-testid="billing-invoices-list">
-      {activeEntity && (
-        <div data-testid="billing-invoices-entity-scope"
-             style={{ fontSize: 12, color: '#1e40af', marginBottom: 8 }}>
-          Scoped to entity <code>{activeEntity.code}</code> — switch in the header to see another.
-        </div>
-      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {STATUS_FILTERS.map(s => (

@@ -33,9 +33,9 @@ $assert('invoices.php accepts ?entity_id',           stripos($iApi, "\$_GET['ent
 $assert('invoices.php filters by entity_id',         preg_match("#entity_id\\s*=\\s*:eid#", $iApi) === 1);
 
 $iUI  = (string) file_get_contents("{$ROOT}/modules/billing/ui/InvoicesList.jsx");
-$assert('InvoicesList imports useActiveEntity',      stripos($iUI, 'useActiveEntity') !== false);
-$assert('InvoicesList threads entity_id into qs',    stripos($iUI, "qs.set('entity_id'") !== false);
-$assert('InvoicesList scope notice testid',          stripos($iUI, 'data-testid="billing-invoices-entity-scope"') !== false);
+$assert('InvoicesList remains tenant-wide',          stripos($iUI, "qs.set('entity_id'") === false);
+$assert('InvoicesList does not hide unassigned rows',stripos($iUI, 'billing-invoices-entity-scope') === false);
+$assert('Invoice create still assigns entity',       stripos((string) file_get_contents("{$ROOT}/modules/billing/ui/InvoiceCreate.jsx"), 'billing-invoice-create-entity') !== false);
 
 echo "\nSchema contract — entity_id columns exist in migrations\n";
 $cons = (string) file_get_contents("{$ROOT}/modules/accounting/migrations/007_consolidation.sql");
