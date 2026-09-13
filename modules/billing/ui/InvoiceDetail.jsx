@@ -20,7 +20,7 @@ export default function InvoiceDetail() {
   const allocations = data.allocations || [];
   const token = data.token;
 
-  const canEdit = inv.status === 'draft';
+  const canEdit = inv.status === 'draft' && lines.every((line) => line.source_type === 'manual');
   const canApprove = inv.status === 'draft';
   const canSend = inv.status === 'approved';
   const canVoid = inv.status !== 'void';
@@ -64,6 +64,7 @@ export default function InvoiceDetail() {
           <span className={`badge badge--${inv.status}`}>{inv.status.replace('_',' ')}</span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          {canEdit && <Link className="btn btn--ghost" to={`/modules/billing/invoices/${id}/edit`} data-testid="billing-invoice-edit">Edit draft</Link>}
           <button className="btn btn--ghost" onClick={previewPdf} data-testid="billing-invoice-preview-pdf" title="Open PDF preview in a new tab">Preview PDF</button>
           <button className="btn btn--ghost" onClick={downloadPdf} data-testid="billing-invoice-download-pdf" title="Download PDF">Download</button>
           {canApprove && <button className="btn btn--primary" onClick={approve} disabled={busy==='approve'} data-testid="billing-invoice-approve">{busy==='approve' ? 'Approving…' : 'Approve'}</button>}
@@ -91,11 +92,12 @@ export default function InvoiceDetail() {
 
       <h3 style={{ margin: '24px 0 8px', fontSize: 14 }}>Line items</h3>
       <table className="data-table" data-testid="billing-invoice-detail-lines">
-        <thead><tr><th>#</th><th>Description</th><th style={{textAlign:'right'}}>Qty</th><th>Unit</th><th style={{textAlign:'right'}}>Price</th><th style={{textAlign:'right'}}>Subtotal</th><th style={{textAlign:'right'}}>Tax</th><th style={{textAlign:'right'}}>Total</th></tr></thead>
+        <thead><tr><th>#</th><th>Product / service</th><th>Description</th><th style={{textAlign:'right'}}>Qty</th><th>Unit</th><th style={{textAlign:'right'}}>Price</th><th style={{textAlign:'right'}}>Subtotal</th><th style={{textAlign:'right'}}>Tax</th><th style={{textAlign:'right'}}>Total</th></tr></thead>
         <tbody>
           {lines.map(l => (
             <tr key={l.id}>
               <td>{l.line_no}</td>
+              <td>{l.catalog_item_name ? <><strong>{l.catalog_item_name}</strong><div style={{ fontSize: 11, color: 'var(--cf-text-muted)' }}>{l.catalog_item_code}</div></> : <span style={{ color: 'var(--cf-text-muted)' }}>Custom</span>}</td>
               <td>{l.description}</td>
               <td style={{textAlign:'right'}}>{Number(l.quantity).toFixed(2)}</td>
               <td>{l.unit}</td>

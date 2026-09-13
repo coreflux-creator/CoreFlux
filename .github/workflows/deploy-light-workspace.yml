@@ -82,6 +82,7 @@ jobs:
             dashboard/src/App.jsx \
             dashboard/src/lib/api.js \
             dashboard/src/components/ComparisonTable.jsx \
+            dashboard/src/components/LineItemEditor.jsx \
             dashboard/src/components/MetricCard.jsx \
             dashboard/src/components/ModuleTabs.jsx \
             dashboard/src/components/ReportShell.jsx \
@@ -106,6 +107,8 @@ jobs:
             login.php \
             login2.html \
             modules/accounting/api/accounts.php \
+            modules/accounting/api/bank_statements.php \
+            modules/accounting/lib/bank_rec.php \
             modules/accounting/ui/ChartOfAccounts.jsx \
             modules/accounting/ui/StandardReports.jsx \
             modules/ap/api/1099.php \
@@ -120,8 +123,16 @@ jobs:
             modules/ap/ui/BillsList.jsx \
             modules/ap/ui/WeeklyQueue.jsx \
             modules/billing/api/invoices.php \
+            modules/billing/api/items.php \
+            modules/billing/lib/billing.php \
             modules/billing/lib/invoice_pdf.php \
+            modules/billing/manifest.php \
+            modules/billing/migrations/013_item_catalog.sql \
             modules/billing/ui/BillingModule.jsx \
+            modules/billing/ui/InvoiceCreate.jsx \
+            modules/billing/ui/InvoiceDetail.jsx \
+            modules/billing/ui/InvoicesList.jsx \
+            modules/billing/ui/ItemsCatalog.jsx \
             modules/payroll/lib/payroll.php \
             modules/payroll/lib/workflow.php \
             modules/payroll/lib/workflow_sync.php \
@@ -152,6 +163,7 @@ jobs:
             modules/time/ui/TimeModule.jsx \
             modules/treasury/ui/TreasuryOverview.jsx \
             modules/treasury/ui/TreasuryModule.jsx \
+            modules/treasury/api/account_transactions.php \
             people.html \
             pricing.html \
             reporting.html \
@@ -188,6 +200,8 @@ jobs:
             tests/ap_vendor_categories_attachments_smoke.php \
             tests/authenticated_admin_surfaces_smoke.php \
             tests/books_health_period_schema_smoke.php \
+            tests/bank_line_state_convergence_smoke.php \
+            tests/billing_catalog_and_direct_invoice_smoke.php \
             tests/chart_of_accounts_controls_smoke.php \
             tests/company_directory_workflow_smoke.php \
             tests/csv_ai_assisted_mapping_smoke.php \
@@ -252,6 +266,7 @@ jobs:
             test -f "$STAGE_ROOT/modules/ap/api/bills.php"
             test -f "$STAGE_ROOT/modules/placements/lib/placements.php"
             test -f "$STAGE_ROOT/modules/payroll/migrations/006_run_enterprise_controls.sql"
+            test -f "$STAGE_ROOT/modules/billing/migrations/013_item_catalog.sql"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
@@ -270,12 +285,16 @@ jobs:
               core/api_bootstrap.php \
               core/storage_register.php \
               modules/accounting/api/accounts.php \
+              modules/accounting/api/bank_statements.php \
+              modules/accounting/lib/bank_rec.php \
               modules/ap/api/1099.php \
               modules/ap/api/approval_policies.php \
               modules/ap/api/bills.php \
               modules/ap/api/vendor_risk.php \
               modules/ap/lib/vendor_risk.php \
               modules/billing/api/invoices.php \
+              modules/billing/api/items.php \
+              modules/billing/lib/billing.php \
               modules/billing/lib/invoice_pdf.php \
               modules/payroll/lib/payroll.php \
               modules/payroll/lib/workflow.php \
@@ -287,7 +306,8 @@ jobs:
               modules/people/lib/people.php \
               modules/placements/api/documents.php \
               modules/placements/lib/placements.php \
-              modules/reports/api/overtime_watch.php; do
+              modules/reports/api/overtime_watch.php \
+              modules/treasury/api/account_transactions.php; do
               php -l "$PHP_FILE"
             done
 
@@ -295,6 +315,7 @@ jobs:
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/126_staffing_economic_graph.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/140_staffing_client_catalog_integrity.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/006_run_enterprise_controls.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] modules/billing/migrations/013_item_catalog.sql'
 
             php tests/login_redirect_paths_smoke.php
             php tests/ai_accuracy_query_smoke.php
@@ -303,6 +324,8 @@ jobs:
             php tests/ap_vendor_categories_attachments_smoke.php
             php tests/authenticated_admin_surfaces_smoke.php
             php tests/books_health_period_schema_smoke.php
+            php tests/bank_line_state_convergence_smoke.php
+            php tests/billing_catalog_and_direct_invoice_smoke.php
             php tests/chart_of_accounts_controls_smoke.php
             php tests/company_directory_workflow_smoke.php
             php tests/csv_ai_assisted_mapping_smoke.php

@@ -126,18 +126,31 @@ function bankRecResolveCol(array $header, $explicit, array $keywords): ?int
     return null;
 }
 
+function bankRecMarkLineMatched(int $tenantId, int $lineId, int $jeId, ?int $userId): void
+{
+    $stmt = getDB()->prepare(
+        'UPDATE accounting_bank_statement_lines
+            SET match_status = "matched",
+                matched_je_id = :je,
+                matched_at = NOW(),
+                matched_by_user_id = :user_id
+          WHERE tenant_id = :tenant_id AND id = :id'
+    );
+    $stmt->execute([
+        'je'        => $jeId,
+        'user_id'   => $userId,
+        'tenant_id' => $tenantId,
+        'id'        => $lineId,
+    ]);
+}
+
 function bankRecMatchLine(int $tenantId, int $lineId, int $jeId, ?int $userId): array
 {
     $line = scopedFind('SELECT id FROM accounting_bank_statement_lines WHERE tenant_id = :tenant_id AND id = :id', ['id' => $lineId]);
     if (!$line) throw new RuntimeException('Line not found');
     $je   = scopedFind('SELECT id FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id', ['id' => $jeId]);
     if (!$je) throw new RuntimeException('JE not found');
-    scopedUpdate('accounting_bank_statement_lines', $lineId, [
-        'match_status'      => 'matched',
-        'matched_je_id'     => $jeId,
-        'matched_at'        => date('Y-m-d H:i:s'),
-        'matched_by_user_id' => $userId,
-    ]);
+    bankRecMarkLineMatched($tenantId, $lineId, $jeId, $userId);
     return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId];
 }
 
@@ -152,6 +165,77 @@ function bankRecUnmatchLine(int $tenantId, int $lineId): array
         'matched_by_user_id' => null,
     ]);
     return ['ok' => true, 'line_id' => $lineId];
+}
+
+/**
+ * Bring historical Treasury bookings back into line with bank reconciliation.
+ * Only explicit journal lineage is considered; amount/date similarity is never
+ * enough to change a statement line's status.
+ */
+function bankRecRepairPostedMatches(int $tenantId, int $bankAccountId): array
+{
+    $pdo = getDB();
+    $found = [];
+
+    $queries = [
+        // A line may already hold a journal id while its status remained stale.
+        'SELECT bl.id AS line_id, bl.matched_je_id AS je_id
+           FROM accounting_bank_statement_lines bl
+           JOIN accounting_journal_entries je
+             ON je.tenant_id = bl.tenant_id AND je.id = bl.matched_je_id AND je.status = "posted"
+          WHERE bl.tenant_id = :tenant_id AND bl.bank_account_id = :bank_account_id
+            AND bl.match_status = "unmatched"',
+
+        // Treasury direct-post journals carry the statement line as source.
+        'SELECT bl.id AS line_id, MAX(je.id) AS je_id
+           FROM accounting_bank_statement_lines bl
+           JOIN accounting_journal_entries je
+             ON je.tenant_id = bl.tenant_id
+            AND je.status = "posted"
+            AND je.source_module = "treasury_feed"
+            AND je.source_ref_type = "bank_statement_line"
+            AND CAST(je.source_ref_id AS CHAR) = CAST(bl.id AS CHAR)
+          WHERE bl.tenant_id = :tenant_id AND bl.bank_account_id = :bank_account_id
+            AND bl.match_status = "unmatched"
+          GROUP BY bl.id',
+    ];
+
+    foreach ($queries as $sql) {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute(['tenant_id' => $tenantId, 'bank_account_id' => $bankAccountId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if ((int) ($row['je_id'] ?? 0) > 0) $found[(int) $row['line_id']] = (int) $row['je_id'];
+        }
+    }
+
+    // Event-routed Treasury postings are connected through subledger links.
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT bl.id AS line_id, MAX(sl.journal_entry_id) AS je_id
+               FROM accounting_bank_statement_lines bl
+               JOIN accounting_subledger_links sl
+                 ON sl.tenant_id = bl.tenant_id
+                AND sl.source_module = "treasury_feed"
+                AND sl.source_record_id IN (CONCAT("bank_line:", bl.id), CONCAT("bank_line:split:", bl.id))
+               JOIN accounting_journal_entries je
+                 ON je.tenant_id = sl.tenant_id AND je.id = sl.journal_entry_id AND je.status = "posted"
+              WHERE bl.tenant_id = :tenant_id AND bl.bank_account_id = :bank_account_id
+                AND bl.match_status = "unmatched"
+              GROUP BY bl.id'
+        );
+        $stmt->execute(['tenant_id' => $tenantId, 'bank_account_id' => $bankAccountId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if ((int) ($row['je_id'] ?? 0) > 0) $found[(int) $row['line_id']] = (int) $row['je_id'];
+        }
+    } catch (Throwable $_) {
+        // Older tenants may not have the optional subledger link table yet.
+    }
+
+    foreach ($found as $lineId => $jeId) {
+        bankRecMarkLineMatched($tenantId, $lineId, $jeId, null);
+    }
+
+    return ['repaired' => count($found), 'line_ids' => array_keys($found)];
 }
 
 /**

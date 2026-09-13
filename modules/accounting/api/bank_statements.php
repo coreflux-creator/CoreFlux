@@ -28,6 +28,9 @@ if ($method === 'GET') {
     rbac_legacy_require($user, 'accounting.coa.view');
     $bid = (int) ($_GET['bank_account_id'] ?? 0);
     if ($bid <= 0) api_error('bank_account_id required', 400);
+    if (empty($_GET['match_status']) || $_GET['match_status'] === 'unmatched') {
+        bankRecRepairPostedMatches((int) $ctx['tenant_id'], $bid);
+    }
     $where  = ['tenant_id = :tenant_id', 'bank_account_id = :b'];
     $params = ['b' => $bid];
     if (!empty($_GET['match_status'])) {

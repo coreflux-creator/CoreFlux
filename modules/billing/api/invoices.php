@@ -33,14 +33,90 @@ $placementsTenantId = effectiveTenantIdForModule('placements', $tid) ?? $tid;
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
+function billingPrepareDirectInvoiceLines(PDO $pdo, int $tenantId, array $lines, bool $activeOnly = true): array
+{
+    if (!$lines) api_error('lines must be a non-empty array', 422);
+    if (count($lines) > 500) api_error('Invoices are limited to 500 lines', 422);
+    foreach ($lines as $line) {
+        if (!is_array($line)) api_error('Each invoice line must be an object', 422);
+    }
+
+    $catalogIds = array_values(array_unique(array_filter(
+        array_map(static fn(array $line): int => (int) ($line['catalog_item_id'] ?? 0), $lines),
+        static fn(int $id): bool => $id > 0
+    )));
+    $catalogById = [];
+    if ($catalogIds) {
+        $marks = implode(',', array_fill(0, count($catalogIds), '?'));
+        $activeSql = $activeOnly ? ' AND active = 1' : '';
+        $stmt = $pdo->prepare(
+            "SELECT id, name, item_type, description, default_unit, default_unit_price,
+                    gl_revenue_account_code, taxable
+               FROM billing_items WHERE tenant_id = ?{$activeSql} AND id IN ({$marks})"
+        );
+        $stmt->execute(array_merge([$tenantId], $catalogIds));
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $item) $catalogById[(int) $item['id']] = $item;
+        if (count($catalogById) !== count($catalogIds)) api_error('One or more products or services are unavailable', 422);
+    }
+
+    foreach ($lines as &$line) {
+        $catalogId = (int) ($line['catalog_item_id'] ?? 0);
+        if ($catalogId <= 0) continue;
+        $item = $catalogById[$catalogId];
+        if (trim((string) ($line['description'] ?? '')) === '') $line['description'] = $item['description'] ?: $item['name'];
+        if (empty($line['item_type'])) $line['item_type'] = $item['item_type'];
+        if (empty($line['unit'])) $line['unit'] = $item['default_unit'];
+        if (!array_key_exists('unit_price', $line) || $line['unit_price'] === '') $line['unit_price'] = $item['default_unit_price'] ?? 0;
+        if (empty($line['gl_revenue_account_code'])) $line['gl_revenue_account_code'] = $item['gl_revenue_account_code'];
+        if (!array_key_exists('taxable', $line)) $line['taxable'] = (int) $item['taxable'] === 1;
+    }
+    unset($line);
+    return $lines;
+}
+
+function billingInsertDirectInvoiceLines(PDO $pdo, int $invoiceId, array $lines): void
+{
+    $stmt = $pdo->prepare(
+        'INSERT INTO billing_invoice_lines
+          (invoice_id, line_no, source_type, catalog_item_id, item_type, description, quantity, unit, unit_price,
+           subtotal, tax_rate_pct, tax_amount, total, gl_revenue_account_code)
+         VALUES
+          (:invoice_id, :line_no, "manual", :catalog_item_id, :item_type, :description, :quantity, :unit, :unit_price,
+           :subtotal, :tax_rate_pct, :tax_amount, :total, :gl_rev)'
+    );
+    $lineNo = 1;
+    foreach ($lines as $line) {
+        $stmt->execute([
+            'invoice_id' => $invoiceId,
+            'line_no' => $lineNo++,
+            'catalog_item_id' => !empty($line['catalog_item_id']) ? (int) $line['catalog_item_id'] : null,
+            'item_type' => apNormalizeItemType($line['item_type'] ?? null, 'manual'),
+            'description' => $line['description'] ?? '',
+            'quantity' => $line['quantity'] ?? 0,
+            'unit' => $line['unit'] ?? 'each',
+            'unit_price' => $line['unit_price'] ?? 0,
+            'subtotal' => $line['subtotal'],
+            'tax_rate_pct' => $line['tax_rate_pct'],
+            'tax_amount' => $line['tax_amount'],
+            'total' => $line['total'],
+            'gl_rev' => $line['gl_revenue_account_code'] ?? null,
+        ]);
+    }
+}
+
 if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     rbac_legacy_require($user, 'billing.view');
     $id = (int) $_GET['id'];
     $inv = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$inv) api_error('Not found', 404);
     $pdo = getDB();
-    $linesStmt = $pdo->prepare('SELECT * FROM billing_invoice_lines WHERE invoice_id = :id ORDER BY line_no');
-    $linesStmt->execute(['id' => $id]);
+    $linesStmt = $pdo->prepare(
+        'SELECT l.*, i.code AS catalog_item_code, i.name AS catalog_item_name
+           FROM billing_invoice_lines l
+           LEFT JOIN billing_items i ON i.id = l.catalog_item_id AND i.tenant_id = :tenant_id
+          WHERE l.invoice_id = :id ORDER BY l.line_no'
+    );
+    $linesStmt->execute(['id' => $id, 'tenant_id' => $tid]);
     $lines = $linesStmt->fetchAll(\PDO::FETCH_ASSOC);
     // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
     $allocStmt = $pdo->prepare(
@@ -287,10 +363,16 @@ if ($method === 'POST' && $action === '') {
     if (empty($body['lines']) || !is_array($body['lines'])) api_error('lines must be a non-empty array', 422);
 
     $pdo = getDB();
+    $body['lines'] = billingPrepareDirectInvoiceLines($pdo, $tid, $body['lines']);
     $taxStmt = $pdo->prepare('SELECT billing_tax_rate_pct, billing_invoice_terms FROM tenants WHERE id = :id');
     $taxStmt->execute(['id' => $tid]);
     $cfg = $taxStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
     $taxPct = (float) ($cfg['billing_tax_rate_pct'] ?? 0);
+    if (array_key_exists('tax_rate_pct', $body) && $body['tax_rate_pct'] !== null && $body['tax_rate_pct'] !== '') {
+        if (!is_numeric($body['tax_rate_pct'])) api_error('Tax rate must be numeric', 422);
+        $taxPct = (float) $body['tax_rate_pct'];
+    }
+    if ($taxPct < 0 || $taxPct > 100) api_error('Tax rate must be between 0 and 100', 422);
     $netDays = preg_match('/^NET(\d+)$/i', (string) ($cfg['billing_invoice_terms'] ?? 'NET30'), $m) ? (int) $m[1] : 30;
 
     // Per-client override: if a staffing_clients row exists with a non-null
@@ -306,6 +388,16 @@ if ($method === 'POST' && $action === '') {
             $netDays = (int) $perClient;
         }
     } catch (\Throwable $_) { /* staffing_clients may not exist yet — fall through */ }
+
+    $validDate = static function (string $value): bool {
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+        return $date !== false && $date->format('Y-m-d') === $value;
+    };
+    $issueDate = trim((string) ($body['issue_date'] ?? date('Y-m-d')));
+    if (!$validDate($issueDate)) api_error('Issue date must use YYYY-MM-DD', 422);
+    $dueDate = trim((string) ($body['due_date'] ?? ''));
+    if ($dueDate === '') $dueDate = date('Y-m-d', strtotime("+{$netDays} days", strtotime($issueDate)));
+    if (!$validDate($dueDate)) api_error('Due date must use YYYY-MM-DD', 422);
 
     $resolvedInvoiceTerms = $netDays === 0 ? 'DUE_ON_RECEIPT' : 'NET' . $netDays;
     $computed = billingComputeTax($body['lines'], $taxPct);
@@ -329,8 +421,8 @@ if ($method === 'POST' && $action === '') {
             'entity_id'         => !empty($body['entity_id']) ? (int) $body['entity_id'] : null,
             'bill_to_json'      => isset($body['bill_to']) ? json_encode($body['bill_to']) : null,
             'currency'          => (string) ($body['currency'] ?? 'USD'),
-            'issue_date'        => (string) ($body['issue_date'] ?? date('Y-m-d')),
-            'due_date'          => (string) ($body['due_date'] ?? date('Y-m-d', strtotime("+{$netDays} days"))),
+            'issue_date'        => $issueDate,
+            'due_date'          => $dueDate,
             'payment_terms'     => $resolvedInvoiceTerms,
             'po_number'         => $body['po_number'] ?? null,
             'notes_internal'    => $body['notes_internal'] ?? null,
@@ -343,27 +435,7 @@ if ($method === 'POST' && $action === '') {
             'status'            => 'draft',
             'created_by_user_id'=> $user['id'] ?? null,
         ]);
-        $line_no = 1;
-        foreach ($computed['lines'] as $l) {
-            $stmt = $pdo->prepare(
-                'INSERT INTO billing_invoice_lines
-                  (invoice_id, line_no, source_type, item_type, description, quantity, unit, unit_price,
-                   subtotal, tax_rate_pct, tax_amount, total, gl_revenue_account_code)
-                 VALUES
-                  (:invoice_id, :line_no, "manual", :item_type, :description, :quantity, :unit, :unit_price,
-                   :subtotal, :tax_rate_pct, :tax_amount, :total, :gl_rev)'
-            );
-            $stmt->execute([
-                'invoice_id' => $invId, 'line_no' => $line_no++,
-                'item_type'  => apNormalizeItemType($l['item_type'] ?? null, 'manual'),
-                'description' => $l['description'] ?? '',
-                'quantity' => $l['quantity'] ?? 0, 'unit' => $l['unit'] ?? 'each',
-                'unit_price' => $l['unit_price'] ?? 0, 'subtotal' => $l['subtotal'],
-                'tax_rate_pct' => $l['tax_rate_pct'], 'tax_amount' => $l['tax_amount'],
-                'total' => $l['total'],
-                'gl_rev' => $l['gl_revenue_account_code'] ?? null,
-            ]);
-        }
+        billingInsertDirectInvoiceLines($pdo, $invId, $computed['lines']);
         billingAudit('billing.invoice.created', ['invoice_id' => $invId, 'source' => 'manual'], $invId);
         $pdo->commit();
     } catch (\Throwable $e) {
@@ -381,17 +453,58 @@ if ($method === 'PATCH') {
     if ($row['status'] !== 'draft') api_error('Only draft invoices can be edited', 409);
 
     $body = api_json_body();
-    $editable = ['client_name','client_company_id','bill_to_json','issue_date','due_date','po_number','notes_internal','notes_external'];
-    $sets = []; $binds = ['id' => $id];
+    $replaceLines = array_key_exists('lines', $body);
+    $computed = null;
+    $pdo = getDB();
+    if ($replaceLines) {
+        if (!is_array($body['lines'])) api_error('lines must be an array', 422);
+        $sourceCheck = $pdo->prepare('SELECT COUNT(*) FROM billing_invoice_lines WHERE invoice_id = :id AND source_type <> "manual"');
+        $sourceCheck->execute(['id' => $id]);
+        if ((int) $sourceCheck->fetchColumn() > 0) api_error('Time-based invoice lines must be rebuilt from their source', 409);
+        $body['lines'] = billingPrepareDirectInvoiceLines($pdo, $tid, $body['lines'], false);
+        $taxPct = $body['tax_rate_pct'] ?? null;
+        if ($taxPct === null || $taxPct === '') {
+            $taxStmt = $pdo->prepare('SELECT COALESCE(MAX(tax_rate_pct), 0) FROM billing_invoice_lines WHERE invoice_id = :id');
+            $taxStmt->execute(['id' => $id]);
+            $taxPct = (float) $taxStmt->fetchColumn();
+        }
+        if (!is_numeric($taxPct) || (float) $taxPct < 0 || (float) $taxPct > 100) api_error('Tax rate must be between 0 and 100', 422);
+        $computed = billingComputeTax($body['lines'], (float) $taxPct);
+    }
+
+    $editable = ['client_name','client_company_id','entity_id','bill_to_json','currency','issue_date','due_date','po_number','notes_internal','notes_external'];
+    $sets = []; $binds = ['id' => $id, 'tenant_scope' => $tid];
     foreach ($editable as $f) {
         if (array_key_exists($f, $body)) {
             $sets[] = "{$f} = :{$f}";
             $binds[$f] = is_array($body[$f]) ? json_encode($body[$f]) : $body[$f];
         }
     }
+    if ($computed) {
+        foreach (['subtotal','tax_total','total'] as $field) {
+            $sets[] = "{$field} = :{$field}";
+            $binds[$field] = $computed[$field];
+        }
+        $sets[] = 'amount_due = :amount_due';
+        $binds['amount_due'] = $computed['total'];
+    }
     if (!$sets) api_error('Nothing to update', 422);
-    getDB()->prepare('UPDATE billing_invoices SET ' . implode(',', $sets) . ' WHERE id = :id')->execute($binds);
-    billingAudit('billing.invoice.updated', ['invoice_id' => $id, 'fields' => array_keys(array_intersect_key($body, array_flip($editable)))], $id);
+
+    cf_begin_transaction();
+    try {
+        $pdo->prepare('UPDATE billing_invoices SET ' . implode(',', $sets) . ' WHERE tenant_id = :tenant_scope AND id = :id')->execute($binds);
+        if ($computed) {
+            $pdo->prepare('DELETE FROM billing_invoice_lines WHERE invoice_id = :id')->execute(['id' => $id]);
+            billingInsertDirectInvoiceLines($pdo, $id, $computed['lines']);
+        }
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    $changedFields = array_keys(array_intersect_key($body, array_flip($editable)));
+    if ($computed) $changedFields[] = 'lines';
+    billingAudit('billing.invoice.updated', ['invoice_id' => $id, 'fields' => $changedFields], $id);
     api_ok(['ok' => true]);
 }
 
@@ -622,7 +735,16 @@ if ($method === 'POST' && $action === 'post') {
     // Tenants with the flag OFF keep the legacy "recognise at invoice"
     // flow below (event-layer first, then direct post).
     $settings = accountingSettingsGet($tid);
-    $reclassifyOnly = !empty($settings['multi_period_split_enabled']);
+    $sourceStmt = getDB()->prepare(
+        'SELECT COUNT(*) AS line_count,
+                SUM(source_type IN ("time", "time_entry", "economic_item")) AS accrued_line_count
+           FROM billing_invoice_lines WHERE invoice_id = :id'
+    );
+    $sourceStmt->execute(['id' => $id]);
+    $sourceCounts = $sourceStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $allLinesWereAccrued = (int) ($sourceCounts['line_count'] ?? 0) > 0
+        && (int) ($sourceCounts['line_count'] ?? 0) === (int) ($sourceCounts['accrued_line_count'] ?? 0);
+    $reclassifyOnly = !empty($settings['multi_period_split_enabled']) && $allLinesWereAccrued;
 
     $subtotal = (float) $row['subtotal'];
     $taxTotal = (float) $row['tax_total'];
@@ -650,8 +772,15 @@ if ($method === 'POST' && $action === 'post') {
         ['account_code' => '1100', 'debit' => $total, 'credit' => 0, 'memo' => "Inv {$row['invoice_number']} / {$row['client_name']}", 'counterparty_company_id' => $party],
     ];
     foreach ($bucketSums as $code => $amt) {
-        if (round($amt, 2) <= 0.005) continue;
-        $lines[] = ['account_code' => $code, 'debit' => 0, 'credit' => round($amt, 2), 'memo' => "Revenue — {$row['invoice_number']}", 'counterparty_company_id' => $party];
+        $amt = round($amt, 2);
+        if (abs($amt) <= 0.005) continue;
+        $lines[] = [
+            'account_code' => $code,
+            'debit' => $amt < 0 ? abs($amt) : 0,
+            'credit' => $amt > 0 ? $amt : 0,
+            'memo' => "Revenue — {$row['invoice_number']}",
+            'counterparty_company_id' => $party,
+        ];
     }
     if ($taxTotal > 0.005) {
         $lines[] = ['account_code' => '2100', 'debit' => 0, 'credit' => $taxTotal, 'memo' => "Sales tax — {$row['invoice_number']}", 'counterparty_company_id' => $party];

@@ -22,6 +22,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/treasury/bank_transaction_identity.php';
+require_once __DIR__ . '/../../accounting/lib/bank_rec.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
@@ -79,7 +80,9 @@ if (api_method() === 'POST') {
         $set = match ($bulkAction) {
             'ignore'  => "match_status = 'ignored'",
             'restore' => "match_status = 'unmatched'",
-            'unmatch' => "match_status = 'unmatched', matched_je_id = NULL",
+            'unmatch' => $type === 'deposit'
+                ? "match_status = 'unmatched', matched_je_id = NULL, matched_at = NULL, matched_by_user_id = NULL"
+                : "match_status = 'unmatched', matched_je_id = NULL",
         };
 
         $stmt = $pdo->prepare(
@@ -118,10 +121,14 @@ if (api_method() === 'POST') {
     }
 
     if ($action === 'unmatch') {
-        $pdo->prepare("UPDATE {$table}
-                          SET match_status = 'unmatched', matched_je_id = NULL
-                        WHERE tenant_id = :t AND id = :id")
-            ->execute(['t' => $tenantId, 'id' => $lineId]);
+        if ($type === 'deposit') {
+            bankRecUnmatchLine($tenantId, $lineId);
+        } else {
+            $pdo->prepare("UPDATE {$table}
+                              SET match_status = 'unmatched', matched_je_id = NULL
+                            WHERE tenant_id = :t AND id = :id")
+                ->execute(['t' => $tenantId, 'id' => $lineId]);
+        }
         api_ok(['ok' => true, 'line_id' => $lineId, 'match_status' => 'unmatched']);
     }
 
@@ -135,10 +142,14 @@ if (api_method() === 'POST') {
         $jeOk->execute(['t' => $tenantId, 'id' => $jeId]);
         if (!$jeOk->fetchColumn()) api_error('Journal entry not found', 404);
 
-        $pdo->prepare("UPDATE {$table}
-                          SET match_status = 'matched', matched_je_id = :je
-                        WHERE tenant_id = :t AND id = :id")
-            ->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $jeId]);
+        if ($type === 'deposit') {
+            bankRecMarkLineMatched($tenantId, $lineId, $jeId, (int) ($ctx['user']['id'] ?? 0) ?: null);
+        } else {
+            $pdo->prepare("UPDATE {$table}
+                              SET match_status = 'matched', matched_je_id = :je
+                            WHERE tenant_id = :t AND id = :id")
+                ->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $jeId]);
+        }
         api_ok(['ok' => true, 'line_id' => $lineId, 'matched_je_id' => $jeId]);
     }
 
@@ -257,10 +268,14 @@ if (api_method() === 'POST') {
             ]);
         }
 
-        $pdo->prepare("UPDATE {$table}
-                          SET match_status = 'matched', matched_je_id = :je
-                        WHERE tenant_id = :t AND id = :id")
-            ->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $res['je_id']]);
+        if ($type === 'deposit') {
+            bankRecMarkLineMatched($tenantId, $lineId, (int) $res['je_id'], (int) ($ctx['user']['id'] ?? 0) ?: null);
+        } else {
+            $pdo->prepare("UPDATE {$table}
+                              SET match_status = 'matched', matched_je_id = :je
+                            WHERE tenant_id = :t AND id = :id")
+                ->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $res['je_id']]);
+        }
 
         try {
             $pdo->prepare(
@@ -427,10 +442,14 @@ if (api_method() === 'POST') {
         ]);
     }
 
-    $pdo->prepare("UPDATE {$table}
-                      SET match_status = 'matched', matched_je_id = :je
-                    WHERE tenant_id = :t AND id = :id")
-        ->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $res['je_id']]);
+    if ($type === 'deposit') {
+        bankRecMarkLineMatched($tenantId, $lineId, (int) $res['je_id'], (int) ($ctx['user']['id'] ?? 0) ?: null);
+    } else {
+        $pdo->prepare("UPDATE {$table}
+                          SET match_status = 'matched', matched_je_id = :je
+                        WHERE tenant_id = :t AND id = :id")
+            ->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $res['je_id']]);
+    }
 
     // Sprint 7b — exercise subledger_links. Full event-layer reroute is
     // Sprint 7e; this gives us audit-trace on every treasury post today.
