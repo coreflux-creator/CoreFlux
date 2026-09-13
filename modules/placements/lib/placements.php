@@ -236,6 +236,22 @@ function placementsList(array $filters = []): array
                      LIMIT 1
                ) ';
     $total = (int) (scopedFind("SELECT COUNT(*) AS c FROM placements p {$joins} WHERE {$whereSql}", $params)['c'] ?? 0);
+    $summaryRow = scopedFind(
+        'SELECT
+            SUM(CASE WHEN p.engagement_type = "w2" THEN 1 ELSE 0 END) AS w2,
+            SUM(CASE WHEN p.engagement_type = "c2c" THEN 1 ELSE 0 END) AS c2c,
+            SUM(CASE WHEN p.status = "active"
+                      AND COALESCE(p.actual_end_date, p.end_date) BETWEEN CURRENT_DATE AND DATE_ADD(CURRENT_DATE, INTERVAL 30 DAY)
+                     THEN 1 ELSE 0 END) AS ending_30d
+           FROM placements p ' . $joins . '
+          WHERE ' . $whereSql,
+        $params
+    ) ?: [];
+    $summary = [
+        'w2'         => (int) ($summaryRow['w2'] ?? 0),
+        'c2c'        => (int) ($summaryRow['c2c'] ?? 0),
+        'ending_30d' => (int) ($summaryRow['ending_30d'] ?? 0),
+    ];
     $rows  = scopedQuery(
         'SELECT ' . placementsSafeFields() . ', pe.first_name, pe.last_name, pe.email_primary,
                 COALESCE(ec.name, p.end_client_name) AS end_client_display_name,
@@ -280,7 +296,7 @@ function placementsList(array $filters = []): array
         unset($row['current_economics_snapshot_json']);
     }
     unset($row);
-    return ['rows' => $rows, 'total' => $total, 'page' => $page, 'per_page' => $perPage];
+    return ['rows' => $rows, 'total' => $total, 'summary' => $summary, 'page' => $page, 'per_page' => $perPage];
 }
 
 function placementChain(int $placementId): array

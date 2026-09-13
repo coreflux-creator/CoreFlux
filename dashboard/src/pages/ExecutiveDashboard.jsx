@@ -316,13 +316,13 @@ export default function ExecutiveDashboard({ session, bandFilter = null }) {
           <Section title="Staffing operations" icon={Users}>
             {/* Staffing chart band */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, marginBottom: 16 }}>
-              <ChartCard title="New starts vs. terminations" testid="chart-headcount-flow">
+              <ChartCard title="Placement starts vs. endings" testid="chart-headcount-flow">
                 <LineChart
                   height={260}
                   format={fmtN}
                   series={[
-                    { name: 'New starts',   color: '#10b981', data: s.new_starts?.trend   || [] },
-                    { name: 'Terminations', color: '#ef4444', data: s.terminations?.trend || [] },
+                    { name: 'Starts',  color: '#10b981', data: s.new_starts?.trend   || [] },
+                    { name: 'Endings', color: '#ef4444', data: s.terminations?.trend || [] },
                   ]}
                 />
               </ChartCard>
@@ -338,35 +338,35 @@ export default function ExecutiveDashboard({ session, bandFilter = null }) {
             </div>
             <KpiGrid>
               <KpiCard
-                title="Active headcount" value={fmtN(s.headcount?.active)}
+                title="Active people" value={fmtN(s.headcount?.active)}
                 sub={[
                   s.headcount?.contractors_w2   && `${s.headcount.contractors_w2} W-2`,
                   s.headcount?.contractors_c2c  && `${s.headcount.contractors_c2c} C2C`,
                   s.headcount?.contractors_1099 && `${s.headcount.contractors_1099} 1099`,
                   s.headcount?.perm             && `${s.headcount.perm} perm`,
                 ].filter(Boolean).join(' · ') || '—'}
-                href="/modules/people/directory"
+                href="/modules/placements/list?status=active"
                 testid="kpi-headcount" />
               <KpiCard
-                title="New starts" value={fmtN(s.new_starts?.period)}
+                title="Placement starts" value={fmtN(s.new_starts?.period)}
                 sub={`Last ${data.range.weeks} weeks`}
                 trend={s.new_starts?.trend} format={fmtN} color="#10b981"
                 icon={ArrowUpCircle}
-                href="/modules/people/directory"
+                href="/modules/placements/list"
                 testid="kpi-new-starts" />
               <KpiCard
-                title="Terminations" value={fmtN(s.terminations?.period)}
+                title="Placement endings" value={fmtN(s.terminations?.period)}
                 sub={`Last ${data.range.weeks} weeks`}
                 trend={s.terminations?.trend} format={fmtN} color="#ef4444"
                 icon={ArrowDownCircle}
-                href="/modules/people/directory"
+                href="/modules/placements/list"
                 testid="kpi-terminations" />
               <KpiCard
-                title="Net change" value={(s.net_change?.period >= 0 ? '+' : '') + fmtN(s.net_change?.period)}
-                sub="New starts − terminations"
+                title="Net placement change" value={(s.net_change?.period >= 0 ? '+' : '') + fmtN(s.net_change?.period)}
+                sub="Starts minus endings"
                 trend={s.net_change?.trend} format={fmtN}
                 color={s.net_change?.period >= 0 ? '#10b981' : '#ef4444'}
-                href="/modules/people/directory"
+                href="/modules/placements/list"
                 testid="kpi-net-change" />
             </KpiGrid>
             <div style={{ marginTop: 16 }}>
@@ -378,11 +378,10 @@ export default function ExecutiveDashboard({ session, bandFilter = null }) {
                   icon={Briefcase}
                   testid="kpi-active-placements" />
                 <KpiCard
-                  title="New placements" value={fmtN(s.new_placements?.period)}
-                  sub={`Last ${data.range.weeks} weeks`}
-                  trend={s.new_placements?.trend} format={fmtN}
+                  title="Upcoming starts" value={fmtN(s.upcoming_starts)}
+                  sub="Next 30 days"
                   href="/modules/placements/list"
-                  testid="kpi-new-placements" />
+                  testid="kpi-upcoming-starts" />
                 <KpiCard
                   title="Ending soon" value={fmtN(s.ending_soon)}
                   sub="Active placements ending within 30 days"

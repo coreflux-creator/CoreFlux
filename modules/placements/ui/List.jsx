@@ -58,6 +58,7 @@ export default function List() {
   );
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
+  const summary = data?.summary ?? {};
   const perPage = data?.per_page ?? 25;
   const lastPage = Math.max(1, Math.ceil(total / perPage));
   const clientsPath = '/modules/staffing/api/clients.php?action=list&status=active&limit=500&sort=name&dir=asc';
@@ -191,9 +192,9 @@ export default function List() {
 
       <div className="page-kpi-strip" aria-label="Placement summary">
         <PageKpi label={status === 'active' ? 'Active' : 'Matching placements'} value={total} />
-        <PageKpi label="W-2 on this page" value={items.filter(row => row.engagement_type === 'w2').length} />
-        <PageKpi label="C2C on this page" value={items.filter(row => row.engagement_type === 'c2c').length} />
-        <PageKpi label="Ending in 30 days" value={items.filter(row => isWithinThirtyDays(row.end_date)).length} tone="amber" />
+        <PageKpi label="W-2 matching filters" value={summary.w2 ?? 0} />
+        <PageKpi label="C2C matching filters" value={summary.c2c ?? 0} />
+        <PageKpi label="Ending in 30 days" value={summary.ending_30d ?? 0} tone="amber" />
       </div>
 
       <div className="operational-surface placements-surface">
@@ -380,14 +381,6 @@ function PageKpi({ label, value, tone = 'blue' }) {
       <strong>{Number(value || 0).toLocaleString()}</strong>
     </div>
   );
-}
-
-function isWithinThirtyDays(value) {
-  if (!value) return false;
-  const date = new Date(`${value}T00:00:00`);
-  const today = new Date();
-  const days = (date.getTime() - today.getTime()) / 86400000;
-  return days >= 0 && days <= 30;
 }
 
 function initials(firstName, lastName) {

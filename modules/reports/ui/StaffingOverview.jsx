@@ -8,7 +8,7 @@ import { TrendingUp, TrendingDown } from 'lucide-react';
  * Spec: Reports.docx §Staffing Overview Dashboard.
  *   • 6 KPI tiles (Revenue, GP, GP%, Hours, OT%, Spread/hr)
  *   • Weekly Revenue + GP chart (SVG line chart, no external lib)
- *   • Headcount tiles (Active / New starts / Terminations / Net change)
+ *   • Workforce activity tiles (active people / placement starts and endings)
  *   • Run Rate comparison (last week annualized vs first week annualized)
  *   • Timesheet Health summary
  */
@@ -60,12 +60,12 @@ export default function StaffingOverview() {
 
           <div style={twoCol}>
             <div>
-              <SectionLabel testid="reports-overview-headcount-label">Headcount</SectionLabel>
+              <SectionLabel testid="reports-overview-headcount-label">Workforce activity</SectionLabel>
               <div style={miniGrid} data-testid="reports-overview-headcount">
-                <Kpi label="Active"        value={fmtNumber(data.headcount.active)}       testid="kpi-headcount-active" />
-                <Kpi label="New starts"    value={fmtNumber(data.headcount.new_starts)}   testid="kpi-headcount-new" />
-                <Kpi label="Terminations"  value={fmtNumber(data.headcount.terminations)} testid="kpi-headcount-term" />
-                <Kpi label="Net change"    value={fmtSignedNumber(data.headcount.net_change)} testid="kpi-headcount-net" tone={data.headcount.net_change >= 0 ? 'positive' : 'negative'} />
+                <Kpi label="Active people"        value={fmtNumber(data.headcount.active)}       testid="kpi-headcount-active" />
+                <Kpi label="Placement starts"     value={fmtNumber(data.headcount.new_starts)}   testid="kpi-headcount-new" />
+                <Kpi label="Placement endings"    value={fmtNumber(data.headcount.terminations)} testid="kpi-headcount-term" />
+                <Kpi label="Net placement change" value={fmtSignedNumber(data.headcount.net_change)} testid="kpi-headcount-net" tone={data.headcount.net_change >= 0 ? 'positive' : 'negative'} />
               </div>
             </div>
             <div>

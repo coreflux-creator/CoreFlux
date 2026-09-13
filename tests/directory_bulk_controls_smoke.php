@@ -51,6 +51,13 @@ $assert('whole-row search includes people, email, client, source id, status, typ
     && str_contains($placementLib, 'p.external_id LIKE')
     && str_contains($placementLib, 'p.engagement_type LIKE')
     && str_contains($placementLib, 'p.worksite_state LIKE'));
+$assert('placement summary totals use the complete filtered result set',
+    str_contains($placementLib, "'summary' => \$summary")
+    && str_contains($placementLib, 'AS ending_30d')
+    && str_contains($placementUi, 'W-2 matching filters')
+    && str_contains($placementUi, 'C2C matching filters')
+    && !str_contains($placementUi, 'W-2 on this page')
+    && !str_contains($placementUi, 'C2C on this page'));
 $assert('client drill-through filter is accepted by list API',
     str_contains($placementApi, "'end_client_company_id' => \$_GET['end_client_company_id']")
     && str_contains($placementLib, 'p.end_client_company_id = :end_client_company_id'));

@@ -113,7 +113,7 @@ const DashboardOverview = ({ session, onModuleChange }) => {
             Icon={CheckCircle2}
             tone="green"
             value={String(staffing.new_starts?.period || 0)}
-            label="new starts in this window"
+            label="placement starts in this window"
             to="/modules/reports/overview"
           />
         </section>
