@@ -20,15 +20,17 @@ $checks = [
     'payroll list permissions resolve to read access' =>
         RbacLegacyMap::resolve('payroll.view') === ['payroll', 'read']
         && RbacLegacyMap::resolve('payroll.runs.view') === ['payroll', 'read'],
-    'dashboard staffing totals stay in the active workspace' =>
-        str_contains($dashboardApi, '$catalogTid = $tenantId;')
+    'dashboard placement totals use the Placements catalog scope' =>
+        str_contains($dashboardApi, "effectiveTenantIdForModule('placements', \$tenantId) ?? \$tenantId")
         && !str_contains($dashboardApi, "effectiveTenantIdForModule('staffing'"),
     'dashboard headcount is distinct people on active placements' =>
         str_contains($dashboardApi, 'COUNT(DISTINCT p.person_id) AS c')
         && str_contains($dashboardApi, "p.status = 'active'"),
     'report headcount uses the same active-placement population' =>
         str_contains($staffingMetrics, 'COUNT(DISTINCT person_id) AS c')
-        && str_contains($staffingMetrics, "status = 'active'"),
+        && str_contains($staffingMetrics, "status = 'active'")
+        && str_contains($staffingMetrics, "effectiveTenantIdForModule('placements', \$tenantId) ?? \$tenantId")
+        && substr_count($staffingMetrics, "'t'=>\$placementsTenantId") === 3,
     'placement type summaries cover all filtered rows' =>
         str_contains($placementLib, "'summary' => \$summary")
         && str_contains($placementUi, 'W-2 matching filters')
