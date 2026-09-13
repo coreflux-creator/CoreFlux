@@ -118,8 +118,10 @@ jobs:
             login.php \
             login2.html \
             modules/accounting/api/accounts.php \
+            modules/accounting/api/bank_ai.php \
             modules/accounting/api/bank_statements.php \
             modules/accounting/lib/bank_rec.php \
+            modules/accounting/ui/BankReconciliation.jsx \
             modules/accounting/ui/ChartOfAccounts.jsx \
             modules/accounting/ui/StandardReports.jsx \
             modules/ap/api/1099.php \
@@ -212,6 +214,7 @@ jobs:
             tests/login_redirect_paths_smoke.php \
             tests/live_basic_error_regressions_smoke.php \
             tests/ai_accuracy_query_smoke.php \
+            tests/accounting_phase2_a8_smoke.php \
             tests/ap_1099_print_schema_smoke.php \
             tests/ap_policy_and_vendor_risk_schema_smoke.php \
             tests/ap_vendor_categories_attachments_smoke.php \
@@ -230,6 +233,7 @@ jobs:
             tests/export_templates_smoke.php \
             tests/document_upload_bridge_smoke.php \
             tests/invoice_pdf_schema_smoke.php \
+            tests/invoice_bank_match_smoke.php \
             tests/m365_graph_smoke.php \
             tests/payroll_phase_a1_smoke.php \
             tests/payroll_workflow_bridge_smoke.php \
@@ -238,6 +242,7 @@ jobs:
             tests/reports_overtime_query_smoke.php \
             tests/sitewide_navigation_smoke.php \
             tests/specific_get_action_routing_smoke.php \
+            tests/sprint6d_entity_scope_ai_smoke.php \
             tests/sprint7f2_tax_form_export_smoke.php \
             tests/sprint7f3_dimensional_pnl_smoke.php \
             tests/sprint7f4_missing_dimensions_smoke.php \
@@ -318,6 +323,7 @@ jobs:
               core/storage_register.php \
               core/treasury/liquidity_projection.php \
               modules/accounting/api/accounts.php \
+              modules/accounting/api/bank_ai.php \
               modules/accounting/api/bank_statements.php \
               modules/accounting/lib/bank_rec.php \
               modules/ap/api/1099.php \
@@ -356,6 +362,7 @@ jobs:
             php tests/login_redirect_paths_smoke.php
             php tests/live_basic_error_regressions_smoke.php
             php tests/ai_accuracy_query_smoke.php
+            php tests/accounting_phase2_a8_smoke.php
             php tests/ap_1099_print_schema_smoke.php
             php tests/ap_policy_and_vendor_risk_schema_smoke.php
             php tests/ap_vendor_categories_attachments_smoke.php
@@ -374,6 +381,7 @@ jobs:
             php tests/export_templates_smoke.php
             php tests/document_upload_bridge_smoke.php
             php tests/invoice_pdf_schema_smoke.php
+            php tests/invoice_bank_match_smoke.php
             php tests/m365_graph_smoke.php
             php tests/payroll_phase_a1_smoke.php
             php tests/payroll_workflow_bridge_smoke.php
@@ -382,6 +390,7 @@ jobs:
             php tests/reports_overtime_query_smoke.php
             php tests/sitewide_navigation_smoke.php
             php tests/specific_get_action_routing_smoke.php
+            php tests/sprint6d_entity_scope_ai_smoke.php
             php tests/sweep_destination_ui_and_divergence_smoke.php
             php tests/treasury_connection_error_copy_smoke.php
             php tests/treasury_transactions_and_coa_hierarchy_smoke.php

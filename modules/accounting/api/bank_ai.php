@@ -3,7 +3,7 @@
  * Accounting API — Bank rec AI assistants.
  *
  *   POST /api/accounting/bank_ai?action=suggest_match&line_id=N
- *        → returns top N candidate JE matches with confidence + reasoning.
+ *        → returns candidate invoice and posted-cash JE matches.
  *
  *   POST /api/accounting/bank_ai?action=suggest_categorize&line_id=N
  *        → returns suggested COA account_code for an unmatched line.
@@ -46,12 +46,23 @@ if (!$line) api_error('Line not found', 404);
 $tenantId = (int) $ctx['tenant_id'];
 
 if ($action === 'suggest_match') {
-    $candidates = bankRecAutoSuggestMatches($tenantId, $line, (int) $line['bank_account_id']);
+    $invoiceCandidates = rbac_legacy_can($user, 'billing.view')
+        ? bankRecInvoiceMatchCandidates($tenantId, $line, (int) $line['bank_account_id'])
+        : [];
+    $jeCandidates = array_map(static function (array $candidate): array {
+        $candidate['candidate_type'] = 'journal_entry';
+        $candidate['label'] = 'Journal ' . ($candidate['je_number'] ?? ('#' . $candidate['je_id']));
+        $candidate['score'] = 0.80;
+        $candidate['reasoning'] = 'Posted cash entry with the same amount within three days of the bank line.';
+        return $candidate;
+    }, bankRecAutoSuggestMatches($tenantId, $line, (int) $line['bank_account_id']));
+    $candidates = array_merge($invoiceCandidates, $jeCandidates);
+    usort($candidates, static fn(array $a, array $b): int => ($b['score'] ?? 0) <=> ($a['score'] ?? 0));
     if (empty($candidates)) {
         api_ok([
             'candidates'      => [],
             'review_required' => true,
-            'note'            => 'No JE candidates within the date / amount window. Try widening the search or use suggest_categorize to draft a new JE instead.',
+            'note'            => 'No open invoice or posted cash entry matches this amount. Categorize the line or widen the date window.',
         ]);
     }
     try {
@@ -59,12 +70,12 @@ if ($action === 'suggest_match') {
             'feature_class'   => 'advisory',
             'kind'            => 'classification',
             'feature_key'     => 'accounting.bank.suggest_match',
-            'system'          => 'Pick the most likely JE that matches this bank-statement line. Score each candidate 0-1 and explain in one sentence why.',
+            'system'          => 'Pick the most likely open invoice or posted cash journal that matches this bank-statement line. Score each candidate 0-1 and explain in one sentence why.',
             'prompt'          => 'Bank line: ' . json_encode([
                 'date'        => $line['posted_date'],
                 'description' => $line['description'],
                 'amount'      => (float) $line['amount'],
-            ]) . "\nReturn: {best_je_id, confidence, reasoning, top_n: [{je_id, confidence, reasoning}]}",
+            ]) . "\nReturn: {candidate_type, candidate_id, confidence, reasoning, top_n: [{candidate_type, candidate_id, confidence, reasoning}]}",
             'context'         => ['candidates' => $candidates],
             'max_output_tokens' => 600,
         ]);

@@ -343,6 +343,9 @@ function bankRecAutoSuggestMatches(int $tenantId, array $bankLine, int $bankAcco
 {
     $amount = (float) ($bankLine['amount'] ?? 0);
     if ($amount === 0.0) return [];
+    $bankSideSql = $amount > 0
+        ? 'AND l.debit = :abs_amt AND l.credit = 0'
+        : 'AND l.credit = :abs_amt AND l.debit = 0';
     // Use distinct :d_lo / :d_hi placeholders. The previous `:d` repeat
     // broke under PDO_MYSQL native prepares (EMULATE_PREPARES=false) and
     // returned zero matches every time → treasury entries stayed
@@ -354,9 +357,12 @@ function bankRecAutoSuggestMatches(int $tenantId, array $bankLine, int $bankAcco
          FROM accounting_journal_entry_lines l
          JOIN accounting_journal_entries je ON je.id = l.je_id AND je.tenant_id = l.tenant_id
          JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = l.tenant_id
+         JOIN accounting_bank_accounts ba
+           ON ba.tenant_id = l.tenant_id AND ba.id = :bank_account_id
+          AND ba.gl_account_code = a.code
          WHERE l.tenant_id = :tenant_id
            AND je.status = "posted"
-           AND ABS(l.debit - l.credit) = :abs_amt
+           ' . $bankSideSql . '
            AND je.posting_date BETWEEN DATE_SUB(:d_lo, INTERVAL 3 DAY) AND DATE_ADD(:d_hi, INTERVAL 3 DAY)
            AND je.id NOT IN (
                SELECT matched_je_id FROM accounting_bank_statement_lines
@@ -364,12 +370,162 @@ function bankRecAutoSuggestMatches(int $tenantId, array $bankLine, int $bankAcco
            )
          ORDER BY je.posting_date DESC LIMIT 20',
         [
+            'bank_account_id' => $bankAccountId,
             'abs_amt'       => abs($amount),
             'd_lo'          => $bankLine['posted_date'],
             'd_hi'          => $bankLine['posted_date'],
             'tenant_id_sub' => $tenantId,
         ]
     );
+}
+
+/**
+ * Find open invoices whose remaining balance exactly matches an incoming
+ * bank line. Exact cents are intentionally required for the automatic badge;
+ * ambiguous and partial receipts remain available through manual workflows.
+ */
+function bankRecInvoiceMatchCandidates(
+    int $tenantId,
+    array $bankLine,
+    int $bankAccountId,
+    int $limit = 5
+): array {
+    $rows = bankRecAttachInvoiceSuggestions($tenantId, $bankAccountId, [$bankLine], $limit);
+    return $rows[0]['invoice_matches'] ?? [];
+}
+
+/**
+ * Attach invoice_matches + the top invoice_match to statement rows in one
+ * query. This keeps the bank-feed list useful without an N+1 query per line.
+ */
+function bankRecAttachInvoiceSuggestions(
+    int $tenantId,
+    int $bankAccountId,
+    array $bankLines,
+    int $limitPerLine = 5
+): array {
+    foreach ($bankLines as &$line) {
+        $line['invoice_matches'] = [];
+        $line['invoice_match'] = null;
+    }
+    unset($line);
+
+    $amountKeys = [];
+    $latestPosted = null;
+    foreach ($bankLines as $line) {
+        $amount = round((float) ($line['amount'] ?? 0), 2);
+        if ($amount <= 0) continue;
+        $amountKeys[(string) (int) round($amount * 100)] = $amount;
+        $date = (string) ($line['posted_date'] ?? '');
+        if ($date !== '' && ($latestPosted === null || $date > $latestPosted)) $latestPosted = $date;
+    }
+    if (!$amountKeys || !$latestPosted) return $bankLines;
+
+    try {
+        $bank = scopedFind(
+            'SELECT entity_id FROM accounting_bank_accounts WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => $bankAccountId]
+        );
+        if (!$bank) return $bankLines;
+
+        $params = ['latest_posted' => $latestPosted];
+        $amountParams = [];
+        $i = 0;
+        foreach ($amountKeys as $amount) {
+            $key = 'invoice_amount_' . $i++;
+            $amountParams[] = ':' . $key;
+            $params[$key] = number_format($amount, 2, '.', '');
+        }
+        $entitySql = '';
+        if (!empty($bank['entity_id'])) {
+            $entitySql = ' AND (bi.entity_id = :bank_entity_id OR bi.entity_id IS NULL)';
+            $params['bank_entity_id'] = (int) $bank['entity_id'];
+        }
+
+        $invoices = scopedQuery(
+            'SELECT bi.id, bi.invoice_number, bi.client_name, bi.client_company_id, bi.entity_id,
+                    bi.issue_date, bi.due_date, bi.currency, bi.amount_due, bi.status,
+                    bi.journal_entry_id, je.status AS journal_status
+               FROM billing_invoices bi
+               LEFT JOIN accounting_journal_entries je
+                 ON je.tenant_id = bi.tenant_id AND je.id = bi.journal_entry_id
+              WHERE bi.tenant_id = :tenant_id
+                AND bi.status IN ("draft", "approved", "sent", "partially_paid")
+                AND bi.amount_due > 0
+                AND ROUND(bi.amount_due, 2) IN (' . implode(',', $amountParams) . ')
+                AND bi.issue_date <= :latest_posted' . $entitySql . '
+              ORDER BY bi.due_date ASC, bi.id ASC',
+            $params
+        );
+
+        $byAmount = [];
+        foreach ($invoices as $invoice) {
+            $key = (string) (int) round((float) $invoice['amount_due'] * 100);
+            $byAmount[$key][] = $invoice;
+        }
+
+        foreach ($bankLines as &$line) {
+            $amount = round((float) ($line['amount'] ?? 0), 2);
+            if ($amount <= 0) continue;
+            $key = (string) (int) round($amount * 100);
+            $matches = [];
+            foreach ($byAmount[$key] ?? [] as $invoice) {
+                $description = strtolower((string) ($line['description'] ?? ''));
+                $invoiceNumber = strtolower((string) $invoice['invoice_number']);
+                $clientName = strtolower((string) $invoice['client_name']);
+                $numberMatch = $invoiceNumber !== '' && str_contains($description, $invoiceNumber);
+                $clientTokens = array_values(array_filter(
+                    preg_split('/[^a-z0-9]+/i', $clientName) ?: [],
+                    static fn(string $token): bool => strlen($token) >= 4
+                ));
+                $tokenHits = count(array_filter(
+                    $clientTokens,
+                    static fn(string $token): bool => str_contains($description, $token)
+                ));
+                $clientMatch = $clientTokens && $tokenHits >= min(2, count($clientTokens));
+
+                $canApply = in_array($invoice['status'], ['approved', 'sent', 'partially_paid'], true)
+                    && ($invoice['journal_status'] ?? null) === 'posted';
+                $score = $canApply ? 0.86 : 0.72;
+                if ($clientMatch) $score += 0.08;
+                if ($numberMatch) $score += 0.06;
+                $score = min(1.0, $score);
+                $reason = 'Exact invoice balance of ' . number_format($amount, 2) . ' ' . $invoice['currency'];
+                if ($numberMatch) $reason .= '; invoice number appears in the bank description';
+                elseif ($clientMatch) $reason .= '; customer name appears in the bank description';
+                if (!$canApply) {
+                    $reason .= $invoice['status'] === 'draft'
+                        ? '; finalize and post the draft before applying payment'
+                        : '; post the invoice before applying payment';
+                }
+
+                $matches[] = [
+                    'candidate_type' => 'invoice',
+                    'invoice_id' => (int) $invoice['id'],
+                    'invoice_number' => (string) $invoice['invoice_number'],
+                    'client_name' => (string) $invoice['client_name'],
+                    'status' => (string) $invoice['status'],
+                    'amount_due' => (float) $invoice['amount_due'],
+                    'currency' => (string) $invoice['currency'],
+                    'issue_date' => (string) $invoice['issue_date'],
+                    'due_date' => (string) $invoice['due_date'],
+                    'journal_entry_id' => !empty($invoice['journal_entry_id']) ? (int) $invoice['journal_entry_id'] : null,
+                    'can_apply_payment' => $canApply,
+                    'label' => 'Invoice ' . $invoice['invoice_number'] . ' - ' . $invoice['client_name'],
+                    'score' => $score,
+                    'reasoning' => $reason,
+                ];
+            }
+            usort($matches, static fn(array $a, array $b): int => $b['score'] <=> $a['score']);
+            $line['invoice_matches'] = array_slice($matches, 0, max(1, $limitPerLine));
+            $line['invoice_match'] = $line['invoice_matches'][0] ?? null;
+        }
+        unset($line);
+    } catch (\Throwable $e) {
+        error_log('[bank-rec] invoice suggestion lookup failed: ' . $e->getMessage());
+    }
+
+    return $bankLines;
 }
 
 /**
