@@ -30,6 +30,9 @@ $legacyMap = file_get_contents("{$root}/core/rbac/legacy_map.php");
 
 $checks = [
     'runs includes an existing workflow bridge' => str_contains($runs, "../lib/workflow.php") && is_file("{$root}/modules/payroll/lib/workflow.php"),
+    'runs loads the legacy RBAC class used by the compatibility read gate' =>
+        str_contains($runs, "../../../core/RBAC.php")
+        && is_file("{$root}/core/RBAC.php"),
     'computed runs start a workflow' => str_contains($runs, 'payrollRunWorkflowStart('),
     'approvals act through WorkflowGraph' => str_contains($runs, 'payrollRunWorkflowAct('),
     'workflow uses People Graph approver resolution' => str_contains($workflow, "domainPeopleGraphWorkflowApproverResolution('payroll', 'run'"),

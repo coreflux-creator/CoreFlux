@@ -14,6 +14,7 @@
  */
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/payment_rails.php';
 require_once __DIR__ . '/../../../core/payment_rails/originate_helpers.php';
 require_once __DIR__ . '/../lib/payroll.php';
