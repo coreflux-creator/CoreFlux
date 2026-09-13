@@ -8,8 +8,8 @@
  *     reports_ai_explain, exec_filters) call setRequestModuleScope('staffing')
  *     so a shared-mode sub-tenant correctly resolves to the master parent's
  *     id for catalog reads.
- *   - exec_dashboard.php keeps workspace KPIs on the active tenant, even when
- *     some catalog modules are configured as shared with a parent tenant.
+ *   - exec_dashboard.php resolves placement-derived KPIs through the same
+ *     placements catalog used by the Placements module.
  *   - The endpoint carries two distinct tenant placeholders (`:t` and `:ct`)
  *     so mixed financial/staffing queries remain valid under native prepares.
  */
@@ -69,11 +69,11 @@ foreach ($endpoints as $f) {
     $a("$base derives \$tenantId via effectiveTenantIdForRequest()", $usesEff);
 }
 
-// ----------------------------------------------------------------- exec_dashboard.php has workspace-local scope
+// ----------------------------------------------------------------- exec_dashboard.php shares the Placements catalog scope
 $execSrc = file_get_contents('/app/api/exec_dashboard.php');
-$a('exec_dashboard.php pins staffing KPIs to the active workspace',
-   str_contains($execSrc, '$catalogTid = $tenantId;'));
-$a('exec_dashboard.php does not roll KPIs up through shared staffing scope',
+$a('exec_dashboard.php resolves placement KPIs through the Placements catalog',
+   str_contains($execSrc, "effectiveTenantIdForModule('placements', \$tenantId) ?? \$tenantId"));
+$a('exec_dashboard.php does not use the unrelated staffing module scope',
    !str_contains($execSrc, "effectiveTenantIdForModule('staffing'"));
 $a('exec_dashboard.php binds :ct on placement subqueries',
    str_contains($execSrc, "p.tenant_id = :ct"));

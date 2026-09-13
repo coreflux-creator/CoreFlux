@@ -103,13 +103,17 @@ function staffingHeadcount(int $tenantId, string $from, string $to): array {
     $pdo = getDB();
     if (!$pdo) return ['active'=>0,'new_starts'=>0,'terminations'=>0,'net_change'=>0];
 
+    // Headcount and placement events must describe the same catalog shown by
+    // the Placements module, including inherited/shared sub-tenant catalogs.
+    $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+
     $stmt = $pdo->prepare(
         "SELECT COUNT(DISTINCT person_id) AS c
            FROM placements
           WHERE tenant_id = :t AND deleted_at IS NULL
             AND status = 'active'"
     );
-    $stmt->execute(['t'=>$tenantId]);
+    $stmt->execute(['t'=>$placementsTenantId]);
     $active = (int) ($stmt->fetchColumn() ?: 0);
 
     $stmt = $pdo->prepare(
@@ -117,7 +121,7 @@ function staffingHeadcount(int $tenantId, string $from, string $to): array {
           WHERE tenant_id = :t AND deleted_at IS NULL
             AND start_date BETWEEN :from_ AND :to"
     );
-    $stmt->execute(['t'=>$tenantId,'from_'=>$from,'to'=>$to]);
+    $stmt->execute(['t'=>$placementsTenantId,'from_'=>$from,'to'=>$to]);
     $newStarts = (int) ($stmt->fetchColumn() ?: 0);
 
     $stmt = $pdo->prepare(
@@ -126,7 +130,7 @@ function staffingHeadcount(int $tenantId, string $from, string $to): array {
             AND COALESCE(actual_end_date, end_date) BETWEEN :from_ AND :to
             AND status IN ('ended','cancelled')"
     );
-    $stmt->execute(['t'=>$tenantId,'from_'=>$from,'to'=>$to]);
+    $stmt->execute(['t'=>$placementsTenantId,'from_'=>$from,'to'=>$to]);
     $terms = (int) ($stmt->fetchColumn() ?: 0);
 
     return [

@@ -50,10 +50,10 @@ $user      = $ctx['user'];
 $role      = $ctx['role'] ?? 'employee';
 $tenantId  = (int) (currentTenantId() ?? 0);
 if (!$tenantId) api_error('No active tenant', 400);
-// Dashboard KPIs always describe the active workspace. Shared staffing catalogs
-// may power pickers, but rolling a parent catalog into a sub-tenant dashboard
-// makes headcount and placement totals disagree with the workspace list pages.
-$catalogTid = $tenantId;
+// Placement-derived KPIs use the same configured catalog as the Placements
+// module. Financial and time-entry queries below remain scoped to the active
+// workspace through $tenantId.
+$catalogTid = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
 
 if (!in_array($role, ['master_admin', 'tenant_admin', 'admin', 'manager'], true)) {
     api_error('Forbidden — exec dashboard requires manager+', 403);
