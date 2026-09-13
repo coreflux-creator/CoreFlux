@@ -43,13 +43,17 @@ $inv = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.ph
 $a('Billing requires AP lib for normalisation', strpos($inv, "require_once __DIR__ . '/../../ap/lib/ap.php'") !== false);
 $a('Billing manual POST inserts item_type',     strpos($inv, 'item_type, description, quantity') !== false);
 $a('Billing manual POST inserts gl_revenue_account_code', strpos($inv, 'gl_revenue_account_code') !== false);
-$a('Billing manual POST normalises item_type',  strpos($inv, "apNormalizeItemType(\$l['item_type'] ?? null, 'manual')") !== false);
+$a('Billing manual POST normalises item_type',
+   strpos($inv, "apNormalizeItemType(\$line['item_type'] ?? null, 'manual')") !== false
+   || strpos($inv, "apNormalizeItemType(\$l['item_type'] ?? null, 'manual')") !== false);
 $a('Billing time-bundle path threads item_type', strpos($inv, "\$l['item_type']  = apNormalizeItemType") !== false);
 
 echo "\nGL post groups by revenue account\n";
 $a('Billing GL post buckets revenue by gl_revenue_account_code', strpos($inv, 'GROUP BY item_type, gl_revenue_account_code') !== false);
 $a('Billing GL fallback to 4000 when no override', strpos($inv, "\$code = \$r['gl_revenue_account_code'] ?: '4000'") !== false);
-$a('Billing GL skips empty buckets',            strpos($inv, 'if (round($amt, 2) <= 0.005) continue') !== false);
+$a('Billing GL skips zero buckets but retains negative discounts',
+   strpos($inv, 'if (abs($amt) <= 0.005) continue') !== false
+   && strpos($inv, "'debit' => \$amt < 0 ? abs(\$amt) : 0") !== false);
 
 echo "\nReact LineItemEditor\n";
 $ed = (string) file_get_contents(__DIR__ . '/../dashboard/src/components/LineItemEditor.jsx');
@@ -63,7 +67,8 @@ $a('unit_price input per row',                  strpos($ed, '${testIdPrefix}-lin
 $a('GL field per row',                          strpos($ed, '${testIdPrefix}-line-${i}-gl') !== false);
 $a('subtotal cell per row',                     strpos($ed, '${testIdPrefix}-line-${i}-subtotal') !== false);
 $a('add line button',                           strpos($ed, '${testIdPrefix}-add-line') !== false);
-$a('item-type change resets default unit',      strpos($ed, "setLine(i, { item_type: value, unit: meta.defaultUnit })") !== false);
+$a('item-type change resets default unit',
+   preg_match('/setLine\(i,\s*\{[^}]*item_type:\s*value[^}]*unit:\s*meta\.defaultUnit/s', $ed) === 1);
 
 echo "\nReact BillCreate page\n";
 $bc = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/BillCreate.jsx');
