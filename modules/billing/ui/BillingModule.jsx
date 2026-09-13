@@ -13,9 +13,11 @@ import DunningQueue from './DunningQueue';
 import ClientContacts from './ClientContacts';
 import MoneyMovementPreview from './MoneyMovementPreview';
 import MoneyMovementArchive from './MoneyMovementArchive';
+import ItemsCatalog from './ItemsCatalog';
 
 const navItems = [
   { to: '/modules/billing/invoices',  label: 'Invoices' },
+  { to: '/modules/billing/items',     label: 'Products & services' },
   { to: '/modules/billing/payments',  label: 'Payments' },
   { to: '/modules/billing/aging',     label: 'Aging' },
   { to: '/modules/billing/dunning',   label: 'Dunning' },
@@ -40,7 +42,9 @@ export default function BillingModule({ session }) {
         <Route path="invoices" element={<InvoicesList session={session} />} />
         <Route path="invoices/csv_import" element={<InvoicesCsvImport />} />
         <Route path="invoices/new" element={<InvoiceCreate />} />
+        <Route path="invoices/:id/edit" element={<InvoiceCreate />} />
         <Route path="invoices/:id" element={<InvoiceDetail />} />
+        <Route path="items" element={<ItemsCatalog />} />
         <Route path="payments" element={<PaymentsList />} />
         <Route path="payments/csv_import" element={<PaymentsCsvImport />} />
         <Route path="aging" element={<AgingTable />} />

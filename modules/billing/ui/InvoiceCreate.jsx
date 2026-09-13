@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import EntityPicker from '../../../dashboard/src/components/EntityPicker';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import LineItemEditor, { blankLine } from '../../../dashboard/src/components/LineItemEditor';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
@@ -11,7 +11,11 @@ import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
  */
 export default function InvoiceCreate() {
   const nav = useNavigate();
+  const { id } = useParams();
+  const isEdit = Boolean(id);
   const accountsApi = useApi('/modules/accounting/api/accounts.php?type=revenue&active=1');
+  const itemsApi = useApi('/modules/billing/api/items.php?active=1&per_page=500');
+  const invoiceApi = useApi(isEdit ? `/api/v1/billing/invoices?id=${id}` : null, { enabled: isEdit });
   const revenueAccounts = accountsApi.data?.rows ?? [];
 
   const [client, setClient]   = useState(null);
@@ -23,12 +27,45 @@ export default function InvoiceCreate() {
   const [notesInt, setNotesInt] = useState('');
   const [notesExt, setNotesExt] = useState('');
   const [lines, setLines]     = useState([blankLine('fixed_fee')]);
+  const [hydrated, setHydrated] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
 
+  useEffect(() => {
+    if (!isEdit || hydrated || !invoiceApi.data?.invoice) return;
+    const invoice = invoiceApi.data.invoice;
+    const savedLines = invoiceApi.data.lines ?? [];
+    setClient({ id: invoice.client_company_id, name: invoice.client_name });
+    setIssue(invoice.issue_date || '');
+    setDue(invoice.due_date || '');
+    setPo(invoice.po_number || '');
+    setEntityId(invoice.entity_id || null);
+    setNotesInt(invoice.notes_internal || '');
+    setNotesExt(invoice.notes_external || '');
+    setTaxPct(savedLines.reduce((rate, line) => Math.max(rate, Number(line.tax_rate_pct) || 0), 0));
+    setLines(savedLines.length ? savedLines.map((line) => ({
+      catalog_item_id: line.catalog_item_id || null,
+      catalog_item_code: line.catalog_item_code || null,
+      catalog_item_name: line.catalog_item_name || null,
+      item_type: line.item_type || 'other',
+      description: line.description || '',
+      quantity: line.quantity,
+      unit: line.unit || 'each',
+      unit_price: line.unit_price,
+      gl_account_code: line.gl_revenue_account_code || '',
+      taxable: Number(line.tax_rate_pct) > 0,
+    })) : [blankLine('fixed_fee')]);
+    setHydrated(true);
+  }, [hydrated, invoiceApi.data, isEdit]);
+
   const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
-  const taxTotal = subtotal * ((Number(taxPct) || 0) / 100);
+  const taxableSubtotal = lines.reduce((sum, line) => (
+    Object.prototype.hasOwnProperty.call(line, 'taxable') && line.taxable === false
+      ? sum
+      : sum + (Number(line.quantity) || 0) * (Number(line.unit_price) || 0)
+  ), 0);
+  const taxTotal = taxableSubtotal * ((Number(taxPct) || 0) / 100);
   const total    = subtotal + taxTotal;
 
   const submit = async (e) => {
@@ -48,31 +85,38 @@ export default function InvoiceCreate() {
         lines: lines
           .filter((l) => l.description && (Number(l.quantity) || 0) !== 0 && l.unit_price !== '')
           .map((l) => ({
+            catalog_item_id: l.catalog_item_id || null,
             item_type: l.item_type,
             description: l.description,
             quantity: Number(l.quantity) || 0,
             unit: l.unit || 'each',
             unit_price: Number(l.unit_price) || 0,
             gl_revenue_account_code: l.gl_account_code || null,
+            ...(Object.prototype.hasOwnProperty.call(l, 'taxable') ? { taxable: l.taxable } : {}),
           })),
       };
       if (payload.lines.length === 0) throw new Error('Add at least one line item');
-      const res = await api.post('/api/v1/billing/invoices', payload);
-      nav(`../invoices/${res.id}`);
+      if (isEdit) {
+        await api.patch(`/api/v1/billing/invoices?id=${id}`, payload);
+        nav(`/modules/billing/invoices/${id}`);
+      } else {
+        const res = await api.post('/api/v1/billing/invoices', payload);
+        nav(`/modules/billing/invoices/${res.id}`);
+      }
     } catch (e2) { setErr(e2); }
     finally     { setBusy(false); }
   };
+
+  if (isEdit && invoiceApi.loading && !hydrated) return <p>Loading...</p>;
+  if (isEdit && invoiceApi.error) return <p className="error">Error: {invoiceApi.error.message}</p>;
 
   return (
     <section data-testid="billing-invoice-create">
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
         <div>
-          <h2 style={{ margin: 0 }}>New invoice</h2>
-          <p style={{ margin: '4px 0 0', color: '#666', fontSize: 13 }}>
-            Manual invoice — supports any item type. For time-tracked labor across multiple placements, use <strong>+ New from time bundle</strong> on the invoices list.
-          </p>
+          <h2 style={{ margin: 0 }}>{isEdit ? 'Edit invoice' : 'New invoice'}</h2>
         </div>
-        <Link to="../invoices" className="btn btn--ghost" data-testid="billing-invoice-create-back">← Back</Link>
+        <Link to="/modules/billing/invoices" className="btn btn--ghost" data-testid="billing-invoice-create-back">← Back</Link>
       </header>
 
       <form onSubmit={submit}>
@@ -113,6 +157,7 @@ export default function InvoiceCreate() {
           glLabel="Revenue GL"
           glField="gl_revenue_account_code"
           accounts={revenueAccounts}
+          catalogItems={itemsApi.data?.rows ?? []}
           aiSuggestKind="billing_invoice"
           counterpartyName={client?.name || ''}
         />
@@ -138,9 +183,9 @@ export default function InvoiceCreate() {
         {err && <p className="error" data-testid="billing-invoice-create-error">Error: {err.message}</p>}
 
         <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Link to="../invoices" className="btn btn--ghost" data-testid="billing-invoice-create-cancel">Cancel</Link>
+          <Link to="/modules/billing/invoices" className="btn btn--ghost" data-testid="billing-invoice-create-cancel">Cancel</Link>
           <button type="submit" className="btn btn--primary" data-testid="billing-invoice-create-submit" disabled={busy}>
-            {busy ? 'Creating…' : 'Create draft invoice'}
+            {busy ? 'Saving...' : (isEdit ? 'Save draft' : 'Create draft invoice')}
           </button>
         </div>
       </form>

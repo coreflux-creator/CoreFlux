@@ -20,6 +20,7 @@ return [
     'actions' => [
         ['name' => 'AR Dashboard',      'route' => 'dashboard',  'permission' => 'billing.view'],
         ['name' => 'Invoices',          'route' => 'invoices',   'permission' => 'billing.view'],
+        ['name' => 'Products & Services','route' => 'items',      'permission' => 'billing.invoice.draft'],
         ['name' => 'Recurring',         'route' => 'recurring',  'permission' => 'billing.recurring.manage'],
         ['name' => 'Payments',          'route' => 'payments',   'permission' => 'billing.payments.record'],
         ['name' => 'Credits & Debits',  'route' => 'credits',    'permission' => 'billing.credits.manage'],
@@ -56,6 +57,9 @@ return [
         'billing.invoice.voided',
         'billing.invoice.posted',
         'billing.invoice.posted_ic',
+        'billing.item.created',
+        'billing.item.updated',
+        'billing.item.bulk_updated',
         'billing.invoice.disputed',
         'billing.invoice.paid_in_full',
         'billing.recurring.created',

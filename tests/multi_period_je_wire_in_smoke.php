@@ -65,8 +65,11 @@ $a('require_once multi_period.php at top of post handler',
    str_contains($inv, "require_once __DIR__ . '/../../accounting/lib/multi_period.php';"));
 $a('reads accountingSettingsGet($tid) inside post action',
    str_contains($inv, '$settings = accountingSettingsGet($tid);'));
-$a('reclassifyOnly gate set from multi_period_split_enabled',
-   str_contains($inv, "\$reclassifyOnly = !empty(\$settings['multi_period_split_enabled']);"));
+$a('reclassifyOnly gate requires multi-period mode and fully accrued source lines',
+   str_contains($inv, "\$reclassifyOnly = !empty(\$settings['multi_period_split_enabled']) && \$allLinesWereAccrued;"));
+$a('direct manual invoices are excluded from approved-time reclassification',
+   str_contains($inv, 'source_type IN ("time", "time_entry", "economic_item")')
+   && str_contains($inv, "\$allLinesWereAccrued ="));
 $a('reclassification block engages on the flag',
    str_contains($inv, "if (\$reclassifyOnly) {"));
 $a('reclassification debits AR (account 1100) for full total',

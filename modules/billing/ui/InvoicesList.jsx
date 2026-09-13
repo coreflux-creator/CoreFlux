@@ -10,6 +10,7 @@ import QboPaymentsCollectModal from './QboPaymentsCollectModal';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import { QboDriftBadge, useQboDriftBadges } from '../../../dashboard/src/components/QboDriftBadge';
 import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
+import { ChevronDown, Clock3, Download, Plus, Upload } from 'lucide-react';
 
 const STATUS_FILTERS = ['all','draft','approved','sent','partially_paid','paid','void'];
 
@@ -63,7 +64,6 @@ export default function InvoicesList({ session }) {
           Scoped to entity <code>{activeEntity.code}</code> — switch in the header to see another.
         </div>
       )}
-      <ApprovedHoursReadyTile variant="billing" onPick={() => setShowEntries(true)} />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {STATUS_FILTERS.map(s => (
@@ -80,16 +80,19 @@ export default function InvoicesList({ session }) {
             >{s.replace('_', ' ')}</button>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Link to="new" className="btn btn--primary" data-testid="billing-new-invoice">+ New invoice</Link>
-          <button className="btn btn--ghost" onClick={() => setShowCreate(true)} data-testid="billing-new-from-time-bundle">
-            New from time bundle
-          </button>
-          <button className="btn btn--ghost" onClick={() => setShowEntries(true)} data-testid="billing-new-from-time-entries">
-            New from approved hours (day-level)
-          </button>
-          <Link to="csv_import" className="btn" data-testid="billing-invoices-import-csv">Import CSV</Link>
-          <a className="btn" href={`/modules/billing/api/csv_export.php${status !== 'all' ? `?status=${status}` : ''}`} data-testid="billing-invoices-export-csv">Export CSV</a>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Link to="new" className="btn btn--primary" data-testid="billing-new-invoice"><Plus size={16} /> New invoice</Link>
+          <details style={{ position: 'relative' }}>
+            <summary className="btn btn--ghost" style={{ listStyle: 'none', cursor: 'pointer' }} data-testid="billing-create-from-time-menu">
+              <Clock3 size={15} /> Create from time <ChevronDown size={14} />
+            </summary>
+            <div style={{ position: 'absolute', zIndex: 20, right: 0, top: 'calc(100% + 5px)', width: 230, padding: 6, background: 'var(--cf-surface)', border: '1px solid var(--cf-border)', borderRadius: 6, boxShadow: 'var(--cf-shadow-md)', display: 'grid', gap: 4 }}>
+              <button className="btn btn--ghost" onClick={() => setShowCreate(true)} data-testid="billing-new-from-time-bundle">Time bundle</button>
+              <button className="btn btn--ghost" onClick={() => setShowEntries(true)} data-testid="billing-new-from-time-entries">Approved hours</button>
+            </div>
+          </details>
+          <Link to="csv_import" className="btn btn--ghost" data-testid="billing-invoices-import-csv"><Upload size={15} /> Import</Link>
+          <a className="btn btn--ghost" href={`/modules/billing/api/csv_export.php${status !== 'all' ? `?status=${status}` : ''}`} data-testid="billing-invoices-export-csv"><Download size={15} /> Export</a>
         </div>
       </div>
 
@@ -168,6 +171,11 @@ export default function InvoicesList({ session }) {
           })}
         </tbody>
       </table>
+
+      <details style={{ marginTop: 14 }} data-testid="billing-approved-time-ready-section">
+        <summary style={{ cursor: 'pointer', color: 'var(--cf-text-secondary)', fontSize: 13 }}>Approved time ready to bill</summary>
+        <ApprovedHoursReadyTile variant="billing" onPick={() => setShowEntries(true)} />
+      </details>
 
       {showCreate && (
         <InvoiceFromTimeBundleModal

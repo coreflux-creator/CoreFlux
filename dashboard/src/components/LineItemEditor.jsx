@@ -42,10 +42,10 @@ export const ITEM_TYPES = [
 
 export function blankLine(itemType = 'other') {
   const meta = ITEM_TYPES.find((t) => t.value === itemType) || ITEM_TYPES[ITEM_TYPES.length - 1];
-  return { item_type: itemType, description: '', quantity: 1, unit: meta.defaultUnit, unit_price: '', gl_account_code: '' };
+  return { catalog_item_id: null, item_type: itemType, description: '', quantity: 1, unit: meta.defaultUnit, unit_price: '', gl_account_code: '' };
 }
 
-export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel, glField, accounts = [], aiSuggestKind = null, counterpartyName = '' }) {
+export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel, glField, accounts = [], catalogItems = null, aiSuggestKind = null, counterpartyName = '' }) {
   const [aiBusy, setAiBusy] = useState({});       // line index → bool
   const [aiResult, setAiResult] = useState({});   // line index → suggestion / error
 
@@ -58,7 +58,25 @@ export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel,
   const setItemType = (i, value) => {
     const meta = ITEM_TYPES.find((t) => t.value === value) || ITEM_TYPES[ITEM_TYPES.length - 1];
     // When changing type, reset unit to that type's default but preserve qty/desc/price.
-    setLine(i, { item_type: value, unit: meta.defaultUnit });
+    setLine(i, { catalog_item_id: null, item_type: value, unit: meta.defaultUnit, taxable: undefined });
+  };
+
+  const setCatalogItem = (i, value) => {
+    if (!value) {
+      setLine(i, { catalog_item_id: null, taxable: undefined });
+      return;
+    }
+    const item = (catalogItems || []).find((entry) => Number(entry.id) === Number(value));
+    if (!item) return;
+    setLine(i, {
+      catalog_item_id: Number(item.id),
+      item_type: item.item_type,
+      description: item.description || item.name,
+      unit: item.default_unit || 'each',
+      unit_price: item.default_unit_price ?? '',
+      gl_account_code: item.gl_revenue_account_code || '',
+      taxable: Number(item.taxable) === 1,
+    });
   };
 
   const removeLine = (i) => {
@@ -105,6 +123,7 @@ export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel,
       <table className="data-table" style={{ width: '100%' }}>
         <thead>
           <tr>
+            {catalogItems !== null && <th style={{ width: 190 }}>Product / service</th>}
             <th style={{ width: 150 }}>Item type</th>
             <th>Description</th>
             <th style={{ width: 90, textAlign: 'right' }}>Qty</th>
@@ -118,8 +137,19 @@ export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel,
         <tbody>
           {lines.map((l, i) => {
             const lineSub = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0);
+            const selectedCatalogMissing = l.catalog_item_id
+              && !(catalogItems || []).some((item) => Number(item.id) === Number(l.catalog_item_id));
             return (
               <tr key={i} data-testid={`${testIdPrefix}-line-${i}`}>
+                {catalogItems !== null && (
+                  <td>
+                    <select className="input" value={l.catalog_item_id || ''} onChange={(e) => setCatalogItem(i, e.target.value)} data-testid={`${testIdPrefix}-line-${i}-catalog-item`}>
+                      <option value="">Custom line</option>
+                      {selectedCatalogMissing && <option value={l.catalog_item_id}>{l.catalog_item_code || 'Inactive'} - {l.catalog_item_name || 'catalog item'}</option>}
+                      {catalogItems.map((item) => <option key={item.id} value={item.id}>{item.code} - {item.name}</option>)}
+                    </select>
+                  </td>
+                )}
                 <td>
                   <select
                     className="input"
@@ -234,7 +264,7 @@ export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel,
             );
           })}
           <tr style={{ fontWeight: 600, background: '#f9fafb' }}>
-            <td colSpan={6} style={{ textAlign: 'right' }}>Subtotal</td>
+            <td colSpan={catalogItems !== null ? 7 : 6} style={{ textAlign: 'right' }}>Subtotal</td>
             <td style={{ textAlign: 'right' }} data-testid={`${testIdPrefix}-subtotal`}>{fmt(subtotal)}</td>
             <td></td>
           </tr>

@@ -710,9 +710,10 @@ function billingComputeTax(array $lines, float $taxPct): array
         $qty   = (float) ($l['quantity']   ?? 0);
         $price = (float) ($l['unit_price'] ?? 0);
         $s     = round($qty * $price, 2);
-        $t     = round($s * ($taxPct / 100), 2);
+        $lineTaxPct = array_key_exists('taxable', $l) && !$l['taxable'] ? 0.0 : $taxPct;
+        $t     = round($s * ($lineTaxPct / 100), 2);
         $l['subtotal']     = $s;
-        $l['tax_rate_pct'] = $taxPct;
+        $l['tax_rate_pct'] = $lineTaxPct;
         $l['tax_amount']   = $t;
         $l['total']        = round($s + $t, 2);
         $sub += $s; $tax += $t;
