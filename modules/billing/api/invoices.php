@@ -567,6 +567,24 @@ if ($method === 'POST' && $action === 'send') {
     if (!$row) api_error('Not found', 404);
     if (!billingTransitionAllowed($row['status'], 'sent')) api_error("Cannot send from status {$row['status']}", 409);
 
+    $beforeNormalization = $row;
+    try {
+        $normalization = billingNormalizeStoredInvoiceAmounts($tid, $id);
+        $row = $normalization['invoice'];
+    } catch (\Throwable $e) {
+        api_error('Invoice totals could not be reconciled: ' . $e->getMessage(), 422);
+    }
+    if (!empty($normalization['changed'])) {
+        billingAudit('billing.invoice.amounts_normalized', [
+            'invoice_id' => $id,
+            'invoice_number' => $row['invoice_number'],
+            'line_changes' => (int) ($normalization['line_changes'] ?? 0),
+            'before_total' => (float) $beforeNormalization['total'],
+            'after_total' => (float) $row['total'],
+            'trigger' => 'send',
+        ], $id);
+    }
+
     $body = api_json_body();
     $to = trim((string) ($body['to'] ?? ''));
     if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) api_error('to (email) required', 422);
@@ -730,6 +748,24 @@ if ($method === 'POST' && $action === 'post') {
     if (!in_array($row['status'], ['approved','sent','partially_paid','paid'], true)) {
         api_error("Cannot post from status {$row['status']}", 409);
     }
+
+    $beforeNormalization = $row;
+    try {
+        $normalization = billingNormalizeStoredInvoiceAmounts($tid, $id);
+        $row = $normalization['invoice'];
+    } catch (\Throwable $e) {
+        api_error('Invoice totals could not be reconciled: ' . $e->getMessage(), 422);
+    }
+    if (!empty($normalization['changed'])) {
+        billingAudit('billing.invoice.amounts_normalized', [
+            'invoice_id' => $id,
+            'invoice_number' => $row['invoice_number'],
+            'line_changes' => (int) ($normalization['line_changes'] ?? 0),
+            'before_total' => (float) $beforeNormalization['total'],
+            'after_total' => (float) $row['total'],
+            'trigger' => 'post',
+        ], $id);
+    }
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
     require_once __DIR__ . '/../../accounting/lib/multi_period.php';
     require_once __DIR__ . '/../../../core/posting_engine/process.php';
@@ -823,8 +859,10 @@ if ($method === 'POST' && $action === 'post') {
                 'invoice_number' => (string) $row['invoice_number'],
                 'client_name'    => (string) $row['client_name'],
                 'client_company_id' => $party,
+                'total'          => (float) $row['total'],
                 'amount'         => (float) $row['total'],
                 'currency'       => (string) $row['currency'],
+                'due_date'       => (string) $row['due_date'],
                 'lines'          => $payloadLines,
             ],
         ], $user['id'] ?? null);

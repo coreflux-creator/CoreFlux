@@ -723,6 +723,155 @@ function billingComputeTax(array $lines, float $taxPct): array
 }
 
 /**
+ * Return one internally consistent invoice line. Generated staffing lines use
+ * their stored full-precision rate; manual/imported lines preserve the entered
+ * subtotal and tax while repairing a stale total.
+ */
+function billingNormalizeInvoiceLineAmounts(array $line): array
+{
+    $sourceType = (string) ($line['source_type'] ?? 'manual');
+    $generated = in_array($sourceType, ['time', 'time_entry', 'economic_item'], true);
+    $storedSubtotal = round((float) ($line['subtotal'] ?? 0), 2);
+
+    if ($generated) {
+        $computedSubtotal = round(
+            (float) ($line['quantity'] ?? 0) * (float) ($line['unit_price'] ?? 0),
+            2
+        );
+        // Older fixed-fee imports occasionally have no usable quantity/rate.
+        $subtotal = abs($computedSubtotal) < 0.005 && abs($storedSubtotal) >= 0.005
+            ? $storedSubtotal
+            : $computedSubtotal;
+        $tax = round($subtotal * ((float) ($line['tax_rate_pct'] ?? 0) / 100), 2);
+    } else {
+        $subtotal = $storedSubtotal;
+        $tax = round((float) ($line['tax_amount'] ?? 0), 2);
+    }
+
+    return [
+        'subtotal' => $subtotal,
+        'tax_amount' => $tax,
+        'total' => round($subtotal + $tax, 2),
+    ];
+}
+
+/**
+ * Repair stored invoice math before customer delivery or GL posting.
+ * The invoice row is locked so totals and lines change as one transaction.
+ *
+ * @return array{invoice: array, changed: bool, line_changes: int}
+ */
+function billingNormalizeStoredInvoiceAmounts(int $tenantId, int $invoiceId): array
+{
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No DB');
+
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) $pdo->beginTransaction();
+
+    try {
+        $invoiceStmt = $pdo->prepare(
+            'SELECT * FROM billing_invoices
+              WHERE tenant_id = :tenant_id AND id = :id
+              LIMIT 1 FOR UPDATE'
+        );
+        $invoiceStmt->execute(['tenant_id' => $tenantId, 'id' => $invoiceId]);
+        $invoice = $invoiceStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$invoice) throw new \RuntimeException("Invoice {$invoiceId} not found");
+
+        // Posted invoices are immutable. A repeated Post request is handled by
+        // the posting layer's idempotency path without rewriting source math.
+        if (!empty($invoice['journal_entry_id'])) {
+            if ($ownsTransaction) $pdo->commit();
+            return ['invoice' => $invoice, 'changed' => false, 'line_changes' => 0];
+        }
+
+        $lineStmt = $pdo->prepare(
+            'SELECT id, source_type, quantity, unit_price, subtotal,
+                    tax_rate_pct, tax_amount, total
+               FROM billing_invoice_lines
+              WHERE invoice_id = :invoice_id
+              ORDER BY line_no, id
+              FOR UPDATE'
+        );
+        $lineStmt->execute(['invoice_id' => $invoiceId]);
+        $lines = $lineStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        if (!$lines) throw new \RuntimeException('Invoice has no line items');
+
+        $updateLine = $pdo->prepare(
+            'UPDATE billing_invoice_lines
+                SET subtotal = :subtotal, tax_amount = :tax_amount, total = :total
+              WHERE id = :id AND invoice_id = :invoice_id'
+        );
+        $subtotal = 0.0;
+        $taxTotal = 0.0;
+        $total = 0.0;
+        $lineChanges = 0;
+
+        foreach ($lines as $line) {
+            $normalized = billingNormalizeInvoiceLineAmounts($line);
+            $lineChanged = abs((float) $line['subtotal'] - $normalized['subtotal']) >= 0.005
+                || abs((float) $line['tax_amount'] - $normalized['tax_amount']) >= 0.005
+                || abs((float) $line['total'] - $normalized['total']) >= 0.005;
+            if ($lineChanged) {
+                $updateLine->execute([
+                    'subtotal' => $normalized['subtotal'],
+                    'tax_amount' => $normalized['tax_amount'],
+                    'total' => $normalized['total'],
+                    'id' => (int) $line['id'],
+                    'invoice_id' => $invoiceId,
+                ]);
+                $lineChanges++;
+            }
+            $subtotal += $normalized['subtotal'];
+            $taxTotal += $normalized['tax_amount'];
+            $total += $normalized['total'];
+        }
+
+        $subtotal = round($subtotal, 2);
+        $taxTotal = round($taxTotal, 2);
+        $total = round($total, 2);
+        $amountDue = round($total - (float) ($invoice['amount_paid'] ?? 0), 2);
+        $headerChanged = abs((float) $invoice['subtotal'] - $subtotal) >= 0.005
+            || abs((float) $invoice['tax_total'] - $taxTotal) >= 0.005
+            || abs((float) $invoice['total'] - $total) >= 0.005
+            || abs((float) $invoice['amount_due'] - $amountDue) >= 0.005;
+
+        if ($headerChanged || $lineChanges > 0) {
+            $pdo->prepare(
+                'UPDATE billing_invoices
+                    SET subtotal = :subtotal, tax_total = :tax_total, total = :total,
+                        amount_due = :amount_due, updated_at = NOW()
+                  WHERE tenant_id = :tenant_id AND id = :id'
+            )->execute([
+                'subtotal' => $subtotal,
+                'tax_total' => $taxTotal,
+                'total' => $total,
+                'amount_due' => $amountDue,
+                'tenant_id' => $tenantId,
+                'id' => $invoiceId,
+            ]);
+        }
+
+        $invoiceStmt = $pdo->prepare(
+            'SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id LIMIT 1'
+        );
+        $invoiceStmt->execute(['tenant_id' => $tenantId, 'id' => $invoiceId]);
+        $normalizedInvoice = $invoiceStmt->fetch(\PDO::FETCH_ASSOC) ?: $invoice;
+
+        if ($ownsTransaction) $pdo->commit();
+        return [
+            'invoice' => $normalizedInvoice,
+            'changed' => $headerChanged || $lineChanges > 0,
+            'line_changes' => $lineChanges,
+        ];
+    } catch (\Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/**
  * Allowed status transitions per SPEC §9. Returns true|throws.
  *  - draft → approved | void
  *  - approved → sent | void
