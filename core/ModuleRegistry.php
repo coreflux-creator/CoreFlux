@@ -159,6 +159,7 @@ class ModuleRegistry {
             'audit_events'          => [],
             'workflows'             => [],
             'exports'               => [],
+            'people_graph'          => [],
             'default_roles'         => [],
             'depends_on'            => [],
             'custom_field_entities' => [],
@@ -249,6 +250,28 @@ class ModuleRegistry {
             }
         }
         return array_values(array_unique($perms));
+    }
+
+    /** @return array<string, array> module_id => People Graph contract */
+    public function getPeopleGraphContracts(): array {
+        $contracts = [];
+        foreach ($this->modules as $moduleId => $module) {
+            $contract = $module['people_graph'] ?? [];
+            if (!is_array($contract) || $contract === []) continue;
+            $contracts[$moduleId] = array_merge([
+                'module_id'    => $moduleId,
+                'consumes'     => false,
+                'mode'         => 'source_module_consumer',
+                'object_types' => [],
+            ], $contract, [
+                'module_id' => $moduleId,
+            ]);
+        }
+        return $contracts;
+    }
+
+    public function getPeopleGraphContract(string $moduleId): ?array {
+        return $this->getPeopleGraphContracts()[$moduleId] ?? null;
     }
 
     /**

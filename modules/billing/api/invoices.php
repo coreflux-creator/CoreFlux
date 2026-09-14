@@ -8,7 +8,7 @@
  *   POST   /api/billing/invoices?action=from-time-bundle
  *          body: {period_id, placement_ids[], aggregation: 'per_placement'|'per_client'}
  *   PATCH  /api/billing/invoices?id=N          → edit draft (status='draft' only)
- *   POST   /api/billing/invoices?action=approve&id=N    → two-eye gate
+ *   POST   /api/billing/invoices?action=approve&id=N    → direct or policy-routed approval
  *   POST   /api/billing/invoices?action=send&id=N       → issue token + email
  *   POST   /api/billing/invoices?action=void&id=N       → body: {reason}
  *
@@ -524,7 +524,8 @@ if ($method === 'POST' && $action === 'approve') {
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if (!billingTransitionAllowed($row['status'], 'approved')) api_error("Cannot approve from status {$row['status']}", 409);
-    // WorkflowEngine enforces the legacy two-eye rule: cannot approve your own draft.
+    // A configured approval policy owns routing and separation of duties.
+    // Without one, an authorized billing user can approve the draft directly.
     try {
         $workflow = billingInvoiceWorkflowAct($tid, $id, (int) ($user['id'] ?? 0), 'approve');
     } catch (\Throwable $e) {
