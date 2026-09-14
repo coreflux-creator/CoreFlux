@@ -156,7 +156,10 @@ function AccountingNav() {
   const [moreOpen, setMoreOpen] = useState(false);
   const menuRef = useRef(null);
   const location = useLocation();
-  const moreRoutes = MORE_NAV.flatMap(group => group.items.map(item => item.to));
+  const reportRoutes = ['trial', 'pnl', 'balance', 'cash-flow', 'gl-detail', 'dim-pnl'];
+  const reportActive = reportRoutes.some(route => location.pathname.includes(`/accounting/${route}`));
+  const moreRoutes = MORE_NAV.flatMap(group => group.items.map(item => item.to))
+    .filter(route => !reportRoutes.includes(route));
   const moreActive = moreRoutes.some(route => location.pathname.includes(`/accounting/${route}`));
 
   useEffect(() => {
@@ -170,7 +173,13 @@ function AccountingNav() {
   return (
     <nav className="accounting-nav" aria-label="Accounting sections" data-testid="accounting-section-nav">
       <div className="accounting-nav__primary">
-        {PRIMARY_NAV.map(item => <AccountingNavLink key={item.to} item={item} />)}
+        {PRIMARY_NAV.map(item => (
+          <AccountingNavLink
+            key={item.to}
+            item={item}
+            active={item.to === 'reports' && reportActive}
+          />
+        ))}
       </div>
       <div className="accounting-nav__more" ref={menuRef}>
         <button
@@ -199,13 +208,13 @@ function AccountingNav() {
   );
 }
 
-function AccountingNavLink({ item, menu = false, onSelect }) {
+function AccountingNavLink({ item, menu = false, onSelect, active = false }) {
   const { to, label, Icon } = item;
   return (
     <NavLink
       to={to}
       data-testid={`accounting-tab-${to}`}
-      className={({ isActive }) => `${menu ? 'accounting-nav__menu-link' : 'accounting-nav__link'}${isActive ? ' is-active' : ''}`}
+      className={({ isActive }) => `${menu ? 'accounting-nav__menu-link' : 'accounting-nav__link'}${isActive || active ? ' is-active' : ''}`}
       onClick={onSelect}
     >
       <Icon size={16} aria-hidden="true" />
