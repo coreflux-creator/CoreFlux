@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApi, api } from '../../../dashboard/src/lib/api';
+import { fmtMoney } from '../../../dashboard/src/lib/format';
 
 export default function AgingTable() {
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
@@ -67,9 +68,12 @@ export default function AgingTable() {
   }), { cur: 0, b1: 0, b2: 0, b3: 0, b4: 0, tot: 0 });
 
   return (
-    <section data-testid="billing-aging">
+    <section className="report-page aging-report" data-testid="billing-aging">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', gap: 12, flexWrap: 'wrap' }}>
-        <h3 style={{ margin: 0 }}>AR aging</h3>
+        <div>
+          <h3 style={{ margin: 0 }}>Accounts receivable aging</h3>
+          <p className="report-page__meta">Posted customer balances as of {asOf}</p>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
             className="btn btn--ghost" style={{ fontSize: 12 }}
@@ -94,6 +98,16 @@ export default function AgingTable() {
         </p>
       )}
 
+      {!loading && !error && (
+        <div className="aging-summary" data-testid="billing-aging-summary">
+          <AgingSummary label="Total receivables" value={totals.tot} tone="blue" />
+          <AgingSummary label="Current" value={totals.cur} tone="teal" />
+          <AgingSummary label="Past due" value={totals.b1 + totals.b2 + totals.b3 + totals.b4} tone="amber" />
+          <AgingSummary label="Over 90 days" value={totals.b4} tone="red" />
+        </div>
+      )}
+
+      <div className="data-table-wrap aging-table-wrap">
       <table className="data-table" data-testid="billing-aging-table">
         <thead>
           <tr>
@@ -112,12 +126,12 @@ export default function AgingTable() {
           {rows.map((r, i) => (
             <tr key={i} data-testid={`billing-aging-row-${i}`}>
               <td>{r.client_name}</td>
-              <td style={{textAlign:'right'}}>{Number(r.bucket_current).toFixed(2)}</td>
-              <td style={{textAlign:'right'}}>{Number(r.bucket_1_30).toFixed(2)}</td>
-              <td style={{textAlign:'right'}}>{Number(r.bucket_31_60).toFixed(2)}</td>
-              <td style={{textAlign:'right', color: Number(r.bucket_61_90) > 0 ? 'var(--cf-warning, #b45309)' : undefined}}>{Number(r.bucket_61_90).toFixed(2)}</td>
-              <td style={{textAlign:'right', color: Number(r.bucket_91_plus) > 0 ? 'var(--cf-danger, #b91c1c)' : undefined, fontWeight: Number(r.bucket_91_plus) > 0 ? 600 : 400}}>{Number(r.bucket_91_plus).toFixed(2)}</td>
-              <td style={{textAlign:'right', fontWeight: 600}}>{Number(r.total_due).toFixed(2)}</td>
+              <td style={{textAlign:'right'}}>{fmtMoney(r.bucket_current)}</td>
+              <td style={{textAlign:'right'}}>{fmtMoney(r.bucket_1_30)}</td>
+              <td style={{textAlign:'right'}}>{fmtMoney(r.bucket_31_60)}</td>
+              <td style={{textAlign:'right', color: Number(r.bucket_61_90) > 0 ? 'var(--cf-warning, #b45309)' : undefined}}>{fmtMoney(r.bucket_61_90)}</td>
+              <td style={{textAlign:'right', color: Number(r.bucket_91_plus) > 0 ? 'var(--cf-danger, #b91c1c)' : undefined, fontWeight: Number(r.bucket_91_plus) > 0 ? 600 : 400}}>{fmtMoney(r.bucket_91_plus)}</td>
+              <td style={{textAlign:'right', fontWeight: 600}}>{fmtMoney(r.total_due)}</td>
               <td style={{textAlign:'right'}}>
                 <button
                   className="btn btn--ghost" style={{ fontSize: 11 }}
@@ -133,17 +147,18 @@ export default function AgingTable() {
           {rows.length > 0 && (
             <tr style={{borderTop: '2px solid var(--cf-text, #111827)', fontWeight: 600}} data-testid="billing-aging-totals">
               <td>TOTAL</td>
-              <td style={{textAlign:'right'}}>{totals.cur.toFixed(2)}</td>
-              <td style={{textAlign:'right'}}>{totals.b1.toFixed(2)}</td>
-              <td style={{textAlign:'right'}}>{totals.b2.toFixed(2)}</td>
-              <td style={{textAlign:'right'}}>{totals.b3.toFixed(2)}</td>
-              <td style={{textAlign:'right'}}>{totals.b4.toFixed(2)}</td>
-              <td style={{textAlign:'right'}}>{totals.tot.toFixed(2)}</td>
+              <td style={{textAlign:'right'}}>{fmtMoney(totals.cur)}</td>
+              <td style={{textAlign:'right'}}>{fmtMoney(totals.b1)}</td>
+              <td style={{textAlign:'right'}}>{fmtMoney(totals.b2)}</td>
+              <td style={{textAlign:'right'}}>{fmtMoney(totals.b3)}</td>
+              <td style={{textAlign:'right'}}>{fmtMoney(totals.b4)}</td>
+              <td style={{textAlign:'right'}}>{fmtMoney(totals.tot)}</td>
               <td></td>
             </tr>
           )}
         </tbody>
       </table>
+      </div>
 
       {preview && (
         <StatementPreviewModal
@@ -165,6 +180,15 @@ export default function AgingTable() {
         />
       )}
     </section>
+  );
+}
+
+function AgingSummary({ label, value, tone }) {
+  return (
+    <div className={`aging-summary__item aging-summary__item--${tone}`}>
+      <span>{label}</span>
+      <strong>{fmtMoney(value)}</strong>
+    </div>
   );
 }
 

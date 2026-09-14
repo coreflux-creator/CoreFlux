@@ -1190,19 +1190,43 @@ function apComputeAging(int $tenantId, string $asOf): array
 {
     $pdo = getDB();
     $q = $pdo->prepare(
-        'SELECT vendor_name,
-                SUM(CASE WHEN due_date >= :a1 THEN amount_due ELSE 0 END) AS bucket_current,
-                SUM(CASE WHEN due_date <  :a2 AND DATEDIFF(:a3, due_date) BETWEEN 1 AND 30 THEN amount_due ELSE 0 END) AS bucket_1_30,
-                SUM(CASE WHEN due_date <  :a4 AND DATEDIFF(:a5, due_date) BETWEEN 31 AND 60 THEN amount_due ELSE 0 END) AS bucket_31_60,
-                SUM(CASE WHEN due_date <  :a6 AND DATEDIFF(:a7, due_date) BETWEEN 61 AND 90 THEN amount_due ELSE 0 END) AS bucket_61_90,
-                SUM(CASE WHEN due_date <  :a8 AND DATEDIFF(:a9, due_date) > 90 THEN amount_due ELSE 0 END) AS bucket_91_plus,
-                SUM(amount_due) AS total_due
-         FROM ap_bills
-         WHERE tenant_id = :tid AND status IN ("approved","partially_paid","pending_approval") AND amount_due > 0
-         GROUP BY vendor_name
+        'SELECT aged.vendor_name,
+                SUM(CASE WHEN aged.due_date >= :a1 THEN aged.amount_due ELSE 0 END) AS bucket_current,
+                SUM(CASE WHEN aged.due_date <  :a2 AND DATEDIFF(:a3, aged.due_date) BETWEEN 1 AND 30 THEN aged.amount_due ELSE 0 END) AS bucket_1_30,
+                SUM(CASE WHEN aged.due_date <  :a4 AND DATEDIFF(:a5, aged.due_date) BETWEEN 31 AND 60 THEN aged.amount_due ELSE 0 END) AS bucket_31_60,
+                SUM(CASE WHEN aged.due_date <  :a6 AND DATEDIFF(:a7, aged.due_date) BETWEEN 61 AND 90 THEN aged.amount_due ELSE 0 END) AS bucket_61_90,
+                SUM(CASE WHEN aged.due_date <  :a8 AND DATEDIFF(:a9, aged.due_date) > 90 THEN aged.amount_due ELSE 0 END) AS bucket_91_plus,
+                SUM(aged.amount_due) AS total_due
+           FROM (
+                SELECT b.id, b.vendor_name, b.due_date,
+                       GREATEST(0, ROUND(b.total - COALESCE(SUM(
+                           CASE WHEN p.pay_date <= :payment_as_of AND p.status IN ("sent", "cleared")
+                                THEN alloc.amount_applied ELSE 0 END
+                       ), 0), 2)) AS amount_due
+                  FROM ap_bills b
+                  JOIN accounting_journal_entries je
+                    ON je.id = b.journal_entry_id
+                   AND je.tenant_id = b.tenant_id
+                   AND je.status = "posted"
+                   AND je.posting_date <= :posted_as_of
+             LEFT JOIN ap_payment_allocations alloc ON alloc.bill_id = b.id
+             LEFT JOIN ap_payments p ON p.id = alloc.payment_id AND p.tenant_id = b.tenant_id
+                 WHERE b.tenant_id = :tid
+                   AND b.bill_date <= :document_as_of
+                   AND (b.status <> "void" OR b.voided_at IS NULL OR DATE(b.voided_at) > :void_as_of)
+              GROUP BY b.id, b.vendor_name, b.due_date, b.total
+                HAVING amount_due > 0
+           ) aged
+       GROUP BY aged.vendor_name
          ORDER BY total_due DESC'
     );
-    $bind = ['tid' => $tenantId];
+    $bind = [
+        'tid' => $tenantId,
+        'payment_as_of' => $asOf,
+        'posted_as_of' => $asOf,
+        'document_as_of' => $asOf,
+        'void_as_of' => $asOf,
+    ];
     foreach (['a1','a2','a3','a4','a5','a6','a7','a8','a9'] as $k) $bind[$k] = $asOf;
     $q->execute($bind);
     return $q->fetchAll(\PDO::FETCH_ASSOC);

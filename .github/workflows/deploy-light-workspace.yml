@@ -100,6 +100,7 @@ jobs:
             dashboard/src/components/MetricCard.jsx \
             dashboard/src/components/ModuleTabs.jsx \
             dashboard/src/components/ReportShell.jsx \
+            dashboard/src/lib/useReportPeriod.js \
             dashboard/src/layout/AppLayout.jsx \
             dashboard/src/layout/Header.jsx \
             dashboard/src/layout/Sidebar.jsx \
@@ -126,7 +127,9 @@ jobs:
             modules/accounting/api/bank_ai.php \
             modules/accounting/api/bank_statements.php \
             modules/accounting/lib/bank_rec.php \
+            modules/accounting/lib/standard_reports.php \
             modules/accounting/ui/BankReconciliation.jsx \
+            modules/accounting/ui/CashFlowStatement.jsx \
             modules/accounting/ui/ChartOfAccounts.jsx \
             modules/accounting/ui/StandardReports.jsx \
             modules/ap/api/1099.php \
@@ -137,7 +140,9 @@ jobs:
             modules/ap/api/vendor_portal.php \
             modules/ap/api/weekly_queue.php \
             modules/ap/lib/vendor_risk.php \
+            modules/ap/lib/ap.php \
             modules/ap/ui/APModule.jsx \
+            modules/ap/ui/AgingTable.jsx \
             modules/ap/ui/BillsList.jsx \
             modules/ap/ui/WeeklyQueue.jsx \
             modules/billing/api/invoices.php \
@@ -149,6 +154,7 @@ jobs:
             modules/billing/migrations/013_item_catalog.sql \
             modules/billing/migrations/014_invoice_amount_consistency.sql \
             modules/billing/ui/BillingModule.jsx \
+            modules/billing/ui/AgingTable.jsx \
             modules/billing/ui/InvoiceCreate.jsx \
             modules/billing/ui/InvoiceDetail.jsx \
             modules/billing/ui/InvoicesList.jsx \
@@ -235,6 +241,7 @@ jobs:
             tests/billing_spec_smoke.php \
             tests/chart_of_accounts_controls_smoke.php \
             tests/company_directory_workflow_smoke.php \
+            tests/core_accounting_reports_trust_smoke.php \
             tests/csv_ai_assisted_mapping_smoke.php \
             tests/csv_external_id_wave2_smoke.php \
             tests/csv_importers_subtenant_scope_smoke.php \
@@ -342,11 +349,13 @@ jobs:
               modules/accounting/api/bank_ai.php \
               modules/accounting/api/bank_statements.php \
               modules/accounting/lib/bank_rec.php \
+              modules/accounting/lib/standard_reports.php \
               modules/ap/api/1099.php \
               modules/ap/api/approval_policies.php \
               modules/ap/api/bills.php \
               modules/ap/api/vendor_risk.php \
               modules/ap/lib/vendor_risk.php \
+              modules/ap/lib/ap.php \
               modules/billing/api/invoices.php \
               modules/billing/api/items.php \
               modules/billing/lib/billing.php \
@@ -395,6 +404,7 @@ jobs:
             php tests/billing_spec_smoke.php
             php tests/chart_of_accounts_controls_smoke.php
             php tests/company_directory_workflow_smoke.php
+            php tests/core_accounting_reports_trust_smoke.php
             php tests/csv_ai_assisted_mapping_smoke.php
             php tests/csv_external_id_wave2_smoke.php
             php tests/csv_importers_subtenant_scope_smoke.php

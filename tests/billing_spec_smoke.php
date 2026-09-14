@@ -137,7 +137,8 @@ $assert('payments list supports auto-FIFO',    strpos($pl, 'billing-allocate-fif
 echo "\nAging SQL math sanity (computed via SQL — schema-only test here)\n";
 $libSrc = (string) file_get_contents(__DIR__ . '/../modules/billing/lib/billing.php');
 $assert('aging includes 5 buckets',            strpos($libSrc, 'bucket_current') !== false && strpos($libSrc, 'bucket_91_plus') !== false);
-$assert('aging filters unpaid statuses',       strpos($libSrc, "status IN (\"sent\",\"partially_paid\",\"approved\",\"overdue\")") !== false);
+$assert('aging includes posted invoices only', strpos($libSrc, 'JOIN accounting_journal_entries je') !== false && strpos($libSrc, 'je.status = "posted"') !== false);
+$assert('aging reconstructs balance as of date', strpos($libSrc, 'p.received_at <= :payment_as_of') !== false && strpos($libSrc, 'i.issue_date <= :document_as_of') !== false);
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

@@ -33,7 +33,7 @@ function shiftYears(iso, years) {
   return d.toISOString().slice(0, 10);
 }
 
-export function useReportPeriod({ defaultFrom, defaultTo, defaultCompare = 'both' } = {}) {
+export function useReportPeriod({ defaultFrom, defaultTo, defaultCompare = 'prior_period' } = {}) {
   const today = new Date().toISOString().slice(0, 10);
   const yearStart = `${today.slice(0, 4)}-01-01`;
   const [from, setFrom] = useState(defaultFrom || yearStart);

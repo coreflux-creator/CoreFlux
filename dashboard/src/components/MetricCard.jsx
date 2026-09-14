@@ -99,7 +99,7 @@ function DeltaPill({ testId, curr, prior, label, inverse, format }) {
   const Icon = v.direction === 'up' ? ArrowUp
             : v.direction === 'down' ? ArrowDown
             : Minus;
-  const pctText = v.pct === null ? '∞'
+  const pctText = v.pct === null ? 'New'
                 : v.pct === 0    ? '0%'
                                  : `${v.pct > 0 ? '+' : ''}${v.pct.toFixed(1)}%`;
   return (

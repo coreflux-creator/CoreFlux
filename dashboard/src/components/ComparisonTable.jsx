@@ -118,7 +118,7 @@ export default function ComparisonTable({
                     data-testid={(r.testIdPrefix || `${testIdPrefix}-row-${r.code || idx}`) + '-variance'}>
                   {v === null
                     ? '—'
-                    : v.pct === null ? '∞'
+                    : v.pct === null ? 'New'
                     : `${v.pct > 0 ? '+' : ''}${v.pct.toFixed(1)}%`}
                 </td>
               )}

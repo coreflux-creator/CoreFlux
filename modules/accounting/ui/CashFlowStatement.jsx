@@ -183,8 +183,9 @@ export default function CashFlowStatement() {
             <div data-testid="rpt-cf-untagged-warning"
                  style={{ background: '#fef3c7', color: '#92400e', padding: '10px 14px',
                           borderRadius: 6, fontSize: 13, borderLeft: '3px solid #f59e0b' }}>
-              Some accounts in the GL have no <code>cash_flow_tag</code>. The Untagged section
-              below lists them — set tags on the COA to bucket them into operating / investing / financing.
+              A few accounts could not be classified confidently. Standard bank, receivable,
+              payable, debt, equity, and loan accounts are classified automatically; review the
+              remaining accounts below in the chart of accounts.
             </div>
           )}
 
@@ -217,7 +218,7 @@ export default function CashFlowStatement() {
              data-testid="rpt-cf-balanced">
             {current.balanced
               ? '✓ Cash flow ties out to GL movement.'
-              : `⚠ Reconciliation difference of ${fmtMoney(current.reconciliation_diff)}. Some accounts are likely missing a cash_flow_tag.`}
+              : `⚠ Reconciliation difference of ${fmtMoney(current.reconciliation_diff)}. Review the unclassified accounts above.`}
           </p>
         </>
       )}
