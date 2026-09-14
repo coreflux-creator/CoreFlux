@@ -147,7 +147,6 @@ foreach ([
 // --- Pass 2 (continued) — Tier-2 surgical visual upgrades ----------
 echo "\nPass 2 (continued) — Tier-2 surgical visual upgrades\n";
 foreach ([
-    'reports/ui/StaffingOverview.jsx'       => 'rpt-staffing-overview',
     'reports/ui/ReportToolkit.jsx'          => 'rpt-toolkit',
     'staffing/ui/StaffingReadiness.jsx'     => 'rpt-readiness',
     'staffing/ui/WorkerMix.jsx'             => 'rpt-workermix',
@@ -161,6 +160,12 @@ foreach ([
     $a("{$label}: tabular-nums on values OR uses shared primitive",
         strpos($code, 'tabular-nums') !== false || strpos($code, 'MetricCard') !== false);
 }
+
+$reportsOverview = (string) file_get_contents("{$ROOT}/modules/reports/ui/StaffingOverview.jsx");
+$a('rpt-staffing-overview: promotes the shared financial report library',
+    strpos($reportsOverview, '<FinancialReportLibrary session={session} prominent />') !== false);
+$a('rpt-staffing-overview: keeps staffing performance below financial reports',
+    strpos($reportsOverview, 'Staffing performance') !== false);
 
 // --- Pass 3 — Tier-3 dashboards ------------------------------------
 echo "\nPass 3 — Tier-3 dashboards surgical visual upgrades\n";

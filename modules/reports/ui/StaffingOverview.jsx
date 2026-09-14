@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApi } from '../../../dashboard/src/lib/api';
+import FinancialReportLibrary from '../../../dashboard/src/components/FinancialReportLibrary';
 import PeriodSelector from './PeriodSelector';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 
@@ -12,27 +13,28 @@ import { TrendingUp, TrendingDown } from 'lucide-react';
  *   • Run Rate comparison (last week annualized vs first week annualized)
  *   • Timesheet Health summary
  */
-export default function StaffingOverview() {
+export default function StaffingOverview({ session }) {
   const [period, setPeriod] = useState('4w');
   const { data, loading, error } = useApi(`/modules/reports/api/overview.php?period=${period}`);
 
   return (
-    <section data-testid="reports-overview" style={{ paddingBottom: 32 }}>
-      <header style={headerStyle}>
-        <div style={{ flex: 1, minWidth: 240 }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700,
-                       color: '#0f172a', letterSpacing: '-0.01em' }}>
-            Staffing Overview
-          </h1>
-          {data && (
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
-              Period totals · {data.period.label} ({data.period.from} → {data.period.to})
-            </p>
-          )}
+    <section className="reports-home" data-testid="reports-overview">
+      <header className="reports-home__header">
+        <div>
+          <span className="workspace-eyebrow">Report center</span>
+          <h1>Reports</h1>
+          <p>Financial statements and operating performance in one place.</p>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <PeriodSelector value={period} onChange={setPeriod} testid="reports-overview-period" />
+      </header>
+
+      <FinancialReportLibrary session={session} prominent />
+
+      <header className="reports-home__section-header">
+        <div>
+          <h2>Staffing performance</h2>
+          <p>{data ? `${data.period.label} · ${data.period.from} to ${data.period.to}` : 'Revenue, margin and workforce activity'}</p>
         </div>
+        <PeriodSelector value={period} onChange={setPeriod} testid="reports-overview-period" />
       </header>
 
       {error && <p className="error" data-testid="reports-overview-error">Failed to load: {String(error)}</p>}
@@ -99,15 +101,6 @@ export default function StaffingOverview() {
 }
 
 // -- Reusable sub-pieces (kept inline for the dashboard, exported for reuse if needed)
-const headerStyle = {
-  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
-  flexWrap: 'wrap', gap: 12,
-  position: 'sticky', top: 0, zIndex: 5,
-  background: 'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
-  padding: '12px 0 14px',
-  borderBottom: '1px solid #e2e8f0',
-  marginBottom: 16,
-};
 const kpiGrid = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
