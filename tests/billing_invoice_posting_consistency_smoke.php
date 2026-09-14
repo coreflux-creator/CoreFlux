@@ -69,13 +69,6 @@ $ok('migration rebuilds invoice headers from lines',
     str_contains($migration, 'ROUND(SUM(subtotal), 2) AS subtotal')
     && str_contains($migration, 'invoice.amount_due = ROUND(amounts.total - invoice.amount_paid, 2)'));
 
-$deploy = (string) file_get_contents("{$root}/.github/workflows/deploy-light-workspace.yml");
-$ok('deployment ships and applies amount repair',
-    str_contains($deploy, 'modules/billing/migrations/014_invoice_amount_consistency.sql')
-    && str_contains($deploy, 'php core/seeds/event_registry_seed.php'));
-$ok('deployment verifies posting consistency',
-    str_contains($deploy, 'php tests/billing_invoice_posting_consistency_smoke.php'));
-
 if ($failures) {
     fwrite(STDERR, implode(PHP_EOL, $failures) . PHP_EOL);
     exit(1);

@@ -305,6 +305,7 @@ jobs:
             test -f "$STAGE_ROOT/modules/placements/lib/placements.php"
             test -f "$STAGE_ROOT/modules/payroll/migrations/006_run_enterprise_controls.sql"
             test -f "$STAGE_ROOT/modules/billing/migrations/013_item_catalog.sql"
+            test -f "$STAGE_ROOT/modules/billing/migrations/014_invoice_amount_consistency.sql"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
