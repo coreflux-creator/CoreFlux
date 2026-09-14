@@ -2,19 +2,10 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
+import FinancialReportLibrary from '../../../dashboard/src/components/FinancialReportLibrary';
 import {
-  Activity, ArrowDownLeft, ArrowUpRight, BarChart3, BookOpen,
-  ClipboardCheck, Download, FileClock, Scale, ScrollText, TrendingUp, Wallet,
+  Activity, BarChart3, ClipboardCheck, Download, FileClock, ScrollText,
 } from 'lucide-react';
-
-const FINANCIAL_REPORTS = [
-  { to: '/modules/accounting/pnl', label: 'Income statement', meta: 'Revenue, expenses and profit', Icon: TrendingUp, tone: 'blue' },
-  { to: '/modules/accounting/balance', label: 'Balance sheet', meta: 'Assets, liabilities and equity', Icon: BookOpen, tone: 'navy' },
-  { to: '/modules/accounting/cash-flow', label: 'Cash flow', meta: 'Operating, investing and financing', Icon: Wallet, tone: 'teal' },
-  { to: '/modules/accounting/trial', label: 'Trial balance', meta: 'Debit and credit control totals', Icon: Scale, tone: 'slate' },
-  { to: '/modules/billing/aging', label: 'AR aging', meta: 'Outstanding customer balances', Icon: ArrowDownLeft, tone: 'green' },
-  { to: '/modules/ap/aging', label: 'AP aging', meta: 'Outstanding vendor balances', Icon: ArrowUpRight, tone: 'amber' },
-];
 
 const REPORT_TABS = [
   ['gl_detail', 'GL detail', 'accounting-report-tab-gl_detail', BarChart3],
@@ -34,7 +25,7 @@ const REPORT_TABS = [
  *
  * Each report is a filter bar → on-screen table → CSV export button.
  */
-export default function StandardReports() {
+export default function StandardReports({ session }) {
   const [tab, setTab] = useState('gl_detail');
   return (
     <section className="report-page" data-testid="accounting-standard-reports">
@@ -48,26 +39,7 @@ export default function StandardReports() {
         </div>
       </header>
 
-      <section className="report-library" aria-labelledby="financial-report-heading">
-        <div className="report-library__heading">
-          <div>
-            <h3 id="financial-report-heading">Core financial reports</h3>
-            <p>Statement-ready views that reconcile to the posted ledger.</p>
-          </div>
-        </div>
-        <div className="report-library__grid">
-          {FINANCIAL_REPORTS.map(({ to, label, meta, Icon, tone }) => (
-            <Link key={to} to={to} className={`report-library__item report-library__item--${tone}`}>
-              <span className="report-library__item-icon" aria-hidden="true"><Icon size={18} /></span>
-              <span className="report-library__item-copy">
-                <strong>{label}</strong>
-                <small>{meta}</small>
-              </span>
-              <span className="report-library__item-arrow" aria-hidden="true">→</span>
-            </Link>
-          ))}
-        </div>
-      </section>
+      <FinancialReportLibrary session={session} />
 
       <div className="report-library__section-label">
         <strong>Ledger operations</strong>

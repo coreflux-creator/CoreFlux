@@ -67,6 +67,8 @@ echo "\nAging and report presentation\n";
 $billing = (string) file_get_contents($root . '/modules/billing/lib/billing.php');
 $ap = (string) file_get_contents($root . '/modules/ap/lib/ap.php');
 $standard = (string) file_get_contents($root . '/modules/accounting/ui/StandardReports.jsx');
+$library = (string) file_get_contents($root . '/dashboard/src/components/FinancialReportLibrary.jsx');
+$reportsHome = (string) file_get_contents($root . '/modules/reports/ui/StaffingOverview.jsx');
 $period = (string) file_get_contents($root . '/dashboard/src/lib/useReportPeriod.js');
 $comparison = (string) file_get_contents($root . '/dashboard/src/components/ComparisonTable.jsx');
 $metric = (string) file_get_contents($root . '/dashboard/src/components/MetricCard.jsx');
@@ -79,13 +81,16 @@ $assert('AP aging excludes future bills and undisbursed payments',
     && str_contains($ap, 'p.pay_date <= :payment_as_of')
     && str_contains($ap, 'p.status IN ("sent", "cleared")'));
 $assert('report library links all core statements',
-    str_contains($standard, '/modules/accounting/pnl')
-    && str_contains($standard, '/modules/accounting/balance')
-    && str_contains($standard, '/modules/accounting/cash-flow')
-    && str_contains($standard, '/modules/accounting/trial'));
+    str_contains($library, '/modules/accounting/pnl')
+    && str_contains($library, '/modules/accounting/balance')
+    && str_contains($library, '/modules/accounting/cash-flow')
+    && str_contains($library, '/modules/accounting/trial'));
 $assert('report library links AR and AP aging',
-    str_contains($standard, '/modules/billing/aging')
-    && str_contains($standard, '/modules/ap/aging'));
+    str_contains($library, '/modules/billing/aging')
+    && str_contains($library, '/modules/ap/aging'));
+$assert('accounting and top-level Reports share the financial report library',
+    str_contains($standard, '<FinancialReportLibrary session={session} />')
+    && str_contains($reportsHome, '<FinancialReportLibrary session={session} prominent />'));
 $assert('default comparison is prior period only', str_contains($period, "defaultCompare = 'prior_period'"));
 $assert('zero baselines render as New, not infinity',
     str_contains($comparison, "v.pct === null ? 'New'")
