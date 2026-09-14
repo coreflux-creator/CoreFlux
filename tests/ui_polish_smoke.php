@@ -113,6 +113,10 @@ $assert('less frequent accounting tools are grouped in the More menu',
     && str_contains($accounting, "label: 'Data and configuration'")
     && str_contains($accounting, "label: 'Multi-entity'")
     && str_contains($accounting, 'data-testid="accounting-more-menu"'));
+$assert('financial statement routes keep Reports highlighted instead of More',
+    str_contains($accounting, "const reportRoutes = ['trial', 'pnl', 'balance', 'cash-flow', 'gl-detail', 'dim-pnl']")
+    && str_contains($accounting, "active={item.to === 'reports' && reportActive}")
+    && str_contains($accounting, '.filter(route => !reportRoutes.includes(route))'));
 $assert('old unstructured accounting tab strip is gone',
     !str_contains($accounting, "<nav style={{ display: 'flex'")
     && !str_contains($accounting, 'function Tab('));
