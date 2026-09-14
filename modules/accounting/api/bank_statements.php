@@ -80,6 +80,7 @@ if ($method === 'GET' && $action === 'invoice_candidates') {
     }
     unset($row);
     api_ok(['rows' => $rows, 'line_amount' => round((float) $line['amount'], 2)]);
+    exit;
 }
 
 if ($method === 'GET') {

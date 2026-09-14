@@ -50,6 +50,8 @@ $check('manual invoice candidates include client and open balance',
     str_contains($bankApi, "action === 'invoice_candidates'")
     && str_contains($bankApi, 'bi.client_name')
     && str_contains($bankApi, 'bi.amount_due'));
+$check('invoice candidate response exits before the generic bank-account listing',
+    preg_match('/action === \'invoice_candidates\'[\s\S]*?api_ok\(\[\'rows\' => \$rows[\s\S]*?exit;[\s\S]*?if \(\$method === \'GET\'\)/', $bankApi) === 1);
 $check('invoice candidates respect bank currency and receipt date',
     str_contains($bankApi, 'bi.currency = :bank_currency')
     && str_contains($bankApi, 'bi.issue_date <= :posted_date'));
