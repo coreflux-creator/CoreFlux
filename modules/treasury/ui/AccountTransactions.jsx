@@ -602,9 +602,11 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                           onClick={() => setSplitId(splitId === r.id ? null : r.id)}
                           data-testid={`treasury-txn-split-${r.id}`}
                           style={{ padding: '2px 8px', fontSize: 11, marginRight: 4 }}
-                          title="Split this line across multiple accounts (intercompany supported)"
+                          title={type === 'deposit' && Number(r.amount) > 0
+                            ? 'Apply this receipt to invoices and split any remainder'
+                            : 'Split this line across multiple accounts (intercompany supported)'}
                         >
-                          Split / IC
+                          {type === 'deposit' && Number(r.amount) > 0 ? 'Split / match' : 'Split / IC'}
                         </button>
                         <button
                           type="button"
@@ -676,12 +678,20 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         style={{ background: '#fefce8', padding: 12, borderLeft: '3px solid #ca8a04' }}>
                       <SplitIcPanel
                         line={r}
+                        type={type}
                         accounts={eligibleAccounts}
-                        onSubmit={async (splits) => {
+                        onSubmit={async ({ invoiceAllocations, accountSplits }) => {
                           try {
-                            await api.post('/modules/treasury/api/account_transactions.php?action=split_categorize', {
-                              line_id: r.id, type, splits,
-                            });
+                            if (invoiceAllocations.length > 0) {
+                              await api.post(`/modules/accounting/api/bank_statements.php?action=split_match_invoices&line_id=${r.id}`, {
+                                allocations: invoiceAllocations,
+                                account_splits: accountSplits,
+                              });
+                            } else {
+                              await api.post('/modules/treasury/api/account_transactions.php?action=split_categorize', {
+                                line_id: r.id, type, splits: accountSplits,
+                              });
+                            }
                             setSplitId(null); reload();
                           } catch (e) { setRowError(`Split failed: ${e.message}`); }
                         }}
@@ -955,18 +965,25 @@ function CategorizeRow({ line, type, accounts, aiSuggestion, onSave, onCancel })
   const preferredTypes = isCharge
     ? (type === 'liability' ? ['expense']           : ['expense','asset'])
     : (type === 'liability' ? ['asset','revenue']   : ['revenue','expense']);
+  const isCustomerReceipt = type === 'deposit' && !isCharge;
+  const categoryAccounts = isCustomerReceipt
+    ? accounts.filter((a) => String(a.code) !== '1100')
+    : accounts;
 
   const grouped = preferredTypes.map((t) => ({
     type: t,
-    rows: accounts.filter((a) => a.account_type === t)
+    rows: categoryAccounts.filter((a) => a.account_type === t)
                   .sort((a, b) => (a.code || '').localeCompare(b.code || '')),
   })).filter((g) => g.rows.length);
-  const fallback = accounts
+  const fallback = categoryAccounts
     .filter((a) => !preferredTypes.includes(a.account_type))
     .sort((a, b) => (a.code || '').localeCompare(b.code || ''));
 
+  const suggestedAccount = accounts.find((a) => Number(a.id) === Number(aiSuggestion?.suggested_account_id));
   const [counterpartId, setCounterpartId] = useState(
-    aiSuggestion?.suggested_account_id ? String(aiSuggestion.suggested_account_id) : ''
+    aiSuggestion?.suggested_account_id && !(isCustomerReceipt && String(suggestedAccount?.code) === '1100')
+      ? String(aiSuggestion.suggested_account_id)
+      : ''
   );
   const [memo, setMemo]                   = useState('');
   const [busy, setBusy]                   = useState(false);
@@ -1042,6 +1059,11 @@ function CategorizeRow({ line, type, accounts, aiSuggestion, onSave, onCancel })
             Cancel
           </button>
         </div>
+        {isCustomerReceipt && (
+          <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>
+            To reduce a customer balance, use Split / match and choose the invoice.
+          </p>
+        )}
         <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>
           Will create a balanced JE: {isCharge
             ? <>DR <strong>chosen account</strong> {fmtMoney(Math.abs(Number(line.amount)))} · CR <strong>{type === 'liability' ? 'this card' : 'this bank account'}</strong> {fmtMoney(Math.abs(Number(line.amount)))}</>
@@ -1115,19 +1137,23 @@ function TreasuryAiResultPanel({ line, ai, onDismiss, onAccept }) {
 }
 
 /**
- * Sprint 6h — Split / Intercompany categorization. Lets the user post
- * one bank line as a balanced JE that DRs / CRs multiple accounts. The
- * sum of split lines must match the bank line's absolute amount.
- *
- * Intercompany support: each row has an optional `entity_id` so a
- * "transfer from Entity A to Entity B" line can be posted as an
- * intercompany JE in one shot.
+ * Incoming receipts may be split between customer invoices and ordinary GL
+ * accounts. Every cent must be assigned so the bank line, subledger, and JE
+ * stay in agreement. Outflows retain the original GL/intercompany behavior.
  */
-function SplitIcPanel({ line, accounts, onSubmit, onCancel }) {
+function SplitIcPanel({ line, type, accounts, onSubmit, onCancel }) {
   const total = Math.abs(Number(line.amount));
-  const [rows, setRows] = useState([
-    { account_id: '', amount: total.toFixed(2), entity_id: '', memo: '' },
-  ]);
+  const allowInvoiceTargets = type === 'deposit' && Number(line.amount) > 0;
+  const { data: invoiceData, loading: invoicesLoading, error: invoicesError } = useApi(
+    `/modules/accounting/api/bank_statements.php?action=invoice_candidates&line_id=${line.id}`,
+    { enabled: allowInvoiceTargets }
+  );
+  const invoices = invoiceData?.rows || [];
+  const blankRow = (amount = '0.00') => ({
+    target_type: allowInvoiceTargets ? 'invoice' : 'account',
+    invoice_id: '', account_id: '', amount, entity_id: '', memo: '',
+  });
+  const [rows, setRows] = useState([blankRow(total.toFixed(2))]);
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
 
@@ -1135,60 +1161,123 @@ function SplitIcPanel({ line, accounts, onSubmit, onCancel }) {
   const balanced = Math.abs(sum - total) < 0.005;
 
   const update = (i, key, v) => setRows(rs => rs.map((r, idx) => idx === i ? { ...r, [key]: v } : r));
-  const addRow = () => setRows(rs => [...rs, { account_id: '', amount: '0.00', entity_id: '', memo: '' }]);
+  const addRow = () => setRows(rs => [...rs, blankRow()]);
   const removeRow = (i) => setRows(rs => rs.filter((_, idx) => idx !== i));
+  const selectInvoice = (i, invoiceId) => {
+    const invoice = invoices.find(inv => Number(inv.id) === Number(invoiceId));
+    setRows(rs => {
+      if (!invoice) return rs.map((r, idx) => idx === i ? { ...r, invoice_id: invoiceId } : r);
+      const assignedElsewhere = rs.reduce((sum, r, idx) => idx === i ? sum : sum + (Number(r.amount) || 0), 0);
+      const available = Math.max(total - assignedElsewhere, 0);
+      const applyAmount = Math.min(Number(invoice.amount_due), available);
+      const next = rs.map((r, idx) => idx === i
+        ? { ...r, invoice_id: invoiceId, amount: applyAmount.toFixed(2) }
+        : r);
+      const remainder = total - assignedElsewhere - applyAmount;
+      if (rs.length === 1 && remainder > 0.005) next.push(blankRow(remainder.toFixed(2)));
+      return next;
+    });
+  };
 
   const submit = async () => {
     setErr(null);
-    if (rows.some(r => !r.account_id)) { setErr('Pick an account on every row.'); return; }
+    if (rows.some(r => Number(r.amount) <= 0)) { setErr('Enter a positive amount on every row.'); return; }
+    if (rows.some(r => r.target_type === 'invoice' && !r.invoice_id)) { setErr('Pick an invoice on every invoice row.'); return; }
+    if (rows.some(r => r.target_type === 'account' && !r.account_id)) { setErr('Pick an account on every GL row.'); return; }
+    const overApplied = rows.find(r => {
+      if (r.target_type !== 'invoice' || !r.invoice_id) return false;
+      const invoice = invoices.find(inv => Number(inv.id) === Number(r.invoice_id));
+      return invoice && Number(r.amount) - Number(invoice.amount_due) > 0.005;
+    });
+    if (overApplied) { setErr('An invoice allocation cannot exceed its open balance.'); return; }
     if (!balanced) { setErr('Splits must sum to the line amount.'); return; }
     setBusy(true);
     try {
-      const splits = rows.map(r => ({
+      const invoiceAllocations = rows
+        .filter(r => r.target_type === 'invoice')
+        .map(r => ({ invoice_id: Number(r.invoice_id), amount: Number(r.amount) }));
+      const accountSplits = rows.filter(r => r.target_type === 'account').map(r => ({
         account_id: Number(r.account_id),
-        amount:     Number(r.amount),
-        entity_id:  r.entity_id ? Number(r.entity_id) : null,
-        memo:       r.memo || null,
+        amount: Number(r.amount),
+        entity_id: r.entity_id ? Number(r.entity_id) : null,
+        memo: r.memo || null,
       }));
-      await onSubmit(splits);
+      await onSubmit({ invoiceAllocations, accountSplits });
     } catch (e) { setErr(e.message); }
     finally { setBusy(false); }
   };
 
   return (
     <div data-testid={`treasury-txn-split-panel-${line.id}`}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <strong style={{ fontSize: 13 }}>Split this line</strong>
-        <span style={{ fontSize: 12, color: balanced ? '#166534' : '#92400e' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 8 }}>
+        <div>
+          <strong style={{ fontSize: 13 }}>{allowInvoiceTargets ? 'Split or match this receipt' : 'Split this line'}</strong>
+          {allowInvoiceTargets && (
+            <div style={{ color: 'var(--cf-text-secondary)', fontSize: 11, marginTop: 2 }}>
+              Invoice rows update customer balances. Use a GL row for any remainder.
+            </div>
+          )}
+        </div>
+        <span style={{ fontSize: 12, color: balanced ? '#166534' : '#92400e', whiteSpace: 'nowrap' }}>
           {sum.toFixed(2)} of {total.toFixed(2)} {balanced ? '✓ balanced' : '— not balanced yet'}
         </span>
       </div>
+      {invoicesLoading && <p className="muted" style={{ fontSize: 12, margin: '6px 0' }}>Loading open invoices…</p>}
+      {invoicesError && <p className="error" style={{ fontSize: 12, margin: '6px 0' }}>Invoices unavailable: {invoicesError.message}</p>}
       <table style={{ width: '100%', fontSize: 12 }}>
         <thead>
           <tr style={{ textAlign: 'left' }}>
-            <th>Account</th><th>Entity (optional, IC)</th>
+            {allowInvoiceTargets && <th>Apply to</th>}
+            <th>{allowInvoiceTargets ? 'Invoice or account' : 'Account'}</th>
+            <th>Entity (optional, IC)</th>
             <th style={{ textAlign: 'right' }}>Amount</th><th>Memo</th><th></th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} data-testid={`treasury-txn-split-row-input-${line.id}-${i}`}>
+              {allowInvoiceTargets && (
+                <td>
+                  <select value={r.target_type} onChange={e => update(i, 'target_type', e.target.value)}
+                          data-testid={`treasury-txn-split-target-${line.id}-${i}`}>
+                    <option value="invoice">Customer invoice</option>
+                    <option value="account">GL account</option>
+                  </select>
+                </td>
+              )}
               <td>
-                <select value={r.account_id} onChange={e => update(i, 'account_id', e.target.value)}
-                        data-testid={`treasury-txn-split-account-${line.id}-${i}`}
-                        style={{ width: '100%' }}>
-                  <option value="">— pick —</option>
-                  {accounts.map(a => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
-                </select>
+                {r.target_type === 'invoice' ? (
+                  <select value={r.invoice_id} onChange={e => selectInvoice(i, e.target.value)}
+                          data-testid={`treasury-txn-split-invoice-${line.id}-${i}`}
+                          style={{ width: '100%' }} disabled={invoicesLoading}>
+                    <option value="">— select client and invoice —</option>
+                    {invoices.map(inv => (
+                      <option key={inv.id} value={inv.id}>
+                        {inv.client_name} · {inv.invoice_number} · {fmtMoney(Number(inv.amount_due))} due
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select value={r.account_id} onChange={e => update(i, 'account_id', e.target.value)}
+                          data-testid={`treasury-txn-split-account-${line.id}-${i}`}
+                          style={{ width: '100%' }}>
+                    <option value="">— pick GL account —</option>
+                    {accounts.filter(a => String(a.code) !== '1100').map(a => (
+                      <option key={a.id} value={a.id}>{a.code} · {a.name}</option>
+                    ))}
+                  </select>
+                )}
               </td>
               <td>
-                <input type="number" value={r.entity_id} onChange={e => update(i, 'entity_id', e.target.value)}
-                       placeholder="entity id"
-                       data-testid={`treasury-txn-split-entity-${line.id}-${i}`}
-                       style={{ width: '100%' }} />
+                {r.target_type === 'account' ? (
+                  <input type="number" value={r.entity_id} onChange={e => update(i, 'entity_id', e.target.value)}
+                         placeholder="entity id"
+                         data-testid={`treasury-txn-split-entity-${line.id}-${i}`}
+                         style={{ width: '100%' }} />
+                ) : <span className="muted">From invoice</span>}
               </td>
               <td style={{ textAlign: 'right' }}>
-                <input type="number" step="0.01" value={r.amount} onChange={e => update(i, 'amount', e.target.value)}
+                <input type="number" step="0.01" min="0.01" value={r.amount} onChange={e => update(i, 'amount', e.target.value)}
                        data-testid={`treasury-txn-split-amount-${line.id}-${i}`}
                        style={{ width: 90, textAlign: 'right' }} />
               </td>
@@ -1199,8 +1288,7 @@ function SplitIcPanel({ line, accounts, onSubmit, onCancel }) {
               </td>
               <td>
                 {rows.length > 1 && (
-                  <button type="button" className="btn btn--ghost"
-                          onClick={() => removeRow(i)}
+                  <button type="button" className="btn btn--ghost" onClick={() => removeRow(i)}
                           data-testid={`treasury-txn-split-remove-${line.id}-${i}`}
                           style={{ padding: '2px 6px', fontSize: 11, color: '#dc2626' }}>×</button>
                 )}
@@ -1209,21 +1297,19 @@ function SplitIcPanel({ line, accounts, onSubmit, onCancel }) {
           ))}
         </tbody>
       </table>
-      <button type="button" className="btn btn--ghost"
-              onClick={addRow}
+      <button type="button" className="btn btn--ghost" onClick={addRow}
               data-testid={`treasury-txn-split-addrow-${line.id}`}
-              style={{ padding: '2px 8px', fontSize: 11, marginTop: 6 }}>+ Add row</button>
+              style={{ padding: '2px 8px', fontSize: 11, marginTop: 6 }}>+ Add allocation</button>
       {err && <p className="error" style={{ fontSize: 12, margin: '6px 0 0' }}>{err}</p>}
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         <button type="button" className="btn btn--primary"
-                disabled={!balanced || busy}
+                disabled={!balanced || busy || invoicesLoading}
                 onClick={submit}
                 data-testid={`treasury-txn-split-submit-${line.id}`}
                 style={{ padding: '4px 12px', fontSize: 12 }}>
-          {busy ? 'Posting…' : 'Post split JE'}
+          {busy ? 'Posting…' : rows.some(r => r.target_type === 'invoice') ? 'Apply & post' : 'Post split JE'}
         </button>
-        <button type="button" className="btn btn--ghost"
-                onClick={onCancel}
+        <button type="button" className="btn btn--ghost" onClick={onCancel}
                 data-testid={`treasury-txn-split-cancel-${line.id}`}
                 style={{ padding: '4px 12px', fontSize: 12 }}>
           Cancel
