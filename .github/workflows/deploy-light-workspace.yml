@@ -85,6 +85,7 @@ jobs:
             core/modules.php \
             core/people_graph.php \
             core/rbac/legacy_map.php \
+            core/seeds/event_registry_seed.php \
             core/storage_register.php \
             core/treasury/liquidity_projection.php \
             core/workflow_engine.php \
@@ -146,6 +147,7 @@ jobs:
             modules/billing/lib/workflow.php \
             modules/billing/manifest.php \
             modules/billing/migrations/013_item_catalog.sql \
+            modules/billing/migrations/014_invoice_amount_consistency.sql \
             modules/billing/ui/BillingModule.jsx \
             modules/billing/ui/InvoiceCreate.jsx \
             modules/billing/ui/InvoiceDetail.jsx \
@@ -229,6 +231,7 @@ jobs:
             tests/bank_line_state_convergence_smoke.php \
             tests/billing_catalog_and_direct_invoice_smoke.php \
             tests/billing_invoice_approval_recovery_smoke.php \
+            tests/billing_invoice_posting_consistency_smoke.php \
             tests/billing_spec_smoke.php \
             tests/chart_of_accounts_controls_smoke.php \
             tests/company_directory_workflow_smoke.php \
@@ -330,6 +333,7 @@ jobs:
               core/domain_people_graph.php \
               core/people_graph.php \
               core/rbac/legacy_map.php \
+              core/seeds/event_registry_seed.php \
               core/storage_register.php \
               core/treasury/liquidity_projection.php \
               core/workflow_engine.php \
@@ -365,11 +369,13 @@ jobs:
             done
 
             php deploy/run_migrations.php
+            php core/seeds/event_registry_seed.php
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/126_staffing_economic_graph.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/140_staffing_client_catalog_integrity.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/141_payroll_module_access_backfill.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/006_run_enterprise_controls.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/billing/migrations/013_item_catalog.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] modules/billing/migrations/014_invoice_amount_consistency.sql'
 
             php tests/login_redirect_paths_smoke.php
             php tests/live_basic_error_regressions_smoke.php
@@ -384,6 +390,7 @@ jobs:
             php tests/bank_line_state_convergence_smoke.php
             php tests/billing_catalog_and_direct_invoice_smoke.php
             php tests/billing_invoice_approval_recovery_smoke.php
+            php tests/billing_invoice_posting_consistency_smoke.php
             php tests/billing_spec_smoke.php
             php tests/chart_of_accounts_controls_smoke.php
             php tests/company_directory_workflow_smoke.php
