@@ -96,6 +96,7 @@ jobs:
             dashboard/src/App.jsx \
             dashboard/src/lib/api.js \
             dashboard/src/components/ComparisonTable.jsx \
+            dashboard/src/components/FinancialReportLibrary.jsx \
             dashboard/src/components/LineItemEditor.jsx \
             dashboard/src/components/MetricCard.jsx \
             dashboard/src/components/ModuleTabs.jsx \

@@ -72,6 +72,7 @@ $reportsHome = (string) file_get_contents($root . '/modules/reports/ui/StaffingO
 $period = (string) file_get_contents($root . '/dashboard/src/lib/useReportPeriod.js');
 $comparison = (string) file_get_contents($root . '/dashboard/src/components/ComparisonTable.jsx');
 $metric = (string) file_get_contents($root . '/dashboard/src/components/MetricCard.jsx');
+$lightWorkspaceDeploy = (string) file_get_contents($root . '/.github/workflows/deploy-light-workspace.yml');
 
 $assert('AR aging is ledger-backed', str_contains($billing, 'JOIN accounting_journal_entries je'));
 $assert('AR aging excludes future invoices and payments', str_contains($billing, 'i.issue_date <= :document_as_of') && str_contains($billing, 'p.received_at <= :payment_as_of'));
@@ -91,6 +92,8 @@ $assert('report library links AR and AP aging',
 $assert('accounting and top-level Reports share the financial report library',
     str_contains($standard, '<FinancialReportLibrary session={session} />')
     && str_contains($reportsHome, '<FinancialReportLibrary session={session} prominent />'));
+$assert('light workspace release packages the financial report library',
+    str_contains($lightWorkspaceDeploy, 'dashboard/src/components/FinancialReportLibrary.jsx'));
 $assert('default comparison is prior period only', str_contains($period, "defaultCompare = 'prior_period'"));
 $assert('zero baselines render as New, not infinity',
     str_contains($comparison, "v.pct === null ? 'New'")
