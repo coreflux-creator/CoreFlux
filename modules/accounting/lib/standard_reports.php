@@ -15,6 +15,71 @@ require_once __DIR__ . '/accounting.php';
 require_once __DIR__ . '/consolidation.php';
 
 /**
+ * Resolve a cash-flow classification without forcing every tenant to tag
+ * obvious standard accounts by hand. Explicit COA tags always win.
+ */
+function reportCashFlowClassification(array $account): array
+{
+    $configured = trim((string) ($account['cash_flow_tag'] ?? ''));
+    if ($configured !== '' && $configured !== 'untagged') {
+        return ['tag' => $configured, 'source' => 'configured'];
+    }
+
+    $type = strtolower(trim((string) ($account['account_type'] ?? '')));
+    $code = strtolower(trim((string) ($account['code'] ?? '')));
+    $name = strtolower(trim((string) ($account['name'] ?? '')));
+    $text = trim($code . ' ' . $name);
+
+    if (!empty($account['is_bank_linked'])
+        || ($type === 'asset' && preg_match('/\b(cash|checking|savings|money market|petty cash)\b/', $text))) {
+        return ['tag' => 'cash_and_equivalents', 'source' => 'inferred'];
+    }
+
+    if ($type === 'asset') {
+        if (in_array($name, ['ar', 'a/r'], true)
+            || str_contains($text, 'accounts receivable')
+            || str_contains($text, 'trade receivable')) {
+            return ['tag' => 'operating_wc_ar', 'source' => 'inferred'];
+        }
+        if (str_contains($text, 'inventory')) {
+            return ['tag' => 'operating_wc_inventory', 'source' => 'inferred'];
+        }
+        if (str_contains($text, 'prepaid') || str_contains($text, 'accrued revenue') || str_contains($text, 'unbilled revenue')) {
+            return ['tag' => 'operating_wc_other', 'source' => 'inferred'];
+        }
+        if (preg_match('/\b(loan|note) receivable\b/', $text)
+            || preg_match('/\bloc\b/', $text)
+            || str_contains($text, 'line of credit receivable')) {
+            return ['tag' => 'investing_loans', 'source' => 'inferred'];
+        }
+    }
+
+    if ($type === 'liability') {
+        if (in_array($name, ['ap', 'a/p'], true)
+            || str_contains($text, 'accounts payable')
+            || str_contains($text, 'trade payable')) {
+            return ['tag' => 'operating_wc_ap', 'source' => 'inferred'];
+        }
+        if (str_contains($text, 'accrued') || str_contains($text, 'payroll tax') || str_contains($text, 'sales tax payable')) {
+            return ['tag' => 'operating_wc_other', 'source' => 'inferred'];
+        }
+        if (preg_match('/\b(loan|note|debt) payable\b/', $text)
+            || preg_match('/\bloc\b/', $text)
+            || str_contains($text, 'line of credit')
+            || str_contains($text, 'credit card')) {
+            return ['tag' => 'financing_debt', 'source' => 'inferred'];
+        }
+    }
+
+    if ($type === 'equity'
+        && preg_match('/\b(capital|contributions?|distributions?|draws?|dividends?|common stock|paid-in)\b/', $text)) {
+        return ['tag' => 'financing_equity', 'source' => 'inferred'];
+    }
+
+    return ['tag' => 'untagged', 'source' => 'unclassified'];
+}
+
+/**
  * Income Statement (P&L) — revenue and expenses for the period.
  * Reuses trial-balance arithmetic but filters to revenue/expense and
  * aggregates by account_type. Posted JEs only.
@@ -172,7 +237,7 @@ function reportCashFlowIndirect(int $tenantId, string $from, string $to, ?int $e
     $endBs     = reportBalanceSheet($tenantId, $to,        $entityId);
 
     // Index account balances by code for fast lookup
-    $startByCode = []; $endByCode = []; $tagByCode = []; $typeByCode = []; $nameByCode = [];
+    $startByCode = []; $endByCode = []; $tagByCode = []; $typeByCode = []; $nameByCode = []; $sourceByCode = [];
     foreach ([['rows' => array_merge($startBs['assets'], $startBs['liabilities'], $startBs['equity']), 'tgt' => &$startByCode],
              ['rows' => array_merge($endBs['assets'],   $endBs['liabilities'],   $endBs['equity']),   'tgt' => &$endByCode]] as $bag) {
         foreach ($bag['rows'] as $r) {
@@ -180,16 +245,28 @@ function reportCashFlowIndirect(int $tenantId, string $from, string $to, ?int $e
             $bag['tgt'][(string) $r['code']] = (float) $r['amount'];
         }
     }
-    // cash_flow_tag lookup direct from accounting_accounts
+    // Explicit cash_flow_tag values win. Bank-linked and obvious standard
+    // accounts receive a transparent inferred classification so the report
+    // works before an administrator customizes the COA.
     $tagStmt = $pdo->prepare(
-        'SELECT code, name, account_type, COALESCE(cash_flow_tag, "untagged") AS cash_flow_tag
-         FROM accounting_accounts WHERE tenant_id = :t'
+        'SELECT a.code, a.name, a.account_type, a.cash_flow_tag,
+                CASE WHEN EXISTS (
+                    SELECT 1 FROM accounting_bank_accounts ba
+                     WHERE ba.tenant_id = a.tenant_id
+                       AND ba.gl_account_code = a.code
+                       AND ba.status = "active"
+                ) THEN 1 ELSE 0 END AS is_bank_linked
+           FROM accounting_accounts a
+          WHERE a.tenant_id = :t'
     );
     $tagStmt->execute(['t' => $tenantId]);
     foreach ($tagStmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
-        $tagByCode[(string) $r['code']]  = (string) $r['cash_flow_tag'];
-        $typeByCode[(string) $r['code']] = (string) $r['account_type'];
-        $nameByCode[(string) $r['code']] = (string) $r['name'];
+        $classification = reportCashFlowClassification($r);
+        $key = (string) $r['code'];
+        $tagByCode[$key]    = $classification['tag'];
+        $sourceByCode[$key] = $classification['source'];
+        $typeByCode[$key]   = (string) $r['account_type'];
+        $nameByCode[$key]   = (string) $r['name'];
     }
 
     $sections = [
@@ -232,6 +309,7 @@ function reportCashFlowIndirect(int $tenantId, string $from, string $to, ?int $e
             'code'        => $code,
             'name'        => $name,
             'cash_flow_tag' => $tag,
+            'classification_source' => $sourceByCode[$code] ?? 'unclassified',
             'amount'      => round($cashImpact, 2),
         ];
         $sections[$bucket]['subtotal'] = round($sections[$bucket]['subtotal'] + $cashImpact, 2);
@@ -240,6 +318,7 @@ function reportCashFlowIndirect(int $tenantId, string $from, string $to, ?int $e
     // Operating starts with net income
     array_unshift($sections['operating']['lines'], [
         'code' => null, 'name' => 'Net income', 'cash_flow_tag' => 'net_income',
+        'classification_source' => 'system',
         'amount' => round($netIncome, 2),
     ]);
     $sections['operating']['subtotal'] = round($sections['operating']['subtotal'] + $netIncome, 2);
@@ -259,5 +338,9 @@ function reportCashFlowIndirect(int $tenantId, string $from, string $to, ?int $e
         'reconciliation_diff'  => $reconciliation,    // should be 0.00
         'balanced'             => abs($reconciliation) < 0.01,
         'untagged_warning'     => count($sections['untagged']['lines']) > 0,
+        'inferred_classifications' => count(array_filter(
+            $sourceByCode,
+            static fn (string $source): bool => $source === 'inferred'
+        )),
     ];
 }
