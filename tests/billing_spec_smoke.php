@@ -84,7 +84,8 @@ $inv = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.ph
 foreach (['from-time-bundle','approve','send','void'] as $a) {
     $assert("invoices has action={$a}",         strpos($inv, "action === '{$a}'") !== false);
 }
-$assert('two-eye approve guard',               strpos($inv, 'cannot approve your own draft') !== false);
+$assert('approve supports optional policy routing',
+    strpos($inv, 'Without one, an authorized billing user can approve the draft directly') !== false);
 $assert('void releases bundles when no pmts',  strpos($inv, 'consumed_by_module = NULL') !== false);
 $assert('approve checks transition allowed',   strpos($inv, "billingTransitionAllowed(\$row['status'], 'approved')") !== false);
 $assert('send issues token + emails',          strpos($inv, 'billingIssueViewToken') !== false && strpos($inv, "cf_mail_bootstrap") !== false);

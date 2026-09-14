@@ -156,6 +156,83 @@ function billingInvoiceWorkflowPayload(array $invoice, ?int $starterUserId = nul
     ];
 }
 
+/**
+ * Invoice approvals are optional until the tenant configures a matching
+ * People Graph approval rule. This keeps ordinary invoicing usable while
+ * preserving routed approver and separation-of-duties controls when enabled.
+ */
+function billingInvoiceApprovalRouting(int $tenantId, array $invoice): array
+{
+    try {
+        $resolved = domainPeopleGraphResolveApprovers(
+            $tenantId,
+            'billing',
+            'invoice',
+            (int) ($invoice['id'] ?? 0),
+            billingInvoiceWorkflowContext($invoice),
+            []
+        );
+        return [
+            'workflow_required' => (int) ($resolved['count'] ?? 0) > 0,
+            'requirements' => $resolved['requirements'] ?? [],
+            'infrastructure_available' => true,
+        ];
+    } catch (\Throwable $e) {
+        $state = strtoupper((string) $e->getCode());
+        $message = strtolower($e->getMessage());
+        $schemaUnavailable = in_array($state, ['42S02', '42S22'], true)
+            || str_contains($message, 'no such table')
+            || str_contains($message, "doesn't exist")
+            || str_contains($message, 'unknown column');
+        if (!$schemaUnavailable) throw $e;
+
+        error_log('[billing.invoice.workflow] optional approval routing unavailable: ' . $e->getMessage());
+        return [
+            'workflow_required' => false,
+            'requirements' => [],
+            'infrastructure_available' => false,
+        ];
+    }
+}
+
+/** @internal */
+function billingInvoiceApproveDirect(int $tenantId, int $invoiceId, int $userId, array $invoice): array
+{
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No DB');
+    $stmt = $pdo->prepare(
+        "UPDATE billing_invoices
+            SET status = 'approved', approved_by_user_id = :u,
+                approved_at = COALESCE(approved_at, NOW()), updated_at = NOW()
+          WHERE tenant_id = :t AND id = :id AND status = 'draft'"
+    );
+    $stmt->execute(['u' => $userId, 't' => $tenantId, 'id' => $invoiceId]);
+
+    $updated = billingInvoiceWorkflowRow($tenantId, $invoiceId) ?? $invoice;
+    if ((string) ($updated['status'] ?? '') !== 'approved') {
+        throw new \RuntimeException("Cannot approve from status {$updated['status']}");
+    }
+
+    billingWorkflowAudit($tenantId, $userId, 'billing.invoice.approved', [
+        'invoice_id' => $invoiceId,
+        'invoice_number' => $invoice['invoice_number'] ?? null,
+        'approved_by_user_id' => $userId,
+        'source' => 'direct',
+        'approval_route' => 'no_matching_policy',
+    ], $invoiceId, [
+        'before' => $invoice,
+        'after' => $updated,
+    ]);
+
+    return [
+        'applied' => true,
+        'approved' => true,
+        'instance' => null,
+        'invoice' => $updated,
+        'approval_route' => 'direct',
+    ];
+}
+
 function billingInvoiceWorkflowStart(int $tenantId, int $invoiceId, ?int $starterUserId = null): ?int
 {
     $invoice = billingInvoiceWorkflowRow($tenantId, $invoiceId);
@@ -253,6 +330,11 @@ function billingInvoiceWorkflowAct(
     if (!$invoice) throw new \RuntimeException("Invoice {$invoiceId} not found");
     if (!billingTransitionAllowed((string) ($invoice['status'] ?? ''), 'approved')) {
         throw new \RuntimeException("Cannot approve from status {$invoice['status']}");
+    }
+
+    $routing = billingInvoiceApprovalRouting($tenantId, $invoice);
+    if (empty($routing['workflow_required'])) {
+        return billingInvoiceApproveDirect($tenantId, $invoiceId, $userId, $invoice);
     }
 
     try {

@@ -78,12 +78,16 @@ jobs:
             assets/css/signup.html \
             assets/css/styles.css \
             auditor.php \
+            core/ModuleRegistry.php \
             core/api_bootstrap.php \
             core/ai_agents.php \
+            core/domain_people_graph.php \
             core/modules.php \
+            core/people_graph.php \
             core/rbac/legacy_map.php \
             core/storage_register.php \
             core/treasury/liquidity_projection.php \
+            core/workflow_engine.php \
             core/mail/M365GraphDriver.php \
             core/views/admin/tenant_edit.php \
             crm.html \
@@ -139,6 +143,7 @@ jobs:
             modules/billing/api/items.php \
             modules/billing/lib/billing.php \
             modules/billing/lib/invoice_pdf.php \
+            modules/billing/lib/workflow.php \
             modules/billing/manifest.php \
             modules/billing/migrations/013_item_catalog.sql \
             modules/billing/ui/BillingModule.jsx \
@@ -223,6 +228,8 @@ jobs:
             tests/books_health_period_schema_smoke.php \
             tests/bank_line_state_convergence_smoke.php \
             tests/billing_catalog_and_direct_invoice_smoke.php \
+            tests/billing_invoice_approval_recovery_smoke.php \
+            tests/billing_spec_smoke.php \
             tests/chart_of_accounts_controls_smoke.php \
             tests/company_directory_workflow_smoke.php \
             tests/csv_ai_assisted_mapping_smoke.php \
@@ -317,11 +324,15 @@ jobs:
               api/tax_form_export.php \
               api/treasury_cash_position.php \
               api/treasury_recommendations.php \
+              core/ModuleRegistry.php \
               core/api_bootstrap.php \
               core/ai_agents.php \
+              core/domain_people_graph.php \
+              core/people_graph.php \
               core/rbac/legacy_map.php \
               core/storage_register.php \
               core/treasury/liquidity_projection.php \
+              core/workflow_engine.php \
               modules/accounting/api/accounts.php \
               modules/accounting/api/bank_ai.php \
               modules/accounting/api/bank_statements.php \
@@ -335,6 +346,7 @@ jobs:
               modules/billing/api/items.php \
               modules/billing/lib/billing.php \
               modules/billing/lib/invoice_pdf.php \
+              modules/billing/lib/workflow.php \
               modules/payroll/lib/payroll.php \
               modules/payroll/lib/workflow.php \
               modules/payroll/lib/workflow_sync.php \
@@ -371,6 +383,8 @@ jobs:
             php tests/books_health_period_schema_smoke.php
             php tests/bank_line_state_convergence_smoke.php
             php tests/billing_catalog_and_direct_invoice_smoke.php
+            php tests/billing_invoice_approval_recovery_smoke.php
+            php tests/billing_spec_smoke.php
             php tests/chart_of_accounts_controls_smoke.php
             php tests/company_directory_workflow_smoke.php
             php tests/csv_ai_assisted_mapping_smoke.php
