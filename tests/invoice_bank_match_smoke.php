@@ -17,6 +17,7 @@ $bankLib = $read('modules/accounting/lib/bank_rec.php');
 $bankApi = $read('modules/accounting/api/bank_statements.php');
 $bankAi = $read('modules/accounting/api/bank_ai.php');
 $bankUi = $read('modules/accounting/ui/BankReconciliation.jsx');
+$treasuryUi = $read('modules/treasury/ui/AccountTransactions.jsx');
 $rbac = $read('core/rbac/legacy_map.php');
 
 echo "Invoice visibility and issuing entity\n";
@@ -43,6 +44,46 @@ $check('posts cash receipt journal', str_contains($bankApi, "'idempotency_key' =
 $check('allocates payment and closes bank line', str_contains($bankApi, 'billingAllocatePayment(') && str_contains($bankApi, 'bankRecMarkLineMatched('));
 $check('bank UI reviews and applies invoice match', str_contains($bankUi, 'Review match') && str_contains($bankUi, 'Apply payment'));
 $check('bank UI can accept posted journal match', str_contains($bankUi, 'Match line') && str_contains($bankUi, "action=match&line_id="));
+
+echo "\nPartial invoice matching from Treasury\n";
+$check('manual invoice candidates include client and open balance',
+    str_contains($bankApi, "action === 'invoice_candidates'")
+    && str_contains($bankApi, 'bi.client_name')
+    && str_contains($bankApi, 'bi.amount_due'));
+$check('invoice candidates respect bank currency and receipt date',
+    str_contains($bankApi, 'bi.currency = :bank_currency')
+    && str_contains($bankApi, 'bi.issue_date <= :posted_date'));
+$check('split receipt endpoint accepts invoice and GL portions',
+    str_contains($bankApi, "action === 'split_match_invoices'")
+    && str_contains($bankApi, "\$body['allocations']")
+    && str_contains($bankApi, "\$body['account_splits']"));
+$check('partial invoice allocations cannot exceed open balance',
+    str_contains($bankApi, 'Allocation exceeds the open balance on invoice'));
+$check('split receipt posts AR by invoice and allocates the subledger payment',
+    str_contains($bankApi, "'account_code' => '1100'")
+    && str_contains($bankApi, 'billingAllocatePayment(')
+    && str_contains($bankApi, "'billing:bank-receipt-split:'"));
+$check('generic AR is rejected when an invoice target is required',
+    str_contains($bankApi, 'Use an Invoice target instead of posting a generic Accounts Receivable split'));
+$check('plain receipt categorization directs users to invoice matching',
+    str_contains($treasuryUi, "String(a.code) !== '1100'")
+    && str_contains($treasuryUi, 'use Split / match and choose the invoice'));
+$check('Treasury split rows choose invoice or GL account',
+    str_contains($treasuryUi, '<option value="invoice">Customer invoice</option>')
+    && str_contains($treasuryUi, '<option value="account">GL account</option>'));
+$check('Treasury invoice picker shows client, invoice and balance',
+    str_contains($treasuryUi, 'treasury-txn-split-invoice-')
+    && str_contains($treasuryUi, 'inv.client_name')
+    && str_contains($treasuryUi, 'inv.invoice_number')
+    && str_contains($treasuryUi, 'inv.amount_due'));
+$check('choosing an invoice defaults its amount and preserves a remainder row',
+    str_contains($treasuryUi, 'const selectInvoice =')
+    && str_contains($treasuryUi, 'Math.min(Number(invoice.amount_due), available)')
+    && str_contains($treasuryUi, 'next.push(blankRow(remainder.toFixed(2)))'));
+$check('Treasury submits invoice allocations and remainder together',
+    str_contains($treasuryUi, 'split_match_invoices&line_id=')
+    && str_contains($treasuryUi, 'invoiceAllocations')
+    && str_contains($treasuryUi, 'accountSplits'));
 
 echo "\nInvoice finalization\n";
 $check('post permission maps to billing admin', str_contains($rbac, "'billing.invoice.post'               => ['billing', 'admin']"));

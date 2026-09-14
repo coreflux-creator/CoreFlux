@@ -95,8 +95,9 @@ $ui = file_get_contents(__DIR__ . '/../modules/treasury/ui/AccountTransactions.j
 $assert('AiSuggestionPill component present',   strpos($ui, 'function AiSuggestionPill(') !== false);
 $assert('renders AI confidence percentage',     strpos($ui, 'AI: {conf}%') !== false);
 $assert('renders Accept button on pill',        strpos($ui, 'treasury-txn-ai-accept-${suggestion.suggestion_id}') !== false);
-$assert('CategorizeRow pre-selects AI suggestion',
-                                                strpos($ui, "aiSuggestion?.suggested_account_id ? String(aiSuggestion.suggested_account_id) : ''") !== false);
+$assert('CategorizeRow pre-selects safe AI suggestions but not generic receipt AR',
+                                                strpos($ui, 'aiSuggestion?.suggested_account_id && !(isCustomerReceipt') !== false
+                                                && strpos($ui, "String(suggestedAccount?.code) === '1100'") !== false);
 $assert('passes ai_suggestion_id back to backend',
                                                 strpos($ui, 'ai_suggestion_id') !== false);
 

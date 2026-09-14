@@ -3,10 +3,13 @@
  * Accounting API — Bank statement import + line matching.
  *
  *   GET  /api/accounting/bank_statements?bank_account_id=N[&match_status=unmatched]
+ *   GET  /api/accounting/bank_statements?action=invoice_candidates&line_id=N
  *   POST /api/accounting/bank_statements?action=import_csv&bank_account_id=N
  *        Body: { csv: <text>, header_map?: { date_col, desc_col, amount_col, fitid_col } }
  *   POST /api/accounting/bank_statements?action=match&line_id=N         Body: { je_id }
  *   POST /api/accounting/bank_statements?action=match_invoice&line_id=N Body: { invoice_id }
+ *   POST /api/accounting/bank_statements?action=split_match_invoices&line_id=N
+ *        Body: { allocations: [{ invoice_id, amount }], account_splits: [{ account_id, amount, memo? }] }
  *   POST /api/accounting/bank_statements?action=unmatch&line_id=N
  *   POST /api/accounting/bank_statements?action=ignore&line_id=N
  *   POST /api/accounting/bank_statements?action=apply_rules&bank_account_id=N
@@ -25,6 +28,59 @@ $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
+
+if ($method === 'GET' && $action === 'invoice_candidates') {
+    rbac_legacy_require($user, 'accounting.bank.manage');
+    rbac_legacy_require($user, 'billing.view');
+    $lid = (int) ($_GET['line_id'] ?? 0);
+    if ($lid <= 0) api_error('line_id required', 400);
+
+    $pdo = getDB();
+    $lineStmt = $pdo->prepare(
+        'SELECT bl.id, bl.amount, bl.posted_date, ba.entity_id AS bank_entity_id,
+                ba.currency AS bank_currency
+           FROM accounting_bank_statement_lines bl
+           JOIN accounting_bank_accounts ba
+             ON ba.tenant_id = bl.tenant_id AND ba.id = bl.bank_account_id
+          WHERE bl.tenant_id = :tenant_id AND bl.id = :id LIMIT 1'
+    );
+    $lineStmt->execute(['tenant_id' => (int) $ctx['tenant_id'], 'id' => $lid]);
+    $line = $lineStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$line) api_error('Line not found', 404);
+    if ((float) $line['amount'] <= 0) api_error('Only incoming bank receipts can be applied to customer invoices', 422);
+
+    $params = [
+        'bank_currency' => (string) ($line['bank_currency'] ?: 'USD'),
+        'posted_date' => (string) $line['posted_date'],
+    ];
+    $entitySql = '';
+    if (!empty($line['bank_entity_id'])) {
+        $entitySql = ' AND (bi.entity_id = :bank_entity_id OR bi.entity_id IS NULL)';
+        $params['bank_entity_id'] = (int) $line['bank_entity_id'];
+    }
+    $rows = scopedQuery(
+        'SELECT bi.id, bi.invoice_number, bi.client_name, bi.client_company_id,
+                bi.entity_id, bi.issue_date, bi.due_date, bi.currency,
+                bi.amount_due, bi.status, bi.journal_entry_id
+           FROM billing_invoices bi
+           JOIN accounting_journal_entries je
+             ON je.tenant_id = bi.tenant_id AND je.id = bi.journal_entry_id AND je.status = "posted"
+          WHERE bi.tenant_id = :tenant_id
+            AND bi.status IN ("approved", "sent", "partially_paid")
+            AND bi.amount_due > 0
+            AND bi.currency = :bank_currency
+            AND bi.issue_date <= :posted_date' . $entitySql . '
+          ORDER BY bi.client_name ASC, bi.due_date ASC, bi.id ASC
+          LIMIT 300',
+        $params
+    );
+    foreach ($rows as &$row) {
+        $row['amount_due'] = round((float) $row['amount_due'], 2);
+        $row['label'] = (string) $row['client_name'] . ' - ' . (string) $row['invoice_number'];
+    }
+    unset($row);
+    api_ok(['rows' => $rows, 'line_amount' => round((float) $line['amount'], 2)]);
+}
 
 if ($method === 'GET') {
     rbac_legacy_require($user, 'accounting.coa.view');
@@ -84,6 +140,255 @@ if ($method === 'POST' && $action === 'match') {
     $res = bankRecMatchLine((int) $ctx['tenant_id'], $lid, $jeId, $user['id'] ?? null);
     accountingAudit('accounting.bank.line_matched', ['line_id' => $lid, 'je_id' => $jeId], $lid);
     api_ok($res);
+}
+
+if ($method === 'POST' && $action === 'split_match_invoices') {
+    rbac_legacy_require($user, 'accounting.bank.manage');
+    rbac_legacy_require($user, 'billing.payments.record');
+    $lid = (int) ($_GET['line_id'] ?? 0);
+    if ($lid <= 0) api_error('line_id required', 400);
+    $body = api_json_body();
+    $allocations = (array) ($body['allocations'] ?? []);
+    $accountSplits = (array) ($body['account_splits'] ?? []);
+    if (!$allocations) api_error('Choose at least one customer invoice', 422);
+
+    $pdo = getDB();
+    $lineStmt = $pdo->prepare(
+        'SELECT bl.*, ba.gl_account_code, ba.entity_id AS bank_entity_id,
+                ba.currency AS bank_currency
+           FROM accounting_bank_statement_lines bl
+           JOIN accounting_bank_accounts ba
+             ON ba.tenant_id = bl.tenant_id AND ba.id = bl.bank_account_id
+          WHERE bl.tenant_id = :tenant_id AND bl.id = :id LIMIT 1'
+    );
+    $lineStmt->execute(['tenant_id' => (int) $ctx['tenant_id'], 'id' => $lid]);
+    $line = $lineStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$line) api_error('Line not found', 404);
+    if (($line['match_status'] ?? '') !== 'unmatched') api_error('This bank line is already resolved', 409);
+    $lineAmount = round((float) ($line['amount'] ?? 0), 2);
+    if ($lineAmount <= 0) api_error('Only incoming bank receipts can be applied to customer invoices', 422);
+
+    $invoiceAmounts = [];
+    foreach ($allocations as $allocation) {
+        $invoiceId = (int) ($allocation['invoice_id'] ?? 0);
+        $amount = round((float) ($allocation['amount'] ?? 0), 2);
+        if ($invoiceId <= 0 || $amount <= 0) api_error('Every invoice allocation needs an invoice and positive amount', 422);
+        $invoiceAmounts[$invoiceId] = round(($invoiceAmounts[$invoiceId] ?? 0) + $amount, 2);
+    }
+
+    $invoiceRows = [];
+    $invoiceTotal = 0.0;
+    foreach ($invoiceAmounts as $invoiceId => $amount) {
+        $invoice = scopedFind(
+            'SELECT bi.*, je.status AS journal_status
+               FROM billing_invoices bi
+               LEFT JOIN accounting_journal_entries je
+                 ON je.tenant_id = bi.tenant_id AND je.id = bi.journal_entry_id
+              WHERE bi.tenant_id = :tenant_id AND bi.id = :id',
+            ['id' => $invoiceId]
+        );
+        if (!$invoice) api_error("Invoice {$invoiceId} not found", 404);
+        if (!in_array($invoice['status'], ['approved', 'sent', 'partially_paid'], true)) {
+            api_error("Invoice {$invoice['invoice_number']} is not ready to receive payment", 409);
+        }
+        if (($invoice['journal_status'] ?? null) !== 'posted') {
+            api_error("Post invoice {$invoice['invoice_number']} to the ledger before applying payment", 409);
+        }
+        if ($amount - 0.005 > (float) $invoice['amount_due']) {
+            api_error("Allocation exceeds the open balance on invoice {$invoice['invoice_number']}", 409);
+        }
+        if (!empty($invoice['entity_id']) && !empty($line['bank_entity_id'])
+            && (int) $invoice['entity_id'] !== (int) $line['bank_entity_id']) {
+            api_error("Invoice {$invoice['invoice_number']} belongs to a different entity", 409);
+        }
+        $bankCurrency = (string) ($line['bank_currency'] ?: 'USD');
+        if (strcasecmp((string) ($invoice['currency'] ?: 'USD'), $bankCurrency) !== 0) {
+            api_error("Invoice {$invoice['invoice_number']} uses a different currency", 409);
+        }
+        if ((string) $invoice['issue_date'] > (string) $line['posted_date']) {
+            api_error("Invoice {$invoice['invoice_number']} was issued after this bank receipt; record it as unapplied cash first", 409);
+        }
+        $invoice['apply_amount'] = $amount;
+        $invoiceRows[] = $invoice;
+        $invoiceTotal += $amount;
+    }
+
+    $validatedAccountSplits = [];
+    $accountTotal = 0.0;
+    foreach ($accountSplits as $split) {
+        $accountId = (int) ($split['account_id'] ?? 0);
+        $amount = round((float) ($split['amount'] ?? 0), 2);
+        if ($accountId <= 0 || $amount <= 0) api_error('Every GL split needs an account and positive amount', 422);
+        $account = scopedFind(
+            'SELECT id, code, name, active, is_postable
+               FROM accounting_accounts
+              WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => $accountId]
+        );
+        if (!$account || !(int) $account['active'] || !(int) $account['is_postable']) {
+            api_error('Choose an active, postable GL account for every non-invoice portion', 409);
+        }
+        if ((string) $account['code'] === '1100') {
+            api_error('Use an Invoice target instead of posting a generic Accounts Receivable split', 409);
+        }
+        $validatedAccountSplits[] = [
+            'account_id' => $accountId,
+            'amount' => $amount,
+            'memo' => trim((string) ($split['memo'] ?? '')),
+            'entity_id' => !empty($split['entity_id']) ? (int) $split['entity_id'] : null,
+        ];
+        $accountTotal += $amount;
+    }
+
+    $assignedTotal = round($invoiceTotal + $accountTotal, 2);
+    if (abs($assignedTotal - $lineAmount) > 0.005) {
+        api_error(sprintf('Invoice and GL portions must total the bank receipt (%.2f of %.2f assigned)', $assignedTotal, $lineAmount), 422);
+    }
+
+    require_once __DIR__ . '/../../billing/lib/billing.php';
+    $jeLines = [[
+        'account_code' => (string) $line['gl_account_code'],
+        'debit' => $lineAmount,
+        'credit' => 0,
+        'memo' => (string) ($line['description'] ?: 'Customer receipt'),
+    ]];
+    foreach ($invoiceRows as $invoice) {
+        $jeLines[] = [
+            'account_code' => '1100',
+            'debit' => 0,
+            'credit' => (float) $invoice['apply_amount'],
+            'memo' => 'Apply receipt to ' . $invoice['invoice_number'],
+            'counterparty_company_id' => $invoice['client_company_id'] ?? null,
+        ];
+    }
+    foreach ($validatedAccountSplits as $split) {
+        $jeLines[] = [
+            'account_id' => $split['account_id'],
+            'debit' => 0,
+            'credit' => $split['amount'],
+            'memo' => $split['memo'] ?: ((string) ($line['description'] ?? 'Receipt split')),
+            'counterparty_entity_id' => $split['entity_id'],
+        ];
+    }
+
+    try {
+        $receiptJe = accountingPostJe((int) $ctx['tenant_id'], [
+            'entity_id' => (int) ($line['bank_entity_id'] ?? 0),
+            'posting_date' => (string) $line['posted_date'],
+            'currency' => (string) ($line['bank_currency'] ?: 'USD'),
+            'source_module' => 'billing',
+            'source_ref_type' => 'bank_statement_line',
+            'source_ref_id' => $lid,
+            'idempotency_key' => 'billing:bank-receipt-split:' . $lid,
+            'memo' => 'Split customer receipt / ' . (string) ($line['description'] ?? ''),
+            'lines' => $jeLines,
+        ], $user['id'] ?? null, true);
+    } catch (\Throwable $e) {
+        api_error('Could not post the split receipt: ' . $e->getMessage(), 422);
+    }
+
+    $groups = [];
+    foreach ($invoiceRows as $invoice) {
+        $groupKey = !empty($invoice['client_company_id'])
+            ? 'company:' . (int) $invoice['client_company_id']
+            : 'name:' . sha1(strtolower(trim((string) $invoice['client_name'])));
+        if (!isset($groups[$groupKey])) {
+            $groups[$groupKey] = [
+                'client_name' => (string) $invoice['client_name'],
+                'currency' => (string) ($invoice['currency'] ?: 'USD'),
+                'amount' => 0.0,
+                'allocations' => [],
+            ];
+        }
+        $groups[$groupKey]['amount'] = round($groups[$groupKey]['amount'] + (float) $invoice['apply_amount'], 2);
+        $groups[$groupKey]['allocations'][] = [
+            'invoice_id' => (int) $invoice['id'],
+            'amount' => (float) $invoice['apply_amount'],
+        ];
+    }
+
+    $paymentIds = [];
+    try {
+        foreach ($groups as $groupKey => $group) {
+            $externalId = 'bank-line:' . $lid . ':' . substr($groupKey, 0, 80);
+            $payment = scopedFind(
+                'SELECT * FROM billing_payments
+                  WHERE tenant_id = :tenant_id AND source_system = "manual" AND external_id = :external_id
+                  LIMIT 1',
+                ['external_id' => $externalId]
+            );
+            $paymentId = $payment ? (int) $payment['id'] : scopedInsert('billing_payments', [
+                'tenant_id' => (int) $ctx['tenant_id'],
+                'client_name' => $group['client_name'],
+                'received_at' => (string) $line['posted_date'],
+                'method' => str_contains(strtoupper((string) $line['description']), 'WIRE') ? 'wire'
+                    : (str_contains(strtoupper((string) $line['description']), 'ACH') ? 'ach'
+                    : (str_contains(strtoupper((string) $line['description']), 'CHECK') ? 'check' : 'other')),
+                'reference' => $line['bank_reference'] ?: ($line['fitid'] ?? null),
+                'external_id' => $externalId,
+                'source_system' => 'manual',
+                'amount' => $group['amount'],
+                'currency' => $group['currency'],
+                'unallocated_amount' => $group['amount'],
+                'notes' => 'Allocated from split bank receipt line #' . $lid,
+                'created_by_user_id' => $user['id'] ?? null,
+            ]);
+
+            $missing = [];
+            foreach ($group['allocations'] as $allocation) {
+                $existing = $pdo->prepare(
+                    'SELECT id, amount_applied FROM billing_payment_allocations
+                      WHERE payment_id = :payment_id AND invoice_id = :invoice_id LIMIT 1'
+                );
+                $existing->execute(['payment_id' => $paymentId, 'invoice_id' => $allocation['invoice_id']]);
+                $existingAllocation = $existing->fetch(PDO::FETCH_ASSOC);
+                if (!$existingAllocation) {
+                    $missing[] = $allocation;
+                } elseif (abs((float) $existingAllocation['amount_applied'] - (float) $allocation['amount']) > 0.005) {
+                    throw new RuntimeException('An existing bank allocation has a different amount; review the payment before retrying');
+                }
+            }
+            if ($missing) billingAllocatePayment($paymentId, ['allocations' => $missing], $user['id'] ?? null);
+            $paymentIds[] = $paymentId;
+        }
+    } catch (\Throwable $e) {
+        api_error('The receipt posted, but its invoice allocation needs attention: ' . $e->getMessage(), 422);
+    }
+
+    bankRecMarkLineMatched((int) $ctx['tenant_id'], $lid, (int) $receiptJe['je_id'], $user['id'] ?? null);
+    try {
+        $pdo->prepare(
+            'INSERT IGNORE INTO accounting_subledger_links
+                (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
+             VALUES (:tenant_id, "billing", :source_record_id, :journal_entry_id, "primary")'
+        )->execute([
+            'tenant_id' => (int) $ctx['tenant_id'],
+            'source_record_id' => 'bank_line:invoice_split:' . $lid,
+            'journal_entry_id' => (int) $receiptJe['je_id'],
+        ]);
+    } catch (\Throwable $_) { /* optional on older tenants */ }
+
+    billingAudit('billing.payment.recorded', [
+        'payment_ids' => $paymentIds,
+        'invoice_allocations' => $invoiceAmounts,
+        'bank_statement_line_id' => $lid,
+        'amount' => $invoiceTotal,
+    ], $paymentIds[0] ?? null);
+    accountingAudit('accounting.bank.line_matched', [
+        'line_id' => $lid,
+        'payment_ids' => $paymentIds,
+        'invoice_allocations' => $invoiceAmounts,
+        'account_split_count' => count($validatedAccountSplits),
+        'je_id' => (int) $receiptJe['je_id'],
+    ], $lid);
+    api_ok([
+        'ok' => true,
+        'line_id' => $lid,
+        'payment_ids' => $paymentIds,
+        'matched_je_id' => (int) $receiptJe['je_id'],
+        'invoice_total' => round($invoiceTotal, 2),
+        'account_total' => round($accountTotal, 2),
+    ]);
 }
 
 if ($method === 'POST' && $action === 'match_invoice') {
