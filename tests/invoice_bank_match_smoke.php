@@ -19,6 +19,7 @@ $bankAi = $read('modules/accounting/api/bank_ai.php');
 $bankUi = $read('modules/accounting/ui/BankReconciliation.jsx');
 $treasuryUi = $read('modules/treasury/ui/AccountTransactions.jsx');
 $rbac = $read('core/rbac/legacy_map.php');
+$lightWorkspaceDeployPath = $root . '/.github/workflows/deploy-light-workspace.yml';
 
 echo "Invoice visibility and issuing entity\n";
 $check('invoice list is tenant-wide', !str_contains($list, "qs.set('entity_id'"));
@@ -86,6 +87,11 @@ $check('Treasury submits invoice allocations and remainder together',
     str_contains($treasuryUi, 'split_match_invoices&line_id=')
     && str_contains($treasuryUi, 'invoiceAllocations')
     && str_contains($treasuryUi, 'accountSplits'));
+if (is_file($lightWorkspaceDeployPath)) {
+    $lightWorkspaceDeploy = (string) file_get_contents($lightWorkspaceDeployPath);
+    $check('light workspace release packages the Treasury transaction source',
+        str_contains($lightWorkspaceDeploy, 'modules/treasury/ui/AccountTransactions.jsx'));
+}
 
 echo "\nInvoice finalization\n";
 $check('post permission maps to billing admin', str_contains($rbac, "'billing.invoice.post'               => ['billing', 'admin']"));

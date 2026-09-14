@@ -192,6 +192,7 @@ jobs:
             modules/time/api/intake.php \
             modules/time/manifest.php \
             modules/time/ui/TimeModule.jsx \
+            modules/treasury/ui/AccountTransactions.jsx \
             modules/treasury/ui/TreasuryOverview.jsx \
             modules/treasury/ui/TreasuryModule.jsx \
             modules/treasury/api/account_transactions.php \
