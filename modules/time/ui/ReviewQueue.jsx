@@ -11,7 +11,7 @@ import ExportTemplatePicker from '../../../dashboard/src/components/ExportTempla
 export default function ReviewQueue() {
   const path = '/api/v1/time/entries?status=pending_review&per_page=500';
   const { data, loading, error, reload } = useApi(path);
-  const rows = data?.rows ?? [];
+  const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
 
   const [busy, setBusy] = useState(null);
   const [uiError, setUiError] = useState(null);
@@ -32,12 +32,54 @@ export default function ReviewQueue() {
     catch (e) { setUiError(e); } finally { setBusy(null); }
   };
 
+  const runBulkAction = async (action, reason = null) => {
+    const ids = Array.from(selected).filter(id => rows.some(r => r.id === id));
+    if (ids.length === 0) return;
+    setBusy(action); setUiError(null); setToast(null);
+    try {
+      const res = await api.post(`/api/v1/time/entries?action=${action}`, {
+        ids,
+        ...(reason ? { reason } : {}),
+      });
+      const failedRows = (res.results || []).filter(r => !r.ok);
+      setSelected(new Set(failedRows.map(r => r.id)));
+      setToast({
+        kind: failedRows.length ? 'warn' : 'ok',
+        msg: failedRows.length
+          ? `${res.succeeded} completed; ${failedRows.length} need attention: ${failedRows.slice(0, 3).map(r => `#${r.id} ${r.reason}`).join(' | ')}`
+          : `${res.succeeded} ${action === 'bulk_approve' ? 'approved' : 'rejected'}.`,
+      });
+      reload();
+    } catch (e) {
+      setUiError(e);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const approveSelected = () => {
+    if (selected.size === 0) return;
+    if (!confirm(`Approve ${selected.size} selected time entr${selected.size === 1 ? 'y' : 'ies'}?`)) return;
+    runBulkAction('bulk_approve');
+  };
+
+  const rejectSelected = () => {
+    if (selected.size === 0) return;
+    const reason = prompt(`Reason for rejecting ${selected.size} selected time entr${selected.size === 1 ? 'y' : 'ies'}:`);
+    if (!reason?.trim()) return;
+    runBulkAction('bulk_reject', reason.trim());
+  };
+
   const toggle = (id) => {
     setSelected(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+  };
+  const allSelected = rows.length > 0 && rows.every(r => selected.has(r.id));
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(rows.map(r => r.id)));
   };
 
   const selectedRows = useMemo(() => rows.filter(r => selected.has(r.id)), [rows, selected]);
@@ -90,6 +132,19 @@ export default function ReviewQueue() {
         </div>
       </div>
 
+      {rows.length > 0 && (
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, margin: '6px 0 12px', fontSize: 13 }}>
+          <input
+            type="checkbox"
+            checked={allSelected}
+            onChange={toggleAll}
+            disabled={!!busy}
+            data-testid="time-review-select-all"
+          />
+          Select all {rows.length} pending entries
+        </label>
+      )}
+
       {selected.size > 0 && (
         <div
           data-testid="time-review-selection-bar"
@@ -108,9 +163,15 @@ export default function ReviewQueue() {
               </span>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <button className="btn btn--ghost" onClick={() => setSelected(new Set())} data-testid="time-review-selection-clear">Clear</button>
-            <button className="btn btn--primary" onClick={openIssueModal} disabled={!selectionShape.ok} data-testid="time-review-request-client-approval">
+            <button className="btn btn--primary" onClick={approveSelected} disabled={!!busy} data-testid="time-review-approve-selected">
+              {busy === 'bulk_approve' ? 'Approving…' : 'Approve selected'}
+            </button>
+            <button className="btn" onClick={rejectSelected} disabled={!!busy} data-testid="time-review-reject-selected">
+              {busy === 'bulk_reject' ? 'Rejecting…' : 'Reject selected'}
+            </button>
+            <button className="btn" onClick={openIssueModal} disabled={!selectionShape.ok || !!busy} data-testid="time-review-request-client-approval">
               Request client approval
             </button>
           </div>
@@ -161,9 +222,9 @@ export default function ReviewQueue() {
                   <td>{parseFloat(r.hours).toFixed(2)}</td>
                   <td>{r.description || '—'}</td>
                   <td>
-                    <button className="btn btn--primary" onClick={() => approve(r.id)} disabled={busy === r.id} data-testid={`time-review-approve-${r.id}`}>Approve</button>
+                    <button className="btn btn--primary" onClick={() => approve(r.id)} disabled={!!busy} data-testid={`time-review-approve-${r.id}`}>Approve</button>
                     {' '}
-                    <button className="btn" onClick={() => reject(r.id)} disabled={busy === r.id} data-testid={`time-review-reject-${r.id}`}>Reject</button>
+                    <button className="btn" onClick={() => reject(r.id)} disabled={!!busy} data-testid={`time-review-reject-${r.id}`}>Reject</button>
                   </td>
                 </tr>
               ))}

@@ -19,8 +19,21 @@ export default function PayrollRuns() {
       {loading && <p>Loading…</p>}
       {error && <p className="error">{error.message}</p>}
 
-      {!loading && runs.length === 0 && (
-        <p className="empty-state">No runs yet. Open a pay period and click <em>Start run</em>.</p>
+      {!loading && !error && runs.length === 0 && (
+        <div className="empty-state" data-testid="payroll-runs-empty" style={{ display: 'grid', gap: 12, justifyItems: 'start' }}>
+          <div>
+            <strong>No payroll runs yet</strong>
+            <p style={{ margin: '4px 0 0' }}>Choose an open pay period to review inputs and start the run.</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Link className="btn btn--primary" to="../pay_periods" data-testid="payroll-runs-open-periods">
+              Open pay periods
+            </Link>
+            <Link className="btn btn--ghost" to="../pay_schedules" data-testid="payroll-runs-open-schedules">
+              Manage pay schedules
+            </Link>
+          </div>
+        </div>
       )}
 
       {runs.length > 0 && (

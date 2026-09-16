@@ -7,6 +7,8 @@
  * Optional filters:
  *   ?status=draft|active|ended|cancelled
  *   ?engagement_type=w2|1099|c2c|temp_to_perm|direct_hire
+ *   ?end_client_company_id=N
+ *   ?q=person|title|client|placement-id
  *
  * Built on Core\CsvExportService primitive per HARD_RULES (2026-02-XX).
  */
@@ -24,6 +26,18 @@ $where  = ['p.tenant_id = :tenant_id', 'p.deleted_at IS NULL'];
 $params = [];
 if (!empty($_GET['status']))          { $where[] = 'p.status = :s';           $params['s']  = $_GET['status']; }
 if (!empty($_GET['engagement_type'])) { $where[] = 'p.engagement_type = :et'; $params['et'] = $_GET['engagement_type']; }
+if (!empty($_GET['end_client_company_id'])) {
+    $where[] = 'p.end_client_company_id = :client_id';
+    $params['client_id'] = (int) $_GET['end_client_company_id'];
+}
+if (trim((string) ($_GET['q'] ?? '')) !== '') {
+    $needle = '%' . trim((string) $_GET['q']) . '%';
+    $where[] = '(p.title LIKE :q_title OR p.end_client_name LIKE :q_client
+                 OR pe.first_name LIKE :q_first OR pe.last_name LIKE :q_last
+                 OR p.external_id LIKE :q_external OR CAST(p.id AS CHAR) LIKE :q_id)';
+    foreach (['q_title','q_client','q_first','q_last','q_external','q_id'] as $key) $params[$key] = $needle;
+}
+$params['people_tenant_id'] = effectiveTenantIdForModule('people', (int) ($ctx['tenant_id'] ?? currentTenantId())) ?? currentTenantId();
 
 $rows = scopedQuery(
     'SELECT p.id AS placement_id,
@@ -112,7 +126,7 @@ $rows = scopedQuery(
             pcd.pwp_enabled AS corp_paid_when_paid,
             p.external_id, p.notes
        FROM placements p
-       LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
+       LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :people_tenant_id
        LEFT JOIN placement_rates r
               ON r.id = (
                     SELECT rr.id

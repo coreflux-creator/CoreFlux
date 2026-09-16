@@ -8,7 +8,7 @@ import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import {
   ChevronRight, DatabaseZap, Download, FileSpreadsheet, Plus,
-  MoreHorizontal, RefreshCw, Search, Upload, Zap,
+  MoreHorizontal, RefreshCw, Search, Upload,
 } from 'lucide-react';
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
@@ -64,10 +64,18 @@ export default function List() {
   const clientsPath = '/modules/staffing/api/clients.php?action=list&status=active&limit=500&sort=name&dir=asc';
   const { data: clientsData } = useApiCached(clientsPath, { cacheKey: 'staffing-clients:active-options' });
   const activeClients = useMemo(() => clientsData?.rows ?? [], [clientsData?.rows]);
-  const buildTemplateExportHref = (tplId) => {
-    const params = new URLSearchParams({ template_id: String(tplId) });
+  const buildExportParams = () => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
     if (status) params.set('status', status);
     if (engagementType) params.set('engagement_type', engagementType);
+    if (endClientCompanyId) params.set('end_client_company_id', endClientCompanyId);
+    return params;
+  };
+  const exportHref = `/api/v1/placements/csv-export?${buildExportParams().toString()}`;
+  const buildTemplateExportHref = (tplId) => {
+    const params = buildExportParams();
+    params.set('template_id', String(tplId));
     return `/api/v1/placements/csv-export?${params.toString()}`;
   };
 
@@ -174,10 +182,7 @@ export default function List() {
               <Link to="../draft-rates" className="action-overflow__item" data-testid="placements-draft-rates-btn" title="Review and approve draft rates across all placements">
                 <FileSpreadsheet size={15} aria-hidden="true" /> Draft rates queue
               </Link>
-              <Link to="../list-graphql" className="action-overflow__item" data-testid="placements-try-graphql-btn" title="Same data, fetched via the new federated GraphQL endpoint">
-                <Zap size={15} aria-hidden="true" /> GraphQL view
-              </Link>
-              <a href="/api/v1/placements/csv-export" className="action-overflow__item" data-testid="placements-csv-export-btn"><Download size={15} aria-hidden="true" /> Export CSV</a>
+              <a href={exportHref} className="action-overflow__item" data-testid="placements-csv-export-btn"><Download size={15} aria-hidden="true" /> Export current view</a>
               <ExportTemplatePicker
                 dataset="placements_directory"
                 buildHref={buildTemplateExportHref}
@@ -192,8 +197,8 @@ export default function List() {
 
       <div className="page-kpi-strip" aria-label="Placement summary">
         <PageKpi label={status === 'active' ? 'Active' : 'Matching placements'} value={total} />
-        <PageKpi label="W-2 matching filters" value={summary.w2 ?? 0} />
-        <PageKpi label="C2C matching filters" value={summary.c2c ?? 0} />
+        <PageKpi label="W-2 in view" value={summary.w2 ?? 0} />
+        <PageKpi label="C2C in view" value={summary.c2c ?? 0} />
         <PageKpi label="Ending in 30 days" value={summary.ending_30d ?? 0} tone="amber" />
       </div>
 

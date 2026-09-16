@@ -27,8 +27,11 @@ export default function CsvImport() {
       backLabel="← My Time"
       testidPrefix="time-csv-import"
       presetEntity="time"
+      description="Import time by Placement ID or external placement ID. Matching unapproved entries can be corrected in the same file."
+      updateExistingLabel="Update matching unapproved entries instead of creating duplicates"
       previewColumns={[
-        { key: 'placement_external_id', label: 'Placement' },
+        { key: 'placement_id',          label: 'Placement ID' },
+        { key: 'placement_external_id', label: 'External placement ID' },
         { key: 'work_date',              label: 'Work Date' },
         { key: 'category',               label: 'Category' },
         { key: 'hours',                  label: 'Hours' },
@@ -42,6 +45,14 @@ export default function CsvImport() {
           default:     false,
         },
       ]}
+      successCtas={(result) => {
+        const n = result?.imported_count ?? 0;
+        if (n <= 0) return [];
+        return [
+          { label: 'Review imported time', to: '../review', testid: 'time-csv-import-review', primary: true },
+          { label: 'Open settlement', to: '../settlement', testid: 'time-csv-import-settlement', primary: false },
+        ];
+      }}
     />
   );
 }

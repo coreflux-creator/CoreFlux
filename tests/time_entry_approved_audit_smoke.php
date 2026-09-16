@@ -23,7 +23,8 @@
  */
 declare(strict_types=1);
 
-require_once '/app/modules/time/lib/time.php';
+$root = dirname(__DIR__);
+require_once $root . '/modules/time/lib/time.php';
 
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
@@ -40,7 +41,7 @@ $a('signature: (entryId, entry, approvedVia, approverContext)',
    $params === ['entryId', 'entry', 'approvedVia', 'approverContext']);
 
 echo "\n2. Helper writes to audit_log via timeAudit (not direct PDO)\n";
-$lib = (string) file_get_contents('/app/modules/time/lib/time.php');
+$lib = (string) file_get_contents($root . '/modules/time/lib/time.php');
 $a('helper delegates to timeAudit (single source of truth)',
    str_contains($lib, "timeAudit('time.entry.approved', \$meta, \$entryId);"));
 $a('helper has NO direct INSERT INTO audit_log call',
@@ -57,18 +58,19 @@ foreach ([
 }
 
 echo "\n4. Manual approve site (entries.php)\n";
-$entries = (string) file_get_contents('/app/modules/time/api/entries.php');
-$a('manual approve calls timeEntryApprovedEmit',
-   str_contains($entries, "timeEntryApprovedEmit((int) \$id, \$approvedEntry, 'manual'"));
-$a('manual approve passes approver_user_id in context',
-   str_contains($entries, "'approver_user_id' => \$user['id'] ?? null,"));
+$entries = (string) file_get_contents($root . '/modules/time/api/entries.php');
+$a('manual approve uses the shared approval helper',
+   str_contains($entries, "timeApproveEntry(\$id, \$user, 'manual')"));
+$a('shared approval helper emits the approver context',
+   str_contains($lib, "timeEntryApprovedEmit(\$id, \$approvedEntry, \$approvedVia")
+   && str_contains($lib, "'approver_user_id' => \$user['id'] ?? null,"));
 $a('manual approve no longer calls timeAudit(time.entry.approved) directly (helper owns it)',
    !preg_match("/timeAudit\(\s*'time\.entry\.approved'/", $entries));
 $a('manual approve site does NOT call accountingPostJe (audit-only)',
    !str_contains($entries, 'accountingPostJe'));
 
 echo "\n5. Tokenized email approve site (approval_tokens.php)\n";
-$tokens = (string) file_get_contents('/app/modules/time/api/approval_tokens.php');
+$tokens = (string) file_get_contents($root . '/modules/time/api/approval_tokens.php');
 $a('emits per-entry audit only on approve (skips reject)',
    str_contains($tokens, "if (\$choice === 'approve' && !empty(\$entryIds)) {"));
 $a('fetches POST-commit approved rows by id list',
@@ -87,7 +89,7 @@ $a('tokenized approve site does NOT call accountingPostJe (audit-only)',
    !str_contains($tokens, 'accountingPostJe'));
 
 echo "\n6. Bulk CSV pre-approved site (csv_import.php)\n";
-$csv = (string) file_get_contents('/app/modules/time/api/csv_import.php');
+$csv = (string) file_get_contents($root . '/modules/time/api/csv_import.php');
 $a('emits per-entry audit only when preApproved is true',
    str_contains($csv, "if (\$preApproved) {\n            timeEntryApprovedEmit("));
 $a('passes bulk_pre_approved as approved_via',
@@ -98,7 +100,7 @@ $a('bulk CSV approve site does NOT call accountingPostJe (audit-only)',
    !str_contains($csv, 'accountingPostJe'));
 
 echo "\n7. Bundle accrual hook is the SOLE GL-writing approval path\n";
-$time = (string) file_get_contents('/app/modules/time/lib/time.php');
+$time = (string) file_get_contents($root . '/modules/time/lib/time.php');
 $a('only timeBuildBundlesForPeriod calls accountingPostBundleAccrual',
    substr_count($time, 'accountingPostBundleAccrual(') === 1);
 $a('helper itself does NOT trigger GL post',
@@ -107,10 +109,10 @@ $a('helper itself does NOT trigger GL post',
 
 echo "\n8. PHP syntax\n";
 foreach ([
-    '/app/modules/time/lib/time.php',
-    '/app/modules/time/api/entries.php',
-    '/app/modules/time/api/approval_tokens.php',
-    '/app/modules/time/api/csv_import.php',
+    $root . '/modules/time/lib/time.php',
+    $root . '/modules/time/api/entries.php',
+    $root . '/modules/time/api/approval_tokens.php',
+    $root . '/modules/time/api/csv_import.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);

@@ -35,6 +35,9 @@ export default function CsvImportPage({
   backTo = '..',
   backLabel = '← Back',
   testidPrefix = 'csv-import',
+  description = null,
+  defaultUpdateExisting = false,
+  updateExistingLabel = 'Update existing rows on match (otherwise skip duplicates)',
   /**
    * presetEntity: short identifier (e.g. 'people', 'ap_vendors') used to
    * look up saved mapping presets via /api/admin/csv_mapping_presets.
@@ -78,7 +81,7 @@ export default function CsvImportPage({
   const [error, setError]             = useState(null);
   const [committed, setCommitted]     = useState(null);
   const [skipInvalid, setSkipInvalid] = useState(false);
-  const [updateExisting, setUpdateExisting] = useState(false);
+  const [updateExisting, setUpdateExisting] = useState(!!defaultUpdateExisting);
   // Per-entity extra toggles (e.g. Time's "already_approved"). Stored as
   // a single object keyed by toggle.key so adding a new toggle is just
   // a prop change, no React state surgery.
@@ -277,6 +280,9 @@ export default function CsvImportPage({
   const reset = () => {
     setCsvText(''); setFileName(''); setPreview(null); setCommitted(null); setError(null);
     setInspectResult(null); setColumnMap(null);
+    setSkipInvalid(false);
+    setUpdateExisting(!!defaultUpdateExisting);
+    setExtraToggleValues(() => Object.fromEntries((extraToggles || []).map(t => [t.key, !!t.default])));
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -289,7 +295,7 @@ export default function CsvImportPage({
         <div>
           <h2>CSV Import — {entityLabel}</h2>
           <p style={{ color: 'var(--cf-text-secondary)' }}>
-            Bulk-create {entityLabel.toLowerCase()}. Template-driven; dry-run before commit.
+            {description || `Create or update ${entityLabel.toLowerCase()} in bulk. Every file is validated before import.`}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
@@ -517,7 +523,7 @@ export default function CsvImportPage({
                   onChange={e => setUpdateExisting(e.target.checked)}
                   data-testid={`${testidPrefix}-update-existing`}
                 />
-                Update existing rows on match (else: skip duplicates)
+                {updateExistingLabel}
               </label>
               {(extraToggles || []).map(t => (
                 <label key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-2)' }}>

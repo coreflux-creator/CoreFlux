@@ -19,6 +19,7 @@ require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../../core/encryption.php';
 require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../lib/economics.php';
+require_once __DIR__ . '/../lib/rate_approve.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
 require_once __DIR__ . '/../../staffing/lib/clients.php';
 
@@ -38,6 +39,8 @@ CsvImportService::registerSchema('placements', [
         // existing row" pathway — beats external_id + title + start_date
         // composite lookup. Leave blank when creating a new placement.
         'placement_id'      => ['label' => 'Placement ID',     'type'  => 'integer'],
+        'status'            => ['label' => 'Status',
+                                'enum' => ['draft','pending_start','active','on_hold','ended','cancelled']],
         'title'             => ['label' => 'Title',            'required' => true],
         'engagement_type'   => ['label' => 'Engagement type',  'required' => true,
                                 'enum' => ['w2','1099','c2c','temp_to_perm','direct_hire']],
@@ -756,7 +759,8 @@ if ($method === 'POST' && $action === 'commit') {
         if ($updateExisting) {
             if (!empty($row['placement_id'])) {
                 $existing = scopedFind(
-                    'SELECT id FROM placements WHERE tenant_id = :tenant_id AND id = :pid AND deleted_at IS NULL',
+                    'SELECT id, status, start_date, external_id, coreflux_overridden_fields
+                       FROM placements WHERE tenant_id = :tenant_id AND id = :pid AND deleted_at IS NULL',
                     ['pid' => (int) $row['placement_id']]
                 );
                 if (!$existing) {
@@ -765,13 +769,14 @@ if ($method === 'POST' && $action === 'commit') {
             }
             if (!$existing && !empty($row['external_id'])) {
                 $existing = scopedFind(
-                    'SELECT id FROM placements WHERE tenant_id = :tenant_id AND external_id = :x AND deleted_at IS NULL',
+                    'SELECT id, status, start_date, external_id, coreflux_overridden_fields
+                       FROM placements WHERE tenant_id = :tenant_id AND external_id = :x AND deleted_at IS NULL',
                     ['x' => $row['external_id']]
                 );
             }
             if (!$existing) {
                 $existing = scopedFind(
-                    'SELECT id FROM placements
+                    'SELECT id, status, start_date, external_id, coreflux_overridden_fields FROM placements
                       WHERE tenant_id = :tenant_id AND person_id = :p AND title = :t AND start_date = :s
                             AND deleted_at IS NULL',
                     ['p' => (int) $person['id'], 't' => $row['title'], 's' => $row['start_date']]
@@ -864,6 +869,43 @@ if ($method === 'POST' && $action === 'commit') {
         placementsCsvUpsertCommissions($pid, $row, (bool) $existing);
         placementsCsvUpsertCorpDetails($pid, $row);
         placementEconomicsReconcile(currentTenantId(), $pid);
+
+        // Round-trip exports include status. Apply it only to matched rows;
+        // new placements remain drafts so a spreadsheet cannot bypass the
+        // normal readiness gate. Active promotions use the exact same rate
+        // approval and economic readiness checks as the main Placements UI.
+        $requestedStatus = trim((string) ($row['status'] ?? ''));
+        if ($existing && $requestedStatus !== '' && $requestedStatus !== (string) ($existing['status'] ?? '')) {
+            $priorStatus = (string) ($existing['status'] ?? 'draft');
+            $autoApproved = 0;
+            if (($priorStatus === 'draft' && !in_array($requestedStatus, ['draft', 'cancelled'], true))
+                || $requestedStatus === 'active') {
+                $autoApproved = placementsAutoApproveDraftRates($pid, $user);
+            }
+            if ($requestedStatus === 'active') {
+                placementsRequireActiveReady($pid, (string) ($payload['start_date'] ?? $existing['start_date'] ?? ''), 'csv_import');
+            }
+            $before = placementAuditRow($pid);
+            scopedUpdate('placements', $pid, ['status' => $requestedStatus]);
+            if (str_starts_with((string) ($existing['external_id'] ?? ''), 'jd:')) {
+                $overrides = [];
+                if (!empty($existing['coreflux_overridden_fields'])) {
+                    $decoded = json_decode((string) $existing['coreflux_overridden_fields'], true);
+                    if (is_array($decoded)) $overrides = array_values(array_filter(array_map('strval', $decoded)));
+                }
+                if (!in_array('status', $overrides, true)) {
+                    $overrides[] = 'status';
+                    scopedUpdate('placements', $pid, ['coreflux_overridden_fields' => json_encode($overrides)]);
+                }
+            }
+            placementsAudit('placement.status_changed', [
+                'id' => $pid,
+                'status' => $requestedStatus,
+                'via' => 'csv_import',
+                'rates_auto_approved' => $autoApproved,
+            ], $pid, ['before' => $before, 'after' => placementAuditRow($pid)]);
+            placementEconomicsReconcile(currentTenantId(), $pid);
+        }
 
         return $pid;
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);

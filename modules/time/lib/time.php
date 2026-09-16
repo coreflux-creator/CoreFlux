@@ -77,6 +77,66 @@ function timeEntryGet(int $id): ?array
     );
 }
 
+/**
+ * Approve one pending entry using the same controls for single-row, bulk,
+ * and future workflow callers. Throws a RuntimeException whose code maps to
+ * the intended HTTP status; callers decide whether to fail the request or
+ * collect a per-row bulk result.
+ */
+function timeApproveEntry(int $id, array $user, string $approvedVia = 'manual'): array
+{
+    $entry = timeEntryGet($id);
+    if (!$entry) throw new \RuntimeException("Entry {$id} not found", 404);
+    if ($entry['created_by_user_id'] && (int) $entry['created_by_user_id'] === (int) ($user['id'] ?? 0)) {
+        throw new \RuntimeException('Two-eye control: you cannot approve your own entry', 403);
+    }
+    if ($entry['status'] !== 'pending_review') {
+        throw new \RuntimeException("Only pending_review entries can be approved; entry {$id} is {$entry['status']}", 409);
+    }
+
+    $snap = timeResolveRateSnapshot((int) $entry['placement_id'], (string) $entry['work_date']);
+    if (!$snap) {
+        throw new \RuntimeException(
+            "No approved rate covers {$entry['work_date']} for entry {$id}. Approve the placement rate first.",
+            422
+        );
+    }
+
+    scopedUpdate('time_entries', $id, [
+        'status'              => 'approved',
+        'rate_snapshot_id'    => (int) $snap['id'],
+        'approved_by_user_id' => $user['id'] ?? null,
+        'approved_at'         => date('Y-m-d H:i:s'),
+        'approved_via'        => $approvedVia,
+    ]);
+    $approvedEntry = timeEntryGet($id) ?? $entry;
+    timeEntryApprovedEmit($id, $approvedEntry, $approvedVia, [
+        'approver_user_id' => $user['id'] ?? null,
+    ]);
+    return $approvedEntry;
+}
+
+function timeRejectEntry(int $id, array $user, string $reason): array
+{
+    $reason = trim($reason);
+    if ($reason === '') throw new \RuntimeException('Reject reason is required', 422);
+    $entry = timeEntryGet($id);
+    if (!$entry) throw new \RuntimeException("Entry {$id} not found", 404);
+    if ($entry['status'] !== 'pending_review') {
+        throw new \RuntimeException("Only pending_review entries can be rejected; entry {$id} is {$entry['status']}", 409);
+    }
+    scopedUpdate('time_entries', $id, [
+        'status' => 'rejected',
+        'rejected_reason' => $reason,
+    ]);
+    timeAudit('time.entry.rejected', [
+        'entry_id' => $id,
+        'reason' => $reason,
+        'rejected_by_user_id' => $user['id'] ?? null,
+    ], $id);
+    return timeEntryGet($id) ?? $entry;
+}
+
 function timeEntriesList(array $filters = []): array
 {
     $where  = ['te.tenant_id = :tenant_id'];

@@ -6,15 +6,15 @@
  *
  *   1. /api/auth/issue_dashboard_jwt.php — passes the auth-gate sentry,
  *      uses jwtSign(), returns the right shape.
- *   2. /app/dashboard/src/lib/graphqlClient.js — caches token, exposes
+ *   2. dashboard/src/lib/graphqlClient.js — caches token, exposes
  *      gql() + useGql(), points at graphql.corefluxapp.com (or env override).
- *   3. /app/modules/placements/ui/ListGraphql.jsx — uses useGql, queries
+ *   3. modules/placements/ui/ListGraphql.jsx — uses useGql, queries
  *      placements, has parity testids with List.jsx where applicable.
  *   4. PlacementsModule.jsx — registers list-graphql route, imports the
  *      new component.
  *
- * And makes sure the existing List.jsx still passes the same data-testid
- * checks (we only added a new button, didn't break old ones).
+ * The pilot route remains available for diagnostics, while the ordinary
+ * end-user menu stays focused on production workflows.
  */
 declare(strict_types=1);
 
@@ -24,11 +24,12 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$jwt   = '/app/api/auth/issue_dashboard_jwt.php';
-$cli   = '/app/dashboard/src/lib/graphqlClient.js';
-$page  = '/app/modules/placements/ui/ListGraphql.jsx';
-$mod   = '/app/modules/placements/ui/PlacementsModule.jsx';
-$rest  = '/app/modules/placements/ui/List.jsx';
+$root  = dirname(__DIR__);
+$jwt   = $root . '/api/auth/issue_dashboard_jwt.php';
+$cli   = $root . '/dashboard/src/lib/graphqlClient.js';
+$page  = $root . '/modules/placements/ui/ListGraphql.jsx';
+$mod   = $root . '/modules/placements/ui/PlacementsModule.jsx';
+$rest  = $root . '/modules/placements/ui/List.jsx';
 
 echo "\n1. JWT-mint endpoint\n";
 $a('issue_dashboard_jwt.php exists', is_file($jwt));
@@ -114,11 +115,11 @@ $a('route list-graphql registered',
 $a('REST route still present',
     (bool) preg_match('#<Route\s+path="list"\s+element=\{<List\s+session=#', $mSrc));
 
-echo "\n5. List.jsx (REST) — Try-GraphQL CTA, no regressions\n";
+echo "\n5. List.jsx (REST) — focused production menu, no regressions\n";
 $rSrc = (string) file_get_contents($rest);
-$a('Try-GraphQL CTA present',
-    str_contains($rSrc, 'placements-try-graphql-btn') &&
-    str_contains($rSrc, '../list-graphql'));
+$a('GraphQL pilot is not exposed in the ordinary placement menu',
+    !str_contains($rSrc, 'placements-try-graphql-btn') &&
+    !str_contains($rSrc, '../list-graphql'));
 // Existing testids must remain.
 foreach (['placements-list', 'placements-count', 'placements-csv-btn', 'placements-new-btn', 'placements-search', 'placements-status-filter'] as $tid) {
     $a("REST list still has data-testid={$tid}", str_contains($rSrc, "data-testid=\"{$tid}\""));
@@ -130,7 +131,7 @@ $a('REST uses elapsedMs from useApi',   (bool) preg_match('/useApi(Cached)?\([^)
 $a('REST timing remains screen-reader accessible',
     str_contains($rSrc, 'placements-rest-perf') && str_contains($rSrc, 'Loaded in'));
 // useApi must export elapsedMs.
-$apiSrc = (string) file_get_contents('/app/dashboard/src/lib/api.js');
+$apiSrc = (string) file_get_contents($root . '/dashboard/src/lib/api.js');
 $a('useApi tracks elapsedMs',           str_contains($apiSrc, 'setElapsedMs'));
 $a('useApi returns elapsedMs',          (bool) preg_match('/return\s*\{[^}]*elapsedMs/', $apiSrc));
 $a('useApi uses performance.now',       str_contains($apiSrc, 'performance.now'));

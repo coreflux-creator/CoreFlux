@@ -14,7 +14,11 @@ use Core\CsvImportService;
 
 CsvImportService::registerSchema('time', [
     'fields' => [
-        'placement_external_id' => ['label' => 'Placement external ID', 'required' => true],
+        // placement_id is the reliable round-trip key from the Placements
+        // export. External ID remains available for upstream system feeds.
+        // At least one is required per row and validated below.
+        'placement_id'          => ['label' => 'Placement ID',          'type' => 'integer'],
+        'placement_external_id' => ['label' => 'Placement external ID'],
         'work_date'             => ['label' => 'Work date',             'required' => true, 'type' => 'date'],
         // external_id + source_system: stable per-row id from the
         // source-of-truth timesheet system (JobDiva, Beeline, ATS, etc.)
@@ -110,31 +114,79 @@ if ($method === 'POST' && $action === 'dry_run') {
     $columnMap = CsvImportService::readRequestColumnMap();
     $result = CsvImportService::dryRun('time', $csv, $columnMap);
 
-    // Resolve placement_external_id → placement_id in current tenant
+    // Resolve placement_id / placement_external_id against the Placements
+    // module's effective tenant and validate the work date before commit.
     if ($result['rows']) {
-        $exts = array_unique(array_filter(array_column($result['rows'], 'placement_external_id')));
+        $ids = [];
+        $exts = [];
+        foreach ($result['rows'] as $row) {
+            if (isset($row['placement_id']) && is_int($row['placement_id']) && $row['placement_id'] > 0) {
+                $ids[] = $row['placement_id'];
+            } elseif (trim((string) ($row['placement_external_id'] ?? '')) !== '') {
+                $exts[] = trim((string) $row['placement_external_id']);
+            }
+        }
+        $ids = array_values(array_unique($ids));
+        $exts = array_values(array_unique($exts));
+        $pdo = getDB();
+        $placementsTid = effectiveTenantIdForModule('placements', (int) ($ctx['tenant_id'] ?? currentTenantId())) ?? currentTenantId();
+        $byId = [];
+        $byExternal = [];
+        if ($ids) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $pdo->prepare("SELECT id, external_id, start_date, end_date FROM placements
+                                   WHERE tenant_id = ? AND deleted_at IS NULL AND id IN ({$placeholders})");
+            $stmt->execute(array_merge([$placementsTid], $ids));
+            foreach ($stmt as $r) $byId[(int) $r['id']] = $r;
+        }
         if ($exts) {
             $placeholders = implode(',', array_fill(0, count($exts), '?'));
-            $pdo = getDB();
-            $stmt = $pdo->prepare("SELECT external_id, id FROM placements
+            $stmt = $pdo->prepare("SELECT id, external_id, start_date, end_date FROM placements
                                    WHERE tenant_id = ? AND deleted_at IS NULL AND external_id IN ({$placeholders})");
-            // Placement lookup uses the *placements* module scope —
-            // a sub-tenant under shared placement scope sees the
-            // master's placements, so binding the raw session
-            // tenant_id would always miss in that mode.
-            $placementsTid = effectiveTenantIdForModule('placements') ?? currentTenantId();
             $stmt->execute(array_merge([$placementsTid], $exts));
-            $map = [];
-            foreach ($stmt as $r) $map[$r['external_id']] = (int) $r['id'];
-            foreach ($result['rows'] as $rn => $row) {
-                $ext = $row['placement_external_id'] ?? '';
-                if ($ext && !isset($map[$ext])) {
+            foreach ($stmt as $r) $byExternal[(string) $r['external_id']] = $r;
+        }
+        foreach ($result['rows'] as $rn => $row) {
+            $placement = null;
+            $hasPlacementId = array_key_exists('placement_id', $row)
+                && $row['placement_id'] !== '' && $row['placement_id'] !== null;
+            if ($hasPlacementId && is_int($row['placement_id']) && $row['placement_id'] > 0) {
+                $placement = $byId[$row['placement_id']] ?? null;
+                if (!$placement) {
                     $result['errors'][$rn] = $result['errors'][$rn] ?? [];
-                    $result['errors'][$rn][] = "placement_external_id: '{$ext}' not found in placements";
+                    $result['errors'][$rn][] = "placement_id: {$row['placement_id']} not found in placements";
+                }
+            } elseif (!$hasPlacementId) {
+                $ext = trim((string) ($row['placement_external_id'] ?? ''));
+                if ($ext === '') {
+                    $result['errors'][$rn] = $result['errors'][$rn] ?? [];
+                    $result['errors'][$rn][] = 'either placement_id or placement_external_id is required';
+                } else {
+                    $placement = $byExternal[$ext] ?? null;
+                    if (!$placement) {
+                        $result['errors'][$rn] = $result['errors'][$rn] ?? [];
+                        $result['errors'][$rn][] = "placement_external_id: '{$ext}' not found in placements";
+                    }
                 }
             }
-            $result['error_count'] = count($result['errors']);
+            $workDate = (string) ($row['work_date'] ?? '');
+            if ($placement && $workDate !== '') {
+                if ($workDate < (string) $placement['start_date']) {
+                    $result['errors'][$rn] = $result['errors'][$rn] ?? [];
+                    $result['errors'][$rn][] = "work_date precedes placement start_date {$placement['start_date']}";
+                }
+                if (!empty($placement['end_date']) && $workDate > (string) $placement['end_date']) {
+                    $result['errors'][$rn] = $result['errors'][$rn] ?? [];
+                    $result['errors'][$rn][] = "work_date is after placement end_date {$placement['end_date']}";
+                }
+            }
+            $hours = (float) ($row['hours'] ?? 0);
+            if ($hours <= 0 || $hours > 24) {
+                $result['errors'][$rn] = $result['errors'][$rn] ?? [];
+                $result['errors'][$rn][] = 'hours must be greater than 0 and no more than 24';
+            }
         }
+        $result['error_count'] = count($result['errors']);
     }
     api_ok($result);
 }
@@ -149,11 +201,40 @@ if ($method === 'POST' && $action === 'commit') {
     $columnMap = CsvImportService::readRequestColumnMap();
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
+    $placementsTid = effectiveTenantIdForModule('placements', (int) ($ctx['tenant_id'] ?? currentTenantId())) ?? currentTenantId();
 
-    $result = CsvImportService::commit('time', $csv, function (array $row) use ($user, $preApproved, $updateExisting) {
-        $pl = scopedFind('SELECT id, person_id FROM placements WHERE tenant_id = :tenant_id AND external_id = :ext AND deleted_at IS NULL',
-            ['ext' => $row['placement_external_id']]);
-        if (!$pl) throw new \RuntimeException("placement not found: {$row['placement_external_id']}");
+    $result = CsvImportService::commit('time', $csv, function (array $row) use ($user, $preApproved, $updateExisting, $placementsTid) {
+        $pdo = getDB();
+        $placementId = isset($row['placement_id']) && is_int($row['placement_id']) ? (int) $row['placement_id'] : 0;
+        $placementExternalId = trim((string) ($row['placement_external_id'] ?? ''));
+        if ($placementId <= 0 && $placementExternalId === '') {
+            throw new \RuntimeException('either placement_id or placement_external_id is required');
+        }
+        $stmt = $pdo->prepare(
+            'SELECT id, person_id, start_date, end_date FROM placements
+              WHERE tenant_id = :tenant_id AND deleted_at IS NULL AND '
+            . ($placementId > 0 ? 'id = :lookup' : 'external_id = :lookup') . ' LIMIT 1'
+        );
+        $stmt->execute([
+            'tenant_id' => $placementsTid,
+            'lookup' => $placementId > 0 ? $placementId : $placementExternalId,
+        ]);
+        $pl = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if (!$pl) {
+            throw new \RuntimeException($placementId > 0
+                ? "placement_id not found: {$placementId}"
+                : "placement_external_id not found: {$placementExternalId}");
+        }
+        if ($row['work_date'] < $pl['start_date']) {
+            throw new \RuntimeException("work_date precedes placement start_date {$pl['start_date']}");
+        }
+        if (!empty($pl['end_date']) && $row['work_date'] > $pl['end_date']) {
+            throw new \RuntimeException("work_date is after placement end_date {$pl['end_date']}");
+        }
+        $hours = (float) ($row['hours'] ?? 0);
+        if ($hours <= 0 || $hours > 24) {
+            throw new \RuntimeException('hours must be greater than 0 and no more than 24');
+        }
 
         // Resolve period
         $period = scopedFind(
@@ -202,6 +283,21 @@ if ($method === 'POST' && $action === 'commit') {
             }
         }
 
+        $dailyHours = scopedFind(
+            'SELECT COALESCE(SUM(hours), 0) AS h FROM time_entries
+              WHERE tenant_id = :tenant_id AND person_id = :person_id AND work_date = :work_date
+                AND status != "superseded"'
+                . ($existing ? ' AND id != :existing_id' : ''),
+            array_filter([
+                'person_id' => (int) $pl['person_id'],
+                'work_date' => $row['work_date'],
+                'existing_id' => $existing ? (int) $existing['id'] : null,
+            ], static fn ($value) => $value !== null)
+        );
+        if (((float) ($dailyHours['h'] ?? 0) + $hours) > 24.0) {
+            throw new \RuntimeException('total hours for this person and work date would exceed 24');
+        }
+
         $payload = [
             'placement_id'  => (int) $pl['id'],
             'person_id'     => (int) $pl['person_id'],
@@ -210,7 +306,7 @@ if ($method === 'POST' && $action === 'commit') {
             'external_id'   => $externalId,
             'source_system' => $sourceSystem,
             'category'      => $row['category'],
-            'hours'         => (float) $row['hours'],
+            'hours'         => $hours,
             'description'  => $row['description'] ?? null,
             'source'       => 'bulk_upload',
             'status'       => $preApproved ? 'approved' : 'pending_review',

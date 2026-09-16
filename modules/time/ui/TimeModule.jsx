@@ -8,6 +8,7 @@ import CsvImport from './CsvImport';
 import TimeSettlement from './TimeSettlement';
 import TimesheetUpload from './TimesheetUpload';
 import IntakeQueue from './IntakeQueue';
+import TimeWorkspaceNav from './TimeWorkspaceNav';
 
 /**
  * Time Module routes.
@@ -15,6 +16,7 @@ import IntakeQueue from './IntakeQueue';
 export default function TimeModule({ session }) {
   return (
     <div data-testid="time-module">
+      <TimeWorkspaceNav />
       <Routes>
         <Route index            element={<Navigate to="/modules/staffing/timesheets" replace />} />
         <Route path="overview"  element={<Navigate to="/modules/staffing/timesheets" replace />} />

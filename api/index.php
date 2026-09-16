@@ -35,6 +35,13 @@ if (!$parsed['ok']) {
     ]);
 }
 
+// The central router is a URL-flat entry point, so tenant-scoped helpers
+// cannot infer the owning module from REQUEST_URI. Pin the parsed module
+// before authentication or any endpoint query, and normalize v1 subpaths
+// into the legacy id/action query parameters used by module endpoints.
+apiRouterApplyV1Compatibility($parsed);
+setRequestModuleScope($parsed['module_id']);
+
 // Resolve module + endpoint file
 $endpointFile = apiRouterResolveFile($parsed['module_id'], $parsed['endpoint']);
 if ($endpointFile === null) {
@@ -57,8 +64,10 @@ $authCtx = api_require_auth();
 // '<module>.view' permission to reach any endpoint inside that module.
 // Per-endpoint permissions remain the module's responsibility (it can call
 // rbac_legacy_require($authCtx['user'], 'foo.bar.action') itself).
-$baseModulePerm = $parsed['module_id'] . '.view';
-rbac_legacy_require($authCtx['user'], $baseModulePerm);
+$baseModulePerm = apiRouterBasePermission($parsed);
+if ($baseModulePerm !== null) {
+    rbac_legacy_require($authCtx['user'], $baseModulePerm);
+}
 
 // Stash router context for the included module file
 $GLOBALS['CF_API_REQUEST_ID'] = $requestId;
