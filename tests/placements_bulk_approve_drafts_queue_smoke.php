@@ -113,10 +113,10 @@ $a('rendered as Link with primary fallback',
 $a('does not break "Done" button',
    str_contains($importPg, 'data-testid={`${testidPrefix}-result-back`}'));
 
-echo "\n5. Placements CsvImport wires View N drafts CTA\n";
+echo "\n5. Placements CsvImport wires round-trip follow-up CTAs\n";
 $a('passes successCtas prop',                 str_contains($csvImp, 'successCtas={(result) =>'));
-$a('label includes imported count',           str_contains($csvImp, '`View ${n} draft placement${n === 1 ? \'\' : \'s\'}`'));
-$a('routes to list?status=draft',             str_contains($csvImp, "to: '../list?status=draft'"));
+$a('label includes processed count',           str_contains($csvImp, '`View ${n} processed placement${n === 1 ? \'\' : \'s\'}`'));
+$a('routes to the unfiltered placement list', str_contains($csvImp, "to: '../list?status='"));
 $a('second CTA points at draft-rates queue',  str_contains($csvImp, "to: '../draft-rates'"));
 $a('skips CTAs when imported_count is zero',  str_contains($csvImp, 'if (n <= 0) return [];'));
 
@@ -155,9 +155,16 @@ $a('select-all + per-rate select test ids',
    && str_contains($queue, 'data-testid={`draft-rate-select-${r.id}`}'));
 $a('queue can approve every currently shown draft rate',
    str_contains($queue, 'const approveFiltered = async () =>')
-   && str_contains($queue, 'items.map(r => Number(r.id))')
+   && str_contains($queue, 'safeItems.map(r => Number(r.id))')
    && str_contains($queue, 'data-testid="placements-draft-rates-approve-filtered-btn"')
-   && str_contains($queue, 'Approve all shown ({items.length})'));
+   && str_contains($queue, 'Approve all safe ({safeItems.length})'));
+$a('implausible rates are blocked in the shared approval helper',
+   str_contains($rateApprLib, 'function placementsRateApprovalBlocker')
+   && str_contains($rateApprLib, 'Hourly rate exceeds $5,000')
+   && str_contains($rateApprLib, '$blocker = placementsRateApprovalBlocker($rate)'));
+$a('queue excludes blocked rates from selection and explains why',
+   str_contains($queue, 'disabled={!!r.approval_blocker}')
+   && str_contains($queue, 'placements-draft-rates-blocked-summary'));
 
 echo "\n9. PHP syntax\n";
 foreach ([

@@ -22,7 +22,7 @@ import IdBadge from '../../../dashboard/src/components/IdBadge';
  */
 export default function DraftRatesQueue() {
   const { data, loading, error, reload } = useApi('/modules/placements/api/rates.php?action=drafts');
-  const rates = data?.rates ?? [];
+  const rates = useMemo(() => data?.rates ?? [], [data?.rates]);
   const total = data?.count ?? 0;
 
   const [selected, setSelected] = useState(() => new Set());
@@ -50,22 +50,25 @@ export default function DraftRatesQueue() {
     dateKeys: ['effective_from', 'created_at'],
     numericKeys: ['id', 'placement_id', 'bill_rate', 'pay_rate'],
   });
+  const safeItems = useMemo(() => items.filter(r => !r.approval_blocker), [items]);
+  const blockedItems = useMemo(() => items.filter(r => r.approval_blocker), [items]);
 
   useEffect(() => { setSelected(new Set()); }, [total]);
 
   const toggle = (id) => {
+    if (rates.find(r => r.id === id)?.approval_blocker) return;
     setSelected(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   };
-  const allOn = items.length > 0 && items.every(r => selected.has(r.id));
+  const allOn = safeItems.length > 0 && safeItems.every(r => selected.has(r.id));
   const toggleAll = () => {
     setSelected(prev => {
       const next = new Set(prev);
-      if (allOn) items.forEach(r => next.delete(r.id));
-      else       items.forEach(r => next.add(r.id));
+      if (allOn) safeItems.forEach(r => next.delete(r.id));
+      else       safeItems.forEach(r => next.add(r.id));
       return next;
     });
   };
@@ -97,7 +100,7 @@ export default function DraftRatesQueue() {
   };
 
   const approveFiltered = async () => {
-    const ids = Array.from(new Set(items.map(r => Number(r.id)).filter(Boolean)));
+    const ids = Array.from(new Set(safeItems.map(r => Number(r.id)).filter(Boolean)));
     if (ids.length === 0) return;
     const scope = statusFilter || search ? 'filtered' : 'shown';
     if (!confirm(`Approve ${ids.length} ${scope} draft rate${ids.length === 1 ? '' : 's'}? Each approval locks the snapshot - corrections require a separate per-row workflow.`)) return;
@@ -138,12 +141,12 @@ export default function DraftRatesQueue() {
           </button>
           <button
             className="btn btn--ghost"
-            disabled={items.length === 0 || busy}
+            disabled={safeItems.length === 0 || busy}
             onClick={approveFiltered}
             data-testid="placements-draft-rates-approve-filtered-btn"
             title="Approve every draft rate currently shown by the search and status filters"
           >
-            Approve all shown ({items.length})
+            Approve all safe ({safeItems.length})
           </button>
         </div>
       </header>
@@ -162,6 +165,16 @@ export default function DraftRatesQueue() {
         </select>
       </div>
 
+      {blockedItems.length > 0 && (
+        <div
+          data-testid="placements-draft-rates-blocked-summary"
+          style={{ padding: '10px 12px', marginBottom: 12, background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 6, color: '#9a3412', fontSize: 13 }}
+        >
+          <strong>{blockedItems.length} rate{blockedItems.length === 1 ? '' : 's'} excluded from bulk approval.</strong>{' '}
+          Correct the amount or unit shown in the flagged row, then approve it.
+        </div>
+      )}
+
       {result && (
         <div
           data-testid="placements-draft-rates-result"
@@ -175,7 +188,10 @@ export default function DraftRatesQueue() {
         >
           {result.error
             ? <>Bulk approve failed: {result.error}</>
-            : <>Approved <strong>{result.approved}</strong>{result.failed ? <>, {result.failed} failed (open each placement to see why)</> : null}.</>
+            : <>
+                Approved <strong>{result.approved}</strong>
+                {result.failed ? <>, {result.failed} failed: {(result.results || []).filter(r => !r.ok).slice(0, 3).map(r => `#${r.id} ${r.reason}`).join(' | ')}</> : null}.
+              </>
           }
         </div>
       )}
@@ -208,13 +224,14 @@ export default function DraftRatesQueue() {
               <th {...headerProps('effective_from', 'placements-draft-rates-sort')}>Effective <SortIndicator active={sortKey === 'effective_from'} dir={sortDir} /></th>
               <th {...headerProps('bill_rate', 'placements-draft-rates-sort')}>Bill <SortIndicator active={sortKey === 'bill_rate'} dir={sortDir} /></th>
               <th {...headerProps('pay_rate', 'placements-draft-rates-sort')}>Pay <SortIndicator active={sortKey === 'pay_rate'} dir={sortDir} /></th>
+              <th>Review</th>
               <th {...headerProps('created_at', 'placements-draft-rates-sort')}>Created <SortIndicator active={sortKey === 'created_at'} dir={sortDir} /></th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {items.length === 0 && (
-              <tr><td colSpan={9} className="empty" data-testid="placements-draft-rates-filtered-empty">No draft rates match.</td></tr>
+              <tr><td colSpan={10} className="empty" data-testid="placements-draft-rates-filtered-empty">No draft rates match.</td></tr>
             )}
             {items.map(r => (
               <tr key={r.id} data-testid={`draft-rate-row-${r.id}`}>
@@ -223,6 +240,8 @@ export default function DraftRatesQueue() {
                     type="checkbox"
                     checked={selected.has(r.id)}
                     onChange={() => toggle(r.id)}
+                    disabled={!!r.approval_blocker}
+                    title={r.approval_blocker || undefined}
                     data-testid={`draft-rate-select-${r.id}`}
                     aria-label={`Select draft rate ${r.id}`}
                   />
@@ -242,6 +261,15 @@ export default function DraftRatesQueue() {
                 <td>{r.effective_from || '—'}</td>
                 <td>{fmtMoney(r.bill_rate, r.currency)} / {r.bill_rate_unit || 'hour'}</td>
                 <td>{fmtMoney(r.pay_rate, r.currency)} / {r.pay_rate_unit || 'hour'}</td>
+                <td style={{ maxWidth: 260, fontSize: 12 }}>
+                  {r.approval_blocker ? (
+                    <span style={{ color: '#b91c1c', fontWeight: 600 }} data-testid={`draft-rate-blocker-${r.id}`}>{r.approval_blocker}</span>
+                  ) : r.approval_warning ? (
+                    <span style={{ color: '#a16207' }} data-testid={`draft-rate-warning-${r.id}`}>{r.approval_warning}</span>
+                  ) : (
+                    <span style={{ color: '#15803d' }}>Ready</span>
+                  )}
+                </td>
                 <td style={{ fontSize: 12, color: '#64748b' }}>{r.created_at ? String(r.created_at).slice(0, 10) : '—'}</td>
                 <td>
                   <Link to={`../${r.placement_id}/rates`} className="btn btn--ghost" style={{ fontSize: 12 }} data-testid={`draft-rate-open-${r.id}`}>

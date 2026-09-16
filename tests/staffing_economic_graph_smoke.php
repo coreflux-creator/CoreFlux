@@ -15,6 +15,7 @@ $economics = $read('modules/placements/lib/economics.php');
 $economicsApi = $read('modules/placements/api/economics.php');
 $cyclesApi = $read('modules/placements/api/cycles.php');
 $placementsApi = $read('modules/placements/api/placements.php');
+$rateApprove = $read('modules/placements/lib/rate_approve.php');
 $ap = $read('modules/ap/lib/ap.php');
 $apApi = $read('modules/ap/api/bills.php');
 $pwp = $read('modules/ap/lib/pwp.php');
@@ -206,8 +207,9 @@ $assert('economics screen exposes readiness blockers and manual participant remo
     && str_contains($ui, 'multiple_labor_payees')
     && str_contains($ui, 'removeParty(party)'));
 $assert('placement activation is gated by complete economic readiness',
-    str_contains($placementsApi, 'placement.activation_blocked_economic_setup')
-    && str_contains($placementsApi, 'Placement economic setup incomplete'));
+    str_contains($placementsApi, 'placementsRequireActiveReady')
+    && str_contains($rateApprove, 'placement.activation_blocked_economic_setup')
+    && str_contains($rateApprove, 'Placement economic setup incomplete'));
 $assert('legacy fragmented URLs redirect to Economics',
     str_contains($ui, '<Route path="chain"      element={<Navigate to="../economics" replace />} />')
     && str_contains($ui, '<Route path="cycles"     element={<Navigate to="../economics" replace />} />'));

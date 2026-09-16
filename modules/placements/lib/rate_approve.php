@@ -39,6 +39,36 @@ if (!function_exists('placementsRateApproveOne')) {
         }
     }
 
+    function placementsRateApprovalBlocker(array $rate): ?string
+    {
+        $bill = (float) ($rate['bill_rate'] ?? 0);
+        $pay = (float) ($rate['pay_rate'] ?? 0);
+        $billUnit = strtolower((string) ($rate['bill_rate_unit'] ?? 'hour'));
+        $payUnit = strtolower((string) ($rate['pay_rate_unit'] ?? 'hour'));
+        if ($bill < 0 || $pay < 0) {
+            return 'Rates cannot be negative.';
+        }
+        if (($billUnit === 'hour' && $bill > 5000) || ($payUnit === 'hour' && $pay > 5000)) {
+            return 'Hourly rate exceeds $5,000. This looks like an annual amount or an incorrect unit; correct it before approval.';
+        }
+        if (placementsRateIsUnsafeJobDivaAutoDraft($rate)) {
+            return 'JobDiva supplied identical bill and pay values. Repair the source mapping or enter the correct rate before approval.';
+        }
+        return null;
+    }
+
+    function placementsRateApprovalWarning(array $rate): ?string
+    {
+        $bill = (float) ($rate['bill_rate'] ?? 0);
+        $pay = (float) ($rate['pay_rate'] ?? 0);
+        $billUnit = strtolower((string) ($rate['bill_rate_unit'] ?? 'hour'));
+        $payUnit = strtolower((string) ($rate['pay_rate_unit'] ?? 'hour'));
+        if ($billUnit !== $payUnit) return 'Bill and pay use different units; verify the conversion.';
+        if ($bill > 0 && $pay > $bill) return 'Pay rate exceeds bill rate.';
+        if ($bill > 0 && abs($bill - $pay) < 0.0001) return 'Bill and pay rates are identical, leaving no gross spread.';
+        return null;
+    }
+
     /**
      * Approve one placement_rates row inside its own transaction.
      * Throws on failure (caller decides whether to map to HTTP / log /
@@ -51,11 +81,8 @@ if (!function_exists('placementsRateApproveOne')) {
         $rate = scopedFind('SELECT * FROM placement_rates WHERE tenant_id = :tenant_id AND id = :id', ['id' => $rateId]);
         if (!$rate)               throw new \RuntimeException("Rate {$rateId} not found");
         if ($rate['approved_at']) throw new \RuntimeException("Rate {$rateId} already approved");
-        if (placementsRateIsUnsafeJobDivaAutoDraft($rate)) {
-            throw new \RuntimeException(
-                'JobDiva auto-drafted this rate with identical bill and pay values. Run Repair rates to rebuild from a real pay field, or enter a manual rate before approval.'
-            );
-        }
+        $blocker = placementsRateApprovalBlocker($rate);
+        if ($blocker !== null) throw new \RuntimeException($blocker);
 
         $margin = placementEconomicsApprovalSnapshot((int) currentTenantId(), $rate);
 
@@ -378,5 +405,79 @@ if (!function_exists('placementsAutoApproveDraftRates')) {
             }
         }
         return $count;
+    }
+}
+
+if (!function_exists('placementsRequireActiveReady')) {
+    /** Validate activation prerequisites for API, bulk, and CSV workflows. */
+    function placementsRequireActiveReady(int $placementId, ?string $asOf, string $via): void
+    {
+        $asOf = $asOf ?: date('Y-m-d');
+        $placement = placementAuditRow($placementId);
+        $rate = placementCurrentRate($placementId, $asOf);
+        if (!$rate) {
+            placementsAudit('placement.activation_blocked_missing_rate', [
+                'placement_id' => $placementId,
+                'as_of' => $asOf,
+                'via' => $via,
+                'reason' => 'missing_approved_rate_coverage',
+            ], $placementId, ['before' => $placement, 'after' => $placement]);
+            throw new \RuntimeException(
+                "Placement cannot become active without an approved rate covering {$asOf}. Correct and approve a bill/pay rate first.",
+                422
+            );
+        }
+
+        $economics = placementEconomicsContext((int) currentTenantId(), $placementId, true);
+        if (empty($economics['available'])) {
+            placementsAudit('placement.activation_blocked_economics_unavailable', [
+                'placement_id' => $placementId,
+                'as_of' => $asOf,
+                'via' => $via,
+                'errors' => $economics['reconcile']['errors'] ?? [],
+            ], $placementId, ['before' => $placement, 'after' => $placement]);
+            throw new \RuntimeException(
+                'Placement economics are unavailable. Apply the staffing economic graph migration before activation.',
+                409
+            );
+        }
+
+        $readiness = $economics['readiness'] ?? [];
+        if (empty($readiness['ready'])) {
+            $labels = [
+                'missing_receivable_party' => 'client billing recipient',
+                'multiple_receivable_parties' => 'one bill-to client',
+                'missing_payable_party' => 'worker or vendor payee',
+                'missing_labor_payee' => 'primary labor payee',
+                'multiple_labor_payees' => 'multiple primary labor payees',
+                'missing_c2c_vendor' => 'C2C corporate vendor',
+                'missing_billing_cycle' => 'client billing frequency',
+                'missing_ap_cycle' => 'vendor payment frequency',
+                'missing_payroll_cycle' => 'payroll frequency',
+                'missing_ar_payment_terms' => 'client payment terms',
+                'missing_ap_payment_terms' => 'vendor payment terms',
+            ];
+            $blockers = [];
+            foreach ($labels as $key => $label) if (!empty($readiness[$key])) $blockers[] = $label;
+            if (!empty($readiness['unresolved_parties'])) {
+                $blockers[] = (int) $readiness['unresolved_parties'] . ' unresolved payment recipient(s)';
+            }
+            placementsAudit('placement.activation_blocked_economic_setup', [
+                'placement_id' => $placementId,
+                'as_of' => $asOf,
+                'via' => $via,
+                'blockers' => $blockers,
+                'readiness' => $readiness,
+            ], $placementId, ['before' => $placement, 'after' => $placement]);
+            throw new \RuntimeException('Placement economic setup incomplete: ' . implode(', ', $blockers) . '.', 422);
+        }
+
+        placementsAudit('placement.activation_rate_verified', [
+            'placement_id' => $placementId,
+            'rate_id' => (int) ($rate['id'] ?? 0),
+            'as_of' => $asOf,
+            'via' => $via,
+            'economics_ready' => true,
+        ], $placementId, ['before' => $placement, 'after' => $placement]);
     }
 }

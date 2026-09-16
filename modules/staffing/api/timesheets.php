@@ -84,6 +84,7 @@ if ($method === 'GET' && $action === 'list') {
     if (!empty($_GET['period_start']))  { $where[] = 't.period_start >= :ps';    $params['ps'] = $_GET['period_start']; }
     if (!empty($_GET['period_end']))    { $where[] = 't.period_end <= :pe';      $params['pe'] = $_GET['period_end']; }
     if (!empty($_GET['person_id']))     { $where[] = 't.person_id = :pid';       $params['pid']= (int) $_GET['person_id']; }
+    if (empty($_GET['include_empty']))  { $where[] = '(t.total_hours > 0 OR t.status != \'draft\')'; }
     $whereSql = implode(' AND ', $where);
 
     $rows = scopedQuery(

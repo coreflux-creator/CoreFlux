@@ -44,12 +44,12 @@ echo "\n2. Time CSV importer\n";
 $a('require_once core/sub_tenants.php',
    str_contains($time, "require_once __DIR__ . '/../../../core/sub_tenants.php';"));
 $a('placement-lookup query binds effectiveTenantIdForModule(\'placements\')',
-   str_contains($time, "\$placementsTid = effectiveTenantIdForModule('placements') ?? currentTenantId();")
+   str_contains($time, "\$placementsTid = effectiveTenantIdForModule('placements',")
    && str_contains($time, '$stmt->execute(array_merge([$placementsTid], $exts));'));
 $a('no longer uses raw currentTenantId() for placement lookup',
    !preg_match('/\\\$stmt->execute\(array_merge\(\[currentTenantId\(\)\], \\\$exts\)\)/', $time));
 $a('rationale comment present',
-   str_contains($time, "sub-tenant under shared placement scope"));
+   str_contains($time, "module's effective tenant"));
 
 echo "\n3. PHP syntax\n";
 foreach ([

@@ -558,74 +558,12 @@ api_error('Method not allowed', 405);
 
 function _placementsRequireActiveReady(int $placementId, ?string $asOf, string $via): void
 {
-    $asOf = $asOf ?: date('Y-m-d');
-    $placement = placementAuditRow($placementId);
-    $rate = placementCurrentRate($placementId, $asOf);
-    if ($rate) {
-        $economics = placementEconomicsContext((int) currentTenantId(), $placementId, true);
-        if (empty($economics['available'])) {
-            placementsAudit('placement.activation_blocked_economics_unavailable', [
-                'placement_id' => $placementId,
-                'as_of' => $asOf,
-                'via' => $via,
-                'errors' => $economics['reconcile']['errors'] ?? [],
-            ], $placementId, ['before' => $placement, 'after' => $placement]);
-            api_error('Placement economics are unavailable. Apply the staffing economic graph migration before activation.', 409);
-        }
-        $readiness = $economics['readiness'] ?? [];
-        if (empty($readiness['ready'])) {
-            $labels = [
-                'missing_receivable_party' => 'client billing recipient',
-                'multiple_receivable_parties' => 'one bill-to client',
-                'missing_payable_party' => 'worker or vendor payee',
-                'missing_labor_payee' => 'primary labor payee',
-                'multiple_labor_payees' => 'multiple primary labor payees',
-                'missing_c2c_vendor' => 'C2C corporate vendor',
-                'missing_billing_cycle' => 'client billing frequency',
-                'missing_ap_cycle' => 'vendor payment frequency',
-                'missing_payroll_cycle' => 'payroll frequency',
-                'missing_ar_payment_terms' => 'client payment terms',
-                'missing_ap_payment_terms' => 'vendor payment terms',
-            ];
-            $blockers = [];
-            foreach ($labels as $key => $label) if (!empty($readiness[$key])) $blockers[] = $label;
-            if (!empty($readiness['unresolved_parties'])) {
-                $blockers[] = (int) $readiness['unresolved_parties'] . ' unresolved payment recipient(s)';
-            }
-            placementsAudit('placement.activation_blocked_economic_setup', [
-                'placement_id' => $placementId,
-                'as_of' => $asOf,
-                'via' => $via,
-                'blockers' => $blockers,
-                'readiness' => $readiness,
-            ], $placementId, ['before' => $placement, 'after' => $placement]);
-            api_error('Placement economic setup incomplete: ' . implode(', ', $blockers) . '.', 422);
-        }
-        placementsAudit('placement.activation_rate_verified', [
+    try {
+        placementsRequireActiveReady($placementId, $asOf, $via);
+    } catch (\RuntimeException $e) {
+        api_error($e->getMessage(), $e->getCode() >= 400 ? $e->getCode() : 422, [
             'placement_id' => $placementId,
-            'rate_id'      => (int) ($rate['id'] ?? 0),
-            'as_of'        => $asOf,
-            'via'          => $via,
-            'economics_ready' => true,
-        ], $placementId, [
-            'before' => $placement,
-            'after' => $placement,
+            'as_of' => $asOf,
         ]);
-        return;
     }
-
-    placementsAudit('placement.activation_blocked_missing_rate', [
-        'placement_id' => $placementId,
-        'as_of'        => $asOf,
-        'via'          => $via,
-        'reason'       => 'missing_approved_rate_coverage',
-    ], $placementId, [
-        'before' => $placement,
-        'after' => $placement,
-    ]);
-    api_error(
-        "Placement cannot become active without an approved rate covering {$asOf}. Approve a bill/pay rate first.",
-        422,
-        ['placement_id' => $placementId, 'as_of' => $asOf, 'rates_auto_approved' => 0]
-    );
 }

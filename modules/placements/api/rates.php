@@ -53,6 +53,11 @@ if ($method === 'GET') {
         );
         $stmt->execute(['tenant_id' => currentTenantId()]);
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as &$row) {
+            $row['approval_blocker'] = placementsRateApprovalBlocker($row);
+            $row['approval_warning'] = placementsRateApprovalWarning($row);
+        }
+        unset($row);
         api_ok(['rates' => $rows, 'count' => count($rows)]);
     }
 
@@ -153,11 +158,13 @@ if ($method === 'POST' && $action === 'approve') {
 
     try {
         $r = placementsRateApproveOne($id, $user, $isCorrection, $correctionReason);
-    } catch (\Throwable $e) {
+    } catch (\RuntimeException $e) {
         $msg = $e->getMessage();
         if (str_contains($msg, 'not found'))    api_error('Rate not found', 404);
         if (str_contains($msg, 'already approved')) api_error('Already approved (snapshot is locked; create a correction)', 409);
-        api_error('Approve failed: ' . $msg, 500);
+        api_error($msg, 422);
+    } catch (\Throwable $e) {
+        api_error('Approve failed: ' . $e->getMessage(), 500);
     }
     api_ok(['ok' => true, 'snapshot' => $r['margin'], 'auto_correction' => $autoCorrection]);
 }

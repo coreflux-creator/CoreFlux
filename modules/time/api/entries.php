@@ -24,6 +24,48 @@ $action = $_GET['action'] ?? '';
 
 // ─── Actions (POST) ───
 if ($method === 'POST' && $action !== '') {
+    if ($action === 'bulk_approve' || $action === 'bulk_reject') {
+        $body = api_json_body();
+        $ids = is_array($body['ids'] ?? null)
+            ? array_values(array_unique(array_filter(array_map('intval', $body['ids']), static fn ($id) => $id > 0)))
+            : [];
+        if (!$ids) api_error('ids[] required', 422);
+        if (count($ids) > 500) api_error('Too many ids (max 500 per call)', 422);
+
+        $isApprove = $action === 'bulk_approve';
+        if ($isApprove) {
+            rbac_legacy_require($user, 'time.approve');
+        } else {
+            rbac_legacy_require($user, 'time.reject');
+            if (trim((string) ($body['reason'] ?? '')) === '') api_error('reason required', 422);
+        }
+
+        $succeeded = 0;
+        $failed = 0;
+        $results = [];
+        foreach ($ids as $entryId) {
+            try {
+                if ($isApprove) {
+                    timeApproveEntry($entryId, $user, 'bulk_review');
+                } else {
+                    timeRejectEntry($entryId, $user, (string) $body['reason']);
+                }
+                $succeeded++;
+                $results[] = ['id' => $entryId, 'ok' => true];
+            } catch (\Throwable $e) {
+                $failed++;
+                $results[] = ['id' => $entryId, 'ok' => false, 'reason' => $e->getMessage()];
+            }
+        }
+        api_ok([
+            'ok' => true,
+            'action' => $action,
+            'succeeded' => $succeeded,
+            'failed' => $failed,
+            'results' => $results,
+        ]);
+    }
+
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $entry = timeEntryGet($id);
@@ -38,40 +80,24 @@ if ($method === 'POST' && $action !== '') {
 
     if ($action === 'approve') {
         rbac_legacy_require($user, 'time.approve');
-        // SPEC §4: two-eye control — approver MUST NOT be the entry's creator/submitter.
-        if ($entry['created_by_user_id'] && (int) $entry['created_by_user_id'] === (int) ($user['id'] ?? 0)) {
-            api_error('Two-eye control: you cannot approve your own entry', 403);
+        try {
+            $approvedEntry = timeApproveEntry($id, $user, 'manual');
+        } catch (\RuntimeException $e) {
+            api_error($e->getMessage(), $e->getCode() >= 400 ? $e->getCode() : 422);
         }
-        if ($entry['status'] !== 'pending_review') api_error('Only pending_review entries can be approved', 409, ['status' => $entry['status']]);
-
-        $snap = timeResolveRateSnapshot((int) $entry['placement_id'], $entry['work_date']);
-        if (!$snap) api_error("No approved rate covering {$entry['work_date']} for this placement. Approve a rate first.", 422);
-
-        scopedUpdate('time_entries', $id, [
-            'status'             => 'approved',
-            'rate_snapshot_id'   => (int) $snap['id'],
-            'approved_by_user_id'=> $user['id'] ?? null,
-            'approved_at'        => date('Y-m-d H:i:s'),
-            'approved_via'       => 'manual',
-        ]);
-        // Per-entry approval audit (P1.a — accrual-at-approval companion).
-        // No GL write: bundle accrual owns recognition; this emits the
-        // audit_log row downstream dashboards subscribe to.
-        $approvedEntry = timeEntryGet($id) ?? $entry;
-        timeEntryApprovedEmit((int) $id, $approvedEntry, 'manual', [
-            'approver_user_id' => $user['id'] ?? null,
-        ]);
         api_ok(['ok' => true, 'entry' => $approvedEntry]);
     }
 
     if ($action === 'reject') {
         rbac_legacy_require($user, 'time.reject');
-        if ($entry['status'] !== 'pending_review') api_error('Only pending_review entries can be rejected', 409);
         $body = api_json_body();
         api_require_fields($body, ['reason']);
-        scopedUpdate('time_entries', $id, ['status' => 'rejected', 'rejected_reason' => $body['reason']]);
-        timeAudit('time.entry.rejected', ['entry_id' => $id, 'reason' => $body['reason']], $id);
-        api_ok(['ok' => true, 'entry' => timeEntryGet($id)]);
+        try {
+            $rejectedEntry = timeRejectEntry($id, $user, (string) $body['reason']);
+        } catch (\RuntimeException $e) {
+            api_error($e->getMessage(), $e->getCode() >= 400 ? $e->getCode() : 422);
+        }
+        api_ok(['ok' => true, 'entry' => $rejectedEntry]);
     }
 
     if ($action === 'correct') {

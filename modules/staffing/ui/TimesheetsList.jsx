@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useApiCached, prefetchApi } from '../../../dashboard/src/lib/api';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { fmtDate, fmtDateTime } from '../../../dashboard/src/lib/formatDate';
+import TimeWorkspaceNav from '../../time/ui/TimeWorkspaceNav';
 
 /**
  * Timesheets List — Batch 2 (2026-02).
@@ -23,6 +24,7 @@ export default function TimesheetsList({ session }) {
     period_start: '',
     period_end: '',
     person_id: '',
+    include_empty: '',
   });
 
   const query = useMemo(() => {
@@ -55,6 +57,7 @@ export default function TimesheetsList({ session }) {
 
   return (
     <section data-testid="timesheets-list-page">
+      <TimeWorkspaceNav />
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: '0 0 4px' }}>Timesheets</h2>
@@ -99,6 +102,15 @@ export default function TimesheetsList({ session }) {
                  onChange={e => setSearch(e.target.value)}
                  placeholder="name, email, period…"
                  data-testid="timesheets-list-search" />
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-end', minHeight: 36, fontSize: 12 }}>
+          <input
+            type="checkbox"
+            checked={filters.include_empty === '1'}
+            onChange={e => setF('include_empty', e.target.checked ? '1' : '')}
+            data-testid="timesheets-list-filter-empty"
+          />
+          Show empty drafts
         </label>
         <button type="button" className="btn btn--ghost" onClick={reload}
                 data-testid="timesheets-list-reload">Reload</button>

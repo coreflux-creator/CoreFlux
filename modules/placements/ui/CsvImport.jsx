@@ -16,7 +16,11 @@ export default function CsvImport() {
       backLabel="← Placements"
       testidPrefix="placements-csv-import"
       presetEntity="placements"
+      description="Export placements, fill or correct fields in a spreadsheet, then upload the file to update matching Placement IDs or create new rows."
+      defaultUpdateExisting
+      updateExistingLabel="Update matching Placement IDs and create rows that do not exist"
       previewColumns={[
+        { key: 'placement_id',    label: 'Placement ID' },
         { key: 'person_email',    label: 'Person email' },
         { key: 'title',           label: 'Title' },
         { key: 'engagement_type', label: 'Engagement type' },
@@ -24,20 +28,14 @@ export default function CsvImport() {
         { key: 'end_client_name', label: 'End client name' },
       ]}
       successCtas={(result) => {
-        // CSV imports always land placements as `status='draft'` and
-        // their first rate row as unapproved. The default Placements
-        // list filters to status=active, which hides everything the
-        // operator just imported. Surface explicit CTAs so the
-        // post-import path is "review drafts → activate → approve
-        // rates" instead of "where did my rows go?".
         const n = result?.imported_count ?? 0;
         if (n <= 0) return [];
         return [
-          { label: `View ${n} draft placement${n === 1 ? '' : 's'}`,
-            to: '../list?status=draft',
-            testid: 'placements-csv-import-view-drafts',
+          { label: `View ${n} processed placement${n === 1 ? '' : 's'}`,
+            to: '../list?status=',
+            testid: 'placements-csv-import-view-placements',
             primary: true },
-          { label: `Approve ${n} draft rate${n === 1 ? '' : 's'}`,
+          { label: 'Review draft rates',
             to: '../draft-rates',
             testid: 'placements-csv-import-view-draft-rates',
             primary: false },
