@@ -59,6 +59,7 @@ jobs:
             about.html \
             accounting.html \
             admin/index.html \
+            api/index.php \
             api/admin/integrations_health.php \
             api/ai/exceptions.php \
             api/ai_accuracy.php \
@@ -80,6 +81,7 @@ jobs:
             auditor.php \
             core/ModuleRegistry.php \
             core/api_bootstrap.php \
+            core/api_router.php \
             core/ai_agents.php \
             core/domain_people_graph.php \
             core/modules.php \
@@ -96,6 +98,7 @@ jobs:
             dashboard/src/App.jsx \
             dashboard/src/lib/api.js \
             dashboard/src/components/ComparisonTable.jsx \
+            dashboard/src/components/CsvImportPage.jsx \
             dashboard/src/components/FinancialReportLibrary.jsx \
             dashboard/src/components/LineItemEditor.jsx \
             dashboard/src/components/MetricCard.jsx \
@@ -169,6 +172,7 @@ jobs:
             modules/payroll/migrations/006_run_enterprise_controls.sql \
             modules/payroll/ui/GustoConnectCard.jsx \
             modules/payroll/ui/PayPeriods.jsx \
+            modules/payroll/ui/PayrollRuns.jsx \
             modules/people/api/companies.php \
             modules/people/api/documents.php \
             modules/people/api/people.php \
@@ -178,7 +182,14 @@ jobs:
             modules/people/ui/DirectoryModule.jsx \
             modules/people/ui/PersonDetail.jsx \
             modules/placements/api/documents.php \
+            modules/placements/api/csv_export.php \
+            modules/placements/api/csv_import.php \
+            modules/placements/api/placements.php \
+            modules/placements/api/rates.php \
             modules/placements/lib/placements.php \
+            modules/placements/lib/rate_approve.php \
+            modules/placements/ui/CsvImport.jsx \
+            modules/placements/ui/DraftRatesQueue.jsx \
             modules/placements/ui/List.jsx \
             modules/placements/ui/PlacementDetail.jsx \
             modules/reports/api/overtime_watch.php \
@@ -189,9 +200,17 @@ jobs:
             modules/reports/ui/StaffingOverview.jsx \
             modules/staffing/api/timesheet_email_approver.php \
             modules/staffing/api/csv_export.php \
+            modules/staffing/api/timesheets.php \
+            modules/staffing/ui/TimesheetsList.jsx \
+            modules/time/api/csv_import.php \
+            modules/time/api/entries.php \
             modules/time/api/intake.php \
+            modules/time/lib/time.php \
             modules/time/manifest.php \
+            modules/time/ui/CsvImport.jsx \
+            modules/time/ui/ReviewQueue.jsx \
             modules/time/ui/TimeModule.jsx \
+            modules/time/ui/TimeWorkspaceNav.jsx \
             modules/treasury/ui/AccountTransactions.jsx \
             modules/treasury/ui/TreasuryOverview.jsx \
             modules/treasury/ui/TreasuryModule.jsx \
@@ -249,6 +268,7 @@ jobs:
             tests/csv_importers_subtenant_scope_smoke.php \
             tests/csv_phase_b_smoke.php \
             tests/csv_universal_import_export_smoke.php \
+            tests/directory_bulk_controls_smoke.php \
             tests/export_templates_smoke.php \
             tests/document_upload_bridge_smoke.php \
             tests/invoice_pdf_schema_smoke.php \
@@ -258,6 +278,9 @@ jobs:
             tests/payroll_workflow_bridge_smoke.php \
             tests/people_bulk_edit_smoke.php \
             tests/people_search_and_request_race_smoke.php \
+            tests/operational_workflow_ease_smoke.php \
+            tests/placements_bulk_approve_drafts_queue_smoke.php \
+            tests/placements_graphql_pilot_smoke.php \
             tests/reports_overtime_query_smoke.php \
             tests/sitewide_navigation_smoke.php \
             tests/specific_get_action_routing_smoke.php \
@@ -267,7 +290,9 @@ jobs:
             tests/sprint7f4_missing_dimensions_smoke.php \
             tests/sprint7gA_tax_split_smoke.php \
             tests/p2_liquidity_and_auto_reverse_smoke.php \
+            tests/staffing_economic_graph_smoke.php \
             tests/sweep_destination_ui_and_divergence_smoke.php \
+            tests/time_entry_approved_audit_smoke.php \
             tests/treasury_connection_error_copy_smoke.php \
             tests/treasury_transactions_and_coa_hierarchy_smoke.php \
             tests/unfinished_route_redirects_smoke.php \
@@ -326,6 +351,7 @@ jobs:
             cd "$APP_ROOT"
 
             for PHP_FILE in \
+              api/index.php \
               api/admin/integrations_health.php \
               api/ai/exceptions.php \
               api/ai_accuracy.php \
@@ -339,6 +365,7 @@ jobs:
               api/treasury_recommendations.php \
               core/ModuleRegistry.php \
               core/api_bootstrap.php \
+              core/api_router.php \
               core/ai_agents.php \
               core/domain_people_graph.php \
               core/people_graph.php \
@@ -372,10 +399,19 @@ jobs:
               modules/people/api/people.php \
               modules/people/lib/companies.php \
               modules/people/lib/people.php \
+              modules/placements/api/csv_export.php \
+              modules/placements/api/csv_import.php \
               modules/placements/api/documents.php \
+              modules/placements/api/placements.php \
+              modules/placements/api/rates.php \
               modules/placements/lib/placements.php \
+              modules/placements/lib/rate_approve.php \
               modules/reports/api/overtime_watch.php \
               modules/reports/lib/staffing_metrics.php \
+              modules/staffing/api/timesheets.php \
+              modules/time/api/csv_import.php \
+              modules/time/api/entries.php \
+              modules/time/lib/time.php \
               modules/treasury/api/account_transactions.php; do
               php -l "$PHP_FILE"
             done
@@ -412,6 +448,7 @@ jobs:
             php tests/csv_importers_subtenant_scope_smoke.php
             php tests/csv_phase_b_smoke.php
             php tests/csv_universal_import_export_smoke.php
+            php tests/directory_bulk_controls_smoke.php
             php tests/export_templates_smoke.php
             php tests/document_upload_bridge_smoke.php
             php tests/invoice_pdf_schema_smoke.php
@@ -421,11 +458,16 @@ jobs:
             php tests/payroll_workflow_bridge_smoke.php
             php tests/people_bulk_edit_smoke.php
             php tests/people_search_and_request_race_smoke.php
+            php tests/operational_workflow_ease_smoke.php
+            php tests/placements_bulk_approve_drafts_queue_smoke.php
+            php tests/placements_graphql_pilot_smoke.php
             php tests/reports_overtime_query_smoke.php
             php tests/sitewide_navigation_smoke.php
             php tests/specific_get_action_routing_smoke.php
             php tests/sprint6d_entity_scope_ai_smoke.php
+            php tests/staffing_economic_graph_smoke.php
             php tests/sweep_destination_ui_and_divergence_smoke.php
+            php tests/time_entry_approved_audit_smoke.php
             php tests/treasury_connection_error_copy_smoke.php
             php tests/treasury_transactions_and_coa_hierarchy_smoke.php
             php tests/unfinished_route_redirects_smoke.php
