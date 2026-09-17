@@ -41,22 +41,34 @@ function staffingApiOwnPersonId(array $user): int
     return (int) ($user['person_id'] ?? 0);
 }
 
-function staffingApiRequirePersonRead(array $user, int $personId): void
+function staffingApiCanPermission(array $ctx, string $permission): bool
 {
-    if ($personId > 0 && $personId === staffingApiOwnPersonId($user)) {
-        rbac_legacy_require($user, 'staffing.time.view');
-        return;
+    $role = (string) ($ctx['role'] ?? '');
+    $globalRole = (string) ($ctx['global_role'] ?? $ctx['user']['global_role'] ?? '');
+    if ($role === 'master_admin' || $globalRole === 'master_admin' || !empty($ctx['is_global_admin'])) {
+        return true;
     }
-    rbac_legacy_require($user, 'staffing.time.approve');
+    return rbac_legacy_can((array) ($ctx['user'] ?? []), $permission);
 }
 
-function staffingApiRequirePersonWrite(array $user, int $personId, string $ownPermission): void
+function staffingApiRequirePersonRead(array $ctx, int $personId): void
 {
+    $user = (array) ($ctx['user'] ?? []);
     if ($personId > 0 && $personId === staffingApiOwnPersonId($user)) {
-        rbac_legacy_require($user, $ownPermission);
+        api_require_legacy_permission($ctx, 'staffing.time.view');
         return;
     }
-    rbac_legacy_require($user, 'staffing.time.approve');
+    api_require_legacy_permission($ctx, 'staffing.time.approve');
+}
+
+function staffingApiRequirePersonWrite(array $ctx, int $personId, string $ownPermission): void
+{
+    $user = (array) ($ctx['user'] ?? []);
+    if ($personId > 0 && $personId === staffingApiOwnPersonId($user)) {
+        api_require_legacy_permission($ctx, $ownPermission);
+        return;
+    }
+    api_require_legacy_permission($ctx, 'staffing.time.approve');
 }
 
 function staffingApiTimesheetPersonId(int $timesheetId): int
@@ -81,11 +93,11 @@ function staffingApiEntryPersonId(int $entryId): int
 
 if ($action === 'settings') {
     if ($method === 'GET') {
-        rbac_legacy_require($user, 'staffing.time.view');
+        api_require_legacy_permission($ctx, 'staffing.time.view');
         api_ok(['settings' => staffingSettings()]);
     }
     if ($method === 'POST') {
-        rbac_legacy_require($user, 'staffing.settings.manage');
+        api_require_legacy_permission($ctx, 'staffing.settings.manage');
         $body = api_json_body();
         $weekStart = isset($body['week_starts_on']) ? (int) $body['week_starts_on'] : 1;
         if (!in_array($weekStart, [0, 1], true)) api_error('week_starts_on must be 0 (Sun) or 1 (Mon)', 422);
@@ -115,7 +127,7 @@ if ($method === 'GET' && $action === 'week') {
     $periodEnd   = (string) ($_GET['period_end']   ?? '');
     if ($personId <= 0)                api_error('person_id required', 422);
     if (!$periodStart || !$periodEnd)  api_error('period_start / period_end required', 422);
-    staffingApiRequirePersonRead($user, $personId);
+    staffingApiRequirePersonRead($ctx, $personId);
 
     $snap = staffingTimesheetWeek($personId, $periodStart, $periodEnd);
     api_ok([
@@ -126,8 +138,8 @@ if ($method === 'GET' && $action === 'week') {
 }
 
 if ($method === 'GET' && $action === 'list') {
-    $canViewAll = rbac_legacy_can($user, 'staffing.time.approve');
-    if (!$canViewAll) rbac_legacy_require($user, 'staffing.time.view');
+    $canViewAll = staffingApiCanPermission($ctx, 'staffing.time.approve');
+    if (!$canViewAll) api_require_legacy_permission($ctx, 'staffing.time.view');
     $where  = ['t.tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['status']))        { $where[] = 't.status = :s';            $params['s']  = $_GET['status']; }
@@ -199,7 +211,7 @@ if ($method === 'GET' && $action === 'prefill_from_last_week') {
     $periodEnd   = (string) ($_GET['period_end']   ?? '');
     if ($personId <= 0)                api_error('person_id required', 422);
     if (!$periodStart || !$periodEnd)  api_error('period_start / period_end required', 422);
-    staffingApiRequirePersonRead($user, $personId);
+    staffingApiRequirePersonRead($ctx, $personId);
 
     $template = staffingTimesheetPriorWeekTemplate($personId, $periodStart, $periodEnd);
     api_ok($template);
@@ -211,7 +223,7 @@ if ($method === 'GET' && $action === 'week_economics') {
     $periodEnd   = (string) ($_GET['period_end']   ?? '');
     if ($personId <= 0)                api_error('person_id required', 422);
     if (!$periodStart || !$periodEnd)  api_error('period_start / period_end required', 422);
-    staffingApiRequirePersonRead($user, $personId);
+    staffingApiRequirePersonRead($ctx, $personId);
 
     // Read from the staffing reports view if present — gives accurate
     // revenue / cost / GP per row with bill/pay rates joined.
@@ -266,7 +278,7 @@ if ($method === 'GET' && $action === 'detail') {
         ['id' => $id, 'people_tid' => $peopleTenantId]
     );
     if (!$header) api_error('timesheet not found', 404);
-    staffingApiRequirePersonRead($user, (int) $header['person_id']);
+    staffingApiRequirePersonRead($ctx, (int) $header['person_id']);
     $entries = scopedQuery(
         "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
                 te.hours, te.billable, te.payable, te.description, te.status,
@@ -289,7 +301,7 @@ if ($method === 'GET' && $action === 'detail') {
 // PlacementDetail → Timesheets tab to surface history + pending + create
 // new affordances at the placement granularity.
 if ($method === 'GET' && $action === 'list_for_placement') {
-    rbac_legacy_require($user, 'staffing.time.approve');
+    api_require_legacy_permission($ctx, 'staffing.time.approve');
     $placementId = (int) ($_GET['placement_id'] ?? 0);
     if ($placementId <= 0) api_error('placement_id required', 400);
     $where  = ['t.tenant_id = :tenant_id', 'te.placement_id = :plid'];
@@ -345,7 +357,7 @@ if ($method === 'GET' && $action === 'detail_for_placement') {
         ['id' => $id, 'people_tid' => $peopleTenantId]
     );
     if (!$header) api_error('timesheet not found', 404);
-    staffingApiRequirePersonRead($user, (int) $header['person_id']);
+    staffingApiRequirePersonRead($ctx, (int) $header['person_id']);
     $entries = scopedQuery(
         "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
                 te.hours, te.billable, te.payable, te.description, te.status,
@@ -385,7 +397,7 @@ if ($method === 'POST' && $action === 'entry_save') {
     $personId = $entryId > 0
         ? staffingApiEntryPersonId($entryId)
         : staffingApiTimesheetPersonId($timesheetId);
-    staffingApiRequirePersonWrite($user, $personId, 'staffing.time.create');
+    staffingApiRequirePersonWrite($ctx, $personId, 'staffing.time.create');
     try {
         $result = staffingTimeEntrySave((int) ($user['id'] ?? 0), $body);
         api_ok($result);
@@ -397,7 +409,7 @@ if ($method === 'POST' && $action === 'entry_delete') {
     $body    = api_json_body();
     $entryId = (int) ($body['id'] ?? 0);
     if ($entryId <= 0) api_error('id required', 400);
-    staffingApiRequirePersonWrite($user, staffingApiEntryPersonId($entryId), 'staffing.time.create');
+    staffingApiRequirePersonWrite($ctx, staffingApiEntryPersonId($entryId), 'staffing.time.create');
     try {
         api_ok(staffingTimeEntryDelete((int) ($user['id'] ?? 0), $entryId));
     } catch (\Throwable $e) {
@@ -411,7 +423,7 @@ if ($method === 'POST' && $action === 'reopen') {
     $tsId   = (int) ($body['id'] ?? 0);
     $reason = (string) ($body['reason'] ?? '');
     if ($tsId <= 0) api_error('id required', 400);
-    staffingApiRequirePersonWrite($user, staffingApiTimesheetPersonId($tsId), 'staffing.time.create');
+    staffingApiRequirePersonWrite($ctx, staffingApiTimesheetPersonId($tsId), 'staffing.time.create');
     try {
         api_ok(['timesheet' => staffingTimesheetReopen((int) ($user['id'] ?? 0), $tsId, $reason)]);
     } catch (\Throwable $e) {
@@ -423,7 +435,7 @@ if ($method === 'POST' && $action === 'reopen') {
 if ($method === 'GET' && $action === 'list_for_person') {
     $personId = (int) ($_GET['person_id'] ?? 0);
     if ($personId <= 0) api_error('person_id required', 400);
-    staffingApiRequirePersonRead($user, $personId);
+    staffingApiRequirePersonRead($ctx, $personId);
     $limit = max(1, min(200, (int) ($_GET['limit'] ?? 50)));
     $rows = scopedQuery(
         "SELECT t.id, t.person_id, t.period_start, t.period_end, t.status,
@@ -456,7 +468,7 @@ if ($method === 'POST' && $action === 'entries_bulk_save') {
             $personId = $entryId > 0
                 ? staffingApiEntryPersonId($entryId)
                 : staffingApiTimesheetPersonId($timesheetId);
-            staffingApiRequirePersonWrite($user, $personId, 'staffing.time.create');
+            staffingApiRequirePersonWrite($ctx, $personId, 'staffing.time.create');
             $results[] = staffingTimeEntrySave((int) ($user['id'] ?? 0), $row);
         } catch (\Throwable $e) {
             $errors[] = ['index' => $i, 'error' => $e->getMessage(), 'row' => $row];
@@ -477,7 +489,7 @@ if ($method === 'POST' && $action === 'entries_bulk_save') {
 // invoice/payable creation flow. Returns lightweight rows (no rate
 // resolution — that happens server-side at draft time).
 if ($method === 'GET' && $action === 'approved_entries') {
-    rbac_legacy_require($user, 'staffing.time.approve');
+    api_require_legacy_permission($ctx, 'staffing.time.approve');
     $where  = [
         'te.tenant_id = :tenant_id',
         "te.status IN ('approved','locked','payroll_ready','billing_ready')",
@@ -525,7 +537,7 @@ if ($method === 'GET' && $action === 'approved_entries') {
 // Returns aggregates only — the picker UI calls `approved_entries`
 // with placement/date filters when the operator clicks through.
 if ($method === 'GET' && $action === 'approved_hours_ready') {
-    rbac_legacy_require($user, 'staffing.time.approve');
+    api_require_legacy_permission($ctx, 'staffing.time.approve');
     $base = "FROM time_entries te
         LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
         LEFT JOIN people     pe ON pe.id = te.person_id   AND pe.tenant_id = :people_tid
@@ -647,7 +659,7 @@ if ($method === 'GET' && $action === 'approved_hours_ready') {
 if ($method === 'POST' && $action === 'bulk_save') {
     $body = api_json_body();
     $personId = (int) ($body['person_id'] ?? 0);
-    staffingApiRequirePersonWrite($user, $personId, 'staffing.time.create');
+    staffingApiRequirePersonWrite($ctx, $personId, 'staffing.time.create');
     try {
         $snap = staffingTimesheetBulkSave((int) ($user['id'] ?? 0), $body);
         api_ok(['ok' => true, 'timesheet' => $snap['timesheet'], 'entries' => $snap['entries']]);
@@ -660,9 +672,9 @@ if ($method === 'POST' && in_array($action, ['bulk_approve', 'bulk_reject'], tru
     $body = api_json_body();
     $ids = is_array($body['ids'] ?? null) ? $body['ids'] : [];
     if ($action === 'bulk_approve') {
-        rbac_legacy_require($user, 'staffing.time.approve');
+        api_require_legacy_permission($ctx, 'staffing.time.approve');
     } else {
-        rbac_legacy_require($user, 'staffing.time.reject');
+        api_require_legacy_permission($ctx, 'staffing.time.reject');
     }
 
     try {
@@ -687,11 +699,11 @@ if ($method === 'POST' && in_array($action, ['submit','approve','reject'], true)
     if ($pid <= 0 || !$ps || !$pe) api_error('person_id, period_start, period_end required', 422);
 
     if ($action === 'submit') {
-        staffingApiRequirePersonWrite($user, $pid, 'staffing.time.submit');
+        staffingApiRequirePersonWrite($ctx, $pid, 'staffing.time.submit');
     } elseif ($action === 'approve') {
-        rbac_legacy_require($user, 'staffing.time.approve');
+        api_require_legacy_permission($ctx, 'staffing.time.approve');
     } else {
-        rbac_legacy_require($user, 'staffing.time.reject');
+        api_require_legacy_permission($ctx, 'staffing.time.reject');
     }
 
     try {

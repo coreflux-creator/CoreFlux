@@ -78,6 +78,11 @@ $assert('zero-hour timesheets are hidden by default',
     str_contains($timesheets, "empty(\$_GET['include_empty'])")
     && str_contains($timesheets, 't.total_hours > 0')
     && str_contains($timesheetsUi, 'Show zero-hour records'));
+$assert('timesheet permissions preserve the resolved platform-admin context',
+    str_contains($timesheets, 'function staffingApiCanPermission(array $ctx')
+    && str_contains($timesheets, "api_require_legacy_permission(\$ctx, 'staffing.time.view')")
+    && !str_contains($timesheets, 'rbac_legacy_require($user')
+    && !str_contains($timesheets, 'rbac_legacy_can($user'));
 $assert('empty weeks cannot be submitted or approved',
     str_contains($staffingTimesheetLib, "staffingTimesheetRequirePositiveEntries(\$headerId, 'submit')")
     && str_contains($staffingTimesheetLib, "staffingTimesheetRequirePositiveEntries(\$headerId, 'approve', \$tenantId)")
@@ -162,6 +167,7 @@ foreach ([
     'modules/time/api/csv_import.php',
     'modules/time/api/csv_export.php',
     'modules/time/lib/time.php',
+    'modules/staffing/api/timesheets.php',
     'core/export_datasets.php',
     'modules/placements/api/csv_export.php',
     'modules/placements/api/csv_import.php',
