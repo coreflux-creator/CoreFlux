@@ -321,6 +321,7 @@ jobs:
             modules/time/ui/TimeWorkspaceNav.jsx \
             modules/time/ui/TokenIssueModal.jsx \
             modules/treasury/ui/AccountTransactions.jsx \
+            modules/treasury/ui/DepositAccounts.jsx \
             modules/treasury/ui/LiabilityAccounts.jsx \
             modules/treasury/ui/PlaidTransferSettings.jsx \
             modules/treasury/ui/TreasuryOverview.jsx \
@@ -495,6 +496,7 @@ jobs:
             rm -f -- "$ARCHIVE"
             test -f "$STAGE_ROOT/modules/ap/api/bills.php"
             test -f "$STAGE_ROOT/modules/placements/lib/placements.php"
+            test -f "$STAGE_ROOT/modules/treasury/ui/DepositAccounts.jsx"
             test -f "$STAGE_ROOT/modules/payroll/migrations/006_run_enterprise_controls.sql"
             test -f "$STAGE_ROOT/modules/payroll/migrations/007_accounting_posting.sql"
             test -f "$STAGE_ROOT/modules/ap/migrations/008_vendor_categories_attachments.sql"
