@@ -124,7 +124,8 @@ $a('renders RTP badge',                        strpos($rp, '${testIdPrefix}-rtp-
 $a('renders pre-approval badge',               strpos($rp, '${testIdPrefix}-pre-approval-${rail.id}') !== false);
 $a('renders funding-link badge',               strpos($rp, '${testIdPrefix}-funding-${rail.id}') !== false);
 $a('renders fallback chain',                   strpos($rp, '${testIdPrefix}-fallback-${rail.id}') !== false &&
-                                                stripos($rp, 'falls back to') !== false);
+                                                strpos($rp, 'If the online payment cannot be sent') !== false &&
+                                                strpos($rp, 'fallbackLabel(m.fallback_to)') !== false);
 $a('renders pros / cons lists',
     strpos($rp, '${testIdPrefix}-pros-${rail.id}') !== false &&
     strpos($rp, '${testIdPrefix}-cons-${rail.id}') !== false);

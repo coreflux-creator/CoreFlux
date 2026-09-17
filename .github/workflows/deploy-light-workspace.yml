@@ -100,9 +100,13 @@ jobs:
             core/modules.php \
             core/people_graph.php \
             core/migrate.php \
+            core/posting_engine/formula.php \
+            core/posting_engine/process.php \
+            core/posting_engine/seed_defaults.php \
             core/rbac_config.php \
             core/rbac/legacy_map.php \
             core/seeds/event_registry_seed.php \
+            core/seeds/posting_rules_seed_all.php \
             core/storage_register.php \
             core/staffing_email_approval.php \
             core/treasury/liquidity_projection.php \
@@ -408,6 +412,7 @@ jobs:
             tests/journal_entries_usability_smoke.php \
             tests/m365_graph_smoke.php \
             tests/payroll_phase_a1_smoke.php \
+            tests/payroll_accounting_event_posting_smoke.php \
             tests/payroll_accounting_lifecycle_smoke.php \
             tests/payroll_csv_import_smoke.php \
             tests/payroll_preflight_and_gusto_preview_smoke.php \
@@ -531,9 +536,13 @@ jobs:
               core/ai_agents.php \
               core/domain_people_graph.php \
               core/people_graph.php \
+              core/posting_engine/formula.php \
+              core/posting_engine/process.php \
+              core/posting_engine/seed_defaults.php \
               core/rbac/legacy_map.php \
               core/staffing_email_approval.php \
               core/seeds/event_registry_seed.php \
+              core/seeds/posting_rules_seed_all.php \
               core/storage_register.php \
               core/treasury/liquidity_projection.php \
               core/workflow_engine.php \
@@ -596,6 +605,7 @@ jobs:
 
             php deploy/run_migrations.php
             php core/seeds/event_registry_seed.php
+            php core/seeds/posting_rules_seed_all.php
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/003_mail_service.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/103_ap_payments_method_mercury.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/126_staffing_economic_graph.sql'
@@ -659,6 +669,7 @@ jobs:
             php tests/journal_entries_usability_smoke.php
             php tests/m365_graph_smoke.php
             php tests/payroll_phase_a1_smoke.php
+            php tests/payroll_accounting_event_posting_smoke.php
             php tests/payroll_accounting_lifecycle_smoke.php
             php tests/payroll_csv_import_smoke.php
             php tests/payroll_preflight_and_gusto_preview_smoke.php

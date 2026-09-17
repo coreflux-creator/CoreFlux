@@ -141,8 +141,8 @@ $a('status pill paid',                         strpos($rd, 'payroll-run-gusto-st
 $a('Mark paid action sent',                    strpos($rd, "post('mark_gusto_paid')") !== false);
 $a('Unlink action sent',                       strpos($rd, "post('unlink_gusto')") !== false);
 $a('Mark synced action sent',                  strpos($rd, "post('mark_gusto_synced'") !== false);
-$a('confirms Mark paid suppresses duplicate post',
-    strpos($rd, 'skip the duplicate cash-leg GL post') !== false);
+$a('confirms Mark paid posts cash idempotently',
+    strpos($rd, 'idempotently post the net-pay cash entry') !== false);
 
 echo PHP_EOL . "Total: $pass passed, $fail failed" . PHP_EOL;
 exit($fail === 0 ? 0 : 1);

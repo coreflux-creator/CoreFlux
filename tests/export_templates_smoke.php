@@ -249,7 +249,7 @@ $assert('ap payments CSV requires export permission',
 $assert('ap bills CSV honors template_id',    strpos($apBillsCsv, "(int) (\$_GET['template_id'] ?? 0)") !== false);
 $assert('ap bills CSV uses governed dataset',
                                               strpos($apBillsCsv, 'ap_bills') !== false
-                                              && strpos($apBillsCsv, 'exportDatasetFetchApBills') !== false);
+                                              && strpos($apBillsCsv, 'exportTemplateStreamDatasetCsv') !== false);
 $assert('ap bills raw CSV audits dataset',    strpos($apBillsCsv, 'ap.bills.exported') !== false
                                               && strpos($apBillsCsv, "mode' => 'raw'") !== false);
 $assert('ap bills raw CSV uses shared audit metadata',

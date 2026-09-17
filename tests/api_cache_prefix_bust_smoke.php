@@ -10,11 +10,13 @@
  *        - placements (bulk status change)
  *        - ap bills   (new from time-bundle / time-entries / suggest run)
  *        - billing invoices (new from time-bundle / time-entries)
- *        - timesheets (submit from week, approve/reject/reopen from detail)
+ *        - timesheets (submit from week, approve/reject from detail)
  *
  * Run: php -d zend.assertions=1 /app/tests/api_cache_prefix_bust_smoke.php
  */
 declare(strict_types=1);
+
+$root = dirname(__DIR__);
 
 $passes  = 0;
 $failures = [];
@@ -40,11 +42,11 @@ check('prefix predicate startsWith check',     str_contains($apiSrc, 'k.startsWi
 echo "\n── mutation wiring ──\n";
 
 $cases = [
-    'placements bulk status'   => ['/app/modules/placements/ui/List.jsx',          'placements-list:'],
-    'ap bills modals'          => ['/app/modules/ap/ui/BillsList.jsx',             'ap-bills-list:'],
-    'billing invoices modals'  => ['/app/modules/billing/ui/InvoicesList.jsx',     'billing-invoices-list:'],
-    'timesheet submit (week)'  => ['/app/modules/staffing/ui/TimesheetWeek.jsx',   'timesheets-list:'],
-    'timesheet detail actions' => ['/app/modules/staffing/ui/TimesheetDetail.jsx', 'timesheets-list:'],
+    'placements bulk status'   => [$root . '/modules/placements/ui/List.jsx',          'placements-list:'],
+    'ap bills modals'          => [$root . '/modules/ap/ui/BillsList.jsx',             'ap-bills-list:'],
+    'billing invoices modals'  => [$root . '/modules/billing/ui/InvoicesList.jsx',     'billing-invoices-list:'],
+    'timesheet submit (week)'  => [$root . '/modules/staffing/ui/TimesheetWeek.jsx',   'timesheets-list:'],
+    'timesheet detail actions' => [$root . '/modules/staffing/ui/TimesheetDetail.jsx', 'timesheets-list:'],
 ];
 
 foreach ($cases as $label => [$path, $prefix]) {
@@ -55,16 +57,16 @@ foreach ($cases as $label => [$path, $prefix]) {
 }
 
 echo "\n── timesheet detail covers all status-changing actions ──\n";
-$detail = file_get_contents('/app/modules/staffing/ui/TimesheetDetail.jsx');
-// The shared `act()` helper wraps submit/approve/reject/etc — one bust there
-// covers all of them. reopenForEdit is the other independent mutation.
+$detail = file_get_contents($root . '/modules/staffing/ui/TimesheetDetail.jsx');
+// The shared `act()` helper wraps every allowed detail mutation, so one bust
+// covers all of them. Approved sheets intentionally have no reopen shortcut.
 check("act() helper busts the prefix",
     preg_match('/const act = async.*?bustApiCachePrefix\(.*?timesheets-list:/s', $detail) === 1);
-check("reopenForEdit busts the prefix",
-    preg_match('/reopenForEdit\s*=\s*async.*?bustApiCachePrefix\(.*?timesheets-list:/s', $detail) === 1);
+check("approved sheets have no standalone reopen mutation",
+    !str_contains($detail, 'const reopenForEdit = async'));
 
 echo "\n── ap bills covers all three modals ──\n";
-$ap = file_get_contents('/app/modules/ap/ui/BillsList.jsx');
+$ap = file_get_contents($root . '/modules/ap/ui/BillsList.jsx');
 check("BillFromTimeBundleModal onCreated busts",
     preg_match('/BillFromTimeBundleModal.*?onCreated.*?bustApiCachePrefix\(.*?ap-bills-list:/s', $ap) === 1);
 check("BillFromTimeEntriesModal onCreated busts",
@@ -73,7 +75,7 @@ check("SuggestPaymentRunModal onCreated busts",
     preg_match('/SuggestPaymentRunModal.*?onCreated.*?bustApiCachePrefix\(.*?ap-bills-list:/s', $ap) === 1);
 
 echo "\n── billing invoices covers both modals ──\n";
-$bi = file_get_contents('/app/modules/billing/ui/InvoicesList.jsx');
+$bi = file_get_contents($root . '/modules/billing/ui/InvoicesList.jsx');
 check("InvoiceFromTimeBundleModal onCreated busts",
     preg_match('/InvoiceFromTimeBundleModal.*?onCreated.*?bustApiCachePrefix\(.*?billing-invoices-list:/s', $bi) === 1);
 check("InvoiceFromTimeEntriesModal onCreated busts",

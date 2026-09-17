@@ -8,6 +8,7 @@
  */
 
 require_once __DIR__ . '/../../accounting/lib/accounting.php';
+require_once __DIR__ . '/../../../core/posting_engine/process.php';
 
 function payrollAccountingPostingDefaults(): array
 {
@@ -149,6 +150,39 @@ function payrollAccountingStampLink(int $tenantId, int $runId, int $journalEntry
     }
 }
 
+function payrollAccountingPostedEventResult(array $eventResult, string $label): array
+{
+    if (($eventResult['status'] ?? null) !== 'posted' || empty($eventResult['journal_entry_id'])) {
+        throw new \RuntimeException(
+            $label . ' could not be posted to the ledger: '
+            . (string) ($eventResult['error'] ?? 'no posting rule matched')
+        );
+    }
+
+    return [
+        'je_id' => (int) $eventResult['journal_entry_id'],
+        'je_number' => $eventResult['je_number'] ?? null,
+        'status' => 'posted',
+        'total_debit' => (float) ($eventResult['total_debit'] ?? 0),
+        'total_credit' => (float) ($eventResult['total_credit'] ?? 0),
+        'idempotent_replay' => !empty($eventResult['idempotent_replay']),
+        'event_id' => isset($eventResult['event_id']) ? (int) $eventResult['event_id'] : null,
+    ];
+}
+
+function payrollAccountingAccountId(int $tenantId, string $accountCode): int
+{
+    $stmt = getDB()->prepare(
+        'SELECT id FROM accounting_accounts
+          WHERE tenant_id = :tenant_id AND code = :code AND active = 1 AND is_postable = 1
+          LIMIT 1'
+    );
+    $stmt->execute(['tenant_id' => $tenantId, 'code' => $accountCode]);
+    $accountId = (int) ($stmt->fetchColumn() ?: 0);
+    if ($accountId <= 0) throw new \RuntimeException("Payroll ledger account {$accountCode} is unavailable");
+    return $accountId;
+}
+
 function payrollPostRunAccrual(int $tenantId, int $runId, ?int $actorUserId): array
 {
     $run = payrollAccountingLoadRun($tenantId, $runId);
@@ -178,16 +212,26 @@ function payrollPostRunAccrual(int $tenantId, int $runId, ?int $actorUserId): ar
     payrollAccountingAppendLine($lines, (string) $settings['payroll_tax_payable_account_code'], 0, $employeeTaxes + $employerTaxes, $memo . ' · taxes payable');
     payrollAccountingAppendLine($lines, (string) $settings['payroll_deduction_payable_account_code'], 0, $deductions, $memo . ' · deductions payable');
 
-    $result = accountingPostJe($tenantId, [
-        'posting_date' => (string) $run['period_end'],
-        'currency' => 'USD',
+    $entityId = (int) accountingDefaultEntity($tenantId)['id'];
+    $eventResult = accountingProcessEvent($tenantId, [
+        'entity_id' => $entityId,
+        'event_type' => 'payroll.run.approved',
         'source_module' => 'payroll',
-        'source_ref_type' => 'payroll_run',
-        'source_ref_id' => $runId,
-        'idempotency_key' => 'payroll:run:' . $runId . ':accrual:v1',
-        'memo' => $memo,
-        'lines' => array_values($lines),
-    ], $actorUserId, true);
+        'source_record_id' => 'payroll_run:' . $runId . ':accrual',
+        'event_date' => (string) $run['period_end'],
+        'payload' => [
+            'run_id' => $runId,
+            'gross' => $gross / 100,
+            'taxes' => $employeeTaxes / 100,
+            'net' => $net / 100,
+            'currency' => 'USD',
+            'employer_tax_total' => $employerTaxes / 100,
+            'deductions' => $deductions / 100,
+            'memo' => $memo,
+            'lines' => array_values($lines),
+        ],
+    ], $actorUserId);
+    $result = payrollAccountingPostedEventResult($eventResult, 'Payroll accrual');
 
     getDB()->prepare(
         'UPDATE payroll_runs SET journal_entry_id = :je, updated_at = NOW()
@@ -215,19 +259,29 @@ function payrollPostRunCash(int $tenantId, int $runId, ?int $actorUserId): array
     if ($net <= 0) throw new \RuntimeException('Payroll net pay must be greater than zero');
 
     $memo = 'Payroll run #' . $runId . ' · net pay disbursed';
-    $result = accountingPostJe($tenantId, [
-        'posting_date' => (string) ($run['pay_date'] ?: date('Y-m-d')),
-        'currency' => 'USD',
+    $cashAccountId = payrollAccountingAccountId($tenantId, (string) $settings['payroll_cash_account_code']);
+    $entityId = (int) accountingDefaultEntity($tenantId)['id'];
+    $eventResult = accountingProcessEvent($tenantId, [
+        'entity_id' => $entityId,
+        'event_type' => 'payroll.cash.disbursed',
         'source_module' => 'payroll',
-        'source_ref_type' => 'payroll_run',
-        'source_ref_id' => $runId,
-        'idempotency_key' => 'payroll:run:' . $runId . ':cash:v1',
-        'memo' => $memo,
-        'lines' => [
-            ['account_code' => (string) $settings['payroll_payable_account_code'], 'debit' => $net / 100, 'credit' => 0, 'memo' => $memo],
-            ['account_code' => (string) $settings['payroll_cash_account_code'], 'debit' => 0, 'credit' => $net / 100, 'memo' => $memo],
+        'source_record_id' => 'payroll_run:' . $runId . ':cash',
+        'event_date' => (string) ($run['pay_date'] ?: date('Y-m-d')),
+        'payload' => [
+            'run_id' => $runId,
+            'amount' => $net / 100,
+            'currency' => 'USD',
+            'bank_account_id' => $cashAccountId,
+            'method' => (string) ($run['disbursement_rail'] ?? 'internal'),
+            'bank_ref' => $run['rail_external_ref'] ?? null,
+            'memo' => $memo,
+            'lines' => [
+                ['account_code' => (string) $settings['payroll_payable_account_code'], 'debit' => $net / 100, 'credit' => 0, 'memo' => $memo],
+                ['account_code' => (string) $settings['payroll_cash_account_code'], 'debit' => 0, 'credit' => $net / 100, 'memo' => $memo],
+            ],
         ],
-    ], $actorUserId, true);
+    ], $actorUserId);
+    $result = payrollAccountingPostedEventResult($eventResult, 'Payroll cash disbursement');
 
     getDB()->prepare(
         'UPDATE payroll_runs SET cash_journal_entry_id = :je, updated_at = NOW()

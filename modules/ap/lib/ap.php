@@ -791,9 +791,15 @@ function apPaymentPostingContext(int $tenantId, array $payment, ?int $requestedB
         if (strcasecmp((string) ($bank['currency'] ?: 'USD'), (string) ($payment['currency'] ?: 'USD')) !== 0) {
             throw new \RuntimeException('The funding bank account uses a different currency.');
         }
+        $bankGl = scopedFind(
+            'SELECT id FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :code AND active = 1',
+            ['code' => (string) $bank['gl_account_code']]
+        );
+        if (!$bankGl) throw new \RuntimeException('The funding bank account is not mapped to an active ledger account.');
         return [
             'entity_id' => $entityId,
             'bank_account_id' => (int) $bank['id'],
+            'bank_gl_account_id' => (int) $bankGl['id'],
             'bank_gl_account_code' => (string) $bank['gl_account_code'],
         ];
     }
@@ -817,9 +823,15 @@ function apPaymentPostingContext(int $tenantId, array $payment, ?int $requestedB
         throw new \RuntimeException('Choose the funding bank account before clearing this payment; more than one active account is available.');
     }
     if (count($banks) === 1) {
+        $bankGl = scopedFind(
+            'SELECT id FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :code AND active = 1',
+            ['code' => (string) $banks[0]['gl_account_code']]
+        );
+        if (!$bankGl) throw new \RuntimeException('The funding bank account is not mapped to an active ledger account.');
         return [
             'entity_id' => $entityId,
             'bank_account_id' => (int) $banks[0]['id'],
+            'bank_gl_account_id' => (int) $bankGl['id'],
             'bank_gl_account_code' => (string) $banks[0]['gl_account_code'],
         ];
     }
@@ -901,40 +913,21 @@ function apClearPayment(
                 'currency' => (string) $row['currency'],
                 'method' => (string) $row['method'],
                 'cleared_date' => $clearedDate,
-                'bank_gl_account_id' => (string) $posting['bank_gl_account_code'],
+                'bank_gl_account_id' => (int) $posting['bank_gl_account_id'],
             ],
         ], $actorUserId);
     } catch (\Throwable $e) {
         $eventError = $e->getMessage();
     }
 
-    if ($eventResult && ($eventResult['status'] ?? null) === 'posted') {
-        $journalEntryId = (int) $eventResult['journal_entry_id'];
-    } else {
-        try {
-            $posted = accountingPostJe($tenantId, [
-                'entity_id' => (int) $posting['entity_id'],
-                'posting_date' => $clearedDate,
-                'currency' => (string) $row['currency'],
-                'source_module' => 'ap',
-                'source_ref_type' => 'ap_payment',
-                'source_ref_id' => $paymentId,
-                'idempotency_key' => sprintf('ap:payment:%d:clear', $paymentId),
-                'memo' => 'AP payment ' . ($row['reference'] ?: ('PAY-' . $paymentId)) . ' / ' . $row['vendor_name'],
-                'lines' => [
-                    ['account_code' => '2000', 'debit' => (float) $row['amount'], 'credit' => 0, 'memo' => 'Settle accounts payable'],
-                    ['account_code' => (string) $posting['bank_gl_account_code'], 'debit' => 0, 'credit' => (float) $row['amount'], 'memo' => 'Bank disbursement'],
-                ],
-            ], $actorUserId, true);
-            $journalEntryId = (int) $posted['je_id'];
-        } catch (\Throwable $e) {
-            throw new \RuntimeException(
-                'Payment could not be posted to the ledger: ' . $e->getMessage()
-                . ($eventError ? ' | event-layer error: ' . $eventError : '')
-                . '. The payment remains sent so you can fix the setup and retry.'
-            );
-        }
+    if (!$eventResult || ($eventResult['status'] ?? null) !== 'posted') {
+        $reason = $eventError ?: (string) ($eventResult['error'] ?? 'no posting rule matched');
+        throw new \RuntimeException(
+            'Payment could not be posted to the ledger: ' . $reason
+            . '. The payment remains sent so you can fix the setup and retry.'
+        );
     }
+    $journalEntryId = (int) $eventResult['journal_entry_id'];
 
     $update = getDB()->prepare(
         'UPDATE ap_payments
@@ -1525,8 +1518,8 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
                 throw new \RuntimeException("bill {$bRow['internal_ref']} belongs to a different entity");
             }
             if ($paymentEntityId === 0 && $billEntityId > 0) {
-                $pdo->prepare('UPDATE ap_payments SET entity_id = :entity_id WHERE id = :id')
-                    ->execute(['entity_id' => $billEntityId, 'id' => $paymentId]);
+                $pdo->prepare('UPDATE ap_payments SET entity_id = :entity_id WHERE tenant_id = :tenant_id AND id = :id')
+                    ->execute(['entity_id' => $billEntityId, 'tenant_id' => (int) $pay['tenant_id'], 'id' => $paymentId]);
                 $pay['entity_id'] = $billEntityId;
             }
             if (!in_array($bRow['status'], ['approved', 'partially_paid'], true)) {
@@ -1539,9 +1532,13 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
                     'SELECT COALESCE(SUM(a.amount_applied), 0)
                        FROM ap_payment_allocations a
                        JOIN ap_payments p ON p.id = a.payment_id
-                      WHERE a.bill_id = :bill_id AND p.status IN ("draft", "queued")'
+                      WHERE a.bill_id = :bill_id AND p.tenant_id = :tenant_id
+                        AND p.status IN ("draft", "queued")'
                 );
-                $reservedStmt->execute(['bill_id' => (int) $bRow['id']]);
+                $reservedStmt->execute([
+                    'bill_id' => (int) $bRow['id'],
+                    'tenant_id' => (int) $pay['tenant_id'],
+                ]);
                 $available = max(0, round($available - (float) $reservedStmt->fetchColumn(), 2));
             }
             $apply = min($t['amount'], $available);
@@ -1566,9 +1563,8 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
             ];
         }
         $newUnalloc = round((float) $pay['unallocated_amount'] - array_sum(array_column($applied, 'amount_applied')), 2);
-        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $pdo->prepare('UPDATE ap_payments SET unallocated_amount = :u WHERE id = :id')
-            ->execute(['u' => $newUnalloc, 'id' => $paymentId]);
+        $pdo->prepare('UPDATE ap_payments SET unallocated_amount = :u WHERE tenant_id = :tenant_id AND id = :id')
+            ->execute(['u' => $newUnalloc, 'tenant_id' => (int) $pay['tenant_id'], 'id' => $paymentId]);
 
         if ($released) {
             apRefreshReleasedPaymentBills($pdo, (int) $pay['tenant_id'], $touchedBillIds);
