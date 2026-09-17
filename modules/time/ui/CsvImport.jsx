@@ -23,11 +23,11 @@ export default function CsvImport() {
     <CsvImportPage
       endpoint="/modules/time/api/csv_import.php"
       entityLabel="Time Entries"
-      backTo="../entries"
-      backLabel="← My Time"
+      backTo="/modules/staffing/timesheets"
+      backLabel="Timesheets"
       testidPrefix="time-csv-import"
       presetEntity="time"
-      description="Import time by Placement ID or external placement ID. Matching unapproved entries can be corrected in the same file."
+      description="Import time using a CoreFlux placement ID or the placement ID from your source system. Re-uploading a corrected file can update matching unapproved entries."
       updateExistingLabel="Update matching unapproved entries instead of creating duplicates"
       previewColumns={[
         { key: 'placement_id',          label: 'Placement ID' },
@@ -40,7 +40,7 @@ export default function CsvImport() {
       extraToggles={[
         {
           key:         'already_approved',
-          label:       'Mark as pre-approved (skip review queue)',
+          label:       'Already approved externally',
           commitParam: 'already_approved=1',
           default:     false,
         },
@@ -49,7 +49,8 @@ export default function CsvImport() {
         const n = result?.imported_count ?? 0;
         if (n <= 0) return [];
         return [
-          { label: 'Review imported time', to: '../review', testid: 'time-csv-import-review', primary: true },
+          { label: 'Open weekly timesheets', to: '/modules/staffing/timesheets', testid: 'time-csv-import-timesheets', primary: true },
+          { label: 'Review imported time', to: '../review', testid: 'time-csv-import-review', primary: false },
           { label: 'Open settlement', to: '../settlement', testid: 'time-csv-import-settlement', primary: false },
         ];
       }}

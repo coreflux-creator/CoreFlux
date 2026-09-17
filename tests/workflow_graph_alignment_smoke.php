@@ -44,7 +44,7 @@ $a('manual time entry placement validation uses placement graph tenant',
 
 $staffingLib = $c('modules/staffing/lib/timesheets.php');
 $a('staffing approval locks rate_snapshot_id per entry',
-    str_contains($staffingLib, 'timeResolveRateSnapshot((int) $entry[\'placement_id\'], (string) $entry[\'work_date\'])')
+    str_contains($staffingLib, 'timeResolveRateSnapshot((int) $entry[\'placement_id\'], (string) $entry[\'work_date\'], $tenantId)')
     && str_contains($staffingLib, 'rate_snapshot_id = :rid')
     && str_contains($staffingLib, 'has no approved rate covering'));
 $a('staffing week and posting event use placement graph joins',

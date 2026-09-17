@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { api } from '../lib/api';
@@ -20,12 +20,15 @@ const ENTITY_LABELS = {
   people:           'People',
   ap_vendors:       'Vendors',
   staffing_clients: 'Clients',
+  accounting_accounts: 'Chart of accounts',
+  billing_items:    'Products & services',
+  payroll_profiles: 'Payroll employee profiles',
   placements:       'Placements',
   time:             'Time entries',
   ap_bills:         'AP Bills',
   billing_invoices: 'AR Invoices',
-  ap_payments:      'AP Payments',
-  billing_payments: 'Billing Payments',
+  ap_payments:      'Vendor payments',
+  billing_payments: 'Customer payments',
 };
 
 const STATUS_COLORS = {
@@ -69,7 +72,7 @@ export default function CsvImportHistory() {
   const [to,     setTo]     = useState('');
   const [expanded, setExpanded] = useState({}); // { rowId: bool }
 
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
     setLoading(true); setError(null);
     try {
       const qs = new URLSearchParams();
@@ -82,10 +85,10 @@ export default function CsvImportHistory() {
       setMigPending(!!res?.migration_pending);
     } catch (e) { setError(e); }
     finally     { setLoading(false); }
-  };
+  }, [entity, status, from, to]);
 
   // Initial load + on filter change.
-  useEffect(() => { fetchHistory(); /* eslint-disable-next-line */ }, [entity, status, from, to]);
+  useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
   const totals = useMemo(() => {
     return rows.reduce((acc, r) => {
@@ -351,7 +354,7 @@ function DownloadEvidenceByType({ importRunId, documentType, extensionFallback, 
       }
     })();
     return () => { cancelled = true; };
-  }, [importRunId, documentType]);
+  }, [importRunId, documentType, extensionFallback]);
 
   if (loading || !attachment) return null;
 

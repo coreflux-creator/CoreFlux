@@ -13,6 +13,10 @@ $assert = static function (bool $ok, string $message) use (&$failures): void {
 };
 
 $assert(str_contains($api, "'bulk_update'"), 'bulk transaction action is registered');
+$bulkPos = strpos($api, "if (\$action === 'bulk_update')");
+$lineIdGuardPos = strpos($api, "if (\$lineId <= 0) api_error('line_id required'");
+$assert($bulkPos !== false && $lineIdGuardPos !== false && $bulkPos < $lineIdGuardPos,
+    'bulk transaction actions do not require a single line_id');
 $assert(str_contains($api, "bulk_action must be ignore, restore, or unmatch"), 'bulk state changes are allowlisted');
 $assert(str_contains($api, 'AND {$col} = :a'), 'bulk changes stay scoped to the selected account');
 $assert(str_contains($api, "category_account_id"), 'category filter is server-backed');
@@ -21,6 +25,8 @@ $assert(str_contains($api, "institution_balance"), 'institution balance is retur
 $assert(str_contains($api, "ledger_balance"), 'ledger balance is returned');
 $assert(str_contains($api, "'difference'"), 'bank-to-ledger difference is returned');
 $assert(str_contains($api, "'pagination'"), 'pagination metadata is returned');
+$assert(str_contains($api, 'This transaction is already resolved. Unmatch it before posting a different category.'),
+    'repeat categorization is rejected instead of replaying an old posting');
 
 $assert(str_contains($ui, 'treasury-account-balances'), 'register renders balance comparison');
 $assert(str_contains($ui, 'treasury-transactions-search'), 'register renders search');

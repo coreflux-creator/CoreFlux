@@ -180,6 +180,24 @@ const POSTING_RULES_DEFAULT_PACK = [
             ],
         ],
     ],
+    [
+        'event_type'  => 'payroll.run.approved',
+        'rule_name'   => 'Payroll accrual — passthrough',
+        'template'    => [
+            'name'           => 'Payroll accrual — passthrough',
+            'memo_template'  => '{payload.memo}',
+            'line_source'    => 'payload',
+        ],
+    ],
+    [
+        'event_type'  => 'payroll.cash.disbursed',
+        'rule_name'   => 'Payroll cash disbursement — passthrough',
+        'template'    => [
+            'name'           => 'Payroll cash disbursement — passthrough',
+            'memo_template'  => '{payload.memo}',
+            'line_source'    => 'payload',
+        ],
+    ],
 ];
 
 /**

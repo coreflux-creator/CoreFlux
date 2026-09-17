@@ -212,7 +212,8 @@ $a('disconnect button has data-testid',          $c($set, 'data-testid="plaid-tr
 $a('shows item_id and account_id metadata',
     $c($set, 'data-testid="plaid-transfer-item-id"') && $c($set, 'data-testid="plaid-transfer-account-id"'));
 $a('reload after link/disconnect',               substr_count($set, 'reload()') >= 2);
-$a('confirm dialog before disconnect',           $c($set, 'window.confirm'));
+$a('inline confirmation before disconnect',
+    $c($set, 'confirmDisconnect') && $c($set, 'data-testid="plaid-transfer-disconnect-confirm"'));
 
 // ----------------------------------------------------------------- UI: AdminModule wiring
 echo "\nUI — AdminModule wiring (centralized Integrations)\n";
@@ -236,7 +237,7 @@ $a('CTA links to /admin/integrations/plaid',
     $c($pl, 'to="/admin/integrations/plaid"'));
 $a('CTA Link has its own testid',                $c($pl, 'data-testid="ap-plaid-link-cta-link"'));
 $a('still surfaces ready badge when linked',
-    $c($pl, 'Plaid Transfer ready'));
+    $c($pl, 'Online payments ready'));
 $a('still surfaces disabled notice when not configured',
     $c($pl, 'data-testid="ap-plaid-disabled-notice"'));
 $a('plaidEligible() guard requires linked + method=plaid + status=sent + no rail_ref',

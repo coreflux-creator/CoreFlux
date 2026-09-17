@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { FilePlus2 } from 'lucide-react';
 import { api } from '../../../dashboard/src/lib/api';
 
 /**
@@ -67,17 +68,15 @@ export default function SuggestInvoiceModal({ placementId, placementTitle, onClo
       <div style={{ background: '#fff', borderRadius: 12, width: 'min(860px, 100%)', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
         <header style={{ padding: 20, borderBottom: '1px solid #e5e7eb' }}>
           <h3 style={{ margin: 0 }}>
-            <span style={{ background: 'linear-gradient(135deg, #2563eb, #7c3aed)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontWeight: 700 }}>
-              Suggest invoice
-            </span>
+            Prepare invoice from time
           </h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>
-            Auto-picked every approved billable entry for <strong>{placementTitle || `placement #${placementId}`}</strong> since the last invoice. Review, tweak, confirm.
+            Approved, unbilled time for <strong>{placementTitle || `placement #${placementId}`}</strong>.
           </p>
         </header>
 
         <div style={{ overflow: 'auto', padding: 20, flex: 1 }}>
-          {loading && <p data-testid="suggest-invoice-loading">Asking the AI for a draft…</p>}
+          {loading && <p data-testid="suggest-invoice-loading">Finding approved, unbilled time…</p>}
           {error && <p className="error" data-testid="suggest-invoice-error">{error.message}</p>}
           {!loading && suggestion && (
             <>
@@ -98,31 +97,31 @@ export default function SuggestInvoiceModal({ placementId, placementTitle, onClo
                 padding: '10px 12px', borderRadius: 4, fontSize: 13, marginBottom: 14,
               }} data-testid="suggest-invoice-reasoning">
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                  Recommended aggregation: <code>{suggestion.suggested_aggregation}</code>
+                  Recommended grouping: <strong>{formatAggregation(suggestion.suggested_aggregation)}</strong>
                   {suggestion.ai_used && (
                     <span data-testid="suggest-invoice-ai-badge"
                           style={{ marginLeft: 8, padding: '2px 6px', borderRadius: 999, background: '#7c3aed', color: '#fff', fontSize: 10 }}>
-                      AI memo
+                      Suggested memo
                     </span>
                   )}
                 </div>
                 <div style={{ color: '#475569' }}>{suggestion.suggested_reasoning}</div>
                 {suggestion.last_invoice_date && (
                   <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>
-                    Cutoff: entries since <strong>{suggestion.last_invoice_date}</strong> (last invoice for this placement).
+                    Most recent invoice: <strong>{suggestion.last_invoice_date}</strong>. Previously invoiced time is excluded.
                   </div>
                 )}
               </div>
 
               {/* Aggregation override */}
               <fieldset style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 10, marginBottom: 14 }}>
-                <legend style={{ fontSize: 12, color: '#666', padding: '0 6px' }}>Aggregation override</legend>
+                <legend style={{ fontSize: 12, color: '#666', padding: '0 6px' }}>Group invoice lines by</legend>
                 {['per_day', 'per_placement', 'per_client'].map(opt => (
                   <label key={opt} style={{ marginRight: 16, fontSize: 13 }}>
                     <input type="radio" name="suggest-agg" value={opt}
                           checked={aggregation === opt}
                           onChange={() => setAggregation(opt)}
-                          data-testid={`suggest-invoice-agg-${opt}`} /> {opt.replace('_', ' ')}
+                          data-testid={`suggest-invoice-agg-${opt}`} /> {formatAggregation(opt)}
                   </label>
                 ))}
               </fieldset>
@@ -139,7 +138,7 @@ export default function SuggestInvoiceModal({ placementId, placementTitle, onClo
               {/* Entries picker */}
               {suggestion.candidate_entries.length === 0 ? (
                 <p style={{ color: '#999' }} data-testid="suggest-invoice-no-entries">
-                  No approved billable entries to invoice — either nothing approved since the last invoice, or the placement has no recent activity.
+                  No approved, unbilled time is available for this placement.
                 </p>
               ) : (
                 <table className="data-table" data-testid="suggest-invoice-entries">
@@ -174,6 +173,7 @@ export default function SuggestInvoiceModal({ placementId, placementTitle, onClo
             <button className="btn btn--primary" onClick={submit}
                     disabled={busy || loading || selectedIds.size === 0}
                     data-testid="suggest-invoice-confirm">
+              <FilePlus2 size={15} aria-hidden="true" />
               {busy ? 'Creating…' : 'Create draft invoice'}
             </button>
           </div>
@@ -181,6 +181,15 @@ export default function SuggestInvoiceModal({ placementId, placementTitle, onClo
       </div>
     </div>
   );
+}
+
+function formatAggregation(value) {
+  const labels = {
+    per_day: 'Day',
+    per_placement: 'Placement',
+    per_client: 'Client',
+  };
+  return labels[value] || value;
 }
 
 function Stat({ label, value }) {

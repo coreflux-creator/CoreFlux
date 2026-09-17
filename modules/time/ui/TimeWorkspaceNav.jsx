@@ -16,7 +16,7 @@ const ITEMS = [
   { label: 'Review', to: '/modules/time/review', Icon: ClipboardCheck },
   { label: 'Settlement', to: '/modules/time/settlement', Icon: Scale },
   { label: 'CSV import', to: '/modules/time/bulk', Icon: FileSpreadsheet },
-  { label: 'Pay periods', to: '/modules/time/periods', Icon: CalendarRange },
+  { label: 'Weekly periods', to: '/modules/time/periods', Icon: CalendarRange },
   { label: 'Reports', to: '/modules/time/reports', Icon: ChartNoAxesColumnIncreasing },
 ];
 

@@ -29,6 +29,25 @@ const WORK_AUTH       = ['unknown', 'citizen', 'green_card', 'h1b', 'opt', 'cpt'
 const EMP_TYPES       = ['', 'full_time', 'part_time', 'contractor', 'intern', 'temp'];
 const PAY_FREQS       = ['', 'weekly', 'biweekly', 'semimonthly', 'monthly'];
 const ETYPES          = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire'];
+const CLASSIFICATION_LABELS = {
+  candidate: 'Candidate', w2: 'W-2 employee', '1099': '1099 contractor', c2c: 'C2C contractor',
+  temp: 'Temporary worker', perm: 'Permanent employee', alumni: 'Former worker',
+};
+const STATUS_LABELS = { active: 'Active', bench: 'Bench', inactive: 'Inactive' };
+const WORK_AUTH_LABELS = {
+  unknown: 'Not recorded', citizen: 'U.S. citizen', green_card: 'Permanent resident',
+  h1b: 'H-1B', opt: 'OPT', cpt: 'CPT', tn: 'TN', other: 'Other',
+};
+const EMP_TYPE_LABELS = {
+  '': '—', full_time: 'Full-time', part_time: 'Part-time', contractor: 'Contractor', intern: 'Intern', temp: 'Temporary',
+};
+const PAY_FREQ_LABELS = {
+  '': '—', weekly: 'Weekly', biweekly: 'Every two weeks', semimonthly: 'Twice monthly', monthly: 'Monthly',
+};
+const PLACEMENT_TYPE_LABELS = {
+  w2: 'W-2 employee', '1099': '1099 contractor', c2c: 'C2C contractor',
+  temp_to_perm: 'Temp-to-perm', direct_hire: 'Direct hire',
+};
 
 const STEPS = [
   { id: 1, label: 'Person' },
@@ -279,14 +298,12 @@ function Step1({ form, set }) {
       <Row>
         <Field label="Classification *">
           <select data-testid="person-create-classification" required value={form.classification} onChange={set('classification')} className="input">
-            {CLASSIFICATIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+            {CLASSIFICATIONS.map((c) => <option key={c} value={c}>{CLASSIFICATION_LABELS[c]}</option>)}
           </select>
         </Field>
         <Field label="Status">
           <select data-testid="person-create-status" value={form.status} onChange={set('status')} className="input">
-            <option value="active">active</option>
-            <option value="bench">bench</option>
-            <option value="inactive">inactive</option>
+            {Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </Field>
         <Field label="Source">
@@ -318,12 +335,12 @@ function Step2({ form, set }) {
       <Row>
         <Field label="Employment type">
           <select data-testid="person-create-employment-type" value={form.employment_type} onChange={set('employment_type')} className="input">
-            {EMP_TYPES.map((t) => <option key={t || 'none'} value={t}>{t || '—'}</option>)}
+            {EMP_TYPES.map((t) => <option key={t || 'none'} value={t}>{EMP_TYPE_LABELS[t]}</option>)}
           </select>
         </Field>
         <Field label="Pay frequency">
           <select data-testid="person-create-pay-frequency" value={form.pay_frequency} onChange={set('pay_frequency')} className="input">
-            {PAY_FREQS.map((f) => <option key={f || 'none'} value={f}>{f || '—'}</option>)}
+            {PAY_FREQS.map((f) => <option key={f || 'none'} value={f}>{PAY_FREQ_LABELS[f]}</option>)}
           </select>
         </Field>
         <Field label="Hire date">
@@ -333,7 +350,7 @@ function Step2({ form, set }) {
       <Row>
         <Field label="Work auth status">
           <select data-testid="person-create-work-auth-status" value={form.work_auth_status} onChange={set('work_auth_status')} className="input">
-            {WORK_AUTH.map((w) => <option key={w} value={w}>{w}</option>)}
+            {WORK_AUTH.map((w) => <option key={w} value={w}>{WORK_AUTH_LABELS[w]}</option>)}
           </select>
         </Field>
         <Field label="Work auth expiry">
@@ -411,7 +428,7 @@ function Step3({ placement, setP, endClient, setEndClient, rate, setR }) {
         </Field>
         <Field label="Engagement type">
           <select data-testid="person-create-placement-etype" value={placement.engagement_type} onChange={setP('engagement_type')} className="input">
-            {ETYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            {ETYPES.map((t) => <option key={t} value={t}>{PLACEMENT_TYPE_LABELS[t]}</option>)}
           </select>
         </Field>
       </Row>
@@ -439,9 +456,9 @@ function Step3({ placement, setP, endClient, setEndClient, rate, setR }) {
         <Field label="Remote policy">
           <select data-testid="person-create-placement-remote" value={placement.remote_policy} onChange={setP('remote_policy')} className="input">
             <option value="">—</option>
-            <option value="onsite">onsite</option>
-            <option value="hybrid">hybrid</option>
-            <option value="remote">remote</option>
+            <option value="onsite">On-site</option>
+            <option value="hybrid">Hybrid</option>
+            <option value="remote">Remote</option>
           </select>
         </Field>
       </Row>

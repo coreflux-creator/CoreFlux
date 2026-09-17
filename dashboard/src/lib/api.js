@@ -18,6 +18,7 @@ const BASE = ''; // same-origin; override via VITE_API_BASE if ever needed
 const ENV_BASE =
   (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE) || '';
 const TAB_TENANT_KEY = 'coreflux.tab_tenant_id';
+const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 let authRedirectStarted = false;
 
 function redirectExpiredSession() {
@@ -62,6 +63,30 @@ function joinUrl(path) {
 async function request(method, path, body, options = {}) {
   const url = joinUrl(path);
   const pinnedTenantId = getPinnedTenantId();
+  const timeoutMs = Number.isFinite(options.timeoutMs)
+    ? Math.max(0, Number(options.timeoutMs))
+    : DEFAULT_REQUEST_TIMEOUT_MS;
+  const callerSignal = options.fetch?.signal;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timedOut = false;
+  let timeoutId = null;
+  let detachCallerSignal = null;
+
+  if (controller && callerSignal) {
+    const cancelFromCaller = () => controller.abort(callerSignal.reason);
+    if (callerSignal.aborted) cancelFromCaller();
+    else {
+      callerSignal.addEventListener('abort', cancelFromCaller, { once: true });
+      detachCallerSignal = () => callerSignal.removeEventListener('abort', cancelFromCaller);
+    }
+  }
+  if (controller && timeoutMs > 0) {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+  }
+
   const init = {
     method,
     credentials: 'include',
@@ -73,16 +98,23 @@ async function request(method, path, body, options = {}) {
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     ...options.fetch,
+    ...(controller ? { signal: controller.signal } : {}),
   };
 
   let res;
   try {
     res = await fetch(url, init);
   } catch (networkErr) {
-    const err = new Error('Network error');
-    err.status = 0;
+    const err = new Error(timedOut
+      ? 'This is taking longer than expected. Try again.'
+      : 'Could not reach CoreFlux. Check your connection and try again.');
+    err.status = timedOut ? 408 : 0;
+    err.code = timedOut ? 'request_timeout' : 'network_error';
     err.cause = networkErr;
     throw err;
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+    if (detachCallerSignal) detachCallerSignal();
   }
 
   const text = await res.text();
@@ -160,7 +192,7 @@ export function useApi(path, { enabled = true } = {}) {
     setData(prev => (typeof updater === 'function' ? updater(prev) : updater));
   }, []);
 
-  return { data, error, loading, elapsedMs, reload: load, mutate };
+  return { data, error, loading, elapsedMs, reload: load, refetch: load, mutate };
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +364,7 @@ export function useApiCached(path, options = {}) {
     return load();
   }, [key, load]);
 
-  return { data, error, loading, elapsedMs, reload, mutate };
+  return { data, error, loading, elapsedMs, reload, refetch: reload, mutate };
 }
 
 export default api;

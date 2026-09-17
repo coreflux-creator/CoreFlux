@@ -31,6 +31,7 @@ $datasetOptions = [
     'from'        => (string) ($_GET['from'] ?? ''),
     'to'          => (string) ($_GET['to'] ?? ''),
     'vendor_name' => (string) ($_GET['vendor_name'] ?? ''),
+    'entity_id'   => (int) ($_GET['entity_id'] ?? 0),
 ];
 
 $tplId = (int) ($_GET['template_id'] ?? 0);
@@ -62,10 +63,14 @@ exportDatasetAudit($tenantId, $userId ?: null, 'ap.payments.exported', null, exp
 ], $datasetOptions));
 
 (new CsvExportService([
+    'payment_id'         => 'Payment ID',
+    'entity_id'          => 'Entity ID',
     'vendor_name'        => 'Vendor name',
     'pay_date'           => 'Pay date',
     'method'             => 'Method',
     'reference'          => 'Reference',
+    'external_id'        => 'External ID (audit / integration)',
+    'source_system'      => 'Source system',
     'amount'             => 'Amount',
     'currency'           => 'Currency',
     'unallocated_amount' => 'Unallocated',

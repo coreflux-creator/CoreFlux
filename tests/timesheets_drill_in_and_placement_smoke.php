@@ -14,6 +14,8 @@
  */
 declare(strict_types=1);
 
+$root = dirname(__DIR__);
+
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
     if ($cond) { echo "  ✓ $msg\n"; $pass++; }
@@ -24,7 +26,7 @@ $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
 // 1) API additions
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── API endpoints ──\n";
-$api = file_get_contents('/app/modules/staffing/api/timesheets.php');
+$api = file_get_contents($root . '/modules/staffing/api/timesheets.php');
 $a('detail action wired',
     str_contains($api, "'GET' && \$action === 'detail'"));
 $a('list_for_placement action wired',
@@ -66,7 +68,7 @@ $a('detail_for_placement returns aggregated placement_hours',
 // 2) React: TimesheetsList
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── TimesheetsList.jsx ──\n";
-$list = file_get_contents('/app/modules/staffing/ui/TimesheetsList.jsx');
+$list = file_get_contents($root . '/modules/staffing/ui/TimesheetsList.jsx');
 $a('uses /modules/staffing/api/timesheets.php?action=list',
     str_contains($list, "/modules/staffing/api/timesheets.php?"));
 $a('lists action=list',
@@ -82,7 +84,10 @@ foreach ([
     'timesheets-list-empty',
     'timesheets-list-table',
 ] as $tid) {
-    $a("testid '{$tid}' present", str_contains($list, "data-testid=\"{$tid}\""));
+    $needle = $tid === 'timesheets-list-filter-person'
+        ? "testId=\"{$tid}\""
+        : "data-testid=\"{$tid}\"";
+    $a("testid '{$tid}' present", str_contains($list, $needle));
 }
 foreach ([
     'timesheets-list-row-${r.id}',
@@ -97,14 +102,14 @@ foreach ([
 // 3) React: TimesheetDetail
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── TimesheetDetail.jsx ──\n";
-$det = file_get_contents('/app/modules/staffing/ui/TimesheetDetail.jsx');
+$det = file_get_contents($root . '/modules/staffing/ui/TimesheetDetail.jsx');
 $a('uses ?action=detail',
     str_contains($det, '?action=detail'));
 $a('uses ?action=detail_for_placement when placement_id is set',
     str_contains($det, '?action=detail_for_placement&id=${id}&placement_id=${placementId}'));
 $a('approve action calls POST timesheets ?action=approve',
     str_contains($det, "'/modules/staffing/api/timesheets.php?action=' + action")
-    || str_contains($det, "api.post(`/modules/staffing/api/timesheets.php?action=${action}"));
+    || str_contains($det, 'api.post(`/modules/staffing/api/timesheets.php?action=${action}'));
 $a('reject action requires a reason in form',
     str_contains($det, 'Rejection reason'));
 foreach ([
@@ -140,14 +145,15 @@ foreach ([
 // 4) React: PlacementTimesheetsTab
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── PlacementTimesheetsTab.jsx ──\n";
-$ptab = file_get_contents('/app/modules/placements/ui/PlacementTimesheetsTab.jsx');
+$ptab = file_get_contents($root . '/modules/placements/ui/PlacementTimesheetsTab.jsx');
 $a('hits list_for_placement endpoint',
     str_contains($ptab, '?action=list_for_placement&placement_id=${pid}'));
 $a('splits rows into pending vs history',
     str_contains($ptab, "r.status === 'submitted'")
     && str_contains($ptab, "r.status !== 'submitted'"));
 $a('renders create-new CTA linking to timesheet week',
-    str_contains($ptab, 'to="/modules/staffing/timesheets/week"'));
+    str_contains($ptab, '/modules/staffing/timesheets/week?')
+    && str_contains($ptab, 'weekParams.toString()'));
 foreach ([
     'placement-timesheets-tab',
     'placement-timesheets-create-new',
@@ -169,7 +175,7 @@ foreach ([
 // 5) StaffingModule routes
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── StaffingModule wiring ──\n";
-$smod = file_get_contents('/app/modules/staffing/ui/StaffingModule.jsx');
+$smod = file_get_contents($root . '/modules/staffing/ui/StaffingModule.jsx');
 $a('imports TimesheetsList',
     str_contains($smod, "import TimesheetsList from './TimesheetsList'"));
 $a('imports TimesheetDetail',
@@ -185,7 +191,7 @@ $a('timesheets/:id route → TimesheetDetail',
 // 6) PlacementDetail wiring
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── PlacementDetail wiring ──\n";
-$pdet = file_get_contents('/app/modules/placements/ui/PlacementDetail.jsx');
+$pdet = file_get_contents($root . '/modules/placements/ui/PlacementDetail.jsx');
 $a('imports PlacementTimesheetsTab',
     str_contains($pdet, "import PlacementTimesheetsTab from './PlacementTimesheetsTab'"));
 $a('Timesheets tab slug present in TABS array',

@@ -18,16 +18,14 @@ return [
     'version'     => '0.2.0',
 
     'actions' => [
-        ['name' => 'Payroll Dashboard', 'route' => 'dashboard',  'permission' => 'payroll.view'],
-        ['name' => 'Pay Schedules',     'route' => 'schedules',  'permission' => 'payroll.schedules.manage'],
-        ['name' => 'Pay Cycles',        'route' => 'cycles',     'permission' => 'payroll.cycles.manage'],
-        ['name' => 'Pay Periods',       'route' => 'periods',    'permission' => 'payroll.run.build'],
+        ['name' => 'Payroll Overview',  'route' => 'overview',       'permission' => 'payroll.view'],
+        ['name' => 'Pay Schedules',     'route' => 'pay_schedules',  'permission' => 'payroll.schedules.manage'],
+        ['name' => 'Pay Groups',        'route' => 'cycles',     'permission' => 'payroll.cycles.manage'],
+        ['name' => 'Pay Periods',       'route' => 'pay_periods','permission' => 'payroll.run.build'],
         ['name' => 'Employee Setup',    'route' => 'profiles',   'permission' => 'payroll.profiles.manage'],
         ['name' => 'Pay Runs',          'route' => 'runs',       'permission' => 'payroll.run.build'],
         ['name' => 'Anomalies',         'route' => 'anomalies',  'permission' => 'payroll.anomalies.view'],
-        ['name' => 'Tax Liabilities',   'route' => 'tax',        'permission' => 'payroll.tax.view'],
-        ['name' => 'W-2 Ledger',        'route' => 'w2',         'permission' => 'payroll.w2.view'],
-        ['name' => 'Reports',           'route' => 'reports',    'permission' => 'payroll.reports.view'],
+        ['name' => 'Payroll Settings',  'route' => 'settings',   'permission' => 'payroll.schedules.manage'],
     ],
 
     'permissions' => [
@@ -61,6 +59,8 @@ return [
         'payroll.schedule.deactivated',
         'payroll.profile.created',
         'payroll.profile.updated',
+        'payroll.profile.csv_imported',
+        'payroll.profile.csv_exported',
         'payroll.profile.banking_viewed',
         'payroll.profile.banking_updated',
         'payroll.run.created',

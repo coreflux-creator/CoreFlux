@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../core/RBAC.php';
 
 const CSV_PRESET_ENTITIES = [
     'people', 'ap_vendors', 'staffing_clients', 'placements', 'time',
+    'accounting_accounts', 'billing_items', 'payroll_profiles',
     'ap_bills', 'billing_invoices', 'ap_payments', 'billing_payments',
 ];
 

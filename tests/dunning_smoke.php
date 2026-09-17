@@ -110,6 +110,8 @@ $a('row actions: send/pause/resume',                   str_contains($ui, 'billin
 $a('AI suggestion modal',                              str_contains($ui, 'billing-dunning-ai-modal') && str_contains($ui, 'billing-dunning-ai-suggestion'));
 $a('policy editor 3 stage rows',                       str_contains($ui, 'billing-dunning-policy-stage-'));
 $a('policy editor: do_not_contact field',              str_contains($ui, 'billing-dunning-policy-dnc'));
+$a('operator copy avoids scheduler jargon and decorative emoji',
+    !str_contains($ui, 'daily cron') && !str_contains($ui, '🎉') && str_contains($ui, 'Payment reminders'));
 
 $mod = (string) file_get_contents(__DIR__ . '/../modules/billing/ui/BillingModule.jsx');
 $a('imports DunningQueue',                             str_contains($mod, "import DunningQueue from './DunningQueue'"));

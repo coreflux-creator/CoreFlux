@@ -109,7 +109,9 @@ $assert('jwtSign produces 3-segment token', count(explode('.', $tok)) === 3);
 $dec = jwtVerify($tok);
 $assert('jwtVerify returns payload',        is_array($dec) && (int) $dec['user_id'] === 7);
 $assert('payload includes iat/exp',         isset($dec['iat'], $dec['exp']));
-$tampered = preg_replace('/.$/', 'A', $tok);
+$tamperedParts = explode('.', $tok);
+$tamperedParts[2][0] = $tamperedParts[2][0] === 'A' ? 'B' : 'A';
+$tampered = implode('.', $tamperedParts);
 $assert('jwtVerify rejects tampered',       jwtVerify($tampered) === null);
 // Build an already-expired token by hand (jwtSign clamps min TTL to 60s).
 $h = jwtBase64UrlEncode(json_encode(['typ'=>'JWT','alg'=>'HS256']));

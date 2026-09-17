@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Upload, History } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Copy, History, Upload } from 'lucide-react';
 import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
+import PersonPicker from '../../people/ui/PersonPicker';
 
 /**
  * Weekly Timesheet — inline-editable grid.
@@ -29,7 +30,12 @@ const HOUR_TYPES = [
 
 const HOUR_TYPE_LABEL = Object.fromEntries(HOUR_TYPES.map(t => [t.v, t.l]));
 
-function toISO(d) { return d.toISOString().slice(0, 10); }
+function toISO(d) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 function weekStartOf(date, startsOn /* 0=Sun, 1=Mon */) {
   const d = new Date(date);
@@ -41,6 +47,7 @@ function weekStartOf(date, startsOn /* 0=Sun, 1=Mon */) {
 }
 
 export default function TimesheetWeek({ session }) {
+  const navigate = useNavigate();
   // ── session resolves person_id for "My Time" mode, but URL ?person_id
   //    overrides for the "edit timesheet #N belonging to worker X" flow.
   //    Same story for ?period_start — when the operator drills in from
@@ -48,9 +55,10 @@ export default function TimesheetWeek({ session }) {
   const urlParams = new URLSearchParams(window.location.search);
   const urlPersonId    = parseInt(urlParams.get('person_id') || '', 10);
   const urlPeriodStart = urlParams.get('period_start') || '';
+  const urlPlacementId = parseInt(urlParams.get('placement_id') || '', 10);
   const personId = Number.isFinite(urlPersonId) && urlPersonId > 0
     ? urlPersonId
-    : (session?.user?.person_id || session?.user?.id || 1);
+    : Number(session?.user?.person_id || 0);
 
   // Pull settings first so we can compute the right week-start.
   const settingsApi = useApi('/modules/staffing/api/timesheets.php?action=settings');
@@ -74,18 +82,21 @@ export default function TimesheetWeek({ session }) {
 
   // ── fetch the week ──
   const weekPath = `/modules/staffing/api/timesheets.php?action=week&person_id=${personId}&period_start=${periodStart}&period_end=${periodEnd}`;
-  const { data, loading, error, reload } = useApi(weekPath, [weekPath]);
+  const { data, loading, error, reload } = useApi(weekPath, { enabled: personId > 0 });
 
-  const placementsApi = useApi('/modules/placements/api/placements.php?status=active&per_page=200');
-  const activePlacements = placementsApi.data?.rows ?? [];
+  const placementsApi = useApi(
+    `/modules/placements/api/placements.php?status=active&person_id=${personId}&per_page=200`,
+    { enabled: personId > 0 }
+  );
+  const activePlacements = useMemo(() => placementsApi.data?.rows ?? [], [placementsApi.data?.rows]);
 
   // Economics — best-effort. Falls back to nulls if the reports view isn't built yet.
   const econPath = `/modules/staffing/api/timesheets.php?action=week_economics&person_id=${personId}&period_start=${periodStart}&period_end=${periodEnd}`;
-  const econApi  = useApi(econPath, [econPath, data?.timesheet?.id]);
+  const econApi  = useApi(econPath, { enabled: personId > 0 });
   const econTotal = econApi.data?.total;
 
   const header  = data?.timesheet;
-  const entries = data?.entries ?? [];
+  const entries = useMemo(() => data?.entries ?? [], [data?.entries]);
 
   // ── local editable grid state ──
   //   grid[placementId][workDate] = [ { id, hour_type, hours, description } ]
@@ -93,7 +104,6 @@ export default function TimesheetWeek({ session }) {
   const [dirty, setDirty]     = useState(false);
   const [saveState, setSave]  = useState({ saving: false, lastSavedAt: null, error: null });
   const [prefillBanner, setPrefillBanner] = useState(null); // { rowCount, priorPeriodStart } | null
-  const [prefillTriedFor, setPrefillTriedFor] = useState(null);  // periodStart of last attempted prefill
 
   useEffect(() => {
     if (!data) return;
@@ -110,30 +120,7 @@ export default function TimesheetWeek({ session }) {
     setGrid(next);
     setDirty(false);
     setPrefillBanner(null);
-
-    // Silent auto-prefill: if this week is empty AND status is draft, fetch
-    // the prior week and use it as a ghost-template (not autosaved — the
-    // worker has to actually touch a cell to mark it dirty + persist).
-    if (!entries.length && (!data.timesheet?.status || data.timesheet.status === 'draft') && prefillTriedFor !== periodStart) {
-      setPrefillTriedFor(periodStart);
-      api.get(`/modules/staffing/api/timesheets.php?action=prefill_from_last_week&person_id=${personId}&period_start=${periodStart}&period_end=${periodEnd}`)
-        .then(tpl => {
-          if (!tpl?.rows?.length) return;
-          const ghost = {};
-          for (const r of tpl.rows) {
-            ghost[r.placement_id] = ghost[r.placement_id] || {};
-            ghost[r.placement_id][r.work_date] = ghost[r.placement_id][r.work_date] || [];
-            ghost[r.placement_id][r.work_date].push({
-              id: null, hour_type: r.hour_type, hours: r.hours, description: r.description, _ghost: true,
-            });
-          }
-          setGrid(ghost);
-          setDirty(true);  // ghost rows ARE pending — autosave will flush them
-          setPrefillBanner({ rowCount: tpl.rows.length, priorPeriodStart: tpl.prior_period_start });
-        })
-        .catch(() => { /* prefill is best-effort; silent failure is fine */ });
-    }
-  }, [data?.timesheet?.id, periodStart, entries.length]);
+  }, [data, entries, periodStart]);
 
   const copyLastWeek = async () => {
     try {
@@ -163,8 +150,14 @@ export default function TimesheetWeek({ session }) {
     // Union of placements with existing entries + all active placements.
     const ids = new Set(Object.keys(grid));
     for (const p of activePlacements) ids.add(String(p.id));
-    return Array.from(ids);
-  }, [grid, activePlacements]);
+    return Array.from(ids).sort((a, b) => {
+      if (Number.isFinite(urlPlacementId) && urlPlacementId > 0) {
+        if (String(a) === String(urlPlacementId)) return -1;
+        if (String(b) === String(urlPlacementId)) return 1;
+      }
+      return 0;
+    });
+  }, [grid, activePlacements, urlPlacementId]);
 
   const placementInfo = (pid) => {
     const fromActive = activePlacements.find(p => String(p.id) === String(pid));
@@ -236,14 +229,7 @@ export default function TimesheetWeek({ session }) {
 
   // ── save (debounced autosave) ──
   const saveTimer = useRef(null);
-  useEffect(() => {
-    if (!dirty) return;
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => doSave(false), 1500);
-    return () => clearTimeout(saveTimer.current);
-  }, [grid, dirty]);
-
-  const doSave = async (forceFlush) => {
+  const doSave = useCallback(async (forceFlush) => {
     if (header && ['approved','locked','payroll_ready'].includes(header.status)) return;
     setSave(s => ({ ...s, saving: true, error: null }));
     const rows = [];
@@ -272,7 +258,14 @@ export default function TimesheetWeek({ session }) {
     } catch (e) {
       setSave(s => ({ ...s, saving: false, error: e.message || String(e) }));
     }
-  };
+  }, [grid, header, personId, periodStart, periodEnd, reload]);
+
+  useEffect(() => {
+    if (!dirty) return undefined;
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => doSave(false), 1500);
+    return () => clearTimeout(saveTimer.current);
+  }, [dirty, doSave]);
 
   const submitWeek = async () => {
     if (dirty) await doSave(false);
@@ -299,6 +292,27 @@ export default function TimesheetWeek({ session }) {
 
   const isLocked = header && ['submitted','approved','locked','payroll_ready'].includes(header.status);
   const overContracted = weekTotal - contracted;
+
+  if (personId <= 0) {
+    return (
+      <section className="people-directory" data-testid="staffing-timesheet-person-required">
+        <h2>Weekly Timesheet</h2>
+        <p style={{ color: 'var(--cf-text-secondary)' }}>
+          Your login is not linked to a worker record. Choose a worker to open a timesheet.
+        </p>
+        <div style={{ maxWidth: 420 }}>
+          <PersonPicker
+            value=""
+            onChange={(row) => {
+              if (row?.id) navigate(`/modules/staffing/timesheets/week?person_id=${row.id}`);
+            }}
+            placeholder="Search for a worker"
+            testId="timesheet-worker-picker"
+          />
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="people-directory" data-testid="staffing-timesheet-week">
@@ -330,10 +344,10 @@ export default function TimesheetWeek({ session }) {
           <button className="btn" onClick={() => setAnchor(addDays(weekStart,  7))} data-testid="ts-next"     disabled={loading}>Next →</button>
           {!isLocked && (
             <button className="btn" onClick={copyLastWeek} disabled={loading || saveState.saving} data-testid="ts-copy-last-week" title="Copy hours from the previous week into this week (won't overwrite cells you've already filled)">
-              ⎘ Copy last week
+              <Copy size={14} aria-hidden="true" /> Copy last week
             </button>
           )}
-          <button className="btn btn--primary" onClick={submitWeek} disabled={isLocked || saveState.saving} data-testid="ts-submit-week">
+          <button className="btn btn--primary" onClick={submitWeek} disabled={isLocked || saveState.saving || weekTotal <= 0} data-testid="ts-submit-week">
             {header?.status === 'rejected' ? 'Re-submit Week' : 'Submit Week'}
           </button>
         </div>
@@ -341,7 +355,6 @@ export default function TimesheetWeek({ session }) {
 
       {prefillBanner && (
         <div data-testid="ts-prefill-banner" style={{ padding: 10, marginBottom: 'var(--cf-space-3)', background:'#eff6ff', borderLeft:'3px solid #2563eb', borderRadius: 3, fontSize:'0.9em' }}>
-          {prefillBanner.fromButton ? '✓ ' : '✨ '}
           Pre-filled {prefillBanner.rowCount} entr{prefillBanner.rowCount === 1 ? 'y' : 'ies'} from the week of <strong>{prefillBanner.priorPeriodStart}</strong>.
           {' '}<button className="btn-link" style={{ background:'none', border:'none', color:'#2563eb', cursor:'pointer', padding:0, textDecoration:'underline' }}
                        onClick={() => { setGrid({}); setDirty(true); setPrefillBanner(null); }}
@@ -377,7 +390,11 @@ export default function TimesheetWeek({ session }) {
           {rowKeys.map((pid) => {
             const info = placementInfo(pid);
             return (
-              <tr key={pid} data-testid={`ts-row-${pid}`}>
+              <tr
+                key={pid}
+                data-testid={`ts-row-${pid}`}
+                style={String(pid) === String(urlPlacementId) ? { background: '#eff6ff' } : undefined}
+              >
                 <td>
                   <strong data-testid={`ts-row-${pid}-person`}>{info.personName}</strong>
                   {info.endClient && (

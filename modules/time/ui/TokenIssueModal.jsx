@@ -67,9 +67,8 @@ export default function TokenIssueModal({ entries, onClose, onIssued }) {
           </label>
 
           <p style={{ fontSize: 12, color: 'var(--cf-text-muted, #6b7280)', marginTop: 'var(--cf-space-3)' }}>
-            The placement must have <code>tokenized_email_approval_enabled</code>
-            turned on and a valid <code>client_approver_email</code> set under
-            the Approval tab. Email delivery status will be shown after submit.
+            Client email approval and an approver email must be set under the
+            placement&apos;s Approval setup tab. Delivery status appears after sending.
           </p>
 
           {error && <p className="error" data-testid="time-token-issue-error" style={{ marginTop: 12 }}>Error: {error.message}</p>}

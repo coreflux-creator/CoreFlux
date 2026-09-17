@@ -11,6 +11,7 @@
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../../core/audit.php';
 require_once __DIR__ . '/../../people/lib/employees.php';
 
@@ -25,17 +26,39 @@ function payrollGetProfile(int $employeeId): ?array {
 }
 
 /**
- * List employees that should be included in a run for a given pay schedule.
- * Returns employee rows joined with their payroll_profile row.
+ * List employees that should be included in a run for a pay schedule/cycle.
+ * A cycle-specific run must never pull employees from a sibling cycle that
+ * happens to use the same schedule. Legacy profiles without cycle_id are
+ * included only when the schedule has a single active cycle.
  */
-function payrollEmployeesForSchedule(int $scheduleId): array {
+function payrollEmployeesForSchedule(int $scheduleId, ?int $cycleId = null): array {
+    $cycleWhere = '';
+    $params = ['sched' => $scheduleId];
+    if ($cycleId !== null && $cycleId > 0) {
+        $cycleWhere = ' AND (
+            p.cycle_id = :cycle
+            OR (
+                p.cycle_id IS NULL
+                AND p.schedule_id = :legacy_sched
+                AND 1 = (
+                    SELECT COUNT(*) FROM payroll_pay_cycles pc
+                     WHERE pc.tenant_id = p.tenant_id
+                       AND pc.schedule_id = :cycle_count_sched
+                       AND pc.active = 1
+                )
+            )
+        )';
+        $params['cycle'] = $cycleId;
+        $params['legacy_sched'] = $scheduleId;
+        $params['cycle_count_sched'] = $scheduleId;
+    }
     return scopedQuery(
         "SELECT e.id           AS employee_id,
                 e.employee_number,
                 e.legal_first_name, e.legal_last_name, e.preferred_name,
                 e.work_email, e.department, e.location, e.status,
                 p.id           AS profile_id,
-                p.schedule_id, p.work_state, p.payment_method,
+                p.schedule_id, p.cycle_id, p.work_state, p.payment_method,
                 p.default_hours_per_period,
                 p.retirement_pretax_bps,
                 p.health_premium_cents,
@@ -49,27 +72,40 @@ function payrollEmployeesForSchedule(int $scheduleId): array {
            AND p.schedule_id = :sched
            AND p.enabled = 1
            AND e.status IN ('active','on_leave')
+         {$cycleWhere}
          ORDER BY e.legal_last_name, e.legal_first_name",
-        ['sched' => $scheduleId]
+        $params
     );
 }
 
 /** Hours explicitly extracted from Time into this payroll run. */
 function payrollRunExtractedHours(int $runId): array {
     $ref = 'payroll:run#' . $runId;
-    $rows = scopedQuery(
+    $tenantId = currentTenantId();
+    if (!$tenantId) return [];
+    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
+    $stmt = getDB()->prepare(
         'SELECT e.id AS employee_id,
                 SUM(CASE WHEN LOWER(te.category) LIKE "%overtime%" OR LOWER(te.category) = "ot" THEN 0 ELSE te.hours END) AS hours_regular,
                 SUM(CASE WHEN LOWER(te.category) LIKE "%overtime%" OR LOWER(te.category) = "ot" THEN te.hours ELSE 0 END) AS hours_overtime
            FROM time_entries te
-           JOIN people p ON p.tenant_id = te.tenant_id AND p.id = te.person_id
-           JOIN people_employees e ON e.tenant_id = te.tenant_id
+           JOIN people p ON p.tenant_id = :people_tenant_id AND p.id = te.person_id
+           JOIN people_employees e ON e.tenant_id = :employee_tenant_id
             AND ((p.user_id IS NOT NULL AND e.user_id = p.user_id)
-              OR (p.email_primary IS NOT NULL AND LOWER(e.personal_email) = LOWER(p.email_primary)))
-          WHERE te.tenant_id = :tenant_id AND te.payroll_extracted_ref = :ref
-          GROUP BY e.id',
-        ['ref' => $ref]
+              OR (p.email_primary IS NOT NULL AND (
+                   LOWER(e.work_email) = LOWER(p.email_primary)
+                   OR LOWER(e.personal_email) = LOWER(p.email_primary)
+              )))
+          WHERE te.tenant_id = :time_tenant_id AND te.payroll_extracted_ref = :ref
+          GROUP BY e.id'
     );
+    $stmt->execute([
+        'people_tenant_id' => $peopleTenantId,
+        'employee_tenant_id' => $tenantId,
+        'time_tenant_id' => $tenantId,
+        'ref' => $ref,
+    ]);
+    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
     $result = [];
     foreach ($rows as $row) {
         $result[(int) $row['employee_id']] = [
@@ -82,23 +118,35 @@ function payrollRunExtractedHours(int $runId): array {
 
 /** Commission/referral obligations routed to employee earnings for this run. */
 function payrollRunEconomicEarnings(int $runId): array {
-    $rows = scopedQuery(
+    $tenantId = currentTenantId();
+    if (!$tenantId) return [];
+    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
+    $stmt = getDB()->prepare(
         'SELECT e.id AS employee_id, ROUND(SUM(o.amount) * 100) AS commission_cents
            FROM placement_economic_obligations o
            JOIN placement_economic_parties ep
              ON ep.tenant_id = o.tenant_id AND ep.id = o.economic_party_id
-      LEFT JOIN people p ON p.tenant_id = ep.tenant_id AND p.id = ep.person_id
-           JOIN people_employees e ON e.tenant_id = ep.tenant_id
+      LEFT JOIN people p ON p.tenant_id = :people_tenant_id AND p.id = ep.person_id
+           JOIN people_employees e ON e.tenant_id = :employee_tenant_id
             AND ((ep.user_id IS NOT NULL AND e.user_id = ep.user_id)
               OR (ep.person_id IS NOT NULL AND (
                    (p.user_id IS NOT NULL AND e.user_id = p.user_id)
-                   OR (p.email_primary IS NOT NULL AND LOWER(e.personal_email) = LOWER(p.email_primary))
+                   OR (p.email_primary IS NOT NULL AND (
+                        LOWER(e.work_email) = LOWER(p.email_primary)
+                        OR LOWER(e.personal_email) = LOWER(p.email_primary)
+                   ))
               )))
-          WHERE o.tenant_id = :tenant_id AND o.payroll_ref_id = :run_id
+          WHERE o.tenant_id = :obligation_tenant_id AND o.payroll_ref_id = :run_id
             AND o.status IN ("payroll","paid") AND ep.settlement_channel = "payroll"
-          GROUP BY e.id',
-        ['run_id' => $runId]
+          GROUP BY e.id'
     );
+    $stmt->execute([
+        'people_tenant_id' => $peopleTenantId,
+        'employee_tenant_id' => $tenantId,
+        'obligation_tenant_id' => $tenantId,
+        'run_id' => $runId,
+    ]);
+    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
     $result = [];
     foreach ($rows as $row) $result[(int) $row['employee_id']] = (int) $row['commission_cents'];
     return $result;

@@ -1,6 +1,6 @@
 <?php
 /**
- * Smoke — time-entries cross-tenant JOIN fix + per-row Submit in MyTime.
+ * Smoke — time-entries cross-tenant JOIN fix + convenient submission in MyTime.
  *
  * Operator complaints addressed:
  *   "time not linked to placement or person?" — the time entries list
@@ -18,9 +18,11 @@
  *     `effectiveTenantIdForModule('people' | 'placements')`, binds
  *     them to the JOIN tenant (timeEntriesList + period bundle build).
  *   - modules/time/ui/MyTime.jsx surfaces a drafts panel with per-row
- *     Submit + "Submit all N drafts" CTA.
+ *     Submit plus an atomic "Submit all N drafts" action.
  */
 declare(strict_types=1);
+
+$root = dirname(__DIR__);
 
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
@@ -28,8 +30,8 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$timeLib = (string) file_get_contents('/app/modules/time/lib/time.php');
-$myTime  = (string) file_get_contents('/app/modules/time/ui/MyTime.jsx');
+$timeLib = (string) file_get_contents($root . '/modules/time/lib/time.php');
+$myTime  = (string) file_get_contents($root . '/modules/time/ui/MyTime.jsx');
 
 echo "\n1. timeEntriesList JOIN uses effective module tenant\n";
 $a('lib loads core/sub_tenants.php',
@@ -57,9 +59,10 @@ $a('submitBusy state guards both single and bulk paths',
    str_contains($myTime, 'const [submitBusy, setSubmitBusy] = useState(null);'));
 $a('submitOne POSTs to per-entry submit action',
    str_contains($myTime, 'api.post(`/modules/time/api/entries.php?action=submit&id=${entryId}`, {})'));
-$a('submitAll loops via Promise.allSettled (partial-failure tolerant)',
-   str_contains($myTime, 'Promise.allSettled(')
-   && str_contains($myTime, 'drafts.map(e => api.post(`/modules/time/api/entries.php?action=submit&id=${e.id}`'));
+$a('submitAll uses one atomic bulk-submit request',
+   str_contains($myTime, '/modules/time/api/entries.php?action=bulk_submit')
+   && str_contains($myTime, '{ ids: drafts.map(e => e.id) }')
+   && !str_contains($myTime, 'Promise.allSettled('));
 $a('submitAll requires confirmation',
    str_contains($myTime, 'if (!confirm(`Submit all ${drafts.length} draft entr'));
 $a('drafts panel only renders when drafts > 0',
@@ -78,7 +81,7 @@ $a('drafts row falls back to "Placement #N" when placement title is null',
 
 echo "\n4. PHP syntax\n";
 $out = []; $rc = 0;
-exec('php -l /app/modules/time/lib/time.php 2>&1', $out, $rc);
+exec('php -l ' . escapeshellarg($root . '/modules/time/lib/time.php') . ' 2>&1', $out, $rc);
 $a("php -l modules/time/lib/time.php", $rc === 0, implode("\n", $out));
 
 echo "\n=========================================\n";

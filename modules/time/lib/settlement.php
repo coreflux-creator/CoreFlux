@@ -15,7 +15,7 @@
  * Targets:
  *   'billing'  — entries → AR invoice (placement.billing_cycle_id, legacy client_bill_cycle fallback)
  *   'ap'       — entries → AP bill    (placement.ap_cycle_id, legacy vendor_pay_cycle fallback)
- *   'payroll'  — entries → payroll line item (placement.payroll_cycle_id fallback biweekly)
+ *   'payroll'  — entries → payroll run (placement.payroll_cycle_id fallback biweekly)
  *
  * Period close:
  *   *Never* checked. A day is extractable iff
@@ -56,6 +56,17 @@ function _settlementColumns(string $target): array
  */
 function timeSettlementReady(string $target, array $filters = []): array
 {
+    return _timeSettlementCandidates($target, $filters, true);
+}
+
+/** Include blocked rows so operators can see and repair missing routing. */
+function timeSettlementCandidates(string $target, array $filters = []): array
+{
+    return _timeSettlementCandidates($target, $filters, false);
+}
+
+function _timeSettlementCandidates(string $target, array $filters, bool $readyOnly): array
+{
     $cols = _settlementColumns($target);
     timeRepairApprovedRateSnapshots((int) currentTenantId(), [
         'placement_id' => $filters['placement_id'] ?? null,
@@ -66,6 +77,7 @@ function timeSettlementReady(string $target, array $filters = []): array
     $where  = ["te.tenant_id = :tenant_id", "te.status = 'approved'", "te.{$cols['at']} IS NULL"];
     $params = ['tenant_id' => currentTenantId()];
     $params['placements_tid'] = effectiveTenantIdForModule('placements', (int) currentTenantId()) ?? currentTenantId();
+    $params['people_tid'] = effectiveTenantIdForModule('people', (int) currentTenantId()) ?? currentTenantId();
 
     if (!empty($filters['placement_id'])) {
         $where[] = 'te.placement_id = :placement_id';
@@ -87,27 +99,32 @@ function timeSettlementReady(string $target, array $filters = []): array
     // Only consider categories relevant to each target.
     if ($target === 'billing') {
         $where[] = "te.category IN ('regular_billable','OT_billable')";
-        $where[] = 'EXISTS (SELECT 1 FROM placement_economic_parties ep
-                             WHERE ep.tenant_id = p.tenant_id AND ep.placement_id = p.id
-                               AND ep.active = 1 AND ep.money_flow = "receivable"
-                               AND ep.settlement_channel = "ar")';
+        $targetReadySql = 'EXISTS (SELECT 1 FROM placement_economic_parties ep
+                                    WHERE ep.tenant_id = p.tenant_id AND ep.placement_id = p.id
+                                      AND ep.active = 1 AND ep.money_flow = "receivable"
+                                      AND ep.settlement_channel = "ar")';
     } elseif ($target === 'ap') {
         $where[] = "te.category IN ('regular_billable','OT_billable')";
-        $where[] = 'EXISTS (SELECT 1 FROM placement_economic_parties ep
-                             WHERE ep.tenant_id = p.tenant_id AND ep.placement_id = p.id
-                               AND ep.active = 1 AND ep.money_flow = "payable"
-                               AND ep.settlement_channel = "ap")';
+        $targetReadySql = 'EXISTS (SELECT 1 FROM placement_economic_parties ep
+                                    WHERE ep.tenant_id = p.tenant_id AND ep.placement_id = p.id
+                                      AND ep.active = 1 AND ep.money_flow = "payable"
+                                      AND ep.settlement_channel = "ap")';
     } else {  // payroll
         $where[] = "te.category NOT IN ('unpaid_leave')";
-        $where[] = 'EXISTS (SELECT 1 FROM placement_economic_parties ep
-                             WHERE ep.tenant_id = p.tenant_id AND ep.placement_id = p.id
-                               AND ep.active = 1 AND ep.money_flow = "payable"
-                               AND ep.settlement_channel = "payroll")';
+        $targetReadySql = 'EXISTS (SELECT 1 FROM placement_economic_parties ep
+                                    WHERE ep.tenant_id = p.tenant_id AND ep.placement_id = p.id
+                                      AND ep.active = 1 AND ep.money_flow = "payable"
+                                      AND ep.settlement_channel = "payroll")';
     }
+    if ($readyOnly) $where[] = $targetReadySql;
 
     $sql = "SELECT te.id, te.placement_id, te.person_id, te.work_date,
                    te.category, te.hours, te.description, te.status,
                    te.period_id, te.approved_at,
+                   p.title AS placement_title, p.end_client_name,
+                   pe.first_name AS person_first_name, pe.last_name AS person_last_name,
+                   pe.email_primary AS person_email,
+                   ($targetReadySql) AS target_ready,
                    p.billing_cycle_id, p.ap_cycle_id, p.payroll_cycle_id,
                    p.billing_operating_cycle_id, p.ap_operating_cycle_id, p.payroll_operating_cycle_id,
                    p.client_bill_cycle, p.client_bill_cycle_anchor,
@@ -132,6 +149,7 @@ function timeSettlementReady(string $target, array $filters = []): array
                    COALESCE(pc.anchor_date_override, ps.period_start_anchor) AS payroll_cycle_anchor
             FROM time_entries te
             LEFT JOIN placements p ON p.id = te.placement_id AND p.tenant_id = :placements_tid
+            LEFT JOIN people pe ON pe.id = te.person_id AND pe.tenant_id = :people_tid
             LEFT JOIN staffing_operating_cycles boc ON boc.id = p.billing_operating_cycle_id AND boc.tenant_id = p.tenant_id AND boc.active = 1
             LEFT JOIN staffing_operating_cycles aoc ON aoc.id = p.ap_operating_cycle_id AND aoc.tenant_id = p.tenant_id AND aoc.active = 1
             LEFT JOIN staffing_operating_cycles poc ON poc.id = p.payroll_operating_cycle_id AND poc.tenant_id = p.tenant_id AND poc.active = 1
@@ -267,7 +285,7 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
     try {
         // Lock + validate the batch.
         $stmt = $pdo->prepare(
-            "SELECT id, status, rate_snapshot_id, {$cols['at']} AS already_at, {$cols['ref']} AS already_ref
+            "SELECT id, status, work_date, rate_snapshot_id, {$cols['at']} AS already_at, {$cols['ref']} AS already_ref
              FROM time_entries
              WHERE tenant_id = ? AND id IN ($place)
              FOR UPDATE"
@@ -289,6 +307,49 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
             }
         }
 
+        $storedTargetRef = (string) $targetRef;
+        if ($target === 'billing') {
+            $targetRow = scopedFind(
+                'SELECT id, status FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id',
+                ['id' => $targetRef]
+            );
+            if (!$targetRow || $targetRow['status'] === 'void') {
+                throw new TimeSettlementException("Billing invoice #{$targetRef} was not found or is void");
+            }
+        } elseif ($target === 'ap') {
+            $targetRow = scopedFind(
+                'SELECT id, status FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id',
+                ['id' => $targetRef]
+            );
+            if (!$targetRow || $targetRow['status'] === 'void') {
+                throw new TimeSettlementException("AP bill #{$targetRef} was not found or is void");
+            }
+        } else {
+            $targetRow = scopedFind(
+                'SELECT r.id, r.status, pp.period_start, pp.period_end
+                   FROM payroll_runs r
+                   JOIN payroll_pay_periods pp
+                     ON pp.tenant_id = r.tenant_id AND pp.id = r.pay_period_id
+                  WHERE r.tenant_id = :tenant_id AND r.id = :id',
+                ['id' => $targetRef]
+            );
+            if (!$targetRow) {
+                throw new TimeSettlementException("Payroll run #{$targetRef} was not found");
+            }
+            if ($targetRow['status'] !== 'draft') {
+                throw new TimeSettlementException("Payroll run #{$targetRef} is {$targetRow['status']}; time can only be linked to a draft run");
+            }
+            foreach ($rows as $r) {
+                if ($r['work_date'] < $targetRow['period_start'] || $r['work_date'] > $targetRow['period_end']) {
+                    throw new TimeSettlementException(
+                        "Entry #{$r['id']} work date {$r['work_date']} is outside payroll run #{$targetRef} "
+                        . "({$targetRow['period_start']} to {$targetRow['period_end']})"
+                    );
+                }
+            }
+            $storedTargetRef = 'payroll:run#' . $targetRef;
+        }
+
         // Stamp the batch.
         $upd = $pdo->prepare(
             "UPDATE time_entries
@@ -297,7 +358,7 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
                  {$cols['by_user']} = ?
              WHERE tenant_id = ? AND id IN ($place)"
         );
-        $upd->execute(array_merge([$targetRef, $actorUserId, $tenantId], $entryIds));
+        $upd->execute(array_merge([$storedTargetRef, $actorUserId, $tenantId], $entryIds));
         cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
         cf_tx_rollback($pdo, $ownsTxn);
@@ -307,7 +368,7 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
     settlementAudit("time.settlement.extracted_$target", [
         'count' => count($entryIds), 'target_ref' => $targetRef, 'ids' => $entryIds,
     ]);
-    return ['extracted_count' => count($entryIds), 'ids' => $entryIds];
+    return ['extracted_count' => count($entryIds), 'ids' => $entryIds, 'target_ref' => $storedTargetRef];
 }
 
 /**

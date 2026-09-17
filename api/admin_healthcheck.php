@@ -35,6 +35,11 @@ $only = isset($_GET['only']) ? array_filter(array_map('trim', explode(',', (stri
 
 $checks = [
     ['db_connection',           'Database connection',            'admin_hc_db_connection'],
+    ['migration_ledger',        'Migration ledger',               'admin_hc_migration_ledger'],
+    ['mail_outbox_table',       'Outbound mail audit table',      'admin_hc_table_present', 'mail_outbox'],
+    ['billing_items_table',     'Products & services catalog',    'admin_hc_table_present', 'billing_items'],
+    ['staffing_timesheets_table','Weekly timesheet workflow',     'admin_hc_table_present', 'staffing_timesheets'],
+    ['approval_tokens_table',   'External approval links',        'admin_hc_table_present', 'approval_tokens'],
     ['snapshot_history_table',  'Snapshot history table (A1)',    'admin_hc_table_exists', 'tenant_money_movement_snapshots'],
     ['mail_branding_table',     'Mail branding table (F1)',       'admin_hc_table_exists', 'tenant_mail_branding'],
     ['digest_schedules_table',  'Digest schedules table (C1)',    'admin_hc_table_exists', 'tenant_digest_schedules'],
@@ -45,6 +50,14 @@ $checks = [
     ['dunning_log_table',       'Dunning log table',               'admin_hc_table_exists','billing_dunning_log'],
     ['time_entries_person_id',  'time_entries.person_id column (Time module)', 'admin_hc_column_exists', ['time_entries', 'person_id']],
     ['time_entries_placement',  'time_entries.placement_id column','admin_hc_column_exists', ['time_entries', 'placement_id']],
+    ['time_entries_rate_snapshot','Approved-time rate snapshots', 'admin_hc_column_exists', ['time_entries', 'rate_snapshot_id']],
+    ['staffing_external_approval','External timesheet approval channel', 'admin_hc_column_exists', ['staffing_timesheets', 'approved_via']],
+    ['billing_amount_due',      'Invoice balance tracking',       'admin_hc_column_exists', ['billing_invoices', 'amount_due']],
+    ['billing_sent_event',      'Invoice-sent accounting event',  'admin_hc_registry_event', 'billing.invoice.sent'],
+    ['staffing_hours_event',    'Approved-hours accounting event','admin_hc_registry_event', 'staffing.worker_hours.approved'],
+    ['billing_catalog_read',    'Products & services read path',  'admin_hc_billing_catalog_read'],
+    ['bank_review_read',        'Bank review queue read path',    'admin_hc_bank_review_read'],
+    ['liquidity_read',          'Liquidity forecast read path',   'admin_hc_liquidity_read'],
     ['mail_branding_endpoint',  'Mail branding API responds',      'admin_hc_branding_endpoint'],
     ['digest_schedule_helper',  'Digest schedule helper resolves', 'admin_hc_digest_helper'],
     ['snapshot_renders',        'Money Movement snapshot renders', 'admin_hc_snapshot_renders'],
@@ -92,6 +105,36 @@ function admin_hc_db_connection(int $tid): array {
     return ['status' => $ok ? 'ok' : 'fail', 'detail' => $ok ? 'reachable' : 'no row'];
 }
 
+function admin_hc_migration_ledger(int $tid): array {
+    try {
+        $failed = getDB()->query(
+            "SELECT filename, COALESCE(last_error, '') AS last_error
+               FROM _migrations
+              WHERE sha256 LIKE 'FAIL:%' OR last_error IS NOT NULL
+              ORDER BY applied_at DESC
+              LIMIT 5"
+        )->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) {
+        return ['status' => 'fail', 'detail' => '_migrations is unavailable: ' . $e->getMessage()];
+    }
+    if (!$failed) return ['status' => 'ok', 'detail' => 'no failed migrations'];
+    $files = array_map(static fn(array $row): string => (string) $row['filename'], $failed);
+    return ['status' => 'fail', 'detail' => 'retry required: ' . implode(', ', $files)];
+}
+
+/** A required table may legitimately be empty; presence is the health signal. */
+function admin_hc_table_present(int $tid, string $table): array {
+    $st = getDB()->prepare(
+        'SELECT COUNT(*) FROM information_schema.tables
+          WHERE table_schema = DATABASE() AND table_name = :table_name'
+    );
+    $st->execute(['table_name' => $table]);
+    if ((int) $st->fetchColumn() !== 1) {
+        return ['status' => 'fail', 'detail' => "table {$table} does not exist (run pending migrations)"];
+    }
+    return ['status' => 'ok', 'detail' => "{$table} present"];
+}
+
 function admin_hc_table_exists(int $tid, string $table): array {
     $st = getDB()->prepare("SELECT COUNT(*) FROM information_schema.tables
                              WHERE table_schema = DATABASE() AND table_name = :t");
@@ -124,6 +167,75 @@ function admin_hc_column_exists(int $tid, array $args): array {
         return ['status' => 'skipped', 'detail' => "{$table} table not present on this tenant"];
     }
     return ['status' => 'fail', 'detail' => "{$table} exists but missing column {$col} — re-run module migration"];
+}
+
+function admin_hc_registry_event(int $tid, string $eventType): array {
+    try {
+        $stmt = getDB()->prepare(
+            'SELECT schema_version, deprecated_alias_for
+               FROM event_registry
+              WHERE event_type = :event_type
+              ORDER BY schema_version DESC
+              LIMIT 1'
+        );
+        $stmt->execute(['event_type' => $eventType]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    } catch (\Throwable $e) {
+        return ['status' => 'fail', 'detail' => 'event registry unavailable: ' . $e->getMessage()];
+    }
+    if (!$row) return ['status' => 'fail', 'detail' => "{$eventType} missing (re-run event registry seed)"];
+    $alias = trim((string) ($row['deprecated_alias_for'] ?? ''));
+    return [
+        'status' => 'ok',
+        'detail' => $alias !== ''
+            ? "registered alias -> {$alias}"
+            : 'registered schema v' . (int) $row['schema_version'],
+    ];
+}
+
+function admin_hc_billing_catalog_read(int $tid): array {
+    $stmt = getDB()->prepare(
+        'SELECT id, code, name FROM billing_items
+          WHERE tenant_id = :tenant_id
+          ORDER BY name, id DESC
+          LIMIT 1'
+    );
+    $stmt->execute(['tenant_id' => $tid]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    return ['status' => 'ok', 'detail' => $row ? 'query returned a catalog row' : 'query ok; catalog empty'];
+}
+
+function admin_hc_bank_review_read(int $tid): array {
+    $stmt = getDB()->prepare(
+        "SELECT bsl.id
+           FROM accounting_bank_statement_lines bsl
+           JOIN accounting_bank_accounts ba
+             ON ba.id = bsl.bank_account_id AND ba.tenant_id = bsl.tenant_id
+          WHERE bsl.tenant_id = :tenant_id
+            AND (bsl.match_status IS NULL OR bsl.match_status = 'pending')
+          ORDER BY bsl.posted_date, bsl.id
+          LIMIT 1"
+    );
+    $stmt->execute(['tenant_id' => $tid]);
+    $row = $stmt->fetchColumn();
+    return ['status' => 'ok', 'detail' => $row ? 'query returned a review row' : 'query ok; queue empty'];
+}
+
+function admin_hc_liquidity_read(int $tid): array {
+    require_once __DIR__ . '/../core/treasury/liquidity_projection.php';
+    $today = date('Y-m-d');
+    $endDate = date('Y-m-d', strtotime('+30 days'));
+    $datasets = liquidityBaselineDatasets($tid, $today, $endDate);
+    return [
+        'status' => 'ok',
+        'detail' => sprintf(
+            'query ok; %d bank, %d AR, %d AP, %d scheduled payment row(s)',
+            (int) $datasets['bank_count'],
+            count($datasets['ar']),
+            count($datasets['ap']),
+            count($datasets['tp'])
+        ),
+    ];
 }
 
 function admin_hc_branding_endpoint(int $tid): array {

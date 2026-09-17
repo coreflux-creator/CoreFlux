@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
@@ -10,10 +10,11 @@ import { FileText, Plus, X } from 'lucide-react';
  */
 export default function JournalEntries() {
   const [view, setView] = useState({ mode: 'list' });
+  const navigate = useNavigate();
 
   return (
     <section data-testid="accounting-journal">
-      {view.mode === 'list'   && <List   onOpen={(id) => setView({ mode: 'detail', id })} onNew={() => setView({ mode: 'new' })} />}
+      {view.mode === 'list'   && <List   onOpen={(id) => navigate(`/modules/accounting/journal-entries/${id}`)} onNew={() => navigate('/modules/accounting/journal-entries/new')} />}
       {view.mode === 'detail' && <Detail id={view.id} onBack={() => setView({ mode: 'list' })} />}
       {view.mode === 'new'    && <ManualPost onDone={() => setView({ mode: 'list' })} onCancel={() => setView({ mode: 'list' })} />}
     </section>
@@ -26,15 +27,33 @@ function List({ onOpen, onNew }) {
   const accountCode = searchParams.get('account_code') || '';
   const from        = searchParams.get('from')         || '';
   const to          = searchParams.get('to')           || '';
+  const status      = searchParams.get('status')       || '';
+  const page        = Math.max(1, Number(searchParams.get('page')) || 1);
+  const perPage     = Math.max(25, Math.min(200, Number(searchParams.get('per_page')) || 50));
   const qs = new URLSearchParams();
   if (accountCode) qs.set('account_code', accountCode);
   if (from)        qs.set('from', from);
   if (to)          qs.set('to', to);
+  if (status)      qs.set('status', status);
+  qs.set('page', String(page));
+  qs.set('per_page', String(perPage));
   if (activeEntityId) qs.set('entity_id', String(activeEntityId));
   const apiUrl = '/modules/accounting/api/journal_entries.php' + (qs.toString() ? `?${qs}` : '');
   const { data, loading, error } = useApi(apiUrl);
   const rows = data?.rows ?? [];
-  const filterActive = !!(accountCode || from || to || activeEntityId);
+  const total = Number(data?.total ?? rows.length);
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const filterActive = !!(accountCode || from || to || status || activeEntityId);
+  const userFilterActive = !!(accountCode || from || to || status);
+  const updateSearch = (updates, resetPage = true) => {
+    const next = new URLSearchParams(searchParams);
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) next.delete(key);
+      else next.set(key, String(value));
+    });
+    if (resetPage) next.delete('page');
+    setSearchParams(next);
+  };
   return (
     <div className="ledger-page" data-testid="accounting-journal-list">
       <header className="ledger-page-header">
@@ -42,7 +61,7 @@ function List({ onOpen, onNew }) {
           <span className="ledger-page-header__icon" aria-hidden="true"><FileText size={18} /></span>
           <div>
             <h2>Journal entries</h2>
-            <p className="ledger-page-header__meta">{rows.length} entries in this view</p>
+            <p className="ledger-page-header__meta">{total} entries in this view</p>
           </div>
         </div>
         <button className="btn btn--primary" data-testid="accounting-journal-new" onClick={onNew}><Plus size={15} aria-hidden="true" />New entry</button>
@@ -50,13 +69,41 @@ function List({ onOpen, onNew }) {
       {filterActive && (
         <div className="filter-pill" data-testid="accounting-journal-filter-pill">
           <span>
-            Filtered by{accountCode ? <> account <code>{accountCode}</code></> : null}
+            {activeEntity ? <>Viewing entity <code data-testid="accounting-journal-filter-entity">{activeEntity.code}</code></> : 'Journal context'}
+            {accountCode ? <> · account <code>{accountCode}</code></> : null}
             {from ? <> · from {from}</> : null}{to ? <> · to {to}</> : null}
-            {activeEntity ? <> · entity <code data-testid="accounting-journal-filter-entity">{activeEntity.code}</code></> : null}
+            {status ? <> · status {status}</> : null}
           </span>
-          <button className="btn btn--ghost btn--icon" aria-label="Clear journal filters" data-testid="accounting-journal-filter-clear" onClick={() => setSearchParams({})} style={{ width: 22, minWidth: 22, minHeight: 22, height: 22 }}><X size={12} aria-hidden="true" /></button>
+          {userFilterActive && (
+            <button className="btn btn--ghost btn--icon" aria-label="Clear journal filters" data-testid="accounting-journal-filter-clear" onClick={() => setSearchParams({})} style={{ width: 22, minWidth: 22, minHeight: 22, height: 22 }}><X size={12} aria-hidden="true" /></button>
+          )}
         </div>
       )}
+      <div className="account-toolbar" data-testid="accounting-journal-filters">
+        <div className="account-toolbar__filters">
+          <input
+            className="input"
+            value={accountCode}
+            onChange={(event) => updateSearch({ account_code: event.target.value })}
+            placeholder="Account number"
+            aria-label="Filter journal entries by account number"
+          />
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            From
+            <input className="input" type="date" value={from} onChange={(event) => updateSearch({ from: event.target.value })} aria-label="Journal entries from date" />
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            To
+            <input className="input" type="date" value={to} onChange={(event) => updateSearch({ to: event.target.value })} aria-label="Journal entries to date" />
+          </label>
+          <select className="input" value={status} onChange={(event) => updateSearch({ status: event.target.value })} aria-label="Journal entry status">
+            <option value="">All statuses</option>
+            <option value="draft">Draft</option>
+            <option value="posted">Posted</option>
+            <option value="reversed">Reversed</option>
+          </select>
+        </div>
+      </div>
       {loading && <p>Loading…</p>}
       {error   && <p className="error">Error: {error.message}</p>}
       <div className="data-table-wrap">
@@ -65,7 +112,20 @@ function List({ onOpen, onNew }) {
         <tbody>
           {rows.length === 0 && <tr><td colSpan={7} className="empty" data-testid="accounting-journal-empty">No journal entries yet.</td></tr>}
           {rows.map((r) => (
-            <tr key={r.id} data-testid={`accounting-journal-row-${r.je_number}`} onClick={() => onOpen(r.id)} style={{ cursor: 'pointer' }}>
+            <tr
+              key={r.id}
+              data-testid={`accounting-journal-row-${r.je_number}`}
+              onClick={() => onOpen(r.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onOpen(r.id);
+                }
+              }}
+              tabIndex={0}
+              aria-label={`Open ${r.je_number}`}
+              style={{ cursor: 'pointer' }}
+            >
               <td><code>{r.je_number}</code></td>
               <td>{r.posting_date}</td>
               <td>{r.source_module}{r.source_ref_type ? `:${r.source_ref_type}#${r.source_ref_id}` : ''}</td>
@@ -78,6 +138,22 @@ function List({ onOpen, onNew }) {
         </tbody>
       </table>
       </div>
+      {total > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }} data-testid="accounting-journal-pagination">
+          <span className="muted" style={{ fontSize: 12, marginRight: 'auto' }}>
+            Showing {((page - 1) * perPage) + 1}-{Math.min(page * perPage, total)} of {total}
+          </span>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+            Rows
+            <select className="input" value={perPage} onChange={(event) => updateSearch({ per_page: event.target.value })} aria-label="Journal entries per page">
+              {[25, 50, 100, 200].map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </label>
+          <button type="button" className="btn btn--ghost" onClick={() => updateSearch({ page: page - 1 }, false)} disabled={page <= 1}>Previous</button>
+          <span style={{ fontSize: 12 }}>Page {page} of {totalPages}</span>
+          <button type="button" className="btn btn--ghost" onClick={() => updateSearch({ page: page + 1 }, false)} disabled={page >= totalPages}>Next</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -137,7 +213,7 @@ function Detail({ id, onBack }) {
         <div style={{ marginTop: 16, padding: 12, background: '#fffbea', borderRadius: 6, border: '1px solid #fde68a' }}>
           <h4 style={{ margin: '0 0 8px' }}>Reverse this entry</h4>
           <div style={{ display: 'flex', gap: 8 }}>
-            <input className="input" placeholder="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="accounting-journal-reverse-reason" style={{ flex: 1 }} />
+            <input className="input" placeholder="Reason (required)" aria-label="Reason for reversal" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="accounting-journal-reverse-reason" style={{ flex: 1 }} required />
             <button type="button" className="btn" data-testid="accounting-journal-reverse" onClick={reverse} disabled={busy}>
               {busy ? 'Reversing…' : 'Reverse'}
             </button>

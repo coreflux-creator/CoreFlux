@@ -484,7 +484,7 @@ if ($method === 'POST' && $action === 'update_banking') {
     }
     $remitPhone = isset($body['remit_to_phone']) ? trim((string) $body['remit_to_phone']) : null;
     $payMethod  = isset($body['payment_method']) ? (string) $body['payment_method'] : null;
-    if ($payMethod !== null && !in_array($payMethod, ['ach','wire','check','card','cash','other',''], true)) {
+    if ($payMethod !== null && !in_array($payMethod, ['ach','wire','check','card','cash','plaid','mercury','other',''], true)) {
         api_error('payment_method invalid', 422);
     }
     $acctType   = isset($body['payment_account_type']) ? (string) $body['payment_account_type'] : null;

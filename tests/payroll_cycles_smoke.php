@@ -16,7 +16,7 @@
  *   - PayCyclesPanel + PayrollAnomalies UI exist with required testids.
  *   - PayrollOverview surfaces the alert badge.
  *   - PayrollRunDetail shows the anomaly panel + ack buttons.
- *   - PaySchedules embeds PayCyclesPanel.
+ *   - PaySchedules links to the dedicated pay-groups workspace.
  *   - PayrollModule routes /cycles + /anomalies.
  *   - Date math for biweekly window matches a known anchor.
  */
@@ -187,13 +187,14 @@ $a('ack button testid',                        strpos($rd, 'payroll-run-anomaly-
 $a('count badge testid',                       strpos($rd, 'payroll-run-anomalies-count')          !== false);
 $a('compute reload also reloads anomalies',    strpos($rd, 'await loadAnomalies();') !== false);
 
-echo "\nUI — PaySchedules embeds cycles panel\n";
+echo "\nUI — PaySchedules links to dedicated pay-groups workspace\n";
 $ps = (string) file_get_contents(__DIR__ . '/../modules/payroll/ui/PaySchedules.jsx');
-$a('imports PayCyclesPanel',                   strpos($ps, "import PayCyclesPanel from './PayCyclesPanel'") !== false);
-$a('renders <PayCyclesPanel />',               strpos($ps, '<PayCyclesPanel />')                    !== false);
+$a('links to cycles route',                    strpos($ps, 'to="../cycles"') !== false);
+$a('uses clear Manage pay groups CTA',         strpos($ps, 'Manage pay groups') !== false);
 
 echo "\nUI — PayrollModule routing\n";
 $pm = (string) file_get_contents(__DIR__ . '/../modules/payroll/ui/PayrollModule.jsx');
+$a('module imports PayCyclesPanel',            strpos($pm, "import PayCyclesPanel from './PayCyclesPanel'") !== false);
 $a('cycles route',                             strpos($pm, '<Route path="cycles"') !== false);
 $a('anomalies route',                          strpos($pm, '<Route path="anomalies"') !== false);
 $a('cycles legacy slug redirect',              strpos($pm, '<Route path="pay_cycles"') !== false);

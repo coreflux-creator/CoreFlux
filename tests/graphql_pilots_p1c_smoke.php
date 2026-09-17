@@ -12,11 +12,14 @@
  *   1. Both new components exist + use useGql() instead of useApi().
  *   2. Query shapes reference fields the subgraph actually exposes.
  *   3. Routes wired in PlacementsModule + StaffingModule.
- *   4. CTAs (Switch to GraphQL) added to the REST pages for discoverability.
+ *   4. The client pilot is discoverable while the internal placement-detail
+ *      pilot stays off the end-user record page.
  *   5. data-testid scaffolding present on every interactive + state-revealing element.
  *   6. Components remain READ-ONLY (no api.post() / api.put() calls).
  */
 declare(strict_types=1);
+
+$root = dirname(__DIR__);
 
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
@@ -24,13 +27,13 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$clientsGql        = (string) file_get_contents('/app/modules/staffing/ui/ClientsGraphql.jsx');
-$placementGql      = (string) file_get_contents('/app/modules/placements/ui/PlacementDetailGraphql.jsx');
-$placementsModule  = (string) file_get_contents('/app/modules/placements/ui/PlacementsModule.jsx');
-$staffingModule    = (string) file_get_contents('/app/modules/staffing/ui/StaffingModule.jsx');
-$clientsRest       = (string) file_get_contents('/app/modules/staffing/ui/Clients.jsx');
-$placementDetail   = (string) file_get_contents('/app/modules/placements/ui/PlacementDetail.jsx');
-$subgraphSchema    = (string) file_get_contents('/app/graphql/subgraph-coreflux/schema.graphql');
+$clientsGql        = (string) file_get_contents($root . '/modules/staffing/ui/ClientsGraphql.jsx');
+$placementGql      = (string) file_get_contents($root . '/modules/placements/ui/PlacementDetailGraphql.jsx');
+$placementsModule  = (string) file_get_contents($root . '/modules/placements/ui/PlacementsModule.jsx');
+$staffingModule    = (string) file_get_contents($root . '/modules/staffing/ui/StaffingModule.jsx');
+$clientsRest       = (string) file_get_contents($root . '/modules/staffing/ui/Clients.jsx');
+$placementDetail   = (string) file_get_contents($root . '/modules/placements/ui/PlacementDetail.jsx');
+$subgraphSchema    = (string) file_get_contents($root . '/graphql/subgraph-coreflux/schema.graphql');
 
 echo "\n1. ClientsGraphql (read-only Companies list pilot)\n";
 $a('uses useGql from graphqlClient',
@@ -97,15 +100,13 @@ $a('StaffingModule imports ClientsGraphql',
 $a('StaffingModule mounts clients-graphql route',
    str_contains($staffingModule, '<Route path="clients-graphql" element={<ClientsGraphql />} />'));
 
-echo "\n4. REST pages expose Switch-to-GraphQL CTA (discoverability)\n";
+echo "\n4. Pilot discoverability stays appropriate for end users\n";
 $a('Clients.jsx has switch-gql link to ../clients-graphql',
    str_contains($clientsRest, 'data-testid="staffing-clients-switch-gql"')
    && str_contains($clientsRest, 'to="../clients-graphql"'));
-$a('PlacementDetail.jsx imports Link from react-router-dom',
-   str_contains($placementDetail, "useParams, useNavigate, NavLink, Routes, Route, Navigate, Link"));
-$a('PlacementDetail.jsx has switch-gql link to graphql sub-route',
-   str_contains($placementDetail, 'data-testid="placement-detail-switch-gql"')
-   && str_contains($placementDetail, 'to="graphql"'));
+$a('PlacementDetail.jsx keeps the internal pilot off the customer-facing record',
+   !str_contains($placementDetail, 'data-testid="placement-detail-switch-gql"')
+   && !str_contains($placementDetail, '>⚡ GraphQL pilot</Link>'));
 
 echo "\n5. Subgraph schema supports the queries\n";
 $a('schema.companies(limit: Int = 50)',

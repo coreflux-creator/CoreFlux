@@ -729,7 +729,7 @@ function apBillTransitionAllowed(string $from, string $to): bool
 
 /**
  * Payment state machine.
- *  - draft → queued | void
+ *  - draft → queued | sent | void
  *  - queued → sent | void
  *  - sent → cleared | failed | void
  *  - failed → queued | void
@@ -739,7 +739,7 @@ function apBillTransitionAllowed(string $from, string $to): bool
 function apPaymentTransitionAllowed(string $from, string $to): bool
 {
     static $allowed = [
-        'draft'    => ['queued','void'],
+        'draft'    => ['queued','sent','void'],
         'queued'   => ['sent','void'],
         'sent'     => ['cleared','failed','void'],
         'failed'   => ['queued','void'],
@@ -748,6 +748,226 @@ function apPaymentTransitionAllowed(string $from, string $to): bool
     ];
     if (!isset($allowed[$from])) return false;
     return in_array($to, $allowed[$from], true);
+}
+
+/**
+ * Resolve the entity and cash account used when an AP payment clears.
+ * Kept in the library so Payments and Bank Reconciliation use one posting
+ * path instead of independently changing payment and ledger state.
+ */
+function apPaymentPostingContext(int $tenantId, array $payment, ?int $requestedBankAccountId = null): array
+{
+    $pdo = getDB();
+    $entityId = (int) ($payment['entity_id'] ?? 0);
+    $entityStmt = $pdo->prepare(
+        'SELECT DISTINCT b.entity_id
+           FROM ap_payment_allocations a
+           JOIN ap_bills b ON b.id = a.bill_id AND b.tenant_id = :tenant_id
+          WHERE a.payment_id = :payment_id AND b.entity_id IS NOT NULL'
+    );
+    $entityStmt->execute(['tenant_id' => $tenantId, 'payment_id' => (int) $payment['id']]);
+    $allocatedEntities = array_values(array_unique(array_map('intval', $entityStmt->fetchAll(PDO::FETCH_COLUMN))));
+    if (count($allocatedEntities) > 1) {
+        throw new \RuntimeException('This payment spans multiple entities and cannot be posted. Void it and create one payment per entity.');
+    }
+    if ($entityId <= 0 && count($allocatedEntities) === 1) $entityId = $allocatedEntities[0];
+    if ($entityId <= 0) throw new \RuntimeException('Assign an entity to this payment before clearing it.');
+    if ($allocatedEntities && $allocatedEntities[0] !== $entityId) {
+        throw new \RuntimeException('The payment entity does not match its allocated bills.');
+    }
+
+    $bankAccountId = $requestedBankAccountId ?: (int) ($payment['bank_account_id'] ?? 0);
+    if ($bankAccountId > 0) {
+        $bank = scopedFind(
+            'SELECT id, entity_id, gl_account_code, currency
+               FROM accounting_bank_accounts
+              WHERE tenant_id = :tenant_id AND id = :id AND status = "active"',
+            ['id' => $bankAccountId]
+        );
+        if (!$bank) throw new \RuntimeException('The selected funding bank account is unavailable.');
+        if (!empty($bank['entity_id']) && (int) $bank['entity_id'] !== $entityId) {
+            throw new \RuntimeException('The funding bank account belongs to a different entity.');
+        }
+        if (strcasecmp((string) ($bank['currency'] ?: 'USD'), (string) ($payment['currency'] ?: 'USD')) !== 0) {
+            throw new \RuntimeException('The funding bank account uses a different currency.');
+        }
+        $bankGl = scopedFind(
+            'SELECT id FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :code AND active = 1',
+            ['code' => (string) $bank['gl_account_code']]
+        );
+        if (!$bankGl) throw new \RuntimeException('The funding bank account is not mapped to an active ledger account.');
+        return [
+            'entity_id' => $entityId,
+            'bank_account_id' => (int) $bank['id'],
+            'bank_gl_account_id' => (int) $bankGl['id'],
+            'bank_gl_account_code' => (string) $bank['gl_account_code'],
+        ];
+    }
+
+    $bankStmt = $pdo->prepare(
+        'SELECT id, gl_account_code, currency
+           FROM accounting_bank_accounts
+          WHERE tenant_id = :tenant_id AND status = "active"
+            AND (entity_id = :entity_id OR entity_id IS NULL)
+          ORDER BY entity_id IS NULL, id'
+    );
+    $bankStmt->execute(['tenant_id' => $tenantId, 'entity_id' => $entityId]);
+    $banks = array_values(array_filter(
+        $bankStmt->fetchAll(PDO::FETCH_ASSOC),
+        static fn(array $bank): bool => strcasecmp(
+            (string) ($bank['currency'] ?: 'USD'),
+            (string) ($payment['currency'] ?: 'USD')
+        ) === 0
+    ));
+    if (count($banks) > 1) {
+        throw new \RuntimeException('Choose the funding bank account before clearing this payment; more than one active account is available.');
+    }
+    if (count($banks) === 1) {
+        $bankGl = scopedFind(
+            'SELECT id FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :code AND active = 1',
+            ['code' => (string) $banks[0]['gl_account_code']]
+        );
+        if (!$bankGl) throw new \RuntimeException('The funding bank account is not mapped to an active ledger account.');
+        return [
+            'entity_id' => $entityId,
+            'bank_account_id' => (int) $banks[0]['id'],
+            'bank_gl_account_id' => (int) $bankGl['id'],
+            'bank_gl_account_code' => (string) $banks[0]['gl_account_code'],
+        ];
+    }
+
+    throw new \RuntimeException('Connect or create an active bank account for this entity before clearing the payment.');
+}
+
+/**
+ * Clear a fully allocated, released AP payment and post its cash movement.
+ * Idempotent for a payment that is already cleared with a posted journal.
+ *
+ * @return array{ok:bool,payment_id:int,journal_entry_id:int,posting:array,event_layer_status:mixed,event_layer_error:?string,idempotent_replay:bool,before:array,after:array}
+ */
+function apClearPayment(
+    int $tenantId,
+    int $paymentId,
+    string $clearedDate,
+    ?int $bankAccountId = null,
+    ?int $actorUserId = null
+): array {
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $clearedDate)) {
+        throw new \InvalidArgumentException('cleared_date must use YYYY-MM-DD');
+    }
+
+    $row = scopedFind(
+        'SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $paymentId]
+    );
+    if (!$row) throw new \RuntimeException('Payment not found');
+
+    if (($row['status'] ?? '') === 'cleared') {
+        $journalEntryId = (int) ($row['journal_entry_id'] ?? 0);
+        $journal = $journalEntryId > 0 ? scopedFind(
+            'SELECT id, status FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => $journalEntryId]
+        ) : null;
+        if (!$journal || !in_array((string) $journal['status'], ['posted', 'reversed'], true)) {
+            throw new \RuntimeException('This payment is marked cleared but has no valid ledger posting. Repair the payment before matching it.');
+        }
+        $posting = apPaymentPostingContext($tenantId, $row, $bankAccountId);
+        return [
+            'ok' => true,
+            'payment_id' => $paymentId,
+            'journal_entry_id' => $journalEntryId,
+            'posting' => $posting,
+            'event_layer_status' => null,
+            'event_layer_error' => null,
+            'idempotent_replay' => true,
+            'before' => $row,
+            'after' => $row,
+        ];
+    }
+
+    if (!apPaymentTransitionAllowed((string) ($row['status'] ?? ''), 'cleared')) {
+        throw new \RuntimeException("Cannot clear from status {$row['status']}");
+    }
+    if ((float) ($row['unallocated_amount'] ?? 0) > 0.005) {
+        throw new \RuntimeException('Allocate the full payment before clearing it.');
+    }
+
+    $posting = apPaymentPostingContext($tenantId, $row, $bankAccountId);
+    require_once __DIR__ . '/../../accounting/lib/accounting.php';
+    require_once __DIR__ . '/../../../core/posting_engine/process.php';
+
+    $eventResult = null;
+    $eventError = null;
+    try {
+        $eventResult = accountingProcessEvent($tenantId, [
+            'entity_id' => (int) $posting['entity_id'],
+            'event_type' => 'ap.payment.cleared',
+            'source_module' => 'ap',
+            'source_record_id' => 'ap_payment:' . $paymentId,
+            'event_date' => $clearedDate,
+            'payload' => [
+                'payment_id' => $paymentId,
+                'payment_number' => (string) ($row['reference'] ?: ('PAY-' . $paymentId)),
+                'vendor_name' => (string) $row['vendor_name'],
+                'amount' => (float) $row['amount'],
+                'currency' => (string) $row['currency'],
+                'method' => (string) $row['method'],
+                'cleared_date' => $clearedDate,
+                'bank_gl_account_id' => (int) $posting['bank_gl_account_id'],
+            ],
+        ], $actorUserId);
+    } catch (\Throwable $e) {
+        $eventError = $e->getMessage();
+    }
+
+    if (!$eventResult || ($eventResult['status'] ?? null) !== 'posted') {
+        $reason = $eventError ?: (string) ($eventResult['error'] ?? 'no posting rule matched');
+        throw new \RuntimeException(
+            'Payment could not be posted to the ledger: ' . $reason
+            . '. The payment remains sent so you can fix the setup and retry.'
+        );
+    }
+    $journalEntryId = (int) $eventResult['journal_entry_id'];
+
+    $update = getDB()->prepare(
+        'UPDATE ap_payments
+            SET status = "cleared", cleared_at = :cleared_at, journal_entry_id = :journal_entry_id,
+                entity_id = :entity_id, bank_account_id = :bank_account_id
+          WHERE tenant_id = :tenant_id AND id = :id AND status = "sent"'
+    );
+    $update->execute([
+        'cleared_at' => $clearedDate . ' 00:00:00',
+        'journal_entry_id' => $journalEntryId,
+        'entity_id' => (int) $posting['entity_id'],
+        'bank_account_id' => $posting['bank_account_id'],
+        'tenant_id' => $tenantId,
+        'id' => $paymentId,
+    ]);
+    if ($update->rowCount() !== 1) {
+        $current = scopedFind(
+            'SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => $paymentId]
+        );
+        if (!$current || ($current['status'] ?? '') !== 'cleared' || (int) ($current['journal_entry_id'] ?? 0) !== $journalEntryId) {
+            throw new \RuntimeException('The payment changed while it was being cleared. Refresh and review it before retrying.');
+        }
+    }
+
+    $after = scopedFind(
+        'SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $paymentId]
+    ) ?: $row;
+    return [
+        'ok' => true,
+        'payment_id' => $paymentId,
+        'journal_entry_id' => $journalEntryId,
+        'posting' => $posting,
+        'event_layer_status' => $eventResult['status'] ?? null,
+        'event_layer_error' => $eventError,
+        'idempotent_replay' => false,
+        'before' => $row,
+        'after' => $after,
+    ];
 }
 
 /**
@@ -767,7 +987,13 @@ function apPaymentTransitionAllowed(string $from, string $to): bool
  *             through to the rail-eligibility check; defaults to the
  *             tenant's ap_settings.disbursement_rail.
  */
-function apSuggestPaymentRun(int $tenantId, int $daysAhead = 7, ?string $rail = null, ?int $userId = null): array
+function apSuggestPaymentRun(
+    int $tenantId,
+    int $daysAhead = 7,
+    ?string $rail = null,
+    ?int $userId = null,
+    ?int $entityId = null
+): array
 {
     $pdo = getDB();
     require_once __DIR__ . '/../../../core/payment_rails.php';
@@ -790,25 +1016,61 @@ function apSuggestPaymentRun(int $tenantId, int $daysAhead = 7, ?string $rail = 
     $horizon = max(1, min(60, $daysAhead));
     $cutoff = date('Y-m-d', strtotime("+{$horizon} days"));
 
+    // Older tenants may be one schema migration behind. Payment runs should
+    // still open and use the selected rail instead of exposing a SQL error.
+    $vendorPaymentMethodSelect = 'NULL AS payment_method';
+    try {
+        $column = $pdo->query(
+            "SELECT 1 FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'ap_vendors_index'
+                AND COLUMN_NAME = 'payment_method'
+              LIMIT 1"
+        );
+        if ($column && $column->fetchColumn()) {
+            $vendorPaymentMethodSelect = 'v.payment_method AS payment_method';
+        }
+    } catch (\Throwable $e) {
+        error_log('[ap.payment-run.schema-check] ' . $e->getMessage());
+    }
+
     // Pull every payable bill in the horizon. PWP-blocked rows are
     // surfaced separately so the operator can see them but they are
     // NOT included in the rail-eligible total.
+    $entitySql = $entityId ? ' AND b.entity_id = :entity_id' : '';
+    $billParams = ['cutoff' => $cutoff];
+    if ($entityId) $billParams['entity_id'] = $entityId;
     $bills = scopedQuery(
-        "SELECT id, internal_ref, bill_number, vendor_name, vendor_type, payment_method,
-                bill_date, due_date, total, amount_paid, amount_due,
-                currency, pwp_status, source
-           FROM ap_bills
-          WHERE tenant_id = :tenant_id
-            AND status IN ('approved','partially_paid')
-            AND amount_due > 0
-            AND due_date <= :cutoff
-          ORDER BY due_date ASC, vendor_name ASC",
-        ['cutoff' => $cutoff]
+        "SELECT b.id, b.internal_ref, b.bill_number, b.vendor_name,
+                COALESCE(NULLIF(v.vendor_type, ''), b.vendor_type) AS vendor_type,
+                {$vendorPaymentMethodSelect},
+                b.bill_date, b.due_date, b.total, b.amount_paid, b.amount_due,
+                b.currency, b.pwp_status, b.source, b.entity_id,
+                COALESCE((
+                    SELECT SUM(a.amount_applied)
+                      FROM ap_payment_allocations a
+                      JOIN ap_payments p ON p.id = a.payment_id
+                     WHERE a.bill_id = b.id AND p.status IN ('draft', 'queued')
+                ), 0) AS reserved_amount
+           FROM ap_bills b
+           LEFT JOIN ap_vendors_index v
+             ON v.tenant_id = b.tenant_id
+            AND v.vendor_name = b.vendor_name
+          WHERE b.tenant_id = :tenant_id
+            AND b.status IN ('approved','partially_paid')
+            AND b.amount_due > 0
+            AND b.due_date <= :cutoff
+            {$entitySql}
+          ORDER BY b.due_date ASC, b.vendor_name ASC",
+        $billParams
     );
 
     $groups   = [];     // vendor_name → group payload
     $blocked  = [];     // PWP-blocked rows for operator visibility
     foreach ($bills as $b) {
+        $availableDue = max(0, round((float) $b['amount_due'] - (float) ($b['reserved_amount'] ?? 0), 2));
+        if ($availableDue <= 0.005) continue;
+        $b['available_to_pay'] = $availableDue;
         // PWP gate — same logic as ap_payments?action=send refuses.
         if (($b['pwp_status'] ?? '') === 'awaiting_ar') {
             $blocked[] = $b;
@@ -835,7 +1097,7 @@ function apSuggestPaymentRun(int $tenantId, int $daysAhead = 7, ?string $rail = 
         $g['bill_count']++;
         $g['bill_ids'][]  = (int) $b['id'];
         $g['bill_refs'][] = (string) ($b['internal_ref'] ?? $b['bill_number'] ?? ('#' . $b['id']));
-        $g['total_due'] += round((float) $b['amount_due'], 2);
+        $g['total_due'] += $availableDue;
         if (!$g['earliest_due_date'] || strcmp($b['due_date'], $g['earliest_due_date']) < 0) {
             $g['earliest_due_date'] = $b['due_date'];
         }
@@ -859,16 +1121,6 @@ function apSuggestPaymentRun(int $tenantId, int $daysAhead = 7, ?string $rail = 
         foreach ($vendorNames as $i => $vn) {
             $k = 'v' . $i; $placeholders[] = ':' . $k; $params[$k] = $vn;
         }
-        try {
-            $vix = $pdo->prepare(
-                'SELECT vendor_name, default_pwp, last_bill_at
-                   FROM ap_vendors_index
-                  WHERE tenant_id = :t AND vendor_name IN (' . implode(',', $placeholders) . ')'
-            );
-            $vix->execute($params);
-            $vix->fetchAll(\PDO::FETCH_ASSOC);
-        } catch (\Throwable $_) { /* graceful — no flags */ }
-
         // Mercury-specific recipient check (only when rail=mercury).
         if ($rail === 'mercury') {
             try {
@@ -958,7 +1210,7 @@ function apSuggestPaymentRun(int $tenantId, int $daysAhead = 7, ?string $rail = 
             'rail_eligible_total' => round($eligibleTotal, 2),
             'needs_review_total'  => round($needsReviewTotal, 2),
             'pwp_blocked_count'   => count($blocked),
-            'pwp_blocked_amount'  => round(array_sum(array_map(static fn ($b) => (float) $b['amount_due'], $blocked)), 2),
+            'pwp_blocked_amount'  => round(array_sum(array_map(static fn ($b) => (float) ($b['available_to_pay'] ?? 0), $blocked)), 2),
         ],
         'ai_summary' => $aiSummary ?: $detSummary,
         'ai_used'    => $aiUsed,
@@ -978,7 +1230,13 @@ function apSuggestPaymentRun(int $tenantId, int $daysAhead = 7, ?string $rail = 
  *
  *   $groups = [{vendor_name, bill_ids: int[], pay_date?, method?}, ...]
  */
-function apExecutePaymentRun(int $tenantId, string $rail, array $groups, ?int $userId = null): array
+function apExecutePaymentRun(
+    int $tenantId,
+    string $rail,
+    array $groups,
+    ?int $userId = null,
+    ?int $entityId = null
+): array
 {
     if (empty($groups)) throw new \InvalidArgumentException('No vendor groups supplied');
     require_once __DIR__ . '/../../../core/payment_rails.php';
@@ -987,10 +1245,15 @@ function apExecutePaymentRun(int $tenantId, string $rail, array $groups, ?int $u
 
     $pdo = getDB();
     $created = [];
-    foreach ($groups as $g) {
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) $pdo->beginTransaction();
+    try {
+      foreach ($groups as $g) {
         $vendorName = trim((string) ($g['vendor_name'] ?? ''));
         $billIds    = array_values(array_filter(array_map('intval', (array) ($g['bill_ids'] ?? [])), static fn ($n) => $n > 0));
-        if ($vendorName === '' || empty($billIds)) continue;
+        if ($vendorName === '' || empty($billIds)) {
+            throw new \InvalidArgumentException('Every payment-run group needs a vendor and at least one bill');
+        }
 
         // Re-fetch each bill to get the live amount_due (avoids stale
         // suggestion data) and confirm it's still payable.
@@ -998,32 +1261,75 @@ function apExecutePaymentRun(int $tenantId, string $rail, array $groups, ?int $u
         $params = ['t' => $tenantId];
         foreach ($billIds as $i => $bid) { $k = 'b' . $i; $placeholders[] = ':' . $k; $params[$k] = $bid; }
         $st = $pdo->prepare(
-            'SELECT id, amount_due, status, vendor_name, pwp_status, currency, payment_method
+            'SELECT b.id, b.amount_due, b.status, b.vendor_name, b.pwp_status, b.currency, b.entity_id,
+                    COALESCE((
+                        SELECT SUM(a.amount_applied)
+                          FROM ap_payment_allocations a
+                          JOIN ap_payments p ON p.id = a.payment_id
+                         WHERE a.bill_id = b.id AND p.status IN ("draft", "queued")
+                    ), 0) AS reserved_amount
                FROM ap_bills
-              WHERE tenant_id = :t AND id IN (' . implode(',', $placeholders) . ')'
+                  b
+              WHERE b.tenant_id = :t AND b.id IN (' . implode(',', $placeholders) . ')'
         );
         $st->execute($params);
         $rows = $st->fetchAll(\PDO::FETCH_ASSOC);
+        if (count($rows) !== count(array_unique($billIds))) {
+            throw new \RuntimeException("One or more selected bills for {$vendorName} no longer exist");
+        }
         $allocations = [];
         $total = 0.0;
         $currency = 'USD';
+        $groupEntityIds = [];
         foreach ($rows as $b) {
-            if ($b['vendor_name'] !== $vendorName) continue;
-            if (!in_array($b['status'], ['approved','partially_paid'], true)) continue;
-            if (($b['pwp_status'] ?? '') === 'awaiting_ar') continue;
-            $due = (float) $b['amount_due'];
+            if ($b['vendor_name'] !== $vendorName) {
+                throw new \RuntimeException("Bill #{$b['id']} belongs to {$b['vendor_name']}, not {$vendorName}");
+            }
+            if ($entityId && (int) ($b['entity_id'] ?? 0) !== $entityId) {
+                throw new \RuntimeException("Bill #{$b['id']} is outside the active entity");
+            }
+            if (!in_array($b['status'], ['approved','partially_paid'], true)) {
+                throw new \RuntimeException("Bill #{$b['id']} is {$b['status']} and is no longer payable");
+            }
+            if (($b['pwp_status'] ?? '') === 'awaiting_ar') {
+                throw new \RuntimeException("Bill #{$b['id']} is still waiting for the linked client payment");
+            }
+            $due = max(0, round((float) $b['amount_due'] - (float) ($b['reserved_amount'] ?? 0), 2));
             if ($due <= 0) continue;
             $allocations[] = ['bill_id' => (int) $b['id'], 'amount' => round($due, 2)];
             $total += $due;
             $currency = (string) ($b['currency'] ?? 'USD');
+            if (!empty($b['entity_id'])) $groupEntityIds[(int) $b['entity_id']] = true;
         }
-        if (empty($allocations)) continue;
+        if (empty($allocations)) {
+            throw new \RuntimeException("No payable balance remains for {$vendorName}; refresh the run and try again");
+        }
+        if (count($groupEntityIds) > 1) {
+            throw new \RuntimeException("Bills for {$vendorName} span multiple entities; run them separately");
+        }
+        $paymentEntityId = $entityId ?: (int) (array_key_first($groupEntityIds) ?? 0);
+
+        $method = strtolower(trim((string) ($g['method'] ?? '')));
+        $method = match ($method) {
+            'plaid_transfer' => 'plaid',
+            'nacha' => 'ach',
+            default => $method,
+        };
+        if (!in_array($method, ['ach','wire','check','card','cash','plaid','mercury','other'], true)) {
+            $method = match ($rail) {
+                'plaid_transfer' => 'plaid',
+                'nacha' => 'ach',
+                'mercury' => 'mercury',
+                default => 'ach',
+            };
+        }
 
         $payId = scopedInsert('ap_payments', [
             'tenant_id'          => $tenantId,
+            'entity_id'          => $paymentEntityId ?: null,
             'vendor_name'        => $vendorName,
             'pay_date'           => $g['pay_date'] ?? date('Y-m-d'),
-            'method'             => $g['method'] ?? $rail,
+            'method'             => $method,
             'reference'          => 'payment-run:' . date('Ymd') . ':' . substr(bin2hex(random_bytes(3)), 0, 6),
             'amount'             => round($total, 2),
             'currency'           => $currency,
@@ -1036,14 +1342,10 @@ function apExecutePaymentRun(int $tenantId, string $rail, array $groups, ?int $u
         try {
             apAllocatePayment($payId, ['allocations' => $allocations], $userId);
         } catch (\Throwable $e) {
-            // Rollback: void the payment so we don't leave orphan drafts.
-            // tenant-leak-allow: $payId was just returned by scopedInsert() with tenant scope.
-            $pdo->prepare('UPDATE ap_payments SET status = "void", notes = CONCAT(COALESCE(notes,""), " · allocation failed: ", :err) WHERE id = :id')
-                ->execute(['err' => $e->getMessage(), 'id' => $payId]);
             apAudit('ap.payment.run_allocation_failed', [
                 'payment_id' => $payId, 'vendor' => $vendorName, 'error' => $e->getMessage(),
             ], $payId);
-            continue;
+            throw new \RuntimeException("Could not allocate the payment for {$vendorName}: {$e->getMessage()}", 0, $e);
         }
         apAudit('ap.payment.run_created', [
             'payment_id'   => $payId,
@@ -1059,8 +1361,89 @@ function apExecutePaymentRun(int $tenantId, string $rail, array $groups, ?int $u
             'amount'      => round($total, 2),
             'bill_count'  => count($allocations),
         ];
+      }
+      if (!$created) throw new \RuntimeException('No draft payments were created');
+      if ($ownsTransaction) $pdo->commit();
+      return ['payments_created' => $created, 'rail' => $rail];
+    } catch (\Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
     }
-    return ['payments_created' => $created, 'rail' => $rail];
+}
+
+/**
+ * Recompute bill settlement from released payments only. Draft and queued
+ * allocations reserve a bill for a payment run, but they are not cash and
+ * must not reduce AP aging or mark the bill paid.
+ */
+function apRefreshReleasedPaymentBills(PDO $pdo, int $tenantId, array $billIds): void
+{
+    $billIds = array_values(array_unique(array_filter(array_map('intval', $billIds), static fn ($id) => $id > 0)));
+    if (!$billIds) return;
+
+    $load = $pdo->prepare(
+        'SELECT id, total, status
+           FROM ap_bills
+          WHERE tenant_id = :tenant_id AND id = :id
+          FOR UPDATE'
+    );
+    $paid = $pdo->prepare(
+        'SELECT COALESCE(SUM(a.amount_applied), 0)
+           FROM ap_payment_allocations a
+           JOIN ap_payments p ON p.id = a.payment_id
+          WHERE a.bill_id = :bill_id
+            AND p.tenant_id = :tenant_id
+            AND p.status IN ("sent", "cleared")'
+    );
+    $update = $pdo->prepare(
+        'UPDATE ap_bills
+            SET amount_paid = :paid, amount_due = :due, status = :status
+          WHERE tenant_id = :tenant_id AND id = :id'
+    );
+    $obligation = $pdo->prepare(
+        'UPDATE placement_economic_obligations
+            SET status = :status
+          WHERE tenant_id = :tenant_id AND ap_bill_id = :bill_id AND status <> "void"'
+    );
+
+    foreach ($billIds as $billId) {
+        $load->execute(['tenant_id' => $tenantId, 'id' => $billId]);
+        $bill = $load->fetch(PDO::FETCH_ASSOC);
+        if (!$bill) continue;
+
+        $paid->execute(['bill_id' => $billId, 'tenant_id' => $tenantId]);
+        $amountPaid = min((float) $bill['total'], max(0, round((float) $paid->fetchColumn(), 2)));
+        $amountDue = max(0, round((float) $bill['total'] - $amountPaid, 2));
+        if (in_array($bill['status'], ['void', 'disputed'], true)) {
+            $status = $bill['status'];
+        } elseif ($amountDue <= 0.005) {
+            $status = 'paid';
+        } elseif ($amountPaid > 0.005) {
+            $status = 'partially_paid';
+        } else {
+            $status = 'approved';
+        }
+
+        $update->execute([
+            'paid' => $amountPaid,
+            'due' => $amountDue,
+            'status' => $status,
+            'tenant_id' => $tenantId,
+            'id' => $billId,
+        ]);
+        $obligation->execute([
+            'status' => $status === 'paid' ? 'paid' : 'billed',
+            'tenant_id' => $tenantId,
+            'bill_id' => $billId,
+        ]);
+    }
+}
+
+function apRefreshReleasedPaymentBillsForPayment(PDO $pdo, int $tenantId, int $paymentId): void
+{
+    $stmt = $pdo->prepare('SELECT bill_id FROM ap_payment_allocations WHERE payment_id = :payment_id');
+    $stmt->execute(['payment_id' => $paymentId]);
+    apRefreshReleasedPaymentBills($pdo, $tenantId, array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'bill_id'));
 }
 
 
@@ -1086,17 +1469,23 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
         if (!$pay) throw new \RuntimeException("payment {$paymentId} not found");
         $remaining = (float) $pay['unallocated_amount'];
         if ($remaining <= 0) throw new \RuntimeException('payment has no unallocated amount');
+        $released = in_array($pay['status'], ['sent', 'cleared'], true);
+        $touchedBillIds = [];
 
         $targets = [];
         if (isset($request['auto']) && $request['auto'] === 'fifo') {
+            $entityClause = !empty($pay['entity_id']) ? ' AND entity_id = :entity_id' : '';
+            $fifoParams = ['t' => $pay['tenant_id'], 'v' => $pay['vendor_name']];
+            if (!empty($pay['entity_id'])) $fifoParams['entity_id'] = (int) $pay['entity_id'];
             $q = $pdo->prepare(
                 'SELECT id, amount_due FROM ap_bills
                  WHERE tenant_id = :t AND vendor_name = :v
-                   AND status IN ("approved","partially_paid","pending_approval")
+                   AND status IN ("approved","partially_paid")
                    AND amount_due > 0
+                   ' . $entityClause . '
                  ORDER BY due_date ASC, id ASC'
             );
-            $q->execute(['t' => $pay['tenant_id'], 'v' => $pay['vendor_name']]);
+            $q->execute($fifoParams);
             foreach ($q->fetchAll(\PDO::FETCH_ASSOC) as $bill) {
                 if ($remaining <= 0) break;
                 $apply = min($remaining, (float) $bill['amount_due']);
@@ -1123,13 +1512,36 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
             $bill->execute(['id' => $t['bill_id'], 't' => $pay['tenant_id']]);
             $bRow = $bill->fetch(\PDO::FETCH_ASSOC);
             if (!$bRow) throw new \RuntimeException("bill {$t['bill_id']} not found");
-            if ($bRow['status'] === 'void' || $bRow['status'] === 'paid') {
-                throw new \RuntimeException("bill {$bRow['internal_ref']} is {$bRow['status']}; cannot allocate");
+            $paymentEntityId = (int) ($pay['entity_id'] ?? 0);
+            $billEntityId = (int) ($bRow['entity_id'] ?? 0);
+            if ($paymentEntityId > 0 && $billEntityId > 0 && $paymentEntityId !== $billEntityId) {
+                throw new \RuntimeException("bill {$bRow['internal_ref']} belongs to a different entity");
             }
-            if ($bRow['status'] === 'disputed') {
-                throw new \RuntimeException("bill {$bRow['internal_ref']} is disputed; resolve before allocating");
+            if ($paymentEntityId === 0 && $billEntityId > 0) {
+                $pdo->prepare('UPDATE ap_payments SET entity_id = :entity_id WHERE tenant_id = :tenant_id AND id = :id')
+                    ->execute(['entity_id' => $billEntityId, 'tenant_id' => (int) $pay['tenant_id'], 'id' => $paymentId]);
+                $pay['entity_id'] = $billEntityId;
             }
-            $apply = min($t['amount'], (float) $bRow['amount_due']);
+            if (!in_array($bRow['status'], ['approved', 'partially_paid'], true)) {
+                throw new \RuntimeException("bill {$bRow['internal_ref']} is {$bRow['status']}; only approved bills can be allocated");
+            }
+
+            $available = (float) $bRow['amount_due'];
+            if (!$released) {
+                $reservedStmt = $pdo->prepare(
+                    'SELECT COALESCE(SUM(a.amount_applied), 0)
+                       FROM ap_payment_allocations a
+                       JOIN ap_payments p ON p.id = a.payment_id
+                      WHERE a.bill_id = :bill_id AND p.tenant_id = :tenant_id
+                        AND p.status IN ("draft", "queued")'
+                );
+                $reservedStmt->execute([
+                    'bill_id' => (int) $bRow['id'],
+                    'tenant_id' => (int) $pay['tenant_id'],
+                ]);
+                $available = max(0, round($available - (float) $reservedStmt->fetchColumn(), 2));
+            }
+            $apply = min($t['amount'], $available);
             if ($apply <= 0) continue;
 
             $pdo->prepare(
@@ -1140,39 +1552,25 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
                 'p' => $paymentId, 'b' => $bRow['id'], 'a' => $apply, 'u' => $actorUserId,
             ]);
 
-            $newPaid = round((float) $bRow['amount_paid'] + $apply, 2);
-            $newDue  = round((float) $bRow['total'] - $newPaid, 2);
-            if ($newDue < 0.005) { $newDue = 0; $newStatus = 'paid'; }
-            elseif ($newPaid > 0) { $newStatus = 'partially_paid'; }
-            else { $newStatus = $bRow['status']; }
-
-            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-            $pdo->prepare(
-                'UPDATE ap_bills
-                 SET amount_paid = :paid, amount_due = :due, status = :s
-                 WHERE id = :id'
-            )->execute(['paid' => $newPaid, 'due' => $newDue, 's' => $newStatus, 'id' => $bRow['id']]);
-            $pdo->prepare(
-                'UPDATE placement_economic_obligations
-                    SET status = :status
-                  WHERE tenant_id = :tenant_id AND ap_bill_id = :bill_id AND status <> "void"'
-            )->execute([
-                'status' => $newStatus === 'paid' ? 'paid' : 'billed',
-                'tenant_id' => (int) $pay['tenant_id'],
-                'bill_id' => (int) $bRow['id'],
-            ]);
+            $touchedBillIds[] = (int) $bRow['id'];
 
             $applied[] = [
                 'bill_id'        => (int) $bRow['id'],
                 'internal_ref'   => $bRow['internal_ref'],
                 'amount_applied' => $apply,
-                'new_status'     => $newStatus,
+                'new_status'     => $released ? null : $bRow['status'],
+                'reserved'       => !$released,
             ];
         }
         $newUnalloc = round((float) $pay['unallocated_amount'] - array_sum(array_column($applied, 'amount_applied')), 2);
-        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $pdo->prepare('UPDATE ap_payments SET unallocated_amount = :u WHERE id = :id')
-            ->execute(['u' => $newUnalloc, 'id' => $paymentId]);
+        $pdo->prepare('UPDATE ap_payments SET unallocated_amount = :u WHERE tenant_id = :tenant_id AND id = :id')
+            ->execute(['u' => $newUnalloc, 'tenant_id' => (int) $pay['tenant_id'], 'id' => $paymentId]);
+
+        if ($released) {
+            apRefreshReleasedPaymentBills($pdo, (int) $pay['tenant_id'], $touchedBillIds);
+            foreach ($applied as &$application) $application['new_status'] = null;
+            unset($application);
+        }
 
         if ($ownsTxn) $pdo->commit();
         return ['applied' => $applied, 'unallocated_remaining' => $newUnalloc];

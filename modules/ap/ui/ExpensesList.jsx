@@ -4,17 +4,23 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 
 const STATUSES = ['', 'draft', 'submitted', 'approved', 'rejected', 'paid'];
+const statusLabel = (value) => value
+  ? value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+  : 'All statuses';
 
 export default function ExpensesList() {
   const [status, setStatus] = useState('');
   const [mine, setMine]     = useState(false);
   const [selected, setSelected] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState('');
+  const [bulkMessage, setBulkMessage] = useState('');
+  const [bulkError, setBulkError] = useState('');
 
   const qs = new URLSearchParams();
   if (status) qs.set('status', status);
   if (mine)   qs.set('mine', '1');
   const { data, loading, error, reload } = useApi(`/modules/ap/api/expenses.php${qs.toString() ? `?${qs}` : ''}`);
-  const rows = data?.rows ?? [];
+  const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
 
   const run = async (id, action, body = {}) => {
     try { await api.post(`/modules/ap/api/expenses.php?action=${action}&id=${id}`, body); reload(); }
@@ -56,6 +62,36 @@ export default function ExpensesList() {
     return rows.filter((r) => selected.has(r.id))
                .reduce((sum, r) => sum + Number(r.total || 0), 0);
   }, [rows, selected]);
+  const selectedRows = useMemo(() => rows.filter((row) => selected.has(row.id)), [rows, selected]);
+  const selectedDrafts = selectedRows.filter((row) => row.status === 'draft');
+  const selectedSubmitted = selectedRows.filter((row) => row.status === 'submitted');
+
+  const runBulk = async (action, candidates) => {
+    if (!candidates.length || bulkBusy) return;
+    setBulkBusy(action); setBulkMessage(''); setBulkError('');
+    const failed = [];
+    const succeeded = [];
+    for (const row of candidates) {
+      try {
+        await api.post(`/modules/ap/api/expenses.php?action=${action}&id=${row.id}`, {});
+        succeeded.push(row.id);
+      } catch (err) {
+        failed.push(`#${row.id}: ${err.message}`);
+      }
+    }
+    setSelected((previous) => {
+      const next = new Set(previous);
+      succeeded.forEach((id) => next.delete(id));
+      return next;
+    });
+    if (succeeded.length) {
+      const verb = action === 'approve' ? 'Approved' : 'Submitted';
+      setBulkMessage(`${verb} ${succeeded.length} expense ${succeeded.length === 1 ? 'report' : 'reports'}.`);
+    }
+    if (failed.length) setBulkError(failed.join(' '));
+    setBulkBusy('');
+    reload();
+  };
 
   return (
     <section data-testid="ap-expenses-list">
@@ -65,7 +101,7 @@ export default function ExpensesList() {
           <label style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>
             Status&nbsp;
             <select className="input" value={status} onChange={(e) => setStatus(e.target.value)} data-testid="ap-expenses-filter-status">
-              {STATUSES.map(s => <option key={s} value={s}>{s || 'all'}</option>)}
+              {STATUSES.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}
             </select>
           </label>
           <label style={{ fontSize: 13, color: 'var(--cf-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -92,6 +128,26 @@ export default function ExpensesList() {
             <strong>{selected.size}</strong> selected · total ${totalSelected.toFixed(2)}
           </span>
           <span style={{ display: 'flex', gap: 8 }}>
+            {selectedDrafts.length > 0 && (
+              <button
+                className="btn btn--primary"
+                onClick={() => runBulk('submit', selectedDrafts)}
+                disabled={!!bulkBusy}
+                data-testid="ap-expenses-bulk-submit"
+              >
+                {bulkBusy === 'submit' ? 'Submitting...' : `Submit drafts (${selectedDrafts.length})`}
+              </button>
+            )}
+            {selectedSubmitted.length > 0 && (
+              <button
+                className="btn btn--primary"
+                onClick={() => runBulk('approve', selectedSubmitted)}
+                disabled={!!bulkBusy}
+                data-testid="ap-expenses-bulk-approve"
+              >
+                {bulkBusy === 'approve' ? 'Approving...' : `Approve submitted (${selectedSubmitted.length})`}
+              </button>
+            )}
             <button className="btn btn--ghost" onClick={() => setSelected(new Set())} data-testid="ap-expenses-bulk-clear">
               Clear
             </button>
@@ -112,6 +168,8 @@ export default function ExpensesList() {
           </span>
         </div>
       )}
+      {bulkMessage && <div className="alert alert--ok" data-testid="ap-expenses-bulk-success">{bulkMessage}</div>}
+      {bulkError && <div className="alert alert--err" data-testid="ap-expenses-bulk-error">Some reports were not changed. {bulkError}</div>}
 
       <table className="data-table" data-testid="ap-expenses-table">
         <thead>
@@ -143,7 +201,7 @@ export default function ExpensesList() {
               </td>
               <td>#{r.id}</td>
               <td>{r.period_label}</td>
-              <td>{r.submitter_user_id ? `User #${r.submitter_user_id}` : '—'}</td>
+              <td>{r.submitter_name || (r.submitter_user_id ? `User #${r.submitter_user_id}` : '—')}</td>
               <td style={{textAlign:'right'}}>{Number(r.total).toFixed(2)} {r.currency}</td>
               <td><StatusPill status={r.status} /></td>
               <td>{r.bill_id ? <Link to={`/modules/ap/bills/${r.bill_id}`} data-testid={`ap-expense-billref-${r.id}`}>#{r.bill_id}</Link> : '—'}</td>
@@ -176,8 +234,8 @@ function StatusPill({ status }) {
       data-testid={`ap-expense-status-${status}`}
       style={{
         display: 'inline-block', padding: '2px 8px', borderRadius: 999,
-        background: c.bg, color: c.fg, fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+        background: c.bg, color: c.fg, fontSize: 11, fontWeight: 600,
       }}
-    >{status}</span>
+    >{statusLabel(status)}</span>
   );
 }

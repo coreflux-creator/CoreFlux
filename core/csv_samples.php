@@ -140,4 +140,29 @@ return [
          'line_quantity'=>37.5,'line_unit'=>'hour','line_unit_price'=>130,
          'line_subtotal'=>4875,'line_tax_amount'=>0,'line_total'=>4875],
     ],
+
+    'billing_items' => [
+        ['code'=>'CONSULT-HR','name'=>'Consulting hour','item_type'=>'labor',
+         'description'=>'Professional consulting services','default_unit'=>'hour','default_unit_price'=>175,
+         'taxable'=>0,'active'=>1,'source_system'=>'manual'],
+        ['code'=>'IMPLEMENT','name'=>'Implementation package','item_type'=>'fixed_fee',
+         'description'=>'Fixed-fee onboarding and implementation','default_unit'=>'project','default_unit_price'=>7500,
+         'taxable'=>0,'active'=>1,'source_system'=>'manual'],
+        ['code'=>'SUB-MONTH','name'=>'Monthly subscription','item_type'=>'subscription',
+         'description'=>'Recurring platform subscription','default_unit'=>'month','default_unit_price'=>499,
+         'taxable'=>1,'active'=>1,'source_system'=>'manual'],
+    ],
+
+    'accounting_accounts' => [
+        ['code'=>'1000','name'=>'Cash and cash equivalents','account_type'=>'asset','normal_side'=>'debit',
+         'is_postable'=>0,'currency'=>'USD','cash_flow_tag'=>'cash_and_equivalents','active'=>1],
+        ['code'=>'1010','name'=>'Operating checking','account_type'=>'asset','normal_side'=>'debit',
+         'parent_account_code'=>'1000','is_postable'=>1,'currency'=>'USD','cash_flow_tag'=>'cash_and_equivalents','active'=>1],
+        ['code'=>'1200','name'=>'Accounts receivable','account_type'=>'asset','normal_side'=>'debit',
+         'is_postable'=>1,'currency'=>'USD','cash_flow_tag'=>'operating','active'=>1],
+        ['code'=>'2000','name'=>'Accounts payable','account_type'=>'liability','normal_side'=>'credit',
+         'is_postable'=>1,'currency'=>'USD','cash_flow_tag'=>'operating','active'=>1],
+        ['code'=>'4000','name'=>'Services revenue','account_type'=>'revenue','normal_side'=>'credit',
+         'is_postable'=>1,'currency'=>'USD','cash_flow_tag'=>'operating','active'=>1],
+    ],
 ];

@@ -57,10 +57,24 @@ if ($method === 'GET') {
     if (!empty($_GET['status']))      { $where[] = 'status = :st';      $params['st'] = $_GET['status']; }
     if (!empty($_GET['from']))        { $where[] = 'pay_date >= :df';   $params['df'] = $_GET['from']; }
     if (!empty($_GET['to']))          { $where[] = 'pay_date <= :dt';   $params['dt'] = $_GET['to']; }
+    if (!empty($_GET['entity_id']))   { $where[] = 'entity_id = :eid';  $params['eid'] = (int) $_GET['entity_id']; }
+    if (trim((string) ($_GET['q'] ?? '')) !== '') {
+        $needle = '%' . trim((string) $_GET['q']) . '%';
+        $where[] = '(vendor_name LIKE :q_vendor OR reference LIKE :q_reference OR method LIKE :q_method OR status LIKE :q_status)';
+        $params['q_vendor'] = $needle;
+        $params['q_reference'] = $needle;
+        $params['q_method'] = $needle;
+        $params['q_status'] = $needle;
+    }
+    $perPage = max(1, min(200, (int) ($_GET['per_page'] ?? 50)));
+    $page = max(1, (int) ($_GET['page'] ?? 1));
+    $offset = ($page - 1) * $perPage;
     $rows = scopedQuery(
-        'SELECT * FROM ap_payments WHERE ' . implode(' AND ', $where) . ' ORDER BY pay_date DESC, id DESC LIMIT 200',
+        'SELECT * FROM ap_payments WHERE ' . implode(' AND ', $where)
+        . ' ORDER BY pay_date DESC, id DESC LIMIT ' . $perPage . ' OFFSET ' . $offset,
         $params
     );
+    $count = scopedFind('SELECT COUNT(*) AS c FROM ap_payments WHERE ' . implode(' AND ', $where), $params);
     // Plaid Transfer link status — UI uses this to render an inline "Connect
     // funding source" CTA when env is configured but the tenant hasn't linked.
     $plaidLinked = false;
@@ -122,6 +136,9 @@ if ($method === 'GET') {
     }
     api_ok([
         'rows'                  => $rows,
+        'total'                 => (int) ($count['c'] ?? 0),
+        'page'                  => $page,
+        'per_page'              => $perPage,
         'plaid_enabled'         => apPlaidConfigured(),
         'plaid_transfer_linked' => $plaidLinked,
         'mercury_connected'     => $mercuryConnected,
@@ -137,6 +154,7 @@ if ($method === 'POST' && $action === '') {
 
     $id = scopedInsert('ap_payments', [
         'tenant_id'          => $tid,
+        'entity_id'          => !empty($body['entity_id']) ? (int) $body['entity_id'] : null,
         'vendor_name'        => (string) $body['vendor_name'],
         'pay_date'           => (string) $body['pay_date'],
         'method'             => (string) $body['method'],
@@ -193,9 +211,17 @@ if ($method === 'POST' && $action === 'send') {
 
     $pdo = getDB();
 
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    $pdo->prepare('UPDATE ap_payments SET status = "sent", sent_at = NOW(), sent_by_user_id = :u WHERE id = :id')
-        ->execute(['u' => $user['id'] ?? null, 'id' => $id]);
+    $pdo->beginTransaction();
+    try {
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
+        $pdo->prepare('UPDATE ap_payments SET status = "sent", sent_at = NOW(), sent_by_user_id = :u WHERE id = :id')
+            ->execute(['u' => $user['id'] ?? null, 'id' => $id]);
+        apRefreshReleasedPaymentBillsForPayment($pdo, $tid, $id);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
     $sent = apPaymentAuditRow($tid, $id) ?? $row;
     apAudit('ap.payment.sent', [
         'payment_id' => $id, 'vendor_name' => $row['vendor_name'], 'amount' => $row['amount'], 'method' => $row['method'],
@@ -372,6 +398,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
                 't'  => $tid,
                 'id' => $r['id'],
             ]);
+            apRefreshReleasedPaymentBillsForPayment($pdo, $tid, (int) $r['id']);
         }
         $pdo->commit();
     } catch (\Throwable $e) {
@@ -526,17 +553,32 @@ if ($method === 'POST' && $action === 'clear') {
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
-    if (!apPaymentTransitionAllowed($row['status'], 'cleared')) api_error("Cannot clear from status {$row['status']}", 409);
+    $body = api_json_body();
+    $clearedDate = trim((string) ($body['cleared_date'] ?? '')) ?: date('Y-m-d');
+    $requestedBankAccountId = !empty($body['bank_account_id']) ? (int) $body['bank_account_id'] : null;
+    try {
+        $result = apClearPayment($tid, $id, $clearedDate, $requestedBankAccountId, $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422, ['retryable' => true]);
+    }
 
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    getDB()->prepare('UPDATE ap_payments SET status = "cleared", cleared_at = NOW() WHERE id = :id')
-        ->execute(['id' => $id]);
-    $cleared = apPaymentAuditRow($tid, $id) ?? $row;
-    apAudit('ap.payment.cleared', ['payment_id' => $id], $id, [
+    $cleared = $result['after'] ?? (apPaymentAuditRow($tid, $id) ?? $row);
+    apAudit('ap.payment.cleared', [
+        'payment_id' => $id,
+        'journal_entry_id' => $result['journal_entry_id'],
+        'bank_account_id' => $result['posting']['bank_account_id'] ?? null,
+        'event_layer_status' => $result['event_layer_status'] ?? null,
+        'event_layer_error' => $result['event_layer_error'] ?? null,
+        'idempotent_replay' => !empty($result['idempotent_replay']),
+    ], $id, [
         'before' => $row,
         'after' => $cleared,
     ]);
-    api_ok(['ok' => true]);
+    api_ok([
+        'ok' => true,
+        'journal_entry_id' => (int) $result['journal_entry_id'],
+        'idempotent_replay' => !empty($result['idempotent_replay']),
+    ]);
 }
 
 if ($method === 'POST' && $action === 'void') {
@@ -552,41 +594,10 @@ if ($method === 'POST' && $action === 'void') {
     $pdo = getDB();
     $pdo->beginTransaction();
     try {
-        // Reverse allocations: bump bills' amount_paid down and reset status if needed.
-        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
-        $allocStmt = $pdo->prepare(
-            'SELECT a.bill_id, a.amount_applied, b.total, b.status
-             FROM ap_payment_allocations a JOIN ap_bills b ON b.id = a.bill_id
-             WHERE a.payment_id = :id FOR UPDATE'
-        );
-        $allocStmt->execute(['id' => $id]);
-        foreach ($allocStmt->fetchAll(\PDO::FETCH_ASSOC) as $a) {
-            $newPaid = max(0, round((float) 0, 2)); // recompute below
-        }
-        // Recompute per-bill amount_paid from surviving allocations.
-        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
-        $pdo->prepare(
-            'UPDATE ap_bills b
-             SET b.amount_paid = COALESCE((
-                    SELECT SUM(a2.amount_applied) FROM ap_payment_allocations a2
-                    JOIN ap_payments p2 ON p2.id = a2.payment_id
-                    WHERE a2.bill_id = b.id AND p2.status != "void" AND p2.id != :id), 0),
-                 b.amount_due  = b.total - COALESCE((
-                    SELECT SUM(a2.amount_applied) FROM ap_payment_allocations a2
-                    JOIN ap_payments p2 ON p2.id = a2.payment_id
-                    WHERE a2.bill_id = b.id AND p2.status != "void" AND p2.id != :id2), 0),
-                 b.status = CASE
-                    WHEN b.status IN ("void","disputed") THEN b.status
-                    WHEN b.total - COALESCE((SELECT SUM(a2.amount_applied) FROM ap_payment_allocations a2 JOIN ap_payments p2 ON p2.id = a2.payment_id WHERE a2.bill_id = b.id AND p2.status != "void" AND p2.id != :id3), 0) <= 0 THEN "paid"
-                    WHEN COALESCE((SELECT SUM(a2.amount_applied) FROM ap_payment_allocations a2 JOIN ap_payments p2 ON p2.id = a2.payment_id WHERE a2.bill_id = b.id AND p2.status != "void" AND p2.id != :id4), 0) > 0 THEN "partially_paid"
-                    ELSE "approved"
-                 END
-             WHERE b.id IN (SELECT bill_id FROM ap_payment_allocations WHERE payment_id = :id5)'
-        )->execute(['id' => $id, 'id2' => $id, 'id3' => $id, 'id4' => $id, 'id5' => $id]);
-
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE ap_payments SET status = "void", voided_at = NOW(), void_reason = :r WHERE id = :id')
             ->execute(['r' => $reason, 'id' => $id]);
+        apRefreshReleasedPaymentBillsForPayment($pdo, $tid, $id);
 
         $pdo->commit();
     } catch (\Throwable $e) {
@@ -632,6 +643,16 @@ function apPaymentReleaseIssue(int $tenantId, array $payment, ?int $userId): ?ar
             'status' => 403,
             'message' => 'Segregation of duties: you cannot release your own payment.',
             'extra' => ['created_by_user_id' => $createdBy],
+        ];
+    }
+
+    $unallocated = round((float) ($payment['unallocated_amount'] ?? 0), 2);
+    if ($unallocated > 0.005) {
+        return [
+            'code' => 'payment_not_fully_allocated',
+            'status' => 409,
+            'message' => 'Allocate the full payment before releasing it. ' . number_format($unallocated, 2) . ' remains unallocated.',
+            'extra' => ['unallocated_amount' => $unallocated],
         ];
     }
 

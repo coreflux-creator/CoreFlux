@@ -70,7 +70,8 @@ $assert('later verified current Starts restore archived placement rows in place'
         && str_contains($placementSync, "'placements_restored' => 0"));
 $assert('People directory defaults to current records but retains All statuses',
     str_contains($directory, "const [status, setStatus] = useState('active');")
-        && str_contains($directory, "s === '' ? 'All statuses'"));
+        && str_contains($directory, "'': 'All statuses'")
+        && str_contains($directory, '{STATUS_LABELS[s]}'));
 $assert('dedicated People lifecycle API is wired',
     str_contains($api, "\$action === 'repair_stale_people'")
         && str_contains($api, 'jobdivaMappingRepairSourcePeopleLifecycle('));

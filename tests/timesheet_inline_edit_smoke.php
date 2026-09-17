@@ -8,8 +8,9 @@
  *
  * Two changes shipped:
  *   1. TimesheetDetail.jsx now hosts an inline row editor + add-entry
- *      form wired to the existing entry_save / entry_delete endpoints
- *      (which auto-reopen submitted/approved sheets server-side).
+ *      form wired to the existing entry_save / entry_delete endpoints.
+ *      Submitted sheets return to draft when edited; approved and
+ *      downstream-ready sheets remain immutable financial sources.
  *   2. TimesheetWeek.jsx now reads ?period_start=YYYY-MM-DD&person_id=N
  *      from the URL — so the deep-link from TimesheetDetail's "Open
  *      weekly grid" button lands on THAT week for THAT worker, not on
@@ -27,18 +28,19 @@ $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
 // 1) TimesheetDetail.jsx — inline edit surface
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── TimesheetDetail inline edit ──\n";
-$det = file_get_contents('/app/modules/staffing/ui/TimesheetDetail.jsx');
+$root = dirname(__DIR__);
+$det = file_get_contents($root . '/modules/staffing/ui/TimesheetDetail.jsx');
 
 $a('exists', $det !== false && strlen($det) > 100);
 
-// API plumbing — must POST to entry_save & entry_delete (the existing
-// auto-reopening endpoints) for inline edits.
+// API plumbing — must POST to entry_save & entry_delete for inline edits.
 $a('POSTs entry_save for inline row edits',
     str_contains($det, "?action=entry_save"));
 $a('POSTs entry_delete for row deletion',
     str_contains($det, "?action=entry_delete"));
-$a('POSTs reopen for the approved-state re-open button',
-    str_contains($det, "?action=reopen"));
+$a('does not advertise an impossible approved-state reopen action',
+    !str_contains($det, "?action=reopen")
+    && !str_contains($det, 'timesheet-detail-reopen'));
 $a('POSTs submit for draft/rejected → submit transition',
     str_contains($det, "act('submit')"));
 
@@ -50,13 +52,14 @@ $a('Open weekly grid uses ghost-button styling',
     str_contains($det, 'data-testid="timesheet-detail-open-week"'));
 
 // Read-only vs editable status branches.
-$a('treats locked/payroll_ready/billing_ready as read-only',
-    str_contains($det, "READ_ONLY_STATUSES = ['locked', 'payroll_ready', 'billing_ready']"));
-$a('approved requires explicit re-open before edits',
+$a('treats approved and downstream-ready states as read-only',
+    str_contains($det, "READ_ONLY_STATUSES = ['approved', 'locked', 'payroll_ready', 'billing_ready']"));
+$a('approved is protected from inline edits',
     str_contains($det, 'isApproved')
-    && str_contains($det, 'canEditRows = !isReadOnly && !isApproved'));
-$a('reopen confirmation notice for approved sheets',
-    str_contains($det, 'timesheet-detail-approved-notice'));
+    && str_contains($det, 'canEditRows = !isReadOnly'));
+$a('approved notice points operators to the downstream cascade',
+    str_contains($det, 'timesheet-detail-approved-notice')
+    && str_contains($det, 'View downstream cascade'));
 $a('readonly notice for locked downstream sheets',
     str_contains($det, 'timesheet-detail-readonly-notice'));
 
@@ -64,7 +67,6 @@ $a('readonly notice for locked downstream sheets',
 foreach ([
     'timesheet-detail-save-error',
     'timesheet-detail-submit',
-    'timesheet-detail-reopen',
     'timesheet-detail-open-week',
     'timesheet-detail-add-entry-open',
     'timesheet-detail-add-entry-form',
@@ -215,7 +217,7 @@ $a('inactive-placement fallback option keeps the row editable',
 // 2) TimesheetWeek.jsx — URL anchor fix
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── TimesheetWeek URL anchor ──\n";
-$week = file_get_contents('/app/modules/staffing/ui/TimesheetWeek.jsx');
+$week = file_get_contents($root . '/modules/staffing/ui/TimesheetWeek.jsx');
 
 $a('reads URL search params at module entry',
     str_contains($week, 'new URLSearchParams(window.location.search)'));
@@ -237,20 +239,17 @@ $a('NO LONGER hard-codes personId to session.user only',
     !preg_match('/const personId = session\?\.user\?\.person_id \|\| session\?\.user\?\.id \|\| 1;/', $week));
 
 // ──────────────────────────────────────────────────────────────────────
-// 3) Backend wiring sanity — entry_save / entry_delete / reopen are
-//     all still gated on staffing.timesheets.write and route through
-//     the auto-reopening lib functions (don't accidentally regress).
+// 3) Backend wiring sanity — entry mutations use the canonical staffing
+//     permissions and enforce own-worker versus manager access.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Backend gates ──\n";
-$api = file_get_contents('/app/modules/staffing/api/timesheets.php');
-$a('entry_save is RBAC-gated on staffing.timesheets.write',
-    preg_match("/'POST' && \\\$action === 'entry_save'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.timesheets\\.write'\\)/", $api) === 1);
-$a('entry_delete is RBAC-gated on staffing.timesheets.write',
-    preg_match("/'POST' && \\\$action === 'entry_delete'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.timesheets\\.write'\\)/", $api) === 1);
-$a('reopen is RBAC-gated on staffing.timesheets.write',
-    preg_match("/'POST' && \\\$action === 'reopen'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.timesheets\\.write'\\)/", $api) === 1);
-$a('entries_bulk_save is RBAC-gated on staffing.timesheets.write',
-    preg_match("/'POST' && \\\$action === 'entries_bulk_save'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.timesheets\\.write'\\)/", $api) === 1);
+$api = file_get_contents($root . '/modules/staffing/api/timesheets.php');
+$a('entry mutations enforce person-scoped write access',
+    substr_count($api, "staffingApiRequirePersonWrite(\$user") >= 4);
+$a('own-worker edits use staffing.time.create',
+    str_contains($api, "'staffing.time.create'"));
+$a('other-worker edits require approval authority',
+    str_contains($api, "rbac_legacy_require(\$user, 'staffing.time.approve')"));
 $a('entries_bulk_save returns {saved, errors[], rows[]} envelope',
     str_contains($api, "'saved'  => count(\$results)")
     && str_contains($api, "'errors' => \$errors"));
@@ -259,10 +258,10 @@ $a('entries_bulk_save returns {saved, errors[], rows[]} envelope',
 // Optimistic merge — skip the reload flash on the happy path.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Optimistic merge ──\n";
-$apiLib = file_get_contents('/app/dashboard/src/lib/api.js');
+$apiLib = file_get_contents($root . '/dashboard/src/lib/api.js');
 $a('useApi exposes a `mutate` setter for optimistic patches',
     str_contains($apiLib, 'const mutate = useCallback((updater) =>')
-    && preg_match("/return \{ data, error, loading, elapsedMs, reload: load, mutate \}/", $apiLib) === 1);
+    && preg_match('/return \{[^}]*\bmutate\b[^}]*\}/', $apiLib) === 1);
 $a('mutate accepts value-or-updater (matches setState semantics)',
     str_contains($apiLib, "typeof updater === 'function' ? updater(prev) : updater"));
 
@@ -291,9 +290,8 @@ $a('deleteRow recomputes total_hours locally after delete',
     && str_contains($det, 'timesheet: { ...prev.timesheet, total_hours: total }'));
 $a('act() (submit/approve/reject) patches header without reload',
     str_contains($det, 'if (result?.timesheet) applyHeaderUpdate(result.timesheet)'));
-$a('reopenForEdit patches header without reload',
-    str_contains($det, "?action=reopen")
-    && preg_match('/const reopenForEdit = async \(\) => \{[\s\S]{0,500}applyHeaderUpdate\(result\.timesheet\)/', $det) === 1);
+$a('approved sheets have no client-side reopen handler',
+    !str_contains($det, 'const reopenForEdit = async ()'));
 $a('saveAll applies bulk optimistic merge from result.rows',
     str_contains($det, 'Array.isArray(result.rows) && result.rows.length > 0')
     && str_contains($det, 'result.rows.at(-1)?.timesheet'));
@@ -307,7 +305,7 @@ $a('AddEntryRow enriches new row with placement labels for instant display',
 $a('edit buffer reset keyed ONLY on timesheet id (not entries.length)',
     str_contains($det, 'useEffect(() => { setEdits({}); setBulkResult(null); }, [data?.timesheet?.id]);'));
 
-$lib = file_get_contents('/app/modules/staffing/lib/timesheets.php');
+$lib = file_get_contents($root . '/modules/staffing/lib/timesheets.php');
 $a('staffingTimeEntrySave auto-reopens non-draft sheets',
     preg_match("/function staffingTimeEntrySave[\s\S]{0,2000}staffingTimesheetReopen\\(\\\$userId, \\\$tsId, 'edited inline'\\)/", $lib) === 1);
 $a('staffingTimeEntryDelete auto-reopens non-draft sheets',

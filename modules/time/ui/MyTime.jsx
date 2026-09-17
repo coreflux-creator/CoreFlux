@@ -65,35 +65,28 @@ export default function MyTime() {
 
   const dayTotal = (placementId, date) => (byPlacement[placementId]?.days[date] ?? []).reduce((s, e) => s + parseFloat(e.hours), 0);
 
-  // Operator complaint: "can't submit a single timesheet, only all at
-  // once." The API already supports per-entry submit
-  // (`/modules/time/api/entries.php?action=submit&id=N`) — we just
-  // never surfaced it here. Now we list every draft this week with a
-  // per-row Submit button, plus a single "Submit all N drafts" CTA
-  // that loops through them (parallel, all-or-nothing-friendly).
   const drafts = entries.filter(e => e.status === 'draft');
-  const [submitBusy, setSubmitBusy] = useState(null); // entry_id while one is in flight, 'all' for the bulk loop
+  const [submitBusy, setSubmitBusy] = useState(null);
+  const [submitFeedback, setSubmitFeedback] = useState(null);
   const submitOne = async (entryId) => {
-    setSubmitBusy(entryId);
+    setSubmitBusy(entryId); setSubmitFeedback(null);
     try {
       await api.post(`/modules/time/api/entries.php?action=submit&id=${entryId}`, {});
+      setSubmitFeedback({ type: 'success', text: 'Entry submitted for review.' });
       reload();
-    } catch (e) { alert(`Submit failed: ${e.message}`); }
+    } catch (e) { setSubmitFeedback({ type: 'error', text: e.message }); }
     finally     { setSubmitBusy(null); }
   };
   const submitAll = async () => {
     if (drafts.length === 0) return;
     if (!confirm(`Submit all ${drafts.length} draft entr${drafts.length === 1 ? 'y' : 'ies'} for review?`)) return;
-    setSubmitBusy('all');
+    setSubmitBusy('all'); setSubmitFeedback(null);
     try {
-      // Parallel — backend is idempotent on already-submitted rows
-      // (returns 409) so a partial failure just leaves the rest queued.
-      const results = await Promise.allSettled(
-        drafts.map(e => api.post(`/modules/time/api/entries.php?action=submit&id=${e.id}`, {}))
-      );
-      const failed = results.filter(r => r.status === 'rejected').length;
-      if (failed > 0) alert(`${results.length - failed} submitted, ${failed} failed. Reload to see which.`);
+      const res = await api.post('/modules/time/api/entries.php?action=bulk_submit', { ids: drafts.map(e => e.id) });
+      setSubmitFeedback({ type: 'success', text: `${res.submitted} ${res.submitted === 1 ? 'entry' : 'entries'} submitted for review.` });
       reload();
+    } catch (e) {
+      setSubmitFeedback({ type: 'error', text: e.message });
     } finally { setSubmitBusy(null); }
   };
 
@@ -109,6 +102,7 @@ export default function MyTime() {
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
           <Link to="/modules/time/upload"     className="btn" data-testid="time-my-time-upload-link">↑ Upload timesheet</Link>
           <Link to="/modules/time/bulk"       className="btn" data-testid="time-my-time-csv-import-link">Import CSV</Link>
+          <a className="btn" href={`/api/v1/time/csv-export?from=${from}&to=${to}`} data-testid="time-my-time-csv-export-link">Export week</a>
           <button className="btn" onClick={() => setMonday(addDays(monday, -7))} data-testid="time-week-prev">← Prev</button>
           <button className="btn" onClick={() => setMonday(startOfWeek(new Date()))} data-testid="time-week-this">This week</button>
           <button className="btn" onClick={() => setMonday(addDays(monday,  7))} data-testid="time-week-next">Next →</button>
@@ -117,6 +111,15 @@ export default function MyTime() {
 
       {loading && <p>Loading…</p>}
       {error && <p className="error" data-testid="time-error">Error: {error.message}</p>}
+      {submitFeedback && (
+        <p
+          className={submitFeedback.type === 'error' ? 'error' : undefined}
+          data-testid={`time-submit-${submitFeedback.type}`}
+          style={submitFeedback.type === 'success' ? { color: '#047857' } : undefined}
+        >
+          {submitFeedback.type === 'error' ? 'Submission failed: ' : ''}{submitFeedback.text}
+        </p>
+      )}
 
       {/* Drafts panel — surfaces per-entry Submit so users don't have
           to push all their hours in one swing. */}

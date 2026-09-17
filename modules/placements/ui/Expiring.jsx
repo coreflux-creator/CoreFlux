@@ -3,10 +3,15 @@ import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 
+const STATUS_LABELS = {
+  draft: 'Draft', pending_start: 'Starting soon', active: 'Active',
+  on_hold: 'On hold', ended: 'Ended', cancelled: 'Cancelled',
+};
+
 export default function Expiring() {
   const { data, loading, error } = useApi('/modules/placements/api/reports.php?type=expiring&days=30');
   const [status, setStatus] = useState('');
-  const rows = data?.rows ?? [];
+  const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
   const statuses = useMemo(() => Array.from(new Set(rows.map(r => r.status).filter(Boolean))).sort(), [rows]);
   const filtered = useMemo(() => {
     if (!status) return rows;
@@ -40,7 +45,7 @@ export default function Expiring() {
         />
         <select className="input" value={status} onChange={e => setStatus(e.target.value)} data-testid="placements-expiring-status-filter">
           <option value="">All statuses</option>
-          {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+          {statuses.map(s => <option key={s} value={s}>{STATUS_LABELS[s] || s}</option>)}
         </select>
       </div>
       {loading && <p>Loading…</p>}
@@ -63,7 +68,7 @@ export default function Expiring() {
               <td><Link to={`../${p.id}`}>{p.title}</Link></td>
               <td>{p.first_name ? `${p.first_name} ${p.last_name}` : '—'}</td>
               <td>{p.end_client_name || '—'}</td>
-              <td><span className={`badge badge--${p.status}`}>{p.status}</span></td>
+              <td><span className={`badge badge--${p.status}`}>{STATUS_LABELS[p.status] || p.status}</span></td>
               <td>{p.due_date || '—'}</td>
               <td>{p.end_date || '—'}</td>
             </tr>

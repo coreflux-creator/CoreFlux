@@ -110,8 +110,8 @@ $assert('hits /api/plaid_bank_link.php',     strpos($ui, '/api/plaid_bank_link.p
 $assert('exchange POST wired',               strpos($ui, '/api/plaid_bank_link.php?action=exchange') !== false);
 $assert('passes selected_account_ids in exchange', strpos($ui, "selected_account_ids") !== false);
 $assert('passes institution metadata',       strpos($ui, "institution: {") !== false);
-$assert('clarifies "no money moves"',        strpos($ui, 'No money moves') !== false);
-$assert('UI mentions liabilities + deposits',strpos($ui, 'liabilities tab') !== false);
+$assert('clarifies read-only connection',     strpos($ui, 'can only read account activity; it cannot move money') !== false);
+$assert('UI mentions deposits + liabilities', strpos($ui, 'checking, savings, credit cards, and loans') !== false);
 $assert('summarises both deposits + liabs',  strpos($ui, 'data.liability_accounts_created') !== false);
 $assert('data-testid: plaid-bank-connect-btn',
                                              strpos($ui, 'data-testid="plaid-bank-connect-btn"') !== false);

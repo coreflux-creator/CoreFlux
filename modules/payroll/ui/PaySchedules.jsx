@@ -1,8 +1,15 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { UsersRound } from 'lucide-react';
 import { useApi, api } from '../../../dashboard/src/lib/api';
-import PayCyclesPanel from './PayCyclesPanel';
 
 const FREQS = ['weekly', 'biweekly', 'semimonthly', 'monthly'];
+const frequencyLabel = (value) => ({
+  weekly: 'Weekly',
+  biweekly: 'Every two weeks',
+  semimonthly: 'Twice a month',
+  monthly: 'Monthly',
+}[value] || value);
 
 export default function PaySchedules() {
   const { data, loading, error, reload } = useApi('/modules/payroll/api/pay_schedules.php');
@@ -34,12 +41,17 @@ export default function PaySchedules() {
   };
 
   const toggleActive = async (s) => {
-    if (s.active) {
-      await api.delete(`/modules/payroll/api/pay_schedules.php?id=${s.id}`);
-    } else {
-      await api.put(`/modules/payroll/api/pay_schedules.php?id=${s.id}`, { active: 1 });
+    setFormErr(null);
+    try {
+      if (s.active) {
+        await api.delete(`/modules/payroll/api/pay_schedules.php?id=${s.id}`);
+      } else {
+        await api.put(`/modules/payroll/api/pay_schedules.php?id=${s.id}`, { active: 1 });
+      }
+      reload();
+    } catch (err) {
+      setFormErr(err.message);
     }
-    reload();
   };
 
   return (
@@ -47,7 +59,7 @@ export default function PaySchedules() {
       <header className="payroll-schedules__header">
         <div>
           <h2>Pay Schedules</h2>
-          <p>Define how often employees get paid and when. Periods auto-generate when a schedule is created.</p>
+          <p>Define how often employees get paid and when. The first six pay periods are created automatically.</p>
         </div>
         <button
           className="btn btn--primary"
@@ -77,7 +89,7 @@ export default function PaySchedules() {
               onChange={(e) => setForm({ ...form, frequency: e.target.value })}
               data-testid="payroll-schedule-frequency"
             >
-              {FREQS.map((f) => <option key={f} value={f}>{f}</option>)}
+              {FREQS.map((f) => <option key={f} value={f}>{frequencyLabel(f)}</option>)}
             </select>
           </label>
           <label>
@@ -124,7 +136,7 @@ export default function PaySchedules() {
             {schedules.map((s) => (
               <tr key={s.id}>
                 <td>{s.name}</td>
-                <td>{s.frequency}</td>
+                <td>{frequencyLabel(s.frequency)}</td>
                 <td>{s.period_start_anchor}</td>
                 <td>+{s.pay_date_offset_days} days</td>
                 <td>
@@ -147,8 +159,28 @@ export default function PaySchedules() {
         </table>
       )}
 
-      <hr style={{ margin: '32px 0', border: 0, borderTop: '1px solid #eef0f4' }} />
-      <PayCyclesPanel />
+      {schedules.length > 0 && (
+        <aside
+          data-testid="payroll-schedules-groups-link"
+          style={{
+            marginTop: 24, padding: 16, border: '1px solid var(--cf-border, #dbe3ef)',
+            borderLeft: '3px solid var(--cf-primary, #087cf0)', borderRadius: 6,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: 16, flexWrap: 'wrap', background: 'var(--cf-surface, #fff)',
+          }}
+        >
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+            <UsersRound size={20} color="var(--cf-primary, #087cf0)" aria-hidden="true" />
+            <div>
+              <strong>Need separate payroll calendars?</strong>
+              <p className="muted" style={{ margin: '3px 0 0' }}>
+                Most teams only need schedules. Add pay groups when people on one schedule must run on different dates.
+              </p>
+            </div>
+          </div>
+          <Link className="btn btn--ghost" to="../cycles">Manage pay groups</Link>
+        </aside>
+      )}
     </section>
   );
 }

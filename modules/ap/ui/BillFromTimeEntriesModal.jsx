@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
+import PlacementPicker from '../../placements/ui/PlacementPicker';
 
 /**
  * Batch 4 (2026-02) — Day-level AP bill picker.
@@ -83,11 +84,13 @@ export default function BillFromTimeEntriesModal({ onClose, onCreated, defaultPl
 
         <div style={{ overflow: 'auto', padding: 20, flex: 1 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <label style={{ fontSize: 12 }}>Placement ID (optional)
-              <input className="input" type="number" min="0" value={placementId}
-                     onChange={e => setPlacementId(e.target.value)}
-                     placeholder="leave blank for all"
-                     data-testid="ap-from-entries-placement" />
+            <label style={{ fontSize: 12 }}>Placement (optional)
+              <PlacementPicker
+                value={placementId}
+                onChange={(row) => setPlacementId(row?.id ? String(row.id) : '')}
+                placeholder="All placements"
+                testId="ap-from-entries-placement"
+              />
             </label>
             <label style={{ fontSize: 12 }}>Date from
               <input className="input" type="date" value={dateFrom}

@@ -112,6 +112,7 @@ function payrollCycleAdvance(int $cycleId, ?int $actorUserId = null): array
         $runId = scopedInsert('payroll_runs', [
             'pay_period_id' => $periodId,
             'run_type'      => 'regular',
+            'created_by_user_id' => $actorUserId,
             'status'        => 'draft',
         ]);
 

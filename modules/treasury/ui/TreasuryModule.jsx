@@ -11,6 +11,7 @@ import ReconciliationWorkbench from './ReconciliationWorkbench';
 import SweepRulesAdmin        from './SweepRulesAdmin';
 import SweepDestinations      from './SweepDestinations';
 import MercuryWebhookConfig   from './MercuryWebhookConfig';
+import TreasuryOperations from './TreasuryOperations';
 import LiquidityForecast        from '../../../dashboard/src/pages/LiquidityForecast';
 import TreasuryScenario         from '../../../dashboard/src/pages/TreasuryScenario';
 import TreasuryScenarioCompare  from '../../../dashboard/src/pages/TreasuryScenarioCompare';
@@ -28,6 +29,8 @@ export default function TreasuryModule({ session }) {
     { to: '/modules/treasury/deposits', label: 'Deposit accounts' },
     { to: '/modules/treasury/liabilities', label: 'Liability accounts' },
     { to: '/modules/treasury/reconciliation', label: 'Reconciliation' },
+    { to: '/modules/treasury/payments', label: 'Payments' },
+    { to: '/modules/treasury/transfers', label: 'Transfers' },
     { to: '/modules/treasury/scenario', label: 'What-If Scenario' },
     { to: '/modules/treasury/compare', label: 'Compare Scenarios' },
     { to: '/modules/treasury/rules', label: 'Saved Rules' },
@@ -62,6 +65,10 @@ export default function TreasuryModule({ session }) {
         } />
         <Route path="mercury-payments" element={<MercuryPayments />} />
         <Route path="reconciliation"   element={<ReconciliationWorkbench />} />
+        <Route path="payments"         element={<TreasuryOperations kind="payments" />} />
+        <Route path="payments/:id"     element={<TreasuryOperations kind="payments" />} />
+        <Route path="transfers"        element={<TreasuryOperations kind="transfers" />} />
+        <Route path="transfers/:id"    element={<TreasuryOperations kind="transfers" />} />
         <Route path="sweep-rules"      element={<SweepRulesAdmin />} />
         <Route path="sweep-destinations" element={<SweepDestinations />} />
         <Route path="mercury-webhooks"   element={<MercuryWebhookConfig />} />

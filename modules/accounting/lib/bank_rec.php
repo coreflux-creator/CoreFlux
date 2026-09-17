@@ -128,13 +128,27 @@ function bankRecResolveCol(array $header, $explicit, array $keywords): ?int
 
 function bankRecMarkLineMatched(int $tenantId, int $lineId, int $jeId, ?int $userId): void
 {
+    $current = scopedFind(
+        'SELECT id, match_status, matched_je_id
+           FROM accounting_bank_statement_lines
+          WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $lineId]
+    );
+    if (!$current) throw new RuntimeException('Line not found');
+    if (($current['match_status'] ?? '') === 'matched' && (int) ($current['matched_je_id'] ?? 0) === $jeId) {
+        return;
+    }
+    if (($current['match_status'] ?? '') !== 'unmatched') {
+        throw new RuntimeException('This bank line is already resolved. Refresh before matching it again.');
+    }
+
     $stmt = getDB()->prepare(
         'UPDATE accounting_bank_statement_lines
             SET match_status = "matched",
                 matched_je_id = :je,
                 matched_at = NOW(),
                 matched_by_user_id = :user_id
-          WHERE tenant_id = :tenant_id AND id = :id'
+          WHERE tenant_id = :tenant_id AND id = :id AND match_status = "unmatched"'
     );
     $stmt->execute([
         'je'        => $jeId,
@@ -142,29 +156,119 @@ function bankRecMarkLineMatched(int $tenantId, int $lineId, int $jeId, ?int $use
         'tenant_id' => $tenantId,
         'id'        => $lineId,
     ]);
+    if ($stmt->rowCount() !== 1) {
+        throw new RuntimeException('This bank line changed while it was being matched. Refresh and try again.');
+    }
 }
 
 function bankRecMatchLine(int $tenantId, int $lineId, int $jeId, ?int $userId): array
 {
-    $line = scopedFind('SELECT id FROM accounting_bank_statement_lines WHERE tenant_id = :tenant_id AND id = :id', ['id' => $lineId]);
+    $line = scopedFind(
+        'SELECT bl.id, bl.amount, bl.match_status, bl.matched_je_id,
+                ba.gl_account_code, ba.entity_id AS bank_entity_id,
+                COALESCE(NULLIF(ba.currency, ""), "USD") AS bank_currency
+           FROM accounting_bank_statement_lines bl
+           JOIN accounting_bank_accounts ba
+             ON ba.tenant_id = bl.tenant_id AND ba.id = bl.bank_account_id
+          WHERE bl.tenant_id = :tenant_id AND bl.id = :id',
+        ['id' => $lineId]
+    );
     if (!$line) throw new RuntimeException('Line not found');
-    $je   = scopedFind('SELECT id FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id', ['id' => $jeId]);
+    if (($line['match_status'] ?? '') === 'matched' && (int) ($line['matched_je_id'] ?? 0) === $jeId) {
+        return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId, 'idempotent_replay' => true];
+    }
+    if (($line['match_status'] ?? '') !== 'unmatched') {
+        throw new RuntimeException('This bank line is already resolved');
+    }
+
+    $je = scopedFind(
+        'SELECT je.id, je.status, je.entity_id, je.currency,
+                ROUND(COALESCE(SUM(CASE WHEN account.code = :bank_code
+                     THEN line.debit - line.credit ELSE 0 END), 0), 2) AS bank_movement
+           FROM accounting_journal_entries je
+           LEFT JOIN accounting_journal_entry_lines line ON line.je_id = je.id
+           LEFT JOIN accounting_accounts account
+             ON account.tenant_id = je.tenant_id AND account.id = line.account_id
+          WHERE je.tenant_id = :tenant_id AND je.id = :id
+          GROUP BY je.id, je.status, je.entity_id, je.currency',
+        ['id' => $jeId, 'bank_code' => (string) $line['gl_account_code']]
+    );
     if (!$je) throw new RuntimeException('JE not found');
+    if (($je['status'] ?? '') !== 'posted') throw new RuntimeException('Only a posted journal entry can be matched');
+    if (!empty($line['bank_entity_id']) && !empty($je['entity_id'])
+        && (int) $line['bank_entity_id'] !== (int) $je['entity_id']) {
+        throw new RuntimeException('The journal entry belongs to a different entity');
+    }
+    if (strcasecmp((string) ($line['bank_currency'] ?: 'USD'), (string) ($je['currency'] ?: 'USD')) !== 0) {
+        throw new RuntimeException('The journal entry uses a different currency');
+    }
+    if (abs((float) $je['bank_movement'] - (float) $line['amount']) > 0.005) {
+        throw new RuntimeException('The journal entry does not contain the matching cash movement for this bank account and amount');
+    }
+    $used = scopedFind(
+        'SELECT id FROM accounting_bank_statement_lines
+          WHERE tenant_id = :tenant_id AND matched_je_id = :je_id
+            AND match_status = "matched" AND id <> :line_id
+          LIMIT 1',
+        ['je_id' => $jeId, 'line_id' => $lineId]
+    );
+    if ($used) throw new RuntimeException('That journal entry is already matched to another bank line');
+
     bankRecMarkLineMatched($tenantId, $lineId, $jeId, $userId);
-    return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId];
+    return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId, 'idempotent_replay' => false];
 }
 
 function bankRecUnmatchLine(int $tenantId, int $lineId): array
 {
-    $line = scopedFind('SELECT id FROM accounting_bank_statement_lines WHERE tenant_id = :tenant_id AND id = :id', ['id' => $lineId]);
+    $line = scopedFind(
+        'SELECT bl.id, bl.match_status, bl.matched_je_id,
+                je.source_module, je.source_ref_type, je.source_ref_id
+           FROM accounting_bank_statement_lines bl
+           LEFT JOIN accounting_journal_entries je
+             ON je.tenant_id = bl.tenant_id AND je.id = bl.matched_je_id
+          WHERE bl.tenant_id = :tenant_id AND bl.id = :id',
+        ['id' => $lineId]
+    );
     if (!$line) throw new RuntimeException('Line not found');
+    if (($line['match_status'] ?? '') === 'unmatched') {
+        return ['ok' => true, 'line_id' => $lineId, 'idempotent_replay' => true];
+    }
+
+    $journalWasCreatedFromLine = (string) ($line['source_ref_type'] ?? '') === 'bank_statement_line'
+        && (int) ($line['source_ref_id'] ?? 0) === $lineId;
+    if (!$journalWasCreatedFromLine && !empty($line['matched_je_id'])) {
+        try {
+            $lineage = scopedFind(
+                'SELECT id FROM accounting_subledger_links
+                  WHERE tenant_id = :tenant_id AND journal_entry_id = :journal_entry_id
+                    AND source_module = "treasury_feed"
+                    AND source_record_id IN (:bank_line, :bank_split)
+                  LIMIT 1',
+                [
+                    'journal_entry_id' => (int) $line['matched_je_id'],
+                    'bank_line' => 'bank_line:' . $lineId,
+                    'bank_split' => 'bank_line:split:' . $lineId,
+                ]
+            );
+            $journalWasCreatedFromLine = (bool) $lineage;
+        } catch (Throwable $_) {
+            // Older tenants may not have the optional lineage table.
+        }
+    }
+    if ($journalWasCreatedFromLine) {
+        throw new RuntimeException(
+            'This bank line created its ledger entry and cannot be detached from it. '
+            . 'Reverse or correct the posted transaction instead.'
+        );
+    }
+
     scopedUpdate('accounting_bank_statement_lines', $lineId, [
         'match_status'      => 'unmatched',
         'matched_je_id'     => null,
         'matched_at'        => null,
         'matched_by_user_id' => null,
     ]);
-    return ['ok' => true, 'line_id' => $lineId];
+    return ['ok' => true, 'line_id' => $lineId, 'idempotent_replay' => false];
 }
 
 /**
@@ -523,6 +627,159 @@ function bankRecAttachInvoiceSuggestions(
         unset($line);
     } catch (\Throwable $e) {
         error_log('[bank-rec] invoice suggestion lookup failed: ' . $e->getMessage());
+    }
+
+    return $bankLines;
+}
+
+/**
+ * Attach released AP payments to matching outgoing bank lines. A sent payment
+ * can be cleared and reconciled in one action; a previously cleared payment
+ * can be linked without posting cash a second time.
+ */
+function bankRecAttachApPaymentSuggestions(
+    int $tenantId,
+    int $bankAccountId,
+    array $bankLines,
+    int $limitPerLine = 5
+): array {
+    foreach ($bankLines as &$line) {
+        $line['ap_payment_matches'] = [];
+        $line['ap_payment_match'] = null;
+    }
+    unset($line);
+
+    $amountKeys = [];
+    $earliestPosted = null;
+    $latestPosted = null;
+    foreach ($bankLines as $line) {
+        $amount = round((float) ($line['amount'] ?? 0), 2);
+        if ($amount >= 0) continue;
+        $amountKeys[(string) (int) round(abs($amount) * 100)] = abs($amount);
+        $date = (string) ($line['posted_date'] ?? '');
+        if ($date === '') continue;
+        if ($earliestPosted === null || $date < $earliestPosted) $earliestPosted = $date;
+        if ($latestPosted === null || $date > $latestPosted) $latestPosted = $date;
+    }
+    if (!$amountKeys || !$earliestPosted || !$latestPosted) return $bankLines;
+
+    try {
+        $bank = scopedFind(
+            'SELECT id, entity_id, COALESCE(NULLIF(currency, ""), "USD") AS currency
+               FROM accounting_bank_accounts
+              WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => $bankAccountId]
+        );
+        if (!$bank) return $bankLines;
+
+        $params = [
+            'bank_account_id' => $bankAccountId,
+            'bank_currency' => (string) $bank['currency'],
+            'date_from' => date('Y-m-d', strtotime($earliestPosted . ' -30 days')),
+            'date_to' => date('Y-m-d', strtotime($latestPosted . ' +3 days')),
+        ];
+        $amountParams = [];
+        $i = 0;
+        foreach ($amountKeys as $amount) {
+            $key = 'payment_amount_' . $i++;
+            $amountParams[] = ':' . $key;
+            $params[$key] = number_format($amount, 2, '.', '');
+        }
+        $entitySql = '';
+        if (!empty($bank['entity_id'])) {
+            $entitySql = ' AND p.entity_id = :bank_entity_id';
+            $params['bank_entity_id'] = (int) $bank['entity_id'];
+        }
+
+        $payments = scopedQuery(
+            'SELECT p.id, p.vendor_name, p.pay_date, p.method,
+                    p.reference, p.amount, p.currency, p.status, p.entity_id,
+                    p.bank_account_id, p.journal_entry_id,
+                    je.status AS journal_status,
+                    matched.id AS matched_line_id
+               FROM ap_payments p
+               LEFT JOIN accounting_journal_entries je
+                 ON je.tenant_id = p.tenant_id AND je.id = p.journal_entry_id
+               LEFT JOIN accounting_bank_statement_lines matched
+                 ON matched.tenant_id = p.tenant_id
+                AND matched.matched_je_id = p.journal_entry_id
+                AND matched.match_status = "matched"
+              WHERE p.tenant_id = :tenant_id
+                AND p.status IN ("sent", "cleared")
+                AND p.unallocated_amount <= 0.005
+                AND ROUND(p.amount, 2) IN (' . implode(',', $amountParams) . ')
+                AND p.currency = :bank_currency
+                AND p.pay_date BETWEEN :date_from AND :date_to
+                AND (p.bank_account_id IS NULL OR p.bank_account_id = :bank_account_id)'
+                . $entitySql . '
+              ORDER BY p.pay_date DESC, p.id DESC',
+            $params
+        );
+
+        $byAmount = [];
+        foreach ($payments as $payment) {
+            $key = (string) (int) round((float) $payment['amount'] * 100);
+            $byAmount[$key][] = $payment;
+        }
+
+        foreach ($bankLines as &$line) {
+            $lineAmount = round((float) ($line['amount'] ?? 0), 2);
+            if ($lineAmount >= 0) continue;
+            $key = (string) (int) round(abs($lineAmount) * 100);
+            $description = strtolower((string) ($line['description'] ?? ''));
+            $postedAt = strtotime((string) ($line['posted_date'] ?? '')) ?: 0;
+            $matches = [];
+            foreach ($byAmount[$key] ?? [] as $payment) {
+                if (!empty($payment['matched_line_id']) && (int) $payment['matched_line_id'] !== (int) $line['id']) continue;
+                $paidAt = strtotime((string) ($payment['pay_date'] ?? '')) ?: 0;
+                if ($postedAt && $paidAt && abs($postedAt - $paidAt) > 30 * 86400) continue;
+
+                $reference = strtolower(trim((string) ($payment['reference'] ?? '')));
+                $vendorTokens = array_values(array_filter(
+                    preg_split('/[^a-z0-9]+/i', strtolower((string) $payment['vendor_name'])) ?: [],
+                    static fn(string $token): bool => strlen($token) >= 4
+                ));
+                $referenceMatch = $reference !== '' && str_contains($description, $reference);
+                $vendorMatch = $vendorTokens && count(array_filter(
+                    $vendorTokens,
+                    static fn(string $token): bool => str_contains($description, $token)
+                )) >= min(2, count($vendorTokens));
+                $canMatch = ($payment['status'] === 'sent')
+                    || ($payment['status'] === 'cleared' && ($payment['journal_status'] ?? null) === 'posted');
+                $score = $canMatch ? 0.86 : 0.70;
+                if ($vendorMatch) $score += 0.08;
+                if ($referenceMatch) $score += 0.06;
+                $score = min(1.0, $score);
+                $reason = 'Exact released payment amount of '
+                    . number_format((float) $payment['amount'], 2) . ' ' . $payment['currency'];
+                if ($referenceMatch) $reason .= '; payment reference appears in the bank description';
+                elseif ($vendorMatch) $reason .= '; vendor name appears in the bank description';
+                if (!$canMatch) $reason .= '; repair the payment ledger posting before matching';
+
+                $matches[] = [
+                    'candidate_type' => 'ap_payment',
+                    'payment_id' => (int) $payment['id'],
+                    'vendor_name' => (string) $payment['vendor_name'],
+                    'pay_date' => (string) $payment['pay_date'],
+                    'method' => (string) $payment['method'],
+                    'reference' => (string) ($payment['reference'] ?? ''),
+                    'amount' => (float) $payment['amount'],
+                    'currency' => (string) $payment['currency'],
+                    'status' => (string) $payment['status'],
+                    'journal_entry_id' => !empty($payment['journal_entry_id']) ? (int) $payment['journal_entry_id'] : null,
+                    'can_clear_and_match' => $canMatch,
+                    'label' => 'Payment #' . $payment['id'] . ' - ' . $payment['vendor_name'],
+                    'score' => $score,
+                    'reasoning' => $reason,
+                ];
+            }
+            usort($matches, static fn(array $a, array $b): int => $b['score'] <=> $a['score']);
+            $line['ap_payment_matches'] = array_slice($matches, 0, max(1, $limitPerLine));
+            $line['ap_payment_match'] = $line['ap_payment_matches'][0] ?? null;
+        }
+        unset($line);
+    } catch (\Throwable $e) {
+        error_log('[bank-rec] AP payment suggestion lookup failed: ' . $e->getMessage());
     }
 
     return $bankLines;

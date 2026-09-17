@@ -23,8 +23,12 @@ $ROOT = realpath(__DIR__ . '/..');
 // ── TimesheetWeek CSV import discoverability ────────────────────────
 echo "TimesheetWeek CSV import + history links\n";
 $tsw = (string) file_get_contents("{$ROOT}/modules/staffing/ui/TimesheetWeek.jsx");
-$a('TimesheetWeek imports react-router Link',        str_contains($tsw, "import { Link } from 'react-router-dom'"));
-$a('TimesheetWeek imports Upload + History icons',   str_contains($tsw, "import { Upload, History } from 'lucide-react'"));
+$a('TimesheetWeek imports react-router Link',
+    str_contains($tsw, "from 'react-router-dom'") && preg_match('/import\s*\{[^}]*\bLink\b[^}]*\}/s', $tsw) === 1);
+$a('TimesheetWeek imports Upload + History icons',
+    str_contains($tsw, "from 'lucide-react'")
+    && preg_match('/import\s*\{[^}]*\bUpload\b[^}]*\}/s', $tsw) === 1
+    && preg_match('/import\s*\{[^}]*\bHistory\b[^}]*\}/s', $tsw) === 1);
 $a('CSV Import link points to /modules/time/bulk',   str_contains($tsw, 'to="/modules/time/bulk"'));
 $a('CSV Import link has data-testid',                str_contains($tsw, 'data-testid="ts-csv-import-link"'));
 $a('CSV History link points to /data/import-history',str_contains($tsw, 'to="/data/import-history"'));
@@ -36,7 +40,9 @@ $tci = (string) file_get_contents("{$ROOT}/modules/time/api/csv_import.php");
 $a('csv_import.php exists',                          is_file("{$ROOT}/modules/time/api/csv_import.php"));
 $a('resolves placement by external_id',              str_contains($tci, 'placements') && str_contains($tci, 'external_id'));
 $a('auto-resolves period from work_date',
-    str_contains($tci, 'time_periods') && str_contains($tci, 'work_date') && str_contains($tci, 'period_id'));
+    str_contains($tci, 'timeOpenPeriodIdForDate(')
+    && str_contains($tci, "\$row['work_date']")
+    && str_contains($tci, '$periodId'));
 $a('supports dry_run action',                        str_contains($tci, 'dry_run'));
 $a('supports commit action',                         str_contains($tci, 'commit'));
 $a('uses shared CsvImportService',                   str_contains($tci, 'CsvImportService'));

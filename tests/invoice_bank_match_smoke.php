@@ -70,7 +70,7 @@ $check('generic AR is rejected when an invoice target is required',
     str_contains($bankApi, 'Use an Invoice target instead of posting a generic Accounts Receivable split'));
 $check('plain receipt categorization directs users to invoice matching',
     str_contains($treasuryUi, "String(a.code) !== '1100'")
-    && str_contains($treasuryUi, 'use Split / match and choose the invoice'));
+    && str_contains($treasuryUi, 'choose Apply receipt and select the invoice'));
 $check('Treasury split rows choose invoice or GL account',
     str_contains($treasuryUi, '<option value="invoice">Customer invoice</option>')
     && str_contains($treasuryUi, '<option value="account">GL account</option>'));

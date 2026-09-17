@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Settings2, Sparkles } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
 const STAGE_COLOR = { 1: '#0f172a', 2: '#a16207', 3: '#dc2626' };
@@ -15,7 +16,7 @@ export default function DunningQueue() {
   const [showAi, setShowAi] = useState(null);  // client_name when open
 
   const send = async (id) => {
-    if (!confirm('Send the next-stage dunning email now?')) return;
+    if (!confirm('Send the next payment reminder now?')) return;
     setBusyId(id);
     try {
       await api.post(`/api/v1/billing/dunning?action=send_now&id=${id}`, {});
@@ -24,7 +25,7 @@ export default function DunningQueue() {
     finally { setBusyId(null); }
   };
   const pause = async (id) => {
-    const until = prompt('Pause dunning until (YYYY-MM-DD)?', new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
+    const until = prompt('Pause payment reminders until (YYYY-MM-DD)?', new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
     if (!until) return;
     setBusyId(id);
     try {
@@ -49,12 +50,14 @@ export default function DunningQueue() {
     <section data-testid="billing-dunning-queue">
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
         <div>
-          <h3 style={{ margin: 0 }}>Dunning queue</h3>
+          <h3 style={{ margin: 0 }}>Payment reminders</h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--cf-text-secondary)' }}>
-            Overdue invoices ready for the next reminder stage. The daily cron sends automatically; use Send Now to push manually.
+            Review overdue invoices, upcoming reminder stages, and paused follow-ups.
           </p>
         </div>
-        <button className="btn btn--ghost" onClick={() => setShowPolicy(true)} data-testid="billing-dunning-policy-open">Edit policy</button>
+        <button className="btn btn--ghost" onClick={() => setShowPolicy(true)} data-testid="billing-dunning-policy-open">
+          <Settings2 size={14} aria-hidden="true" /> Reminder settings
+        </button>
       </header>
 
       {policy && (
@@ -77,7 +80,7 @@ export default function DunningQueue() {
         </thead>
         <tbody>
           {rows.length === 0 && !loading && (
-            <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24, color: 'var(--cf-text-secondary)' }} data-testid="billing-dunning-empty">No overdue invoices. 🎉</td></tr>
+            <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24, color: 'var(--cf-text-secondary)' }} data-testid="billing-dunning-empty">No overdue invoices.</td></tr>
           )}
           {rows.map(r => {
             const nextStage = r.next_stage;
@@ -87,7 +90,15 @@ export default function DunningQueue() {
                 <td><strong>{r.invoice_number}</strong></td>
                 <td>
                   {r.client_name}
-                  <button onClick={() => setShowAi(r.client_name)} title="AI suggestion" data-testid={`billing-dunning-ai-${r.invoice_id}`} style={{ background: 'none', border: 0, color: '#7c3aed', cursor: 'pointer', fontSize: 11, marginLeft: 4 }}>✨</button>
+                  <button
+                    onClick={() => setShowAi(r.client_name)}
+                    title="Suggest a follow-up approach"
+                    aria-label={`Suggest a follow-up approach for ${r.client_name}`}
+                    data-testid={`billing-dunning-ai-${r.invoice_id}`}
+                    style={{ background: 'none', border: 0, color: '#2563eb', cursor: 'pointer', marginLeft: 4, padding: 2 }}
+                  >
+                    <Sparkles size={13} aria-hidden="true" />
+                  </button>
                 </td>
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${Number(r.amount_due).toFixed(2)}</td>
                 <td>{r.days_overdue}</td>
@@ -174,14 +185,14 @@ function PolicyEditor({ policy, onClose, onSaved }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} data-testid="billing-dunning-policy-modal" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
       <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 12, width: 'min(640px, 100%)', padding: 24, maxHeight: '90vh', overflow: 'auto' }}>
-        <h3 style={{ margin: '0 0 16px' }}>Dunning policy</h3>
+        <h3 style={{ margin: '0 0 16px' }}>Payment reminder settings</h3>
 
         <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
           <input type="checkbox" checked={!!form.is_enabled} onChange={(e) => setForm({ ...form, is_enabled: e.target.checked ? 1 : 0 })} data-testid="billing-dunning-policy-enabled" />
-          Enable dunning for this tenant
+          Send payment reminders automatically
         </label>
 
-        <h4 style={{ margin: '16px 0 8px', fontSize: 14 }}>Escalation stages</h4>
+        <h4 style={{ margin: '16px 0 8px', fontSize: 14 }}>Reminder stages</h4>
         {form.schedule.map((s, i) => (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 90px', gap: 8, marginBottom: 6, alignItems: 'center' }} data-testid={`billing-dunning-policy-stage-${i}`}>
             <input className="input" type="number" value={s.days_overdue} onChange={(e) => updateStage(i, 'days_overdue', Number(e.target.value))} placeholder="Days" />
@@ -196,7 +207,7 @@ function PolicyEditor({ policy, onClose, onSaved }) {
           </div>
         ))}
 
-        <h4 style={{ margin: '16px 0 8px', fontSize: 14 }}>Cadence + limits</h4>
+        <h4 style={{ margin: '16px 0 8px', fontSize: 14 }}>Schedule and limits</h4>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <label style={{ fontSize: 12 }}>Days between sends
             <input className="input" type="number" value={form.cadence_days} onChange={(e) => setForm({ ...form, cadence_days: Number(e.target.value) })} data-testid="billing-dunning-policy-cadence" />
@@ -211,7 +222,7 @@ function PolicyEditor({ policy, onClose, onSaved }) {
             <input type="checkbox" checked={!!form.skip_weekends} onChange={(e) => setForm({ ...form, skip_weekends: e.target.checked ? 1 : 0 })} /> Skip weekends
           </label>
         </div>
-        <label style={{ display: 'block', marginTop: 12, fontSize: 12 }}>Do-not-contact clients (comma-separated)
+        <label style={{ display: 'block', marginTop: 12, fontSize: 12 }}>Clients excluded from reminders (comma-separated)
           <textarea className="input" rows={2} value={form.do_not_contact} onChange={(e) => setForm({ ...form, do_not_contact: e.target.value })} data-testid="billing-dunning-policy-dnc" />
         </label>
 
@@ -230,7 +241,7 @@ function AiSuggestionModal({ client, onClose }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} data-testid="billing-dunning-ai-modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 12, width: 'min(480px, 100%)', padding: 24 }}>
-        <h3 style={{ margin: '0 0 8px' }}>✨ Escalation suggestion — {client}</h3>
+        <h3 style={{ margin: '0 0 8px' }}>Payment follow-up suggestion — {client}</h3>
         {loading && <p>Analyzing payment history…</p>}
         {error && <p className="error">{error.message}</p>}
         {data && !data.suggestion && <p style={{ color: 'var(--cf-text-secondary)' }}>No actionable suggestion right now — this client's payment behavior is within normal range or we don't have enough history yet.</p>}

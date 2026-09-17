@@ -1,56 +1,20 @@
 <?php
 /**
- * /app/modules/payroll/lib/csv_import.php
+ * Payroll register CSV import.
  *
- * Upload a payroll register CSV (one row per employee for a single
- * pay period) and create a corresponding `payroll_runs` row +
- * `payroll_line_items` rows for each employee. Mirrors the shape
- * the Gusto sync produces so the existing
- * approval / GL-post / reporting flows work without changes.
- *
- * CSV format (header row required). Aliases are case-insensitive
- * and tolerate `_`, ` `, and special chars:
- *   employee_id | employee_email | employee_name  (one of)
- *   work_state                                    (2-char, defaults to settings default)
- *   pay_type    salary | hourly                   (defaults to 'salary')
- *   pay_rate                                       (dollars; converted to cents)
- *   pay_frequency  weekly|biweekly|semimonthly|monthly  (defaults to 'biweekly')
- *   hours_regular | hours_overtime               (decimals, optional)
- *   gross | gross_pay                              (dollars)
- *   employee_taxes | taxes                         (dollars)
- *   pretax_deductions | pretax                     (dollars, optional)
- *   posttax_deductions | posttax                   (dollars, optional)
- *   net | net_pay                                  (dollars)
- *   employer_taxes                                 (dollars, optional)
- *
- * The importer:
- *   1. Verifies the pay_period_id belongs to the tenant.
- *   2. Creates ONE payroll_runs row in status='computed' with the
- *      run_type provided (default 'regular').
- *   3. Inserts one payroll_line_items row per employee row.
- *   4. Aggregates totals back onto the payroll_runs row.
- *   5. Returns counters + the new run_id.
- *
- * Employees are matched by id → email → name lookup against the
- * `people` table (or whichever employee source the tenant uses).
- * Rows whose employee can't be resolved are skipped + logged.
- *
- *   Returns:
- *   {
- *     run_id, rows_seen, rows_inserted, rows_skipped,
- *     totals: {gross_cents, taxes_cents, deductions_cents, net_cents, employer_taxes_cents},
- *     errors:[...up to 20...]
- *   }
+ * The file is validated in full before any run or line item is changed. An
+ * existing empty draft for the period is reused; a second regular run is
+ * never created accidentally.
  */
 declare(strict_types=1);
 
 function payrollCsvFindColumn(array $headers, array $aliases): ?int
 {
-    foreach ($headers as $i => $h) {
-        $norm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', (string) $h));
-        foreach ($aliases as $a) {
-            $aNorm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $a));
-            if ($norm === $aNorm) return (int) $i;
+    foreach ($headers as $i => $header) {
+        $normalized = strtolower((string) preg_replace('/[^a-z0-9]/i', '', (string) $header));
+        foreach ($aliases as $alias) {
+            $aliasNormalized = strtolower((string) preg_replace('/[^a-z0-9]/i', '', (string) $alias));
+            if ($normalized === $aliasNormalized) return (int) $i;
         }
     }
     return null;
@@ -61,75 +25,157 @@ function payrollCsvParseDollarsToCents(?string $raw): ?int
     if ($raw === null) return null;
     $raw = trim($raw);
     if ($raw === '') return null;
-    $isNegParen = (strlen($raw) >= 2 && $raw[0] === '(' && substr($raw, -1) === ')');
-    if ($isNegParen) $raw = substr($raw, 1, -1);
+    $negativeParentheses = strlen($raw) >= 2 && $raw[0] === '(' && substr($raw, -1) === ')';
+    if ($negativeParentheses) $raw = substr($raw, 1, -1);
     $raw = preg_replace('/[\$£€,]/', '', $raw) ?? '';
-    if ($raw === '' || $raw === '-') return null;
-    if (!is_numeric($raw)) return null;
+    if ($raw === '' || $raw === '-' || !is_numeric($raw)) return null;
     $cents = (int) round(((float) $raw) * 100);
-    return $isNegParen ? -abs($cents) : $cents;
+    return $negativeParentheses ? -abs($cents) : $cents;
 }
 
-function payrollResolveEmployeeId(PDO $pdo, int $tenantId, ?string $idRaw, ?string $email, ?string $name): ?int
+function payrollCsvNormalizeLookup(?string $value): string
 {
-    if ($idRaw !== null && ctype_digit($idRaw) && (int) $idRaw > 0) {
-        $st = $pdo->prepare('SELECT id FROM people WHERE id = :id AND tenant_id = :t LIMIT 1');
-        $st->execute(['id' => (int) $idRaw, 't' => $tenantId]);
-        $id = $st->fetchColumn();
-        if ($id) return (int) $id;
-    }
-    if ($email !== null && $email !== '') {
-        $st = $pdo->prepare(
-            'SELECT id FROM people
-              WHERE tenant_id = :t
-                AND (email_primary = :e1 OR email_secondary = :e2)
-              LIMIT 1'
-        );
-        $st->execute(['t' => $tenantId, 'e1' => strtolower($email), 'e2' => strtolower($email)]);
-        $id = $st->fetchColumn();
-        if ($id) return (int) $id;
-    }
-    if ($name !== null && $name !== '') {
-        // Try first+last split.
-        $parts = preg_split('/\s+/', trim($name), 2);
-        if (is_array($parts) && count($parts) === 2) {
-            $st = $pdo->prepare(
-                'SELECT id FROM people
-                  WHERE tenant_id = :t
-                    AND LOWER(first_name) = LOWER(:f) AND LOWER(last_name) = LOWER(:l)
-                  LIMIT 1'
-            );
-            $st->execute(['t' => $tenantId, 'f' => $parts[0], 'l' => $parts[1]]);
-            $id = $st->fetchColumn();
-            if ($id) return (int) $id;
+    return strtolower(trim((string) preg_replace('/\s+/', ' ', trim((string) $value))));
+}
+
+/** @return array{rows: array<int,array>, by_id: array<string,list<int>>, by_number: array<string,list<int>>, by_email: array<string,list<int>>, by_name: array<string,list<int>>} */
+function payrollCsvEmployeeDirectory(PDO $pdo, int $tenantId): array
+{
+    $stmt = $pdo->prepare(
+        'SELECT id, employee_number, legal_first_name, preferred_name, legal_last_name,
+                work_email, personal_email, status
+           FROM people_employees
+          WHERE tenant_id = :tenant_id'
+    );
+    $stmt->execute(['tenant_id' => $tenantId]);
+    $directory = ['rows' => [], 'by_id' => [], 'by_number' => [], 'by_email' => [], 'by_name' => []];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $employee) {
+        $id = (int) $employee['id'];
+        $directory['rows'][$id] = $employee;
+        $directory['by_id'][(string) $id][] = $id;
+
+        $number = payrollCsvNormalizeLookup($employee['employee_number'] ?? null);
+        if ($number !== '') $directory['by_number'][$number][] = $id;
+        foreach (['work_email', 'personal_email'] as $field) {
+            $email = payrollCsvNormalizeLookup($employee[$field] ?? null);
+            if ($email !== '') $directory['by_email'][$email][] = $id;
+        }
+        $last = trim((string) ($employee['legal_last_name'] ?? ''));
+        foreach ([$employee['legal_first_name'] ?? null, $employee['preferred_name'] ?? null] as $first) {
+            $name = payrollCsvNormalizeLookup(trim((string) $first . ' ' . $last));
+            if ($name !== '') $directory['by_name'][$name][] = $id;
         }
     }
-    return null;
+    foreach (['by_id', 'by_number', 'by_email', 'by_name'] as $index) {
+        foreach ($directory[$index] as $key => $ids) {
+            $directory[$index][$key] = array_values(array_unique(array_map('intval', $ids)));
+        }
+    }
+    return $directory;
 }
 
+/** @return array{employee:?array,error:?string} */
+function payrollCsvResolveEmployee(array $directory, array $identifiers): array
+{
+    $lookups = [
+        'employee_id' => 'by_id',
+        'employee_number' => 'by_number',
+        'employee_email' => 'by_email',
+        'employee_name' => 'by_name',
+    ];
+    $candidateSets = [];
+    $missing = [];
+    foreach ($lookups as $field => $index) {
+        $value = payrollCsvNormalizeLookup($identifiers[$field] ?? null);
+        if ($value === '') continue;
+        $matches = $directory[$index][$value] ?? [];
+        if (!$matches) $missing[] = $field . ' "' . trim((string) $identifiers[$field]) . '"';
+        else $candidateSets[] = $matches;
+    }
+    if (!$candidateSets) {
+        return ['employee' => null, 'error' => $missing
+            ? 'No employee matched ' . implode(', ', $missing)
+            : 'Provide employee_id, employee_number, employee_email, or employee_name'];
+    }
+
+    $matches = array_shift($candidateSets);
+    foreach ($candidateSets as $set) $matches = array_values(array_intersect($matches, $set));
+    if (!$matches) {
+        return ['employee' => null, 'error' => 'Employee identifiers refer to different records'];
+    }
+    if (count($matches) !== 1) {
+        return ['employee' => null, 'error' => 'Employee identifiers are ambiguous; add employee_number or employee_id'];
+    }
+    if ($missing) {
+        return ['employee' => null, 'error' => 'Employee match is inconsistent: ' . implode(', ', $missing) . ' was not found'];
+    }
+    $employee = $directory['rows'][(int) $matches[0]] ?? null;
+    return $employee
+        ? ['employee' => $employee, 'error' => null]
+        : ['employee' => null, 'error' => 'Employee record was not found'];
+}
+
+/** Backwards-compatible helper used by smoke tests and older callers. */
+function payrollResolveEmployeeId(PDO $pdo, int $tenantId, ?string $idRaw, ?string $email, ?string $name): ?int
+{
+    $result = payrollCsvResolveEmployee(payrollCsvEmployeeDirectory($pdo, $tenantId), [
+        'employee_id' => $idRaw,
+        'employee_email' => $email,
+        'employee_name' => $name,
+    ]);
+    return $result['employee'] ? (int) $result['employee']['id'] : null;
+}
+
+function payrollCsvCell(array $row, ?int $column): string
+{
+    return $column === null ? '' : trim((string) ($row[$column] ?? ''));
+}
+
+function payrollCsvParseNumber(string $raw, string $label, int $rowNumber, array &$errors): ?float
+{
+    if ($raw === '') return 0.0;
+    $normalized = str_replace(',', '', $raw);
+    if (!is_numeric($normalized)) {
+        $errors[] = "row {$rowNumber}: {$label} must be numeric";
+        return null;
+    }
+    return (float) $normalized;
+}
+
+function payrollCsvAddError(array &$errors, string $message): void
+{
+    if (count($errors) < 100) $errors[] = $message;
+}
+
+/**
+ * @return array{run_id:?int,rows_seen:int,rows_inserted:int,rows_skipped:int,totals:array,errors:list<string>,warnings:list<string>,reused_draft:bool}
+ */
 function payrollImportRunCsv(
     PDO $pdo,
     int $tenantId,
     int $payPeriodId,
     string $filePath,
-    string $runType = 'regular'
+    string $runType = 'regular',
+    ?int $actorUserId = null
 ): array {
     $summary = [
-        'run_id'         => null,
-        'rows_seen'      => 0,
-        'rows_inserted'  => 0,
-        'rows_skipped'   => 0,
-        'totals'         => [
-            'gross_cents'          => 0,
-            'taxes_cents'          => 0,
-            'deductions_cents'     => 0,
-            'net_cents'            => 0,
+        'run_id' => null,
+        'rows_seen' => 0,
+        'rows_inserted' => 0,
+        'rows_skipped' => 0,
+        'totals' => [
+            'gross_cents' => 0,
+            'taxes_cents' => 0,
+            'deductions_cents' => 0,
+            'net_cents' => 0,
             'employer_taxes_cents' => 0,
         ],
-        'errors'         => [],
+        'errors' => [],
+        'warnings' => [],
+        'reused_draft' => false,
     ];
     if ($tenantId <= 0 || $payPeriodId <= 0) {
-        $summary['errors'][] = 'tenant_id + pay_period_id are required';
+        $summary['errors'][] = 'tenant_id and pay_period_id are required';
         return $summary;
     }
     if (!in_array($runType, ['regular', 'off_cycle', 'correction', 'final'], true)) {
@@ -137,197 +183,415 @@ function payrollImportRunCsv(
         return $summary;
     }
     if (!is_readable($filePath)) {
-        $summary['errors'][] = 'csv file not readable';
+        $summary['errors'][] = 'CSV file is not readable';
         return $summary;
     }
 
-    // Verify pay_period belongs to this tenant.
-    $chk = $pdo->prepare('SELECT id FROM payroll_pay_periods WHERE id = :id AND tenant_id = :t LIMIT 1');
-    $chk->execute(['id' => $payPeriodId, 't' => $tenantId]);
-    if (!$chk->fetchColumn()) {
-        $summary['errors'][] = "pay_period_id {$payPeriodId} not found for this tenant";
+    $periodStmt = $pdo->prepare(
+        'SELECT pp.*, ps.frequency,
+                (SELECT COUNT(*) FROM payroll_pay_cycles pc
+                  WHERE pc.tenant_id = pp.tenant_id AND pc.schedule_id = pp.schedule_id AND pc.active = 1) AS active_cycle_count
+           FROM payroll_pay_periods pp
+           JOIN payroll_pay_schedules ps ON ps.id = pp.schedule_id AND ps.tenant_id = pp.tenant_id
+          WHERE pp.id = :id AND pp.tenant_id = :tenant_id
+          LIMIT 1'
+    );
+    $periodStmt->execute(['id' => $payPeriodId, 'tenant_id' => $tenantId]);
+    $period = $periodStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    if (!$period) {
+        $summary['errors'][] = "Pay period {$payPeriodId} was not found";
+        return $summary;
+    }
+    if (!in_array((string) ($period['status'] ?? ''), ['draft', 'open'], true)) {
+        $summary['errors'][] = 'Payroll can only be imported into a draft or open pay period';
+        return $summary;
+    }
+    $scheduleId = (int) ($period['schedule_id'] ?? 0);
+    $cycleId = (int) ($period['cycle_id'] ?? 0);
+    $activeCycleCount = (int) ($period['active_cycle_count'] ?? 0);
+    if ($cycleId <= 0 && $activeCycleCount > 1) {
+        $summary['errors'][] = 'This pay period is not assigned to a pay cycle, but the schedule has multiple active cycles';
         return $summary;
     }
 
-    $h = fopen($filePath, 'rb');
-    if (!$h) { $summary['errors'][] = 'fopen failed'; return $summary; }
-    $headers = fgetcsv($h);
-    if (!is_array($headers) || empty($headers)) {
-        fclose($h);
-        $summary['errors'][] = 'no header row';
+    $existingStmt = $pdo->prepare(
+        "SELECT r.id, r.status,
+                (SELECT COUNT(*) FROM payroll_line_items li WHERE li.run_id = r.id AND li.tenant_id = r.tenant_id) AS line_count
+           FROM payroll_runs r
+          WHERE r.tenant_id = :tenant_id AND r.pay_period_id = :period_id
+            AND r.run_type = :run_type AND r.status <> 'voided'
+          ORDER BY r.id DESC LIMIT 1"
+    );
+    $existingStmt->execute(['tenant_id' => $tenantId, 'period_id' => $payPeriodId, 'run_type' => $runType]);
+    $existingRun = $existingStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    if ($existingRun && ((string) $existingRun['status'] !== 'draft' || (int) $existingRun['line_count'] > 0)) {
+        $summary['errors'][] = 'A non-empty or already computed ' . $runType . ' run already exists for this pay period';
+        return $summary;
+    }
+
+    $handle = fopen($filePath, 'rb');
+    if (!$handle) {
+        $summary['errors'][] = 'Could not open the CSV file';
+        return $summary;
+    }
+    $headers = fgetcsv($handle);
+    if (!is_array($headers) || !$headers) {
+        fclose($handle);
+        $summary['errors'][] = 'CSV file has no header row';
         return $summary;
     }
     if (isset($headers[0]) && str_starts_with((string) $headers[0], "\xEF\xBB\xBF")) {
         $headers[0] = substr((string) $headers[0], 3);
     }
 
-    $idCol     = payrollCsvFindColumn($headers, ['employee_id', 'employeeid', 'emp_id']);
-    $emailCol  = payrollCsvFindColumn($headers, ['employee_email', 'email']);
-    $nameCol   = payrollCsvFindColumn($headers, ['employee_name', 'name', 'full_name']);
-    $stateCol  = payrollCsvFindColumn($headers, ['work_state', 'state']);
-    $typeCol   = payrollCsvFindColumn($headers, ['pay_type', 'type']);
-    $rateCol   = payrollCsvFindColumn($headers, ['pay_rate', 'rate']);
-    $freqCol   = payrollCsvFindColumn($headers, ['pay_frequency', 'frequency']);
-    $hRegCol   = payrollCsvFindColumn($headers, ['hours_regular', 'regular_hours']);
-    $hOtCol    = payrollCsvFindColumn($headers, ['hours_overtime', 'overtime_hours']);
-    $grossCol  = payrollCsvFindColumn($headers, ['gross', 'gross_pay']);
-    $taxCol    = payrollCsvFindColumn($headers, ['employee_taxes', 'taxes']);
-    $preCol    = payrollCsvFindColumn($headers, ['pretax_deductions', 'pretax']);
-    $postCol   = payrollCsvFindColumn($headers, ['posttax_deductions', 'posttax']);
-    $netCol    = payrollCsvFindColumn($headers, ['net', 'net_pay']);
-    $ertaxCol  = payrollCsvFindColumn($headers, ['employer_taxes', 'er_taxes']);
-
-    if ($idCol === null && $emailCol === null && $nameCol === null) {
-        fclose($h);
-        $summary['errors'][] = 'CSV needs at least one of: employee_id, employee_email, employee_name';
+    $columns = [
+        'employee_id' => payrollCsvFindColumn($headers, ['employee_id', 'employeeid', 'emp_id']),
+        'employee_number' => payrollCsvFindColumn($headers, ['employee_number', 'employee_no', 'employee_num', 'emp_number']),
+        'employee_email' => payrollCsvFindColumn($headers, ['employee_email', 'work_email', 'email']),
+        'employee_name' => payrollCsvFindColumn($headers, ['employee_name', 'name', 'full_name']),
+        'work_state' => payrollCsvFindColumn($headers, ['work_state', 'state']),
+        'payment_method' => payrollCsvFindColumn($headers, ['payment_method', 'payment']),
+        'pay_type' => payrollCsvFindColumn($headers, ['pay_type', 'type']),
+        'pay_rate' => payrollCsvFindColumn($headers, ['pay_rate', 'rate']),
+        'pay_frequency' => payrollCsvFindColumn($headers, ['pay_frequency', 'frequency']),
+        'hours_regular' => payrollCsvFindColumn($headers, ['hours_regular', 'regular_hours']),
+        'hours_overtime' => payrollCsvFindColumn($headers, ['hours_overtime', 'overtime_hours']),
+        'gross' => payrollCsvFindColumn($headers, ['gross', 'gross_pay']),
+        'employee_taxes' => payrollCsvFindColumn($headers, ['employee_taxes', 'taxes']),
+        'pretax_deductions' => payrollCsvFindColumn($headers, ['pretax_deductions', 'pretax']),
+        'posttax_deductions' => payrollCsvFindColumn($headers, ['posttax_deductions', 'posttax']),
+        'net' => payrollCsvFindColumn($headers, ['net', 'net_pay']),
+        'employer_taxes' => payrollCsvFindColumn($headers, ['employer_taxes', 'er_taxes']),
+    ];
+    if ($columns['employee_id'] === null && $columns['employee_number'] === null
+        && $columns['employee_email'] === null && $columns['employee_name'] === null) {
+        fclose($handle);
+        $summary['errors'][] = 'CSV needs employee_id, employee_number, employee_email, or employee_name';
         return $summary;
     }
-    if ($grossCol === null || $netCol === null) {
-        fclose($h);
-        $summary['errors'][] = 'CSV needs both gross and net pay columns';
+    if ($columns['gross'] === null || $columns['net'] === null) {
+        fclose($handle);
+        $summary['errors'][] = 'CSV needs both gross_pay and net_pay columns';
         return $summary;
     }
 
-    // Create the payroll_runs row in a single transaction with the
-    // line-item inserts so a failure leaves no half-state.
-    $now = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? "datetime('now')" : 'NOW()';
-    $ownsTxn = cf_tx_begin($pdo);
-    try {
-        $insRun = $pdo->prepare(
-            'INSERT INTO payroll_runs
-                (tenant_id, pay_period_id, run_type, status, employee_count,
-                 gross_total_cents, taxes_total_cents, deductions_total_cents,
-                 net_total_cents, employer_taxes_cents, computed_at, created_at)
-             VALUES
-                (:t, :pp, :rt, "computed", 0, 0, 0, 0, 0, 0, ' . $now . ', ' . $now . ')'
-        );
-        $insRun->execute(['t' => $tenantId, 'pp' => $payPeriodId, 'rt' => $runType]);
-        $runId = (int) $pdo->lastInsertId();
+    $directory = payrollCsvEmployeeDirectory($pdo, $tenantId);
+    $profileStmt = $pdo->prepare(
+        'SELECT * FROM payroll_profiles WHERE tenant_id = :tenant_id AND employee_id = :employee_id LIMIT 1'
+    );
+    $compStmt = $pdo->prepare(
+        'SELECT * FROM people_compensation
+          WHERE tenant_id = :tenant_id AND employee_id = :employee_id
+            AND effective_from <= :period_end
+            AND (effective_to IS NULL OR effective_to >= :period_start)
+          ORDER BY effective_from DESC, id DESC LIMIT 1'
+    );
 
-        $insLine = $pdo->prepare(
-            'INSERT INTO payroll_line_items
-                (tenant_id, run_id, employee_id, work_state, pay_type, pay_rate_cents,
-                 pay_frequency, hours_regular, hours_overtime,
-                 gross_cents, pretax_cents, taxable_cents,
-                 employee_taxes_cents, posttax_cents, net_cents,
-                 employer_taxes_cents, payment_method, status, created_at)
-             VALUES
-                (:t, :run, :emp, :st, :pt, :pr, :pf, :hr, :hot,
-                 :g, :pre, :tx, :etax, :post, :n, :er, "direct_deposit", "computed", ' . $now . ')'
-        );
+    $validatedRows = [];
+    $seenEmployees = [];
+    $rowNumber = 1;
+    while (($row = fgetcsv($handle)) !== false) {
+        $rowNumber++;
+        $allEmpty = true;
+        foreach ($row as $value) {
+            if (trim((string) $value) !== '') { $allEmpty = false; break; }
+        }
+        if ($allEmpty) continue;
+        $summary['rows_seen']++;
 
-        $rowNum = 1;
-        while (($row = fgetcsv($h)) !== false) {
-            $rowNum++;
-            $summary['rows_seen']++;
-            if ($row === [null] || $row === false) { $summary['rows_skipped']++; continue; }
-            // Skip entirely-empty rows.
-            $allEmpty = true;
-            foreach ($row as $v) { if (trim((string) $v) !== '') { $allEmpty = false; break; } }
-            if ($allEmpty) { $summary['rows_skipped']++; continue; }
+        $identifiers = [];
+        foreach (['employee_id', 'employee_number', 'employee_email', 'employee_name'] as $field) {
+            $identifiers[$field] = payrollCsvCell($row, $columns[$field]);
+        }
+        $resolved = payrollCsvResolveEmployee($directory, $identifiers);
+        if (!$resolved['employee']) {
+            payrollCsvAddError($summary['errors'], "row {$rowNumber}: {$resolved['error']}");
+            $summary['rows_skipped']++;
+            continue;
+        }
+        $employee = $resolved['employee'];
+        $employeeId = (int) $employee['id'];
+        if (isset($seenEmployees[$employeeId])) {
+            payrollCsvAddError($summary['errors'], "row {$rowNumber}: employee appears more than once (first seen on row {$seenEmployees[$employeeId]})");
+            $summary['rows_skipped']++;
+            continue;
+        }
+        $seenEmployees[$employeeId] = $rowNumber;
 
-            $idRaw   = $idCol    !== null ? trim((string) ($row[$idCol]    ?? '')) : null;
-            $email   = $emailCol !== null ? strtolower(trim((string) ($row[$emailCol] ?? ''))) : null;
-            $name    = $nameCol  !== null ? trim((string) ($row[$nameCol]  ?? '')) : null;
-            $empId = payrollResolveEmployeeId($pdo, $tenantId, $idRaw, $email, $name);
-            if ($empId === null) {
-                $summary['rows_skipped']++;
-                if (count($summary['errors']) < 20) {
-                    $summary['errors'][] = "row {$rowNum}: employee not found ('{$idRaw}'/'{$email}'/'{$name}')";
-                }
-                continue;
-            }
-
-            $state = $stateCol !== null ? strtoupper(substr(trim((string) ($row[$stateCol] ?? '')), 0, 2)) : '';
-            if (strlen($state) !== 2) $state = 'XX'; // placeholder if unknown — operator can fix later
-
-            $payType = $typeCol !== null ? strtolower(trim((string) ($row[$typeCol] ?? 'salary'))) : 'salary';
-            if (!in_array($payType, ['salary', 'hourly'], true)) $payType = 'salary';
-
-            $payRateCents = $rateCol !== null ? (payrollCsvParseDollarsToCents((string) ($row[$rateCol] ?? '')) ?? 0) : 0;
-
-            $freq = $freqCol !== null ? strtolower(trim((string) ($row[$freqCol] ?? 'biweekly'))) : 'biweekly';
-            if (!in_array($freq, ['weekly', 'biweekly', 'semimonthly', 'monthly'], true)) $freq = 'biweekly';
-
-            $hReg = $hRegCol !== null ? (float) ($row[$hRegCol] ?? 0) : 0.0;
-            $hOt  = $hOtCol  !== null ? (float) ($row[$hOtCol]  ?? 0) : 0.0;
-
-            $grossC = payrollCsvParseDollarsToCents((string) ($row[$grossCol] ?? ''));
-            $netC   = payrollCsvParseDollarsToCents((string) ($row[$netCol]   ?? ''));
-            if ($grossC === null || $netC === null) {
-                $summary['rows_skipped']++;
-                if (count($summary['errors']) < 20) {
-                    $summary['errors'][] = "row {$rowNum}: missing gross or net";
-                }
-                continue;
-            }
-            $taxC   = $taxCol  !== null ? (payrollCsvParseDollarsToCents((string) ($row[$taxCol]  ?? '')) ?? 0) : 0;
-            $preC   = $preCol  !== null ? (payrollCsvParseDollarsToCents((string) ($row[$preCol]  ?? '')) ?? 0) : 0;
-            $postC  = $postCol !== null ? (payrollCsvParseDollarsToCents((string) ($row[$postCol] ?? '')) ?? 0) : 0;
-            $erC    = $ertaxCol!== null ? (payrollCsvParseDollarsToCents((string) ($row[$ertaxCol]?? '')) ?? 0) : 0;
-
-            try {
-                $insLine->execute([
-                    't'    => $tenantId,
-                    'run'  => $runId,
-                    'emp'  => $empId,
-                    'st'   => $state,
-                    'pt'   => $payType,
-                    'pr'   => $payRateCents,
-                    'pf'   => $freq,
-                    'hr'   => $hReg,
-                    'hot'  => $hOt,
-                    'g'    => $grossC,
-                    'pre'  => $preC,
-                    'tx'   => max(0, $grossC - $preC), // taxable approximation
-                    'etax' => $taxC,
-                    'post' => $postC,
-                    'n'    => $netC,
-                    'er'   => $erC,
-                ]);
-                $summary['rows_inserted']++;
-                $summary['totals']['gross_cents']          += $grossC;
-                $summary['totals']['taxes_cents']          += $taxC;
-                $summary['totals']['deductions_cents']     += ($preC + $postC);
-                $summary['totals']['net_cents']            += $netC;
-                $summary['totals']['employer_taxes_cents'] += $erC;
-            } catch (\Throwable $e) {
-                $summary['rows_skipped']++;
-                if (count($summary['errors']) < 20) {
-                    $summary['errors'][] = "row {$rowNum}: " . $e->getMessage();
-                }
-            }
+        $profileStmt->execute(['tenant_id' => $tenantId, 'employee_id' => $employeeId]);
+        $profile = $profileStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$profile || !(int) ($profile['enabled'] ?? 0)) {
+            payrollCsvAddError($summary['errors'], "row {$rowNumber}: employee does not have an enabled payroll profile");
+            $summary['rows_skipped']++;
+            continue;
+        }
+        if ((int) ($profile['schedule_id'] ?? 0) !== $scheduleId) {
+            payrollCsvAddError($summary['errors'], "row {$rowNumber}: employee belongs to a different pay schedule");
+            $summary['rows_skipped']++;
+            continue;
+        }
+        $profileCycleId = (int) ($profile['cycle_id'] ?? 0);
+        if ($cycleId > 0 && $profileCycleId !== $cycleId && !($profileCycleId === 0 && $activeCycleCount === 1)) {
+            payrollCsvAddError($summary['errors'], "row {$rowNumber}: employee belongs to a different pay cycle");
+            $summary['rows_skipped']++;
+            continue;
         }
 
-        // Roll up totals onto the run.
-        $up = $pdo->prepare(
-            'UPDATE payroll_runs
-                SET employee_count = :ec,
-                    gross_total_cents = :g,
-                    taxes_total_cents = :tx,
-                    deductions_total_cents = :d,
-                    net_total_cents = :n,
-                    employer_taxes_cents = :er
-              WHERE id = :id AND tenant_id = :t'
-        );
-        $up->execute([
-            'ec' => $summary['rows_inserted'],
-            'g'  => $summary['totals']['gross_cents'],
-            'tx' => $summary['totals']['taxes_cents'],
-            'd'  => $summary['totals']['deductions_cents'],
-            'n'  => $summary['totals']['net_cents'],
-            'er' => $summary['totals']['employer_taxes_cents'],
-            'id' => $runId,
-            't'  => $tenantId,
+        $compStmt->execute([
+            'tenant_id' => $tenantId,
+            'employee_id' => $employeeId,
+            'period_end' => (string) $period['period_end'],
+            'period_start' => (string) $period['period_start'],
         ]);
+        $compensation = $compStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
-        cf_tx_commit($pdo, $ownsTxn);
-        $summary['run_id'] = $runId;
-    } catch (\Throwable $e) {
-        cf_tx_rollback($pdo, $ownsTxn);
-        $summary['errors'][] = 'transaction failed: ' . $e->getMessage();
+        $stateRaw = strtoupper(payrollCsvCell($row, $columns['work_state']));
+        $workState = $stateRaw !== '' ? $stateRaw : strtoupper((string) ($profile['work_state'] ?? ''));
+        if (!preg_match('/^[A-Z]{2}$/', $workState)) {
+            payrollCsvAddError($summary['errors'], "row {$rowNumber}: work_state must be a 2-letter code");
+            $summary['rows_skipped']++;
+            continue;
+        }
+        $paymentRaw = strtolower(payrollCsvCell($row, $columns['payment_method']));
+        $paymentMethod = $paymentRaw !== '' ? $paymentRaw : (string) ($profile['payment_method'] ?? '');
+        if (!in_array($paymentMethod, ['direct_deposit', 'check'], true)) {
+            payrollCsvAddError($summary['errors'], "row {$rowNumber}: payment_method must be direct_deposit or check");
+            $summary['rows_skipped']++;
+            continue;
+        }
+
+        $payTypeRaw = strtolower(payrollCsvCell($row, $columns['pay_type']));
+        $payType = $payTypeRaw !== '' ? $payTypeRaw : strtolower((string) ($compensation['pay_type'] ?? ''));
+        $frequencyRaw = strtolower(payrollCsvCell($row, $columns['pay_frequency']));
+        $payFrequency = $frequencyRaw !== '' ? $frequencyRaw : strtolower((string) ($compensation['pay_frequency'] ?? $period['frequency'] ?? ''));
+        $rateRaw = payrollCsvCell($row, $columns['pay_rate']);
+        $payRateCents = $rateRaw !== '' ? payrollCsvParseDollarsToCents($rateRaw) : ($compensation ? (int) $compensation['pay_rate_cents'] : null);
+        if (!in_array($payType, ['salary', 'hourly'], true)) {
+            payrollCsvAddError($summary['errors'], "row {$rowNumber}: pay_type is missing or invalid, and no active compensation record supplied it");
+            $summary['rows_skipped']++;
+            continue;
+        }
+        if (!in_array($payFrequency, ['weekly', 'biweekly', 'semimonthly', 'monthly'], true)) {
+            payrollCsvAddError($summary['errors'], "row {$rowNumber}: pay_frequency is missing or invalid");
+            $summary['rows_skipped']++;
+            continue;
+        }
+        if ($payRateCents === null || $payRateCents < 0) {
+            payrollCsvAddError($summary['errors'], "row {$rowNumber}: pay_rate is missing or invalid, and no active compensation record supplied it");
+            $summary['rows_skipped']++;
+            continue;
+        }
+
+        $hoursRegular = payrollCsvParseNumber(payrollCsvCell($row, $columns['hours_regular']), 'hours_regular', $rowNumber, $summary['errors']);
+        $hoursOvertime = payrollCsvParseNumber(payrollCsvCell($row, $columns['hours_overtime']), 'hours_overtime', $rowNumber, $summary['errors']);
+        if ($hoursRegular === null || $hoursOvertime === null || $hoursRegular < 0 || $hoursOvertime < 0) {
+            if ($hoursRegular !== null && $hoursOvertime !== null) {
+                payrollCsvAddError($summary['errors'], "row {$rowNumber}: hours cannot be negative");
+            }
+            $summary['rows_skipped']++;
+            continue;
+        }
+
+        $money = [];
+        $moneyFields = [
+            'gross_cents' => ['gross', true],
+            'employee_taxes_cents' => ['employee_taxes', false],
+            'pretax_cents' => ['pretax_deductions', false],
+            'posttax_cents' => ['posttax_deductions', false],
+            'net_cents' => ['net', true],
+            'employer_taxes_cents' => ['employer_taxes', false],
+        ];
+        $rowMoneyValid = true;
+        foreach ($moneyFields as $target => [$source, $required]) {
+            $raw = payrollCsvCell($row, $columns[$source]);
+            $value = payrollCsvParseDollarsToCents($raw);
+            if ($value === null && $required) {
+                payrollCsvAddError($summary['errors'], "row {$rowNumber}: {$source} is required and must be numeric");
+                $rowMoneyValid = false;
+            }
+            $money[$target] = $value ?? 0;
+        }
+        if (!$rowMoneyValid) {
+            $summary['rows_skipped']++;
+            continue;
+        }
+        if ($runType !== 'correction' && min($money) < 0) {
+            payrollCsvAddError($summary['errors'], "row {$rowNumber}: negative payroll amounts require run_type correction");
+            $summary['rows_skipped']++;
+            continue;
+        }
+        $expectedNet = $money['gross_cents'] - $money['pretax_cents']
+            - $money['employee_taxes_cents'] - $money['posttax_cents'];
+        if (abs($expectedNet - $money['net_cents']) > 1) {
+            payrollCsvAddError(
+                $summary['errors'],
+                "row {$rowNumber}: net pay is out of balance; gross minus deductions and employee taxes must equal net"
+            );
+            $summary['rows_skipped']++;
+            continue;
+        }
+
+        $validatedRows[] = [
+            'employee_id' => $employeeId,
+            'work_state' => $workState,
+            'payment_method' => $paymentMethod,
+            'pay_type' => $payType,
+            'pay_rate_cents' => $payRateCents,
+            'pay_frequency' => $payFrequency,
+            'hours_regular' => $hoursRegular,
+            'hours_overtime' => $hoursOvertime,
+            'taxable_cents' => max(0, $money['gross_cents'] - $money['pretax_cents']),
+        ] + $money;
+    }
+    fclose($handle);
+
+    if ($summary['errors']) {
+        $summary['rows_skipped'] = max($summary['rows_skipped'], $summary['rows_seen']);
+        $summary['warnings'][] = 'No payroll data was changed because the file did not pass validation.';
+        return $summary;
+    }
+    if (!$validatedRows) {
+        $summary['errors'][] = 'CSV contains no employee payroll rows';
+        return $summary;
     }
 
-    fclose($h);
+    $now = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? "datetime('now')" : 'NOW()';
+    $ownsTransaction = cf_tx_begin($pdo);
+    try {
+        if ($existingRun) {
+            $runId = (int) $existingRun['id'];
+            $summary['reused_draft'] = true;
+        } else {
+            $insertRun = $pdo->prepare(
+                'INSERT INTO payroll_runs
+                    (tenant_id, pay_period_id, run_type, created_by_user_id, status,
+                     employee_count, gross_total_cents, taxes_total_cents,
+                     deductions_total_cents, net_total_cents, employer_taxes_cents,
+                     created_at)
+                 VALUES
+                    (:tenant_id, :period_id, :run_type, :actor_user_id, "draft",
+                     0, 0, 0, 0, 0, 0, ' . $now . ')'
+            );
+            $insertRun->execute([
+                'tenant_id' => $tenantId,
+                'period_id' => $payPeriodId,
+                'run_type' => $runType,
+                'actor_user_id' => $actorUserId,
+            ]);
+            $runId = (int) $pdo->lastInsertId();
+        }
+
+        $insertLine = $pdo->prepare(
+            'INSERT INTO payroll_line_items
+                (tenant_id, run_id, employee_id, work_state, pay_type, pay_rate_cents,
+                 pay_frequency, hours_regular, hours_overtime, gross_cents, pretax_cents,
+                 taxable_cents, employee_taxes_cents, posttax_cents, net_cents,
+                 employer_taxes_cents, payment_method, status, notes, created_at)
+             VALUES
+                (:tenant_id, :run_id, :employee_id, :work_state, :pay_type, :pay_rate_cents,
+                 :pay_frequency, :hours_regular, :hours_overtime, :gross_cents, :pretax_cents,
+                 :taxable_cents, :employee_taxes_cents, :posttax_cents, :net_cents,
+                 :employer_taxes_cents, :payment_method, "computed", :notes, ' . $now . ')'
+        );
+        $insertEarning = $pdo->prepare(
+            'INSERT INTO payroll_earnings
+                (tenant_id, line_item_id, code, hours, rate_cents, amount_cents, taxable, notes, created_at)
+             VALUES (:tenant_id, :line_item_id, "regular", :hours, :rate_cents, :amount_cents, 1, :notes, ' . $now . ')'
+        );
+        $insertDeduction = $pdo->prepare(
+            'INSERT INTO payroll_deductions
+                (tenant_id, line_item_id, code, is_pretax, amount_cents, notes, created_at)
+             VALUES (:tenant_id, :line_item_id, :code, :is_pretax, :amount_cents, :notes, ' . $now . ')'
+        );
+
+        foreach ($validatedRows as $validated) {
+            $insertLine->execute([
+                'tenant_id' => $tenantId,
+                'run_id' => $runId,
+                'employee_id' => $validated['employee_id'],
+                'work_state' => $validated['work_state'],
+                'pay_type' => $validated['pay_type'],
+                'pay_rate_cents' => $validated['pay_rate_cents'],
+                'pay_frequency' => $validated['pay_frequency'],
+                'hours_regular' => $validated['hours_regular'],
+                'hours_overtime' => $validated['hours_overtime'],
+                'gross_cents' => $validated['gross_cents'],
+                'pretax_cents' => $validated['pretax_cents'],
+                'taxable_cents' => $validated['taxable_cents'],
+                'employee_taxes_cents' => $validated['employee_taxes_cents'],
+                'posttax_cents' => $validated['posttax_cents'],
+                'net_cents' => $validated['net_cents'],
+                'employer_taxes_cents' => $validated['employer_taxes_cents'],
+                'payment_method' => $validated['payment_method'],
+                'notes' => 'Imported payroll register; taxes and gross earnings are aggregate values.',
+            ]);
+            $lineItemId = (int) $pdo->lastInsertId();
+            $insertEarning->execute([
+                'tenant_id' => $tenantId,
+                'line_item_id' => $lineItemId,
+                'hours' => $validated['hours_regular'] + $validated['hours_overtime'],
+                'rate_cents' => $validated['pay_rate_cents'],
+                'amount_cents' => $validated['gross_cents'],
+                'notes' => 'Aggregate gross imported from payroll register.',
+            ]);
+            if ((int) $validated['pretax_cents'] !== 0) {
+                $insertDeduction->execute([
+                    'tenant_id' => $tenantId,
+                    'line_item_id' => $lineItemId,
+                    'code' => 'other_pretax',
+                    'is_pretax' => 1,
+                    'amount_cents' => $validated['pretax_cents'],
+                    'notes' => 'Aggregate pre-tax deductions imported from payroll register.',
+                ]);
+            }
+            if ((int) $validated['posttax_cents'] !== 0) {
+                $insertDeduction->execute([
+                    'tenant_id' => $tenantId,
+                    'line_item_id' => $lineItemId,
+                    'code' => 'other_posttax',
+                    'is_pretax' => 0,
+                    'amount_cents' => $validated['posttax_cents'],
+                    'notes' => 'Aggregate post-tax deductions imported from payroll register.',
+                ]);
+            }
+
+            $summary['totals']['gross_cents'] += $validated['gross_cents'];
+            $summary['totals']['taxes_cents'] += $validated['employee_taxes_cents'];
+            $summary['totals']['deductions_cents'] += $validated['pretax_cents'] + $validated['posttax_cents'];
+            $summary['totals']['net_cents'] += $validated['net_cents'];
+            $summary['totals']['employer_taxes_cents'] += $validated['employer_taxes_cents'];
+        }
+
+        $updateRun = $pdo->prepare(
+            'UPDATE payroll_runs
+                SET status = "computed", employee_count = :employee_count,
+                    gross_total_cents = :gross, taxes_total_cents = :taxes,
+                    deductions_total_cents = :deductions, net_total_cents = :net,
+                    employer_taxes_cents = :employer_taxes,
+                    computed_at = ' . $now . ', computed_by_user_id = :actor_user_id,
+                    updated_at = ' . $now . '
+              WHERE id = :run_id AND tenant_id = :tenant_id'
+        );
+        $updateRun->execute([
+            'employee_count' => count($validatedRows),
+            'gross' => $summary['totals']['gross_cents'],
+            'taxes' => $summary['totals']['taxes_cents'],
+            'deductions' => $summary['totals']['deductions_cents'],
+            'net' => $summary['totals']['net_cents'],
+            'employer_taxes' => $summary['totals']['employer_taxes_cents'],
+            'actor_user_id' => $actorUserId,
+            'run_id' => $runId,
+            'tenant_id' => $tenantId,
+        ]);
+
+        cf_tx_commit($pdo, $ownsTransaction);
+        $summary['run_id'] = $runId;
+        $summary['rows_inserted'] = count($validatedRows);
+    } catch (Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTransaction);
+        $summary['run_id'] = null;
+        $summary['rows_inserted'] = 0;
+        $summary['errors'][] = 'Payroll register was not imported: ' . $e->getMessage();
+    }
     return $summary;
 }

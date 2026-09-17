@@ -65,34 +65,40 @@ echo "\nmodules/ap/api/bills_csv_import.php — bills\n";
 $bimp = (string) file_get_contents($ROOT . '/modules/ap/api/bills_csv_import.php');
 $a("registers external_id field",                 $c($bimp, "'external_id'      => ['label' => 'External ID"));
 $a("registers source_system enum field",          $c($bimp, "'source_system'    => ['label' => 'Source system',"));
-$a("idempotency check prefers (src,ext)",         $c($bimp, "ap_bills WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e"));
-$a("scopedInsert writes external_id + source_system",
-                                                  $c($bimp, "'external_id'        => \$externalId,")
-                                               && $c($bimp, "'source_system'      => \$sourceSystem,"));
+$a("idempotency check uses (src,ext) after stable ID",
+                                                  $c($bimp, 'FROM ap_bills')
+                                               && $c($bimp, 'source_system = :s AND external_id = :e'));
+$a("persist payload writes external_id + source_system",
+                                                  $c($bimp, "'external_id'    => \$externalId,")
+                                               && $c($bimp, "'source_system'  => \$sourceSystem,"));
 
 // ----------------------------------------------------------------- Billing
 echo "\nmodules/billing/api/csv_import.php — invoices\n";
 $iimp = (string) file_get_contents($ROOT . '/modules/billing/api/csv_import.php');
 $a("registers external_id field",                 $c($iimp, "'external_id'      => ['label' => 'External ID"));
 $a("registers source_system enum field",          $c($iimp, "'source_system'    => ['label' => 'Source system',"));
-$a("idempotency check prefers (src,ext)",         $c($iimp, "billing_invoices WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e"));
-$a("scopedInsert writes external_id + source_system",
-                                                  $c($iimp, "'external_id'        => \$externalId,")
-                                               && $c($iimp, "'source_system'      => \$sourceSystem,"));
+$a("idempotency check uses (src,ext) after stable ID",
+                                                  $c($iimp, 'FROM billing_invoices')
+                                               && $c($iimp, 'source_system = :s AND external_id = :e'));
+$a("persist payload writes external_id + source_system",
+                                                  $c($iimp, "'external_id'    => \$externalId,")
+                                               && $c($iimp, "'source_system'  => \$sourceSystem,"));
 
 // ----------------------------------------------------------------- Time
 echo "\nmodules/time/api/csv_import.php — time entries\n";
 $timp = (string) file_get_contents($ROOT . '/modules/time/api/csv_import.php');
 $a("registers external_id field",                 $c($timp, "'external_id'           => ['label' => 'External ID"));
 $a("registers source_system enum field",          $c($timp, "'source_system'         => ['label' => 'Source system',"));
-$a("unique_within_batch on external_id",          $c($timp, "'unique_within_batch' => ['external_id']"));
+$a("unique_within_batch on entry and external IDs", $c($timp, "'unique_within_batch' => ['entry_id', 'external_id']"));
 $a("update-existing prefers (src,ext) over composite",
                                                   $c($timp, "AND source_system = :s AND external_id = :e"));
 $a("scopedInsert writes external_id + source_system",
                                                   $c($timp, "'external_id'   => \$externalId,")
                                                && $c($timp, "'source_system' => \$sourceSystem,"));
-$a("approved-status guard preserved on src/ext match",
-                                                  $c($timp, "entry already approved — cannot update; void first"));
+$a("approved and settled rows stay immutable on every update path",
+                                                  $c($timp, "['draft', 'pending_review', 'rejected']")
+                                               && $c($timp, 'cannot be updated by CSV')
+                                               && $c($timp, 'has already been settled and cannot be updated by CSV'));
 
 // ----------------------------------------------------------------- frontend
 echo "\ndashboard/src/components/CsvImportPage.jsx — audit-field UI\n";

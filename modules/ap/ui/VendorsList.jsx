@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
@@ -6,10 +6,17 @@ import ExportTemplatePicker from '../../../dashboard/src/components/ExportTempla
 
 export default function VendorsList() {
   const [q, setQ] = useState('');
-  const path = q ? `/modules/ap/api/vendors.php?q=${encodeURIComponent(q)}` : '/modules/ap/api/vendors.php';
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(50);
+  const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+  if (q.trim()) params.set('q', q.trim());
+  const path = `/modules/ap/api/vendors.php?${params.toString()}`;
   const { data, loading, error, reload } = useApi(path);
   const rows = data?.rows ?? [];
+  const total = Number(data?.total ?? rows.length);
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
   const [showCreate, setShowCreate] = useState(false);
+  useEffect(() => { setPage(1); }, [q, perPage]);
   const buildTemplateExportHref = (tplId) => {
     const params = new URLSearchParams({ template_id: String(tplId) });
     return `/api/v1/ap/csv-export?${params.toString()}`;
@@ -18,7 +25,19 @@ export default function VendorsList() {
   return (
     <section data-testid="ap-vendors-list">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', gap: 8, flexWrap: 'wrap' }}>
-        <input className="input" placeholder="Search vendors…" value={q} onChange={(e) => setQ(e.target.value)} data-testid="ap-vendors-search" style={{ maxWidth: 320 }} />
+        <label style={{ flex: '1 1 260px', maxWidth: 360 }}>
+          <span className="sr-only">Search vendors</span>
+          <input
+            className="input"
+            type="search"
+            aria-label="Search vendors"
+            placeholder="Search vendor name"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            data-testid="ap-vendors-search"
+            style={{ width: '100%' }}
+          />
+        </label>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Link to="csv_import" className="btn" data-testid="ap-vendors-import-csv">Import CSV</Link>
           <a className="btn" href="/api/v1/ap/csv-export" data-testid="ap-vendors-export-csv">Export CSV</a>
@@ -34,6 +53,12 @@ export default function VendorsList() {
 
       {loading && <p>Loading…</p>}
       {error && <p className="error">Error: {error.message}</p>}
+
+      {!loading && !error && (
+        <p className="muted" style={{ margin: '0 0 8px', fontSize: 12 }} data-testid="ap-vendors-count">
+          {total.toLocaleString()} vendor{total === 1 ? '' : 's'}{q.trim() ? ' matching this search' : ''}
+        </p>
+      )}
 
       <table className="data-table" data-testid="ap-vendors-table">
         <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Terms</th><th>PWP?</th><th>Tax ID</th><th>1099?</th><th>Last bill</th><th></th></tr></thead>
@@ -56,6 +81,20 @@ export default function VendorsList() {
           ))}
         </tbody>
       </table>
+
+      {total > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }} data-testid="ap-vendors-pagination">
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+            Rows
+            <select className="input" value={perPage} onChange={(event) => setPerPage(Number(event.target.value))}>
+              {[25, 50, 100, 200].map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </label>
+          <button type="button" className="btn btn--ghost" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1}>Previous</button>
+          <span style={{ fontSize: 12 }}>Page {page} of {totalPages}</span>
+          <button type="button" className="btn btn--ghost" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={page >= totalPages}>Next</button>
+        </div>
+      )}
 
       {showCreate && <VendorCreateModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); reload(); }} />}
     </section>

@@ -2,8 +2,8 @@
 /**
  * Treasury — Liability Accounts API.
  *
- *   GET  → list all liability COA accounts (credit cards, loans, lines of
- *          credit) with current GL balance.
+ *   GET  → list treasury-managed liability accounts (credit cards, loans,
+ *          and lines of credit) with current GL balance.
  *   POST → create a new liability COA account.
  *
  * Liability accounts live in `accounting_accounts` with account_type =
@@ -84,7 +84,7 @@ switch (api_method()) {
                 pa.balance_as_of           AS plaid_balance_as_of,
                 COALESCE(SUM(jel.credit - jel.debit), 0) AS gl_balance
              FROM accounting_accounts aa
-             LEFT JOIN treasury_liability_accounts tla
+             INNER JOIN treasury_liability_accounts tla
                ON tla.tenant_id = aa.tenant_id AND tla.account_id = aa.id
              LEFT JOIN plaid_accounts pa
                ON pa.tenant_id = aa.tenant_id AND pa.account_id = tla.plaid_account_id
@@ -173,10 +173,12 @@ switch (api_method()) {
         $row = scopedFind(
             "SELECT aa.id, aa.code, aa.name
                FROM accounting_accounts aa
+               JOIN treasury_liability_accounts tla
+                 ON tla.tenant_id = aa.tenant_id AND tla.account_id = aa.id
               WHERE aa.tenant_id = :tenant_id AND aa.id = :id AND aa.account_type = 'liability'",
             ['id' => $id]
         );
-        if (!$row) api_error('Liability account not found', 404);
+        if (!$row) api_error('Treasury liability account not found', 404);
 
         $pdo = getDB();
         if ($mode === 'delete') {

@@ -3,6 +3,15 @@ import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 
 const STAGES = ['sourced','screened','submitted','interview','offer','placed','bench','terminated','rejected'];
+const STAGE_LABELS = {
+  sourced: 'Sourced', screened: 'Screened', submitted: 'Submitted', interview: 'Interview',
+  offer: 'Offer', placed: 'Placed', bench: 'Bench', terminated: 'Ended', rejected: 'Rejected',
+};
+const CLASSIFICATION_LABELS = {
+  w2: 'W-2 employee', '1099': '1099 contractor', c2c: 'C2C contractor',
+  temp: 'Temporary worker', perm: 'Permanent employee', candidate: 'Candidate', alumni: 'Former worker',
+};
+const STATUS_LABELS = { active: 'Active', bench: 'Bench', inactive: 'Inactive', do_not_rehire: 'Do not rehire' };
 
 export default function Pipeline() {
   const summaryPath = '/modules/people/api/pipeline.php?summary=1';
@@ -37,7 +46,7 @@ export default function Pipeline() {
               borderRadius: '6px',
             }}
           >
-            {s} <span data-testid={`pipeline-count-${s}`} style={{ opacity: 0.7 }}>({summaryLoading ? '…' : (summary[s] ?? 0)})</span>
+            {STAGE_LABELS[s] || s} <span data-testid={`pipeline-count-${s}`} style={{ opacity: 0.7 }}>({summaryLoading ? '…' : (summary[s] ?? 0)})</span>
           </button>
         ))}
       </div>
@@ -48,13 +57,13 @@ export default function Pipeline() {
       <table className="data-table" data-testid="pipeline-people-table" style={{ width: '100%' }}>
         <thead><tr><th>Name</th><th>Email</th><th>Classification</th><th>Status</th></tr></thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={4} className="empty" data-testid="pipeline-empty">No people in {stage}.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={4} className="empty" data-testid="pipeline-empty">No people in {String(STAGE_LABELS[stage] || stage).toLowerCase()}.</td></tr>}
           {rows.map(p => (
             <tr key={p.id} data-testid={`pipeline-row-${p.id}`}>
               <td><Link to={`../${p.id}`}>{p.preferred_name || p.first_name} {p.last_name}</Link></td>
               <td>{p.email_primary}</td>
-              <td>{p.classification}</td>
-              <td>{p.status}</td>
+              <td>{CLASSIFICATION_LABELS[p.classification] || p.classification}</td>
+              <td>{STATUS_LABELS[p.status] || p.status}</td>
             </tr>
           ))}
         </tbody>

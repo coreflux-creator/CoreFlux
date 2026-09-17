@@ -143,9 +143,9 @@ $assert('audit sender_alias_recorded declared',         strpos($man3, 'time.inta
 
 $ui3 = file_get_contents(__DIR__ . '/../modules/time/ui/TimesheetUpload.jsx');
 $assert('UI calls record_alias after save',             strpos($ui3, 'action=record_alias') !== false);
-$assert('UI sends document_id + person_id',             strpos($ui3, 'document_id: docId') !== false && strpos($ui3, 'person_id:   g.person_id') !== false);
-$assert('UI skips group with no person_id',             strpos($ui3, 'if (!g.person_id) continue;') !== false);
-$assert('UI skips group with no successful save',       strpos($ui3, 'if (!groupHadSave) continue;') !== false);
+$assert('UI sends document_id + person_id',             strpos($ui3, 'document_id: docId') !== false && strpos($ui3, 'person_id: g.person_id') !== false);
+$assert('UI skips unresolved groups for alias learning', strpos($ui3, '!g.person_id || !pending.some') !== false);
+$assert('UI only learns aliases for groups in the committed batch', strpos($ui3, 'row.groupId === g.tmpId') !== false);
 
 // ─── UI ───
 echo "Time intake — UI components\n";

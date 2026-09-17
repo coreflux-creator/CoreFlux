@@ -36,8 +36,8 @@ $checks = [
         && substr_count($staffingMetrics, "'t'=>\$placementsTenantId") === 3,
     'placement type summaries cover all filtered rows' =>
         str_contains($placementLib, "'summary' => \$summary")
-        && str_contains($placementUi, 'W-2 in view')
-        && str_contains($placementUi, 'C2C in view'),
+        && str_contains($placementUi, 'W-2 placements')
+        && str_contains($placementUi, 'C2C placements'),
     'report labels distinguish people from placement events' =>
         str_contains($staffingUi, 'Active people')
         && str_contains($staffingUi, 'Placement starts')

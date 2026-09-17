@@ -121,52 +121,98 @@ if ($method === 'POST' && $action === 'commit') {
     rbac_legacy_require($user, 'billing.payments.record');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
-    $skipInvalid = !empty($_GET['skip_invalid']);
-    $columnMap   = CsvImportService::readRequestColumnMap();
+    $skipInvalid    = !empty($_GET['skip_invalid']);
+    $updateExisting = !empty($_GET['update_existing']);
+    $columnMap      = CsvImportService::readRequestColumnMap();
+    $created = 0;
+    $updated = 0;
 
-    $result = CsvImportService::commit('billing_payments', $csv, function (array $row) use ($user) {
+    $result = CsvImportService::commit('billing_payments', $csv, function (array $row) use ($user, $updateExisting, &$created, &$updated) {
         $amount = (float) $row['amount'];
-        $externalId   = isset($row['external_id'])   && $row['external_id']   !== '' ? (string) $row['external_id']   : null;
-        $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
+        $externalId = isset($row['external_id']) && trim((string) $row['external_id']) !== ''
+            ? trim((string) $row['external_id'])
+            : null;
+        $sourceSystemInput = isset($row['source_system']) ? trim((string) $row['source_system']) : '';
+        $sourceSystem = $sourceSystemInput !== '' ? $sourceSystemInput : 'manual';
+        $paymentId = isset($row['payment_id']) && $row['payment_id'] !== '' ? (int) $row['payment_id'] : 0;
+        $pdo = getDB();
+        $pdo->beginTransaction();
+        try {
+            $existing = null;
+            if ($paymentId > 0) {
+                $existing = scopedFind(
+                    'SELECT id, amount, unallocated_amount, external_id, source_system
+                       FROM billing_payments
+                      WHERE tenant_id = :tenant_id AND id = :id
+                      FOR UPDATE',
+                    ['id' => $paymentId]
+                );
+                if (!$existing) {
+                    throw new RuntimeException("Payment ID {$paymentId} was not found in this workspace");
+                }
+            } elseif ($externalId !== null) {
+                $existing = scopedFind(
+                    'SELECT id, amount, unallocated_amount, external_id, source_system
+                       FROM billing_payments
+                      WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e
+                      FOR UPDATE',
+                    ['s' => $sourceSystem, 'e' => $externalId]
+                );
+            }
 
-        // Idempotent re-import: when external_id is supplied, update the
-        // existing (tenant, source_system, external_id) row instead of
-        // double-crediting the client. Falls through to a plain INSERT
-        // for manual one-offs.
-        if ($externalId !== null) {
-            $existing = scopedFind(
-                'SELECT id FROM billing_payments
-                  WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
-                ['s' => $sourceSystem, 'e' => $externalId]
-            );
             if ($existing) {
+                if (!$updateExisting) {
+                    throw new RuntimeException('Receipt #' . $existing['id'] . ' already exists; enable Update matching editable records to change it');
+                }
+                $allocStmt = $pdo->prepare('SELECT COUNT(*) FROM billing_payment_allocations WHERE payment_id = :id');
+                $allocStmt->execute(['id' => (int) $existing['id']]);
+                $hasAllocations = (int) $allocStmt->fetchColumn() > 0;
+                $fullyUnallocated = abs((float) $existing['amount'] - (float) $existing['unallocated_amount']) < 0.005;
+                if ($hasAllocations || !$fullyUnallocated) {
+                    throw new RuntimeException('Only fully unallocated customer receipts can be updated by CSV');
+                }
                 scopedUpdate('billing_payments', (int) $existing['id'], [
                     'client_name'        => $row['client_name'],
                     'received_at'        => $row['received_at'],
                     'method'             => $row['method']    ?? 'ach',
                     'reference'          => $row['reference'] ?? null,
+                    'external_id'        => $externalId ?? ($existing['external_id'] ?? null),
+                    'source_system'      => $sourceSystemInput !== '' ? $sourceSystem : ($existing['source_system'] ?? 'manual'),
                     'amount'             => $amount,
                     'currency'           => $row['currency']  ?? 'USD',
+                    'unallocated_amount' => $amount,
                     'notes'              => $row['notes']     ?? null,
                 ]);
+                $updated++;
+                $pdo->commit();
                 return (int) $existing['id'];
             }
-        }
 
-        return scopedInsert('billing_payments', [
-            'client_name'        => $row['client_name'],
-            'received_at'        => $row['received_at'],
-            'method'             => $row['method']    ?? 'ach',
-            'reference'          => $row['reference'] ?? null,
-            'external_id'        => $externalId,
-            'source_system'      => $sourceSystem,
-            'amount'             => $amount,
-            'currency'           => $row['currency']  ?? 'USD',
-            'unallocated_amount' => $amount,
-            'notes'              => $row['notes']     ?? null,
-            'created_by_user_id' => $user['id']       ?? null,
-        ]);
+            $id = scopedInsert('billing_payments', [
+                'client_name'        => $row['client_name'],
+                'received_at'        => $row['received_at'],
+                'method'             => $row['method']    ?? 'ach',
+                'reference'          => $row['reference'] ?? null,
+                'external_id'        => $externalId,
+                'source_system'      => $sourceSystem,
+                'amount'             => $amount,
+                'currency'           => $row['currency']  ?? 'USD',
+                'unallocated_amount' => $amount,
+                'notes'              => $row['notes']     ?? null,
+                'created_by_user_id' => $user['id']       ?? null,
+            ]);
+            $created++;
+            $pdo->commit();
+            return $id;
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
+
+    $result['created_count'] = $created;
+    $result['updated_count'] = $updated;
+    $result['update_existing'] = $updateExisting;
 
     api_ok($result);
 }

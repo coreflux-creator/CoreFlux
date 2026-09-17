@@ -320,6 +320,7 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
     $entries = scopedQuery(
         'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.category, te.hour_type,
                 te.hours, te.billable, te.payable, te.status, te.description, te.rate_snapshot_id,
+                te.bill_extracted_at, te.bill_extracted_ref,
                 p.title AS placement_title, p.end_client_name,
                 pe.first_name, pe.last_name
            FROM time_entries te
@@ -337,6 +338,12 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
     // accident from a mixed picker).
     $billable = [];
     foreach ($entries as $e) {
+        if (!empty($e['bill_extracted_at'])) {
+            $invoiceRef = (int) ($e['bill_extracted_ref'] ?? 0);
+            throw new \DomainException(
+                "Entry #{$e['id']} is already included in invoice" . ($invoiceRef > 0 ? " #{$invoiceRef}" : '') . '.'
+            );
+        }
         if ((int) $e['billable'] !== 1) continue;
         if (!in_array((string) $e['status'], ['approved','locked','billing_ready','payroll_ready'], true)) {
             throw new \RuntimeException(
@@ -523,8 +530,8 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
 /**
  * Batch 4+ (2026-02) — AI-assisted invoice suggestion per placement.
  *
- * Given a placement, find every approved billable entry since the last
- * invoice was raised for that placement, then propose:
+ * Given a placement, find every approved billable entry that has not yet
+ * been included in an invoice, then propose:
  *   - An aggregation strategy (rule-based, not AI):
  *       • span ≤ 7 days       → per_placement (consolidated weekly)
  *       • > 7 days, 1 worker  → per_day        (each day billable)
@@ -553,8 +560,9 @@ function billingSuggestInvoiceForPlacement(int $tenantId, int $placementId, ?int
     $pl = $plStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     if (!$pl) throw new \RuntimeException('Placement not found');
 
-    // Look up the last invoice for this placement (via any line that
-    // referenced one of its bundles or entries) so we don't double-bill.
+    // The most recent invoice is useful context for the operator, but it is
+    // not an eligibility cutoff. An older approved entry may still be
+    // legitimately unbilled, so the extraction stamp below is authoritative.
     $lastInv = scopedFind(
         'SELECT MAX(i.issue_date) AS last_invoice_date
            FROM billing_invoices i
@@ -564,19 +572,19 @@ function billingSuggestInvoiceForPlacement(int $tenantId, int $placementId, ?int
             AND i.status NOT IN ("void")',
         ['pid' => $placementId]
     );
-    $cutoff = $lastInv['last_invoice_date'] ?? null;
+    $lastInvoiceDate = $lastInv['last_invoice_date'] ?? null;
 
-    // Pull every approved billable entry for this placement since the
-    // cutoff. Same status filter as the from-time-entries flow.
+    // Pull every approved, billable, unbilled entry for this placement.
+    // bill_extracted_at is stamped atomically when the draft is created.
     $where  = [
         'te.tenant_id = :tenant_id',
         'te.placement_id = :pid',
         "te.status IN ('approved','locked','billing_ready','payroll_ready')",
         'te.billable = 1',
         'te.hours > 0',
+        'te.bill_extracted_at IS NULL',
     ];
     $params = ['pid' => $placementId];
-    if ($cutoff) { $where[] = 'te.work_date > :cutoff'; $params['cutoff'] = $cutoff; }
     timeRepairApprovedRateSnapshots($tenantId, ['placement_id' => $placementId], 5000);
     $entries = scopedQuery(
         'SELECT te.id, te.work_date, te.category, te.hour_type, te.hours, te.person_id, te.description, te.rate_snapshot_id,
@@ -680,7 +688,7 @@ function billingSuggestInvoiceForPlacement(int $tenantId, int $placementId, ?int
             'client_name'     => $clientName,
             'engagement_type' => $pl['engagement_type'] ?? null,
         ],
-        'last_invoice_date' => $cutoff,
+        'last_invoice_date' => $lastInvoiceDate,
         'period' => [
             'min_date'      => $minDate,
             'max_date'      => $maxDate,

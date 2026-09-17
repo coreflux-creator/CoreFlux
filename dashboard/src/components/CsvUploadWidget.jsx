@@ -23,6 +23,8 @@ export default function CsvUploadWidget({
   accept       = '.csv,text/csv,text/plain',
   label        = 'Upload CSV',
   hint         = null,
+  templateHref = null,
+  templateLabel = 'Download template',
   onSuccess    = null,
 }) {
   const [file,    setFile]    = useState(null);
@@ -75,6 +77,16 @@ export default function CsvUploadWidget({
         </p>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {templateHref && (
+          <a
+            data-testid={`${testIdPrefix}-template`}
+            href={`${window.__CF_API_BASE__ || ''}${templateHref}`}
+            className="btn btn--ghost"
+            style={{ fontSize: 12 }}
+          >
+            {templateLabel}
+          </a>
+        )}
         <input
           data-testid={`${testIdPrefix}-file`}
           type="file"
@@ -113,6 +125,7 @@ export default function CsvUploadWidget({
             <> · <em>{result.rows_skipped} skipped</em></>
           )}
           {result.run_id && <> · run_id <code>{result.run_id}</code></>}
+          {result.reused_draft && <> · updated the existing draft</>}
           {result.date_range && Array.isArray(result.date_range) && result.date_range[0] && (
             <> · range {result.date_range[0]} → {result.date_range[1]}</>
           )}
@@ -127,6 +140,13 @@ export default function CsvUploadWidget({
                 )}
               </ul>
             </details>
+          )}
+          {Array.isArray(result.warnings) && result.warnings.length > 0 && (
+            <ul style={{ margin: '6px 0 0 16px', padding: 0, color: '#92400e' }}>
+              {result.warnings.map((warning, index) => (
+                <li key={index} style={{ fontSize: 11 }}>{warning}</li>
+              ))}
+            </ul>
           )}
         </div>
       )}

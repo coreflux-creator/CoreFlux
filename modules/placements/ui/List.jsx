@@ -13,6 +13,32 @@ import {
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
 const ETYPES   = ['', 'w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal'];
+const STATUS_LABELS = {
+  '': 'All statuses',
+  draft: 'Draft',
+  pending_start: 'Starting soon',
+  active: 'Active',
+  on_hold: 'On hold',
+  ended: 'Ended',
+  cancelled: 'Cancelled',
+};
+const ETYPE_LABELS = {
+  '': 'All worker types',
+  w2: 'W-2 employee',
+  1099: '1099 contractor',
+  c2c: 'C2C contractor',
+  temp_to_perm: 'Temp-to-perm',
+  direct_hire: 'Direct hire',
+  internal: 'Internal employee',
+};
+const REMOTE_LABELS = { onsite: 'On-site', hybrid: 'Hybrid', remote: 'Remote' };
+
+function placementValueLabel(field, value) {
+  if (field === 'status') return STATUS_LABELS[value] || value;
+  if (field === 'engagement_type') return ETYPE_LABELS[value] || value;
+  if (field === 'remote_policy') return REMOTE_LABELS[value] || value;
+  return String(value || '').replaceAll('_', ' ');
+}
 
 export default function List() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -112,11 +138,11 @@ export default function List() {
   const bulkFields = useMemo(() => [
     {
       key: 'status', label: 'Status', type: 'select', placeholder: 'Choose status',
-      options: STATUSES.filter(Boolean).map(value => ({ value, label: value.replaceAll('_', ' ') })),
+      options: STATUSES.filter(Boolean).map(value => ({ value, label: STATUS_LABELS[value] })),
     },
     {
       key: 'engagement_type', label: 'Worker type', type: 'select', placeholder: 'Choose worker type',
-      options: ETYPES.filter(Boolean).map(value => ({ value, label: value.replaceAll('_', ' ') })),
+      options: ETYPES.filter(Boolean).map(value => ({ value, label: ETYPE_LABELS[value] })),
     },
     {
       key: 'end_client_company_id', label: 'End client', type: 'select', placeholder: 'Choose client',
@@ -124,7 +150,7 @@ export default function List() {
     },
     {
       key: 'remote_policy', label: 'Remote policy', type: 'select', placeholder: 'Choose policy',
-      options: ['onsite', 'hybrid', 'remote'].map(value => ({ value, label: value })),
+      options: ['onsite', 'hybrid', 'remote'].map(value => ({ value, label: REMOTE_LABELS[value] })),
     },
     { key: 'worksite_state', label: 'Worksite state', type: 'text', placeholder: 'State or province' },
     { key: 'worksite_country', label: 'Worksite country', type: 'text', placeholder: 'Country code' },
@@ -197,8 +223,8 @@ export default function List() {
 
       <div className="page-kpi-strip" aria-label="Placement summary">
         <PageKpi label={status === 'active' ? 'Active' : 'Matching placements'} value={total} />
-        <PageKpi label="W-2 in view" value={summary.w2 ?? 0} />
-        <PageKpi label="C2C in view" value={summary.c2c ?? 0} />
+        <PageKpi label="W-2 placements" value={summary.w2 ?? 0} />
+        <PageKpi label="C2C placements" value={summary.c2c ?? 0} />
         <PageKpi label="Ending in 30 days" value={summary.ending_30d ?? 0} tone="amber" />
       </div>
 
@@ -224,10 +250,10 @@ export default function List() {
         </div>
         <div className="directory-filter-bar__filters">
           <select className="input" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }} aria-label="Placement status" data-testid="placements-status-filter">
-            {STATUSES.map(s => <option key={s} value={s}>{s === '' ? 'All statuses' : s.replaceAll('_', ' ')}</option>)}
+            {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
           </select>
           <select className="input" value={engagementType} onChange={e => { setETYPE(e.target.value); setPage(1); }} aria-label="Worker type" data-testid="placements-etype-filter">
-            {ETYPES.map(s => <option key={s} value={s}>{s === '' ? 'All worker types' : s.replaceAll('_', ' ')}</option>)}
+            {ETYPES.map(s => <option key={s} value={s}>{ETYPE_LABELS[s]}</option>)}
           </select>
           <select className="input" value={endClientCompanyId} onChange={e => { setEndClientCompanyId(e.target.value); setPage(1); }} aria-label="End client" data-testid="placements-client-filter">
             <option value="">All end clients</option>
@@ -262,7 +288,7 @@ export default function List() {
         >
           {bulkResult.error
             ? <>Bulk update failed: {bulkResult.error}</>
-            : <>Updated <strong>{bulkResult.updated}</strong>{bulkResult.skipped ? <>, skipped {bulkResult.skipped}</> : null}{bulkResult.failed ? <>, failed {bulkResult.failed}</> : null} · {bulkResult.label} set to <strong>{String(bulkResult.value).replaceAll('_', ' ')}</strong>.</>
+            : <>Updated <strong>{bulkResult.updated}</strong>{bulkResult.skipped ? <>, skipped {bulkResult.skipped}</> : null}{bulkResult.failed ? <>, failed {bulkResult.failed}</> : null} · {bulkResult.label} set to <strong>{placementValueLabel(bulkResult.field, bulkResult.value)}</strong>.</>
           }
         </div>
       )}
@@ -342,8 +368,8 @@ export default function List() {
                   </Link>
                 ) : <span className="entity-secondary">{p.end_client_display_name || p.end_client_name || 'No client linked'}</span>}
               </td>
-              <td><span className={`badge badge--${p.engagement_type}`}>{p.engagement_type}</span></td>
-              <td><span className={`badge badge--${p.status}`}>{String(p.status || '').replaceAll('_', ' ')}</span></td>
+              <td><span className={`badge badge--${p.engagement_type}`}>{ETYPE_LABELS[p.engagement_type] || p.engagement_type}</span></td>
+              <td><span className={`badge badge--${p.status}`}>{STATUS_LABELS[p.status] || p.status}</span></td>
               <td className="numeric-cell">{formatRate(p.current_invoice_rate)}</td>
               <td className="numeric-cell">{formatRate(p.current_loaded_cost)}</td>
               <td className={`numeric-cell ${marginTone(p.current_margin_pct)}`}>

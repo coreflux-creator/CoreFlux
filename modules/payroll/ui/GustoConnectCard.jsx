@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { Settings2, Unplug, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
 
 /**
@@ -21,13 +23,14 @@ export default function GustoConnectCard() {
     company_uuid: '', company_name: '', access_token: '', refresh_token: '',
   });
   const [manualBusy, setManualBusy] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   const load = async () => {
     setState((s) => ({ ...s, loading: true }));
     try {
       const data = await api.get('/modules/payroll/api/gusto_connect.php');
       setState({ loading: false, ...data });
-    } catch (e) { setErr(e.message); setState({ loading: false }); }
+    } catch { setErr('Could not load the Gusto connection. Try again.'); setState({ loading: false }); }
   };
 
   useEffect(() => {
@@ -65,9 +68,13 @@ export default function GustoConnectCard() {
   };
 
   const disconnect = async () => {
-    if (!window.confirm('Disconnect Gusto? Existing payroll runs will keep their submission history. You can reconnect at any time.')) return;
-    try { await api.delete('/modules/payroll/api/gusto_connect.php'); await load(); }
-    catch (e) { setErr(e.message); }
+    try {
+      await api.delete('/modules/payroll/api/gusto_connect.php');
+      setConfirmDisconnect(false);
+      await load();
+    } catch {
+      setErr('Could not disconnect Gusto. Try again.');
+    }
   };
 
   if (state.loading) {
@@ -86,30 +93,28 @@ export default function GustoConnectCard() {
         >
           {bounce.ok
             ? 'Gusto connected successfully.'
-            : `Gusto connect failed: ${bounce.reason || 'unknown'}${bounce.detail ? ` — ${bounce.detail}` : ''}`}
+            : "We couldn't connect Gusto. Try again; if it keeps happening, ask a workspace administrator to review the connection."}
         </div>
       )}
 
       {!state.configured && (
-        <p className="muted" data-testid="gusto-connect-not-configured">
-          Gusto OAuth keys are not configured on this host. Add{' '}
-          <code>GUSTO_CLIENT_ID</code>, <code>GUSTO_CLIENT_SECRET</code>, and{' '}
-          <code>GUSTO_REDIRECT_URI</code> to <code>core/config.local.php</code> and re-deploy.
-        </p>
+        <div className="operational-state" data-testid="gusto-connect-not-configured" style={{ padding: 12 }}>
+          <strong>Gusto isn't enabled for this workspace yet.</strong>
+          <p className="muted" style={{ margin: '6px 0 0' }}>
+            A workspace administrator can finish the connection setup. You can still run payroll in CoreFlux and export the results.
+          </p>
+          <Link className="btn btn--ghost btn--sm" to="/admin/integrations" style={{ marginTop: 10 }}>
+            <Settings2 size={14} aria-hidden="true" /> Open Connections
+          </Link>
+        </div>
       )}
 
       {state.configured && !state.connection && (
         <>
           <p>
-            Connect Gusto to submit payroll runs over the API instead of the manual CSV-paste flow.
-            Connecting opens a Gusto window where you sign in and authorize the {state.env} environment;
-            you'll come back here automatically.
+            Connect Gusto to keep employee setup and payroll information in sync. You'll sign in with Gusto and return here automatically.
           </p>
-          <p className="muted">
-            <strong>Scopes:</strong> companies:read · employees:read · payrolls:read/write · pay_schedules:read · compensations:read · jobs:read.
-            <br />
-            <strong>Environment:</strong> <span data-testid="gusto-connect-env">{state.env}</span>
-          </p>
+          {state.env === 'sandbox' && <p className="muted" data-testid="gusto-connect-env">Sandbox connection</p>}
           <button
             type="button"
             className="btn btn--primary"
@@ -214,17 +219,29 @@ export default function GustoConnectCard() {
           </p>
           {state.connection.last_error && (
             <p className="error" data-testid="gusto-connect-last-error">
-              Last error: {state.connection.last_error}
+              Gusto needs attention. Try reconnecting; if the problem continues, ask a workspace administrator to review the connection.
             </p>
           )}
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={disconnect}
-            data-testid="gusto-connect-disconnect-btn"
-          >
-            Disconnect
-          </button>
+          {!confirmDisconnect ? (
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => setConfirmDisconnect(true)}
+              data-testid="gusto-connect-disconnect-btn"
+            >
+              <Unplug size={15} aria-hidden="true" /> Disconnect
+            </button>
+          ) : (
+            <div className="operational-state" data-testid="gusto-connect-disconnect-confirm" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: 10 }}>
+              <span style={{ fontSize: 13 }}>Disconnect Gusto? Existing payroll runs will keep their history.</span>
+              <button type="button" className="btn btn--danger btn--sm" onClick={disconnect}>
+                <Unplug size={14} aria-hidden="true" /> Disconnect Gusto
+              </button>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setConfirmDisconnect(false)} title="Cancel">
+                <X size={14} aria-hidden="true" />
+              </button>
+            </div>
+          )}
           <GustoTrackBSyncPanel />
         </div>
       )}
@@ -242,12 +259,7 @@ function GustoTrackBSyncPanel() {
   const run = async (action, label) => {
     setBusy(action); setErr(null); setResult(null);
     try {
-      const res = await fetch(`/modules/payroll/api/gusto_sync.php?action=${action}`, {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `${label} failed`);
+      const data = await api.post(`/modules/payroll/api/gusto_sync.php?action=${action}`, {});
       setResult({ label, data });
     } catch (e) {
       setErr(e.message);
@@ -258,11 +270,10 @@ function GustoTrackBSyncPanel() {
 
   return (
     <div data-testid="gusto-track-b-panel" style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--cf-border)' }}>
-      <h4 style={{ marginTop: 0 }}>Track B sync (production-prep)</h4>
+      <h4 style={{ marginTop: 0 }}>Gusto synchronization</h4>
       <p className="muted" style={{ fontSize: 13 }}>
-        Push employees, pay schedules, and compensations into Gusto so each
-        payroll run has a real-time mirror. Required by Gusto for production
-        approval. Idempotent — safe to re-run.
+        Keep employees, schedules, compensation, and payroll status aligned with Gusto.
+        Re-running a sync updates existing records instead of creating duplicates.
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <button onClick={() => run('employees', 'Employees')} disabled={!!busy}
@@ -279,18 +290,19 @@ function GustoTrackBSyncPanel() {
         </button>
         <button onClick={() => run('webhook_subscribe', 'Webhook subscription')} disabled={!!busy}
                 className="btn btn--ghost" data-testid="gusto-sync-webhook-btn">
-          {busy === 'webhook_subscribe' ? 'Subscribing…' : 'Subscribe to webhooks'}
+          {busy === 'webhook_subscribe' ? 'Setting up…' : 'Set up status updates'}
         </button>
         <button onClick={() => run('all', 'Full sync')} disabled={!!busy}
                 className="btn btn--primary" data-testid="gusto-sync-all-btn">
-          {busy === 'all' ? 'Running full sync…' : 'Run full sync'}
+          {busy === 'all' ? 'Syncing all data…' : 'Sync all payroll data'}
         </button>
       </div>
       {err && <p className="error" data-testid="gusto-track-b-error">{err}</p>}
       {result && (
-        <pre data-testid="gusto-track-b-result" style={{ marginTop: 12, fontSize: 12, background: 'var(--cf-bg-elev)', padding: 12, borderRadius: 4, maxHeight: 300, overflow: 'auto' }}>
-          {result.label}: {JSON.stringify(result.data, null, 2)}
-        </pre>
+        <div className="alert alert--ok" data-testid="gusto-track-b-result" style={{ marginTop: 12 }}>
+          <strong>{result.label} completed.</strong>
+          {result.data?.message ? ` ${result.data.message}` : ''}
+        </div>
       )}
     </div>
   );

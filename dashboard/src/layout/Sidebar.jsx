@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   BarChart3, BookOpen, Briefcase, Building2, CalendarCheck, CheckSquare,
   Clock3, CreditCard, Gauge, Inbox, LayoutGrid, Link2, ListChecks,
-  Receipt, Settings, Sparkles, Users, Wallet,
+  Receipt, Settings, Sparkles, Upload, Users, Wallet,
 } from 'lucide-react';
 
 const corefluxMark = '/assets/brand/coreflux-mark.png';
@@ -87,7 +87,10 @@ const Sidebar = ({ session, onModuleChange }) => {
             <SidebarLink item={{ label: 'Month-end close', to: '/modules/accounting/close', Icon: CheckSquare }} active={location.pathname.startsWith('/modules/accounting/close')} />
           )}
           {isAdmin && (
-            <SidebarLink item={{ label: 'Connections', to: '/admin/integrations', Icon: Link2 }} active={location.pathname.startsWith('/admin/integrations')} />
+            <>
+              <SidebarLink item={{ label: 'Data import / export', to: '/data/bulk-import', Icon: Upload }} active={location.pathname.startsWith('/data/')} />
+              <SidebarLink item={{ label: 'Connections', to: '/admin/integrations', Icon: Link2 }} active={location.pathname.startsWith('/admin/integrations')} />
+            </>
           )}
         </SidebarGroup>
       </nav>

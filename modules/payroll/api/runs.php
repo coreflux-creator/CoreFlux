@@ -9,6 +9,7 @@
  *                               → compute / recompute all line items in a run
  * POST { run_id, action='approve' } → mark run approved (and period 'approved')
  * POST { run_id, action='paid' }   → mark run paid
+ * POST { run_id, action='post' }   → idempotently post all currently due GL legs
  *
  * Compute is DETERMINISTIC and produces all numbers. AI never participates.
  */
@@ -21,6 +22,7 @@ require_once __DIR__ . '/../lib/payroll.php';
 require_once __DIR__ . '/../lib/compute.php';
 require_once __DIR__ . '/../lib/anomalies.php';
 require_once __DIR__ . '/../lib/workflow.php';
+require_once __DIR__ . '/../lib/accounting_posting.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -186,9 +188,12 @@ switch (api_method()) {
             api_ok(_payrollRunDetail($id));
         }
         $rows = scopedQuery(
-            'SELECT r.*, pp.period_start, pp.period_end, pp.pay_date, pp.schedule_id
+            'SELECT r.*, pp.period_start, pp.period_end, pp.pay_date, pp.schedule_id, pp.cycle_id,
+                    ps.name AS schedule_name, pc.name AS cycle_name
              FROM payroll_runs r
              JOIN payroll_pay_periods pp ON pp.id = r.pay_period_id AND pp.tenant_id = r.tenant_id
+             JOIN payroll_pay_schedules ps ON ps.id = pp.schedule_id AND ps.tenant_id = pp.tenant_id
+        LEFT JOIN payroll_pay_cycles pc ON pc.id = pp.cycle_id AND pc.tenant_id = pp.tenant_id
              WHERE r.tenant_id = :tenant_id
              ORDER BY pp.pay_date DESC, r.id DESC LIMIT 50'
         );
@@ -207,9 +212,26 @@ switch (api_method()) {
                 ['id' => (int) $body['pay_period_id']]
             );
             if (!$period) api_error('Pay period not found', 404);
+            if (in_array((string) ($period['status'] ?? ''), ['paid', 'closed'], true)) {
+                api_error('This pay period is already closed', 409);
+            }
+            $runType = (string) ($body['run_type'] ?? 'regular');
+            if (!in_array($runType, ['regular', 'off_cycle', 'correction', 'final'], true)) {
+                api_error('Invalid run_type', 422);
+            }
+            $existingRun = scopedFind(
+                "SELECT id, status FROM payroll_runs
+                  WHERE tenant_id = :tenant_id AND pay_period_id = :period_id
+                    AND run_type = :run_type AND status <> 'voided'
+                  ORDER BY id DESC LIMIT 1",
+                ['period_id' => (int) $body['pay_period_id'], 'run_type' => $runType]
+            );
+            if ($existingRun) {
+                api_ok(['id' => (int) $existingRun['id'], 'status' => $existingRun['status'], 'existing' => true]);
+            }
             $runId = scopedInsert('payroll_runs', [
                 'pay_period_id' => (int) $body['pay_period_id'],
-                'run_type'      => $body['run_type'] ?? 'regular',
+                'run_type'      => $runType,
                 'created_by_user_id' => $user['id'] ?? null,
                 'status'        => 'draft',
             ]);
@@ -275,17 +297,62 @@ switch (api_method()) {
                 api_error('Could not apply payroll approval workflow', 503);
             }
             $detail = _payrollRunDetail($runId);
+            $accountingWarning = null;
+            $posting = null;
+            if (($detail['run']['status'] ?? '') === 'approved') {
+                $postingSettings = payrollAccountingPostingSettings((int) currentTenantId());
+                if (!empty($postingSettings['auto_post_to_ledger'])) {
+                    try {
+                        $posting = payrollPostRunAccrual((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
+                        $detail = _payrollRunDetail($runId);
+                    } catch (\Throwable $e) {
+                        $accountingWarning = $e->getMessage();
+                    }
+                }
+            }
             api_ok([
                 'ok' => true,
                 'status' => $detail['run']['status'] ?? $run['status'],
                 'workflow_instance_id' => $workflow['instance']['id'] ?? ($run['workflow_instance_id'] ?? null),
                 'workflow_status' => $workflow['instance']['status'] ?? null,
+                'accounting' => $detail['accounting'] ?? null,
+                'accounting_post' => $posting,
+                'accounting_warning' => $accountingWarning,
+            ]);
+        }
+        if ($action === 'post') {
+            rbac_legacy_require($user, 'payroll.run.post');
+            _payrollRequireStatus($run, ['approved', 'paid'], 'Post to ledger');
+            try {
+                $accrual = payrollPostRunAccrual((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
+                $cash = null;
+                if (($run['status'] ?? '') === 'paid') {
+                    $cash = payrollPostRunCash((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
+                }
+            } catch (\Throwable $e) {
+                api_error('Payroll GL post failed: ' . $e->getMessage(), 422);
+            }
+            $detail = _payrollRunDetail($runId);
+            api_ok([
+                'ok' => true,
+                'accrual' => $accrual,
+                'cash' => $cash,
+                'accounting' => $detail['accounting'] ?? null,
             ]);
         }
         if ($action === 'paid') {
             rbac_legacy_require($user, 'payroll.run.disburse');
             _payrollRequireStatus($run, ['approved'], 'Mark paid');
             _payrollDenySameActor((int) ($run['approved_by'] ?? 0), $user, 'Approver cannot mark the same payroll run paid');
+            $postingSettings = payrollAccountingPostingSettings((int) currentTenantId());
+            if (!empty($postingSettings['auto_post_to_ledger'])) {
+                rbac_legacy_require($user, 'payroll.run.post');
+                try {
+                    payrollPostRunAccrual((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
+                } catch (\Throwable $e) {
+                    api_error('Cannot mark payroll paid until its accrual posts: ' . $e->getMessage(), 422);
+                }
+            }
             scopedUpdate('payroll_runs', $runId, [
                 'status'          => 'paid',
                 'paid_at'         => date('Y-m-d H:i:s'),
@@ -309,7 +376,21 @@ switch (api_method()) {
                 'before' => $run,
                 'after' => $paidRun,
             ]);
-            api_ok(['ok' => true, 'status' => 'paid']);
+            $accountingWarning = null;
+            if (!empty($postingSettings['auto_post_to_ledger'])) {
+                try {
+                    payrollPostRunCash((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
+                } catch (\Throwable $e) {
+                    $accountingWarning = $e->getMessage();
+                }
+            }
+            $detail = _payrollRunDetail($runId);
+            api_ok([
+                'ok' => true,
+                'status' => 'paid',
+                'accounting' => $detail['accounting'] ?? null,
+                'accounting_warning' => $accountingWarning,
+            ]);
         }
 
         // ----------------------------------------------------------------
@@ -452,7 +533,7 @@ switch (api_method()) {
                 'gusto_payroll_url' => $url ?: null,
                 'gusto_status'      => 'submitted',
                 'gusto_synced_at'   => date('Y-m-d H:i:s'),
-                'gusto_synced_by'   => $ctx['user']['id'] ?? null,
+                'gusto_synced_by'   => $user['id'] ?? null,
             ]);
             $syncedRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
             payrollAudit('payroll.run.gusto_synced',
@@ -467,14 +548,21 @@ switch (api_method()) {
             _payrollRequireStatus($run, ['approved', 'paid'], 'Mark Gusto paid');
             _payrollDenySameActor((int) ($run['approved_by'] ?? 0), $user, 'Approver cannot mark the same Gusto payroll run paid');
             if (empty($run['gusto_run_id'])) api_error('Run is not linked to Gusto', 409);
+            $postingSettings = payrollAccountingPostingSettings((int) currentTenantId());
+            if (!empty($postingSettings['auto_post_to_ledger'])) {
+                rbac_legacy_require($user, 'payroll.run.post');
+                try {
+                    payrollPostRunAccrual((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
+                } catch (\Throwable $e) {
+                    api_error('Cannot mark Gusto payroll paid until its accrual posts: ' . $e->getMessage(), 422);
+                }
+            }
             scopedUpdate('payroll_runs', $runId, [
                 'gusto_status' => 'paid',
                 'gusto_paid_at'=> date('Y-m-d H:i:s'),
             ]);
-            // Mirror to local status so the rest of the UI reflects "paid".
-            // Local paid_at is left untouched if already set; otherwise we
-            // stamp it here so reports / aging / dashboards see this run as
-            // paid without us double-posting cash movement (Gusto did it).
+            // Mirror to local status so reports, reconciliation, and the
+            // accounting bridge all see the completed disbursement.
             if ($run['status'] !== 'paid') {
                 scopedUpdate('payroll_runs', $runId, [
                     'status'          => 'paid',
@@ -498,7 +586,22 @@ switch (api_method()) {
                     'before' => $run,
                     'after' => $gustoPaidRun,
                 ]);
-            api_ok(['ok' => true, 'gusto_status' => 'paid', 'status' => 'paid']);
+            $accountingWarning = null;
+            if (!empty($postingSettings['auto_post_to_ledger'])) {
+                try {
+                    payrollPostRunCash((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
+                } catch (\Throwable $e) {
+                    $accountingWarning = $e->getMessage();
+                }
+            }
+            $detail = _payrollRunDetail($runId);
+            api_ok([
+                'ok' => true,
+                'gusto_status' => 'paid',
+                'status' => 'paid',
+                'accounting' => $detail['accounting'] ?? null,
+                'accounting_warning' => $accountingWarning,
+            ]);
         }
         if ($action === 'unlink_gusto') {
             rbac_legacy_require($user, 'payroll.run.disburse');
@@ -546,9 +649,12 @@ function payrollRunAuditRow(int $tenantId, int $runId): ?array {
 
 function _payrollRunDetail(int $runId): array {
     $run = scopedFind(
-        'SELECT r.*, pp.schedule_id, pp.period_start, pp.period_end, pp.pay_date
+        'SELECT r.*, pp.schedule_id, pp.cycle_id, pp.period_start, pp.period_end, pp.pay_date,
+                ps.name AS schedule_name, pc.name AS cycle_name
          FROM payroll_runs r
          JOIN payroll_pay_periods pp ON pp.id = r.pay_period_id AND pp.tenant_id = r.tenant_id
+         JOIN payroll_pay_schedules ps ON ps.id = pp.schedule_id AND ps.tenant_id = pp.tenant_id
+    LEFT JOIN payroll_pay_cycles pc ON pc.id = pp.cycle_id AND pc.tenant_id = pp.tenant_id
          WHERE r.tenant_id = :tenant_id AND r.id = :id',
         ['id' => $runId]
     );
@@ -591,7 +697,11 @@ function _payrollRunDetail(int $runId): array {
     }
     unset($l);
 
-    return ['run' => $run, 'lines' => $lines];
+    return [
+        'run' => $run,
+        'lines' => $lines,
+        'accounting' => payrollAccountingPostingReadiness((int) currentTenantId(), $run),
+    ];
 }
 
 function _payrollRequireStatus(array $run, array $allowed, string $verb): void {
@@ -644,7 +754,7 @@ function _payrollDenySameActor(int $blockedActorId, array $user, string $message
 }
 
 /**
- * Compute every employee in the run's schedule. Idempotent: deletes prior
+ * Compute every employee in the run's cycle. Idempotent: deletes prior
  * line items for this run, then re-creates them from current data.
  *
  * $hoursOverrides: optional array keyed by employee_id with
@@ -653,7 +763,7 @@ function _payrollDenySameActor(int $blockedActorId, array $user, string $message
 function _payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorUserId = null): void {
     $tenant = currentTenantId();
     $run = scopedFind(
-        'SELECT r.*, pp.schedule_id, pp.period_start, pp.period_end, pp.pay_date
+        'SELECT r.*, pp.schedule_id, pp.cycle_id, pp.period_start, pp.period_end, pp.pay_date
          FROM payroll_runs r
          JOIN payroll_pay_periods pp ON pp.id = r.pay_period_id AND pp.tenant_id = r.tenant_id
          WHERE r.tenant_id = :tenant_id AND r.id = :id',
@@ -667,7 +777,10 @@ function _payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorU
     ];
 
     $settings = payrollGetTenantSettings();
-    $emps = payrollEmployeesForSchedule((int) $run['schedule_id']);
+    $emps = payrollEmployeesForSchedule(
+        (int) $run['schedule_id'],
+        !empty($run['cycle_id']) ? (int) $run['cycle_id'] : null
+    );
     $settledHours = payrollRunExtractedHours($runId);
     $economicEarnings = payrollRunEconomicEarnings($runId);
     $economicOnly = [];
@@ -682,6 +795,9 @@ function _payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorU
             'payment_method' => $profile['payment_method'] ?? 'direct_deposit',
         ];
         $economicOnly[(int) $economicEmployeeId] = true;
+    }
+    if (!$emps) {
+        throw new RuntimeException('No enabled payroll profiles are assigned to this pay cycle');
     }
 
     $pdo = getDB();
@@ -716,7 +832,12 @@ function _payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorU
                 $extras['suppress_regular_earnings'] = true;
             }
             $cctx = payrollBuildComputeContext($empId, $period, $settings, $extras);
-            if (!$cctx) continue; // skip employees without comp/tax/profile
+            if (!$cctx) {
+                $employeeLabel = $e['employee_number'] ?? ('ID ' . $empId);
+                throw new RuntimeException(
+                    "Employee {$employeeLabel} is missing an active compensation, federal tax, or payroll profile record"
+                );
+            }
 
             $result = payrollComputeLine($cctx);
 

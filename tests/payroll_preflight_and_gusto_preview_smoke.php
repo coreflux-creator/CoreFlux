@@ -26,8 +26,13 @@ _p('checks SSN cipher',                                    str_contains($pf, "'i
 _p('checks DOB',                                           str_contains($pf, "'id' => 'dob'"));
 _p('checks W-4 federal_filing_status',                     str_contains($pf, "'id' => 'w4_federal'"));
 _p('checks state tax setup',                               str_contains($pf, "'id' => 'state_tax'"));
-_p('checks active placement with approved rate',           str_contains($pf, 'pr.approved_at IS NOT NULL'));
-_p('checks pay_rate > 0',                                  str_contains($pf, "'id' => 'pay_rate'"));
+_p('checks active People compensation used by engine',     str_contains($pf, 'peopleActiveCompensation($empId)'));
+_p('missing compensation is a blocker',                    str_contains($pf, "'id' => 'compensation'"));
+_p('banking check uses canonical employee banking helper', str_contains($pf, 'peopleActiveBankAccounts($empId)'));
+_p('placement is advisory, not a payroll prerequisite',    str_contains($pf, "'id' => 'placement_optional'")
+                                                            && !str_contains($pf, "'id' => 'placement'"));
+_p('approved placement rate remains reconciliation context', str_contains($pf, 'pr.approved_at IS NOT NULL'));
+_p('period enrollment is cycle aware',                     str_contains($pf, 'pp.cycle_id = :cycle_id'));
 _p('returns ready_to_run summary flag',                    str_contains($pf, 'ready_to_run'));
 _p('permission gated on payroll.run.create',               str_contains($pf, "rbac_legacy_require(\$ctx['user'], 'payroll.run.create')"));
 

@@ -18,6 +18,7 @@ import BankReconciliation from './BankReconciliation';
 import RecurringJournalEntries from './RecurringJournalEntries';
 import StandardReports from './StandardReports';
 import AccountingImport from './AccountingImport';
+import AccountsCsvImport from './AccountsCsvImport';
 import IntercompanyMappings from './IntercompanyMappings';
 import XTenantIntercompany from './XTenantIntercompany';
 import EliminationWorksheet from './EliminationWorksheet';
@@ -47,7 +48,7 @@ const PRIMARY_NAV = [
   { to: 'bookkeeping', label: 'Bookkeeping', Icon: BookOpen },
   { to: 'transactions-to-review', label: 'Transactions', Icon: ListChecks },
   { to: 'accounts', label: 'Chart of accounts', Icon: Landmark },
-  { to: 'journal', label: 'Journal entries', Icon: FileText },
+  { to: 'journal-entries', label: 'Journal entries', Icon: FileText },
   { to: 'bank-rec', label: 'Bank reconciliation', Icon: Scale },
   { to: 'reports', label: 'Reports', Icon: BarChart3 },
 ];
@@ -115,9 +116,10 @@ export default function AccountingModule({ session }) {
         <Route path="missing-dimensions" element={<MissingDimensions />} />
         <Route path="ai-agents" element={<Navigate to="/ai-agents" replace />} />
         <Route path="accounts" element={<ChartOfAccounts session={session} />} />
+        <Route path="accounts/import" element={<AccountsCsvImport />} />
         <Route path="accounts/detail" element={<AccountDetail session={session} />} />
         <Route path="accounts/:id" element={<AccountDetail session={session} />} />
-        <Route path="journal"  element={<JournalEntries  session={session} />} />
+        <Route path="journal"  element={<Navigate to="../journal-entries" replace />} />
         <Route path="journal/new"  element={<JournalEntryCreate session={session} />} />
         <Route path="journal-entries"        element={<JournalEntries  session={session} />} />
         <Route path="journal-entries/new"    element={<JournalEntryCreate session={session} />} />
@@ -127,6 +129,7 @@ export default function AccountingModule({ session }) {
         <Route path="balance"  element={<BalanceSheet    session={session} />} />
         <Route path="cash-flow" element={<CashFlowStatement session={session} />} />
         <Route path="bank-rec/*" element={<BankReconciliation session={session} />} />
+        <Route path="bank-reconciliation/*" element={<Navigate to="../bank-rec" replace />} />
         <Route path="recurring/*" element={<RecurringJournalEntries session={session} />} />
         <Route path="reports"  element={<StandardReports  session={session} />} />
         <Route path="gl-detail" element={<GLDetail />} />

@@ -37,6 +37,8 @@ CsvImportService::registerSchema('ap_bills', [
         'external_id'      => ['label' => 'External ID (audit / integration)'],
         'source_system'    => ['label' => 'Source system',
                                'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
+        'record_status'    => ['label' => 'Record status (read only)'],
+        'amount_paid'      => ['label' => 'Amount paid (read only)', 'type' => 'number'],
         'vendor_name'      => ['label' => 'Vendor name'],
         'vendor_type'      => ['label' => 'Vendor type',
                                'enum'  => ['1099_individual','c2c_corp','w9_business','utility','other']],
@@ -49,6 +51,7 @@ CsvImportService::registerSchema('ap_bills', [
         'po_number'        => ['label' => 'PO number'],
         'notes_internal'   => ['label' => 'Notes (internal)'],
         // Line fields (one row per line)
+        'line_id'          => ['label' => 'Line ID (read only)', 'type' => 'integer'],
         'line_no'          => ['label' => 'Line #',           'type' => 'number'],
         'line_description' => ['label' => 'Line description'],
         'line_quantity'    => ['label' => 'Line quantity',    'type' => 'number'],
@@ -168,7 +171,8 @@ if ($method === 'POST' && $action === 'commit') {
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap = CsvImportService::readRequestColumnMap();
-    $skipInvalid = !empty($_GET['skip_invalid']);
+    $skipInvalid    = !empty($_GET['skip_invalid']);
+    $updateExisting = !empty($_GET['update_existing']);
 
     $dry = CsvImportService::dryRun('ap_bills', $csv, $columnMap);
     if (!$skipInvalid && $dry['error_count'] > 0) {
@@ -190,75 +194,134 @@ if ($method === 'POST' && $action === 'commit') {
 
     $pdo = getDB();
     $imported = 0;
+    $created  = 0;
+    $updated  = 0;
     $errors   = $dry['errors'];
     $ids      = [];
+
+    $amountsForLine = static function (array $row): array {
+        $quantity = ($row['line_quantity'] ?? '') === '' ? 1.0 : (float) $row['line_quantity'];
+        $unitPrice = ($row['line_unit_price'] ?? '') === '' ? 0.0 : (float) $row['line_unit_price'];
+        $subtotal = ($row['line_subtotal'] ?? '') === ''
+            ? round($quantity * $unitPrice, 2)
+            : round((float) $row['line_subtotal'], 2);
+        $tax = ($row['line_tax_amount'] ?? '') === '' ? 0.0 : round((float) $row['line_tax_amount'], 2);
+        $total = ($row['line_total'] ?? '') === ''
+            ? round($subtotal + $tax, 2)
+            : round((float) $row['line_total'], 2);
+        return compact('quantity', 'unitPrice', 'subtotal', 'tax', 'total');
+    };
 
     foreach ($groups as $bn => $rows) {
         $header = $rows[0];
         $externalId   = isset($header['external_id'])   && $header['external_id']   !== '' ? (string) $header['external_id']   : null;
         $sourceSystem = isset($header['source_system']) && $header['source_system'] !== '' ? (string) $header['source_system'] : 'manual';
 
-        // Idempotency on re-import: prefer (source_system, external_id)
-        // when supplied; fall back to (tenant, bill_number) for legacy
-        // rows or manual imports without an external_id.
+        // Stable ID wins, then the external-system key, then bill number.
+        // Existing rows may only be replaced while they are unpaid, unposted
+        // manual bills in an editable review state.
         $existing = null;
-        if ($externalId !== null) {
+        $billId = isset($header['bill_id']) && $header['bill_id'] !== '' ? (int) $header['bill_id'] : 0;
+        if ($billId > 0) {
             $existing = scopedFind(
-                'SELECT id FROM ap_bills WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
+                'SELECT id, status, source, journal_entry_id, amount_paid
+                   FROM ap_bills
+                  WHERE tenant_id = :tenant_id AND id = :id',
+                ['id' => $billId]
+            );
+            if (!$existing) {
+                $errors['__bill_' . $bn] = ["Bill ID {$billId} was not found in this workspace"];
+                continue;
+            }
+        } elseif ($externalId !== null) {
+            $existing = scopedFind(
+                'SELECT id, status, source, journal_entry_id, amount_paid
+                   FROM ap_bills
+                  WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
                 ['s' => $sourceSystem, 'e' => $externalId]
             );
         }
         if (!$existing) {
-            $existing = scopedFind('SELECT id FROM ap_bills WHERE tenant_id = :tenant_id AND bill_number = :n', ['n' => $bn]);
+            $existing = scopedFind(
+                'SELECT id, status, source, journal_entry_id, amount_paid
+                   FROM ap_bills
+                  WHERE tenant_id = :tenant_id AND bill_number = :n',
+                ['n' => $bn]
+            );
         }
         if ($existing) {
-            $errors['__bill_' . $bn] = ['Bill # ' . $bn . ' already exists; skipped'];
-            continue;
+            if (!$updateExisting) {
+                $errors['__bill_' . $bn] = ['Bill # ' . $bn . ' already exists; enable Update matching editable records to change it'];
+                continue;
+            }
+            if (!in_array((string) ($existing['status'] ?? ''), ['inbox', 'pending_review', 'pending_approval'], true)
+                || ($existing['source'] ?? '') !== 'manual'
+                || !empty($existing['journal_entry_id'])
+                || abs((float) ($existing['amount_paid'] ?? 0)) >= 0.005) {
+                $errors['__bill_' . $bn] = ['Only unpaid, unposted manual bills in review can be updated by CSV'];
+                continue;
+            }
+            $sourceLines = $pdo->prepare(
+                'SELECT COUNT(*) FROM ap_bill_lines
+                  WHERE bill_id = :id AND source_type <> "manual"'
+            );
+            $sourceLines->execute(['id' => (int) $existing['id']]);
+            if ((int) $sourceLines->fetchColumn() > 0) {
+                $errors['__bill_' . $bn] = ['Source-generated bill lines must be rebuilt from their source, not overwritten by CSV'];
+                continue;
+            }
         }
 
         $subtotal = 0; $tax = 0; $total = 0;
         foreach ($rows as $r) {
-            $subtotal += (float) ($r['line_subtotal']  ?? 0);
-            $tax      += (float) ($r['line_tax_amount']?? 0);
-            $total    += (float) ($r['line_total']     ?? 0);
+            $amounts = $amountsForLine($r);
+            $subtotal += $amounts['subtotal'];
+            $tax      += $amounts['tax'];
+            $total    += $amounts['total'];
         }
-        if ($total <= 0) {
-            // Compute total as subtotal + tax if line_total missing
-            $total = $subtotal + $tax;
-        }
+        $subtotal = round($subtotal, 2);
+        $tax = round($tax, 2);
+        $total = round($total, 2);
+        $wasUpdate = (bool) $existing;
 
         $pdo->beginTransaction();
         try {
-            $billId = scopedInsert('ap_bills', [
-                'bill_number'        => $bn,
-                'external_id'        => $externalId,
-                'source_system'      => $sourceSystem,
-                'internal_ref'       => apNextInternalRef($tid),
-                'vendor_name'        => (string) $header['vendor_name'],
-                'vendor_type'        => (string) ($header['vendor_type'] ?? 'other'),
-                'received_at'        => $header['received_at'] ?? $header['bill_date'],
-                'bill_date'          => $header['bill_date'],
-                'due_date'           => $header['due_date'],
-                'period_start'       => $header['period_start'] ?? null,
-                'period_end'         => $header['period_end']   ?? null,
-                'currency'           => $header['currency']     ?? 'USD',
-                'subtotal'           => $subtotal,
-                'tax_total'          => $tax,
-                'total'              => $total,
-                'amount_due'         => $total,
-                'status'             => 'pending_approval',
-                'source'             => 'manual',
-                'po_number'          => $header['po_number']      ?? null,
-                'notes_internal'     => $header['notes_internal'] ?? null,
-                'created_by_user_id' => $user['id'] ?? null,
-            ]);
+            $headerPayload = [
+                'bill_number'    => $bn,
+                'external_id'    => $externalId,
+                'source_system'  => $sourceSystem,
+                'vendor_name'    => (string) $header['vendor_name'],
+                'vendor_type'    => (string) ($header['vendor_type'] ?? 'other'),
+                'received_at'    => $header['received_at'] ?? $header['bill_date'],
+                'bill_date'      => $header['bill_date'],
+                'due_date'       => $header['due_date'],
+                'period_start'   => $header['period_start'] ?? null,
+                'period_end'     => $header['period_end']   ?? null,
+                'currency'       => $header['currency']     ?? 'USD',
+                'subtotal'       => $subtotal,
+                'tax_total'      => $tax,
+                'total'          => $total,
+                'amount_due'     => $total,
+                'po_number'      => $header['po_number']      ?? null,
+                'notes_internal' => $header['notes_internal'] ?? null,
+            ];
+            if ($existing) {
+                $billId = (int) $existing['id'];
+                scopedUpdate('ap_bills', $billId, $headerPayload);
+                $pdo->prepare('DELETE FROM ap_bill_lines WHERE bill_id = :id')->execute(['id' => $billId]);
+            } else {
+                $billId = scopedInsert('ap_bills', $headerPayload + [
+                    'internal_ref'       => apNextInternalRef($tid),
+                    'status'             => 'pending_approval',
+                    'source'             => 'manual',
+                    'created_by_user_id' => $user['id'] ?? null,
+                ]);
+            }
 
             $lineNo = 0;
             foreach ($rows as $r) {
                 $lineNo++;
-                $sub = (float) ($r['line_subtotal'] ?? (((float) ($r['line_quantity'] ?? 0)) * ((float) ($r['line_unit_price'] ?? 0))));
-                $taxAmt = (float) ($r['line_tax_amount'] ?? 0);
-                $lineTotal = (float) ($r['line_total'] ?? ($sub + $taxAmt));
+                $amounts = $amountsForLine($r);
                 $pdo->prepare(
                     'INSERT INTO ap_bill_lines
                        (bill_id, line_no, source_type, description, quantity, unit, unit_price,
@@ -271,30 +334,42 @@ if ($method === 'POST' && $action === 'commit') {
                     'line_no'    => isset($r['line_no']) && (int) $r['line_no'] > 0 ? (int) $r['line_no'] : $lineNo,
                     'stype'      => 'manual',
                     'desc'       => (string) ($r['line_description'] ?? ''),
-                    'qty'        => (float) ($r['line_quantity'] ?? 1),
+                    'qty'        => $amounts['quantity'],
                     'unit'       => (string) ($r['line_unit'] ?? 'hour'),
-                    'unit_price' => (float) ($r['line_unit_price'] ?? 0),
-                    'subtotal'   => $sub,
-                    'tax_amount' => $taxAmt,
-                    'total'      => $lineTotal,
+                    'unit_price' => $amounts['unitPrice'],
+                    'subtotal'   => $amounts['subtotal'],
+                    'tax_amount' => $amounts['tax'],
+                    'total'      => $amounts['total'],
                 ]);
             }
             $pdo->commit();
             $ids[$bn] = $billId;
             $imported++;
+            if ($wasUpdate) $updated++;
+            else $created++;
         } catch (\Throwable $e) {
             $pdo->rollBack();
             $errors['__bill_' . $bn] = ['persist failed: ' . $e->getMessage()];
         }
     }
 
-    apAudit('ap.bill.csv_imported', ['imported' => $imported, 'groups' => count($groups), 'errors' => count($errors)]);
+    apAudit('ap.bill.csv_imported', [
+        'imported' => $imported,
+        'created' => $created,
+        'updated' => $updated,
+        'groups' => count($groups),
+        'errors' => count($errors),
+        'update_existing' => $updateExisting,
+    ]);
     api_ok([
         'imported_count' => $imported,
+        'created_count'  => $created,
+        'updated_count'  => $updated,
         'skipped_count'  => count($groups) - $imported,
         'group_count'    => count($groups),
         'errors'         => $errors,
         'ids'            => $ids,
+        'update_existing'=> $updateExisting,
     ]);
 }
 

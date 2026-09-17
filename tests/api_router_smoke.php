@@ -216,11 +216,14 @@ foreach ([
     'gusto-preview' => 'gusto_preview',
     'gusto-submit' => 'gusto_submit',
     'gusto-sync' => 'gusto_sync',
+    'import-csv' => 'import_csv',
     'pay-periods' => 'pay_periods',
     'pay-schedules' => 'pay_schedules',
     'pay-stub' => 'pay_stub',
     'preflight' => 'preflight',
     'profiles' => 'profiles',
+    'profiles-csv-export' => 'profiles_csv_export',
+    'profiles-csv-import' => 'profiles_csv_import',
     'runs' => 'runs',
     'settings' => 'settings',
 ] as $route => $fileStem) {
@@ -457,6 +460,10 @@ $file = apiRouterResolveFile('billing', 'payments-csv-import');
 $assert("resolves billing/payments-csv-import module endpoint",
     $file !== null && str_ends_with($file, '/modules/billing/api/payments_csv_import.php'));
 
+$file = apiRouterResolveFile('billing', 'items-csv-import');
+$assert("resolves billing/items-csv-import module endpoint",
+    $file !== null && str_ends_with($file, '/modules/billing/api/items_csv_import.php'));
+
 $file = apiRouterResolveFile('staffing', 'csv-export');
 $assert("resolves staffing/csv-export module endpoint",
     $file !== null && str_ends_with($file, '/modules/staffing/api/csv_export.php'));
@@ -492,6 +499,10 @@ $assert("resolves billing/csv-export module endpoint",
 $file = apiRouterResolveFile('billing', 'payments-csv-export');
 $assert("resolves billing/payments-csv-export module endpoint",
     $file !== null && str_ends_with($file, '/modules/billing/api/payments_csv_export.php'));
+
+$file = apiRouterResolveFile('billing', 'items-csv-export');
+$assert("resolves billing/items-csv-export module endpoint",
+    $file !== null && str_ends_with($file, '/modules/billing/api/items_csv_export.php'));
 
 $file = apiRouterResolveFile('people', 'custom-field-definitions');
 $assert("resolves custom field definitions platform alias",

@@ -294,6 +294,13 @@ if ($method === 'GET') {
         $statusFilter = (string) $_GET['status'];
         if ($statusFilter === 'ready_to_pay') {
             $where[] = "status IN ('approved', 'partially_paid')";
+            $where[] = '(amount_due - COALESCE((
+                SELECT SUM(ready_alloc.amount_applied)
+                  FROM ap_payment_allocations ready_alloc
+                  JOIN ap_payments ready_payment ON ready_payment.id = ready_alloc.payment_id
+                 WHERE ready_alloc.bill_id = ap_bills.id
+                   AND ready_payment.status IN ("draft", "queued")
+            ), 0)) > 0.005';
         } elseif ($statusFilter === 'needs_review') {
             $where[] = "status IN ('inbox', 'pending_review', 'disputed')";
         } else {
@@ -304,6 +311,14 @@ if ($method === 'GET') {
     if (!empty($_GET['source']))      { $where[] = 'source = :src';      $params['src'] = $_GET['source']; }
     if (!empty($_GET['due_before']))  { $where[] = 'due_date < :db';     $params['db'] = $_GET['due_before']; }
     if (!empty($_GET['placement_id'])) { $where[] = 'placement_id = :pid'; $params['pid'] = (int) $_GET['placement_id']; }
+    if (trim((string) ($_GET['q'] ?? '')) !== '') {
+        $needle = '%' . trim((string) $_GET['q']) . '%';
+        $where[] = '(vendor_name LIKE :q_vendor OR bill_number LIKE :q_bill OR internal_ref LIKE :q_ref OR source LIKE :q_source)';
+        $params['q_vendor'] = $needle;
+        $params['q_bill'] = $needle;
+        $params['q_ref'] = $needle;
+        $params['q_source'] = $needle;
+    }
     // Sprint 6c — respect the header's multi-entity switcher.
     if (!empty($_GET['entity_id']))    { $where[] = 'entity_id = :eid';   $params['eid'] = (int) $_GET['entity_id']; }
     $perPage = max(1, min(200, (int) ($_GET['per_page'] ?? 50)));
@@ -312,7 +327,21 @@ if ($method === 'GET') {
 
     $rows = scopedQuery(
         'SELECT id, internal_ref, bill_number, vendor_name, vendor_type, bill_date, due_date, currency,
-                subtotal, tax_total, total, amount_paid, amount_due, status, source, placement_id, created_at
+                subtotal, tax_total, total, amount_paid, amount_due, status, source, placement_id,
+                journal_entry_id, created_by_user_id, created_at,
+                COALESCE((
+                    SELECT SUM(a.amount_applied)
+                      FROM ap_payment_allocations a
+                      JOIN ap_payments p ON p.id = a.payment_id
+                     WHERE a.bill_id = ap_bills.id AND p.status IN ("draft", "queued")
+                ), 0) AS payment_reserved,
+                GREATEST(0, amount_due - COALESCE((
+                    SELECT SUM(available_alloc.amount_applied)
+                      FROM ap_payment_allocations available_alloc
+                      JOIN ap_payments available_payment ON available_payment.id = available_alloc.payment_id
+                     WHERE available_alloc.bill_id = ap_bills.id
+                       AND available_payment.status IN ("draft", "queued")
+                ), 0)) AS payment_available
          FROM ap_bills WHERE ' . implode(' AND ', $where) . '
          ORDER BY id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
@@ -323,10 +352,10 @@ if ($method === 'GET') {
     // workflow signals remain stable while an operator moves between queues.
     // Entity scope still applies because the header switcher defines the
     // accounting boundary for the entire page.
-    $summaryWhere = ['tenant_id = :tenant_id'];
+    $summaryWhere = ['b.tenant_id = :tenant_id'];
     $summaryParams = [];
     if (!empty($_GET['entity_id'])) {
-        $summaryWhere[] = 'entity_id = :summary_eid';
+        $summaryWhere[] = 'b.entity_id = :summary_eid';
         $summaryParams['summary_eid'] = (int) $_GET['entity_id'];
     }
     $summary = scopedFind(
@@ -334,15 +363,27 @@ if ($method === 'GET') {
             COUNT(*) AS total_count,
             SUM(CASE WHEN status NOT IN (\'paid\', \'void\') THEN 1 ELSE 0 END) AS open_count,
             COALESCE(SUM(CASE WHEN status NOT IN (\'paid\', \'void\') THEN amount_due ELSE 0 END), 0) AS open_amount,
-            COALESCE(SUM(CASE WHEN status IN (\'approved\', \'partially_paid\') THEN amount_due ELSE 0 END), 0) AS ready_amount,
-            SUM(CASE WHEN status IN (\'approved\', \'partially_paid\') THEN 1 ELSE 0 END) AS ready_count,
+            COALESCE(SUM(CASE WHEN status IN (\'approved\', \'partially_paid\') THEN GREATEST(amount_due - payment_reserved, 0) ELSE 0 END), 0) AS ready_amount,
+            SUM(CASE WHEN status IN (\'approved\', \'partially_paid\') AND amount_due - payment_reserved > 0.005 THEN 1 ELSE 0 END) AS ready_count,
+            COALESCE(SUM(CASE WHEN status IN (\'approved\', \'partially_paid\') THEN LEAST(amount_due, payment_reserved) ELSE 0 END), 0) AS reserved_amount,
             SUM(CASE WHEN status = \'pending_approval\' THEN 1 ELSE 0 END) AS pending_count,
             SUM(CASE WHEN status IN (\'inbox\', \'pending_review\', \'disputed\') THEN 1 ELSE 0 END) AS review_count,
             SUM(CASE WHEN status = \'approved\' THEN 1 ELSE 0 END) AS approved_count,
             SUM(CASE WHEN status = \'partially_paid\' THEN 1 ELSE 0 END) AS partially_paid_count,
             SUM(CASE WHEN status = \'paid\' THEN 1 ELSE 0 END) AS paid_count,
             SUM(CASE WHEN status = \'void\' THEN 1 ELSE 0 END) AS void_count
-         FROM ap_bills WHERE ' . implode(' AND ', $summaryWhere),
+         FROM (
+            SELECT b.status, b.amount_due,
+                   COALESCE((
+                       SELECT SUM(summary_alloc.amount_applied)
+                         FROM ap_payment_allocations summary_alloc
+                         JOIN ap_payments summary_payment ON summary_payment.id = summary_alloc.payment_id
+                        WHERE summary_alloc.bill_id = b.id
+                          AND summary_payment.status IN ("draft", "queued")
+                   ), 0) AS payment_reserved
+              FROM ap_bills b
+             WHERE ' . implode(' AND ', $summaryWhere) . '
+         ) bill_summary',
         $summaryParams
     ) ?: [];
 
@@ -357,13 +398,16 @@ if ($method === 'GET') {
 
 if ($method === 'POST' && $action === 'suggest-payment-run') {
     rbac_legacy_require($user, 'ap.payment.create');
-    rbac_legacy_require($user, 'ai.use');
     $body = api_json_body();
     $days = (int) ($body['days_ahead'] ?? 7);
     $rail = isset($body['rail']) && $body['rail'] !== '' ? (string) $body['rail'] : null;
+    $entityId = !empty($body['entity_id']) ? (int) $body['entity_id'] : null;
     try {
-        $sug = apSuggestPaymentRun($tid, $days, $rail, $user['id'] ?? null);
-    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+        $sug = apSuggestPaymentRun($tid, $days, $rail, $user['id'] ?? null, $entityId);
+    } catch (\Throwable $e) {
+        error_log('[ap.payment-run.suggest] ' . $e->getMessage());
+        api_error('Payment run could not be prepared. Check AP setup and try again.', 500);
+    }
     api_ok($sug);
 }
 
@@ -373,10 +417,16 @@ if ($method === 'POST' && $action === 'execute-payment-run') {
     $rail = trim((string) ($body['rail'] ?? ''));
     if ($rail === '') api_error('rail required', 422);
     $groups = (array) ($body['vendor_groups'] ?? []);
+    $entityId = !empty($body['entity_id']) ? (int) $body['entity_id'] : null;
     if (empty($groups)) api_error('vendor_groups required', 422);
     try {
-        $res = apExecutePaymentRun($tid, $rail, $groups, $user['id'] ?? null);
-    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+        $res = apExecutePaymentRun($tid, $rail, $groups, $user['id'] ?? null, $entityId);
+    } catch (\InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    } catch (\Throwable $e) {
+        error_log('[ap.payment-run.execute] ' . $e->getMessage());
+        api_error('Draft payments could not be created. Nothing was released; review the selected bills and try again.', 500);
+    }
     api_ok($res, 201);
 }
 

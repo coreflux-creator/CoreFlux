@@ -24,15 +24,24 @@ $modalPath = $ROOT . '/modules/ap/ui/SuggestPaymentRunModal.jsx';
 $billsListPath = $ROOT . '/modules/ap/ui/BillsList.jsx';
 $lib = file_get_contents($libPath);
 $a('apSuggestPaymentRun() defined',
-    str_contains($lib, 'function apSuggestPaymentRun(int $tenantId, int $daysAhead = 7, ?string $rail = null'));
+    preg_match('/function apSuggestPaymentRun\s*\([\s\S]{0,180}int \$tenantId[\s\S]{0,180}\?int \$entityId = null/', $lib) === 1);
 $a('horizon clamped to [1, 60]',
     str_contains($lib, '$horizon = max(1, min(60, $daysAhead));'));
 $a('only considers status IN (approved, partially_paid)',
-    str_contains($lib, "status IN ('approved','partially_paid')"));
+    str_contains($lib, "b.status IN ('approved','partially_paid')"));
 $a('only amount_due > 0',
-    str_contains($lib, 'AND amount_due > 0'));
+    str_contains($lib, 'AND b.amount_due > 0'));
 $a('filters by due_date <= cutoff',
-    str_contains($lib, 'AND due_date <= :cutoff'));
+    str_contains($lib, 'AND b.due_date <= :cutoff'));
+$a('reads vendor payment defaults from ap_vendors_index, not ap_bills',
+    str_contains($lib, 'LEFT JOIN ap_vendors_index v')
+    && str_contains($lib, 'v.payment_method AS payment_method')
+    && !str_contains($lib, 'FROM ap_bills\n')
+    && !str_contains($lib, 'currency, payment_method\n               FROM ap_bills'));
+$a('falls back cleanly when vendor payment defaults migration is pending',
+    str_contains($lib, "'NULL AS payment_method'")
+    && str_contains($lib, "COLUMN_NAME = 'payment_method'")
+    && str_contains($lib, '[ap.payment-run.schema-check]'));
 $a('groups by vendor_name',
     str_contains($lib, '$groups[$v] = ['));
 $a('PWP-blocked bills surfaced separately (not paid)',
@@ -59,24 +68,27 @@ $a('AI errors silently fall back',
 
 echo "\n── Lib: apExecutePaymentRun ──\n";
 $a('apExecutePaymentRun() defined',
-    str_contains($lib, 'function apExecutePaymentRun(int $tenantId, string $rail, array $groups'));
+    preg_match('/function apExecutePaymentRun\s*\([\s\S]{0,180}int \$tenantId[\s\S]{0,180}\?int \$entityId = null/', $lib) === 1);
 $a('rejects empty groups',
     str_contains($lib, "throw new \\InvalidArgumentException('No vendor groups supplied')"));
 $a('validates rail via paymentRailsGetDriver()',
     str_contains($lib, "paymentRailsGetDriver(\$rail);"));
 $a('re-fetches each bill to confirm payable status (no stale data)',
-    str_contains($lib, "SELECT id, amount_due, status, vendor_name, pwp_status, currency, payment_method"));
-$a('skips bills whose vendor mismatches',
-    str_contains($lib, "if (\$b['vendor_name'] !== \$vendorName) continue;"));
-$a('skips PWP-blocked rows during execute',
-    str_contains($lib, "if ((\$b['pwp_status'] ?? '') === 'awaiting_ar') continue;"));
+    str_contains($lib, 'SELECT b.id, b.amount_due, b.status, b.vendor_name, b.pwp_status, b.currency, b.entity_id'));
+$a('normalizes rail names to valid ap_payments methods',
+    str_contains($lib, "'plaid_transfer' => 'plaid'")
+    && str_contains($lib, "'nacha' => 'ach'"));
+$a('rejects stale vendor mismatches instead of partially creating a run',
+    str_contains($lib, 'belongs to {$b[\'vendor_name\']}, not {$vendorName}'));
+$a('rejects PWP-blocked rows instead of partially creating a run',
+    str_contains($lib, 'is still waiting for the linked client payment'));
 $a('creates ap_payments in DRAFT status (operator still has to send)',
     str_contains($lib, "'status'             => 'draft'"));
 $a('stamps disbursement_rail',
     str_contains($lib, "'disbursement_rail'  => \$rail"));
-$a('voids the draft + audits if allocation fails (no orphan)',
-    str_contains($lib, "SET status = \"void\"")
-    && str_contains($lib, "ap.payment.run_allocation_failed"));
+$a('allocation failure is audited and rolls back the entire run',
+    str_contains($lib, "ap.payment.run_allocation_failed")
+    && str_contains($lib, 'if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();'));
 $a('audits each created payment with source=suggest_payment_run',
     str_contains($lib, "'source'       => 'suggest_payment_run'"));
 
@@ -88,10 +100,17 @@ $a('execute-payment-run action wired',
     str_contains($api, "'POST' && \$action === 'execute-payment-run'"));
 $a('both actions require ap.payment.create',
     substr_count($api, "rbac_legacy_require(\$user, 'ap.payment.create');") >= 2);
+$a('payment-run preview is not blocked by optional AI permission',
+    !preg_match("/suggest-payment-run'[\\s\\S]{0,240}rbac_legacy_require\\(\\\$user, 'ai\\.use'\\)/", $api));
 $a('execute-payment-run rejects empty rail',
     str_contains($api, 'rail required'));
 $a('execute-payment-run rejects empty vendor_groups',
     str_contains($api, 'vendor_groups required'));
+$a('unexpected payment-run failures are logged without exposing SQL text',
+    str_contains($api, "error_log('[ap.payment-run.suggest] '")
+    && str_contains($api, 'Payment run could not be prepared. Check AP setup and try again.')
+    && str_contains($api, "error_log('[ap.payment-run.execute] '")
+    && str_contains($api, 'Draft payments could not be created. Nothing was released;'));
 
 echo "\n── React: SuggestPaymentRunModal.jsx ──\n";
 $mod = file_get_contents($modalPath);
@@ -99,6 +118,12 @@ $a('posts suggest-payment-run on mount + filter change',
     str_contains($mod, '/modules/ap/api/bills.php?action=suggest-payment-run'));
 $a('posts execute-payment-run on confirm',
     str_contains($mod, '/modules/ap/api/bills.php?action=execute-payment-run'));
+$a('describes deterministic payment-run preparation instead of an AI dependency',
+    str_contains($mod, 'Prepare payment run')
+    && str_contains($mod, 'grouped by vendor')
+    && !str_contains($mod, 'Asking the AI for a payment run'));
+$a('uses vendor payment method with a rail-safe fallback',
+    str_contains($mod, 'method: g.payment_method || methodForRail(rail)'));
 $a('default-selects only rail_eligible vendor groups',
     str_contains($mod, 'g => g.rail_eligible'));
 $a('disables checkbox for non-rail-eligible vendors',

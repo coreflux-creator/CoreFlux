@@ -44,6 +44,10 @@ $cases = [
         ['code' => '2000', 'name' => 'Accounts Payable', 'account_type' => 'liability'],
         'operating_wc_ap', 'inferred',
     ],
+    'card-brand liability is recognized as debt' => [
+        ['code' => '2007', 'name' => 'Visa', 'account_type' => 'liability'],
+        'financing_debt', 'inferred',
+    ],
     'asset LOC is investing' => [
         ['code' => '1203', 'name' => 'Thunderhawk LOC', 'account_type' => 'asset'],
         'investing_loans', 'inferred',
@@ -72,6 +76,9 @@ $reportsHome = (string) file_get_contents($root . '/modules/reports/ui/StaffingO
 $period = (string) file_get_contents($root . '/dashboard/src/lib/useReportPeriod.js');
 $comparison = (string) file_get_contents($root . '/dashboard/src/components/ComparisonTable.jsx');
 $metric = (string) file_get_contents($root . '/dashboard/src/components/MetricCard.jsx');
+$incomeStatement = (string) file_get_contents($root . '/modules/accounting/ui/IncomeStatement.jsx');
+$balanceSheet = (string) file_get_contents($root . '/modules/accounting/ui/BalanceSheet.jsx');
+$trialBalance = (string) file_get_contents($root . '/modules/accounting/ui/TrialBalance.jsx');
 $lightWorkspaceDeployPath = $root . '/.github/workflows/deploy-light-workspace.yml';
 
 $assert('AR aging is ledger-backed', str_contains($billing, 'JOIN accounting_journal_entries je'));
@@ -101,6 +108,16 @@ $assert('default comparison is prior period only', str_contains($period, "defaul
 $assert('zero baselines render as New, not infinity',
     str_contains($comparison, "v.pct === null ? 'New'")
     && str_contains($metric, "v.pct === null ? 'New'"));
+$assert('income statement hides zero-only rows by default with a discoverable toggle',
+    str_contains($incomeStatement, 'const [hideZeroRows, setHideZeroRows] = useState(true)')
+    && str_contains($incomeStatement, 'Show zero rows'));
+$assert('balance sheet hides zero-only rows by default with a discoverable toggle',
+    str_contains($balanceSheet, 'const [hideZeroRows, setHideZeroRows] = useState(true)')
+    && str_contains($balanceSheet, 'Show zero rows'));
+$assert('trial balance hides zero-only rows and reports accounts with activity',
+    str_contains($trialBalance, 'const [hideZeroRows, setHideZeroRows] = useState(true)')
+    && str_contains($trialBalance, 'data-testid="rpt-tb-toggle-zero-rows"')
+    && str_contains($trialBalance, 'label="Accounts with activity"'));
 
 echo "\n{$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

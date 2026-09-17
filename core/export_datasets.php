@@ -20,6 +20,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/custom_fields.php';
+require_once __DIR__ . '/sub_tenants.php';
 
 function exportDatasetRegistry(): array {
     static $registry = null;
@@ -82,6 +83,8 @@ function exportDatasetRegistry(): array {
                 'bill_numbers'        => ['label' => 'Bill numbers',         'sample' => 'INV-00412,INV-00413'],
                 'method'              => ['label' => 'Method',               'sample' => 'ach'],
                 'reference'           => ['label' => 'Reference',            'sample' => 'ACH-123'],
+                'external_id'         => ['label' => 'External ID',          'sample' => 'PAY-9001'],
+                'source_system'       => ['label' => 'Source system',        'sample' => 'qbo'],
                 'amount'              => ['label' => 'Amount',               'sample' => '1250.00', 'field_type' => 'number'],
                 'amount_dollars'      => ['label' => 'Amount ($)',           'sample' => '1,250.00'],
                 'amount_cents'        => ['label' => 'Amount (¢)',           'sample' => '125000'],
@@ -215,6 +218,7 @@ function exportDatasetRegistry(): array {
                 'normal_side'       => ['label' => 'Normal side',      'sample' => 'debit'],
                 'cash_flow_tag'     => ['label' => 'Cash flow tag',    'sample' => 'operating_cash'],
                 'parent_account_id' => ['label' => 'Parent account ID','sample' => '100'],
+                'parent_account_code' => ['label' => 'Parent account code', 'sample' => '1000'],
                 'is_postable'       => ['label' => 'Postable',         'sample' => '1', 'field_type' => 'boolean'],
                 'currency'          => ['label' => 'Currency',         'sample' => 'USD'],
                 'description'       => ['label' => 'Description',      'sample' => 'Primary checking account'],
@@ -387,6 +391,8 @@ function exportDatasetRegistry(): array {
                 'received_at'        => ['label' => 'Received at',    'sample' => '2026-02-14'],
                 'method'             => ['label' => 'Method',         'sample' => 'ach'],
                 'reference'          => ['label' => 'Reference',      'sample' => 'ACH-123'],
+                'external_id'        => ['label' => 'External ID',    'sample' => 'RCPT-9004'],
+                'source_system'      => ['label' => 'Source system',  'sample' => 'qbo'],
                 'amount'             => ['label' => 'Amount',         'sample' => '500.00', 'field_type' => 'number'],
                 'currency'           => ['label' => 'Currency',       'sample' => 'USD'],
                 'unallocated_amount' => ['label' => 'Unallocated',    'sample' => '0.00', 'field_type' => 'number'],
@@ -407,6 +413,8 @@ function exportDatasetRegistry(): array {
                 'entry_id'              => ['label' => 'Entry ID',              'sample' => '4401'],
                 'placement_id'          => ['label' => 'Placement ID',          'sample' => '7001'],
                 'placement_external_id' => ['label' => 'Placement external ID', 'sample' => 'JD-7001'],
+                'external_id'           => ['label' => 'External ID',           'sample' => 'TS-4401'],
+                'source_system'         => ['label' => 'Source system',         'sample' => 'jobdiva'],
                 'placement_title'       => ['label' => 'Placement title',       'sample' => 'Senior Accountant'],
                 'end_client_name'       => ['label' => 'End client name',       'sample' => 'Acme Corp'],
                 'person_id'             => ['label' => 'Person ID',             'sample' => '42'],
@@ -701,9 +709,14 @@ function exportDatasetFetchApPayments(int $tenantId, array $opts): array {
         $where[] = 'p.vendor_name = :vendor_name';
         $params['vendor_name'] = (string) $opts['vendor_name'];
     }
+    if (!empty($opts['entity_id'])) {
+        $where[] = 'p.entity_id = :entity_id';
+        $params['entity_id'] = (int) $opts['entity_id'];
+    }
 
     $stmt = $pdo->prepare(
         'SELECT p.id AS payment_id,
+                p.entity_id,
                 p.pay_date AS payment_date,
                 p.pay_date,
                 NULL AS vendor_id,
@@ -725,6 +738,8 @@ function exportDatasetFetchApPayments(int $tenantId, array $opts): array {
                   WHERE a2.payment_id = p.id) AS bill_numbers,
                 p.method,
                 p.reference,
+                p.external_id,
+                p.source_system,
                 p.amount,
                 p.amount AS amount_dollars,
                 ROUND(p.amount * 100) AS amount_cents,
@@ -914,13 +929,16 @@ function exportDatasetFetchAccountingChartOfAccounts(int $tenantId, array $opts)
         $params['code'] = (string) $opts['code'];
     }
 
+    $where = array_map(static fn (string $clause): string => preg_replace('/^(tenant_id|active|account_type|code)\b/', 'a.$1', $clause), $where);
     $stmt = $pdo->prepare(
-        'SELECT id AS account_id, code, name, account_type, normal_side,
-                cash_flow_tag, parent_account_id, is_postable, currency,
-                description, active, created_at, updated_at
-           FROM accounting_accounts
+        'SELECT a.id AS account_id, a.code, a.name, a.account_type, a.normal_side,
+                a.cash_flow_tag, a.parent_account_id, parent.code AS parent_account_code,
+                a.is_postable, a.currency, a.description, a.active, a.created_at, a.updated_at
+           FROM accounting_accounts a
+           LEFT JOIN accounting_accounts parent
+             ON parent.tenant_id = a.tenant_id AND parent.id = a.parent_account_id
           WHERE ' . implode(' AND ', $where) . '
-          ORDER BY code
+          ORDER BY a.code
           LIMIT ' . $limit
     );
     $stmt->execute($params);
@@ -1204,8 +1222,8 @@ function exportDatasetFetchBillingPayments(int $tenantId, array $opts): array {
     }
 
     $stmt = $pdo->prepare(
-        'SELECT id AS payment_id, client_name, received_at, method, reference, amount, currency,
-                unallocated_amount, notes
+        'SELECT id AS payment_id, client_name, received_at, method, reference,
+                external_id, source_system, amount, currency, unallocated_amount, notes
            FROM billing_payments
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY received_at DESC, id DESC
@@ -1217,9 +1235,15 @@ function exportDatasetFetchBillingPayments(int $tenantId, array $opts): array {
 
 function exportDatasetFetchTimeEntries(int $tenantId, array $opts): array {
     $pdo = getDB();
+    $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
     $where = ['te.tenant_id = :tenant_id'];
-    $params = ['tenant_id' => $tenantId];
+    $params = [
+        'tenant_id' => $tenantId,
+        'placements_tenant_id' => $placementsTenantId,
+        'people_tenant_id' => $peopleTenantId,
+    ];
     if (!empty($opts['from'])) {
         $where[] = 'te.work_date >= :from_date';
         $params['from_date'] = (string) $opts['from'];
@@ -1241,6 +1265,8 @@ function exportDatasetFetchTimeEntries(int $tenantId, array $opts): array {
         'SELECT te.id AS entry_id,
                 te.placement_id,
                 pl.external_id AS placement_external_id,
+                te.external_id,
+                te.source_system,
                 pl.title AS placement_title,
                 pl.end_client_name,
                 te.person_id,
@@ -1263,8 +1289,8 @@ function exportDatasetFetchTimeEntries(int $tenantId, array $opts): array {
                 te.client_approver_email,
                 te.rate_snapshot_id
            FROM time_entries te
-           LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
-           LEFT JOIN people pe ON pe.id = te.person_id AND pe.tenant_id = te.tenant_id
+           LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tenant_id
+           LEFT JOIN people pe ON pe.id = te.person_id AND pe.tenant_id = :people_tenant_id
            LEFT JOIN time_periods tp ON tp.id = te.period_id AND tp.tenant_id = te.tenant_id
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY te.work_date DESC, te.id DESC

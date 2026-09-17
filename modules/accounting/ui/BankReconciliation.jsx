@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate, fmtDateTime } from '../../../dashboard/src/lib/format';
@@ -6,6 +6,7 @@ import ReconciliationPacket from './ReconciliationPacket';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
 import PlaidLinkButton from '../../../dashboard/src/components/PlaidLinkButton';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
+import { SplitIcPanel as BankReceiptSplitPanel } from '../../treasury/ui/AccountTransactions';
 
 /**
  * Bank Reconciliation module.
@@ -215,11 +216,43 @@ function NewAccountForm({ onDone, onCancel }) {
 function AccountDetail() {
   const { id } = useParams();
   const accountApi = useApi(`/modules/accounting/api/bank_accounts.php?id=${id}`);
-  const { data, loading, error, reload } = useApi(`/modules/accounting/api/bank_statements.php?bank_account_id=${id}&match_status=unmatched`);
+  const accountsApi = useApi('/modules/accounting/api/accounts.php?active=1&postable=1');
+  const [filters, setFilters] = useState({ q: '', date_from: '', date_to: '', amount_min: '', amount_max: '' });
+  const [appliedFilters, setAppliedFilters] = useState(filters);
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAppliedFilters(filters);
+      setPage(1);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [filters]);
+  const statementUrl = useMemo(() => {
+    const params = new URLSearchParams({
+      bank_account_id: id,
+      match_status: 'unmatched',
+      page: String(page),
+      per_page: String(perPage),
+    });
+    Object.entries(appliedFilters).forEach(([key, value]) => {
+      if (String(value || '').trim()) params.set(key, String(value).trim());
+    });
+    return `/modules/accounting/api/bank_statements.php?${params.toString()}`;
+  }, [id, page, perPage, appliedFilters]);
+  const { data, loading, error, reload } = useApi(statementUrl);
   const [csv, setCsv]       = useState('');
   const [busy, setBusy]     = useState(null);
   const [actErr, setErr]    = useState(null);
   const bankAccount = accountApi.data?.account || null;
+  const total = Number(data?.total || 0);
+  const pages = Number(data?.pages || 1);
+  const currentPage = Number(data?.page || page);
+  const hasFilters = Object.values(appliedFilters).some((value) => String(value || '').trim());
+
+  useEffect(() => {
+    if (data?.page && Number(data.page) !== page) setPage(Number(data.page));
+  }, [data?.page, page]);
 
   const importCsv = async (e) => {
     e.preventDefault();
@@ -295,28 +328,118 @@ function AccountDetail() {
         </details>
       </form>
 
+      <div
+        data-testid="accounting-bank-line-filters"
+        style={{
+          display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'end', marginBottom: 10,
+        }}
+      >
+        <label style={{ fontSize: 11, flex: '2 1 260px' }}>
+          Search
+          <input
+            className="input"
+            type="search"
+            value={filters.q}
+            onChange={(event) => setFilters((prev) => ({ ...prev, q: event.target.value }))}
+            placeholder="Description, reference, FITID, or amount"
+            data-testid="accounting-bank-line-search"
+            style={{ width: '100%' }}
+          />
+        </label>
+        <label style={{ fontSize: 11, flex: '1 1 145px' }}>
+          From
+          <input className="input" type="date" value={filters.date_from}
+                 onChange={(event) => setFilters((prev) => ({ ...prev, date_from: event.target.value }))}
+                 data-testid="accounting-bank-line-date-from" style={{ width: '100%' }} />
+        </label>
+        <label style={{ fontSize: 11, flex: '1 1 145px' }}>
+          To
+          <input className="input" type="date" value={filters.date_to}
+                 onChange={(event) => setFilters((prev) => ({ ...prev, date_to: event.target.value }))}
+                 data-testid="accounting-bank-line-date-to" style={{ width: '100%' }} />
+        </label>
+        <label style={{ fontSize: 11, flex: '1 1 130px' }}>
+          Min amount
+          <input className="input" type="number" step="0.01" value={filters.amount_min}
+                 onChange={(event) => setFilters((prev) => ({ ...prev, amount_min: event.target.value }))}
+                 placeholder="Any" data-testid="accounting-bank-line-amount-min" style={{ width: '100%' }} />
+        </label>
+        <label style={{ fontSize: 11, flex: '1 1 130px' }}>
+          Max amount
+          <input className="input" type="number" step="0.01" value={filters.amount_max}
+                 onChange={(event) => setFilters((prev) => ({ ...prev, amount_max: event.target.value }))}
+                 placeholder="Any" data-testid="accounting-bank-line-amount-max" style={{ width: '100%' }} />
+        </label>
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={() => setFilters({ q: '', date_from: '', date_to: '', amount_min: '', amount_max: '' })}
+          disabled={!Object.values(filters).some((value) => String(value || '').trim())}
+          data-testid="accounting-bank-line-clear-filters"
+        >Clear</button>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+        <span data-testid="accounting-bank-line-result-count">
+          {total === 0 ? 'No' : `${((currentPage - 1) * perPage) + 1}-${Math.min(currentPage * perPage, total)} of ${total}`} unmatched lines
+        </span>
+        <label>
+          Rows&nbsp;
+          <select
+            className="input"
+            value={perPage}
+            onChange={(event) => { setPerPage(Number(event.target.value)); setPage(1); }}
+            data-testid="accounting-bank-line-per-page"
+            style={{ width: 76 }}
+          >
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </label>
+      </div>
+
       {loading && <p>Loading…</p>}
       {error   && <p className="error">{error.message}</p>}
       <table className="data-table" data-testid="accounting-bank-lines-table">
         <thead><tr><th>Date</th><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th>Status</th><th>AI</th><th></th></tr></thead>
         <tbody>
           {(data?.rows || []).length === 0 && !loading && (
-            <tr><td colSpan={6} className="empty" data-testid="accounting-bank-lines-empty">No unmatched lines. Import a statement above to get started.</td></tr>
+            <tr><td colSpan={6} className="empty" data-testid="accounting-bank-lines-empty">
+              {hasFilters ? 'No unmatched lines match these filters.' : 'No unmatched lines. Import a statement above to get started.'}
+            </td></tr>
           )}
           {(data?.rows || []).map(l => (
-            <BankLineRow key={l.id} line={l} reload={reload} bankAccount={bankAccount} />
+            <BankLineRow
+              key={l.id}
+              line={l}
+              reload={reload}
+              bankAccount={bankAccount}
+              accounts={accountsApi.data?.rows || []}
+            />
           ))}
         </tbody>
       </table>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 10 }}>
+        <button className="btn btn--ghost" type="button" onClick={() => setPage((value) => Math.max(1, value - 1))}
+                disabled={currentPage <= 1 || loading} data-testid="accounting-bank-line-page-prev">Previous</button>
+        <span style={{ minWidth: 90, textAlign: 'center', fontSize: 12 }} data-testid="accounting-bank-line-page">
+          Page {currentPage} of {pages}
+        </span>
+        <button className="btn btn--ghost" type="button" onClick={() => setPage((value) => Math.min(pages, value + 1))}
+                disabled={currentPage >= pages || loading} data-testid="accounting-bank-line-page-next">Next</button>
+      </div>
     </section>
   );
 }
 
-function BankLineRow({ line, reload, bankAccount }) {
+function BankLineRow({ line, reload, bankAccount, accounts }) {
   const [busy, setBusy] = useState(null);
   const [aiResp, setAi] = useState(null);
   const [err, setErr]   = useState(null);
   const [splitOpen, setSplitOpen] = useState(false);
+  const [receiptSplitOpen, setReceiptSplitOpen] = useState(false);
+  const [apPaymentOpen, setApPaymentOpen] = useState(false);
 
   const callAi = async (action) => {
     setBusy(action); setErr(null);
@@ -357,6 +480,18 @@ function BankLineRow({ line, reload, bankAccount }) {
                 {line.invoice_match.status === 'draft' ? 'Draft invoice' : 'Invoice'} {line.invoice_match.invoice_number}
               </span>
             )
+            : line.ap_payment_match ? (
+              <span
+                data-testid={`accounting-bank-line-ap-payment-match-${line.id}`}
+                style={{
+                  background: line.ap_payment_match.can_clear_and_match ? '#d1fae5' : '#fef3c7',
+                  color: line.ap_payment_match.can_clear_and_match ? '#065f46' : '#92400e',
+                  padding: '2px 6px', borderRadius: 4,
+                }}
+              >
+                AP payment #{line.ap_payment_match.payment_id}
+              </span>
+            )
             : line.applied_rule_id ? <span data-testid={`accounting-bank-line-applied-${line.id}`} style={{ background: '#d1fae5', color: '#065f46', padding: '2px 6px', borderRadius: 4 }}>⚙ Rule applied</span>
             : line.ai_suggested_rule_id ? <span data-testid={`accounting-bank-line-rule-suggested-${line.id}`} style={{ background: '#dbeafe', color: '#1e40af', padding: '2px 6px', borderRadius: 4 }}>✨ Rule suggested</span>
             : line.ai_suggested_account_code ? <span data-testid={`accounting-bank-line-cat-suggested-${line.id}`} style={{ background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: 4 }}>✨ Cat. {line.ai_suggested_account_code}</span>
@@ -365,12 +500,14 @@ function BankLineRow({ line, reload, bankAccount }) {
         <td>
           <div style={{ display: 'flex', gap: 4 }}>
             <button
-              className={line.invoice_match ? 'btn btn--primary' : 'btn btn--ghost'}
-              onClick={line.invoice_match ? reviewInvoiceMatches : () => callAi('suggest_match')}
+              className={(line.invoice_match || line.ap_payment_match) ? 'btn btn--primary' : 'btn btn--ghost'}
+              onClick={line.ap_payment_match
+                ? () => { setErr(null); setApPaymentOpen(true); }
+                : line.invoice_match ? reviewInvoiceMatches : () => callAi('suggest_match')}
               disabled={busy}
               data-testid={`accounting-bank-ai-match-${line.id}`}
             >
-              {busy === 'suggest_match' ? '…' : line.invoice_match ? 'Review match' : 'Find match'}
+              {busy === 'suggest_match' ? '…' : line.ap_payment_match ? 'Match payment' : line.invoice_match ? 'Review match' : 'Find match'}
             </button>
             <button className="btn btn--ghost" onClick={() => callAi('suggest_categorize')} disabled={busy} data-testid={`accounting-bank-ai-cat-${line.id}`}>
               {busy === 'suggest_categorize' ? '…' : 'AI cat.'}
@@ -380,14 +517,56 @@ function BankLineRow({ line, reload, bankAccount }) {
             </button>
             <button
               className="btn btn--primary"
-              onClick={() => setSplitOpen(true)}
+              onClick={() => Number(line.amount) > 0 ? setReceiptSplitOpen(true) : setSplitOpen(true)}
               disabled={!bankAccount || !bankAccount.entity_id || !bankAccount.gl_account_code}
               data-testid={`accounting-bank-ic-split-${line.id}`}
-              title="Split this line across entities (intercompany)"
-            >⊕ Split / IC</button>
+              title={Number(line.amount) > 0
+                ? 'Apply this receipt to one or more customer invoices and assign any remainder'
+                : 'Split this line across entities'}
+            >{Number(line.amount) > 0 ? 'Apply receipt' : 'Split / IC'}</button>
           </div>
         </td>
       </tr>
+      {receiptSplitOpen && (
+        <tr data-testid={`accounting-bank-receipt-split-row-${line.id}`}>
+          <td colSpan={6} style={{ background: '#fefce8', padding: 14, borderLeft: '3px solid #ca8a04' }}>
+            <BankReceiptSplitPanel
+              line={line}
+              type="deposit"
+              accounts={accounts}
+              onSubmit={async ({ invoiceAllocations, accountSplits }) => {
+                if (invoiceAllocations.length > 0) {
+                  await api.post(`/modules/accounting/api/bank_statements.php?action=split_match_invoices&line_id=${line.id}`, {
+                    allocations: invoiceAllocations,
+                    account_splits: accountSplits,
+                  });
+                } else {
+                  await api.post('/modules/treasury/api/account_transactions.php?action=split_categorize', {
+                    line_id: line.id,
+                    type: 'deposit',
+                    splits: accountSplits,
+                  });
+                }
+                setReceiptSplitOpen(false);
+                reload();
+              }}
+              onCancel={() => setReceiptSplitOpen(false)}
+            />
+          </td>
+        </tr>
+      )}
+      {apPaymentOpen && (
+        <tr data-testid={`accounting-bank-ap-payment-row-${line.id}`}>
+          <td colSpan={6} style={{ background: '#f0fdf4', padding: 14, borderLeft: '3px solid #059669' }}>
+            <ApPaymentMatchPanel
+              line={line}
+              candidates={line.ap_payment_matches || []}
+              onMatched={() => { setApPaymentOpen(false); reload(); }}
+              onCancel={() => setApPaymentOpen(false)}
+            />
+          </td>
+        </tr>
+      )}
       {splitOpen && (
         <IntercompanySplitDialog
           open={splitOpen}
@@ -417,6 +596,67 @@ function BankLineRow({ line, reload, bankAccount }) {
         <tr><td colSpan={6}><p className="error" data-testid={`accounting-bank-ai-error-${line.id}`}>{err}</p></td></tr>
       )}
     </>
+  );
+}
+
+function ApPaymentMatchPanel({ line, candidates, onMatched, onCancel }) {
+  const [busy, setBusy] = useState(null);
+  const [err, setErr] = useState(null);
+
+  const matchPayment = async (candidate) => {
+    if (!candidate.can_clear_and_match) return;
+    setBusy(candidate.payment_id); setErr(null);
+    try {
+      await api.post(`/modules/accounting/api/bank_statements.php?action=match_ap_payment&line_id=${line.id}`, {
+        payment_id: candidate.payment_id,
+      });
+      onMatched?.();
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <div data-testid={`accounting-bank-ap-payment-panel-${line.id}`}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'start' }}>
+        <div>
+          <strong style={{ fontSize: 13 }}>Match an outgoing AP payment</strong>
+          <div style={{ color: 'var(--cf-text-secondary)', fontSize: 11, marginTop: 2 }}>
+            This clears the payment, posts the bank movement once, and reconciles this line.
+          </div>
+        </div>
+        <button type="button" className="btn btn--ghost" onClick={onCancel}>Close</button>
+      </div>
+      {candidates.length === 0 ? (
+        <p className="muted" style={{ fontSize: 12 }}>No released AP payment has this amount.</p>
+      ) : (
+        <table style={{ width: '100%', marginTop: 10, fontSize: 12 }}>
+          <thead><tr><th>Vendor</th><th>Payment date</th><th>Reference</th><th>Status</th><th style={{ textAlign: 'right' }}>Amount</th><th></th></tr></thead>
+          <tbody>
+            {candidates.map(candidate => (
+              <tr key={candidate.payment_id} data-testid={`accounting-bank-ap-payment-candidate-${candidate.payment_id}`}>
+                <td><strong>{candidate.vendor_name}</strong><div className="muted">{candidate.reasoning}</div></td>
+                <td>{fmtDate(candidate.pay_date)}</td>
+                <td>{candidate.reference || '—'}</td>
+                <td>{candidate.status}</td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(candidate.amount)}</td>
+                <td style={{ textAlign: 'right' }}>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    disabled={Boolean(busy) || !candidate.can_clear_and_match}
+                    onClick={() => matchPayment(candidate)}
+                    data-testid={`accounting-bank-ap-payment-accept-${candidate.payment_id}`}
+                  >
+                    {busy === candidate.payment_id ? 'Matching…' : candidate.status === 'cleared' ? 'Match cleared payment' : 'Clear & match'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {err && <p className="error" style={{ marginTop: 8 }}>{err}</p>}
+    </div>
   );
 }
 

@@ -32,6 +32,7 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 };
 
 $root = dirname(__DIR__);
+require_once $root . '/modules/placements/lib/rate_approve.php';
 $placements = (string) file_get_contents($root . '/modules/placements/api/placements.php');
 $rates      = (string) file_get_contents($root . '/modules/placements/api/rates.php');
 $rateApprLib = (string) file_get_contents($root . '/modules/placements/lib/rate_approve.php');
@@ -161,7 +162,30 @@ $a('queue can approve every currently shown draft rate',
 $a('implausible rates are blocked in the shared approval helper',
    str_contains($rateApprLib, 'function placementsRateApprovalBlocker')
    && str_contains($rateApprLib, 'Hourly rate exceeds $5,000')
+   && str_contains($rateApprLib, 'Convert them to the same unit before approval')
    && str_contains($rateApprLib, '$blocker = placementsRateApprovalBlocker($rate)'));
+$a('zero-bill internal salary is not falsely blocked by unit mismatch',
+   placementsRateApprovalBlocker([
+       'bill_rate' => 0,
+       'bill_rate_unit' => 'hour',
+       'pay_rate' => 100000,
+       'pay_rate_unit' => 'month',
+       'created_by_user_id' => 1,
+   ]) === null
+   && placementsRateApprovalWarning([
+       'bill_rate' => 0,
+       'bill_rate_unit' => 'hour',
+       'pay_rate' => 100000,
+       'pay_rate_unit' => 'month',
+   ]) === null);
+$a('nonzero mixed-unit margin is excluded from bulk approval',
+   placementsRateApprovalBlocker([
+       'bill_rate' => 150,
+       'bill_rate_unit' => 'hour',
+       'pay_rate' => 100000,
+       'pay_rate_unit' => 'year',
+       'created_by_user_id' => 1,
+   ]) !== null);
 $a('queue excludes blocked rates from selection and explains why',
    str_contains($queue, 'disabled={!!r.approval_blocker}')
    && str_contains($queue, 'placements-draft-rates-blocked-summary'));

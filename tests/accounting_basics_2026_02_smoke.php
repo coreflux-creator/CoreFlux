@@ -101,13 +101,15 @@ $a('idempotent (guards via information_schema)',          substr_count($m103, 'P
 // ────────────────────────────────────────── 6) AP UI surfaces mercury
 echo "\nmodules/ap/ui/PaymentsList.jsx — mercury as first-class method\n";
 $ui = (string) file_get_contents($ROOT . '/modules/ap/ui/PaymentsList.jsx');
-$a('RecordPaymentModal takes mercuryEnabled prop',        $c($ui, 'function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled })'));
+$a('RecordPaymentModal takes mercuryEnabled prop',        $c($ui, 'function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled'));
 $a('parent invocation passes mercuryConnected',           $c($ui, 'mercuryEnabled={mercuryConnected}'));
 $a('method dropdown shows mercury option',                $c($ui, '<option value="mercury" disabled={!mercuryEnabled}'));
 $a('mercury disabled label when not connected',           $c($ui, "{mercuryEnabled ? '' : ' (not connected)'}"));
 $a('mercury helper card surfaces draft note',             $c($ui, 'data-testid="ap-pay-mercury-helper"'));
-$a('mercury auto-routes to send_via_mercury after create',$c($ui, '/modules/ap/api/payments.php?action=send_via_mercury&id=${r.id}'));
-$a('mercury auto-route is best-effort (try/catch)',       $c($ui, '/* surfaced on row-level chip anyway */'));
+$a('mercury draft does not bypass release approval',      $c($ui, 'No money moves from this form.')
+                                                          && !$c($ui, '/* surfaced on row-level chip anyway */'));
+$a('released Mercury payments can be queued in bulk',     $c($ui, 'queueMercurySelected')
+                                                          && $c($ui, 'ap-payments-mercury-selected'));
 
 // ────────────────────────────────────────── summary
 echo "\n=========================================\n";

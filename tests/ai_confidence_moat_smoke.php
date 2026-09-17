@@ -6,8 +6,8 @@
  *   • Migration 009 declares the right columns + tables
  *   • core/ai_categorization.php has the cascade (history → rules → llm)
  *     and constants (PROMPT_VERSION, MODEL_VERSION, AUTO_ACCEPT)
- *   • account_transactions.php returns ai_suggestion per unmatched row
- *     and records outcome on categorize_and_post
+ *   • account_transactions.php reuses cached suggestions without creating
+ *     model traffic or database writes during an ordinary page load
  *   • bank_ai.php uses the unified service + bank_statements records outcome
  *   • api/ai_accuracy.php exposes the dashboard data + rollup action
  *   • UI surfaces confidence pill + Accept button + auto-accept threshold
@@ -58,16 +58,23 @@ $assert('rollup uses REPLACE INTO ai_accuracy_daily',
                                                 strpos($svc, 'REPLACE INTO ai_accuracy_daily') !== false);
 $assert('upsert helper aiUpsertCategorizationHistory',
                                                 strpos($svc, 'function aiUpsertCategorizationHistory(') !== false);
+$assert('suggestion persistence cannot break bank activity',
+                                                strpos($svc, 'suggestion persistence skipped') !== false);
 $assert('PHP parses cleanly',                   $lint(__DIR__ . '/../core/ai_categorization.php'));
 
 echo "modules/treasury/api/account_transactions.php (AI wiring)\n";
 $at = file_get_contents(__DIR__ . '/../modules/treasury/api/account_transactions.php');
-$assert('GET runs aiSuggestCounterpartAccount per unmatched row',
-                                                strpos($at, 'aiSuggestCounterpartAccount(') !== false);
 $assert('GET caches suggestions (status=draft) instead of re-suggesting',
                                                 strpos($at, "AND status       = 'draft'") !== false);
+$assert('GET stays read-only when no cached suggestion exists',
+                                                strpos($at, "Rendering a bank feed must stay read-only") !== false
+                                             && strpos($at, "\$rows[\$i]['ai_suggestion'] = null") !== false);
 $assert('categorize_and_post records outcome',  strpos($at, 'aiRecordCategorizationOutcome(') !== false);
 $assert('PHP parses cleanly',                   $lint(__DIR__ . '/../modules/treasury/api/account_transactions.php'));
+
+$compat = file_get_contents(__DIR__ . '/../core/migrations/142_ai_suggestion_source_compat.sql');
+$assert('suggestion provenance migration removes enum truncation risk',
+                                                strpos($compat, 'suggestion_source VARCHAR(32)') !== false);
 
 echo "modules/accounting/api/bank_ai.php + bank_statements.php (deposit AI uses same moat)\n";
 $ba = file_get_contents(__DIR__ . '/../modules/accounting/api/bank_ai.php');

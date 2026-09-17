@@ -36,6 +36,8 @@ CsvImportService::registerSchema('billing_invoices', [
         'external_id'      => ['label' => 'External ID (audit / integration)'],
         'source_system'    => ['label' => 'Source system',
                                'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
+        'record_status'    => ['label' => 'Record status (read only)'],
+        'amount_paid'      => ['label' => 'Amount paid (read only)', 'type' => 'number'],
         'client_name'      => ['label' => 'Client name'],
         'issue_date'       => ['label' => 'Issue date',      'type' => 'date'],
         'due_date'         => ['label' => 'Due date',        'type' => 'date'],
@@ -46,6 +48,7 @@ CsvImportService::registerSchema('billing_invoices', [
         'aggregation'      => ['label' => 'Aggregation',
                                'enum'  => ['per_placement','per_client']],
         'notes_external'   => ['label' => 'Notes (external)'],
+        'line_id'          => ['label' => 'Line ID (read only)', 'type' => 'integer'],
         'line_no'          => ['label' => 'Line #',           'type' => 'number'],
         'line_description' => ['label' => 'Line description'],
         'line_quantity'    => ['label' => 'Line quantity',    'type' => 'number'],
@@ -162,7 +165,8 @@ if ($method === 'POST' && $action === 'commit') {
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap = CsvImportService::readRequestColumnMap();
-    $skipInvalid = !empty($_GET['skip_invalid']);
+    $skipInvalid    = !empty($_GET['skip_invalid']);
+    $updateExisting = !empty($_GET['update_existing']);
 
     $dry = CsvImportService::dryRun('billing_invoices', $csv, $columnMap);
     if (!$skipInvalid && $dry['error_count'] > 0) {
@@ -183,69 +187,130 @@ if ($method === 'POST' && $action === 'commit') {
 
     $pdo = getDB();
     $imported = 0;
+    $created  = 0;
+    $updated  = 0;
     $errors   = $dry['errors'];
     $ids      = [];
+
+    $amountsForLine = static function (array $row): array {
+        $quantity = ($row['line_quantity'] ?? '') === '' ? 1.0 : (float) $row['line_quantity'];
+        $unitPrice = ($row['line_unit_price'] ?? '') === '' ? 0.0 : (float) $row['line_unit_price'];
+        $subtotal = ($row['line_subtotal'] ?? '') === ''
+            ? round($quantity * $unitPrice, 2)
+            : round((float) $row['line_subtotal'], 2);
+        $tax = ($row['line_tax_amount'] ?? '') === '' ? 0.0 : round((float) $row['line_tax_amount'], 2);
+        $total = ($row['line_total'] ?? '') === ''
+            ? round($subtotal + $tax, 2)
+            : round((float) $row['line_total'], 2);
+        return compact('quantity', 'unitPrice', 'subtotal', 'tax', 'total');
+    };
 
     foreach ($groups as $inv => $rows) {
         $header = $rows[0];
         $externalId   = isset($header['external_id'])   && $header['external_id']   !== '' ? (string) $header['external_id']   : null;
         $sourceSystem = isset($header['source_system']) && $header['source_system'] !== '' ? (string) $header['source_system'] : 'manual';
 
-        // Idempotency on re-import: prefer (source_system, external_id)
-        // when supplied; fall back to (tenant, invoice_number) for
-        // legacy/manual imports without an external_id.
+        // Stable ID wins, then the external-system key, then invoice number.
+        // Existing rows may only be replaced while they are unpaid, unposted
+        // manual drafts. Posted accounting history is never CSV-mutable.
         $existing = null;
-        if ($externalId !== null) {
+        $invoiceId = isset($header['invoice_id']) && $header['invoice_id'] !== '' ? (int) $header['invoice_id'] : 0;
+        if ($invoiceId > 0) {
             $existing = scopedFind(
-                'SELECT id FROM billing_invoices WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
+                'SELECT id, status, journal_entry_id, amount_paid
+                   FROM billing_invoices
+                  WHERE tenant_id = :tenant_id AND id = :id',
+                ['id' => $invoiceId]
+            );
+            if (!$existing) {
+                $errors['__invoice_' . $inv] = ["Invoice ID {$invoiceId} was not found in this workspace"];
+                continue;
+            }
+        } elseif ($externalId !== null) {
+            $existing = scopedFind(
+                'SELECT id, status, journal_entry_id, amount_paid
+                   FROM billing_invoices
+                  WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
                 ['s' => $sourceSystem, 'e' => $externalId]
             );
         }
         if (!$existing) {
-            $existing = scopedFind('SELECT id FROM billing_invoices WHERE tenant_id = :tenant_id AND invoice_number = :n', ['n' => $inv]);
+            $existing = scopedFind(
+                'SELECT id, status, journal_entry_id, amount_paid
+                   FROM billing_invoices
+                  WHERE tenant_id = :tenant_id AND invoice_number = :n',
+                ['n' => $inv]
+            );
         }
         if ($existing) {
-            $errors['__invoice_' . $inv] = ['Invoice # ' . $inv . ' already exists; skipped'];
-            continue;
+            if (!$updateExisting) {
+                $errors['__invoice_' . $inv] = ['Invoice # ' . $inv . ' already exists; enable Update matching editable records to change its draft'];
+                continue;
+            }
+            if (($existing['status'] ?? '') !== 'draft'
+                || !empty($existing['journal_entry_id'])
+                || abs((float) ($existing['amount_paid'] ?? 0)) >= 0.005) {
+                $errors['__invoice_' . $inv] = ['Only unpaid, unposted draft invoices can be updated by CSV'];
+                continue;
+            }
+            $sourceLines = $pdo->prepare(
+                'SELECT COUNT(*) FROM billing_invoice_lines
+                  WHERE invoice_id = :id AND source_type <> "manual"'
+            );
+            $sourceLines->execute(['id' => (int) $existing['id']]);
+            if ((int) $sourceLines->fetchColumn() > 0) {
+                $errors['__invoice_' . $inv] = ['Time-sourced invoice lines must be rebuilt from Time settlement, not overwritten by CSV'];
+                continue;
+            }
         }
 
         $subtotal = 0; $tax = 0; $total = 0;
         foreach ($rows as $r) {
-            $subtotal += (float) ($r['line_subtotal']  ?? 0);
-            $tax      += (float) ($r['line_tax_amount']?? 0);
-            $total    += (float) ($r['line_total']     ?? 0);
+            $amounts = $amountsForLine($r);
+            $subtotal += $amounts['subtotal'];
+            $tax      += $amounts['tax'];
+            $total    += $amounts['total'];
         }
-        if ($total <= 0) $total = $subtotal + $tax;
+        $subtotal = round($subtotal, 2);
+        $tax = round($tax, 2);
+        $total = round($total, 2);
+        $wasUpdate = (bool) $existing;
 
         $pdo->beginTransaction();
         try {
-            $invId = scopedInsert('billing_invoices', [
-                'invoice_number'     => $inv,
-                'external_id'        => $externalId,
-                'source_system'      => $sourceSystem,
-                'client_name'        => (string) $header['client_name'],
-                'currency'           => $header['currency']  ?? 'USD',
-                'issue_date'         => $header['issue_date'],
-                'due_date'           => $header['due_date'],
-                'period_start'       => $header['period_start'] ?? null,
-                'period_end'         => $header['period_end']   ?? null,
-                'subtotal'           => $subtotal,
-                'tax_total'          => $tax,
-                'total'               => $total,
-                'amount_due'         => $total,
-                'status'             => 'draft',
-                'po_number'          => $header['po_number']    ?? null,
-                'aggregation'        => $header['aggregation']  ?? 'per_client',
-                'notes_external'     => $header['notes_external']?? null,
-                'created_by_user_id' => $user['id'] ?? null,
-            ]);
+            $headerPayload = [
+                'invoice_number' => $inv,
+                'external_id'    => $externalId,
+                'source_system'  => $sourceSystem,
+                'client_name'    => (string) $header['client_name'],
+                'currency'       => $header['currency']  ?? 'USD',
+                'issue_date'     => $header['issue_date'],
+                'due_date'       => $header['due_date'],
+                'period_start'   => $header['period_start'] ?? null,
+                'period_end'     => $header['period_end']   ?? null,
+                'subtotal'       => $subtotal,
+                'tax_total'      => $tax,
+                'total'          => $total,
+                'amount_due'     => $total,
+                'po_number'      => $header['po_number']    ?? null,
+                'aggregation'    => $header['aggregation']  ?? 'per_client',
+                'notes_external' => $header['notes_external'] ?? null,
+            ];
+            if ($existing) {
+                $invId = (int) $existing['id'];
+                scopedUpdate('billing_invoices', $invId, $headerPayload);
+                $pdo->prepare('DELETE FROM billing_invoice_lines WHERE invoice_id = :id')->execute(['id' => $invId]);
+            } else {
+                $invId = scopedInsert('billing_invoices', $headerPayload + [
+                    'status'             => 'draft',
+                    'created_by_user_id' => $user['id'] ?? null,
+                ]);
+            }
 
             $lineNo = 0;
             foreach ($rows as $r) {
                 $lineNo++;
-                $sub = (float) ($r['line_subtotal'] ?? (((float) ($r['line_quantity'] ?? 0)) * ((float) ($r['line_unit_price'] ?? 0))));
-                $taxAmt = (float) ($r['line_tax_amount'] ?? 0);
-                $lineTotal = (float) ($r['line_total'] ?? ($sub + $taxAmt));
+                $amounts = $amountsForLine($r);
                 $pdo->prepare(
                     'INSERT INTO billing_invoice_lines
                        (invoice_id, line_no, source_type, description, quantity, unit, unit_price,
@@ -258,17 +323,19 @@ if ($method === 'POST' && $action === 'commit') {
                     'line_no'    => isset($r['line_no']) && (int) $r['line_no'] > 0 ? (int) $r['line_no'] : $lineNo,
                     'stype'      => 'manual',
                     'desc'       => (string) ($r['line_description'] ?? ''),
-                    'qty'        => (float) ($r['line_quantity'] ?? 1),
+                    'qty'        => $amounts['quantity'],
                     'unit'       => (string) ($r['line_unit'] ?? 'hour'),
-                    'unit_price' => (float) ($r['line_unit_price'] ?? 0),
-                    'subtotal'   => $sub,
-                    'tax_amount' => $taxAmt,
-                    'total'      => $lineTotal,
+                    'unit_price' => $amounts['unitPrice'],
+                    'subtotal'   => $amounts['subtotal'],
+                    'tax_amount' => $amounts['tax'],
+                    'total'      => $amounts['total'],
                 ]);
             }
             $pdo->commit();
             $ids[$inv] = $invId;
             $imported++;
+            if ($wasUpdate) $updated++;
+            else $created++;
         } catch (\Throwable $e) {
             $pdo->rollBack();
             $errors['__invoice_' . $inv] = ['persist failed: ' . $e->getMessage()];
@@ -277,10 +344,13 @@ if ($method === 'POST' && $action === 'commit') {
 
     api_ok([
         'imported_count' => $imported,
+        'created_count'  => $created,
+        'updated_count'  => $updated,
         'skipped_count'  => count($groups) - $imported,
         'group_count'    => count($groups),
         'errors'         => $errors,
         'ids'            => $ids,
+        'update_existing'=> $updateExisting,
     ]);
 }
 

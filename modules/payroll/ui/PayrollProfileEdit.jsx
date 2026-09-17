@@ -7,6 +7,7 @@ export default function PayrollProfileEdit() {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [schedules, setSchedules] = useState([]);
+  const [cycles, setCycles] = useState([]);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -16,20 +17,28 @@ export default function PayrollProfileEdit() {
     Promise.all([
       api.get(`/modules/payroll/api/profiles.php?employee_id=${employeeId}`),
       api.get('/modules/payroll/api/pay_schedules.php'),
-    ]).then(([d, s]) => {
+      api.get('/modules/payroll/api/cycles.php'),
+    ]).then(([d, s, c]) => {
       if (!mounted) return;
       setData(d);
       setSchedules(s.schedules || []);
+      setCycles(c.cycles || []);
+      const scheduleId = d.profile?.schedule_id || (s.schedules?.find((item) => item.active)?.id ?? '');
+      const matchingCycles = (c.cycles || []).filter((item) => (
+        Number(item.schedule_id) === Number(scheduleId) && Number(item.active) === 1
+      ));
       setForm({
-        schedule_id: d.profile?.schedule_id || (s.schedules?.[0]?.id ?? ''),
+        schedule_id: scheduleId,
+        cycle_id: d.profile?.cycle_id || (matchingCycles.length === 1 ? matchingCycles[0].id : ''),
         work_state: d.profile?.work_state || 'CA',
         payment_method: d.profile?.payment_method || 'direct_deposit',
         default_hours_per_period: d.profile?.default_hours_per_period ?? 80,
-        retirement_pretax_bps: d.profile?.retirement_pretax_bps ?? 0,
-        health_premium_cents: d.profile?.health_premium_cents ?? 0,
-        hsa_pretax_cents: d.profile?.hsa_pretax_cents ?? 0,
-        extra_post_tax_cents: d.profile?.extra_post_tax_cents ?? 0,
+        retirement_percent: (d.profile?.retirement_pretax_bps ?? 0) / 100,
+        health_premium: (d.profile?.health_premium_cents ?? 0) / 100,
+        hsa_pretax: (d.profile?.hsa_pretax_cents ?? 0) / 100,
+        extra_post_tax: (d.profile?.extra_post_tax_cents ?? 0) / 100,
         enabled: d.profile?.enabled ?? 1,
+        notes: d.profile?.notes ?? '',
       });
     }).catch((e) => setError(e.message));
     return () => { mounted = false; };
@@ -43,10 +52,11 @@ export default function PayrollProfileEdit() {
         employee_id: parseInt(employeeId, 10),
         ...form,
         schedule_id: form.schedule_id ? parseInt(form.schedule_id, 10) : null,
-        retirement_pretax_bps: parseInt(form.retirement_pretax_bps, 10) || 0,
-        health_premium_cents:  parseInt(form.health_premium_cents, 10) || 0,
-        hsa_pretax_cents:      parseInt(form.hsa_pretax_cents, 10) || 0,
-        extra_post_tax_cents:  parseInt(form.extra_post_tax_cents, 10) || 0,
+        cycle_id: form.cycle_id ? parseInt(form.cycle_id, 10) : null,
+        retirement_pretax_bps: Math.round((parseFloat(form.retirement_percent) || 0) * 100),
+        health_premium_cents: Math.round((parseFloat(form.health_premium) || 0) * 100),
+        hsa_pretax_cents: Math.round((parseFloat(form.hsa_pretax) || 0) * 100),
+        extra_post_tax_cents: Math.round((parseFloat(form.extra_post_tax) || 0) * 100),
       });
       navigate('../profiles');
     } catch (err) {
@@ -57,6 +67,9 @@ export default function PayrollProfileEdit() {
   if (!data || !form) return <p>Loading…</p>;
   const emp = data.employee;
   const gaps = data.gaps || [];
+  const availableCycles = cycles.filter((cycle) => (
+    Number(cycle.schedule_id) === Number(form.schedule_id) && Number(cycle.active) === 1
+  ));
 
   return (
     <section className="payroll-profile-edit" data-testid="payroll-profile-edit">
@@ -82,14 +95,41 @@ export default function PayrollProfileEdit() {
             <span>Pay schedule</span>
             <select
               value={form.schedule_id || ''}
-              onChange={(e) => setForm({ ...form, schedule_id: e.target.value })}
+              onChange={(e) => {
+                const scheduleId = e.target.value;
+                const matches = cycles.filter((cycle) => (
+                  Number(cycle.schedule_id) === Number(scheduleId) && Number(cycle.active) === 1
+                ));
+                setForm({
+                  ...form,
+                  schedule_id: scheduleId,
+                  cycle_id: matches.length === 1 ? matches[0].id : '',
+                });
+              }}
               data-testid="payroll-profile-schedule"
             >
               <option value="">— Select —</option>
-              {schedules.map((s) => (
+              {schedules.filter((s) => s.active || Number(s.id) === Number(form.schedule_id)).map((s) => (
                 <option key={s.id} value={s.id}>{s.name} ({s.frequency})</option>
               ))}
             </select>
+          </label>
+          <label>
+            <span>Pay cycle</span>
+            <select
+              value={form.cycle_id || ''}
+              onChange={(e) => setForm({ ...form, cycle_id: e.target.value })}
+              data-testid="payroll-profile-cycle"
+              required={availableCycles.length > 1}
+            >
+              <option value="">{availableCycles.length ? '— Select —' : 'No cycle on this schedule'}</option>
+              {availableCycles.map((cycle) => (
+                <option key={cycle.id} value={cycle.id}>{cycle.name}</option>
+              ))}
+            </select>
+            {availableCycles.length > 1 && !form.cycle_id && (
+              <small className="muted">Choose the cohort that should include this employee.</small>
+            )}
           </label>
           <label>
             <span>Work state</span>
@@ -125,29 +165,29 @@ export default function PayrollProfileEdit() {
         <fieldset>
           <legend>Pre-tax deductions (per pay period)</legend>
           <label>
-            <span>401(k) % (basis points; 500 = 5.00%)</span>
+            <span>401(k) contribution (%)</span>
             <input
-              type="number" min="0" max="10000"
-              value={form.retirement_pretax_bps}
-              onChange={(e) => setForm({ ...form, retirement_pretax_bps: e.target.value })}
+              type="number" min="0" max="100" step="0.01"
+              value={form.retirement_percent}
+              onChange={(e) => setForm({ ...form, retirement_percent: e.target.value })}
               data-testid="payroll-profile-401k"
             />
           </label>
           <label>
-            <span>Health premium (cents)</span>
+            <span>Health premium per pay period ($)</span>
             <input
-              type="number" min="0"
-              value={form.health_premium_cents}
-              onChange={(e) => setForm({ ...form, health_premium_cents: e.target.value })}
+              type="number" min="0" step="0.01"
+              value={form.health_premium}
+              onChange={(e) => setForm({ ...form, health_premium: e.target.value })}
               data-testid="payroll-profile-health"
             />
           </label>
           <label>
-            <span>HSA contribution (cents)</span>
+            <span>HSA contribution per pay period ($)</span>
             <input
-              type="number" min="0"
-              value={form.hsa_pretax_cents}
-              onChange={(e) => setForm({ ...form, hsa_pretax_cents: e.target.value })}
+              type="number" min="0" step="0.01"
+              value={form.hsa_pretax}
+              onChange={(e) => setForm({ ...form, hsa_pretax: e.target.value })}
               data-testid="payroll-profile-hsa"
             />
           </label>
@@ -156,13 +196,22 @@ export default function PayrollProfileEdit() {
         <fieldset>
           <legend>Post-tax deductions</legend>
           <label>
-            <span>Other post-tax (cents)</span>
+            <span>Other post-tax per pay period ($)</span>
             <input
-              type="number" min="0"
-              value={form.extra_post_tax_cents}
-              onChange={(e) => setForm({ ...form, extra_post_tax_cents: e.target.value })}
+              type="number" min="0" step="0.01"
+              value={form.extra_post_tax}
+              onChange={(e) => setForm({ ...form, extra_post_tax: e.target.value })}
               data-testid="payroll-profile-posttax"
             />
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Internal note</legend>
+          <label>
+            <span>Notes</span>
+            <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                      rows={3} data-testid="payroll-profile-notes" />
           </label>
         </fieldset>
 

@@ -38,7 +38,7 @@ $a('POST upserts by (tenant,entity,name)',   str_contains($ep, "scopedUpdate('cs
 $a('?action=use bumps used_count',           str_contains($ep, 'used_count = used_count + 1'));
 $a('DELETE removes preset',                  str_contains($ep, "method === 'DELETE'"));
 $a('signature uses sorted lowercase sha256', str_contains($ep, 'sort($norm, SORT_STRING)') && str_contains($ep, "hash('sha256'"));
-foreach (['people','ap_vendors','staffing_clients','placements','time','ap_bills','billing_invoices','ap_payments','billing_payments'] as $e) {
+foreach (['people','ap_vendors','staffing_clients','accounting_accounts','billing_items','payroll_profiles','placements','time','ap_bills','billing_invoices','ap_payments','billing_payments'] as $e) {
     $a("entity allowlist includes {$e}",     str_contains($ep, "'{$e}'"));
 }
 
@@ -73,7 +73,10 @@ $a('placements audit includes update_existing', str_contains($pl, "'update_exist
 $tm = $read(__DIR__ . '/../modules/time/api/csv_import.php');
 $a('time reads ?update_existing=1',          str_contains($tm, "\$updateExisting = !empty(\$_GET['update_existing'])"));
 $a('time dedupes by composite key',          str_contains($tm, 'placement_id = :pl AND person_id = :p') && str_contains($tm, 'work_date = :wd AND category = :cat'));
-$a('time refuses to update approved rows',   str_contains($tm, "entry already approved"));
+$a('time refuses to update approved or settled rows',
+    str_contains($tm, "['draft', 'pending_review', 'rejected']")
+    && str_contains($tm, 'cannot be updated by CSV')
+    && str_contains($tm, 'has already been settled and cannot be updated by CSV'));
 $a('time updates instead of insert',         str_contains($tm, "scopedUpdate('time_entries'"));
 $a('time audit includes update_existing',    str_contains($tm, "'update_existing' => \$updateExisting"));
 
@@ -86,8 +89,14 @@ $a('wizard bumps used_count after apply',    str_contains($bulk, 'csv_mapping_pr
 $a('wizard surfaces preset name in row',     str_contains($bulk, 'preset: {f.presetName}'));
 $a('wizard forwards column_map on dry_run',  str_contains($bulk, 'body.column_map = f.columnMap') || str_contains($bulk, 'body.column_map = f.columnMap;'));
 $a('wizard forwards column_map on commit',   substr_count($bulk, 'body.column_map = f.columnMap') >= 2);
-$a('wizard supports ap_payments entity',     str_contains($bulk, "'ap_payments'") && str_contains($bulk, 'AP Payments'));
-$a('wizard supports billing_payments entity', str_contains($bulk, "'billing_payments'") && str_contains($bulk, 'Billing Payments'));
+$a('wizard supports ap_payments entity',     str_contains($bulk, "'ap_payments'") && str_contains($bulk, 'Vendor payments'));
+$a('wizard supports billing_payments entity', str_contains($bulk, "'billing_payments'") && str_contains($bulk, 'Customer payments'));
+
+$history = $read(__DIR__ . '/../dashboard/src/pages/CsvImportHistory.jsx');
+$a('history filters include new round-trip datasets',
+    str_contains($history, "accounting_accounts: 'Chart of accounts'")
+    && str_contains($history, "billing_items:    'Products & services'")
+    && str_contains($history, "payroll_profiles: 'Payroll employee profiles'"));
 
 echo "\nShared CsvImportPage — preset UI + update-existing toggle\n";
 $cmp = $read(__DIR__ . '/../dashboard/src/components/CsvImportPage.jsx');

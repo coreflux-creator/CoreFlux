@@ -51,6 +51,9 @@ if (!function_exists('placementsRateApproveOne')) {
         if (($billUnit === 'hour' && $bill > 5000) || ($payUnit === 'hour' && $pay > 5000)) {
             return 'Hourly rate exceeds $5,000. This looks like an annual amount or an incorrect unit; correct it before approval.';
         }
+        if ($bill > 0 && $pay > 0 && $billUnit !== $payUnit) {
+            return 'Bill and pay use different units. Convert them to the same unit before approval so margin is calculated correctly.';
+        }
         if (placementsRateIsUnsafeJobDivaAutoDraft($rate)) {
             return 'JobDiva supplied identical bill and pay values. Repair the source mapping or enter the correct rate before approval.';
         }
@@ -63,7 +66,6 @@ if (!function_exists('placementsRateApproveOne')) {
         $pay = (float) ($rate['pay_rate'] ?? 0);
         $billUnit = strtolower((string) ($rate['bill_rate_unit'] ?? 'hour'));
         $payUnit = strtolower((string) ($rate['pay_rate_unit'] ?? 'hour'));
-        if ($billUnit !== $payUnit) return 'Bill and pay use different units; verify the conversion.';
         if ($bill > 0 && $pay > $bill) return 'Pay rate exceeds bill rate.';
         if ($bill > 0 && abs($bill - $pay) < 0.0001) return 'Bill and pay rates are identical, leaving no gross spread.';
         return null;

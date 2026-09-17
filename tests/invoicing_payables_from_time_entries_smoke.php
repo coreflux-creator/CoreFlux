@@ -134,7 +134,10 @@ foreach ([
     'billing-from-entries-confirm',
     'billing-from-entries-selected-count',
 ] as $tid) {
-    $a("testid '{$tid}' present", str_contains($invMod, "data-testid=\"{$tid}\""));
+    $needle = $tid === 'billing-from-entries-placement'
+        ? "testId=\"{$tid}\""
+        : "data-testid=\"{$tid}\"";
+    $a("testid '{$tid}' present", str_contains($invMod, $needle));
 }
 foreach ([
     'billing-from-entries-row-${e.id}',

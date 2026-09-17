@@ -19,6 +19,14 @@ $checks = [
         str_contains($ui, 'data-testid="accounting-accounts-search"')
         && str_contains($ui, 'data-testid="accounting-accounts-type-filter"')
         && str_contains($ui, 'data-testid="accounting-accounts-status-filter"'),
+    'chart defaults to active accounts instead of legacy inactive rows' =>
+        str_contains($ui, "useState('1')")
+        && str_contains($ui, '<option value="1">Active</option>'),
+    'chart paginates large account lists and reports the visible range' =>
+        str_contains($ui, 'data-testid="accounting-accounts-pagination"')
+        && str_contains($ui, 'data-testid="accounting-accounts-result-count"')
+        && str_contains($ui, 'visibleTree.slice((page - 1) * perPage, page * perPage)')
+        && str_contains($ui, 'pagedTree.map(item => item.row)'),
     'chart exposes accessible sorting and selection' =>
         str_contains($ui, "sortProps('code')")
         && str_contains($ui, 'data-testid="accounting-accounts-select-all"')
