@@ -188,6 +188,7 @@ jobs:
             modules/ap/api/weekly_queue.php \
             modules/ap/lib/vendor_risk.php \
             modules/ap/lib/ap.php \
+            modules/ap/migrations/008_vendor_categories_attachments.sql \
             modules/ap/migrations/020_payment_entity_scope.sql \
             modules/ap/migrations/021_vendor_payment_defaults_repair.sql \
             modules/ap/ui/APModule.jsx \
@@ -496,6 +497,7 @@ jobs:
             test -f "$STAGE_ROOT/modules/placements/lib/placements.php"
             test -f "$STAGE_ROOT/modules/payroll/migrations/006_run_enterprise_controls.sql"
             test -f "$STAGE_ROOT/modules/payroll/migrations/007_accounting_posting.sql"
+            test -f "$STAGE_ROOT/modules/ap/migrations/008_vendor_categories_attachments.sql"
             test -f "$STAGE_ROOT/modules/ap/migrations/020_payment_entity_scope.sql"
             test -f "$STAGE_ROOT/modules/ap/migrations/021_vendor_payment_defaults_repair.sql"
             test -f "$STAGE_ROOT/modules/billing/migrations/013_item_catalog.sql"
