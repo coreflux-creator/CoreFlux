@@ -245,11 +245,11 @@ $a('NO LONGER hard-codes personId to session.user only',
 echo "\n── Backend gates ──\n";
 $api = file_get_contents($root . '/modules/staffing/api/timesheets.php');
 $a('entry mutations enforce person-scoped write access',
-    substr_count($api, "staffingApiRequirePersonWrite(\$user") >= 4);
+    substr_count($api, "staffingApiRequirePersonWrite(\$ctx") >= 4);
 $a('own-worker edits use staffing.time.create',
     str_contains($api, "'staffing.time.create'"));
 $a('other-worker edits require approval authority',
-    str_contains($api, "rbac_legacy_require(\$user, 'staffing.time.approve')"));
+    str_contains($api, "api_require_legacy_permission(\$ctx, 'staffing.time.approve')"));
 $a('entries_bulk_save returns {saved, errors[], rows[]} envelope',
     str_contains($api, "'saved'  => count(\$results)")
     && str_contains($api, "'errors' => \$errors"));
