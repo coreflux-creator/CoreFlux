@@ -73,12 +73,14 @@ $assert('bill queue has bulk approval and posting',
 echo "Clearing and ledger integrity\n";
 $clearing = $lib . "\n" . $payments;
 $eventPos = strpos($clearing, "'event_type' => 'ap.payment.cleared'");
-$fallbackPos = strpos($clearing, "'idempotency_key' => sprintf('ap:payment:%d:clear'");
+$eventJournalPos = strpos($clearing, '$journalEntryId = (int) $eventResult[\'journal_entry_id\'];');
 $clearStatusPos = strpos($clearing, 'SET status = "cleared"');
-$assert('clearing tries the accounting event and has an idempotent JE fallback',
-    $eventPos !== false && $fallbackPos !== false);
+$assert('clearing uses one idempotent accounting event with no direct JE fallback',
+    $eventPos !== false
+    && str_contains($clearing, "'source_record_id' => 'ap_payment:' . \$paymentId")
+    && !str_contains($clearing, "'idempotency_key' => sprintf('ap:payment:%d:clear'"));
 $assert('payment is marked cleared only after the journal succeeds',
-    $fallbackPos !== false && $clearStatusPos !== false && $fallbackPos < $clearStatusPos);
+    $eventJournalPos !== false && $clearStatusPos !== false && $eventJournalPos < $clearStatusPos);
 $assert('clear failure leaves payment sent and explicitly retryable',
     str_contains($clearing, 'The payment remains sent so you can fix the setup and retry.')
     && str_contains($payments, "['retryable' => true]"));

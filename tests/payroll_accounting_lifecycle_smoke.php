@@ -32,10 +32,12 @@ payroll_lifecycle_assert('adds durable accrual and cash JE links',
     str_contains($migration, 'journal_entry_id') && str_contains($migration, 'cash_journal_entry_id'));
 
 echo "\nPosting bridge\n";
-payroll_lifecycle_assert('accrual uses stable idempotency key',
-    str_contains($posting, "':accrual:v1'"));
-payroll_lifecycle_assert('cash leg uses stable idempotency key',
-    str_contains($posting, "':cash:v1'"));
+payroll_lifecycle_assert('accrual uses stable event identity',
+    str_contains($posting, "'event_type' => 'payroll.run.approved'")
+    && str_contains($posting, "'source_record_id' => 'payroll_run:' . \$runId . ':accrual'"));
+payroll_lifecycle_assert('cash leg uses stable event identity',
+    str_contains($posting, "'event_type' => 'payroll.cash.disbursed'")
+    && str_contains($posting, "'source_record_id' => 'payroll_run:' . \$runId . ':cash'"));
 payroll_lifecycle_assert('accrual recognizes wage and employer-tax expense',
     str_contains($posting, "wage_expense_account_code")
     && str_contains($posting, "payroll_tax_expense_account_code"));
