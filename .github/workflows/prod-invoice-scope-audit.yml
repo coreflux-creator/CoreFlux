@@ -1,0 +1,70 @@
+name: Production invoice scope audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/prod-invoice-audit
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect production invoice workspace scope
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 3m
+          script: |
+            set -eu
+            APP_BASE="${{ secrets.CW_REMOTE_PATH }}"
+            APP_ROOT="$APP_BASE/public_html"
+            test -n "$APP_BASE"
+            test "$APP_BASE" != "/"
+            cd "$APP_ROOT"
+            php <<'PHP'
+            <?php
+            require 'core/api_bootstrap.php';
+
+            $db = getDB();
+            $sql = <<<'SQL'
+            SELECT t.id,
+                   t.name,
+                   t.parent_id,
+                   t.tenant_type,
+                   COALESCE(tms.scope_mode, 'default-isolated') AS billing_scope,
+                   COUNT(bi.id) AS invoice_count,
+                   COALESCE(MIN(bi.id), 0) AS first_invoice_id,
+                   COALESCE(MAX(bi.id), 0) AS last_invoice_id
+              FROM tenants t
+              LEFT JOIN tenant_module_scope tms
+                ON tms.tenant_id = t.id AND tms.module_key = 'billing'
+              LEFT JOIN billing_invoices bi ON bi.tenant_id = t.id
+             WHERE LOWER(t.name) LIKE '%thunderhawk%'
+                OR bi.id IS NOT NULL
+             GROUP BY t.id, t.name, t.parent_id, t.tenant_type, tms.scope_mode
+             ORDER BY t.id
+            SQL;
+            echo "Workspace invoice counts:\n";
+            foreach ($db->query($sql)->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                echo json_encode($row, JSON_UNESCAPED_SLASHES), "\n";
+            }
+
+            echo "Recent invoice locations:\n";
+            $recent = $db->query(
+                'SELECT tenant_id, id, invoice_number, status, issue_date, created_at
+                   FROM billing_invoices
+                  ORDER BY id DESC
+                  LIMIT 20'
+            );
+            foreach ($recent->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                echo json_encode($row, JSON_UNESCAPED_SLASHES), "\n";
+            }
+            PHP
