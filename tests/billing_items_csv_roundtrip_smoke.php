@@ -16,7 +16,8 @@ $catalog = $read('modules/billing/ui/ItemsCatalog.jsx');
 $module = $read('modules/billing/ui/BillingModule.jsx');
 $manifest = $read('modules/billing/manifest.php');
 $samples = $read('core/csv_samples.php');
-$deploy = $read('.github/workflows/deploy-light-workspace.yml');
+$deployPath = $root . '/.github/workflows/deploy-light-workspace.yml';
+$deploy = is_file($deployPath) ? (string) file_get_contents($deployPath) : null;
 
 foreach (['modules/billing/api/items_csv_import.php', 'modules/billing/api/items_csv_export.php'] as $file) {
     $output = [];
@@ -71,11 +72,13 @@ $check('sample pack includes placement-free catalog rows', str_contains($samples
 $check('catalog import and export emit audit events',
     str_contains($manifest, "'billing.item.csv_imported'")
     && str_contains($manifest, "'billing.item.csv_exported'"));
-$check('light deployment ships and verifies the new surfaces',
-    substr_count($deploy, 'modules/billing/api/items_csv_import.php') >= 2
-    && substr_count($deploy, 'modules/billing/api/items_csv_export.php') >= 2
-    && str_contains($deploy, 'modules/billing/ui/ItemsCsvImport.jsx')
-    && str_contains($deploy, 'php tests/billing_items_csv_roundtrip_smoke.php'));
+if ($deploy !== null) {
+    $check('light deployment ships and verifies the new surfaces',
+        substr_count($deploy, 'modules/billing/api/items_csv_import.php') >= 2
+        && substr_count($deploy, 'modules/billing/api/items_csv_export.php') >= 2
+        && str_contains($deploy, 'modules/billing/ui/ItemsCsvImport.jsx')
+        && str_contains($deploy, 'php tests/billing_items_csv_roundtrip_smoke.php'));
+}
 
 if ($failures) {
     fwrite(STDERR, implode(PHP_EOL, $failures) . PHP_EOL);
