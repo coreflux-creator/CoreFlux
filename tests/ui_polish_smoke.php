@@ -135,7 +135,7 @@ $assert('reports use structured tabs, filters, summaries, and contained tables',
 $assert('chart of accounts has search and a focused add flow',
     str_contains($coa, 'accounting-accounts-search')
     && str_contains($coa, 'accounting-accounts-add-trigger')
-    && str_contains($coa, 'visibleTree.map')
+    && str_contains($coa, 'pagedTree.map')
     && str_contains($coa, 'className="inline-create-form"'));
 $assert('account links inherit the shared interactive treatment',
     str_contains($accountLink, 'className={`account-link')

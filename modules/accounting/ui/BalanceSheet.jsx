@@ -15,6 +15,7 @@ import ComparisonTable from '../../../dashboard/src/components/ComparisonTable';
 import GlDetailDrilldown from '../../../dashboard/src/components/GlDetailDrilldown';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import { useReportPeriod } from '../../../dashboard/src/lib/useReportPeriod';
+import { Eye, EyeOff } from 'lucide-react';
 
 export default function BalanceSheet() {
   const period = useReportPeriod();
@@ -25,6 +26,7 @@ export default function BalanceSheet() {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
   const [drill,   setDrill]   = useState(null);
+  const [hideZeroRows, setHideZeroRows] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +53,15 @@ export default function BalanceSheet() {
     .catch(e => { if (!cancelled) setError(e.message || 'Failed to load'); })
     .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [period.to, period.compareMode, period.from]);
+  }, [
+    period.to,
+    period.compareMode,
+    period.from,
+    period.priorTo,
+    period.priorYearTo,
+    period.showPriorPeriod,
+    period.showPriorYear,
+  ]);
 
   const safe = current && Array.isArray(current.assets)
     && Array.isArray(current.liabilities) && Array.isArray(current.equity);
@@ -96,6 +106,11 @@ export default function BalanceSheet() {
   const assetRows  = buildRows('assets');
   const liabRows   = buildRows('liabilities');
   const equityRows = buildRows('equity');
+  const visibleAssetRows = hideZeroRows ? assetRows.filter(hasMaterialBalance) : assetRows;
+  const visibleLiabRows = hideZeroRows ? liabRows.filter(hasMaterialBalance) : liabRows;
+  const visibleEquityRows = hideZeroRows ? equityRows.filter(hasMaterialBalance) : equityRows;
+  const hiddenRowCount = assetRows.length + liabRows.length + equityRows.length
+    - visibleAssetRows.length - visibleLiabRows.length - visibleEquityRows.length;
 
   const totRow = (key, label, kind) => ({
     code: '', label, kind,
@@ -124,6 +139,18 @@ export default function BalanceSheet() {
         end:   d.period_to   || period.to,
         label: d.label,
       })}
+      actions={(
+        <button
+          type="button"
+          className="btn"
+          onClick={() => setHideZeroRows((value) => !value)}
+          data-testid="rpt-bs-toggle-zero-rows"
+          title={hideZeroRows ? 'Show accounts with no balance in any visible period' : 'Hide accounts with no balance'}
+        >
+          {hideZeroRows ? <Eye size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}
+          {hideZeroRows ? `Show zero rows${hiddenRowCount ? ` (${hiddenRowCount})` : ''}` : 'Hide zero rows'}
+        </button>
+      )}
       kpis={safe && (
         <>
           <MetricCard label="Total assets"
@@ -163,13 +190,13 @@ export default function BalanceSheet() {
 
       {safe && (
         <>
-          <Section title="Assets" rows={assetRows} columns={columns}
+          <Section title="Assets" rows={visibleAssetRows} columns={columns}
                    total={totRow('total_assets', 'Total assets', 'subtotal')}
                    testIdPrefix="rpt-bs-assets" />
-          <Section title="Liabilities" rows={liabRows} columns={columns}
+          <Section title="Liabilities" rows={visibleLiabRows} columns={columns}
                    total={totRow('total_liabilities', 'Total liabilities', 'subtotal')}
                    testIdPrefix="rpt-bs-liabilities" />
-          <Section title="Equity" rows={equityRows} columns={columns}
+          <Section title="Equity" rows={visibleEquityRows} columns={columns}
                    total={totRow('total_equity', 'Total equity', 'subtotal')}
                    testIdPrefix="rpt-bs-equity" />
 
@@ -211,6 +238,10 @@ function Section({ title, rows, total, testIdPrefix, columns }) {
       />
     </div>
   );
+}
+
+function hasMaterialBalance(row) {
+  return Object.values(row.values || {}).some((value) => Math.abs(Number(value) || 0) >= 0.005);
 }
 
 function url(asOf) {

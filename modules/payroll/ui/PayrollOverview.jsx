@@ -5,6 +5,7 @@ import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
 
 const fmtMoney = (cents) =>
   ((cents || 0) / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 
 export default function PayrollOverview() {
   const runsApi    = useApi('/modules/payroll/api/runs.php');
@@ -108,15 +109,15 @@ export default function PayrollOverview() {
           ) : (
             <table className="data-table" data-testid="payroll-overview-periods">
               <thead>
-                <tr><th>#</th><th>Period</th><th>Pay date</th><th>Status</th></tr>
+                <tr><th>Pay schedule</th><th>Period</th><th>Pay date</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {upcomingPeriods.map((p) => (
                   <tr key={p.id}>
-                    <td>{p.period_number}</td>
+                    <td>{p.cycle_name || p.schedule_name || `#${p.period_number}`}</td>
                     <td>{p.period_start} → {p.period_end}</td>
                     <td>{p.pay_date}</td>
-                    <td><span className={`badge badge--${p.status}`}>{p.status}</span></td>
+                    <td><span className={`badge badge--${p.status}`}>{statusLabel(p.status)}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -143,7 +144,7 @@ export default function PayrollOverview() {
                     <td>{r.employee_count}</td>
                     <td>{fmtMoney(r.gross_total_cents)}</td>
                     <td>{fmtMoney(r.net_total_cents)}</td>
-                    <td><span className={`badge badge--${r.status}`}>{r.status}</span></td>
+                    <td><span className={`badge badge--${r.status}`}>{statusLabel(r.status)}</span></td>
                   </tr>
                 ))}
               </tbody>

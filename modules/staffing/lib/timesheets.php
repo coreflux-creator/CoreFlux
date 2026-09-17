@@ -65,6 +65,108 @@ function staffingPlacementsTenantId(?int $tenantId = null): ?int
     }
 }
 
+function staffingTimesheetDate(string $value, string $label): string
+{
+    $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+    if (!$date || $date->format('Y-m-d') !== $value) {
+        throw new \RuntimeException("{$label} must be a valid YYYY-MM-DD date");
+    }
+    return $value;
+}
+
+function staffingTimesheetValidateWeek(int $personId, string $periodStart, string $periodEnd): void
+{
+    if ($personId <= 0) throw new \RuntimeException('person_id required');
+    staffingTimesheetDate($periodStart, 'period_start');
+    staffingTimesheetDate($periodEnd, 'period_end');
+    $start = new \DateTimeImmutable($periodStart);
+    $end = new \DateTimeImmutable($periodEnd);
+    if ((int) $start->diff($end)->format('%r%a') !== 6) {
+        throw new \RuntimeException('A weekly timesheet must cover exactly 7 consecutive days');
+    }
+
+    $peopleTenantId = staffingPeopleTenantId();
+    $stmt = getDB()->prepare(
+        'SELECT id FROM people WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL LIMIT 1'
+    );
+    $stmt->execute(['tenant_id' => $peopleTenantId, 'id' => $personId]);
+    if (!$stmt->fetchColumn()) throw new \RuntimeException("Person #{$personId} was not found");
+}
+
+function staffingTimesheetValidatePlacement(int $placementId, int $personId, string $workDate): void
+{
+    if ($placementId <= 0) throw new \RuntimeException('placement_id required');
+    staffingTimesheetDate($workDate, 'work_date');
+    $stmt = getDB()->prepare(
+        'SELECT id, person_id, start_date, end_date
+           FROM placements
+          WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL
+          LIMIT 1'
+    );
+    $stmt->execute(['tenant_id' => staffingPlacementsTenantId(), 'id' => $placementId]);
+    $placement = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    if (!$placement) throw new \RuntimeException("Placement #{$placementId} was not found");
+    if ((int) $placement['person_id'] !== $personId) {
+        throw new \RuntimeException("Placement #{$placementId} belongs to a different worker");
+    }
+    if ($workDate < (string) $placement['start_date']) {
+        throw new \RuntimeException("{$workDate} is before placement #{$placementId} starts");
+    }
+    if (!empty($placement['end_date']) && $workDate > (string) $placement['end_date']) {
+        throw new \RuntimeException("{$workDate} is after placement #{$placementId} ends");
+    }
+}
+
+function staffingTimesheetAssertWorkDateInWeek(string $workDate, string $periodStart, string $periodEnd): void
+{
+    if ($workDate < $periodStart || $workDate > $periodEnd) {
+        throw new \RuntimeException("{$workDate} is outside this timesheet week ({$periodStart} through {$periodEnd})");
+    }
+}
+
+function staffingTimesheetAssertEntryNotSettled(array $entry): void
+{
+    $destinations = [];
+    if (!empty($entry['bill_extracted_at']) || !empty($entry['bill_extracted_ref'])) $destinations[] = 'billing';
+    if (!empty($entry['ap_extracted_at']) || !empty($entry['ap_extracted_ref'])) $destinations[] = 'accounts payable';
+    if (!empty($entry['payroll_extracted_at']) || !empty($entry['payroll_extracted_ref'])) $destinations[] = 'payroll';
+    if ($destinations) {
+        throw new \RuntimeException(
+            'This time entry is already used in ' . implode(', ', $destinations)
+            . '. Correct or reverse the downstream record before changing the source time.'
+        );
+    }
+}
+
+function staffingTimesheetAssertDailyHours(
+    int $personId,
+    string $workDate,
+    float $hours,
+    int $excludeEntryId = 0
+): void {
+    if (!is_finite($hours) || $hours <= 0 || $hours > 24) {
+        throw new \RuntimeException('hours must be greater than 0 and no more than 24');
+    }
+    $params = ['pid' => $personId, 'wd' => $workDate];
+    $exclude = '';
+    if ($excludeEntryId > 0) {
+        $exclude = ' AND id != :exclude_id';
+        $params['exclude_id'] = $excludeEntryId;
+    }
+    $sum = scopedFind(
+        "SELECT COALESCE(SUM(hours), 0) AS h
+           FROM time_entries
+          WHERE tenant_id = :tenant_id
+            AND person_id = :pid
+            AND work_date = :wd
+            AND status != 'superseded'{$exclude}",
+        $params
+    );
+    if ((float) ($sum['h'] ?? 0) + $hours > 24.0) {
+        throw new \RuntimeException("Total hours for {$workDate} would exceed 24");
+    }
+}
+
 /** Get-or-create the timesheet header for (person, week). */
 function staffingTimesheetUpsert(int $personId, string $periodStart, string $periodEnd): array {
     $existing = scopedFind(
@@ -83,9 +185,25 @@ function staffingTimesheetUpsert(int $personId, string $periodStart, string $per
     return scopedFind('SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]) ?? [];
 }
 
+function staffingTimesheetFind(int $personId, string $periodStart): ?array
+{
+    return scopedFind(
+        'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND person_id = :pid AND period_start = :ps LIMIT 1',
+        ['pid' => $personId, 'ps' => $periodStart]
+    );
+}
+
 /** Snapshot of a worker's week — header + grouped entries by placement × day. */
 function staffingTimesheetWeek(int $personId, string $periodStart, string $periodEnd): array {
-    $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
+    staffingTimesheetValidateWeek($personId, $periodStart, $periodEnd);
+    $header = staffingTimesheetFind($personId, $periodStart) ?? [
+        'id' => null,
+        'person_id' => $personId,
+        'period_start' => $periodStart,
+        'period_end' => $periodEnd,
+        'status' => 'draft',
+        'total_hours' => 0.0,
+    ];
 
     $entries = scopedQuery(
         "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
@@ -132,56 +250,66 @@ function staffingTimesheetWeek(int $personId, string $periodStart, string $perio
  * Returns the refreshed week snapshot.
  */
 function staffingTimesheetBulkSave(int $userId, array $payload): array {
-    $personId    = (int) $payload['person_id'];
-    $periodStart = (string) $payload['period_start'];
-    $periodEnd   = (string) $payload['period_end'];
-    $rows        = $payload['rows'] ?? [];
+    $personId    = (int) ($payload['person_id'] ?? 0);
+    $periodStart = (string) ($payload['period_start'] ?? '');
+    $periodEnd   = (string) ($payload['period_end'] ?? '');
+    $rows        = is_array($payload['rows'] ?? null) ? $payload['rows'] : [];
 
-    if ($personId <= 0)        throw new \RuntimeException('person_id required');
-    if (!$periodStart || !$periodEnd) throw new \RuntimeException('period_start / period_end required');
+    staffingTimesheetValidateWeek($personId, $periodStart, $periodEnd);
 
     $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
     $headerId = (int) $header['id'];
 
-    // Per product direction (2026-02): operators with timesheets.write
-    // may edit any timesheet — including ones already submitted /
-    // approved / payroll_ready / billing_ready.  Auto-reopen so the
-    // existing draft-only constraints in the row loop still apply.
-    // Truly `locked` headers (status='locked') stay frozen because
-    // their entries are referenced by posted journal lines; the
-    // operator must reverse the JE first.
-    if (in_array($header['status'] ?? 'draft', ['submitted','approved','rejected','payroll_ready','billing_ready'], true)) {
-        $header = staffingTimesheetReopen($userId, $headerId, 'bulk edit');
-    } elseif (($header['status'] ?? 'draft') === 'locked') {
-        throw new \RuntimeException("Timesheet is locked — reverse downstream journal entries first");
-    }
-
     $pdo = getDB();
     $ownsTxn = cf_tx_begin($pdo);
     try {
+        if (($header['status'] ?? 'draft') !== 'draft') {
+            $header = staffingTimesheetReopen($userId, $headerId, 'bulk edit');
+        }
         foreach ($rows as $r) {
             $hourType = $r['hour_type'] ?? 'regular';
             if (!in_array($hourType, STAFFING_HOUR_TYPES, true)) {
                 throw new \RuntimeException("Invalid hour_type: {$hourType}");
             }
+            if (isset($r['hours']) && !is_numeric($r['hours'])) {
+                throw new \RuntimeException('hours must be numeric');
+            }
             $hours = isset($r['hours']) ? (float) $r['hours'] : 0.0;
+            $entryId = (int) ($r['id'] ?? 0);
+            $existing = null;
+            if ($entryId > 0) {
+                $existing = scopedFind(
+                    'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+                    ['id' => $entryId]
+                );
+                if (!$existing || (int) ($existing['timesheet_id'] ?? 0) !== $headerId || (int) ($existing['person_id'] ?? 0) !== $personId) {
+                    throw new \RuntimeException("Time entry #{$entryId} does not belong to this timesheet");
+                }
+                staffingTimesheetAssertEntryNotSettled($existing);
+            }
 
-            if (!empty($r['_delete']) && !empty($r['id'])) {
-                scopedDelete('time_entries', (int) $r['id']);
+            if (!empty($r['_delete']) && $entryId > 0) {
+                scopedDelete('time_entries', $entryId);
                 continue;
             }
 
             // Allow zero-hours rows to be skipped (no need to persist empty cells).
+            if ($hours < 0) throw new \RuntimeException('hours cannot be negative');
             if ($hours <= 0 && empty($r['id'])) continue;
             // Zero-hours on existing row = delete.
-            if ($hours <= 0 && !empty($r['id'])) {
-                scopedDelete('time_entries', (int) $r['id']);
+            if ($hours <= 0 && $entryId > 0) {
+                scopedDelete('time_entries', $entryId);
                 continue;
             }
 
             $placementId = (int) ($r['placement_id'] ?? 0);
             $workDate    = (string) ($r['work_date'] ?? '');
-            if ($placementId <= 0 || $workDate === '') continue;
+            if ($placementId <= 0 || $workDate === '') {
+                throw new \RuntimeException('placement_id and work_date are required for every positive-hour row');
+            }
+            staffingTimesheetAssertWorkDateInWeek($workDate, $periodStart, $periodEnd);
+            staffingTimesheetValidatePlacement($placementId, $personId, $workDate);
+            staffingTimesheetAssertDailyHours($personId, $workDate, $hours, $entryId);
 
             // Resolve period_id (legacy NOT-NULL column on time_entries).
             // Distinct :wd_lo/:wd_hi to satisfy PDO_MYSQL native prepares.
@@ -225,8 +353,8 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
                 'status'       => 'draft',
             ];
 
-            if (!empty($r['id'])) {
-                scopedUpdate('time_entries', (int) $r['id'], $base);
+            if ($entryId > 0) {
+                scopedUpdate('time_entries', $entryId, $base);
             } else {
                 $base['created_by_user_id'] = $userId;
                 scopedInsert('time_entries', $base);
@@ -252,11 +380,15 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
 
 /** Submit the whole week → flips header + all rows to submitted/pending_review. */
 function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart, string $periodEnd): array {
-    $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
+    staffingTimesheetValidateWeek($personId, $periodStart, $periodEnd);
+    $header = staffingTimesheetFind($personId, $periodStart);
+    if (!$header) throw new \RuntimeException('Add at least one positive-hour entry before submitting this timesheet.');
     if (!in_array($header['status'], ['draft','rejected'], true)) {
         throw new \RuntimeException("Cannot submit a {$header['status']} timesheet");
     }
     $headerId = (int) $header['id'];
+
+    staffingTimesheetRequirePositiveEntries($headerId, 'submit');
 
     $pdo = getDB();
     $ownsTxn = cf_tx_begin($pdo);
@@ -283,7 +415,9 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
 
 /** Reject the whole week — rows return to draft, reason captured on header. */
 function staffingTimesheetReject(int $userId, int $personId, string $periodStart, string $periodEnd, string $reason): array {
-    $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
+    staffingTimesheetValidateWeek($personId, $periodStart, $periodEnd);
+    $header = staffingTimesheetFind($personId, $periodStart);
+    if (!$header) throw new \RuntimeException('Timesheet not found');
     if ($header['status'] !== 'submitted') {
         throw new \RuntimeException("Cannot reject a {$header['status']} timesheet");
     }
@@ -354,63 +488,173 @@ function staffingTimesheetPriorWeekTemplate(int $personId, string $periodStart, 
     ];
 }
 
+/** Normalize and cap a bulk timesheet selection. */
+function staffingTimesheetBulkIds(array $ids): array {
+    $clean = [];
+    foreach ($ids as $id) {
+        $id = (int) $id;
+        if ($id > 0) $clean[$id] = $id;
+    }
+    $clean = array_values($clean);
+    if (!$clean) throw new \RuntimeException('Select at least one timesheet.');
+    if (count($clean) > 500) throw new \RuntimeException('A single batch may contain at most 500 timesheets.');
+    return $clean;
+}
+
+/** Lock selected headers and return them in the same order as the request. */
+function staffingTimesheetLockHeaders(array $ids): array {
+    $pdo = getDB();
+    $in = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = $pdo->prepare(
+        "SELECT * FROM staffing_timesheets
+          WHERE tenant_id = ? AND id IN ({$in})
+          FOR UPDATE"
+    );
+    $stmt->execute(array_merge([currentTenantId()], $ids));
+    $found = [];
+    foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        $found[(int) $row['id']] = $row;
+    }
+    $missing = array_values(array_diff($ids, array_keys($found)));
+    if ($missing) {
+        throw new \RuntimeException('Timesheet not found: #' . implode(', #', $missing));
+    }
+    return array_map(static fn (int $id): array => $found[$id], $ids);
+}
+
+/** Validate a submitted header and resolve every entry's approved rate. */
+function staffingTimesheetApprovalPlan(?int $userId, array $header, ?int $tenantId = null): array {
+    $headerId = (int) ($header['id'] ?? 0);
+    $tenantId = $tenantId ?? currentTenantId();
+    if (!$tenantId) throw new \RuntimeException('A tenant is required to approve a timesheet.');
+    if (($header['status'] ?? '') !== 'submitted') {
+        throw new \RuntimeException("Timesheet #{$headerId} is {$header['status']}; only submitted timesheets can be approved.");
+    }
+    if ($userId !== null && $userId > 0 && (int) ($header['worker_user_id'] ?? 0) === $userId) {
+        throw new \RuntimeException("Timesheet #{$headerId} requires a different approver.");
+    }
+    staffingTimesheetRequirePositiveEntries($headerId, 'approve', $tenantId);
+
+    $entryStmt = getDB()->prepare(
+        'SELECT id, placement_id, work_date, hours, status, created_by_user_id
+           FROM time_entries
+          WHERE tenant_id = :tenant_id
+            AND timesheet_id = :tid
+            AND status != "superseded"
+          ORDER BY work_date, id
+          FOR UPDATE'
+    );
+    $entryStmt->execute(['tenant_id' => $tenantId, 'tid' => $headerId]);
+    $entries = $entryStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    if (!$entries) {
+        throw new \RuntimeException("Timesheet #{$headerId} has no time entries.");
+    }
+
+    $snapshots = [];
+    foreach ($entries as $entry) {
+        $entryId = (int) $entry['id'];
+        if ((float) $entry['hours'] <= 0) {
+            throw new \RuntimeException("Timesheet #{$headerId} contains a zero-hour entry (#{$entryId}).");
+        }
+        if (($entry['status'] ?? '') !== 'pending_review') {
+            throw new \RuntimeException(
+                "Timesheet #{$headerId} contains entry #{$entryId} in {$entry['status']} status. Refresh the week before approving it."
+            );
+        }
+        if ($userId !== null && $userId > 0 && (int) ($entry['created_by_user_id'] ?? 0) === $userId) {
+            throw new \RuntimeException("Timesheet #{$headerId} requires a different approver because you entered or imported its time.");
+        }
+        $snap = timeResolveRateSnapshot((int) $entry['placement_id'], (string) $entry['work_date'], $tenantId);
+        if (!$snap || empty($snap['id'])) {
+            throw new \RuntimeException(
+                "Timesheet #{$headerId}, entry #{$entryId} has no approved rate covering {$entry['work_date']} for placement #{$entry['placement_id']}."
+            );
+        }
+        $snapshots[$entryId] = (int) $snap['id'];
+    }
+    return $snapshots;
+}
+
+/** Apply a prevalidated approval plan inside the caller's transaction. */
+function staffingTimesheetApplyApproval(?int $userId, int $headerId, array $snapshots, array $options = []): void {
+    $pdo = getDB();
+    $tenantId = (int) ($options['tenant_id'] ?? currentTenantId());
+    if ($tenantId <= 0) throw new \RuntimeException('A tenant is required to approve a timesheet.');
+    $headerVia = (string) ($options['header_approved_via'] ?? 'internal_app');
+    $entryVia = (string) ($options['entry_approved_via'] ?? 'manual');
+    if (!in_array($headerVia, ['internal_app', 'external_email'], true)) {
+        throw new \InvalidArgumentException('Unsupported timesheet approval channel.');
+    }
+    if (!in_array($entryVia, ['manual', 'tokenized_client_email', 'bulk_pre_approved'], true)) {
+        throw new \InvalidArgumentException('Unsupported time-entry approval channel.');
+    }
+    $headerUpdate = $pdo->prepare(
+        "UPDATE staffing_timesheets
+            SET status = 'approved',
+                approved_at = NOW(),
+                approved_by_user_id = :user_id,
+                approved_via = :approved_via,
+                external_approver_email = :external_email,
+                approval_note = :approval_note,
+                rejected_at = NULL,
+                rejected_by_user_id = NULL,
+                rejection_reason = NULL
+          WHERE tenant_id = :tenant_id
+            AND id = :id
+            AND status = 'submitted'"
+    );
+    $headerUpdate->execute([
+        'user_id'       => $userId,
+        'approved_via'  => $headerVia,
+        'external_email'=> $options['external_approver_email'] ?? null,
+        'approval_note' => $options['approval_note'] ?? null,
+        'tenant_id'     => $tenantId,
+        'id'            => $headerId,
+    ]);
+    if ($headerUpdate->rowCount() !== 1) {
+        throw new \RuntimeException("Timesheet #{$headerId} changed while it was being approved. Refresh and try again.");
+    }
+    $upd = $pdo->prepare(
+        "UPDATE time_entries
+            SET status = 'approved',
+                rate_snapshot_id = :rid,
+                approved_at = NOW(),
+                approved_by_user_id = :u,
+                approved_via = :approved_via,
+                rejected_reason = NULL
+          WHERE tenant_id = :t
+            AND timesheet_id = :tid
+            AND id = :id
+            AND status = 'pending_review'"
+    );
+    foreach ($snapshots as $entryId => $rateId) {
+        $upd->execute([
+            't' => $tenantId,
+            'tid' => $headerId,
+            'id' => $entryId,
+            'rid' => $rateId,
+            'u' => $userId,
+            'approved_via' => $entryVia,
+        ]);
+        if ($upd->rowCount() !== 1) {
+            throw new \RuntimeException("Entry #{$entryId} changed while the timesheet was being approved. Refresh and try again.");
+        }
+    }
+}
+
 /** Approve the whole week — cascade to rows. Two-eye control. */
 function staffingTimesheetApprove(int $userId, int $personId, string $periodStart, string $periodEnd): array {
-    $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
-    if ($header['status'] !== 'submitted') {
-        throw new \RuntimeException("Cannot approve a {$header['status']} timesheet");
-    }
-
-    // Two-eye: the user approving must not have created the timesheet's rows.
-    // Best-effort check: forbid self-approval where worker_user_id == approver.
-    if (isset($header['worker_user_id']) && (int) $header['worker_user_id'] === $userId) {
-        throw new \RuntimeException('Two-eye control: cannot approve your own timesheet');
-    }
-
+    staffingTimesheetValidateWeek($personId, $periodStart, $periodEnd);
+    $header = staffingTimesheetFind($personId, $periodStart);
+    if (!$header) throw new \RuntimeException('Timesheet not found');
     $headerId = (int) $header['id'];
+
     $pdo = getDB();
     $ownsTxn = cf_tx_begin($pdo);
     try {
-        $pendingEntries = scopedQuery(
-            'SELECT id, placement_id, work_date
-               FROM time_entries
-              WHERE tenant_id = :tenant_id
-                AND timesheet_id = :tid
-                AND status = "pending_review"
-              ORDER BY work_date, id',
-            ['tid' => $headerId]
-        );
-        $snapshots = [];
-        foreach ($pendingEntries as $entry) {
-            $snap = timeResolveRateSnapshot((int) $entry['placement_id'], (string) $entry['work_date']);
-            if (!$snap || empty($snap['id'])) {
-                throw new \RuntimeException(
-                    "Entry #{$entry['id']} has no approved rate covering {$entry['work_date']} for placement #{$entry['placement_id']}."
-                );
-            }
-            $snapshots[(int) $entry['id']] = (int) $snap['id'];
-        }
-
-        scopedUpdate('staffing_timesheets', $headerId, [
-            'status'              => 'approved',
-            'approved_at'         => date('Y-m-d H:i:s'),
-            'approved_by_user_id' => $userId,
-        ]);
-        $upd = $pdo->prepare(
-            "UPDATE time_entries
-                SET status = 'approved',
-                    rate_snapshot_id = :rid,
-                    approved_at = NOW(),
-                    approved_by_user_id = :u,
-                    approved_via = 'manual'
-              WHERE tenant_id = :t
-                AND timesheet_id = :tid
-                AND id = :id
-                AND status = 'pending_review'"
-        );
-        foreach ($snapshots as $entryId => $rateId) {
-            $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'id' => $entryId, 'rid' => $rateId, 'u' => $userId]);
-        }
+        $locked = staffingTimesheetLockHeaders([$headerId])[0];
+        $snapshots = staffingTimesheetApprovalPlan($userId, $locked);
+        staffingTimesheetApplyApproval($userId, $headerId, $snapshots);
         cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
         cf_tx_rollback($pdo, $ownsTxn);
@@ -424,11 +668,111 @@ function staffingTimesheetApprove(int $userId, int $personId, string $periodStar
     return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
 }
 
+/** Approve selected submitted weeks atomically, then post their accounting events. */
+function staffingTimesheetBulkApprove(int $userId, array $ids): array {
+    $ids = staffingTimesheetBulkIds($ids);
+    $pdo = getDB();
+    $ownsTxn = cf_tx_begin($pdo);
+    try {
+        $headers = staffingTimesheetLockHeaders($ids);
+        $plans = [];
+        foreach ($headers as $header) {
+            $plans[(int) $header['id']] = staffingTimesheetApprovalPlan($userId, $header);
+        }
+        foreach ($plans as $headerId => $snapshots) {
+            staffingTimesheetApplyApproval($userId, $headerId, $snapshots);
+        }
+        cf_tx_commit($pdo, $ownsTxn);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTxn);
+        throw $e;
+    }
+
+    $postingWarnings = [];
+    foreach ($ids as $headerId) {
+        $warning = staffingEmitWorkerHoursApprovedEvent(currentTenantId(), $headerId);
+        if ($warning !== null) $postingWarnings[] = ['id' => $headerId, 'warning' => $warning];
+    }
+    return ['approved' => count($ids), 'ids' => $ids, 'posting_warnings' => $postingWarnings];
+}
+
+/** Reject selected submitted weeks atomically with one clear reason. */
+function staffingTimesheetBulkReject(int $userId, array $ids, string $reason): array {
+    $ids = staffingTimesheetBulkIds($ids);
+    $reason = trim($reason);
+    if ($reason === '') throw new \RuntimeException('A rejection reason is required.');
+    $reasonLength = function_exists('mb_strlen') ? mb_strlen($reason) : strlen($reason);
+    if ($reasonLength > 500) throw new \RuntimeException('The rejection reason must be 500 characters or fewer.');
+
+    $pdo = getDB();
+    $ownsTxn = cf_tx_begin($pdo);
+    try {
+        $headers = staffingTimesheetLockHeaders($ids);
+        foreach ($headers as $header) {
+            if (($header['status'] ?? '') !== 'submitted') {
+                throw new \RuntimeException(
+                    "Timesheet #{$header['id']} is {$header['status']}; only submitted timesheets can be rejected."
+                );
+            }
+        }
+
+        $rowUpdate = $pdo->prepare(
+            "UPDATE time_entries
+                SET status = 'rejected', rejected_reason = :reason
+              WHERE tenant_id = :tenant_id
+                AND timesheet_id = :timesheet_id
+                AND status = 'pending_review'"
+        );
+        foreach ($ids as $headerId) {
+            scopedUpdate('staffing_timesheets', $headerId, [
+                'status'              => 'rejected',
+                'rejected_at'         => date('Y-m-d H:i:s'),
+                'rejected_by_user_id' => $userId,
+                'rejection_reason'    => $reason,
+            ]);
+            $rowUpdate->execute([
+                'tenant_id'   => currentTenantId(),
+                'timesheet_id'=> $headerId,
+                'reason'      => $reason,
+            ]);
+            if ($rowUpdate->rowCount() < 1) {
+                throw new \RuntimeException("Timesheet #{$headerId} has no submitted entries to reject.");
+            }
+        }
+        cf_tx_commit($pdo, $ownsTxn);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTxn);
+        throw $e;
+    }
+    return ['rejected' => count($ids), 'ids' => $ids, 'reason' => $reason];
+}
+
+/** Empty headers are useful while a worker opens a week, but they must not
+ * enter review or downstream settlement. */
+function staffingTimesheetRequirePositiveEntries(int $headerId, string $action, ?int $tenantId = null): void {
+    $tenantId = $tenantId ?? currentTenantId();
+    if (!$tenantId) throw new \RuntimeException('A tenant is required to validate a timesheet.');
+    $stmt = getDB()->prepare(
+        'SELECT COUNT(*) AS entry_count, COALESCE(SUM(hours), 0) AS total_hours
+           FROM time_entries
+          WHERE tenant_id = :tenant_id
+            AND timesheet_id = :tid
+            AND status != "superseded"
+            AND hours > 0'
+    );
+    $stmt->execute(['tenant_id' => $tenantId, 'tid' => $headerId]);
+    $totals = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+    if ((int) ($totals['entry_count'] ?? 0) < 1 || (float) ($totals['total_hours'] ?? 0) <= 0) {
+        $verb = $action === 'approve' ? 'approving' : 'submitting';
+        throw new \RuntimeException("Add at least one positive-hour entry before {$verb} this timesheet.");
+    }
+}
+
 /** Emit `staffing.worker_hours.approved` events to the accounting posting
  *  engine. One event PER (timesheet × engagement_type) combo so posting
  *  rules can route W2 hours to Accrued Payroll and 1099/C2C hours to
  *  Accrued AP. Best-effort: failures don't roll back the approval. */
-function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): void {
+function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?string {
     try {
         require_once __DIR__ . '/../../../core/posting_engine/process.php';
         $pdo = getDB();
@@ -451,12 +795,12 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): voi
         );
         $stmt->execute(['t' => $tenantId, 'id' => $headerId, 'placements_tid' => staffingPlacementsTenantId($tenantId)]);
         $groups = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        if (!$groups) return;
+        if (!$groups) return null;
 
         $ent = $pdo->prepare("SELECT id FROM accounting_entities WHERE tenant_id = :t LIMIT 1");
         $ent->execute(['t' => $tenantId]);
         $entityId = (int) ($ent->fetchColumn() ?: 0);
-        if (!$entityId) return;
+        if (!$entityId) return null;
 
         foreach ($groups as $g) {
             $rev  = (float) $g['revenue'];
@@ -484,8 +828,10 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): voi
                 ],
             ], null);
         }
+        return null;
     } catch (\Throwable $e) {
         error_log("[staffing] accounting event emit failed for ts #{$headerId}: " . $e->getMessage());
+        return $e->getMessage();
     }
 }
 
@@ -515,6 +861,28 @@ function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason =
     );
     if (!$header) throw new \RuntimeException("timesheet #{$timesheetId} not found");
     if ($header['status'] === 'draft') return $header; // already editable, no-op
+    if (in_array($header['status'], ['approved','payroll_ready','billing_ready','locked'], true)) {
+        throw new \RuntimeException(
+            "This timesheet is {$header['status']} and may already affect payroll, billing, or accounting. "
+            . 'Reverse or correct the downstream records before reopening it.'
+        );
+    }
+
+    $settled = scopedQueryOne(
+        'SELECT id, bill_extracted_at, bill_extracted_ref,
+                ap_extracted_at, ap_extracted_ref,
+                payroll_extracted_at, payroll_extracted_ref
+           FROM time_entries
+          WHERE tenant_id = :tenant_id
+            AND timesheet_id = :tid
+            AND status != "superseded"
+            AND (bill_extracted_at IS NOT NULL OR bill_extracted_ref IS NOT NULL
+              OR ap_extracted_at IS NOT NULL OR ap_extracted_ref IS NOT NULL
+              OR payroll_extracted_at IS NOT NULL OR payroll_extracted_ref IS NOT NULL)
+          LIMIT 1',
+        ['tid' => $timesheetId]
+    );
+    if ($settled) staffingTimesheetAssertEntryNotSettled($settled);
 
     // `locked`, `payroll_ready`, `billing_ready` and `approved` all
     // reopen back to `draft` so the entry update path can land cleanly.
@@ -581,6 +949,8 @@ function staffingTimeEntrySave(int $userId, array $payload): array {
     );
     if (!$header) throw new \RuntimeException("timesheet #{$tsId} not found");
 
+    if ($existing) staffingTimesheetAssertEntryNotSettled($existing);
+
     // Per product direction (2026-02): anyone with timesheets.write can
     // edit any timesheet, including ones already submitted/approved.
     // We auto-reopen so the existing draft-only constraints below stay
@@ -593,14 +963,20 @@ function staffingTimeEntrySave(int $userId, array $payload): array {
     if (!in_array($hourType, STAFFING_HOUR_TYPES, true)) {
         throw new \RuntimeException("Invalid hour_type: {$hourType}");
     }
+    if (array_key_exists('hours', $payload) && !is_numeric($payload['hours'])) {
+        throw new \RuntimeException('hours must be numeric');
+    }
     $hours = isset($payload['hours']) ? (float) $payload['hours'] : (float) ($existing['hours'] ?? 0);
-    if ($hours < 0) throw new \RuntimeException('hours cannot be negative');
 
     $placementId = (int) ($payload['placement_id'] ?? ($existing['placement_id'] ?? 0));
     $workDate    = (string) ($payload['work_date']    ?? ($existing['work_date']    ?? ''));
     $personId    = (int) ($header['person_id']);
     if ($placementId <= 0) throw new \RuntimeException('placement_id required');
     if ($workDate === '')  throw new \RuntimeException('work_date required');
+    staffingTimesheetValidateWeek($personId, (string) $header['period_start'], (string) $header['period_end']);
+    staffingTimesheetAssertWorkDateInWeek($workDate, (string) $header['period_start'], (string) $header['period_end']);
+    staffingTimesheetValidatePlacement($placementId, $personId, $workDate);
+    staffingTimesheetAssertDailyHours($personId, $workDate, $hours, $entryId);
 
     // Period resolution (same logic as bulk_save).
     $period = scopedFind(
@@ -668,10 +1044,11 @@ function staffingTimeEntrySave(int $userId, array $payload): array {
 /** Delete a single time entry.  Auto-reopens the parent if needed. */
 function staffingTimeEntryDelete(int $userId, int $entryId): array {
     $row = scopedFind(
-        'SELECT id, timesheet_id FROM time_entries WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+        'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
         ['id' => $entryId]
     );
     if (!$row) throw new \RuntimeException("time_entry #{$entryId} not found");
+    staffingTimesheetAssertEntryNotSettled($row);
     $tsId = (int) $row['timesheet_id'];
     $header = scopedFind(
         'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',

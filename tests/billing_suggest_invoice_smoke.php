@@ -30,8 +30,9 @@ $a('filters entries to placement + approved + billable + hours>0',
     str_contains($lib, "te.status IN ('approved','locked','billing_ready','payroll_ready')")
     && str_contains($lib, "te.billable = 1")
     && str_contains($lib, "te.hours > 0"));
-$a('cuts off entries after last invoice date',
-    str_contains($lib, "'te.work_date > :cutoff'"));
+$a('uses the extraction stamp rather than a date cutoff',
+    str_contains($lib, "'te.bill_extracted_at IS NULL'")
+    && !str_contains($lib, "'te.work_date > :cutoff'"));
 $a('computes per-entry bill_rate from the locked rate snapshot',
     str_contains($lib, "\$ratesById[\$rateId]")
     && str_contains($lib, "\$rate['adjusted_bill_rate'] ?? \$rate['bill_rate']"));
@@ -66,6 +67,15 @@ $a('suggest-from-placement action wired',
     str_contains($api, "'POST' && \$action === 'suggest-from-placement'"));
 $a('requires billing.invoice.draft permission',
     preg_match("/suggest-from-placement[\s\S]{0,400}rbac_legacy_require\(\\\$user, 'billing\\.invoice\\.draft'\)/", $api) === 1);
+$a('does not require AI permission for core invoice preparation',
+    preg_match("/suggest-from-placement[\s\S]{0,400}rbac_legacy_require\(\\\$user, 'ai\\.use'\)/", $api) !== 1);
+$a('atomically stamps every invoiced time entry',
+    str_contains($api, 'SET bill_extracted_at = NOW()')
+    && str_contains($api, 'AND bill_extracted_at IS NULL')
+    && str_contains($api, 'rowCount() !== count($invoiceEntryIds)'));
+$a('voiding an unpaid invoice releases its time entries',
+    str_contains($api, 'SET bill_extracted_at = NULL,')
+    && str_contains($api, 'WHERE tenant_id = :t AND bill_extracted_ref = :id'));
 $a('requires placement_id',
     preg_match("/suggest-from-placement[\s\S]{0,400}placement_id required/", $api) === 1);
 $a('returns suggestion via api_ok',
@@ -114,6 +124,12 @@ $a('imports SuggestInvoiceModal',
     str_contains($ptab, "import SuggestInvoiceModal from '../../billing/ui/SuggestInvoiceModal'"));
 $a('renders Suggest invoice button',
     str_contains($ptab, 'data-testid="placement-timesheets-suggest-invoice"'));
+$a('invoice preparation is disabled when no approved unbilled time exists',
+    str_contains($ptab, 'const canPrepareInvoice = !loading && unbilledBillableHours > 0')
+    && str_contains($ptab, 'disabled={!canPrepareInvoice}'));
+$a('current-week link carries worker and placement context',
+    str_contains($ptab, "weekParams.set('person_id'")
+    && str_contains($ptab, 'placement_id: String(pid)'));
 $a('mounts <SuggestInvoiceModal /> when toggled',
     str_contains($ptab, '<SuggestInvoiceModal'));
 $a('passes placementId + placementTitle into the modal',

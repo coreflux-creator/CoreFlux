@@ -9,11 +9,13 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/time.php';
+require_once __DIR__ . '/../../staffing/lib/timesheets.php';
 
 use Core\CsvImportService;
 
 CsvImportService::registerSchema('time', [
     'fields' => [
+        'entry_id'             => ['label' => 'Entry ID',             'type' => 'integer'],
         // placement_id is the reliable round-trip key from the Placements
         // export. External ID remains available for upstream system feeds.
         // At least one is required per row and validated below.
@@ -34,13 +36,26 @@ CsvImportService::registerSchema('time', [
         'hours'                  => ['label' => 'Hours',                 'required' => true, 'type' => 'number'],
         'description'            => ['label' => 'Description'],
     ],
-    'unique_within_batch' => ['external_id'],
+    'unique_within_batch' => ['entry_id', 'external_id'],
 ]);
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
+
+function timeCsvTimesheetId(int $personId, string $workDate): int
+{
+    [$periodStart, $periodEnd] = timeWeekBounds($workDate);
+    $header = staffingTimesheetFind($personId, $periodStart);
+    if ($header && in_array((string) ($header['status'] ?? ''), ['approved', 'payroll_ready', 'billing_ready', 'locked'], true)) {
+        throw new \RuntimeException(
+            "The week of {$periodStart} is {$header['status']}; import a correction instead of changing a completed week"
+        );
+    }
+    if (!$header) $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
+    return (int) $header['id'];
+}
 
 if ($method === 'GET' && $action === 'template') {
     rbac_legacy_require($user, 'time.bulk_upload');
@@ -117,21 +132,36 @@ if ($method === 'POST' && $action === 'dry_run') {
     // Resolve placement_id / placement_external_id against the Placements
     // module's effective tenant and validate the work date before commit.
     if ($result['rows']) {
+        $entryIds = [];
         $ids = [];
         $exts = [];
         foreach ($result['rows'] as $row) {
+            if (isset($row['entry_id']) && is_int($row['entry_id']) && $row['entry_id'] > 0) {
+                $entryIds[] = $row['entry_id'];
+            }
             if (isset($row['placement_id']) && is_int($row['placement_id']) && $row['placement_id'] > 0) {
                 $ids[] = $row['placement_id'];
             } elseif (trim((string) ($row['placement_external_id'] ?? '')) !== '') {
                 $exts[] = trim((string) $row['placement_external_id']);
             }
         }
+        $entryIds = array_values(array_unique($entryIds));
         $ids = array_values(array_unique($ids));
         $exts = array_values(array_unique($exts));
         $pdo = getDB();
         $placementsTid = effectiveTenantIdForModule('placements', (int) ($ctx['tenant_id'] ?? currentTenantId())) ?? currentTenantId();
         $byId = [];
         $byExternal = [];
+        $entriesById = [];
+        if ($entryIds) {
+            $placeholders = implode(',', array_fill(0, count($entryIds), '?'));
+            $stmt = $pdo->prepare("SELECT id, placement_id, person_id, status,
+                                          bill_extracted_at, ap_extracted_at, payroll_extracted_at
+                                     FROM time_entries
+                                    WHERE tenant_id = ? AND id IN ({$placeholders})");
+            $stmt->execute(array_merge([(int) ($ctx['tenant_id'] ?? currentTenantId())], $entryIds));
+            foreach ($stmt as $r) $entriesById[(int) $r['id']] = $r;
+        }
         if ($ids) {
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
             $stmt = $pdo->prepare("SELECT id, external_id, start_date, end_date FROM placements
@@ -178,6 +208,19 @@ if ($method === 'POST' && $action === 'dry_run') {
                 if (!empty($placement['end_date']) && $workDate > (string) $placement['end_date']) {
                     $result['errors'][$rn] = $result['errors'][$rn] ?? [];
                     $result['errors'][$rn][] = "work_date is after placement end_date {$placement['end_date']}";
+                }
+            }
+            $entryId = isset($row['entry_id']) && is_int($row['entry_id']) ? (int) $row['entry_id'] : 0;
+            if ($entryId > 0) {
+                $existingEntry = $entriesById[$entryId] ?? null;
+                if (!$existingEntry) {
+                    $result['errors'][$rn][] = "entry_id: {$entryId} was not found in this workspace";
+                } elseif (!in_array($existingEntry['status'], ['draft', 'pending_review', 'rejected'], true)) {
+                    $result['errors'][$rn][] = "entry_id: {$entryId} is {$existingEntry['status']} and cannot be changed by CSV";
+                } elseif (!empty($existingEntry['bill_extracted_at']) || !empty($existingEntry['ap_extracted_at']) || !empty($existingEntry['payroll_extracted_at'])) {
+                    $result['errors'][$rn][] = "entry_id: {$entryId} has already been settled and cannot be changed by CSV";
+                } elseif ($placement && (int) $existingEntry['placement_id'] !== (int) $placement['id']) {
+                    $result['errors'][$rn][] = "entry_id: {$entryId} belongs to a different placement";
                 }
             }
             $hours = (float) ($row['hours'] ?? 0);
@@ -236,14 +279,12 @@ if ($method === 'POST' && $action === 'commit') {
             throw new \RuntimeException('hours must be greater than 0 and no more than 24');
         }
 
-        // Resolve period
-        $period = scopedFind(
-            'SELECT id FROM time_periods WHERE tenant_id = :tenant_id AND start_date <= :wd AND end_date >= :wd AND status != "closed"
-             ORDER BY start_date DESC LIMIT 1',
-            ['wd' => $row['work_date']]
-        );
-        if (!$period) throw new \RuntimeException("No open period covers work_date {$row['work_date']}");
+        // Resolve/create the weekly containers so an import does not require
+        // an operator to seed periods or repair disconnected time later.
+        $periodId = timeOpenPeriodIdForDate((string) $row['work_date']);
+        $timesheetId = timeCsvTimesheetId((int) $pl['person_id'], (string) $row['work_date']);
 
+        $entryId      = isset($row['entry_id']) && is_int($row['entry_id']) ? (int) $row['entry_id'] : 0;
         $externalId   = isset($row['external_id'])   && $row['external_id']   !== '' ? (string) $row['external_id']   : null;
         $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
 
@@ -255,19 +296,35 @@ if ($method === 'POST' && $action === 'commit') {
         // the entry is part of an audit-locked time bundle and must be voided
         // explicitly, not silently overwritten.
         $existing = null;
-        if ($externalId !== null) {
+        if ($entryId > 0) {
+            if (!$updateExisting) {
+                throw new \RuntimeException("entry_id {$entryId} identifies an existing row; enable Update existing rows");
+            }
             $existing = scopedFind(
-                'SELECT id, status FROM time_entries
+                'SELECT id, status, placement_id, person_id, timesheet_id,
+                        bill_extracted_at, ap_extracted_at, payroll_extracted_at
+                   FROM time_entries
+                  WHERE tenant_id = :tenant_id AND id = :id',
+                ['id' => $entryId]
+            );
+            if (!$existing) throw new \RuntimeException("entry_id not found: {$entryId}");
+            if ((int) $existing['placement_id'] !== (int) $pl['id'] || (int) $existing['person_id'] !== (int) $pl['person_id']) {
+                throw new \RuntimeException("entry_id {$entryId} belongs to a different placement or person");
+            }
+        } elseif ($externalId !== null) {
+            $existing = scopedFind(
+                'SELECT id, status, placement_id, person_id, timesheet_id,
+                        bill_extracted_at, ap_extracted_at, payroll_extracted_at
+                   FROM time_entries
                   WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
                 ['s' => $sourceSystem, 'e' => $externalId]
             );
-            if ($existing && $existing['status'] === 'approved') {
-                throw new \RuntimeException("entry already approved — cannot update; void first");
-            }
         }
         if (!$existing && $updateExisting) {
             $existing = scopedFind(
-                'SELECT id, status FROM time_entries
+                'SELECT id, status, placement_id, person_id, timesheet_id,
+                        bill_extracted_at, ap_extracted_at, payroll_extracted_at
+                   FROM time_entries
                   WHERE tenant_id = :tenant_id
                     AND placement_id = :pl AND person_id = :p
                     AND work_date = :wd AND category = :cat',
@@ -278,8 +335,13 @@ if ($method === 'POST' && $action === 'commit') {
                     'cat' => $row['category'],
                 ]
             );
-            if ($existing && $existing['status'] === 'approved') {
-                throw new \RuntimeException("entry already approved — cannot update; void first");
+        }
+        if ($existing) {
+            if (!in_array($existing['status'], ['draft', 'pending_review', 'rejected'], true)) {
+                throw new \RuntimeException("entry is {$existing['status']} and cannot be updated by CSV");
+            }
+            if (!empty($existing['bill_extracted_at']) || !empty($existing['ap_extracted_at']) || !empty($existing['payroll_extracted_at'])) {
+                throw new \RuntimeException('entry has already been settled and cannot be updated by CSV');
             }
         }
 
@@ -298,10 +360,12 @@ if ($method === 'POST' && $action === 'commit') {
             throw new \RuntimeException('total hours for this person and work date would exceed 24');
         }
 
+        $oldTimesheetId = (int) ($existing['timesheet_id'] ?? 0);
         $payload = [
             'placement_id'  => (int) $pl['id'],
             'person_id'     => (int) $pl['person_id'],
-            'period_id'     => (int) $period['id'],
+            'period_id'     => $periodId,
+            'timesheet_id'  => $timesheetId,
             'work_date'     => $row['work_date'],
             'external_id'   => $externalId,
             'source_system' => $sourceSystem,
@@ -310,7 +374,7 @@ if ($method === 'POST' && $action === 'commit') {
             'description'  => $row['description'] ?? null,
             'source'       => 'bulk_upload',
             'status'       => $preApproved ? 'approved' : 'pending_review',
-        ];
+        ] + timeCategoryRowMeta((string) $row['category']);
 
         if ($preApproved) {
             $snap = timeResolveRateSnapshot((int) $pl['id'], $row['work_date']);
@@ -338,8 +402,16 @@ if ($method === 'POST' && $action === 'commit') {
                 'source'           => 'bulk_upload',
             ]);
         }
+        timeReconcileTimesheetHeader($timesheetId);
+        if ($oldTimesheetId > 0 && $oldTimesheetId !== $timesheetId) {
+            timeReconcileTimesheetHeader($oldTimesheetId);
+        }
         return $resultId;
-    }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
+    }, [
+        'skip_invalid' => $skipInvalid,
+        'column_map' => $columnMap,
+        'atomic' => true,
+    ]);
 
     timeAudit('time.bulk.uploaded', [
         'entries_count'   => $result['imported_count'],

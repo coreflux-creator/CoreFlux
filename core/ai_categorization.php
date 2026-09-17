@@ -117,23 +117,30 @@ function aiSuggestCounterpartAccount(
     ]);
 
     // Persist a draft ai_suggestions row so we can track accept/override later.
-    $suggestionId = aiInsertSuggestion($tenantId, [
-        'interaction_id'   => $interactionId,
-        'module'           => 'treasury',
-        'feature_key'      => AI_CATEGORIZATION_FEATURE_KEY,
-        'subject_type'     => $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line',
-        'subject_id'       => (int) ($line['id'] ?? 0),
-        'draft_content'    => $suggestion ? ($suggestion['reasoning'] ?? '') : 'No suggestion',
-        'confidence_score' => $suggestion ? (float) $suggestion['confidence'] : null,
-        'prompt_version'   => AI_CATEGORIZATION_PROMPT_VERSION,
-        'model_version'    => $source === 'llm' ? AI_CATEGORIZATION_MODEL_VERSION : $source,
-        'suggested_value'  => $suggestion ? (string) $suggestion['account_id'] : null,
-        'suggestion_source'=> $source,
-    ]);
+    $suggestionId = 0;
+    try {
+        $suggestionId = aiInsertSuggestion($tenantId, [
+            'interaction_id'   => $interactionId,
+            'module'           => 'treasury',
+            'feature_key'      => AI_CATEGORIZATION_FEATURE_KEY,
+            'subject_type'     => $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line',
+            'subject_id'       => (int) ($line['id'] ?? 0),
+            'draft_content'    => $suggestion ? ($suggestion['reasoning'] ?? '') : 'No suggestion',
+            'confidence_score' => $suggestion ? (float) $suggestion['confidence'] : null,
+            'prompt_version'   => AI_CATEGORIZATION_PROMPT_VERSION,
+            'model_version'    => $source === 'llm' ? AI_CATEGORIZATION_MODEL_VERSION : $source,
+            'suggested_value'  => $suggestion ? (string) $suggestion['account_id'] : null,
+            'suggestion_source'=> $source,
+        ]);
+    } catch (\Throwable $e) {
+        // A categorization suggestion is advisory. A stale analytics schema
+        // must never prevent the underlying bank activity from loading.
+        error_log('[ai_categorization] suggestion persistence skipped: ' . $e->getMessage());
+    }
 
     if (!$suggestion) {
         return [
-            'suggestion_id'        => $suggestionId,
+            'suggestion_id'        => $suggestionId ?: null,
             'suggested_account_id' => null,
             'confidence'           => 0.0,
             'source'               => 'none',
@@ -143,7 +150,7 @@ function aiSuggestCounterpartAccount(
     }
 
     return [
-        'suggestion_id'        => $suggestionId,
+        'suggestion_id'        => $suggestionId ?: null,
         'suggested_account_id' => (int) $suggestion['account_id'],
         'confidence'           => (float) $suggestion['confidence'],
         'source'               => $source,

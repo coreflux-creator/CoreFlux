@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { CheckCircle2 } from 'lucide-react';
 
 const fmtMoney = (n) =>
   (Number(n) || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
@@ -64,23 +65,98 @@ function TabBtn({ label, val, activeTab, onClick, testid }) {
 
 function ApprovalsInbox() {
   const { data, loading, reload } = useApi('/modules/ap/api/bill_approvals.php?inbox=1');
-  const { data: countData } = useApi('/modules/ap/api/bill_approvals.php?count_pending=1');
+  const { data: countData, reload: reloadCount } = useApi('/modules/ap/api/bill_approvals.php?count_pending=1');
   const rows = data?.rows || [];
   const pendingCount = countData?.count ?? null;
   const [actingId, setActingId] = useState(null);
+  const [decidingId, setDecidingId] = useState(null);
   const [note, setNote] = useState('');
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkNote, setBulkNote] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
+  const [bulkResult, setBulkResult] = useState(null);
   const [err, setErr] = useState(null);
+
+  const selectedRows = rows.filter((row) => selected.has(String(row.bill_id)));
+  const allSelected = rows.length > 0 && rows.every((row) => selected.has(String(row.bill_id)));
+
+  const toggleOne = (billId) => {
+    const key = String(billId);
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    setBulkResult(null);
+  };
+
+  const toggleAll = () => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (allSelected) rows.forEach((row) => next.delete(String(row.bill_id)));
+      else rows.forEach((row) => next.add(String(row.bill_id)));
+      return next;
+    });
+    setBulkResult(null);
+  };
 
   const decide = async (billId, action) => {
     setErr(null);
+    setBulkResult(null);
+    setDecidingId(billId);
     try {
       await api.post(
         `/modules/ap/api/bill_approvals.php?action=${action}`,
         { bill_id: billId, note: note || null }
       );
       setActingId(null); setNote('');
+      setSelected((current) => {
+        const next = new Set(current);
+        next.delete(String(billId));
+        return next;
+      });
       reload();
-    } catch (e) { setErr(e.message); }
+      reloadCount();
+    } catch (e) { setErr(friendlyApprovalError(e)); }
+    finally { setDecidingId(null); }
+  };
+
+  const approveSelected = async () => {
+    const queue = selectedRows.map((row) => ({
+      billId: row.bill_id,
+      label: row.bill_number || row.vendor_name || `Bill ${row.bill_id}`,
+    }));
+    if (queue.length === 0 || bulkBusy) return;
+
+    setErr(null);
+    setBulkResult(null);
+    setBulkBusy(true);
+    setBulkProgress({ done: 0, total: queue.length });
+    const approved = [];
+    const failed = [];
+
+    for (let index = 0; index < queue.length; index += 1) {
+      const item = queue[index];
+      try {
+        await api.post('/modules/ap/api/bill_approvals.php?action=approve', {
+          bill_id: item.billId,
+          note: bulkNote || null,
+        });
+        approved.push(String(item.billId));
+      } catch (error) {
+        failed.push({ ...item, error: friendlyApprovalError(error) });
+      }
+      setBulkProgress({ done: index + 1, total: queue.length });
+    }
+
+    setSelected(new Set(failed.map((item) => String(item.billId))));
+    setBulkResult({ approved: approved.length, failed });
+    if (failed.length === 0) setBulkNote('');
+    setBulkBusy(false);
+    reload();
+    reloadCount();
   };
 
   return (
@@ -92,6 +168,18 @@ function ApprovalsInbox() {
         )}
       </h3>
       {err && <p className="error" data-testid="ap-approvals-error">{err}</p>}
+      {bulkResult && (
+        <p
+          className={bulkResult.failed.length > 0 ? 'error' : 'success'}
+          data-testid="ap-approvals-bulk-result"
+          aria-live="polite"
+        >
+          {bulkResult.approved > 0 && `${bulkResult.approved} bill${bulkResult.approved === 1 ? '' : 's'} approved.`}
+          {bulkResult.failed.length > 0 && (
+            ` ${bulkResult.failed.length} could not be approved: ${bulkResult.failed.map((item) => `${item.label} (${item.error})`).join('; ')}`
+          )}
+        </p>
+      )}
       {loading && <p>Loading…</p>}
       {!loading && rows.length === 0 && (
         <p className="muted" data-testid="ap-approvals-inbox-empty">
@@ -99,73 +187,139 @@ function ApprovalsInbox() {
         </p>
       )}
       {rows.length > 0 && (
-        <table className="data-table" data-testid="ap-approvals-inbox-table">
-          <thead>
-            <tr>
-              <th>Vendor</th><th>Invoice #</th>
-              <th style={{ textAlign: 'right' }}>Amount</th>
-              <th>Due</th><th>Step</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <React.Fragment key={r.id}>
-                <tr data-testid={`ap-approvals-row-${r.bill_id}`}>
-                  <td>{r.vendor_name}</td>
-                  <td><code>{r.bill_number || '—'}</code></td>
-                  <td style={{ textAlign: 'right' }}>{fmtMoney(r.amount_total)}</td>
-                  <td>{r.due_date || '—'}</td>
-                  <td>{r.step_no} of {r.total_steps}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn--primary"
-                      data-testid={`ap-approvals-act-${r.bill_id}`}
-                      onClick={() => setActingId(actingId === r.bill_id ? null : r.bill_id)}
-                      style={{ padding: '4px 10px', fontSize: 12 }}
-                    >
-                      Decide
-                    </button>
-                  </td>
-                </tr>
-                {actingId === r.bill_id && (
-                  <tr>
-                    <td colSpan={6} style={{ background: '#f8fafc', padding: 12 }}>
+        <>
+          {selectedRows.length > 0 && (
+            <div
+              data-testid="ap-approvals-bulk-bar"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                padding: '10px 12px', marginBottom: 8, background: '#eff6ff',
+                border: '1px solid #bfdbfe', borderRadius: 6,
+              }}
+            >
+              <strong style={{ fontSize: 13 }}>{selectedRows.length} selected</strong>
+              <input
+                className="input"
+                placeholder="Optional note for all selected bills"
+                value={bulkNote}
+                onChange={(event) => setBulkNote(event.target.value)}
+                disabled={bulkBusy}
+                data-testid="ap-approvals-bulk-note"
+                style={{ flex: '1 1 260px', minWidth: 220 }}
+              />
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={approveSelected}
+                disabled={bulkBusy}
+                data-testid="ap-approvals-bulk-approve"
+              >
+                <CheckCircle2 size={15} aria-hidden="true" />
+                {bulkBusy
+                  ? `Approving ${bulkProgress.done} of ${bulkProgress.total}`
+                  : `Approve selected (${selectedRows.length})`}
+              </button>
+            </div>
+          )}
+          <table className="data-table" data-testid="ap-approvals-inbox-table">
+            <thead>
+              <tr>
+                <th style={{ width: 36 }}>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    disabled={bulkBusy}
+                    aria-label="Select all pending bills"
+                    data-testid="ap-approvals-select-all"
+                  />
+                </th>
+                <th>Vendor</th><th>Invoice #</th>
+                <th style={{ textAlign: 'right' }}>Amount</th>
+                <th>Due</th><th>Step</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <React.Fragment key={r.id}>
+                  <tr data-testid={`ap-approvals-row-${r.bill_id}`}>
+                    <td>
                       <input
-                        className="input"
-                        placeholder="Optional note (visible on the bill)"
-                        value={note}
-                        onChange={(e) => setNote(e.target.value)}
-                        data-testid={`ap-approvals-note-${r.bill_id}`}
-                        style={{ width: '100%', marginBottom: 8 }}
+                        type="checkbox"
+                        checked={selected.has(String(r.bill_id))}
+                        onChange={() => toggleOne(r.bill_id)}
+                        disabled={bulkBusy || decidingId === r.bill_id}
+                        aria-label={`Select ${r.bill_number || r.vendor_name || `bill ${r.bill_id}`}`}
+                        data-testid={`ap-approvals-select-${r.bill_id}`}
                       />
+                    </td>
+                    <td>{r.vendor_name}</td>
+                    <td><code>{r.bill_number || '—'}</code></td>
+                    <td style={{ textAlign: 'right' }}>{fmtMoney(r.amount_total)}</td>
+                    <td>{r.due_date || '—'}</td>
+                    <td>{r.step_no} of {r.total_steps}</td>
+                    <td>
                       <button
                         type="button"
                         className="btn btn--primary"
-                        onClick={() => decide(r.bill_id, 'approve')}
-                        data-testid={`ap-approvals-approve-${r.bill_id}`}
-                        style={{ marginRight: 8, background: '#065f46', borderColor: '#065f46' }}
+                        data-testid={`ap-approvals-act-${r.bill_id}`}
+                        onClick={() => setActingId(actingId === r.bill_id ? null : r.bill_id)}
+                        disabled={bulkBusy || decidingId === r.bill_id}
+                        style={{ padding: '4px 10px', fontSize: 12 }}
                       >
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--ghost"
-                        onClick={() => decide(r.bill_id, 'reject')}
-                        data-testid={`ap-approvals-reject-${r.bill_id}`}
-                      >
-                        Reject (sets bill to disputed)
+                        Decide
                       </button>
                     </td>
                   </tr>
-                )}
-              </React.Fragment>
-            ))}
-          </tbody>
-        </table>
+                  {actingId === r.bill_id && (
+                    <tr>
+                      <td colSpan={7} style={{ background: '#f8fafc', padding: 12 }}>
+                        <input
+                          className="input"
+                          placeholder="Optional note (visible on the bill)"
+                          value={note}
+                          onChange={(e) => setNote(e.target.value)}
+                          data-testid={`ap-approvals-note-${r.bill_id}`}
+                          disabled={decidingId === r.bill_id}
+                          style={{ width: '100%', marginBottom: 8 }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn--primary"
+                          onClick={() => decide(r.bill_id, 'approve')}
+                          disabled={decidingId === r.bill_id}
+                          data-testid={`ap-approvals-approve-${r.bill_id}`}
+                          style={{ marginRight: 8, background: '#065f46', borderColor: '#065f46' }}
+                        >
+                          {decidingId === r.bill_id ? 'Saving…' : 'Approve'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
+                          onClick={() => decide(r.bill_id, 'reject')}
+                          disabled={decidingId === r.bill_id}
+                          data-testid={`ap-approvals-reject-${r.bill_id}`}
+                        >
+                          Reject and dispute
+                        </button>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
     </div>
   );
+}
+
+function friendlyApprovalError(error) {
+  if (error?.status === 403) return 'You do not have permission to approve this bill.';
+  if (error?.status === 404) return 'This bill is no longer waiting for your approval.';
+  if (error?.status === 409) return 'An earlier approval step still needs to be completed.';
+  return error?.message || 'The approval could not be completed. Try again.';
 }
 
 function WorkflowsAdmin() {

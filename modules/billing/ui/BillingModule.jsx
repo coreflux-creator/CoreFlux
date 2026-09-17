@@ -14,6 +14,7 @@ import ClientContacts from './ClientContacts';
 import MoneyMovementPreview from './MoneyMovementPreview';
 import MoneyMovementArchive from './MoneyMovementArchive';
 import ItemsCatalog from './ItemsCatalog';
+import ItemsCsvImport from './ItemsCsvImport';
 
 const navItems = [
   { to: '/modules/billing/invoices',  label: 'Invoices' },
@@ -45,6 +46,7 @@ export default function BillingModule({ session }) {
         <Route path="invoices/:id/edit" element={<InvoiceCreate />} />
         <Route path="invoices/:id" element={<InvoiceDetail />} />
         <Route path="items" element={<ItemsCatalog />} />
+        <Route path="items/csv_import" element={<ItemsCsvImport />} />
         <Route path="payments" element={<PaymentsList />} />
         <Route path="payments/csv_import" element={<PaymentsCsvImport />} />
         <Route path="aging" element={<AgingTable />} />

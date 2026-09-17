@@ -4,7 +4,7 @@
  *
  * User can drop a paper sign-in / scanned PDF / phone photo of a timesheet
  * → AI extracts (date, project, hours) rows → user maps each to a
- * placement → entries land as drafts via /api/time/entries.php POST.
+ * placement → one atomic API call creates weekly-linked draft entries.
  */
 declare(strict_types=1);
 
@@ -69,11 +69,21 @@ $assert('Save-all button',                                 strpos($ui, 'data-tes
 $assert('Cancel button',                                   strpos($ui, 'data-testid="time-upload-cancel"') !== false);
 $assert('uses uploadFileViaPresignedPost',                 strpos($ui, 'uploadFileViaPresignedPost') !== false);
 $assert('posts to /modules/time/api/upload.php?action=extract', strpos($ui, '/modules/time/api/upload.php?action=extract') !== false);
-$assert('saves entries via entries.php POST',              strpos($ui, "'/modules/time/api/entries.php'") !== false);
-$assert('marks doc consumed on save success',              strpos($ui, "action=consume") !== false);
+$assert('saves entries with one atomic bulk_create call',   strpos($ui, "/modules/time/api/entries.php?action=bulk_create") !== false);
+$assert('does not save extracted rows one request at a time', substr_count($ui, "api.post('/modules/time/api/entries.php") === 1);
+$assert('sends document id into the atomic commit',         strpos($ui, 'document_id: docId') !== false);
 $assert('placement typeahead from active placements',      strpos($ui, "placements.php?status=active") !== false);
 $assert('source: ai_inbox stamp on saved entries',         preg_match("/source:\\s+'ai_inbox'/", $ui) === 1);
 $assert('source_ref_id stamps doc id',                     strpos($ui, "source_ref_id: docId") !== false);
+$assert('success links to weekly timesheets',              strpos($ui, '/modules/staffing/timesheets') !== false);
+$assert('success links to review queue',                   strpos($ui, '/modules/time/review') !== false);
+
+$entriesApi = file_get_contents(__DIR__ . '/../modules/time/api/entries.php');
+$assert('bulk_create is capped and validates the whole batch', strpos($entriesApi, "\$action === 'bulk_create'") !== false && strpos($entriesApi, 'Too many entries (max 500 per batch)') !== false);
+$assert('bulk_create uses one database transaction',       strpos($entriesApi, '$pdo->beginTransaction()') !== false && strpos($entriesApi, "'created' => count(\$created)") !== false);
+$assert('bulk_create links every row to a weekly header',   strpos($entriesApi, "'timesheet_id' => \$timesheetId") !== false);
+$assert('bulk_create atomically consumes source document', strpos($entriesApi, 'consumed_entry_count = :count') !== false && strpos($entriesApi, "'atomic' => true") !== false);
+$assert('single-entry create also preserves source_ref_id', strpos($entriesApi, "'source_ref_id' => \$entry['source_ref_id']") !== false);
 
 // Bulk mode
 $assert('UI bulk mode radio',                              strpos($ui, 'data-testid="time-upload-mode-bulk"') !== false);

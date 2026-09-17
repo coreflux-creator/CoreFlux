@@ -213,6 +213,19 @@ final class RbacLegacyMap
             // ── staffing ──────────────────────────────────────────────────
             'staffing.export.run'                => ['placements', 'read'],
             'staffing.view'                      => ['staffing', 'read'],
+            'staffing.jobs.manage'               => ['staffing', 'write'],
+            'staffing.time.view'                 => ['staffing', 'read'],
+            'staffing.time.create'               => ['staffing', 'write'],
+            'staffing.time.submit'               => ['staffing', 'write'],
+            'staffing.time.approve'              => ['staffing', 'admin'],
+            'staffing.time.reject'               => ['staffing', 'admin'],
+            'staffing.payroll.view'              => ['staffing', 'read'],
+            'staffing.billing.view'              => ['staffing', 'read'],
+            'staffing.reports.view'              => ['staffing', 'read'],
+            'staffing.settings.manage'           => ['staffing', 'admin'],
+            // Compatibility keys used by the older lifecycle endpoint.
+            'staffing.timesheets.read'           => ['staffing', 'read'],
+            'staffing.timesheets.write'          => ['staffing', 'write'],
 
             // ── tenant (PARKED — platform gate, keep legacy) ──────────────
             'tenant.manage'                      => ['_platform', 'admin'],

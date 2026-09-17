@@ -10,6 +10,46 @@ const API = '/modules/people/api/people.php';
 
 const CLASSIFICATIONS = ['', 'w2', '1099', 'c2c', 'temp', 'perm', 'candidate', 'alumni'];
 const STATUSES        = ['', 'active', 'bench', 'inactive', 'do_not_rehire'];
+const CLASSIFICATION_LABELS = {
+  '': 'All classifications',
+  w2: 'W-2 employee',
+  1099: '1099 contractor',
+  c2c: 'C2C contractor',
+  temp: 'Temporary worker',
+  perm: 'Permanent employee',
+  candidate: 'Candidate',
+  alumni: 'Former worker',
+};
+const STATUS_LABELS = {
+  '': 'All statuses',
+  active: 'Active',
+  bench: 'Bench',
+  inactive: 'Inactive',
+  do_not_rehire: 'Do not rehire',
+};
+const WORK_AUTH_LABELS = {
+  unknown: 'Not recorded',
+  citizen: 'U.S. citizen',
+  green_card: 'Permanent resident',
+  h1b: 'H-1B',
+  opt: 'OPT',
+  cpt: 'CPT',
+  tn: 'TN',
+  other: 'Other',
+};
+const EMPLOYMENT_TYPE_LABELS = {
+  full_time: 'Full-time',
+  part_time: 'Part-time',
+  contractor: 'Contractor',
+  intern: 'Intern',
+  temp: 'Temporary',
+};
+const PAY_FREQUENCY_LABELS = {
+  weekly: 'Weekly',
+  biweekly: 'Every two weeks',
+  semimonthly: 'Twice monthly',
+  monthly: 'Monthly',
+};
 
 export default function Directory() {
   const [q, setQ] = useState('');
@@ -83,11 +123,11 @@ export default function Directory() {
     });
   };
   const bulkFields = useMemo(() => [
-    { key: 'status', label: 'Status', type: 'select', placeholder: 'Choose status', options: STATUSES.filter(Boolean).map(value => ({ value, label: value.replaceAll('_', ' ') })) },
-    { key: 'classification', label: 'Classification', type: 'select', placeholder: 'Choose classification', options: CLASSIFICATIONS.filter(Boolean) },
-    { key: 'work_auth_status', label: 'Work authorization', type: 'select', placeholder: 'Choose work authorization', options: ['unknown', 'citizen', 'green_card', 'h1b', 'opt', 'cpt', 'tn', 'other'].map(value => ({ value, label: value.replaceAll('_', ' ') })) },
-    { key: 'employment_type', label: 'Employment type', type: 'select', placeholder: 'Choose employment type', options: ['full_time', 'part_time', 'contractor', 'intern', 'temp'].map(value => ({ value, label: value.replaceAll('_', ' ') })) },
-    { key: 'pay_frequency', label: 'Pay frequency', type: 'select', placeholder: 'Choose pay frequency', options: ['weekly', 'biweekly', 'semimonthly', 'monthly'] },
+    { key: 'status', label: 'Status', type: 'select', placeholder: 'Choose status', options: STATUSES.filter(Boolean).map(value => ({ value, label: STATUS_LABELS[value] })) },
+    { key: 'classification', label: 'Classification', type: 'select', placeholder: 'Choose classification', options: CLASSIFICATIONS.filter(Boolean).map(value => ({ value, label: CLASSIFICATION_LABELS[value] })) },
+    { key: 'work_auth_status', label: 'Work authorization', type: 'select', placeholder: 'Choose work authorization', options: Object.entries(WORK_AUTH_LABELS).map(([value, label]) => ({ value, label })) },
+    { key: 'employment_type', label: 'Employment type', type: 'select', placeholder: 'Choose employment type', options: Object.entries(EMPLOYMENT_TYPE_LABELS).map(([value, label]) => ({ value, label })) },
+    { key: 'pay_frequency', label: 'Pay frequency', type: 'select', placeholder: 'Choose pay frequency', options: Object.entries(PAY_FREQUENCY_LABELS).map(([value, label]) => ({ value, label })) },
   ], []);
   const bulkUpdate = async (field, value, label) => {
     if (!selected.size) return;
@@ -151,7 +191,7 @@ export default function Directory() {
           data-testid="people-directory-classification-filter"
           className="input"
         >
-          {CLASSIFICATIONS.map(c => <option key={c} value={c}>{c === '' ? 'All classifications' : c}</option>)}
+          {CLASSIFICATIONS.map(c => <option key={c} value={c}>{CLASSIFICATION_LABELS[c]}</option>)}
         </select>
         <select
           value={status}
@@ -159,7 +199,7 @@ export default function Directory() {
           data-testid="people-directory-status-filter"
           className="input"
         >
-          {STATUSES.map(s => <option key={s} value={s}>{s === '' ? 'All statuses' : s}</option>)}
+          {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
         </select>
         <label
           className="btn btn--ghost"
@@ -281,9 +321,9 @@ export default function Directory() {
                     )}
                   </td>
                   <td>{p.email_primary}</td>
-                  <td><span className={`badge badge--${p.classification}`}>{p.classification}</span></td>
-                  <td><span className={`badge badge--${p.status}`}>{p.status}</span></td>
-                  <td>{p.work_auth_status || '—'}{p.work_auth_expiry ? ` (exp ${p.work_auth_expiry})` : ''}</td>
+                  <td><span className={`badge badge--${p.classification}`}>{CLASSIFICATION_LABELS[p.classification] || p.classification}</span></td>
+                  <td><span className={`badge badge--${p.status}`}>{STATUS_LABELS[p.status] || p.status}</span></td>
+                  <td>{WORK_AUTH_LABELS[p.work_auth_status] || p.work_auth_status || '—'}{p.work_auth_expiry ? ` (expires ${p.work_auth_expiry})` : ''}</td>
                   <td>{(p.created_at || '').slice(0, 10)}</td>
                 </tr>
                 );

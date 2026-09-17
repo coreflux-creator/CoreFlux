@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
+import { CheckCircle2, Save, Sparkles } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 
@@ -17,8 +19,9 @@ const nextTmpId = () => ++_tmpId;
  *              AI groups by person_name; you confirm the people-mapping; entries
  *              fan out to each person's draft entries.
  *
- * Save loop hits /api/time/entries.php POST per included line, stamps
- * source='ai_inbox' + source_ref_id={doc_id}, then /upload?action=consume.
+ * Save sends one atomic batch to entries.php. Either every reviewed line
+ * becomes a linked weekly draft and the source document is consumed, or
+ * none of it is written.
  */
 export default function TimesheetUpload() {
   const [mode, setMode]               = useState('single');
@@ -108,70 +111,104 @@ export default function TimesheetUpload() {
     finally { setExtracting(false); }
   };
 
-  const updateGroup = (gid, patch) =>
-    setGroups((gs) => gs.map((g) => g.tmpId === gid ? { ...g, ...patch } : g));
   const updateLine = (gid, lid, patch) =>
     setGroups((gs) => gs.map((g) =>
       g.tmpId === gid ? { ...g, lines: g.lines.map((l) => l.tmpId === lid ? { ...l, ...patch } : l) } : g
     ));
+
+  const pickGroupPerson = (gid, personId) => {
+    const numericId = personId ? Number(personId) : '';
+    const allowed = new Set((numericId ? placementOptionsForPerson(numericId) : []).map((p) => Number(p.id)));
+    setGroups((gs) => gs.map((g) => {
+      if (g.tmpId !== gid) return g;
+      return {
+        ...g,
+        person_id: numericId,
+        lines: g.lines.map((line) => (
+          line.placement_id && !allowed.has(Number(line.placement_id))
+            ? { ...line, placement_id: '', placement_auto_filled: false }
+            : line
+        )),
+      };
+    }));
+  };
 
   const totalIncluded = groups.reduce((s, g) => s + g.lines.filter((l) => l.include && !l.saved_id).length, 0);
 
   const saveAll = async () => {
     setSaving(true); setSaveError(null);
     if (totalIncluded === 0) { setSaveError('Nothing to save'); setSaving(false); return; }
-    // Validation
+    const pending = [];
     for (const g of groups) {
+      if (mode === 'bulk' && !g.person_id && g.lines.some((l) => l.include && !l.saved_id)) {
+        setSaveError(`Pick a person for ${g.person_name || 'each extracted group'} before saving.`);
+        setSaving(false); return;
+      }
       for (const l of g.lines) {
         if (!l.include || l.saved_id) continue;
         if (!l.placement_id || !l.work_date || !(Number(l.hours) > 0)) {
           setSaveError(`Each line needs placement, date, and hours > 0${g.person_name ? ` (group: ${g.person_name})` : ''}`);
           setSaving(false); return;
         }
+        pending.push({
+          groupId: g.tmpId,
+          lineId: l.tmpId,
+          entry: {
+            placement_id: l.placement_id,
+            work_date: l.work_date,
+            category: l.category,
+            hours: Number(l.hours),
+            description: l.description || null,
+            source: 'ai_inbox',
+            source_ref_id: docId,
+          },
+        });
       }
     }
+    try {
+      const result = await api.post('/modules/time/api/entries.php?action=bulk_create', {
+        document_id: docId,
+        entries: pending.map((row) => row.entry),
+      });
+      const savedEntries = Array.isArray(result?.entries) ? result.entries : [];
+      if (savedEntries.length !== pending.length) {
+        throw new Error('The server did not return every saved entry. Refresh before retrying.');
+      }
+      const savedByLine = new Map(
+        pending.map((row, index) => [`${row.groupId}:${row.lineId}`, savedEntries[index]?.id])
+      );
+      setGroups((gs) => gs.map((g) => ({
+        ...g,
+        lines: g.lines.map((line) => {
+          const savedId = savedByLine.get(`${g.tmpId}:${line.tmpId}`);
+          return savedId ? { ...line, saved_id: savedId, save_error: null } : line;
+        }),
+      })));
 
-    const savedIds = [];
-    for (const g of groups) {
-      for (const l of g.lines) {
-        if (!l.include || l.saved_id) continue;
-        try {
-          const r = await api.post('/modules/time/api/entries.php', {
-            placement_id:  l.placement_id,
-            work_date:     l.work_date,
-            category:      l.category,
-            hours:         Number(l.hours),
-            description:   l.description || null,
-            source:        'ai_inbox',
-            source_ref_id: docId,
-          });
-          const newId = r?.entry?.id || r?.id;
-          savedIds.push(newId);
-          updateLine(g.tmpId, l.tmpId, { saved_id: newId, save_error: null });
-        } catch (e) {
-          updateLine(g.tmpId, l.tmpId, { save_error: e.message });
+      // Learn sender-to-person aliases after the financial write succeeds.
+      // Alias learning is helpful for the next upload, but is not part of
+      // the all-or-nothing time-entry transaction.
+      if (docId) {
+        for (const g of groups) {
+          if (!g.person_id || !pending.some((row) => row.groupId === g.tmpId)) continue;
+          try {
+            await api.post('/modules/time/api/intake.php?action=record_alias', {
+              document_id: docId,
+              person_id: g.person_id,
+            });
+          } catch (_) { /* optional learning only */ }
         }
       }
+      setSaveResult({
+        saved: savedEntries.length,
+        attempted: pending.length,
+        timesheetIds: result?.timesheet_ids || [],
+      });
+    } catch (e) {
+      setSaveError(e.message);
+    } finally {
+      setSaving(false);
     }
-
-    if (savedIds.length > 0 && docId) {
-      try { await api.post(`/modules/time/api/upload.php?id=${docId}&action=consume`, { entry_ids: savedIds }); } catch (_) {}
-      // Record sender→person alias per group so future emails from the same
-      // address auto-resolve. Best-effort; no-op when there's no intake row.
-      for (const g of groups) {
-        if (!g.person_id) continue;
-        const groupHadSave = g.lines.some((l) => l.saved_id);
-        if (!groupHadSave) continue;
-        try {
-          await api.post('/modules/time/api/intake.php?action=record_alias', {
-            document_id: docId,
-            person_id:   g.person_id,
-          });
-        } catch (_) { /* best-effort */ }
-      }
-    }
-    setSaveResult({ saved: savedIds.length, attempted: totalIncluded });
-    setSaving(false);
   };
 
   const reset = () => {
@@ -206,7 +243,8 @@ export default function TimesheetUpload() {
               <input className="input" type="date" value={weekEnding} onChange={(e) => setWeekEnding(e.target.value)} data-testid="time-upload-week-ending" />
             </div>
             <button type="button" className="btn btn--primary" onClick={extract} disabled={!file || extracting} data-testid="time-upload-extract">
-              {extracting ? '✨ Extracting…' : '✨ Extract with AI'}
+              <Sparkles size={15} aria-hidden="true" />
+              {extracting ? 'Extracting…' : 'Extract with AI'}
             </button>
           </div>
           {extractError && <p className="error" data-testid="time-upload-extract-error" style={{ marginTop: 8 }}>{extractError}</p>}
@@ -216,11 +254,12 @@ export default function TimesheetUpload() {
       {draft && (
         <div data-testid="time-upload-review">
           <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: 8, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
-            ✓ Extracted {groups.length} {mode === 'bulk' ? `person${groups.length === 1 ? '' : 's'}` : 'group'} with {groups.reduce((s, g) => s + g.lines.length, 0)} line{groups.reduce((s, g) => s + g.lines.length, 0) === 1 ? '' : 's'}
+            <CheckCircle2 size={15} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 6 }} />
+            Extracted {groups.length} {mode === 'bulk' ? `person${groups.length === 1 ? '' : 's'}` : 'group'} with {groups.reduce((s, g) => s + g.lines.length, 0)} line{groups.reduce((s, g) => s + g.lines.length, 0) === 1 ? '' : 's'}
             {confidence != null && <> · confidence <strong>{(confidence * 100).toFixed(0)}%</strong></>}
             {model && <> · {model}</>}
             {draft.week_ending && <> · week ending <strong>{draft.week_ending}</strong></>}
-            {draft.sender_resolved && <> · <span data-testid="time-upload-sender-resolved">✨ auto-mapped to <strong>{draft.sender_person_name}</strong></span></>}
+            {draft.sender_resolved && <> · <span data-testid="time-upload-sender-resolved">Auto-mapped to <strong>{draft.sender_person_name}</strong></span></>}
           </div>
 
           {groups.map((g) => (
@@ -229,7 +268,7 @@ export default function TimesheetUpload() {
               group={g}
               bulk={mode === 'bulk'}
               placementOptionsForPerson={placementOptionsForPerson}
-              onPersonPick={(pid) => updateGroup(g.tmpId, { person_id: pid ? Number(pid) : '' })}
+              onPersonPick={(pid) => pickGroupPerson(g.tmpId, pid)}
               onLineChange={(lid, patch) => updateLine(g.tmpId, lid, patch)}
             />
           ))}
@@ -237,14 +276,21 @@ export default function TimesheetUpload() {
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
             <button type="button" className="btn btn--ghost" onClick={reset} data-testid="time-upload-cancel">Discard + start over</button>
             <button type="button" className="btn btn--primary" onClick={saveAll} disabled={saving} data-testid="time-upload-save">
+              <Save size={15} aria-hidden="true" />
               {saving ? 'Saving…' : `Save ${totalIncluded} draft entries`}
             </button>
           </div>
           {saveError && <p className="error" data-testid="time-upload-save-error" style={{ marginTop: 8 }}>{saveError}</p>}
           {saveResult && (
-            <p data-testid="time-upload-save-result" style={{ marginTop: 8, fontSize: 13, color: '#065f46' }}>
-              ✓ Saved {saveResult.saved} of {saveResult.attempted} as draft entries. Open My Time / Review Queue to submit.
-            </p>
+            <div data-testid="time-upload-save-result" style={{ marginTop: 8, fontSize: 13, color: '#065f46' }}>
+              <CheckCircle2 size={15} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 6 }} />
+              Saved all {saveResult.saved} draft entr{saveResult.saved === 1 ? 'y' : 'ies'} and linked {saveResult.timesheetIds.length} weekly timesheet{saveResult.timesheetIds.length === 1 ? '' : 's'}.
+              <span style={{ marginLeft: 10 }}>
+                <Link to="/modules/staffing/timesheets">Open timesheets</Link>
+                {' · '}
+                <Link to="/modules/time/review">Open review queue</Link>
+              </span>
+            </div>
           )}
         </div>
       )}
@@ -299,7 +345,7 @@ function GroupCard({ group, bulk, placementOptionsForPerson, onPersonPick, onLin
                   <option value="">— pick placement —</option>
                   {placementOpts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
                 </select>
-                {l.placement_auto_filled && <span data-testid={`time-upload-line-${l.tmpId}-auto`} style={{ fontSize: 10, color: '#065f46', marginLeft: 4 }}>✨ auto</span>}
+                {l.placement_auto_filled && <span data-testid={`time-upload-line-${l.tmpId}-auto`} style={{ fontSize: 10, color: '#065f46', marginLeft: 4 }}>Auto-mapped</span>}
               </td>
               <td>
                 <select className="input" value={l.category} onChange={(e) => onLineChange(l.tmpId, { category: e.target.value })} disabled={!!l.saved_id}>

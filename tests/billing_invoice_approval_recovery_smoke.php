@@ -24,6 +24,7 @@ $ok('Billing declares invoice approval resource',
 
 $workflow = (string) file_get_contents("{$root}/modules/billing/lib/workflow.php");
 $api = (string) file_get_contents("{$root}/modules/billing/api/invoices.php");
+$list = (string) file_get_contents("{$root}/modules/billing/ui/InvoicesList.jsx");
 $ok('approval checks for a matching policy', str_contains($workflow, 'billingInvoiceApprovalRouting'));
 $ok('no matching policy uses direct approval', str_contains($workflow, 'billingInvoiceApproveDirect'));
 $ok('direct approval records approver and timestamp',
@@ -32,6 +33,16 @@ $ok('direct approval records approver and timestamp',
     && str_contains($workflow, 'approved_at = COALESCE'));
 $ok('configured routes still use WorkflowEngine', str_contains($workflow, 'workflowAct('));
 $ok('API documents optional policy routing', str_contains($api, 'Without one, an authorized billing user can approve'));
+$ok('invoice list supports one-click approval of selected drafts',
+    str_contains($list, 'billing-invoices-select-all-drafts')
+    && str_contains($list, 'billing-invoices-approve-selected')
+    && str_contains($list, 'Approve selected'));
+$ok('bulk approval reuses the normal guarded invoice endpoint',
+    str_contains($list, '/api/v1/billing/invoices?action=approve&id=${id}')
+    && str_contains($list, 'normal approval policy and separation-of-duties checks'));
+$ok('failed approvals stay selected with row-level reasons',
+    str_contains($list, 'setSelected(new Set(failures.map')
+    && str_contains($list, 'failure.reason'));
 
 if ($failures) {
     fwrite(STDERR, implode(PHP_EOL, $failures) . PHP_EOL);

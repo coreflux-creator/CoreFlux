@@ -60,6 +60,9 @@ jobs:
             accounting.html \
             admin/index.html \
             api/index.php \
+            api/admin/migrate.php \
+            api/admin/csv_mapping_presets.php \
+            api/admin_healthcheck.php \
             api/admin/integrations_health.php \
             api/ai/exceptions.php \
             api/ai_accuracy.php \
@@ -73,6 +76,8 @@ jobs:
             api/missing_dimensions.php \
             api/staffing/approve_timesheet_by_email.php \
             api/tax_form_export.php \
+            api/treasury_payments.php \
+            api/treasury_transfers.php \
             api/treasury_cash_position.php \
             api/treasury_recommendations.php \
             approvers/signup.html \
@@ -82,13 +87,24 @@ jobs:
             core/ModuleRegistry.php \
             core/api_bootstrap.php \
             core/api_router.php \
+            core/payment_rails.php \
+            core/CsvExportService.php \
+            core/CsvImportService.php \
+            core/approval_tokens.php \
+            core/ai_csv_mapper.php \
+            core/ai_categorization.php \
+            core/csv_samples.php \
+            core/export_datasets.php \
             core/ai_agents.php \
             core/domain_people_graph.php \
             core/modules.php \
             core/people_graph.php \
+            core/migrate.php \
+            core/rbac_config.php \
             core/rbac/legacy_map.php \
             core/seeds/event_registry_seed.php \
             core/storage_register.php \
+            core/staffing_email_approval.php \
             core/treasury/liquidity_projection.php \
             core/workflow_engine.php \
             core/mail/M365GraphDriver.php \
@@ -98,9 +114,11 @@ jobs:
             dashboard/src/App.jsx \
             dashboard/src/lib/api.js \
             dashboard/src/components/ComparisonTable.jsx \
+            dashboard/src/components/CsvUploadWidget.jsx \
             dashboard/src/components/CsvImportPage.jsx \
             dashboard/src/components/FinancialReportLibrary.jsx \
             dashboard/src/components/LineItemEditor.jsx \
+            dashboard/src/components/RailPicker.jsx \
             dashboard/src/components/MetricCard.jsx \
             dashboard/src/components/ModuleTabs.jsx \
             dashboard/src/components/ReportShell.jsx \
@@ -112,8 +130,13 @@ jobs:
             dashboard/src/pages/DashboardOverview.jsx \
             dashboard/src/pages/ExecutiveDashboard.jsx \
             dashboard/src/pages/CFODashboard.jsx \
+            dashboard/src/pages/BookkeepingOverview.jsx \
+            dashboard/src/pages/CsvBulkImport.jsx \
+            dashboard/src/pages/CsvImportHistory.jsx \
             dashboard/src/pages/GraphqlSandbox.jsx \
+            dashboard/src/pages/HealthcheckAdmin.jsx \
             dashboard/src/pages/LayerFiToggleCard.jsx \
+            dashboard/src/pages/LiquidityForecast.jsx \
             dashboard/src/pages/MailConnectionsCard.jsx \
             dashboard/src/pages/MailSettingsPage.jsx \
             dashboard/src/pages/MailSuppressionsCard.jsx \
@@ -128,29 +151,62 @@ jobs:
             login.php \
             login2.html \
             modules/accounting/api/accounts.php \
+            modules/accounting/api/accounts_csv_import.php \
             modules/accounting/api/bank_ai.php \
             modules/accounting/api/bank_statements.php \
+            modules/accounting/api/export.php \
             modules/accounting/lib/bank_rec.php \
             modules/accounting/lib/standard_reports.php \
             modules/accounting/ui/BankReconciliation.jsx \
+            modules/accounting/ui/BalanceSheet.jsx \
             modules/accounting/ui/CashFlowStatement.jsx \
             modules/accounting/ui/ChartOfAccounts.jsx \
+            modules/accounting/ui/IncomeStatement.jsx \
+            modules/accounting/ui/AccountingModule.jsx \
+            modules/accounting/ui/AccountsCsvImport.jsx \
+            modules/accounting/ui/JournalEntries.jsx \
             modules/accounting/ui/StandardReports.jsx \
+            modules/accounting/ui/TrialBalance.jsx \
             modules/ap/api/1099.php \
             modules/ap/api/approval_policies.php \
             modules/ap/api/bills.php \
+            modules/ap/api/bills_csv_export.php \
+            modules/ap/api/bills_csv_import.php \
             modules/ap/api/bill_approvals.php \
+            modules/ap/api/csv_import.php \
+            modules/ap/api/expenses.php \
+            modules/ap/api/payments.php \
+            modules/ap/api/payments_csv_export.php \
+            modules/ap/api/payments_csv_import.php \
             modules/ap/api/vendor_risk.php \
+            modules/ap/api/vendors.php \
             modules/ap/api/vendor_portal.php \
             modules/ap/api/weekly_queue.php \
             modules/ap/lib/vendor_risk.php \
             modules/ap/lib/ap.php \
+            modules/ap/migrations/020_payment_entity_scope.sql \
+            modules/ap/migrations/021_vendor_payment_defaults_repair.sql \
             modules/ap/ui/APModule.jsx \
             modules/ap/ui/AgingTable.jsx \
+            modules/ap/ui/Approvals.jsx \
+            modules/ap/ui/BillDetail.jsx \
+            modules/ap/ui/BillFromTimeEntriesModal.jsx \
             modules/ap/ui/BillsList.jsx \
+            modules/ap/ui/ExpensesList.jsx \
+            modules/ap/ui/PaymentsList.jsx \
+            modules/ap/ui/SuggestPaymentRunModal.jsx \
+            modules/ap/ui/VendorQuickCreate.jsx \
+            modules/ap/ui/VendorTypeahead.jsx \
+            modules/ap/ui/VendorsList.jsx \
             modules/ap/ui/WeeklyQueue.jsx \
             modules/billing/api/invoices.php \
+            modules/billing/api/csv_export.php \
+            modules/billing/api/csv_import.php \
             modules/billing/api/items.php \
+            modules/billing/api/items_csv_export.php \
+            modules/billing/api/items_csv_import.php \
+            modules/billing/api/payments_csv_export.php \
+            modules/billing/api/payments_csv_import.php \
             modules/billing/lib/billing.php \
             modules/billing/lib/invoice_pdf.php \
             modules/billing/lib/workflow.php \
@@ -158,21 +214,47 @@ jobs:
             modules/billing/migrations/013_item_catalog.sql \
             modules/billing/migrations/014_invoice_amount_consistency.sql \
             modules/billing/ui/BillingModule.jsx \
+            modules/billing/ui/DunningQueue.jsx \
             modules/billing/ui/AgingTable.jsx \
             modules/billing/ui/InvoiceCreate.jsx \
             modules/billing/ui/InvoiceDetail.jsx \
+            modules/billing/ui/InvoiceFromTimeEntriesModal.jsx \
             modules/billing/ui/InvoicesList.jsx \
             modules/billing/ui/ItemsCatalog.jsx \
+            modules/billing/ui/ItemsCsvImport.jsx \
+            modules/billing/ui/RecurringContracts.jsx \
+            modules/billing/ui/SuggestInvoiceModal.jsx \
+            modules/payroll/lib/csv_import.php \
+            modules/payroll/lib/cycles.php \
             modules/payroll/lib/payroll.php \
+            modules/payroll/lib/profiles.php \
+            modules/payroll/lib/accounting_posting.php \
             modules/payroll/lib/workflow.php \
             modules/payroll/lib/workflow_sync.php \
+            modules/payroll/api/import_csv.php \
+            modules/payroll/api/pay_periods.php \
+            modules/payroll/api/preflight.php \
+            modules/payroll/api/profiles.php \
+            modules/payroll/api/profiles_csv_export.php \
+            modules/payroll/api/profiles_csv_import.php \
             modules/payroll/api/runs.php \
+            modules/payroll/api/settings.php \
             modules/payroll/manifest.php \
             modules/payroll/migrations/001_init.sql \
             modules/payroll/migrations/006_run_enterprise_controls.sql \
+            modules/payroll/migrations/007_accounting_posting.sql \
             modules/payroll/ui/GustoConnectCard.jsx \
+            modules/payroll/ui/PayCyclesPanel.jsx \
             modules/payroll/ui/PayPeriods.jsx \
+            modules/payroll/ui/PaySchedules.jsx \
+            modules/payroll/ui/PayrollModule.jsx \
+            modules/payroll/ui/PayrollOverview.jsx \
+            modules/payroll/ui/PayrollProfileEdit.jsx \
+            modules/payroll/ui/PayrollProfiles.jsx \
+            modules/payroll/ui/PayrollProfilesCsvImport.jsx \
+            modules/payroll/ui/PayrollRunDetail.jsx \
             modules/payroll/ui/PayrollRuns.jsx \
+            modules/payroll/ui/PayrollSettings.jsx \
             modules/people/api/companies.php \
             modules/people/api/documents.php \
             modules/people/api/people.php \
@@ -180,7 +262,10 @@ jobs:
             modules/people/lib/people.php \
             modules/people/ui/Directory.jsx \
             modules/people/ui/DirectoryModule.jsx \
+            modules/people/ui/PersonCreate.jsx \
             modules/people/ui/PersonDetail.jsx \
+            modules/people/ui/PersonPicker.jsx \
+            modules/people/ui/Pipeline.jsx \
             modules/placements/api/documents.php \
             modules/placements/api/csv_export.php \
             modules/placements/api/csv_import.php \
@@ -190,8 +275,13 @@ jobs:
             modules/placements/lib/rate_approve.php \
             modules/placements/ui/CsvImport.jsx \
             modules/placements/ui/DraftRatesQueue.jsx \
+            modules/placements/ui/Expiring.jsx \
             modules/placements/ui/List.jsx \
+            modules/placements/ui/ListGraphql.jsx \
+            modules/placements/ui/PlacementCreate.jsx \
             modules/placements/ui/PlacementDetail.jsx \
+            modules/placements/ui/PlacementPicker.jsx \
+            modules/placements/ui/PlacementTimesheetsTab.jsx \
             modules/reports/api/overtime_watch.php \
             modules/reports/lib/staffing_metrics.php \
             modules/reports/ui/ReportsModule.jsx \
@@ -201,24 +291,45 @@ jobs:
             modules/staffing/api/timesheet_email_approver.php \
             modules/staffing/api/csv_export.php \
             modules/staffing/api/timesheets.php \
+            modules/staffing/lib/timesheets.php \
+            modules/staffing/migrations/004_external_approver_columns.sql \
+            modules/staffing/ui/StaffingApprovals.jsx \
+            modules/staffing/ui/TimesheetDetail.jsx \
+            modules/staffing/ui/TimesheetWeek.jsx \
             modules/staffing/ui/TimesheetsList.jsx \
             modules/time/api/csv_import.php \
+            modules/time/api/csv_export.php \
             modules/time/api/entries.php \
             modules/time/api/intake.php \
+            modules/time/api/settlement.php \
+            modules/time/lib/settlement.php \
+            modules/time/lib/settlement_create.php \
             modules/time/lib/time.php \
             modules/time/manifest.php \
             modules/time/ui/CsvImport.jsx \
+            modules/time/ui/MyTime.jsx \
+            modules/time/ui/Periods.jsx \
             modules/time/ui/ReviewQueue.jsx \
+            modules/time/ui/TimeSettlement.jsx \
             modules/time/ui/TimeModule.jsx \
+            modules/time/ui/TimesheetUpload.jsx \
             modules/time/ui/TimeWorkspaceNav.jsx \
+            modules/time/ui/TokenIssueModal.jsx \
             modules/treasury/ui/AccountTransactions.jsx \
+            modules/treasury/ui/LiabilityAccounts.jsx \
+            modules/treasury/ui/PlaidTransferSettings.jsx \
             modules/treasury/ui/TreasuryOverview.jsx \
             modules/treasury/ui/TreasuryModule.jsx \
+            modules/treasury/ui/TreasuryOperations.jsx \
             modules/treasury/api/account_transactions.php \
+            modules/treasury/api/liability_accounts.php \
             people.html \
             pricing.html \
             reporting.html \
             deploy/run_migrations.php \
+            core/migrations/003_mail_service.sql \
+            core/migrations/083_mail_observability.sql \
+            core/migrations/103_ap_payments_method_mercury.sql \
             core/migrations/125_placement_corp_writable_targets.sql \
             core/migrations/126_staffing_economic_graph.sql \
             core/migrations/127_staffing_contract_terms.sql \
@@ -236,6 +347,7 @@ jobs:
             core/migrations/139_c2c_source_no_waiver.sql \
             core/migrations/140_staffing_client_catalog_integrity.sql \
             core/migrations/141_payroll_module_access_backfill.sql \
+            core/migrations/142_ai_suggestion_source_compat.sql \
             scripts/ap_weekly_queue_sunday.php \
             scripts/billing_recurring_generate.php \
             scripts/opcache_flush_deploy.php.template \
@@ -247,41 +359,68 @@ jobs:
             tax.html \
             tests/login_redirect_paths_smoke.php \
             tests/live_basic_error_regressions_smoke.php \
+            tests/admin_healthcheck_smoke.php \
+            tests/api_client_resilience_smoke.php \
+            tests/api_router_smoke.php \
             tests/ai_accuracy_query_smoke.php \
+            tests/ai_confidence_moat_smoke.php \
+            tests/accounting_basics_2026_02_smoke.php \
             tests/accounting_phase2_a8_smoke.php \
+            tests/accounting_accounts_csv_roundtrip_smoke.php \
             tests/ap_1099_print_schema_smoke.php \
+            tests/ap_bulk_approval_usability_smoke.php \
+            tests/ap_end_to_end_payment_workflow_smoke.php \
             tests/ap_policy_and_vendor_risk_schema_smoke.php \
+            tests/ap_spec_smoke.php \
+            tests/ap_suggest_payment_run_smoke.php \
             tests/ap_vendor_categories_attachments_smoke.php \
+            tests/ap_vendor_payment_defaults_repair_smoke.php \
             tests/authenticated_admin_surfaces_smoke.php \
             tests/basic_surface_consistency_smoke.php \
             tests/books_health_period_schema_smoke.php \
             tests/bank_line_state_convergence_smoke.php \
+            tests/bank_rec_ap_payment_match_smoke.php \
+            tests/billing_bulk_invoice_workflow_smoke.php \
             tests/billing_catalog_and_direct_invoice_smoke.php \
+            tests/billing_items_csv_roundtrip_smoke.php \
             tests/billing_invoice_approval_recovery_smoke.php \
             tests/billing_invoice_posting_consistency_smoke.php \
             tests/billing_spec_smoke.php \
+            tests/billing_suggest_invoice_smoke.php \
             tests/chart_of_accounts_controls_smoke.php \
             tests/company_directory_workflow_smoke.php \
             tests/core_accounting_reports_trust_smoke.php \
             tests/csv_ai_assisted_mapping_smoke.php \
+            tests/csv_external_id_wave1_smoke.php \
             tests/csv_external_id_wave2_smoke.php \
             tests/csv_importers_subtenant_scope_smoke.php \
             tests/csv_phase_b_smoke.php \
+            tests/csv_phase_e_smoke.php \
+            tests/csv_transaction_roundtrip_smoke.php \
             tests/csv_universal_import_export_smoke.php \
             tests/directory_bulk_controls_smoke.php \
             tests/export_templates_smoke.php \
             tests/document_upload_bridge_smoke.php \
+            tests/dunning_smoke.php \
             tests/invoice_pdf_schema_smoke.php \
             tests/invoice_bank_match_smoke.php \
+            tests/idbadge_product_wide_rollout_smoke.php \
+            tests/journal_entries_usability_smoke.php \
             tests/m365_graph_smoke.php \
             tests/payroll_phase_a1_smoke.php \
+            tests/payroll_accounting_lifecycle_smoke.php \
+            tests/payroll_csv_import_smoke.php \
+            tests/payroll_preflight_and_gusto_preview_smoke.php \
+            tests/payroll_profiles_csv_and_cycle_scope_smoke.php \
             tests/payroll_workflow_bridge_smoke.php \
             tests/people_bulk_edit_smoke.php \
             tests/people_search_and_request_race_smoke.php \
             tests/operational_workflow_ease_smoke.php \
+            tests/plaid_transfer_smoke.php \
             tests/placements_bulk_approve_drafts_queue_smoke.php \
             tests/placements_graphql_pilot_smoke.php \
             tests/reports_overtime_query_smoke.php \
+            tests/recurring_contracts_smoke.php \
             tests/sitewide_navigation_smoke.php \
             tests/specific_get_action_routing_smoke.php \
             tests/sprint6d_entity_scope_ai_smoke.php \
@@ -291,12 +430,25 @@ jobs:
             tests/sprint7gA_tax_split_smoke.php \
             tests/p2_liquidity_and_auto_reverse_smoke.php \
             tests/staffing_economic_graph_smoke.php \
+            tests/staffing_email_approval_smoke.php \
+            tests/staffing_bulk_timesheet_approval_smoke.php \
+            tests/staffing_shell_and_weekly_timesheet_smoke.php \
             tests/sweep_destination_ui_and_divergence_smoke.php \
             tests/time_entry_approved_audit_smoke.php \
+            tests/time_intake_smoke.php \
+            tests/time_settlement_smoke.php \
+            tests/time_timesheet_upload_smoke.php \
+            tests/timesheet_end_to_end_guardrails_smoke.php \
+            tests/timesheet_inline_edit_smoke.php \
+            tests/treasury_account_register_workspace_smoke.php \
             tests/treasury_connection_error_copy_smoke.php \
+            tests/treasury_liability_scope_smoke.php \
+            tests/treasury_operations_ui_smoke.php \
             tests/treasury_transactions_and_coa_hierarchy_smoke.php \
             tests/unfinished_route_redirects_smoke.php \
+            tests/ui_polish_smoke.php \
             tests/workspace_shell_smoke.php \
+            tests/workflow_usability_polish_smoke.php \
             wealth.html \
             "${ROOT_ASSETS[@]}"
 
@@ -338,8 +490,13 @@ jobs:
             test -f "$STAGE_ROOT/modules/ap/api/bills.php"
             test -f "$STAGE_ROOT/modules/placements/lib/placements.php"
             test -f "$STAGE_ROOT/modules/payroll/migrations/006_run_enterprise_controls.sql"
+            test -f "$STAGE_ROOT/modules/payroll/migrations/007_accounting_posting.sql"
+            test -f "$STAGE_ROOT/modules/ap/migrations/020_payment_entity_scope.sql"
+            test -f "$STAGE_ROOT/modules/ap/migrations/021_vendor_payment_defaults_repair.sql"
             test -f "$STAGE_ROOT/modules/billing/migrations/013_item_catalog.sql"
             test -f "$STAGE_ROOT/modules/billing/migrations/014_invoice_amount_consistency.sql"
+            test -f "$STAGE_ROOT/core/migrations/003_mail_service.sql"
+            test -f "$STAGE_ROOT/core/migrations/103_ap_payments_method_mercury.sql"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
@@ -352,6 +509,9 @@ jobs:
 
             for PHP_FILE in \
               api/index.php \
+              api/admin/migrate.php \
+              api/admin/csv_mapping_presets.php \
+              api/admin_healthcheck.php \
               api/admin/integrations_health.php \
               api/ai/exceptions.php \
               api/ai_accuracy.php \
@@ -363,6 +523,8 @@ jobs:
               api/tax_form_export.php \
               api/treasury_cash_position.php \
               api/treasury_recommendations.php \
+              api/treasury_payments.php \
+              api/treasury_transfers.php \
               core/ModuleRegistry.php \
               core/api_bootstrap.php \
               core/api_router.php \
@@ -370,6 +532,7 @@ jobs:
               core/domain_people_graph.php \
               core/people_graph.php \
               core/rbac/legacy_map.php \
+              core/staffing_email_approval.php \
               core/seeds/event_registry_seed.php \
               core/storage_register.php \
               core/treasury/liquidity_projection.php \
@@ -382,15 +545,28 @@ jobs:
               modules/ap/api/1099.php \
               modules/ap/api/approval_policies.php \
               modules/ap/api/bills.php \
+              modules/ap/api/csv_import.php \
+              modules/ap/api/expenses.php \
               modules/ap/api/vendor_risk.php \
               modules/ap/lib/vendor_risk.php \
               modules/ap/lib/ap.php \
               modules/billing/api/invoices.php \
               modules/billing/api/items.php \
+              modules/billing/api/items_csv_export.php \
+              modules/billing/api/items_csv_import.php \
               modules/billing/lib/billing.php \
               modules/billing/lib/invoice_pdf.php \
               modules/billing/lib/workflow.php \
+              modules/payroll/api/import_csv.php \
+              modules/payroll/api/pay_periods.php \
+              modules/payroll/api/preflight.php \
+              modules/payroll/api/profiles.php \
+              modules/payroll/api/profiles_csv_export.php \
+              modules/payroll/api/profiles_csv_import.php \
               modules/payroll/lib/payroll.php \
+              modules/payroll/lib/csv_import.php \
+              modules/payroll/lib/cycles.php \
+              modules/payroll/lib/profiles.php \
               modules/payroll/lib/workflow.php \
               modules/payroll/lib/workflow_sync.php \
               modules/payroll/api/runs.php \
@@ -409,69 +585,116 @@ jobs:
               modules/reports/api/overtime_watch.php \
               modules/reports/lib/staffing_metrics.php \
               modules/staffing/api/timesheets.php \
+              modules/staffing/lib/timesheets.php \
               modules/time/api/csv_import.php \
               modules/time/api/entries.php \
               modules/time/lib/time.php \
+              modules/treasury/api/liability_accounts.php \
               modules/treasury/api/account_transactions.php; do
               php -l "$PHP_FILE"
             done
 
             php deploy/run_migrations.php
             php core/seeds/event_registry_seed.php
+            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/003_mail_service.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/103_ap_payments_method_mercury.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/126_staffing_economic_graph.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/140_staffing_client_catalog_integrity.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/141_payroll_module_access_backfill.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/006_run_enterprise_controls.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/007_accounting_posting.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] modules/ap/migrations/020_payment_entity_scope.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] modules/ap/migrations/021_vendor_payment_defaults_repair.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/billing/migrations/013_item_catalog.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/billing/migrations/014_invoice_amount_consistency.sql'
 
             php tests/login_redirect_paths_smoke.php
             php tests/live_basic_error_regressions_smoke.php
+            php tests/admin_healthcheck_smoke.php
+            php tests/api_client_resilience_smoke.php
+            php tests/api_router_smoke.php
             php tests/ai_accuracy_query_smoke.php
+            php tests/ai_confidence_moat_smoke.php
+            php tests/accounting_basics_2026_02_smoke.php
             php tests/accounting_phase2_a8_smoke.php
+            php tests/accounting_accounts_csv_roundtrip_smoke.php
             php tests/ap_1099_print_schema_smoke.php
+            php tests/ap_bulk_approval_usability_smoke.php
+            php tests/ap_end_to_end_payment_workflow_smoke.php
             php tests/ap_policy_and_vendor_risk_schema_smoke.php
+            php tests/ap_spec_smoke.php
+            php tests/ap_suggest_payment_run_smoke.php
             php tests/ap_vendor_categories_attachments_smoke.php
+            php tests/ap_vendor_payment_defaults_repair_smoke.php
             php tests/authenticated_admin_surfaces_smoke.php
             php tests/basic_surface_consistency_smoke.php
             php tests/books_health_period_schema_smoke.php
             php tests/bank_line_state_convergence_smoke.php
+            php tests/bank_rec_ap_payment_match_smoke.php
+            php tests/billing_bulk_invoice_workflow_smoke.php
             php tests/billing_catalog_and_direct_invoice_smoke.php
+            php tests/billing_items_csv_roundtrip_smoke.php
             php tests/billing_invoice_approval_recovery_smoke.php
             php tests/billing_invoice_posting_consistency_smoke.php
             php tests/billing_spec_smoke.php
+            php tests/billing_suggest_invoice_smoke.php
             php tests/chart_of_accounts_controls_smoke.php
             php tests/company_directory_workflow_smoke.php
             php tests/core_accounting_reports_trust_smoke.php
             php tests/csv_ai_assisted_mapping_smoke.php
+            php tests/csv_external_id_wave1_smoke.php
             php tests/csv_external_id_wave2_smoke.php
             php tests/csv_importers_subtenant_scope_smoke.php
             php tests/csv_phase_b_smoke.php
+            php tests/csv_phase_e_smoke.php
+            php tests/csv_transaction_roundtrip_smoke.php
             php tests/csv_universal_import_export_smoke.php
             php tests/directory_bulk_controls_smoke.php
             php tests/export_templates_smoke.php
             php tests/document_upload_bridge_smoke.php
+            php tests/dunning_smoke.php
             php tests/invoice_pdf_schema_smoke.php
             php tests/invoice_bank_match_smoke.php
+            php tests/idbadge_product_wide_rollout_smoke.php
+            php tests/journal_entries_usability_smoke.php
             php tests/m365_graph_smoke.php
             php tests/payroll_phase_a1_smoke.php
+            php tests/payroll_accounting_lifecycle_smoke.php
+            php tests/payroll_csv_import_smoke.php
+            php tests/payroll_preflight_and_gusto_preview_smoke.php
+            php tests/payroll_profiles_csv_and_cycle_scope_smoke.php
             php tests/payroll_workflow_bridge_smoke.php
             php tests/people_bulk_edit_smoke.php
             php tests/people_search_and_request_race_smoke.php
             php tests/operational_workflow_ease_smoke.php
+            php tests/plaid_transfer_smoke.php
             php tests/placements_bulk_approve_drafts_queue_smoke.php
             php tests/placements_graphql_pilot_smoke.php
             php tests/reports_overtime_query_smoke.php
+            php tests/recurring_contracts_smoke.php
             php tests/sitewide_navigation_smoke.php
             php tests/specific_get_action_routing_smoke.php
             php tests/sprint6d_entity_scope_ai_smoke.php
             php tests/staffing_economic_graph_smoke.php
+            php tests/staffing_email_approval_smoke.php
+            php tests/staffing_bulk_timesheet_approval_smoke.php
+            php tests/staffing_shell_and_weekly_timesheet_smoke.php
             php tests/sweep_destination_ui_and_divergence_smoke.php
             php tests/time_entry_approved_audit_smoke.php
+            php tests/time_intake_smoke.php
+            php tests/time_settlement_smoke.php
+            php tests/time_timesheet_upload_smoke.php
+            php tests/timesheet_end_to_end_guardrails_smoke.php
+            php tests/timesheet_inline_edit_smoke.php
+            php tests/treasury_account_register_workspace_smoke.php
             php tests/treasury_connection_error_copy_smoke.php
+            php tests/treasury_liability_scope_smoke.php
+            php tests/treasury_operations_ui_smoke.php
             php tests/treasury_transactions_and_coa_hierarchy_smoke.php
             php tests/unfinished_route_redirects_smoke.php
+            php tests/ui_polish_smoke.php
             php tests/workspace_shell_smoke.php
+            php tests/workflow_usability_polish_smoke.php
 
             SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' index.html | head -n 1)"
             SPA_STYLE="$(sed -n 's#.*href="/\(spa-assets/index-[^"]*\.css\)".*#\1#p' index.html | head -n 1)"

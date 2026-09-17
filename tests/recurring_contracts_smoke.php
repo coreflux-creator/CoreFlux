@@ -102,6 +102,8 @@ foreach (['generate', 'pause', 'resume', 'end', 'edit'] as $action) {
 $a('preview_next_3 rendered',                          str_contains($uiSrc, 'billing-contract-preview-'));
 $a('modal create + edit',                              str_contains($uiSrc, 'New recurring contract') && str_contains($uiSrc, 'Edit:'));
 $a('proration policy field',                           str_contains($uiSrc, 'billing-contract-form-proration'));
+$a('operator copy explains automation without scheduler jargon',
+    str_contains($uiSrc, 'creates a draft invoice') && !str_contains($uiSrc, 'morning cron'));
 
 $modSrc = (string) file_get_contents(__DIR__ . '/../modules/billing/ui/BillingModule.jsx');
 $a('imports RecurringContracts',                       str_contains($modSrc, "import RecurringContracts from './RecurringContracts'"));

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Archive, CheckCircle2, PackagePlus, Pencil, RotateCcw, Search, X } from 'lucide-react';
+import { Archive, CheckCircle2, Download, PackagePlus, Pencil, RotateCcw, Search, Upload, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { ITEM_TYPES } from '../../../dashboard/src/components/LineItemEditor';
@@ -27,6 +28,11 @@ export default function ItemsCatalog() {
     searchKeys: ['code', 'name', 'description', 'item_type', 'gl_revenue_account_code'],
     numericKeys: ['default_unit_price', 'active'],
   });
+  const exportParams = new URLSearchParams();
+  if (status !== 'all') exportParams.set('active', status === 'active' ? '1' : '0');
+  if (type !== 'all') exportParams.set('item_type', type);
+  if (search.trim()) exportParams.set('q', search.trim());
+  const exportHref = `/modules/billing/api/items_csv_export.php${exportParams.toString() ? `?${exportParams}` : ''}`;
 
   const visibleIds = items.map((row) => Number(row.id));
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.includes(id));
@@ -59,6 +65,12 @@ export default function ItemsCatalog() {
           <p className="directory-page__description">Reusable invoice items and default pricing.</p>
         </div>
         <div className="directory-page__actions">
+          <Link className="btn btn--ghost" to="csv_import" data-testid="billing-items-import-csv">
+            <Upload size={15} aria-hidden="true" /> Import
+          </Link>
+          <a className="btn btn--ghost" href={exportHref} data-testid="billing-items-export-csv">
+            <Download size={15} aria-hidden="true" /> Export current view
+          </a>
           <button className="btn btn--primary" type="button" onClick={() => setEditing(EMPTY_ITEM)} data-testid="billing-item-new">
             <PackagePlus size={16} /> New item
           </button>
@@ -100,7 +112,14 @@ export default function ItemsCatalog() {
       )}
 
       {message && <p className={message.kind === 'error' ? 'error' : 'success'} data-testid={`billing-items-${message.kind}`}>{message.text}</p>}
-      {catalogApi.error && <p className="error">Error: {catalogApi.error.message}</p>}
+      {accountsApi.error && (
+        <div className="error operational-state" data-testid="billing-item-accounts-error" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          Revenue accounts couldn't be loaded. {accountsApi.error.message}
+          <button type="button" className="btn btn--ghost btn--sm" onClick={accountsApi.reload} style={{ marginLeft: 'auto' }}>
+            <RotateCcw size={14} aria-hidden="true" /> Retry
+          </button>
+        </div>
+      )}
 
       <div className="data-table-wrap">
         <table className="data-table" data-testid="billing-items-table">
@@ -117,7 +136,17 @@ export default function ItemsCatalog() {
           </tr></thead>
           <tbody>
             {catalogApi.loading && <tr><td colSpan={9} className="empty">Loading...</td></tr>}
-            {!catalogApi.loading && items.length === 0 && <tr><td colSpan={9} className="empty">No products or services found.</td></tr>}
+            {!catalogApi.loading && catalogApi.error && (
+              <tr data-testid="billing-items-error"><td colSpan={9} className="empty">
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+                  <span>Couldn't load products and services. {catalogApi.error.message}</span>
+                  <button type="button" className="btn btn--ghost btn--sm" onClick={catalogApi.reload}>
+                    <RotateCcw size={14} aria-hidden="true" /> Retry
+                  </button>
+                </div>
+              </td></tr>
+            )}
+            {!catalogApi.loading && !catalogApi.error && items.length === 0 && <tr><td colSpan={9} className="empty">No products or services found.</td></tr>}
             {items.map((row) => (
               <tr key={row.id}>
                 <td><input type="checkbox" checked={selected.includes(Number(row.id))} onChange={() => toggleOne(Number(row.id))} aria-label={`Select ${row.name}`} /></td>
@@ -142,7 +171,7 @@ export default function ItemsCatalog() {
           </tbody>
         </table>
       </div>
-      <div className="table-pagination">Showing {items.length} of {filtered.length} items</div>
+      {!catalogApi.error && <div className="table-pagination">Showing {items.length} of {filtered.length} items</div>}
 
       {editing && (
         <ItemDialog

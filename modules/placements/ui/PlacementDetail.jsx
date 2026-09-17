@@ -35,7 +35,7 @@ export default function PlacementDetail({ session }) {
     { slug: 'economics',   label: 'Contract' },
     { slug: 'timesheets',  label: 'Timesheets' },
     { slug: 'documents',   label: 'Documents' },
-    { slug: 'approval',    label: 'Approval' },
+    { slug: 'approval',    label: 'Approval setup' },
   ];
 
   return (
@@ -43,12 +43,6 @@ export default function PlacementDetail({ session }) {
       <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--cf-space-3)' }}>
         <div>
           <button onClick={() => nav('..')} className="btn btn--ghost" data-testid="placement-detail-back">← Placements</button>
-          <Link
-            to="graphql"
-            className="btn btn--ghost"
-            data-testid="placement-detail-switch-gql"
-            style={{ marginLeft: 'var(--cf-space-2)' }}
-          >⚡ GraphQL pilot</Link>
           <h1 data-testid="placement-detail-title" style={{ marginTop: 'var(--cf-space-2)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span>{placement.title}</span>
             <IdBadge id={placement.id} prefix="PL" title={`Placement ID ${placement.id} — click to copy for CSV imports`} />
@@ -70,10 +64,10 @@ export default function PlacementDetail({ session }) {
             )}
           </h1>
           <p style={{ color: 'var(--cf-text-secondary)' }}>
-            <span className={`badge badge--${placement.status}`} data-testid="placement-detail-status">{placement.status}</span>{' '}
-            <span className={`badge badge--${placement.engagement_type}`} data-testid="placement-detail-etype">{placement.engagement_type}</span>{' · '}
+            <span className={`badge badge--${placement.status}`} data-testid="placement-detail-status">{humanizeValue(placement.status)}</span>{' '}
+            <span className={`badge badge--${placement.engagement_type}`} data-testid="placement-detail-etype">{humanizeValue(placement.engagement_type)}</span>{' · '}
             <span data-testid="placement-detail-client">{placement.end_client_name || '(no end client)'}</span>{' · '}
-            <span data-testid="placement-detail-dates">{placement.start_date} → {placement.end_date || '∞'}</span>
+            <span data-testid="placement-detail-dates">{placement.start_date} → {placement.end_date || 'Open-ended'}</span>
             {placement.person_email_primary && (
               <>
                 {' · '}
@@ -86,10 +80,15 @@ export default function PlacementDetail({ session }) {
         </div>
       </header>
 
-      <LinkedExternalSystemsPanel entityType="placement" internalId={placement.id} />
-      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
-        <SyncHistoryDrawer entityType="placement" internalId={placement.id} />
-      </div>
+      <details data-testid="placement-source-system-details" style={{ marginBottom: 12 }}>
+        <summary style={{ cursor: 'pointer', color: 'var(--cf-text-secondary)', fontSize: 13 }}>
+          Source system links
+        </summary>
+        <LinkedExternalSystemsPanel entityType="placement" internalId={placement.id} />
+        <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+          <SyncHistoryDrawer entityType="placement" internalId={placement.id} />
+        </div>
+      </details>
 
       <nav className="person-detail__tabs" data-testid="placement-detail-tabs" style={{ display: 'flex', gap: 'var(--cf-space-1)' }}>
         {TABS.map(t => (
@@ -133,6 +132,25 @@ function parseOverrides(placement) {
   } catch {
     return new Set();
   }
+}
+
+function humanizeValue(value) {
+  if (value == null || value === '') return '—';
+  return String(value)
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .replace(/^W2$/, 'W-2')
+    .replace(/^C2c$/, 'C2C');
+}
+
+function formatPhone(value) {
+  if (!value) return '—';
+  const digits = String(value).replace(/\D/g, '');
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  return value;
 }
 
 /**
@@ -210,8 +228,8 @@ function OverviewTab({ placement, reload }) {
               ? <a href={`mailto:${placement.person_email_primary}`} style={{ color: '#1d4ed8' }}>{placement.person_email_primary}</a>
               : '—'}
             t="overview-person-email" />
-          <Item k="Phone"            v={placement.person_phone_primary}              t="overview-person-phone" />
-          <Item k="Work auth"        v={placement.person_work_auth_status}            t="overview-person-work-auth" />
+          <Item k="Phone"            v={formatPhone(placement.person_phone_primary)} t="overview-person-phone" />
+          <Item k="Work auth"        v={humanizeValue(placement.person_work_auth_status)} t="overview-person-work-auth" />
           <Item k="Work auth expiry" v={placement.person_work_auth_expiry}            t="overview-person-work-auth-expiry" />
         </div>
       </section>
@@ -221,15 +239,14 @@ function OverviewTab({ placement, reload }) {
         <h4 style={{ marginBottom: 'var(--cf-space-2)', color: '#475569', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Engagement</h4>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
           <Item k="Title"            v={placement.title}            t="overview-title"       field="title" />
-          <Item k="Worker classification" v={placement.engagement_type} t="overview-etype" field="engagement_type" />
-          <Item k="Status"           v={placement.status}           t="overview-status"      field="status" />
+          <Item k="Worker classification" v={humanizeValue(placement.engagement_type)} t="overview-etype" field="engagement_type" />
+          <Item k="Status"           v={humanizeValue(placement.status)} t="overview-status" field="status" />
           <Item k="Start"            v={placement.start_date}       t="overview-start"       field="start_date" />
           <Item k="End (planned)"    v={placement.end_date}         t="overview-end"         field="end_date" />
           <Item k="Actual end"       v={placement.actual_end_date}  t="overview-actual-end"  field="actual_end_date" />
           <Item k="Due"              v={placement.due_date}         t="overview-due"         field="due_date" />
           <Item k="Worksite"         v={[placement.worksite_state, placement.worksite_country].filter(Boolean).join(', ') || null} t="overview-site" />
-          <Item k="Remote policy"    v={placement.remote_policy}    t="overview-remote"      field="remote_policy" />
-          <Item k="External ID"      v={placement.external_id}      t="overview-external" />
+          <Item k="Remote policy"    v={humanizeValue(placement.remote_policy)} t="overview-remote" field="remote_policy" />
         </div>
       </section>
 
@@ -408,7 +425,7 @@ function OverviewEdit({ placement, onClose }) {
             {fromJD && overrides.has('status') ? <OverridePill field="status" /> : null}
           </span>
           <select className="input" value={form.status} onChange={set('status')} data-testid="overview-edit-status">
-            {['draft','pending_start','active','on_hold','ended','cancelled'].map(s => <option key={s} value={s}>{s}</option>)}
+            {['draft','pending_start','active','on_hold','ended','cancelled'].map(s => <option key={s} value={s}>{humanizeValue(s)}</option>)}
           </select>
           <RevertControl field="status" />
         </label>
@@ -418,7 +435,7 @@ function OverviewEdit({ placement, onClose }) {
             {fromJD && overrides.has('engagement_type') ? <OverridePill field="engagement_type" /> : null}
           </span>
           <select className="input" value={form.engagement_type} onChange={set('engagement_type')} data-testid="overview-edit-etype">
-            {['w2','1099','c2c','temp_to_perm','direct_hire'].map(s => <option key={s} value={s}>{s}</option>)}
+            {['w2','1099','c2c','temp_to_perm','direct_hire'].map(s => <option key={s} value={s}>{humanizeValue(s)}</option>)}
           </select>
           <RevertControl field="engagement_type" />
         </label>
@@ -428,7 +445,7 @@ function OverviewEdit({ placement, onClose }) {
             {fromJD && overrides.has('remote_policy') ? <OverridePill field="remote_policy" /> : null}
           </span>
           <select className="input" value={form.remote_policy ?? ''} onChange={set('remote_policy')} data-testid="overview-edit-remote">
-            <option value="">—</option><option value="onsite">onsite</option><option value="hybrid">hybrid</option><option value="remote">remote</option>
+            <option value="">—</option><option value="onsite">On-site</option><option value="hybrid">Hybrid</option><option value="remote">Remote</option>
           </select>
           <RevertControl field="remote_policy" />
         </label>
@@ -647,7 +664,7 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
     readiness.missing_ap_payment_terms && 'Vendor payment terms',
     readiness.missing_w2_overhead_cost && 'W-2 employer cost rate',
     readiness.missing_c2c_overhead_cost && 'C2C overhead rate',
-    readiness.unresolved_parties > 0 && `${readiness.unresolved_parties} unresolved recipient(s)`,
+    readiness.unresolved_parties > 0 && `Resolve ${readiness.unresolved_parties} settlement ${Number(readiness.unresolved_parties) === 1 ? 'recipient' : 'recipients'}`,
   ].filter(Boolean);
   if (loading) return <p>Loading placement economics...</p>;
   if (error) return <p className="error">Error: {error.message}</p>;
@@ -658,7 +675,7 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
         <div><h3 style={{ margin: 0 }}>Placement contract</h3><p style={{ color: 'var(--cf-text-secondary)', margin: '4px 0 0' }}>Rates, client billing, labor pay, fees, and every settlement recipient for this engagement.</p></div>
         <span className={`badge badge--${readiness.ready ? 'active' : 'candidate'}`} data-testid="economics-readiness">{readiness.ready ? 'Ready for settlement' : `${readinessProblems.length} setup item${readinessProblems.length === 1 ? '' : 's'}`}</span>
       </header>
-      {!readiness.ready && <div className="alert alert--warn" style={{ marginTop: 12 }}>Complete: {readinessProblems.join(', ') || 'economic setup'}.</div>}
+      {!readiness.ready && <div className="alert alert--warn" style={{ marginTop: 12 }}>Still needed: {readinessProblems.join(', ') || 'contract setup'}.</div>}
       {message && <div className={message.includes('failed') ? 'alert alert--err' : 'alert alert--ok'} style={{ marginTop: 12 }}>{message}</div>}
 
       <section style={{ marginTop: 24 }}>
@@ -1512,7 +1529,7 @@ function DocumentsTab({ pid, rows, reload }) {
         <label>Type
           <select className="input" value={docType} onChange={(event) => setDocType(event.target.value)}>
             {['msa', 'sow', 'work_order', 'rate_sheet', 'timesheet_template', 'poc', 'noc', 'other'].map((type) => (
-              <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>
+              <option key={type} value={type}>{humanizeValue(type)}</option>
             ))}
           </select>
         </label>
@@ -1530,7 +1547,7 @@ function DocumentsTab({ pid, rows, reload }) {
           {rows.length === 0 && <tr><td colSpan={5} className="empty" data-testid="documents-empty">No documents yet.</td></tr>}
           {rows.map(d => (
             <tr key={d.id} data-testid={`document-row-${d.id}`}>
-              <td>{d.doc_type}</td><td>{d.file_name || `#${d.storage_object_id}`}</td>
+              <td>{humanizeValue(d.doc_type)}</td><td>{d.file_name || `#${d.storage_object_id}`}</td>
               <td>{d.effective_from || '—'}{d.effective_to ? ` → ${d.effective_to}` : ''}</td>
               <td>{(d.created_at || '').slice(0, 10)}</td>
               <td><button className="btn btn--ghost btn--icon" type="button" onClick={() => openDocument(d.id)} aria-label={`Open ${d.file_name || 'document'}`} title="Open document"><ExternalLink size={16} aria-hidden="true" /></button></td>
@@ -1559,8 +1576,10 @@ function ApprovalTab({ pid, placement, reload }) {
   };
   return (
     <div data-testid="tab-approval">
-      <h3>Approval contact</h3>
-      <p style={{ color: 'var(--cf-text-secondary)' }}>Used by Time module for tokenized weekly approvals. Default: OFF.</p>
+      <h3>Timesheet approval setup</h3>
+      <p style={{ color: 'var(--cf-text-secondary)' }}>
+        Choose who can approve weekly time and whether they may use a secure email link without signing in.
+      </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
         <label style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>Approver name</span>
@@ -1572,11 +1591,11 @@ function ApprovalTab({ pid, placement, reload }) {
         </label>
         <label data-testid="approval-tokenized-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-2)' }}>
           <input type="checkbox" checked={form.tokenized_email_approval_enabled} onChange={e => setForm({ ...form, tokenized_email_approval_enabled: e.target.checked })} data-testid="approval-tokenized" />
-          Tokenized email approvals enabled
+          Allow approval from a secure email link
         </label>
         <label data-testid="approval-bulk-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-2)' }}>
           <input type="checkbox" checked={form.bulk_uploads_can_be_pre_approved} onChange={e => setForm({ ...form, bulk_uploads_can_be_pre_approved: e.target.checked })} data-testid="approval-bulk" />
-          Bulk uploads can be pre-approved
+          Allow authorized imports to arrive pre-approved
         </label>
       </div>
       {error && <p className="error" data-testid="approval-error">Error: {error.message}</p>}

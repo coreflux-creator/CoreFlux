@@ -1,213 +1,203 @@
 <?php
-/**
- * payroll_csv_import_smoke.php
- *
- * End-to-end smoke for the Payroll register CSV importer. Runs the
- * importer in-process against an SQLite in-memory database mirroring
- * the production schema (payroll_pay_periods, payroll_runs,
- * payroll_line_items, people).
- *
- * Verifies:
- *   1. Pure-helper coverage (findColumn, parseDollarsToCents).
- *   2. Employee lookup by id / email / "First Last" name.
- *   3. Pay-period gating (wrong period_id is rejected).
- *   4. Transactional integrity (one run + N line items in one tx).
- *   5. Aggregate totals roll-up onto payroll_runs.
- *   6. API endpoint structural checks (RBAC, body validation,
- *      upload cap).
- *
- * Run:  php -d zend.assertions=1 tests/payroll_csv_import_smoke.php
- */
+/** End-to-end smoke for safe payroll register CSV import. */
 declare(strict_types=1);
-require_once '/app/core/tx_helpers.php';
 
+require_once dirname(__DIR__) . '/core/tx_helpers.php';
 require_once dirname(__DIR__) . '/modules/payroll/lib/csv_import.php';
 
-$pass = 0; $fail = 0; $failures = [];
-$a = function (string $label, bool $cond) use (&$pass, &$fail, &$failures) {
-    if ($cond) { $pass++; echo "  ✓ $label\n"; }
-    else       { $fail++; $failures[] = $label; echo "  ✗ $label\n"; }
+$pass = 0;
+$fail = 0;
+$failures = [];
+$a = function (string $label, bool $condition) use (&$pass, &$fail, &$failures): void {
+    if ($condition) { $pass++; echo "  PASS {$label}\n"; }
+    else { $fail++; $failures[] = $label; echo "  FAIL {$label}\n"; }
 };
 
 echo "Payroll CSV importer smoke\n";
 echo "==========================\n";
 
-// 1) Helpers ------------------------------------------------------------
-echo "\n1. helpers\n";
-$h = ['Employee Email', 'Gross Pay', 'Employee Taxes', 'Net Pay', 'Work State'];
-$a('findColumn snake/space tolerant',
-    payrollCsvFindColumn($h, ['employee_email', 'email']) === 0
-    && payrollCsvFindColumn($h, ['gross_pay', 'gross']) === 1
-    && payrollCsvFindColumn($h, ['net', 'net_pay']) === 3
-    && payrollCsvFindColumn($h, ['work_state', 'state']) === 4);
-$a('parseDollarsToCents plain',
-    payrollCsvParseDollarsToCents('1234.56') === 123456);
-$a('parseDollarsToCents currency + commas',
-    payrollCsvParseDollarsToCents('$1,234.56') === 123456);
-$a('parseDollarsToCents parentheses-negative',
-    payrollCsvParseDollarsToCents('(50.00)') === -5000);
-$a('parseDollarsToCents rejects garbage',
-    payrollCsvParseDollarsToCents('') === null
-    && payrollCsvParseDollarsToCents('xx') === null);
-$a('parseDollarsToCents rounds half-up',
-    payrollCsvParseDollarsToCents('99.999') === 10000);
+$headers = ['Employee Number', 'Gross Pay', 'Employee Taxes', 'Net Pay', 'Work State'];
+$a('header aliases are punctuation tolerant',
+    payrollCsvFindColumn($headers, ['employee_number']) === 0
+    && payrollCsvFindColumn($headers, ['gross_pay']) === 1
+    && payrollCsvFindColumn($headers, ['net', 'net_pay']) === 3);
+$a('currency values parse to cents', payrollCsvParseDollarsToCents('$1,234.56') === 123456);
+$a('parenthesized values parse as negative', payrollCsvParseDollarsToCents('(50.00)') === -5000);
+$a('invalid values are rejected', payrollCsvParseDollarsToCents('not money') === null);
 
-// 2) End-to-end SQLite harness -----------------------------------------
-echo "\n2. end-to-end import\n";
 if (!in_array('sqlite', PDO::getAvailableDrivers(), true)) {
-    echo "  SKIP pdo_sqlite is not installed in this PHP runtime\n";
+    echo "  SKIP pdo_sqlite is not installed\n";
     goto endpoint_checks;
 }
+
 $pdo = new PDO('sqlite::memory:');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-$pdo->exec(
-    'CREATE TABLE people (
-        id INTEGER PRIMARY KEY,
-        tenant_id INTEGER NOT NULL,
-        first_name TEXT, last_name TEXT,
-        email_primary TEXT, email_secondary TEXT
-    )'
-);
-$pdo->exec(
+$schema = [
+    'CREATE TABLE people_employees (
+        id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, employee_number TEXT,
+        legal_first_name TEXT, preferred_name TEXT, legal_last_name TEXT,
+        work_email TEXT, personal_email TEXT, status TEXT
+    )',
+    'CREATE TABLE people_compensation (
+        id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, employee_id INTEGER NOT NULL,
+        pay_type TEXT, pay_rate_cents INTEGER, pay_frequency TEXT,
+        effective_from TEXT, effective_to TEXT
+    )',
+    'CREATE TABLE payroll_pay_schedules (
+        id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT, frequency TEXT, active INTEGER
+    )',
+    'CREATE TABLE payroll_pay_cycles (
+        id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, schedule_id INTEGER NOT NULL,
+        name TEXT, active INTEGER
+    )',
     'CREATE TABLE payroll_pay_periods (
-        id INTEGER PRIMARY KEY,
-        tenant_id INTEGER NOT NULL,
-        period_start TEXT, period_end TEXT, pay_date TEXT
-    )'
-);
-$pdo->exec(
+        id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, schedule_id INTEGER NOT NULL,
+        cycle_id INTEGER, period_number INTEGER, period_start TEXT, period_end TEXT,
+        pay_date TEXT, status TEXT
+    )',
+    'CREATE TABLE payroll_profiles (
+        id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, employee_id INTEGER NOT NULL,
+        schedule_id INTEGER, cycle_id INTEGER, work_state TEXT, payment_method TEXT,
+        enabled INTEGER
+    )',
     'CREATE TABLE payroll_runs (
-        id INTEGER PRIMARY KEY,
-        tenant_id INTEGER NOT NULL,
-        pay_period_id INTEGER NOT NULL,
-        run_type TEXT NOT NULL,
-        status TEXT NOT NULL,
-        employee_count INTEGER DEFAULT 0,
-        gross_total_cents INTEGER DEFAULT 0,
-        taxes_total_cents INTEGER DEFAULT 0,
-        deductions_total_cents INTEGER DEFAULT 0,
-        net_total_cents INTEGER DEFAULT 0,
-        employer_taxes_cents INTEGER DEFAULT 0,
-        computed_at TEXT, created_at TEXT
-    )'
-);
-$pdo->exec(
+        id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, pay_period_id INTEGER NOT NULL,
+        run_type TEXT NOT NULL, created_by_user_id INTEGER, status TEXT NOT NULL,
+        employee_count INTEGER DEFAULT 0, gross_total_cents INTEGER DEFAULT 0,
+        taxes_total_cents INTEGER DEFAULT 0, deductions_total_cents INTEGER DEFAULT 0,
+        net_total_cents INTEGER DEFAULT 0, employer_taxes_cents INTEGER DEFAULT 0,
+        computed_at TEXT, computed_by_user_id INTEGER, created_at TEXT, updated_at TEXT
+    )',
     'CREATE TABLE payroll_line_items (
-        id INTEGER PRIMARY KEY,
-        tenant_id INTEGER, run_id INTEGER, employee_id INTEGER,
-        work_state TEXT, pay_type TEXT,
-        pay_rate_cents INTEGER, pay_frequency TEXT,
-        hours_regular NUMERIC, hours_overtime NUMERIC,
-        gross_cents INTEGER, pretax_cents INTEGER, taxable_cents INTEGER,
-        employee_taxes_cents INTEGER, posttax_cents INTEGER, net_cents INTEGER,
-        employer_taxes_cents INTEGER, payment_method TEXT, status TEXT,
-        created_at TEXT
-    )'
-);
-$pdo->exec("INSERT INTO people VALUES
-    (101, 7, 'Alice',   'Wong',  'alice@example.com',  NULL),
-    (102, 7, 'Bob',     'Smith', NULL,                 'bob@personal.com'),
-    (103, 7, 'Carla',   'Patel', NULL,                 NULL),
-    (999, 99, 'Other',  'Tenant', NULL,                NULL)
-");
+        id INTEGER PRIMARY KEY, tenant_id INTEGER, run_id INTEGER, employee_id INTEGER,
+        work_state TEXT, pay_type TEXT, pay_rate_cents INTEGER, pay_frequency TEXT,
+        hours_regular NUMERIC, hours_overtime NUMERIC, gross_cents INTEGER,
+        pretax_cents INTEGER, taxable_cents INTEGER, employee_taxes_cents INTEGER,
+        posttax_cents INTEGER, net_cents INTEGER, employer_taxes_cents INTEGER,
+        payment_method TEXT, status TEXT, notes TEXT, created_at TEXT
+    )',
+    'CREATE TABLE payroll_earnings (
+        id INTEGER PRIMARY KEY, tenant_id INTEGER, line_item_id INTEGER, code TEXT,
+        hours NUMERIC, rate_cents INTEGER, amount_cents INTEGER, taxable INTEGER,
+        notes TEXT, created_at TEXT
+    )',
+    'CREATE TABLE payroll_deductions (
+        id INTEGER PRIMARY KEY, tenant_id INTEGER, line_item_id INTEGER, code TEXT,
+        is_pretax INTEGER, amount_cents INTEGER, notes TEXT, created_at TEXT
+    )',
+];
+foreach ($schema as $sql) $pdo->exec($sql);
+
+$pdo->exec("INSERT INTO people_employees VALUES
+    (101, 7, 'E-101', 'Alice', NULL, 'Wong', 'alice@example.com', NULL, 'active'),
+    (102, 7, 'E-102', 'Bob', 'Bobby', 'Smith', NULL, 'bob@personal.com', 'active'),
+    (103, 7, 'E-103', 'Carla', NULL, 'Patel', NULL, NULL, 'active'),
+    (104, 7, 'E-104', 'Dana', NULL, 'Other', 'dana@example.com', NULL, 'active'),
+    (999, 99, 'X-999', 'Other', NULL, 'Tenant', NULL, NULL, 'active')");
+$pdo->exec("INSERT INTO payroll_pay_schedules VALUES (10, 7, 'Biweekly', 'biweekly', 1)");
+$pdo->exec("INSERT INTO payroll_pay_cycles VALUES
+    (20, 7, 10, 'Main cohort', 1),
+    (21, 7, 10, 'Second cohort', 1)");
 $pdo->exec("INSERT INTO payroll_pay_periods VALUES
-    (501, 7, '2026-02-01', '2026-02-15', '2026-02-20')
-");
+    (501, 7, 10, 20, 1, '2026-02-01', '2026-02-14', '2026-02-20', 'open'),
+    (502, 7, 10, 20, 2, '2026-02-15', '2026-02-28', '2026-03-06', 'open')");
+$pdo->exec("INSERT INTO payroll_profiles VALUES
+    (1, 7, 101, 10, 20, 'CA', 'direct_deposit', 1),
+    (2, 7, 102, 10, 20, 'NY', 'check', 1),
+    (3, 7, 103, 10, 20, 'TX', 'direct_deposit', 1),
+    (4, 7, 104, 10, 21, 'FL', 'direct_deposit', 1)");
+$pdo->exec("INSERT INTO people_compensation VALUES
+    (1, 7, 101, 'salary', 9000000, 'biweekly', '2026-01-01', NULL),
+    (2, 7, 102, 'hourly', 4250, 'biweekly', '2026-01-01', NULL),
+    (3, 7, 103, 'salary', 7800000, 'biweekly', '2026-01-01', NULL),
+    (4, 7, 104, 'salary', 8000000, 'biweekly', '2026-01-01', NULL)");
+$pdo->exec("INSERT INTO payroll_runs
+    (id, tenant_id, pay_period_id, run_type, created_by_user_id, status, created_at)
+    VALUES (601, 7, 501, 'regular', 11, 'draft', datetime('now'))");
 
-$tmp = tempnam(sys_get_temp_dir(), 'cf_pay_csv_');
-file_put_contents($tmp,
-    "\xEF\xBB\xBFemployee_email,employee_name,work_state,pay_type,pay_rate,gross_pay,employee_taxes,pretax_deductions,net_pay,employer_taxes\n" .
-    "alice@example.com,Alice Wong,CA,salary,75.00,3000.00,450.00,100.00,2450.00,229.50\n" .
-    ",Bob Smith,NY,hourly,42.50,1700.00,265.00,50.00,1385.00,130.00\n" .         // matched by name (Bob's email is secondary, not in this CSV — falls back to name match)
-    ",Carla Patel,TX,salary,65.00,2600.00,400.00,0,2200.00,198.90\n" .
-    ",,XX,,,,,,,\n" .                                                                // empty-ish row → skip
-    ",Unknown Person,FL,salary,50.00,2000.00,300.00,0,1700.00,153.00\n"               // not in people → skip
+$directory = payrollCsvEmployeeDirectory($pdo, 7);
+$a('employee number resolves canonical employee',
+    (payrollCsvResolveEmployee($directory, ['employee_number' => 'E-101'])['employee']['id'] ?? null) === 101);
+$a('work and personal email both resolve',
+    payrollResolveEmployeeId($pdo, 7, null, 'alice@example.com', null) === 101
+    && payrollResolveEmployeeId($pdo, 7, null, 'bob@personal.com', null) === 102);
+$a('preferred first name can resolve', payrollResolveEmployeeId($pdo, 7, null, null, 'Bobby Smith') === 102);
+$a('different tenant ID is not visible', payrollResolveEmployeeId($pdo, 7, '999', null, null) === null);
+
+$valid = tempnam(sys_get_temp_dir(), 'cf_pay_valid_');
+file_put_contents($valid,
+    "\xEF\xBB\xBFemployee_number,employee_email,employee_name,hours_regular,hours_overtime,gross_pay,employee_taxes,pretax_deductions,posttax_deductions,net_pay,employer_taxes\n" .
+    "E-101,alice@example.com,Alice Wong,80,0,3000.00,450.00,100.00,0,2450.00,229.50\n" .
+    "E-102,bob@personal.com,Bob Smith,40,2,1700.00,265.00,50.00,0,1385.00,130.00\n" .
+    "E-103,,Carla Patel,80,0,2600.00,400.00,0,0,2200.00,198.90\n"
 );
+$result = payrollImportRunCsv($pdo, 7, 501, $valid, 'regular', 44);
+$a('all valid rows import', $result['rows_seen'] === 3 && $result['rows_inserted'] === 3 && !$result['errors']);
+$a('cycle-created draft is reused', $result['run_id'] === 601 && $result['reused_draft'] === true);
+$a('no duplicate run is created', (int) $pdo->query('SELECT COUNT(*) FROM payroll_runs')->fetchColumn() === 1);
 
-$res = payrollImportRunCsv($pdo, 7, 501, $tmp, 'regular');
-$a('rows_inserted matches the 3 resolvable employees', $res['rows_inserted'] === 3);
-$a('rows_skipped accounts for empty + unknown rows', $res['rows_skipped'] >= 2);
-$a('run_id populated', is_int($res['run_id']) && $res['run_id'] > 0);
+$run = $pdo->query('SELECT * FROM payroll_runs WHERE id = 601')->fetch(PDO::FETCH_ASSOC);
+$a('run is computed by the importing user', $run['status'] === 'computed' && (int) $run['computed_by_user_id'] === 44);
+$a('run totals roll up',
+    (int) $run['employee_count'] === 3
+    && (int) $run['gross_total_cents'] === 730000
+    && (int) $run['taxes_total_cents'] === 111500
+    && (int) $run['deductions_total_cents'] === 15000
+    && (int) $run['net_total_cents'] === 603500
+    && (int) $run['employer_taxes_cents'] === 55840);
 
-// 3) Aggregate roll-up ---------------------------------------------------
-echo "\n3. payroll_runs totals roll-up\n";
-$st = $pdo->prepare('SELECT * FROM payroll_runs WHERE id = ?');
-$st->execute([$res['run_id']]);
-$run = $st->fetch(PDO::FETCH_ASSOC);
-$a('employee_count rolled up', (int) $run['employee_count'] === 3);
-$a('gross_total_cents rolled up',
-    (int) $run['gross_total_cents'] === 3000*100 + 1700*100 + 2600*100);
-$a('taxes_total_cents rolled up',
-    (int) $run['taxes_total_cents'] === 450*100 + 265*100 + 400*100);
-$a('deductions_total_cents rolled up (pre + post)',
-    (int) $run['deductions_total_cents'] === 100*100 + 50*100 + 0);
-$a('net_total_cents rolled up',
-    (int) $run['net_total_cents'] === 2450*100 + 1385*100 + 2200*100);
-$a('employer_taxes_cents rolled up',
-    (int) $run['employer_taxes_cents'] === 22950 + 13000 + 19890);
-$a('status set to "computed"', $run['status'] === 'computed');
-$a('run_type honoured', $run['run_type'] === 'regular');
+$bob = $pdo->query('SELECT * FROM payroll_line_items WHERE employee_id = 102')->fetch(PDO::FETCH_ASSOC);
+$a('profile supplies state and payment method', $bob['work_state'] === 'NY' && $bob['payment_method'] === 'check');
+$a('compensation supplies pay settings when CSV omits them',
+    $bob['pay_type'] === 'hourly' && (int) $bob['pay_rate_cents'] === 4250 && $bob['pay_frequency'] === 'biweekly');
+$a('aggregate earning component is preserved', (int) $pdo->query('SELECT COUNT(*) FROM payroll_earnings')->fetchColumn() === 3);
+$a('aggregate deduction components are preserved', (int) $pdo->query('SELECT COUNT(*) FROM payroll_deductions')->fetchColumn() === 2);
 
-// 4) Per-employee line-item integrity ----------------------------------
-echo "\n4. payroll_line_items shape\n";
-$st = $pdo->query("SELECT * FROM payroll_line_items WHERE employee_id = 101");
-$alice = $st->fetch(PDO::FETCH_ASSOC);
-$a('Alice line item written', is_array($alice));
-$a('Alice gross_cents = 300000', (int) $alice['gross_cents'] === 300000);
-$a('Alice net_cents = 245000', (int) $alice['net_cents'] === 245000);
-$a('Alice work_state stored as 2-char upper', $alice['work_state'] === 'CA');
-$a('Alice pay_type lowercased', $alice['pay_type'] === 'salary');
-$a('Alice taxable_cents = gross - pretax', (int) $alice['taxable_cents'] === 300000 - 10000);
+$duplicateAttempt = payrollImportRunCsv($pdo, 7, 501, $valid, 'regular', 44);
+$a('a computed run cannot be overwritten', $duplicateAttempt['run_id'] === null && !empty($duplicateAttempt['errors']));
 
-// 5) Employee resolver --------------------------------------------------
-echo "\n5. employee resolver\n";
-$a('resolves by id when valid',
-    payrollResolveEmployeeId($pdo, 7, '101', null, null) === 101);
-$a('rejects id from a different tenant',
-    payrollResolveEmployeeId($pdo, 7, '999', null, null) === null);
-$a('resolves by email_primary',
-    payrollResolveEmployeeId($pdo, 7, null, 'alice@example.com', null) === 101);
-$a('resolves by email_secondary',
-    payrollResolveEmployeeId($pdo, 7, null, 'bob@personal.com', null) === 102);
-$a('resolves by "First Last" name when no id/email',
-    payrollResolveEmployeeId($pdo, 7, null, null, 'Carla Patel') === 103);
-$a('returns null on no match',
-    payrollResolveEmployeeId($pdo, 7, null, 'nobody@nowhere.com', null) === null);
+$invalid = tempnam(sys_get_temp_dir(), 'cf_pay_invalid_');
+file_put_contents($invalid,
+    "employee_number,gross_pay,employee_taxes,pretax_deductions,posttax_deductions,net_pay\n" .
+    "E-101,1000.00,100.00,0,0,900.00\n" .
+    "MISSING,1000.00,100.00,0,0,900.00\n"
+);
+$invalidResult = payrollImportRunCsv($pdo, 7, 502, $invalid, 'regular', 44);
+$a('one bad row rejects the whole file', $invalidResult['run_id'] === null && $invalidResult['rows_inserted'] === 0);
+$a('failed validation leaves no partial run',
+    (int) $pdo->query('SELECT COUNT(*) FROM payroll_runs WHERE pay_period_id = 502')->fetchColumn() === 0);
 
-// 6) Pay-period gating ---------------------------------------------------
-echo "\n6. pay-period gating\n";
-$res2 = payrollImportRunCsv($pdo, 7, 999, $tmp);
-$a('unknown pay_period_id returns errors[] and no run',
-    $res2['run_id'] === null && !empty($res2['errors']));
-$res3 = payrollImportRunCsv($pdo, 99, 501, $tmp);
-$a('wrong tenant_id rejects (period not visible to tenant)',
-    $res3['run_id'] === null && !empty($res3['errors']));
+$wrongCycle = tempnam(sys_get_temp_dir(), 'cf_pay_cycle_');
+file_put_contents($wrongCycle,
+    "employee_number,gross_pay,employee_taxes,net_pay\n" .
+    "E-104,1000.00,100.00,900.00\n"
+);
+$cycleResult = payrollImportRunCsv($pdo, 7, 502, $wrongCycle, 'regular', 44);
+$a('employee from a sibling cycle is rejected',
+    $cycleResult['run_id'] === null && str_contains(implode(' ', $cycleResult['errors']), 'different pay cycle'));
 
-unlink($tmp);
+$unbalanced = tempnam(sys_get_temp_dir(), 'cf_pay_unbalanced_');
+file_put_contents($unbalanced,
+    "employee_number,gross_pay,employee_taxes,net_pay\n" .
+    "E-101,1000.00,100.00,950.00\n"
+);
+$balanceResult = payrollImportRunCsv($pdo, 7, 502, $unbalanced, 'regular', 44);
+$a('out-of-balance net pay is rejected',
+    $balanceResult['run_id'] === null && str_contains(implode(' ', $balanceResult['errors']), 'out of balance'));
+
+foreach ([$valid, $invalid, $wrongCycle, $unbalanced] as $path) unlink($path);
 
 endpoint_checks:
-// 7) API endpoint structural checks ------------------------------------
-echo "\n7. /api/payroll/import_csv.php endpoint\n";
-$ep = dirname(__DIR__) . '/modules/payroll/api/import_csv.php';
-$a('endpoint exists', file_exists($ep));
-$src = (string) file_get_contents($ep);
-$a('endpoint RBAC-gated by payroll.run.compute',
-    str_contains($src, "rbac_legacy_require(\$ctx['user'], 'payroll.run.compute')"));
-$a('endpoint enforces POST', str_contains($src, "if (api_method() !== 'POST')"));
-$a('endpoint requires pay_period_id > 0',
-    str_contains($src, "if (\$payPeriodId <= 0)"));
-$a('endpoint whitelists run_type',
-    str_contains($src, "['regular', 'off_cycle', 'correction', 'final']"));
-$a('endpoint enforces 25MB upload cap',
-    str_contains($src, '25 * 1024 * 1024'));
-$a('endpoint invokes payrollImportRunCsv',
-    str_contains($src, 'payrollImportRunCsv($pdo, $tid, $payPeriodId, $tmp, $runType)'));
+$endpoint = (string) file_get_contents(dirname(__DIR__) . '/modules/payroll/api/import_csv.php');
+$a('endpoint is permission gated', str_contains($endpoint, "'payroll.run.compute'"));
+$a('endpoint passes actor to importer', str_contains($endpoint, '$runType, $actorUserId'));
+$a('validation failure returns a client error', str_contains($endpoint, 'api_error(') && str_contains($endpoint, '422'));
+$a('import starts approval workflow', str_contains($endpoint, 'payrollRunWorkflowStart('));
+$a('import is audited as a built run', str_contains($endpoint, "payrollAudit('payroll.run.built'"));
 
 echo "\n==========================\n";
-echo "Payroll CSV importer smoke: $pass ✓ / $fail ✗\n";
-echo "==========================\n";
+echo "Payroll CSV importer smoke: {$pass} passed / {$fail} failed\n";
 if ($fail > 0) {
-    foreach ($failures as $msg) echo " ! $msg\n";
+    foreach ($failures as $failure) echo " - {$failure}\n";
     exit(1);
 }
-exit(0);

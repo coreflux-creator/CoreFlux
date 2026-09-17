@@ -22,7 +22,7 @@ foreach ([
 $a('ap_bill_lines.attachment_storage_object_id',    strpos($sql, "TABLE_NAME='ap_bill_lines' AND COLUMN_NAME='attachment_storage_object_id'") !== false);
 $a('vendor_category enum',                          strpos($sql, 'ENUM("hourly_labor","service_provider")') !== false);
 $a('vendor_category default service_provider',      strpos($sql, 'NOT NULL DEFAULT "service_provider"') !== false);
-$a('payment_method ENUM',                           strpos($sql, 'ENUM("ach","wire","check","card","cash","plaid","other")') !== false);
+$a('payment_method ENUM',                           strpos($sql, 'ENUM("ach","wire","check","card","cash","plaid","mercury","other")') !== false);
 $a('1099 + c2c backfill to hourly_labor',           strpos($sql, "vendor_type IN ('1099_individual','c2c_corp')") !== false);
 $a('idx_apv_tenant_category',                       strpos($sql, 'idx_apv_tenant_category') !== false);
 
@@ -57,7 +57,7 @@ $a('GET list returns vendor_category',              strpos($vapi, 'v.vendor_cate
 $a('GET list filter ?category=',                    strpos($vapi, "\$_GET['category']") !== false);
 $a('POST validates vendor_category',                strpos($vapi, "\$allowedCats = ['hourly_labor','service_provider']") !== false);
 $a('POST sensible default by vendor_type',          strpos($vapi, "in_array(\$vendorType, ['1099_individual','c2c_corp'], true) ? 'hourly_labor' : 'service_provider'") !== false);
-$a('POST validates payment_method',                 strpos($vapi, "['ach','wire','check','card','cash','plaid','other']") !== false);
+$a('POST validates payment_method',                 strpos($vapi, "['ach','wire','check','card','cash','plaid','mercury','other']") !== false);
 $a('POST encrypts payment_account_full',            strpos($vapi, '$payAcctFull ? encryptField($payAcctFull)') !== false);
 $a('POST persists vendor_category',                 strpos($vapi, 'vendor_category') !== false && strpos($vapi, ':cat') !== false);
 $a('POST persists remit_to_email',                  strpos($vapi, ':rmail') !== false);

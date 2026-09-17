@@ -19,6 +19,79 @@ const TIME_NONBILLABLE_CATS = ['regular_nonbillable','OT_nonbillable'];
 const TIME_PTO_CATS         = ['holiday','vacation','sick','bereavement'];
 const TIME_UNPAID_CATS      = ['unpaid_leave'];
 
+/** Translate the atomic time category into the weekly-timesheet columns. */
+function timeCategoryRowMeta(string $category): array
+{
+    $hourType = match ($category) {
+        'OT_billable', 'OT_nonbillable' => 'overtime',
+        'holiday' => 'holiday',
+        'vacation' => 'pto',
+        'sick' => 'sick',
+        'bereavement' => 'bereavement',
+        'unpaid_leave' => 'unpaid',
+        'regular_nonbillable', 'custom' => 'nonbillable',
+        default => 'regular',
+    };
+    return [
+        'hour_type' => $hourType,
+        'billable' => in_array($category, TIME_BILLABLE_CATS, true) ? 1 : 0,
+        'payable' => 1,
+    ];
+}
+
+/** Resolve the tenant's configured seven-day week for a work date. */
+function timeWeekBounds(string $workDate): array
+{
+    $startsOn = 1;
+    try {
+        $settings = scopedFind('SELECT week_starts_on FROM tenant_staffing_settings WHERE tenant_id = :tenant_id LIMIT 1');
+        $startsOn = (int) ($settings['week_starts_on'] ?? 1);
+    } catch (\Throwable $_) {
+        $startsOn = 1;
+    }
+    if ($startsOn < 0 || $startsOn > 6) $startsOn = 1;
+    $date = new \DateTimeImmutable($workDate);
+    $offset = ((int) $date->format('w') - $startsOn + 7) % 7;
+    $start = $date->modify("-{$offset} days");
+    return [$start->format('Y-m-d'), $start->modify('+6 days')->format('Y-m-d')];
+}
+
+/** Find or create an open weekly period so entry does not require setup first. */
+function timeOpenPeriodIdForDate(string $workDate): int
+{
+    $period = scopedFind(
+        'SELECT id, status FROM time_periods
+         WHERE tenant_id = :tenant_id AND start_date <= :wd_lo AND end_date >= :wd_hi
+         ORDER BY start_date DESC LIMIT 1',
+        ['wd_lo' => $workDate, 'wd_hi' => $workDate]
+    );
+    if ($period) {
+        if (($period['status'] ?? '') !== 'open') {
+            throw new \RuntimeException("The time period covering {$workDate} is {$period['status']} and cannot accept changes", 409);
+        }
+        return (int) $period['id'];
+    }
+
+    [$startDate, $endDate] = timeWeekBounds($workDate);
+    try {
+        return (int) scopedInsert('time_periods', [
+            'period_type' => 'weekly',
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'label' => "Week of {$startDate}",
+            'status' => 'open',
+        ]);
+    } catch (\Throwable $e) {
+        $existing = scopedFind(
+            'SELECT id, status FROM time_periods
+             WHERE tenant_id = :tenant_id AND start_date = :sd AND end_date = :ed LIMIT 1',
+            ['sd' => $startDate, 'ed' => $endDate]
+        );
+        if (!$existing || ($existing['status'] ?? '') !== 'open') throw $e;
+        return (int) $existing['id'];
+    }
+}
+
 function timePlacementGraphTenantId(?int $tenantId = null): ?int
 {
     $tenantId = $tenantId ?? currentTenantId();
@@ -78,6 +151,199 @@ function timeEntryGet(int $id): ?array
 }
 
 /**
+ * Keep the weekly staffing header aligned with its atomic time rows.
+ * The least-complete row wins: a week with any draft remains draft, a
+ * fully submitted week is submitted, and only an all-approved week is
+ * approved. Downstream-ready/locked headers are never moved backwards.
+ */
+function timeReconcileTimesheetHeader(?int $timesheetId): void
+{
+    $timesheetId = (int) $timesheetId;
+    if ($timesheetId <= 0) return;
+
+    $header = scopedFind(
+        'SELECT id, status FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+        ['id' => $timesheetId]
+    );
+    if (!$header) return;
+
+    $summary = scopedFind(
+        "SELECT COUNT(*) AS row_count,
+                COALESCE(SUM(hours), 0) AS total_hours,
+                SUM(status = 'draft') AS draft_count,
+                SUM(status = 'pending_review') AS pending_count,
+                SUM(status = 'approved') AS approved_count,
+                SUM(status = 'rejected') AS rejected_count,
+                MAX(approved_at) AS latest_approved_at
+           FROM time_entries
+          WHERE tenant_id = :tenant_id AND timesheet_id = :timesheet_id
+            AND status != 'superseded'",
+        ['timesheet_id' => $timesheetId]
+    ) ?? [];
+
+    $update = ['total_hours' => (float) ($summary['total_hours'] ?? 0)];
+    $currentStatus = (string) ($header['status'] ?? 'draft');
+    if (!in_array($currentStatus, ['payroll_ready', 'billing_ready', 'locked'], true)) {
+        $rowCount = (int) ($summary['row_count'] ?? 0);
+        $drafts = (int) ($summary['draft_count'] ?? 0);
+        $pending = (int) ($summary['pending_count'] ?? 0);
+        $approved = (int) ($summary['approved_count'] ?? 0);
+        $rejected = (int) ($summary['rejected_count'] ?? 0);
+
+        if ($rowCount === 0 || $drafts > 0) {
+            $nextStatus = 'draft';
+        } elseif ($rejected > 0) {
+            $nextStatus = 'rejected';
+        } elseif ($pending > 0) {
+            $nextStatus = 'submitted';
+        } elseif ($approved === $rowCount) {
+            $nextStatus = 'approved';
+        } else {
+            $nextStatus = 'draft';
+        }
+        $update['status'] = $nextStatus;
+        if ($nextStatus === 'submitted' && $currentStatus !== 'submitted') {
+            $update['submitted_at'] = date('Y-m-d H:i:s');
+        }
+        if ($nextStatus === 'approved') {
+            $update['approved_at'] = $summary['latest_approved_at'] ?: date('Y-m-d H:i:s');
+        }
+    }
+    scopedUpdate('staffing_timesheets', $timesheetId, $update);
+}
+
+/** Resolve the talent-pool person linked to an authenticated user. */
+function timePersonIdForUser(array $user): ?int
+{
+    $userId = (int) ($user['id'] ?? 0);
+    $email = trim((string) ($user['email'] ?? ''));
+    if ($userId <= 0 && $email === '') return null;
+
+    $peopleTenantId = effectiveTenantIdForModule('people', (int) currentTenantId()) ?? currentTenantId();
+    $pdo = getDB();
+    if ($email !== '') {
+        $stmt = $pdo->prepare(
+            'SELECT id FROM people
+              WHERE tenant_id = :people_tid AND deleted_at IS NULL
+                AND LOWER(email_primary) = LOWER(:email)
+              LIMIT 1'
+        );
+        $stmt->execute(['people_tid' => $peopleTenantId, 'email' => $email]);
+    } else {
+        $stmt = $pdo->prepare(
+            'SELECT p.id
+               FROM users u
+               JOIN people p ON p.tenant_id = :people_tid
+                            AND p.deleted_at IS NULL
+                            AND LOWER(p.email_primary) = LOWER(u.email)
+              WHERE u.id = :user_id
+              LIMIT 1'
+        );
+        $stmt->execute(['people_tid' => $peopleTenantId, 'user_id' => $userId]);
+    }
+    $id = $stmt->fetchColumn();
+    return $id ? (int) $id : null;
+}
+
+/** Atomically move one or more draft entries into review. */
+function timeSubmitEntries(array $entryIds, array $user, bool $canManageOthers = false): array
+{
+    $entryIds = array_values(array_unique(array_filter(
+        array_map('intval', $entryIds),
+        static fn(int $id): bool => $id > 0
+    )));
+    if (!$entryIds) throw new \RuntimeException('At least one entry is required', 422);
+    if (count($entryIds) > 500) throw new \RuntimeException('Too many entries (max 500 per submission)', 422);
+
+    $pdo = getDB();
+    $tenantId = (int) currentTenantId();
+    $placeholders = [];
+    $params = ['tenant_id' => $tenantId];
+    foreach ($entryIds as $idx => $entryId) {
+        $key = 'entry_' . $idx;
+        $placeholders[] = ':' . $key;
+        $params[$key] = $entryId;
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT id, person_id, timesheet_id, status
+               FROM time_entries
+              WHERE tenant_id = :tenant_id
+                AND id IN (' . implode(',', $placeholders) . ')
+              FOR UPDATE'
+        );
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $foundIds = array_map(static fn(array $row): int => (int) $row['id'], $rows);
+        $missingIds = array_values(array_diff($entryIds, $foundIds));
+        if ($missingIds) {
+            throw new \RuntimeException('Time entries not found: ' . implode(', ', $missingIds), 404);
+        }
+
+        $invalid = [];
+        foreach ($rows as $row) {
+            if ((string) $row['status'] !== 'draft') {
+                $invalid[] = '#' . $row['id'] . ' is ' . $row['status'];
+            }
+        }
+        if ($invalid) {
+            throw new \RuntimeException('Only draft entries can be submitted: ' . implode('; ', $invalid), 409);
+        }
+
+        if (!$canManageOthers) {
+            $personId = timePersonIdForUser($user);
+            if (!$personId) {
+                throw new \RuntimeException(
+                    'Your login is not linked to a People record. Ask an administrator to match your work email before submitting time.',
+                    403
+                );
+            }
+            $otherIds = [];
+            foreach ($rows as $row) {
+                if ((int) $row['person_id'] !== $personId) $otherIds[] = (int) $row['id'];
+            }
+            if ($otherIds) {
+                throw new \RuntimeException('You can only submit your own time entries', 403);
+            }
+        }
+
+        $update = $pdo->prepare(
+            'UPDATE time_entries
+                SET status = "pending_review"
+              WHERE tenant_id = :tenant_id
+                AND id IN (' . implode(',', $placeholders) . ')
+                AND status = "draft"'
+        );
+        $update->execute($params);
+        if ($update->rowCount() !== count($entryIds)) {
+            throw new \RuntimeException('Time entries changed while being submitted. Refresh and try again.', 409);
+        }
+
+        foreach ($entryIds as $entryId) {
+            timeAudit('time.entry.submitted', [
+                'entry_id' => $entryId,
+                'submitted_by_user_id' => $user['id'] ?? null,
+                'batch_size' => count($entryIds),
+            ], $entryId);
+        }
+        foreach (array_unique(array_filter(array_map(
+            static fn(array $row): int => (int) ($row['timesheet_id'] ?? 0),
+            $rows
+        ))) as $timesheetId) {
+            timeReconcileTimesheetHeader($timesheetId);
+        }
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+
+    return ['submitted' => count($entryIds), 'entry_ids' => $entryIds];
+}
+
+/**
  * Approve one pending entry using the same controls for single-row, bulk,
  * and future workflow callers. Throws a RuntimeException whose code maps to
  * the intended HTTP status; callers decide whether to fail the request or
@@ -110,6 +376,7 @@ function timeApproveEntry(int $id, array $user, string $approvedVia = 'manual'):
         'approved_via'        => $approvedVia,
     ]);
     $approvedEntry = timeEntryGet($id) ?? $entry;
+    timeReconcileTimesheetHeader((int) ($approvedEntry['timesheet_id'] ?? 0));
     timeEntryApprovedEmit($id, $approvedEntry, $approvedVia, [
         'approver_user_id' => $user['id'] ?? null,
     ]);
@@ -129,6 +396,7 @@ function timeRejectEntry(int $id, array $user, string $reason): array
         'status' => 'rejected',
         'rejected_reason' => $reason,
     ]);
+    timeReconcileTimesheetHeader((int) ($entry['timesheet_id'] ?? 0));
     timeAudit('time.entry.rejected', [
         'entry_id' => $id,
         'reason' => $reason,

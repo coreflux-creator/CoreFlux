@@ -6,22 +6,20 @@
  *
  * Returns a per-employee pass/fail report so the user can fix data hygiene
  * issues BEFORE hitting "Build run" / "Submit to Gusto". For each W2
- * person enrolled on the period's pay schedule we check:
+ * employee enrolled on the period's pay cycle we check:
  *
  *   • Identity:  legal_first_name, legal_last_name, ssn_cipher, date_of_birth, hire_date
  *   • Address:   primary residence on file (people_addresses where kind='home')
  *   • Federal:   people_tax_federal row with effective_date <= period_end,
  *                filing_status not null
  *   • State:     people_tax_state row matching payroll_profiles.work_state
- *   • Banking:   if payment_method='direct_deposit' on payroll_profiles,
- *                people_banking row exists with routing+account ciphers
- *   • Placement: at least one active placement with an approved
- *                placement_rates row whose effective window covers the
- *                period and pay_rate > 0
- *   • Schedule:  payroll_profile.schedule_id matches the period's schedule
+ *   • Banking:   an active direct-deposit account when DD is selected
+ *   • Compensation: the active People compensation row used by the engine
+ *   • Placement: advisory only; payroll does not require a billable placement
+ *   • Cycle:     payroll_profile.cycle_id matches the period cohort
  *
  * Each check is reported as { id, label, pass, severity, hint }. Severity:
- *   • blocker  — payroll cannot run without this fixed (SSN, filing_status, rate)
+ *   • blocker  — payroll cannot run without this fixed (SSN, filing status, compensation)
  *   • warning  — run will succeed but specific lines may be wrong (DD missing,
  *                state-tax SOT missing for a non-CA work-state, etc.)
  *   • info     — informational (no W-2 yet generated, etc.)
@@ -39,9 +37,10 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../core/api_bootstrap.php';
-require_once __DIR__ . '/../../core/RBAC.php';
-require_once __DIR__ . '/../../core/sub_tenants.php';
+require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../lib/payroll.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
@@ -58,29 +57,51 @@ $pdo = getDB();
 
 // ── 1) Resolve the period + schedule ────────────────────────────────────
 $period = scopedFind(
-    "SELECT pp.id, pp.schedule_id, pp.period_start, pp.period_end, pp.pay_date,
+    "SELECT pp.id, pp.schedule_id, pp.cycle_id, pp.period_start, pp.period_end, pp.pay_date,
             pp.status,
-            ps.name AS schedule_name, ps.frequency
+            ps.name AS schedule_name, ps.frequency, pc.name AS cycle_name
        FROM payroll_pay_periods pp
        JOIN payroll_pay_schedules ps ON ps.id = pp.schedule_id AND ps.tenant_id = pp.tenant_id
+  LEFT JOIN payroll_pay_cycles pc ON pc.id = pp.cycle_id AND pc.tenant_id = pp.tenant_id
       WHERE pp.tenant_id = :tenant_id AND pp.id = :id",
     ['id' => $periodId]
 );
 if (!$period) api_error('Pay period not found', 404);
 $periodEnd = (string) $period['period_end'];
 
-// ── 2) Enrolled W2 employees for this schedule (or unbound profiles
-//      that fall back to the tenant default schedule).
+// ── 2) Enrolled W2 employees for this cycle. Legacy unbound profiles
+//      are included only when the schedule has one active cycle.
 //      payroll_profiles.employee_id FK → people_employees.id (the
 //      canonical W2 record for payroll). The unified `people` table
 //      from migration 003 is the talent-pool record; it doesn't carry
 //      payroll-grade PII like ssn_cipher / hire_date.
+$cycleId = !empty($period['cycle_id']) ? (int) $period['cycle_id'] : null;
+$cycleWhere = '';
+$employeeParams = ['sched' => (int) $period['schedule_id']];
+if ($cycleId !== null) {
+    $cycleWhere = ' AND (
+        pp.cycle_id = :cycle_id
+        OR (
+            pp.cycle_id IS NULL
+            AND 1 = (
+                SELECT COUNT(*) FROM payroll_pay_cycles pc2
+                 WHERE pc2.tenant_id = pp.tenant_id
+                   AND pc2.schedule_id = :cycle_schedule
+                   AND pc2.active = 1
+            )
+        )
+    )';
+    $employeeParams['cycle_id'] = $cycleId;
+    $employeeParams['cycle_schedule'] = (int) $period['schedule_id'];
+}
 $emps = scopedQuery(
     "SELECT  pp.id            AS profile_id,
              pp.employee_id   AS employee_id,
              pp.schedule_id   AS profile_schedule_id,
+             pp.cycle_id      AS profile_cycle_id,
              pp.work_state    AS work_state,
              pp.payment_method AS payment_method,
+             pp.default_hours_per_period AS default_hours_per_period,
              pp.enabled       AS profile_enabled,
              e.legal_first_name AS first_name,
              e.legal_last_name  AS last_name,
@@ -99,8 +120,9 @@ $emps = scopedQuery(
         AND pp.enabled     = 1
         AND e.status       = 'active'
         AND (pp.schedule_id = :sched OR pp.schedule_id IS NULL)
+        {$cycleWhere}
       ORDER BY e.legal_last_name, e.legal_first_name",
-    ['sched' => (int) $period['schedule_id']]
+    $employeeParams
 );
 
 $report = [];
@@ -187,21 +209,38 @@ foreach ($emps as $e) {
 
     // Banking — only required if direct_deposit ──────────────────────
     if ($e['payment_method'] === 'direct_deposit') {
-        $bk = scopedFind(
-            "SELECT id FROM people_banking
-              WHERE tenant_id = :tenant_id AND employee_id = :eid
-              ORDER BY id DESC LIMIT 1",
-            ['eid' => $empId]
-        );
-        if (!$bk) {
+        if (!peopleActiveBankAccounts($empId)) {
             $warnings[] = [
                 'id' => 'banking', 'label' => 'Banking on file (direct deposit)',
-                'hint' => 'Set payment_method=check on the payroll profile, OR add people_banking. Gusto handles disbursement either way, but DD requires routing/account.',
+                'hint' => 'Set the payment method to check or add an active bank account in People. Direct deposit cannot be originated without it.',
             ];
         }
     }
 
-    // Active placement with approved rate covering this period ───────
+    // Compensation is the source the gross-to-net engine actually uses.
+    $compensation = peopleActiveCompensation($empId);
+    if (!$compensation || (int) ($compensation['pay_rate_cents'] ?? 0) <= 0) {
+        $blockers[] = [
+            'id' => 'compensation', 'label' => 'Active compensation with a positive pay rate',
+            'hint' => 'Open People → Compensation and add an effective salary or hourly rate for this employee.',
+        ];
+    } else {
+        $info[] = [
+            'id' => 'compensation_ok',
+            'label' => ucfirst((string) $compensation['pay_type']) . ' compensation is active',
+        ];
+        if (($compensation['pay_type'] ?? '') === 'hourly'
+            && (float) ($e['default_hours_per_period'] ?? 0) <= 0) {
+            $warnings[] = [
+                'id' => 'hours_source', 'label' => 'Hourly employee has no default hours',
+                'hint' => 'Import or settle approved time before compute, or set default hours on the payroll profile.',
+            ];
+        }
+    }
+
+    // Placement context is useful for staffing reconciliation, but it is
+    // never a payroll prerequisite. Internal employees and non-billable
+    // workers must still be payable from their People compensation record.
     $personIds = [$empId]; // legacy fallback for older tenants where ids matched.
     try {
         $personWhere = [];
@@ -266,26 +305,26 @@ foreach ($emps as $e) {
         $placement = $placementStmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
     if (!$placement) {
-        $blockers[] = [
-            'id' => 'placement', 'label' => 'Active placement covering ' . $period['period_start'] . ' → ' . $periodEnd,
-            'hint' => 'Without an active placement (status=active|pending_start) the time-billing settlement won\'t produce a payroll line for this employee.',
+        $info[] = [
+            'id' => 'placement_optional', 'label' => 'No billable placement in this period',
+            'hint' => 'Payroll will use the employee compensation record. Add a placement only when this employee is billable to a client.',
         ];
     } elseif (!$placement['pay_rate'] || (float) $placement['pay_rate'] <= 0) {
-        $blockers[] = [
-            'id' => 'pay_rate', 'label' => 'Approved pay_rate > 0 on the placement',
-            'hint' => 'placement_rates row exists but pay_rate is 0 or NULL. Update under Placements → ' . $name . '.',
+        $warnings[] = [
+            'id' => 'placement_rate', 'label' => 'Placement has no approved pay rate',
+            'hint' => 'Payroll still uses People compensation, but staffing margin and settlement will be incomplete until the placement rate is approved.',
         ];
     } else {
         $info[] = [
-            'id' => 'rate_ok', 'label' => 'Pay rate: $' . number_format((float) $placement['pay_rate'], 2) . '/' . $placement['pay_rate_unit'],
+            'id' => 'placement_rate_ok', 'label' => 'Placement rate available for staffing reconciliation',
         ];
     }
 
-    // Schedule binding ───────────────────────────────────────────────
-    if ($e['profile_schedule_id'] && (int) $e['profile_schedule_id'] !== (int) $period['schedule_id']) {
+    if ($cycleId !== null && !empty($e['profile_cycle_id'])
+        && (int) $e['profile_cycle_id'] !== $cycleId) {
         $info[] = [
-            'id' => 'schedule', 'label' => 'Bound to a different schedule',
-            'hint' => 'This profile\'s schedule_id is ' . $e['profile_schedule_id'] . '; the period\'s schedule_id is ' . $period['schedule_id'] . '. Will be skipped on this run.',
+            'id' => 'cycle', 'label' => 'Bound to a different pay cycle',
+            'hint' => 'This employee is excluded from this run and should appear in their assigned cycle instead.',
         ];
     }
 
@@ -316,6 +355,8 @@ api_ok([
         'pay_date'      => $period['pay_date'],
         'schedule_id'   => (int) $period['schedule_id'],
         'schedule_name' => $period['schedule_name'],
+        'cycle_id'      => $cycleId,
+        'cycle_name'    => $period['cycle_name'] ?? null,
         'frequency'     => $period['frequency'],
         'status'        => $period['status'],
     ],
@@ -323,7 +364,7 @@ api_ok([
         'total_w2_employees' => count($emps),
         'blockers'           => $totalBlockers,
         'warnings'           => $totalWarnings,
-        'ready_to_run'       => $totalBlockers === 0,
+        'ready_to_run'       => count($emps) > 0 && $totalBlockers === 0,
     ],
     'employees' => $report,
 ]);

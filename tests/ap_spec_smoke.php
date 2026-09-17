@@ -81,6 +81,7 @@ $assert('void terminal',                       !apBillTransitionAllowed('void', 
 
 echo "\napPaymentTransitionAllowed matrix\n";
 $assert('draft → queued',                      apPaymentTransitionAllowed('draft', 'queued'));
+$assert('draft → sent (direct release)',       apPaymentTransitionAllowed('draft', 'sent'));
 $assert('draft → void',                        apPaymentTransitionAllowed('draft', 'void'));
 $assert('queued → sent',                       apPaymentTransitionAllowed('queued', 'sent'));
 $assert('sent → cleared',                      apPaymentTransitionAllowed('sent', 'cleared'));
@@ -135,7 +136,8 @@ $assert('payments auto-allocate',              strpos($pay, 'auto_allocate') !==
 $assert('send requires ap.payment.send',       strpos($pay, "rbac_legacy_require(\$user, 'ap.payment.send')") !== false);
 $assert('send SoD guard',                      strpos($pay, 'cannot release your own payment') !== false);
 $assert('send refuses disputed bills',         strpos($pay, 'disputed","void"') !== false || strpos($pay, "disputed\",\"void") !== false);
-$assert('void reverses allocations',           strpos($pay, 'ap_bills b') !== false && strpos($pay, 'amount_paid = COALESCE') !== false);
+$assert('void recomputes bills from released payments only',
+                                                strpos($pay, 'apRefreshReleasedPaymentBillsForPayment($pdo, $tid, $id)') !== false);
 
 $vend = (string) file_get_contents(__DIR__ . '/../modules/ap/api/vendors.php');
 $assert('vendors typeahead (q filter)',        strpos($vend, "!empty(\$_GET['q'])") !== false);

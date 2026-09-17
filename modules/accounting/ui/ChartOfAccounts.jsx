@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
 import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
 import {
-  Database, Landmark, MoveRight, Network, Plus, Search, X,
+  Database, Download, Landmark, MoveRight, Network, Plus, Search, Upload, X,
 } from 'lucide-react';
 
 const TYPES = ['asset','liability','equity','revenue','expense'];
@@ -94,9 +95,11 @@ export default function ChartOfAccounts() {
   const [autoBusy, setAutoBusy] = useState(false);
   const [notice, setNotice]   = useState(null);
   const [typeFilter, setTypeFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('1');
   const [search, setSearch]   = useState('');
   const [sort, setSort] = useState({ key: 'code', dir: 'asc' });
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(50);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
@@ -130,11 +133,19 @@ export default function ChartOfAccounts() {
     });
     return tree.filter(({ row }) => visibleIds.has(row.id));
   }, [filtered, search, tree]);
+  const totalPages = Math.max(1, Math.ceil(visibleTree.length / perPage));
+  const pagedTree = useMemo(
+    () => visibleTree.slice((page - 1) * perPage, page * perPage),
+    [page, perPage, visibleTree]
+  );
 
   useEffect(() => {
     setSelected(new Set());
     setBulkResult(null);
+    setPage(1);
   }, [search, typeFilter, statusFilter, sort]);
+  useEffect(() => { setPage(1); }, [perPage]);
+  useEffect(() => { setPage((value) => Math.min(value, totalPages)); }, [totalPages]);
 
   const toggleSort = (key) => setSort(current => ({
     key,
@@ -157,7 +168,7 @@ export default function ChartOfAccounts() {
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  const visibleRows = visibleTree.map(item => item.row);
+  const visibleRows = pagedTree.map(item => item.row);
   const allVisible = visibleRows.length > 0 && visibleRows.every(row => selected.has(row.id));
   const toggleAll = () => setSelected(current => {
     const next = new Set(current);
@@ -253,6 +264,20 @@ export default function ChartOfAccounts() {
           </div>
         </div>
         <div className="ledger-page-header__actions">
+          <a
+            className="btn btn--ghost"
+            href="/modules/accounting/api/export.php?type=coa"
+            data-testid="accounting-accounts-export"
+          >
+            <Download size={14} aria-hidden="true" />Export CSV
+          </a>
+          <Link
+            className="btn btn--ghost"
+            to="import"
+            data-testid="accounting-accounts-import"
+          >
+            <Upload size={14} aria-hidden="true" />Import CSV
+          </Link>
           <button
             type="button"
             className="btn btn--ghost"
@@ -335,7 +360,11 @@ export default function ChartOfAccounts() {
             <option value="0">Inactive</option>
           </select>
         </div>
-        <span className="ledger-page-header__meta">{visibleTree.length} shown</span>
+        <span className="ledger-page-header__meta" data-testid="accounting-accounts-result-count">
+          {visibleTree.length === 0
+            ? 'No matching accounts'
+            : `Showing ${((page - 1) * perPage) + 1}-${Math.min(page * perPage, visibleTree.length)} of ${visibleTree.length} matching accounts`}
+        </span>
       </div>
 
       {showAdd && (
@@ -386,7 +415,7 @@ export default function ChartOfAccounts() {
           {visibleTree.length === 0 && (
             <tr><td colSpan={8} className="empty" data-testid="accounting-accounts-empty">No accounts match.</td></tr>
           )}
-          {visibleTree.map(({ row: r, depth }) => (
+          {pagedTree.map(({ row: r, depth }) => (
             <tr key={r.id} data-testid={`accounting-accounts-row-${r.code}`}>
               <td><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} aria-label={`Select ${r.code} ${r.name}`} data-testid={`accounting-account-select-${r.id}`} /></td>
               <td>
@@ -427,6 +456,32 @@ export default function ChartOfAccounts() {
         </tbody>
       </table>
       </div>
+
+      {visibleTree.length > 0 && (
+        <div
+          style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}
+          data-testid="accounting-accounts-pagination"
+        >
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+            Rows
+            <select
+              className="input"
+              value={perPage}
+              onChange={(event) => setPerPage(Number(event.target.value))}
+              aria-label="Accounts per page"
+            >
+              {[25, 50, 100, 200].map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </label>
+          <button type="button" className="btn btn--ghost" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1}>
+            Previous
+          </button>
+          <span style={{ fontSize: 12 }}>Page {page} of {totalPages}</span>
+          <button type="button" className="btn btn--ghost" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={page >= totalPages}>
+            Next
+          </button>
+        </div>
+      )}
 
       {moveTarget && (
         <MoveDialog

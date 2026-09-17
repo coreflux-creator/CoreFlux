@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ArrowRight, FilePlus2 } from 'lucide-react';
 import { useApi } from '../../../dashboard/src/lib/api';
 import SuggestInvoiceModal from '../../billing/ui/SuggestInvoiceModal';
 
@@ -28,6 +29,13 @@ export default function PlacementTimesheetsTab({ pid, placement }) {
 
   const pending = rows.filter(r => r.status === 'submitted');
   const history = rows.filter(r => r.status !== 'submitted');
+  const unbilledBillableHours = rows.reduce(
+    (sum, row) => sum + (Number(row.unbilled_billable_hours) || 0),
+    0
+  );
+  const canPrepareInvoice = !loading && unbilledBillableHours > 0;
+  const weekParams = new URLSearchParams({ placement_id: String(pid) });
+  if (placement?.person_id) weekParams.set('person_id', String(placement.person_id));
 
   return (
     <div data-testid="placement-timesheets-tab">
@@ -35,7 +43,7 @@ export default function PlacementTimesheetsTab({ pid, placement }) {
         <div>
           <h3 style={{ margin: 0 }}>Timesheets for this placement</h3>
           <p style={{ color: '#666', fontSize: 13, margin: '4px 0 0' }}>
-            Every timesheet that logged hours against this placement, split into pending approvals and history.
+            Review submitted time and prepare invoices from approved, unbilled hours.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -43,17 +51,21 @@ export default function PlacementTimesheetsTab({ pid, placement }) {
             type="button"
             className="btn btn--primary"
             onClick={() => setShowSuggest(true)}
-            style={{ background: 'linear-gradient(135deg, #2563eb, #7c3aed)', border: 0 }}
+            disabled={!canPrepareInvoice}
+            title={canPrepareInvoice
+              ? `${unbilledBillableHours.toFixed(2)} approved, unbilled hours available`
+              : 'No approved, unbilled time is available for this placement'}
             data-testid="placement-timesheets-suggest-invoice"
           >
-            ✨ Suggest invoice
+            <FilePlus2 size={15} aria-hidden="true" />
+            Prepare invoice
           </button>
           <Link
-            to="/modules/staffing/timesheets/week"
+            to={`/modules/staffing/timesheets/week?${weekParams.toString()}`}
             className="btn btn--ghost"
             data-testid="placement-timesheets-create-new"
           >
-            Open current week →
+            Open current week <ArrowRight size={14} aria-hidden="true" />
           </Link>
         </div>
       </header>
@@ -118,7 +130,7 @@ function SectionTable({ rows, pid, mode }) {
                 ? `${r.first_name || ''} ${r.last_name || ''}`.trim()
                 : `Person #${r.person_id}`}
             </td>
-            <td style={{ fontSize: 12 }}>{r.period_start} → {r.period_end}</td>
+            <td style={{ fontSize: 12 }}>{r.period_start} – {r.period_end}</td>
             <td style={{ fontWeight: 600 }}>{Number(r.placement_hours || 0).toFixed(2)}h</td>
             <td>{Number(r.billable_hours || 0).toFixed(2)}h</td>
             <td><StatusBadge status={r.status} /></td>
@@ -128,7 +140,7 @@ function SectionTable({ rows, pid, mode }) {
                 className="btn btn--ghost"
                 data-testid={`placement-timesheets-open-${r.id}`}
               >
-                Open →
+                Open <ArrowRight size={14} aria-hidden="true" />
               </Link>
             </td>
           </tr>
@@ -153,6 +165,22 @@ function StatusBadge({ status }) {
     <span style={{
       display: 'inline-block', padding: '2px 8px', borderRadius: 999,
       background: c.bg, color: c.fg, fontSize: 11, fontWeight: 600,
-    }}>{status}</span>
+    }}>{humanizeStatus(status)}</span>
   );
+}
+
+function humanizeStatus(status) {
+  const labels = {
+    draft: 'Draft',
+    submitted: 'Submitted for approval',
+    approved: 'Approved',
+    rejected: 'Needs correction',
+    locked: 'Locked',
+    payroll_ready: 'Ready for payroll',
+    billing_ready: 'Ready for billing',
+  };
+  if (labels[status]) return labels[status];
+  return String(status || 'unknown')
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }

@@ -211,7 +211,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
     if (!selectedRows.length) return;
     const labels = { ignore: 'ignore', restore: 'restore', unmatch: 'unmatch' };
     if (bulkAction === 'unmatch'
-      && !window.confirm('Unmatch the selected transactions? Their journal entries will remain posted, but the bank links will be cleared.')) return;
+      && !window.confirm('Remove the selected reconciliation links? Links to existing journal entries can be removed. Transactions created from a bank line must be reversed instead.')) return;
     setBulkBusy(true); setRowError(null); setBulkNotice(null);
     try {
       const result = await api.post('/modules/treasury/api/account_transactions.php?action=bulk_update', {
@@ -606,7 +606,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                             ? 'Apply this receipt to invoices and split any remainder'
                             : 'Split this line across multiple accounts (intercompany supported)'}
                         >
-                          {type === 'deposit' && Number(r.amount) > 0 ? 'Split / match' : 'Split / IC'}
+                          {type === 'deposit' && Number(r.amount) > 0 ? 'Apply receipt' : 'Split / IC'}
                         </button>
                         <button
                           type="button"
@@ -1061,7 +1061,7 @@ function CategorizeRow({ line, type, accounts, aiSuggestion, onSave, onCancel })
         </div>
         {isCustomerReceipt && (
           <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>
-            To reduce a customer balance, use Split / match and choose the invoice.
+            To reduce a customer balance, choose Apply receipt and select the invoice.
           </p>
         )}
         <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>
@@ -1141,7 +1141,7 @@ function TreasuryAiResultPanel({ line, ai, onDismiss, onAccept }) {
  * accounts. Every cent must be assigned so the bank line, subledger, and JE
  * stay in agreement. Outflows retain the original GL/intercompany behavior.
  */
-function SplitIcPanel({ line, type, accounts, onSubmit, onCancel }) {
+export function SplitIcPanel({ line, type, accounts, onSubmit, onCancel }) {
   const total = Math.abs(Number(line.amount));
   const allowInvoiceTargets = type === 'deposit' && Number(line.amount) > 0;
   const { data: invoiceData, loading: invoicesLoading, error: invoicesError } = useApi(

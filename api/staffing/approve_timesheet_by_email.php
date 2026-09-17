@@ -101,6 +101,7 @@ function cf_staffing_email_approval_render(string $state, ?array $res, string $m
         'rejected'      => ['🛑', 'Rejected',                '#dc2626'],
         'already_acted' => ['ℹ️', 'Already actioned',        '#0891b2'],
         'expired'       => ['⏰', 'Link expired',            '#a16207'],
+        'needs_attention'=> ['⚠️', 'Setup needs attention',   '#a16207'],
         default         => ['⚠️', 'Could not complete',     '#7c2d12'],
     };
     $base = staffingEmailApprovalBaseUrl();

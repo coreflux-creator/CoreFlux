@@ -7,6 +7,24 @@ import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSo
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 
+const CLASSIFICATION_LABELS = {
+  w2: 'W-2 employee', '1099': '1099 contractor', c2c: 'C2C contractor',
+  temp: 'Temporary worker', perm: 'Permanent employee', candidate: 'Candidate', alumni: 'Former worker',
+};
+const PERSON_STATUS_LABELS = { active: 'Active', bench: 'Bench', inactive: 'Inactive', do_not_rehire: 'Do not rehire' };
+const PLACEMENT_TYPE_LABELS = {
+  w2: 'W-2 employee', '1099': '1099 contractor', c2c: 'C2C contractor',
+  temp_to_perm: 'Temp-to-perm', direct_hire: 'Direct hire', internal: 'Internal employee',
+};
+const PLACEMENT_STATUS_LABELS = {
+  draft: 'Draft', pending_start: 'Starting soon', active: 'Active',
+  on_hold: 'On hold', ended: 'Ended', cancelled: 'Cancelled',
+};
+const WORK_AUTH_LABELS = {
+  unknown: 'Not recorded', citizen: 'U.S. citizen', green_card: 'Permanent resident',
+  h1b: 'H-1B', opt: 'OPT', cpt: 'CPT', tn: 'TN', other: 'Other',
+};
+
 /**
  * Person Detail — 7 tabs per SPEC §6:
  *   1. Overview, 2. Placements, 3. Documents, 4. Skills,
@@ -48,9 +66,9 @@ export default function PersonDetail({ session }) {
             <IdBadge id={person.id} prefix="P" title={`Person ID ${person.id} — click to copy for CSV imports`} />
           </h1>
           <p style={{ color: '#666' }}>
-            <span data-testid="person-detail-classification" className={`badge badge--${person.classification}`}>{person.classification}</span>
+            <span data-testid="person-detail-classification" className={`badge badge--${person.classification}`}>{CLASSIFICATION_LABELS[person.classification] || person.classification}</span>
             {' '}
-            <span data-testid="person-detail-status" className={`badge badge--${person.status}`}>{person.status}</span>
+            <span data-testid="person-detail-status" className={`badge badge--${person.status}`}>{PERSON_STATUS_LABELS[person.status] || person.status}</span>
             {' · '}
             <span data-testid="person-detail-email">{person.email_primary}</span>
           </p>
@@ -136,8 +154,8 @@ function OverviewView({ person }) {
       <Item k="Email"          v={person.email_primary}  testId="overview-email" />
       <Item k="Email (alt)"    v={person.email_secondary} testId="overview-email-alt" />
       <Item k="Phone"          v={person.phone_primary}  testId="overview-phone" />
-      <Item k="Classification" v={person.classification} testId="overview-classification" />
-      <Item k="Status"         v={person.status}         testId="overview-status" />
+      <Item k="Classification" v={CLASSIFICATION_LABELS[person.classification] || person.classification} testId="overview-classification" />
+      <Item k="Status"         v={PERSON_STATUS_LABELS[person.status] || person.status} testId="overview-status" />
       <Item k="Source"         v={person.source}         testId="overview-source" />
       <Item k="External ID"    v={person.external_id}    testId="overview-external-id" />
       <Item k="LinkedIn"       v={person.linkedin_url}   testId="overview-linkedin" />
@@ -179,13 +197,13 @@ function OverviewEdit({ person, onClose }) {
         <label style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ color: '#888', fontSize: '0.85em' }}>Classification</span>
           <select data-testid="overview-edit-classification" value={form.classification} onChange={set('classification')} className="input">
-            {['w2','1099','c2c','temp','perm','candidate','alumni'].map(c => <option key={c} value={c}>{c}</option>)}
+            {['w2','1099','c2c','temp','perm','candidate','alumni'].map(c => <option key={c} value={c}>{CLASSIFICATION_LABELS[c]}</option>)}
           </select>
         </label>
         <label style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ color: '#888', fontSize: '0.85em' }}>Status</span>
           <select data-testid="overview-edit-status" value={form.status} onChange={set('status')} className="input">
-            {['active','bench','inactive','do_not_rehire'].map(s => <option key={s} value={s}>{s}</option>)}
+            {['active','bench','inactive','do_not_rehire'].map(s => <option key={s} value={s}>{PERSON_STATUS_LABELS[s]}</option>)}
           </select>
         </label>
       </div>
@@ -238,10 +256,10 @@ function PlacementsTab({ personId }) {
             <tr key={p.id} data-testid={`placement-row-${p.id}`}>
               <td><strong>{p.title || '—'}</strong></td>
               <td>{p.end_client_name || '—'}</td>
-              <td>{p.engagement_type ? <span className="badge">{p.engagement_type}</span> : '—'}</td>
+              <td>{p.engagement_type ? <span className="badge">{PLACEMENT_TYPE_LABELS[p.engagement_type] || p.engagement_type}</span> : '—'}</td>
               <td>{(p.start_date || '').slice(0, 10) || '—'}</td>
               <td>{(p.end_date || '').slice(0, 10) || '—'}</td>
-              <td>{p.status ? <span className={`badge badge--${p.status}`}>{p.status.replace('_', ' ')}</span> : '—'}</td>
+              <td>{p.status ? <span className={`badge badge--${p.status}`}>{PLACEMENT_STATUS_LABELS[p.status] || p.status}</span> : '—'}</td>
               <td>
                 <a href={`/modules/placements/${p.id}`} data-testid={`placement-open-${p.id}`}>Open →</a>
               </td>
@@ -500,7 +518,7 @@ function ComplianceTab({ person, reload }) {
         <label style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ color: '#888', fontSize: '0.85em' }}>Work auth status</span>
           <select data-testid="compliance-work-auth-status" value={form.work_auth_status} onChange={e => setForm({ ...form, work_auth_status: e.target.value })} className="input">
-            {['unknown','citizen','green_card','h1b','opt','cpt','tn','other'].map(w => <option key={w} value={w}>{w}</option>)}
+            {['unknown','citizen','green_card','h1b','opt','cpt','tn','other'].map(w => <option key={w} value={w}>{WORK_AUTH_LABELS[w]}</option>)}
           </select>
         </label>
         <label style={{ display: 'flex', flexDirection: 'column' }}>

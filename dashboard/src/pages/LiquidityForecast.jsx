@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApi } from '../lib/api';
-import { TrendingDown, TrendingUp, AlertTriangle, Wallet } from 'lucide-react';
+import { TrendingDown, TrendingUp, AlertTriangle, RefreshCw, Wallet } from 'lucide-react';
 
 /**
  * Liquidity Forecast page (P2).
@@ -10,10 +10,20 @@ import { TrendingDown, TrendingUp, AlertTriangle, Wallet } from 'lucide-react';
  */
 export default function LiquidityForecast() {
   const [days, setDays] = useState(90);
-  const { data, loading, error } = useApi(`/api/liquidity_forecast.php?days=${days}`);
+  const { data, loading, error, reload } = useApi(`/api/liquidity_forecast.php?days=${days}`);
 
   if (loading) return <p data-testid="liquidity-loading">Loading forecast…</p>;
-  if (error)   return <p className="error" data-testid="liquidity-error">{error.message}</p>;
+  if (error) {
+    return (
+      <div className="error operational-state" data-testid="liquidity-error" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <AlertTriangle size={18} aria-hidden="true" />
+        <span>Couldn't load the forecast. {error.message}</span>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={reload} style={{ marginLeft: 'auto' }}>
+          <RefreshCw size={14} aria-hidden="true" /> Retry
+        </button>
+      </div>
+    );
+  }
 
   const totals = data?.totals || {};
   const daily  = data?.daily  || [];

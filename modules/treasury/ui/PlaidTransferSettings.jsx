@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { CheckCircle2, RefreshCw, Settings2, Unplug, X } from 'lucide-react';
 import { useApi, api } from '../../../dashboard/src/lib/api';
 import PlaidTransferLinkButton from '../../../dashboard/src/components/PlaidTransferLinkButton';
 
@@ -15,19 +17,20 @@ export default function PlaidTransferSettings() {
   const { data, loading, error, reload } = useApi('/api/plaid_transfer_link.php?action=status');
   const [busy, setBusy]   = useState(false);
   const [flash, setFlash] = useState(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   const onLinked = () => {
-    setFlash({ kind: 'success', msg: 'Funding source connected. Plaid Transfer is now available on the AP Payments tab.' });
+    setFlash({ kind: 'success', msg: 'Payment account connected. Approved vendor payments can now be sent online.' });
     reload();
   };
 
   const onDisconnect = async () => {
-    if (!window.confirm('Disconnect the Plaid Transfer funding source? Outbound ACH/RTP payouts will fall back to NACHA until you reconnect.')) return;
     setBusy(true);
     setFlash(null);
     try {
       await api.post('/api/plaid_transfer_link.php?action=disconnect', {});
-      setFlash({ kind: 'success', msg: 'Funding source disconnected.' });
+      setFlash({ kind: 'success', msg: 'Payment account disconnected.' });
+      setConfirmDisconnect(false);
       reload();
     } catch (e) {
       setFlash({ kind: 'error', msg: e.message || String(e) });
@@ -37,7 +40,16 @@ export default function PlaidTransferSettings() {
   };
 
   if (loading) return <div data-testid="plaid-transfer-settings-loading">Loading…</div>;
-  if (error)   return <div data-testid="plaid-transfer-settings-error" className="error">{error.message || String(error)}</div>;
+  if (error) {
+    return (
+      <div data-testid="plaid-transfer-settings-error" className="error operational-state" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        Couldn't load payout settings. {error.message || String(error)}
+        <button type="button" className="btn btn--ghost btn--sm" onClick={reload} style={{ marginLeft: 'auto' }}>
+          <RefreshCw size={14} aria-hidden="true" /> Retry
+        </button>
+      </div>
+    );
+  }
 
   const configured = !!data?.configured;
   const linked     = !!data?.linked;
@@ -46,10 +58,10 @@ export default function PlaidTransferSettings() {
   return (
     <section data-testid="plaid-transfer-settings" style={{ maxWidth: 720 }}>
       <header style={{ marginBottom: 16 }}>
-        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>AP Pay-out Rail — Plaid Transfer</h3>
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Online vendor payments</h3>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--cf-text-secondary)' }}>
-          Authorise CoreFlux to originate ACH / RTP payouts from your operating account via Plaid Transfer.
-          Settles 0–1 business days. Without this, AP payments fall back to manual NACHA file export.
+          Connect the operating account used to send approved vendor payments. Most payments arrive within one business day.
+          Without a connection, you can download a bank payment file instead.
         </p>
       </header>
 
@@ -75,12 +87,13 @@ export default function PlaidTransferSettings() {
           className="card"
           style={{ padding: 16, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8, background: '#fafafa' }}
         >
-          <strong>Plaid not configured on this pod.</strong>
+          <strong>Online payments aren't available in this workspace yet.</strong>
           <p style={{ fontSize: 13, margin: '8px 0 0', color: 'var(--cf-text-secondary)' }}>
-            An administrator must set <code>PLAID_CLIENT_ID</code> + <code>PLAID_SECRET_SANDBOX</code> (or
-            <code>PLAID_SECRET_PRODUCTION</code>) in the pod environment and ensure the Plaid Transfer
-            Application has been approved. Until then, AP payments use manual NACHA.
+            You can continue downloading payment files, or ask a workspace administrator to finish the payment connection under Connections.
           </p>
+          <Link className="btn btn--ghost btn--sm" to="/admin/integrations/plaid" style={{ marginTop: 12 }}>
+            <Settings2 size={14} aria-hidden="true" /> Open Connections
+          </Link>
         </div>
       )}
 
@@ -92,12 +105,11 @@ export default function PlaidTransferSettings() {
         >
           <div style={{ marginBottom: 12 }}>
             <span className="badge" style={{ background: 'var(--cf-amber-bg, #fef3c7)', color: 'var(--cf-amber, #92400e)', padding: '2px 8px', borderRadius: 4, fontSize: 12 }}>
-              Not linked
+              Account needed
             </span>
           </div>
           <p style={{ fontSize: 13, color: 'var(--cf-text-secondary)', margin: '0 0 16px' }}>
-            Click below to open Plaid Link, sign into your bank, and choose the operating account that
-            will fund AP pay-outs.
+            Sign in to your bank and choose the operating account that will fund approved vendor payments.
           </p>
           <PlaidTransferLinkButton
             onLinked={onLinked}
@@ -115,27 +127,46 @@ export default function PlaidTransferSettings() {
         >
           <div style={{ marginBottom: 12 }}>
             <span className="badge badge--success" style={{ padding: '2px 8px', borderRadius: 4, fontSize: 12 }}>
-              ✓ Linked
+              <CheckCircle2 size={13} aria-hidden="true" /> Ready for online payments
             </span>
           </div>
           <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 16px', margin: 0, fontSize: 13 }}>
-            <dt style={{ color: 'var(--cf-text-secondary)' }}>Plaid item</dt>
-            <dd style={{ margin: 0, fontFamily: 'var(--cf-mono, ui-monospace)' }} data-testid="plaid-transfer-item-id">{rail.item_id || '—'}</dd>
-            <dt style={{ color: 'var(--cf-text-secondary)' }}>Funding account</dt>
-            <dd style={{ margin: 0, fontFamily: 'var(--cf-mono, ui-monospace)' }} data-testid="plaid-transfer-account-id">{rail.account_id || '—'}</dd>
-            <dt style={{ color: 'var(--cf-text-secondary)' }}>Linked at</dt>
+            <dt style={{ color: 'var(--cf-text-secondary)' }}>Connected</dt>
             <dd style={{ margin: 0 }}>{rail.linked_at || '—'}</dd>
           </dl>
-          <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              className="btn"
-              disabled={busy}
-              onClick={onDisconnect}
-              data-testid="plaid-transfer-disconnect-btn"
-            >
-              {busy ? 'Disconnecting…' : 'Disconnect'}
-            </button>
+          <details style={{ marginTop: 12, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+            <summary style={{ cursor: 'pointer' }}>Connection details</summary>
+            <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 16px', margin: '8px 0 0', fontSize: 12 }}>
+              <dt>Provider</dt>
+              <dd style={{ margin: 0 }}>Plaid Transfer</dd>
+              <dt>Connection ID</dt>
+              <dd style={{ margin: 0, fontFamily: 'var(--cf-mono, ui-monospace)' }} data-testid="plaid-transfer-item-id">{rail.item_id || '—'}</dd>
+              <dt>Account ID</dt>
+              <dd style={{ margin: 0, fontFamily: 'var(--cf-mono, ui-monospace)' }} data-testid="plaid-transfer-account-id">{rail.account_id || '—'}</dd>
+            </dl>
+          </details>
+          <div style={{ marginTop: 16 }}>
+            {!confirmDisconnect ? (
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={busy}
+                onClick={() => setConfirmDisconnect(true)}
+                data-testid="plaid-transfer-disconnect-btn"
+              >
+                <Unplug size={15} aria-hidden="true" /> Disconnect payment account
+              </button>
+            ) : (
+              <div className="operational-state" data-testid="plaid-transfer-disconnect-confirm" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13 }}>Disconnect this payment account? Future payments will use file export until another account is connected.</span>
+                <button type="button" className="btn btn--danger btn--sm" onClick={onDisconnect} disabled={busy}>
+                  <Unplug size={14} aria-hidden="true" /> {busy ? 'Disconnecting…' : 'Disconnect account'}
+                </button>
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => setConfirmDisconnect(false)} disabled={busy} title="Cancel">
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

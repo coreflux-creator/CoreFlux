@@ -101,9 +101,9 @@ export default function ReviewQueue() {
     setIssueFor(null);
     setSelected(new Set());
     if (res.email_status === 'sent') {
-      setToast({ kind: 'ok', msg: `Approval email sent (token #${res.token_id}). Expires ${res.expires_at}.` });
+      setToast({ kind: 'ok', msg: `Approval email sent. The link expires ${res.expires_at}.` });
     } else {
-      setToast({ kind: 'warn', msg: `Token created but email failed: ${res.email_error || 'unknown'}. Configure RESEND_API_KEY, then revoke or reissue.` });
+      setToast({ kind: 'warn', msg: 'The approval request was created, but the email could not be sent. Check the email connection under Connections, then revoke or resend it.' });
     }
     reload();
   };
@@ -118,8 +118,10 @@ export default function ReviewQueue() {
     <section className="people-directory" data-testid="time-review-queue">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
         <div>
-          <h2>Review Queue</h2>
-          <p style={{ color: 'var(--cf-text-secondary)' }}>Pending entries grouped by source. Two-eye control: you cannot approve your own entries.</p>
+          <h2>Review queue</h2>
+          <p style={{ color: 'var(--cf-text-secondary)' }}>
+            Review pending time grouped by source. Someone other than the submitter must approve it.
+          </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <a className="btn" href="/api/v1/time/csv-export?status=pending_review" data-testid="time-review-export-csv">Export CSV</a>

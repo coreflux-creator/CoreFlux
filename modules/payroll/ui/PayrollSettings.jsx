@@ -5,6 +5,7 @@ import GustoConnectCard from './GustoConnectCard';
 
 export default function PayrollSettings() {
   const { data: railsData, loading: railsLoading } = useApi('/core/api/payment_rails.php');
+  const { data: accountsData, loading: accountsLoading } = useApi('/api/v1/accounting/accounts?active=1&postable=1');
   const [form, setForm] = useState({
     legal_name: '',
     dba_name: '',
@@ -21,6 +22,13 @@ export default function PayrollSettings() {
     disbursement_rail: 'nacha',
     nacha_company_id: '',
     nacha_origin_routing: '',
+    wage_expense_account_code: '5000',
+    payroll_tax_expense_account_code: '5010',
+    payroll_payable_account_code: '2200',
+    payroll_tax_payable_account_code: '2210',
+    payroll_deduction_payable_account_code: '2220',
+    payroll_cash_account_code: '1000',
+    auto_post_to_ledger: 1,
   });
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -44,7 +52,9 @@ export default function PayrollSettings() {
     finally { setBusy(false); }
   };
 
-  if (!loaded || railsLoading) return <p>Loading…</p>;
+  if (!loaded || railsLoading || accountsLoading) return <p>Loading…</p>;
+
+  const accounts = accountsData?.rows || [];
 
   return (
     <section className="payroll-settings" data-testid="payroll-settings">
@@ -158,6 +168,75 @@ export default function PayrollSettings() {
           </div>
         </fieldset>
 
+        <fieldset data-testid="payroll-settings-accounting">
+          <legend>Accounting</legend>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Payroll posts wage and employer-tax expense when a run is approved, then clears net-pay payable when it is paid.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+            <LedgerAccountSelect
+              label="Wage expense"
+              value={form.wage_expense_account_code}
+              accounts={accounts}
+              types={['expense']}
+              onChange={(value) => setForm({ ...form, wage_expense_account_code: value })}
+              testid="payroll-settings-wage-expense"
+            />
+            <LedgerAccountSelect
+              label="Employer payroll tax expense"
+              value={form.payroll_tax_expense_account_code}
+              accounts={accounts}
+              types={['expense']}
+              onChange={(value) => setForm({ ...form, payroll_tax_expense_account_code: value })}
+              testid="payroll-settings-tax-expense"
+            />
+            <LedgerAccountSelect
+              label="Net-pay payable"
+              value={form.payroll_payable_account_code}
+              accounts={accounts}
+              types={['liability']}
+              onChange={(value) => setForm({ ...form, payroll_payable_account_code: value })}
+              testid="payroll-settings-payable"
+            />
+            <LedgerAccountSelect
+              label="Payroll tax payable"
+              value={form.payroll_tax_payable_account_code}
+              accounts={accounts}
+              types={['liability']}
+              onChange={(value) => setForm({ ...form, payroll_tax_payable_account_code: value })}
+              testid="payroll-settings-tax-payable"
+            />
+            <LedgerAccountSelect
+              label="Deduction payable"
+              value={form.payroll_deduction_payable_account_code}
+              accounts={accounts}
+              types={['liability']}
+              onChange={(value) => setForm({ ...form, payroll_deduction_payable_account_code: value })}
+              testid="payroll-settings-deduction-payable"
+            />
+            <LedgerAccountSelect
+              label="Payroll cash account"
+              value={form.payroll_cash_account_code}
+              accounts={accounts}
+              types={['asset']}
+              onChange={(value) => setForm({ ...form, payroll_cash_account_code: value })}
+              testid="payroll-settings-cash"
+            />
+          </div>
+          <label className="checkbox" style={{ marginTop: 14 }}>
+            <input
+              type="checkbox"
+              checked={!!parseInt(form.auto_post_to_ledger, 10)}
+              onChange={(e) => setForm({ ...form, auto_post_to_ledger: e.target.checked ? 1 : 0 })}
+              data-testid="payroll-settings-auto-post"
+            />
+            <span>Automatically post approved and paid payroll runs to the ledger</span>
+          </label>
+          <p className="muted">
+            Posting is idempotent. A retry cannot create duplicate journal entries.
+          </p>
+        </fieldset>
+
         <fieldset>
           <legend>AI</legend>
           <label className="checkbox">
@@ -181,5 +260,33 @@ export default function PayrollSettings() {
         </button>
       </form>
     </section>
+  );
+}
+
+function LedgerAccountSelect({ label, value, accounts, types, onChange, testid }) {
+  const options = accounts.filter((account) => types.includes(account.account_type));
+  const selectedExists = options.some((account) => String(account.code) === String(value || ''));
+
+  return (
+    <label>
+      <span>{label}</span>
+      <select
+        className="input"
+        required
+        value={value || ''}
+        onChange={(event) => onChange(event.target.value)}
+        data-testid={testid}
+      >
+        <option value="">Choose an account</option>
+        {value && !selectedExists && (
+          <option value={value}>{value} (not found in active accounts)</option>
+        )}
+        {options.map((account) => (
+          <option key={account.id} value={account.code}>
+            {account.code} · {account.name}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

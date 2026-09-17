@@ -29,6 +29,10 @@ switch (api_method()) {
             'address_postal','address_country','default_pay_schedule_id',
             'suta_rate_bps','futa_credit_rate_bps','ai_run_summary_enabled',
             'disbursement_rail','nacha_company_id','nacha_origin_routing',
+            'wage_expense_account_code','payroll_tax_expense_account_code',
+            'payroll_payable_account_code','payroll_tax_payable_account_code',
+            'payroll_deduction_payable_account_code','payroll_cash_account_code',
+            'auto_post_to_ledger',
         ];
         $data = [];
         foreach ($fields as $f) if (array_key_exists($f, $body)) $data[$f] = $body[$f];

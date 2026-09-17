@@ -199,7 +199,7 @@ export default function CsvImportPage({
       });
       const sugg = res.suggestions || {};
       setColumnMap(prev => ({ ...(prev || {}), ...sugg }));
-      setAiReason(res.reasoning || 'AI suggestion applied. Review before validating.');
+      setAiReason(res.reasoning || 'Suggested mapping applied. Review it before checking the file.');
       setPreview(null);
     } catch (err) { setAiError(err); }
     finally       { setAiRunning(false); }
@@ -293,14 +293,14 @@ export default function CsvImportPage({
     <section data-testid={testidPrefix}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
         <div>
-          <h2>CSV Import — {entityLabel}</h2>
+          <h2>Import {entityLabel} from CSV</h2>
           <p style={{ color: 'var(--cf-text-secondary)' }}>
             {description || `Create or update ${entityLabel.toLowerCase()} in bulk. Every file is validated before import.`}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
-          <Link to="/data/bulk-import"   className="btn btn--ghost" data-testid={`${testidPrefix}-bulk-link`}>+ Bulk Import (multi-file)</Link>
-          <Link to="/data/import-history" className="btn btn--ghost" data-testid={`${testidPrefix}-history-link`}>Import History</Link>
+          <Link to="/data/bulk-import"   className="btn btn--ghost" data-testid={`${testidPrefix}-bulk-link`}>Import multiple files</Link>
+          <Link to="/data/import-history" className="btn btn--ghost" data-testid={`${testidPrefix}-history-link`}>Import history</Link>
           <Link to={backTo}              className="btn btn--ghost" data-testid={`${testidPrefix}-back`}>{backLabel}</Link>
         </div>
       </header>
@@ -336,7 +336,7 @@ export default function CsvImportPage({
             disabled={!csvText || running}
             data-testid={`${testidPrefix}-dry-run`}
           >
-            {running ? 'Validating…' : 'Validate (dry run)'}
+            {running ? 'Checking…' : 'Check file'}
           </button>
           {(preview || committed) && (
             <button className="btn" onClick={reset} data-testid={`${testidPrefix}-reset`}>Reset</button>
@@ -465,7 +465,7 @@ export default function CsvImportPage({
               return (
                 <p data-testid={`${testidPrefix}-missing-required`} style={{ color: '#c0392b', fontSize: 13, marginTop: 8 }}>
                   Required fields not yet mapped: <strong>{missingRequired.map(f => f.label).join(', ')}</strong>.
-                  Dry-run will surface row-level errors for these.
+                  Checking the file will show which rows need attention.
                 </p>
               );
             })()}
@@ -542,7 +542,7 @@ export default function CsvImportPage({
                 disabled={running || (preview.error_count > 0 && !skipInvalid)}
                 data-testid={`${testidPrefix}-commit`}
               >
-                {running ? 'Importing…' : 'Commit import'}
+                {running ? 'Importing…' : 'Import rows'}
               </button>
             </div>
 
@@ -601,7 +601,7 @@ export default function CsvImportPage({
                 </Link>
               ))}
               <Link to={backTo}              className={(typeof successCtas === 'function' && (successCtas(committed) || []).length > 0) ? 'btn' : 'btn btn--primary'} data-testid={`${testidPrefix}-result-back`}>Done</Link>
-              <Link to="/data/import-history" className="btn btn--ghost"   data-testid={`${testidPrefix}-result-view-history`}>View Import History</Link>
+              <Link to="/data/import-history" className="btn btn--ghost"   data-testid={`${testidPrefix}-result-view-history`}>View import history</Link>
             </div>
           </div>
         )}

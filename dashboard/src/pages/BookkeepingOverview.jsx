@@ -69,7 +69,7 @@ export default function BookkeepingOverview() {
               Without a live bank feed the engine has no transactions to categorize.
             </p>
           </div>
-          <Link to="/accounting/bank-accounts" className="btn btn--primary" data-testid="bookkeeping-overview-connect-bank-cta">
+          <Link to="/modules/treasury/deposits" className="btn btn--primary" data-testid="bookkeeping-overview-connect-bank-cta">
             Connect bank <ArrowRight size={14} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
           </Link>
         </div>
@@ -219,7 +219,7 @@ export default function BookkeepingOverview() {
                         <td style={{ padding: '6px 8px', color: '#64748b' }}>{e.source_record_id}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'right' }}>
                           {e.journal_entry_id
-                            ? <Link to={`/accounting/journal-entries/${e.journal_entry_id}`} style={{ color: '#0284c7', fontSize: 11 }}>JE #{e.journal_entry_id}</Link>
+                            ? <Link to={`/modules/accounting/journal-entries/${e.journal_entry_id}`} style={{ color: '#0284c7', fontSize: 11 }}>JE #{e.journal_entry_id}</Link>
                             : <span style={{ color: '#94a3b8' }}>—</span>}
                         </td>
                         <td style={{ padding: '6px 8px', color: '#94a3b8', fontSize: 11, textAlign: 'right' }}>
@@ -241,13 +241,13 @@ export default function BookkeepingOverview() {
             <TaskRow icon={Receipt} label="Transactions to review" count={data.tasks?.transactions_to_review ?? 0}
                      to="/modules/accounting/transactions-to-review?prefilter=oldest_first&autoload=1" testId="task-tx-review" />
             <TaskRow icon={FileText} label="Bills awaiting action" count={data.tasks?.bills_pending ?? 0}
-                     to="/accounting/ap" testId="task-bills" />
+                     to="/modules/ap/bills" testId="task-bills" />
             <TaskRow icon={Wallet}  label="Payments pending" count={data.tasks?.payments_pending ?? 0}
-                     to="/treasury/payments" testId="task-payments" />
+                     to="/modules/treasury/payments" testId="task-payments" />
             <TaskRow icon={ArrowRight} label="Transfers pending" count={data.tasks?.transfers_pending ?? 0}
-                     to="/treasury/transfers" testId="task-transfers" />
+                     to="/modules/treasury/transfers" testId="task-transfers" />
             <TaskRow icon={CheckCircle2} label="Periods ready to close" count={data.tasks?.period_ready_to_close ?? 0}
-                     to="/accounting/periods" testId="task-period-close" />
+                     to="/modules/accounting/periods" testId="task-period-close" />
           </div>
 
           {/* Integration freshness — Sprint 8a follow-on. Trust-at-a-glance:

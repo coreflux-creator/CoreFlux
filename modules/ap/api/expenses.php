@@ -186,18 +186,28 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 if ($method === 'GET') {
     rbac_legacy_require($user, 'ap.expense.submit');
     $canApprove = rbac_legacy_can($user, 'ap.expense.approve');
-    $where  = ['tenant_id = :tenant_id'];
+    $where  = ['er.tenant_id = :tenant_id'];
     $params = [];
     if (!$canApprove) {
-        $where[] = 'submitter_user_id = :uid';
+        $where[] = 'er.submitter_user_id = :uid';
         $params['uid'] = $uid;
     } elseif (!empty($_GET['mine'])) {
-        $where[] = 'submitter_user_id = :uid';
+        $where[] = 'er.submitter_user_id = :uid';
         $params['uid'] = $uid;
     }
-    if (!empty($_GET['status'])) { $where[] = 'status = :st'; $params['st'] = $_GET['status']; }
+    if (!empty($_GET['status'])) { $where[] = 'er.status = :st'; $params['st'] = $_GET['status']; }
     $rows = scopedQuery(
-        'SELECT * FROM ap_expense_reports WHERE ' . implode(' AND ', $where) . ' ORDER BY id DESC LIMIT 200',
+        'SELECT er.*,
+                COALESCE(
+                    NULLIF(TRIM(CONCAT(COALESCE(p.first_name, ""), " ", COALESCE(p.last_name, ""))), ""),
+                    NULLIF(u.name, "")
+                ) AS submitter_name
+         FROM ap_expense_reports er
+         LEFT JOIN people p
+           ON p.id = er.submitter_person_id AND p.tenant_id = er.tenant_id
+         LEFT JOIN users u ON u.id = er.submitter_user_id
+         WHERE ' . implode(' AND ', $where) . '
+         ORDER BY er.id DESC LIMIT 200',
         $params
     );
     api_ok(['rows' => $rows]);

@@ -9,9 +9,9 @@
  *   POST /api/ap/payments_csv_import?action=commit (+ ?skip_invalid=1)
  *   POST /api/ap/payments_csv_import?action=ai_suggest_map
  *
- * Bulk-loads historical AP payments. Bill allocations are NOT in scope
- * for the bulk-import — those need the secure Payment Detail UI where
- * the user can reconcile against open AP bills.
+ * Bulk-loads AP payment drafts. Bill allocations and lifecycle changes are
+ * intentionally handled by the payment workflow so a CSV cannot mark bills
+ * paid or bypass release and ledger controls.
  *
  * Built on Core\CsvImportService primitive per HARD_RULES (2026-02-XX).
  */
@@ -28,10 +28,11 @@ CsvImportService::registerSchema('ap_payments', [
         // composite for update-existing matching. Optional; leave blank
         // for new payments.
         'payment_id'  => ['label' => 'Payment ID',   'type' => 'integer'],
+        'entity_id'   => ['label' => 'Entity ID',    'type' => 'integer'],
         'vendor_name' => ['label' => 'Vendor name',  'required' => true],
         'pay_date'    => ['label' => 'Pay date',     'required' => true, 'type' => 'date'],
         'method'      => ['label' => 'Method',
-                          'enum'  => ['ach','wire','check','card','cash','plaid','other']],
+                          'enum'  => ['ach','wire','check','card','cash','plaid','mercury','other']],
         'reference'   => ['label' => 'Reference'],
         // external_id + source_system: stable per-row id from the
         // source-of-truth payment system (Mercury/Plaid txn id, QBO
@@ -71,9 +72,9 @@ if ($method === 'GET' && $action === 'sample') {
     header('Content-Disposition: attachment; filename="ap_payments_sample.csv"');
     header('Cache-Control: no-store');
     echo CsvImportService::buildSample('ap_payments', [
-        ['vendor_name'=>'Northwind Cloud Services','pay_date'=>'2026-02-05','method'=>'ach','reference'=>'ACH-26020501','amount'=>5120,'currency'=>'USD','status'=>'cleared','cleared_at'=>'2026-02-07','notes'=>'Feb compute bill'],
-        ['vendor_name'=>'Diego Ramirez (1099)','pay_date'=>'2026-02-14','method'=>'ach','reference'=>'ACH-26021402','amount'=>3990,'currency'=>'USD','status'=>'sent','sent_at'=>'2026-02-14'],
-        ['vendor_name'=>'PG&E','pay_date'=>'2026-02-12','method'=>'ach','reference'=>'AUTOPAY','amount'=>418.55,'currency'=>'USD','status'=>'cleared','cleared_at'=>'2026-02-13','notes'=>'Utility autopay'],
+        ['vendor_name'=>'Northwind Cloud Services','pay_date'=>'2026-02-05','method'=>'ach','reference'=>'ACH-26020501','amount'=>5120,'currency'=>'USD','status'=>'draft','notes'=>'Feb compute bill'],
+        ['vendor_name'=>'Diego Ramirez (1099)','pay_date'=>'2026-02-14','method'=>'ach','reference'=>'ACH-26021402','amount'=>3990,'currency'=>'USD','status'=>'draft'],
+        ['vendor_name'=>'PG&E','pay_date'=>'2026-02-12','method'=>'ach','reference'=>'AUTOPAY','amount'=>418.55,'currency'=>'USD','status'=>'draft','notes'=>'Utility autopay'],
     ]);
     exit;
 }
@@ -126,62 +127,128 @@ if ($method === 'POST' && $action === 'commit') {
     rbac_legacy_require($user, 'ap.payment.create');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
-    $skipInvalid = !empty($_GET['skip_invalid']);
-    $columnMap   = CsvImportService::readRequestColumnMap();
+    $skipInvalid    = !empty($_GET['skip_invalid']);
+    $updateExisting = !empty($_GET['update_existing']);
+    $columnMap      = CsvImportService::readRequestColumnMap();
+    $created = 0;
+    $updated = 0;
 
-    $result = CsvImportService::commit('ap_payments', $csv, function (array $row) use ($user) {
+    $result = CsvImportService::commit('ap_payments', $csv, function (array $row) use ($user, $updateExisting, &$created, &$updated) {
         $amount = (float) $row['amount'];
-        $externalId   = isset($row['external_id'])   && $row['external_id']   !== '' ? (string) $row['external_id']   : null;
-        $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
+        $externalId = isset($row['external_id']) && trim((string) $row['external_id']) !== ''
+            ? trim((string) $row['external_id'])
+            : null;
+        $sourceSystemInput = isset($row['source_system']) ? trim((string) $row['source_system']) : '';
+        $sourceSystem = $sourceSystemInput !== '' ? $sourceSystemInput : 'manual';
+        $paymentId = isset($row['payment_id']) && $row['payment_id'] !== '' ? (int) $row['payment_id'] : 0;
+        $requestedStatus = isset($row['status']) ? trim((string) $row['status']) : '';
+        if (($requestedStatus !== '' && $requestedStatus !== 'draft')
+            || !empty($row['sent_at']) || !empty($row['cleared_at'])) {
+            throw new RuntimeException('CSV import creates payment drafts only. Release and clear payments through the payment workflow.');
+        }
+        $pdo = getDB();
+        $pdo->beginTransaction();
+        try {
+            // Stable internal ID wins. External-system identity is the
+            // fallback for idempotent integration re-imports.
+            $existing = null;
+            if ($paymentId > 0) {
+                $existing = scopedFind(
+                    'SELECT id, status, amount, unallocated_amount, external_id, source_system,
+                            journal_entry_id, sent_at, cleared_at, plaid_transfer_id,
+                            rail_external_ref, rail_status, rail_originated_at
+                       FROM ap_payments
+                      WHERE tenant_id = :tenant_id AND id = :id
+                      FOR UPDATE',
+                    ['id' => $paymentId]
+                );
+                if (!$existing) {
+                    throw new RuntimeException("Payment ID {$paymentId} was not found in this workspace");
+                }
+            } elseif ($externalId !== null) {
+                $existing = scopedFind(
+                    'SELECT id, status, amount, unallocated_amount, external_id, source_system,
+                            journal_entry_id, sent_at, cleared_at, plaid_transfer_id,
+                            rail_external_ref, rail_status, rail_originated_at
+                       FROM ap_payments
+                      WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e
+                      FOR UPDATE',
+                    ['s' => $sourceSystem, 'e' => $externalId]
+                );
+            }
 
-        // Idempotent re-import: when external_id is supplied, update the
-        // existing (tenant, source_system, external_id) row instead of
-        // duplicating. Falls through to a plain INSERT for manual imports.
-        if ($externalId !== null) {
-            $existing = scopedFind(
-                'SELECT id FROM ap_payments
-                  WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
-                ['s' => $sourceSystem, 'e' => $externalId]
-            );
             if ($existing) {
+                if (!$updateExisting) {
+                    throw new RuntimeException('Payment #' . $existing['id'] . ' already exists; enable Update matching editable records to change it');
+                }
+                $allocStmt = $pdo->prepare('SELECT COUNT(*) FROM ap_payment_allocations WHERE payment_id = :id');
+                $allocStmt->execute(['id' => (int) $existing['id']]);
+                $hasAllocations = (int) $allocStmt->fetchColumn() > 0;
+                $hasDownstreamActivity = !empty($existing['journal_entry_id'])
+                    || !empty($existing['sent_at'])
+                    || !empty($existing['cleared_at'])
+                    || !empty($existing['plaid_transfer_id'])
+                    || !empty($existing['rail_external_ref'])
+                    || !empty($existing['rail_status'])
+                    || !empty($existing['rail_originated_at']);
+                if (($existing['status'] ?? '') !== 'draft' || $hasAllocations || $hasDownstreamActivity) {
+                    throw new RuntimeException('Only unallocated, unposted, undispatched AP payment drafts can be updated by CSV');
+                }
                 scopedUpdate('ap_payments', (int) $existing['id'], [
+                    'entity_id'          => !empty($row['entity_id']) ? (int) $row['entity_id'] : null,
                     'vendor_name'        => $row['vendor_name'],
                     'pay_date'           => $row['pay_date'],
                     'method'             => $row['method']     ?? 'ach',
                     'reference'          => $row['reference']  ?? null,
+                    'external_id'        => $externalId ?? ($existing['external_id'] ?? null),
+                    'source_system'      => $sourceSystemInput !== '' ? $sourceSystem : ($existing['source_system'] ?? 'manual'),
                     'amount'             => $amount,
                     'currency'           => $row['currency']   ?? 'USD',
-                    'status'             => $row['status']     ?? 'cleared',
-                    'cleared_at'         => $row['cleared_at'] ?? null,
-                    'sent_at'            => $row['sent_at']    ?? null,
+                    'unallocated_amount' => $amount,
                     'notes'              => $row['notes']      ?? null,
                 ]);
+                $updated++;
+                $pdo->commit();
                 return (int) $existing['id'];
             }
-        }
 
-        return scopedInsert('ap_payments', [
-            'vendor_name'        => $row['vendor_name'],
-            'pay_date'           => $row['pay_date'],
-            'method'             => $row['method']     ?? 'ach',
-            'reference'          => $row['reference']  ?? null,
-            'external_id'        => $externalId,
-            'source_system'      => $sourceSystem,
-            'amount'             => $amount,
-            'currency'           => $row['currency']   ?? 'USD',
-            'unallocated_amount' => $amount,  // imported payments start fully unallocated
-            'status'             => $row['status']     ?? 'cleared',  // historical → assume cleared
-            'cleared_at'         => $row['cleared_at'] ?? null,
-            'sent_at'            => $row['sent_at']    ?? null,
-            'notes'              => $row['notes']      ?? null,
-            'created_by_user_id' => $user['id']        ?? null,
-        ]);
+            $id = scopedInsert('ap_payments', [
+                'entity_id'          => !empty($row['entity_id']) ? (int) $row['entity_id'] : null,
+                'vendor_name'        => $row['vendor_name'],
+                'pay_date'           => $row['pay_date'],
+                'method'             => $row['method']     ?? 'ach',
+                'reference'          => $row['reference']  ?? null,
+                'external_id'        => $externalId,
+                'source_system'      => $sourceSystem,
+                'amount'             => $amount,
+                'currency'           => $row['currency']   ?? 'USD',
+                'unallocated_amount' => $amount,
+                'status'             => 'draft',
+                'cleared_at'         => null,
+                'sent_at'            => null,
+                'notes'              => $row['notes']      ?? null,
+                'created_by_user_id' => $user['id']        ?? null,
+            ]);
+            $created++;
+            $pdo->commit();
+            return $id;
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
+
+    $result['created_count'] = $created;
+    $result['updated_count'] = $updated;
+    $result['update_existing'] = $updateExisting;
 
     apAudit('ap.payment.csv_imported', [
         'imported' => $result['imported_count'],
+        'created'  => $created,
+        'updated'  => $updated,
         'skipped'  => $result['skipped_count'],
         'errors'   => count($result['errors']),
+        'update_existing' => $updateExisting,
     ]);
     api_ok($result);
 }

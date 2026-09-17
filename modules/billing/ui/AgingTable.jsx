@@ -66,6 +66,7 @@ export default function AgingTable() {
     b4:  acc.b4  + Number(r.bucket_91_plus),
     tot: acc.tot + Number(r.total_due),
   }), { cur: 0, b1: 0, b2: 0, b3: 0, b4: 0, tot: 0 });
+  const pastDueTotal = totals.b1 + totals.b2 + totals.b3 + totals.b4;
 
   return (
     <section className="report-page aging-report" data-testid="billing-aging">
@@ -77,7 +78,8 @@ export default function AgingTable() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
             className="btn btn--ghost" style={{ fontSize: 12 }}
-            onClick={batchPreview} disabled={batchBusy}
+            onClick={batchPreview} disabled={batchBusy || loading || pastDueTotal <= 0}
+            title={pastDueTotal > 0 ? 'Preview recipients before sending statements' : 'No past-due balances to email'}
             data-testid="billing-aging-batch-preview"
           >
             {batchBusy && !batchReport ? 'Loading…' : 'Email all past-due'}
@@ -102,7 +104,7 @@ export default function AgingTable() {
         <div className="aging-summary" data-testid="billing-aging-summary">
           <AgingSummary label="Total receivables" value={totals.tot} tone="blue" />
           <AgingSummary label="Current" value={totals.cur} tone="teal" />
-          <AgingSummary label="Past due" value={totals.b1 + totals.b2 + totals.b3 + totals.b4} tone="amber" />
+          <AgingSummary label="Past due" value={pastDueTotal} tone="amber" />
           <AgingSummary label="Over 90 days" value={totals.b4} tone="red" />
         </div>
       )}

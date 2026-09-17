@@ -95,6 +95,8 @@ $a('FK-respecting ENTITY_ORDER constant',
     str_contains($bulk, "'people'") &&
     str_contains($bulk, "'ap_vendors'") &&
     str_contains($bulk, "'staffing_clients'") &&
+    str_contains($bulk, "'billing_items'") &&
+    str_contains($bulk, "'payroll_profiles'") &&
     str_contains($bulk, "'placements'") &&
     str_contains($bulk, "'time'") &&
     str_contains($bulk, "'ap_bills'") &&
@@ -102,6 +104,30 @@ $a('FK-respecting ENTITY_ORDER constant',
 $a('orders commit by ENTITY_ORDER',          str_contains($bulk, 'ENTITY_ORDER') && str_contains($bulk, 'flatMap'));
 $a('dry-runs all files before commit',       str_contains($bulk, 'dryRunAll'));
 $a('skip-invalid flag on commit',            str_contains($bulk, 'skip_invalid=1'));
+$a('partial imports are opt-in, not default',str_contains($bulk, '[skipInvalid, setSkipInvalid] = useState(false)')
+                                            && str_contains($bulk, 'Import valid rows even when others have errors'));
+$a('round-trip update mode is wired',        str_contains($bulk, 'csv-bulk-update-existing')
+                                            && str_contains($bulk, 'update_existing=1')
+                                            && str_contains($bulk, 'supportsUpdate'));
+$a('quoted CSV headers are parsed safely',   str_contains($bulk, 'function parseCsvRow(')
+                                            && str_contains($bulk, 'function firstCsvRecord(')
+                                            && !str_contains($bulk, "firstLine.split(',')"));
+$a('draft bills + invoices support safe round-trip updates',
+                                            preg_match("/ap_bills:\\s*\\{.*?supportsUpdate:\\s*true,/s", $bulk) === 1
+                                            && preg_match("/billing_invoices:\\s*\\{.*?supportsUpdate:\\s*true,/s", $bulk) === 1);
+$a('bulk hub exports current data for offline updates',
+                                            str_contains($bulk, 'csv-bulk-current-data-export')
+                                            && str_contains($bulk, 'csv-bulk-export-current')
+                                            && str_contains($bulk, "exportHref: '/modules/placements/api/csv_export.php'")
+                                            && str_contains($bulk, "exportHref: '/modules/billing/api/items_csv_export.php'")
+                                            && str_contains($bulk, "exportHref: '/modules/payroll/api/profiles_csv_export.php'"));
+$a('commit is blocked after validation failure',
+                                            str_contains($bulk, 'validationSucceeded')
+                                            && str_contains($bulk, 'csv-bulk-commit-blocked'));
+$a('products/services available in bulk hub',str_contains($bulk, "label: 'Products & services'")
+                                            && str_contains($bulk, 'items_csv_import.php'));
+$a('payroll profiles available in bulk hub', str_contains($bulk, "label: 'Payroll employee profiles'")
+                                            && str_contains($bulk, 'profiles_csv_import.php'));
 $a('per-row entity override dropdown',       str_contains($bulk, 'csv-bulk-row-${idx}-entity'));
 $a('top-level testid',                       str_contains($bulk, 'data-testid="csv-bulk-import"'));
 
@@ -109,6 +135,10 @@ echo "\nApp routing\n";
 $app = $read(__DIR__ . '/../dashboard/src/App.jsx');
 $a('App.jsx imports CsvBulkImport',          str_contains($app, "import CsvBulkImport from './pages/CsvBulkImport'"));
 $a('App.jsx routes /data/bulk-import',       str_contains($app, '"/data/bulk-import"'));
+$sidebar = $read(__DIR__ . '/../dashboard/src/layout/Sidebar.jsx');
+$a('admin sidebar exposes import/export hub', str_contains($sidebar, "label: 'Data import / export'")
+                                            && str_contains($sidebar, "to: '/data/bulk-import'")
+                                            && str_contains($sidebar, 'Icon: Upload'));
 
 $apm = $read(__DIR__ . '/../modules/ap/ui/APModule.jsx');
 $a('APModule imports BillsCsvImport',        str_contains($apm, "import BillsCsvImport from './BillsCsvImport'"));

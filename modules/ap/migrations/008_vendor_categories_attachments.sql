@@ -26,7 +26,7 @@ UPDATE ap_vendors_index
 -- so rotation can move at different speeds.
 SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ap_vendors_index' AND COLUMN_NAME='payment_method');
 SET @sql := IF(@col=0,
-  'ALTER TABLE ap_vendors_index ADD COLUMN payment_method ENUM("ach","wire","check","card","cash","plaid","other") NULL AFTER vendor_category',
+  'ALTER TABLE ap_vendors_index ADD COLUMN payment_method ENUM("ach","wire","check","card","cash","plaid","mercury","other") NULL AFTER vendor_category',
   'DO 0');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 

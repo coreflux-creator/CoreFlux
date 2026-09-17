@@ -34,6 +34,35 @@ $placementsTenantId = effectiveTenantIdForModule('placements', $tid) ?? $tid;
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
+function billingInvoiceDefaultRecipient(int $tenantId, array $invoice): array
+{
+    if (!empty($invoice['bill_to_json'])) {
+        $billTo = json_decode((string) $invoice['bill_to_json'], true) ?: [];
+        $email = trim((string) ($billTo['email'] ?? ''));
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return ['email' => $email, 'source' => 'invoice bill-to'];
+        }
+    }
+
+    try {
+        $stmt = getDB()->prepare(
+            'SELECT ar_primary_email
+               FROM billing_client_contacts
+              WHERE tenant_id = :t AND client_name = :client
+              LIMIT 1'
+        );
+        $stmt->execute(['t' => $tenantId, 'client' => (string) ($invoice['client_name'] ?? '')]);
+        $email = trim((string) ($stmt->fetchColumn() ?: ''));
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return ['email' => $email, 'source' => 'client contacts'];
+        }
+    } catch (\Throwable $e) {
+        error_log('[billing invoice recipient] ' . $e->getMessage());
+    }
+
+    return ['email' => null, 'source' => null];
+}
+
 function billingPrepareDirectInvoiceLines(PDO $pdo, int $tenantId, array $lines, bool $activeOnly = true): array
 {
     if (!$lines) api_error('lines must be a non-empty array', 422);
@@ -139,7 +168,13 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
         $token['url'] = "{$base}/billing/invoice.php?t={$token['token']}";
         unset($token['token']); // never expose raw token in authed API beyond URL
     }
-    api_ok(['invoice' => $inv, 'lines' => $lines, 'allocations' => $allocations, 'token' => $token]);
+    api_ok([
+        'invoice' => $inv,
+        'lines' => $lines,
+        'allocations' => $allocations,
+        'token' => $token,
+        'default_recipient' => billingInvoiceDefaultRecipient($tid, $inv),
+    ]);
 }
 
 if ($method === 'GET' && $action === '') {
@@ -151,6 +186,12 @@ if ($method === 'GET' && $action === '') {
     if (!empty($_GET['from']))        { $where[] = 'issue_date >= :df';   $params['df'] = $_GET['from']; }
     if (!empty($_GET['to']))          { $where[] = 'issue_date <= :dt';   $params['dt'] = $_GET['to']; }
     if (!empty($_GET['due_before']))  { $where[] = 'due_date < :db';      $params['db'] = $_GET['due_before']; }
+    if (trim((string) ($_GET['q'] ?? '')) !== '') {
+        $needle = '%' . trim((string) $_GET['q']) . '%';
+        $where[] = '(invoice_number LIKE :q_invoice OR client_name LIKE :q_client)';
+        $params['q_invoice'] = $needle;
+        $params['q_client'] = $needle;
+    }
     // Sprint 6c — respect the header's multi-entity switcher.
     if (!empty($_GET['entity_id']))   { $where[] = 'entity_id = :eid';    $params['eid'] = (int) $_GET['entity_id']; }
     $perPage = max(1, min(200, (int) ($_GET['per_page'] ?? 50)));
@@ -160,18 +201,48 @@ if ($method === 'GET' && $action === '') {
     $rows = scopedQuery(
         'SELECT id, invoice_number, client_name, issue_date, due_date, currency,
                 subtotal, tax_total, total, amount_paid, amount_due, status,
-                po_number, sent_at, created_at
+                po_number, bill_to_json, journal_entry_id, sent_at, created_at
          FROM billing_invoices WHERE ' . implode(' AND ', $where) . '
          ORDER BY id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
+    $contactMap = [];
+    try {
+        foreach (scopedQuery(
+            'SELECT client_name, ar_primary_email
+               FROM billing_client_contacts
+              WHERE tenant_id = :tenant_id AND ar_primary_email IS NOT NULL'
+        ) as $contact) {
+            $contactMap[strtolower(trim((string) $contact['client_name']))] = trim((string) $contact['ar_primary_email']);
+        }
+    } catch (\Throwable $e) {
+        error_log('[billing invoice list recipients] ' . $e->getMessage());
+    }
+    foreach ($rows as &$invoiceRow) {
+        $billTo = !empty($invoiceRow['bill_to_json'])
+            ? (json_decode((string) $invoiceRow['bill_to_json'], true) ?: [])
+            : [];
+        $billToEmail = trim((string) ($billTo['email'] ?? ''));
+        $contactEmail = $contactMap[strtolower(trim((string) $invoiceRow['client_name']))] ?? '';
+        if ($billToEmail !== '' && filter_var($billToEmail, FILTER_VALIDATE_EMAIL)) {
+            $invoiceRow['recipient_email'] = $billToEmail;
+            $invoiceRow['recipient_source'] = 'invoice bill-to';
+        } elseif ($contactEmail !== '' && filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
+            $invoiceRow['recipient_email'] = $contactEmail;
+            $invoiceRow['recipient_source'] = 'client contacts';
+        } else {
+            $invoiceRow['recipient_email'] = null;
+            $invoiceRow['recipient_source'] = null;
+        }
+        unset($invoiceRow['bill_to_json']);
+    }
+    unset($invoiceRow);
     $cnt  = scopedQuery('SELECT COUNT(*) AS c FROM billing_invoices WHERE ' . implode(' AND ', $where), $params);
     api_ok(['rows' => $rows, 'total' => (int) ($cnt[0]['c'] ?? 0), 'page' => $page, 'per_page' => $perPage]);
 }
 
 if ($method === 'POST' && $action === 'suggest-from-placement') {
     rbac_legacy_require($user, 'billing.invoice.draft');
-    rbac_legacy_require($user, 'ai.use');
     $body = api_json_body();
     $placementId = (int) ($body['placement_id'] ?? 0);
     if ($placementId <= 0) api_error('placement_id required', 422);
@@ -239,6 +310,32 @@ if ($method === 'POST' && $action === 'from-time-entries') {
                 }
             }
 
+            $invoiceEntryIds = array_values(array_unique(array_filter(array_map('intval', (array) ($d['entry_ids'] ?? [])))));
+            if ($invoiceEntryIds) {
+                $entryParams = ['tenant_id' => $tid, 'invoice_id' => $invId, 'user_id' => $user['id'] ?? null];
+                $entryPlaceholders = [];
+                foreach ($invoiceEntryIds as $entryIndex => $entryId) {
+                    $entryKey = 'entry_' . $entryIndex;
+                    $entryPlaceholders[] = ':' . $entryKey;
+                    $entryParams[$entryKey] = $entryId;
+                }
+                $stamp = $pdo->prepare(
+                    'UPDATE time_entries
+                        SET bill_extracted_at = NOW(),
+                            bill_extracted_ref = :invoice_id,
+                            bill_extracted_by_user_id = :user_id
+                      WHERE tenant_id = :tenant_id
+                        AND id IN (' . implode(',', $entryPlaceholders) . ')
+                        AND bill_extracted_at IS NULL'
+                );
+                $stamp->execute($entryParams);
+                if ($stamp->rowCount() !== count($invoiceEntryIds)) {
+                    throw new \DomainException(
+                        'Some selected time was already included in another invoice. Refresh and try again.'
+                    );
+                }
+            }
+
             billingAudit('billing.invoice.created', [
                 'invoice_id'      => $invId,
                 'invoice_number'  => $inv['invoice_number'],
@@ -256,7 +353,9 @@ if ($method === 'POST' && $action === 'from-time-entries') {
         $pdo->commit();
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        api_error('Invoice create failed: ' . $e->getMessage(), 500);
+        if ($e instanceof \DomainException) api_error($e->getMessage(), 409);
+        error_log('[billing invoice from time] ' . $e->getMessage());
+        api_error('Could not create the invoice drafts. Nothing was changed. Try again.', 500);
     }
 
     api_ok(['invoices_created' => $created], 201);
@@ -587,7 +686,12 @@ if ($method === 'POST' && $action === 'send') {
 
     $body = api_json_body();
     $to = trim((string) ($body['to'] ?? ''));
-    if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) api_error('to (email) required', 422);
+    if ($to === '') {
+        $to = (string) (billingInvoiceDefaultRecipient($tid, $row)['email'] ?? '');
+    }
+    if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        api_error('No valid invoice recipient. Add a bill-to email on the invoice or an AR primary email under Billing → Client contacts.', 422);
+    }
 
     $tok = billingIssueViewToken($tid, $id);
     $sender = cf_tenant_mail_sender($tid, 'billing');
@@ -629,10 +733,31 @@ if ($method === 'POST' && $action === 'send') {
         htmlspecialchars($tok['url'], ENT_QUOTES, 'UTF-8')
     );
 
-    $sendRes = $svc->send($tid, 'billing', 'invoice_sent', [$to], $subject, $textBody, $htmlBody, $attachments, [
-        'from' => $sender['from'], 'from_name' => $sender['from_name'], 'reply_to' => $sender['reply_to'],
-        'idempotency_key' => 'billing-invoice-' . $id,
-    ]);
+    try {
+        $sendRes = $svc->send($tid, 'billing', 'invoice_sent', [$to], $subject, $textBody, $htmlBody, $attachments, [
+            'from' => $sender['from'], 'from_name' => $sender['from_name'], 'reply_to' => $sender['reply_to'],
+            'idempotency_key' => 'billing-invoice-' . $id,
+        ]);
+    } catch (\Throwable $e) {
+        $sendRes = ['status' => 'failed', 'error' => $e->getMessage()];
+    }
+
+    if (($sendRes['status'] ?? 'failed') !== 'sent') {
+        $mailError = trim((string) ($sendRes['error'] ?? '')) ?: 'The configured mail provider did not accept the message.';
+        billingAudit('billing.invoice.send_failed', [
+            'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
+            'to' => $to, 'token_id' => $tok['token_id'],
+            'email_status' => $sendRes['status'] ?? 'failed',
+            'email_error' => $mailError,
+            'pdf_attached' => !empty($attachments),
+            'pdf_error' => $pdfError,
+        ], $id);
+        api_error('Invoice email was not sent: ' . $mailError . ' The invoice remains approved so you can retry.', 502, [
+            'email_status' => $sendRes['status'] ?? 'failed',
+            'invoice_status' => $row['status'],
+            'retryable' => true,
+        ]);
+    }
 
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     getDB()->prepare('UPDATE billing_invoices SET status = "sent", sent_at = NOW() WHERE id = :id')->execute(['id' => $id]);
@@ -702,6 +827,13 @@ if ($method === 'POST' && $action === 'void') {
                 'UPDATE time_downstream_feed
                  SET status = "ready", consumed_at = NULL, consumed_by_module = NULL, consumed_ref_id = NULL
                  WHERE tenant_id = :t AND consumed_by_module = "billing" AND consumed_ref_id = :id'
+            )->execute(['t' => $tid, 'id' => $id]);
+            $pdo->prepare(
+                'UPDATE time_entries
+                    SET bill_extracted_at = NULL,
+                        bill_extracted_ref = NULL,
+                        bill_extracted_by_user_id = NULL
+                  WHERE tenant_id = :t AND bill_extracted_ref = :id'
             )->execute(['t' => $tid, 'id' => $id]);
         }
 

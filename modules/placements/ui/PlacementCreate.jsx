@@ -4,6 +4,14 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 
 const ETYPES = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal'];
+const ETYPE_LABELS = {
+  w2: 'W-2 employee',
+  1099: '1099 contractor',
+  c2c: 'C2C contractor',
+  temp_to_perm: 'Temp-to-perm',
+  direct_hire: 'Direct hire',
+  internal: 'Internal employee',
+};
 const RATE_UNITS = ['hour', 'day', 'week', 'month', 'project'];
 const COMMISSION_ROLES = ['account_manager', 'lead', 'recruiter', 'team', 'other'];
 const COMMISSION_BASIS = ['net_margin', 'gross_margin', 'bill_rate', 'flat'];
@@ -73,10 +81,11 @@ export default function PlacementCreate() {
     ? `/modules/people/api/people.php?q=${encodeURIComponent(personSearch)}&per_page=10`
     : null);
   const prefilled = useApi(prefilledPersonId ? `/modules/people/api/people.php?id=${prefilledPersonId}` : null);
+  const prefilledPerson = prefilled.data?.person;
   useEffect(() => {
-    const p = prefilled.data?.person;
+    const p = prefilledPerson;
     if (p) setPersonSearch(`${p.first_name} ${p.last_name} (${p.email_primary})`);
-  }, [prefilled.data?.person?.id]);
+  }, [prefilledPerson]);
 
   // Tenant user list (for commission row "user_id" picker)
   const usersLookup = useApi('/api/users.php');
@@ -238,7 +247,7 @@ export default function PlacementCreate() {
                   <li key={p.id}>
                     <button type="button" onClick={() => { setForm({ ...form, person_id: p.id }); setPersonSearch(`${p.first_name} ${p.last_name} (${p.email_primary})`); }}
                             data-testid={`placement-create-pick-person-${p.id}`} style={pickBtnStyle}>
-                      {p.first_name} {p.last_name} <span style={{ color: 'var(--cf-text-secondary)' }}>· {p.email_primary} · {p.classification}</span>
+                      {p.first_name} {p.last_name} <span style={{ color: 'var(--cf-text-secondary)' }}>· {p.email_primary} · {ETYPE_LABELS[p.classification] || p.classification}</span>
                     </button>
                   </li>
                 ))}
@@ -251,7 +260,7 @@ export default function PlacementCreate() {
             <Field label="Title *"><input className="input" required value={form.title} onChange={set('title')} data-testid="placement-create-title" placeholder="Senior Software Engineer" /></Field>
             <Field label="Engagement type *">
               <select className="input" required value={form.engagement_type} onChange={set('engagement_type')} data-testid="placement-create-etype">
-                {ETYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                {ETYPES.map(t => <option key={t} value={t}>{ETYPE_LABELS[t]}</option>)}
               </select>
             </Field>
             <Field label="External ID"><input className="input" value={form.external_id} onChange={set('external_id')} data-testid="placement-create-external" placeholder="ATS / VMS reference" /></Field>
@@ -285,9 +294,9 @@ export default function PlacementCreate() {
                 <Field label="Remote policy">
                   <select className="input" value={form.remote_policy} onChange={set('remote_policy')} data-testid="placement-create-remote">
                     <option value="">—</option>
-                    <option value="onsite">onsite</option>
-                    <option value="hybrid">hybrid</option>
-                    <option value="remote">remote</option>
+                    <option value="onsite">On-site</option>
+                    <option value="hybrid">Hybrid</option>
+                    <option value="remote">Remote</option>
                   </select>
                 </Field>
               </Row>
@@ -309,9 +318,9 @@ export default function PlacementCreate() {
                   </Field>
                   <Field label="Role">
                     <select className="input" value={c.party_role} onChange={(e) => updateChain(i, { party_role: e.target.value })} data-testid={`placement-create-chain-${i}-role`}>
-                      <option value="msp">msp</option>
-                      <option value="prime_vendor">prime_vendor</option>
-                      <option value="sub_vendor">sub_vendor</option>
+                      <option value="msp">Managed service provider</option>
+                      <option value="prime_vendor">Prime vendor</option>
+                      <option value="sub_vendor">Subvendor</option>
                     </select>
                   </Field>
                   <Field label="Portal ID"><input className="input" value={c.vendor_portal_id || ''} onChange={(e) => updateChain(i, { vendor_portal_id: e.target.value })} data-testid={`placement-create-chain-${i}-portal`} /></Field>

@@ -43,7 +43,7 @@ CsvImportService::registerSchema('ap_vendors', [
         'remit_to_email'   => ['label' => 'Remit-to email',      'type' => 'email'],
         'remit_to_phone'   => ['label' => 'Remit-to phone'],
         'payment_method'   => ['label' => 'Payment method',
-                               'enum'  => ['ach','wire','check','card','cash','plaid','other']],
+                               'enum'  => ['ach','wire','check','card','cash','plaid','mercury','other']],
         'tax_id_last4'     => ['label' => 'Tax ID last 4'],
         'requires_1099'    => ['label' => 'Requires 1099',       'type' => 'boolean'],
     ],

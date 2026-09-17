@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS csv_mapping_presets (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     tenant_id BIGINT UNSIGNED NOT NULL,
 
-    entity     VARCHAR(60)  NOT NULL,  -- 'people' | 'ap_vendors' | 'staffing_clients' | 'placements' | 'time' | 'ap_bills' | 'billing_invoices' | 'ap_payments' | 'billing_payments'
+    entity     VARCHAR(60)  NOT NULL,  -- bulk-import entity key (people, placements, accounting_accounts, billing_items, payroll_profiles, etc.)
     name       VARCHAR(120) NOT NULL,  -- 'QuickBooks vendors', 'ADP payroll export', etc.
     -- SHA-256 of the comma-joined, lowercased, sorted header list.
     -- Lets us recognise the same CSV format on subsequent imports.

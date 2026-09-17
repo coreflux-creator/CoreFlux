@@ -15,6 +15,11 @@ function plaidIssueText(code, message) {
   return message || code || 'Connection needs attention.';
 }
 
+function plaidIssueIsRemoved(item) {
+  const detail = `${item?.last_error_code || ''} ${item?.last_error_message || ''}`.toUpperCase();
+  return detail.includes('ITEM_NOT_FOUND') || detail.includes('CANNOT BE FOUND');
+}
+
 function maskedConnectionId(itemId) {
   if (!itemId) return 'Connection ID unavailable';
   return `Connection …${String(itemId).slice(-6)}`;
@@ -32,7 +37,13 @@ export default function TreasuryOverview() {
     ? r.bank_balance
     : (r.gl_balance || 0);
   const depositTotal   = depositRows.reduce((s, r) => s + balanceOf(r), 0);
-  const liabilityTotal = liabilityRows.reduce((s, r) => s + balanceOf(r), 0);
+  // A debit balance on a card/loan is a credit or overpayment, not negative
+  // debt and not cash in the bank. Keep it out of both headline figures.
+  const liabilityTotal = liabilityRows.reduce((s, r) => s + Math.max(0, Number(balanceOf(r)) || 0), 0);
+  const liabilityCreditTotal = liabilityRows.reduce(
+    (s, r) => s + Math.max(0, -(Number(balanceOf(r)) || 0)),
+    0
+  );
   const netCash = depositTotal - liabilityTotal;
 
   return (
@@ -59,13 +70,18 @@ export default function TreasuryOverview() {
           <div className="stat-card__value" data-testid="treasury-overview-liabilities-total">
             {fmtMoney(liabilityTotal)}
           </div>
-          <div className="stat-card__label">Liabilities ({liabilityRows.length})</div>
+          <div className="stat-card__label">Debt outstanding ({liabilityRows.length})</div>
+          {liabilityCreditTotal > 0 && (
+            <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>
+              {fmtMoney(liabilityCreditTotal)} account credit excluded
+            </div>
+          )}
         </div>
         <div className="stat-card" data-testid="treasury-overview-net-cash">
           <div className="stat-card__value" style={{ color: netCash < 0 ? '#dc2626' : undefined }}>
             {fmtMoney(netCash)}
           </div>
-          <div className="stat-card__label">Net cash position</div>
+          <div className="stat-card__label">Cash after outstanding debt</div>
         </div>
       </div>
 
@@ -175,9 +191,49 @@ function PlaidHealthBanner() {
   const [err, setErr]     = React.useState(null);
 
   const needing = (data?.rows || []).filter(
-    (r) => r.status === 'error' || (r.last_error_code && r.last_error_code !== 'item_remove_warning')
+    (r) => r.status !== 'disconnected'
+      && (r.status === 'error' || (r.last_error_code && r.last_error_code !== 'item_remove_warning'))
   );
+  const stale = needing.filter(plaidIssueIsRemoved);
+  const reconnectable = needing.filter((item) => !plaidIssueIsRemoved(item));
+  const staleGroups = Object.values(stale.reduce((groups, item) => {
+    const label = item.institution_name || 'Unknown institution';
+    if (!groups[label]) groups[label] = { label, items: [] };
+    groups[label].items.push(item);
+    return groups;
+  }, {}));
   if (!data || needing.length === 0) return null;
+
+  const removeStale = async (items) => {
+    const mirrored = items.reduce(
+      (sum, item) => sum + Number(item.mirrored_deposit_count || 0) + Number(item.mirrored_liability_count || 0),
+      0
+    );
+    const message =
+      `Remove ${items.length} expired ${items.length === 1 ? 'connection' : 'connections'} for ${items[0]?.institution_name || 'this institution'}?\n\n` +
+      `Plaid no longer recognizes ${items.length === 1 ? 'this login' : 'these logins'}, so they cannot be reconnected. ` +
+      `${mirrored ? `${mirrored} mirrored account${mirrored === 1 ? '' : 's'} will be hidden. ` : ''}` +
+      'Historical transactions and journal entries will remain available.';
+    if (!confirm(message)) return;
+
+    const busyKey = `stale:${items.map((item) => item.id).join(',')}`;
+    setBusy(busyKey); setErr(null);
+    const failures = [];
+    for (const item of items) {
+      try {
+        await fetch(`/api/plaid_items.php?id=${item.id}`, {
+          method: 'DELETE', credentials: 'include',
+        }).then((r) => r.json().then((d) => r.ok ? d : Promise.reject(d)));
+      } catch (e) {
+        failures.push(e?.error || e?.message || `Connection ${item.id}`);
+      }
+    }
+    await reload();
+    setBusy(null);
+    if (failures.length) {
+      setErr(`${failures.length} stale connection${failures.length === 1 ? '' : 's'} could not be removed: ${failures.join('; ')}`);
+    }
+  };
 
   const reconnect = async (item) => {
     setBusy(item.id); setErr(null);
@@ -232,12 +288,42 @@ function PlaidHealthBanner() {
             {needing.length} bank connection{needing.length === 1 ? '' : 's'} need attention
           </strong>
           <p className="muted" style={{ fontSize: 13, margin: '4px 0 0' }}>
-            Reconnect to restore balance and transaction updates.
+            Renew connections that need bank sign-in. Expired connections can be removed in one step.
           </p>
         </div>
       </div>
       <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0' }}>
-        {needing.map((item) => (
+        {staleGroups.map((group) => {
+          const busyKey = `stale:${group.items.map((item) => item.id).join(',')}`;
+          return (
+          <li
+            key={`stale:${group.label}`}
+            data-testid={`treasury-plaid-health-stale-${group.items[0].id}`}
+            style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '8px 0', borderTop: '1px solid #fecaca', gap: 12,
+            }}
+          >
+            <div>
+              <strong>{group.label}</strong>
+              <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
+                {group.items.length} expired bank connection{group.items.length === 1 ? '' : 's'} can no longer be refreshed.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => removeStale(group.items)}
+              disabled={busy === busyKey}
+              data-testid={`treasury-plaid-health-remove-stale-${group.items[0].id}`}
+              style={{ padding: '4px 14px', fontSize: 12, color: '#b91c1c' }}
+            >
+              {busy === busyKey ? 'Removing...' : `Remove ${group.items.length} stale`}
+            </button>
+          </li>
+          );
+        })}
+        {reconnectable.map((item) => (
           <li
             key={item.id}
             data-testid={`treasury-plaid-health-row-${item.id}`}
@@ -262,7 +348,7 @@ function PlaidHealthBanner() {
               data-testid={`treasury-plaid-health-reconnect-${item.id}`}
               style={{ padding: '4px 14px', fontSize: 12 }}
             >
-              {busy === item.id ? 'Opening Plaid…' : 'Reconnect'}
+              {busy === item.id ? 'Opening secure connection…' : 'Reconnect'}
             </button>
           </li>
         ))}
@@ -275,30 +361,33 @@ function PlaidHealthBanner() {
 function ConnectedInstitutions({ onChanged }) {
   const { data, loading, reload } = useApi('/api/plaid_items.php');
   const dedupeApi = useApi('/api/plaid_dedupe.php');
-  const rows = data?.rows || [];
+  const allRows = data?.rows || [];
+  const rows = allRows.filter((row) => row.status !== 'disconnected');
+  const historyRows = allRows.filter((row) => row.status === 'disconnected');
   const dupeDeposits   = dedupeApi.data?.deposit_clusters?.length   || 0;
   const dupeLiabs      = dedupeApi.data?.liability_clusters?.length || 0;
   const dupeCount      = dupeDeposits + dupeLiabs;
   const [busy, setBusy] = React.useState(null);
   const [err, setErr]   = React.useState(null);
+  const [notice, setNotice] = React.useState(null);
 
   const disconnect = async (item) => {
     const confirmMsg =
       `Disconnect ${item.institution_name || 'this institution'}?\n\n` +
-      `• Plaid will revoke our access token (no more transaction syncs).\n` +
+      `• New balances and transactions will stop syncing.\n` +
       `• ${item.mirrored_deposit_count || 0} deposit account(s) and ${item.mirrored_liability_count || 0} liability account(s) will be hidden from Treasury.\n` +
-      `• Historical journal entries and statement lines stay intact.\n\n` +
+      `• Historical journal entries and statement lines will remain.\n\n` +
       `Continue?`;
     if (!confirm(confirmMsg)) return;
-    setBusy(item.id); setErr(null);
+    setBusy(item.id); setErr(null); setNotice(null);
     try {
       await fetch(`/api/plaid_items.php?id=${item.id}`, {
         method: 'DELETE', credentials: 'include',
       }).then((r) => r.json().then((d) => r.ok ? d : Promise.reject(d)));
       await reload();
       if (onChanged) onChanged();
-    } catch (e) {
-      setErr(e.error || e.message || 'Disconnect failed');
+    } catch {
+      setErr('The bank could not be disconnected. Try again or open Connections for help.');
     } finally { setBusy(null); }
   };
 
@@ -308,29 +397,27 @@ function ConnectedInstitutions({ onChanged }) {
       `(${dupeDeposits} deposit, ${dupeLiabs} liability). ` +
       `For each cluster, the most-recently-synced row will be kept and the others hidden. Continue?`;
     if (!confirm(msg)) return;
-    setBusy('dedupe'); setErr(null);
+    setBusy('dedupe'); setErr(null); setNotice(null);
     try {
       const res = await fetch('/api/plaid_dedupe.php?action=run', {
         method: 'POST', credentials: 'include',
       }).then((r) => r.json().then((d) => r.ok ? d : Promise.reject(d)));
       const hd = res.hidden_deposit_ids?.length || 0;
       const hl = res.hidden_liability_ids?.length || 0;
-      alert(`Cleanup complete — hid ${hd} deposit + ${hl} liability duplicate(s).`);
+      setNotice(`Cleanup complete. Hid ${hd} duplicate deposit account${hd === 1 ? '' : 's'} and ${hl} duplicate liability account${hl === 1 ? '' : 's'}.`);
       await dedupeApi.reload();
       if (onChanged) onChanged();
-    } catch (e) {
-      setErr(e.error || e.message || 'Dedupe failed');
+    } catch {
+      setErr('Duplicate accounts could not be cleaned up. Try again from Connections.');
     } finally { setBusy(null); }
   };
 
   return (
     <div data-testid="treasury-connected-institutions">
-      <h3>Connected institutions</h3>
+      <h3>Connected banks</h3>
       <p className="muted" style={{ fontSize: 13 }}>
-        Each row is a single Plaid login — disconnecting revokes the token at
-        Plaid and hides every mirrored deposit / liability from this list.
-        Use <em>Hide</em> or <em>Delete</em> on individual rows above for
-        per-account control.
+        Each row represents one bank sign-in. Disconnecting stops future updates and hides its linked accounts;
+        historical transactions remain available. Use <em>Hide</em> or <em>Delete</em> above to manage one account at a time.
       </p>
       {dupeCount > 0 && (
         <div
@@ -343,7 +430,7 @@ function ConnectedInstitutions({ onChanged }) {
         >
           <span>
             <strong>{dupeCount} duplicate cluster{dupeCount === 1 ? '' : 's'} detected.</strong>
-            {' '}Earlier reconnects spawned extra rows in Treasury. One click consolidates them.
+            {' '}Earlier bank reconnections created extra account rows. Cleanup keeps the newest row and hides the duplicates.
           </span>
           <button
             type="button"
@@ -412,6 +499,29 @@ function ConnectedInstitutions({ onChanged }) {
           </tbody>
         </table>
       )}
+      {notice && <p className="success" data-testid="treasury-connected-institutions-notice">{notice}</p>}
+      {historyRows.length > 0 && (
+        <details data-testid="treasury-connected-institutions-history" style={{ marginTop: 12 }}>
+          <summary style={{ cursor: 'pointer', color: 'var(--cf-text-secondary)', fontSize: 13 }}>
+            Connection history ({historyRows.length})
+          </summary>
+          <table className="data-table" style={{ marginTop: 8 }}>
+            <thead>
+              <tr><th>Institution</th><th>Status</th><th>Connection</th><th>Last webhook</th></tr>
+            </thead>
+            <tbody>
+              {historyRows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.institution_name || 'Unknown institution'}</td>
+                  <td><span className="badge">disconnected</span></td>
+                  <td className="muted" title={row.item_id || undefined}>{maskedConnectionId(row.item_id)}</td>
+                  <td className="muted">{row.last_webhook_at ? fmtRelative(row.last_webhook_at) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
       {err && <p className="error" data-testid="treasury-connected-institutions-error">{err}</p>}
     </div>
   );
@@ -437,7 +547,7 @@ function BankConnectCard({ onLinked }) {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
       }).then((r) => r.json().then((d) => r.ok ? d : Promise.reject(d)));
-      if (!tok.link_token) throw new Error('No link_token returned');
+      if (!tok.link_token) throw new Error('The secure bank connection could not be started.');
 
       await ensurePlaidLink();
       const handler = window.Plaid.create({
@@ -460,11 +570,11 @@ function BankConnectCard({ onLinked }) {
           setPickerSelected(sel);
           setPicker({ publicToken, institution: meta?.institution || {}, accounts });
         },
-        onExit: (e) => { if (e) setErr(e.error_message || 'Cancelled'); },
+        onExit: (e) => { if (e) setErr('The bank connection was closed before it finished.'); },
       });
       handler.open();
-    } catch (e) {
-      setErr(e.error || e.message || 'Plaid Link failed');
+    } catch {
+      setErr('The bank connection could not be completed. Try again or open Connections for help.');
     } finally { setBusy(false); }
   };
 
@@ -490,7 +600,7 @@ function BankConnectCard({ onLinked }) {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Exchange failed');
+      if (!res.ok) throw new Error(data.error || 'The selected accounts could not be added.');
       const dep = data.bank_accounts_created?.length || 0;
       const lia = data.liability_accounts_created?.length || 0;
       const skipped = data.skipped_opt_out?.length || 0;
@@ -499,15 +609,15 @@ function BankConnectCard({ onLinked }) {
       if (dep) parts.push(`${dep} deposit${dep === 1 ? '' : 's'}`);
       if (lia) parts.push(`${lia} liabilit${lia === 1 ? 'y' : 'ies'}`);
       if (skipped) parts.push(`${skipped} skipped (you opted out)`);
-      const summary = parts.length ? parts.join(' + ') : 'no new accounts (already linked?)';
-      setMsg(`Linked ${institution?.name || 'bank'} — ${summary}.`);
+      const summary = parts.length ? parts.join(' + ') : 'all selected accounts were already connected';
+      setMsg(`Connected ${institution?.name || 'bank'} — ${summary}.`);
       if (errs.length) {
         setErr('Some accounts could not be added:\n• ' + errs.join('\n• '));
       }
       setPicker(null);
       setCreateGlPerAccount(false);
       if ((dep || lia) && onLinked) setTimeout(onLinked, 1200);
-    } catch (e) { setErr(e.message); }
+    } catch (e) { setErr(e.message || 'The selected accounts could not be added.'); }
     finally { setExchanging(false); }
   };
 
@@ -533,7 +643,7 @@ function BankConnectCard({ onLinked }) {
   };
 
   const backfillOrphans = async () => {
-    if (!confirm('Backfill orphaned Plaid accounts into Treasury? This will create the missing deposit and liability rows from the cached Plaid account list — no Plaid re-authentication needed.')) return;
+    if (!confirm('Add the missing connected accounts to Treasury? You will not need to sign in to the bank again.')) return;
     setBackfilling(true); setErr(null); setMsg(null);
     try {
       const res = await fetch('/api/plaid_diagnostics.php?action=backfill', {
@@ -541,20 +651,20 @@ function BankConnectCard({ onLinked }) {
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Backfill failed');
+      if (!res.ok) throw new Error('The missing accounts could not be added.');
       const dep = data.bank_accounts_created?.length || 0;
       const lia = data.liability_accounts_created?.length || 0;
       const skipped = data.skipped?.length || 0;
       const errs = data.errors || [];
-      setMsg(`Backfilled ${dep} deposit${dep === 1 ? '' : 's'} + ${lia} liabilit${lia === 1 ? 'y' : 'ies'} (processed ${data.orphans_processed}, skipped ${skipped}).`);
+      setMsg(`Added ${dep} deposit account${dep === 1 ? '' : 's'} and ${lia} liability account${lia === 1 ? '' : 's'}; skipped ${skipped}.`);
       if (errs.length) {
-        setErr('Some accounts could not be backfilled:\n• ' + errs.join('\n• '));
+        setErr('Some connected accounts still need attention. Open Connections to review them.');
       }
       // Refresh diagnostics view
       await runDiagnostics();
       if ((dep || lia) && onLinked) setTimeout(onLinked, 1200);
     } catch (e) {
-      setErr(e.error || e.message || 'Backfill failed');
+      setErr(e.message || 'The missing accounts could not be added.');
     } finally { setBackfilling(false); }
   };
 
@@ -562,18 +672,14 @@ function BankConnectCard({ onLinked }) {
 
   return (
     <div data-testid="plaid-bank-connect-card">
-      <h3>Connect a bank (read-only feed)</h3>
+      <h3>Connect accounts for balances and reconciliation</h3>
       <p className="muted" style={{ fontSize: 13 }}>
-        Link checking, savings, credit cards, and loans so balances and
-        transactions auto-sync for reconciliation. Depository accounts land
-        on the deposits tab; cards and loans land on the liabilities tab.
-        <strong> No money moves</strong> — this is a read-only feed using
-        Plaid Transactions (+ Auth on deposits, Liabilities on cards/loans
-        when supported). To enable outbound ACH payments, use{' '}
-        <em>Outbound disbursements</em> below.
+        Link checking, savings, credit cards, and loans so balances and transactions stay current for reconciliation.
+        <strong> This connection can only read account activity; it cannot move money.</strong>{' '}
+        Connect a separate payment account below when you are ready to send approved payments.
       </p>
       <button onClick={link} disabled={busy} className="btn btn--primary" data-testid="plaid-bank-connect-btn">
-        {busy ? 'Opening Plaid…' : 'Connect bank'}
+        {busy ? 'Opening secure connection…' : 'Connect bank'}
       </button>
       <button
         onClick={runDiagnostics}
@@ -589,19 +695,19 @@ function BankConnectCard({ onLinked }) {
           border: '1px solid var(--cf-border)', borderRadius: 6, fontSize: 13,
         }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 8 }}>
-            <DiagStat label="Plaid Items"           value={diag.plaid_items?.length || 0} />
-            <DiagStat label="Plaid Accounts"        value={diag.plaid_accounts?.length || 0} />
-            <DiagStat label="Mirrored as Deposit"   value={diag.accounting_bank_accounts_for_plaid?.length || 0} />
-            <DiagStat label="Mirrored as Liability" value={diag.treasury_liability_accounts_for_plaid?.length || 0} />
-            <DiagStat label="Orphaned (not mirrored)" value={orphanCount} warn={orphanCount > 0} />
+            <DiagStat label="Bank connections" value={diag.plaid_items?.length || 0} />
+            <DiagStat label="Linked accounts" value={diag.plaid_accounts?.length || 0} />
+            <DiagStat label="Deposit accounts" value={diag.accounting_bank_accounts_for_plaid?.length || 0} />
+            <DiagStat label="Liability accounts" value={diag.treasury_liability_accounts_for_plaid?.length || 0} />
+            <DiagStat label="Missing from Treasury" value={orphanCount} warn={orphanCount > 0} />
           </div>
           {orphanCount > 0 && (
             <div data-testid="plaid-orphan-banner" style={{
               padding: 10, background: '#fef3c7', border: '1px solid #f59e0b',
               borderRadius: 4, marginBottom: 8, color: '#78350f',
             }}>
-              <strong>{orphanCount} Plaid account{orphanCount === 1 ? '' : 's'} not yet mirrored into Treasury.</strong>
-              {' '}One-click backfill creates the missing deposit / liability rows from the cached Plaid metadata — no re-authentication needed.
+              <strong>{orphanCount} connected account{orphanCount === 1 ? ' is' : 's are'} missing from Treasury.</strong>
+              {' '}Add the missing account records without signing in to the bank again.
               <ul style={{ margin: '6px 0 6px 20px', fontSize: 12 }}>
                 {(diag.orphaned_plaid_accounts || []).slice(0, 5).map((o) => (
                   <li key={o.id}>
@@ -615,13 +721,13 @@ function BankConnectCard({ onLinked }) {
                 className="btn btn--primary"
                 data-testid="plaid-backfill-orphans-btn"
               >
-                {backfilling ? 'Backfilling…' : `Backfill ${orphanCount} orphan${orphanCount === 1 ? '' : 's'}`}
+                {backfilling ? 'Adding accounts…' : `Add ${orphanCount} missing account${orphanCount === 1 ? '' : 's'}`}
               </button>
             </div>
           )}
           {orphanCount === 0 && (
             <p style={{ margin: 0, color: '#065f46' }} data-testid="plaid-no-orphans">
-              All Plaid accounts are mirrored into Treasury. ✓
+              All connected accounts are available in Treasury.
             </p>
           )}
         </div>
@@ -640,12 +746,11 @@ function BankConnectCard({ onLinked }) {
             background: '#fff', borderRadius: 8, padding: 24, width: 'min(560px, 92vw)',
             maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
           }}>
-            <h3 style={{ marginTop: 0 }}>Choose accounts to ingest</h3>
+            <h3 style={{ marginTop: 0 }}>Choose accounts to add</h3>
             <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
-              {picker.institution?.name || 'Plaid'} returned {picker.accounts.length} account
-              {picker.accounts.length === 1 ? '' : 's'}. Only the ones you check
-              below will be mirrored into Treasury — uncheck personal / out-of-scope
-              accounts. You can always backfill later from <em>Run diagnostics</em>.
+              {picker.institution?.name || 'Your bank'} returned {picker.accounts.length} account
+              {picker.accounts.length === 1 ? '' : 's'}. Only checked accounts will be added to Treasury.
+              Uncheck personal or out-of-scope accounts; you can add them later from diagnostics.
             </p>
             <div style={{ borderTop: '1px solid var(--cf-border, #e5e7eb)', margin: '12px 0' }} />
             <div data-testid="plaid-account-picker-list">
@@ -743,7 +848,7 @@ function PlaidTransferFundingCard() {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
       }).then((r) => r.json().then((d) => r.ok ? d : Promise.reject(d)));
-      if (!tok.link_token) throw new Error('No link_token returned');
+      if (!tok.link_token) throw new Error('The secure bank connection could not be started.');
 
       // Plaid Link script must be loaded for `Plaid.create()`. Load on demand.
       await ensurePlaidLink();
@@ -759,17 +864,17 @@ function PlaidTransferFundingCard() {
               body: JSON.stringify({ public_token: publicToken, account_id: accountId }),
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Exchange failed');
-            setMsg(`Linked ${meta?.institution?.name || 'bank'} · account ${meta?.accounts?.[0]?.mask || ''}`);
+            if (!res.ok) throw new Error('The payment account could not be connected.');
+            setMsg(`Connected ${meta?.institution?.name || 'bank'}${meta?.accounts?.[0]?.mask ? ` · account ending ${meta.accounts[0].mask}` : ''}.`);
           } catch (e) {
-            setErr(e.message);
+            setErr(e.message || 'The payment account could not be connected.');
           }
         },
-        onExit: (e) => { if (e) setErr(e.error_message || 'Cancelled'); },
+        onExit: (e) => { if (e) setErr('The payment connection was closed before it finished.'); },
       });
       handler.open();
     } catch (e) {
-      setErr(e.error || e.message || 'Plaid Link failed');
+      setErr(e.error || e.message || 'The bank connection could not be completed.');
     } finally {
       setBusy(false);
     }
@@ -777,14 +882,13 @@ function PlaidTransferFundingCard() {
 
   return (
     <div data-testid="plaid-transfer-funding-card">
-      <h3>Outbound disbursements (Plaid Transfer)</h3>
+      <h3>Online payments</h3>
       <p className="muted" style={{ fontSize: 13 }}>
-        Link a funding bank account to enable programmatic ACH/RTP credits
-        out of CoreFlux for AP payments and Payroll runs. One-time setup;
-        subsequent originate calls reuse this token.
+        Connect the operating account used to send approved vendor and payroll payments.
+        Set it up once and CoreFlux will reuse the secure connection for future payment runs.
       </p>
       <button onClick={link} disabled={busy} className="btn btn--primary" data-testid="plaid-transfer-link-btn">
-        {busy ? 'Opening Plaid…' : 'Link funding source'}
+        {busy ? 'Opening secure connection…' : 'Connect payment account'}
       </button>
       {msg && <p style={{ color: '#065f46', fontSize: 13, marginTop: 8 }} data-testid="plaid-transfer-link-success">{msg}</p>}
       {err && <p className="error" data-testid="plaid-transfer-link-error">{err}</p>}

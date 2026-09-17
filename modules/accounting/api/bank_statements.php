@@ -3,10 +3,13 @@
  * Accounting API — Bank statement import + line matching.
  *
  *   GET  /api/accounting/bank_statements?bank_account_id=N[&match_status=unmatched]
+ *        [&q=vendor][&date_from=YYYY-MM-DD][&date_to=YYYY-MM-DD]
+ *        [&amount_min=-100][&amount_max=100][&page=1][&per_page=25]
  *   GET  /api/accounting/bank_statements?action=invoice_candidates&line_id=N
  *   POST /api/accounting/bank_statements?action=import_csv&bank_account_id=N
  *        Body: { csv: <text>, header_map?: { date_col, desc_col, amount_col, fitid_col } }
  *   POST /api/accounting/bank_statements?action=match&line_id=N         Body: { je_id }
+ *   POST /api/accounting/bank_statements?action=match_ap_payment&line_id=N Body: { payment_id }
  *   POST /api/accounting/bank_statements?action=match_invoice&line_id=N Body: { invoice_id }
  *   POST /api/accounting/bank_statements?action=split_match_invoices&line_id=N
  *        Body: { allocations: [{ invoice_id, amount }], account_splits: [{ account_id, amount, memo? }] }
@@ -87,6 +90,7 @@ if ($method === 'GET') {
     rbac_legacy_require($user, 'accounting.coa.view');
     $bid = (int) ($_GET['bank_account_id'] ?? 0);
     if ($bid <= 0) api_error('bank_account_id required', 400);
+    $pdo = getDB();
     if (empty($_GET['match_status']) || $_GET['match_status'] === 'unmatched') {
         bankRecRepairPostedMatches((int) $ctx['tenant_id'], $bid);
     }
@@ -95,23 +99,96 @@ if ($method === 'GET') {
     if (bankTxnHasColumn($pdo, 'accounting_bank_statement_lines', 'duplicate_of_line_id')) {
         $where[] = 'duplicate_of_line_id IS NULL';
     }
-    if (!empty($_GET['match_status'])) {
-        $where[] = 'match_status = :ms';
-        $params['ms'] = (string) $_GET['match_status'];
+    $matchStatus = trim((string) ($_GET['match_status'] ?? ''));
+    if ($matchStatus !== '' && !in_array($matchStatus, ['unmatched', 'matched', 'ignored'], true)) {
+        api_error('Invalid match_status', 422, ['allowed' => ['unmatched', 'matched', 'ignored']]);
     }
+    if ($matchStatus !== '') {
+        $where[] = 'match_status = :ms';
+        $params['ms'] = $matchStatus;
+    }
+
+    $q = trim((string) ($_GET['q'] ?? ''));
+    if (strlen($q) > 120) api_error('Search is too long (max 120 characters)', 422);
+    if ($q !== '') {
+        $like = '%' . $q . '%';
+        $where[] = '(description LIKE :q_description
+                  OR bank_reference LIKE :q_reference
+                  OR fitid LIKE :q_fitid
+                  OR CAST(amount AS CHAR) LIKE :q_amount)';
+        $params['q_description'] = $like;
+        $params['q_reference'] = $like;
+        $params['q_fitid'] = $like;
+        $params['q_amount'] = $like;
+    }
+
+    $dateFrom = trim((string) ($_GET['date_from'] ?? ''));
+    $dateTo = trim((string) ($_GET['date_to'] ?? ''));
+    foreach (['date_from' => $dateFrom, 'date_to' => $dateTo] as $field => $date) {
+        if ($date !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            api_error("{$field} must use YYYY-MM-DD", 422);
+        }
+    }
+    if ($dateFrom !== '') {
+        $where[] = 'posted_date >= :date_from';
+        $params['date_from'] = $dateFrom;
+    }
+    if ($dateTo !== '') {
+        $where[] = 'posted_date <= :date_to';
+        $params['date_to'] = $dateTo;
+    }
+    if ($dateFrom !== '' && $dateTo !== '' && $dateFrom > $dateTo) {
+        api_error('date_from cannot be after date_to', 422);
+    }
+
+    foreach (['amount_min' => '>=', 'amount_max' => '<='] as $field => $operator) {
+        $raw = trim((string) ($_GET[$field] ?? ''));
+        if ($raw === '') continue;
+        if (!is_numeric($raw)) api_error("{$field} must be numeric", 422);
+        $where[] = "amount {$operator} :{$field}";
+        $params[$field] = (float) $raw;
+    }
+    if (isset($params['amount_min'], $params['amount_max']) && $params['amount_min'] > $params['amount_max']) {
+        api_error('amount_min cannot exceed amount_max', 422);
+    }
+
+    $page = max(1, (int) ($_GET['page'] ?? 1));
+    $perPage = min(200, max(1, (int) ($_GET['per_page'] ?? 25)));
+    $whereSql = implode(' AND ', $where);
+    $countRow = scopedFind(
+        'SELECT COUNT(*) AS total
+           FROM accounting_bank_statement_lines
+          WHERE ' . $whereSql,
+        $params
+    );
+    $total = (int) ($countRow['total'] ?? 0);
+    $pages = max(1, (int) ceil($total / $perPage));
+    $page = min($page, $pages);
+    $offset = ($page - 1) * $perPage;
+
     $rows = scopedQuery(
         'SELECT id, posted_date, description, amount, bank_reference, fitid, match_status,
                 matched_je_id, matched_at, ai_suggested_account_code, ai_suggested_je_id,
                 ai_suggested_rule_id, ai_suggested_confidence, applied_rule_id
          FROM accounting_bank_statement_lines
-         WHERE ' . implode(' AND ', $where) . '
-         ORDER BY posted_date DESC, id DESC LIMIT 500',
+         WHERE ' . $whereSql . '
+         ORDER BY posted_date DESC, id DESC
+         LIMIT ' . $perPage . ' OFFSET ' . $offset,
         $params
     );
     if (rbac_legacy_can($user, 'billing.view')) {
         $rows = bankRecAttachInvoiceSuggestions((int) $ctx['tenant_id'], $bid, $rows);
     }
-    api_ok(['rows' => $rows]);
+    if (rbac_legacy_can($user, 'ap.view')) {
+        $rows = bankRecAttachApPaymentSuggestions((int) $ctx['tenant_id'], $bid, $rows);
+    }
+    api_ok([
+        'rows' => $rows,
+        'total' => $total,
+        'page' => $page,
+        'per_page' => $perPage,
+        'pages' => $pages,
+    ]);
 }
 
 if ($method === 'POST' && $action === 'import_csv') {
@@ -138,9 +215,104 @@ if ($method === 'POST' && $action === 'match') {
     $body = api_json_body();
     $jeId = (int) ($body['je_id'] ?? 0);
     if ($jeId <= 0) api_error('je_id required', 422);
-    $res = bankRecMatchLine((int) $ctx['tenant_id'], $lid, $jeId, $user['id'] ?? null);
+    try {
+        $res = bankRecMatchLine((int) $ctx['tenant_id'], $lid, $jeId, $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 409);
+    }
     accountingAudit('accounting.bank.line_matched', ['line_id' => $lid, 'je_id' => $jeId], $lid);
     api_ok($res);
+}
+
+if ($method === 'POST' && $action === 'match_ap_payment') {
+    rbac_legacy_require($user, 'accounting.bank.manage');
+    rbac_legacy_require($user, 'ap.payment.send');
+    $lid = (int) ($_GET['line_id'] ?? 0);
+    if ($lid <= 0) api_error('line_id required', 400);
+    $body = api_json_body();
+    $paymentId = (int) ($body['payment_id'] ?? 0);
+    if ($paymentId <= 0) api_error('payment_id required', 422);
+
+    $line = scopedFind(
+        'SELECT bl.id, bl.amount, bl.posted_date, bl.match_status,
+                ba.id AS bank_account_id, ba.entity_id AS bank_entity_id,
+                COALESCE(NULLIF(ba.currency, ""), "USD") AS bank_currency
+           FROM accounting_bank_statement_lines bl
+           JOIN accounting_bank_accounts ba
+             ON ba.tenant_id = bl.tenant_id AND ba.id = bl.bank_account_id
+          WHERE bl.tenant_id = :tenant_id AND bl.id = :id',
+        ['id' => $lid]
+    );
+    if (!$line) api_error('Line not found', 404);
+    if (($line['match_status'] ?? '') !== 'unmatched') api_error('This bank line is already resolved', 409);
+    if ((float) $line['amount'] >= 0) api_error('Only outgoing bank lines can clear AP payments', 422);
+
+    $payment = scopedFind(
+        'SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $paymentId]
+    );
+    if (!$payment) api_error('AP payment not found', 404);
+    if (!in_array((string) $payment['status'], ['sent', 'cleared'], true)) {
+        api_error('Only a released or cleared AP payment can be matched', 409);
+    }
+    if ((float) ($payment['unallocated_amount'] ?? 0) > 0.005) {
+        api_error('Allocate the full AP payment before matching it', 409);
+    }
+    if (abs(abs((float) $line['amount']) - (float) $payment['amount']) > 0.005) {
+        api_error('The AP payment amount does not equal this bank debit', 409);
+    }
+    if (strcasecmp((string) ($payment['currency'] ?: 'USD'), (string) $line['bank_currency']) !== 0) {
+        api_error('The AP payment uses a different currency', 409);
+    }
+    if (!empty($line['bank_entity_id']) && !empty($payment['entity_id'])
+        && (int) $line['bank_entity_id'] !== (int) $payment['entity_id']) {
+        api_error('The AP payment belongs to a different entity', 409);
+    }
+    if (!empty($payment['bank_account_id'])
+        && (int) $payment['bank_account_id'] !== (int) $line['bank_account_id']) {
+        api_error('The AP payment was released from a different bank account', 409);
+    }
+
+    require_once __DIR__ . '/../../ap/lib/ap.php';
+    try {
+        $cleared = apClearPayment(
+            (int) $ctx['tenant_id'],
+            $paymentId,
+            (string) $line['posted_date'],
+            (int) $line['bank_account_id'],
+            $user['id'] ?? null
+        );
+        $match = bankRecMatchLine(
+            (int) $ctx['tenant_id'],
+            $lid,
+            (int) $cleared['journal_entry_id'],
+            $user['id'] ?? null
+        );
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422, ['retryable' => true]);
+    }
+
+    if (empty($cleared['idempotent_replay'])) {
+        apAudit('ap.payment.cleared_from_bank', [
+            'payment_id' => $paymentId,
+            'bank_line_id' => $lid,
+            'journal_entry_id' => (int) $cleared['journal_entry_id'],
+            'bank_account_id' => (int) $line['bank_account_id'],
+        ], $paymentId);
+    }
+    accountingAudit('accounting.bank.ap_payment_matched', [
+        'line_id' => $lid,
+        'payment_id' => $paymentId,
+        'je_id' => (int) $cleared['journal_entry_id'],
+    ], $lid);
+    api_ok([
+        'ok' => true,
+        'line_id' => $lid,
+        'payment_id' => $paymentId,
+        'matched_je_id' => (int) $cleared['journal_entry_id'],
+        'payment_status' => 'cleared',
+        'idempotent_replay' => !empty($cleared['idempotent_replay']) || !empty($match['idempotent_replay']),
+    ]);
 }
 
 if ($method === 'POST' && $action === 'split_match_invoices') {
@@ -567,7 +739,11 @@ if ($method === 'POST' && $action === 'unmatch') {
     rbac_legacy_require($user, 'accounting.je.create');
     $lid = (int) ($_GET['line_id'] ?? 0);
     if ($lid <= 0) api_error('line_id required', 400);
-    $res = bankRecUnmatchLine((int) $ctx['tenant_id'], $lid);
+    try {
+        $res = bankRecUnmatchLine((int) $ctx['tenant_id'], $lid);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 409);
+    }
     accountingAudit('accounting.bank.line_unmatched', ['line_id' => $lid], $lid);
     api_ok($res);
 }

@@ -66,7 +66,8 @@ function reportCashFlowClassification(array $account): array
         if (preg_match('/\b(loan|note|debt) payable\b/', $text)
             || preg_match('/\bloc\b/', $text)
             || str_contains($text, 'line of credit')
-            || str_contains($text, 'credit card')) {
+            || str_contains($text, 'credit card')
+            || preg_match('/\b(visa|master\s?card|american express|amex|discover)\b/', $text)) {
             return ['tag' => 'financing_debt', 'source' => 'inferred'];
         }
     }

@@ -21,6 +21,7 @@ import ComparisonTable from '../../../dashboard/src/components/ComparisonTable';
 import GlDetailDrilldown from '../../../dashboard/src/components/GlDetailDrilldown';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import { useReportPeriod } from '../../../dashboard/src/lib/useReportPeriod';
+import { Eye, EyeOff } from 'lucide-react';
 
 export default function IncomeStatement() {
   const period = useReportPeriod();
@@ -31,6 +32,7 @@ export default function IncomeStatement() {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
   const [drill,   setDrill]   = useState(null);
+  const [hideZeroRows, setHideZeroRows] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,7 +66,17 @@ export default function IncomeStatement() {
     .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [period.from, period.to, period.compareMode]);
+  }, [
+    period.from,
+    period.to,
+    period.compareMode,
+    period.priorFrom,
+    period.priorTo,
+    period.priorYearFrom,
+    period.priorYearTo,
+    period.showPriorPeriod,
+    period.showPriorYear,
+  ]);
 
   const safe = current && Array.isArray(current.revenue) && Array.isArray(current.expense);
 
@@ -112,6 +124,10 @@ export default function IncomeStatement() {
 
   const revenueRows = buildRows('revenue', false);
   const expenseRows = buildRows('expense', true);
+  const visibleRevenueRows = hideZeroRows ? revenueRows.filter(hasMaterialBalance) : revenueRows;
+  const visibleExpenseRows = hideZeroRows ? expenseRows.filter(hasMaterialBalance) : expenseRows;
+  const hiddenRowCount = revenueRows.length + expenseRows.length
+    - visibleRevenueRows.length - visibleExpenseRows.length;
 
   // Subtotals / Net income row.
   const sumCol = (rows, key) => rows.reduce((acc, r) => acc + (Number(r.values[key]) || 0), 0);
@@ -149,6 +165,18 @@ export default function IncomeStatement() {
         end:   d.period_to   || period.to,
         label: d.label,
       })}
+      actions={(
+        <button
+          type="button"
+          className="btn"
+          onClick={() => setHideZeroRows((value) => !value)}
+          data-testid="rpt-pnl-toggle-zero-rows"
+          title={hideZeroRows ? 'Show accounts with no activity in any visible period' : 'Hide accounts with no activity'}
+        >
+          {hideZeroRows ? <Eye size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}
+          {hideZeroRows ? `Show zero rows${hiddenRowCount ? ` (${hiddenRowCount})` : ''}` : 'Hide zero rows'}
+        </button>
+      )}
       kpis={safe && (
         <>
           <MetricCard label="Revenue"
@@ -190,10 +218,10 @@ export default function IncomeStatement() {
       {safe && (
         <>
           <SectionBlock title="Revenue" testIdPrefix="rpt-pnl-revenue"
-                        columns={columns} rows={revenueRows}
+                        columns={columns} rows={visibleRevenueRows}
                         total={totRevenue} totalLabel="Total revenue" />
           <SectionBlock title="Expenses" testIdPrefix="rpt-pnl-expense"
-                        columns={columns} rows={expenseRows}
+                        columns={columns} rows={visibleExpenseRows}
                         total={totExpense} totalLabel="Total expenses" inverse />
           <ComparisonTable
             testIdPrefix="rpt-pnl-bottomline"
@@ -231,6 +259,10 @@ function SectionBlock({ title, testIdPrefix, columns, rows, total, totalLabel, i
       />
     </div>
   );
+}
+
+function hasMaterialBalance(row) {
+  return Object.values(row.values || {}).some((value) => Math.abs(Number(value) || 0) >= 0.005);
 }
 
 function url(from, to) {

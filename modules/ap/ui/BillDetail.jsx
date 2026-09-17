@@ -7,6 +7,8 @@ import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttac
 import ThreeWayMatchPanel from './ThreeWayMatchPanel';
 import BillApprovalThread from './BillApprovalThread';
 
+const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
+
 export default function BillDetail() {
   const { id } = useParams();
   const { data, loading, error, reload } = useApi(`/modules/ap/api/bills.php?id=${id}`);
@@ -25,7 +27,7 @@ export default function BillDetail() {
   const canApprove = ['pending_review','pending_approval'].includes(bill.status);
   const canDispute = ['pending_review','pending_approval','approved'].includes(bill.status);
   const canVoid    = bill.status !== 'void';
-  const canPost    = ['approved','partially_paid','paid'].includes(bill.status);
+  const canPost    = ['approved','partially_paid','paid'].includes(bill.status) && !bill.journal_entry_id;
 
   const run = async (label, fn) => {
     setBusy(label); setActionError(null);
@@ -57,12 +59,12 @@ export default function BillDetail() {
             {bill.vendor_name} ({bill.vendor_type}) · billed {bill.bill_date} · due {bill.due_date}
             {bill.bill_number !== bill.internal_ref ? ` · vendor ref ${bill.bill_number}` : ''}
           </p>
-          <span className={`badge badge--${bill.status}`}>{bill.status.replace('_',' ')}</span>
+          <span className={`badge badge--${bill.status}`}>{statusLabel(bill.status)}</span>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {canApprove && <button className="btn btn--primary" onClick={approve} disabled={busy==='approve'} data-testid="ap-bill-approve">{busy==='approve' ? 'Approving…' : 'Approve'}</button>}
           {canPost    && <button className="btn btn--ghost" onClick={postGl} disabled={busy==='post'} data-testid="ap-bill-post">{busy==='post' ? 'Posting…' : 'Post to GL'}</button>}
-          {canPost    && !bill.journal_entry_id && <button className="btn btn--ghost" onClick={() => setIcSplitOpen(true)} data-testid="ap-bill-post-ic-split">⊕ Post with IC split</button>}
+          {canPost    && <button className="btn btn--ghost" onClick={() => setIcSplitOpen(true)} data-testid="ap-bill-post-ic-split">⊕ Post with IC split</button>}
           {canDispute && <button className="btn btn--ghost" onClick={dispute} disabled={busy==='dispute'} data-testid="ap-bill-dispute">{busy==='dispute' ? 'Disputing…' : 'Dispute'}</button>}
           {canVoid    && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="ap-bill-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}
         </div>
@@ -184,7 +186,7 @@ export default function BillDetail() {
                 <td>{a.method}</td>
                 <td>{a.reference || '—'}</td>
                 <td style={{textAlign:'right'}}>{Number(a.amount_applied).toFixed(2)}</td>
-                <td><span className={`badge badge--${a.payment_status}`}>{a.payment_status}</span></td>
+                <td><span className={`badge badge--${a.payment_status}`}>{statusLabel(a.payment_status)}</span></td>
               </tr>
             ))}
           </tbody>

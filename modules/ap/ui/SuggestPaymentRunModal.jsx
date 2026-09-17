@@ -2,11 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
 
 /**
- * AP "Suggest payment run" modal (2026-02).
+ * AP payment-run preparation modal.
  *
  * Mirror of the AR-side SuggestInvoiceModal: ask the backend for a
  * preview of every approved bill due within N days, grouped by
- * vendor, and the AI commentary. Operator picks horizon + rail,
+ * vendor. Optional AI commentary never gates the workflow. Operator picks horizon + rail,
  * deselects any vendor groups they want to skip, and confirms to
  * execute the run. Execution creates one ap_payments row per vendor
  * group (draft + auto-allocated). Operator still has to release each
@@ -19,7 +19,13 @@ const RAIL_OPTIONS = [
   { id: 'nacha',          label: 'NACHA file'     },
 ];
 
-export default function SuggestPaymentRunModal({ onClose, onCreated }) {
+const methodForRail = (rail) => ({
+  mercury: 'mercury',
+  plaid_transfer: 'plaid',
+  nacha: 'ach',
+}[rail] || 'ach');
+
+export default function SuggestPaymentRunModal({ entityId = null, onClose, onCreated }) {
   const [horizon, setHorizon]     = useState(7);
   const [rail, setRail]           = useState('mercury');
   const [loading, setLoading]     = useState(true);
@@ -34,6 +40,7 @@ export default function SuggestPaymentRunModal({ onClose, onCreated }) {
       const res = await api.post('/modules/ap/api/bills.php?action=suggest-payment-run', {
         days_ahead: Number(horizon),
         rail,
+        entity_id: entityId || null,
       });
       setSuggestion(res);
       // Default-select every rail-eligible vendor group.
@@ -59,7 +66,7 @@ export default function SuggestPaymentRunModal({ onClose, onCreated }) {
     });
   };
 
-  const groups = suggestion?.vendor_groups || [];
+  const groups = useMemo(() => suggestion?.vendor_groups || [], [suggestion]);
   const selectedTotal = useMemo(() => groups
     .filter(g => selectedVendors.has(g.vendor_name))
     .reduce((s, g) => s + Number(g.total_due || 0), 0), [groups, selectedVendors]);
@@ -73,9 +80,13 @@ export default function SuggestPaymentRunModal({ onClose, onCreated }) {
     try {
       const payloadGroups = groups
         .filter(g => selectedVendors.has(g.vendor_name))
-        .map(g => ({ vendor_name: g.vendor_name, bill_ids: g.bill_ids, method: rail }));
+        .map(g => ({
+          vendor_name: g.vendor_name,
+          bill_ids: g.bill_ids,
+          method: g.payment_method || methodForRail(rail),
+        }));
       const res = await api.post('/modules/ap/api/bills.php?action=execute-payment-run', {
-        rail, vendor_groups: payloadGroups,
+        rail, vendor_groups: payloadGroups, entity_id: entityId || null,
       });
       onCreated?.(res);
     } catch (e) { setError(e); }
@@ -90,13 +101,13 @@ export default function SuggestPaymentRunModal({ onClose, onCreated }) {
         <header style={{ padding: 20, borderBottom: '1px solid #e5e7eb' }}>
           <h3 style={{ margin: 0 }}>
             <span style={{ background: 'linear-gradient(135deg, #059669, #2563eb)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontWeight: 700 }}>
-              Suggest payment run
+              Prepare payment run
             </span>
           </h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>
-            AI-grouped approved bills due in the next {horizon} days. Drafts get
-            created on confirm — a second approver still has to release each one
-            (SoD enforced).
+            Approved bills due in the next {horizon} days, grouped by vendor. Drafts get
+            created on confirm. You will go straight to Payments, where a second
+            approver can release the whole selection at once (SoD enforced).
           </p>
         </header>
 
@@ -120,8 +131,16 @@ export default function SuggestPaymentRunModal({ onClose, onCreated }) {
             </div>
           </div>
 
-          {loading && <p data-testid="suggest-payment-run-loading">Asking the AI for a payment run…</p>}
-          {error && <p className="error" data-testid="suggest-payment-run-error">{error.message}</p>}
+          {loading && <p data-testid="suggest-payment-run-loading">Preparing the payment run…</p>}
+          {error && (
+            <div className="error" data-testid="suggest-payment-run-error" role="alert">
+              <strong>Payment run could not be prepared.</strong>{' '}
+              {error.message || 'Check AP setup and try again.'}
+              <button className="btn btn--ghost" type="button" onClick={fetchSuggestion} disabled={loading || busy}>
+                Try again
+              </button>
+            </div>
+          )}
           {!loading && suggestion && (
             <>
               {/* Summary card */}

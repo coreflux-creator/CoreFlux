@@ -12,6 +12,11 @@ const SUBTYPE_LABELS = {
   other_liability: 'Other liability',
 };
 
+function liabilityBalance(value) {
+  const amount = Number(value || 0);
+  return amount < 0 ? `${fmtMoney(Math.abs(amount))} credit` : fmtMoney(amount);
+}
+
 export default function LiabilityAccounts() {
   return (
     <Routes>
@@ -33,9 +38,8 @@ function LiabilityList() {
         <div>
           <h2>Liability accounts</h2>
           <p className="muted">
-            Credit cards, loans, and lines of credit. Balances shown as
-            outstanding (credit-normal sign flipped). Click a row to see card
-            activity.
+            Credit cards, loans, and lines of credit managed by Treasury.
+            Click a row to review its activity and resolve imported transactions.
           </p>
         </div>
         <button
@@ -87,9 +91,10 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
   const [err, setErr]   = useState(null);
   // "Outstanding" prefers the live Plaid current balance when available
   // (which already reflects unposted activity); falls back to GL balance.
-  const outstanding = (r.bank_balance !== null && r.bank_balance !== undefined)
+  const rawOutstanding = (r.bank_balance !== null && r.bank_balance !== undefined)
     ? r.bank_balance
     : r.gl_balance;
+  const outstanding = Math.max(0, Number(rawOutstanding) || 0);
   const util = r.credit_limit && r.credit_limit > 0
     ? Math.round((outstanding / r.credit_limit) * 100)
     : null;
@@ -144,9 +149,9 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
       <td>{r.institution_name || '—'}</td>
       <td>{r.last4 || '—'}</td>
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }} data-testid={`treasury-liability-bank-balance-${r.id}`}>
-        {r.bank_balance !== null && r.bank_balance !== undefined ? fmtMoney(r.bank_balance) : '—'}
+        {r.bank_balance !== null && r.bank_balance !== undefined ? liabilityBalance(r.bank_balance) : '—'}
       </td>
-      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.gl_balance)}</td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{liabilityBalance(r.gl_balance)}</td>
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: r.bank_balance != null && Math.abs(Number(r.bank_balance) - Number(r.gl_balance)) >= 0.005 ? '#b45309' : undefined }}>
         {r.bank_balance !== null && r.bank_balance !== undefined ? fmtMoney(Number(r.bank_balance) - Number(r.gl_balance)) : '—'}
       </td>
@@ -162,16 +167,18 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
         >
           Transactions →
         </Link>
-        <button
-          type="button"
-          onClick={sync}
-          disabled={busy === 'sync'}
-          className="btn btn--ghost"
-          data-testid={`treasury-liability-sync-${r.id}`}
-          style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
-        >
-          {busy === 'sync' ? 'Syncing…' : 'Sync'}
-        </button>
+        {r.plaid_connected && (
+          <button
+            type="button"
+            onClick={sync}
+            disabled={busy === 'sync'}
+            className="btn btn--ghost"
+            data-testid={`treasury-liability-sync-${r.id}`}
+            style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
+          >
+            {busy === 'sync' ? 'Syncing…' : 'Sync'}
+          </button>
+        )}
         <button
           type="button"
           onClick={hide}

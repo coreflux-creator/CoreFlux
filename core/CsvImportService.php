@@ -310,6 +310,10 @@ class CsvImportService
      * header mapping — same shape as ::inspect()'s `auto_map`.
      *
      * @param callable $onRow  fn(array $row): int  — module's writer; returns inserted id, or throws
+     * $opts['atomic'] wraps all valid row callbacks in one transaction.
+     * It is ignored when skip_invalid is explicitly enabled because that
+     * mode intentionally asks for a partial import.
+     *
      * @return array {imported_count, skipped_count, errors, ids}
      */
     public static function commit(string $module, string $rawCsv, callable $onRow, array $opts = []): array
@@ -332,6 +336,14 @@ class CsvImportService
         $skipped  = 0;
         $errors   = $dry['errors'];
         $ids      = [];
+        $atomic   = !empty($opts['atomic']) && !$skipInvalid;
+        $pdo      = null;
+        $ownsTxn  = false;
+        if ($atomic) {
+            $pdo = \getDB();
+            $ownsTxn = !$pdo->inTransaction();
+            if ($ownsTxn) $pdo->beginTransaction();
+        }
         foreach ($dry['rows'] as $rowNum => $row) {
             if (isset($dry['errors'][$rowNum])) { $skipped++; continue; }
             try {
@@ -344,6 +356,18 @@ class CsvImportService
                 $skipped++;
             }
         }
+
+        if ($atomic && $errors) {
+            if ($ownsTxn && $pdo?->inTransaction()) $pdo->rollBack();
+            return [
+                'imported_count' => 0,
+                'skipped_count'  => $dry['row_count'],
+                'errors'         => $errors,
+                'ids'            => [],
+                'message'        => 'No rows were imported because one or more rows failed business validation.',
+            ];
+        }
+        if ($atomic && $ownsTxn && $pdo?->inTransaction()) $pdo->commit();
 
         return [
             'imported_count' => $imported,

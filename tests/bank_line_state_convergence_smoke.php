@@ -24,7 +24,11 @@ $repairStart = strpos($lib, 'function bankRecRepairPostedMatches(');
 $repairBody = $repairStart === false ? '' : substr($lib, $repairStart, 5000);
 $check('repair does not use fuzzy amount/date matching', !str_contains($repairBody, 'ABS(l.debit') && !str_contains($repairBody, 'DATE_SUB'));
 $check('bank reconciliation repairs before listing unmatched lines', str_contains($bankApi, 'bankRecRepairPostedMatches((int) $ctx[\'tenant_id\'], $bid)'));
-$check('Treasury deposit postings use shared transition', substr_count($treasury, 'bankRecMarkLineMatched($tenantId') >= 3);
+$check('Treasury deposit postings use shared validated transitions',
+    substr_count($treasury, 'bankRecMarkLineMatched($tenantId') >= 2
+    && str_contains($treasury, 'bankRecMatchLine($tenantId'));
+$check('Treasury bulk unmatch uses the guarded bank transition',
+    str_contains($treasury, 'foreach ($eligibleIds as $eligibleId) bankRecUnmatchLine($tenantId, $eligibleId)'));
 $check('Treasury deposit unmatch clears audit metadata', str_contains($treasury, "matched_at = NULL, matched_by_user_id = NULL"));
 
 echo "Passed: {$passed}; Failed: {$failed}" . PHP_EOL;

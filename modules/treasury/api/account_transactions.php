@@ -43,8 +43,6 @@ if (api_method() === 'POST') {
     if (!in_array($type, ['deposit', 'liability'], true)) {
         api_error("type='deposit' or 'liability' required", 422);
     }
-    $lineId = (int) ($body['line_id'] ?? 0);
-    if ($lineId <= 0) api_error('line_id required', 422);
 
     $table = $type === 'deposit'
         ? 'accounting_bank_statement_lines'
@@ -85,6 +83,32 @@ if (api_method() === 'POST') {
                 : "match_status = 'unmatched', matched_je_id = NULL",
         };
 
+        if ($bulkAction === 'unmatch' && $type === 'deposit') {
+            $eligible = $pdo->prepare(
+                "SELECT id FROM {$table}
+                  WHERE tenant_id = :t AND {$col} = :a
+                    AND id IN (" . implode(',', $placeholders) . ")
+                    AND match_status = 'matched'
+                  ORDER BY id"
+            );
+            $eligible->execute($params);
+            $eligibleIds = array_map('intval', $eligible->fetchAll(PDO::FETCH_COLUMN));
+            $pdo->beginTransaction();
+            try {
+                foreach ($eligibleIds as $eligibleId) bankRecUnmatchLine($tenantId, $eligibleId);
+                $pdo->commit();
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                api_error($e->getMessage(), 409);
+            }
+            api_ok([
+                'ok' => true,
+                'action' => $bulkAction,
+                'selected' => count($lineIds),
+                'updated' => count($eligibleIds),
+            ]);
+        }
+
         $stmt = $pdo->prepare(
             "UPDATE {$table} SET {$set}
               WHERE tenant_id = :t AND {$col} = :a
@@ -99,6 +123,9 @@ if (api_method() === 'POST') {
         ]);
     }
 
+    $lineId = (int) ($body['line_id'] ?? 0);
+    if ($lineId <= 0) api_error('line_id required', 422);
+
     // Ensure migration 004 cols exist on first POST in case the deploy hasn't run yet.
     if ($type === 'liability') {
         try {
@@ -112,6 +139,9 @@ if (api_method() === 'POST') {
     $line->execute(['t' => $tenantId, 'id' => $lineId]);
     $line = $line->fetch(PDO::FETCH_ASSOC);
     if (!$line) api_error('Statement line not found', 404);
+    if ($action === 'categorize_and_post' && ($line['match_status'] ?? '') !== 'unmatched') {
+        api_error('This transaction is already resolved. Unmatch it before posting a different category.', 409);
+    }
 
     if ($action === 'ignore') {
         $pdo->prepare("UPDATE {$table} SET match_status = 'ignored'
@@ -122,7 +152,11 @@ if (api_method() === 'POST') {
 
     if ($action === 'unmatch') {
         if ($type === 'deposit') {
-            bankRecUnmatchLine($tenantId, $lineId);
+            try {
+                bankRecUnmatchLine($tenantId, $lineId);
+            } catch (\Throwable $e) {
+                api_error($e->getMessage(), 409);
+            }
         } else {
             $pdo->prepare("UPDATE {$table}
                               SET match_status = 'unmatched', matched_je_id = NULL
@@ -143,7 +177,11 @@ if (api_method() === 'POST') {
         if (!$jeOk->fetchColumn()) api_error('Journal entry not found', 404);
 
         if ($type === 'deposit') {
-            bankRecMarkLineMatched($tenantId, $lineId, $jeId, (int) ($ctx['user']['id'] ?? 0) ?: null);
+            try {
+                bankRecMatchLine($tenantId, $lineId, $jeId, (int) ($ctx['user']['id'] ?? 0) ?: null);
+            } catch (\Throwable $e) {
+                api_error($e->getMessage(), 409);
+            }
         } else {
             $pdo->prepare("UPDATE {$table}
                               SET match_status = 'matched', matched_je_id = :je
@@ -409,6 +447,10 @@ if (api_method() === 'POST') {
         $res = [
             'je_id'     => (int) $eventResult['journal_entry_id'],
             'je_number' => $eventResult['je_number'] ?? null,
+            'status'    => 'posted',
+            'total_debit' => (float) ($eventResult['total_debit'] ?? $abs),
+            'total_credit' => (float) ($eventResult['total_credit'] ?? $abs),
+            'idempotent_replay' => (bool) ($eventResult['idempotent_replay'] ?? false),
         ];
     } else {
         // ── Phase-2a Fallback: legacy direct posting ──
@@ -497,10 +539,10 @@ if (api_method() === 'POST') {
         'ok'             => true,
         'line_id'        => $lineId,
         'matched_je_id'  => $res['je_id'],
-        'je_number'      => $res['je_number'],
-        'status'         => $res['status'],
-        'total_debit'    => $res['total_debit'],
-        'total_credit'   => $res['total_credit'],
+        'je_number'      => $res['je_number'] ?? null,
+        'status'         => $res['status'] ?? 'posted',
+        'total_debit'    => $res['total_debit'] ?? $abs,
+        'total_credit'   => $res['total_credit'] ?? $abs,
         'idempotent_replay' => $res['idempotent_replay'] ?? false,
     ]);
 }
@@ -951,15 +993,10 @@ foreach ($rows as $i => $r) {
         continue;
     }
 
-    $sug = aiSuggestCounterpartAccount($tenantId, $r, $type, $sideAccountId, $allAccounts);
-    $rows[$i]['ai_suggestion'] = [
-        'suggestion_id'        => $sug['suggestion_id'],
-        'suggested_account_id' => $sug['suggested_account_id'],
-        'confidence'           => $sug['confidence'],
-        'source'               => $sug['source'],
-        'reasoning'            => $sug['reasoning'],
-        'auto_accept'          => $sug['auto_accept'],
-    ];
+    // Suggestions are generated only when the operator clicks "AI cat."
+    // Rendering a bank feed must stay read-only, fast, and independent of
+    // model or analytics-table availability.
+    $rows[$i]['ai_suggestion'] = null;
 }
 
 // Locate the Plaid item for the "Sync from Plaid" button (if linked).
@@ -1037,7 +1074,7 @@ if ($type === 'deposit') {
                 pa.current_balance_cents, pa.available_balance_cents, pa.balance_as_of,
                 COALESCE(SUM(CASE WHEN je.status = 'posted' THEN jel.credit - jel.debit ELSE 0 END), 0) AS ledger_balance
            FROM accounting_accounts aa
-           LEFT JOIN treasury_liability_accounts tla
+           JOIN treasury_liability_accounts tla
              ON tla.tenant_id = aa.tenant_id AND tla.account_id = aa.id
            LEFT JOIN plaid_accounts pa
              ON pa.tenant_id = aa.tenant_id AND pa.account_id = tla.plaid_account_id
@@ -1050,6 +1087,9 @@ if ($type === 'deposit') {
 }
 $balanceStmt->execute(['t' => $tenantId, 'a' => $accountId]);
 $balanceRow = $balanceStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+if ($type === 'liability' && !$balanceRow) {
+    api_error('Treasury liability account not found', 404);
+}
 $balance['currency'] = (string) ($balanceRow['currency'] ?? 'USD');
 $balance['ledger_balance'] = round((float) ($balanceRow['ledger_balance'] ?? 0), 2);
 $balance['institution_as_of'] = $balanceRow['balance_as_of']

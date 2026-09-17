@@ -19,6 +19,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/CsvImportService.php';
 
+$root = dirname(__DIR__);
+
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
     if ($ok) { echo "  ✓ {$msg}\n"; $pass++; }
@@ -26,14 +28,14 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 };
 
 $importers = [
-    'people'          => '/app/modules/people/api/csv_import.php',
-    'ap_vendors'      => '/app/modules/ap/api/csv_import.php',
-    'ap_bills'        => '/app/modules/ap/api/bills_csv_import.php',
-    'ap_payments'     => '/app/modules/ap/api/payments_csv_import.php',
-    'billing_invoices'=> '/app/modules/billing/api/csv_import.php',
-    'billing_payments'=> '/app/modules/billing/api/payments_csv_import.php',
-    'staffing_clients'=> '/app/modules/staffing/api/csv_import.php',
-    'mercury_recipients' => '/app/api/mercury_recipients_csv_import.php',
+    'people'          => $root . '/modules/people/api/csv_import.php',
+    'ap_vendors'      => $root . '/modules/ap/api/csv_import.php',
+    'ap_bills'        => $root . '/modules/ap/api/bills_csv_import.php',
+    'ap_payments'     => $root . '/modules/ap/api/payments_csv_import.php',
+    'billing_invoices'=> $root . '/modules/billing/api/csv_import.php',
+    'billing_payments'=> $root . '/modules/billing/api/payments_csv_import.php',
+    'staffing_clients'=> $root . '/modules/staffing/api/csv_import.php',
+    'mercury_recipients' => $root . '/api/mercury_recipients_csv_import.php',
 ];
 
 $idColumns = [
@@ -88,23 +90,23 @@ $a('email-fallback path still runs when no id present',
 echo "\n3. UI list pages render <IdBadge />\n";
 $listPages = [
     'people/Directory (LIVE — /modules/people/directory)'
-        => ['/app/modules/people/ui/Directory.jsx', 'prefix="P"'],
+        => [$root . '/modules/people/ui/Directory.jsx', 'prefix="P"'],
     'people/DirectoryModule (companies/clients/vendors)'
-        => ['/app/modules/people/ui/DirectoryModule.jsx', 'prefix="C"'],
+        => [$root . '/modules/people/ui/DirectoryModule.jsx', 'prefix="C"'],
     'ap/VendorsList'
-        => ['/app/modules/ap/ui/VendorsList.jsx', 'prefix="V"'],
+        => [$root . '/modules/ap/ui/VendorsList.jsx', 'prefix="V"'],
     'ap/BillsList'
-        => ['/app/modules/ap/ui/BillsList.jsx', 'prefix="B"'],
+        => [$root . '/modules/ap/ui/BillsList.jsx', 'prefix="B"'],
     'ap/PaymentsList'
-        => ['/app/modules/ap/ui/PaymentsList.jsx', 'prefix="PAY"'],
+        => [$root . '/modules/ap/ui/PaymentsList.jsx', 'prefix="PAY"'],
     'billing/InvoicesList'
-        => ['/app/modules/billing/ui/InvoicesList.jsx', 'prefix="INV"'],
+        => [$root . '/modules/billing/ui/InvoicesList.jsx', 'prefix="INV"'],
     'billing/PaymentsList'
-        => ['/app/modules/billing/ui/PaymentsList.jsx', 'prefix="RCP"'],
+        => [$root . '/modules/billing/ui/PaymentsList.jsx', 'prefix="RCP"'],
     'treasury/MercuryRecipients'
-        => ['/app/modules/treasury/ui/MercuryRecipients.jsx', 'prefix="R"'],
+        => [$root . '/modules/treasury/ui/MercuryRecipients.jsx', 'prefix="R"'],
     'treasury/MercuryPayments'
-        => ['/app/modules/treasury/ui/MercuryPayments.jsx', 'prefix="MP"'],
+        => [$root . '/modules/treasury/ui/MercuryPayments.jsx', 'prefix="MP"'],
 ];
 foreach ($listPages as $name => [$path, $prefix]) {
     $src = (string) file_get_contents($path);
@@ -115,18 +117,18 @@ foreach ($listPages as $name => [$path, $prefix]) {
 }
 
 echo "\n4. Company detail header surfaces C-{id} badge\n";
-$dirSrc = (string) file_get_contents('/app/modules/people/ui/DirectoryModule.jsx');
+$dirSrc = (string) file_get_contents($root . '/modules/people/ui/DirectoryModule.jsx');
 $a('DirectoryModule detail header renders C-prefixed badge next to name',
     preg_match('/<IdBadge id=\{c\.id\}\s+prefix="C"/', $dirSrc) === 1);
 
 echo "\n5. Column-header bumps consistent\n";
 $colSpanFiles = [
-    '/app/modules/people/ui/Directory.jsx'       => 'colSpan={8}',
-    '/app/modules/ap/ui/VendorsList.jsx'         => 'colSpan={9}',
-    '/app/modules/ap/ui/BillsList.jsx'           => 'colSpan={10}',
-    '/app/modules/billing/ui/InvoicesList.jsx'   => 'colSpan={9}',
-    '/app/modules/billing/ui/PaymentsList.jsx'   => 'colSpan={8}',
-    '/app/modules/people/ui/DirectoryModule.jsx' => 'colSpan={10}',
+    $root . '/modules/people/ui/Directory.jsx'       => 'colSpan={8}',
+    $root . '/modules/ap/ui/VendorsList.jsx'         => 'colSpan={9}',
+    $root . '/modules/ap/ui/BillsList.jsx'           => 'colSpan={10}',
+    $root . '/modules/billing/ui/InvoicesList.jsx'   => 'colSpan={10}',
+    $root . '/modules/billing/ui/PaymentsList.jsx'   => 'colSpan={8}',
+    $root . '/modules/people/ui/DirectoryModule.jsx' => 'colSpan={10}',
 ];
 foreach ($colSpanFiles as $path => $needle) {
     $src = (string) file_get_contents($path);

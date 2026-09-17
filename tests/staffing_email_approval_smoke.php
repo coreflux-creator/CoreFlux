@@ -33,14 +33,22 @@ $a('mint issues approve+reject actions',         str_contains($hf, "['approve', 
 $a('mint defaults to 72h TTL',                   str_contains($hf, 'int $ttlHours = 72'));
 $a('consume rejects unknown actions',            str_contains($hf, "Invalid action"));
 $a('consume verifies subject is staffing_timesheet', str_contains($hf, "Token is not for a staffing_timesheet"));
-$a('approve path stamps external_approver_email + approval_note', str_contains($hf, 'external_approver_email = :em') && str_contains($hf, 'approval_note = :n'));
-$a('approve path sets approved_via=external_email', str_contains($hf, "approved_via = 'external_email'"));
-$a('approve cascades to time_entries pending_review', str_contains($hf, "time_entries") && str_contains($hf, "status = 'approved'") && str_contains($hf, "approved_via = 'external_email'"));
+$a('approve path stamps external approver email + note', str_contains($hf, "'external_approver_email' => \$approverEmail") && str_contains($hf, "'approval_note' =>"));
+$a('approve path records the external email channel', str_contains($hf, "'header_approved_via' => 'external_email'"));
+$a('approve uses the valid time-entry approval enum value', str_contains($hf, "'entry_approved_via' => 'tokenized_client_email'"));
+$a('approve resolves every rate snapshot before writing', str_contains($hf, 'staffingTimesheetApprovalPlan(null, $header, $tenantId)'));
+$a('approve reuses the guarded application write path', str_contains($hf, 'staffingTimesheetApplyApproval(null, $headerId, $snapshots'));
 $a('reject path stamps rejection_reason + status',  str_contains($hf, "status = 'rejected'") && str_contains($hf, 'rejection_reason = :r'));
 $a('reject path cascades to time_entries',         str_contains($hf, "UPDATE time_entries\n                    SET status = 'rejected'"));
 $a('best-effort accounting event emit on approve', str_contains($hf, 'staffingEmitWorkerHoursApprovedEvent($tenantId, $headerId)'));
 $a('failure of accounting emit logged not raised', str_contains($hf, '[staffing-email-approval] accounting emit failed'));
 $a('blocks consumption when status != submitted',  str_contains($hf, "Timesheet is {\$header['status']}"));
+$lockPos = strpos($hf, 'LIMIT 1 FOR UPDATE');
+$applyPos = strpos($hf, 'staffingTimesheetApplyApproval(');
+$consumePos = strpos($hf, 'UPDATE approval_tokens');
+$a('token is locked before the timesheet is changed', $lockPos !== false && $applyPos !== false && $lockPos < $applyPos);
+$a('token is consumed only after the timesheet write succeeds', $applyPos !== false && $consumePos !== false && $applyPos < $consumePos);
+$a('failed approvals explicitly leave the link reusable', str_contains($hf, 'The link remains valid after the issue is corrected.'));
 
 echo "\nPublic landing endpoint\n";
 $ep = $read(__DIR__ . '/../api/staffing/approve_timesheet_by_email.php');
@@ -80,7 +88,7 @@ foreach (['approved_via','external_approver_email','external_approver_name','app
 
 echo "\nApprovals UI integration\n";
 $ui = $read(__DIR__ . '/../modules/staffing/ui/StaffingApprovals.jsx');
-$a('Email approver button rendered',              str_contains($ui, 'data-testid={`staffing-email-approver-${r.id}`}'));
+$a('Email approver button rendered',              str_contains($ui, 'data-testid={`staffing-email-approver-${row.id}`}'));
 $a('Inline form for approver email + name',       str_contains($ui, 'staffing-email-approver-email-') && str_contains($ui, 'staffing-email-approver-name-'));
 $a('Sends to admin mint endpoint',                str_contains($ui, "/modules/staffing/api/timesheet_email_approver.php"));
 $a('Renders dispatch result',                     str_contains($ui, 'staffing-email-approver-result-'));

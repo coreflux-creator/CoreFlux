@@ -4,6 +4,7 @@ import { useApiCached, prefetchApi } from '../../../dashboard/src/lib/api';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { fmtDate, fmtDateTime } from '../../../dashboard/src/lib/formatDate';
 import TimeWorkspaceNav from '../../time/ui/TimeWorkspaceNav';
+import PersonPicker from '../../people/ui/PersonPicker';
 
 /**
  * Timesheets List — Batch 2 (2026-02).
@@ -16,7 +17,18 @@ import TimeWorkspaceNav from '../../time/ui/TimeWorkspaceNav';
  * the server can prune; client-side sort + free-text search live in
  * useTableList for snappy navigation without a round-trip.
  */
-const STATUSES = ['', 'draft', 'submitted', 'approved', 'rejected', 'locked', 'payroll_ready', 'billing_ready'];
+const STATUSES = [
+  { value: '', label: 'Any status' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'submitted', label: 'Submitted for approval' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Needs correction' },
+  { value: 'locked', label: 'Locked' },
+  { value: 'payroll_ready', label: 'Ready for payroll' },
+  { value: 'billing_ready', label: 'Ready for billing' },
+];
+
+const STATUS_LABELS = Object.fromEntries(STATUSES.map(({ value, label }) => [value, label]));
 
 export default function TimesheetsList({ session }) {
   const [filters, setFilters] = useState({
@@ -78,7 +90,7 @@ export default function TimesheetsList({ session }) {
         <label style={{ fontSize: 12 }}>Status
           <select className="input" value={filters.status} onChange={e => setF('status', e.target.value)}
                   data-testid="timesheets-list-filter-status">
-            {STATUSES.map(s => <option key={s} value={s}>{s || 'any'}</option>)}
+            {STATUSES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
         <label style={{ fontSize: 12 }}>Period start ≥
@@ -91,11 +103,13 @@ export default function TimesheetsList({ session }) {
                  onChange={e => setF('period_end', e.target.value)}
                  data-testid="timesheets-list-filter-period-end" />
         </label>
-        <label style={{ fontSize: 12 }}>Person ID
-          <input className="input" type="number" min="1" value={filters.person_id}
-                 onChange={e => setF('person_id', e.target.value)}
-                 placeholder="e.g. 42"
-                 data-testid="timesheets-list-filter-person" />
+        <label style={{ fontSize: 12 }}>Person
+          <PersonPicker
+            value={filters.person_id}
+            onChange={(row) => setF('person_id', row?.id ? String(row.id) : '')}
+            placeholder="All people"
+            testId="timesheets-list-filter-person"
+          />
         </label>
         <label style={{ fontSize: 12, marginLeft: 'auto', flex: '1 0 200px', minWidth: 180 }}>Search
           <input className="input" type="search" value={search}
@@ -110,7 +124,7 @@ export default function TimesheetsList({ session }) {
             onChange={e => setF('include_empty', e.target.checked ? '1' : '')}
             data-testid="timesheets-list-filter-empty"
           />
-          Show empty drafts
+            Show zero-hour records
         </label>
         <button type="button" className="btn btn--ghost" onClick={reload}
                 data-testid="timesheets-list-reload">Reload</button>
@@ -188,6 +202,6 @@ function StatusBadge({ status }) {
     <span style={{
       display: 'inline-block', padding: '2px 8px', borderRadius: 999,
       background: c.bg, color: c.fg, fontSize: 11, fontWeight: 600,
-    }} data-testid={`timesheet-status-${status}`}>{status}</span>
+    }} data-testid={`timesheet-status-${status}`}>{STATUS_LABELS[status] || status}</span>
   );
 }

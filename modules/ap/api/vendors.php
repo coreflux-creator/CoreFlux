@@ -102,6 +102,9 @@ if ($method === 'GET') {
     if (!empty($_GET['type'])) { $where[] = 'v.vendor_type = :vt'; $params['vt'] = $_GET['type']; }
     if (!empty($_GET['category'])) { $where[] = 'v.vendor_category = :cat'; $params['cat'] = $_GET['category']; }
     if (!empty($_GET['company_id'])) { $where[] = 'v.company_id = :cid'; $params['cid'] = (int) $_GET['company_id']; }
+    $perPage = max(1, min(200, (int) ($_GET['limit'] ?? $_GET['per_page'] ?? 50)));
+    $page = max(1, (int) ($_GET['page'] ?? 1));
+    $offset = ($page - 1) * $perPage;
     $rows = scopedQuery(
         'SELECT v.id, v.vendor_name, v.company_id, c.name AS company_name,
                 v.vendor_type, v.vendor_category, v.payment_method, v.remit_to_email,
@@ -109,10 +112,23 @@ if ($method === 'GET') {
                 COALESCE(v.default_pwp, 0) AS default_pwp, v.last_bill_at
          FROM ap_vendors_index v
          LEFT JOIN companies c ON c.id = v.company_id AND c.tenant_id = v.tenant_id AND c.deleted_at IS NULL
-         WHERE ' . implode(' AND ', $where) . ' ORDER BY v.vendor_name ASC LIMIT 200',
+         WHERE ' . implode(' AND ', $where) . ' ORDER BY v.vendor_name ASC
+         LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
-    api_ok(['rows' => $rows]);
+    $count = scopedFind(
+        'SELECT COUNT(*) AS c
+           FROM ap_vendors_index v
+           LEFT JOIN companies c ON c.id = v.company_id AND c.tenant_id = v.tenant_id AND c.deleted_at IS NULL
+          WHERE ' . implode(' AND ', $where),
+        $params
+    );
+    api_ok([
+        'rows' => $rows,
+        'total' => (int) ($count['c'] ?? 0),
+        'page' => $page,
+        'per_page' => $perPage,
+    ]);
 }
 
 if ($method === 'POST' && ($_GET['action'] ?? '') === 'toggle_pwp') {
@@ -152,7 +168,7 @@ if ($method === 'POST') {
 
     // Optional payment details (encrypt account number if supplied in full).
     $paymentMethod = $body['payment_method'] ?? null;
-    if ($paymentMethod !== null && !in_array($paymentMethod, ['ach','wire','check','card','cash','plaid','other'], true)) {
+    if ($paymentMethod !== null && !in_array($paymentMethod, ['ach','wire','check','card','cash','plaid','mercury','other'], true)) {
         api_error('Invalid payment_method', 422);
     }
     $payAcctFull = isset($body['payment_account_full']) ? (string) $body['payment_account_full'] : null;

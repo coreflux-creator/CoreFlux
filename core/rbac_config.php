@@ -80,6 +80,14 @@ return [
         'reporting.view',
         'treasury.view',
         'accounting.coa.view',
+        'staffing.view',
+        'staffing.time.view',
+        'staffing.time.approve',
+        'staffing.time.reject',
+        'time.view',
+        'time.review',
+        'time.approve',
+        'time.reject',
         'ai.view_recommendations',
     ],
 
@@ -90,6 +98,12 @@ return [
     // ---------------------------------------------------------------------
     'employee' => [
         'people.view',
+        'staffing.view',
+        'staffing.time.view',
+        'staffing.time.create',
+        'staffing.time.submit',
+        'time.view',
+        'time.entry.self',
     ],
 
 ];

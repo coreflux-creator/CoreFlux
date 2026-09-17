@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
+
+const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 
 export default function InvoiceDetail() {
   const { id } = useParams();
@@ -10,6 +12,11 @@ export default function InvoiceDetail() {
   const [actionError, setActionError] = useState(null);
   const [sendTo, setSendTo] = useState('');
   const [showSend, setShowSend] = useState(false);
+
+  useEffect(() => {
+    const saved = data?.default_recipient?.email || '';
+    if (saved) setSendTo((current) => current || saved);
+  }, [data?.default_recipient?.email]);
 
   if (loading) return <p>Loading…</p>;
   if (error)   return <p className="error" data-testid="billing-invoice-detail-error">Error: {error.message}</p>;
@@ -35,7 +42,7 @@ export default function InvoiceDetail() {
   const approve = () => run('approve', () => api.post(`/api/v1/billing/invoices?action=approve&id=${id}`, {}));
   const post = () => run('post', () => api.post(`/api/v1/billing/invoices?action=post&id=${id}`, {}));
   const send    = () => run('send',    async () => {
-    const res = await api.post(`/api/v1/billing/invoices?action=send&id=${id}`, { to: sendTo });
+    const res = await api.post(`/api/v1/billing/invoices?action=send&id=${id}`, { to: sendTo.trim() });
     setShowSend(false);
     try {
       await api.post(`/api/v1/billing/invoices?action=post&id=${id}`, {});
@@ -69,7 +76,7 @@ export default function InvoiceDetail() {
         <div>
           <h2 style={{ margin: 0 }} data-testid="billing-invoice-detail-number">{inv.invoice_number}</h2>
           <p style={{ margin: '4px 0', color: 'var(--cf-text-secondary)', fontSize: 14 }}>{inv.client_name} · issued {inv.issue_date} · due {inv.due_date}</p>
-          <span className={`badge badge--${inv.status}`}>{inv.status.replace('_',' ')}</span>
+          <span className={`badge badge--${inv.status}`}>{statusLabel(inv.status)}</span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {canEdit && <Link className="btn btn--ghost" to={`/modules/billing/invoices/${id}/edit`} data-testid="billing-invoice-edit">Edit draft</Link>}
@@ -142,7 +149,10 @@ export default function InvoiceDetail() {
         <div data-testid="billing-invoice-send-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={(e) => e.target === e.currentTarget && setShowSend(false)}>
           <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 12, width: 'min(420px, 100%)', padding: 24 }}>
             <h3 style={{ margin: '0 0 12px' }}>Send invoice</h3>
-            <p style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>Sends an email with a public link to view the invoice. Email will be sent from your tenant's configured Reply-To.</p>
+            <p style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>
+              Sends the PDF and public link from your workspace Reply-To.
+              {data.default_recipient?.source ? ` Recipient loaded from ${data.default_recipient.source}.` : ' Save a default under Client contacts to avoid entering it again.'}
+            </p>
             <input
               type="email"
               className="input"

@@ -15,6 +15,7 @@ import ComparisonTable from '../../../dashboard/src/components/ComparisonTable';
 import GlDetailDrilldown from '../../../dashboard/src/components/GlDetailDrilldown';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import { useReportPeriod } from '../../../dashboard/src/lib/useReportPeriod';
+import { Eye, EyeOff } from 'lucide-react';
 
 export default function TrialBalance() {
   const period = useReportPeriod();
@@ -25,6 +26,7 @@ export default function TrialBalance() {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
   const [drill,   setDrill]   = useState(null);
+  const [hideZeroRows, setHideZeroRows] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,9 +53,9 @@ export default function TrialBalance() {
     .catch(e => { if (!cancelled) setError(e.message || 'Failed to load'); })
     .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [period.to, period.compareMode]);
+  }, [period.to, period.compareMode, period.priorTo, period.priorYearTo, period.showPriorPeriod, period.showPriorYear]);
 
-  const currentRows = current?.rows ?? [];
+  const currentRows = useMemo(() => current?.rows ?? [], [current?.rows]);
 
   const sums = useMemo(() => currentRows.reduce((s, r) => {
     s.debit  += Number(r.debit)  || 0;
@@ -101,6 +103,9 @@ export default function TrialBalance() {
       };
     });
   }, [current, priorPeriod, priorYear, period.from, period.to]);
+  const activityRows = rows.filter(hasMaterialBalance);
+  const visibleRows = hideZeroRows ? activityRows : rows;
+  const hiddenRowCount = rows.length - visibleRows.length;
 
   const totalRow = {
     code: '', label: 'TOTAL', kind: 'total',
@@ -125,6 +130,18 @@ export default function TrialBalance() {
         end:   d.period_to   || period.to,
         label: d.label,
       })}
+      actions={(
+        <button
+          type="button"
+          className="btn"
+          onClick={() => setHideZeroRows((value) => !value)}
+          data-testid="rpt-tb-toggle-zero-rows"
+          title={hideZeroRows ? 'Show accounts with no balance in any visible period' : 'Hide accounts with no balance'}
+        >
+          {hideZeroRows ? <Eye size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}
+          {hideZeroRows ? `Show zero rows${hiddenRowCount ? ` (${hiddenRowCount})` : ''}` : 'Hide zero rows'}
+        </button>
+      )}
       kpis={(
         <>
           <MetricCard label="Total debits"
@@ -141,9 +158,9 @@ export default function TrialBalance() {
                       testIdPrefix="rpt-tb-kpi-balanced"
                       value={balanced ? 'Balanced' : fmtMoney(sums.debit - sums.credit) + ' diff'}
                       tone={balanced ? 'positive' : 'negative'} />
-          <MetricCard label="Active accounts"
+          <MetricCard label="Accounts with activity"
                       testIdPrefix="rpt-tb-kpi-accounts"
-                      value={currentRows.length}
+                      value={activityRows.length}
                       format={(n) => Number(n).toLocaleString()} />
         </>
       )}
@@ -159,10 +176,12 @@ export default function TrialBalance() {
         testIdPrefix="rpt-tb-table"
         columns={columns}
         showVariance={false}
-        rows={rows.length === 0
+        rows={visibleRows.length === 0
           ? []
-          : [...rows, totalRow]}
-        emptyText="No posted journal entries yet."
+          : [...visibleRows, totalRow]}
+        emptyText={hideZeroRows && rows.length > 0
+          ? 'No account activity in the selected periods.'
+          : 'No posted journal entries yet.'}
       />
 
       {drill && (
@@ -170,6 +189,10 @@ export default function TrialBalance() {
       )}
     </ReportShell>
   );
+}
+
+function hasMaterialBalance(row) {
+  return Object.values(row.values || {}).some((value) => Math.abs(Number(value) || 0) >= 0.005);
 }
 
 function url(asOf) {

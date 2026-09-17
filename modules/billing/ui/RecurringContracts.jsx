@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Plus } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
 const FREQUENCY_LABEL = { monthly: 'Monthly', quarterly: 'Quarterly', annual: 'Annual' };
@@ -31,10 +32,12 @@ export default function RecurringContracts() {
         <div>
           <h3 style={{ margin: 0 }}>Recurring invoice contracts</h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--cf-text-secondary)' }}>
-            Flat-fee MRR contracts. The morning cron auto-generates drafts on each contract's <em>next due</em> date.
+            CoreFlux creates a draft invoice on each contract's next due date for your review.
           </p>
         </div>
-        <button className="btn btn--primary" onClick={() => setEditing('new')} data-testid="billing-contracts-new">+ New contract</button>
+        <button className="btn btn--primary" onClick={() => setEditing('new')} data-testid="billing-contracts-new">
+          <Plus size={15} aria-hidden="true" /> New contract
+        </button>
       </header>
 
       {loading && <p>Loading…</p>}

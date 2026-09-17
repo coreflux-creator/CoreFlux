@@ -52,7 +52,8 @@ if ($method === 'GET') {
     $stmt = $pdo->prepare(
         'SELECT id, transfer_number, transfer_kind, source_bank_account_id, destination_bank_account_id,
                 source_entity_id, destination_entity_id, amount, currency, transfer_date, memo,
-                status, workflow_instance_id, source_journal_entry_id, destination_journal_entry_id, executed_at
+                status, workflow_instance_id, source_journal_entry_id, destination_journal_entry_id,
+                failure_reason, created_at, executed_at
            FROM treasury_transfers
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY id DESC

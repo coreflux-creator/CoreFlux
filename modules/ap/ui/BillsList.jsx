@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useApiCached, bustApiCachePrefix, prefetchApi } from '../../../dashboard/src/lib/api';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { api, useApiCached, bustApiCachePrefix, prefetchApi } from '../../../dashboard/src/lib/api';
 import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
@@ -13,7 +13,8 @@ import { QboDriftBadge, useQboDriftBadges } from '../../../dashboard/src/compone
 import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import {
-  ChevronRight, CreditCard, Download, MoreHorizontal, Plus, Search, Upload,
+  BookOpenCheck, CheckCheck, ChevronLeft, ChevronRight, CreditCard, Download,
+  MoreHorizontal, Plus, Search, Upload,
 } from 'lucide-react';
 
 const STATUS_FILTERS = [
@@ -24,31 +25,71 @@ const STATUS_FILTERS = [
   { id: 'paid', label: 'Paid', countKey: 'paid_count' },
   { id: 'void', label: 'Voided', countKey: 'void_count' },
 ];
+const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 
 export default function BillsList() {
+  const navigate = useNavigate();
   const [status, setStatus] = useState('all');
   const [showFromBundle, setShowFromBundle] = useState(false);
   const [showFromEntries, setShowFromEntries] = useState(false);
   const [showSuggestRun, setShowSuggestRun] = useState(false);
+  const [searchInput, setSearchInput] = useState('');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(50);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
   const { activeEntityId, activeEntity } = useActiveEntity();
   const qs = new URLSearchParams();
   if (status !== 'all') qs.set('status', status);
   if (activeEntityId) qs.set('entity_id', String(activeEntityId));
+  if (query) qs.set('q', query);
+  qs.set('page', String(page));
+  qs.set('per_page', String(perPage));
   const path = '/modules/ap/api/bills.php' + (qs.toString() ? `?${qs}` : '');
   const { data, loading, error, reload } = useApiCached(path, { cacheKey: `ap-bills-list:${path}` });
   const rows = data?.rows ?? [];
+  const total = Number(data?.total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
   const summary = data?.summary ?? {};
   const qboDrift = useQboDriftBadges('bill', rows.map(row => row.id));
   const sel = useBulkSelection(rows.map(row => row.id));
+  const clearSelection = sel.clear;
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setQuery(searchInput.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    clearSelection();
+    setBulkResult(null);
+  }, [status, query, page, perPage, activeEntityId, clearSelection]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const {
-    items, sortKey, sortDir, search, setSearch, headerProps,
+    items, sortKey, sortDir, headerProps,
   } = useTableList(rows, {
     defaultSort: { key: 'bill_date', dir: 'desc' },
-    searchKeys: ['internal_ref', 'bill_number', 'vendor_name', 'vendor_type', 'status', 'source', 'placement_id'],
+    searchKeys: [],
     dateKeys: ['bill_date', 'due_date'],
     numericKeys: ['id', 'total', 'amount_due'],
   });
+  const selectedRows = useMemo(() => items.filter((row) => sel.has(row.id)), [items, sel.ids]); // eslint-disable-line react-hooks/exhaustive-deps
+  const approvableRows = useMemo(
+    () => selectedRows.filter((row) => ['pending_review', 'pending_approval'].includes(row.status)),
+    [selectedRows]
+  );
+  const postableRows = useMemo(
+    () => selectedRows.filter((row) => ['approved', 'partially_paid', 'paid'].includes(row.status) && !row.journal_entry_id),
+    [selectedRows]
+  );
 
   const exportSelected = () => {
     if (!sel.size) return;
@@ -56,6 +97,63 @@ export default function BillsList() {
     anchor.href = `/modules/ap/api/export.php?type=bills&ids=${sel.ids.join(',')}`;
     anchor.rel = 'noopener';
     anchor.click();
+  };
+  const approveSelected = async () => {
+    if (!approvableRows.length) return;
+    if (!confirm(
+      `Approve ${approvableRows.length} selected bill${approvableRows.length === 1 ? '' : 's'}?\n\n` +
+      'Every bill will still pass its two-eye, approval-policy, and three-way-match controls.'
+    )) return;
+
+    setBulkBusy(true); setBulkResult(null);
+    const failures = [];
+    const awaiting = [];
+    let succeeded = 0;
+    try {
+      for (const row of approvableRows) {
+        try {
+          const result = await api.post(`/modules/ap/api/bills.php?action=approve&id=${row.id}`, {});
+          if (result?.workflow_status === 'approved') succeeded += 1;
+          else awaiting.push({ id: row.id, reason: 'Waiting for another required approval.' });
+        } catch (e) {
+          failures.push({ id: row.id, reason: e?.message || String(e) });
+        }
+      }
+      sel.selectMany([...failures, ...awaiting].map((entry) => entry.id));
+      setBulkResult({ action: 'approval', succeeded, awaiting, failures });
+      bustApiCachePrefix('ap-bills-list:');
+      await reload();
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const postSelected = async () => {
+    if (!postableRows.length) return;
+    if (!confirm(
+      `Post ${postableRows.length} selected bill${postableRows.length === 1 ? '' : 's'} to the general ledger?\n\n` +
+      'CoreFlux will create balanced, idempotent journal entries. Already-posted bills are excluded.'
+    )) return;
+
+    setBulkBusy(true); setBulkResult(null);
+    const failures = [];
+    let succeeded = 0;
+    try {
+      for (const row of postableRows) {
+        try {
+          await api.post(`/modules/ap/api/bills.php?action=post&id=${row.id}`, {});
+          succeeded += 1;
+        } catch (e) {
+          failures.push({ id: row.id, reason: e?.message || String(e) });
+        }
+      }
+      sel.selectMany(failures.map((entry) => entry.id));
+      setBulkResult({ action: 'posting', succeeded, awaiting: [], failures });
+      bustApiCachePrefix('ap-bills-list:');
+      await reload();
+    } finally {
+      setBulkBusy(false);
+    }
   };
   const buildTemplateExportHref = (templateId) => {
     const params = new URLSearchParams({ template_id: String(templateId) });
@@ -88,7 +186,7 @@ export default function BillsList() {
                 key={item.id}
                 type="button"
                 data-testid={`ap-bills-filter-${item.id}`}
-                onClick={() => setStatus(item.id)}
+                onClick={() => { setStatus(item.id); setPage(1); }}
                 className={status === item.id ? 'is-active' : ''}
               >
                 {item.label}
@@ -112,12 +210,12 @@ export default function BillsList() {
               type="search"
               className="input"
               placeholder="Search vendor, bill, placement or source"
-              value={search}
-              onChange={event => setSearch(event.target.value)}
+              value={searchInput}
+              onChange={event => setSearchInput(event.target.value)}
               data-testid="ap-bills-search"
             />
           </div>
-          <span className="operational-toolbar__count" data-testid="ap-bills-match-count">{items.length} of {rows.length}</span>
+          <span className="operational-toolbar__count" data-testid="ap-bills-match-count">{items.length} on this page · {total} total</span>
           <details className="action-overflow">
             <summary className="btn" aria-label="More bill actions"><MoreHorizontal size={16} aria-hidden="true" /> More</summary>
             <div className="action-overflow__menu">
@@ -137,8 +235,24 @@ export default function BillsList() {
         {sel.size > 0 && (
           <div className="selection-bar" data-testid="ap-bills-bulk-bar">
             <span><strong>{sel.size}</strong> selected</span>
-            <button className="btn btn--primary" onClick={exportSelected} data-testid="ap-bills-export-selected">Export selected</button>
-            <button className="btn btn--ghost" onClick={sel.clear} data-testid="ap-bills-clear-selection">Clear</button>
+            <button className="btn btn--primary" onClick={approveSelected} disabled={bulkBusy || !approvableRows.length} data-testid="ap-bills-approve-selected">
+              <CheckCheck size={15} aria-hidden="true" /> Approve ({approvableRows.length})
+            </button>
+            <button className="btn btn--ghost" onClick={postSelected} disabled={bulkBusy || !postableRows.length} data-testid="ap-bills-post-selected">
+              <BookOpenCheck size={15} aria-hidden="true" /> Post to ledger ({postableRows.length})
+            </button>
+            <button className="btn btn--ghost" onClick={exportSelected} disabled={bulkBusy} data-testid="ap-bills-export-selected"><Download size={15} aria-hidden="true" /> Export</button>
+            <button className="btn btn--ghost" onClick={sel.clear} disabled={bulkBusy} data-testid="ap-bills-clear-selection">Clear</button>
+          </div>
+        )}
+
+        {bulkResult && (
+          <div className={bulkResult.failures.length ? 'error' : 'success'} data-testid="ap-bills-bulk-result" style={{ margin: '0 0 10px' }}>
+            {bulkResult.succeeded} completed {bulkResult.action}.
+            {bulkResult.awaiting?.length > 0 && <> {bulkResult.awaiting.length} awaiting another approver.</>}
+            {bulkResult.failures.length > 0 && (
+              <> {bulkResult.failures.length} need attention: {bulkResult.failures.map((failure) => `Bill ${failure.id}: ${failure.reason}`).join('; ')}</>
+            )}
           </div>
         )}
 
@@ -197,9 +311,16 @@ export default function BillsList() {
                   <td>{fmtDate(r.bill_date)}</td>
                   <td>{fmtDate(r.due_date)}</td>
                   <td className="numeric-cell">{formatCurrency(r.total, r.currency)}</td>
-                  <td className="numeric-cell">{formatCurrency(r.amount_due, r.currency)}</td>
-                  <td><span className={`badge badge--${r.status}`}>{String(r.status).replaceAll('_', ' ')}</span><QboDriftBadge entry={qboDrift[r.id]} /></td>
-                  <td><span className="source-label">{String(r.source || r.vendor_type || 'manual').replaceAll('_', ' ')}</span></td>
+                  <td className="numeric-cell">
+                    {formatCurrency(r.amount_due, r.currency)}
+                    {Number(r.payment_reserved) > 0 && (
+                      <span className="entity-secondary" title="Allocated to a draft or queued payment; not yet released">
+                        {formatCurrency(r.payment_reserved, r.currency)} reserved
+                      </span>
+                    )}
+                  </td>
+                  <td><span className={`badge badge--${r.status}`}>{statusLabel(r.status)}</span><QboDriftBadge entry={qboDrift[r.id]} /></td>
+                  <td><span className="source-label">{statusLabel(r.source || r.vendor_type || 'manual')}</span></td>
                   <td><Link to={`/modules/ap/bills/${r.id}`} className="row-open-link" aria-label={`Open bill ${r.internal_ref || r.id}`}><ChevronRight size={17} aria-hidden="true" /></Link></td>
                 </tr>
               ))}
@@ -208,8 +329,27 @@ export default function BillsList() {
         </div>
 
         <footer className="operational-footer">
-          <span>Showing {items.length} of {data?.total ?? rows.length} bills</span>
-          <span>Amounts reflect the active entity and bill status.</span>
+          <span>
+            {total > 0 ? `Showing ${(page - 1) * perPage + 1}–${Math.min(page * perPage, total)} of ${total} bills` : 'No bills'}
+          </span>
+          {total > 0 && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} data-testid="ap-bills-pagination">
+              <label htmlFor="ap-bills-per-page">Rows</label>
+              <select
+                id="ap-bills-per-page"
+                className="input"
+                value={perPage}
+                onChange={(event) => { setPerPage(Number(event.target.value)); setPage(1); }}
+                data-testid="ap-bills-per-page"
+                style={{ width: 72, paddingBlock: 4 }}
+              >
+                {[25, 50, 100, 200].map((size) => <option key={size} value={size}>{size}</option>)}
+              </select>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1 || loading} aria-label="Previous bills page" data-testid="ap-bills-page-previous"><ChevronLeft size={16} /></button>
+              <span>Page {page} of {totalPages}</span>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page >= totalPages || loading} aria-label="Next bills page" data-testid="ap-bills-page-next"><ChevronRight size={16} /></button>
+            </span>
+          )}
         </footer>
       </div>
 
@@ -220,7 +360,15 @@ export default function BillsList() {
         <BillFromTimeEntriesModal onClose={() => setShowFromEntries(false)} onCreated={() => { setShowFromEntries(false); bustApiCachePrefix('ap-bills-list:'); reload(); }} />
       )}
       {showSuggestRun && (
-        <SuggestPaymentRunModal onClose={() => setShowSuggestRun(false)} onCreated={() => { setShowSuggestRun(false); bustApiCachePrefix('ap-bills-list:'); reload(); }} />
+        <SuggestPaymentRunModal
+          entityId={activeEntityId}
+          onClose={() => setShowSuggestRun(false)}
+          onCreated={(result) => {
+            setShowSuggestRun(false);
+            bustApiCachePrefix('ap-bills-list:');
+            navigate('/modules/ap/payments', { state: { paymentRun: result } });
+          }}
+        />
       )}
     </section>
   );

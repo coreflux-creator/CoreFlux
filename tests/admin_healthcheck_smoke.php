@@ -30,8 +30,12 @@ $a('returns tally + results + ran_at',                  str_contains($api, "'res
 // Every freshly-shipped artefact must have a registered check
 $expectedChecks = [
     'db_connection',
+    'migration_ledger', 'mail_outbox_table', 'billing_items_table', 'staffing_timesheets_table', 'approval_tokens_table',
     'snapshot_history_table', 'mail_branding_table', 'digest_schedules_table', 'share_links_table',
     'oidc_session_state', 'sso_domains_table', 'client_contacts_table', 'dunning_log_table',
+    'time_entries_rate_snapshot', 'staffing_external_approval', 'billing_amount_due',
+    'billing_sent_event', 'staffing_hours_event',
+    'billing_catalog_read', 'bank_review_read', 'liquidity_read',
     'mail_branding_endpoint', 'digest_schedule_helper',
     'snapshot_renders', 'statement_renders',
     'pdf_renderer_available', 'mail_bootstrap', 'emergent_llm_key',
@@ -49,7 +53,9 @@ foreach (['ok','warn','fail','skipped'] as $s) {
 
 // individual check function helpers
 foreach ([
-    'admin_hc_db_connection', 'admin_hc_table_exists', 'admin_hc_branding_endpoint',
+    'admin_hc_db_connection', 'admin_hc_migration_ledger', 'admin_hc_table_present',
+    'admin_hc_table_exists', 'admin_hc_registry_event', 'admin_hc_billing_catalog_read',
+    'admin_hc_bank_review_read', 'admin_hc_liquidity_read', 'admin_hc_branding_endpoint',
     'admin_hc_digest_helper', 'admin_hc_snapshot_renders', 'admin_hc_statement_renders',
     'admin_hc_pdf_binary', 'admin_hc_mail_bootstrap', 'admin_hc_emergent_key',
     'admin_hc_cron_script', 'admin_hc_oidc_discovery', 'admin_hc_vite_bundle', 'admin_hc_deploy_version',
@@ -72,6 +78,9 @@ $a('UI exists',                                         is_file($uiPath));
 foreach (['admin-healthcheck','admin-healthcheck-rerun','admin-healthcheck-summary','admin-healthcheck-rows','admin-healthcheck-ran-at'] as $tid) {
     $a("testid: {$tid}",                                 str_contains($ui, $tid));
 }
+$a('admin can run pending migrations in place',         str_contains($ui, 'admin-healthcheck-migrate')
+                                                        && str_contains($ui, "api.post('/api/admin/migrate.php')"));
+$a('migration result is reported inline',               str_contains($ui, 'admin-healthcheck-migration-result'));
 $a('renders per-row dot testid (template literal)',     str_contains($ui, "data-testid={`admin-healthcheck-dot-\${r.key}`}"));
 $a('summary banner red when fail > 0',                  str_contains($ui, "tally.fail > 0 ? '#fef2f2'"));
 $a('legend includes all 4 statuses',                    str_contains($ui, '● pass') && str_contains($ui, '● warn')

@@ -66,91 +66,176 @@ function staffingEmailApprovalConsume(string $rawToken, string $action, ?string 
     if (!in_array($action, ['approve', 'reject'], true)) {
         return ['ok' => false, 'state' => 'invalid', 'timesheet_id' => 0, 'message' => "Invalid action {$action}"];
     }
-
-    $res = approvalTokenConsume($rawToken, $action, $ip);
-    if (!$res['allowed']) {
-        $reason = $res['reason'] ?? 'unknown';
-        $state  = match ($reason) {
-            'already_consumed'     => 'already_acted',
-            'expired'              => 'expired',
-            'action_not_permitted' => 'invalid',
-            'token_not_found'      => 'invalid',
-            default                => 'invalid',
-        };
-        return [
-            'ok' => false, 'state' => $state,
-            'timesheet_id' => (int) ($res['row']['subject_id'] ?? 0),
-            'message' => "Could not consume token: {$reason}",
-        ];
+    $note = trim((string) ($note ?? ''));
+    $noteLength = function_exists('mb_strlen') ? mb_strlen($note) : strlen($note);
+    if ($noteLength > 500) {
+        return ['ok' => false, 'state' => 'invalid', 'timesheet_id' => 0, 'message' => 'The note must be 500 characters or fewer.'];
     }
-
-    $row = $res['row'];
-    if (($row['subject_type'] ?? '') !== 'staffing_timesheet') {
-        return ['ok' => false, 'state' => 'invalid', 'timesheet_id' => 0, 'message' => 'Token is not for a staffing_timesheet'];
-    }
-    $headerId      = (int) $row['subject_id'];
-    $tenantId      = (int) $row['tenant_id'];
-    $approverEmail = (string) ($row['actor_email'] ?? '');
 
     $pdo = getDB();
-    $h = $pdo->prepare('SELECT * FROM staffing_timesheets WHERE tenant_id = :t AND id = :id LIMIT 1');
-    $h->execute(['t' => $tenantId, 'id' => $headerId]);
-    $header = $h->fetch(\PDO::FETCH_ASSOC);
-    if (!$header) {
-        return ['ok' => false, 'state' => 'invalid', 'timesheet_id' => $headerId, 'message' => 'Timesheet not found'];
-    }
-    if (($header['status'] ?? '') !== 'submitted') {
-        return [
-            'ok' => false, 'state' => 'already_acted',
-            'timesheet_id' => $headerId,
-            'message' => "Timesheet is {$header['status']} — someone may have already acted.",
-        ];
-    }
-
     $newStatus = $action === 'approve' ? 'approved' : 'rejected';
-    $pdo->beginTransaction();
-    try {
-        if ($newStatus === 'approved') {
-            $pdo->prepare(
-                "UPDATE staffing_timesheets
-                    SET status = 'approved',
-                        approved_at = NOW(),
-                        approved_via = 'external_email',
-                        external_approver_email = :em,
-                        approval_note = :n
-                  WHERE tenant_id = :t AND id = :id"
-            )->execute(['em' => $approverEmail, 'n' => $note, 't' => $tenantId, 'id' => $headerId]);
+    $headerId = 0;
+    $tenantId = 0;
+    $approverEmail = '';
 
-            $pdo->prepare(
-                "UPDATE time_entries
-                    SET status = 'approved', approved_at = NOW(), approved_via = 'external_email'
-                  WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
-            )->execute(['t' => $tenantId, 'tid' => $headerId]);
+    try {
+        $pdo->beginTransaction();
+
+        // Lock the token first. It is consumed only after the timesheet write
+        // succeeds, so a missing rate or transient DB failure leaves the link
+        // usable after an operator fixes the underlying problem.
+        $tokenStmt = $pdo->prepare(
+            'SELECT id, tenant_id, subject_type, subject_id, actor_email,
+                    actions_json, expires_at, consumed_at
+               FROM approval_tokens
+              WHERE token_hash = :token_hash
+              LIMIT 1 FOR UPDATE'
+        );
+        $tokenStmt->execute(['token_hash' => hash('sha256', $rawToken)]);
+        $row = $tokenStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        $tokenReason = null;
+        if (!$row) $tokenReason = 'token_not_found';
+        elseif (!empty($row['consumed_at'])) $tokenReason = 'already_consumed';
+        elseif (strtotime((string) $row['expires_at']) < time()) $tokenReason = 'expired';
+        else {
+            $allowedActions = json_decode((string) $row['actions_json'], true) ?: [];
+            if (!in_array($action, $allowedActions, true)) $tokenReason = 'action_not_permitted';
+        }
+        if ($tokenReason !== null) {
+            $pdo->rollBack();
+            $state = match ($tokenReason) {
+                'already_consumed' => 'already_acted',
+                'expired' => 'expired',
+                default => 'invalid',
+            };
+            return [
+                'ok' => false,
+                'state' => $state,
+                'timesheet_id' => (int) ($row['subject_id'] ?? 0),
+                'message' => "Could not use this approval link: {$tokenReason}",
+            ];
+        }
+        if (($row['subject_type'] ?? '') !== 'staffing_timesheet') {
+            $pdo->rollBack();
+            return ['ok' => false, 'state' => 'invalid', 'timesheet_id' => 0, 'message' => 'Token is not for a staffing_timesheet'];
+        }
+
+        $headerId = (int) $row['subject_id'];
+        $tenantId = (int) $row['tenant_id'];
+        $approverEmail = (string) ($row['actor_email'] ?? '');
+        $headerStmt = $pdo->prepare(
+            'SELECT * FROM staffing_timesheets
+              WHERE tenant_id = :tenant_id AND id = :id
+              LIMIT 1 FOR UPDATE'
+        );
+        $headerStmt->execute(['tenant_id' => $tenantId, 'id' => $headerId]);
+        $header = $headerStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if (!$header) {
+            $pdo->rollBack();
+            return ['ok' => false, 'state' => 'invalid', 'timesheet_id' => $headerId, 'message' => 'Timesheet not found'];
+        }
+        if (($header['status'] ?? '') !== 'submitted') {
+            $pdo->rollBack();
+            return [
+                'ok' => false,
+                'state' => 'already_acted',
+                'timesheet_id' => $headerId,
+                'message' => "Timesheet is {$header['status']} — someone may have already acted.",
+            ];
+        }
+
+        if ($newStatus === 'approved') {
+            require_once __DIR__ . '/../modules/staffing/lib/timesheets.php';
+            $snapshots = staffingTimesheetApprovalPlan(null, $header, $tenantId);
+            staffingTimesheetApplyApproval(null, $headerId, $snapshots, [
+                'tenant_id' => $tenantId,
+                'header_approved_via' => 'external_email',
+                'entry_approved_via' => 'tokenized_client_email',
+                'external_approver_email' => $approverEmail,
+                'approval_note' => $note !== '' ? $note : null,
+            ]);
         } else {
-            $reason = $note ?: 'Rejected by external approver';
-            $pdo->prepare(
+            $reason = $note !== '' ? $note : 'Rejected by external approver';
+            $headerUpdate = $pdo->prepare(
                 "UPDATE staffing_timesheets
                     SET status = 'rejected',
+                        approved_at = NULL,
+                        approved_by_user_id = NULL,
                         rejected_at = NOW(),
                         approved_via = 'external_email',
-                        external_approver_email = :em,
-                        rejection_reason = :r
-                  WHERE tenant_id = :t AND id = :id"
-            )->execute(['em' => $approverEmail, 'r' => $reason, 't' => $tenantId, 'id' => $headerId]);
-
-            $pdo->prepare(
+                        external_approver_email = :external_email,
+                        rejection_reason = :reason
+                  WHERE tenant_id = :tenant_id AND id = :id AND status = 'submitted'"
+            );
+            $headerUpdate->execute([
+                'external_email' => $approverEmail,
+                'reason' => $reason,
+                'tenant_id' => $tenantId,
+                'id' => $headerId,
+            ]);
+            if ($headerUpdate->rowCount() !== 1) {
+                throw new \RuntimeException('The timesheet changed while the rejection was being recorded.');
+            }
+            $entryUpdate = $pdo->prepare(
                 "UPDATE time_entries
-                    SET status = 'rejected', rejected_reason = :r
-                  WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
-            )->execute(['t' => $tenantId, 'tid' => $headerId, 'r' => $reason]);
+                    SET status = 'rejected',
+                        rejected_reason = :reason,
+                        approved_at = NULL,
+                        approved_by_user_id = NULL
+                  WHERE tenant_id = :tenant_id
+                    AND timesheet_id = :timesheet_id
+                    AND status = 'pending_review'"
+            );
+            $entryUpdate->execute([
+                'tenant_id' => $tenantId,
+                'timesheet_id' => $headerId,
+                'reason' => $reason,
+            ]);
+            if ($entryUpdate->rowCount() < 1) {
+                throw new \RuntimeException('This timesheet has no submitted entries to reject.');
+            }
+        }
+
+        $consume = $pdo->prepare(
+            'UPDATE approval_tokens
+                SET consumed_at = NOW(), consumed_via_action = :action, consumed_ip = :ip
+              WHERE tenant_id = :tenant_id AND id = :id AND consumed_at IS NULL'
+        );
+        $consume->execute([
+            'action' => $action,
+            'ip' => $ip,
+            'tenant_id' => $tenantId,
+            'id' => (int) $row['id'],
+        ]);
+        if ($consume->rowCount() !== 1) {
+            throw new \RuntimeException('This approval link was used in another session.');
         }
         $pdo->commit();
-    } catch (\Throwable $e) {
+    } catch (\PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('[staffing-email-approval] database write failed: ' . $e->getMessage());
+        return [
+            'ok' => false,
+            'state' => 'invalid',
+            'timesheet_id' => $headerId,
+            'message' => 'CoreFlux could not record the decision. The link is still valid; please try again.',
+        ];
+    } catch (\RuntimeException|\InvalidArgumentException $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         return [
-            'ok' => false, 'state' => 'invalid',
+            'ok' => false,
+            'state' => 'needs_attention',
             'timesheet_id' => $headerId,
-            'message' => 'DB write failed: ' . $e->getMessage(),
+            'message' => $e->getMessage() . ' The link remains valid after the issue is corrected.',
+        ];
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('[staffing-email-approval] approval failed: ' . $e->getMessage());
+        return [
+            'ok' => false,
+            'state' => 'invalid',
+            'timesheet_id' => $headerId,
+            'message' => 'CoreFlux could not record the decision. The link is still valid; please try again.',
         ];
     }
 

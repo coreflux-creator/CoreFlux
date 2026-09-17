@@ -6,9 +6,10 @@ import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api'
  * Timesheet Detail — Batch 2 (2026-02) + inline-edit (2026-02 follow-up).
  *
  * Drill-in view for a single timesheet, with row-level editing wired
- * directly to the existing `entry_save` / `entry_delete` API endpoints
- * (which auto-reopen submitted/approved sheets via
- * `staffingTimesheetReopen()` — see modules/staffing/lib/timesheets.php).
+ * directly to the existing `entry_save` / `entry_delete` API endpoints.
+ * Submitted sheets reopen automatically when a correction is saved;
+ * approved or downstream-ready sheets stay immutable because they may
+ * already be the source of accounting, billing, AP, or payroll records.
  *
  * Why this exists: operators reported "we're back to issues with
  * timesheets. I see where they're available individually, but they
@@ -19,10 +20,10 @@ import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api'
  *
  * Action surface by status:
  *   - draft      → inline edit on every row, "Add entry" form, Submit.
- *   - submitted  → Approve + Reject + Re-open for edit + still-inline-
- *                  editable rows (auto-reopen happens server-side on save).
- *   - approved   → Re-open for edit (gated by timesheets.write); rows
- *                  read-only until reopened.
+ *   - submitted  → Approve + Reject; rows remain inline-editable and a
+ *                  saved correction returns the sheet to draft.
+ *   - approved   → read-only; inspect the downstream lifecycle before a
+ *                  correcting entry/reversal workflow.
  *   - rejected   → inline editable, Re-submit at the bottom.
  *   - locked / payroll_ready / billing_ready → read-only; show a notice
  *                  that downstream lines must be reversed first.
@@ -42,7 +43,16 @@ const HOUR_TYPES = [
   { v: 'nonbillable', l: 'Non-billable', billable: false },
 ];
 
-const READ_ONLY_STATUSES = ['locked', 'payroll_ready', 'billing_ready'];
+const READ_ONLY_STATUSES = ['approved', 'locked', 'payroll_ready', 'billing_ready'];
+const STATUS_LABELS = {
+  draft: 'Draft',
+  submitted: 'Submitted for approval',
+  approved: 'Approved',
+  rejected: 'Needs correction',
+  locked: 'Locked',
+  payroll_ready: 'Ready for payroll',
+  billing_ready: 'Ready for billing',
+};
 
 export default function TimesheetDetail({ session }) {
   const { id } = useParams();
@@ -53,7 +63,7 @@ export default function TimesheetDetail({ session }) {
     : `/modules/staffing/api/timesheets.php?action=detail&id=${id}`;
   const { data, loading, error, reload, mutate } = useApi(apiPath, [apiPath]);
   const ts      = data?.timesheet;
-  const entries = data?.entries ?? [];
+  const entries = useMemo(() => data?.entries ?? [], [data?.entries]);
 
   // Helper: build an optimistic patch into `data`. Server returns the
   // bare time_entries row + the updated header; the page also needs
@@ -124,7 +134,7 @@ export default function TimesheetDetail({ session }) {
       : null,
     [ts?.person_id]
   );
-  const placements = placementsApi.data?.rows ?? [];
+  const placements = useMemo(() => placementsApi.data?.rows ?? [], [placementsApi.data?.rows]);
 
   // Reset edit buffer + bulk result only when a different timesheet
   // is loaded (don't wipe pending edits on optimistic patches).
@@ -166,10 +176,9 @@ export default function TimesheetDetail({ session }) {
 
   const isReadOnly = READ_ONLY_STATUSES.includes(ts.status);
   const isApproved = ts.status === 'approved';
-  // Submitted + rejected + draft are all inline-editable. Approved
-  // requires explicit reopen first (preserves SoD intent: an approver
-  // can't silently mutate a row a worker already signed off on).
-  const canEditRows = !isReadOnly && !isApproved;
+  // Submitted + rejected + draft are inline-editable. Approved and
+  // downstream-ready sheets are immutable financial source records.
+  const canEditRows = !isReadOnly;
 
   const act = async (action, extra = {}) => {
     setBusy(true); setActionError(null);
@@ -187,18 +196,6 @@ export default function TimesheetDetail({ session }) {
       // is a filter in the list view — bust every cached filter slice.
       bustApiCachePrefix('timesheets-list:');
       setRejecting(false); setReason('');
-    } catch (e) { setActionError(e.message); }
-    finally { setBusy(false); }
-  };
-
-  const reopenForEdit = async () => {
-    setBusy(true); setActionError(null);
-    try {
-      const result = await api.post('/modules/staffing/api/timesheets.php?action=reopen',
-        { id: ts.id, reason: 'inline edit from detail page' });
-      if (result?.timesheet) applyHeaderUpdate(result.timesheet);
-      else reload();
-      bustApiCachePrefix('timesheets-list:');
     } catch (e) { setActionError(e.message); }
     finally { setBusy(false); }
   };
@@ -379,13 +376,6 @@ export default function TimesheetDetail({ session }) {
                 data-testid="timesheet-detail-view-lifecycle">
             View downstream cascade →
           </Link>
-          {isApproved && (
-            <button type="button" className="btn btn--ghost" disabled={busy}
-                    onClick={reopenForEdit}
-                    data-testid="timesheet-detail-reopen">
-              {busy ? '…' : 'Re-open for edit'}
-            </button>
-          )}
           {isSubmitted && !rejecting && (
             <>
               <button type="button" className="btn btn--primary" disabled={busy}
@@ -436,13 +426,13 @@ export default function TimesheetDetail({ session }) {
       {isReadOnly && (
         <p data-testid="timesheet-detail-readonly-notice"
            style={{ background: '#f3f4f6', padding: 10, borderRadius: 4, fontSize: 13, color: '#475569' }}>
-          This timesheet is <strong>{ts.status}</strong>. Rows are read-only — the downstream payroll/billing lines must be reversed before edits can land.
+          This timesheet is <strong>{STATUS_LABELS[ts.status] || ts.status}</strong>. Rows are read-only because this time can already feed accounting, billing, vendor bills, or payroll.
         </p>
       )}
       {isApproved && (
         <p data-testid="timesheet-detail-approved-notice"
            style={{ background: '#ecfdf5', padding: 10, borderRadius: 4, fontSize: 13, color: '#065f46' }}>
-          Approved on {ts.approved_at || '—'}. Click <strong>Re-open for edit</strong> if a correction is needed.
+          Approved on {ts.approved_at || '—'}. Use <strong>View downstream cascade</strong> to review what this approval created before recording a correction or reversing a downstream record.
         </p>
       )}
       {actionError && <p className="error" data-testid="timesheet-detail-action-error">{actionError}</p>}
@@ -720,10 +710,10 @@ function AddEntryRow({ timesheet, placements, defaultPlacementId, onSaved }) {
 
   // Re-seed placement when the list loads asynchronously.
   useEffect(() => {
-    if (!form.placement_id && placements[0]?.id) {
-      setForm(f => ({ ...f, placement_id: placements[0].id }));
-    }
-  }, [placements.length]);
+    setForm(f => (!f.placement_id && placements[0]?.id
+      ? { ...f, placement_id: placements[0].id }
+      : f));
+  }, [placements]);
 
   const submit = async () => {
     setBusy(true); setError(null);
@@ -851,6 +841,6 @@ function StatusBadge({ status }) {
     <span style={{
       display: 'inline-block', padding: '2px 8px', borderRadius: 999,
       background: c.bg, color: c.fg, fontSize: 11, fontWeight: 600,
-    }} data-testid={`timesheet-status-${status}`}>{status}</span>
+    }} data-testid={`timesheet-status-${status}`}>{STATUS_LABELS[status] || status}</span>
   );
 }

@@ -174,6 +174,7 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel }) 
                   <option value="check">Check</option>
                   <option value="card">Credit card</option>
                   <option value="plaid">Plaid</option>
+                  <option value="mercury">Mercury</option>
                   <option value="other">Other</option>
                 </select>
               </Field>

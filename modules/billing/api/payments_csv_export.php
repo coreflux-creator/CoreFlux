@@ -62,10 +62,13 @@ exportDatasetAudit($tenantId, $userId ?: null, 'billing.payment.exported', null,
 ], $datasetOptions));
 
 (new CsvExportService([
+    'payment_id'         => 'Payment ID',
     'client_name'        => 'Client name',
     'received_at'        => 'Received at',
     'method'             => 'Method',
     'reference'          => 'Reference',
+    'external_id'        => 'External ID (audit / integration)',
+    'source_system'      => 'Source system',
     'amount'             => 'Amount',
     'currency'           => 'Currency',
     'unallocated_amount' => 'Unallocated',

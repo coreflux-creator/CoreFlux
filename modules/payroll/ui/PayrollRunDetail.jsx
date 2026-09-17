@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
 import AISuggestion from '../../../dashboard/src/components/AISuggestion';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
+import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
 
 const fmtMoney = (cents) =>
   ((cents || 0) / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 
 export default function PayrollRunDetail() {
   const { runId } = useParams();
@@ -14,30 +16,33 @@ export default function PayrollRunDetail() {
   const [aiEnvelope, setAiEnvelope] = useState(null);
   const [aiError, setAiError] = useState(null);
   const [error, setError] = useState(null);
+  const [warning, setWarning] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [preflightSummary, setPreflightSummary] = useState(null);
   const [anomalies, setAnomalies] = useState([]);
   const [anomaliesLoading, setAnomaliesLoading] = useState(false);
   const [anomalySummary, setAnomalySummary] = useState(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const d = await api.get(`/api/v1/payroll/runs?id=${runId}`);
       setData(d);
     } catch (e) { setError(e.message); }
-  };
+  }, [runId]);
 
-  const loadAnomalies = async () => {
+  const loadAnomalies = useCallback(async () => {
     setAnomaliesLoading(true);
     try {
       const r = await api.get(`/api/v1/payroll/anomalies?run_id=${runId}`);
       setAnomalies(r.findings || []);
     } catch (e) { /* swallow — panel just hides */ }
     finally { setAnomaliesLoading(false); }
-  };
+  }, [runId]);
 
-  useEffect(() => { load(); loadAnomalies(); }, [runId]);
+  useEffect(() => { load(); loadAnomalies(); }, [load, loadAnomalies]);
 
   const compute = async () => {
-    setBusy('compute'); setError(null);
+    setBusy('compute'); setError(null); setWarning(null); setNotice(null);
     try {
       await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'compute' });
       await load();
@@ -46,19 +51,39 @@ export default function PayrollRunDetail() {
   };
 
   const approve = async () => {
-    setBusy('approve');
+    setBusy('approve'); setError(null); setWarning(null); setNotice(null);
     try {
-      await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'approve' });
+      const result = await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'approve' });
       await load();
-    } finally { setBusy(null); }
+      if (result.accounting_warning) {
+        setWarning(`Run approved. Ledger posting still needs attention: ${result.accounting_warning}`);
+      } else {
+        setNotice(result.status === 'approved' ? 'Run approved and accounting updated.' : 'Your approval was recorded. The run is waiting for the remaining approver.');
+      }
+    } catch (e) { setError(e.message); } finally { setBusy(null); }
   };
 
   const markPaid = async () => {
-    setBusy('paid');
+    if (!window.confirm(`Mark payroll run #${runId} paid for ${fmtMoney(data?.run?.net_total_cents)}? This records the disbursement and posts the cash leg to the ledger.`)) return;
+    setBusy('paid'); setError(null); setWarning(null); setNotice(null);
     try {
-      await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'paid' });
+      const result = await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'paid' });
       await load();
-    } finally { setBusy(null); }
+      if (result.accounting_warning) {
+        setWarning(`Run marked paid. Cash posting still needs attention: ${result.accounting_warning}`);
+      } else {
+        setNotice('Run marked paid and the cash entry was posted.');
+      }
+    } catch (e) { setError(e.message); } finally { setBusy(null); }
+  };
+
+  const postLedger = async () => {
+    setBusy('post'); setError(null); setWarning(null); setNotice(null);
+    try {
+      await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'post' });
+      await load();
+      setNotice('Payroll accounting entries are up to date.');
+    } catch (e) { setError(e.message); } finally { setBusy(null); }
   };
 
   const askAi = async () => {
@@ -93,23 +118,29 @@ export default function PayrollRunDetail() {
   if (!data?.run) return <p>Loading…</p>;
   const run = data.run;
   const lines = data.lines || [];
+  const accounting = data.accounting || {};
+  const preflightBlocksRun = preflightSummary
+    && (!preflightSummary.ready_to_run || Number(preflightSummary.total_w2_employees || 0) === 0);
+  const ledgerNeedsPost = (accounting.accrual_required && !accounting.accrual_posted)
+    || (accounting.cash_required && !accounting.cash_posted);
 
   return (
     <section className="payroll-run-detail" data-testid="payroll-run-detail">
       <header className="payroll-run-detail__header">
         <div>
-          <h2>Payroll Run #{run.id}</h2>
+          <h2>Payroll run #{run.id}</h2>
           <p className="muted">
-            Period {run.period_start} → {run.period_end} · Pay date {run.pay_date} ·{' '}
-            <span className={`badge badge--${run.status}`}>{run.status}</span>
+            {run.cycle_name || run.schedule_name || 'Payroll'} · Period {run.period_start} → {run.period_end} · Pay date {run.pay_date} ·{' '}
+            <span className={`badge badge--${run.status}`}>{statusLabel(run.status)}</span>
           </p>
         </div>
         <div className="payroll-run-detail__actions">
           {run.status === 'draft' && (
             <button
               className="btn btn--primary"
-              onClick={compute} disabled={busy === 'compute'}
+              onClick={compute} disabled={busy === 'compute' || preflightSummary === null || preflightBlocksRun}
               data-testid="payroll-run-compute"
+              title={preflightBlocksRun ? 'Resolve payroll preflight blockers first' : undefined}
             >
               {busy === 'compute' ? 'Computing…' : 'Compute payroll'}
             </button>
@@ -125,7 +156,7 @@ export default function PayrollRunDetail() {
               </button>
               <button
                 className="btn btn--primary"
-                onClick={approve} disabled={busy === 'approve'}
+                onClick={approve} disabled={busy === 'approve' || lines.length === 0 || preflightBlocksRun}
                 data-testid="payroll-run-approve"
               >
                 Approve run
@@ -141,10 +172,43 @@ export default function PayrollRunDetail() {
               Mark paid
             </button>
           )}
+          {['approved', 'paid'].includes(run.status) && ledgerNeedsPost && (
+            <button
+              className="btn btn--ghost"
+              onClick={postLedger}
+              disabled={busy === 'post'}
+              data-testid="payroll-run-post-ledger"
+            >
+              {busy === 'post' ? 'Posting…' : 'Post to ledger'}
+            </button>
+          )}
         </div>
       </header>
 
       {error && <p className="error">{error}</p>}
+      {warning && (
+        <p data-testid="payroll-run-warning" style={{ padding: 12, color: '#92400e', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 6 }}>
+          {warning}
+        </p>
+      )}
+      {notice && <p className="success" data-testid="payroll-run-notice">{notice}</p>}
+
+      {run.status === 'draft' && run.pay_period_id && (
+        <CsvUploadWidget
+          testIdPrefix={`payroll-run-${run.id}-csv`}
+          endpoint="/api/payroll/import_csv.php"
+          extraFields={{ pay_period_id: run.pay_period_id, run_type: run.run_type || 'regular' }}
+          templateHref={`/api/payroll/import_csv.php?action=template&pay_period_id=${run.pay_period_id}`}
+          templateLabel="Download employee template"
+          accept=".csv,text/csv"
+          label="Import a completed payroll register"
+          hint="Use employee number, employee ID, work email, or full name. Gross and net are required; pay setup fills optional rate, frequency, state, and payment method fields. The entire file is checked before this draft is updated."
+          onSuccess={async () => {
+            await load();
+            await loadAnomalies();
+          }}
+        />
+      )}
 
       {run.status !== 'draft' && (
         <GustoSyncPanel run={run} reload={load} runId={parseInt(runId, 10)} />
@@ -178,8 +242,15 @@ export default function PayrollRunDetail() {
       </div>
 
       {run.pay_period_id && (
-        <PayrollPreflightCard periodId={run.pay_period_id} />
+        <PayrollPreflightCard periodId={run.pay_period_id} onChange={setPreflightSummary} />
       )}
+
+      <PayrollAccountingCard
+        accounting={accounting}
+        run={run}
+        busy={busy === 'post'}
+        onPost={postLedger}
+      />
 
       {run.status !== 'draft' && (
         <section className="payroll-run-detail__ai">
@@ -331,14 +402,85 @@ export default function PayrollRunDetail() {
   );
 }
 
+function PayrollAccountingCard({ accounting, run, busy, onPost }) {
+  const status = run.status;
+  const canPost = ['approved', 'paid'].includes(status);
+  const needsPost = (accounting.accrual_required && !accounting.accrual_posted)
+    || (accounting.cash_required && !accounting.cash_posted);
+
+  return (
+    <section
+      className="payroll-run-detail__accounting"
+      data-testid="payroll-run-accounting"
+      style={{ margin: '16px 0', padding: 14, background: '#f8fbff', border: '1px solid #cfe2f5', borderRadius: 6 }}
+    >
+      <header className="payroll-run-detail__section-head">
+        <div>
+          <h3 style={{ marginBottom: 3 }}>Accounting</h3>
+          <p className="muted" style={{ margin: 0 }}>
+            {accounting.auto_post ? 'Automatic ledger posting is on.' : 'Automatic posting is off; post each approved run here.'}
+          </p>
+        </div>
+        {canPost && needsPost && (
+          <button className="btn btn--primary" onClick={onPost} disabled={busy} data-testid="payroll-accounting-retry">
+            {busy ? 'Posting…' : 'Post missing entries'}
+          </button>
+        )}
+      </header>
+
+      {accounting.issues?.length > 0 && (
+        <div data-testid="payroll-accounting-issues" style={{ marginTop: 10, color: '#92400e' }}>
+          <strong>Finish the account mapping before this run can post.</strong>
+          <ul style={{ margin: '6px 0 8px 20px' }}>
+            {accounting.issues.map((issue) => <li key={issue}>{issue}</li>)}
+          </ul>
+          <Link to="/modules/payroll/settings">Open payroll accounting settings</Link>
+        </div>
+      )}
+
+      {accounting.issues?.length === 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginTop: 10 }}>
+          <LedgerPostingStatus
+            label="Payroll accrual"
+            required={accounting.accrual_required}
+            posted={accounting.accrual_posted}
+            journalId={accounting.journal_entry_id}
+          />
+          <LedgerPostingStatus
+            label="Net-pay cash"
+            required={accounting.cash_required}
+            posted={accounting.cash_posted}
+            journalId={accounting.cash_journal_entry_id}
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LedgerPostingStatus({ label, required, posted, journalId }) {
+  return (
+    <div style={{ minWidth: 190 }}>
+      <span className="muted" style={{ display: 'block', fontSize: 12 }}>{label}</span>
+      {!required && <strong>Not due yet</strong>}
+      {required && !posted && <strong style={{ color: '#b45309' }}>Needs posting</strong>}
+      {required && posted && (
+        <strong style={{ color: '#047857' }}>
+          Posted · <Link to={`/modules/accounting/journal-entries/${journalId}`}>JE #{journalId}</Link>
+        </strong>
+      )}
+    </div>
+  );
+}
+
 
 /**
  * Gusto sync polish — three states:
  *   1. Not yet synced       → download CSV + "Mark synced to Gusto" form
  *   2. Synced (submitted)   → show Gusto run ID + URL, "Mark paid in Gusto" button, Unlink
  *   3. Paid in Gusto        → show paid badge + Unlink (rare, e.g. wrong ID pasted)
- * The "Mark paid in Gusto" button records that Gusto handled disbursement,
- * which the future post-to-GL code reads to suppress duplicate cash-leg JEs.
+ * The "Mark paid in Gusto" button records the disbursement and lets the
+ * idempotent accounting bridge post the net-pay cash leg exactly once.
  */
 function GustoSyncPanel({ run, reload, runId }) {
   const [busy, setBusy] = React.useState(null);
@@ -361,6 +503,9 @@ function GustoSyncPanel({ run, reload, runId }) {
     try {
       const res = await api.post('/api/v1/payroll/runs', { run_id: runId, action, ...body });
       await reload();
+      if (res.accounting_warning) {
+        setErr(`Run updated, but accounting still needs attention: ${res.accounting_warning}`);
+      }
       return res;
     } catch (e) {
       setErr(e.message || String(e));
@@ -537,7 +682,7 @@ function GustoSyncPanel({ run, reload, runId }) {
               data-testid="payroll-run-gusto-submit-result"
               style={{ marginTop: 8, fontSize: 12 }}
             >
-              ✓ Submitted to Gusto · status: {submitResult.submission_status} ·{' '}
+              Submitted to Gusto · status: {statusLabel(submitResult.submission_status)} ·{' '}
               {submitResult.matched_employees} employee(s) matched
               {submitResult.skipped?.length ? ` · ${submitResult.skipped.length} skipped` : ''}
             </p>
@@ -625,7 +770,7 @@ function GustoSyncPanel({ run, reload, runId }) {
                 data-testid="payroll-run-gusto-mark-paid-btn"
                 disabled={busy === 'mark_gusto_paid'}
                 onClick={() => {
-                  if (window.confirm('Confirm Gusto reports this run as paid? CoreFlux will mark this run paid and skip the duplicate cash-leg GL post when the run posts to Accounting.')) {
+                  if (window.confirm('Confirm Gusto reports this run as paid? CoreFlux will mark the run paid and idempotently post the net-pay cash entry to Accounting.')) {
                     post('mark_gusto_paid');
                   }
                 }}
@@ -653,27 +798,45 @@ function GustoSyncPanel({ run, reload, runId }) {
 }
 
 
-function PayrollPreflightCard({ periodId }) {
+function PayrollPreflightCard({ periodId, onChange }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err,  setErr]  = useState(null);
   const [open, setOpen] = useState(true);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setBusy(true); setErr(null);
     api.get(`/api/v1/payroll/preflight?period_id=${periodId}`)
-      .then((d) => { if (!cancelled) setData(d); })
-      .catch((e) => { if (!cancelled) setErr(e.message); })
+      .then((d) => {
+        if (!cancelled) {
+          setData(d);
+          onChange?.(d.summary || null);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setErr(e.message);
+          onChange?.(null);
+        }
+      })
       .finally(() => { if (!cancelled) setBusy(false); });
     return () => { cancelled = true; };
-  }, [periodId]);
+  }, [periodId, refreshToken, onChange]);
 
   if (busy && !data) {
     return <p className="muted" data-testid="payroll-preflight-loading">Running preflight checks…</p>;
   }
   if (err) {
-    return <p className="error" data-testid="payroll-preflight-error">Preflight failed: {err}</p>;
+    return (
+      <div className="error" data-testid="payroll-preflight-error" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <span>Preflight failed: {err}</span>
+        <button type="button" className="btn btn--ghost" onClick={() => setRefreshToken((value) => value + 1)}>
+          Retry checks
+        </button>
+      </div>
+    );
   }
   if (!data) return null;
 
@@ -682,7 +845,9 @@ function PayrollPreflightCard({ periodId }) {
   const bg   = summary.ready_to_run ? '#ecfdf5' : (summary.blockers > 0 ? '#fef2f2' : '#fffbeb');
   const headline = summary.ready_to_run
     ? `${summary.total_w2_employees} employees ready to run`
-    : (summary.blockers > 0
+    : (summary.total_w2_employees === 0
+        ? 'No employees are enrolled in this pay period'
+        : summary.blockers > 0
         ? `${summary.blockers} blocker${summary.blockers === 1 ? '' : 's'} across ${employees.filter((e) => !e.ready).length} employee${employees.filter((e) => !e.ready).length === 1 ? '' : 's'}`
         : `${summary.warnings} warning${summary.warnings === 1 ? '' : 's'} — review before submit`);
 
@@ -701,21 +866,36 @@ function PayrollPreflightCard({ periodId }) {
         <strong style={{ color: tone }}>
           Preflight: {headline}
         </strong>
-        <button
-          type="button"
-          className="btn btn--ghost"
-          data-testid="payroll-preflight-toggle"
-          style={{ padding: '2px 10px', fontSize: 12 }}
-        >
-          {open ? 'Hide details' : 'Show details'}
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            data-testid="payroll-preflight-refresh"
+            disabled={busy}
+            onClick={(event) => {
+              event.stopPropagation();
+              setRefreshToken((value) => value + 1);
+            }}
+            style={{ padding: '2px 10px', fontSize: 12 }}
+          >
+            {busy ? 'Checking…' : 'Run checks again'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            data-testid="payroll-preflight-toggle"
+            style={{ padding: '2px 10px', fontSize: 12 }}
+          >
+            {open ? 'Hide details' : 'Show details'}
+          </button>
+        </div>
       </header>
       {open && (
         <div style={{ marginTop: 12 }}>
           {employees.length === 0 && (
             <p className="muted" data-testid="payroll-preflight-empty">
               No W2 employees enrolled on this schedule. Enable payroll profiles
-              under Payroll → Profiles for each W2 employee on this schedule.
+              under <Link to="/modules/payroll/profiles">Employee setup</Link> for each W2 employee on this schedule.
             </p>
           )}
           {employees.map((e) => (
@@ -786,7 +966,7 @@ function GustoPreviewPanel({ result, onClose }) {
         </button>
       </header>
       <p className="muted" style={{ fontSize: 12, margin: '0 0 10px' }}>
-        Gusto payroll {gp.uuid} · {gp.period_start} → {gp.period_end} · status {gp.status}
+        Gusto payroll {gp.uuid} · {gp.period_start} → {gp.period_end} · status {statusLabel(gp.status)}
       </p>
 
       {employees.length > 0 && (

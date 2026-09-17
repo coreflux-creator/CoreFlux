@@ -9,7 +9,7 @@ import React from 'react';
  *   - cost badge ($/per-item + percentage)
  *   - settlement-window badge (e.g. "T+1" or "T+0 same-day")
  *   - feature pills (same-day ACH, RTP, pre-approval, funding link required)
- *   - fallback chain ("If declined, falls back to NACHA")
+ *   - a manual backup option when an online rail is unavailable
  *   - pros / cons bullet lists
  *
  * Data comes from /core/api/payment_rails.php (paymentRailsList()).
@@ -87,7 +87,7 @@ export function RailCard({ rail, selected, onSelect, testIdPrefix = 'rail' }) {
 
       {m.fallback_to && (
         <p style={{ margin: 0, fontSize: 11, color: 'var(--cf-text-secondary, #6b7280)' }} data-testid={`${testIdPrefix}-fallback-${rail.id}`}>
-          If origination fails, falls back to <strong>{m.fallback_to}</strong>.
+          If the online payment cannot be sent, download a <strong>{fallbackLabel(m.fallback_to)}</strong> file instead.
         </p>
       )}
 
@@ -103,6 +103,11 @@ export function RailCard({ rail, selected, onSelect, testIdPrefix = 'rail' }) {
       ) : null}
     </button>
   );
+}
+
+function fallbackLabel(railId) {
+  if (railId === 'nacha') return 'NACHA';
+  return String(railId || 'backup payment').replaceAll('_', ' ');
 }
 
 function Pill({ children, bg, fg, testid }) {

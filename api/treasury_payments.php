@@ -53,7 +53,7 @@ if ($method === 'GET') {
         'SELECT id, payment_number, entity_id, payee_type, payee_id, payee_name,
                 amount, currency, payment_date, payment_method, bank_account_id,
                 counterparty_account_id, memo, status, workflow_instance_id,
-                journal_entry_id, external_ref, created_at, executed_at
+                journal_entry_id, external_ref, failure_reason, created_at, executed_at
            FROM treasury_payments
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY id DESC

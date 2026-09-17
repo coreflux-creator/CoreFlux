@@ -47,7 +47,7 @@ if ($method === 'GET') {
         'to'           => $_GET['to']   ?? null,
     ], fn ($v) => $v !== null && $v !== '' && $v !== 0);
 
-    $rows = timeSettlementReady($target, $filters);
+    $rows = timeSettlementCandidates($target, $filters);
 
     // Group by (placement_id, work_date) — each day is its own block.
     $blocks = [];
@@ -57,9 +57,25 @@ if ($method === 'GET') {
             $cycleInfo = timeSettlementCycleForTarget($target, $r);
             $cycle = $cycleInfo['cycle'];
             $anchor = $cycleInfo['anchor'];
+            $ready = !empty($r['target_ready']);
+            $blockedReason = null;
+            if (!$ready) {
+                $blockedReason = match ($target) {
+                    'billing' => 'Placement Economics needs an active receivable party routed to AR.',
+                    'ap' => 'Placement Economics needs an active payable party routed to AP.',
+                    'payroll' => 'Placement Economics needs an active payable party routed to Payroll.',
+                };
+            }
             $blocks[$key] = [
                 'placement_id'   => (int) $r['placement_id'],
+                'placement_title'=> $r['placement_title'] ?: null,
+                'end_client_name'=> $r['end_client_name'] ?: null,
+                'person_id'      => (int) $r['person_id'],
+                'person_name'    => trim((string) (($r['person_first_name'] ?? '') . ' ' . ($r['person_last_name'] ?? ''))) ?: null,
+                'person_email'   => $r['person_email'] ?: null,
                 'work_date'      => $r['work_date'],
+                'ready'          => $ready,
+                'blocked_reason' => $blockedReason,
                 'cycle_default'  => $cycle,
                 'cycle_id'       => $cycleInfo['cycle_id'],
                 'cycle_name'     => $cycleInfo['cycle_name'],
@@ -82,6 +98,8 @@ if ($method === 'GET') {
     api_ok([
         'target' => $target,
         'count'  => count($rows),
+        'ready_count' => count(array_filter($rows, static fn(array $row): bool => !empty($row['target_ready']))),
+        'blocked_count' => count(array_filter($rows, static fn(array $row): bool => empty($row['target_ready']))),
         'blocks' => array_values($blocks),
     ]);
 }

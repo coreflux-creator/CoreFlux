@@ -265,8 +265,8 @@ export default function ListGraphql() {
               <td><Link to={`../${p.id}`}>{p.title || '(untitled)'}</Link></td>
               <td>{p.person ? `${p.person.firstName ?? ''} ${p.person.lastName ?? ''}`.trim() || '—' : '—'}</td>
               <td>{p.endClientName || '—'}</td>
-              <td>{p.engagementType || '—'}</td>
-              <td><span className={`badge badge--${p.status}`}>{p.status}</span></td>
+              <td>{formatPlacementValue(p.engagementType)}</td>
+              <td><span className={`badge badge--${p.status}`}>{formatPlacementValue(p.status)}</span></td>
               <td>{p.startDate || '—'}</td>
               <td>{p.dueDate || '—'}</td>
               <td>{p.endDate || '—'}</td>
@@ -282,4 +282,13 @@ export default function ListGraphql() {
       </div>
     </section>
   );
+}
+
+function formatPlacementValue(value) {
+  if (!value) return '—';
+  return String(value)
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, char => char.toUpperCase())
+    .replace(/^W2$/, 'W-2')
+    .replace(/^C2c$/, 'C2C');
 }

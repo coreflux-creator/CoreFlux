@@ -60,6 +60,8 @@ return [
         'billing.item.created',
         'billing.item.updated',
         'billing.item.bulk_updated',
+        'billing.item.csv_imported',
+        'billing.item.csv_exported',
         'billing.invoice.disputed',
         'billing.invoice.paid_in_full',
         'billing.recurring.created',
