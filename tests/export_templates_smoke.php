@@ -420,9 +420,24 @@ $assert('ap vendor exports use v1 route',
                                               strpos($vendorsList, '/api/v1/ap/csv-export') !== false);
 
 $peopleDir = file_get_contents(__DIR__ . '/../modules/people/ui/Directory.jsx');
+$peopleExport = file_get_contents(__DIR__ . '/../modules/people/api/csv_export.php');
 $assert('People Directory uses picker',       strpos($peopleDir, 'ExportTemplatePicker') !== false);
 $assert('people picker dataset=people_directory',
                                               strpos($peopleDir, 'dataset="people_directory"') !== false);
+$assert('ordinary People export resolves the governed default template',
+                                              strpos($peopleExport, "exportTemplateDefault(\$tenantId, 'people_directory')") !== false
+                                              && strpos($peopleExport, 'exportTemplateStreamDatasetCsv(') !== false);
+$assert('raw People export still carries the stable person id',
+                                              strpos($peopleExport, 'SELECT id AS person_id') !== false
+                                              && strpos($peopleExport, "'person_id'            => 'Person ID'") !== false);
+$assert('People export button carries the current status and classification',
+                                              strpos($peopleDir, 'href={buildTemplateExportHref()}') !== false
+                                              && strpos($peopleDir, "params.set('status', status)") !== false
+                                              && strpos($peopleDir, "params.set('classification', classification)") !== false);
+$assert('template picker uses native download links',
+                                              strpos($picker, '<a') !== false
+                                              && strpos($picker, 'href={buildHref(t.id)}') !== false
+                                              && strpos($picker, "document.createElement('a')") === false);
 
 $placementsList = file_get_contents(__DIR__ . '/../modules/placements/ui/List.jsx');
 $assert('Placements list uses picker',        strpos($placementsList, 'ExportTemplatePicker') !== false);

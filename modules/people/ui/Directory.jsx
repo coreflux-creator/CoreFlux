@@ -94,8 +94,9 @@ export default function Directory() {
     dateKeys: ['created_at'],
     numericKeys: ['id'],
   });
-  const buildTemplateExportHref = (tplId) => {
-    const params = new URLSearchParams({ template_id: String(tplId) });
+  const buildTemplateExportHref = (tplId = null) => {
+    const params = new URLSearchParams();
+    if (tplId) params.set('template_id', String(tplId));
     if (classification) params.set('classification', classification);
     if (status) params.set('status', status);
     return `/api/v1/people/csv-export?${params.toString()}`;
@@ -161,13 +162,13 @@ export default function Directory() {
           <Link to="../csv_import" className="btn" data-testid="people-csv-import-btn">
             Import CSV
           </Link>
-          <a href="/api/v1/people/csv-export" className="btn" data-testid="people-csv-export-btn">
+          <a href={buildTemplateExportHref()} className="btn" data-testid="people-csv-export-btn">
             Export CSV
           </a>
           <ExportTemplatePicker
             dataset="people_directory"
             buildHref={buildTemplateExportHref}
-            label="Export via template"
+            label="Choose template"
             testid="people-export-template"
           />
           <Link to="../new" className="btn btn--primary" data-testid="people-add-btn">
