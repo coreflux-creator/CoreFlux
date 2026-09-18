@@ -42,13 +42,6 @@ export default function ExportTemplatePicker({
     return () => { alive = false; };
   }, [dataset]);
 
-  const downloadVia = (id) => {
-    setOpen(false);
-    const href = buildHref(id);
-    const a = document.createElement('a');
-    a.href = href; a.rel = 'noopener'; a.click();
-  };
-
   if (loading) {
     return <button className="btn btn--ghost" disabled data-testid={`${testid}-loading`}>Loading templates…</button>;
   }
@@ -84,15 +77,16 @@ export default function ExportTemplatePicker({
           }}
         >
           {templates.map((t) => (
-            <button
+            <a
               key={t.id}
-              type="button"
-              onClick={() => downloadVia(t.id)}
+              href={buildHref(t.id)}
+              onClick={() => setOpen(false)}
               data-testid={`${testid}-item-${t.id}`}
               style={{
                 display: 'block', width: '100%', textAlign: 'left',
                 padding: '8px 12px', border: 0, background: 'transparent',
                 cursor: 'pointer', fontSize: 13, borderRadius: 4,
+                color: 'inherit', textDecoration: 'none', boxSizing: 'border-box',
               }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--cf-bg-hover, #f3f4f6)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
@@ -103,7 +97,7 @@ export default function ExportTemplatePicker({
                   PLATFORM
                 </span>
               )}
-            </button>
+            </a>
           ))}
           <div style={{ borderTop: '1px solid var(--cf-border)', marginTop: 4, padding: 4 }}>
             <Link

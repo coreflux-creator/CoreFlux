@@ -60,6 +60,7 @@ jobs:
             accounting.html \
             admin/index.html \
             api/index.php \
+            api/export_templates.php \
             api/admin/migrate.php \
             api/admin/csv_mapping_presets.php \
             api/admin_healthcheck.php \
@@ -95,6 +96,7 @@ jobs:
             core/ai_categorization.php \
             core/csv_samples.php \
             core/export_datasets.php \
+            core/export_service.php \
             core/export_templates.php \
             core/ai_agents.php \
             core/domain_people_graph.php \
@@ -121,6 +123,7 @@ jobs:
             dashboard/src/components/ComparisonTable.jsx \
             dashboard/src/components/CsvUploadWidget.jsx \
             dashboard/src/components/CsvImportPage.jsx \
+            dashboard/src/components/ExportTemplatePicker.jsx \
             dashboard/src/components/FinancialReportLibrary.jsx \
             dashboard/src/components/LineItemEditor.jsx \
             dashboard/src/components/RailPicker.jsx \
@@ -266,6 +269,7 @@ jobs:
             modules/people/api/companies.php \
             modules/people/api/documents.php \
             modules/people/api/people.php \
+            modules/people/api/csv_export.php \
             modules/people/lib/companies.php \
             modules/people/lib/people.php \
             modules/people/ui/Directory.jsx \
@@ -524,6 +528,7 @@ jobs:
 
             for PHP_FILE in \
               api/index.php \
+              api/export_templates.php \
               api/admin/migrate.php \
               api/admin/csv_mapping_presets.php \
               api/admin_healthcheck.php \
@@ -543,6 +548,9 @@ jobs:
               core/ModuleRegistry.php \
               core/api_bootstrap.php \
               core/api_router.php \
+              core/export_datasets.php \
+              core/export_service.php \
+              core/export_templates.php \
               core/ai_agents.php \
               core/domain_people_graph.php \
               core/people_graph.php \
@@ -593,6 +601,7 @@ jobs:
               modules/people/api/companies.php \
               modules/people/api/documents.php \
               modules/people/api/people.php \
+              modules/people/api/csv_export.php \
               modules/people/lib/companies.php \
               modules/people/lib/people.php \
               modules/placements/api/csv_export.php \
