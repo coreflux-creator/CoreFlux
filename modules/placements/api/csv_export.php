@@ -15,23 +15,57 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 
 use Core\CsvExportService;
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
+$tenantId = (int) $ctx['tenant_id'];
+$userId = (int) ($user['id'] ?? 0);
 rbac_legacy_require($user, 'placements.view');
+
+$datasetOptions = [
+    'status'                => (string) ($_GET['status'] ?? ''),
+    'engagement_type'       => (string) ($_GET['engagement_type'] ?? ''),
+    'end_client_company_id' => (int) ($_GET['end_client_company_id'] ?? 0),
+    'q'                     => trim((string) ($_GET['q'] ?? '')),
+];
+
+$rawMode = in_array(strtolower((string) ($_GET['raw'] ?? '')), ['1', 'true', 'yes'], true);
+$templateId = (int) ($_GET['template_id'] ?? 0);
+if (!$rawMode && $templateId <= 0) {
+    $defaultTemplate = exportTemplateDefault($tenantId, 'placements_directory');
+    $templateId = (int) ($defaultTemplate['id'] ?? 0);
+}
+if (!$rawMode && $templateId > 0) {
+    try {
+        exportTemplateStreamDatasetCsv(
+            $tenantId,
+            'placements_directory',
+            $templateId,
+            $datasetOptions,
+            'placements',
+            $userId ?: null,
+            null,
+            ['filename_parts' => [date('Y-m-d')]]
+        );
+        exit;
+    } catch (ExportServiceException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
 
 $where  = ['p.tenant_id = :tenant_id', 'p.deleted_at IS NULL'];
 $params = [];
-if (!empty($_GET['status']))          { $where[] = 'p.status = :s';           $params['s']  = $_GET['status']; }
-if (!empty($_GET['engagement_type'])) { $where[] = 'p.engagement_type = :et'; $params['et'] = $_GET['engagement_type']; }
-if (!empty($_GET['end_client_company_id'])) {
+if ($datasetOptions['status'] !== '')          { $where[] = 'p.status = :s';           $params['s']  = $datasetOptions['status']; }
+if ($datasetOptions['engagement_type'] !== '') { $where[] = 'p.engagement_type = :et'; $params['et'] = $datasetOptions['engagement_type']; }
+if ($datasetOptions['end_client_company_id'] > 0) {
     $where[] = 'p.end_client_company_id = :client_id';
-    $params['client_id'] = (int) $_GET['end_client_company_id'];
+    $params['client_id'] = $datasetOptions['end_client_company_id'];
 }
-if (trim((string) ($_GET['q'] ?? '')) !== '') {
-    $needle = '%' . trim((string) $_GET['q']) . '%';
+if ($datasetOptions['q'] !== '') {
+    $needle = '%' . $datasetOptions['q'] . '%';
     $where[] = '(p.title LIKE :q_title OR p.end_client_name LIKE :q_client
                  OR pe.first_name LIKE :q_first OR pe.last_name LIKE :q_last
                  OR p.external_id LIKE :q_external OR CAST(p.id AS CHAR) LIKE :q_id)';
@@ -143,6 +177,13 @@ $rows = scopedQuery(
       ORDER BY p.start_date DESC, p.id DESC',
     $params
 );
+
+exportDatasetAudit($tenantId, $userId ?: null, 'placement.exported', null, exportDatasetAuditMeta([
+    'dataset' => 'placements_directory',
+    'format' => 'csv',
+    'mode' => 'raw',
+    'rows' => count($rows),
+], $datasetOptions));
 
 (new CsvExportService([
     'placement_id'      => 'Placement ID',

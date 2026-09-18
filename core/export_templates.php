@@ -40,17 +40,30 @@ function exportTemplateList(int $tenantId, ?string $dataset = null): array {
                AND (scope = 'platform' OR tenant_id = :t)";
     $params = ['t' => $tenantId];
     if ($dataset) { $sql .= ' AND dataset = :d'; $params['d'] = $dataset; }
-    $sql .= ' ORDER BY scope DESC, name ASC';
+    $sql .= ' ORDER BY scope DESC, name ASC, id ASC';
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    foreach ($rows as &$r) {
+    $visible = [];
+    $seenSystemTemplates = [];
+    foreach ($rows as $r) {
         $r['column_mappings'] = json_decode((string) $r['column_mappings_json'], true) ?: [];
         unset($r['column_mappings_json']);
+        if ((int) ($r['is_system'] ?? 0) === 1) {
+            $key = implode('|', [
+                (string) ($r['scope'] ?? ''),
+                (string) ($r['tenant_id'] ?? ''),
+                (string) ($r['dataset'] ?? ''),
+                (string) ($r['name'] ?? ''),
+            ]);
+            if (isset($seenSystemTemplates[$key])) continue;
+            $seenSystemTemplates[$key] = true;
+        }
+        $visible[] = $r;
     }
-    return $rows;
+    return $visible;
 }
 
 function exportTemplateGet(int $id, int $tenantId, bool $forRender = false): array {
