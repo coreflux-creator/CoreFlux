@@ -1437,9 +1437,14 @@ function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
 
 function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): array {
     $pdo = getDB();
+    $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
     $where = ['p.tenant_id = :tenant_id', 'p.deleted_at IS NULL'];
-    $params = ['tenant_id' => $tenantId];
+    $params = [
+        'tenant_id' => $placementsTenantId,
+        'people_tenant_id' => $peopleTenantId,
+    ];
     if (!empty($opts['status'])) {
         $where[] = 'p.status = :status';
         $params['status'] = (string) $opts['status'];
@@ -1447,6 +1452,22 @@ function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): arra
     if (!empty($opts['engagement_type'])) {
         $where[] = 'p.engagement_type = :engagement_type';
         $params['engagement_type'] = (string) $opts['engagement_type'];
+    }
+    if (!empty($opts['end_client_company_id'])) {
+        $where[] = 'p.end_client_company_id = :end_client_company_id';
+        $params['end_client_company_id'] = (int) $opts['end_client_company_id'];
+    }
+    if (trim((string) ($opts['q'] ?? '')) !== '') {
+        $where[] = '(p.title LIKE :q_title
+                  OR CONCAT_WS(" ", pe.first_name, pe.last_name) LIKE :q_person
+                  OR pe.email_primary LIKE :q_email
+                  OR COALESCE(ec.name, p.end_client_name) LIKE :q_client
+                  OR p.external_id LIKE :q_external
+                  OR CAST(p.id AS CHAR) LIKE :q_id)';
+        $needle = '%' . trim((string) $opts['q']) . '%';
+        foreach (['q_title', 'q_person', 'q_email', 'q_client', 'q_external', 'q_id'] as $key) {
+            $params[$key] = $needle;
+        }
     }
     $stmt = $pdo->prepare(
         'SELECT p.id AS placement_id,
@@ -1463,7 +1484,8 @@ function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): arra
                     WHEN p.due_date <= p.end_date THEN p.due_date
                     ELSE p.end_date
                 END AS expiring_date,
-                p.end_client_name, p.worksite_state, p.worksite_country, p.remote_policy,
+                COALESCE(ec.name, p.end_client_name) AS end_client_name,
+                p.worksite_state, p.worksite_country, p.remote_policy,
                 (SELECT bill_rate FROM placement_rates r
                   WHERE r.tenant_id = p.tenant_id AND r.placement_id = p.id
                   ORDER BY r.effective_from DESC LIMIT 1) AS bill_rate,
@@ -1473,7 +1495,8 @@ function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): arra
                 1 AS placement_count,
                 p.external_id, p.notes
            FROM placements p
-           LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
+           LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :people_tenant_id
+           LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY p.start_date DESC, p.id DESC
           LIMIT ' . $limit
@@ -1482,7 +1505,7 @@ function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): arra
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     return exportDatasetAttachCustomFieldValues(
         $rows,
-        $tenantId,
+        $placementsTenantId,
         'placements',
         'placement_id',
         !empty($opts['include_sensitive_custom_fields']),

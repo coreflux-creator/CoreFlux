@@ -13,6 +13,7 @@ import {
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
 const ETYPES   = ['', 'w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal'];
+const PAGE_SIZES = [25, 50, 100, 200];
 const STATUS_LABELS = {
   '': 'All statuses',
   draft: 'Draft',
@@ -43,12 +44,15 @@ function placementValueLabel(field, value) {
 export default function List() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialStatus = searchParams.get('status') ?? 'active';
+  const requestedPageSize = Number(searchParams.get('per_page'));
+  const initialPageSize = PAGE_SIZES.includes(requestedPageSize) ? requestedPageSize : 25;
 
   const [q, setQ]                       = useState('');
   const [status, setStatus]             = useState(initialStatus);
   const [engagementType, setETYPE]      = useState('');
   const [endClientCompanyId, setEndClientCompanyId] = useState(searchParams.get('end_client_company_id') || '');
   const [page, setPage]                 = useState(1);
+  const [pageSize, setPageSize]         = useState(initialPageSize);
   const [sort, setSort]                 = useState({ key: 'start_date', dir: 'desc' });
   const [selected, setSelected]         = useState(() => new Set());
   const [bulkBusy, setBulkBusy]         = useState(false);
@@ -58,13 +62,15 @@ export default function List() {
   useEffect(() => {
     const current = searchParams.get('status') ?? 'active';
     const currentClient = searchParams.get('end_client_company_id') ?? '';
-    if (current !== status || currentClient !== endClientCompanyId) {
+    const currentPageSize = Number(searchParams.get('per_page')) || 25;
+    if (current !== status || currentClient !== endClientCompanyId || currentPageSize !== pageSize) {
       const next = new URLSearchParams(searchParams);
       if (status) next.set('status', status); else next.delete('status');
       if (endClientCompanyId) next.set('end_client_company_id', endClientCompanyId); else next.delete('end_client_company_id');
+      if (pageSize === 25) next.delete('per_page'); else next.set('per_page', String(pageSize));
       setSearchParams(next, { replace: true });
     }
-  }, [status, endClientCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [status, endClientCompanyId, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const path = useMemo(() => {
     const p = new URLSearchParams();
@@ -75,8 +81,9 @@ export default function List() {
     if (sort.key) p.set('sort', sort.key);
     if (sort.dir) p.set('dir', sort.dir);
     p.set('page', String(page));
+    p.set('per_page', String(pageSize));
     return `/modules/placements/api/placements.php?${p.toString()}`;
-  }, [q, status, engagementType, endClientCompanyId, page, sort]);
+  }, [q, status, engagementType, endClientCompanyId, page, pageSize, sort]);
 
   const { data, loading, error, elapsedMs, reload } = useApiCached(
     path,
@@ -85,8 +92,10 @@ export default function List() {
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
   const summary = data?.summary ?? {};
-  const perPage = data?.per_page ?? 25;
+  const perPage = data?.per_page ?? pageSize;
   const lastPage = Math.max(1, Math.ceil(total / perPage));
+  const firstVisible = total === 0 ? 0 : ((page - 1) * perPage) + 1;
+  const lastVisible = Math.min(page * perPage, total);
   const clientsPath = '/modules/staffing/api/clients.php?action=list&status=active&limit=500&sort=name&dir=asc';
   const { data: clientsData } = useApiCached(clientsPath, { cacheKey: 'staffing-clients:active-options' });
   const activeClients = useMemo(() => clientsData?.rows ?? [], [clientsData?.rows]);
@@ -99,6 +108,9 @@ export default function List() {
     return params;
   };
   const exportHref = `/api/v1/placements/csv-export?${buildExportParams().toString()}`;
+  const fullExportParams = buildExportParams();
+  fullExportParams.set('raw', '1');
+  const fullExportHref = `/api/v1/placements/csv-export?${fullExportParams.toString()}`;
   const buildTemplateExportHref = (tplId) => {
     const params = buildExportParams();
     params.set('template_id', String(tplId));
@@ -116,7 +128,10 @@ export default function List() {
 
   // Reset selection whenever the filter / page / search changes so we
   // don't accidentally bulk-update a row the operator can no longer see.
-  useEffect(() => { setSelected(new Set()); setBulkResult(null); }, [q, status, engagementType, endClientCompanyId, page]);
+  useEffect(() => { setSelected(new Set()); setBulkResult(null); }, [q, status, engagementType, endClientCompanyId, page, pageSize]);
+  useEffect(() => {
+    if (page > lastPage) setPage(lastPage);
+  }, [page, lastPage]);
 
   const toggleRow = (id) => {
     setSelected(prev => {
@@ -215,6 +230,9 @@ export default function List() {
                 label="Templates"
                 testid="placements-export-template"
               />
+              <a href={fullExportHref} className="action-overflow__item" data-testid="placements-full-csv-export-btn">
+                <FileSpreadsheet size={15} aria-hidden="true" /> Full data extract
+              </a>
             </div>
           </details>
           <Link to="../new" className="btn btn--primary" data-testid="placements-new-btn"><Plus size={16} aria-hidden="true" /> New placement</Link>
@@ -396,6 +414,20 @@ export default function List() {
       </div>
 
       <div className="table-pagination">
+        <span data-testid="placements-row-range">Showing {firstVisible}-{lastVisible} of {total}</span>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span>Rows per page</span>
+          <select
+            className="input"
+            value={pageSize}
+            onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+            aria-label="Rows per page"
+            data-testid="placements-page-size"
+            style={{ width: 84 }}
+          >
+            {PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
+          </select>
+        </label>
         <button className="btn" disabled={page <= 1} onClick={() => setPage(p => p - 1)} data-testid="placements-prev">Prev</button>
         <span data-testid="placements-page-indicator">Page {page} of {lastPage}</span>
         <button className="btn" disabled={page >= lastPage} onClick={() => setPage(p => p + 1)} data-testid="placements-next">Next</button>

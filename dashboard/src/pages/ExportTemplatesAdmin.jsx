@@ -20,7 +20,7 @@ export default function ExportTemplatesAdmin({ session }) {
   const [editing, setEditing] = useState(null);     // template row OR { _new: true, dataset }
   const [cloning, setCloning] = useState(false);
 
-  const templates = data?.templates || [];
+  const templates = useMemo(() => data?.templates || [], [data?.templates]);
   const filtered = useMemo(() => {
     if (!filter) return templates;
     return templates.filter((t) => t.dataset === filter);
@@ -137,6 +137,7 @@ export default function ExportTemplatesAdmin({ session }) {
 
       {editing && (
         <TemplateEditor
+          key={editing._new ? `new-${editing.dataset || 'template'}` : `edit-${editing.id}`}
           template={editing}
           datasets={datasets}
           isMaster={isMaster}
@@ -225,8 +226,8 @@ function TemplateEditor({ template, datasets, isMaster, onClose, onSaved }) {
     <div className="modal-backdrop" data-testid="xtpl-editor">
       <div className="modal" style={{ maxWidth: 880 }}>
         <div className="modal-header">
-          <h3>{isNew ? 'New export template' : `Edit: ${template.name}`}</h3>
-          <button onClick={onClose} className="btn btn--ghost"><X size={18} /></button>
+          <h3>{isNew ? 'New export template' : `Edit: ${name}`}</h3>
+          <button onClick={onClose} className="btn btn--ghost" aria-label="Close export template editor"><X size={18} /></button>
         </div>
         <div className="modal-body" style={{ display: 'grid', gap: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
