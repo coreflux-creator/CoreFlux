@@ -426,6 +426,7 @@ jobs:
             tests/plaid_transfer_smoke.php \
             tests/placements_bulk_approve_drafts_queue_smoke.php \
             tests/placements_graphql_pilot_smoke.php \
+            tests/placement_person_one_step_smoke.php \
             tests/reports_overtime_query_smoke.php \
             tests/recurring_contracts_smoke.php \
             tests/sitewide_navigation_smoke.php \
@@ -685,6 +686,7 @@ jobs:
             php tests/plaid_transfer_smoke.php
             php tests/placements_bulk_approve_drafts_queue_smoke.php
             php tests/placements_graphql_pilot_smoke.php
+            php tests/placement_person_one_step_smoke.php
             php tests/reports_overtime_query_smoke.php
             php tests/recurring_contracts_smoke.php
             php tests/sitewide_navigation_smoke.php
