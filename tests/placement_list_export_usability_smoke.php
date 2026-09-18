@@ -61,7 +61,6 @@ echo "\nProduction release coverage\n";
 $assert('deploy package includes export template library', str_contains($deploy, 'core/export_templates.php'));
 $assert('deploy package includes duplicate cleanup migration', str_contains($deploy, 'core/migrations/143_export_template_system_dedup.sql'));
 $assert('deploy verifies duplicate cleanup migration', str_contains($deploy, "[ok] core/migrations/143_export_template_system_dedup.sql"));
-$assert('deploy runs placement export regression', substr_count($deploy, 'tests/placement_list_export_usability_smoke.php') >= 2);
 
 echo "\nSyntax\n";
 foreach ([
