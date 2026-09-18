@@ -1917,7 +1917,10 @@ function placementEconomicsPayrollEmployee(int $tenantId, array $party): ?array
                  (:user_id > 0 AND e.user_id = :user_id_match)
                  OR (:person_id_match > 0 AND (
                       (pe.user_id IS NOT NULL AND e.user_id = pe.user_id)
-                      OR (pe.email_primary IS NOT NULL AND LOWER(e.personal_email) = LOWER(pe.email_primary))
+                      OR (pe.email_primary IS NOT NULL AND (
+                           LOWER(e.personal_email) = LOWER(pe.email_primary)
+                           OR LOWER(e.work_email) = LOWER(pe.email_primary)
+                      ))
                  ))
             )
           ORDER BY e.id LIMIT 1'
