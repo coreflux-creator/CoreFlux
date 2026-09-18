@@ -97,6 +97,9 @@ $assert('ordinary frequencies resolve to reusable internal schedules',
     && str_contains($economicsApi, 'placementEconomicsApiCadence'));
 $assert('W2 and employee-like engagements resolve payroll rather than AP schedules',
     str_contains($economics, "['w2','temp_to_perm','internal']"));
+$assert('payroll recipient lookup accepts either employee email field',
+    str_contains($economics, 'LOWER(e.personal_email) = LOWER(pe.email_primary)')
+    && str_contains($economics, 'LOWER(e.work_email) = LOWER(pe.email_primary)'));
 $assert('unclassified non-employee labor defaults to the vendor/AP graph',
     str_contains($economics, ": 'ap';")
     && !str_contains($economics, "(\$engagement === '1099' ? 'ap' : 'none')"));
