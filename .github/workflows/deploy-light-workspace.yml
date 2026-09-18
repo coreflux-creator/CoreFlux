@@ -95,6 +95,7 @@ jobs:
             core/ai_categorization.php \
             core/csv_samples.php \
             core/export_datasets.php \
+            core/export_templates.php \
             core/ai_agents.php \
             core/domain_people_graph.php \
             core/modules.php \
@@ -354,6 +355,7 @@ jobs:
             core/migrations/140_staffing_client_catalog_integrity.sql \
             core/migrations/141_payroll_module_access_backfill.sql \
             core/migrations/142_ai_suggestion_source_compat.sql \
+            core/migrations/143_export_template_system_dedup.sql \
             scripts/ap_weekly_queue_sunday.php \
             scripts/billing_recurring_generate.php \
             scripts/opcache_flush_deploy.php.template \
@@ -427,6 +429,7 @@ jobs:
             tests/placements_bulk_approve_drafts_queue_smoke.php \
             tests/placements_graphql_pilot_smoke.php \
             tests/placement_person_one_step_smoke.php \
+            tests/placement_list_export_usability_smoke.php \
             tests/reports_overtime_query_smoke.php \
             tests/recurring_contracts_smoke.php \
             tests/sitewide_navigation_smoke.php \
@@ -616,6 +619,7 @@ jobs:
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/126_staffing_economic_graph.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/140_staffing_client_catalog_integrity.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/141_payroll_module_access_backfill.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/143_export_template_system_dedup.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/006_run_enterprise_controls.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/007_accounting_posting.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/ap/migrations/020_payment_entity_scope.sql'
@@ -687,6 +691,7 @@ jobs:
             php tests/placements_bulk_approve_drafts_queue_smoke.php
             php tests/placements_graphql_pilot_smoke.php
             php tests/placement_person_one_step_smoke.php
+            php tests/placement_list_export_usability_smoke.php
             php tests/reports_overtime_query_smoke.php
             php tests/recurring_contracts_smoke.php
             php tests/sitewide_navigation_smoke.php
