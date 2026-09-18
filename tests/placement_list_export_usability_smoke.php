@@ -19,6 +19,7 @@ $datasets = $read('core/export_datasets.php');
 $templates = $read('core/export_templates.php');
 $admin = $read('dashboard/src/pages/ExportTemplatesAdmin.jsx');
 $migration = $read('core/migrations/143_export_template_system_dedup.sql');
+$deploy = $read('.github/workflows/deploy-light-workspace.yml');
 
 echo "Placement list page size\n";
 $assert('offers useful page sizes', str_contains($list, 'const PAGE_SIZES = [25, 50, 100, 200]'));
@@ -55,6 +56,12 @@ $assert('system template list suppresses duplicates', str_contains($templates, '
     && str_contains($templates, 'if (isset($seenSystemTemplates[$key])) continue'));
 $assert('migration archives duplicate active system templates', str_contains($migration, 'UPDATE export_templates duplicate_template')
     && str_contains($migration, 'duplicate_template.is_active = 0'));
+
+echo "\nProduction release coverage\n";
+$assert('deploy package includes export template library', str_contains($deploy, 'core/export_templates.php'));
+$assert('deploy package includes duplicate cleanup migration', str_contains($deploy, 'core/migrations/143_export_template_system_dedup.sql'));
+$assert('deploy verifies duplicate cleanup migration', str_contains($deploy, "[ok] core/migrations/143_export_template_system_dedup.sql"));
+$assert('deploy runs placement export regression', substr_count($deploy, 'tests/placement_list_export_usability_smoke.php') >= 2);
 
 echo "\nSyntax\n";
 foreach ([
