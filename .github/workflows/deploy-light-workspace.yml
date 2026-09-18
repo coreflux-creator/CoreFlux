@@ -159,6 +159,7 @@ jobs:
             login.html \
             login.php \
             login2.html \
+            memory/RBAC_B4_PERMISSION_MAPPING.md \
             modules/accounting/api/accounts.php \
             modules/accounting/api/accounts_csv_import.php \
             modules/accounting/api/bank_ai.php \
