@@ -79,6 +79,9 @@ $metric = (string) file_get_contents($root . '/dashboard/src/components/MetricCa
 $incomeStatement = (string) file_get_contents($root . '/modules/accounting/ui/IncomeStatement.jsx');
 $balanceSheet = (string) file_get_contents($root . '/modules/accounting/ui/BalanceSheet.jsx');
 $trialBalance = (string) file_get_contents($root . '/modules/accounting/ui/TrialBalance.jsx');
+$glDetail = (string) file_get_contents($root . '/api/gl_detail.php');
+$accounting = (string) file_get_contents($root . '/modules/accounting/lib/accounting.php');
+$journalLineScopeMigration = (string) file_get_contents($root . '/modules/accounting/migrations/028_journal_line_tenant_scope.sql');
 $lightWorkspaceDeployPath = $root . '/.github/workflows/deploy-light-workspace.yml';
 
 $assert('AR aging is ledger-backed', str_contains($billing, 'JOIN accounting_journal_entries je'));
@@ -118,6 +121,22 @@ $assert('trial balance hides zero-only rows and reports accounts with activity',
     str_contains($trialBalance, 'const [hideZeroRows, setHideZeroRows] = useState(true)')
     && str_contains($trialBalance, 'data-testid="rpt-tb-toggle-zero-rows"')
     && str_contains($trialBalance, 'label="Accounts with activity"'));
+$assert('GL detail scopes through the parent journal entry',
+    substr_count($glDetail, 'WHERE je.tenant_id = :t') === 2
+    && !str_contains($glDetail, 'WHERE jl.tenant_id = :t'));
+$assert('central JE writer persists tenant scope and descriptions on every line',
+    str_contains($accounting, '(tenant_id, je_id, line_no, account_id, debit, credit, memo, description,')
+    && str_contains($accounting, "'tenant_id' => \$tenantId")
+    && str_contains($accounting, "'description' => \$l['description']"));
+$assert('journal-line repair backfills tenant scope from the parent JE',
+    str_contains($journalLineScopeMigration, 'SET jl.tenant_id = je.tenant_id')
+    && str_contains($journalLineScopeMigration, 'MODIFY COLUMN tenant_id BIGINT UNSIGNED NOT NULL'));
+if (is_file($lightWorkspaceDeployPath)) {
+    $assert('light workspace release packages the journal-line repair',
+        str_contains($lightWorkspaceDeploy, 'modules/accounting/lib/accounting.php')
+        && str_contains($lightWorkspaceDeploy, 'modules/accounting/migrations/028_journal_line_tenant_scope.sql')
+        && str_contains($lightWorkspaceDeploy, "[ok] modules/accounting/migrations/028_journal_line_tenant_scope.sql"));
+}
 
 echo "\n{$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);
