@@ -31,7 +31,7 @@ $code = $_GET['account_code'] ?? $_GET['code'] ?? null;
 $db   = getDB();
 
 if ($type === 'gl_detail') {
-    $where  = ['je.tenant_id = :t', "je.status = 'posted'"];
+    $where  = ['je.tenant_id = :t', "je.status IN ('posted','reversed')"];
     $params = ['t' => $tid];
     if ($from) { $where[] = 'je.posting_date >= :f';   $params['f']   = $from; }
     if ($to)   { $where[] = 'je.posting_date <= :to2'; $params['to2'] = $to;   }
@@ -59,7 +59,7 @@ if ($type === 'unposted_jes' || $type === 'unposted') {
         "SELECT id, je_number, posting_date, entity_id, period_id, source_module,
                 status, total_debit, total_credit, memo, created_by_user_id, created_at
          FROM accounting_journal_entries
-         WHERE tenant_id = :t AND status != 'posted'
+         WHERE tenant_id = :t AND status = 'draft'
          ORDER BY posting_date DESC, id DESC
          LIMIT 500"
     );
@@ -108,7 +108,7 @@ if ($type === 'audit_log') {
 
 if ($type === 'account_activity') {
     if (!$code) api_error('code (account_code) required', 422);
-    $where  = ['je.tenant_id = :t', "je.status = 'posted'", 'a.code = :ac'];
+    $where  = ['je.tenant_id = :t', "je.status IN ('posted','reversed')", 'a.code = :ac'];
     $params = ['t' => $tid, 'ac' => $code];
     if ($from) { $where[] = 'je.posting_date >= :f';   $params['f']   = $from; }
     if ($to)   { $where[] = 'je.posting_date <= :to2'; $params['to2'] = $to;   }

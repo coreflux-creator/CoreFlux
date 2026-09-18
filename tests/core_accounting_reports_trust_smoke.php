@@ -71,6 +71,7 @@ echo "\nAging and report presentation\n";
 $billing = (string) file_get_contents($root . '/modules/billing/lib/billing.php');
 $ap = (string) file_get_contents($root . '/modules/ap/lib/ap.php');
 $standard = (string) file_get_contents($root . '/modules/accounting/ui/StandardReports.jsx');
+$standardReportsLib = (string) file_get_contents($root . '/modules/accounting/lib/standard_reports.php');
 $library = (string) file_get_contents($root . '/dashboard/src/components/FinancialReportLibrary.jsx');
 $reportsHome = (string) file_get_contents($root . '/modules/reports/ui/StaffingOverview.jsx');
 $period = (string) file_get_contents($root . '/dashboard/src/lib/useReportPeriod.js');
@@ -81,6 +82,13 @@ $balanceSheet = (string) file_get_contents($root . '/modules/accounting/ui/Balan
 $trialBalance = (string) file_get_contents($root . '/modules/accounting/ui/TrialBalance.jsx');
 $glDetail = (string) file_get_contents($root . '/api/gl_detail.php');
 $accounting = (string) file_get_contents($root . '/modules/accounting/lib/accounting.php');
+$booksHealth = (string) file_get_contents($root . '/api/books_health.php');
+$consolidation = (string) file_get_contents($root . '/modules/accounting/lib/consolidation.php');
+$intercompany = (string) file_get_contents($root . '/modules/accounting/lib/intercompany.php');
+$accountInterest = (string) file_get_contents($root . '/modules/accounting/lib/account_interest.php');
+$cashPosition = (string) file_get_contents($root . '/api/treasury_cash_position.php');
+$liquidity = (string) file_get_contents($root . '/core/treasury/liquidity_projection.php');
+$taxExport = (string) file_get_contents($root . '/api/tax_form_export.php');
 $journalLineScopeMigration = (string) file_get_contents($root . '/modules/accounting/migrations/028_journal_line_tenant_scope.sql');
 $lightWorkspaceDeployPath = $root . '/.github/workflows/deploy-light-workspace.yml';
 
@@ -124,6 +132,21 @@ $assert('trial balance hides zero-only rows and reports accounts with activity',
 $assert('GL detail scopes through the parent journal entry',
     substr_count($glDetail, 'WHERE je.tenant_id = :t') === 2
     && !str_contains($glDetail, 'WHERE jl.tenant_id = :t'));
+$assert('reversed originals remain in ledger-backed financial reports',
+    str_contains($glDetail, "je.status IN ('posted','reversed')")
+    && substr_count($standardReportsLib, 'je.status IN ("posted","reversed")') >= 2
+    && str_contains($accounting, 'je.status IN ("posted","reversed")')
+    && substr_count($booksHealth, "je.status IN ('posted','reversed')") >= 2);
+$assert('reversal-aware balances stay consistent in consolidation treasury tax and interest',
+    substr_count($consolidation, 'je.status IN ("posted","reversed")') >= 7
+    && substr_count($intercompany, "je.status IN ('posted','reversed')") >= 2
+    && substr_count($accountInterest, 'je.status IN ("posted","reversed")') >= 3
+    && str_contains($cashPosition, "je.status IN ('posted','reversed')")
+    && str_contains($liquidity, "je.status IN ('posted','reversed')")
+    && substr_count($taxExport, "je.status IN ('posted','reversed')") >= 2);
+$assert('reversal writer preserves dimensional and counterparty context',
+    str_contains($accounting, "'counterparty_entity_id'  => \$l['counterparty_entity_id'] ?? null")
+    && str_contains($accounting, "'dims'                    => !empty(\$l['dim_json'])"));
 $assert('central JE writer persists tenant scope and descriptions on every line',
     str_contains($accounting, '(tenant_id, je_id, line_no, account_id, debit, credit, memo, description,')
     && str_contains($accounting, "'tenant_id' => \$tenantId")

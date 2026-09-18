@@ -6,6 +6,9 @@
  *   GET    /api/accounting/journal_entries?id=N          → detail (header + lines)
  *   POST   /api/accounting/journal_entries               → create + post  body: {entity_id?,posting_date,memo?,lines:[{account_code,debit,credit,...}]}
  *   POST   /api/accounting/journal_entries?action=draft  → same payload, leaves status='draft'
+ *   PATCH  /api/accounting/journal_entries?id=N          → replace an existing draft
+ *   POST   /api/accounting/journal_entries?action=post_draft&id=N → post an existing draft
+ *   DELETE /api/accounting/journal_entries?id=N          → remove a draft from normal work (audit-safe void)
  *   POST   /api/accounting/journal_entries?action=reverse&id=N  body: {reason}
  *   GET    /api/accounting/journal_entries?action=trial_balance&as_of=YYYY-MM-DD[&entity_id=]
  */
@@ -53,6 +56,7 @@ if ($method === 'GET') {
     $where  = ['je.tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['status']))        { $where[] = 'je.status = :s';            $params['s']   = $_GET['status']; }
+    else                                { $where[] = 'je.status <> "void"'; }
     if (!empty($_GET['source_module'])) { $where[] = 'je.source_module = :src';   $params['src'] = $_GET['source_module']; }
     if (!empty($_GET['from']))          { $where[] = 'je.posting_date >= :f';     $params['f']   = $_GET['from']; }
     if (!empty($_GET['to']))            { $where[] = 'je.posting_date <= :to2';   $params['to2'] = $_GET['to']; }
@@ -82,6 +86,57 @@ if ($method === 'GET') {
     api_ok(['rows' => $rows, 'total' => (int) ($cnt[0]['c'] ?? 0), 'page' => $page, 'per_page' => $perPage]);
 }
 
+if ($method === 'PATCH') {
+    rbac_legacy_require($user, 'accounting.je.edit_draft');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 422);
+    $body = api_json_body();
+    api_require_fields($body, ['posting_date', 'lines']);
+    try {
+        $res = accountingUpdateDraftJe($tid, $id, $body, $user['id'] ?? null);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+    accountingAudit('accounting.je.draft_updated', [
+        'je_id' => $id,
+        'je_number' => $res['je_number'],
+        'total' => $res['total_debit'],
+    ], $id);
+    api_ok($res);
+}
+
+if ($method === 'DELETE') {
+    rbac_legacy_require($user, 'accounting.je.void');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 422);
+    try {
+        $res = accountingDiscardDraftJe($tid, $id);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 409); }
+    accountingAudit('accounting.je.voided', [
+        'je_id' => $id,
+        'je_number' => $res['je_number'] ?? null,
+        'posting_date' => $res['posting_date'] ?? null,
+        'memo' => $res['memo'] ?? null,
+        'total' => isset($res['total_debit']) ? (float) $res['total_debit'] : null,
+    ], $id);
+    api_ok(['deleted' => true, 'je_id' => $id, 'status' => 'void']);
+}
+
+if ($method === 'POST' && $action === 'post_draft') {
+    rbac_legacy_require($user, 'accounting.je.post');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 422);
+    try {
+        $res = accountingPostDraftJe($tid, $id, $user['id'] ?? null);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 409); }
+    accountingAudit('accounting.je.posted', [
+        'je_id' => $id,
+        'je_number' => $res['je_number'],
+        'total' => $res['total_debit'],
+        'source' => 'manual_draft',
+        'replay' => $res['idempotent_replay'],
+    ], $id);
+    api_ok($res);
+}
+
 if ($method === 'POST' && $action === 'reverse') {
     rbac_legacy_require($user, 'accounting.je.reverse');
     $id = (int) ($_GET['id'] ?? 0);
@@ -96,11 +151,11 @@ if ($method === 'POST' && $action === 'reverse') {
 }
 
 if ($method === 'POST') {
-    rbac_legacy_require($user, 'accounting.je.post');
     $body = api_json_body();
     api_require_fields($body, ['posting_date','lines']);
     $body['source_module'] = $body['source_module'] ?? 'manual';
     $postNow = ($action !== 'draft');
+    rbac_legacy_require($user, $postNow ? 'accounting.je.post' : 'accounting.je.create');
     try {
         $res = accountingPostJe($tid, $body, $user['id'] ?? null, $postNow);
     } catch (\Throwable $e) { api_error($e->getMessage(), 422); }

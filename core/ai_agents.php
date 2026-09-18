@@ -405,7 +405,7 @@ function aiAgentContextPayrollTax(int $tenantId): array
                JOIN accounting_accounts a       ON a.id = jl.account_id
                JOIN accounting_journal_entries je ON je.id = jl.je_id
               WHERE jl.tenant_id = :t
-                AND je.status = 'posted'
+                AND je.status IN ('posted','reversed')
                 AND je.posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
                 AND (LOWER(a.name) LIKE '%payroll tax%'
                      OR LOWER(a.name) LIKE '%fica%'

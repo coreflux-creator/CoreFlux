@@ -197,7 +197,7 @@ $governedExports = [
             'created_by_user_id' => 'created_by_user_id',
             'created_at'         => 'created_at',
         ],
-        'forced_options' => ['exclude_status' => 'posted'],
+        'forced_options' => ['status' => 'draft'],
     ],
     'unposted' => [
         'dataset' => 'accounting_journal_entries',
@@ -217,7 +217,7 @@ $governedExports = [
             'created_by_user_id' => 'created_by_user_id',
             'created_at'         => 'created_at',
         ],
-        'forced_options' => ['exclude_status' => 'posted'],
+        'forced_options' => ['status' => 'draft'],
     ],
     'approval_queue' => [
         'dataset' => 'accounting_journal_entries',
@@ -340,7 +340,7 @@ if ($type === 'audit_log') {
 // Account activity adds a computed running balance.
 if ($type === 'account_activity') {
     if (!$code) api_error('code (account_code) required', 422);
-    $where  = ['je.tenant_id = :t', "je.status = 'posted'", 'a.code = :ac'];
+    $where  = ['je.tenant_id = :t', "je.status IN ('posted','reversed')", 'a.code = :ac'];
     $params = ['t' => $tid, 'ac' => $code];
     if ($from) { $where[] = 'je.posting_date >= :f';   $params['f']   = $from; }
     if ($to)   { $where[] = 'je.posting_date <= :to2'; $params['to2'] = $to;   }

@@ -38,8 +38,8 @@ $assert('days clamped 1..1825',                   strpos($api, "max(1, min(1825,
 $assert('limit clamped 1..500',                   strpos($api, "max(1, min(500, (int) (api_query('limit') ?? 100)))") !== false);
 $assert('reads accounting_dimensions registry',   strpos($api, "FROM accounting_dimensions\n      WHERE tenant_id = :t AND active = 1") !== false);
 $assert('returns no-dimensions early note when empty', strpos($api, 'No active dimensions defined for this tenant') !== false);
-$assert('joins JE for posted-only filter',
-    strpos($api, "AND je.status    = 'posted'") !== false);
+$assert('joins JE for posted and reversed filter',
+    strpos($api, "AND je.status IN ('posted','reversed')") !== false);
 $assert('uses accountingAccountDimRules per row',  strpos($api, '$rules  = accountingAccountDimRules($tid, $accId)') !== false);
 $assert("filters to required-only rules",
     strpos($api, "if (\$req !== 'required') continue") !== false);

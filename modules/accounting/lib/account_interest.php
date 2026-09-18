@@ -151,9 +151,9 @@ function accountInterestLedgerBalance(
 {
     $stmt = getDB()->prepare(
         'SELECT a.normal_side,
-                COALESCE(SUM(CASE WHEN je.status = "posted" AND je.posting_date <= :d
+                COALESCE(SUM(CASE WHEN je.status IN ("posted","reversed") AND je.posting_date <= :d
                   AND (:x = "" OR COALESCE(je.idempotency_key, "") <> :x2) THEN l.debit ELSE 0 END), 0) AS debit,
-                COALESCE(SUM(CASE WHEN je.status = "posted" AND je.posting_date <= :d2
+                COALESCE(SUM(CASE WHEN je.status IN ("posted","reversed") AND je.posting_date <= :d2
                   AND (:x3 = "" OR COALESCE(je.idempotency_key, "") <> :x4) THEN l.credit ELSE 0 END), 0) AS credit
            FROM accounting_accounts a
            LEFT JOIN accounting_journal_entry_lines l ON l.account_id = a.id
@@ -189,7 +189,7 @@ function accountInterestLedgerMovements(
            FROM accounting_journal_entry_lines l
            JOIN accounting_journal_entries je ON je.id = l.je_id
           WHERE je.tenant_id = :t AND je.entity_id = :e AND l.account_id = :a
-            AND je.status = "posted" AND je.posting_date BETWEEN :ps AND :pe
+            AND je.status IN ("posted","reversed") AND je.posting_date BETWEEN :ps AND :pe
             AND (:x = "" OR COALESCE(je.idempotency_key, "") <> :x2)
           GROUP BY je.posting_date ORDER BY je.posting_date'
     );

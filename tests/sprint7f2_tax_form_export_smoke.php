@@ -9,7 +9,7 @@
  *   - Module-namespaced kebab alias delegates.
  *   - TaxExport.jsx renders + downloads CSV via `?format=csv`.
  *   - AccountingV1Module sub-nav + route, App.jsx sidebar, and
- *     Bookkeeping Overview Reports&Tax quick-links wired.
+ *     Bookkeeping Overview financial-report quick-links wired.
  */
 declare(strict_types=1);
 
@@ -44,7 +44,7 @@ $assert('joins mappings → accounts → JE lines',
     strpos($ep, 'JOIN accounting_accounts a ON a.id = m.account_id') !== false
     && strpos($ep, 'LEFT JOIN accounting_journal_entry_lines jl') !== false
     && strpos($ep, 'LEFT JOIN accounting_journal_entries je') !== false);
-$assert('posted-only filter',                    strpos($ep, "je.status = 'posted'") !== false);
+$assert('posted and reversed ledger filter',     strpos($ep, "je.status IN ('posted','reversed')") !== false);
 $assert('entity_id filter applied',              strpos($ep, 'je.entity_id = :eid') !== false);
 $assert('group by mapping + account (per-line breakdown)',
     strpos($ep, 'GROUP BY m.id, a.id') !== false);
@@ -117,10 +117,11 @@ $assert("sidebar Tax Export action",
     && strpos($app, "route: 'tax-export'") !== false);
 
 $bk = (string) file_get_contents("{$ROOT}/dashboard/src/pages/BookkeepingOverview.jsx");
-$assert('Reports&Tax quick-links card',          strpos($bk, 'data-testid="bookkeeping-overview-quick-links-card"') !== false);
+$assert('Financial reports quick-links card',    strpos($bk, 'data-testid="bookkeeping-overview-quick-links-card"') !== false);
 $assert('quick link → GL Detail',                strpos($bk, 'data-testid="bookkeeping-overview-gl-detail-link"') !== false);
-$assert('quick link → Tax mappings',             strpos($bk, 'data-testid="bookkeeping-overview-tax-mappings-link"') !== false);
-$assert('quick link → Tax export',               strpos($bk, 'data-testid="bookkeeping-overview-tax-export-link"') !== false);
+$assert('quick link → Income statement',         strpos($bk, 'data-testid="bookkeeping-overview-income-statement-link"') !== false);
+$assert('quick link → Balance sheet',            strpos($bk, 'data-testid="bookkeeping-overview-balance-sheet-link"') !== false);
+$assert('quick link → Cash flow',                strpos($bk, 'data-testid="bookkeeping-overview-cash-flow-link"') !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

@@ -58,7 +58,7 @@ $balStmt = $pdo->prepare(
        FROM accounting_journal_entry_lines jl
        JOIN accounting_journal_entries je ON je.id = jl.je_id
       WHERE je.tenant_id = :t
-        AND je.status   = 'posted'
+        AND je.status IN ('posted','reversed')
         AND je.posting_date <= :a
         AND jl.account_id = :acc"
 );

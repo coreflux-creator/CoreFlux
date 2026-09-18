@@ -65,7 +65,7 @@ $sql = "SELECT jl.id AS line_id, jl.account_id, jl.dim_json AS dimension_values,
           JOIN accounting_journal_entries je ON je.id = jl.je_id
           JOIN accounting_accounts a         ON a.id  = jl.account_id
          WHERE jl.tenant_id = :t
-           AND je.status    = 'posted'
+           AND je.status IN ('posted','reversed')
            AND je.posting_date >= :since"
        . ($entityId ? ' AND je.entity_id = :e' : '');
 $bind = ['t' => $tid, 'since' => $since];

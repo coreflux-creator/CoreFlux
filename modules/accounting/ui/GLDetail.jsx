@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 import DataWarning from '../../../dashboard/src/components/DataWarning';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
+import { ChevronRight, RefreshCw } from 'lucide-react';
 
 /**
  * GL Detail — every JE line that hit a single account between two dates.
@@ -49,7 +50,7 @@ export default function GLDetail() {
   };
 
   return (
-    <section data-testid="accounting-gl-detail-page">
+    <section className="ledger-page" data-testid="accounting-gl-detail-page">
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
         <div>
           <h2 style={{ margin: 0 }}>GL Detail</h2>
@@ -58,7 +59,7 @@ export default function GLDetail() {
           </p>
         </div>
         <button data-testid="accounting-gl-detail-refresh" onClick={reload} className="btn btn--ghost" style={{ fontSize: 12 }}>
-          Refresh
+          <RefreshCw size={14} aria-hidden="true" />Refresh
         </button>
       </header>
 
@@ -86,7 +87,7 @@ export default function GLDetail() {
           <input type="checkbox" data-testid="accounting-gl-detail-include-unposted"
                  checked={includeUnposted}
                  onChange={e => setParam('include_unposted', e.target.checked ? '1' : '')} />
-          <span style={{ fontSize: 12, color: '#475569' }}>Include unposted</span>
+          <span style={{ fontSize: 12, color: '#475569' }}>Show drafts</span>
         </label>
       </div>
 
@@ -100,8 +101,7 @@ export default function GLDetail() {
       {data?.data_warning && <DataWarning text={data.data_warning} />}
 
       {data?.account && (
-        <div data-testid="accounting-gl-detail-summary"
-             style={{ display: 'flex', gap: 24, padding: 14, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div data-testid="accounting-gl-detail-summary" className="ledger-summary-strip">
           <SummaryStat label="Account">
             <AccountLink accountId={data.account.id} accountCode={data.account.code} entityId={entityId}>
               <code data-testid="accounting-gl-detail-account-code">{data.account.code}</code> · {data.account.name}
@@ -121,16 +121,18 @@ export default function GLDetail() {
             <tr>
               <th>Date</th>
               <th>JE #</th>
+              <th>Status</th>
               <th>Source</th>
               <th>Memo</th>
               <th style={{ textAlign: 'right' }}>Debit</th>
               <th style={{ textAlign: 'right' }}>Credit</th>
               <th style={{ textAlign: 'right' }}>Running</th>
+              <th className="table-actions-heading">Actions</th>
             </tr>
           </thead>
           <tbody>
             {data.lines.length === 0 && (
-              <tr><td colSpan={7} className="empty" data-testid="accounting-gl-detail-empty">No activity in the selected window.</td></tr>
+              <tr><td colSpan={9} className="empty" data-testid="accounting-gl-detail-empty">No activity in the selected window.</td></tr>
             )}
             {data.lines.map((l, idx) => (
               <tr key={`${l.je_id}-${idx}`} data-testid={`accounting-gl-detail-row-${l.je_id}-${idx}`}>
@@ -140,13 +142,19 @@ export default function GLDetail() {
                     {l.je_number}
                   </Link>
                 </td>
+                <td><span className={`badge badge--${l.status}`}>{l.status}</span></td>
                 <td style={{ fontSize: 12, color: '#64748b' }}>
-                  {l.source_module ? `${l.source_module}${l.source_ref_id ? ` · ${l.source_ref_id}` : ''}` : '—'}
+                  {formatSource(l)}
                 </td>
                 <td style={{ fontSize: 12 }}>{l.description || l.memo || ''}</td>
                 <td style={{ textAlign: 'right', fontFamily: 'ui-monospace, monospace' }}>{l.debit > 0 ? fmt(l.debit) : ''}</td>
                 <td style={{ textAlign: 'right', fontFamily: 'ui-monospace, monospace' }}>{l.credit > 0 ? fmt(l.credit) : ''}</td>
                 <td style={{ textAlign: 'right', fontFamily: 'ui-monospace, monospace', color: l.running >= 0 ? '#0f172a' : '#dc2626' }}>{fmt(l.running)}</td>
+                <td className="table-actions-cell">
+                  <Link className="ledger-review-link" to={`/modules/accounting/journal-entries/${l.je_id}`} aria-label={`Review ${l.je_number}`}>
+                    Review <ChevronRight size={14} aria-hidden="true" />
+                  </Link>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -178,3 +186,16 @@ function isoMonthStart() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 }
 function isoToday() { return new Date().toISOString().slice(0, 10); }
+
+function formatSource(line) {
+  const labels = {
+    manual: 'Manual',
+    treasury_feed: 'Bank feed',
+    billing: 'Billing',
+    ap: 'Accounts payable',
+    payroll: 'Payroll',
+    reversal: 'Reversal',
+  };
+  const label = labels[line.source_module] || String(line.source_module || 'System').replaceAll('_', ' ');
+  return line.source_ref_id ? `${label} · ${line.source_ref_id}` : label;
+}

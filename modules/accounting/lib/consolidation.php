@@ -185,7 +185,7 @@ function consolidateTrialBalance(int $tenantId, array $entityIds, string $asOf):
          LEFT JOIN accounting_journal_entries je ON je.id = l.je_id
          WHERE a.tenant_id = :t_a
            AND (je.id IS NULL OR (
-                je.tenant_id = :t_je AND je.status = "posted"
+                je.tenant_id = :t_je AND je.status IN ("posted","reversed")
                 AND je.posting_date <= :asof
                 AND je.entity_id IN (' . $in . ')
            ))
@@ -207,7 +207,7 @@ function consolidateTrialBalance(int $tenantId, array $entityIds, string $asOf):
          JOIN accounting_journal_entries je ON je.id = l.je_id
          JOIN accounting_accounts a ON a.id = l.account_id
          WHERE je.tenant_id = :t
-           AND je.status = "posted"
+           AND je.status IN ("posted","reversed")
            AND je.posting_date <= :asof
            AND je.entity_id IN (' . $in . ')
            AND l.counterparty_entity_id IN (' . $in . ')
@@ -411,7 +411,7 @@ function _consolidationPerEntityWeightedTB(int $tenantId, array $entityIds, stri
          JOIN accounting_journal_entries je ON je.id = l.je_id
          JOIN accounting_accounts a ON a.id = l.account_id
          WHERE je.tenant_id = :t
-           AND je.status = "posted"
+           AND je.status IN ("posted","reversed")
            AND je.posting_date <= :asof
            AND je.entity_id IN (' . $in . ')
          GROUP BY je.entity_id, a.id'
@@ -471,7 +471,7 @@ function _consolidationEquityPickup(int $tenantId, int $entityId, string $asOf, 
          JOIN accounting_journal_entries je ON je.id = l.je_id
          JOIN accounting_accounts a ON a.id = l.account_id
          WHERE je.tenant_id = :t AND je.entity_id = :eid
-           AND je.status = "posted" AND je.posting_date <= :asof
+           AND je.status IN ("posted","reversed") AND je.posting_date <= :asof
            AND a.account_type IN ("revenue","expense","cogs")
          GROUP BY a.account_type'
     );
@@ -588,7 +588,7 @@ function consolidateIncomeStatement(int $tenantId, array $entityIds, string $fro
          WHERE a.tenant_id = :t_a
            AND a.account_type IN ("revenue","expense")
            AND (je.id IS NULL OR (
-                je.tenant_id = :t_je AND je.status = "posted"
+                je.tenant_id = :t_je AND je.status IN ("posted","reversed")
                 AND je.posting_date >= :f AND je.posting_date <= :tx
                 AND je.entity_id IN (' . $in . ')
            ))
@@ -602,7 +602,7 @@ function consolidateIncomeStatement(int $tenantId, array $entityIds, string $fro
          FROM accounting_journal_entry_lines l
          JOIN accounting_journal_entries je ON je.id = l.je_id
          JOIN accounting_accounts a ON a.id = l.account_id
-         WHERE je.tenant_id = :t AND je.status = "posted"
+         WHERE je.tenant_id = :t AND je.status IN ("posted","reversed")
            AND je.posting_date >= :f AND je.posting_date <= :tx
            AND je.entity_id IN (' . $in . ')
            AND l.counterparty_entity_id IN (' . $in . ')
@@ -679,7 +679,7 @@ function consolidateBalanceSheet(int $tenantId, array $entityIds, string $asOf):
              FROM accounting_journal_entry_lines l
              JOIN accounting_journal_entries je ON je.id = l.je_id
              JOIN accounting_accounts a ON a.id = l.account_id
-             WHERE je.tenant_id = :t AND je.status = "posted"
+             WHERE je.tenant_id = :t AND je.status IN ("posted","reversed")
                AND je.posting_date <= :asof
                AND je.entity_id = :e
                AND a.account_type = "equity"'

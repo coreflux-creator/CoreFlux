@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
-import { FileText, Plus, X } from 'lucide-react';
+import { ChevronRight, FileText, Pencil, Plus, X } from 'lucide-react';
 
 /**
  * Journal Entries — list, detail, manual post, reverse.
@@ -14,14 +14,14 @@ export default function JournalEntries() {
 
   return (
     <section data-testid="accounting-journal">
-      {view.mode === 'list'   && <List   onOpen={(id) => navigate(`/modules/accounting/journal-entries/${id}`)} onNew={() => navigate('/modules/accounting/journal-entries/new')} />}
+      {view.mode === 'list'   && <List onOpen={(id) => navigate(`/modules/accounting/journal-entries/${id}`)} onEdit={(id) => navigate(`/modules/accounting/journal-entries/${id}/edit`)} onNew={() => navigate('/modules/accounting/journal-entries/new')} />}
       {view.mode === 'detail' && <Detail id={view.id} onBack={() => setView({ mode: 'list' })} />}
       {view.mode === 'new'    && <ManualPost onDone={() => setView({ mode: 'list' })} onCancel={() => setView({ mode: 'list' })} />}
     </section>
   );
 }
 
-function List({ onOpen, onNew }) {
+function List({ onOpen, onEdit, onNew }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { activeEntityId, activeEntity } = useActiveEntity();
   const accountCode = searchParams.get('account_code') || '';
@@ -101,6 +101,7 @@ function List({ onOpen, onNew }) {
             <option value="draft">Draft</option>
             <option value="posted">Posted</option>
             <option value="reversed">Reversed</option>
+            <option value="void">Deleted drafts</option>
           </select>
         </div>
       </div>
@@ -108,9 +109,9 @@ function List({ onOpen, onNew }) {
       {error   && <p className="error">Error: {error.message}</p>}
       <div className="data-table-wrap">
       <table className="data-table">
-        <thead><tr><th>Number</th><th>Date</th><th>Source</th><th>Status</th><th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th><th>Memo</th></tr></thead>
+        <thead><tr><th>Number</th><th>Date</th><th>Source</th><th>Status</th><th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th><th>Memo</th><th className="table-actions-heading">Actions</th></tr></thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={7} className="empty" data-testid="accounting-journal-empty">No journal entries yet.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={8} className="empty" data-testid="accounting-journal-empty">No journal entries match these filters.</td></tr>}
           {rows.map((r) => (
             <tr
               key={r.id}
@@ -128,11 +129,21 @@ function List({ onOpen, onNew }) {
             >
               <td><code>{r.je_number}</code></td>
               <td>{r.posting_date}</td>
-              <td>{r.source_module}{r.source_ref_type ? `:${r.source_ref_type}#${r.source_ref_id}` : ''}</td>
-              <td><span className={`badge badge--${r.status}`}>{r.status}</span></td>
+              <td>{sourceLabel(r)}</td>
+              <td><span className={`badge badge--${r.status === 'void' ? 'voided' : r.status}`}>{r.status === 'void' ? 'deleted' : r.status}</span></td>
               <td style={{ textAlign: 'right' }}>{fmt(r.total_debit)}</td>
               <td style={{ textAlign: 'right' }}>{fmt(r.total_credit)}</td>
               <td style={{ color: '#666' }}>{r.memo || '—'}</td>
+              <td className="table-actions-cell" onClick={(event) => event.stopPropagation()}>
+                {isManualDraft(r) && (
+                  <button type="button" className="btn btn--ghost btn--icon" onClick={() => onEdit(r.id)} aria-label={`Edit ${r.je_number}`} title="Edit draft">
+                    <Pencil size={14} aria-hidden="true" />
+                  </button>
+                )}
+                <button type="button" className="btn btn--ghost btn--icon" onClick={() => onOpen(r.id)} aria-label={`Review ${r.je_number}`} title="Review entry">
+                  <ChevronRight size={15} aria-hidden="true" />
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -309,3 +320,22 @@ function ManualPost({ onDone, onCancel }) {
 }
 
 function fmt(n) { return Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+function sourceLabel(entry) {
+  const labels = {
+    manual: 'Manual',
+    treasury_feed: 'Bank feed',
+    billing: 'Billing',
+    ap: 'Accounts payable',
+    payroll: 'Payroll',
+    reversal: 'Reversal',
+  };
+  const label = labels[entry.source_module] || String(entry.source_module || 'System').replaceAll('_', ' ');
+  return entry.source_ref_id ? `${label} · ${entry.source_ref_id}` : label;
+}
+
+function isManualDraft(entry) {
+  return entry.status === 'draft'
+    && entry.source_module !== 'system'
+    && !['ai_workflow', 'workflow_run'].includes(entry.source_ref_type);
+}

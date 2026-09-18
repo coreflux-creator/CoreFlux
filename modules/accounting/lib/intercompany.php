@@ -411,7 +411,7 @@ function intercompanyEliminationWorksheet(int $tenantId, ?string $from = null, ?
          FROM accounting_journal_entry_lines l
          JOIN accounting_journal_entries je ON je.id = l.je_id
          WHERE je.tenant_id = :t
-           AND je.status = 'posted'
+           AND je.status IN ('posted','reversed')
            AND l.counterparty_entity_id IS NOT NULL
            $dateFilter
          GROUP BY je.entity_id, l.counterparty_entity_id"
@@ -466,7 +466,7 @@ function intercompanyEliminationWorksheet(int $tenantId, ?string $from = null, ?
          JOIN accounting_journal_entries je ON je.id = l.je_id
          JOIN accounting_accounts a ON a.id = l.account_id
          WHERE je.tenant_id = :t
-           AND je.status = 'posted'
+           AND je.status IN ('posted','reversed')
            AND l.counterparty_entity_id IS NOT NULL
            AND je.intercompany_group_id IS NULL
            $dateFilter
