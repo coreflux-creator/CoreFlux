@@ -18,6 +18,8 @@ require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../lib/rate_approve.php';
 require_once __DIR__ . '/../../staffing/lib/clients.php';
+require_once __DIR__ . '/../../people/lib/people.php';
+require_once __DIR__ . '/../../people/lib/audit.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -356,7 +358,7 @@ if ($method === 'POST') {
     // Default POST = create
     rbac_legacy_require($user, 'placements.manage');
     $body = api_json_body();
-    api_require_fields($body, ['person_id', 'title', 'start_date', 'engagement_type']);
+    api_require_fields($body, ['title', 'start_date', 'engagement_type']);
     if (!in_array($body['engagement_type'], ALLOWED_ETYPE, true)) {
         api_error('Invalid engagement_type', 422, ['allowed' => ALLOWED_ETYPE]);
     }
@@ -364,84 +366,182 @@ if ($method === 'POST') {
         api_error('start_date must be YYYY-MM-DD', 422);
     }
 
-    // person_id must belong to the same tenant
-    $person = scopedFind('SELECT id FROM people WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
-        ['id' => (int) $body['person_id']]);
-    if (!$person) api_error('person_id not found in this tenant', 422);
+    $personId = (int) ($body['person_id'] ?? 0);
+    $newPersonBody = is_array($body['new_person'] ?? null) ? $body['new_person'] : null;
+    if ($personId > 0 && $newPersonBody !== null) {
+        api_error('Choose either an existing person or a new person, not both', 422);
+    }
+    if ($personId <= 0 && $newPersonBody === null) {
+        api_error('Choose an existing person or enter a new person', 422, ['fields' => ['person_id', 'new_person']]);
+    }
+
+    $newPersonInsert = null;
+    if ($newPersonBody !== null) {
+        rbac_legacy_require($user, 'people.manage');
+        api_require_fields($newPersonBody, ['first_name', 'last_name', 'email_primary']);
+
+        $firstName = trim((string) $newPersonBody['first_name']);
+        $lastName = trim((string) $newPersonBody['last_name']);
+        $email = strtolower(trim((string) $newPersonBody['email_primary']));
+        $phone = trim((string) ($newPersonBody['phone_primary'] ?? ''));
+        if ($firstName === '' || $lastName === '') api_error('First and last name are required', 422);
+        if (strlen($firstName) > 100 || strlen($lastName) > 100) api_error('Person name is too long', 422);
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) api_error('Enter a valid work email', 422);
+        if (strlen($email) > 255) api_error('Work email is too long', 422);
+        if (strlen($phone) > 50) api_error('Phone number is too long', 422);
+
+        $existingPerson = peopleFindByEmail($email);
+        if ($existingPerson) {
+            api_error('A person with this email already exists', 409, [
+                'conflict_id' => (int) $existingPerson['id'],
+                'conflict' => $existingPerson,
+            ]);
+        }
+
+        $newPersonInsert = [
+            'first_name' => $firstName,
+            'last_name' => $lastName,
+            'email_primary' => $email,
+            'phone_primary' => $phone !== '' ? $phone : null,
+            'classification' => placementPersonClassification((string) $body['engagement_type']),
+            'status' => 'active',
+            'work_auth_status' => 'unknown',
+            'requires_sponsorship' => 0,
+            'source' => 'placement_create',
+            'created_by_user_id' => $user['id'] ?? null,
+        ];
+    } else {
+        // Existing person must belong to the current tenant.
+        $person = peopleGet($personId);
+        if (!$person) api_error('person_id not found in this tenant', 422);
+    }
 
     $statusInput = $body['status'] ?? 'draft';
     if ((string) $statusInput === 'active') {
         api_error('Placements cannot be created active. Create as draft/pending_start, approve rates, then activate.', 422);
     }
-    $insert = [
-        'person_id'        => (int) $body['person_id'],
-        'external_id'      => $body['external_id']      ?? null,
-        'status'           => in_array($statusInput, ALLOWED_STATUS, true) ? $statusInput : 'draft',
-        'start_date'       => $body['start_date'],
-        'end_date'         => $body['end_date']         ?? null,
-        'due_date'         => $body['due_date']         ?? null,
-        'engagement_type'  => $body['engagement_type'],
-        'worksite_state'   => $body['worksite_state']   ?? null,
-        'worksite_country' => $body['worksite_country'] ?? null,
-        'remote_policy'    => placementsNormalizeRemotePolicy($body['remote_policy'] ?? null),
-        'title'            => $body['title'],
-        'end_client_name'  => $body['end_client_name']  ?? null,
-        'end_client_company_id' => !empty($body['end_client_company_id']) ? (int) $body['end_client_company_id'] : null,
-        'client_approver_name'  => $body['client_approver_name']  ?? null,
-        'client_approver_email' => $body['client_approver_email'] ?? null,
-        'notes'            => $body['notes']            ?? null,
-        'created_by_user_id' => $user['id'] ?? null,
-    ];
 
-    // If a company_id is provided, prefer its canonical name and tag it 'client'.
-    // If only a free-text end_client_name is provided, upsert into companies for
-    // future picks. Either path also ensures the staffing client consumer row.
-    if (!empty($insert['end_client_company_id'])) {
-        $co = companiesGet((int) $insert['end_client_company_id']);
-        if ($co) {
-            $insert['end_client_name'] = $co['name'];
-            companiesAddRole((int) $co['id'], 'client');
-            companiesBumpUsage((int) $co['id']);
-        }
-    } elseif (!empty($insert['end_client_name'])) {
-        $cid = companiesUpsertByName(currentTenantId(), (string) $insert['end_client_name'], [
-            'created_by_user_id' => $user['id'] ?? null,
-        ], ['client']);
-        $insert['end_client_company_id'] = $cid;
-        companiesBumpUsage($cid);
-    }
-    if (!empty($insert['end_client_company_id']) || !empty($insert['end_client_name'])) {
-        $clientRef = staffingClientEnsureForCompany(
-            currentTenantId(),
-            !empty($insert['end_client_company_id']) ? (int) $insert['end_client_company_id'] : null,
-            (string) ($insert['end_client_name'] ?? ''),
-            ['created_by_user_id' => $user['id'] ?? null]
-        );
-        $insert['client_id'] = $clientRef['client_id'];
-        $insert['end_client_company_id'] = $clientRef['company_id'] ?: $insert['end_client_company_id'];
-        $insert['end_client_name'] = $clientRef['name'];
-    }
-
-    $id = scopedInsert('placements', $insert);
-
-    // Bump end-client typeahead
-    if (!empty($body['end_client_name'])) {
-        try {
-            $pdo = getDB();
-            $stmt = $pdo->prepare(
-                'INSERT INTO tenant_end_clients (tenant_id, client_name, use_count, last_used_at)
-                 VALUES (:tenant_id, :name, 1, NOW())
-                 ON DUPLICATE KEY UPDATE use_count = use_count + 1, last_used_at = NOW()'
+    $pdo = null;
+    $combinedCreateTransaction = false;
+    $createdPersonId = null;
+    try {
+        if ($newPersonInsert !== null) {
+            // Person + placement is one unit of work. A placement failure must
+            // never leave an orphaned person in the directory.
+            $pdo = cf_begin_transaction();
+            $combinedCreateTransaction = true;
+            $personId = peopleCreateForPlacement(
+                $newPersonInsert,
+                (string) $newPersonInsert['classification'],
+                isset($user['id']) ? (int) $user['id'] : null
             );
-            $stmt->execute(['tenant_id' => currentTenantId(), 'name' => $body['end_client_name']]);
-        } catch (\Throwable $e) { /* non-fatal */ }
+            $createdPersonId = $personId;
+            peopleAudit('people.created', [
+                'id' => $personId,
+                'classification' => $newPersonInsert['classification'],
+                'source' => 'placement_create',
+            ], $personId);
+        }
+
+        $insert = [
+            'person_id'        => $personId,
+            'external_id'      => $body['external_id']      ?? null,
+            'status'           => in_array($statusInput, ALLOWED_STATUS, true) ? $statusInput : 'draft',
+            'start_date'       => $body['start_date'],
+            'end_date'         => $body['end_date']         ?? null,
+            'due_date'         => $body['due_date']         ?? null,
+            'engagement_type'  => $body['engagement_type'],
+            'worksite_state'   => $body['worksite_state']   ?? null,
+            'worksite_country' => $body['worksite_country'] ?? null,
+            'remote_policy'    => placementsNormalizeRemotePolicy($body['remote_policy'] ?? null),
+            'title'            => $body['title'],
+            'end_client_name'  => $body['end_client_name']  ?? null,
+            'end_client_company_id' => !empty($body['end_client_company_id']) ? (int) $body['end_client_company_id'] : null,
+            'client_approver_name'  => $body['client_approver_name']  ?? null,
+            'client_approver_email' => $body['client_approver_email'] ?? null,
+            'notes'            => $body['notes']            ?? null,
+            'created_by_user_id' => $user['id'] ?? null,
+        ];
+
+        // If a company_id is provided, prefer its canonical name and tag it 'client'.
+        // If only a free-text end_client_name is provided, upsert into companies for
+        // future picks. Either path also ensures the staffing client consumer row.
+        if (!empty($insert['end_client_company_id'])) {
+            $co = companiesGet((int) $insert['end_client_company_id']);
+            if ($co) {
+                $insert['end_client_name'] = $co['name'];
+                companiesAddRole((int) $co['id'], 'client');
+                companiesBumpUsage((int) $co['id']);
+            }
+        } elseif (!empty($insert['end_client_name'])) {
+            $cid = companiesUpsertByName(currentTenantId(), (string) $insert['end_client_name'], [
+                'created_by_user_id' => $user['id'] ?? null,
+            ], ['client']);
+            $insert['end_client_company_id'] = $cid;
+            companiesBumpUsage($cid);
+        }
+        if (!empty($insert['end_client_company_id']) || !empty($insert['end_client_name'])) {
+            $clientRef = staffingClientEnsureForCompany(
+                currentTenantId(),
+                !empty($insert['end_client_company_id']) ? (int) $insert['end_client_company_id'] : null,
+                (string) ($insert['end_client_name'] ?? ''),
+                ['created_by_user_id' => $user['id'] ?? null]
+            );
+            $insert['client_id'] = $clientRef['client_id'];
+            $insert['end_client_company_id'] = $clientRef['company_id'] ?: $insert['end_client_company_id'];
+            $insert['end_client_name'] = $clientRef['name'];
+        }
+
+        $id = scopedInsert('placements', $insert);
+
+        // Bump end-client typeahead.
+        if (!empty($body['end_client_name'])) {
+            try {
+                $endClientPdo = getDB();
+                $stmt = $endClientPdo->prepare(
+                    'INSERT INTO tenant_end_clients (tenant_id, client_name, use_count, last_used_at)
+                     VALUES (:tenant_id, :name, 1, NOW())
+                     ON DUPLICATE KEY UPDATE use_count = use_count + 1, last_used_at = NOW()'
+                );
+                $stmt->execute(['tenant_id' => currentTenantId(), 'name' => $body['end_client_name']]);
+            } catch (\Throwable $e) { /* non-fatal */ }
+        }
+
+        placementsAudit('placement.created', ['id' => $id, 'engagement_type' => $insert['engagement_type']], $id, [
+            'after' => placementAuditRow($id),
+        ]);
+        placementEconomicsReconcile((int) $ctx['tenant_id'], $id);
+        if ($combinedCreateTransaction && $pdo && $pdo->inTransaction()) $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($combinedCreateTransaction && $pdo && $pdo->inTransaction()) $pdo->rollBack();
+
+        // Close the small race between duplicate-email validation and INSERT.
+        // When another request wins, return the same actionable conflict shape.
+        if ($newPersonInsert !== null && $e instanceof \PDOException && (string) $e->getCode() === '23000') {
+            $conflict = peopleFindByEmail((string) $newPersonInsert['email_primary']);
+            if ($conflict) {
+                api_error('A person with this email already exists', 409, [
+                    'conflict_id' => (int) $conflict['id'],
+                    'conflict' => $conflict,
+                ]);
+            }
+        }
+        throw $e;
     }
 
-    placementsAudit('placement.created', ['id' => $id, 'engagement_type' => $insert['engagement_type']], $id, [
-        'after' => placementAuditRow($id),
-    ]);
-    placementEconomicsReconcile((int) $ctx['tenant_id'], $id);
-    api_ok(['placement' => placementGet($id)], 201);
+    // Preserve the People module's payroll bridge for active W-2 records.
+    // It is intentionally non-fatal and runs after the atomic create commits.
+    if ($createdPersonId !== null && ($newPersonInsert['classification'] ?? null) === 'w2') {
+        require_once __DIR__ . '/../../people/lib/employees.php';
+        try { peopleEnsureEmployeesFromW2(); } catch (\Throwable $_) { /* dashboard backfill is the fallback */ }
+    }
+
+    $response = [
+        'placement' => placementGet($id),
+        'person_created' => $createdPersonId !== null,
+    ];
+    if ($createdPersonId !== null) $response['person'] = peopleGet($createdPersonId);
+    api_ok($response, 201);
 }
 
 if ($method === 'PATCH') {
@@ -566,4 +666,19 @@ function _placementsRequireActiveReady(int $placementId, ?string $asOf, string $
             'as_of' => $asOf,
         ]);
     }
+}
+
+/**
+ * Keep People classification aligned with the placement's engagement model.
+ * The browser shows the same mapping, but the server remains authoritative.
+ */
+function placementPersonClassification(string $engagementType): string
+{
+    return match ($engagementType) {
+        '1099' => '1099',
+        'c2c' => 'c2c',
+        'temp_to_perm' => 'temp',
+        'direct_hire' => 'perm',
+        default => 'w2',
+    };
 }

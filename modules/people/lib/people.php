@@ -46,6 +46,55 @@ function peopleGet(int $personId): ?array
 }
 
 /**
+ * Find an active directory record by its tenant-unique primary email.
+ * This is the shared cross-module duplicate check for inline person creation.
+ */
+function peopleFindByEmail(string $email): ?array
+{
+    return scopedFind(
+        'SELECT ' . peopleSafeFields() . '
+           FROM people
+          WHERE tenant_id = :tenant_id
+            AND LOWER(email_primary) = LOWER(:email)
+            AND deleted_at IS NULL',
+        ['email' => trim($email)]
+    );
+}
+
+/**
+ * Create the minimal People record needed by a placement workflow.
+ * Callers own permission checks, transaction boundaries, and audit logging.
+ */
+function peopleCreateForPlacement(array $identity, string $classification, ?int $createdByUserId = null): int
+{
+    $allowed = ['w2', '1099', 'c2c', 'temp', 'perm'];
+    if (!in_array($classification, $allowed, true)) {
+        throw new \InvalidArgumentException('Invalid placement person classification');
+    }
+
+    $firstName = trim((string) ($identity['first_name'] ?? ''));
+    $lastName = trim((string) ($identity['last_name'] ?? ''));
+    $email = strtolower(trim((string) ($identity['email_primary'] ?? '')));
+    $phone = trim((string) ($identity['phone_primary'] ?? ''));
+    if ($firstName === '' || $lastName === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new \InvalidArgumentException('Valid first name, last name, and work email are required');
+    }
+
+    return scopedInsert('people', [
+        'first_name' => $firstName,
+        'last_name' => $lastName,
+        'email_primary' => $email,
+        'phone_primary' => $phone !== '' ? $phone : null,
+        'classification' => $classification,
+        'status' => 'active',
+        'work_auth_status' => 'unknown',
+        'requires_sponsorship' => 0,
+        'source' => 'placement_create',
+        'created_by_user_id' => $createdByUserId,
+    ]);
+}
+
+/**
  * Get a person WITH PII. Caller MUST have already checked
  * rbac_legacy_can($user, 'people.pii.view') AND have written a
  * `people_pii_access_log` entry via peopleLogPIIAccess().

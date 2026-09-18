@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Search, UserRoundPlus } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 
@@ -18,20 +19,27 @@ const COMMISSION_BASIS = ['net_margin', 'gross_margin', 'bill_rate', 'flat'];
 const REFERRER_TYPES = ['vendor', 'person', 'user'];
 const FEE_BASIS = ['per_hour', 'per_invoice', 'one_time', 'pct_bill', 'pct_margin'];
 const COUNTRIES = ['US', 'CA', 'IN', 'GB', 'MX']; // common — not exhaustive
-const REQUIRED_FIELDS = ['Person', 'Title', 'Start date', 'Engagement type'];
+const PERSON_CLASSIFICATION_LABELS = {
+  w2: 'W-2',
+  '1099': '1099 contractor',
+  c2c: 'C2C contractor',
+  temp: 'Temporary worker',
+  perm: 'Permanent employee',
+};
 
 /**
  * PlacementCreate — full SPEC §3 coverage form.
  *
  * Sections:
- *   1. Person + role (with Internal-hire toggle)
- *   2. End client (hidden for internal hires)
- *   3. Vendor chain (hidden for internal hires)
- *   4. Initial rate (currency / unit / adder / background fee)
- *   5. Commissions (inline rows)
- *   6. Referral (optional single)
- *   7. C2C corp details (only when engagement_type='c2c')
- *   8. Notes
+ *   1. New or existing person
+ *   2. Placement role and dates (with Internal-hire toggle)
+ *   3. End client (hidden for internal hires)
+ *   4. Vendor chain (hidden for internal hires)
+ *   5. Initial rate (currency / unit / adder / background fee)
+ *   6. Commissions (inline rows)
+ *   7. Referral (optional single)
+ *   8. C2C corp details (only when engagement_type='c2c')
+ *   9. Notes
  *
  * Documents (MSA / COI / W-9 / chain contracts) are uploaded after creation
  * from the placement detail page so we don't have to multi-upload before the
@@ -53,6 +61,11 @@ export default function PlacementCreate() {
     remote_policy: '', external_id: '', notes: '',
     client_approver_name: '', client_approver_email: '',
   });
+  const [personMode, setPersonMode] = useState(prefilledPersonId ? 'existing' : 'new');
+  const [newPerson, setNewPerson] = useState({
+    first_name: '', last_name: '', email_primary: '', phone_primary: '',
+  });
+  const [personConflict, setPersonConflict] = useState(null);
   const [internalHire, setInternalHire] = useState(false);
   const [endClient, setEndClient] = useState(null);
   const [chain, setChain]         = useState([]);
@@ -92,6 +105,7 @@ export default function PlacementCreate() {
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const setNewPersonF = (k) => (e) => setNewPerson({ ...newPerson, [k]: e.target.value });
   const setRateF = (k) => (e) => setRate({ ...rate, [k]: e.target.value });
   const setCorpF = (k) => (e) => setCorp({ ...corp, [k]: e.target.value });
 
@@ -111,21 +125,55 @@ export default function PlacementCreate() {
   // What's missing for the disabled button → show as inline hint.
   const missing = useMemo(() => {
     const m = [];
-    if (!form.person_id)        m.push('Person');
+    if (personMode === 'existing' && !form.person_id) m.push('Person');
+    if (personMode === 'new' && !newPerson.first_name.trim()) m.push('First name');
+    if (personMode === 'new' && !newPerson.last_name.trim()) m.push('Last name');
+    if (personMode === 'new' && !newPerson.email_primary.trim()) m.push('Work email');
     if (!form.title.trim())     m.push('Title');
     if (!form.start_date)       m.push('Start date');
     if (!form.engagement_type)  m.push('Engagement type');
     return m;
-  }, [form.person_id, form.title, form.start_date, form.engagement_type]);
+  }, [personMode, newPerson, form.person_id, form.title, form.start_date, form.engagement_type]);
+
+  const personClassification = classificationForEngagement(form.engagement_type);
+
+  const choosePersonMode = (mode) => {
+    setPersonMode(mode);
+    setPersonConflict(null);
+    setError(null);
+    if (mode === 'new') {
+      setForm(f => ({ ...f, person_id: '' }));
+      setPersonSearch('');
+    }
+  };
+
+  const useConflictingPerson = () => {
+    if (!personConflict?.id) return;
+    setPersonMode('existing');
+    setForm(f => ({ ...f, person_id: String(personConflict.id) }));
+    setPersonSearch(personDisplayName(personConflict));
+    setPersonConflict(null);
+    setError(null);
+  };
 
   const submit = async (e) => {
     e.preventDefault();
-    setSubmitting(true); setError(null);
+    setSubmitting(true); setError(null); setPersonConflict(null);
     try {
       // 1) Create placement
       const payload = { ...form };
       ['end_date', 'due_date'].forEach(k => { if (!payload[k]) delete payload[k]; });
-      payload.person_id = parseInt(payload.person_id, 10);
+      if (personMode === 'new') {
+        delete payload.person_id;
+        payload.new_person = {
+          first_name: newPerson.first_name.trim(),
+          last_name: newPerson.last_name.trim(),
+          email_primary: newPerson.email_primary.trim(),
+          phone_primary: newPerson.phone_primary.trim() || null,
+        };
+      } else {
+        payload.person_id = parseInt(payload.person_id, 10);
+      }
       if (!internalHire && endClient) {
         payload.end_client_company_id = endClient.id || undefined;
         payload.end_client_name = endClient.name;
@@ -204,7 +252,19 @@ export default function PlacementCreate() {
       }
 
       nav(`../${placementId}`);
-    } catch (e) { setError(e); setSubmitting(false); }
+    } catch (e) {
+      if (e.status === 409 && e.data?.conflict_id) {
+        setPersonConflict(e.data.conflict || {
+          id: e.data.conflict_id,
+          first_name: '',
+          last_name: '',
+          email_primary: newPerson.email_primary.trim(),
+        });
+      } else {
+        setError(e);
+      }
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -212,18 +272,16 @@ export default function PlacementCreate() {
       <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--cf-space-4)' }}>
         <div>
           <h2 style={{ margin: 0 }}>New placement</h2>
-          {prefilledPersonId && <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--cf-text-secondary)' }} data-testid="placement-create-prefilled">For person #{prefilledPersonId}</p>}
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--cf-text-secondary)' }}>
+            {prefilledPersonId ? <span data-testid="placement-create-prefilled">For person #{prefilledPersonId}</span> : 'Add the person and engagement in one pass.'}
+          </p>
         </div>
         <Link to=".." className="btn btn--ghost" data-testid="placement-create-back">← Back</Link>
       </header>
 
-      {/* Required-fields hint banner */}
       <div data-testid="placement-create-required-hint"
-           style={{ padding: 10, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, marginBottom: 16, fontSize: 13, color: '#1e40af' }}>
-        <strong>Required fields:</strong> {REQUIRED_FIELDS.join(' · ')}. Everything else is optional and editable later.
-        <span style={{ marginLeft: 8, color: '#475569' }}>
-          Documents (MSA / COI / W-9 / contracts) upload from the placement detail page after creation.
-        </span>
+           style={{ padding: '8px 12px', background: 'var(--cf-accent-light, #eaf4ff)', borderLeft: '3px solid var(--cf-accent, #007fff)', marginBottom: 16, fontSize: 13, color: 'var(--cf-text-secondary)' }}>
+        Fields marked <strong>*</strong> are required. New people are classified from the engagement type and can be completed later in People.
       </div>
 
       <form onSubmit={submit} className="person-create__form" data-testid="placement-create-form" style={{ maxWidth: 920 }}>
@@ -236,30 +294,67 @@ export default function PlacementCreate() {
             <span style={{ color: '#64748b' }}>· our own employee (admin / recruiter / accountant) — no end client, no vendor chain</span>
           </label>
 
-          <SectionTitle>1. Person + role</SectionTitle>
-          <Field label="Person *">
-            <input className="input" placeholder="Type to search People…" value={personSearch}
-                   onChange={e => { setPersonSearch(e.target.value); if (form.person_id && !prefilledPersonId) setForm({ ...form, person_id: '' }); }}
-                   data-testid="placement-create-person-search" />
-            {!form.person_id && personLookup.data?.rows?.length > 0 && (
-              <ul style={listStyle} data-testid="placement-create-person-results">
-                {personLookup.data.rows.map(p => (
-                  <li key={p.id}>
-                    <button type="button" onClick={() => { setForm({ ...form, person_id: p.id }); setPersonSearch(`${p.first_name} ${p.last_name} (${p.email_primary})`); }}
-                            data-testid={`placement-create-pick-person-${p.id}`} style={pickBtnStyle}>
-                      {p.first_name} {p.last_name} <span style={{ color: 'var(--cf-text-secondary)' }}>· {p.email_primary} · {ETYPE_LABELS[p.classification] || p.classification}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <input type="hidden" value={form.person_id} data-testid="placement-create-person-id" readOnly />
-          </Field>
+          <SectionTitle>1. Person</SectionTitle>
+          <div role="group" aria-label="Person source" style={modeSwitchStyle} data-testid="placement-create-person-mode">
+            <button type="button" aria-pressed={personMode === 'new'} onClick={() => choosePersonMode('new')}
+                    data-testid="placement-create-person-new" style={{ ...modeButtonStyle, ...(personMode === 'new' ? modeButtonActiveStyle : {}) }}>
+              <UserRoundPlus size={16} aria-hidden="true" /> New person
+            </button>
+            <button type="button" aria-pressed={personMode === 'existing'} onClick={() => choosePersonMode('existing')}
+                    data-testid="placement-create-person-existing" style={{ ...modeButtonStyle, ...(personMode === 'existing' ? modeButtonActiveStyle : {}) }}>
+              <Search size={16} aria-hidden="true" /> Existing person
+            </button>
+          </div>
+
+          {personMode === 'new' ? (
+            <div data-testid="placement-create-new-person-fields">
+              <Row>
+                <Field label="First name *"><input className="input" required value={newPerson.first_name} onChange={setNewPersonF('first_name')} data-testid="placement-create-person-first-name" autoComplete="given-name" /></Field>
+                <Field label="Last name *"><input className="input" required value={newPerson.last_name} onChange={setNewPersonF('last_name')} data-testid="placement-create-person-last-name" autoComplete="family-name" /></Field>
+              </Row>
+              <Row>
+                <Field label="Work email *"><input className="input" type="email" required value={newPerson.email_primary} onChange={setNewPersonF('email_primary')} data-testid="placement-create-person-email" autoComplete="email" placeholder="name@company.com" /></Field>
+                <Field label="Phone"><input className="input" type="tel" value={newPerson.phone_primary} onChange={setNewPersonF('phone_primary')} data-testid="placement-create-person-phone" autoComplete="tel" /></Field>
+              </Row>
+              <p style={{ margin: '-4px 0 14px', fontSize: 12, color: 'var(--cf-text-secondary)' }} data-testid="placement-create-person-classification">
+                People classification: <strong style={{ color: 'var(--cf-text)' }}>{PERSON_CLASSIFICATION_LABELS[personClassification] || personClassification}</strong>
+              </p>
+            </div>
+          ) : (
+            <Field label="Person *">
+              <input className="input" placeholder="Search by name, email, or ID" value={personSearch}
+                     onChange={e => { setPersonSearch(e.target.value); if (form.person_id && !prefilledPersonId) setForm({ ...form, person_id: '' }); }}
+                     data-testid="placement-create-person-search" />
+              {!form.person_id && personLookup.data?.rows?.length > 0 && (
+                <ul style={listStyle} data-testid="placement-create-person-results">
+                  {personLookup.data.rows.map(p => (
+                    <li key={p.id}>
+                      <button type="button" onClick={() => { setForm({ ...form, person_id: p.id }); setPersonSearch(personDisplayName(p)); }}
+                              data-testid={`placement-create-pick-person-${p.id}`} style={pickBtnStyle}>
+                        {p.first_name} {p.last_name} <span style={{ color: 'var(--cf-text-secondary)' }}>· {p.email_primary} · {ETYPE_LABELS[p.classification] || p.classification}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <input type="hidden" value={form.person_id} data-testid="placement-create-person-id" readOnly />
+            </Field>
+          )}
+
+          {personConflict && (
+            <div role="alert" data-testid="placement-create-person-conflict"
+                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 12px', marginBottom: 16, background: '#fff9eb', border: '1px solid #f5d88a', borderRadius: 6, color: '#7a4d00' }}>
+              <span><strong>{personDisplayName(personConflict)}</strong> already uses this email.</span>
+              <button type="button" className="btn btn--ghost" onClick={useConflictingPerson} data-testid="placement-create-use-existing-conflict">Use existing person</button>
+            </div>
+          )}
+
+          <SectionTitle>2. Placement details</SectionTitle>
 
           <Row>
             <Field label="Title *"><input className="input" required value={form.title} onChange={set('title')} data-testid="placement-create-title" placeholder="Senior Software Engineer" /></Field>
             <Field label="Engagement type *">
-              <select className="input" required value={form.engagement_type} onChange={set('engagement_type')} data-testid="placement-create-etype">
+              <select className="input" required disabled={internalHire} value={form.engagement_type} onChange={set('engagement_type')} data-testid="placement-create-etype">
                 {ETYPES.map(t => <option key={t} value={t}>{ETYPE_LABELS[t]}</option>)}
               </select>
             </Field>
@@ -274,7 +369,7 @@ export default function PlacementCreate() {
 
           {!internalHire && (
             <>
-              <SectionTitle>2. End client</SectionTitle>
+              <SectionTitle>3. End client</SectionTitle>
               <Field label="End client (typeahead — picks from Companies, or creates one)">
                 <CompanyTypeahead
                   role="client"
@@ -301,7 +396,7 @@ export default function PlacementCreate() {
                 </Field>
               </Row>
 
-              <SectionTitle>3. Vendor chain (optional — between us and the end client)</SectionTitle>
+              <SectionTitle>4. Vendor chain (optional — between us and the end client)</SectionTitle>
               <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
                 Add MSPs, prime vendors, or sub-vendors in order. Skip if direct to client.
               </p>
@@ -333,7 +428,7 @@ export default function PlacementCreate() {
             </>
           )}
 
-          <SectionTitle>{internalHire ? '2. Initial rate' : '4. Initial rate'} (optional but recommended)</SectionTitle>
+          <SectionTitle>{internalHire ? '3. Initial rate' : '5. Initial rate'} (optional but recommended)</SectionTitle>
           <Row>
             <Field label="Bill rate"><input className="input" type="number" step="0.01" value={rate.bill_rate} onChange={setRateF('bill_rate')} data-testid="placement-create-rate-bill" placeholder="125.00" /></Field>
             <Field label="Bill unit">
@@ -370,7 +465,7 @@ export default function PlacementCreate() {
 
           {showAdvanced && (
             <>
-              <SectionTitle>{internalHire ? '3' : '5'}. Commissions (optional)</SectionTitle>
+              <SectionTitle>{internalHire ? '4' : '6'}. Commissions (optional)</SectionTitle>
               <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
                 Each split is one row. Splits within the same role + window must sum to 100%.
               </p>
@@ -402,7 +497,7 @@ export default function PlacementCreate() {
               <button type="button" onClick={() => setCommissions([...commissions, { role: 'recruiter', basis: 'net_margin', split_pct: '' }])}
                       className="btn btn--ghost" data-testid="placement-create-commission-add">+ Add commission split</button>
 
-              <SectionTitle>{internalHire ? '4' : '6'}. Referral (optional)</SectionTitle>
+              <SectionTitle>{internalHire ? '5' : '7'}. Referral (optional)</SectionTitle>
               {!referral && (
                 <button type="button" onClick={() => setReferral({ referrer_type: 'vendor', fee_basis: 'pct_bill' })}
                         className="btn btn--ghost" data-testid="placement-create-referral-add">+ Add referral fee</button>
@@ -449,7 +544,7 @@ export default function PlacementCreate() {
 
               {form.engagement_type === 'c2c' && (
                 <>
-                  <SectionTitle>{internalHire ? '5' : '7'}. C2C corp details</SectionTitle>
+                  <SectionTitle>{internalHire ? '6' : '8'}. C2C corp details</SectionTitle>
                   <Row>
                     <Field label="Corp legal name *"><input className="input" value={corp.corp_legal_name} onChange={setCorpF('corp_legal_name')} data-testid="placement-create-corp-name" /></Field>
                     <Field label="EIN"><input className="input" value={corp.corp_ein} onChange={setCorpF('corp_ein')} data-testid="placement-create-corp-ein" placeholder="XX-XXXXXXX (encrypted at rest)" /></Field>
@@ -491,8 +586,8 @@ export default function PlacementCreate() {
           <div style={{ marginTop: 'var(--cf-space-3)', display: 'flex', gap: 'var(--cf-space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
             <button type="submit" className="btn btn--primary" data-testid="placement-create-submit"
                     disabled={submitting || missing.length > 0}
-                    title={missing.length ? `Fill required: ${missing.join(', ')}` : 'Create placement'}>
-              {submitting ? 'Saving…' : 'Create placement'}
+                    title={missing.length ? `Fill required: ${missing.join(', ')}` : (personMode === 'new' ? 'Create person and placement' : 'Create placement')}>
+              {submitting ? 'Saving…' : (personMode === 'new' ? 'Create person & placement' : 'Create placement')}
             </button>
             <Link to=".." className="btn btn--ghost" data-testid="placement-create-cancel">Cancel</Link>
             {missing.length > 0 && (
@@ -526,7 +621,25 @@ const Field = ({ label, children }) => (
   </label>
 );
 const SectionTitle = ({ children }) => (
-  <h3 style={{ marginTop: 24, marginBottom: 8, fontSize: 14, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--cf-text-secondary)' }}>{children}</h3>
+  <h3 style={{ marginTop: 24, marginBottom: 8, fontSize: 14, textTransform: 'uppercase', letterSpacing: 0, color: 'var(--cf-text-secondary)' }}>{children}</h3>
 );
 const listStyle = { listStyle: 'none', padding: 0, margin: 'var(--cf-space-2) 0', maxHeight: '180px', overflow: 'auto', border: '1px solid var(--cf-border)', borderRadius: 'var(--cf-radius-md)' };
 const pickBtnStyle = { width: '100%', textAlign: 'left', padding: 'var(--cf-space-2)', background: 'transparent', border: 'none', cursor: 'pointer' };
+const modeSwitchStyle = { display: 'inline-flex', gap: 2, padding: 3, marginBottom: 16, background: '#edf4fc', border: '1px solid #d7e5f5', borderRadius: 6 };
+const modeButtonStyle = { minHeight: 34, display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 12px', border: '1px solid transparent', borderRadius: 4, background: 'transparent', color: 'var(--cf-text-secondary)', fontWeight: 600, cursor: 'pointer' };
+const modeButtonActiveStyle = { background: '#fff', borderColor: '#b8d7fb', color: 'var(--cf-accent, #007fff)', boxShadow: 'inset 0 -2px 0 var(--cf-accent, #007fff)' };
+
+function classificationForEngagement(engagementType) {
+  if (engagementType === 'c2c') return 'c2c';
+  if (engagementType === '1099') return '1099';
+  if (engagementType === 'temp_to_perm') return 'temp';
+  if (engagementType === 'direct_hire') return 'perm';
+  return 'w2';
+}
+
+function personDisplayName(person) {
+  const name = [person?.first_name, person?.last_name].filter(Boolean).join(' ').trim();
+  const email = person?.email_primary || '';
+  if (name && email) return `${name} (${email})`;
+  return name || email || `Person #${person?.id || ''}`;
+}
