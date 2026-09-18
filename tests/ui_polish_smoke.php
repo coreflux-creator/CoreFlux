@@ -104,17 +104,19 @@ $assert('bulk selection is a focused workflow bar',
     && str_contains($bulk, 'bulk-edit-bar__selection')
     && str_contains($bulk, 'bulk-edit-bar__controls'));
 $assert('accounting keeps the daily workflows in primary navigation',
-    str_contains($accounting, "label: 'Bookkeeping'")
+    str_contains($accounting, "label: 'Overview'")
     && str_contains($accounting, "label: 'Transactions'")
     && str_contains($accounting, "label: 'Chart of accounts'")
     && str_contains($accounting, "label: 'Journal entries'")
-    && str_contains($accounting, "label: 'Bank reconciliation'")
-    && str_contains($accounting, "label: 'Reports'"));
-$assert('less frequent accounting tools are grouped in the More menu',
+    && str_contains($accounting, "label: 'Reconcile'")
+    && str_contains($accounting, "label: 'Reports'")
+    && str_contains($accounting, "label: 'Close'"));
+$assert('less frequent accounting tools are grouped in the Tools menu',
     str_contains($accounting, "label: 'Financial statements'")
-    && str_contains($accounting, "label: 'Review and automation'")
+    && str_contains($accounting, "label: 'Automation and review'")
     && str_contains($accounting, "label: 'Data and configuration'")
     && str_contains($accounting, "label: 'Multi-entity'")
+    && str_contains($accounting, 'Tools <ChevronDown')
     && str_contains($accounting, 'data-testid="accounting-more-menu"'));
 $assert('financial statement routes keep Reports highlighted instead of More',
     str_contains($accounting, "const reportRoutes = ['trial', 'pnl', 'balance', 'cash-flow', 'gl-detail', 'dim-pnl']")

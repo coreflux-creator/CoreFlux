@@ -98,6 +98,7 @@ return [
         'accounting.dimension.value_created',
         'accounting.dimension.security_changed',
         'accounting.je.drafted',
+        'accounting.je.draft_updated',
         'accounting.je.submitted',
         'accounting.je.approved',
         'accounting.je.rejected',

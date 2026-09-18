@@ -89,7 +89,7 @@ $sql = "SELECT m.id            AS mapping_id,
      LEFT JOIN accounting_journal_entries je
             ON je.id = jl.je_id
            AND je.posting_date BETWEEN :start AND :end
-           AND je.status = 'posted'
+           AND je.status IN ('posted','reversed')
            {$entityWhere}
          WHERE m.tenant_id = :t AND m.tax_form_code = :f
       GROUP BY m.id, a.id
@@ -148,7 +148,7 @@ $unmappedSql = "SELECT a.id, a.code, a.name, a.normal_side,
              LEFT JOIN accounting_journal_entries je
                     ON je.id = jl.je_id
                    AND je.posting_date BETWEEN :start AND :end
-                   AND je.status = 'posted'
+                   AND je.status IN ('posted','reversed')
                    {$entityWhere}
                  WHERE a.tenant_id = :t
                    AND a.active = 1

@@ -46,7 +46,8 @@ $assert('opening uses normal_side direction',
     && strpos($gl, '(float) $openRow[\'c\'] - (float) $openRow[\'d\']') !== false
     && strpos($gl, '(float) $openRow[\'d\'] - (float) $openRow[\'c\']') !== false);
 $assert('detail rows in date order',             strpos($gl, 'ORDER BY je.posting_date ASC') !== false);
-$assert('status filter posted-only by default',  strpos($gl, "je.status = 'posted'") !== false);
+$assert('status filter keeps posted and reversed ledger history by default',
+    strpos($gl, "je.status IN ('posted','reversed')") !== false);
 $assert('include_unposted broadens status',
     strpos($gl, "je.status IN ('posted','draft','reversed')") !== false);
 $assert('entity_id filter applied',              strpos($gl, 'je.entity_id = :eid') !== false);

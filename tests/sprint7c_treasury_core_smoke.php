@@ -106,8 +106,8 @@ $assert('GET-only',                           strpos($cp, "if (api_method() !== 
 $assert('requires treasury.view_bank_balances',
     strpos($cp, "rbac_legacy_require(\$user, 'treasury.view_bank_balances')") !== false);
 $assert('as_of validation',                   strpos($cp, "/^\\d{4}-\\d{2}-\\d{2}\$/") !== false);
-$assert('GL balance from posted JEs only',
-    strpos($cp, "AND je.status   = 'posted'") !== false
+$assert('GL balance includes posted and reversed ledger history',
+    strpos($cp, "AND je.status IN ('posted','reversed')") !== false
     && strpos($cp, 'jl.debit') !== false
     && strpos($cp, 'jl.credit') !== false);
 $assert('joins accounting_bank_accounts → accounting_accounts',

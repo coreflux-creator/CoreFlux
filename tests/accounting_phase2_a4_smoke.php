@@ -74,9 +74,9 @@ $a('emits accounting.ledger.imported audit',    $contains($im, "'accounting.ledg
 echo "\napi/standard_reports.php\n";
 $sr = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/standard_reports.php');
 $a('gates on accounting.reports.view',          $contains($sr, "'accounting.reports.view'"));
-$a('gl_detail reports posted JEs joined to accounts',
+$a('gl_detail reports posted and reversed JEs joined to accounts',
     $contains($sr, "\$type === 'gl_detail'") &&
-    $contains($sr, "je.status = 'posted'") &&
+    $contains($sr, "je.status IN ('posted','reversed')") &&
     $contains($sr, 'accounting_journal_entry_lines'));
 $a('unposted_jes handler',                      $contains($sr, "\$type === 'unposted_jes'") || $contains($sr, "\$type === 'unposted'"));
 $a('approval_queue shows draft JEs',            $contains($sr, "\$type === 'approval_queue'") && $contains($sr, "status = 'draft'"));

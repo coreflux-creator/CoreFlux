@@ -83,12 +83,13 @@ function reportCashFlowClassification(array $account): array
 /**
  * Income Statement (P&L) — revenue and expenses for the period.
  * Reuses trial-balance arithmetic but filters to revenue/expense and
- * aggregates by account_type. Posted JEs only.
+ * aggregates by account_type. Includes posted entries and originals later
+ * marked reversed; the separately posted reversal provides the offset.
  */
 function reportIncomeStatement(int $tenantId, string $from, string $to, ?int $entityId): array
 {
     $pdo = getDB();
-    $where  = ['je.tenant_id = :t_je', 'je.status = "posted"', 'je.posting_date >= :f', 'je.posting_date <= :tx'];
+    $where  = ['je.tenant_id = :t_je', 'je.status IN ("posted","reversed")', 'je.posting_date >= :f', 'je.posting_date <= :tx'];
     $params = ['t_a' => $tenantId, 't_je' => $tenantId, 'f' => $from, 'tx' => $to];
     if ($entityId) { $where[] = 'je.entity_id = :e'; $params['e'] = $entityId; }
 
@@ -129,14 +130,14 @@ function reportIncomeStatement(int $tenantId, string $from, string $to, ?int $en
 
 /**
  * Balance Sheet — assets / liabilities / equity (+ implied YTD net income).
- * Same posted-JE-only rule. Equity bucket gets a synthetic "Current period
+ * Same posted-ledger-history rule. Equity bucket gets a synthetic "Current period
  * net income" line so the sheet balances when retained earnings haven't
  * been swept yet.
  */
 function reportBalanceSheet(int $tenantId, string $asOf, ?int $entityId): array
 {
     $pdo = getDB();
-    $where  = ['je.tenant_id = :t_je', 'je.status = "posted"', 'je.posting_date <= :d'];
+    $where  = ['je.tenant_id = :t_je', 'je.status IN ("posted","reversed")', 'je.posting_date <= :d'];
     $params = ['t_a' => $tenantId, 't_je' => $tenantId, 'd' => $asOf];
     if ($entityId) { $where[] = 'je.entity_id = :e'; $params['e'] = $entityId; }
 

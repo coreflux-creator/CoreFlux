@@ -335,24 +335,33 @@ export default function BookkeepingOverview() {
           {/* Quick links — reports + tax */}
           <div data-testid="bookkeeping-overview-quick-links-card"
                style={{ padding: 18, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
-            <strong style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>Reports &amp; tax</strong>
+            <strong style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>Financial reports</strong>
+            <Link to="/modules/accounting/pnl" data-testid="bookkeeping-overview-income-statement-link"
+                  style={quickLinkStyle}>
+              <TrendingUp size={14} color="#0b7ff5" />
+              <span style={{ flex: 1, fontSize: 13 }}>Income statement</span>
+              <ArrowRight size={12} color="#94a3b8" />
+            </Link>
+            <Link to="/modules/accounting/balance" data-testid="bookkeeping-overview-balance-sheet-link"
+                  style={quickLinkStyle}>
+              <BookOpen size={14} color="#174a7c" />
+              <span style={{ flex: 1, fontSize: 13 }}>Balance sheet</span>
+              <ArrowRight size={12} color="#94a3b8" />
+            </Link>
+            <Link to="/modules/accounting/cash-flow" data-testid="bookkeeping-overview-cash-flow-link"
+                  style={quickLinkStyle}>
+              <Wallet size={14} color="#0f9f9a" />
+              <span style={{ flex: 1, fontSize: 13 }}>Cash flow</span>
+              <ArrowRight size={12} color="#94a3b8" />
+            </Link>
             <Link to="/modules/accounting/gl-detail" data-testid="bookkeeping-overview-gl-detail-link"
                   style={quickLinkStyle}>
               <FileText size={14} color="#0284c7" />
               <span style={{ flex: 1, fontSize: 13 }}>GL Detail</span>
               <ArrowRight size={12} color="#94a3b8" />
             </Link>
-            <Link to="/modules/accounting/tax-mappings" data-testid="bookkeeping-overview-tax-mappings-link"
-                  style={quickLinkStyle}>
-              <FlaskConical size={14} color="#7c3aed" />
-              <span style={{ flex: 1, fontSize: 13 }}>Tax mappings</span>
-              <ArrowRight size={12} color="#94a3b8" />
-            </Link>
-            <Link to="/modules/accounting/tax-export" data-testid="bookkeeping-overview-tax-export-link"
-                  style={quickLinkStyle}>
-              <TrendingUp size={14} color="#059669" />
-              <span style={{ flex: 1, fontSize: 13 }}>Tax export (CSV)</span>
-              <ArrowRight size={12} color="#94a3b8" />
+            <Link to="/modules/accounting/reports" className="btn btn--ghost" style={{ marginTop: 10, justifyContent: 'center', width: '100%' }}>
+              All accounting reports <ArrowRight size={13} aria-hidden="true" />
             </Link>
           </div>
         </div>

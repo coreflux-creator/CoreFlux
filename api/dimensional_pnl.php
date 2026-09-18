@@ -82,7 +82,7 @@ $sql = "SELECT a.id   AS account_id,
           JOIN accounting_accounts a        ON a.id = jl.account_id AND a.tenant_id = jl.tenant_id
          WHERE jl.tenant_id = :t
            AND je.posting_date BETWEEN :start AND :end
-           AND je.status = 'posted'
+           AND je.status IN ('posted','reversed')
            AND a.account_type IN ('revenue','cost_of_goods_sold','expense','other_income','other_expense','contra_revenue')
            {$entityWhere}";
 $stmt = $pdo->prepare($sql);

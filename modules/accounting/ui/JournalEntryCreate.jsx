@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
+import { ArrowLeft, Copy, Plus, Save, Send, Trash2 } from 'lucide-react';
 
 /**
  * Manual Journal Entry creator.
@@ -19,12 +20,18 @@ const newLine = () => ({ account_code: '', debit: '', credit: '', description: '
 
 export default function JournalEntryCreate() {
   const navigate = useNavigate();
+  const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const copyFrom = searchParams.get('copy_from');
+  const isEdit = Boolean(id);
   const [accounts, setAccounts] = useState([]);
   const [postingDate, setPostingDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [memo, setMemo]   = useState('');
   const [lines, setLines] = useState([newLine(), newLine()]);
   const [busy, setBusy]   = useState(false);
+  const [loadingExisting, setLoadingExisting] = useState(Boolean(id || copyFrom));
   const [error, setError] = useState(null);
+  const [sourceEntry, setSourceEntry] = useState(null);
   const [icOpen, setIcOpen] = useState(false);
   const [icSeed, setIcSeed] = useState(null);
 
@@ -33,6 +40,44 @@ export default function JournalEntryCreate() {
       setAccounts(d?.rows || d?.accounts || []);
     }).catch(() => setAccounts([]));
   }, []);
+
+  useEffect(() => {
+    const sourceId = id || copyFrom;
+    if (!sourceId) return;
+    let cancelled = false;
+    setLoadingExisting(true);
+    setError(null);
+    api.get(`/modules/accounting/api/journal_entries.php?id=${sourceId}`)
+      .then((data) => {
+        if (cancelled) return;
+        const entry = data?.entry;
+        if (!entry) throw new Error('Journal entry not found.');
+        if (isEdit && entry.status !== 'draft') {
+          throw new Error('Only draft journal entries can be edited. Reverse a posted entry instead.');
+        }
+        if (isEdit && (entry.source_module === 'system' || ['ai_workflow', 'workflow_run'].includes(entry.source_ref_type))) {
+          throw new Error('System-generated drafts must be reviewed in AI Agents.');
+        }
+        setSourceEntry(entry);
+        setPostingDate(isEdit ? entry.posting_date : new Date().toISOString().slice(0, 10));
+        setMemo(isEdit
+          ? (entry.memo || '')
+          : `Copy of ${entry.je_number}${entry.memo ? `: ${entry.memo}` : ''}`);
+        setLines((data?.lines || []).map((line) => ({
+          account_code: line.account_code || '',
+          debit: Number(line.debit) > 0 ? String(line.debit) : '',
+          credit: Number(line.credit) > 0 ? String(line.credit) : '',
+          description: line.description || line.memo || '',
+          counterparty_company_id: line.counterparty_company_id || null,
+          counterparty_person_id: line.counterparty_person_id || null,
+          counterparty_entity_id: line.counterparty_entity_id || null,
+          dims: parseDims(line.dim_json),
+        })));
+      })
+      .catch((e) => { if (!cancelled) setError(e.message || String(e)); })
+      .finally(() => { if (!cancelled) setLoadingExisting(false); });
+    return () => { cancelled = true; };
+  }, [id, copyFrom, isEdit]);
 
   const updateLine = (i, field, val) => {
     const next = [...lines];
@@ -51,7 +96,9 @@ export default function JournalEntryCreate() {
     setBusy(true); setError(null);
     try {
       const payload = {
+        ...(sourceEntry?.entity_id ? { entity_id: sourceEntry.entity_id } : {}),
         posting_date: postingDate,
+        currency: sourceEntry?.currency || 'USD',
         memo,
         source_module: 'manual',
         lines: lines
@@ -61,10 +108,22 @@ export default function JournalEntryCreate() {
             debit:  parseFloat(l.debit)  || 0,
             credit: parseFloat(l.credit) || 0,
             description: l.description || null,
+            counterparty_company_id: l.counterparty_company_id || null,
+            counterparty_person_id: l.counterparty_person_id || null,
+            counterparty_entity_id: l.counterparty_entity_id || null,
+            dims: l.dims || {},
           })),
       };
-      const url = '/modules/accounting/api/journal_entries.php' + (action === 'draft' ? '?action=draft' : '');
-      const res = await api.post(url, payload);
+      let res;
+      if (isEdit) {
+        res = await api.patch(`/modules/accounting/api/journal_entries.php?id=${id}`, payload);
+        if (action === 'post') {
+          res = await api.post(`/modules/accounting/api/journal_entries.php?action=post_draft&id=${id}`, {});
+        }
+      } else {
+        const url = '/modules/accounting/api/journal_entries.php' + (action === 'draft' ? '?action=draft' : '');
+        res = await api.post(url, payload);
+      }
       navigate(`/modules/accounting/journal-entries/${res.je_id}`);
     } catch (e) {
       setError(e.message || String(e));
@@ -73,10 +132,37 @@ export default function JournalEntryCreate() {
     }
   };
 
+  if (loadingExisting) {
+    return <p data-testid="accounting-je-create-loading">Loading journal entry…</p>;
+  }
+  if ((isEdit || copyFrom) && !sourceEntry && error) {
+    return (
+      <section className="ledger-page" data-testid="accounting-je-create-source-error">
+        <Link to="/modules/accounting/journal-entries" className="entry-detail__back-link"><ArrowLeft size={14} aria-hidden="true" />Journal entries</Link>
+        <p className="error">Could not prepare this entry: {error}</p>
+      </section>
+    );
+  }
+
   return (
-    <section data-testid="accounting-je-create">
-      <Link to="/modules/accounting/journal-entries" style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Journal entries</Link>
-      <h2 style={{ marginTop: 8 }}>New journal entry</h2>
+    <section className="ledger-page" data-testid="accounting-je-create">
+      <Link
+        to={isEdit ? `/modules/accounting/journal-entries/${id}` : '/modules/accounting/journal-entries'}
+        className="entry-detail__back-link"
+      ><ArrowLeft size={14} aria-hidden="true" />{isEdit ? 'Journal entry' : 'Journal entries'}</Link>
+      <header className="entry-editor__header">
+        <div>
+          <h2>{isEdit ? `Edit draft ${sourceEntry?.je_number || ''}` : 'New journal entry'}</h2>
+          <p>{isEdit ? 'Changes remain off the ledger until you post the draft.' : 'Build a balanced entry, then save a draft or post it.'}</p>
+        </div>
+      </header>
+
+      {!isEdit && sourceEntry && (
+        <div className="entry-status-note entry-status-note--info" data-testid="accounting-je-copy-notice">
+          <Copy size={16} aria-hidden="true" />
+          <span>Copied from <Link to={`/modules/accounting/journal-entries/${sourceEntry.id}`}>{sourceEntry.je_number}</Link>. Review every line before posting; the original entry is unchanged.</span>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, maxWidth: 800 }}>
         <label style={{ fontSize: 13 }}>
@@ -138,7 +224,16 @@ export default function JournalEntryCreate() {
                   style={{ textAlign: 'right' }}
                 />
               </td>
-              <td><button className="btn btn--ghost" onClick={() => setLines(lines.filter((_, j) => j !== i))} data-testid={`accounting-je-line-remove-${i}`}>×</button></td>
+              <td>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--icon"
+                  onClick={() => setLines(lines.filter((_, j) => j !== i))}
+                  data-testid={`accounting-je-line-remove-${i}`}
+                  aria-label={`Remove line ${i + 1}`}
+                  title={`Remove line ${i + 1}`}
+                ><Trash2 size={15} aria-hidden="true" /></button>
+              </td>
             </tr>
           ))}
           <tr>
@@ -149,7 +244,7 @@ export default function JournalEntryCreate() {
           </tr>
         </tbody>
       </table>
-      <button className="btn btn--ghost" onClick={() => setLines([...lines, newLine()])} data-testid="accounting-je-add-line" style={{ marginTop: 8 }}>+ Add line</button>
+      <button type="button" className="btn btn--ghost" onClick={() => setLines([...lines, newLine()])} data-testid="accounting-je-add-line" style={{ marginTop: 8 }}><Plus size={15} aria-hidden="true" />Add line</button>
 
       <p style={{ marginTop: 16, fontSize: 13, color: balanced ? '#065f46' : '#991b1b' }} data-testid="accounting-je-balance-status">
         {balanced ? '✓ Entry is balanced.' : `Debits and credits must match. Diff: ${(totals.debit - totals.credit).toFixed(2)}`}
@@ -158,9 +253,10 @@ export default function JournalEntryCreate() {
       {error && <p className="error" data-testid="accounting-je-error">Error: {error}</p>}
 
       <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-        <button className="btn btn--ghost"   onClick={() => submit('draft')} disabled={busy || !balanced} data-testid="accounting-je-save-draft">{busy ? 'Saving…' : 'Save as draft'}</button>
-        <button className="btn btn--primary" onClick={() => submit('post')}  disabled={busy || !balanced} data-testid="accounting-je-post">{busy ? 'Posting…' : 'Save & post'}</button>
-        <button
+        <button type="button" className="btn btn--ghost" onClick={() => submit('draft')} disabled={busy || !balanced} data-testid="accounting-je-save-draft"><Save size={15} aria-hidden="true" />{busy ? 'Saving…' : (isEdit ? 'Save draft' : 'Save as draft')}</button>
+        <button type="button" className="btn btn--primary" onClick={() => submit('post')} disabled={busy || !balanced} data-testid="accounting-je-post"><Send size={15} aria-hidden="true" />{busy ? 'Posting…' : 'Save & post'}</button>
+        {!isEdit && <button
+          type="button"
           className="btn btn--ghost"
           onClick={() => {
             // Seed the IC dialog from the largest line as the "source offset"
@@ -188,7 +284,7 @@ export default function JournalEntryCreate() {
           }}
           data-testid="accounting-je-ic-split"
           disabled={busy}
-        >⊕ Split across entities</button>
+        ><Plus size={15} aria-hidden="true" />Split across entities</button>}
       </div>
       {icOpen && icSeed && (
         <IntercompanySplitDialog
@@ -207,4 +303,11 @@ export default function JournalEntryCreate() {
       )}
     </section>
   );
+}
+
+function parseDims(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value) || {}; }
+  catch { return {}; }
 }

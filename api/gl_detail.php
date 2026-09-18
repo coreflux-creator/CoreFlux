@@ -7,7 +7,7 @@
  *        &start=YYYY-MM-DD              default = first day of current month
  *        &end=YYYY-MM-DD                default = today
  *        &entity_id=N                   optional
- *        &include_unposted=1            include draft / reversed
+ *        &include_unposted=1            include drafts (reversed entries are always ledger history)
  *
  * Returns:
  *   {
@@ -74,10 +74,12 @@ if (!$account) api_error('Account not found', 404);
 $account['id'] = (int) $account['id'];
 $accountId = (int) $account['id'];
 
-// Status filter.
+// Reversed entries were posted and remain part of ledger history. Their
+// separately posted reversal supplies the offset. Excluding the original
+// would count only the offset and invert the books.
 $statusSql = $includeUnposted
     ? "je.status IN ('posted','draft','reversed')"
-    : "je.status = 'posted'";
+    : "je.status IN ('posted','reversed')";
 
 $entityWhere = $entityId ? 'AND je.entity_id = :eid' : '';
 
@@ -105,7 +107,7 @@ $opening = $normalSide === 'credit'
     : round((float) $openRow['d'] - (float) $openRow['c'], 2);
 
 // Detail rows.
-$linesSql = "SELECT je.id AS je_id, je.je_number, je.posting_date, je.memo,
+$linesSql = "SELECT je.id AS je_id, je.je_number, je.posting_date, je.memo, je.status,
                     je.source_module, je.source_ref_type, je.source_ref_id,
                     jl.debit, jl.credit, jl.description, jl.counterparty_company_id,
                     jl.dim_json AS dimension_values
@@ -145,6 +147,7 @@ foreach ($rows as $r) {
         'je_id'         => (int) $r['je_id'],
         'je_number'     => (string) $r['je_number'],
         'posting_date'  => (string) $r['posting_date'],
+        'status'        => (string) $r['status'],
         'memo'          => $r['memo'] !== null ? (string) $r['memo'] : null,
         'description'   => $r['description'] !== null ? (string) $r['description'] : null,
         'debit'         => $d,

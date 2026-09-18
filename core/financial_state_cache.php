@@ -211,7 +211,7 @@ function fscRebuild(int $tenantId, string $scopeKey, string $scopeValue): array
 
 /**
  * Build per-account debit/credit/balance for one period. Reads from
- * posted journal entries only (status='posted', excludes draft + void).
+ * posted ledger activity (status posted or reversed; excludes draft + void).
  * Reversed JEs ARE included — their reversal partners cancel them
  * mathematically, so the net is correct.
  *
@@ -235,7 +235,7 @@ function fscBuildPeriodAccountBalances(int $tenantId, int $periodId): int
            JOIN accounting_journal_entries     je ON je.id = l.je_id
           WHERE je.tenant_id = :t
             AND je.period_id = :p
-            AND je.status    = "posted"
+            AND je.status IN ("posted","reversed")
           GROUP BY l.account_id'
     );
     $stmt->execute(['t' => $tenantId, 'p' => $periodId]);

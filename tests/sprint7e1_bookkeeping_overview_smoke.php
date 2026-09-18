@@ -59,7 +59,7 @@ $assert('health_reasons enumerable',
     && strpos($api, "'recon_behind_60d'") !== false
     && strpos($api, "'many_uncategorized'") !== false
     && strpos($api, "'period_overdue_close'") !== false);
-$assert('PL pulls posted JEs only',              strpos($api, "je.status = 'posted'") !== false);
+$assert('PL pulls posted and reversed JEs',      strpos($api, "je.status IN ('posted','reversed')") !== false);
 $assert('PL groups by month + account_type',     strpos($api, "GROUP BY month, a.account_type") !== false);
 $assert('PL covers full account-type spread',
     strpos($api, "'revenue','expense','contra_revenue','cost_of_goods_sold','other_income','other_expense'") !== false);

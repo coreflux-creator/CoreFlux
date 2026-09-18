@@ -374,6 +374,294 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
     ];
 }
 
+function accountingDraftRequiresApproval(array $entry): bool
+{
+    return ($entry['source_module'] ?? '') === 'system'
+        || in_array((string) ($entry['source_ref_type'] ?? ''), ['ai_workflow', 'workflow_run'], true);
+}
+
+function accountingAssertManualDraftLifecycle(array $entry): void
+{
+    if (accountingDraftRequiresApproval($entry)) {
+        throw new \RuntimeException(
+            'System-generated drafts must be reviewed in AI Agents and posted through their approval workflow.'
+        );
+    }
+}
+
+/**
+ * Replace an existing draft in place. Posted and reversed entries remain
+ * immutable; they must be corrected with a reversal so the audit trail stays
+ * intact.
+ */
+function accountingUpdateDraftJe(int $tenantId, int $jeId, array $je, ?int $actorUserId = null): array
+{
+    if ($jeId <= 0) throw new \InvalidArgumentException('je_id required');
+
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT * FROM accounting_journal_entries
+          WHERE tenant_id = :t AND id = :id LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $jeId]);
+    $existing = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$existing) throw new \RuntimeException("Journal entry {$jeId} not found");
+    if (($existing['status'] ?? '') !== 'draft') {
+        throw new \RuntimeException('Only draft journal entries can be edited. Reverse a posted entry instead.');
+    }
+    accountingAssertManualDraftLifecycle($existing);
+
+    $candidate = [
+        'entity_id'    => !empty($je['entity_id']) ? (int) $je['entity_id'] : (int) $existing['entity_id'],
+        'posting_date' => (string) ($je['posting_date'] ?? $existing['posting_date']),
+        'currency'     => (string) ($je['currency'] ?? $existing['currency'] ?? 'USD'),
+        'lines'        => $je['lines'] ?? [],
+    ];
+    $report = accountingValidateJe($tenantId, $candidate);
+    if (!$report['ok']) {
+        $messages = $report['errors'] ?? [];
+        foreach ($report['line_validations'] ?? [] as $line) {
+            foreach ($line['errors'] ?? [] as $message) {
+                $messages[] = 'Line ' . (int) $line['line_no'] . ': ' . $message;
+            }
+        }
+        throw new \RuntimeException(implode('; ', array_values(array_unique($messages))) ?: 'Journal entry validation failed');
+    }
+
+    $accountStmt = $pdo->prepare(
+        'SELECT id, code FROM accounting_accounts WHERE tenant_id = :t AND active = 1 AND is_postable = 1'
+    );
+    $accountStmt->execute(['t' => $tenantId]);
+    $accountsByCode = [];
+    foreach ($accountStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $account) {
+        $accountsByCode[strtolower((string) $account['code'])] = (int) $account['id'];
+    }
+
+    $resolved = [];
+    foreach ($candidate['lines'] as $index => $line) {
+        $code = strtolower(trim((string) ($line['account_code'] ?? '')));
+        $accountId = !empty($line['account_id'])
+            ? (int) $line['account_id']
+            : (int) ($accountsByCode[$code] ?? 0);
+        if ($accountId <= 0) throw new \RuntimeException('Line ' . ($index + 1) . ': account not found');
+        $resolved[] = [
+            'line_no' => $index + 1,
+            'account_id' => $accountId,
+            'debit' => round((float) ($line['debit'] ?? 0), 2),
+            'credit' => round((float) ($line['credit'] ?? 0), 2),
+            'memo' => $line['memo'] ?? $line['description'] ?? null,
+            'description' => $line['description'] ?? $line['memo'] ?? null,
+            'counterparty_company_id' => !empty($line['counterparty_company_id']) ? (int) $line['counterparty_company_id'] : null,
+            'counterparty_person_id' => !empty($line['counterparty_person_id']) ? (int) $line['counterparty_person_id'] : null,
+            'counterparty_entity_id' => !empty($line['counterparty_entity_id']) ? (int) $line['counterparty_entity_id'] : null,
+            'dim_json' => isset($line['dims']) ? json_encode($line['dims']) : null,
+        ];
+    }
+
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    $pdo->beginTransaction();
+    try {
+        $lock = $pdo->prepare(
+            'SELECT status FROM accounting_journal_entries
+              WHERE tenant_id = :t AND id = :id FOR UPDATE'
+        );
+        $lock->execute(['t' => $tenantId, 'id' => $jeId]);
+        if ($lock->fetchColumn() !== 'draft') {
+            throw new \RuntimeException('This journal entry is no longer a draft. Refresh and try again.');
+        }
+
+        $pdo->prepare(
+            'UPDATE accounting_journal_entries
+                SET entity_id = :entity_id,
+                    period_id = :period_id,
+                    posting_date = :posting_date,
+                    currency = :currency,
+                    total_debit = :total_debit,
+                    total_credit = :total_credit,
+                    memo = :memo
+              WHERE tenant_id = :t AND id = :id AND status = "draft"'
+        )->execute([
+            'entity_id' => (int) $report['entity_id'],
+            'period_id' => (int) ($report['period']['id'] ?? $existing['period_id']),
+            'posting_date' => $candidate['posting_date'],
+            'currency' => $candidate['currency'],
+            'total_debit' => (float) $report['total_debit'],
+            'total_credit' => (float) $report['total_credit'],
+            'memo' => array_key_exists('memo', $je) ? $je['memo'] : ($existing['memo'] ?? null),
+            't' => $tenantId,
+            'id' => $jeId,
+        ]);
+
+        $pdo->prepare(
+            'DELETE FROM accounting_journal_entry_lines WHERE tenant_id = :t AND je_id = :id'
+        )->execute(['t' => $tenantId, 'id' => $jeId]);
+
+        $insert = $pdo->prepare(
+            'INSERT INTO accounting_journal_entry_lines
+               (tenant_id, je_id, line_no, account_id, debit, credit, memo, description,
+                counterparty_company_id, counterparty_person_id, counterparty_entity_id, dim_json)
+             VALUES (:tenant_id, :je, :ln, :a, :d, :c, :m, :description, :cc, :cp, :ce, :dj)'
+        );
+        foreach ($resolved as $line) {
+            $insert->execute([
+                'tenant_id' => $tenantId,
+                'je' => $jeId,
+                'ln' => $line['line_no'],
+                'a' => $line['account_id'],
+                'd' => $line['debit'],
+                'c' => $line['credit'],
+                'm' => $line['memo'],
+                'description' => $line['description'],
+                'cc' => $line['counterparty_company_id'],
+                'cp' => $line['counterparty_person_id'],
+                'ce' => $line['counterparty_entity_id'],
+                'dj' => $line['dim_json'],
+            ]);
+        }
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+
+    return [
+        'je_id' => $jeId,
+        'je_number' => (string) $existing['je_number'],
+        'status' => 'draft',
+        'total_debit' => (float) $report['total_debit'],
+        'total_credit' => (float) $report['total_credit'],
+        'updated_by_user_id' => $actorUserId,
+    ];
+}
+
+/** Post a user-created draft after re-validating it against the live books. */
+function accountingPostDraftJe(int $tenantId, int $jeId, ?int $actorUserId = null): array
+{
+    if ($jeId <= 0) throw new \InvalidArgumentException('je_id required');
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT * FROM accounting_journal_entries
+          WHERE tenant_id = :t AND id = :id LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $jeId]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$row) throw new \RuntimeException("Journal entry {$jeId} not found");
+    if (($row['status'] ?? '') === 'posted') {
+        return [
+            'je_id' => $jeId,
+            'je_number' => (string) $row['je_number'],
+            'status' => 'posted',
+            'total_debit' => (float) $row['total_debit'],
+            'total_credit' => (float) $row['total_credit'],
+            'idempotent_replay' => true,
+        ];
+    }
+    if (($row['status'] ?? '') !== 'draft') {
+        throw new \RuntimeException('Only draft journal entries can be posted.');
+    }
+    accountingAssertManualDraftLifecycle($row);
+
+    $lineStmt = $pdo->prepare(
+        'SELECT l.*, a.code AS account_code
+           FROM accounting_journal_entry_lines l
+           JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = :t_account
+          WHERE l.tenant_id = :t_line AND l.je_id = :id
+          ORDER BY l.line_no'
+    );
+    $lineStmt->execute(['t_account' => $tenantId, 't_line' => $tenantId, 'id' => $jeId]);
+    $lines = array_map(static fn (array $line): array => [
+        'account_id' => (int) $line['account_id'],
+        'account_code' => (string) $line['account_code'],
+        'debit' => (float) $line['debit'],
+        'credit' => (float) $line['credit'],
+        'memo' => $line['memo'] ?? null,
+        'description' => $line['description'] ?? null,
+        'counterparty_company_id' => !empty($line['counterparty_company_id']) ? (int) $line['counterparty_company_id'] : null,
+        'counterparty_person_id' => !empty($line['counterparty_person_id']) ? (int) $line['counterparty_person_id'] : null,
+        'counterparty_entity_id' => !empty($line['counterparty_entity_id']) ? (int) $line['counterparty_entity_id'] : null,
+        'dims' => !empty($line['dim_json']) ? (json_decode((string) $line['dim_json'], true) ?: []) : [],
+    ], $lineStmt->fetchAll(\PDO::FETCH_ASSOC) ?: []);
+
+    $report = accountingValidateJe($tenantId, [
+        'entity_id' => (int) $row['entity_id'],
+        'posting_date' => (string) $row['posting_date'],
+        'currency' => (string) $row['currency'],
+        'lines' => $lines,
+    ]);
+    if (!$report['ok']) {
+        throw new \RuntimeException('Draft can no longer be posted: ' . implode('; ', $report['errors'] ?: ['validation failed']));
+    }
+
+    $update = $pdo->prepare(
+        'UPDATE accounting_journal_entries
+            SET status = "posted", posted_at = NOW(), posted_by_user_id = :u
+          WHERE tenant_id = :t AND id = :id AND status = "draft"'
+    );
+    $update->execute(['u' => $actorUserId, 't' => $tenantId, 'id' => $jeId]);
+    if ($update->rowCount() !== 1) {
+        throw new \RuntimeException('This journal entry changed while you were posting it. Refresh and try again.');
+    }
+
+    try {
+        fscMarkDirty($tenantId, FSC_SCOPE_PERIOD, (string) $row['period_id'], 'je_posted', $actorUserId);
+    } catch (\Throwable $_) { /* never block the post */ }
+
+    try {
+        require_once __DIR__ . '/../../../core/accounting/command_service.php';
+        accountingTryEnqueueDraft($tenantId, 'journal', [
+            'id' => $jeId,
+            'entity_id' => (int) $row['entity_id'],
+            'je_number' => (string) $row['je_number'],
+            'posting_date' => (string) $row['posting_date'],
+            'currency' => (string) $row['currency'],
+            'total_debit' => (float) $row['total_debit'],
+            'total_credit' => (float) $row['total_credit'],
+            'memo' => $row['memo'] ?? null,
+            'lines' => $lines,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], $actorUserId);
+    } catch (\Throwable $_) { /* never block the post */ }
+
+    return [
+        'je_id' => $jeId,
+        'je_number' => (string) $row['je_number'],
+        'status' => 'posted',
+        'total_debit' => (float) $row['total_debit'],
+        'total_credit' => (float) $row['total_credit'],
+        'idempotent_replay' => false,
+    ];
+}
+
+/** Soft-delete a draft so it disappears from normal work without erasing history. */
+function accountingDiscardDraftJe(int $tenantId, int $jeId): array
+{
+    if ($jeId <= 0) throw new \InvalidArgumentException('je_id required');
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT id, je_number, status, posting_date, memo, total_debit
+           FROM accounting_journal_entries
+          WHERE tenant_id = :t AND id = :id LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $jeId]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$row) throw new \RuntimeException("Journal entry {$jeId} not found");
+    if (($row['status'] ?? '') === 'void') return $row;
+    if (($row['status'] ?? '') !== 'draft') {
+        throw new \RuntimeException('Only draft journal entries can be deleted. Reverse a posted entry instead.');
+    }
+    accountingAssertManualDraftLifecycle($row);
+    $delete = $pdo->prepare(
+        'UPDATE accounting_journal_entries SET status = "void"
+          WHERE tenant_id = :t AND id = :id AND status = "draft"'
+    );
+    $delete->execute(['t' => $tenantId, 'id' => $jeId]);
+    if ($delete->rowCount() !== 1) {
+        throw new \RuntimeException('This journal entry changed while you were deleting it. Refresh and try again.');
+    }
+    $row['status'] = 'void';
+    return $row;
+}
+
 /**
  * Reverse a posted JE. Creates a new JE (source_module='reversal') with
  * debit/credit swapped on each line. The original becomes status='reversed'.
@@ -409,8 +697,11 @@ function accountingReverseJe(int $tenantId, int $jeId, string $reason, ?int $act
             'debit'                   => (float) $l['credit'],
             'credit'                  => (float) $l['debit'],
             'memo'                    => 'Reversal: ' . ($l['memo'] ?? ''),
+            'description'             => 'Reversal: ' . ($l['description'] ?? $l['memo'] ?? ''),
             'counterparty_company_id' => $l['counterparty_company_id'],
             'counterparty_person_id'  => $l['counterparty_person_id'],
+            'counterparty_entity_id'  => $l['counterparty_entity_id'] ?? null,
+            'dims'                    => !empty($l['dim_json']) ? (json_decode((string) $l['dim_json'], true) ?: []) : [],
         ];
     }
     $rev = accountingPostJe($tenantId, [
@@ -434,9 +725,9 @@ function accountingReverseJe(int $tenantId, int $jeId, string $reason, ?int $act
     $pdo->prepare('UPDATE accounting_journal_entries SET reverses_je_id = :orig WHERE id = :rid')
         ->execute(['orig' => $jeId, 'rid' => $rev['je_id']]);
 
-    // Phase 2 — the ORIGINAL period now has one fewer posted JE (status
-    // flipped to 'reversed'). The reversal's period was auto-marked dirty
-    // by the recursive accountingPostJe() call above.
+    // The original period changed status and the reversal's period was
+    // auto-marked dirty by accountingPostJe() above. Readers include both
+    // posted and reversed rows so the two entries cancel mathematically.
     try {
         fscMarkDirty(
             $tenantId,
@@ -455,7 +746,8 @@ function accountingReverseJe(int $tenantId, int $jeId, string $reason, ?int $act
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Trial balance per account as of $asOf (inclusive), posted JEs only.
+ * Trial balance per account as of $asOf (inclusive), including originals
+ * that have since been reversed so their posted reversal cancels them.
  * Returns rows of {code, name, account_type, normal_side, debit, credit, balance_signed}.
  */
 function accountingTrialBalance(int $tenantId, string $asOf, ?int $entityId = null): array
@@ -463,7 +755,7 @@ function accountingTrialBalance(int $tenantId, string $asOf, ?int $entityId = nu
     $pdo = getDB();
     // Note: `:t` was previously used twice in the same SQL — that throws
     // HY093 with PDO_MYSQL native prepares. Use distinct placeholders.
-    $where  = ['je.tenant_id = :t2', 'je.status = "posted"', 'je.posting_date <= :d'];
+    $where  = ['je.tenant_id = :t2', 'je.status IN ("posted","reversed")', 'je.posting_date <= :d'];
     $params = ['t' => $tenantId, 't2' => $tenantId, 'd' => $asOf];
     if ($entityId) { $where[] = 'je.entity_id = :e'; $params['e'] = $entityId; }
 

@@ -99,6 +99,7 @@ jobs:
             core/export_service.php \
             core/export_templates.php \
             core/ai_agents.php \
+            core/financial_state_cache.php \
             core/domain_people_graph.php \
             core/modules.php \
             core/people_graph.php \
@@ -163,18 +164,27 @@ jobs:
             modules/accounting/api/bank_ai.php \
             modules/accounting/api/bank_statements.php \
             modules/accounting/api/export.php \
+            modules/accounting/api/journal_entries.php \
+            modules/accounting/api/standard_reports.php \
+            modules/accounting/lib/account_interest.php \
             modules/accounting/lib/accounting.php \
             modules/accounting/lib/bank_rec.php \
+            modules/accounting/lib/consolidation.php \
+            modules/accounting/lib/intercompany.php \
             modules/accounting/lib/standard_reports.php \
+            modules/accounting/manifest.php \
             modules/accounting/migrations/028_journal_line_tenant_scope.sql \
             modules/accounting/ui/BankReconciliation.jsx \
             modules/accounting/ui/BalanceSheet.jsx \
             modules/accounting/ui/CashFlowStatement.jsx \
             modules/accounting/ui/ChartOfAccounts.jsx \
+            modules/accounting/ui/GLDetail.jsx \
             modules/accounting/ui/IncomeStatement.jsx \
             modules/accounting/ui/AccountingModule.jsx \
             modules/accounting/ui/AccountsCsvImport.jsx \
             modules/accounting/ui/JournalEntries.jsx \
+            modules/accounting/ui/JournalEntryCreate.jsx \
+            modules/accounting/ui/JournalEntryDetail.jsx \
             modules/accounting/ui/StandardReports.jsx \
             modules/accounting/ui/TrialBalance.jsx \
             modules/ap/api/1099.php \
@@ -379,6 +389,10 @@ jobs:
             tests/ai_accuracy_query_smoke.php \
             tests/ai_confidence_moat_smoke.php \
             tests/accounting_basics_2026_02_smoke.php \
+            tests/accounting_phase1_smoke.php \
+            tests/accounting_phase2_a1_smoke.php \
+            tests/accounting_phase2_a2_smoke.php \
+            tests/accounting_phase2_a4_smoke.php \
             tests/accounting_phase2_a8_smoke.php \
             tests/accounting_accounts_csv_roundtrip_smoke.php \
             tests/ap_1099_print_schema_smoke.php \
@@ -420,6 +434,7 @@ jobs:
             tests/invoice_bank_match_smoke.php \
             tests/idbadge_product_wide_rollout_smoke.php \
             tests/journal_entries_usability_smoke.php \
+            tests/rbac_b4_bridge_smoke.php \
             tests/m365_graph_smoke.php \
             tests/payroll_phase_a1_smoke.php \
             tests/payroll_accounting_event_posting_smoke.php \
@@ -440,6 +455,8 @@ jobs:
             tests/sitewide_navigation_smoke.php \
             tests/specific_get_action_routing_smoke.php \
             tests/sprint6d_entity_scope_ai_smoke.php \
+            tests/sprint7e1_bookkeeping_overview_smoke.php \
+            tests/sprint7f1_gl_detail_and_tax_mappings_smoke.php \
             tests/sprint7f2_tax_form_export_smoke.php \
             tests/sprint7f3_dimensional_pnl_smoke.php \
             tests/sprint7f4_missing_dimensions_smoke.php \
@@ -552,6 +569,7 @@ jobs:
               core/export_service.php \
               core/export_templates.php \
               core/ai_agents.php \
+              core/financial_state_cache.php \
               core/domain_people_graph.php \
               core/people_graph.php \
               core/posting_engine/formula.php \
@@ -567,9 +585,16 @@ jobs:
               modules/accounting/api/accounts.php \
               modules/accounting/api/bank_ai.php \
               modules/accounting/api/bank_statements.php \
+              modules/accounting/api/export.php \
+              modules/accounting/api/journal_entries.php \
+              modules/accounting/api/standard_reports.php \
+              modules/accounting/lib/account_interest.php \
               modules/accounting/lib/accounting.php \
               modules/accounting/lib/bank_rec.php \
+              modules/accounting/lib/consolidation.php \
+              modules/accounting/lib/intercompany.php \
               modules/accounting/lib/standard_reports.php \
+              modules/accounting/manifest.php \
               modules/ap/api/1099.php \
               modules/ap/api/approval_policies.php \
               modules/ap/api/bills.php \
@@ -648,6 +673,10 @@ jobs:
             php tests/ai_accuracy_query_smoke.php
             php tests/ai_confidence_moat_smoke.php
             php tests/accounting_basics_2026_02_smoke.php
+            php tests/accounting_phase1_smoke.php
+            php tests/accounting_phase2_a1_smoke.php
+            php tests/accounting_phase2_a2_smoke.php
+            php tests/accounting_phase2_a4_smoke.php
             php tests/accounting_phase2_a8_smoke.php
             php tests/accounting_accounts_csv_roundtrip_smoke.php
             php tests/ap_1099_print_schema_smoke.php
@@ -689,6 +718,7 @@ jobs:
             php tests/invoice_bank_match_smoke.php
             php tests/idbadge_product_wide_rollout_smoke.php
             php tests/journal_entries_usability_smoke.php
+            php tests/rbac_b4_bridge_smoke.php
             php tests/m365_graph_smoke.php
             php tests/payroll_phase_a1_smoke.php
             php tests/payroll_accounting_event_posting_smoke.php
@@ -708,7 +738,13 @@ jobs:
             php tests/recurring_contracts_smoke.php
             php tests/sitewide_navigation_smoke.php
             php tests/specific_get_action_routing_smoke.php
+            php tests/p2_liquidity_and_auto_reverse_smoke.php
             php tests/sprint6d_entity_scope_ai_smoke.php
+            php tests/sprint7e1_bookkeeping_overview_smoke.php
+            php tests/sprint7f1_gl_detail_and_tax_mappings_smoke.php
+            php tests/sprint7f2_tax_form_export_smoke.php
+            php tests/sprint7f3_dimensional_pnl_smoke.php
+            php tests/sprint7f4_missing_dimensions_smoke.php
             php tests/staffing_economic_graph_smoke.php
             php tests/staffing_email_approval_smoke.php
             php tests/staffing_bulk_timesheet_approval_smoke.php

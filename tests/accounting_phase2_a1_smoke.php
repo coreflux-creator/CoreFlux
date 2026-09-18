@@ -124,7 +124,7 @@ $a('detail section testid',                            strpos($jd, 'data-testid=
 $a('reverse button',                                   strpos($jd, 'accounting-je-reverse') !== false);
 $a('source-link drill-through',                        strpos($jd, 'accounting-je-source-link') !== false);
 $a('maps ap_bills source',                             strpos($jd, 'ap_bills:') !== false || strpos($jd, "'ap_bills'") !== false);
-$a('maps payroll_runs source',                         strpos($jd, "'payroll_runs'") !== false);
+$a('maps payroll_runs source',                         strpos($jd, 'payroll_runs:') !== false || strpos($jd, "'payroll_runs'") !== false);
 $a('status pill renders',                              strpos($jd, 'accounting-je-status-') !== false);
 
 echo "\nIS / BS drill-through (Reports Overhaul Pass 2 — slide-over not route)\n";

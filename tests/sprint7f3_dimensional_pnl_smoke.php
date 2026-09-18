@@ -4,7 +4,7 @@
  *
  * Asserts:
  *   - api/dimensional_pnl.php (RBAC, GET-only, dim_key required,
- *     date validation, dimension scoped to tenant + active, posted-only
+ *     date validation, dimension scoped to tenant + active, ledger-status
  *     filter, normal_side-aware sign, '(unset)' bucket, family
  *     subtotals, net-income calculation, rectangular per_value rows).
  *   - DimensionalPnL.jsx renders the matrix with full testid coverage.
@@ -40,7 +40,7 @@ $assert('joins JE lines + entries + accounts',
     strpos($ep, 'FROM accounting_journal_entry_lines jl') !== false
     && strpos($ep, 'JOIN accounting_journal_entries je') !== false
     && strpos($ep, 'JOIN accounting_accounts a') !== false);
-$assert('posted-only filter',                    strpos($ep, "je.status = 'posted'") !== false);
+$assert('posted and reversed ledger filter',     strpos($ep, "je.status IN ('posted','reversed')") !== false);
 $assert('account_type whitelist (rev + expense families)',
     strpos($ep, "('revenue','cost_of_goods_sold','expense','other_income','other_expense','contra_revenue')") !== false);
 $assert('entity_id filter applied',              strpos($ep, 'je.entity_id = :eid') !== false);

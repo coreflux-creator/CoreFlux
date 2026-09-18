@@ -99,7 +99,7 @@ $rapi = (string) file_get_contents(__DIR__ . '/../modules/accounting/lib/standar
 $a('income_statement type',                        strpos($rdis, "type === 'income_statement'") !== false);
 $a('balance_sheet type',                           strpos($rdis, "type === 'balance_sheet'") !== false);
 $a('reportIncomeStatement filters revenue|expense', strpos($rapi, 'a.account_type IN ("revenue","expense")') !== false);
-$a('IS filters posted JEs only',                   strpos($rapi, 'je.status = "posted"') !== false);
+$a('IS includes posted and reversed ledger entries', strpos($rapi, 'je.status IN ("posted","reversed")') !== false);
 $a('IS computes net_income',                       strpos($rapi, "'net_income'    => round(\$revTotal - \$expTotal, 2)") !== false);
 $a('reportBalanceSheet aggregates per type',       strpos($rapi, "case 'asset'") !== false
                                                     && strpos($rapi, "case 'liability'") !== false

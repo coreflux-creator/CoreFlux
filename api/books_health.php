@@ -232,7 +232,7 @@ if ($hasDimsTbl && $hasJlDimsCol) {
                     FROM accounting_journal_entry_lines jl
                     JOIN accounting_journal_entries je ON je.id = jl.je_id
                     JOIN accounting_accounts a         ON a.id  = jl.account_id
-                   WHERE jl.tenant_id = :t AND je.status = 'posted'
+                   WHERE jl.tenant_id = :t AND je.status IN ('posted','reversed')
                      AND je.posting_date >= :s"
                 . ($entityId ? ' AND je.entity_id = :e' : '');
         $mdBind = ['t' => $tid, 's' => $mdSince];
@@ -283,7 +283,7 @@ $plStmt = $pdo->prepare(
        JOIN accounting_journal_entries je ON je.id = jl.je_id
        JOIN accounting_accounts a ON a.id = jl.account_id
       WHERE je.tenant_id = :t
-        AND je.status = 'posted'
+        AND je.status IN ('posted','reversed')
         AND je.posting_date >= :s
         AND a.account_type IN ('revenue','expense','contra_revenue','cost_of_goods_sold','other_income','other_expense')
       GROUP BY month, a.account_type

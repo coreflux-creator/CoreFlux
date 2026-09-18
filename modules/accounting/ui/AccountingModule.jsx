@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom'
 import {
   AlertTriangle, BarChart3, BookOpen, Building2, Calendar, CheckSquare,
   ChevronDown, FileText, GitBranch, Landmark, Layers, ListChecks, Network,
-  Repeat, Scale, Settings, Sparkles, TrendingUp, Upload, Wallet,
+  Repeat, Scale, Settings, Sparkles, TrendingUp, Upload, Wallet, Wrench,
 } from 'lucide-react';
 import ChartOfAccounts from './ChartOfAccounts';
 import AccountDetail from './AccountDetail';
@@ -45,12 +45,13 @@ const LAYER_SANDBOX_ENABLED =
   String(import.meta.env?.VITE_ENABLE_LAYER_SANDBOX) === 'true';
 
 const PRIMARY_NAV = [
-  { to: 'bookkeeping', label: 'Bookkeeping', Icon: BookOpen },
+  { to: 'bookkeeping', label: 'Overview', Icon: BookOpen },
   { to: 'transactions-to-review', label: 'Transactions', Icon: ListChecks },
-  { to: 'accounts', label: 'Chart of accounts', Icon: Landmark },
   { to: 'journal-entries', label: 'Journal entries', Icon: FileText },
-  { to: 'bank-rec', label: 'Bank reconciliation', Icon: Scale },
+  { to: 'bank-rec', label: 'Reconcile', Icon: Scale },
+  { to: 'accounts', label: 'Chart of accounts', Icon: Landmark },
   { to: 'reports', label: 'Reports', Icon: BarChart3 },
+  { to: 'close', label: 'Close', Icon: CheckSquare },
 ];
 
 const MORE_NAV = [
@@ -66,12 +67,11 @@ const MORE_NAV = [
     ],
   },
   {
-    label: 'Review and automation',
+    label: 'Automation and review',
     items: [
       { to: 'ai-agents', label: 'AI agents', Icon: Sparkles },
       { to: 'recurring', label: 'Recurring entries', Icon: Repeat },
       { to: 'missing-dimensions', label: 'Missing dimensions', Icon: AlertTriangle },
-      { to: 'close', label: 'Close workflow', Icon: CheckSquare },
     ],
   },
   {
@@ -108,7 +108,7 @@ export default function AccountingModule({ session }) {
         <AccountingNav />
       </header>
       <Routes>
-        <Route index           element={<Navigate to="accounts" replace />} />
+        <Route index           element={<Navigate to="bookkeeping" replace />} />
         <Route path="bookkeeping" element={<BookkeepingOverview />} />
         <Route path="books-health" element={<Navigate to="../bookkeeping" replace />} />
         <Route path="transactions-to-review" element={<TransactionsToReview />} />
@@ -123,6 +123,7 @@ export default function AccountingModule({ session }) {
         <Route path="journal/new"  element={<JournalEntryCreate session={session} />} />
         <Route path="journal-entries"        element={<JournalEntries  session={session} />} />
         <Route path="journal-entries/new"    element={<JournalEntryCreate session={session} />} />
+        <Route path="journal-entries/:id/edit" element={<JournalEntryCreate session={session} />} />
         <Route path="journal-entries/:id"    element={<JournalEntryDetail session={session} />} />
         <Route path="trial"    element={<TrialBalance    session={session} />} />
         <Route path="pnl"      element={<IncomeStatement session={session} />} />
@@ -192,7 +193,8 @@ function AccountingNav() {
           onClick={event => { event.stopPropagation(); setMoreOpen(open => !open); }}
           data-testid="accounting-more-trigger"
         >
-          More <ChevronDown size={15} aria-hidden="true" />
+          <Wrench size={15} aria-hidden="true" />
+          Tools <ChevronDown size={15} aria-hidden="true" />
         </button>
         {moreOpen && (
           <div className="accounting-nav__menu" data-testid="accounting-more-menu">

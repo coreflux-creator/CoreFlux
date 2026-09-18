@@ -56,8 +56,8 @@ $assert('starting_cash sums active bank accounts via GL',
     strpos($libSrc, 'FROM accounting_bank_accounts ba') !== false
     && strpos($libSrc, "ba.status = 'active'") !== false
     && strpos($libSrc, 'JOIN accounting_journal_entry_lines') !== false);
-$assert('only posted JEs feed starting_cash',
-    strpos($libSrc, "je.status = 'posted'") !== false);
+$assert('posted and reversed JEs feed starting_cash',
+    strpos($libSrc, "je.status IN ('posted','reversed')") !== false);
 $assert('AR uses amount_due fallback to total - amount_paid',
     strpos($libSrc, 'COALESCE(amount_due, total - amount_paid)') !== false);
 $assert('AR status filter excludes paid/void/draft',
