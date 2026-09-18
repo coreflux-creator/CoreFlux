@@ -75,7 +75,8 @@ $a('fscRebuild clears dirty log AFTER success',  preg_match('/fscBuildPeriodAcco
 $a('rebuild keeps dirty on builder throw',       str_contains($lib, "if the rebuilders") || str_contains($lib, 'leave the dirty entries'));
 $a('rebuild reports metrics_written + ms',       str_contains($lib, "'metrics_written'") && str_contains($lib, "'ms'"));
 
-$a('account-balance builder reads posted only',  str_contains($lib, 'je.status    = "posted"'));
+$a('account-balance builder reads posted and reversed ledger history',
+    str_contains($lib, 'je.status IN ("posted","reversed")'));
 $a('account-balance builder joins entries+lines',
     str_contains($lib, 'JOIN accounting_journal_entries     je') &&
     str_contains($lib, 'FROM accounting_journal_entry_lines l'));

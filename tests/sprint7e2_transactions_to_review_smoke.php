@@ -137,8 +137,8 @@ $assert('live AccountingModule mounts /bookkeeping route',
     strpos($liveMod, 'path="bookkeeping" element={<BookkeepingOverview />}') !== false);
 $assert('live AccountingModule primary nav has Transactions',
     strpos($liveMod, "to: 'transactions-to-review', label: 'Transactions'") !== false);
-$assert('live AccountingModule primary nav has Bookkeeping',
-    strpos($liveMod, "to: 'bookkeeping', label: 'Bookkeeping'") !== false);
+$assert('live AccountingModule primary nav has Overview',
+    strpos($liveMod, "to: 'bookkeeping', label: 'Overview'") !== false);
 
 $app = (string) file_get_contents("{$ROOT}/dashboard/src/App.jsx");
 $assert("App sidebar carries 'Transactions to Review' nav action",
