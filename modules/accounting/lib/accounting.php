@@ -141,7 +141,7 @@ function accountingDefaultEntity(int $tenantId): array
  *   source_module ('manual'|'ap'|'billing'|...),
  *   source_ref_type?, source_ref_id?,
  *   idempotency_key (REQUIRED for subledgers),
- *   lines: [{account_code|account_id, debit, credit, memo?, counterparty_company_id?, counterparty_person_id?}, ...]
+ *   lines: [{account_code|account_id, debit, credit, memo?, description?, counterparty_company_id?, counterparty_person_id?}, ...]
  * }
  * @param int|null $actorUserId
  * @param bool     $post  when false, leaves JE in 'draft'
@@ -230,7 +230,8 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
             'account_id'              => (int) $a['id'],
             'debit'                   => $debit,
             'credit'                  => $credit,
-            'memo'                    => $l['memo'] ?? null,
+            'memo'                    => $l['memo'] ?? $l['description'] ?? null,
+            'description'             => $l['description'] ?? $l['memo'] ?? null,
             'counterparty_company_id' => !empty($l['counterparty_company_id']) ? (int) $l['counterparty_company_id'] : null,
             'counterparty_person_id'  => !empty($l['counterparty_person_id'])  ? (int) $l['counterparty_person_id']  : null,
             'counterparty_entity_id'  => !empty($l['counterparty_entity_id'])  ? (int) $l['counterparty_entity_id']  : null,
@@ -300,15 +301,17 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
         ]);
 
         foreach ($resolved as $l) {
-            // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
             $stmt = $pdo->prepare(
                 'INSERT INTO accounting_journal_entry_lines
-                   (je_id, line_no, account_id, debit, credit, memo, counterparty_company_id, counterparty_person_id, counterparty_entity_id, dim_json)
-                 VALUES (:je, :ln, :a, :d, :c, :m, :cc, :cp, :ce, :dj)'
+                   (tenant_id, je_id, line_no, account_id, debit, credit, memo, description,
+                    counterparty_company_id, counterparty_person_id, counterparty_entity_id, dim_json)
+                 VALUES (:tenant_id, :je, :ln, :a, :d, :c, :m, :description, :cc, :cp, :ce, :dj)'
             );
             $stmt->execute([
+                'tenant_id' => $tenantId,
                 'je' => $jeId, 'ln' => $l['line_no'], 'a' => $l['account_id'],
                 'd'  => $l['debit'], 'c' => $l['credit'], 'm' => $l['memo'],
+                'description' => $l['description'],
                 'cc' => $l['counterparty_company_id'], 'cp' => $l['counterparty_person_id'],
                 'ce' => $l['counterparty_entity_id'],
                 'dj' => $l['dim_json'],

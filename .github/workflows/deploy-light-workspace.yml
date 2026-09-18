@@ -160,8 +160,10 @@ jobs:
             modules/accounting/api/bank_ai.php \
             modules/accounting/api/bank_statements.php \
             modules/accounting/api/export.php \
+            modules/accounting/lib/accounting.php \
             modules/accounting/lib/bank_rec.php \
             modules/accounting/lib/standard_reports.php \
+            modules/accounting/migrations/028_journal_line_tenant_scope.sql \
             modules/accounting/ui/BankReconciliation.jsx \
             modules/accounting/ui/BalanceSheet.jsx \
             modules/accounting/ui/CashFlowStatement.jsx \
@@ -507,6 +509,7 @@ jobs:
             test -f "$STAGE_ROOT/modules/ap/migrations/021_vendor_payment_defaults_repair.sql"
             test -f "$STAGE_ROOT/modules/billing/migrations/013_item_catalog.sql"
             test -f "$STAGE_ROOT/modules/billing/migrations/014_invoice_amount_consistency.sql"
+            test -f "$STAGE_ROOT/modules/accounting/migrations/028_journal_line_tenant_scope.sql"
             test -f "$STAGE_ROOT/core/migrations/003_mail_service.sql"
             test -f "$STAGE_ROOT/core/migrations/103_ap_payments_method_mercury.sql"
 
@@ -556,6 +559,7 @@ jobs:
               modules/accounting/api/accounts.php \
               modules/accounting/api/bank_ai.php \
               modules/accounting/api/bank_statements.php \
+              modules/accounting/lib/accounting.php \
               modules/accounting/lib/bank_rec.php \
               modules/accounting/lib/standard_reports.php \
               modules/ap/api/1099.php \
@@ -625,6 +629,7 @@ jobs:
             php deploy/run_migrations.php --status | grep -F '[ok] modules/ap/migrations/021_vendor_payment_defaults_repair.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/billing/migrations/013_item_catalog.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/billing/migrations/014_invoice_amount_consistency.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] modules/accounting/migrations/028_journal_line_tenant_scope.sql'
 
             php tests/login_redirect_paths_smoke.php
             php tests/live_basic_error_regressions_smoke.php

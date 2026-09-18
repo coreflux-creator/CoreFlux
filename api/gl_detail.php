@@ -88,7 +88,7 @@ $openSql = "SELECT
             COALESCE(SUM(jl.credit), 0) AS c
        FROM accounting_journal_entry_lines jl
        JOIN accounting_journal_entries je ON je.id = jl.je_id
-      WHERE jl.tenant_id = :t
+      WHERE je.tenant_id = :t
         AND jl.account_id = :aid
         AND je.posting_date < :start
         AND {$statusSql}
@@ -111,7 +111,7 @@ $linesSql = "SELECT je.id AS je_id, je.je_number, je.posting_date, je.memo,
                     jl.dim_json AS dimension_values
                FROM accounting_journal_entry_lines jl
                JOIN accounting_journal_entries je ON je.id = jl.je_id
-              WHERE jl.tenant_id = :t
+              WHERE je.tenant_id = :t
                 AND jl.account_id = :aid
                 AND je.posting_date BETWEEN :start AND :end
                 AND {$statusSql}
