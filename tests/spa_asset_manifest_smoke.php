@@ -38,5 +38,28 @@ $a('spa-assets contains dist CSS bundle', $css !== '' && is_file($root . '/spa-a
 $a('.deploy-version points at dist JS bundle', $js !== '' && str_contains($stamp, 'spa-assets/' . $js));
 $a('.deploy-version points at dist CSS bundle', $css !== '' && str_contains($stamp, 'spa-assets/' . $css));
 
+$assetQueue = array_values(array_filter([$js, $css]));
+$seenAssets = [];
+$missingAssets = [];
+for ($i = 0; $i < count($assetQueue); $i++) {
+    $asset = $assetQueue[$i];
+    if (isset($seenAssets[$asset])) continue;
+    $seenAssets[$asset] = true;
+
+    $path = $root . '/spa-assets/' . $asset;
+    if (!is_file($path)) {
+        $missingAssets[] = $asset;
+        continue;
+    }
+    if (!str_ends_with($asset, '.js')) continue;
+
+    preg_match_all('/index-[A-Za-z0-9_-]+\.(?:js|css)/', (string) file_get_contents($path), $references);
+    foreach (array_unique($references[0] ?? []) as $reference) {
+        if (!isset($seenAssets[$reference])) $assetQueue[] = $reference;
+    }
+}
+$a('spa-assets contains every recursively referenced bundle asset', $missingAssets === []);
+if ($missingAssets !== []) echo 'Missing: ' . implode(', ', $missingAssets) . "\n";
+
 echo "spa_asset_manifest_smoke: {$ok} ok / {$fail} fail\n";
 exit($fail ? 1 : 0);
