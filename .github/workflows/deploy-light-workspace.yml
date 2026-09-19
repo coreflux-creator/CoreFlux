@@ -165,6 +165,7 @@ jobs:
             modules/accounting/api/bank_ai.php \
             modules/accounting/api/bank_statements.php \
             modules/accounting/api/export.php \
+            modules/accounting/api/import.php \
             modules/accounting/api/journal_entries.php \
             modules/accounting/api/standard_reports.php \
             modules/accounting/lib/account_interest.php \
@@ -182,6 +183,7 @@ jobs:
             modules/accounting/ui/GLDetail.jsx \
             modules/accounting/ui/IncomeStatement.jsx \
             modules/accounting/ui/AccountingModule.jsx \
+            modules/accounting/ui/AccountingImport.jsx \
             modules/accounting/ui/AccountsCsvImport.jsx \
             modules/accounting/ui/JournalEntries.jsx \
             modules/accounting/ui/JournalEntryCreate.jsx \
@@ -422,7 +424,9 @@ jobs:
             tests/csv_ai_assisted_mapping_smoke.php \
             tests/csv_external_id_wave1_smoke.php \
             tests/csv_external_id_wave2_smoke.php \
+            tests/csv_import_service_smoke.php \
             tests/csv_importers_subtenant_scope_smoke.php \
+            tests/csv_interactive_mapping_smoke.php \
             tests/csv_phase_b_smoke.php \
             tests/csv_phase_e_smoke.php \
             tests/csv_transaction_roundtrip_smoke.php \
@@ -531,7 +535,11 @@ jobs:
             test -f "$STAGE_ROOT/modules/ap/migrations/021_vendor_payment_defaults_repair.sql"
             test -f "$STAGE_ROOT/modules/billing/migrations/013_item_catalog.sql"
             test -f "$STAGE_ROOT/modules/billing/migrations/014_invoice_amount_consistency.sql"
+            test -f "$STAGE_ROOT/modules/accounting/api/import.php"
+            test -f "$STAGE_ROOT/modules/accounting/ui/AccountingImport.jsx"
             test -f "$STAGE_ROOT/modules/accounting/migrations/028_journal_line_tenant_scope.sql"
+            test -f "$STAGE_ROOT/tests/csv_import_service_smoke.php"
+            test -f "$STAGE_ROOT/tests/csv_interactive_mapping_smoke.php"
             test -f "$STAGE_ROOT/core/migrations/003_mail_service.sql"
             test -f "$STAGE_ROOT/core/migrations/103_ap_payments_method_mercury.sql"
 
@@ -587,6 +595,7 @@ jobs:
               modules/accounting/api/bank_ai.php \
               modules/accounting/api/bank_statements.php \
               modules/accounting/api/export.php \
+              modules/accounting/api/import.php \
               modules/accounting/api/journal_entries.php \
               modules/accounting/api/standard_reports.php \
               modules/accounting/lib/account_interest.php \
@@ -706,7 +715,9 @@ jobs:
             php tests/csv_ai_assisted_mapping_smoke.php
             php tests/csv_external_id_wave1_smoke.php
             php tests/csv_external_id_wave2_smoke.php
+            php tests/csv_import_service_smoke.php
             php tests/csv_importers_subtenant_scope_smoke.php
+            php tests/csv_interactive_mapping_smoke.php
             php tests/csv_phase_b_smoke.php
             php tests/csv_phase_e_smoke.php
             php tests/csv_transaction_roundtrip_smoke.php
@@ -777,6 +788,7 @@ jobs:
             grep -Fq -- "- $SPA_STYLE" .deploy-version
             grep -Fq 'Your business, in focus.' "$SPA_ENTRY"
             grep -Fq 'Loaded cost' "$SPA_ENTRY"
+            grep -Fq 'Aligned preview' "$SPA_ENTRY"
 
             OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
             php -r '$template=file_get_contents($argv[1]); if ($template === false || substr_count($template, "__COREFLUX_OPCACHE_TOKEN__") !== 1) exit(1); $content=str_replace("__COREFLUX_OPCACHE_TOKEN__", $argv[3], $template); if (file_put_contents($argv[2], $content, LOCK_EX) === false) exit(1); chmod($argv[2], 0640);' "$OPCACHE_TEMPLATE" "$OPCACHE_ENDPOINT" "$OPCACHE_TOKEN"
@@ -789,9 +801,10 @@ jobs:
             STYLE_NAME="$(basename "$SPA_STYLE")"
             curl -fsS --max-time 30 -o "$ENTRY_RESPONSE" "https://www.corefluxapp.com/spa-assets/$ENTRY_NAME?release=${{ github.sha }}"
             grep -Fq 'Your business, in focus.' "$ENTRY_RESPONSE"
+            grep -Fq 'Aligned preview' "$ENTRY_RESPONSE"
             curl -fsS --max-time 30 -o /dev/null "https://www.corefluxapp.com/spa-assets/$STYLE_NAME?release=${{ github.sha }}"
 
-            for ROUTE in inbox ai-agents cfo data/bulk-import admin modules/placements/list sim; do
+            for ROUTE in inbox ai-agents cfo data/bulk-import admin modules/accounting/import modules/placements/list sim; do
               HEADERS="$(mktemp)"
               if ! curl -sSL --max-time 30 -o /dev/null -D "$HEADERS" "https://www.corefluxapp.com/$ROUTE?release=${{ github.sha }}"; then
                 echo "Production route check could not load /$ROUTE." >&2
