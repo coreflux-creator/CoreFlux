@@ -632,34 +632,356 @@ function accountingPostDraftJe(int $tenantId, int $jeId, ?int $actorUserId = nul
     ];
 }
 
-/** Soft-delete a draft so it disappears from normal work without erasing history. */
+/** Does a table contain a column in the current database? */
+function accountingTableHasColumn(\PDO $pdo, string $table, string $column): bool
+{
+    static $cache = [];
+    $key = $table . '.' . $column;
+    if (array_key_exists($key, $cache)) return $cache[$key];
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*) FROM information_schema.columns
+          WHERE table_schema = DATABASE() AND table_name = :table_name AND column_name = :column_name'
+    );
+    $stmt->execute(['table_name' => $table, 'column_name' => $column]);
+    return $cache[$key] = ((int) $stmt->fetchColumn() > 0);
+}
+
+/**
+ * Move direct business-record pointers away from journal entries being
+ * deleted. A correction points the source record at the replacement; a plain
+ * deletion clears it so the source workflow can be posted again deliberately.
+ */
+function accountingRelinkJournalReferences(
+    \PDO $pdo,
+    int $tenantId,
+    array $deletedIds,
+    ?int $replacementJeId
+): void {
+    if (!$deletedIds) return;
+    $references = [
+        ['billing_invoices', 'journal_entry_id'],
+        ['ap_bills', 'journal_entry_id'],
+        ['ap_payments', 'journal_entry_id'],
+        ['payroll_runs', 'journal_entry_id'],
+        ['payroll_runs', 'cash_journal_entry_id'],
+        ['treasury_payments', 'journal_entry_id'],
+        ['treasury_transfers', 'source_journal_entry_id'],
+        ['treasury_transfers', 'destination_journal_entry_id'],
+        ['accounting_bank_interest_runs', 'journal_entry_id'],
+        ['accounting_account_interest_runs', 'journal_entry_id'],
+    ];
+    $marks = implode(',', array_fill(0, count($deletedIds), '?'));
+    foreach ($references as [$table, $column]) {
+        if (!accountingTableHasColumn($pdo, $table, 'tenant_id')
+            || !accountingTableHasColumn($pdo, $table, $column)) {
+            continue;
+        }
+        $stmt = $pdo->prepare(
+            "UPDATE `{$table}` SET `{$column}` = ? WHERE tenant_id = ? AND `{$column}` IN ({$marks})"
+        );
+        $stmt->execute(array_merge([$replacementJeId, $tenantId], $deletedIds));
+    }
+
+    if (accountingTableHasColumn($pdo, 'accounting_events', 'journal_entry_id')) {
+        if ($replacementJeId) {
+            $stmt = $pdo->prepare(
+                "UPDATE accounting_events
+                    SET journal_entry_id = ?, status = 'posted', error_message = NULL
+                  WHERE tenant_id = ? AND journal_entry_id IN ({$marks})"
+            );
+            $stmt->execute(array_merge([$replacementJeId, $tenantId], $deletedIds));
+        } else {
+            $stmt = $pdo->prepare(
+                "UPDATE accounting_events
+                    SET journal_entry_id = NULL, status = 'received', posted_at = NULL, error_message = NULL
+                  WHERE tenant_id = ? AND journal_entry_id IN ({$marks})"
+            );
+            $stmt->execute(array_merge([$tenantId], $deletedIds));
+        }
+    }
+
+    if ($replacementJeId
+        && accountingTableHasColumn($pdo, 'accounting_subledger_links', 'journal_entry_id')) {
+        $stmt = $pdo->prepare(
+            "INSERT IGNORE INTO accounting_subledger_links
+                (tenant_id, source_module, source_record_id, journal_entry_id, accounting_event_id, link_kind)
+             SELECT tenant_id, source_module, source_record_id, ?, accounting_event_id, 'adjustment'
+               FROM accounting_subledger_links
+              WHERE tenant_id = ? AND journal_entry_id IN ({$marks})"
+        );
+        $stmt->execute(array_merge([$replacementJeId, $tenantId], $deletedIds));
+    }
+}
+
+/**
+ * Audit-safe deletion for journal entries.
+ *
+ * Rows and lines stay in place with status=void, while normal journals and
+ * reports stop including them. If the selected entry has later reversals,
+ * the whole forward chain is removed. Deleting a reversal restores the entry
+ * it reversed. Bank lines are returned to review and source records are made
+ * repostable (or relinked to a supplied correction).
+ */
+function accountingDeleteJe(
+    int $tenantId,
+    int $jeId,
+    string $reason = '',
+    ?int $actorUserId = null,
+    ?int $replacementJeId = null
+): array {
+    if ($jeId <= 0) throw new \InvalidArgumentException('je_id required');
+    if ($replacementJeId === $jeId) throw new \InvalidArgumentException('replacement must be a different journal entry');
+
+    $reason = trim($reason);
+    $pdo = getDB();
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) $pdo->beginTransaction();
+
+    $periodIds = [];
+    try {
+        $entries = [];
+        $currentId = $jeId;
+        for ($depth = 0; $currentId > 0 && $depth < 50; $depth++) {
+            if (isset($entries[$currentId])) {
+                throw new \RuntimeException('Journal reversal chain contains a loop. Contact support before deleting it.');
+            }
+            $stmt = $pdo->prepare(
+                'SELECT * FROM accounting_journal_entries
+                  WHERE tenant_id = :t AND id = :id FOR UPDATE'
+            );
+            $stmt->execute(['t' => $tenantId, 'id' => $currentId]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$row) {
+                if ($currentId === $jeId) throw new \RuntimeException("Journal entry {$jeId} not found");
+                break;
+            }
+            $entries[$currentId] = $row;
+            $nextId = (int) ($row['reversed_by_je_id'] ?? 0);
+            if ($nextId <= 0) break;
+            $currentId = $nextId;
+        }
+
+        $selected = $entries[$jeId];
+        if (($selected['status'] ?? '') === 'void') {
+            if ($ownsTransaction) $pdo->commit();
+            return [
+                'je_id' => $jeId,
+                'je_number' => $selected['je_number'],
+                'status' => 'void',
+                'deleted_ids' => [$jeId],
+                'restored_ids' => [],
+                'released_bank_lines' => 0,
+                'idempotent_replay' => true,
+            ];
+        }
+        if (($selected['status'] ?? '') === 'draft') {
+            accountingAssertManualDraftLifecycle($selected);
+        } elseif ($reason === '') {
+            throw new \InvalidArgumentException('reason required when deleting a posted entry');
+        }
+
+        if ($replacementJeId) {
+            $replacement = $pdo->prepare(
+                'SELECT id, status FROM accounting_journal_entries
+                  WHERE tenant_id = :t AND id = :id FOR UPDATE'
+            );
+            $replacement->execute(['t' => $tenantId, 'id' => $replacementJeId]);
+            $replacementRow = $replacement->fetch(\PDO::FETCH_ASSOC);
+            if (!$replacementRow || !in_array($replacementRow['status'], ['posted', 'reversed'], true)) {
+                throw new \RuntimeException('The corrected journal entry must be posted before it can replace the original.');
+            }
+        }
+
+        $deletedIds = array_map('intval', array_keys($entries));
+        $marks = implode(',', array_fill(0, count($deletedIds), '?'));
+        foreach ($entries as $entry) $periodIds[(int) $entry['period_id']] = true;
+
+        $delete = $pdo->prepare(
+            "UPDATE accounting_journal_entries
+                SET status = 'void', idempotency_key = NULL
+              WHERE tenant_id = ? AND id IN ({$marks}) AND status <> 'void'"
+        );
+        $delete->execute(array_merge([$tenantId], $deletedIds));
+        if ($delete->rowCount() < 1) {
+            throw new \RuntimeException('This journal entry changed while you were deleting it. Refresh and try again.');
+        }
+
+        $pdo->prepare(
+            "DELETE FROM accounting_posting_idempotency
+              WHERE tenant_id = ? AND je_id IN ({$marks})"
+        )->execute(array_merge([$tenantId], $deletedIds));
+
+        $releasedBankLines = 0;
+        if (accountingTableHasColumn($pdo, 'accounting_bank_statement_lines', 'matched_je_id')) {
+            $release = $pdo->prepare(
+                "UPDATE accounting_bank_statement_lines
+                    SET match_status = 'unmatched', matched_je_id = NULL,
+                        matched_at = NULL, matched_by_user_id = NULL
+                  WHERE tenant_id = ? AND matched_je_id IN ({$marks})"
+            );
+            $release->execute(array_merge([$tenantId], $deletedIds));
+            $releasedBankLines += $release->rowCount();
+        }
+        if (accountingTableHasColumn($pdo, 'treasury_liability_statement_lines', 'matched_je_id')) {
+            $release = $pdo->prepare(
+                "UPDATE treasury_liability_statement_lines
+                    SET match_status = 'unmatched', matched_je_id = NULL
+                  WHERE tenant_id = ? AND matched_je_id IN ({$marks})"
+            );
+            $release->execute(array_merge([$tenantId], $deletedIds));
+            $releasedBankLines += $release->rowCount();
+        }
+
+        accountingRelinkJournalReferences($pdo, $tenantId, $deletedIds, $replacementJeId);
+
+        $restoredIds = [];
+        $restoredId = (int) ($selected['reverses_je_id'] ?? 0);
+        if ($restoredId > 0 && !in_array($restoredId, $deletedIds, true)) {
+            $restore = $pdo->prepare(
+                'UPDATE accounting_journal_entries
+                    SET status = "posted", reversed_by_je_id = NULL
+                  WHERE tenant_id = :t AND id = :id AND status = "reversed" AND reversed_by_je_id = :deleted_reversal'
+            );
+            $restore->execute(['t' => $tenantId, 'id' => $restoredId, 'deleted_reversal' => $jeId]);
+            if ($restore->rowCount() === 1) {
+                $restoredIds[] = $restoredId;
+                $restorePeriod = $pdo->prepare(
+                    'SELECT period_id FROM accounting_journal_entries WHERE tenant_id = :t AND id = :id'
+                );
+                $restorePeriod->execute(['t' => $tenantId, 'id' => $restoredId]);
+                $periodIds[(int) $restorePeriod->fetchColumn()] = true;
+            }
+        }
+
+        if ($ownsTransaction) $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+
+    foreach (array_keys($periodIds) as $periodId) {
+        if ($periodId <= 0) continue;
+        try {
+            fscMarkDirty($tenantId, FSC_SCOPE_PERIOD, (string) $periodId, 'je_deleted', $actorUserId);
+        } catch (\Throwable $_) { /* deletion itself must not depend on the cache */ }
+    }
+
+    return [
+        'je_id' => $jeId,
+        'je_number' => $selected['je_number'],
+        'posting_date' => $selected['posting_date'],
+        'memo' => $selected['memo'],
+        'total_debit' => (float) $selected['total_debit'],
+        'status' => 'void',
+        'reason' => $reason,
+        'deleted_ids' => $deletedIds,
+        'restored_ids' => $restoredIds,
+        'replacement_je_id' => $replacementJeId,
+        'released_bank_lines' => $releasedBankLines,
+        'idempotent_replay' => false,
+    ];
+}
+
+/** Backward-compatible draft deletion entry point. */
 function accountingDiscardDraftJe(int $tenantId, int $jeId): array
 {
-    if ($jeId <= 0) throw new \InvalidArgumentException('je_id required');
+    return accountingDeleteJe($tenantId, $jeId);
+}
+
+/** Post a corrected replacement and remove the original from the active books. */
+function accountingReplaceJe(
+    int $tenantId,
+    int $jeId,
+    array $replacement,
+    string $reason,
+    ?int $actorUserId = null
+): array {
+    $reason = trim($reason);
+    if ($reason === '') throw new \InvalidArgumentException('correction reason required');
+
     $pdo = getDB();
     $stmt = $pdo->prepare(
-        'SELECT id, je_number, status, posting_date, memo, total_debit
-           FROM accounting_journal_entries
-          WHERE tenant_id = :t AND id = :id LIMIT 1'
+        'SELECT * FROM accounting_journal_entries WHERE tenant_id = :t AND id = :id LIMIT 1'
     );
     $stmt->execute(['t' => $tenantId, 'id' => $jeId]);
-    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-    if (!$row) throw new \RuntimeException("Journal entry {$jeId} not found");
-    if (($row['status'] ?? '') === 'void') return $row;
-    if (($row['status'] ?? '') !== 'draft') {
-        throw new \RuntimeException('Only draft journal entries can be deleted. Reverse a posted entry instead.');
-    }
-    accountingAssertManualDraftLifecycle($row);
-    $delete = $pdo->prepare(
-        'UPDATE accounting_journal_entries SET status = "void"
-          WHERE tenant_id = :t AND id = :id AND status = "draft"'
+    $original = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$original) throw new \RuntimeException("Journal entry {$jeId} not found");
+
+    $existingStmt = $pdo->prepare(
+        'SELECT * FROM accounting_journal_entries
+          WHERE tenant_id = :t AND source_ref_type = "replaces_je" AND source_ref_id = :id
+            AND status IN ("posted", "reversed")
+          ORDER BY id DESC LIMIT 1'
     );
-    $delete->execute(['t' => $tenantId, 'id' => $jeId]);
-    if ($delete->rowCount() !== 1) {
-        throw new \RuntimeException('This journal entry changed while you were deleting it. Refresh and try again.');
+    $existingStmt->execute(['t' => $tenantId, 'id' => $jeId]);
+    $existingCorrection = $existingStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    if ($existingCorrection) {
+        $deleted = ($original['status'] === 'void')
+            ? ['deleted_ids' => [$jeId], 'released_bank_lines' => 0]
+            : accountingDeleteJe($tenantId, $jeId, $reason, $actorUserId, (int) $existingCorrection['id']);
+        return [
+            'je_id' => (int) $existingCorrection['id'],
+            'je_number' => (string) $existingCorrection['je_number'],
+            'status' => (string) $existingCorrection['status'],
+            'total_debit' => (float) $existingCorrection['total_debit'],
+            'total_credit' => (float) $existingCorrection['total_credit'],
+            'idempotent_replay' => true,
+            'replaced_je_id' => $jeId,
+            'deleted_ids' => $deleted['deleted_ids'],
+            'released_bank_lines' => $deleted['released_bank_lines'],
+            'correction_reason' => $reason,
+        ];
     }
-    $row['status'] = 'void';
-    return $row;
+    if (!in_array($original['status'], ['posted', 'reversed'], true)) {
+        throw new \RuntimeException('Only posted or reversed entries need a correction. Edit a draft directly.');
+    }
+
+    $replacement['entity_id'] = !empty($replacement['entity_id'])
+        ? (int) $replacement['entity_id']
+        : (int) $original['entity_id'];
+    $replacement['currency'] = (string) ($replacement['currency'] ?? $original['currency'] ?? 'USD');
+    $replacement['source_module'] = 'manual';
+    $replacement['source_ref_type'] = 'replaces_je';
+    $replacement['source_ref_id'] = $jeId;
+    $replacement['idempotency_key'] = "accounting:correction:{$tenantId}:{$jeId}";
+
+    try {
+        $posted = accountingPostJe($tenantId, $replacement, $actorUserId, true);
+    } catch (\Throwable $postError) {
+        // A concurrent retry can win the unique idempotency key between the
+        // initial lookup and insert. Resolve that race to the winning entry.
+        $existingStmt->execute(['t' => $tenantId, 'id' => $jeId]);
+        $winner = $existingStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if (!$winner) throw $postError;
+        $posted = [
+            'je_id' => (int) $winner['id'],
+            'je_number' => (string) $winner['je_number'],
+            'status' => (string) $winner['status'],
+            'total_debit' => (float) $winner['total_debit'],
+            'total_credit' => (float) $winner['total_credit'],
+            'idempotent_replay' => true,
+        ];
+    }
+    try {
+        $deleted = accountingDeleteJe($tenantId, $jeId, $reason, $actorUserId, (int) $posted['je_id']);
+    } catch (\Throwable $e) {
+        try {
+            accountingDeleteJe(
+                $tenantId,
+                (int) $posted['je_id'],
+                'Automatic rollback because the original correction could not be completed.',
+                $actorUserId
+            );
+        } catch (\Throwable $_) { /* preserve the original failure */ }
+        throw $e;
+    }
+
+    return $posted + [
+        'replaced_je_id' => $jeId,
+        'deleted_ids' => $deleted['deleted_ids'],
+        'released_bank_lines' => $deleted['released_bank_lines'],
+        'correction_reason' => $reason,
+    ];
 }
 
 /**

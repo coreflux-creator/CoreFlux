@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
-import { ChevronRight, FileText, Pencil, Plus, X } from 'lucide-react';
+import { ChevronRight, FileText, Pencil, Trash2, X } from 'lucide-react';
 
 /**
  * Journal Entries — list, detail, manual post, reverse.
@@ -14,15 +14,19 @@ export default function JournalEntries() {
 
   return (
     <section data-testid="accounting-journal">
-      {view.mode === 'list'   && <List onOpen={(id) => navigate(`/modules/accounting/journal-entries/${id}`)} onEdit={(id) => navigate(`/modules/accounting/journal-entries/${id}/edit`)} onNew={() => navigate('/modules/accounting/journal-entries/new')} />}
+      {view.mode === 'list'   && <List onOpen={(id) => navigate(`/modules/accounting/journal-entries/${id}`)} onEdit={(id) => navigate(`/modules/accounting/journal-entries/${id}/edit`)} onCorrect={(id) => navigate(`/modules/accounting/journal-entries/new?replace_id=${id}`)} />}
       {view.mode === 'detail' && <Detail id={view.id} onBack={() => setView({ mode: 'list' })} />}
       {view.mode === 'new'    && <ManualPost onDone={() => setView({ mode: 'list' })} onCancel={() => setView({ mode: 'list' })} />}
     </section>
   );
 }
 
-function List({ onOpen, onEdit, onNew }) {
+function List({ onOpen, onEdit, onCorrect }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const { activeEntityId, activeEntity } = useActiveEntity();
   const accountCode = searchParams.get('account_code') || '';
   const from        = searchParams.get('from')         || '';
@@ -39,7 +43,7 @@ function List({ onOpen, onEdit, onNew }) {
   qs.set('per_page', String(perPage));
   if (activeEntityId) qs.set('entity_id', String(activeEntityId));
   const apiUrl = '/modules/accounting/api/journal_entries.php' + (qs.toString() ? `?${qs}` : '');
-  const { data, loading, error } = useApi(apiUrl);
+  const { data, loading, error, reload } = useApi(apiUrl);
   const rows = data?.rows ?? [];
   const total = Number(data?.total ?? rows.length);
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -54,6 +58,35 @@ function List({ onOpen, onEdit, onNew }) {
     if (resetPage) next.delete('page');
     setSearchParams(next);
   };
+  const openDelete = (entry) => {
+    setPendingDelete(entry);
+    setDeleteReason('');
+    setDeleteError(null);
+  };
+  const closeDelete = () => {
+    if (deleteBusy) return;
+    setPendingDelete(null);
+    setDeleteReason('');
+    setDeleteError(null);
+  };
+  const deleteEntry = async () => {
+    if (!pendingDelete) return;
+    if (pendingDelete.status !== 'draft' && !deleteReason.trim()) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await api.post(`/modules/accounting/api/journal_entries.php?action=delete&id=${pendingDelete.id}`, {
+        reason: deleteReason.trim(),
+      });
+      setPendingDelete(null);
+      setDeleteReason('');
+      await reload();
+    } catch (e) {
+      setDeleteError(e.message || String(e));
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
   return (
     <div className="ledger-page" data-testid="accounting-journal-list">
       <header className="ledger-page-header">
@@ -64,7 +97,6 @@ function List({ onOpen, onEdit, onNew }) {
             <p className="ledger-page-header__meta">{total} entries in this view</p>
           </div>
         </div>
-        <button className="btn btn--primary" data-testid="accounting-journal-new" onClick={onNew}><Plus size={15} aria-hidden="true" />New entry</button>
       </header>
       {filterActive && (
         <div className="filter-pill" data-testid="accounting-journal-filter-pill">
@@ -101,7 +133,7 @@ function List({ onOpen, onEdit, onNew }) {
             <option value="draft">Draft</option>
             <option value="posted">Posted</option>
             <option value="reversed">Reversed</option>
-            <option value="void">Deleted drafts</option>
+            <option value="void">Deleted</option>
           </select>
         </div>
       </div>
@@ -109,7 +141,7 @@ function List({ onOpen, onEdit, onNew }) {
       {error   && <p className="error">Error: {error.message}</p>}
       <div className="data-table-wrap">
       <table className="data-table">
-        <thead><tr><th>Number</th><th>Date</th><th>Source</th><th>Status</th><th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th><th>Memo</th><th className="table-actions-heading">Actions</th></tr></thead>
+        <thead><tr><th>Number</th><th>Date</th><th>Source</th><th>Status</th><th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th><th>Memo</th><th className="table-actions-heading journal-actions-heading">Actions</th></tr></thead>
         <tbody>
           {rows.length === 0 && <tr><td colSpan={8} className="empty" data-testid="accounting-journal-empty">No journal entries match these filters.</td></tr>}
           {rows.map((r) => (
@@ -140,6 +172,16 @@ function List({ onOpen, onEdit, onNew }) {
                     <Pencil size={14} aria-hidden="true" />
                   </button>
                 )}
+                {['posted', 'reversed'].includes(r.status) && (
+                  <button type="button" className="btn btn--ghost btn--icon" onClick={() => onCorrect(r.id)} aria-label={`Correct ${r.je_number}`} title="Correct entry">
+                    <Pencil size={14} aria-hidden="true" />
+                  </button>
+                )}
+                {isDeletable(r) && (
+                  <button type="button" className="btn btn--danger-quiet btn--icon" onClick={() => openDelete(r)} aria-label={`Delete ${r.je_number}`} title="Delete entry">
+                    <Trash2 size={14} aria-hidden="true" />
+                  </button>
+                )}
                 <button type="button" className="btn btn--ghost btn--icon" onClick={() => onOpen(r.id)} aria-label={`Review ${r.je_number}`} title="Review entry">
                   <ChevronRight size={15} aria-hidden="true" />
                 </button>
@@ -149,6 +191,41 @@ function List({ onOpen, onEdit, onNew }) {
         </tbody>
       </table>
       </div>
+      {pendingDelete && (
+        <div className="entry-action-modal-backdrop" onClick={closeDelete}>
+        <section className="entry-action-panel entry-action-panel--danger entry-action-panel--modal" role="dialog" aria-modal="true" aria-labelledby="delete-list-entry-heading" data-testid="accounting-journal-delete-panel" onClick={(event) => event.stopPropagation()}>
+          <button type="button" className="btn btn--ghost btn--icon entry-action-panel__close" onClick={closeDelete} aria-label="Close delete dialog" title="Close"><X size={15} /></button>
+          <h3 id="delete-list-entry-heading">Delete {pendingDelete.je_number}?</h3>
+          <p>
+            {pendingDelete.status === 'draft'
+              ? 'The draft will disappear from normal work. Its audit record will remain.'
+              : 'This entry will stop affecting balances and reports. Its audit record will remain, and any linked bank line will return to the bank feed for review.'}
+          </p>
+          {pendingDelete.status !== 'draft' && (
+            <label htmlFor="accounting-journal-delete-reason">
+              Reason for deletion
+              <textarea
+                id="accounting-journal-delete-reason"
+                className="input"
+                rows={3}
+                value={deleteReason}
+                onChange={(event) => setDeleteReason(event.target.value)}
+                placeholder="What was wrong with this entry?"
+                data-testid="accounting-journal-delete-reason"
+                required
+              />
+            </label>
+          )}
+          {deleteError && <p className="error" data-testid="accounting-journal-delete-error">Could not delete this entry: {deleteError}</p>}
+          <div className="entry-action-panel__actions">
+            <button type="button" className="btn btn--ghost" onClick={closeDelete} disabled={deleteBusy}>Cancel</button>
+            <button type="button" className="btn btn--danger" onClick={deleteEntry} disabled={deleteBusy || (pendingDelete.status !== 'draft' && !deleteReason.trim())} data-testid="accounting-journal-delete-confirm">
+              {deleteBusy ? 'Deleting…' : 'Delete entry'}
+            </button>
+          </div>
+        </section>
+        </div>
+      )}
       {total > 0 && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }} data-testid="accounting-journal-pagination">
           <span className="muted" style={{ fontSize: 12, marginRight: 'auto' }}>
@@ -338,4 +415,8 @@ function isManualDraft(entry) {
   return entry.status === 'draft'
     && entry.source_module !== 'system'
     && !['ai_workflow', 'workflow_run'].includes(entry.source_ref_type);
+}
+
+function isDeletable(entry) {
+  return isManualDraft(entry) || ['posted', 'reversed'].includes(entry?.status);
 }

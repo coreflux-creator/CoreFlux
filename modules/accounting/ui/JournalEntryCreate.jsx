@@ -23,15 +23,18 @@ export default function JournalEntryCreate() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const copyFrom = searchParams.get('copy_from');
+  const replaceId = searchParams.get('replace_id');
   const isEdit = Boolean(id);
+  const isCorrection = Boolean(replaceId);
   const [accounts, setAccounts] = useState([]);
   const [postingDate, setPostingDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [memo, setMemo]   = useState('');
   const [lines, setLines] = useState([newLine(), newLine()]);
   const [busy, setBusy]   = useState(false);
-  const [loadingExisting, setLoadingExisting] = useState(Boolean(id || copyFrom));
+  const [loadingExisting, setLoadingExisting] = useState(Boolean(id || copyFrom || replaceId));
   const [error, setError] = useState(null);
   const [sourceEntry, setSourceEntry] = useState(null);
+  const [correctionReason, setCorrectionReason] = useState('');
   const [icOpen, setIcOpen] = useState(false);
   const [icSeed, setIcSeed] = useState(null);
 
@@ -42,7 +45,7 @@ export default function JournalEntryCreate() {
   }, []);
 
   useEffect(() => {
-    const sourceId = id || copyFrom;
+    const sourceId = id || replaceId || copyFrom;
     if (!sourceId) return;
     let cancelled = false;
     setLoadingExisting(true);
@@ -53,14 +56,17 @@ export default function JournalEntryCreate() {
         const entry = data?.entry;
         if (!entry) throw new Error('Journal entry not found.');
         if (isEdit && entry.status !== 'draft') {
-          throw new Error('Only draft journal entries can be edited. Reverse a posted entry instead.');
+          throw new Error('Only draft journal entries can be edited directly. Use Correct entry for a posted entry.');
         }
         if (isEdit && (entry.source_module === 'system' || ['ai_workflow', 'workflow_run'].includes(entry.source_ref_type))) {
           throw new Error('System-generated drafts must be reviewed in AI Agents.');
         }
+        if (isCorrection && !['posted', 'reversed'].includes(entry.status)) {
+          throw new Error('Only a posted or reversed entry can be corrected. Edit a draft directly.');
+        }
         setSourceEntry(entry);
-        setPostingDate(isEdit ? entry.posting_date : new Date().toISOString().slice(0, 10));
-        setMemo(isEdit
+        setPostingDate((isEdit || isCorrection) ? entry.posting_date : new Date().toISOString().slice(0, 10));
+        setMemo((isEdit || isCorrection)
           ? (entry.memo || '')
           : `Copy of ${entry.je_number}${entry.memo ? `: ${entry.memo}` : ''}`);
         setLines((data?.lines || []).map((line) => ({
@@ -77,7 +83,7 @@ export default function JournalEntryCreate() {
       .catch((e) => { if (!cancelled) setError(e.message || String(e)); })
       .finally(() => { if (!cancelled) setLoadingExisting(false); });
     return () => { cancelled = true; };
-  }, [id, copyFrom, isEdit]);
+  }, [id, copyFrom, replaceId, isEdit, isCorrection]);
 
   const updateLine = (i, field, val) => {
     const next = [...lines];
@@ -115,7 +121,12 @@ export default function JournalEntryCreate() {
           })),
       };
       let res;
-      if (isEdit) {
+      if (isCorrection) {
+        res = await api.post(`/modules/accounting/api/journal_entries.php?action=replace&id=${replaceId}`, {
+          ...payload,
+          reason: correctionReason.trim(),
+        });
+      } else if (isEdit) {
         res = await api.patch(`/modules/accounting/api/journal_entries.php?id=${id}`, payload);
         if (action === 'post') {
           res = await api.post(`/modules/accounting/api/journal_entries.php?action=post_draft&id=${id}`, {});
@@ -135,7 +146,7 @@ export default function JournalEntryCreate() {
   if (loadingExisting) {
     return <p data-testid="accounting-je-create-loading">Loading journal entry…</p>;
   }
-  if ((isEdit || copyFrom) && !sourceEntry && error) {
+  if ((isEdit || copyFrom || isCorrection) && !sourceEntry && error) {
     return (
       <section className="ledger-page" data-testid="accounting-je-create-source-error">
         <Link to="/modules/accounting/journal-entries" className="entry-detail__back-link"><ArrowLeft size={14} aria-hidden="true" />Journal entries</Link>
@@ -147,17 +158,24 @@ export default function JournalEntryCreate() {
   return (
     <section className="ledger-page" data-testid="accounting-je-create">
       <Link
-        to={isEdit ? `/modules/accounting/journal-entries/${id}` : '/modules/accounting/journal-entries'}
+        to={(isEdit || isCorrection) ? `/modules/accounting/journal-entries/${id || replaceId}` : '/modules/accounting/journal-entries'}
         className="entry-detail__back-link"
-      ><ArrowLeft size={14} aria-hidden="true" />{isEdit ? 'Journal entry' : 'Journal entries'}</Link>
+      ><ArrowLeft size={14} aria-hidden="true" />{(isEdit || isCorrection) ? 'Journal entry' : 'Journal entries'}</Link>
       <header className="entry-editor__header">
         <div>
-          <h2>{isEdit ? `Edit draft ${sourceEntry?.je_number || ''}` : 'New journal entry'}</h2>
-          <p>{isEdit ? 'Changes remain off the ledger until you post the draft.' : 'Build a balanced entry, then save a draft or post it.'}</p>
+          <h2>{isEdit ? `Edit draft ${sourceEntry?.je_number || ''}` : (isCorrection ? `Correct ${sourceEntry?.je_number || 'journal entry'}` : 'New journal entry')}</h2>
+          <p>{isEdit ? 'Changes remain off the ledger until you post the draft.' : (isCorrection ? 'Edit the entry below. Posting the correction replaces the original in balances and reports.' : 'Build a balanced entry, then save a draft or post it.')}</p>
         </div>
       </header>
 
-      {!isEdit && sourceEntry && (
+      {isCorrection && sourceEntry && (
+        <div className="entry-status-note entry-status-note--warning" data-testid="accounting-je-correction-notice">
+          <Pencil size={16} aria-hidden="true" />
+          <span>The original <Link to={`/modules/accounting/journal-entries/${sourceEntry.id}`}>{sourceEntry.je_number}</Link> stays unchanged until this correction posts. CoreFlux then removes the original from active books and preserves both entries in the audit trail.</span>
+        </div>
+      )}
+
+      {!isEdit && !isCorrection && sourceEntry && (
         <div className="entry-status-note entry-status-note--info" data-testid="accounting-je-copy-notice">
           <Copy size={16} aria-hidden="true" />
           <span>Copied from <Link to={`/modules/accounting/journal-entries/${sourceEntry.id}`}>{sourceEntry.je_number}</Link>. Review every line before posting; the original entry is unchanged.</span>
@@ -173,6 +191,20 @@ export default function JournalEntryCreate() {
           <span style={{ color: 'var(--cf-text-secondary)' }}>Memo</span>
           <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)} data-testid="accounting-je-memo" style={{ display: 'block', width: '100%', marginTop: 4 }} placeholder="Optional — helps the auditor understand intent" />
         </label>
+        {isCorrection && (
+          <label style={{ fontSize: 13, gridColumn: '1 / -1' }}>
+            <span style={{ color: 'var(--cf-text-secondary)' }}>Reason for correction</span>
+            <input
+              className="input"
+              value={correctionReason}
+              onChange={(event) => setCorrectionReason(event.target.value)}
+              data-testid="accounting-je-correction-reason"
+              style={{ display: 'block', width: '100%', marginTop: 4 }}
+              placeholder="What was wrong with the original entry?"
+              required
+            />
+          </label>
+        )}
       </div>
 
       <h3 style={{ marginTop: 24 }}>Lines</h3>
@@ -253,9 +285,9 @@ export default function JournalEntryCreate() {
       {error && <p className="error" data-testid="accounting-je-error">Error: {error}</p>}
 
       <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-        <button type="button" className="btn btn--ghost" onClick={() => submit('draft')} disabled={busy || !balanced} data-testid="accounting-je-save-draft"><Save size={15} aria-hidden="true" />{busy ? 'Saving…' : (isEdit ? 'Save draft' : 'Save as draft')}</button>
-        <button type="button" className="btn btn--primary" onClick={() => submit('post')} disabled={busy || !balanced} data-testid="accounting-je-post"><Send size={15} aria-hidden="true" />{busy ? 'Posting…' : 'Save & post'}</button>
-        {!isEdit && <button
+        {!isCorrection && <button type="button" className="btn btn--ghost" onClick={() => submit('draft')} disabled={busy || !balanced} data-testid="accounting-je-save-draft"><Save size={15} aria-hidden="true" />{busy ? 'Saving…' : (isEdit ? 'Save draft' : 'Save as draft')}</button>}
+        <button type="button" className="btn btn--primary" onClick={() => submit('post')} disabled={busy || !balanced || (isCorrection && !correctionReason.trim())} data-testid="accounting-je-post"><Send size={15} aria-hidden="true" />{busy ? 'Posting…' : (isCorrection ? 'Post correction' : 'Save & post')}</button>
+        {!isEdit && !isCorrection && <button
           type="button"
           className="btn btn--ghost"
           onClick={() => {

@@ -8,7 +8,9 @@
  *   POST   /api/accounting/journal_entries?action=draft  → same payload, leaves status='draft'
  *   PATCH  /api/accounting/journal_entries?id=N          → replace an existing draft
  *   POST   /api/accounting/journal_entries?action=post_draft&id=N → post an existing draft
- *   DELETE /api/accounting/journal_entries?id=N          → remove a draft from normal work (audit-safe void)
+ *   DELETE /api/accounting/journal_entries?id=N          → remove an entry from active books (audit-safe void)
+ *   POST   /api/accounting/journal_entries?action=delete&id=N body: {reason?}
+ *   POST   /api/accounting/journal_entries?action=replace&id=N body: JE payload + {reason}
  *   POST   /api/accounting/journal_entries?action=reverse&id=N  body: {reason}
  *   GET    /api/accounting/journal_entries?action=trial_balance&as_of=YYYY-MM-DD[&entity_id=]
  */
@@ -48,6 +50,15 @@ if ($method === 'GET' && !empty($_GET['id'])) {
          WHERE l.je_id = :id ORDER BY l.line_no'
     );
     $stmt->execute(['id' => $id]);
+    $correctedBy = $pdo->prepare(
+        'SELECT id, je_number FROM accounting_journal_entries
+          WHERE tenant_id = :t AND source_ref_type = "replaces_je" AND source_ref_id = :id
+          ORDER BY id DESC LIMIT 1'
+    );
+    $correctedBy->execute(['t' => $tid, 'id' => $id]);
+    $correction = $correctedBy->fetch(\PDO::FETCH_ASSOC) ?: null;
+    $je['corrected_by_je_id'] = $correction ? (int) $correction['id'] : null;
+    $je['corrected_by_je_number'] = $correction['je_number'] ?? null;
     api_ok(['entry' => $je, 'lines' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
 }
 
@@ -107,17 +118,45 @@ if ($method === 'DELETE') {
     rbac_legacy_require($user, 'accounting.je.void');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
+    $reason = trim((string) ($_GET['reason'] ?? ''));
     try {
-        $res = accountingDiscardDraftJe($tid, $id);
+        $res = accountingDeleteJe($tid, $id, $reason, $user['id'] ?? null);
     } catch (\Throwable $e) { api_error($e->getMessage(), 409); }
-    accountingAudit('accounting.je.voided', [
+    accountingAudit('accounting.je.deleted', [
         'je_id' => $id,
         'je_number' => $res['je_number'] ?? null,
         'posting_date' => $res['posting_date'] ?? null,
         'memo' => $res['memo'] ?? null,
         'total' => isset($res['total_debit']) ? (float) $res['total_debit'] : null,
+        'reason' => $reason,
+        'deleted_ids' => $res['deleted_ids'] ?? [$id],
+        'restored_ids' => $res['restored_ids'] ?? [],
+        'released_bank_lines' => $res['released_bank_lines'] ?? 0,
     ], $id);
-    api_ok(['deleted' => true, 'je_id' => $id, 'status' => 'void']);
+    api_ok(['deleted' => true] + $res);
+}
+
+if ($method === 'POST' && $action === 'delete') {
+    rbac_legacy_require($user, 'accounting.je.void');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 422);
+    $body = api_json_body();
+    $reason = trim((string) ($body['reason'] ?? ''));
+    try {
+        $res = accountingDeleteJe($tid, $id, $reason, $user['id'] ?? null);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 409); }
+    accountingAudit('accounting.je.deleted', [
+        'je_id' => $id,
+        'je_number' => $res['je_number'] ?? null,
+        'posting_date' => $res['posting_date'] ?? null,
+        'memo' => $res['memo'] ?? null,
+        'total' => isset($res['total_debit']) ? (float) $res['total_debit'] : null,
+        'reason' => $reason,
+        'deleted_ids' => $res['deleted_ids'] ?? [$id],
+        'restored_ids' => $res['restored_ids'] ?? [],
+        'released_bank_lines' => $res['released_bank_lines'] ?? 0,
+    ], $id);
+    api_ok(['deleted' => true] + $res);
 }
 
 if ($method === 'POST' && $action === 'post_draft') {
@@ -148,6 +187,29 @@ if ($method === 'POST' && $action === 'reverse') {
     } catch (\Throwable $e) { api_error($e->getMessage(), 409); }
     accountingAudit('accounting.je.reversed', ['orig_id' => $id, 'reversal_id' => $res['je_id'], 'reason' => $reason], $id);
     api_ok($res);
+}
+
+if ($method === 'POST' && $action === 'replace') {
+    rbac_legacy_require($user, 'accounting.je.post');
+    rbac_legacy_require($user, 'accounting.je.void');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 422);
+    $body = api_json_body();
+    api_require_fields($body, ['posting_date', 'lines', 'reason']);
+    $reason = trim((string) ($body['reason'] ?? ''));
+    if ($reason === '') api_error('correction reason required', 422);
+    try {
+        $res = accountingReplaceJe($tid, $id, $body, $reason, $user['id'] ?? null);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 409); }
+    accountingAudit('accounting.je.corrected', [
+        'original_je_id' => $id,
+        'replacement_je_id' => $res['je_id'],
+        'replacement_je_number' => $res['je_number'],
+        'reason' => $reason,
+        'total' => $res['total_debit'],
+        'released_bank_lines' => $res['released_bank_lines'] ?? 0,
+    ], $id);
+    api_ok($res, 201);
 }
 
 if ($method === 'POST') {
