@@ -129,6 +129,52 @@ function accountingDefaultEntity(int $tenantId): array
     return $stmt->fetch(\PDO::FETCH_ASSOC);
 }
 
+/**
+ * Active legal entities available to accounting workflows in this tenant.
+ *
+ * @return list<array{id:int,code:string,legal_name:string,base_currency:string}>
+ */
+function accountingListActiveEntities(int $tenantId): array
+{
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT id, code, legal_name, base_currency
+           FROM accounting_entities
+          WHERE tenant_id = :t AND active = 1
+          ORDER BY legal_name ASC, code ASC, id ASC'
+    );
+    $stmt->execute(['t' => $tenantId]);
+    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as &$row) $row['id'] = (int) $row['id'];
+    unset($row);
+    return $rows;
+}
+
+/**
+ * Resolve an optional user-selected entity and enforce tenant ownership.
+ */
+function accountingValidateActiveEntityId(int $tenantId, $value): ?int
+{
+    if ($value === null || $value === '') return null;
+    $raw = trim((string) $value);
+    if ($raw === '' || !ctype_digit($raw) || (int) $raw <= 0) {
+        throw new \InvalidArgumentException('Choose a valid active entity from this workspace.');
+    }
+
+    $entityId = (int) $raw;
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT id FROM accounting_entities
+          WHERE tenant_id = :t AND id = :id AND active = 1
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $entityId]);
+    if (!$stmt->fetchColumn()) {
+        throw new \InvalidArgumentException('Choose an active entity from this workspace.');
+    }
+    return $entityId;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // JE posting — atomic, balanced, idempotent
 // ─────────────────────────────────────────────────────────────────────────

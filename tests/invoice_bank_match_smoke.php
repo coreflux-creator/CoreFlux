@@ -68,6 +68,9 @@ $check('split receipt posts AR by invoice and allocates the subledger payment',
     && str_contains($bankApi, "'billing:bank-receipt-split:'"));
 $check('generic AR is rejected when an invoice target is required',
     str_contains($bankApi, 'Use an Invoice target instead of posting a generic Accounts Receivable split'));
+$check('GL remainder validates the selected intercompany entity',
+    str_contains($bankApi, 'accountingValidateActiveEntityId(')
+    && str_contains($bankApi, "'entity_id' => \$counterpartyEntityId"));
 $check('plain receipt categorization directs users to invoice matching',
     str_contains($treasuryUi, "String(a.code) !== '1100'")
     && str_contains($treasuryUi, 'choose Apply receipt and select the invoice'));

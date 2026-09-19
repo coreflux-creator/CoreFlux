@@ -398,6 +398,9 @@ function postingEngineRender(\PDO $pdo, int $tenantId, int $templateId, array $c
                 'debit'       => round($debit, 2),
                 'credit'      => round($credit, 2),
                 'description' => isset($pl['description']) ? (string) $pl['description'] : (isset($pl['memo']) ? (string) $pl['memo'] : null),
+                'counterparty_company_id' => !empty($pl['counterparty_company_id']) ? (int) $pl['counterparty_company_id'] : null,
+                'counterparty_person_id' => !empty($pl['counterparty_person_id']) ? (int) $pl['counterparty_person_id'] : null,
+                'counterparty_entity_id' => !empty($pl['counterparty_entity_id']) ? (int) $pl['counterparty_entity_id'] : null,
                 'dimensions'  => isset($pl['dimensions']) && is_array($pl['dimensions']) ? $pl['dimensions'] : null,
             ];
         }

@@ -49,6 +49,8 @@ $assert('passthrough rejects mixed Dr+Cr',
     strpos($proc, "cannot have both debit and credit") !== false);
 $assert('passthrough verifies balance',
     strpos($proc, "round(\$td, 2) !== round(\$tc, 2)") !== false);
+$assert('passthrough preserves counterparty entity',
+    strpos($proc, "'counterparty_entity_id' => !empty(\$pl['counterparty_entity_id'])") !== false);
 $assert('passthrough returns standard JE shape',
     strpos($proc, "'lines'        => \$lines,") !== false);
 

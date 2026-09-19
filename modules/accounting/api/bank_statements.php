@@ -404,11 +404,19 @@ if ($method === 'POST' && $action === 'split_match_invoices') {
         if ((string) $account['code'] === '1100') {
             api_error('Use an Invoice target instead of posting a generic Accounts Receivable split', 409);
         }
+        try {
+            $counterpartyEntityId = accountingValidateActiveEntityId(
+                (int) $ctx['tenant_id'],
+                $split['entity_id'] ?? null
+            );
+        } catch (\InvalidArgumentException $e) {
+            api_error($e->getMessage(), 422);
+        }
         $validatedAccountSplits[] = [
             'account_id' => $accountId,
             'amount' => $amount,
             'memo' => trim((string) ($split['memo'] ?? '')),
-            'entity_id' => !empty($split['entity_id']) ? (int) $split['entity_id'] : null,
+            'entity_id' => $counterpartyEntityId,
         ];
         $accountTotal += $amount;
     }

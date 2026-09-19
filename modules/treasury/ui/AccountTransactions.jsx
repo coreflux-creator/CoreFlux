@@ -163,6 +163,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const outflow = data?.outflow_total || 0;
   const balance = data?.balance || {};
   const statusCounts = data?.status_counts || {};
+  const entities = data?.entities || [];
   const pagination = data?.pagination || { page, per_page: perPage, total_pages: 1 };
   const plaidItemPk         = data?.plaid_item_pk;
   const plaidItemExternalId = data?.plaid_item_external_id;
@@ -680,6 +681,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         line={r}
                         type={type}
                         accounts={eligibleAccounts}
+                        entities={entities}
                         onSubmit={async ({ invoiceAllocations, accountSplits }) => {
                           try {
                             if (invoiceAllocations.length > 0) {
@@ -1141,7 +1143,7 @@ function TreasuryAiResultPanel({ line, ai, onDismiss, onAccept }) {
  * accounts. Every cent must be assigned so the bank line, subledger, and JE
  * stay in agreement. Outflows retain the original GL/intercompany behavior.
  */
-export function SplitIcPanel({ line, type, accounts, onSubmit, onCancel }) {
+export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, onCancel }) {
   const total = Math.abs(Number(line.amount));
   const allowInvoiceTargets = type === 'deposit' && Number(line.amount) > 0;
   const { data: invoiceData, loading: invoicesLoading, error: invoicesError } = useApi(
@@ -1229,7 +1231,7 @@ export function SplitIcPanel({ line, type, accounts, onSubmit, onCancel }) {
           <tr style={{ textAlign: 'left' }}>
             {allowInvoiceTargets && <th>Apply to</th>}
             <th>{allowInvoiceTargets ? 'Invoice or account' : 'Account'}</th>
-            <th>Entity (optional, IC)</th>
+            <th>Counterparty entity (optional)</th>
             <th style={{ textAlign: 'right' }}>Amount</th><th>Memo</th><th></th>
           </tr>
         </thead>
@@ -1270,10 +1272,17 @@ export function SplitIcPanel({ line, type, accounts, onSubmit, onCancel }) {
               </td>
               <td>
                 {r.target_type === 'account' ? (
-                  <input type="number" value={r.entity_id} onChange={e => update(i, 'entity_id', e.target.value)}
-                         placeholder="entity id"
-                         data-testid={`treasury-txn-split-entity-${line.id}-${i}`}
-                         style={{ width: '100%' }} />
+                  <select value={r.entity_id} onChange={e => update(i, 'entity_id', e.target.value)}
+                          data-testid={`treasury-txn-split-entity-${line.id}-${i}`}
+                          aria-label="Counterparty entity"
+                          style={{ width: '100%' }}>
+                    <option value="">— no intercompany entity —</option>
+                    {entities.map(entity => (
+                      <option key={entity.id} value={entity.id}>
+                        {entity.code} · {entity.legal_name}
+                      </option>
+                    ))}
+                  </select>
                 ) : <span className="muted">From invoice</span>}
               </td>
               <td style={{ textAlign: 'right' }}>

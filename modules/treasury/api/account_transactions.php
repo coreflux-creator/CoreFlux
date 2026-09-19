@@ -23,6 +23,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/treasury/bank_transaction_identity.php';
 require_once __DIR__ . '/../../accounting/lib/bank_rec.php';
+require_once __DIR__ . '/../../accounting/lib/accounting.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
@@ -192,7 +193,6 @@ if (api_method() === 'POST') {
     }
 
     if ($action === 'split_categorize') {
-        require_once __DIR__ . '/../../accounting/lib/accounting.php';
         require_once __DIR__ . '/../../../core/module_emission_discipline.php';
         require_once __DIR__ . '/../../../core/posting_engine/process.php';
 
@@ -202,12 +202,27 @@ if (api_method() === 'POST') {
 
         $abs = round(abs((float) $line['amount']), 2);
         $sum = 0.0;
+        $normalizedSplits = [];
         foreach ($splits as $s) {
             if (empty($s['account_id']) || !is_numeric($s['amount'])) {
                 api_error('Each split needs account_id + amount', 422);
             }
-            $sum += round((float) $s['amount'], 2);
+            $portion = round((float) $s['amount'], 2);
+            if ($portion <= 0) api_error('Each split amount must be greater than zero', 422);
+            try {
+                $counterpartyEntityId = accountingValidateActiveEntityId($tenantId, $s['entity_id'] ?? null);
+            } catch (\InvalidArgumentException $e) {
+                api_error($e->getMessage(), 422);
+            }
+            $normalizedSplits[] = [
+                'account_id' => (int) $s['account_id'],
+                'amount' => $portion,
+                'memo' => trim((string) ($s['memo'] ?? '')),
+                'counterparty_entity_id' => $counterpartyEntityId,
+            ];
+            $sum += $portion;
         }
+        $splits = $normalizedSplits;
         if (round($sum, 2) !== $abs) api_error("Splits sum to {$sum} but line amount is {$abs}", 422);
 
         if ($type === 'deposit') {
@@ -239,7 +254,7 @@ if (api_method() === 'POST') {
                 'debit'      => $isOutflow ? $portion : 0,
                 'credit'     => $isOutflow ? 0 : $portion,
                 'memo'       => trim((string) ($s['memo'] ?? '')) ?: ($line['description'] ?? 'split'),
-                'entity_id'  => !empty($s['entity_id']) ? (int) $s['entity_id'] : null,
+                'counterparty_entity_id' => $s['counterparty_entity_id'],
             ];
         }
 
@@ -249,7 +264,7 @@ if (api_method() === 'POST') {
                 'debit'       => (float) ($l['debit'] ?? 0),
                 'credit'      => (float) ($l['credit'] ?? 0),
                 'description' => (string) ($l['memo'] ?? ''),
-                'entity_id'   => $l['entity_id'] ?? null,
+                'counterparty_entity_id' => $l['counterparty_entity_id'] ?? null,
             ];
         }, $jeLines);
 
@@ -1103,8 +1118,11 @@ if (isset($balanceRow['available_balance_cents'])) {
     $balance['available_balance'] = round(((int) $balanceRow['available_balance_cents']) / 100, 2);
 }
 
+$entities = accountingListActiveEntities($tenantId);
+
 api_ok([
     'rows'                  => $rows,
+    'entities'              => $entities,
     'count'                 => $count,
     'total_count'           => $totalCount,
     'inflow_total'          => round($inflow, 2),
