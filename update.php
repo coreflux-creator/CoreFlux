@@ -95,12 +95,11 @@ function runUpdate(): array {
     //     the bundle mtime is always >= any source file mtime at this point.
     //
     //     We ALSO prune stale bundle siblings: when Vite produces a new
-    //     content-hashed `index-XXX.js`, the OLD `index-YYY.js` from the
-    //     previous build keeps sitting there. Without pruning, spa.php
-    //     could still pick the wrong sibling, and we'd get the
-    //     "deploy looks like it did nothing" symptom even after the new
-    //     bundle was successfully pulled. The newest .js wins; older .js
-    //     siblings are deleted (same for .css).
+    //     content-hashed asset, files from the previous build can remain.
+    //     The deploy manifest is authoritative because a current build can
+    //     intentionally contain multiple JS and CSS chunks. Older/dev
+    //     deploys without a manifest fall back to keeping the newest file of
+    //     each type.
     $assetsDir = $root . '/spa-assets';
     $pruned = [];
 
@@ -157,19 +156,22 @@ function runUpdate(): array {
             $cssList = array_intersect_key($cssList, array_flip(array_filter(array_keys($cssList), fn($n) => file_exists($assetsDir . '/' . $n))));
         }
 
-        // Pass 2: classic newest-mtime keep (covers cases where multiple
-        // expected/unrelated bundles linger after Vite rebuilds).
-        $keepNewest = static function (array $list) use ($assetsDir, &$pruned): void {
-            if (count($list) <= 1) return;
-            arsort($list);                       // newest mtime first
-            $newest = array_key_first($list);
-            foreach ($list as $name => $m) {
-                if ($name === $newest) continue;
-                if (@unlink($assetsDir . '/' . $name)) $pruned[] = $name;
-            }
-        };
-        $keepNewest($jsList);
-        $keepNewest($cssList);
+        // Pass 2: legacy fallback for installs without a bundle manifest.
+        // Never collapse a manifest-backed build: Vite may split the runtime
+        // across several index-*.js and index-*.css files.
+        if (!$expectedBundles) {
+            $keepNewest = static function (array $list) use ($assetsDir, &$pruned): void {
+                if (count($list) <= 1) return;
+                arsort($list);                       // newest mtime first
+                $newest = array_key_first($list);
+                foreach ($list as $name => $m) {
+                    if ($name === $newest) continue;
+                    if (@unlink($assetsDir . '/' . $name)) $pruned[] = $name;
+                }
+            };
+            $keepNewest($jsList);
+            $keepNewest($cssList);
+        }
     }
     $log['steps'][] = [
         'name'   => 'prune stale spa-assets siblings',
