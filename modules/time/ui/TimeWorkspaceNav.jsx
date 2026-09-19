@@ -15,7 +15,7 @@ const ITEMS = [
   { label: 'Upload', to: '/modules/time/upload', Icon: Upload },
   { label: 'Review', to: '/modules/time/review', Icon: ClipboardCheck },
   { label: 'Settlement', to: '/modules/time/settlement', Icon: Scale },
-  { label: 'CSV import', to: '/modules/time/bulk', Icon: FileSpreadsheet },
+  { label: 'Import time', to: '/modules/time/bulk', Icon: FileSpreadsheet },
   { label: 'Weekly periods', to: '/modules/time/periods', Icon: CalendarRange },
   { label: 'Reports', to: '/modules/time/reports', Icon: ChartNoAxesColumnIncreasing },
 ];

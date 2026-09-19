@@ -89,23 +89,32 @@ if [ ! -f "$DEPLOY_VER" ]; then
     exit 1
 fi
 
-# Replace the two lines under "expected_bundle:" (the JS line and CSS
-# line) with the new hashes. We rewrite ONLY those two lines, leaving
-# every other line in .deploy-version untouched. Using awk so this works
-# on any host without a PHP CLI.
-awk -v js="$NEW_JS" -v css="$NEW_CSS" '
-    BEGIN { inBlock = 0; jsDone = 0; cssDone = 0 }
-    /^expected_bundle:/ { inBlock = 1; print; next }
-    inBlock && /^- spa-assets\/index-.+\.js$/ && !jsDone {
-        print "- spa-assets/" js; jsDone = 1; next
+# Vite can emit additional JS and CSS chunks that the entry bundle loads at
+# runtime. Stamp every freshly emitted index asset, with the entry files first.
+shopt -s nullglob
+EXPECTED_ASSETS=("$NEW_JS" "$NEW_CSS")
+for asset_path in "$DIST_ASSETS"/index-*.js "$DIST_ASSETS"/index-*.css; do
+    asset="$(basename "$asset_path")"
+    if [ "$asset" != "$NEW_JS" ] && [ "$asset" != "$NEW_CSS" ]; then
+        EXPECTED_ASSETS+=("$asset")
+    fi
+done
+
+EXPECTED_ASSET_LIST="${EXPECTED_ASSETS[*]}"
+awk -v assets="$EXPECTED_ASSET_LIST" '
+    BEGIN { inBlock = 0; blockDone = 0; assetCount = split(assets, assetList, " ") }
+    /^expected_bundle:/ {
+        inBlock = 1
+        blockDone = 1
+        print
+        for (i = 1; i <= assetCount; i++) print "- spa-assets/" assetList[i]
+        next
     }
-    inBlock && /^- spa-assets\/index-.+\.css$/ && !cssDone {
-        print "- spa-assets/" css; cssDone = 1; next
-    }
+    inBlock && /^- spa-assets\/index-.+\.(js|css)$/ { next }
     inBlock && $0 != "" && substr($0, 1, 2) != "- " { inBlock = 0 }
     { print }
     END {
-        if (!jsDone || !cssDone) {
+        if (!blockDone || assetCount < 2) {
             print "ERROR: expected_bundle: block not found or malformed" > "/dev/stderr"
             exit 2
         }

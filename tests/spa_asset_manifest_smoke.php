@@ -41,6 +41,7 @@ $a('.deploy-version points at dist CSS bundle', $css !== '' && str_contains($sta
 $assetQueue = array_values(array_filter([$js, $css]));
 $seenAssets = [];
 $missingAssets = [];
+$unstampedAssets = [];
 for ($i = 0; $i < count($assetQueue); $i++) {
     $asset = $assetQueue[$i];
     if (isset($seenAssets[$asset])) continue;
@@ -51,6 +52,9 @@ for ($i = 0; $i < count($assetQueue); $i++) {
         $missingAssets[] = $asset;
         continue;
     }
+    if (!str_contains($stamp, 'spa-assets/' . $asset)) {
+        $unstampedAssets[] = $asset;
+    }
     if (!str_ends_with($asset, '.js')) continue;
 
     preg_match_all('/index-[A-Za-z0-9_-]+\.(?:js|css)/', (string) file_get_contents($path), $references);
@@ -60,6 +64,8 @@ for ($i = 0; $i < count($assetQueue); $i++) {
 }
 $a('spa-assets contains every recursively referenced bundle asset', $missingAssets === []);
 if ($missingAssets !== []) echo 'Missing: ' . implode(', ', $missingAssets) . "\n";
+$a('.deploy-version stamps every recursively referenced bundle asset', $unstampedAssets === []);
+if ($unstampedAssets !== []) echo 'Unstamped: ' . implode(', ', $unstampedAssets) . "\n";
 
 echo "spa_asset_manifest_smoke: {$ok} ok / {$fail} fail\n";
 exit($fail ? 1 : 0);

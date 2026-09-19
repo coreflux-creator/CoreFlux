@@ -43,7 +43,7 @@ $assert('compatibility and scope are applied before auth/dispatch',
 $assert('router uses alias-aware base permission helper', str_contains($router, 'apiRouterBasePermission($parsed)'));
 
 echo "\nTime workspace and bulk review\n";
-foreach (['Timesheets','Upload','Review','Settlement','CSV import','Weekly periods','Reports'] as $label) {
+foreach (['Timesheets','Upload','Review','Settlement','Import time','Weekly periods','Reports'] as $label) {
     $assert("time navigation includes {$label}", str_contains($timeNav, "label: '{$label}'"));
 }
 $assert('time module renders shared workflow navigation', str_contains($timeModule, '<TimeWorkspaceNav />'));
@@ -96,7 +96,7 @@ $assert('time CSV accepts Placement ID for export/import round trips',
 $assert('time CSV carries Entry ID and source keys for deterministic updates',
     str_contains($timeImport, "'entry_id'")
     && str_contains($timeExport, "'entry_id'              => 'Entry ID'")
-    && str_contains($timeExport, "'external_id'           => 'External ID (audit / integration)'")
+    && str_contains($timeExport, "'external_id'           => 'External ID (source row)'")
     && str_contains($timeExport, "'source_system'         => 'Source system'"));
 $assert('time CSV Entry ID updates are explicit and reject locked rows',
     str_contains($timeImport, 'enable Update existing rows')
@@ -110,17 +110,19 @@ $assert('time export resolves People and Placements module tenants explicitly',
     && str_contains($exportDatasets, 'pl.tenant_id = :placements_tenant_id')
     && str_contains($exportDatasets, 'pe.tenant_id = :people_tenant_id'));
 $assert('time CSV validates placement start and end dates',
-    str_contains($timeImport, 'work_date precedes placement start_date')
-    && str_contains($timeImport, 'work_date is after placement end_date'));
+    str_contains($timeImport, 'Work date is before placement start date')
+    && str_contains($timeImport, 'Work date is after placement end date'));
 $assert('time CSV enforces per-row and person/day hour limits',
-    str_contains($timeImport, 'hours must be greater than 0 and no more than 24')
-    && str_contains($timeImport, 'total hours for this person and work date would exceed 24'));
+    str_contains($timeImport, 'Hours must be greater than zero')
+    && str_contains($timeImport, 'Total daily time on')
+    && str_contains($timeImport, 'would exceed 24 hours'));
 $assert('time CSV is atomic by default and partial import stays opt-in',
-    str_contains($timeImport, "'atomic' => true")
-    && str_contains($timeImport, "'skip_invalid' => \$skipInvalid"));
+    str_contains($timeImport, 'cf_tx_begin($pdo)')
+    && str_contains($timeImport, 'cf_tx_rollback($pdo, $ownsTxn)')
+    && str_contains($timeImport, 'if (!$skipInvalid && $errors)'));
 $assert('time CSV creates weekly containers and links every imported row',
     str_contains($timeImport, 'timeOpenPeriodIdForDate(')
-    && str_contains($timeImport, 'timeCsvTimesheetId(')
+    && str_contains($timeImport, 'staffingTimesheetUpsert(')
     && str_contains($timeImport, "'timesheet_id'  => \$timesheetId"));
 $assert('row state changes reconcile the weekly header',
     str_contains($timeLib, 'function timeReconcileTimesheetHeader')

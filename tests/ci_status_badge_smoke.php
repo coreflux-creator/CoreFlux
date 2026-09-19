@@ -98,7 +98,8 @@ $a('discovers JS hash from dist/index.html',     str_contains($sh, "grep -oE 'in
 $a('discovers CSS hash from dist/index.html',    str_contains($sh, "grep -oE 'index-[A-Za-z0-9_-]+\\.css'"));
 $a('mirrors dist/spa-assets → top spa-assets',   str_contains($sh, 'DIST_ASSETS="dashboard/dist/spa-assets"') && str_contains($sh, 'TOP_ASSETS="spa-assets"'));
 $a('patches .deploy-version expected_bundle:',   str_contains($sh, 'expected_bundle:') && str_contains($sh, 'awk'));
-$a('uses awk (no PHP dependency)',               str_contains($sh, 'awk -v js=') && !str_contains($sh, 'php -r'));
+$a('uses awk (no PHP dependency)',               str_contains($sh, 'awk -v assets=') && !str_contains($sh, 'php -r'));
+$a('stamps split JS/CSS chunks from dist',       str_contains($sh, 'EXPECTED_ASSETS') && str_contains($sh, 'index-*.js') && str_contains($sh, 'index-*.css'));
 $a('fails fast on missing dist/index.html',      str_contains($sh, '$DIST_INDEX not found'));
 $a('fails fast on missing expected_bundle:',     str_contains($sh, 'expected_bundle: block not found or malformed'));
 

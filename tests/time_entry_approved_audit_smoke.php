@@ -91,7 +91,7 @@ $a('tokenized approve site does NOT call accountingPostJe (audit-only)',
 echo "\n6. Bulk CSV pre-approved site (csv_import.php)\n";
 $csv = (string) file_get_contents($root . '/modules/time/api/csv_import.php');
 $a('emits per-entry audit only when preApproved is true',
-   str_contains($csv, "if (\$preApproved) {\n            timeEntryApprovedEmit("));
+   preg_match('/if \(\$preApproved\)\s*\{\s*timeEntryApprovedEmit\(/', $csv) === 1);
 $a('passes bulk_pre_approved as approved_via',
    str_contains($csv, "'bulk_pre_approved',"));
 $a('preserves source=bulk_upload in context',
