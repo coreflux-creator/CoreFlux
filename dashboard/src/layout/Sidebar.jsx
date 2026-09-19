@@ -30,7 +30,7 @@ const WORKSPACE_ITEMS = [
   { key: 'time', label: 'Time', to: '/modules/staffing/timesheets', Icon: Clock3, moduleIds: ['time', 'staffing'], paths: ['/modules/time', '/modules/staffing/timesheets'] },
   { key: 'billing', label: 'Billing', to: '/modules/billing/invoices', Icon: Receipt, moduleIds: ['billing'] },
   { key: 'ap', label: 'Accounts payable', to: '/modules/ap/bills', Icon: CreditCard, moduleIds: ['ap'] },
-  { key: 'accounting', label: 'Accounting', to: '/modules/accounting/bookkeeping', Icon: BookOpen, moduleIds: ['accounting'] },
+  { key: 'accounting', label: 'Accounting', to: '/modules/accounting/journal-entries', Icon: BookOpen, moduleIds: ['accounting'] },
   { key: 'payroll', label: 'Payroll', to: '/modules/payroll/runs', Icon: CalendarCheck, moduleIds: ['payroll'] },
   { key: 'treasury', label: 'Treasury', to: '/modules/treasury/overview', Icon: Wallet, moduleIds: ['treasury'] },
   { key: 'reports', label: 'Reports', to: '/modules/reports/overview', Icon: BarChart3, moduleIds: ['reports'] },

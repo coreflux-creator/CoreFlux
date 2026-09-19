@@ -4,13 +4,13 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
 import JeTracePane from './JeTracePane';
 import {
-  ArrowLeft, Copy, ExternalLink, FileCheck2, Pencil, RotateCcw, Trash2, X,
+  ArrowLeft, ExternalLink, FileCheck2, Pencil, RotateCcw, Trash2, X,
 } from 'lucide-react';
 
 /**
  * Journal Entry detail and correction hub.
- * Drafts can be edited, posted, or removed. Posted entries remain immutable
- * and are corrected with a linked reversal so the ledger stays auditable.
+ * Drafts can be edited directly. Posted entries can be corrected or removed
+ * from active books while their original rows remain available for audit.
  */
 export default function JournalEntryDetail() {
   const { id } = useParams();
@@ -21,6 +21,7 @@ export default function JournalEntryDetail() {
   const [reverseOpen, setReverseOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [reason, setReason] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
 
   const reverse = async () => {
     if (!reason.trim()) return;
@@ -42,10 +43,12 @@ export default function JournalEntryDetail() {
     finally { setBusy(false); }
   };
 
-  const deleteDraft = async () => {
+  const deleteEntry = async () => {
     setBusy(true); setErr(null);
     try {
-      await api.delete(`/modules/accounting/api/journal_entries.php?id=${id}`);
+      await api.post(`/modules/accounting/api/journal_entries.php?action=delete&id=${id}`, {
+        reason: deleteReason.trim(),
+      });
       navigate('/modules/accounting/journal-entries', { replace: true });
     } catch (e) { setErr(e.message || String(e)); }
     finally { setBusy(false); }
@@ -58,9 +61,12 @@ export default function JournalEntryDetail() {
 
   const isDraft = entry.status === 'draft';
   const isPosted = entry.status === 'posted';
+  const isReversed = entry.status === 'reversed';
   const approvalControlled = entry.source_module === 'system'
     || ['ai_workflow', 'workflow_run'].includes(entry.source_ref_type);
   const canManageDraft = isDraft && !approvalControlled;
+  const canCorrect = isPosted || isReversed;
+  const canDelete = canManageDraft || canCorrect;
 
   return (
     <section className="entry-detail" data-testid="accounting-je-detail">
@@ -87,14 +93,19 @@ export default function JournalEntryDetail() {
               </button>
             </>
           )}
-          {isPosted && (
+          {canCorrect && (
             <>
-              <Link className="btn btn--ghost" to={`/modules/accounting/journal-entries/new?copy_from=${id}`} data-testid="accounting-je-copy-draft">
-                <Copy size={15} aria-hidden="true" />Copy as draft
+              <Link className="btn btn--primary" to={`/modules/accounting/journal-entries/new?replace_id=${id}`} data-testid="accounting-je-correct">
+                <Pencil size={15} aria-hidden="true" />Correct entry
               </Link>
-              <button type="button" className="btn btn--danger-quiet" onClick={() => setReverseOpen(true)} disabled={busy} data-testid="accounting-je-reverse">
-                <RotateCcw size={15} aria-hidden="true" />Reverse entry
+              <button type="button" className="btn btn--danger-quiet" onClick={() => { setDeleteReason(''); setDeleteOpen(true); }} disabled={busy} data-testid="accounting-je-delete">
+                <Trash2 size={15} aria-hidden="true" />Delete from books
               </button>
+              {isPosted && (
+                <button type="button" className="btn btn--ghost" onClick={() => setReverseOpen(true)} disabled={busy} data-testid="accounting-je-reverse">
+                  <RotateCcw size={15} aria-hidden="true" />Reverse only
+                </button>
+              )}
             </>
           )}
         </div>
@@ -114,6 +125,15 @@ export default function JournalEntryDetail() {
           <span>{entry.reverses_je_id ? 'Reverses' : 'Reversed by'}</span>
           <Link to={`/modules/accounting/journal-entries/${entry.reverses_je_id || entry.reversed_by_je_id}`}>
             Open linked journal entry <ExternalLink size={13} aria-hidden="true" />
+          </Link>
+        </div>
+      )}
+
+      {entry.corrected_by_je_id && (
+        <div className="entry-related" data-testid="accounting-je-corrected-by">
+          <span>Corrected by</span>
+          <Link to={`/modules/accounting/journal-entries/${entry.corrected_by_je_id}`}>
+            {entry.corrected_by_je_number || 'Open corrected entry'} <ExternalLink size={13} aria-hidden="true" />
           </Link>
         </div>
       )}
@@ -145,10 +165,11 @@ export default function JournalEntryDetail() {
       </div>
 
       {reverseOpen && isPosted && (
-        <section className="entry-action-panel entry-action-panel--warning" role="dialog" aria-labelledby="reverse-entry-heading" data-testid="accounting-je-reverse-panel">
+        <div className="entry-action-modal-backdrop" onClick={() => setReverseOpen(false)}>
+        <section className="entry-action-panel entry-action-panel--warning entry-action-panel--modal" role="dialog" aria-modal="true" aria-labelledby="reverse-entry-heading" data-testid="accounting-je-reverse-panel" onClick={(event) => event.stopPropagation()}>
           <button type="button" className="btn btn--ghost btn--icon entry-action-panel__close" onClick={() => setReverseOpen(false)} aria-label="Close reversal form" title="Close"><X size={15} /></button>
           <h3 id="reverse-entry-heading">Reverse this posted entry</h3>
-          <p>The original remains in the audit trail and a new entry posts the opposite debits and credits. Use Copy as draft first when you also need a corrected replacement.</p>
+          <p>The original remains in the audit trail and a new entry posts the opposite debits and credits. Use Correct entry when you need to replace it with edited lines.</p>
           <label htmlFor="accounting-je-reversal-reason">Reason for reversal</label>
           <textarea
             id="accounting-je-reversal-reason"
@@ -166,17 +187,42 @@ export default function JournalEntryDetail() {
             <button type="button" className="btn btn--danger" onClick={reverse} disabled={busy || !reason.trim()}>{busy ? 'Posting reversal…' : 'Post reversal'}</button>
           </div>
         </section>
+        </div>
       )}
 
-      {deleteOpen && isDraft && (
-        <section className="entry-action-panel entry-action-panel--danger" role="dialog" aria-labelledby="delete-entry-heading" data-testid="accounting-je-delete-panel">
-          <h3 id="delete-entry-heading">Delete this draft?</h3>
-          <p>It will disappear from normal journal views, but the deletion stays in the audit log. Posted entries cannot be deleted.</p>
+      {deleteOpen && canDelete && (
+        <div className="entry-action-modal-backdrop" onClick={() => setDeleteOpen(false)}>
+        <section className="entry-action-panel entry-action-panel--danger entry-action-panel--modal" role="dialog" aria-modal="true" aria-labelledby="delete-entry-heading" data-testid="accounting-je-delete-panel" onClick={(event) => event.stopPropagation()}>
+          <button type="button" className="btn btn--ghost btn--icon entry-action-panel__close" onClick={() => setDeleteOpen(false)} aria-label="Close delete dialog" title="Close"><X size={15} /></button>
+          <h3 id="delete-entry-heading">Delete this {isDraft ? 'draft' : 'entry'}?</h3>
+          <p>
+            {isDraft
+              ? 'It will disappear from normal journal views, but its audit record will remain.'
+              : 'It will stop affecting balances and reports. Its audit record will remain, and any linked bank line will return to the bank feed for review.'}
+          </p>
+          {!isDraft && (
+            <label htmlFor="accounting-je-delete-reason">
+              Reason for deletion
+              <textarea
+                id="accounting-je-delete-reason"
+                className="input"
+                rows={3}
+                value={deleteReason}
+                onChange={(event) => setDeleteReason(event.target.value)}
+                placeholder="What was wrong with this entry?"
+                data-testid="accounting-je-delete-reason"
+                required
+              />
+            </label>
+          )}
           <div className="entry-action-panel__actions">
-            <button type="button" className="btn btn--ghost" onClick={() => setDeleteOpen(false)}>Keep draft</button>
-            <button type="button" className="btn btn--danger" onClick={deleteDraft} disabled={busy}>{busy ? 'Deleting…' : 'Delete draft'}</button>
+            <button type="button" className="btn btn--ghost" onClick={() => setDeleteOpen(false)}>{isDraft ? 'Keep draft' : 'Cancel'}</button>
+            <button type="button" className="btn btn--danger" onClick={deleteEntry} disabled={busy || (!isDraft && !deleteReason.trim())} data-testid="accounting-je-delete-confirm">
+              {busy ? 'Deleting…' : (isDraft ? 'Delete draft' : 'Delete entry')}
+            </button>
           </div>
         </section>
+        </div>
       )}
 
       {actionErr && <p className="error" data-testid="accounting-je-detail-error">Could not complete that action: {actionErr}</p>}
@@ -196,9 +242,9 @@ function EntryStatusNote({ status, approvalControlled = false }) {
   }
   const content = {
     draft: ['Draft', 'This entry does not affect balances or reports until it is posted. You can edit or delete it.'],
-    posted: ['Posted and locked', 'To preserve the books, posted entries cannot be edited or deleted. Copy it to prepare a replacement, or reverse it with a reason.'],
-    reversed: ['Reversed', 'This original entry remains visible for audit history. Its linked reversal offsets its accounting effect.'],
-    void: ['Deleted draft', 'This draft was removed before posting and never affected the ledger.'],
+    posted: ['Posted', 'This entry affects balances and reports. Correct it to replace it in one step, or delete it from active books; both actions preserve the audit trail.'],
+    reversed: ['Reversed', 'This entry and its linked reversal remain visible for audit history. You can correct the chain or delete it from active books.'],
+    void: ['Deleted', 'This entry no longer affects balances or reports. Its details remain here for audit history.'],
   };
   const [label, text] = content[status] || [status, ''];
   return (
@@ -209,6 +255,9 @@ function EntryStatusNote({ status, approvalControlled = false }) {
 }
 
 function renderSource(entry) {
+  if (entry.source_ref_type === 'replaces_je' && entry.source_ref_id) {
+    return <Link to={`/modules/accounting/journal-entries/${entry.source_ref_id}`} data-testid="accounting-je-source-link">Correction of journal entry <ExternalLink size={12} aria-hidden="true" /></Link>;
+  }
   if (!entry.source_module || entry.source_module === 'manual') return 'Manual entry';
   const source = entry.source_module;
   const sourceId = entry.source_ref_id;

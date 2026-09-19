@@ -7,6 +7,7 @@ $detail = (string) file_get_contents($root . '/modules/accounting/ui/JournalEntr
 $editor = (string) file_get_contents($root . '/modules/accounting/ui/JournalEntryCreate.jsx');
 $api = (string) file_get_contents($root . '/modules/accounting/api/journal_entries.php');
 $module = (string) file_get_contents($root . '/modules/accounting/ui/AccountingModule.jsx');
+$sidebar = (string) file_get_contents($root . '/dashboard/src/layout/Sidebar.jsx');
 $manifest = (string) file_get_contents($root . '/modules/accounting/manifest.php');
 $accounting = (string) file_get_contents($root . '/modules/accounting/lib/accounting.php');
 $standardReports = (string) file_get_contents($root . '/modules/accounting/api/standard_reports.php');
@@ -14,9 +15,9 @@ $export = (string) file_get_contents($root . '/modules/accounting/api/export.php
 
 $checks = [
     'journal navigation uses bookmarkable canonical routes' =>
-        str_contains($module, "{ to: 'journal-entries', label: 'Journal entries'")
+        str_contains($module, "{ to: 'journal-entries', label: 'Entries'")
         && str_contains($ui, 'navigate(`/modules/accounting/journal-entries/${id}`)')
-        && str_contains($ui, "navigate('/modules/accounting/journal-entries/new')"),
+        && str_contains($module, 'to="/modules/accounting/journal-entries/new"'),
     'legacy journal route redirects to the canonical list' =>
         str_contains($module, '<Route path="journal"  element={<Navigate to="../journal-entries" replace />} />'),
     'journal list exposes account date and status filters' =>
@@ -51,23 +52,42 @@ $checks = [
     'manual draft actions cannot bypass AI approval workflows' =>
         str_contains($accounting, 'function accountingDraftRequiresApproval')
         && str_contains($accounting, 'accountingAssertManualDraftLifecycle($existing)')
-        && substr_count($accounting, 'accountingAssertManualDraftLifecycle($row)') >= 2
+        && str_contains($accounting, 'accountingAssertManualDraftLifecycle($row)')
+        && str_contains($accounting, 'accountingAssertManualDraftLifecycle($selected)')
         && str_contains($detail, 'data-testid="accounting-je-approval-workflow-note"')
         && str_contains($ui, 'isManualDraft(r)')
         && str_contains($editor, 'System-generated drafts must be reviewed in AI Agents.'),
-    'posted corrections stay reversal based' =>
-        str_contains($detail, 'Copy as draft')
-        && str_contains($detail, 'Reverse entry')
-        && str_contains($detail, 'Posted entries cannot be deleted'),
-    'draft changes are auditable and concurrent deletion is guarded' =>
-        str_contains($manifest, "'accounting.je.draft_updated'")
-        && str_contains($accounting, "if (\$delete->rowCount() !== 1)"),
-    'unposted work queues contain drafts rather than reversals or deleted drafts' =>
+    'posted entries expose one-step correction and deletion' =>
+        str_contains($detail, 'data-testid="accounting-je-correct"')
+        && str_contains($detail, 'Delete from books')
+        && str_contains($editor, 'action=replace&id=${replaceId}')
+        && str_contains($api, "\$action === 'replace'")
+        && str_contains($api, "\$action === 'delete'"),
+    'journal list exposes direct correction and deletion actions' =>
+        str_contains($ui, 'onCorrect={(id) => navigate(`/modules/accounting/journal-entries/new?replace_id=${id}`)}')
+        && str_contains($ui, 'aria-label={`Delete ${r.je_number}`}')
+        && str_contains($ui, 'data-testid="accounting-journal-delete-panel"'),
+    'deletion is auditable and concurrent mutation is guarded' =>
+        str_contains($manifest, "'accounting.je.deleted'")
+        && str_contains($accounting, 'if ($delete->rowCount() < 1)'),
+    'deleting an entry releases bank lines and source pointers' =>
+        str_contains($accounting, "SET match_status = 'unmatched', matched_je_id = NULL")
+        && str_contains($accounting, 'function accountingRelinkJournalReferences')
+        && str_contains($accounting, "status = 'received', posted_at = NULL"),
+    'correction posts a replacement and removes the original' =>
+        str_contains($accounting, 'function accountingReplaceJe')
+        && str_contains($accounting, "\$replacement['source_ref_type'] = 'replaces_je'")
+        && str_contains($accounting, 'accounting:correction:{$tenantId}:{$jeId}')
+        && str_contains($accounting, 'accountingDeleteJe($tenantId, $jeId, $reason, $actorUserId, (int) $posted'),
+    'unposted work queues contain drafts rather than reversals or deleted entries' =>
         str_contains($standardReports, "status = 'draft'")
         && substr_count($export, "'forced_options' => ['status' => 'draft']") >= 2,
-    'accounting navigation exposes workflow order and close' =>
-        str_contains($module, "{ to: 'bookkeeping', label: 'Overview'")
-        && str_contains($module, "{ to: 'close', label: 'Close'")
+    'accounting navigation follows the daily workflow' =>
+        str_contains($module, "{ to: 'journal-entries', label: 'Entries'")
+        && str_contains($module, "{ to: 'transactions-to-review', label: 'Bank feed'")
+        && str_contains($module, "{ to: 'close', label: 'Month-end'")
+        && str_contains($module, '<Navigate to="journal-entries" replace />')
+        && str_contains($sidebar, "to: '/modules/accounting/journal-entries'")
         && str_contains($module, 'Tools <ChevronDown'),
 ];
 

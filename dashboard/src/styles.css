@@ -1593,9 +1593,9 @@ input[type="radio"] {
     top: calc(100% + 8px);
     right: 0;
     z-index: 60;
-    width: min(820px, calc(100vw - 300px));
+    width: min(920px, calc(100vw - 300px));
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
     gap: var(--cf-space-4);
     padding: var(--cf-space-4);
     background: var(--cf-surface);
@@ -1682,6 +1682,10 @@ input[type="radio"] {
 .table-actions-heading {
     width: 92px;
     text-align: right !important;
+}
+
+.journal-actions-heading {
+    width: 148px;
 }
 
 .table-actions-cell {
@@ -1887,6 +1891,24 @@ input[type="radio"] {
     border: 1px solid #edd69a;
     border-left: 3px solid #d99a22;
     border-radius: 5px;
+}
+
+.entry-action-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 400;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(15, 35, 56, 0.42);
+}
+
+.entry-action-panel--modal {
+    width: min(540px, 100%);
+    max-height: calc(100vh - 40px);
+    margin: 0;
+    overflow-y: auto;
+    box-shadow: 0 24px 56px rgba(15, 35, 56, 0.2);
 }
 
 .entry-action-panel--danger {
@@ -3514,6 +3536,17 @@ fieldset:disabled { opacity: 0.6; }
     margin: 0 0 14px;
 }
 
+.module-workspace-header__top {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.module-workspace-header__top h1 {
+    margin-bottom: 0;
+}
+
 .module-tabs {
     position: relative;
     display: flex;
@@ -4477,6 +4510,15 @@ textarea.input {
 }
 
 @media (max-width: 900px) {
+    .module-workspace-header__top {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .module-workspace-header__top > .btn {
+        align-self: flex-start;
+    }
+
     .workspace-kpi-strip,
     .page-kpi-strip,
     .ap-summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }

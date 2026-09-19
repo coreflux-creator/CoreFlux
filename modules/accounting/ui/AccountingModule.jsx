@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, NavLink, Link, useLocation } from 'react-router-dom';
 import {
   AlertTriangle, BarChart3, BookOpen, Building2, Calendar, CheckSquare,
   ChevronDown, FileText, GitBranch, Landmark, Layers, ListChecks, Network,
-  Repeat, Scale, Settings, Sparkles, TrendingUp, Upload, Wallet, Wrench,
+  Plus, Repeat, Scale, Settings, Sparkles, TrendingUp, Upload, Wallet, Wrench,
 } from 'lucide-react';
 import ChartOfAccounts from './ChartOfAccounts';
 import AccountDetail from './AccountDetail';
@@ -45,18 +45,26 @@ const LAYER_SANDBOX_ENABLED =
   String(import.meta.env?.VITE_ENABLE_LAYER_SANDBOX) === 'true';
 
 const PRIMARY_NAV = [
-  { to: 'bookkeeping', label: 'Overview', Icon: BookOpen },
-  { to: 'transactions-to-review', label: 'Transactions', Icon: ListChecks },
-  { to: 'journal-entries', label: 'Journal entries', Icon: FileText },
+  { to: 'journal-entries', label: 'Entries', Icon: FileText },
+  { to: 'transactions-to-review', label: 'Bank feed', Icon: ListChecks },
   { to: 'bank-rec', label: 'Reconcile', Icon: Scale },
-  { to: 'accounts', label: 'Chart of accounts', Icon: Landmark },
   { to: 'reports', label: 'Reports', Icon: BarChart3 },
-  { to: 'close', label: 'Close', Icon: CheckSquare },
+  { to: 'accounts', label: 'Accounts', Icon: Landmark },
+  { to: 'close', label: 'Month-end', Icon: CheckSquare },
 ];
 
 const MORE_NAV = [
   {
-    label: 'Financial statements',
+    label: 'Workspace',
+    items: [
+      { to: 'bookkeeping', label: 'Accounting overview', Icon: BookOpen },
+      { to: 'import', label: 'Import journal entries', Icon: Upload },
+      { to: 'periods', label: 'Accounting periods', Icon: Calendar },
+      { to: 'dimensions', label: 'Dimensions', Icon: Settings },
+    ],
+  },
+  {
+    label: 'More reports',
     items: [
       { to: 'trial', label: 'Trial balance', Icon: Scale },
       { to: 'pnl', label: 'Income statement', Icon: TrendingUp },
@@ -75,13 +83,10 @@ const MORE_NAV = [
     ],
   },
   {
-    label: 'Data and configuration',
+    label: 'Configuration',
     items: [
       { to: 'tax-mappings', label: 'Tax mappings', Icon: Settings },
       { to: 'tax-export', label: 'Tax export', Icon: FileText },
-      { to: 'import', label: 'Import', Icon: Upload },
-      { to: 'periods', label: 'Periods', Icon: Calendar },
-      { to: 'dimensions', label: 'Dimensions', Icon: Settings },
     ],
   },
   {
@@ -102,13 +107,20 @@ export default function AccountingModule({ session }) {
   return (
     <div data-testid="accounting-module">
       <header className="module-workspace-header">
-        <span className="workspace-eyebrow">Financial controls</span>
-        <h1>Accounting</h1>
+        <div className="module-workspace-header__top">
+          <div>
+            <span className="workspace-eyebrow">Financial controls</span>
+            <h1>Accounting</h1>
+          </div>
+          <Link className="btn btn--primary" to="/modules/accounting/journal-entries/new" data-testid="accounting-new-entry-global">
+            <Plus size={16} aria-hidden="true" />New journal entry
+          </Link>
+        </div>
         <p>Keep the books, review activity, and close with confidence.</p>
         <AccountingNav />
       </header>
       <Routes>
-        <Route index           element={<Navigate to="bookkeeping" replace />} />
+        <Route index           element={<Navigate to="journal-entries" replace />} />
         <Route path="bookkeeping" element={<BookkeepingOverview />} />
         <Route path="books-health" element={<Navigate to="../bookkeeping" replace />} />
         <Route path="transactions-to-review" element={<TransactionsToReview />} />
