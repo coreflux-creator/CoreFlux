@@ -46,7 +46,9 @@ $assert('account_transactions.php parses',              $lint("{$ROOT}/modules/t
 $assert('handles ?action=split_categorize',             stripos($at, "\$action === 'split_categorize'") !== false);
 $assert('rejects when splits empty',                    stripos($at, 'At least one split row required') !== false);
 $assert('validates sum vs line amount',                 stripos($at, "Splits sum to {\$sum} but line amount is {\$abs}") !== false);
-$assert('supports per-row entity_id (intercompany)',    preg_match("#'entity_id'\\s*=>.*\\\$s\\['entity_id'\\]#", $at) === 1);
+$assert('validates entity choices inside the tenant',   stripos($at, 'accountingValidateActiveEntityId') !== false);
+$assert('posts entity as counterparty_entity_id',       stripos($at, "'counterparty_entity_id' => \$s['counterparty_entity_id']") !== false);
+$assert('GET returns active entity options',            stripos($at, "'entities'              => \$entities") !== false);
 $assert('posts ONE balanced JE via accountingPostJe',   stripos($at, 'accountingPostJe(') !== false);
 $assert('idempotency_key uses treasury_feed_split prefix',
                                                         stripos($at, 'treasury_feed_split:') !== false);
@@ -65,7 +67,11 @@ $assert('confidence percentage rendered',               stripos($tx, '{conf}% ·
 $assert('Accept & post button testid',                  stripos($tx, 'treasury-ai-result-accept-') !== false);
 $assert('SplitIcPanel sums vs line amount before post', stripos($tx, 'balanced = Math.abs(sum - total) < 0.005') !== false);
 $assert('SplitIcPanel surfaces "balanced" status',      stripos($tx, "'✓ balanced'") !== false);
-$assert('SplitIcPanel supports intercompany entity_id', stripos($tx, 'placeholder="entity id"') !== false);
+$assert('SplitIcPanel renders entity dropdown options', stripos($tx, '— no intercompany entity —') !== false
+                                                      && stripos($tx, '{entity.code} · {entity.legal_name}') !== false
+                                                      && stripos($tx, 'placeholder="entity id"') === false);
+$assert('transaction response entities reach split rows', stripos($tx, 'const entities = data?.entities || []') !== false
+                                                       && stripos($tx, 'entities={entities}') !== false);
 $assert('split row testids per index',                  stripos($tx, 'treasury-txn-split-account-${line.id}-${i}') !== false
                                                       && stripos($tx, 'treasury-txn-split-amount-${line.id}-${i}') !== false);
 
