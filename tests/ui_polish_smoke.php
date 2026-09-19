@@ -104,17 +104,18 @@ $assert('bulk selection is a focused workflow bar',
     && str_contains($bulk, 'bulk-edit-bar__selection')
     && str_contains($bulk, 'bulk-edit-bar__controls'));
 $assert('accounting keeps the daily workflows in primary navigation',
-    str_contains($accounting, "label: 'Overview'")
-    && str_contains($accounting, "label: 'Transactions'")
-    && str_contains($accounting, "label: 'Chart of accounts'")
-    && str_contains($accounting, "label: 'Journal entries'")
+    str_contains($accounting, "label: 'Entries'")
+    && str_contains($accounting, "label: 'Bank feed'")
+    && str_contains($accounting, "label: 'Accounts'")
     && str_contains($accounting, "label: 'Reconcile'")
     && str_contains($accounting, "label: 'Reports'")
-    && str_contains($accounting, "label: 'Close'"));
+    && str_contains($accounting, "label: 'Month-end'"));
 $assert('less frequent accounting tools are grouped in the Tools menu',
-    str_contains($accounting, "label: 'Financial statements'")
+    str_contains($accounting, "label: 'Workspace'")
+    && str_contains($accounting, "label: 'Accounting overview'")
+    && str_contains($accounting, "label: 'More reports'")
     && str_contains($accounting, "label: 'Automation and review'")
-    && str_contains($accounting, "label: 'Data and configuration'")
+    && str_contains($accounting, "label: 'Configuration'")
     && str_contains($accounting, "label: 'Multi-entity'")
     && str_contains($accounting, 'Tools <ChevronDown')
     && str_contains($accounting, 'data-testid="accounting-more-menu"'));
