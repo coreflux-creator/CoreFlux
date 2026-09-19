@@ -9,6 +9,7 @@
  */
 $root = dirname(__DIR__);
 $spa = (string) file_get_contents($root . '/spa.php');
+$updater = (string) file_get_contents($root . '/update.php');
 $dist = (string) file_get_contents($root . '/dashboard/dist/index.html');
 $stamp = (string) file_get_contents($root . '/.deploy-version');
 
@@ -66,6 +67,16 @@ $a('spa-assets contains every recursively referenced bundle asset', $missingAsse
 if ($missingAssets !== []) echo 'Missing: ' . implode(', ', $missingAssets) . "\n";
 $a('.deploy-version stamps every recursively referenced bundle asset', $unstampedAssets === []);
 if ($unstampedAssets !== []) echo 'Unstamped: ' . implode(', ', $unstampedAssets) . "\n";
+
+$manifestGuard = strpos($updater, 'if (!$expectedBundles)');
+$newestJs = strpos($updater, '$keepNewest($jsList);');
+$newestCss = strpos($updater, '$keepNewest($cssList);');
+$a('updater only collapses bundle siblings when no manifest exists',
+    $manifestGuard !== false
+    && $newestJs !== false
+    && $newestCss !== false
+    && $manifestGuard < $newestJs
+    && $newestJs < $newestCss);
 
 echo "spa_asset_manifest_smoke: {$ok} ok / {$fail} fail\n";
 exit($fail ? 1 : 0);
