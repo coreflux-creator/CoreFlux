@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { CalendarDays, Upload } from 'lucide-react';
 import { useApiCached, prefetchApi } from '../../../dashboard/src/lib/api';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { fmtDate, fmtDateTime } from '../../../dashboard/src/lib/formatDate';
@@ -77,13 +78,26 @@ export default function TimesheetsList({ session }) {
             Click a row to open the timesheet detail. Use the "Current week" button to log new hours.
           </p>
         </div>
-        <Link
-          to="week"
-          className="btn btn--primary"
-          data-testid="timesheets-list-current-week"
-        >
-          Open current week →
-        </Link>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link
+            to="/modules/time/bulk"
+            className="btn btn--primary"
+            data-testid="timesheets-list-import"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Upload size={16} aria-hidden="true" />
+            Import time
+          </Link>
+          <Link
+            to="week"
+            className="btn"
+            data-testid="timesheets-list-current-week"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <CalendarDays size={16} aria-hidden="true" />
+            Open current week
+          </Link>
+        </div>
       </header>
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12, padding: 10, background: '#f9fafb', borderRadius: 6 }}>

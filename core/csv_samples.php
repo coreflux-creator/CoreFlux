@@ -14,7 +14,7 @@
  *   - vendor_name in bills.csv matches a row in vendors.csv
  *   - client_name in invoices.csv matches a row in clients.csv
  *   - person_email in placements.csv matches a row in people.csv
- *   - placement_external_id in time.csv matches a row in placements.csv
+ *   - placement_id in time.csv identifies the placement and therefore the person
  */
 
 return [
@@ -95,16 +95,16 @@ return [
     ],
 
     'time' => [
-        ['placement_external_id'=>'PL-2001','work_date'=>'2026-02-10','category'=>'regular_billable','hours'=>8,
-         'description'=>'Sprint planning + dashboard wiring'],
-        ['placement_external_id'=>'PL-2001','work_date'=>'2026-02-11','category'=>'regular_billable','hours'=>8,
-         'description'=>'KPI tile component'],
-        ['placement_external_id'=>'PL-2002','work_date'=>'2026-02-10','category'=>'regular_billable','hours'=>7.5,
-         'description'=>'iOS push notification bug'],
-        ['placement_external_id'=>'PL-2003','work_date'=>'2026-02-12','category'=>'OT_billable','hours'=>2,
-         'description'=>'Production deploy hotfix'],
-        ['placement_external_id'=>'PL-2005','work_date'=>'2026-02-12','category'=>'regular_billable','hours'=>8,
-         'description'=>'Pager rotation tuning'],
+        ['placement_id'=>2001,'placement_external_id'=>'PL-2001','work_date'=>'2026-02-10','hour_type'=>'regular','hours'=>8,
+         'description'=>'Sprint planning + dashboard wiring','external_id'=>'TS-2001-20260210','source_system'=>'manual'],
+        ['placement_id'=>2001,'placement_external_id'=>'PL-2001','work_date'=>'2026-02-11','hour_type'=>'regular','hours'=>8,
+         'description'=>'KPI tile component','external_id'=>'TS-2001-20260211','source_system'=>'manual'],
+        ['placement_id'=>2002,'placement_external_id'=>'PL-2002','work_date'=>'2026-02-10','hour_type'=>'regular','hours'=>7.5,
+         'description'=>'iOS push notification bug','external_id'=>'TS-2002-20260210','source_system'=>'manual'],
+        ['placement_id'=>2003,'placement_external_id'=>'PL-2003','work_date'=>'2026-02-12','hour_type'=>'overtime','hours'=>2,
+         'description'=>'Production deploy hotfix','external_id'=>'TS-2003-20260212-OT','source_system'=>'manual'],
+        ['placement_id'=>2005,'placement_external_id'=>'PL-2005','work_date'=>'2026-02-12','hour_type'=>'regular','hours'=>8,
+         'description'=>'Pager rotation tuning','external_id'=>'TS-2005-20260212','source_system'=>'manual'],
     ],
 
     'ap_bills' => [

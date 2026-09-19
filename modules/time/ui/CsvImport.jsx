@@ -24,18 +24,34 @@ export default function CsvImport() {
       endpoint="/modules/time/api/csv_import.php"
       entityLabel="Time Entries"
       backTo="/modules/staffing/timesheets"
-      backLabel="Timesheets"
+      backLabel="Back to timesheets"
       testidPrefix="time-csv-import"
       presetEntity="time"
-      description="Import time using a CoreFlux placement ID or the placement ID from your source system. Re-uploading a corrected file can update matching unapproved entries."
+      description="Import time by Placement ID and date. CoreFlux fills in the worker, client, weekly timesheet, and time period automatically."
+      templateNote={(
+        <>
+          Only <strong>Placement ID</strong>, <strong>Work date</strong>, and <strong>Hours</strong> are required.
+          Work date may also be the source timesheet&apos;s week-ending date when the row contains a weekly total.
+          Time type defaults to regular, and a stable source-row ID makes repeat imports safe.
+        </>
+      )}
+      extraDownloads={[
+        {
+          label: 'Download placement ID reference',
+          href: '/modules/time/api/csv_import.php?action=placement_reference',
+          testid: 'time-csv-import-placement-reference',
+        },
+      ]}
+      defaultUpdateExisting
       updateExistingLabel="Update matching unapproved entries instead of creating duplicates"
       previewColumns={[
-        { key: 'placement_id',          label: 'Placement ID' },
-        { key: 'placement_external_id', label: 'External placement ID' },
-        { key: 'work_date',              label: 'Work Date' },
-        { key: 'category',               label: 'Category' },
-        { key: 'hours',                  label: 'Hours' },
-        { key: 'description',            label: 'Description' },
+        { key: 'placement_id',    label: 'Placement ID' },
+        { key: 'person_name',     label: 'Person' },
+        { key: 'end_client_name', label: 'Client' },
+        { key: 'work_date',       label: 'Work date' },
+        { key: 'hour_type',       label: 'Time type' },
+        { key: 'hours',           label: 'Hours' },
+        { key: 'description',     label: 'Description' },
       ]}
       extraToggles={[
         {

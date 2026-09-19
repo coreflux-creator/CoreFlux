@@ -44,8 +44,9 @@ echo "\n2. Time CSV importer\n";
 $a('require_once core/sub_tenants.php',
    str_contains($time, "require_once __DIR__ . '/../../../core/sub_tenants.php';"));
 $a('placement-lookup query binds effectiveTenantIdForModule(\'placements\')',
-   str_contains($time, "\$placementsTid = effectiveTenantIdForModule('placements',")
-   && str_contains($time, '$stmt->execute(array_merge([$placementsTid], $exts));'));
+   str_contains($time, "'placements_tid' => effectiveTenantIdForModule('placements')")
+   && str_contains($time, 'p.tenant_id = :placements_tid')
+   && str_contains($time, '$stmt->execute($params);'));
 $a('no longer uses raw currentTenantId() for placement lookup',
    !preg_match('/\\\$stmt->execute\(array_merge\(\[currentTenantId\(\)\], \\\$exts\)\)/', $time));
 $a('rationale comment present',

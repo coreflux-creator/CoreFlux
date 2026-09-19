@@ -35,6 +35,15 @@ if (!jsMatch || !cssMatch) fail(`could not find index-*.js / index-*.css referen
 
 const newJs = jsMatch[0];
 const newCss = cssMatch[0];
+const expectedAssets = fs.readdirSync(distAssets)
+  .filter((entry) => /^index-[A-Za-z0-9_-]+\.(?:js|css)$/.test(entry))
+  .sort((a, b) => {
+    if (a === newJs) return -1;
+    if (b === newJs) return 1;
+    if (a === newCss) return -1;
+    if (b === newCss) return 1;
+    return a.localeCompare(b);
+  });
 
 console.log('Detected new bundle:');
 console.log(`  JS : ${newJs}`);
@@ -59,30 +68,26 @@ fs.copyFileSync(distIndex, path.join(root, 'index.html'));
 fs.copyFileSync(distIndex, path.join(topAssets, 'index.html'));
 
 let stamp = fs.readFileSync(deployVersion, 'utf8');
-let jsDone = false;
-let cssDone = false;
 const lines = stamp.split(/\r?\n/);
 let inBlock = false;
-const rewritten = lines.map((line) => {
+let blockDone = false;
+const rewritten = [];
+for (const line of lines) {
   if (line === 'expected_bundle:') {
     inBlock = true;
-    return line;
+    blockDone = true;
+    rewritten.push(line);
+    for (const asset of expectedAssets) rewritten.push(`- spa-assets/${asset}`);
+    continue;
   }
-  if (inBlock && /^- spa-assets\/index-.+\.js$/.test(line) && !jsDone) {
-    jsDone = true;
-    return `- spa-assets/${newJs}`;
-  }
-  if (inBlock && /^- spa-assets\/index-.+\.css$/.test(line) && !cssDone) {
-    cssDone = true;
-    return `- spa-assets/${newCss}`;
-  }
-  if (inBlock && line !== '' && !line.startsWith('- ')) {
-    inBlock = false;
-  }
-  return line;
-});
+  if (inBlock && /^- spa-assets\/index-.+\.(?:js|css)$/.test(line)) continue;
+  if (inBlock && line !== '' && !line.startsWith('- ')) inBlock = false;
+  rewritten.push(line);
+}
 
-if (!jsDone || !cssDone) fail('expected_bundle block not found or malformed in .deploy-version');
+if (!blockDone || !expectedAssets.includes(newJs) || !expectedAssets.includes(newCss)) {
+  fail('expected_bundle block not found or build assets are incomplete');
+}
 stamp = rewritten.join('\n');
 fs.writeFileSync(deployVersion, stamp, 'utf8');
 

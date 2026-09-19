@@ -36,6 +36,8 @@ export default function CsvImportPage({
   backLabel = '← Back',
   testidPrefix = 'csv-import',
   description = null,
+  templateNote = null,
+  extraDownloads = [],
   defaultUpdateExisting = false,
   updateExistingLabel = 'Update existing rows on match (otherwise skip duplicates)',
   /**
@@ -288,6 +290,7 @@ export default function CsvImportPage({
 
   const rowsArr = preview ? Object.entries(preview.rows || {}) : [];
   const errorsByRow = preview?.errors || {};
+  const committedErrors = committed ? Object.entries(committed.errors || {}) : [];
 
   return (
     <section data-testid={testidPrefix}>
@@ -321,6 +324,16 @@ export default function CsvImportPage({
           >
             Download sample with example rows
           </a>
+          {(extraDownloads || []).map((download, index) => (
+            <a
+              key={download.href || index}
+              className={download.className || 'btn btn--ghost'}
+              href={download.href}
+              data-testid={download.testid || `${testidPrefix}-extra-download-${index}`}
+            >
+              {download.label}
+            </a>
+          ))}
           <input
             ref={fileRef}
             type="file"
@@ -342,6 +355,23 @@ export default function CsvImportPage({
             <button className="btn" onClick={reset} data-testid={`${testidPrefix}-reset`}>Reset</button>
           )}
         </div>
+
+        {templateNote && (
+          <div
+            data-testid={`${testidPrefix}-template-note`}
+            style={{
+              margin: '0 0 var(--cf-space-4)',
+              padding: '10px 12px',
+              borderLeft: '3px solid var(--cf-accent, #1683ff)',
+              background: 'var(--cf-accent-light, #eef6ff)',
+              color: 'var(--cf-text-secondary)',
+              borderRadius: 6,
+              fontSize: 13,
+            }}
+          >
+            {templateNote}
+          </div>
+        )}
 
         {error && <p className="error" data-testid={`${testidPrefix}-error`}>Error: {error.message}</p>}
 
@@ -581,11 +611,33 @@ export default function CsvImportPage({
 
         {committed && (
           <div data-testid={`${testidPrefix}-result`} style={{ marginTop: 'var(--cf-space-4)' }}>
-            <h3>Import complete</h3>
+            <h3>{Number(committed.imported_count || 0) > 0 ? 'Import complete' : 'Nothing was imported'}</h3>
             <p>
               <strong data-testid={`${testidPrefix}-result-imported`}>{committed.imported_count}</strong> imported,{' '}
               <strong data-testid={`${testidPrefix}-result-skipped`}>{committed.skipped_count}</strong> skipped.
             </p>
+            {committedErrors.length > 0 && (
+              <div
+                data-testid={`${testidPrefix}-result-errors`}
+                style={{
+                  margin: '10px 0 12px',
+                  padding: '10px 12px',
+                  borderLeft: '3px solid #dc2626',
+                  background: '#fff5f5',
+                  color: '#991b1b',
+                  borderRadius: 6,
+                }}
+              >
+                <strong>Rows needing attention</strong>
+                <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>
+                  {committedErrors.map(([rowNumber, messages]) => (
+                    <li key={rowNumber}>
+                      Row {rowNumber}: {(Array.isArray(messages) ? messages : [messages]).join('; ')}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)', margin: '4px 0 12px' }}>
               This import has been logged to the audit trail (who, when, file, rows, errors).
             </p>
