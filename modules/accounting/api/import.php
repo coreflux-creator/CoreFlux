@@ -95,16 +95,31 @@ if ($method === 'GET' && $action === 'template') {
 if ($method !== 'POST' || !in_array($action, ['dry_run','commit'], true)) {
     api_error('Method not allowed', 405);
 }
-$raw = CsvImportService::readRequestCsv();
+$requestBody = [];
+$contentType = strtolower((string) ($_SERVER['CONTENT_TYPE'] ?? ''));
+if (str_contains($contentType, 'application/json')) {
+    $requestBody = api_json_body();
+}
+$raw = array_key_exists('csv', $requestBody)
+    ? (string) $requestBody['csv']
+    : CsvImportService::readRequestCsv();
 if ($raw === null || $raw === '') api_error('Missing CSV payload', 422);
 
+$defaultBatchRef = trim((string) ($requestBody['default_batch_ref'] ?? ''));
+if (strlen($defaultBatchRef) > 120) {
+    api_error('Default batch reference must be 120 characters or fewer.', 422);
+}
+$defaults = $type === 'je' && $defaultBatchRef !== ''
+    ? ['batch_ref' => $defaultBatchRef]
+    : [];
+
 if ($action === 'dry_run') {
-    $res = CsvImportService::dryRun($schemaKey, $raw);
+    $res = CsvImportService::dryRun($schemaKey, $raw, null, $defaults);
     api_ok($res);
 }
 
 // ── Commit — per-type writers ────────────────────────────────────────────
-$skipInvalid = !empty($_GET['skip_invalid']) || !empty(api_json_body()['skip_invalid'] ?? null);
+$skipInvalid = !empty($_GET['skip_invalid']) || !empty($requestBody['skip_invalid'] ?? null);
 
 if ($type === 'coa') {
     $db = getDB();
@@ -145,7 +160,7 @@ if ($type === 'coa') {
 if ($type === 'je') {
     // Group rows into JEs by batch_ref; post each batch via accountingPostJe
     // with idempotency key 'csv:<sha256(batch_ref)>'.
-    $dry = CsvImportService::dryRun($schemaKey, $raw);
+    $dry = CsvImportService::dryRun($schemaKey, $raw, null, $defaults);
     if (!$skipInvalid && $dry['error_count'] > 0) {
         api_ok([
             'imported_count' => 0,

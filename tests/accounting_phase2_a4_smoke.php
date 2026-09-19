@@ -68,6 +68,7 @@ $a('action=dry_run + commit handlers',          $contains($im, "'dry_run'") && $
 $a('coa commit UPSERTS by code',                $contains($im, 'UPDATE accounting_accounts SET'));
 $a('je commit uses accountingPostJe',           $contains($im, 'accountingPostJe(') && $contains($im, "'idempotency_key' => 'csv:'"));
 $a('je idempotency keyed by SHA-256(batch_ref)',$contains($im, "hash('sha256'"));
+$a('JE paste accepts an explicit default batch ref', $contains($im, 'default_batch_ref') && $contains($im, "['batch_ref' => \$defaultBatchRef]"));
 $a('periods commit UPSERTS by (entity_id, start_date)', $contains($im, 'entity_id = :e AND start_date = :sd'));
 $a('emits accounting.ledger.imported audit',    $contains($im, "'accounting.ledger.imported'"));
 
@@ -169,6 +170,10 @@ $a('root test-id',                              $contains($ai, 'data-testid="acc
 $a('type dropdown',                             $contains($ai, 'accounting-import-type'));
 $a('download template',                         $contains($ai, 'accounting-import-download-template'));
 $a('csv textarea',                              $contains($ai, 'accounting-import-csv'));
+$a('CSV or TSV file picker',                    $contains($ai, 'accounting-import-file') && $contains($ai, '.csv,.tsv'));
+$a('aligned source preview table',              $contains($ai, 'accounting-import-preview-table'));
+$a('detected delimiter indicator',              $contains($ai, 'accounting-import-detected-format'));
+$a('default JE batch reference input',          $contains($ai, 'accounting-import-default-batch-ref'));
 $a('dry-run button',                            $contains($ai, 'accounting-import-dry-run'));
 $a('commit button',                             $contains($ai, 'accounting-import-commit'));
 $a('skip-invalid checkbox',                     $contains($ai, 'accounting-import-skip-invalid'));

@@ -70,7 +70,7 @@ class CsvImportService
             $headers[] = $def['label'] ?? $key;
         }
         $fp = fopen('php://temp', 'w+');
-        fputcsv($fp, $headers);
+        fputcsv($fp, $headers, ',', '"', '');
         rewind($fp);
         $csv = stream_get_contents($fp);
         fclose($fp);
@@ -93,7 +93,7 @@ class CsvImportService
         $headers   = array_map(fn($k) => $schema['fields'][$k]['label'] ?? $k, $fieldKeys);
 
         $fp = fopen('php://temp', 'w+');
-        fputcsv($fp, $headers);
+        fputcsv($fp, $headers, ',', '"', '');
         foreach ($sampleRows as $row) {
             $cells = [];
             foreach ($fieldKeys as $k) {
@@ -103,7 +103,7 @@ class CsvImportService
                 elseif ($v === null)  $v = '';
                 $cells[] = $v;
             }
-            fputcsv($fp, $cells);
+            fputcsv($fp, $cells, ',', '"', '');
         }
         rewind($fp);
         $csv = stream_get_contents($fp);
@@ -133,11 +133,10 @@ class CsvImportService
         $schema = self::getSchema($module);
         if (!$schema) throw new \InvalidArgumentException("No CSV schema registered for module '{$module}'");
 
-        $stream = fopen('php://temp', 'w+');
-        fwrite($stream, $rawCsv);
-        rewind($stream);
-        $headers = fgetcsv($stream) ?: [];
+        [$stream, $delimiter] = self::openDelimitedStream($rawCsv);
+        $headers = fgetcsv($stream, 0, $delimiter, '"', '') ?: [];
         fclose($stream);
+        self::stripHeaderBom($headers);
 
         // Auto-suggest a mapping using the same case-insensitive label/key
         // lookup that dryRun uses.
@@ -167,6 +166,7 @@ class CsvImportService
             'headers'  => array_map(fn($h) => (string) $h, $headers),
             'auto_map' => $autoMap,
             'fields'   => $fields,
+            'delimiter'=> self::delimiterLabel($delimiter),
         ];
     }
 
@@ -186,19 +186,22 @@ class CsvImportService
      *   - email / date / number coercion
      *   - cross-row uniqueness (within the file) for declared keys
      */
-    public static function dryRun(string $module, string $rawCsv, ?array $columnMap = null): array
+    public static function dryRun(
+        string $module,
+        string $rawCsv,
+        ?array $columnMap = null,
+        array $defaults = []
+    ): array
     {
         $schema = self::getSchema($module);
         if (!$schema) throw new \InvalidArgumentException("No CSV schema registered for module '{$module}'");
 
-        $stream = fopen('php://temp', 'w+');
-        fwrite($stream, $rawCsv);
-        rewind($stream);
-
-        $headers = fgetcsv($stream);
+        [$stream, $delimiter] = self::openDelimitedStream($rawCsv);
+        $headers = fgetcsv($stream, 0, $delimiter, '"', '');
         if (!$headers) {
             return ['rows' => [], 'errors' => [0 => ['CSV is empty or unreadable']], 'header_map' => [], 'row_count' => 0];
         }
+        self::stripHeaderBom($headers);
         $headerMap = self::resolveHeaderMap($schema, $headers, $columnMap);
 
         $rows   = [];
@@ -207,7 +210,7 @@ class CsvImportService
         foreach (($schema['unique_within_batch'] ?? []) as $k) $seenForUnique[$k] = [];
 
         $rowNum = 1; // 1-indexed (header is row 1; data rows start at 2)
-        while (($cells = fgetcsv($stream)) !== false) {
+        while (($cells = fgetcsv($stream, 0, $delimiter, '"', '')) !== false) {
             $rowNum++;
             // Skip totally blank rows
             if (count(array_filter($cells, fn($c) => $c !== null && $c !== '')) === 0) continue;
@@ -217,6 +220,16 @@ class CsvImportService
             foreach ($cells as $i => $value) {
                 $field = $headerMap[$i] ?? null;
                 if (!$field) continue;
+                $row[$field] = trim((string) $value);
+            }
+
+            // Callers may supply explicit fallback values for fields that are
+            // absent or blank in a source file. This is particularly useful
+            // for one-off journal-entry pastes where every line belongs to a
+            // single batch but the source report has no Batch ref column.
+            foreach ($defaults as $field => $value) {
+                if (!array_key_exists($field, $schema['fields'])) continue;
+                if (($row[$field] ?? '') !== '') continue;
                 $row[$field] = trim((string) $value);
             }
 
@@ -299,6 +312,7 @@ class CsvImportService
             'header_map'  => $headerMap,
             'row_count'   => count($rows),
             'error_count' => count($errors),
+            'delimiter'   => self::delimiterLabel($delimiter),
         ];
     }
 
@@ -319,7 +333,8 @@ class CsvImportService
     public static function commit(string $module, string $rawCsv, callable $onRow, array $opts = []): array
     {
         $columnMap = $opts['column_map'] ?? null;
-        $dry = self::dryRun($module, $rawCsv, $columnMap);
+        $defaults = is_array($opts['defaults'] ?? null) ? $opts['defaults'] : [];
+        $dry = self::dryRun($module, $rawCsv, $columnMap, $defaults);
 
         $skipInvalid = !empty($opts['skip_invalid']);
         if (!$skipInvalid && $dry['error_count'] > 0) {
@@ -455,5 +470,75 @@ class CsvImportService
             if (isset($labelToKey[$hk])) $resolved[$i] = $labelToKey[$hk];
         }
         return $resolved;
+    }
+
+    /**
+     * Open delimited text using the format operators actually paste from
+     * spreadsheets. Comma CSV remains the default; tab, semicolon, and pipe
+     * formats are selected when their header produces more columns.
+     *
+     * @return array{0: resource, 1: string}
+     */
+    private static function openDelimitedStream(string $rawCsv): array
+    {
+        $delimiter = self::detectDelimiter($rawCsv);
+        $stream = fopen('php://temp', 'w+');
+        fwrite($stream, $rawCsv);
+        rewind($stream);
+        return [$stream, $delimiter];
+    }
+
+    private static function detectDelimiter(string $rawCsv): string
+    {
+        $lines = preg_split('/\r\n|\n|\r/', $rawCsv) ?: [];
+        $sampleLines = [];
+        foreach ($lines as $line) {
+            if (trim((string) $line) === '') continue;
+            $sampleLines[] = (string) $line;
+            if (count($sampleLines) >= 5) break;
+        }
+        if (!$sampleLines) return ',';
+
+        $candidates = [',', "\t", ';', '|'];
+        $bestDelimiter = ',';
+        $bestColumns = 1;
+        $bestConsistency = -1;
+
+        foreach ($candidates as $candidate) {
+            $counts = array_map(
+                static fn(string $line): int => count(str_getcsv($line, $candidate, '"', '')),
+                $sampleLines
+            );
+            $headerColumns = $counts[0] ?? 1;
+            $consistency = count(array_filter(
+                $counts,
+                static fn(int $count): bool => $count === $headerColumns
+            ));
+
+            if ($headerColumns > $bestColumns ||
+                ($headerColumns === $bestColumns && $consistency > $bestConsistency)) {
+                $bestDelimiter = $candidate;
+                $bestColumns = $headerColumns;
+                $bestConsistency = $consistency;
+            }
+        }
+
+        return $bestDelimiter;
+    }
+
+    private static function stripHeaderBom(array &$headers): void
+    {
+        if (!$headers) return;
+        $headers[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $headers[0]);
+    }
+
+    private static function delimiterLabel(string $delimiter): string
+    {
+        return match ($delimiter) {
+            "\t" => 'tab',
+            ';'    => 'semicolon',
+            '|'    => 'pipe',
+            default => 'comma',
+        };
     }
 }
