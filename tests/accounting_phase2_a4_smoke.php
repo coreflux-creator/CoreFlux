@@ -128,7 +128,7 @@ $mod = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/Accountin
 $a('imports StandardReports',                   $contains($mod, "from './StandardReports'"));
 $a('imports AccountingImport',                  $contains($mod, "from './AccountingImport'"));
 $a('Reports primary navigation',                $contains($mod, "to: 'reports', label: 'Reports'"));
-$a('Import grouped navigation',                 $contains($mod, "to: 'import', label: 'Import'"));
+$a('Import grouped navigation',                 $contains($mod, "to: 'import', label: 'Import journal entries'"));
 $a('Reports route',                             $contains($mod, 'path="reports"'));
 $a('Import route',                              $contains($mod, 'path="import"'));
 
