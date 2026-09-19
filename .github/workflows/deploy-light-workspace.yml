@@ -384,9 +384,11 @@ jobs:
             spa.php \
             switch_tenant.php \
             tax.html \
+            update.php \
             tests/login_redirect_paths_smoke.php \
             tests/live_basic_error_regressions_smoke.php \
             tests/admin_healthcheck_smoke.php \
+            tests/spa_asset_manifest_smoke.php \
             tests/api_client_resilience_smoke.php \
             tests/api_router_smoke.php \
             tests/ai_accuracy_query_smoke.php \
@@ -553,6 +555,7 @@ jobs:
             cd "$APP_ROOT"
 
             for PHP_FILE in \
+              update.php \
               api/index.php \
               api/export_templates.php \
               api/admin/migrate.php \
@@ -678,6 +681,7 @@ jobs:
             php tests/login_redirect_paths_smoke.php
             php tests/live_basic_error_regressions_smoke.php
             php tests/admin_healthcheck_smoke.php
+            php tests/spa_asset_manifest_smoke.php
             php tests/api_client_resilience_smoke.php
             php tests/api_router_smoke.php
             php tests/ai_accuracy_query_smoke.php

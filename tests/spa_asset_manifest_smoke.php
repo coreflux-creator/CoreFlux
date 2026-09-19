@@ -10,6 +10,7 @@
 $root = dirname(__DIR__);
 $spa = (string) file_get_contents($root . '/spa.php');
 $updater = (string) file_get_contents($root . '/update.php');
+$lightDeploy = (string) file_get_contents($root . '/.github/workflows/deploy-light-workspace.yml');
 $dist = (string) file_get_contents($root . '/dashboard/dist/index.html');
 $stamp = (string) file_get_contents($root . '/.deploy-version');
 
@@ -77,6 +78,12 @@ $a('updater only collapses bundle siblings when no manifest exists',
     && $newestCss !== false
     && $manifestGuard < $newestJs
     && $newestJs < $newestCss);
+$a('light workspace release packages the updater',
+    str_contains($lightDeploy, "            update.php \\\n"));
+$a('light workspace release lints the updater on production',
+    str_contains($lightDeploy, "            for PHP_FILE in \\\n              update.php \\\n"));
+$a('light workspace release runs the SPA asset regression on production',
+    str_contains($lightDeploy, 'php tests/spa_asset_manifest_smoke.php'));
 
 echo "spa_asset_manifest_smoke: {$ok} ok / {$fail} fail\n";
 exit($fail ? 1 : 0);
