@@ -69,6 +69,33 @@ $d = CsvImportService::dryRun('people_test',
 $assert("mm/dd/yyyy accepted",                      $d['error_count'] === 0);
 $assert("date normalized to ISO",                   ($d['rows'][2]['work_auth_expiry'] ?? null) === '2027-01-15');
 
+echo "\nSpreadsheet paste (tab-separated)\n";
+$tsv = "\xEF\xBB\xBFFirst name\tLast name\tPrimary email\tClassification\n"
+     . "Alex\tRivera\talex@example.com\tw2\n";
+$tabDry = CsvImportService::dryRun('people_test', $tsv);
+$assert("tab delimiter detected",                    ($tabDry['delimiter'] ?? null) === 'tab');
+$assert("tab-separated row parses into fields",      ($tabDry['rows'][2]['last_name'] ?? null) === 'Rivera');
+$assert("UTF-8 BOM is removed from first header",     ($tabDry['rows'][2]['first_name'] ?? null) === 'Alex');
+$assert("tab-separated row validates",               $tabDry['error_count'] === 0);
+$tabInspect = CsvImportService::inspect('people_test', $tsv);
+$assert("inspect reports tab-delimited columns",      ($tabInspect['delimiter'] ?? null) === 'tab' && count($tabInspect['headers']) === 4);
+
+echo "\nCaller defaults fill absent source columns\n";
+CsvImportService::registerSchema('journal_line_test', [
+    'fields' => [
+        'batch_ref'    => ['label' => 'Batch ref', 'required' => true],
+        'posting_date' => ['label' => 'Posting date', 'required' => true, 'type' => 'date'],
+        'account_code' => ['label' => 'Account code', 'required' => true],
+        'debit'        => ['label' => 'Debit', 'type' => 'number'],
+    ],
+]);
+$journalPaste = "Posting date\tAccount code\tDebit\n3/31/2025\t1202\t12.29\n";
+$withoutDefault = CsvImportService::dryRun('journal_line_test', $journalPaste);
+$withDefault = CsvImportService::dryRun('journal_line_test', $journalPaste, null, ['batch_ref' => 'MAR-2025']);
+$assert("missing batch ref is normally rejected",    isset($withoutDefault['errors'][2]));
+$assert("explicit default supplies missing batch ref", $withDefault['error_count'] === 0);
+$assert("default appears in normalized preview row", ($withDefault['rows'][2]['batch_ref'] ?? null) === 'MAR-2025');
+
 echo "\nCommit — calls onRow for valid rows only (skip_invalid=true)\n";
 $mixedCsv = "First name,Last name,Primary email,Classification\n"
           . "Jane,Doe,jane@x.co,w2\n"

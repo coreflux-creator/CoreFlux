@@ -80,8 +80,8 @@ $a('column_map ignores unknown field_keys',  !isset($dry5['rows'][2]['NOPE']) &&
 echo "\nService source code\n";
 $svc = $read(__DIR__ . '/../core/CsvImportService.php');
 $a('CsvImportService::inspect declared',     str_contains($svc, 'public static function inspect'));
-$a('dryRun accepts columnMap argument',      str_contains($svc, 'public static function dryRun(string $module, string $rawCsv, ?array $columnMap = null)'));
-$a('commit forwards column_map opt',         str_contains($svc, "\$columnMap = \$opts['column_map'] ?? null") && str_contains($svc, 'self::dryRun($module, $rawCsv, $columnMap)'));
+$a('dryRun accepts columnMap argument',      preg_match('/public static function dryRun\s*\([^)]*\?array \$columnMap = null/s', $svc) === 1);
+$a('commit forwards column_map opt',         str_contains($svc, "\$columnMap = \$opts['column_map'] ?? null") && str_contains($svc, 'self::dryRun($module, $rawCsv, $columnMap, $defaults)'));
 $a('resolveHeaderMap supports index-keyed',  str_contains($svc, '$isIndexKeyed'));
 $a('resolveHeaderMap supports header-keyed', str_contains($svc, '$headerIndex'));
 $a('readRequestColumnMap exists',            str_contains($svc, 'public static function readRequestColumnMap'));
