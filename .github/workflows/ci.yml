@@ -5,6 +5,8 @@ on:
     branches: [main, master, develop]
   pull_request:
     branches: [main, master, develop]
+  schedule:
+    - cron: '17 6 * * *'
 
 jobs:
   # ─────────────────────────────────────────────────────────────────
@@ -81,10 +83,10 @@ jobs:
       - name: Run sim scenario dry-runs (determinism check)
         run: bash scripts/ci_sim_scenarios.sh
 
-  nightly-full-sim:
-    if: github.event_name == 'schedule'
+  live-business-graph:
     runs-on: ubuntu-latest
-    name: Nightly — full sim execution against sim tenant
+    timeout-minutes: 15
+    name: Live business graph simulation
 
     services:
       mysql:

@@ -985,3 +985,17 @@ e.php
 - bugfix.plaid_bank_link_duplicate_named_placeholder_hy093
 - jobdiva.c2c_no_waives_tenant_overhead
 - placements.c2c_overhead_visible_override
+- core/migrations/145_business_logic_hardening.sql
+- core/business_integrity.php
+- api/admin/business_integrity.php
+- modules/accounting/lib/reconciliation_artifact.php
+- modules/accounting/migrations/029_reconciliation_artifacts.sql
+- modules/payroll/lib/artifacts.php
+- modules/payroll/migrations/008_run_artifacts.sql
+- tests/business_logic_hardening_smoke.php
+- artifacts.domain_source_identity_unique
+- artifacts.lineage_edges_idempotent
+- workflows.domain_projection_atomic
+- accounting.journal_posts_nested_transaction_safe
+- simulation.live_business_graph_gate
+- migrations.clean_install_artifact_coverage

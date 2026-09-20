@@ -24,14 +24,14 @@ require_once __DIR__ . '/ap.php';
  *   reject   — marks the caller's row 'rejected' + bill.status='disputed'.
  *   comment  — no legacy mirror needed (workflow_step_actions holds the note).
  *
- * Best-effort: a schema drift or missing row MUST NOT cascade a failure
- * back into the workflow engine. All exceptions are swallowed.
+ * This projection participates in the workflow transaction. A missing row or
+ * schema failure must abort the decision so workflow and AP cannot diverge.
  */
 function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $userId, string $instanceStatus, ?string $comment = null): void {
-    try {
         $pdo = getDB();
-        if (!$pdo) return;
-        $beforeBill = apSyncBillRow($tenantId, $billId) ?? ['id' => $billId];
+        if (!$pdo) throw new \RuntimeException('No database');
+        $beforeBill = apSyncBillRow($tenantId, $billId);
+        if (!$beforeBill) throw new \RuntimeException("AP bill {$billId} not found");
 
         if (in_array($action, ['approve', 'skip'], true) && $userId) {
             // Mark this approver's row as approved (first pending one they own for this bill).
@@ -104,10 +104,6 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
                 } catch (\Throwable $_) { /* never block workflow sync */ }
             }
         }
-    } catch (\Throwable $_) {
-        // Silently drop — workflow_engine must not break because legacy
-        // schema is missing a column. Surface via audit_log instead.
-    }
 }
 
 /** @internal */
@@ -159,6 +155,8 @@ function apSyncPendingWorkflowStepApprovers(\PDO $pdo, int $tenantId, int $billI
     foreach ($approverIds as $uid) {
         try {
             $insert->execute(['t' => $tenantId, 'b' => $billId, 'u' => $uid, 's' => $stepNo]);
-        } catch (\Throwable $_) { /* duplicate / schema drift: non-fatal */ }
+        } catch (\PDOException $e) {
+            if ((string) $e->getCode() !== '23000') throw $e;
+        }
     }
 }

@@ -20,6 +20,7 @@
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/financial_state_cache.php';
+require_once __DIR__ . '/../../../core/tx_helpers.php';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Numbering — atomic JE number allocation
@@ -303,18 +304,10 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
         accountingValidateJeDims($tenantId, $linesForDimCheck);
     }
 
-    // Defensive begin — if a prior handler in this same PHP request
-    // left a transaction dangling (the Feb-2026 "There is already an
-    // active transaction" incident documented in api_bootstrap.php
-    // around `cf_begin_transaction`), roll it back before we open ours.
-    // Without this guard the raw beginTransaction() would throw and
-    // bubble back to the New Journal Entry form as the red toast the
-    // user kept seeing on /api/accounting/journal_entries.
-    if ($pdo->inTransaction()) {
-        error_log('[accounting/post-je] rolling back stale active transaction before begin');
-        $pdo->rollBack();
-    }
-    $pdo->beginTransaction();
+    // Participate in a caller's transaction when this post is one leg of a
+    // larger business action (payment, payroll, billing, etc.). Never roll
+    // back work owned by the caller merely because a transaction is active.
+    $ownsTransaction = cf_tx_begin($pdo);
     try {
         $jeNumber = accountingNextJeNumber($tenantId);
         $jeId = scopedInsert('accounting_journal_entries', [
@@ -370,9 +363,9 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
                  VALUES (:t, :k, :j)'
             )->execute(['t' => $tenantId, 'k' => $idemKey, 'j' => $jeId]);
         }
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTransaction);
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTransaction);
         throw $e;
     }
 
@@ -504,8 +497,7 @@ function accountingUpdateDraftJe(int $tenantId, int $jeId, array $je, ?int $acto
         ];
     }
 
-    if ($pdo->inTransaction()) $pdo->rollBack();
-    $pdo->beginTransaction();
+    $ownsTransaction = cf_tx_begin($pdo);
     try {
         $lock = $pdo->prepare(
             'SELECT status FROM accounting_journal_entries
@@ -564,9 +556,9 @@ function accountingUpdateDraftJe(int $tenantId, int $jeId, array $je, ?int $acto
                 'dj' => $line['dim_json'],
             ]);
         }
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTransaction);
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTransaction);
         throw $e;
     }
 
@@ -1410,14 +1402,7 @@ function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = 
     // The single-use guard lives at the DB level: the UPDATE on
     // workflow_approvals requires consumed_at IS NULL, so a concurrent
     // promotion racing for the same approval is rejected.
-    // Defensive begin (same rationale as accountingPostJe — protect
-    // against a stale transaction inherited from a prior failed handler
-    // in the same PHP request).
-    if ($pdo->inTransaction()) {
-        error_log('[accounting/promote-draft] rolling back stale active transaction before begin');
-        $pdo->rollBack();
-    }
-    $pdo->beginTransaction();
+    $ownsTransaction = cf_tx_begin($pdo);
     try {
         $pdo->prepare(
             'UPDATE accounting_journal_entries
@@ -1440,9 +1425,9 @@ function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = 
             throw new \RuntimeException("approval #{$approvalId} race-consumed by another promotion");
         }
 
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTransaction);
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTransaction);
         throw $e;
     }
 

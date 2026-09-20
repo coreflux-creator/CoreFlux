@@ -6,9 +6,18 @@
   "invariants": [
     "debits_equal_credits",
     "no_orphan_events",
-    "no_direct_gl"
+    "no_direct_gl",
+    "subledger_balances_match_gl",
+    "business_graph_consistent"
   ],
   "steps": [
+    {
+      "action": "create_billing_invoice",
+      "id": 1,
+      "invoice_number": "SIM-INV-0001",
+      "client_name": "Globex LLC",
+      "amount": 2500.00
+    },
     {
       "action": "emit_event",
       "event_type": "billing.invoice.sent",
@@ -22,7 +31,7 @@
         "amount": 2500.00,
         "currency": "USD",
         "lines": [
-          { "account_code": "1200", "debit": 2500.00, "credit": 0,       "description": "AR — Globex" },
+          { "account_code": "1100", "debit": 2500.00, "credit": 0,       "description": "AR — Globex" },
           { "account_code": "4000", "debit": 0,       "credit": 2500.00, "description": "Service revenue" }
         ]
       }

@@ -23,18 +23,20 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../tx_helpers.php';
 
 // ─────────────────────────────────────────────────────────────────
 // Lifecycle state machine.
 // Each status maps to the set of statuses it can transition to.
-// Closed states (archived / rejected / final) cannot transition
-// onwards — that's by design; corrections happen by creating a new
-// version on a sibling artifact, not by mutating a closed one.
+// Final and archived are closed. Approved review artifacts may be
+// reopened when the owning domain object is explicitly reopened; the
+// transition is recorded and the version is bumped, so this does not
+// erase the prior approval history.
 // ─────────────────────────────────────────────────────────────────
 const ARTIFACT_TRANSITIONS = [
     'draft'    => ['review', 'rejected', 'archived'],
     'review'   => ['approved', 'rejected', 'draft', 'archived'],
-    'approved' => ['final', 'archived'],
+    'approved' => ['review', 'draft', 'final', 'archived'],
     'final'    => ['archived'],
     'archived' => [],
     'rejected' => ['draft', 'archived'],
@@ -75,44 +77,193 @@ function artifactCreate(int $tenantId, string $artifactType, array $opts = []): 
         ? json_encode($opts['payload'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
         : null;
 
-    $pdo->prepare(
-        'INSERT INTO artifact_objects
-            (id, tenant_id, sub_tenant_id, artifact_type, title, status, version,
-             source_module, source_record_type, source_record_id,
-             payload_json, storage_uri, storage_bytes, storage_mime,
-             created_by_user_id, created_by_ai_run, created_at, updated_at)
-         VALUES
-            (:id, :t, :st, :at, :tl, :s, 1,
-             :sm, :srt, :sri,
-             :pl, :su, :sb, :sn,
-             :cu, :car, NOW(), NOW())'
-    )->execute([
-        'id'  => $id,
-        't'   => $tenantId,
-        'st'  => $opts['sub_tenant_id']      ?? null,
-        'at'  => $artifactType,
-        'tl'  => $opts['title']              ?? null,
-        's'   => $status,
-        'sm'  => $opts['source_module']      ?? null,
-        'srt' => $opts['source_record_type'] ?? null,
-        'sri' => $opts['source_record_id']   ?? null,
-        'pl'  => $payloadJson,
-        'su'  => $opts['storage_uri']        ?? null,
-        'sb'  => $opts['storage_bytes']      ?? null,
-        'sn'  => $opts['storage_mime']       ?? null,
-        'cu'  => $opts['created_by_user_id'] ?? null,
-        'car' => $opts['created_by_ai_run']  ?? null,
-    ]);
+    $ownsTx = cf_tx_begin($pdo);
+    try {
+        $pdo->prepare(
+            'INSERT INTO artifact_objects
+                (id, tenant_id, sub_tenant_id, artifact_type, title, status, version,
+                 source_module, source_record_type, source_record_id,
+                 payload_json, storage_uri, storage_bytes, storage_mime,
+                 created_by_user_id, created_by_ai_run, created_at, updated_at)
+             VALUES
+                (:id, :t, :st, :at, :tl, :s, 1,
+                 :sm, :srt, :sri,
+                 :pl, :su, :sb, :sn,
+                 :cu, :car, NOW(), NOW())'
+        )->execute([
+            'id'  => $id,
+            't'   => $tenantId,
+            'st'  => $opts['sub_tenant_id']      ?? null,
+            'at'  => $artifactType,
+            'tl'  => $opts['title']              ?? null,
+            's'   => $status,
+            'sm'  => $opts['source_module']      ?? null,
+            'srt' => $opts['source_record_type'] ?? null,
+            'sri' => $opts['source_record_id']   ?? null,
+            'pl'  => $payloadJson,
+            'su'  => $opts['storage_uri']        ?? null,
+            'sb'  => $opts['storage_bytes']      ?? null,
+            'sn'  => $opts['storage_mime']       ?? null,
+            'cu'  => $opts['created_by_user_id'] ?? null,
+            'car' => $opts['created_by_ai_run']  ?? null,
+        ]);
 
-    artifactWriteEvent($tenantId, $id, 'created', [
-        'prior_status'    => null,
-        'new_status'      => $status,
-        'actor_user_id'   => $opts['created_by_user_id'] ?? null,
-        'actor_ai_run'    => $opts['created_by_ai_run']  ?? null,
-        'payload'         => ['artifact_type' => $artifactType, 'title' => $opts['title'] ?? null],
-    ]);
+        artifactWriteEvent($tenantId, $id, 'created', [
+            'prior_status'    => null,
+            'new_status'      => $status,
+            'actor_user_id'   => $opts['created_by_user_id'] ?? null,
+            'actor_ai_run'    => $opts['created_by_ai_run']  ?? null,
+            'payload'         => ['artifact_type' => $artifactType, 'title' => $opts['title'] ?? null],
+        ]);
 
-    return artifactGet($tenantId, $id);
+        $artifact = artifactGet($tenantId, $id);
+        cf_tx_commit($pdo, $ownsTx);
+        return $artifact;
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTx);
+        throw $e;
+    }
+}
+
+/**
+ * Return the one artifact that represents a durable domain record.
+ */
+function artifactFindBySource(
+    int $tenantId,
+    string $artifactType,
+    string $sourceModule,
+    string $sourceRecordType,
+    int $sourceRecordId,
+    bool $forUpdate = false
+): ?array {
+    $stmt = getDB()->prepare(
+        'SELECT id
+           FROM artifact_objects
+          WHERE tenant_id = :t
+            AND artifact_type = :at
+            AND source_module = :sm
+            AND source_record_type = :srt
+            AND source_record_id = :sri
+          ORDER BY created_at ASC, id ASC
+          LIMIT 1' . ($forUpdate ? ' FOR UPDATE' : '')
+    );
+    $stmt->execute([
+        't' => $tenantId,
+        'at' => $artifactType,
+        'sm' => $sourceModule,
+        'srt' => $sourceRecordType,
+        'sri' => $sourceRecordId,
+    ]);
+    $id = $stmt->fetchColumn();
+    return $id ? artifactGet($tenantId, (string) $id) : null;
+}
+
+/**
+ * Idempotently create the artifact for a durable domain record.
+ *
+ * The database unique key is the concurrency guard. If two workers race,
+ * the loser re-reads and returns the winner instead of creating a sibling.
+ */
+function artifactEnsureForSource(
+    int $tenantId,
+    string $artifactType,
+    string $sourceModule,
+    string $sourceRecordType,
+    int $sourceRecordId,
+    array $opts = []
+): array {
+    if ($sourceRecordId <= 0) throw new \InvalidArgumentException('sourceRecordId required');
+
+    $existing = artifactFindBySource(
+        $tenantId,
+        $artifactType,
+        $sourceModule,
+        $sourceRecordType,
+        $sourceRecordId
+    );
+    if ($existing) return $existing;
+
+    $opts['source_module'] = $sourceModule;
+    $opts['source_record_type'] = $sourceRecordType;
+    $opts['source_record_id'] = $sourceRecordId;
+
+    try {
+        return artifactCreate($tenantId, $artifactType, $opts);
+    } catch (\PDOException $e) {
+        if ((string) $e->getCode() !== '23000') throw $e;
+        $existing = artifactFindBySource(
+            $tenantId,
+            $artifactType,
+            $sourceModule,
+            $sourceRecordType,
+            $sourceRecordId,
+            true
+        );
+        if (!$existing) throw $e;
+        return $existing;
+    }
+}
+
+/**
+ * Move an artifact through the shortest legal lifecycle path.
+ */
+function artifactTransitionTo(
+    int $tenantId,
+    string $artifactId,
+    string $targetStatus,
+    ?int $actorUserId = null,
+    ?string $actorAiRun = null,
+    array $payload = []
+): array {
+    $pdo = getDB();
+    $ownsTx = cf_tx_begin($pdo);
+    try {
+        $artifact = artifactGet($tenantId, $artifactId);
+        if (!$artifact) throw new \RuntimeException("artifact {$artifactId} not found");
+        if ((string) $artifact['status'] === $targetStatus) {
+            cf_tx_commit($pdo, $ownsTx);
+            return $artifact;
+        }
+        if (!array_key_exists($targetStatus, ARTIFACT_TRANSITIONS)) {
+            throw new \InvalidArgumentException("Unknown artifact status '{$targetStatus}'");
+        }
+
+        $start = (string) $artifact['status'];
+        $queue = [[$start, []]];
+        $visited = [$start => true];
+        $path = null;
+        while ($queue) {
+            [$status, $steps] = array_shift($queue);
+            foreach (ARTIFACT_TRANSITIONS[$status] ?? [] as $next) {
+                if (isset($visited[$next])) continue;
+                $nextSteps = array_merge($steps, [$next]);
+                if ($next === $targetStatus) {
+                    $path = $nextSteps;
+                    break 2;
+                }
+                $visited[$next] = true;
+                $queue[] = [$next, $nextSteps];
+            }
+        }
+        if ($path === null) {
+            throw new \RuntimeException("No legal artifact lifecycle path from '{$start}' to '{$targetStatus}'");
+        }
+        foreach ($path as $status) {
+            $artifact = artifactTransition(
+                $tenantId,
+                $artifactId,
+                $status,
+                $actorUserId,
+                $actorAiRun,
+                $payload
+            );
+        }
+        cf_tx_commit($pdo, $ownsTx);
+        return $artifact;
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTx);
+        throw $e;
+    }
 }
 
 /**
@@ -126,19 +277,28 @@ function artifactUpdate(int $tenantId, string $artifactId, array $patch, ?int $a
     if (!$existing) throw new \RuntimeException("artifact {$artifactId} not found");
 
     $sets   = [];
-    $params = ['id' => $artifactId, 't' => $tenantId];
-    if (array_key_exists('title', $patch)) {
+    $changedFields = [];
+    $params = [
+        'id' => $artifactId,
+        't' => $tenantId,
+        'prior_version' => (int) $existing['version'],
+    ];
+    if (array_key_exists('title', $patch) && $patch['title'] !== $existing['title']) {
         $sets[] = 'title = :tl';  $params['tl'] = $patch['title'];
+        $changedFields[] = 'title';
     }
-    if (array_key_exists('payload', $patch)) {
+    if (array_key_exists('payload', $patch)
+        && artifactComparableJson($patch['payload']) !== artifactComparableJson($existing['payload'])) {
         $sets[] = 'payload_json = :pl';
         $params['pl'] = $patch['payload'] === null
             ? null
             : json_encode($patch['payload'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $changedFields[] = 'payload';
     }
     foreach (['storage_uri', 'storage_bytes', 'storage_mime'] as $k) {
-        if (array_key_exists($k, $patch)) {
+        if (array_key_exists($k, $patch) && !artifactFieldMatches($existing, $k, $patch[$k])) {
             $sets[] = "{$k} = :{$k}";  $params[$k] = $patch[$k];
+            $changedFields[] = $k;
         }
     }
     if (!$sets) return $existing;
@@ -147,19 +307,72 @@ function artifactUpdate(int $tenantId, string $artifactId, array $patch, ?int $a
     $sets[] = 'updated_at = NOW()';
 
     $pdo = getDB();
-    $pdo->prepare(
-        'UPDATE artifact_objects SET ' . implode(', ', $sets) .
-        ' WHERE id = :id AND tenant_id = :t LIMIT 1'
-    )->execute($params);
+    $ownsTx = cf_tx_begin($pdo);
+    try {
+        $update = $pdo->prepare(
+            'UPDATE artifact_objects SET ' . implode(', ', $sets) .
+            ' WHERE id = :id AND tenant_id = :t AND version = :prior_version LIMIT 1'
+        );
+        $update->execute($params);
+        if ($update->rowCount() !== 1) {
+            $fresh = artifactGet($tenantId, $artifactId);
+            if ($fresh && artifactPatchMatches($fresh, $patch)) {
+                cf_tx_commit($pdo, $ownsTx);
+                return $fresh;
+            }
+            $actualVersion = $fresh ? (int) $fresh['version'] : 0;
+            throw new \RuntimeException(
+                "Artifact {$artifactId} changed concurrently; expected version {$existing['version']}, found {$actualVersion}"
+            );
+        }
 
-    artifactWriteEvent($tenantId, $artifactId, 'updated', [
-        'prior_status'  => $existing['status'],
-        'new_status'    => $existing['status'],
-        'actor_user_id' => $actorUserId,
-        'payload'       => ['changed_fields' => array_keys($patch)],
-    ]);
+        artifactWriteEvent($tenantId, $artifactId, 'updated', [
+            'prior_status'  => $existing['status'],
+            'new_status'    => $existing['status'],
+            'actor_user_id' => $actorUserId,
+            'payload'       => ['changed_fields' => $changedFields],
+        ]);
 
-    return artifactGet($tenantId, $artifactId);
+        $artifact = artifactGet($tenantId, $artifactId);
+        cf_tx_commit($pdo, $ownsTx);
+        return $artifact;
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTx);
+        throw $e;
+    }
+}
+
+/** @internal Stable comparison for artifact payloads. */
+function artifactComparableJson(mixed $value): string
+{
+    $json = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
+    return $json === false ? 'null' : $json;
+}
+
+/** @internal Whether a concurrent writer already applied this exact patch. */
+function artifactPatchMatches(array $artifact, array $patch): bool
+{
+    foreach ($patch as $key => $value) {
+        if ($key === 'payload') {
+            if (artifactComparableJson($value) !== artifactComparableJson($artifact['payload'] ?? null)) return false;
+            continue;
+        }
+        if (in_array($key, ['title', 'storage_uri', 'storage_bytes', 'storage_mime'], true)
+            && !artifactFieldMatches($artifact, $key, $value)) return false;
+    }
+    return true;
+}
+
+/** @internal Compare database scalar types without treating numeric strings as changes. */
+function artifactFieldMatches(array $artifact, string $key, mixed $value): bool
+{
+    $current = $artifact[$key] ?? null;
+    if ($key === 'storage_bytes') {
+        return $value === null
+            ? $current === null
+            : $current !== null && (int) $value === (int) $current;
+    }
+    return $value === $current;
 }
 
 /**
@@ -185,22 +398,48 @@ function artifactTransition(
     }
 
     $pdo = getDB();
-    $pdo->prepare(
-        'UPDATE artifact_objects
-            SET status = :s, version = version + 1, updated_at = NOW(),
-                archived_at = CASE WHEN :s2 = "archived" THEN NOW() ELSE archived_at END
-          WHERE id = :id AND tenant_id = :t LIMIT 1'
-    )->execute(['s' => $newStatus, 's2' => $newStatus, 'id' => $artifactId, 't' => $tenantId]);
+    $ownsTx = cf_tx_begin($pdo);
+    try {
+        $update = $pdo->prepare(
+            'UPDATE artifact_objects
+                SET status = :s, version = version + 1, updated_at = NOW(),
+                    archived_at = CASE WHEN :s2 = "archived" THEN NOW() ELSE archived_at END
+              WHERE id = :id AND tenant_id = :t AND status = :prior LIMIT 1'
+        );
+        $update->execute([
+            's' => $newStatus,
+            's2' => $newStatus,
+            'id' => $artifactId,
+            't' => $tenantId,
+            'prior' => $current,
+        ]);
+        if ($update->rowCount() !== 1) {
+            $fresh = artifactGet($tenantId, $artifactId);
+            if ($fresh && (string) $fresh['status'] === $newStatus) {
+                cf_tx_commit($pdo, $ownsTx);
+                return $fresh;
+            }
+            $actual = $fresh ? (string) $fresh['status'] : 'missing';
+            throw new \RuntimeException(
+                "Artifact {$artifactId} changed concurrently; expected '{$current}', found '{$actual}'"
+            );
+        }
 
-    artifactWriteEvent($tenantId, $artifactId, 'transitioned', [
-        'prior_status'  => $current,
-        'new_status'    => $newStatus,
-        'actor_user_id' => $actorUserId,
-        'actor_ai_run'  => $actorAiRun,
-        'payload'       => $payload ?: null,
-    ]);
+        artifactWriteEvent($tenantId, $artifactId, 'transitioned', [
+            'prior_status'  => $current,
+            'new_status'    => $newStatus,
+            'actor_user_id' => $actorUserId,
+            'actor_ai_run'  => $actorAiRun,
+            'payload'       => $payload ?: null,
+        ]);
 
-    return artifactGet($tenantId, $artifactId);
+        $artifact = artifactGet($tenantId, $artifactId);
+        cf_tx_commit($pdo, $ownsTx);
+        return $artifact;
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTx);
+        throw $e;
+    }
 }
 
 /**
@@ -229,24 +468,62 @@ function artifactLink(
     if ($relationshipType === '') throw new \InvalidArgumentException('relationshipType required');
 
     $pdo = getDB();
-    $pdo->prepare(
+    if (!artifactGet($tenantId, $sourceArtifactId)) {
+        throw new \RuntimeException("source artifact {$sourceArtifactId} not found in tenant {$tenantId}");
+    }
+    if ($hasArt && !artifactGet($tenantId, (string) $targetArtifactId)) {
+        throw new \RuntimeException("target artifact {$targetArtifactId} not found in tenant {$tenantId}");
+    }
+    $where = $hasArt
+        ? 'target_artifact_id = :ta'
+        : 'target_table = :tt AND target_record_id = :tr';
+    $lookupSql = 'SELECT id FROM artifact_relationships
+          WHERE tenant_id = :t AND source_artifact_id = :sa
+            AND relationship_type = :rt AND ' . $where . '
+          LIMIT 1';
+    $existing = $pdo->prepare($lookupSql);
+    $lookup = ['t' => $tenantId, 'sa' => $sourceArtifactId, 'rt' => $relationshipType];
+    if ($hasArt) {
+        $lookup['ta'] = $targetArtifactId;
+    } else {
+        $lookup['tt'] = $targetTable;
+        $lookup['tr'] = $targetRecordId;
+    }
+    $existing->execute($lookup);
+    $edgeId = $existing->fetchColumn();
+    if ($edgeId) {
+        return ['ok' => true, 'edge_id' => (int) $edgeId, 'relationship_type' => $relationshipType, 'existing' => true];
+    }
+
+    $insert = $pdo->prepare(
         'INSERT INTO artifact_relationships
             (tenant_id, source_artifact_id, target_artifact_id,
              target_table, target_record_id, relationship_type,
              metadata, created_by_user_id, created_by_ai_run, created_at)
          VALUES
             (:t, :sa, :ta, :tt, :tr, :rt, :m, :cu, :car, NOW())'
-    )->execute([
-        't'   => $tenantId,
-        'sa'  => $sourceArtifactId,
-        'ta'  => $targetArtifactId,
-        'tt'  => $targetTable,
-        'tr'  => $targetRecordId,
-        'rt'  => $relationshipType,
-        'm'   => $metadata ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
-        'cu'  => $actorUserId,
-        'car' => $actorAiRun,
-    ]);
+    );
+    try {
+        $insert->execute([
+            't'   => $tenantId,
+            'sa'  => $sourceArtifactId,
+            'ta'  => $targetArtifactId,
+            'tt'  => $targetTable,
+            'tr'  => $targetRecordId,
+            'rt'  => $relationshipType,
+            'm'   => $metadata ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
+            'cu'  => $actorUserId,
+            'car' => $actorAiRun,
+        ]);
+    } catch (\PDOException $e) {
+        if ((string) $e->getCode() !== '23000') throw $e;
+        // A locking read sees the committed winner even under REPEATABLE READ.
+        $winner = $pdo->prepare($lookupSql . ' FOR UPDATE');
+        $winner->execute($lookup);
+        $edgeId = $winner->fetchColumn();
+        if (!$edgeId) throw $e;
+        return ['ok' => true, 'edge_id' => (int) $edgeId, 'relationship_type' => $relationshipType, 'existing' => true];
+    }
 
     return ['ok' => true, 'edge_id' => (int) $pdo->lastInsertId(), 'relationship_type' => $relationshipType];
 }

@@ -12,8 +12,10 @@
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/tx_helpers.php';
 require_once __DIR__ . '/../lib/accounting.php';
 require_once __DIR__ . '/../lib/reconciliation_packet.php';
+require_once __DIR__ . '/../lib/reconciliation_artifact.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -23,6 +25,20 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
 $db = getDB();
+
+/** Keep reconciliation state, artifact history, and audit rows in one commit. */
+function accountingReconciliationAtomic(PDO $db, callable $operation): mixed
+{
+    $ownsTx = cf_tx_begin($db);
+    try {
+        $result = $operation();
+        cf_tx_commit($db, $ownsTx);
+        return $result;
+    } catch (Throwable $e) {
+        cf_tx_rollback($db, $ownsTx);
+        throw $e;
+    }
+}
 
 // ── GET list ──────────────────────────────────────────────────────────────
 if ($method === 'GET' && $action === '' && empty($_GET['id'])) {
@@ -68,6 +84,7 @@ if ($method === 'GET' && $action === 'packet') {
         'matched_count'     => count($packet['matched']),
         'unmatched_count'   => count($packet['unmatched']),
     ], $id);
+    accountingReconciliationSyncArtifact($tid, $id, $uid, null, $packet);
     api_ok($packet);
 }
 
@@ -89,17 +106,21 @@ if ($method === 'POST' && $action === 'open') {
         'opened_by_user_id' => $uid,
         'notes'             => $body['notes'] ?? null,
     ];
-    $cols = array_keys($data);
-    $ph   = array_map(fn($c) => ':' . $c, $cols);
-    $db->prepare('INSERT INTO accounting_reconciliations (`' . implode('`,`', $cols) . '`) VALUES (' . implode(',', $ph) . ')')
-        ->execute($data);
-    $newId = (int) $db->lastInsertId();
-    accountingAudit('accounting.reconciliation.opened', [
-        'reconciliation_id' => $newId,
-        'bank_account_id'   => (int) $body['bank_account_id'],
-        'period_end'        => (string) $body['period_end'],
-    ], $newId);
-    api_ok(['id' => $newId], 201);
+    [$newId, $artifact] = accountingReconciliationAtomic($db, function () use ($db, $data, $tid, $uid, $body): array {
+        $cols = array_keys($data);
+        $ph   = array_map(fn($c) => ':' . $c, $cols);
+        $db->prepare('INSERT INTO accounting_reconciliations (`' . implode('`,`', $cols) . '`) VALUES (' . implode(',', $ph) . ')')
+            ->execute($data);
+        $newId = (int) $db->lastInsertId();
+        $artifact = accountingReconciliationSyncArtifact($tid, $newId, $uid, 'draft');
+        accountingAudit('accounting.reconciliation.opened', [
+            'reconciliation_id' => $newId,
+            'bank_account_id'   => (int) $body['bank_account_id'],
+            'period_end'        => (string) $body['period_end'],
+        ], $newId);
+        return [$newId, $artifact];
+    });
+    api_ok(['id' => $newId, 'artifact_id' => $artifact['id']], 201);
 }
 
 // ── action=close ──────────────────────────────────────────────────────────
@@ -113,18 +134,21 @@ if ($method === 'POST' && $action === 'close') {
     $body = api_json_body();
     $sb = isset($body['statement_balance']) ? (float) $body['statement_balance'] : (float) $row['statement_balance'];
     $gb = isset($body['gl_balance'])        ? (float) $body['gl_balance']        : (float) $row['gl_balance'];
-    $db->prepare(
-        'UPDATE accounting_reconciliations
-         SET status = "closed", closed_at = :ts, closed_by_user_id = :u,
-             statement_balance = :sb, gl_balance = :gb, difference = :df,
-             notes = COALESCE(:notes, notes)
-         WHERE id = :id AND tenant_id = :t'
-    )->execute([
-        'ts' => date('Y-m-d H:i:s'), 'u' => $uid,
-        'sb' => $sb, 'gb' => $gb, 'df' => $sb - $gb,
-        'notes' => $body['notes'] ?? null, 'id' => $id, 't' => $tid,
-    ]);
-    accountingAudit('accounting.reconciliation.closed', ['reconciliation_id' => $id, 'difference' => round($sb - $gb, 2)], $id);
+    accountingReconciliationAtomic($db, function () use ($db, $tid, $uid, $id, $sb, $gb, $body): void {
+        $db->prepare(
+            'UPDATE accounting_reconciliations
+             SET status = "closed", closed_at = :ts, closed_by_user_id = :u,
+                 statement_balance = :sb, gl_balance = :gb, difference = :df,
+                 notes = COALESCE(:notes, notes)
+             WHERE id = :id AND tenant_id = :t'
+        )->execute([
+            'ts' => date('Y-m-d H:i:s'), 'u' => $uid,
+            'sb' => $sb, 'gb' => $gb, 'df' => $sb - $gb,
+            'notes' => $body['notes'] ?? null, 'id' => $id, 't' => $tid,
+        ]);
+        accountingReconciliationSyncArtifact($tid, $id, $uid, 'approved');
+        accountingAudit('accounting.reconciliation.closed', ['reconciliation_id' => $id, 'difference' => round($sb - $gb, 2)], $id);
+    });
     api_ok(['ok' => true, 'status' => 'closed']);
 }
 
@@ -139,12 +163,15 @@ if ($method === 'POST' && $action === 'reopen') {
     $row = scopedFind('SELECT * FROM accounting_reconciliations WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if ($row['status'] !== 'closed') api_error("Cannot reopen from status {$row['status']}", 409);
-    $db->prepare(
-        'UPDATE accounting_reconciliations
-         SET status = "reopened", reopened_at = :ts, reopened_by_user_id = :u, reopen_reason = :r
-         WHERE id = :id AND tenant_id = :t'
-    )->execute(['ts' => date('Y-m-d H:i:s'), 'u' => $uid, 'r' => $reason, 'id' => $id, 't' => $tid]);
-    accountingAudit('accounting.reconciliation.reopened', ['reconciliation_id' => $id, 'reason' => $reason], $id);
+    accountingReconciliationAtomic($db, function () use ($db, $tid, $uid, $id, $reason): void {
+        $db->prepare(
+            'UPDATE accounting_reconciliations
+             SET status = "reopened", reopened_at = :ts, reopened_by_user_id = :u, reopen_reason = :r
+             WHERE id = :id AND tenant_id = :t'
+        )->execute(['ts' => date('Y-m-d H:i:s'), 'u' => $uid, 'r' => $reason, 'id' => $id, 't' => $tid]);
+        accountingReconciliationSyncArtifact($tid, $id, $uid, 'draft');
+        accountingAudit('accounting.reconciliation.reopened', ['reconciliation_id' => $id, 'reason' => $reason], $id);
+    });
     api_ok(['ok' => true, 'status' => 'reopened']);
 }
 
@@ -172,11 +199,14 @@ if ($method === 'POST' && $action === 'save_ai_narrative') {
     $body = api_json_body();
     $final = trim((string) ($body['final_content'] ?? ''));
     if ($final === '') api_error('final_content required', 422);
-    reconciliationPacketSaveNarrative($tid, $id, $final);
-    accountingAudit('accounting.reconciliation.ai_narrative_accepted', [
-        'reconciliation_id' => $id,
-        'length'            => strlen($final),
-    ], $id);
+    accountingReconciliationAtomic($db, function () use ($tid, $id, $final, $uid): void {
+        reconciliationPacketSaveNarrative($tid, $id, $final);
+        accountingReconciliationSyncArtifact($tid, $id, $uid);
+        accountingAudit('accounting.reconciliation.ai_narrative_accepted', [
+            'reconciliation_id' => $id,
+            'length'            => strlen($final),
+        ], $id);
+    });
     api_ok(['ok' => true]);
 }
 

@@ -22,6 +22,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../tx_helpers.php';
+require_once __DIR__ . '/artifacts.php';
 
 /**
  * Normalize a payee/vendor name the same way Slice B's vendor_aliases
@@ -48,23 +50,32 @@ function apExtractionCreate(int $tenantId, array $opts): array
 {
     if ($tenantId <= 0) throw new \InvalidArgumentException('tenantId required');
     $pdo = getDB();
-    $pdo->prepare(
-        'INSERT INTO ap_invoice_extraction_runs
-            (tenant_id, sub_tenant_id, source_storage_uri, source_filename,
-             source_mime_type, source_artifact_id, status,
-             created_by_user_id, created_at, updated_at)
-         VALUES
-            (:t, :st, :uri, :fn, :mime, :aid, "pending", :u, NOW(), NOW())'
-    )->execute([
-        't'   => $tenantId,
-        'st'  => isset($opts['sub_tenant_id']) ? (int) $opts['sub_tenant_id'] : null,
-        'uri' => $opts['source_storage_uri']   ?? null,
-        'fn'  => $opts['source_filename']      ?? null,
-        'mime'=> $opts['source_mime_type']     ?? null,
-        'aid' => $opts['source_artifact_id']   ?? null,
-        'u'   => isset($opts['created_by_user_id']) ? (int) $opts['created_by_user_id'] : null,
-    ]);
-    return apExtractionGet($tenantId, (int) $pdo->lastInsertId());
+    $ownsTx = cf_tx_begin($pdo);
+    try {
+        $pdo->prepare(
+            'INSERT INTO ap_invoice_extraction_runs
+                (tenant_id, sub_tenant_id, source_storage_uri, source_filename,
+                 source_mime_type, source_artifact_id, status,
+                 created_by_user_id, created_at, updated_at)
+             VALUES
+                (:t, :st, :uri, :fn, :mime, :aid, "pending", :u, NOW(), NOW())'
+        )->execute([
+            't'   => $tenantId,
+            'st'  => isset($opts['sub_tenant_id']) ? (int) $opts['sub_tenant_id'] : null,
+            'uri' => $opts['source_storage_uri']   ?? null,
+            'fn'  => $opts['source_filename']      ?? null,
+            'mime'=> $opts['source_mime_type']     ?? null,
+            'aid' => $opts['source_artifact_id']   ?? null,
+            'u'   => isset($opts['created_by_user_id']) ? (int) $opts['created_by_user_id'] : null,
+        ]);
+        $runId = (int) $pdo->lastInsertId();
+        apExtractionSyncArtifact($tenantId, $runId);
+        cf_tx_commit($pdo, $ownsTx);
+        return apExtractionGet($tenantId, $runId);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTx);
+        throw $e;
+    }
 }
 
 /**
@@ -74,20 +85,34 @@ function apExtractionCreate(int $tenantId, array $opts): array
 function apExtractionRecordPayload(int $tenantId, int $runId, array $payload, ?float $confidence = null, ?string $aiRunId = null): array
 {
     if ($runId <= 0) throw new \InvalidArgumentException('runId required');
-    getDB()->prepare(
-        'UPDATE ap_invoice_extraction_runs
-            SET extracted_payload_json = :p,
-                confidence = :c,
-                ai_run_id  = :ai,
-                status     = "extracted",
-                updated_at = NOW()
-          WHERE id = :id AND tenant_id = :t'
-    )->execute([
-        'p'  => json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-        'c'  => $confidence, 'ai' => $aiRunId,
-        'id' => $runId, 't'  => $tenantId,
-    ]);
-    return apExtractionGet($tenantId, $runId);
+    $pdo = getDB();
+    $ownsTx = cf_tx_begin($pdo);
+    try {
+        $update = $pdo->prepare(
+            'UPDATE ap_invoice_extraction_runs
+                SET extracted_payload_json = :p,
+                    confidence = :c,
+                    ai_run_id  = :ai,
+                    status     = "extracted",
+                    updated_at = NOW()
+              WHERE id = :id AND tenant_id = :t'
+        );
+        $update->execute([
+            'p'  => json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            'c'  => $confidence, 'ai' => $aiRunId,
+            'id' => $runId, 't'  => $tenantId,
+        ]);
+        if ($update->rowCount() !== 1 && !apExtractionGet($tenantId, $runId)) {
+            throw new \RuntimeException("extraction run {$runId} not found");
+        }
+        apExtractionSyncArtifact($tenantId, $runId, 'review');
+        $result = apExtractionGet($tenantId, $runId);
+        cf_tx_commit($pdo, $ownsTx);
+        return $result;
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTx);
+        throw $e;
+    }
 }
 
 /**
@@ -148,22 +173,30 @@ function apExtractionCheckDuplicate(int $tenantId, int $runId): array
         }
     }
 
-    // Update the run.
+    // The verdict and its artifact lifecycle are one write unit.
     $newStatus = $verdict === 'no_match' ? $run['status'] : 'duplicate';
-    getDB()->prepare(
-        'UPDATE ap_invoice_extraction_runs
-            SET duplicate_check_status = :ds,
-                duplicate_bill_id      = :db,
-                duplicate_reason       = :dr,
-                status                 = :s,
-                updated_at = NOW()
-          WHERE id = :id AND tenant_id = :t'
-    )->execute([
-        'ds' => $verdict, 'db' => $billId, 'dr' => $reason, 's'  => $newStatus,
-        'id' => $runId, 't'  => $tenantId,
-    ]);
-
-    return ['status' => $verdict, 'duplicate_bill_id' => $billId, 'reason' => $reason];
+    $pdo = getDB();
+    $ownsTx = cf_tx_begin($pdo);
+    try {
+        $pdo->prepare(
+            'UPDATE ap_invoice_extraction_runs
+                SET duplicate_check_status = :ds,
+                    duplicate_bill_id      = :db,
+                    duplicate_reason       = :dr,
+                    status                 = :s,
+                    updated_at = NOW()
+              WHERE id = :id AND tenant_id = :t'
+        )->execute([
+            'ds' => $verdict, 'db' => $billId, 'dr' => $reason, 's'  => $newStatus,
+            'id' => $runId, 't'  => $tenantId,
+        ]);
+        apExtractionSyncArtifact($tenantId, $runId, $verdict === 'no_match' ? null : 'rejected');
+        cf_tx_commit($pdo, $ownsTx);
+        return ['status' => $verdict, 'duplicate_bill_id' => $billId, 'reason' => $reason];
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTx);
+        throw $e;
+    }
 }
 
 /**
@@ -174,71 +207,178 @@ function apExtractionCheckDuplicate(int $tenantId, int $runId): array
  */
 function apExtractionDraftBill(int $tenantId, int $runId, ?int $actorUserId = null): array
 {
+    $pdo = getDB();
+    $ownsTx = cf_tx_begin($pdo);
+    try {
+        // Serialize promotion so simultaneous retries cannot create two bills.
+        $run = apExtractionGet($tenantId, $runId, true);
+        if (!$run) throw new \RuntimeException("extraction run {$runId} not found");
+        if ($run['status'] === 'duplicate') {
+            throw new \RuntimeException("run {$runId} is flagged duplicate of bill #{$run['duplicate_bill_id']}; resolve first");
+        }
+        if (!empty($run['draft_bill_id'])) {
+            cf_tx_commit($pdo, $ownsTx);
+            return [
+                'extraction_run_id' => $runId,
+                'draft_bill_id'     => (int) $run['draft_bill_id'],
+                'status'            => 'drafted',
+                'idempotent_replay' => true,
+            ];
+        }
+        $p = $run['extracted_payload'] ?? [];
+        if (!$p) {
+            throw new \RuntimeException("run {$runId} has no extracted payload");
+        }
+
+        $pdo->prepare(
+            'INSERT INTO ap_bills
+                (tenant_id, bill_number, internal_ref, vendor_name, vendor_type,
+                 received_at, bill_date, due_date, currency,
+                 subtotal, tax_total, total, amount_paid, amount_due,
+                 status, source, source_ref_id)
+             VALUES
+                (:t, :bn, :ir, :vn, "other",
+                 CURDATE(), :bd, :dd, :cur,
+                 :sub, :tax, :tot, 0, :due,
+                 "inbox", "manual", :rr)'
+        )->execute([
+            't'   => $tenantId,
+            'bn'  => mb_substr((string) ($p['bill_number'] ?? ('AI-' . $runId)), 0, 80),
+            'ir'  => 'AI-' . str_pad((string) $runId, 6, '0', STR_PAD_LEFT),
+            'vn'  => mb_substr((string) ($p['vendor_name'] ?? 'Unknown Vendor'), 0, 255),
+            'bd'  => (string) ($p['bill_date'] ?? date('Y-m-d')),
+            'dd'  => (string) ($p['due_date']  ?? date('Y-m-d', strtotime('+30 days'))),
+            'cur' => mb_substr((string) ($p['currency'] ?? 'USD'), 0, 3),
+            'sub' => round((float) ($p['subtotal']  ?? ($p['total'] ?? 0)), 2),
+            'tax' => round((float) ($p['tax_total'] ?? 0), 2),
+            'tot' => round((float) ($p['total']     ?? 0), 2),
+            'due' => round((float) ($p['total']     ?? 0), 2),
+            'rr'  => $runId,
+        ]);
+        $billId = (int) $pdo->lastInsertId();
+
+        $pdo->prepare(
+            'UPDATE ap_invoice_extraction_runs
+                SET draft_bill_id = :b,
+                    status        = "drafted",
+                    updated_at    = NOW()
+              WHERE id = :id AND tenant_id = :t'
+        )->execute(['b' => $billId, 'id' => $runId, 't' => $tenantId]);
+
+        $artifact = apExtractionSyncArtifact($tenantId, $runId, 'approved');
+        artifactLink(
+            $tenantId,
+            (string) $artifact['id'],
+            'produces',
+            null,
+            'ap_bills',
+            $billId,
+            [],
+            $actorUserId,
+            $run['ai_run_id'] ?? null
+        );
+        cf_tx_commit($pdo, $ownsTx);
+        return ['extraction_run_id' => $runId, 'draft_bill_id' => $billId, 'status' => 'drafted'];
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTx);
+        throw $e;
+    }
+}
+
+/** Keep the review artifact synchronized with the authoritative run. */
+function apExtractionSyncArtifact(int $tenantId, int $runId, ?string $targetStatus = null): array
+{
     $run = apExtractionGet($tenantId, $runId);
     if (!$run) throw new \RuntimeException("extraction run {$runId} not found");
-    if ($run['status'] === 'duplicate') {
-        throw new \RuntimeException("run {$runId} is flagged duplicate of bill #{$run['duplicate_bill_id']}; resolve first");
-    }
-    if (!empty($run['draft_bill_id'])) {
-        // Idempotent.
-        return [
-            'extraction_run_id' => $runId,
-            'draft_bill_id'     => (int) $run['draft_bill_id'],
-            'status'            => 'drafted',
-            'idempotent_replay' => true,
-        ];
-    }
-    $p = $run['extracted_payload'] ?? [];
-    if (!$p) {
-        throw new \RuntimeException("run {$runId} has no extracted payload");
-    }
 
-    $pdo = getDB();
-    $pdo->prepare(
-        'INSERT INTO ap_bills
-            (tenant_id, bill_number, internal_ref, vendor_name, vendor_type,
-             received_at, bill_date, due_date, currency,
-             subtotal, tax_total, total, amount_paid, amount_due,
-             status, source, source_ref_id)
-         VALUES
-            (:t, :bn, :ir, :vn, "other",
-             CURDATE(), :bd, :dd, :cur,
-             :sub, :tax, :tot, 0, :due,
-             "inbox", "manual", :rr)'
+    $artifact = artifactEnsureForSource(
+        $tenantId,
+        'ap_invoice_review',
+        'ap',
+        'ap_invoice_extraction_run',
+        $runId,
+        [
+            'title' => 'Invoice extraction #' . $runId . (!empty($run['source_filename']) ? ' - ' . $run['source_filename'] : ''),
+            'sub_tenant_id' => $run['sub_tenant_id'] ?? null,
+            'payload' => apExtractionArtifactPayload($run),
+            'created_by_user_id' => $run['created_by_user_id'] ?? null,
+            'created_by_ai_run' => $run['ai_run_id'] ?? null,
+            'initial_status' => 'draft',
+        ]
+    );
+
+    getDB()->prepare(
+        'UPDATE ap_invoice_extraction_runs SET artifact_id = :artifact_id
+          WHERE tenant_id = :tenant_id AND id = :id'
     )->execute([
-        't'   => $tenantId,
-        'bn'  => mb_substr((string) ($p['bill_number'] ?? ('AI-' . $runId)), 0, 80),
-        'ir'  => 'AI-' . str_pad((string) $runId, 6, '0', STR_PAD_LEFT),
-        'vn'  => mb_substr((string) ($p['vendor_name'] ?? 'Unknown Vendor'), 0, 255),
-        'bd'  => (string) ($p['bill_date'] ?? date('Y-m-d')),
-        'dd'  => (string) ($p['due_date']  ?? date('Y-m-d', strtotime('+30 days'))),
-        'cur' => mb_substr((string) ($p['currency'] ?? 'USD'), 0, 3),
-        'sub' => round((float) ($p['subtotal']  ?? ($p['total'] ?? 0)), 2),
-        'tax' => round((float) ($p['tax_total'] ?? 0), 2),
-        'tot' => round((float) ($p['total']     ?? 0), 2),
-        'due' => round((float) ($p['total']     ?? 0), 2),
-        'rr'  => $runId,
+        'artifact_id' => $artifact['id'],
+        'tenant_id' => $tenantId,
+        'id' => $runId,
     ]);
-    $billId = (int) $pdo->lastInsertId();
+    artifactUpdate(
+        $tenantId,
+        (string) $artifact['id'],
+        ['payload' => apExtractionArtifactPayload($run)]
+    );
+    artifactLink(
+        $tenantId,
+        (string) $artifact['id'],
+        'represents',
+        null,
+        'ap_invoice_extraction_runs',
+        $runId,
+        [],
+        $run['created_by_user_id'] ?? null,
+        $run['ai_run_id'] ?? null
+    );
+    if (!empty($run['source_artifact_id'])) {
+        artifactLink(
+            $tenantId,
+            (string) $artifact['id'],
+            'derived_from',
+            (string) $run['source_artifact_id'],
+            null,
+            null,
+            [],
+            $run['created_by_user_id'] ?? null,
+            $run['ai_run_id'] ?? null
+        );
+    }
+    if ($targetStatus !== null) {
+        $artifact = artifactTransitionTo(
+            $tenantId,
+            (string) $artifact['id'],
+            $targetStatus,
+            $run['created_by_user_id'] ?? null,
+            $run['ai_run_id'] ?? null,
+            ['domain_status' => $run['status']]
+        );
+    }
+    return $artifact;
+}
 
-    $pdo->prepare(
-        'UPDATE ap_invoice_extraction_runs
-            SET draft_bill_id = :b,
-                status        = "drafted",
-                updated_at    = NOW()
-          WHERE id = :id AND tenant_id = :t'
-    )->execute(['b' => $billId, 'id' => $runId, 't' => $tenantId]);
-
-    return ['extraction_run_id' => $runId, 'draft_bill_id' => $billId, 'status' => 'drafted'];
+function apExtractionArtifactPayload(array $run): array
+{
+    return [
+        'extraction_run_id' => (int) $run['id'],
+        'status' => (string) $run['status'],
+        'source_filename' => $run['source_filename'] ?? null,
+        'confidence' => $run['confidence'] ?? null,
+        'duplicate_check_status' => $run['duplicate_check_status'] ?? null,
+        'duplicate_bill_id' => $run['duplicate_bill_id'] ?? null,
+        'draft_bill_id' => $run['draft_bill_id'] ?? null,
+        'posted_bill_id' => $run['posted_bill_id'] ?? null,
+        'extracted_payload' => $run['extracted_payload'] ?? [],
+    ];
 }
 
 /** Read a single run, decoding the payload JSON. */
-function apExtractionGet(int $tenantId, int $runId): ?array
+function apExtractionGet(int $tenantId, int $runId, bool $forUpdate = false): ?array
 {
     if ($tenantId <= 0 || $runId <= 0) return null;
     $stmt = getDB()->prepare(
         'SELECT * FROM ap_invoice_extraction_runs
-          WHERE id = :id AND tenant_id = :t LIMIT 1'
+          WHERE id = :id AND tenant_id = :t LIMIT 1' . ($forUpdate ? ' FOR UPDATE' : '')
     );
     $stmt->execute(['id' => $runId, 't' => $tenantId]);
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);

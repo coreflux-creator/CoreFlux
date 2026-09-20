@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/artifacts.php';
 
 class PayCycleException extends \RuntimeException {}
 
@@ -127,6 +128,8 @@ function payrollCycleAdvance(int $cycleId, ?int $actorUserId = null): array
             't'  => $tenantId,
             'id' => $cycleId,
         ]);
+
+        payrollRunSyncArtifact($tenantId, $runId, $actorUserId);
 
         cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {

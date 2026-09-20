@@ -22,7 +22,7 @@ function simInvariantDebitsEqualCredits(\PDO $pdo, int $tenantId): array {
                 ROUND(SUM(l.debit),  2) AS total_debit,
                 ROUND(SUM(l.credit), 2) AS total_credit
            FROM accounting_journal_entries je
-           JOIN accounting_journal_lines  l ON l.je_id = je.id
+           JOIN accounting_journal_entry_lines l ON l.je_id = je.id
           WHERE je.tenant_id = :t
           GROUP BY je.id, je.je_number
          HAVING ROUND(SUM(l.debit), 2) <> ROUND(SUM(l.credit), 2)'
@@ -37,15 +37,17 @@ function simInvariantDebitsEqualCredits(\PDO $pdo, int $tenantId): array {
     ];
 }
 
-/** Every accounting_event must either be 'posted' (with je_id) or
- *  'ignored' (with a reason). 'pending' rows older than 60s indicate
- *  a stuck consumer. */
+/** Every accounting event must finish or remain fresh enough to retry. */
 function simInvariantNoOrphanEvents(\PDO $pdo, int $tenantId): array {
     $stmt = $pdo->prepare(
-        "SELECT id, event_type, status
+        "SELECT id, event_type, status, journal_entry_id, error_message
            FROM accounting_events
           WHERE tenant_id = :t
-            AND status = 'pending'"
+            AND (
+                (status IN ('received','mapped') AND created_at < DATE_SUB(NOW(), INTERVAL 60 SECOND))
+                OR (status IN ('posted','reversed') AND journal_entry_id IS NULL)
+                OR (status = 'ignored' AND (error_message IS NULL OR error_message = ''))
+            )"
     );
     $stmt->execute(['t' => $tenantId]);
     $stuck = $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -53,7 +55,7 @@ function simInvariantNoOrphanEvents(\PDO $pdo, int $tenantId): array {
         'name'     => 'no_orphan_events',
         'ok'       => empty($stuck),
         'severity' => 'error',
-        'details'  => ['pending_event_count' => count($stuck), 'sample' => array_slice($stuck, 0, 5)],
+        'details'  => ['orphan_event_count' => count($stuck), 'sample' => array_slice($stuck, 0, 5)],
     ];
 }
 
@@ -116,35 +118,81 @@ function simInvariantReplayReproducible(\PDO $pdo, int $runId, array $observed):
     ];
 }
 
-/** Customer-facing balances == accounting balances. For the AP module
- *  this means: SUM(ap_bills.remaining_amount where status='posted') ==
- *  GL balance of AP payable account (2010 default). Same idea for AR. */
+/** Open AP and AR subledger balances equal their canonical GL balances. */
 function simInvariantCustomerBalanceMatchesGL(\PDO $pdo, int $tenantId): array {
     // AP side
     $ap = $pdo->prepare(
-        'SELECT COALESCE(ROUND(SUM(remaining_amount), 2), 0) AS bal
+        'SELECT COALESCE(ROUND(SUM(amount_due), 2), 0) AS bal
            FROM ap_bills
           WHERE tenant_id = :t
-            AND status IN ("posted","partially_paid","approved")'
+            AND status IN ("partially_paid","approved")'
     );
     $ap->execute(['t' => $tenantId]);
     $apModule = (float) $ap->fetchColumn();
 
     $apGl = $pdo->prepare(
         'SELECT COALESCE(ROUND(SUM(l.credit - l.debit), 2), 0)
-           FROM accounting_journal_lines l
+           FROM accounting_journal_entry_lines l
            JOIN accounting_journal_entries je ON je.id = l.je_id
            JOIN accounting_accounts a         ON a.id  = l.account_id
-          WHERE je.tenant_id = :t AND a.code = "2010"'
+          WHERE je.tenant_id = :t AND je.status = "posted" AND a.code = "2000"'
     );
     $apGl->execute(['t' => $tenantId]);
     $apLedger = (float) $apGl->fetchColumn();
 
-    $drift = round($apModule - $apLedger, 2);
+    $ar = $pdo->prepare(
+        'SELECT COALESCE(ROUND(SUM(amount_due), 2), 0) AS bal
+           FROM billing_invoices
+          WHERE tenant_id = :t
+            AND status IN ("sent","partially_paid")'
+    );
+    $ar->execute(['t' => $tenantId]);
+    $arModule = (float) $ar->fetchColumn();
+
+    $arGl = $pdo->prepare(
+        'SELECT COALESCE(ROUND(SUM(l.debit - l.credit), 2), 0)
+           FROM accounting_journal_entry_lines l
+           JOIN accounting_journal_entries je ON je.id = l.je_id
+           JOIN accounting_accounts a         ON a.id  = l.account_id
+          WHERE je.tenant_id = :t AND je.status = "posted" AND a.code = "1100"'
+    );
+    $arGl->execute(['t' => $tenantId]);
+    $arLedger = (float) $arGl->fetchColumn();
+
+    $apDrift = round($apModule - $apLedger, 2);
+    $arDrift = round($arModule - $arLedger, 2);
     return [
-        'name'     => 'ap_module_matches_gl',
-        'ok'       => abs($drift) < 0.01,
+        'name'     => 'subledger_balances_match_gl',
+        'ok'       => abs($apDrift) < 0.01 && abs($arDrift) < 0.01,
         'severity' => 'error',
-        'details'  => ['ap_module' => $apModule, 'ap_ledger' => $apLedger, 'drift' => $drift],
+        'details'  => [
+            'ap_module' => $apModule,
+            'ap_ledger' => $apLedger,
+            'ap_drift' => $apDrift,
+            'ar_module' => $arModule,
+            'ar_ledger' => $arLedger,
+            'ar_drift' => $arDrift,
+        ],
+    ];
+}
+
+/** Run the same cross-module integrity audit exposed to administrators. */
+function simInvariantBusinessGraphConsistent(\PDO $pdo, int $tenantId): array {
+    require_once __DIR__ . '/../../core/business_integrity.php';
+    $report = businessIntegrityAudit($tenantId);
+    $failed = array_values(array_filter(
+        $report['checks'],
+        static fn(array $check): bool => in_array((string) ($check['status'] ?? ''), ['fail', 'error'], true)
+            && in_array((string) ($check['severity'] ?? ''), ['critical', 'error'], true)
+    ));
+    return [
+        'name' => 'business_graph_consistent',
+        'ok' => empty($failed),
+        'severity' => 'error',
+        'details' => [
+            'failed_check_count' => count($failed),
+            'issue_count' => (int) ($report['summary']['issues'] ?? 0),
+            'sample' => array_slice($failed, 0, 8),
+        ],
     ];
 }
