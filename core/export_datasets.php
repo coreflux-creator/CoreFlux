@@ -411,8 +411,8 @@ function exportDatasetRegistry(): array {
             'fetcher'               => 'exportDatasetFetchTimeEntries',
             'fields'                => [
                 'entry_id'              => ['label' => 'Entry ID',              'sample' => '4401'],
-                'placement_id'          => ['label' => 'Placement ID',          'sample' => '7001'],
-                'placement_external_id' => ['label' => 'Placement external ID', 'sample' => 'JD-7001'],
+                'placement_id'          => ['label' => 'Placement ID',          'sample' => 'PL-7001'],
+                'placement_external_id' => ['label' => 'Source placement ID',   'sample' => 'JD-7001'],
                 'external_id'           => ['label' => 'External ID (source row)', 'sample' => 'TS-4401'],
                 'source_system'         => ['label' => 'Source system',         'sample' => 'jobdiva'],
                 'placement_title'       => ['label' => 'Placement title',       'sample' => 'Senior Accountant'],
@@ -1299,7 +1299,14 @@ function exportDatasetFetchTimeEntries(int $tenantId, array $opts): array {
           LIMIT ' . $limit
     );
     $stmt->execute($params);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as &$row) {
+        if (($row['placement_id'] ?? '') !== '') {
+            $row['placement_id'] = 'PL-' . (int) $row['placement_id'];
+        }
+    }
+    unset($row);
+    return $rows;
 }
 
 function exportDatasetFetchStaffingClients(int $tenantId, array $opts): array {

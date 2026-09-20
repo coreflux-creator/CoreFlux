@@ -301,10 +301,10 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-sKCh-zw4.js
+- spa-assets/index-fEOaYczD.js
 - spa-assets/index-Dr0BVpUh.css
-- spa-assets/index-CCMi1RNk.js
 - spa-assets/index-CNYK7wlO.css
+- spa-assets/index-RSqFNUSF.js
 last_known_features:
 - placements.economics.one_time_items
 - placements.economics.one_time_items.downstream_settlement

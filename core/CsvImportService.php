@@ -144,6 +144,9 @@ class CsvImportService
         foreach ($schema['fields'] as $key => $def) {
             $labelToKey[strtolower(trim($def['label'] ?? $key))] = $key;
             $labelToKey[strtolower($key)] = $key;
+            foreach ((array) ($def['aliases'] ?? []) as $alias) {
+                $labelToKey[strtolower(trim((string) $alias))] = $key;
+            }
         }
         $autoMap = [];
         foreach ($headers as $i => $h) {
@@ -435,6 +438,9 @@ class CsvImportService
         foreach ($schema['fields'] as $key => $def) {
             $labelToKey[strtolower(trim($def['label'] ?? $key))] = $key;
             $labelToKey[strtolower($key)] = $key;
+            foreach ((array) ($def['aliases'] ?? []) as $alias) {
+                $labelToKey[strtolower(trim((string) $alias))] = $key;
+            }
         }
         $validKeys = array_keys($schema['fields']);
 

@@ -65,7 +65,7 @@ exportDatasetAudit($tenantId, $userId ?: null, 'time.entries.exported', null, ex
 (new CsvExportService([
     'entry_id'              => 'Entry ID',
     'placement_id'          => 'Placement ID',
-    'placement_external_id' => 'Placement external ID',
+    'placement_external_id' => 'Source placement ID',
     'external_id'           => 'External ID (source row)',
     'source_system'         => 'Source system',
     'person_name'           => 'Person name',

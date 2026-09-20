@@ -27,12 +27,12 @@ export default function CsvImport() {
       backLabel="Back to timesheets"
       testidPrefix="time-csv-import"
       presetEntity="time"
-      description="Import time by Placement ID and date. CoreFlux fills in the worker, client, weekly timesheet, and time period automatically."
+      description="Import time with the CoreFlux Placement ID shown in Placements (for example, PL-760), the work date, and hours."
       templateNote={(
         <>
-          Only <strong>Placement ID</strong>, <strong>Work date</strong>, and <strong>Hours</strong> are required.
-          Work date may also be the source timesheet&apos;s week-ending date when the row contains a weekly total.
-          Time type defaults to regular, and a stable source-row ID makes repeat imports safe.
+          The template has exactly three columns: <strong>Placement ID</strong>, <strong>Work date</strong>, and <strong>Hours</strong>.
+          Use the displayed <strong>PL-####</strong> ID. Older files with the bare number still work.
+          Work date may also be a week-ending date when the row contains a weekly total; time type defaults to regular.
         </>
       )}
       extraDownloads={[
@@ -45,7 +45,7 @@ export default function CsvImport() {
       defaultUpdateExisting
       updateExistingLabel="Update matching unapproved entries instead of creating duplicates"
       previewColumns={[
-        { key: 'placement_id',    label: 'Placement ID' },
+        { key: 'placement_display_id', label: 'Placement ID' },
         { key: 'person_name',     label: 'Person' },
         { key: 'end_client_name', label: 'Client' },
         { key: 'work_date',       label: 'Work date' },
