@@ -57,7 +57,7 @@ if (!$dryRun) {
     require_once __DIR__ . '/../core/tenant_scope.php';
     $pdo = getDB();
     if (!$pdo) { fwrite(STDERR, "ERROR: cannot connect to DB\n"); exit(3); }
-    setCurrentTenantId($tenantId);
+    setRequestTenantId($tenantId);
 
     // Refuse to run against a non-sim tenant — hard safety guard.
     $st = $pdo->prepare('SELECT is_simulation FROM tenants WHERE id = :id');

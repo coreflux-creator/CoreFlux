@@ -92,6 +92,7 @@ $a('runner parses --seed',                 str_contains($runner, "'seed::'"));
 $a('runner parses --tenant',               str_contains($runner, "'tenant::'"));
 $a('runner supports --dry-run',            str_contains($runner, "'dry-run::'"));
 $a('runner supports --list',               str_contains($runner, "'list::'"));
+$a('runner installs validated tenant context', str_contains($runner, 'setRequestTenantId($tenantId)'));
 $a('runner refuses non-sim tenant',        str_contains($runner, 'is not flagged is_simulation=1. Refusing to run'));
 $a('runner reuses accountingProcessEvent', str_contains($runner, 'accountingProcessEvent(') && str_contains($runner, 'posting_engine/process.php'));
 $a('runner persists simulation_runs row',  str_contains($runner, 'INSERT INTO simulation_runs'));
