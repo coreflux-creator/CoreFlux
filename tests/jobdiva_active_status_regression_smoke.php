@@ -18,6 +18,7 @@ echo "JobDiva active-status regression smoke\n";
 echo "======================================\n";
 
 $repair = (string) file_get_contents($root . '/scripts/repair_jobdiva_active_status_regression.php');
+$rateProbe = (string) file_get_contents($root . '/scripts/jobdiva_rate_write_probe.php');
 $workflow = (string) file_get_contents($root . '/.github/workflows/deploy-jobdiva-reconciliation.yml');
 require_once $root . '/core/jobdiva/assignment_contract.php';
 
@@ -75,6 +76,9 @@ $assert('deployment accepts explicit restore guards',
 $assert('deployment packages and executes the guarded repair',
     str_contains($workflow, 'scripts/repair_jobdiva_active_status_regression.php')
     && str_contains($workflow, 'php scripts/repair_jobdiva_active_status_regression.php'));
+$assert('post-deploy rate audit tolerates placements without a stored payload snapshot',
+    str_contains($rateProbe, '$payload = is_array($decodedPayload) ? $decodedPayload : [];')
+    && str_contains($rateProbe, 'jobdivaAssignmentContractFromSnapshot($payload)'));
 $assert('deployment verifies the current placements search control',
     str_contains($workflow, "grep -Fq 'Search person, role, client or ID'"));
 

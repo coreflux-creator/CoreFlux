@@ -82,8 +82,9 @@ if (in_array(($argv[1] ?? ''), ['--roster', '--active-roster'], true)) {
     );
     $rows = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
-        $payload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
-        $contract = is_array($payload['_jd_contract'] ?? null) ? $payload['_jd_contract'] : [];
+        $decodedPayload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
+        $payload = is_array($decodedPayload) ? $decodedPayload : [];
+        $contract = jobdivaAssignmentContractFromSnapshot($payload);
         unset($row['payload_snapshot']);
         $row['contract_status'] = $contract['placement_status'] ?? null;
         $row['contract_start_id'] = $contract['start_id'] ?? null;
