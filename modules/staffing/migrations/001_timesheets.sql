@@ -18,6 +18,7 @@
 
 CREATE TABLE IF NOT EXISTS staffing_timesheets (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    artifact_id CHAR(36) NULL,
     tenant_id BIGINT UNSIGNED NOT NULL,
     worker_user_id BIGINT UNSIGNED NULL,
     person_id BIGINT UNSIGNED NOT NULL,
@@ -34,9 +35,13 @@ CREATE TABLE IF NOT EXISTS staffing_timesheets (
     total_hours DECIMAL(8,2) NOT NULL DEFAULT 0,
     notes VARCHAR(1000) NULL,
     workflow_instance_id BIGINT UNSIGNED NULL,
+    origin_source VARCHAR(40) NOT NULL DEFAULT 'manual_entry',
+    origin_system VARCHAR(80) NULL,
+    created_by_user_id BIGINT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_sts_tenant_person_week (tenant_id, person_id, period_start),
+    UNIQUE KEY uq_sts_tenant_artifact (tenant_id, artifact_id),
     INDEX idx_sts_tenant_status (tenant_id, status),
     INDEX idx_sts_tenant_period (tenant_id, period_start, period_end)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

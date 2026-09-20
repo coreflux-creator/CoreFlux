@@ -20,6 +20,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/sync.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
+require_once __DIR__ . '/../../modules/staffing/lib/timesheets.php';
 
 function jobdivaTimeWeekBounds(int $tid, string $workDate): array
 {
@@ -75,18 +76,24 @@ function jobdivaEnsureTimePeriod(int $tid, string $workDate): array
     return ['id' => (int) $pdo->lastInsertId(), 'start_date' => $periodStart, 'end_date' => $periodEnd];
 }
 
-function jobdivaEnsureStaffingTimesheet(int $tid, int $personId, string $periodStart, string $periodEnd): int
+function jobdivaEnsureStaffingTimesheet(
+    int $tid,
+    int $personId,
+    string $periodStart,
+    string $periodEnd,
+    ?int $userId = null
+): int
 {
-    $pdo = getDB();
-    $pdo->prepare(
-        'INSERT INTO staffing_timesheets (tenant_id, person_id, period_start, period_end, status, total_hours)
-         VALUES (:t, :p, :ps, :pe, "draft", 0)
-         ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), period_end = VALUES(period_end)'
-    )->execute(['t' => $tid, 'p' => $personId, 'ps' => $periodStart, 'pe' => $periodEnd]);
-    return (int) $pdo->lastInsertId();
+    $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd, [
+        'tenant_id' => $tid,
+        'source' => 'integration',
+        'source_system' => 'jobdiva',
+        'created_by_user_id' => $userId,
+    ]);
+    return (int) $header['id'];
 }
 
-function jobdivaRefreshStaffingTimesheetTotal(int $tid, int $timesheetId): void
+function jobdivaRefreshStaffingTimesheetTotal(int $tid, int $timesheetId, ?int $userId = null): void
 {
     if ($timesheetId <= 0) return;
     getDB()->prepare(
@@ -100,6 +107,10 @@ function jobdivaRefreshStaffingTimesheetTotal(int $tid, int $timesheetId): void
             )
           WHERE tenant_id = :t AND id = :id"
     )->execute(['t_sum' => $tid, 'id_sum' => $timesheetId, 't' => $tid, 'id' => $timesheetId]);
+    staffingTimesheetRecordArtifactEvent($timesheetId, 'timesheet.entries_imported', $userId, [
+        'source' => 'integration',
+        'source_system' => 'jobdiva',
+    ], $tid);
 }
 
 function jobdivaHourTypeFromCategory(string $category): array
@@ -162,7 +173,13 @@ function jobdivaSyncTimePull(int $tid, ?int $userId, array $opts = []): array
                 $skipped++; $skipReasons['placement_missing_person']++; continue;
             }
             $personId = (int) $meta['person_id'];
-            $timesheetId = jobdivaEnsureStaffingTimesheet($tid, $personId, $period['start_date'], $period['end_date']);
+            $timesheetId = jobdivaEnsureStaffingTimesheet(
+                $tid,
+                $personId,
+                $period['start_date'],
+                $period['end_date'],
+                $userId
+            );
             $category = jobdivaMapTimeCategory((string) jobdivaPluckField($jd, ['category', 'hourType', 'hour_type', 'type']));
             $hourMeta = jobdivaHourTypeFromCategory($category);
 
@@ -181,7 +198,7 @@ function jobdivaSyncTimePull(int $tid, ?int $userId, array $opts = []): array
                 'source'       => 'bulk_upload', // tagged so the source enum stays unchanged
                 'created_by_user_id' => $userId,
             ], $extId);
-            jobdivaRefreshStaffingTimesheetTotal($tid, $timesheetId);
+            jobdivaRefreshStaffingTimesheetTotal($tid, $timesheetId, $userId);
 
             mappingUpsert($tid, 'jobdiva', 'time_entry', $extId, $internalId, $jd, 'pull');
             $processed++;

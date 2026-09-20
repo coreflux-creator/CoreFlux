@@ -20,8 +20,8 @@ $a = function (string $name, bool $ok) use (&$pass, &$fail): void {
 $src = (string) file_get_contents(__DIR__ . '/../modules/staffing/api/timesheets.php');
 
 // Find the `list` action block.
-$start = strpos($src, "\$action === 'list'");
-$end   = strpos($src, "api_ok(['rows' => \$rows]);", $start ?: 0);
+$start = strpos($src, "if (\$method === 'GET' && \$action === 'list')");
+$end   = strpos($src, "if (\$method === 'GET' && \$action === 'prefill_from_last_week')", $start ?: 0);
 $listBlock = $start !== false && $end !== false
     ? substr($src, $start, $end - $start)
     : '';

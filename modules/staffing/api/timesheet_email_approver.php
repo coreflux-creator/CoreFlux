@@ -52,6 +52,10 @@ if (!$header) api_error('Timesheet not found', 404);
 if (($header['status'] ?? '') !== 'submitted') {
     api_error("Timesheet is {$header['status']} — only submitted timesheets can be sent for external approval", 409);
 }
+$header = array_merge($header, staffingTimesheetEnsureArtifact($header, [
+    'tenant_id' => (int) $tenantId,
+    'created_by_user_id' => (int) ($ctx['user']['id'] ?? 0),
+]));
 
 // Pull total hours + revenue snapshot so the email shows what the approver
 // is being asked to sign off on.
@@ -66,8 +70,32 @@ $totals->execute(['t' => $tenantId, 'id' => $tsId]);
 $totRow = $totals->fetch(\PDO::FETCH_ASSOC) ?: ['hours' => 0, 'revenue' => 0];
 
 try {
+    $ownsTxn = cf_tx_begin($pdo);
+    $closePrior = $pdo->prepare(
+        "UPDATE approval_tokens
+            SET consumed_at = NOW(), consumed_via_action = 'superseded'
+          WHERE tenant_id = :tenant_id
+            AND subject_type = 'staffing_timesheet'
+            AND subject_id = :subject_id
+            AND consumed_at IS NULL"
+    );
+    $closePrior->execute(['tenant_id' => $tenantId, 'subject_id' => $tsId]);
     $tokens = staffingEmailApprovalMint($tenantId, $tsId, $approverEmail, $approverName ?: null);
+    $header = staffingTimesheetRecordArtifactEvent(
+        $tsId,
+        'timesheet.approval_token_issued',
+        (int) ($ctx['user']['id'] ?? 0),
+        [
+            'token_id' => (int) $tokens['token_id'],
+            'approver_email' => $approverEmail,
+            'expires_at' => $tokens['expires_at'],
+            'prior_tokens_closed' => $closePrior->rowCount(),
+        ],
+        (int) $tenantId
+    );
+    cf_tx_commit($pdo, $ownsTxn);
 } catch (\Throwable $e) {
+    if (isset($ownsTxn)) cf_tx_rollback($pdo, $ownsTxn);
     api_error('Could not mint approval token: ' . $e->getMessage(), 500);
 }
 
@@ -116,6 +144,9 @@ api_ok([
     'approver_email' => $approverEmail,
     'token_id'       => (int) $tokens['token_id'],
     'expires_at'     => $tokens['expires_at'],
+    'timesheet_id'   => $tsId,
+    'timesheet_display_id' => $header['display_id'],
+    'artifact_id'    => $header['artifact_id'],
     // Surface the URLs so the dispatcher (or QA) can verify the link in the
     // common case where the mailer isn't wired up locally.
     'approve_url'    => $tokens['approve_url'],

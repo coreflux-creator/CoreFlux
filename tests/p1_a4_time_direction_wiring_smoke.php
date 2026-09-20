@@ -38,6 +38,8 @@ $src = (string) file_get_contents($path);
 $assert('parses',                                  $lint($path));
 $assert('declares strict_types',                   strpos($src, 'declare(strict_types=1)') !== false);
 $assert('requires entity_mappings',                strpos($src, "require_once __DIR__ . '/../integrations/entity_mappings.php'") !== false);
+$assert('requires shared weekly timesheet materializer',
+    strpos($src, "require_once __DIR__ . '/../../modules/staffing/lib/timesheets.php'") !== false);
 $assert('exports jobdivaSyncTimePull',             strpos($src, 'function jobdivaSyncTimePull(') !== false);
 $assert('exports jobdivaSyncTimePush',             strpos($src, 'function jobdivaSyncTimePush(') !== false);
 $assert('exports jobdivaSyncUpsertTimeEntry',      strpos($src, 'function jobdivaSyncUpsertTimeEntry(') !== false);
@@ -62,11 +64,13 @@ $assert('reads tenant staffing week-start setting',
     && strpos($src, 'week_starts_on') !== false);
 $assert('ensures staffing_timesheets header for imported rows',
     strpos($src, 'function jobdivaEnsureStaffingTimesheet(') !== false
-    && strpos($src, 'INSERT INTO staffing_timesheets') !== false
+    && strpos($src, 'staffingTimesheetUpsert($personId, $periodStart, $periodEnd') !== false
+    && strpos($src, "'source_system' => 'jobdiva'") !== false
     && strpos($src, "'timesheet_id' => \$timesheetId") !== false);
 $assert('refreshes staffing_timesheets total after entry upsert',
     strpos($src, 'function jobdivaRefreshStaffingTimesheetTotal(') !== false
-    && strpos($src, 'jobdivaRefreshStaffingTimesheetTotal($tid, $timesheetId)') !== false);
+    && strpos($src, 'jobdivaRefreshStaffingTimesheetTotal($tid, $timesheetId, $userId)') !== false
+    && strpos($src, "staffingTimesheetRecordArtifactEvent(\$timesheetId, 'timesheet.entries_imported'") !== false);
 $assert('binds mapping (time_entry)',
     strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'time_entry', \$extId, \$internalId, \$jd, 'pull')") !== false);
 $assert('emits audit row entity_type=time direction=pull',

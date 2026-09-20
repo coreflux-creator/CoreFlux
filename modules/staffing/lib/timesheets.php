@@ -12,6 +12,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../../../core/tx_helpers.php';
+require_once __DIR__ . '/../../../core/audit.php';
+require_once __DIR__ . '/../../../core/ai/artifacts.php';
 require_once __DIR__ . '/../../time/lib/time.php';
 
 const STAFFING_HOUR_TYPES = [
@@ -167,30 +170,327 @@ function staffingTimesheetAssertDailyHours(
     }
 }
 
-/** Get-or-create the timesheet header for (person, week). */
-function staffingTimesheetUpsert(int $personId, string $periodStart, string $periodEnd): array {
-    $existing = scopedFind(
-        'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND person_id = :pid AND period_start = :ps LIMIT 1',
-        ['pid' => $personId, 'ps' => $periodStart]
-    );
-    if ($existing) return $existing;
+function staffingTimesheetDisplayId(int $timesheetId): string
+{
+    return 'TS-' . $timesheetId;
+}
 
-    $id = scopedInsert('staffing_timesheets', [
-        'person_id'    => $personId,
-        'period_start' => $periodStart,
-        'period_end'   => $periodEnd,
-        'status'       => 'draft',
-        'total_hours'  => 0,
+function staffingTimesheetDecorate(array $header): array
+{
+    if (!empty($header['id'])) {
+        $header['display_id'] = staffingTimesheetDisplayId((int) $header['id']);
+    }
+    return $header;
+}
+
+function staffingTimesheetArtifactStatus(string $status): string
+{
+    return match ($status) {
+        'submitted' => 'review',
+        'approved', 'payroll_ready', 'billing_ready' => 'approved',
+        'locked' => 'final',
+        'rejected' => 'rejected',
+        default => 'draft',
+    };
+}
+
+function staffingTimesheetArtifactPayload(array $header): array
+{
+    return [
+        'timesheet_id'  => (int) $header['id'],
+        'display_id'    => staffingTimesheetDisplayId((int) $header['id']),
+        'person_id'     => (int) $header['person_id'],
+        'period_start'  => (string) $header['period_start'],
+        'period_end'    => (string) $header['period_end'],
+        'status'        => (string) ($header['status'] ?? 'draft'),
+        'total_hours'   => (float) ($header['total_hours'] ?? 0),
+        'origin_source' => (string) ($header['origin_source'] ?? 'manual_entry'),
+        'origin_system' => $header['origin_system'] ?? null,
+    ];
+}
+
+function staffingTimesheetRow(int $tenantId, int $timesheetId, bool $forUpdate = false): ?array
+{
+    $stmt = getDB()->prepare(
+        'SELECT * FROM staffing_timesheets
+          WHERE tenant_id = :tenant_id AND id = :id
+          LIMIT 1' . ($forUpdate ? ' FOR UPDATE' : '')
+    );
+    $stmt->execute(['tenant_id' => $tenantId, 'id' => $timesheetId]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    return $row ? staffingTimesheetDecorate($row) : null;
+}
+
+/** Ensure the domain header has exactly one corresponding artifact object. */
+function staffingTimesheetEnsureArtifact(array $header, array $context = []): array
+{
+    $tenantId = (int) ($context['tenant_id'] ?? $header['tenant_id'] ?? currentTenantId());
+    $timesheetId = (int) ($header['id'] ?? 0);
+    if ($tenantId <= 0 || $timesheetId <= 0) {
+        throw new \RuntimeException('A tenant and timesheet are required to materialize the artifact.');
+    }
+
+    $pdo = getDB();
+    $ownsTxn = cf_tx_begin($pdo);
+    try {
+        $locked = staffingTimesheetRow($tenantId, $timesheetId, true);
+        if (!$locked) throw new \RuntimeException("Timesheet #{$timesheetId} was not found.");
+
+        $artifactId = trim((string) ($locked['artifact_id'] ?? ''));
+        if ($artifactId === '') {
+            $artifactId = artifactGenerateUuid();
+            $stmt = $pdo->prepare(
+                'UPDATE staffing_timesheets SET artifact_id = :artifact_id
+                  WHERE tenant_id = :tenant_id AND id = :id
+                    AND (artifact_id IS NULL OR artifact_id = "")'
+            );
+            $stmt->execute([
+                'artifact_id' => $artifactId,
+                'tenant_id' => $tenantId,
+                'id' => $timesheetId,
+            ]);
+            if ($stmt->rowCount() !== 1) {
+                $locked = staffingTimesheetRow($tenantId, $timesheetId, true);
+                $artifactId = trim((string) ($locked['artifact_id'] ?? ''));
+            } else {
+                $locked['artifact_id'] = $artifactId;
+            }
+        }
+        if ($artifactId === '') throw new \RuntimeException("Timesheet #{$timesheetId} has no artifact identity.");
+
+        $artifact = artifactGet($tenantId, $artifactId);
+        $artifactWasCreated = false;
+        if (!$artifact) {
+            $artifact = artifactCreate($tenantId, 'staffing_timesheet', [
+                'id' => $artifactId,
+                'title' => staffingTimesheetDisplayId($timesheetId) . ' - week of ' . $locked['period_start'],
+                'source_module' => 'staffing',
+                'source_record_type' => 'staffing_timesheet',
+                'source_record_id' => $timesheetId,
+                'payload' => staffingTimesheetArtifactPayload($locked),
+                'created_by_user_id' => $locked['created_by_user_id'] ?? ($context['created_by_user_id'] ?? null),
+                'initial_status' => staffingTimesheetArtifactStatus((string) ($locked['status'] ?? 'draft')),
+            ]);
+            $artifactWasCreated = true;
+        }
+
+        $link = $pdo->prepare(
+            "INSERT INTO artifact_relationships
+                (tenant_id, source_artifact_id, target_table, target_record_id,
+                 relationship_type, created_by_user_id, created_at)
+             SELECT :tenant_id, :artifact_id, 'staffing_timesheets', :timesheet_id,
+                    'represents', :created_by_user_id, NOW()
+              WHERE NOT EXISTS (
+                    SELECT 1 FROM artifact_relationships
+                     WHERE tenant_id = :tenant_check
+                       AND source_artifact_id = :artifact_check
+                       AND target_table = 'staffing_timesheets'
+                       AND target_record_id = :timesheet_check
+                       AND relationship_type = 'represents'
+              )"
+        );
+        $link->execute([
+            'tenant_id' => $tenantId,
+            'artifact_id' => $artifactId,
+            'timesheet_id' => $timesheetId,
+            'created_by_user_id' => $locked['created_by_user_id'] ?? ($context['created_by_user_id'] ?? null),
+            'tenant_check' => $tenantId,
+            'artifact_check' => $artifactId,
+            'timesheet_check' => $timesheetId,
+        ]);
+
+        if ($artifactWasCreated) {
+            artifactWriteEvent($tenantId, $artifactId, 'timesheet.materialized', [
+                'prior_status' => null,
+                'new_status' => $artifact['status'] ?? 'draft',
+                'actor_user_id' => $context['created_by_user_id'] ?? null,
+                'payload' => [
+                    'timesheet_id' => $timesheetId,
+                    'origin_source' => $locked['origin_source'] ?? null,
+                    'origin_system' => $locked['origin_system'] ?? null,
+                ],
+            ]);
+            platformAuditLogWrite($tenantId, $context['created_by_user_id'] ?? null, 'staffing.timesheet.created', $timesheetId, [
+                'artifact_id' => $artifactId,
+                'display_id' => staffingTimesheetDisplayId($timesheetId),
+                'person_id' => (int) $locked['person_id'],
+                'period_start' => $locked['period_start'],
+                'period_end' => $locked['period_end'],
+                'source' => $locked['origin_source'] ?? null,
+                'source_system' => $locked['origin_system'] ?? null,
+            ], ['object_type' => 'staffing_timesheet', 'source' => 'staffing']);
+        }
+
+        cf_tx_commit($pdo, $ownsTxn);
+        $locked['artifact_id'] = $artifactId;
+        $locked['artifact_status'] = $artifact['status'] ?? null;
+        $locked['artifact_version'] = isset($artifact['version']) ? (int) $artifact['version'] : null;
+        return staffingTimesheetDecorate($locked);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTxn);
+        throw $e;
+    }
+}
+
+/** Find a legal path through the generic artifact lifecycle state machine. */
+function staffingTimesheetArtifactTransitionPath(string $from, string $to): array
+{
+    if ($from === $to) return [];
+    $queue = [[$from, []]];
+    $seen = [$from => true];
+    while ($queue) {
+        [$status, $path] = array_shift($queue);
+        foreach (ARTIFACT_TRANSITIONS[$status] ?? [] as $next) {
+            if (isset($seen[$next])) continue;
+            $nextPath = array_merge($path, [$next]);
+            if ($next === $to) return $nextPath;
+            $seen[$next] = true;
+            $queue[] = [$next, $nextPath];
+        }
+    }
+    throw new \RuntimeException("Artifact lifecycle cannot move from {$from} to {$to}.");
+}
+
+/** Refresh artifact payload/lifecycle and append a domain event. */
+function staffingTimesheetRecordArtifactEvent(
+    int $timesheetId,
+    string $eventType,
+    ?int $actorUserId = null,
+    array $eventPayload = [],
+    ?int $tenantId = null
+): array {
+    $tenantId = (int) ($tenantId ?? currentTenantId());
+    $header = staffingTimesheetRow($tenantId, $timesheetId);
+    if (!$header) throw new \RuntimeException("Timesheet #{$timesheetId} was not found.");
+    $header = staffingTimesheetEnsureArtifact($header, [
+        'tenant_id' => $tenantId,
+        'created_by_user_id' => $actorUserId,
     ]);
-    return scopedFind('SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]) ?? [];
+    $artifactId = (string) $header['artifact_id'];
+    $artifact = artifactGet($tenantId, $artifactId);
+    if (!$artifact) throw new \RuntimeException("Artifact {$artifactId} was not found.");
+
+    $targetStatus = staffingTimesheetArtifactStatus((string) ($header['status'] ?? 'draft'));
+    foreach (staffingTimesheetArtifactTransitionPath((string) $artifact['status'], $targetStatus) as $nextStatus) {
+        $artifact = artifactTransition($tenantId, $artifactId, $nextStatus, $actorUserId, null, [
+            'timesheet_id' => $timesheetId,
+            'timesheet_status' => $header['status'],
+        ]);
+    }
+    $artifact = artifactUpdate($tenantId, $artifactId, [
+        'title' => staffingTimesheetDisplayId($timesheetId) . ' - week of ' . $header['period_start'],
+        'payload' => staffingTimesheetArtifactPayload($header),
+    ], $actorUserId);
+    artifactWriteEvent($tenantId, $artifactId, $eventType, [
+        'prior_status' => $artifact['status'],
+        'new_status' => $artifact['status'],
+        'actor_user_id' => $actorUserId,
+        'payload' => array_merge([
+            'timesheet_id' => $timesheetId,
+            'display_id' => staffingTimesheetDisplayId($timesheetId),
+        ], $eventPayload),
+    ]);
+    platformAuditLogWrite($tenantId, $actorUserId, 'staffing.' . $eventType, $timesheetId, array_merge([
+        'artifact_id' => $artifactId,
+        'display_id' => staffingTimesheetDisplayId($timesheetId),
+    ], $eventPayload), ['object_type' => 'staffing_timesheet', 'source' => 'staffing']);
+
+    $header['artifact_status'] = $artifact['status'];
+    $header['artifact_version'] = (int) $artifact['version'];
+    return staffingTimesheetDecorate($header);
+}
+
+/**
+ * Get or create the first-class timesheet artifact for one person/week.
+ * Every ingestion path must use this function so manual, CSV, document, and
+ * integration-created weeks have identical identity and lifecycle behavior.
+ */
+function staffingTimesheetUpsert(
+    int $personId,
+    string $periodStart,
+    string $periodEnd,
+    array $context = []
+): array {
+    $tenantId = (int) ($context['tenant_id'] ?? currentTenantId());
+    if ($tenantId <= 0) throw new \RuntimeException('A tenant is required to create a timesheet.');
+    if ($personId <= 0) throw new \RuntimeException('A person is required to create a timesheet.');
+    staffingTimesheetDate($periodStart, 'period_start');
+    staffingTimesheetDate($periodEnd, 'period_end');
+    $start = new \DateTimeImmutable($periodStart);
+    $end = new \DateTimeImmutable($periodEnd);
+    if ((int) $start->diff($end)->format('%r%a') !== 6) {
+        throw new \RuntimeException('A weekly timesheet must cover exactly 7 consecutive days');
+    }
+    $source = substr(trim((string) ($context['source'] ?? 'manual_entry')), 0, 40) ?: 'manual_entry';
+    $sourceSystem = substr(trim((string) ($context['source_system'] ?? '')), 0, 80) ?: null;
+    $createdBy = isset($context['created_by_user_id']) && (int) $context['created_by_user_id'] > 0
+        ? (int) $context['created_by_user_id']
+        : null;
+    $pdo = getDB();
+    $ownsTxn = cf_tx_begin($pdo);
+    try {
+        $find = $pdo->prepare(
+            'SELECT * FROM staffing_timesheets
+              WHERE tenant_id = :tenant_id AND person_id = :person_id AND period_start = :period_start
+              LIMIT 1 FOR UPDATE'
+        );
+        $find->execute(['tenant_id' => $tenantId, 'person_id' => $personId, 'period_start' => $periodStart]);
+        $header = $find->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if (!$header) {
+            $artifactId = artifactGenerateUuid();
+            try {
+                $insert = $pdo->prepare(
+                    'INSERT INTO staffing_timesheets
+                        (tenant_id, artifact_id, person_id, period_start, period_end,
+                         status, total_hours, origin_source, origin_system,
+                         created_by_user_id, created_at, updated_at)
+                     VALUES
+                        (:tenant_id, :artifact_id, :person_id, :period_start, :period_end,
+                         "draft", 0, :origin_source, :origin_system,
+                         :created_by_user_id, NOW(), NOW())'
+                );
+                $insert->execute([
+                    'tenant_id' => $tenantId,
+                    'artifact_id' => $artifactId,
+                    'person_id' => $personId,
+                    'period_start' => $periodStart,
+                    'period_end' => $periodEnd,
+                    'origin_source' => $source,
+                    'origin_system' => $sourceSystem,
+                    'created_by_user_id' => $createdBy,
+                ]);
+                $header = staffingTimesheetRow($tenantId, (int) $pdo->lastInsertId(), true);
+            } catch (\PDOException $e) {
+                if ((string) $e->getCode() !== '23000') throw $e;
+                $find->execute(['tenant_id' => $tenantId, 'person_id' => $personId, 'period_start' => $periodStart]);
+                $header = $find->fetch(\PDO::FETCH_ASSOC) ?: null;
+            }
+        }
+        if (!$header) throw new \RuntimeException('Could not create or load the weekly timesheet.');
+        if ((string) $header['period_end'] !== $periodEnd) {
+            throw new \RuntimeException(
+                "The existing timesheet for {$periodStart} ends on {$header['period_end']}, not {$periodEnd}."
+            );
+        }
+        $header = staffingTimesheetEnsureArtifact($header, [
+            'tenant_id' => $tenantId,
+            'created_by_user_id' => $createdBy,
+        ]);
+        cf_tx_commit($pdo, $ownsTxn);
+        return staffingTimesheetDecorate($header);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTxn);
+        throw $e;
+    }
 }
 
 function staffingTimesheetFind(int $personId, string $periodStart): ?array
 {
-    return scopedFind(
+    $row = scopedFind(
         'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND person_id = :pid AND period_start = :ps LIMIT 1',
         ['pid' => $personId, 'ps' => $periodStart]
     );
+    return $row ? staffingTimesheetDecorate($row) : null;
 }
 
 /** Snapshot of a worker's week — header + grouped entries by placement × day. */
@@ -257,7 +557,10 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
 
     staffingTimesheetValidateWeek($personId, $periodStart, $periodEnd);
 
-    $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
+    $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd, [
+        'source' => 'manual_entry',
+        'created_by_user_id' => $userId,
+    ]);
     $headerId = (int) $header['id'];
 
     $pdo = getDB();
@@ -368,6 +671,10 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
             ['tid' => $headerId]
         );
         scopedUpdate('staffing_timesheets', $headerId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
+        staffingTimesheetRecordArtifactEvent($headerId, 'timesheet.entries_saved', $userId, [
+            'entry_count' => count($rows),
+            'source' => 'manual_entry',
+        ]);
 
         cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
@@ -404,6 +711,9 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
               WHERE tenant_id = :t AND timesheet_id = :tid AND status IN ('draft','rejected')"
         );
         $upd->execute(['t' => currentTenantId(), 'tid' => $headerId]);
+        staffingTimesheetRecordArtifactEvent($headerId, 'timesheet.submitted', $userId, [
+            'entry_count' => $upd->rowCount(),
+        ]);
         cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
         cf_tx_rollback($pdo, $ownsTxn);
@@ -438,6 +748,9 @@ function staffingTimesheetReject(int $userId, int $personId, string $periodStart
               WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
         );
         $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'r' => $reason]);
+        staffingTimesheetRecordArtifactEvent($headerId, 'timesheet.rejected', $userId, [
+            'reason' => $reason,
+        ]);
         cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
         cf_tx_rollback($pdo, $ownsTxn);
@@ -640,6 +953,12 @@ function staffingTimesheetApplyApproval(?int $userId, int $headerId, array $snap
             throw new \RuntimeException("Entry #{$entryId} changed while the timesheet was being approved. Refresh and try again.");
         }
     }
+    staffingTimesheetRecordArtifactEvent($headerId, 'timesheet.approved', $userId, [
+        'approved_via' => $headerVia,
+        'entry_count' => count($snapshots),
+        'external_approver_email' => $options['external_approver_email'] ?? null,
+        'approval_token_id' => $options['approval_token_id'] ?? null,
+    ], $tenantId);
 }
 
 /** Approve the whole week — cascade to rows. Two-eye control. */
@@ -738,6 +1057,10 @@ function staffingTimesheetBulkReject(int $userId, array $ids, string $reason): a
             if ($rowUpdate->rowCount() < 1) {
                 throw new \RuntimeException("Timesheet #{$headerId} has no submitted entries to reject.");
             }
+            staffingTimesheetRecordArtifactEvent($headerId, 'timesheet.rejected', $userId, [
+                'reason' => $reason,
+                'bulk' => true,
+            ]);
         }
         cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
@@ -906,6 +1229,9 @@ function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason =
                 AND status IN ('pending_review','approved','rejected','payroll_ready','billing_ready')"
         );
         $upd->execute(['t' => currentTenantId(), 'tid' => $timesheetId]);
+        staffingTimesheetRecordArtifactEvent($timesheetId, 'timesheet.reopened', $userId, [
+            'reason' => $reason !== '' ? $reason : null,
+        ]);
         cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
         cf_tx_rollback($pdo, $ownsTxn);
@@ -1030,15 +1356,16 @@ function staffingTimeEntrySave(int $userId, array $payload): array {
         ['tid' => $tsId]
     );
     scopedUpdate('staffing_timesheets', $tsId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
+    $updatedHeader = staffingTimesheetRecordArtifactEvent($tsId, 'timesheet.entry_saved', $userId, [
+        'entry_id' => $finalId,
+        'source' => 'manual_entry',
+    ]);
 
     $saved = scopedFind(
         'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
         ['id' => $finalId]
     );
-    return ['entry' => $saved, 'timesheet' => scopedFind(
-        'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
-        ['id' => $tsId]
-    )];
+    return ['entry' => $saved, 'timesheet' => $updatedHeader];
 }
 
 /** Delete a single time entry.  Auto-reopens the parent if needed. */
@@ -1066,5 +1393,8 @@ function staffingTimeEntryDelete(int $userId, int $entryId): array {
         ['tid' => $tsId]
     );
     scopedUpdate('staffing_timesheets', $tsId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
-    return ['deleted' => $entryId, 'timesheet_id' => $tsId];
+    $updatedHeader = staffingTimesheetRecordArtifactEvent($tsId, 'timesheet.entry_deleted', $userId, [
+        'entry_id' => $entryId,
+    ]);
+    return ['deleted' => $entryId, 'timesheet_id' => $tsId, 'timesheet' => $updatedHeader];
 }

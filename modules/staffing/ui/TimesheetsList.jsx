@@ -61,7 +61,7 @@ export default function TimesheetsList({ session }) {
     items, sortKey, sortDir, search, setSearch, headerProps,
   } = useTableList(rows, {
     defaultSort: { key: 'period_start', dir: 'desc' },
-    searchKeys:  ['first_name', 'last_name', 'email_primary', 'period_start', 'period_end', 'status'],
+    searchKeys:  ['display_id', 'artifact_id', 'first_name', 'last_name', 'email_primary', 'period_start', 'period_end', 'status'],
     dateKeys:    ['period_start', 'period_end', 'submitted_at', 'approved_at'],
     numericKeys: ['id', 'person_id', 'total_hours'],
   });
@@ -166,7 +166,12 @@ export default function TimesheetsList({ session }) {
           <tbody>
             {items.map(r => (
               <tr key={r.id} data-testid={`timesheets-list-row-${r.id}`}>
-                <td><code>#{r.id}</code></td>
+                <td>
+                  <code data-testid={`timesheets-list-display-id-${r.id}`}>{r.display_id || `TS-${r.id}`}</code>
+                  {Number(r.active_approval_token_count || 0) > 0 && (
+                    <div style={{ fontSize: 10, color: '#0f766e', marginTop: 3 }}>Approval link active</div>
+                  )}
+                </td>
                 <td>
                   {r.first_name || r.last_name
                     ? `${r.first_name || ''} ${r.last_name || ''}`.trim()

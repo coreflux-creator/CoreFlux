@@ -60,7 +60,7 @@ $a('list_for_placement accepts status filter',
 $a('detail_for_placement requires both id and placement_id',
     preg_match("/'GET' && \\\$action === 'detail_for_placement'[\s\S]{0,400}id required[\s\S]{0,400}placement_id required/", $api) === 1);
 $a('detail_for_placement scopes entries to one placement',
-    preg_match("/'GET' && \\\$action === 'detail_for_placement'[\s\S]{0,1400}te\\.placement_id = :plid/", $api) === 1);
+    preg_match("/'GET' && \\\$action === 'detail_for_placement'[\s\S]{0,1900}te\\.placement_id = :plid/", $api) === 1);
 $a('detail_for_placement returns aggregated placement_hours',
     preg_match("/'GET' && \\\$action === 'detail_for_placement'[\s\S]{0,2600}'placement_hours'/", $api) === 1);
 

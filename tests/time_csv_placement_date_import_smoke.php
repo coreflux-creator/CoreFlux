@@ -82,11 +82,17 @@ $assert('duplicate placement/date/type rows are rejected',
 $assert('missing periods are created automatically',
     str_contains($api, 'timeOpenPeriodIdForDate') && str_contains($api, 'timeCsvEnsurePeriod'));
 $assert('weekly staffing header is created or reused',
-    str_contains($api, 'staffingTimesheetUpsert'));
+    str_contains($api, 'staffingTimesheetUpsert')
+    && str_contains($api, "'source' => 'bulk_upload'")
+    && str_contains($api, "'source_system' => \$sourceSystem"));
 $assert('entries are linked to the staffing timesheet',
     str_contains($api, "'timesheet_id'  => \$timesheetId"));
 $assert('timesheet totals and status are refreshed',
     str_contains($api, 'timeCsvRefreshTimesheet') && str_contains($api, 'timeReconcileTimesheetHeader'));
+$assert('commit returns first-class weekly timesheet identities',
+    str_contains($api, "'timesheets'     => \$timesheetArtifacts ?? []")
+    && str_contains($api, "'display_id' => \$header['display_id']")
+    && str_contains($api, "'artifact_id' => \$header['artifact_id']"));
 $assert('repeat import supports source-row and composite matching',
     str_contains($api, 'source_system = :s AND external_id = :e')
     && str_contains($api, 'placement_id = :pl AND person_id = :p'));

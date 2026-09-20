@@ -91,6 +91,75 @@ function staffingApiEntryPersonId(int $entryId): int
     return (int) $row['person_id'];
 }
 
+/** Attach durable artifact and approval-token metadata without exposing secrets. */
+function staffingApiEnrichTimesheetRows(array $rows, int $tenantId): array
+{
+    if (!$rows) return [];
+    $timesheetIds = [];
+    $artifactIds = [];
+    foreach ($rows as &$row) {
+        if (!empty($row['id'])) {
+            $row['display_id'] = staffingTimesheetDisplayId((int) $row['id']);
+            $timesheetIds[] = (int) $row['id'];
+        }
+        if (!empty($row['artifact_id'])) $artifactIds[] = (string) $row['artifact_id'];
+        $row['approval_token_count'] = 0;
+        $row['active_approval_token_count'] = 0;
+        $row['latest_approval_token_expires_at'] = null;
+        $row['approval_token_capable'] = !empty($row['artifact_id']);
+    }
+    unset($row);
+
+    $artifacts = [];
+    $artifactIds = array_values(array_unique($artifactIds));
+    if ($artifactIds) {
+        $holders = implode(',', array_fill(0, count($artifactIds), '?'));
+        $stmt = getDB()->prepare(
+            "SELECT id, status, version FROM artifact_objects WHERE tenant_id = ? AND id IN ({$holders})"
+        );
+        $stmt->execute(array_merge([$tenantId], $artifactIds));
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $artifact) {
+            $artifacts[(string) $artifact['id']] = $artifact;
+        }
+    }
+
+    $tokens = [];
+    $timesheetIds = array_values(array_unique($timesheetIds));
+    if ($timesheetIds) {
+        $holders = implode(',', array_fill(0, count($timesheetIds), '?'));
+        $stmt = getDB()->prepare(
+            "SELECT subject_id,
+                    COUNT(*) AS token_count,
+                    SUM(consumed_at IS NULL AND expires_at >= NOW()) AS active_token_count,
+                    MAX(expires_at) AS latest_expires_at
+               FROM approval_tokens
+              WHERE tenant_id = ? AND subject_type = 'staffing_timesheet'
+                AND subject_id IN ({$holders})
+              GROUP BY subject_id"
+        );
+        $stmt->execute(array_merge([$tenantId], $timesheetIds));
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $token) {
+            $tokens[(int) $token['subject_id']] = $token;
+        }
+    }
+
+    foreach ($rows as &$row) {
+        $artifact = $artifacts[(string) ($row['artifact_id'] ?? '')] ?? null;
+        if ($artifact) {
+            $row['artifact_status'] = $artifact['status'];
+            $row['artifact_version'] = (int) $artifact['version'];
+        }
+        $token = $tokens[(int) ($row['id'] ?? 0)] ?? null;
+        if ($token) {
+            $row['approval_token_count'] = (int) $token['token_count'];
+            $row['active_approval_token_count'] = (int) $token['active_token_count'];
+            $row['latest_approval_token_expires_at'] = $token['latest_expires_at'];
+        }
+    }
+    unset($row);
+    return $rows;
+}
+
 if ($action === 'settings') {
     if ($method === 'GET') {
         api_require_legacy_permission($ctx, 'staffing.time.view');
@@ -130,8 +199,9 @@ if ($method === 'GET' && $action === 'week') {
     staffingApiRequirePersonRead($ctx, $personId);
 
     $snap = staffingTimesheetWeek($personId, $periodStart, $periodEnd);
+    $enriched = staffingApiEnrichTimesheetRows([$snap['timesheet']], $tenantId);
     api_ok([
-        'timesheet' => $snap['timesheet'],
+        'timesheet' => $enriched[0] ?? $snap['timesheet'],
         'entries'   => $snap['entries'],
         'settings'  => staffingSettings(),
     ]);
@@ -161,7 +231,9 @@ if ($method === 'GET' && $action === 'list') {
     $whereSql = implode(' AND ', $where);
 
     $rows = scopedQuery(
-        "SELECT t.id, t.person_id, t.worker_user_id, t.period_start, t.period_end, t.status,
+        "SELECT t.id, t.artifact_id, t.person_id, t.worker_user_id,
+                t.period_start, t.period_end, t.status,
+                t.origin_source, t.origin_system, t.created_by_user_id,
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                 p.first_name, p.last_name, p.email_primary,
                 CASE WHEN t.worker_user_id = :reviewer_user_id THEN 1 ELSE 0 END AS worker_is_reviewer,
@@ -202,7 +274,7 @@ if ($method === 'GET' && $action === 'list') {
             'rates_tid' => $placementsTenantId,
         ])
     );
-    api_ok(['rows' => $rows]);
+    api_ok(['rows' => staffingApiEnrichTimesheetRows($rows, $tenantId)]);
 }
 
 if ($method === 'GET' && $action === 'prefill_from_last_week') {
@@ -268,7 +340,8 @@ if ($method === 'GET' && $action === 'detail') {
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $header = scopedFind(
-        'SELECT t.id, t.person_id, t.period_start, t.period_end, t.status,
+        'SELECT t.id, t.artifact_id, t.person_id, t.period_start, t.period_end, t.status,
+                t.origin_source, t.origin_system, t.created_by_user_id,
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                 t.created_at, t.updated_at,
                 p.first_name, p.last_name, p.email_primary
@@ -292,7 +365,8 @@ if ($method === 'GET' && $action === 'detail') {
           ORDER BY te.work_date, te.placement_id, te.id",
         ['tid' => $id, 'placements_tid' => $placementsTenantId]
     );
-    api_ok(['timesheet' => $header, 'entries' => $entries]);
+    $enriched = staffingApiEnrichTimesheetRows([$header], $tenantId);
+    api_ok(['timesheet' => $enriched[0] ?? $header, 'entries' => $entries]);
 }
 
 // ─── Placement-scoped timesheets list (Batch 2 — 2026-02) ──────────────
@@ -312,7 +386,8 @@ if ($method === 'GET' && $action === 'list_for_placement') {
     $whereSql = implode(' AND ', $where);
 
     $rows = scopedQuery(
-        "SELECT t.id, t.person_id, t.period_start, t.period_end, t.status,
+        "SELECT t.id, t.artifact_id, t.person_id, t.period_start, t.period_end, t.status,
+                t.origin_source, t.origin_system, t.created_by_user_id,
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                 p.first_name, p.last_name, p.email_primary,
                 SUM(te.hours) AS placement_hours,
@@ -334,7 +409,10 @@ if ($method === 'GET' && $action === 'list_for_placement') {
           LIMIT 500",
         array_merge($params, ['people_tid' => $peopleTenantId])
     );
-    api_ok(['rows' => $rows, 'placement_id' => $placementId]);
+    api_ok([
+        'rows' => staffingApiEnrichTimesheetRows($rows, $tenantId),
+        'placement_id' => $placementId,
+    ]);
 }
 
 // ─── Placement-scoped single-timesheet detail (Batch 2 — 2026-02) ──────
@@ -348,7 +426,8 @@ if ($method === 'GET' && $action === 'detail_for_placement') {
     if ($id <= 0)          api_error('id required', 400);
     if ($placementId <= 0) api_error('placement_id required', 400);
     $header = scopedFind(
-        'SELECT t.id, t.person_id, t.period_start, t.period_end, t.status,
+        'SELECT t.id, t.artifact_id, t.person_id, t.period_start, t.period_end, t.status,
+                t.origin_source, t.origin_system, t.created_by_user_id,
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                 p.first_name, p.last_name, p.email_primary
            FROM staffing_timesheets t
@@ -375,8 +454,9 @@ if ($method === 'GET' && $action === 'detail_for_placement') {
     // Per-placement total so the UI can show "8h of 40h total for this person"
     $plHours = 0.0;
     foreach ($entries as $e) $plHours += (float) $e['hours'];
+    $enriched = staffingApiEnrichTimesheetRows([$header], $tenantId);
     api_ok([
-        'timesheet'           => $header,
+        'timesheet'           => $enriched[0] ?? $header,
         'entries'             => $entries,
         'placement_id'        => $placementId,
         'placement_hours'     => $plHours,
@@ -438,7 +518,8 @@ if ($method === 'GET' && $action === 'list_for_person') {
     staffingApiRequirePersonRead($ctx, $personId);
     $limit = max(1, min(200, (int) ($_GET['limit'] ?? 50)));
     $rows = scopedQuery(
-        "SELECT t.id, t.person_id, t.period_start, t.period_end, t.status,
+        "SELECT t.id, t.artifact_id, t.person_id, t.period_start, t.period_end, t.status,
+                t.origin_source, t.origin_system, t.created_by_user_id,
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                 p.first_name, p.last_name, p.email_primary
            FROM staffing_timesheets t
@@ -448,7 +529,10 @@ if ($method === 'GET' && $action === 'list_for_person') {
           LIMIT {$limit}",
         ['pid' => $personId, 'people_tid' => $peopleTenantId]
     );
-    api_ok(['rows' => $rows, 'person_id' => $personId]);
+    api_ok([
+        'rows' => staffingApiEnrichTimesheetRows($rows, $tenantId),
+        'person_id' => $personId,
+    ]);
 }
 
 // ─── Bulk-save a set of entries (used by the "select rows + edit batch"

@@ -637,10 +637,14 @@ function cf_self_heal_known_column(string $colRef): bool {
             'payable'               => 'ADD COLUMN payable TINYINT(1) NOT NULL DEFAULT 1',
         ],
         'staffing_timesheets' => [
+            'artifact_id'             => 'ADD COLUMN artifact_id CHAR(36) NULL AFTER id',
             'approved_via'            => "ADD COLUMN approved_via VARCHAR(32) NOT NULL DEFAULT 'internal_app'",
             'external_approver_email' => 'ADD COLUMN external_approver_email VARCHAR(255) NULL',
             'external_approver_name'  => 'ADD COLUMN external_approver_name VARCHAR(255) NULL',
             'approval_note'           => 'ADD COLUMN approval_note VARCHAR(1000) NULL',
+            'origin_source'           => "ADD COLUMN origin_source VARCHAR(40) NOT NULL DEFAULT 'manual_entry' AFTER workflow_instance_id",
+            'origin_system'           => 'ADD COLUMN origin_system VARCHAR(80) NULL AFTER origin_source',
+            'created_by_user_id'      => 'ADD COLUMN created_by_user_id BIGINT UNSIGNED NULL AFTER origin_system',
         ],
         'payroll_runs' => [
             'created_by_user_id'   => 'ADD COLUMN created_by_user_id INT UNSIGNED NULL AFTER run_type',
