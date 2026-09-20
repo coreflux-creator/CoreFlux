@@ -264,6 +264,39 @@ function jobdivaAssignmentCanonicalPlacementStatus(
     ];
 }
 
+/**
+ * Apply source lifecycle evidence without moving a placement that has
+ * already started backward from active to pending_start. JobDiva can leave
+ * ACTUALSTART blank on otherwise current assignments, so pending evidence is
+ * not authoritative once CoreFlux has an active placement whose start date
+ * has arrived. Terminal and on-hold source states remain authoritative.
+ *
+ * @return array{status:string,reason:string,source_status:string}
+ */
+function jobdivaAssignmentPlacementStatusForWrite(
+    string $rawStatus,
+    ?string $startDate = null,
+    ?string $endDate = null,
+    ?string $currentStatus = null,
+    ?string $today = null
+): array {
+    $lifecycle = jobdivaAssignmentCanonicalPlacementStatus($rawStatus, $endDate, $today);
+    $today = trim((string) $today) !== '' ? (string) $today : date('Y-m-d');
+    $startDate = trim((string) $startDate);
+    $currentStatus = strtolower(trim((string) $currentStatus));
+    $started = preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate) === 1
+        && $startDate <= $today;
+
+    if (($lifecycle['status'] ?? '') === 'pending_start'
+        && $currentStatus === 'active'
+        && $started) {
+        $lifecycle['status'] = 'active';
+        $lifecycle['reason'] = 'preserve_started_active';
+    }
+
+    return $lifecycle;
+}
+
 function jobdivaAssignmentContextEvidence(array $assignment, array $placement): array
 {
     $assignmentEvidence = jobdivaAssignmentStructuralEvidence($assignment);

@@ -1845,9 +1845,11 @@ function _jobdivaMappingStaleActivePlacementRows(\PDO $pdo, int $tenantId, int $
                 'employeeStatus', 'employee_status',
             ])
             : '';
-        $lifecycle = jobdivaAssignmentCanonicalPlacementStatus(
+        $lifecycle = jobdivaAssignmentPlacementStatusForWrite(
             $sourceStatus,
-            (string) ($row['end_date'] ?? '')
+            (string) ($row['start_date'] ?? ''),
+            (string) ($row['end_date'] ?? ''),
+            (string) ($row['status'] ?? '')
         );
         $desired = (string) ($lifecycle['status'] ?? 'active');
         if ($desired === 'active') continue;

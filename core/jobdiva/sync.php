@@ -6501,7 +6501,23 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     if (!empty($assignmentContract['placement_status'])) {
         $statusRaw = (string) $assignmentContract['placement_status'];
     }
-    $placementLifecycle = jobdivaAssignmentCanonicalPlacementStatus($statusRaw, $endDateNorm);
+    $currentStatus = null;
+    if ($existingId > 0) {
+        $currentStatusStmt = $pdo->prepare(
+            'SELECT status FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
+        );
+        $currentStatusStmt->execute(['t' => $tid, 'id' => $existingId]);
+        $currentStatusValue = $currentStatusStmt->fetchColumn();
+        if ($currentStatusValue !== false) {
+            $currentStatus = (string) $currentStatusValue;
+        }
+    }
+    $placementLifecycle = jobdivaAssignmentPlacementStatusForWrite(
+        $statusRaw,
+        $startDate,
+        $endDateNorm,
+        $currentStatus
+    );
     $status = (string) $placementLifecycle['status'];
 
     // -----------------------------------------------------------------

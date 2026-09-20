@@ -32,6 +32,30 @@ $assert('paused Start becomes on_hold', $status('On Hold', '2026-12-31') === 'on
 $assert('past end date overrides an otherwise active status', $status('Active', '2026-08-18') === 'ended');
 $assert('unknown current source status remains active', $status('Custom Current', '2026-12-31') === 'active');
 
+$writeStatus = static fn(
+    string $raw,
+    ?string $start,
+    ?string $end,
+    ?string $current
+): array => jobdivaAssignmentPlacementStatusForWrite(
+    $raw,
+    $start,
+    $end,
+    $current,
+    '2026-08-19'
+);
+$assert('past-start active placement cannot roll backward to pending_start',
+    ($writeStatus('Offer Accepted', '2026-08-01', '2026-12-31', 'active')['status'] ?? '') === 'active'
+    && ($writeStatus('Offer Accepted', '2026-08-01', '2026-12-31', 'active')['reason'] ?? '') === 'preserve_started_active');
+$assert('future active placement can return to pending_start when the source says it has not started',
+    ($writeStatus('Offer Accepted', '2026-09-01', '2026-12-31', 'active')['status'] ?? '') === 'pending_start');
+$assert('new past-start placement still follows pending source evidence',
+    ($writeStatus('Offer Accepted', '2026-08-01', '2026-12-31', null)['status'] ?? '') === 'pending_start');
+$assert('terminal and hold evidence still change an established active placement',
+    ($writeStatus('Completed', '2026-08-01', '2026-12-31', 'active')['status'] ?? '') === 'ended'
+    && ($writeStatus('Cancelled', '2026-08-01', '2026-12-31', 'active')['status'] ?? '') === 'cancelled'
+    && ($writeStatus('On Hold', '2026-08-01', '2026-12-31', 'active')['status'] ?? '') === 'on_hold');
+
 $alignment = (string) file_get_contents($root . '/core/jobdiva/mapping_alignment.php');
 $api = (string) file_get_contents($root . '/api/admin/integrations/jobdiva_mapping_alignment.php');
 $sync = (string) file_get_contents($root . '/core/jobdiva/sync_placements.php');
@@ -68,6 +92,13 @@ $assert('later verified current Starts restore archived placement rows in place'
         && str_contains($placementSync, "\$assignments[] = 'deleted_at = NULL';")
         && str_contains($placementSync, "'person_id' => \$isRestore ? 0")
         && str_contains($placementSync, "'placements_restored' => 0"));
+$assert('placement refresh protects an already-started active assignment from pending rollback',
+    str_contains($placementSync, 'jobdivaAssignmentPlacementStatusForWrite(')
+        && str_contains($placementSync, '$currentStatus'));
+$assert('alignment repair uses the same transition-aware lifecycle rule',
+    str_contains($alignment, 'jobdivaAssignmentPlacementStatusForWrite(')
+        && str_contains($alignment, "(string) (\$row['start_date'] ?? '')")
+        && str_contains($alignment, "(string) (\$row['status'] ?? '')"));
 $assert('People directory defaults to current records but retains All statuses',
     str_contains($directory, "const [status, setStatus] = useState('active');")
         && str_contains($directory, "'': 'All statuses'")
