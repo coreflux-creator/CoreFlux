@@ -46,7 +46,8 @@ const ARTIFACT_TRANSITIONS = [
  * @param int    $tenantId
  * @param string $artifactType  e.g. 'close_packet', 'reconciliation'
  * @param array  $opts          {
- *     title?, sub_tenant_id?, source_module?, source_record_type?,
+ *     id? (caller-supplied canonical UUID), title?, sub_tenant_id?,
+ *     source_module?, source_record_type?,
  *     source_record_id?, payload?, storage_uri?, storage_bytes?,
  *     storage_mime?, created_by_user_id?, created_by_ai_run?,
  *     initial_status? (defaults to 'draft')
@@ -59,7 +60,12 @@ function artifactCreate(int $tenantId, string $artifactType, array $opts = []): 
     if ($artifactType === '')  throw new \InvalidArgumentException('artifactType required');
 
     $pdo  = getDB();
-    $id   = artifactGenerateUuid();
+    $id   = strtolower(trim((string) ($opts['id'] ?? '')));
+    if ($id === '') {
+        $id = artifactGenerateUuid();
+    } elseif (!preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/', $id)) {
+        throw new \InvalidArgumentException('id must be a valid UUID');
+    }
     $status = (string) ($opts['initial_status'] ?? 'draft');
     if (!array_key_exists($status, ARTIFACT_TRANSITIONS)) {
         throw new \InvalidArgumentException("initial_status '{$status}' is not a valid lifecycle state");

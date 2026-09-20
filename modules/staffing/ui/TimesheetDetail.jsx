@@ -341,7 +341,7 @@ export default function TimesheetDetail({ session }) {
           <button type="button" className="btn btn--ghost" onClick={() => nav('..')}
                   data-testid="timesheet-detail-back">← Timesheets</button>
           <h2 style={{ margin: '8px 0 4px' }} data-testid="timesheet-detail-title">
-            Timesheet #{ts.id}
+            Timesheet {ts.display_id || `TS-${ts.id}`}
             {placementId && <span style={{ fontSize: 14, color: '#666', marginLeft: 8 }}>
               · placement {placementId} only ({Number(data.placement_hours || 0).toFixed(2)}h)
             </span>}
@@ -359,6 +359,16 @@ export default function TimesheetDetail({ session }) {
               </span>
             )}
           </p>
+          {ts.artifact_id && (
+            <p style={{ color: '#64748b', fontSize: 11, margin: '5px 0 0' }} data-testid="timesheet-detail-artifact-meta">
+              <span title={`Artifact ${ts.artifact_id}`}>Tracked record</span>
+              {ts.artifact_version ? <> · version {ts.artifact_version}</> : null}
+              {ts.origin_source ? <> · {String(ts.origin_source).replaceAll('_', ' ')}</> : null}
+              {Number(ts.active_approval_token_count || 0) > 0
+                ? <> · approval link active through {fmtDateTime(ts.latest_approval_token_expires_at)}</>
+                : null}
+            </p>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {/* Always offer the weekly-grid edit option, but ANCHORED on

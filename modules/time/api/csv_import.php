@@ -305,9 +305,12 @@ function timeCsvEnsurePeriod(string $workDate, array $bounds): int
     return timeOpenPeriodIdForDate($workDate);
 }
 
-function timeCsvRefreshTimesheet(int $timesheetId, int $userId): void
+function timeCsvRefreshTimesheet(int $timesheetId, int $userId): array
 {
     timeReconcileTimesheetHeader($timesheetId);
+    return staffingTimesheetRecordArtifactEvent($timesheetId, 'timesheet.entries_imported', $userId, [
+        'source' => 'bulk_upload',
+    ]);
 }
 
 function timeCsvReferenceRows(): array
@@ -590,7 +593,11 @@ if ($method === 'POST' && $action === 'commit') {
                 }
 
                 $periodId = timeCsvEnsurePeriod($workDate, $bounds);
-                $timesheet = staffingTimesheetUpsert($personId, $bounds['start'], $bounds['end']);
+                $timesheet = staffingTimesheetUpsert($personId, $bounds['start'], $bounds['end'], [
+                    'source' => 'bulk_upload',
+                    'source_system' => $sourceSystem,
+                    'created_by_user_id' => $user['id'] ?? null,
+                ]);
                 $timesheetId = (int) $timesheet['id'];
                 if (($timesheet['status'] ?? '') === 'locked') {
                     throw new RuntimeException("The week of {$bounds['start']} is locked");
@@ -659,6 +666,7 @@ if ($method === 'POST' && $action === 'commit') {
                 'errors'         => $errors,
                 'ids'            => [],
                 'timesheet_ids'  => [],
+                'timesheets'     => [],
                 'message'        => 'No rows were imported because one or more rows failed business validation.',
             ];
             timeAudit('time.bulk.uploaded', [
@@ -671,8 +679,19 @@ if ($method === 'POST' && $action === 'commit') {
             api_ok($result);
         }
 
+        $timesheetArtifacts = [];
         foreach (array_keys($touchedTimesheets) as $timesheetId) {
-            timeCsvRefreshTimesheet((int) $timesheetId, (int) ($user['id'] ?? 0));
+            $header = timeCsvRefreshTimesheet((int) $timesheetId, (int) ($user['id'] ?? 0));
+            $timesheetArtifacts[] = [
+                'id' => (int) $header['id'],
+                'display_id' => $header['display_id'],
+                'artifact_id' => $header['artifact_id'],
+                'status' => $header['status'],
+                'period_start' => $header['period_start'],
+                'period_end' => $header['period_end'],
+                'person_id' => (int) $header['person_id'],
+                'approval_token_capable' => true,
+            ];
         }
         cf_tx_commit($pdo, $ownsTxn);
     } catch (Throwable $e) {
@@ -686,6 +705,7 @@ if ($method === 'POST' && $action === 'commit') {
         'errors'         => $errors,
         'ids'            => $ids,
         'timesheet_ids'  => array_map('intval', array_keys($touchedTimesheets)),
+        'timesheets'     => $timesheetArtifacts ?? [],
     ];
     timeAudit('time.bulk.uploaded', [
         'entries_count'   => $imported,

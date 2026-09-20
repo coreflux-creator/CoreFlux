@@ -86,6 +86,8 @@ jobs:
             assets/css/styles.css \
             auditor.php \
             core/ModuleRegistry.php \
+            core/audit.php \
+            core/ai/artifacts.php \
             core/api_bootstrap.php \
             core/api_router.php \
             core/payment_rails.php \
@@ -103,6 +105,7 @@ jobs:
             core/domain_people_graph.php \
             core/modules.php \
             core/people_graph.php \
+            core/jobdiva/sync_time.php \
             core/migrate.php \
             core/posting_engine/formula.php \
             core/posting_engine/process.php \
@@ -113,6 +116,7 @@ jobs:
             core/seeds/posting_rules_seed_all.php \
             core/storage_register.php \
             core/staffing_email_approval.php \
+            core/tx_helpers.php \
             core/treasury/liquidity_projection.php \
             core/workflow_engine.php \
             core/mail/M365GraphDriver.php \
@@ -317,6 +321,7 @@ jobs:
             modules/staffing/api/csv_export.php \
             modules/staffing/api/timesheets.php \
             modules/staffing/lib/timesheets.php \
+            modules/staffing/migrations/001_timesheets.sql \
             modules/staffing/migrations/004_external_approver_columns.sql \
             modules/staffing/ui/StaffingApprovals.jsx \
             modules/staffing/ui/TimesheetDetail.jsx \
@@ -375,6 +380,7 @@ jobs:
             core/migrations/141_payroll_module_access_backfill.sql \
             core/migrations/142_ai_suggestion_source_compat.sql \
             core/migrations/143_export_template_system_dedup.sql \
+            core/migrations/144_staffing_timesheet_artifacts.sql \
             scripts/ap_weekly_queue_sunday.php \
             scripts/billing_recurring_generate.php \
             scripts/opcache_flush_deploy.php.template \
@@ -473,6 +479,7 @@ jobs:
             tests/staffing_email_approval_smoke.php \
             tests/staffing_bulk_timesheet_approval_smoke.php \
             tests/staffing_shell_and_weekly_timesheet_smoke.php \
+            tests/timesheet_first_class_artifact_smoke.php \
             tests/sweep_destination_ui_and_divergence_smoke.php \
             tests/time_entry_approved_audit_smoke.php \
             tests/time_intake_smoke.php \
@@ -544,6 +551,8 @@ jobs:
             test -f "$STAGE_ROOT/tests/csv_interactive_mapping_smoke.php"
             test -f "$STAGE_ROOT/core/migrations/003_mail_service.sql"
             test -f "$STAGE_ROOT/core/migrations/103_ap_payments_method_mercury.sql"
+            test -f "$STAGE_ROOT/core/migrations/144_staffing_timesheet_artifacts.sql"
+            test -f "$STAGE_ROOT/tests/timesheet_first_class_artifact_smoke.php"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
@@ -575,6 +584,8 @@ jobs:
               api/treasury_payments.php \
               api/treasury_transfers.php \
               core/ModuleRegistry.php \
+              core/audit.php \
+              core/ai/artifacts.php \
               core/api_bootstrap.php \
               core/api_router.php \
               core/export_datasets.php \
@@ -583,12 +594,14 @@ jobs:
               core/ai_agents.php \
               core/financial_state_cache.php \
               core/domain_people_graph.php \
+              core/jobdiva/sync_time.php \
               core/people_graph.php \
               core/posting_engine/formula.php \
               core/posting_engine/process.php \
               core/posting_engine/seed_defaults.php \
               core/rbac/legacy_map.php \
               core/staffing_email_approval.php \
+              core/tx_helpers.php \
               core/seeds/event_registry_seed.php \
               core/seeds/posting_rules_seed_all.php \
               core/storage_register.php \
@@ -652,6 +665,7 @@ jobs:
               modules/reports/api/overtime_watch.php \
               modules/reports/lib/staffing_metrics.php \
               modules/staffing/api/timesheets.php \
+              modules/staffing/api/timesheet_email_approver.php \
               modules/staffing/lib/timesheets.php \
               modules/time/api/csv_import.php \
               modules/time/api/entries.php \
@@ -670,6 +684,7 @@ jobs:
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/140_staffing_client_catalog_integrity.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/141_payroll_module_access_backfill.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/143_export_template_system_dedup.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/144_staffing_timesheet_artifacts.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/006_run_enterprise_controls.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/007_accounting_posting.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/ap/migrations/020_payment_entity_scope.sql'
@@ -765,6 +780,7 @@ jobs:
             php tests/staffing_email_approval_smoke.php
             php tests/staffing_bulk_timesheet_approval_smoke.php
             php tests/staffing_shell_and_weekly_timesheet_smoke.php
+            php tests/timesheet_first_class_artifact_smoke.php
             php tests/sweep_destination_ui_and_divergence_smoke.php
             php tests/time_entry_approved_audit_smoke.php
             php tests/time_intake_smoke.php

@@ -133,12 +133,20 @@ function timeApiAssertPeriodAcceptsDraft(string $workDate): void
     }
 }
 
-function timeApiEnsureDraftTimesheet(int $personId, string $workDate, int $userId): int
+function timeApiEnsureDraftTimesheet(
+    int $personId,
+    string $workDate,
+    int $userId,
+    string $source = 'manual_entry'
+): int
 {
     [$start, $end] = timeApiWeekBounds($workDate);
     $header = staffingTimesheetFind($personId, $start);
     if (!$header) {
-        $header = staffingTimesheetUpsert($personId, $start, $end);
+        $header = staffingTimesheetUpsert($personId, $start, $end, [
+            'source' => $source,
+            'created_by_user_id' => $userId,
+        ]);
     } elseif (in_array((string) ($header['status'] ?? ''), ['submitted', 'rejected'], true)) {
         $header = staffingTimesheetReopen($userId, (int) $header['id'], 'new draft time added');
     }
@@ -205,7 +213,8 @@ function timeApiInsertNewEntry(array $entry, array $user, bool $batch = false): 
     $timesheetId = timeApiEnsureDraftTimesheet(
         (int) $entry['person_id'],
         (string) $entry['work_date'],
-        (int) ($user['id'] ?? 0)
+        (int) ($user['id'] ?? 0),
+        (string) ($entry['source'] ?? 'manual_entry')
     );
     $id = scopedInsert('time_entries', [
         'placement_id' => $entry['placement_id'],
@@ -234,11 +243,18 @@ function timeApiInsertNewEntry(array $entry, array $user, bool $batch = false): 
     return ['id' => $id, 'timesheet_id' => $timesheetId];
 }
 
-function timeApiSyncTimesheetTotals(array $timesheetIds): void
+function timeApiSyncTimesheetTotals(
+    array $timesheetIds,
+    ?int $actorUserId = null,
+    string $source = 'manual_entry'
+): void
 {
     foreach (array_values(array_unique(array_map('intval', $timesheetIds))) as $timesheetId) {
         if ($timesheetId <= 0) continue;
         timeReconcileTimesheetHeader($timesheetId);
+        staffingTimesheetRecordArtifactEvent($timesheetId, 'timesheet.entries_saved', $actorUserId, [
+            'source' => $source,
+        ]);
     }
 }
 
@@ -325,7 +341,11 @@ if ($method === 'POST' && $action !== '') {
                 $created[] = $saved;
                 $timesheetIds[] = (int) $saved['timesheet_id'];
             }
-            timeApiSyncTimesheetTotals($timesheetIds);
+            timeApiSyncTimesheetTotals(
+                $timesheetIds,
+                (int) ($user['id'] ?? 0),
+                $documentId > 0 ? 'document_import' : 'bulk_create'
+            );
             if ($documentId > 0) {
                 $consume = $pdo->prepare(
                     'UPDATE time_uploaded_documents
@@ -545,7 +565,11 @@ if ($method === 'POST') {
             throw new \RuntimeException('Total hours across all entries for this person on this date would exceed 24');
         }
         $saved = timeApiInsertNewEntry($entry, $user);
-        timeApiSyncTimesheetTotals([(int) $saved['timesheet_id']]);
+        timeApiSyncTimesheetTotals(
+            [(int) $saved['timesheet_id']],
+            (int) ($user['id'] ?? 0),
+            (string) ($entry['source'] ?? 'manual_entry')
+        );
         $pdo->commit();
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();

@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/approval_tokens.php';
+require_once __DIR__ . '/../modules/staffing/lib/timesheets.php';
 
 /**
  * Mint a pair of single-use approve+reject tokens for an external manager
@@ -145,7 +146,6 @@ function staffingEmailApprovalConsume(string $rawToken, string $action, ?string 
         }
 
         if ($newStatus === 'approved') {
-            require_once __DIR__ . '/../modules/staffing/lib/timesheets.php';
             $snapshots = staffingTimesheetApprovalPlan(null, $header, $tenantId);
             staffingTimesheetApplyApproval(null, $headerId, $snapshots, [
                 'tenant_id' => $tenantId,
@@ -153,6 +153,7 @@ function staffingEmailApprovalConsume(string $rawToken, string $action, ?string 
                 'entry_approved_via' => 'tokenized_client_email',
                 'external_approver_email' => $approverEmail,
                 'approval_note' => $note !== '' ? $note : null,
+                'approval_token_id' => (int) $row['id'],
             ]);
         } else {
             $reason = $note !== '' ? $note : 'Rejected by external approver';
@@ -194,6 +195,12 @@ function staffingEmailApprovalConsume(string $rawToken, string $action, ?string 
             if ($entryUpdate->rowCount() < 1) {
                 throw new \RuntimeException('This timesheet has no submitted entries to reject.');
             }
+            staffingTimesheetRecordArtifactEvent($headerId, 'timesheet.rejected', null, [
+                'reason' => $reason,
+                'approved_via' => 'external_email',
+                'approval_token_id' => (int) $row['id'],
+                'external_approver_email' => $approverEmail,
+            ], $tenantId);
         }
 
         $consume = $pdo->prepare(
@@ -210,6 +217,26 @@ function staffingEmailApprovalConsume(string $rawToken, string $action, ?string 
         if ($consume->rowCount() !== 1) {
             throw new \RuntimeException('This approval link was used in another session.');
         }
+        $closeSiblings = $pdo->prepare(
+            "UPDATE approval_tokens
+                SET consumed_at = NOW(), consumed_via_action = 'superseded'
+              WHERE tenant_id = :tenant_id
+                AND subject_type = 'staffing_timesheet'
+                AND subject_id = :subject_id
+                AND id != :token_id
+                AND consumed_at IS NULL"
+        );
+        $closeSiblings->execute([
+            'tenant_id' => $tenantId,
+            'subject_id' => $headerId,
+            'token_id' => (int) $row['id'],
+        ]);
+        staffingTimesheetRecordArtifactEvent($headerId, 'timesheet.approval_token_consumed', null, [
+            'approval_token_id' => (int) $row['id'],
+            'action' => $action,
+            'external_approver_email' => $approverEmail,
+            'sibling_tokens_closed' => $closeSiblings->rowCount(),
+        ], $tenantId);
         $pdo->commit();
     } catch (\PDOException $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -242,7 +269,6 @@ function staffingEmailApprovalConsume(string $rawToken, string $action, ?string 
     // Best-effort: emit accounting event so the GL gets the labor entry.
     if ($newStatus === 'approved') {
         try {
-            require_once __DIR__ . '/../modules/staffing/lib/timesheets.php';
             staffingEmitWorkerHoursApprovedEvent($tenantId, $headerId);
         } catch (\Throwable $e) {
             error_log("[staffing-email-approval] accounting emit failed: " . $e->getMessage());
