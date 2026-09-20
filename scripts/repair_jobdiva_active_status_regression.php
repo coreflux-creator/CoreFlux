@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../core/db.php';
+require_once __DIR__ . '/../core/jobdiva/assignment_contract.php';
 
 $tenantId = isset($argv[1]) ? (int) $argv[1] : 0;
 $rawIds = trim((string) ($argv[2] ?? ''));
@@ -53,11 +54,20 @@ try {
     $selectParams = ['tenant_id' => $tenantId];
     $selectIn = $bindIds($placementIds, 'placement_', $selectParams);
     $select = $pdo->prepare(
-        "SELECT id, status, external_id, start_date, end_date, actual_end_date, deleted_at
-           FROM placements
-          WHERE tenant_id = :tenant_id
-            AND id IN ({$selectIn})
-       ORDER BY id ASC
+        "SELECT p.id, p.status, p.external_id, p.start_date, p.end_date,
+                p.actual_end_date, p.deleted_at,
+                (SELECT m.payload_snapshot
+                   FROM external_entity_mappings m
+                  WHERE m.tenant_id = p.tenant_id
+                    AND m.internal_entity_type = 'placement'
+                    AND m.internal_entity_id = p.id
+                    AND m.source_system = 'jobdiva'
+               ORDER BY m.id DESC
+                  LIMIT 1) AS payload_snapshot
+           FROM placements p
+          WHERE p.tenant_id = :tenant_id
+            AND p.id IN ({$selectIn})
+       ORDER BY p.id ASC
             FOR UPDATE"
     );
     $select->execute($selectParams);
@@ -72,21 +82,42 @@ try {
     }
 
     $eligibleIds = [];
+    $pendingRestoreIds = [];
+    $sourceActiveEndedRestoreIds = [];
+    $restoreReasons = [];
     foreach ($rows as $row) {
         $deletedAt = trim((string) ($row['deleted_at'] ?? ''));
         $startDate = trim((string) ($row['start_date'] ?? ''));
+        $actualEndDate = trim((string) ($row['actual_end_date'] ?? ''));
         $effectiveEndDate = trim((string) ($row['actual_end_date'] ?? ''));
         if ($effectiveEndDate === '') {
             $effectiveEndDate = trim((string) ($row['end_date'] ?? ''));
         }
-        $eligible = (string) ($row['status'] ?? '') === 'pending_start'
-            && str_starts_with((string) ($row['external_id'] ?? ''), 'jd:')
+        $baseEligible = str_starts_with((string) ($row['external_id'] ?? ''), 'jd:')
             && ($deletedAt === '' || $deletedAt === '0000-00-00 00:00:00')
             && preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate) === 1
             && $startDate <= $today
             && ($effectiveEndDate === '' || $effectiveEndDate >= $today);
-        if ($eligible) {
-            $eligibleIds[] = (int) $row['id'];
+
+        $placementId = (int) $row['id'];
+        $status = (string) ($row['status'] ?? '');
+        if ($baseEligible && $status === 'pending_start') {
+            $eligibleIds[] = $placementId;
+            $pendingRestoreIds[] = $placementId;
+            $restoreReasons[(string) $placementId] = 'started_assignment_demoted_to_pending_start';
+            continue;
+        }
+
+        $payload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
+        $sourceStronglyActive = is_array($payload)
+            && jobdivaAssignmentContractSnapshotIsStronglyActive($payload);
+        if ($baseEligible
+            && $status === 'ended'
+            && $actualEndDate === ''
+            && $sourceStronglyActive) {
+            $eligibleIds[] = $placementId;
+            $sourceActiveEndedRestoreIds[] = $placementId;
+            $restoreReasons[(string) $placementId] = 'source_active_assignment_marked_ended';
         }
     }
 
@@ -98,25 +129,39 @@ try {
         );
     }
 
-    $updateParams = [
-        'tenant_id' => $tenantId,
-        'start_today' => $today,
-        'end_today' => $today,
-    ];
-    $updateIn = $bindIds($eligibleIds, 'restore_', $updateParams);
-    $update = $pdo->prepare(
-        "UPDATE placements
-            SET status = 'active', updated_at = NOW()
-          WHERE tenant_id = :tenant_id
-            AND id IN ({$updateIn})
-            AND status = 'pending_start'
-            AND external_id LIKE 'jd:%'
-            AND start_date <= :start_today
-            AND (deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00')
-            AND (COALESCE(actual_end_date, end_date) IS NULL OR COALESCE(actual_end_date, end_date) >= :end_today)"
-    );
-    $update->execute($updateParams);
-    $restored = $update->rowCount();
+    $restoreStatus = static function (
+        array $ids,
+        string $expectedStatus,
+        string $prefix,
+        bool $requireNoActualEnd = false
+    ) use ($pdo, $bindIds, $tenantId, $today): int {
+        if ($ids === []) return 0;
+        $updateParams = [
+            'tenant_id' => $tenantId,
+            'expected_status' => $expectedStatus,
+            'start_today' => $today,
+            'end_today' => $today,
+        ];
+        $updateIn = $bindIds($ids, $prefix, $updateParams);
+        $actualEndGuard = $requireNoActualEnd ? 'AND actual_end_date IS NULL' : '';
+        $update = $pdo->prepare(
+            "UPDATE placements
+                SET status = 'active', updated_at = NOW()
+              WHERE tenant_id = :tenant_id
+                AND id IN ({$updateIn})
+                AND status = :expected_status
+                AND external_id LIKE 'jd:%'
+                AND start_date <= :start_today
+                AND (deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00')
+                AND (COALESCE(actual_end_date, end_date) IS NULL OR COALESCE(actual_end_date, end_date) >= :end_today)
+                {$actualEndGuard}"
+        );
+        $update->execute($updateParams);
+        return $update->rowCount();
+    };
+
+    $restored = $restoreStatus($pendingRestoreIds, 'pending_start', 'pending_restore_')
+        + $restoreStatus($sourceActiveEndedRestoreIds, 'ended', 'ended_restore_', true);
     if ($restored !== $expectedRestoreCount) {
         throw new RuntimeException(
             "Refusing repair: expected {$expectedRestoreCount} updates, wrote {$restored}."
@@ -152,9 +197,12 @@ try {
     }
 
     $detail = [
-        'reason' => 'restore_active_placements_demoted_by_missing_jobdiva_actualstart',
+        'reason' => 'restore_active_placements_from_authoritative_jobdiva_lifecycle',
         'historical_placement_ids_checked' => $placementIds,
         'placement_ids_restored' => $eligibleIds,
+        'pending_start_ids_restored' => $pendingRestoreIds,
+        'source_active_ended_ids_restored' => $sourceActiveEndedRestoreIds,
+        'restore_reasons_by_placement_id' => $restoreReasons,
         'expected_restore_count' => $expectedRestoreCount,
         'active_total_after' => $activeTotal,
         'status_counts_after' => $statusCounts,

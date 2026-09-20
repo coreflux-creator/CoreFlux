@@ -189,13 +189,59 @@ function jobdivaAssignmentContractPercent(mixed $raw): ?float
 
 function jobdivaAssignmentContractBool(mixed $raw): ?bool
 {
-    if ($raw === null || trim((string) $raw) === '') return null;
+    if ($raw === null) return null;
     if (is_bool($raw)) return $raw;
     if (is_int($raw) || is_float($raw)) return (float) $raw > 0;
+    if (trim((string) $raw) === '') return null;
     $value = strtolower(trim((string) $raw));
     if (in_array($value, ['1', 'true', 'yes', 'y', 'on', 'checked'], true)) return true;
     if (in_array($value, ['0', 'false', 'no', 'n', 'off', 'unchecked'], true)) return false;
     return null;
+}
+
+/**
+ * Return the normalised Assignment contract embedded in a stored JobDiva
+ * placement snapshot. Stored snapshots can carry the contract either at the
+ * root or under the enriched assignment facet.
+ */
+function jobdivaAssignmentContractFromSnapshot(array $payload): array
+{
+    if (isset($payload['_jd_contract']) && is_array($payload['_jd_contract'])) {
+        return $payload['_jd_contract'];
+    }
+
+    $assignment = $payload['assignment'] ?? null;
+    if (is_array($assignment) && array_is_list($assignment)) {
+        $assignment = $assignment[0] ?? null;
+    }
+    if (!is_array($assignment)) return [];
+    if (isset($assignment['_jd_contract']) && is_array($assignment['_jd_contract'])) {
+        return $assignment['_jd_contract'];
+    }
+    if (isset($assignment['contract_version']) || isset($assignment['source'])) {
+        return $assignment;
+    }
+    return [];
+}
+
+/**
+ * Strong evidence for reactivating a stale CoreFlux placement. A derived
+ * `placement_status=active` alone is insufficient: the source contract must
+ * also say the assignment actually started and that neither billing nor
+ * salary has closed it.
+ */
+function jobdivaAssignmentContractSnapshotIsStronglyActive(array $payload): bool
+{
+    $contract = jobdivaAssignmentContractFromSnapshot($payload);
+    if ($contract === []) return false;
+
+    return strtolower(trim((string) ($contract['placement_status'] ?? ''))) === 'active'
+        && jobdivaAssignmentContractBool($contract['actual_start'] ?? null) === true
+        && jobdivaAssignmentContractBool($contract['actual_end'] ?? null) === false
+        && jobdivaAssignmentContractBool($contract['closed'] ?? null) === false
+        && jobdivaAssignmentContractBool($contract['salary_closed'] ?? null) === false
+        && jobdivaAssignmentContractBool($contract['approved'] ?? null) === true
+        && jobdivaAssignmentContractBool($contract['salary_approved'] ?? null) === true;
 }
 
 function jobdivaAssignmentContractEngagement(string $category, ?bool $w2, ?bool $c2c): string

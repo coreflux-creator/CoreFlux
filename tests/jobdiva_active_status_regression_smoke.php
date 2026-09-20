@@ -19,6 +19,7 @@ echo "======================================\n";
 
 $repair = (string) file_get_contents($root . '/scripts/repair_jobdiva_active_status_regression.php');
 $workflow = (string) file_get_contents($root . '/.github/workflows/deploy-jobdiva-reconciliation.yml');
+require_once $root . '/core/jobdiva/assignment_contract.php';
 
 $selectPos = strpos($repair, 'FOR UPDATE');
 $countGuardPos = strpos($repair, 'count($eligibleIds) !== $expectedRestoreCount');
@@ -31,10 +32,37 @@ $assert('repair locks the historical placement rows before deciding eligibility'
 $assert('repair verifies the exact eligible count before updating',
     $countGuardPos !== false && $updatePos !== false && $countGuardPos < $updatePos);
 $assert('repair is limited to JobDiva pending rows that have started and not ended',
-    str_contains($repair, "status = 'pending_start'")
+    str_contains($repair, "status === 'pending_start'")
     && str_contains($repair, "external_id LIKE 'jd:%'")
     && str_contains($repair, 'start_date <= :start_today')
     && str_contains($repair, 'COALESCE(actual_end_date, end_date)'));
+$strongActiveSnapshot = [
+    'assignment' => [
+        'contract_version' => 1,
+        'placement_status' => 'active',
+        'actual_start' => true,
+        'actual_end' => false,
+        'closed' => false,
+        'salary_closed' => false,
+        'approved' => true,
+        'salary_approved' => true,
+    ],
+];
+$assert('stored Assignment contract requires complete active evidence before reactivation',
+    jobdivaAssignmentContractSnapshotIsStronglyActive($strongActiveSnapshot)
+    && !jobdivaAssignmentContractSnapshotIsStronglyActive(array_replace_recursive(
+        $strongActiveSnapshot,
+        ['assignment' => ['actual_end' => true]]
+    ))
+    && !jobdivaAssignmentContractSnapshotIsStronglyActive(array_replace_recursive(
+        $strongActiveSnapshot,
+        ['assignment' => ['salary_closed' => true]]
+    )));
+$assert('repair admits ended rows only with authoritative active snapshot evidence',
+    str_contains($repair, "status === 'ended'")
+    && str_contains($repair, '$actualEndDate ===')
+    && str_contains($repair, 'jobdivaAssignmentContractSnapshotIsStronglyActive($payload)')
+    && str_contains($repair, "source_active_assignment_marked_ended"));
 $assert('repair verifies the final active total before commit',
     $activeGuardPos !== false && $commitPos !== false && $activeGuardPos < $commitPos);
 $assert('repair writes a durable JobDiva audit record',
