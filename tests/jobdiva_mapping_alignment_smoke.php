@@ -136,7 +136,7 @@ $a('source-backed placement lifecycle repair is exposed from alignment service',
     str_contains($service, 'placement_active_past_end_date')
     && str_contains($service, 'function jobdivaMappingRepairStaleActivePlacements')
     && str_contains($service, 'mapping_alignment_repair_stale_active_placements')
-    && str_contains($service, 'jobdivaAssignmentCanonicalPlacementStatus'));
+    && str_contains($service, 'jobdivaAssignmentPlacementStatusForWrite'));
 $a('source-owned People lifecycle repair preserves history by inactivating rows',
     str_contains($service, 'function jobdivaMappingRepairSourcePeopleLifecycle')
     && str_contains($service, 'function _jobdivaMappingStaleSourcePeopleRows')
@@ -175,7 +175,8 @@ $a('ordered repair workflow replays canonical projection before cleanup and rate
        strpos($service, "jobdivaMappingRepairSourceRateDrafts(\$tenantId, \$user, \$limit)")
     && str_contains($service, 'mapping_alignment_repair_workflow'));
 $a('JobDiva placement sync uses the shared source lifecycle normalizer',
-    str_contains($sync, 'jobdivaAssignmentCanonicalPlacementStatus($statusRaw, $endDateNorm)'));
+    str_contains($sync, 'jobdivaAssignmentPlacementStatusForWrite(')
+    && str_contains($sync, '$currentStatus'));
 $a('projector distrusts external company mappings whose name conflicts with JobDiva payload',
     str_contains($projector, 'function jobdivaProjectorCompanyNameCompatible')
     && str_contains($projector, 'function jobdivaProjectorMappedCompanyIdIfNameMatches')

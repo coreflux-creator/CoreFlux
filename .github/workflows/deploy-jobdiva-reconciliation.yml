@@ -18,6 +18,21 @@ on:
         required: false
         type: string
         default: ''
+      restore_active_placement_ids:
+        description: Optional historical placement IDs eligible for guarded active-status restoration
+        required: false
+        type: string
+        default: ''
+      expected_restore_active_count:
+        description: Exact number of pending placements the guarded restore must update
+        required: false
+        type: string
+        default: ''
+      expected_active_total_after_restore:
+        description: Exact active-placement total required before the guarded restore commits
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -128,6 +143,7 @@ jobs:
             spa-assets/sw.js \
             scripts/jobdiva_rate_write_probe.php \
             scripts/jobdiva_reconcile_start.php \
+            scripts/repair_jobdiva_active_status_regression.php \
             scripts/repair_staffing_client_catalog.php \
             tests/tenant_staffing_economics_defaults_smoke.php \
             tests/staffing_client_catalog_sync_smoke.php \
@@ -136,6 +152,7 @@ jobs:
             tests/placements_bulk_approve_drafts_queue_smoke.php \
             tests/ui_polish_smoke.php \
             tests/jobdiva_contract_projection_smoke.php \
+            tests/jobdiva_active_status_regression_smoke.php \
             tests/qbo_slice3_smoke.php \
             tests/rbac_b2_smoke.php \
             tests/rbac_persona_wildcard_smoke.php \
@@ -158,12 +175,15 @@ jobs:
           RECONCILE_START_ID: ${{ inputs.reconcile_start_id }}
           RECONCILE_CANDIDATE_ID: ${{ inputs.reconcile_candidate_id }}
           RECONCILE_PAIRS: ${{ inputs.reconcile_pairs }}
+          RESTORE_ACTIVE_PLACEMENT_IDS: ${{ inputs.restore_active_placement_ids }}
+          EXPECTED_RESTORE_ACTIVE_COUNT: ${{ inputs.expected_restore_active_count }}
+          EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE: ${{ inputs.expected_active_total_after_restore }}
         with:
           host: ${{ secrets.CW_SSH_HOST }}
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          envs: RECONCILE_START_ID,RECONCILE_CANDIDATE_ID,RECONCILE_PAIRS
+          envs: RECONCILE_START_ID,RECONCILE_CANDIDATE_ID,RECONCILE_PAIRS,RESTORE_ACTIVE_PLACEMENT_IDS,EXPECTED_RESTORE_ACTIVE_COUNT,EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE
           command_timeout: 8m
           script: |
             set -eu
@@ -195,6 +215,7 @@ jobs:
             test -f "$STAGE_ROOT/modules/staffing/lib/client_audit.php"
             test -f "$STAGE_ROOT/modules/staffing/lib/jobs.php"
             test -f "$STAGE_ROOT/scripts/repair_staffing_client_catalog.php"
+            test -f "$STAGE_ROOT/scripts/repair_jobdiva_active_status_regression.php"
             SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' "$STAGE_ROOT/index.html" | head -n 1)"
             test -n "$SPA_ENTRY"
             test -f "$STAGE_ROOT/$SPA_ENTRY"
@@ -267,6 +288,7 @@ jobs:
             php -l modules/billing/api/invoices.php
             php -l scripts/jobdiva_rate_write_probe.php
             php -l scripts/jobdiva_reconcile_start.php
+            php -l scripts/repair_jobdiva_active_status_regression.php
             php -l scripts/repair_staffing_client_catalog.php
             php -r 'require "core/jobdiva/sync.php"; $r=jobdivaCompactStoredAssignmentMirrors(2); $growth=($r["bytes_after"] ?? 0) > ($r["bytes_before"] ?? 0); echo ($growth ? "WARNING: JobDiva mirror compaction increased storage; continuing because publication and functional probes are authoritative.\n" : ""); echo "JobDiva mirrors compacted: {$r["compacted"]} of {$r["checked"]}; {$r["bytes_before"]} -> {$r["bytes_after"]} bytes.\n";'
             php -d memory_limit=512M -r 'require "core/jobdiva/sync.php"; $plan=jobdivaStoredAssignmentProjectionPlan(2, 20, [], false, 0); $rows=count($plan["public_rows"] ?? []); $total=(int)($plan["pagination"]["total"] ?? 0); if ($rows < 1 || $total < $rows) { fwrite(STDERR, "Stored preview returned an invalid page.\n"); exit(1); } echo "Stored preview verified: {$rows} of {$total} assignments.\n";'
@@ -288,6 +310,16 @@ jobs:
               done
               IFS="$OLD_IFS"
             fi
+            if [ -n "$RESTORE_ACTIVE_PLACEMENT_IDS" ] || [ -n "$EXPECTED_RESTORE_ACTIVE_COUNT" ] || [ -n "$EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE" ]; then
+              test -n "$RESTORE_ACTIVE_PLACEMENT_IDS"
+              test -n "$EXPECTED_RESTORE_ACTIVE_COUNT"
+              test -n "$EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE"
+              php scripts/repair_jobdiva_active_status_regression.php \
+                2 \
+                "$RESTORE_ACTIVE_PLACEMENT_IDS" \
+                "$EXPECTED_RESTORE_ACTIVE_COUNT" \
+                "$EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE"
+            fi
             php scripts/jobdiva_rate_write_probe.php --active-roster 2
             php scripts/repair_staffing_client_catalog.php 2
             php tests/staffing_client_catalog_sync_smoke.php
@@ -296,6 +328,7 @@ jobs:
             php tests/placements_bulk_approve_drafts_queue_smoke.php
             php tests/ui_polish_smoke.php
             php tests/jobdiva_contract_projection_smoke.php
+            php tests/jobdiva_active_status_regression_smoke.php
             php tests/qbo_slice3_smoke.php
             php tests/rbac_b2_smoke.php
             php tests/rbac_persona_wildcard_smoke.php
