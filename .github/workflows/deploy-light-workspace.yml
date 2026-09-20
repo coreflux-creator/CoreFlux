@@ -398,6 +398,10 @@ jobs:
             scripts/audit_business_integrity.php \
             scripts/billing_recurring_generate.php \
             scripts/opcache_flush_deploy.php.template \
+            sim/lib \
+            sim/mocks \
+            sim/runner.php \
+            sim/scenarios \
             signup.html \
             spa-assets/index.html \
             spa-assets/sw.js \
@@ -573,6 +577,12 @@ jobs:
             test -f "$STAGE_ROOT/core/business_integrity.php"
             test -f "$STAGE_ROOT/modules/accounting/lib/reconciliation_artifact.php"
             test -f "$STAGE_ROOT/modules/payroll/lib/artifacts.php"
+            test -f "$STAGE_ROOT/sim/runner.php"
+            test -f "$STAGE_ROOT/sim/lib/invariants.php"
+            test -f "$STAGE_ROOT/sim/lib/scenario.php"
+            test -f "$STAGE_ROOT/sim/lib/seed.php"
+            test -f "$STAGE_ROOT/sim/scenarios/ap_bill_happy_path.json"
+            test -f "$STAGE_ROOT/sim/scenarios/ar_invoice_happy_path.json"
             test -f "$STAGE_ROOT/tests/timesheet_first_class_artifact_smoke.php"
             test -f "$STAGE_ROOT/tests/business_logic_hardening_smoke.php"
 

@@ -211,6 +211,10 @@ if (is_file($root . '/.github/workflows/deploy-light-workspace.yml')) {
         'modules/payroll/lib/artifacts.php',
         'modules/payroll/migrations/008_run_artifacts.sql',
         'scripts/audit_business_integrity.php',
+        'sim/lib',
+        'sim/mocks',
+        'sim/runner.php',
+        'sim/scenarios',
         'tests/business_logic_hardening_smoke.php',
     ] as $path) {
         $assert("production package includes {$path}", str_contains($deploy, $path));
