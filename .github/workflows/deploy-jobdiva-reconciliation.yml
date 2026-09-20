@@ -245,7 +245,7 @@ jobs:
             grep -Fq "action === 'bulk_update'" modules/placements/api/placements.php
             grep -Fq "action === 'bulk_update'" modules/staffing/api/clients.php
             grep -Fq 'directory-page__header' "$SPA_ENTRY"
-            grep -Fq 'Search placements, people, clients, IDs' "$SPA_ENTRY"
+            grep -Fq 'Search person, role, client or ID' "$SPA_ENTRY"
             grep -Fq 'accounting-more-trigger' "$SPA_ENTRY"
             grep -Fq "$(basename "$SPA_ENTRY")" index.html
 
