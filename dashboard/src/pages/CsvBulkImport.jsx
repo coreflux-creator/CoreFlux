@@ -18,7 +18,7 @@ import { attachCsvToImportRun } from '../lib/csvAuditAttach';
  *   5. billing_items     → optional revenue account code
  *   6. payroll_profiles  → people, existing pay schedules/cycles
  *   7. placements        → people, end_client_name (string)
- *   8. time              → placements (via external_id)
+ *   8. time              → placements (via CoreFlux Placement ID)
  *   9. ap_bills          → vendor_name (string)
  *  10. billing_invoices  → client_name (string)
  *
@@ -86,7 +86,7 @@ const ENTITY_CONFIG = {
     label: 'Time entries',
     endpoint: '/modules/time/api/csv_import.php',
     exportHref: '/modules/time/api/csv_export.php',
-    signature: ['Placement external ID','Work date','Category','Hours'],
+    signature: ['Placement ID','Placement external ID','Work date','Hours'],
     supportsUpdate: true,
   },
   ap_bills: {

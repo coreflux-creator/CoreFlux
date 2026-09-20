@@ -2,8 +2,10 @@
 /**
  * Time API - CSV bulk import.
  *
- * Canonical input is one row per placement, date, and time type. The date may
- * be a daily work date or an upstream timesheet's week-ending date.
+ * Canonical input is one row with Placement ID, Work date, and Hours. The
+ * displayed CoreFlux ID (PL-####) and the legacy bare integer are both
+ * accepted. The date may be a daily work date or an upstream timesheet's
+ * week-ending date; omitted time type defaults to regular.
  * The placement supplies the person; the importer creates/links the weekly
  * staffing timesheet and time period so imported rows appear everywhere.
  */
@@ -21,9 +23,13 @@ CsvImportService::registerSchema('time', [
         // Entry ID is intentionally omitted from the simple template but kept
         // mappable so a full export can be corrected and imported again.
         'entry_id'             => ['label' => 'Entry ID', 'type' => 'integer'],
+        // CsvImportService's integer coercion accepts both PL-760 and 760.
         'placement_id'          => ['label' => 'Placement ID', 'type' => 'integer'],
         // Kept for compatibility with older exports and upstream systems.
-        'placement_external_id' => ['label' => 'Placement external ID'],
+        'placement_external_id' => [
+            'label' => 'Source placement ID (optional)',
+            'aliases' => ['Placement external ID'],
+        ],
         'work_date'             => ['label' => 'Work date', 'required' => true, 'type' => 'date'],
         'hours'                 => ['label' => 'Hours', 'required' => true, 'type' => 'number'],
         'hour_type'             => ['label' => 'Time type',
@@ -80,6 +86,11 @@ function timeCsvCategoryToHourType(?string $category): string
 function timeCsvHourTypeToCategory(string $hourType): string
 {
     return STAFFING_HOUR_TYPE_TO_CATEGORY[$hourType] ?? 'regular_billable';
+}
+
+function timeCsvPlacementCode($placementId): string
+{
+    return 'PL-' . (int) $placementId;
 }
 
 function timeCsvNormalizeRow(array $row): array
@@ -207,15 +218,15 @@ function timeCsvDryRun(string $csv, ?array $columnMap): array
         $placementByExternal = $externalId !== '' ? ($placements['by_external'][$externalId] ?? null) : null;
 
         if ($placementById && $placementByExternal && $placementById['id'] !== $placementByExternal['id']) {
-            timeCsvAddError($result, (int) $rowNumber, 'Placement ID and Placement external ID refer to different placements');
+            timeCsvAddError($result, (int) $rowNumber, 'Placement ID and Source placement ID refer to different placements');
             continue;
         }
         $placement = $placementById ?: $placementByExternal;
         if (!$placement) {
             if (!empty($row['placement_id'])) {
-                timeCsvAddError($result, (int) $rowNumber, "placement_id: '{$row['placement_id']}' was not found");
+                timeCsvAddError($result, (int) $rowNumber, "Placement ID '{$row['placement_id']}' was not found");
             } elseif ($externalId !== '') {
-                timeCsvAddError($result, (int) $rowNumber, "placement_external_id: '{$externalId}' was not found");
+                timeCsvAddError($result, (int) $rowNumber, "Source placement ID '{$externalId}' was not found");
             } else {
                 timeCsvAddError($result, (int) $rowNumber, 'Placement ID is required');
             }
@@ -223,6 +234,7 @@ function timeCsvDryRun(string $csv, ?array $columnMap): array
         }
 
         $row['placement_id'] = (int) $placement['id'];
+        $row['placement_display_id'] = timeCsvPlacementCode($placement['id']);
         $row['placement_external_id'] = $placement['external_id'] ?? $externalId;
         $row['person_name'] = $placement['person_name'] ?: 'Person #' . $placement['person_id'];
         $row['person_email'] = $placement['person_email'] ?? '';
@@ -325,8 +337,7 @@ $action = $_GET['action'] ?? '';
 if ($method === 'GET' && $action === 'template') {
     timeCsvRequireUpload($user);
     timeCsvStream('time_import_by_placement.csv', [
-        'Placement ID', 'Work date', 'Hours', 'Time type', 'Description',
-        'External ID (source row)', 'Source system',
+        'Placement ID', 'Work date', 'Hours',
     ]);
 }
 
@@ -342,24 +353,32 @@ if ($method === 'GET' && $action === 'sample') {
         if (!empty($placement['start_date']) && $date < $placement['start_date']) $date = $placement['start_date'];
         if (!empty($placement['end_date']) && $date > $placement['end_date']) $date = $placement['end_date'];
         $sampleRows[] = [
-            $placement['placement_id'], $date, $i === 0 ? '8.00' : '7.50', 'regular',
-            'Client work', 'sample-' . $placement['placement_id'] . '-' . $date, 'manual',
+            timeCsvPlacementCode($placement['placement_id']), $date, $i === 0 ? '8.00' : '7.50',
         ];
     }
     if (!$sampleRows) {
-        $sampleRows[] = ['1001', date('Y-m-d'), '8.00', 'regular', 'Client work', 'source-row-001', 'manual'];
+        $sampleRows[] = ['PL-1001', date('Y-m-d'), '8.00'];
     }
     timeCsvStream('time_import_sample.csv', [
-        'Placement ID', 'Work date', 'Hours', 'Time type', 'Description',
-        'External ID (source row)', 'Source system',
+        'Placement ID', 'Work date', 'Hours',
     ], $sampleRows);
 }
 
 if ($method === 'GET' && $action === 'placement_reference') {
     timeCsvRequireUpload($user);
-    $rows = array_map(static fn (array $row): array => array_values($row), timeCsvReferenceRows());
+    $rows = array_map(static fn (array $row): array => [
+        timeCsvPlacementCode($row['placement_id']),
+        $row['placement_external_id'],
+        $row['person_name'],
+        $row['person_email'],
+        $row['title'],
+        $row['end_client_name'],
+        $row['status'],
+        $row['start_date'],
+        $row['end_date'],
+    ], timeCsvReferenceRows());
     timeCsvStream('placement_id_reference_' . date('Y-m-d') . '.csv', [
-        'Placement ID', 'Placement external ID', 'Person name', 'Person email',
+        'Placement ID', 'Source placement ID', 'Person name', 'Person email',
         'Title', 'End client', 'Status', 'Start date', 'End date',
     ], $rows);
 }

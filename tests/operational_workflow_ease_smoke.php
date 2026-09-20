@@ -91,7 +91,7 @@ $assert('empty weeks cannot be submitted or approved',
 echo "\nTime CSV safeguards\n";
 $assert('time CSV accepts Placement ID for export/import round trips',
     str_contains($timeImport, "'placement_id'")
-    && str_contains($timeImportUi, "key: 'placement_id'")
+    && str_contains($timeImportUi, "key: 'placement_display_id'")
     && str_contains($timeExport, "'placement_id'          => 'Placement ID'"));
 $assert('time CSV carries Entry ID and source keys for deterministic updates',
     str_contains($timeImport, "'entry_id'")
