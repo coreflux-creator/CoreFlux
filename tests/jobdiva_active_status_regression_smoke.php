@@ -4,6 +4,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $pass = 0;
 $fail = 0;
+$skip = 0;
 $assert = static function (string $label, bool $ok) use (&$pass, &$fail): void {
     if ($ok) {
         $pass++;
@@ -19,7 +20,8 @@ echo "======================================\n";
 
 $repair = (string) file_get_contents($root . '/scripts/repair_jobdiva_active_status_regression.php');
 $rateProbe = (string) file_get_contents($root . '/scripts/jobdiva_rate_write_probe.php');
-$workflow = (string) file_get_contents($root . '/.github/workflows/deploy-jobdiva-reconciliation.yml');
+$workflowPath = $root . '/.github/workflows/deploy-jobdiva-reconciliation.yml';
+$workflow = is_file($workflowPath) ? (string) file_get_contents($workflowPath) : null;
 require_once $root . '/core/jobdiva/assignment_contract.php';
 
 $selectPos = strpos($repair, 'FOR UPDATE');
@@ -69,23 +71,32 @@ $assert('repair verifies the final active total before commit',
 $assert('repair writes a durable JobDiva audit record',
     str_contains($repair, "'repair_active_status_regression'")
     && str_contains($repair, 'jobdiva_sync_audit'));
-$assert('deployment accepts explicit restore guards',
-    str_contains($workflow, 'restore_active_placement_ids:')
-    && str_contains($workflow, 'expected_restore_active_count:')
-    && str_contains($workflow, 'expected_active_total_after_restore:'));
-$assert('deployment packages and executes the guarded repair',
-    str_contains($workflow, 'scripts/repair_jobdiva_active_status_regression.php')
-    && str_contains($workflow, 'php scripts/repair_jobdiva_active_status_regression.php'));
+if ($workflow !== null) {
+    $assert('deployment accepts explicit restore guards',
+        str_contains($workflow, 'restore_active_placement_ids:')
+        && str_contains($workflow, 'expected_restore_active_count:')
+        && str_contains($workflow, 'expected_active_total_after_restore:'));
+    $assert('deployment packages and executes the guarded repair',
+        str_contains($workflow, 'scripts/repair_jobdiva_active_status_regression.php')
+        && str_contains($workflow, 'php scripts/repair_jobdiva_active_status_regression.php'));
+} else {
+    $skip += 2;
+    echo "  skip - deployment workflow assertions (workflow is not a production runtime asset)\n";
+}
 $assert('post-deploy rate audit tolerates placements without a stored payload snapshot',
     str_contains($rateProbe, '$payload = is_array($decodedPayload) ? $decodedPayload : [];')
     && str_contains($rateProbe, 'jobdivaAssignmentContractFromSnapshot($payload)'));
-$assert('deployment verifies the current placements search control',
-    str_contains($workflow, "grep -Fq 'Search person, role, client or ID'"));
+if ($workflow !== null) {
+    $assert('deployment verifies the current placements search control',
+        str_contains($workflow, "grep -Fq 'Search person, role, client or ID'"));
+} else {
+    $skip++;
+}
 
 $syntax = [];
 $syntaxCode = 0;
 exec('php -l ' . escapeshellarg($root . '/scripts/repair_jobdiva_active_status_regression.php') . ' 2>&1', $syntax, $syntaxCode);
 $assert('repair script passes php syntax validation', $syntaxCode === 0);
 
-echo "\n{$pass} passed / {$fail} failed\n";
+echo "\n{$pass} passed / {$fail} failed / {$skip} skipped\n";
 exit($fail === 0 ? 0 : 1);
