@@ -305,8 +305,8 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
         $pdo->prepare(
             "UPDATE workflow_instances
                 SET last_activity_at = NOW(), sla_due_at = NULL
-              WHERE id = :id"
-        )->execute(['id' => $instanceId]);
+              WHERE tenant_id = :tenant_id AND id = :id"
+        )->execute(['tenant_id' => $tenantId, 'id' => $instanceId]);
         $result = _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
         cf_tx_commit($pdo, $ownsTx);
 

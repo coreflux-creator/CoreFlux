@@ -24,7 +24,9 @@ $read = fn (string $p) => (string) file_get_contents($p);
 echo "Migration 043 — simulation harness tables\n";
 $mig = $read(__DIR__ . '/../core/migrations/043_simulation_harness.sql');
 $a('migration file exists',                $mig !== '');
-$a('adds tenants.is_simulation flag',      str_contains($mig, 'ADD COLUMN IF NOT EXISTS is_simulation TINYINT'));
+$a('guards tenants.is_simulation creation',
+    str_contains(strtolower($mig), 'information_schema.columns')
+    && str_contains($mig, 'ADD COLUMN is_simulation TINYINT'));
 foreach (['simulation_runs', 'simulation_assertions', 'simulation_failures', 'replay_logs'] as $t) {
     $a("creates table {$t}",               str_contains($mig, "CREATE TABLE IF NOT EXISTS {$t}"));
 }

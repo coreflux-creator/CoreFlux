@@ -89,7 +89,7 @@ function artifactCreate(int $tenantId, string $artifactType, array $opts = []): 
                 (:id, :t, :st, :at, :tl, :s, 1,
                  :sm, :srt, :sri,
                  :pl, :su, :sb, :sn,
-                 :cu, :car, NOW(), NOW())'
+                 :cu, :car, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)'
         )->execute([
             'id'  => $id,
             't'   => $tenantId,
@@ -304,14 +304,14 @@ function artifactUpdate(int $tenantId, string $artifactId, array $patch, ?int $a
     if (!$sets) return $existing;
 
     $sets[] = 'version = version + 1';
-    $sets[] = 'updated_at = NOW()';
+    $sets[] = 'updated_at = CURRENT_TIMESTAMP';
 
     $pdo = getDB();
     $ownsTx = cf_tx_begin($pdo);
     try {
         $update = $pdo->prepare(
             'UPDATE artifact_objects SET ' . implode(', ', $sets) .
-            ' WHERE id = :id AND tenant_id = :t AND version = :prior_version LIMIT 1'
+            ' WHERE id = :id AND tenant_id = :t AND version = :prior_version'
         );
         $update->execute($params);
         if ($update->rowCount() !== 1) {
@@ -402,9 +402,9 @@ function artifactTransition(
     try {
         $update = $pdo->prepare(
             'UPDATE artifact_objects
-                SET status = :s, version = version + 1, updated_at = NOW(),
-                    archived_at = CASE WHEN :s2 = "archived" THEN NOW() ELSE archived_at END
-              WHERE id = :id AND tenant_id = :t AND status = :prior LIMIT 1'
+                SET status = :s, version = version + 1, updated_at = CURRENT_TIMESTAMP,
+                    archived_at = CASE WHEN :s2 = \'archived\' THEN CURRENT_TIMESTAMP ELSE archived_at END
+              WHERE id = :id AND tenant_id = :t AND status = :prior'
         );
         $update->execute([
             's' => $newStatus,
@@ -501,7 +501,7 @@ function artifactLink(
              target_table, target_record_id, relationship_type,
              metadata, created_by_user_id, created_by_ai_run, created_at)
          VALUES
-            (:t, :sa, :ta, :tt, :tr, :rt, :m, :cu, :car, NOW())'
+            (:t, :sa, :ta, :tt, :tr, :rt, :m, :cu, :car, CURRENT_TIMESTAMP)'
     );
     try {
         $insert->execute([
@@ -656,7 +656,7 @@ function artifactWriteEvent(int $tenantId, string $artifactId, string $eventType
             (tenant_id, artifact_id, event_type, prior_status, new_status,
              actor_user_id, actor_ai_run, actor_worker_id, payload, created_at)
          VALUES
-            (:t, :a, :e, :ps, :ns, :au, :ar, :aw, :pl, NOW())'
+            (:t, :a, :e, :ps, :ns, :au, :ar, :aw, :pl, CURRENT_TIMESTAMP)'
     )->execute([
         't'   => $tenantId,
         'a'   => $artifactId,

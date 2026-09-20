@@ -96,8 +96,13 @@ foreach ([
 $dup = json_decode($read(__DIR__ . '/../sim/scenarios/duplicate_webhook_idempotent.json'), true);
 $a('duplicate scenario has 2 emit_event steps',
     count(array_filter($dup['steps'], fn ($s) => ($s['action'] ?? '') === 'emit_event')) === 2);
+$dupEvents = array_values(array_filter(
+    $dup['steps'],
+    fn ($s) => ($s['action'] ?? '') === 'emit_event'
+));
 $a('duplicate scenario reuses same source_record_id',
-    $dup['steps'][0]['source_record_id'] === $dup['steps'][1]['source_record_id']);
+    count($dupEvents) === 2
+    && $dupEvents[0]['source_record_id'] === $dupEvents[1]['source_record_id']);
 
 $lc = json_decode($read(__DIR__ . '/../sim/scenarios/ap_payment_lifecycle.json'), true);
 $a('lifecycle scenario advances clock',    in_array('advance_clock', array_column($lc['steps'], 'action'), true));
@@ -105,7 +110,7 @@ $a('lifecycle scenario emits bill + payment',
     in_array('ap.bill.approved',  array_column($lc['steps'], 'event_type'), true)
     && in_array('ap.payment.cleared', array_column($lc['steps'], 'event_type'), true));
 $a('lifecycle scenario asserts AP↔GL parity',
-    in_array('ap_module_matches_gl', $lc['invariants'] ?? [], true));
+    in_array('subledger_balances_match_gl', $lc['invariants'] ?? [], true));
 
 echo "\nAdmin API — /api/admin/simulation_runs.php\n";
 $ep = $read(__DIR__ . '/../api/admin/simulation_runs.php');

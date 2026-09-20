@@ -61,7 +61,7 @@ $schema = [
         enabled INTEGER
     )',
     'CREATE TABLE payroll_runs (
-        id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, pay_period_id INTEGER NOT NULL,
+        id INTEGER PRIMARY KEY, artifact_id TEXT, tenant_id INTEGER NOT NULL, pay_period_id INTEGER NOT NULL,
         run_type TEXT NOT NULL, created_by_user_id INTEGER, status TEXT NOT NULL,
         employee_count INTEGER DEFAULT 0, gross_total_cents INTEGER DEFAULT 0,
         taxes_total_cents INTEGER DEFAULT 0, deductions_total_cents INTEGER DEFAULT 0,
@@ -84,6 +84,28 @@ $schema = [
     'CREATE TABLE payroll_deductions (
         id INTEGER PRIMARY KEY, tenant_id INTEGER, line_item_id INTEGER, code TEXT,
         is_pretax INTEGER, amount_cents INTEGER, notes TEXT, created_at TEXT
+    )',
+    'CREATE TABLE artifact_objects (
+        id TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL, sub_tenant_id INTEGER,
+        artifact_type TEXT NOT NULL, title TEXT, status TEXT NOT NULL, version INTEGER NOT NULL,
+        source_module TEXT, source_record_type TEXT, source_record_id INTEGER,
+        payload_json TEXT, storage_uri TEXT, storage_bytes INTEGER, storage_mime TEXT,
+        created_by_user_id INTEGER, created_by_ai_run TEXT,
+        created_at TEXT, updated_at TEXT, archived_at TEXT,
+        UNIQUE (tenant_id, artifact_type, source_module, source_record_type, source_record_id)
+    )',
+    'CREATE TABLE artifact_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, artifact_id TEXT NOT NULL,
+        event_type TEXT NOT NULL, prior_status TEXT, new_status TEXT,
+        actor_user_id INTEGER, actor_ai_run TEXT, actor_worker_id TEXT,
+        payload TEXT, created_at TEXT
+    )',
+    'CREATE TABLE artifact_relationships (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
+        source_artifact_id TEXT NOT NULL, target_artifact_id TEXT,
+        target_table TEXT, target_record_id INTEGER, relationship_type TEXT NOT NULL,
+        metadata TEXT, created_by_user_id INTEGER, created_by_ai_run TEXT, created_at TEXT,
+        UNIQUE (tenant_id, source_artifact_id, target_table, target_record_id, relationship_type)
     )',
 ];
 foreach ($schema as $sql) $pdo->exec($sql);
@@ -145,6 +167,10 @@ $a('run totals roll up',
     && (int) $run['deductions_total_cents'] === 15000
     && (int) $run['net_total_cents'] === 603500
     && (int) $run['employer_taxes_cents'] === 55840);
+$a('computed run has a first-class review artifact',
+    !empty($run['artifact_id'])
+    && (int) $pdo->query('SELECT COUNT(*) FROM artifact_objects WHERE tenant_id = 7 AND artifact_type = "payroll_review" AND status = "review"')->fetchColumn() === 1
+    && (int) $pdo->query('SELECT COUNT(*) FROM artifact_relationships WHERE tenant_id = 7 AND target_table = "payroll_runs" AND target_record_id = 601')->fetchColumn() === 1);
 
 $bob = $pdo->query('SELECT * FROM payroll_line_items WHERE employee_id = 102')->fetch(PDO::FETCH_ASSOC);
 $a('profile supplies state and payment method', $bob['work_state'] === 'NY' && $bob['payment_method'] === 'check');

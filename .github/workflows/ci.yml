@@ -119,7 +119,7 @@ jobs:
           php-version: '8.2'
           extensions: mbstring, pdo_mysql, curl, json, openssl
 
-      - name: Run all migrations + seed sim tenant
+      - name: Build production business graph + seed sim tenant
         run: php scripts/ci_seed_sim_tenant.php
 
       - name: Run full sim execution

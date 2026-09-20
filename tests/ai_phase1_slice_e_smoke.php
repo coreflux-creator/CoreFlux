@@ -58,7 +58,7 @@ $a('apExtractionCreate defined',                              $c($ap, 'function 
 $a('apExtractionRecordPayload defined',                       $c($ap, 'function apExtractionRecordPayload(int $tenantId, int $runId, array $payload, ?float $confidence = null, ?string $aiRunId = null): array'));
 $a('apExtractionCheckDuplicate defined',                      $c($ap, 'function apExtractionCheckDuplicate(int $tenantId, int $runId): array'));
 $a('apExtractionDraftBill defined',                           $c($ap, 'function apExtractionDraftBill(int $tenantId, int $runId, ?int $actorUserId = null): array'));
-$a('apExtractionGet defined',                                 $c($ap, 'function apExtractionGet(int $tenantId, int $runId): ?array'));
+$a('apExtractionGet defined',                                 preg_match('/function\s+apExtractionGet\(int \$tenantId, int \$runId(?:, bool \$forUpdate = false)?\): \?array/', $ap) === 1);
 $a('apExtractionList defined',                                $c($ap, 'function apExtractionList(int $tenantId, array $filters = []): array'));
 $a('duplicate check: exact match (vendor+bill_number)',       $c($ap, "= 'match_exact'") && $c($ap, 'TRIM(bill_number) = :b'));
 $a('duplicate check: likely match (vendor+date+total)',       $c($ap, "= 'match_likely'") && $c($ap, 'ABS(total - :amt) < 0.01'));
