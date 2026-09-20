@@ -191,6 +191,10 @@ if (is_file($root . '/.github/workflows/ci.yml')) {
         str_contains($ci, 'schedule:')
         && str_contains($ci, 'php scripts/ci_seed_sim_tenant.php')
         && is_file($root . '/scripts/ci_seed_sim_tenant.php'));
+    $seedScript = $read('scripts/ci_seed_sim_tenant.php');
+    $assert('live simulation includes tenant hierarchy and auto-reversal schema',
+        str_contains($seedScript, 'core/migrations/007_subtenant_provisioning.sql')
+        && str_contains($seedScript, 'core/migrations/024_auto_reversing_accruals.sql'));
 }
 
 if (is_file($root . '/.github/workflows/deploy-light-workspace.yml')) {

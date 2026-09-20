@@ -98,6 +98,8 @@ $a('runner reuses accountingProcessEvent', str_contains($runner, 'accountingProc
 $a('runner persists simulation_runs row',  str_contains($runner, 'INSERT INTO simulation_runs'));
 $a('runner persists assertions',           str_contains($runner, 'INSERT INTO simulation_assertions'));
 $a('runner persists replay_logs',          str_contains($runner, 'INSERT INTO replay_logs'));
+$a('sim AP bills include line items',      str_contains($runner, 'INSERT INTO ap_bill_lines'));
+$a('sim AR invoices include line items',   str_contains($runner, 'INSERT INTO billing_invoice_lines'));
 $a('runner exits non-zero on failure',     str_contains($runner, "exit(\$status === 'passed' ? 0 : 1)"));
 
 echo "\nDry-run executes end-to-end without DB\n";

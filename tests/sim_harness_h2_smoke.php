@@ -112,6 +112,15 @@ $a('lifecycle scenario emits bill + payment',
 $a('lifecycle scenario asserts AP↔GL parity',
     in_array('subledger_balances_match_gl', $lc['invariants'] ?? [], true));
 
+$ar = json_decode($read(__DIR__ . '/../sim/scenarios/ar_invoice_happy_path.json'), true);
+$arEvents = array_values(array_filter(
+    $ar['steps'] ?? [],
+    fn ($s) => ($s['event_type'] ?? '') === 'billing.invoice.sent'
+));
+$arPayload = $arEvents[0]['payload'] ?? [];
+$a('AR scenario satisfies the canonical invoice event contract',
+    array_key_exists('total', $arPayload) && !empty($arPayload['due_date']));
+
 echo "\nAdmin API — /api/admin/simulation_runs.php\n";
 $ep = $read(__DIR__ . '/../api/admin/simulation_runs.php');
 $a('endpoint exists',                      $ep !== '');

@@ -335,30 +335,53 @@ function simStepCreateApBill(array &$ctx, array $step): void {
     $id = (int) ($step['id'] ?? 0);
     $amount = round((float) ($step['amount'] ?? 0), 2);
     if ($id <= 0 || $amount <= 0) throw new \InvalidArgumentException('create_ap_bill requires positive id and amount');
-    getDB()->prepare(
-        'INSERT INTO ap_bills
-            (id, tenant_id, bill_number, internal_ref, vendor_name, vendor_type,
-             received_at, bill_date, due_date, currency, subtotal, tax_total,
-             total, amount_paid, amount_due, status, source)
-         VALUES
-            (:id, :tenant_id, :bill_number, :internal_ref, :vendor_name, "other",
-             :received_at, :bill_date, :due_date, "USD", :amount, 0,
-             :amount2, 0, :amount3, "approved", "manual")
-         ON DUPLICATE KEY UPDATE total = VALUES(total), amount_due = VALUES(amount_due),
-             amount_paid = 0, status = "approved", updated_at = NOW()'
-    )->execute([
-        'id' => $id,
-        'tenant_id' => $ctx['tenant_id'],
-        'bill_number' => (string) ($step['bill_number'] ?? "SIM-{$id}"),
-        'internal_ref' => (string) ($step['internal_ref'] ?? "SIM-{$id}"),
-        'vendor_name' => (string) ($step['vendor_name'] ?? 'Simulation Vendor'),
-        'received_at' => simNow('Y-m-d'),
-        'bill_date' => simNow('Y-m-d'),
-        'due_date' => simNow('Y-m-d'),
-        'amount' => $amount,
-        'amount2' => $amount,
-        'amount3' => $amount,
-    ]);
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare(
+            'INSERT INTO ap_bills
+                (id, tenant_id, bill_number, internal_ref, vendor_name, vendor_type,
+                 received_at, bill_date, due_date, currency, subtotal, tax_total,
+                 total, amount_paid, amount_due, status, source)
+             VALUES
+                (:id, :tenant_id, :bill_number, :internal_ref, :vendor_name, "other",
+                 :received_at, :bill_date, :due_date, "USD", :amount, 0,
+                 :amount2, 0, :amount3, "approved", "manual")
+             ON DUPLICATE KEY UPDATE total = VALUES(total), amount_due = VALUES(amount_due),
+                 amount_paid = 0, status = "approved", updated_at = NOW()'
+        )->execute([
+            'id' => $id,
+            'tenant_id' => $ctx['tenant_id'],
+            'bill_number' => (string) ($step['bill_number'] ?? "SIM-{$id}"),
+            'internal_ref' => (string) ($step['internal_ref'] ?? "SIM-{$id}"),
+            'vendor_name' => (string) ($step['vendor_name'] ?? 'Simulation Vendor'),
+            'received_at' => simNow('Y-m-d'),
+            'bill_date' => simNow('Y-m-d'),
+            'due_date' => simNow('Y-m-d'),
+            'amount' => $amount,
+            'amount2' => $amount,
+            'amount3' => $amount,
+        ]);
+        $pdo->prepare('DELETE FROM ap_bill_lines WHERE bill_id = :bill_id')
+            ->execute(['bill_id' => $id]);
+        $pdo->prepare(
+            'INSERT INTO ap_bill_lines
+                (bill_id, line_no, source_type, description, quantity, unit,
+                 unit_price, subtotal, tax_rate_pct, tax_amount, total, gl_expense_account_code)
+             VALUES (:bill_id, 1, "manual", :description, 1, "item",
+                     :amount, :amount2, 0, 0, :amount3, "6990")'
+        )->execute([
+            'bill_id' => $id,
+            'description' => 'Simulation bill line',
+            'amount' => $amount,
+            'amount2' => $amount,
+            'amount3' => $amount,
+        ]);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
 }
 
 function simStepSettleApBill(array &$ctx, array $step): void {
@@ -378,26 +401,49 @@ function simStepCreateBillingInvoice(array &$ctx, array $step): void {
     $id = (int) ($step['id'] ?? 0);
     $amount = round((float) ($step['amount'] ?? 0), 2);
     if ($id <= 0 || $amount <= 0) throw new \InvalidArgumentException('create_billing_invoice requires positive id and amount');
-    getDB()->prepare(
-        'INSERT INTO billing_invoices
-            (id, tenant_id, invoice_number, client_name, currency, issue_date, due_date,
-             subtotal, tax_total, total, amount_paid, amount_due, status, aggregation)
-         VALUES
-            (:id, :tenant_id, :invoice_number, :client_name, "USD", :issue_date, :due_date,
-             :amount, 0, :amount2, 0, :amount3, "sent", "per_client")
-         ON DUPLICATE KEY UPDATE total = VALUES(total), amount_due = VALUES(amount_due),
-             amount_paid = 0, status = "sent", updated_at = NOW()'
-    )->execute([
-        'id' => $id,
-        'tenant_id' => $ctx['tenant_id'],
-        'invoice_number' => (string) ($step['invoice_number'] ?? "SIM-INV-{$id}"),
-        'client_name' => (string) ($step['client_name'] ?? 'Simulation Client'),
-        'issue_date' => simNow('Y-m-d'),
-        'due_date' => simNow('Y-m-d'),
-        'amount' => $amount,
-        'amount2' => $amount,
-        'amount3' => $amount,
-    ]);
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare(
+            'INSERT INTO billing_invoices
+                (id, tenant_id, invoice_number, client_name, currency, issue_date, due_date,
+                 subtotal, tax_total, total, amount_paid, amount_due, status, aggregation)
+             VALUES
+                (:id, :tenant_id, :invoice_number, :client_name, "USD", :issue_date, :due_date,
+                 :amount, 0, :amount2, 0, :amount3, "sent", "per_client")
+             ON DUPLICATE KEY UPDATE total = VALUES(total), amount_due = VALUES(amount_due),
+                 amount_paid = 0, status = "sent", updated_at = NOW()'
+        )->execute([
+            'id' => $id,
+            'tenant_id' => $ctx['tenant_id'],
+            'invoice_number' => (string) ($step['invoice_number'] ?? "SIM-INV-{$id}"),
+            'client_name' => (string) ($step['client_name'] ?? 'Simulation Client'),
+            'issue_date' => simNow('Y-m-d'),
+            'due_date' => simNow('Y-m-d'),
+            'amount' => $amount,
+            'amount2' => $amount,
+            'amount3' => $amount,
+        ]);
+        $pdo->prepare('DELETE FROM billing_invoice_lines WHERE invoice_id = :invoice_id')
+            ->execute(['invoice_id' => $id]);
+        $pdo->prepare(
+            'INSERT INTO billing_invoice_lines
+                (invoice_id, line_no, source_type, description, quantity, unit,
+                 unit_price, subtotal, tax_rate_pct, tax_amount, total)
+             VALUES (:invoice_id, 1, "manual", :description, 1, "item",
+                     :amount, :amount2, 0, 0, :amount3)'
+        )->execute([
+            'invoice_id' => $id,
+            'description' => 'Simulation invoice line',
+            'amount' => $amount,
+            'amount2' => $amount,
+            'amount3' => $amount,
+        ]);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
 }
 
 function simFindPreviousRunForReplay(\PDO $pdo, int $tenantId, string $scenario, int $seed, int $excludeRunId): ?int {
