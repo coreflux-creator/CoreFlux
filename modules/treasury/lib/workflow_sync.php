@@ -18,9 +18,8 @@ function treasurySyncPaymentFromWorkflow(
     string $instanceStatus,
     ?string $comment = null
 ): void {
-    try {
         $payment = treasuryPaymentWorkflowRow($tenantId, $paymentId);
-        if (!$payment) return;
+        if (!$payment) throw new \RuntimeException("Treasury payment {$paymentId} not found");
 
         if ($action === 'reject' && $userId) {
             getDB()->prepare(
@@ -49,11 +48,13 @@ function treasurySyncPaymentFromWorkflow(
             return;
         }
 
-        if (!in_array($action, ['approve', 'skip'], true) || $instanceStatus !== WORKFLOW_STATUS_APPROVED || !$userId) {
+        if (!in_array($action, ['approve', 'skip'], true) || $instanceStatus !== WORKFLOW_STATUS_APPROVED) {
             return;
         }
         if ((string) ($payment['status'] ?? '') === 'approved') return;
-        if (!in_array((string) ($payment['status'] ?? ''), ['draft', 'pending_approval'], true)) return;
+        if (!in_array((string) ($payment['status'] ?? ''), ['draft', 'pending_approval'], true)) {
+            throw new \RuntimeException("Treasury payment {$paymentId} cannot be approved from status {$payment['status']}");
+        }
 
         getDB()->prepare(
             "UPDATE treasury_payments
@@ -76,9 +77,6 @@ function treasurySyncPaymentFromWorkflow(
             'before' => $payment,
             'after' => $updated,
         ]);
-    } catch (\Throwable $e) {
-        error_log('[treasury.payment.workflow_sync] sync failed: ' . $e->getMessage());
-    }
 }
 
 function treasurySyncTransferFromWorkflow(
@@ -89,9 +87,8 @@ function treasurySyncTransferFromWorkflow(
     string $instanceStatus,
     ?string $comment = null
 ): void {
-    try {
         $transfer = treasuryTransferWorkflowRow($tenantId, $transferId);
-        if (!$transfer) return;
+        if (!$transfer) throw new \RuntimeException("Treasury transfer {$transferId} not found");
 
         if ($action === 'reject' && $userId) {
             getDB()->prepare(
@@ -120,11 +117,13 @@ function treasurySyncTransferFromWorkflow(
             return;
         }
 
-        if (!in_array($action, ['approve', 'skip'], true) || $instanceStatus !== WORKFLOW_STATUS_APPROVED || !$userId) {
+        if (!in_array($action, ['approve', 'skip'], true) || $instanceStatus !== WORKFLOW_STATUS_APPROVED) {
             return;
         }
         if ((string) ($transfer['status'] ?? '') === 'approved') return;
-        if (!in_array((string) ($transfer['status'] ?? ''), ['draft', 'pending_approval'], true)) return;
+        if (!in_array((string) ($transfer['status'] ?? ''), ['draft', 'pending_approval'], true)) {
+            throw new \RuntimeException("Treasury transfer {$transferId} cannot be approved from status {$transfer['status']}");
+        }
 
         getDB()->prepare(
             "UPDATE treasury_transfers
@@ -147,7 +146,4 @@ function treasurySyncTransferFromWorkflow(
             'before' => $transfer,
             'after' => $updated,
         ]);
-    } catch (\Throwable $e) {
-        error_log('[treasury.transfer.workflow_sync] sync failed: ' . $e->getMessage());
-    }
 }

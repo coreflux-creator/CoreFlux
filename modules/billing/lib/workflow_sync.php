@@ -19,9 +19,8 @@ function billingSyncInvoiceFromWorkflow(
     string $instanceStatus,
     ?string $comment = null
 ): void {
-    try {
         $invoice = billingInvoiceWorkflowRow($tenantId, $invoiceId);
-        if (!$invoice) return;
+        if (!$invoice) throw new \RuntimeException("Billing invoice {$invoiceId} not found");
 
         if ($action === 'reject' && $userId) {
             billingWorkflowAudit($tenantId, $userId, 'billing.invoice.approval_rejected', [
@@ -37,11 +36,13 @@ function billingSyncInvoiceFromWorkflow(
             return;
         }
 
-        if (!in_array($action, ['approve', 'skip'], true) || $instanceStatus !== WORKFLOW_STATUS_APPROVED || !$userId) {
+        if (!in_array($action, ['approve', 'skip'], true) || $instanceStatus !== WORKFLOW_STATUS_APPROVED) {
             return;
         }
         if ((string) ($invoice['status'] ?? '') === 'approved') return;
-        if (!billingTransitionAllowed((string) ($invoice['status'] ?? ''), 'approved')) return;
+        if (!billingTransitionAllowed((string) ($invoice['status'] ?? ''), 'approved')) {
+            throw new \RuntimeException("Invoice {$invoiceId} cannot be approved from status {$invoice['status']}");
+        }
 
         $pdo = getDB();
         $pdo->prepare(
@@ -64,7 +65,4 @@ function billingSyncInvoiceFromWorkflow(
             'before' => $invoice,
             'after' => $updated,
         ]);
-    } catch (\Throwable $e) {
-        error_log('[billing.workflow_sync] sync failed: ' . $e->getMessage());
-    }
 }

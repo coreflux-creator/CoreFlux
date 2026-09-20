@@ -47,7 +47,10 @@ $assert('upsert-by-shape: sha256 hash compare',      stripos($we, "hash('sha256'
 $assert('suppress_push opt honoured',                stripos($we, "empty(\$payload['suppress_push'])") !== false);
 $assert('_workflowSubjectSync exists',               stripos($we, 'function _workflowSubjectSync') !== false);
 $assert('_workflowSubjectSync requires AP sync',     stripos($we, '/modules/ap/lib/workflow_sync.php') !== false);
-$assert('_workflowSubjectSync guards with function_exists', stripos($we, "function_exists('apSyncFromWorkflow')") !== false);
+$assert('_workflowSubjectSync validates configured handlers', stripos($we, 'function_exists($handler)') !== false);
+$assert('workflow decisions and domain projection share a transaction',
+    stripos($we, 'cf_tx_begin($pdo)') !== false
+    && stripos($we, 'cf_tx_rollback($pdo, $ownsTx)') !== false);
 $assert('workflowAct.reject invokes subject sync',   preg_match("#_workflowSubjectSync\\(.*WORKFLOW_STATUS_REJECTED#s", $we) === 1);
 $assert('workflowAct.approve-complete invokes subject sync',
                                                      preg_match("#_workflowSubjectSync\\(.*WORKFLOW_STATUS_APPROVED#s", $we) === 1);
@@ -64,7 +67,9 @@ $assert('updates ap_bill_approvals to rejected',     preg_match("#UPDATE\\s+ap_b
 $assert('flips ap_bills.status on reject (disputed)',stripos($ws, "status = 'disputed'") !== false);
 $assert('flips ap_bills.status on approved instance',stripos($ws, "status = 'approved'") !== false);
 $assert('scopes by tenant_id on every query',        substr_count($ws, ':t') >= 3);
-$assert('swallows throwables (never breaks engine)', stripos($ws, 'catch (\\Throwable') !== false);
+$assert('missing AP rows fail the workflow transaction', stripos($ws, 'AP bill {$billId} not found') !== false);
+$assert('AP projection no longer has a blanket Throwable catch',
+    stripos($ws, 'Silently drop') === false && stripos($ws, 'Absolutely non-fatal') === false);
 
 echo "\napproval_router.php — cutover wiring\n";
 $ar = (string) file_get_contents("{$ROOT}/modules/ap/lib/approval_router.php");

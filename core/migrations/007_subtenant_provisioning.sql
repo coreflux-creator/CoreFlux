@@ -10,7 +10,20 @@
 --     remembered via `user_tenants.last_active_at`.
 --   • No existing data migration required (greenfield sub-tenants).
 
--- 1. Tag tenants as `master` or `sub`. Existing rows default to `master` so
+-- 1. Establish the parent link, then tag tenants as `master` or `sub`.
+--    Some clean-install/bootstrap schemas predate the parent_id column even
+--    though established production databases already have it.
+SELECT COUNT(*) INTO @col_exists
+  FROM information_schema.columns
+ WHERE table_schema = DATABASE()
+   AND table_name   = 'tenants'
+   AND column_name  = 'parent_id';
+SET @sql := IF(@col_exists = 0,
+  'ALTER TABLE tenants ADD COLUMN parent_id INT UNSIGNED NULL AFTER id',
+  'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+--    Existing rows default to `master` so
 --    nothing breaks; rows whose `parent_id IS NOT NULL` get reclassified to
 --    `sub` in the backfill below.
 SELECT COUNT(*) INTO @col_exists

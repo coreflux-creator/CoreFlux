@@ -5,10 +5,10 @@
  */
 
 // Database Configuration
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'grcudkpvcd');
-define('DB_USER', 'grcudkpvcd');
-define('DB_PASS', '7DgX7F4RPz');
+define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
+define('DB_NAME', getenv('DB_NAME') ?: 'grcudkpvcd');
+define('DB_USER', getenv('DB_USER') ?: 'grcudkpvcd');
+define('DB_PASS', getenv('DB_PASS') !== false ? (string) getenv('DB_PASS') : '7DgX7F4RPz');
 
 // SMTP Configuration
 define('SMTP_HOST', 'smtp.mail.yahoo.com');

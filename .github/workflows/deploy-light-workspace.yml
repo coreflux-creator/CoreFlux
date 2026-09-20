@@ -61,6 +61,7 @@ jobs:
             admin/index.html \
             api/index.php \
             api/export_templates.php \
+            api/admin/business_integrity.php \
             api/admin/migrate.php \
             api/admin/csv_mapping_presets.php \
             api/admin_healthcheck.php \
@@ -87,7 +88,10 @@ jobs:
             auditor.php \
             core/ModuleRegistry.php \
             core/audit.php \
+            core/business_integrity.php \
+            core/ai/ap_extraction.php \
             core/ai/artifacts.php \
+            core/ai/cash_forecast.php \
             core/api_bootstrap.php \
             core/api_router.php \
             core/payment_rails.php \
@@ -171,15 +175,18 @@ jobs:
             modules/accounting/api/export.php \
             modules/accounting/api/import.php \
             modules/accounting/api/journal_entries.php \
+            modules/accounting/api/reconciliations.php \
             modules/accounting/api/standard_reports.php \
             modules/accounting/lib/account_interest.php \
             modules/accounting/lib/accounting.php \
             modules/accounting/lib/bank_rec.php \
             modules/accounting/lib/consolidation.php \
             modules/accounting/lib/intercompany.php \
+            modules/accounting/lib/reconciliation_artifact.php \
             modules/accounting/lib/standard_reports.php \
             modules/accounting/manifest.php \
             modules/accounting/migrations/028_journal_line_tenant_scope.sql \
+            modules/accounting/migrations/029_reconciliation_artifacts.sql \
             modules/accounting/ui/BankReconciliation.jsx \
             modules/accounting/ui/BalanceSheet.jsx \
             modules/accounting/ui/CashFlowStatement.jsx \
@@ -211,6 +218,7 @@ jobs:
             modules/ap/api/weekly_queue.php \
             modules/ap/lib/vendor_risk.php \
             modules/ap/lib/ap.php \
+            modules/ap/lib/workflow_sync.php \
             modules/ap/migrations/008_vendor_categories_attachments.sql \
             modules/ap/migrations/020_payment_entity_scope.sql \
             modules/ap/migrations/021_vendor_payment_defaults_repair.sql \
@@ -238,6 +246,7 @@ jobs:
             modules/billing/lib/billing.php \
             modules/billing/lib/invoice_pdf.php \
             modules/billing/lib/workflow.php \
+            modules/billing/lib/workflow_sync.php \
             modules/billing/manifest.php \
             modules/billing/migrations/013_item_catalog.sql \
             modules/billing/migrations/014_invoice_amount_consistency.sql \
@@ -254,6 +263,7 @@ jobs:
             modules/billing/ui/SuggestInvoiceModal.jsx \
             modules/payroll/lib/csv_import.php \
             modules/payroll/lib/cycles.php \
+            modules/payroll/lib/artifacts.php \
             modules/payroll/lib/payroll.php \
             modules/payroll/lib/profiles.php \
             modules/payroll/lib/accounting_posting.php \
@@ -269,6 +279,7 @@ jobs:
             modules/payroll/api/settings.php \
             modules/payroll/manifest.php \
             modules/payroll/migrations/001_init.sql \
+            modules/payroll/migrations/008_run_artifacts.sql \
             modules/payroll/migrations/006_run_enterprise_controls.sql \
             modules/payroll/migrations/007_accounting_posting.sql \
             modules/payroll/ui/GustoConnectCard.jsx \
@@ -354,6 +365,7 @@ jobs:
             modules/treasury/ui/TreasuryOperations.jsx \
             modules/treasury/api/account_transactions.php \
             modules/treasury/api/liability_accounts.php \
+            modules/treasury/lib/workflow_sync.php \
             people.html \
             pricing.html \
             reporting.html \
@@ -381,7 +393,9 @@ jobs:
             core/migrations/142_ai_suggestion_source_compat.sql \
             core/migrations/143_export_template_system_dedup.sql \
             core/migrations/144_staffing_timesheet_artifacts.sql \
+            core/migrations/145_business_logic_hardening.sql \
             scripts/ap_weekly_queue_sunday.php \
+            scripts/audit_business_integrity.php \
             scripts/billing_recurring_generate.php \
             scripts/opcache_flush_deploy.php.template \
             signup.html \
@@ -426,6 +440,7 @@ jobs:
             tests/billing_invoice_posting_consistency_smoke.php \
             tests/billing_spec_smoke.php \
             tests/billing_suggest_invoice_smoke.php \
+            tests/business_logic_hardening_smoke.php \
             tests/chart_of_accounts_controls_smoke.php \
             tests/company_directory_workflow_smoke.php \
             tests/core_accounting_reports_trust_smoke.php \
@@ -547,12 +562,19 @@ jobs:
             test -f "$STAGE_ROOT/modules/accounting/api/import.php"
             test -f "$STAGE_ROOT/modules/accounting/ui/AccountingImport.jsx"
             test -f "$STAGE_ROOT/modules/accounting/migrations/028_journal_line_tenant_scope.sql"
+            test -f "$STAGE_ROOT/modules/accounting/migrations/029_reconciliation_artifacts.sql"
+            test -f "$STAGE_ROOT/modules/payroll/migrations/008_run_artifacts.sql"
             test -f "$STAGE_ROOT/tests/csv_import_service_smoke.php"
             test -f "$STAGE_ROOT/tests/csv_interactive_mapping_smoke.php"
             test -f "$STAGE_ROOT/core/migrations/003_mail_service.sql"
             test -f "$STAGE_ROOT/core/migrations/103_ap_payments_method_mercury.sql"
             test -f "$STAGE_ROOT/core/migrations/144_staffing_timesheet_artifacts.sql"
+            test -f "$STAGE_ROOT/core/migrations/145_business_logic_hardening.sql"
+            test -f "$STAGE_ROOT/core/business_integrity.php"
+            test -f "$STAGE_ROOT/modules/accounting/lib/reconciliation_artifact.php"
+            test -f "$STAGE_ROOT/modules/payroll/lib/artifacts.php"
             test -f "$STAGE_ROOT/tests/timesheet_first_class_artifact_smoke.php"
+            test -f "$STAGE_ROOT/tests/business_logic_hardening_smoke.php"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
@@ -567,6 +589,7 @@ jobs:
               update.php \
               api/index.php \
               api/export_templates.php \
+              api/admin/business_integrity.php \
               api/admin/migrate.php \
               api/admin/csv_mapping_presets.php \
               api/admin_healthcheck.php \
@@ -585,7 +608,10 @@ jobs:
               api/treasury_transfers.php \
               core/ModuleRegistry.php \
               core/audit.php \
+              core/business_integrity.php \
+              core/ai/ap_extraction.php \
               core/ai/artifacts.php \
+              core/ai/cash_forecast.php \
               core/api_bootstrap.php \
               core/api_router.php \
               core/export_datasets.php \
@@ -613,12 +639,14 @@ jobs:
               modules/accounting/api/export.php \
               modules/accounting/api/import.php \
               modules/accounting/api/journal_entries.php \
+              modules/accounting/api/reconciliations.php \
               modules/accounting/api/standard_reports.php \
               modules/accounting/lib/account_interest.php \
               modules/accounting/lib/accounting.php \
               modules/accounting/lib/bank_rec.php \
               modules/accounting/lib/consolidation.php \
               modules/accounting/lib/intercompany.php \
+              modules/accounting/lib/reconciliation_artifact.php \
               modules/accounting/lib/standard_reports.php \
               modules/accounting/manifest.php \
               modules/ap/api/1099.php \
@@ -629,6 +657,7 @@ jobs:
               modules/ap/api/vendor_risk.php \
               modules/ap/lib/vendor_risk.php \
               modules/ap/lib/ap.php \
+              modules/ap/lib/workflow_sync.php \
               modules/billing/api/invoices.php \
               modules/billing/api/items.php \
               modules/billing/api/items_csv_export.php \
@@ -636,6 +665,7 @@ jobs:
               modules/billing/lib/billing.php \
               modules/billing/lib/invoice_pdf.php \
               modules/billing/lib/workflow.php \
+              modules/billing/lib/workflow_sync.php \
               modules/payroll/api/import_csv.php \
               modules/payroll/api/pay_periods.php \
               modules/payroll/api/preflight.php \
@@ -645,6 +675,7 @@ jobs:
               modules/payroll/lib/payroll.php \
               modules/payroll/lib/csv_import.php \
               modules/payroll/lib/cycles.php \
+              modules/payroll/lib/artifacts.php \
               modules/payroll/lib/profiles.php \
               modules/payroll/lib/workflow.php \
               modules/payroll/lib/workflow_sync.php \
@@ -671,7 +702,9 @@ jobs:
               modules/time/api/entries.php \
               modules/time/lib/time.php \
               modules/treasury/api/liability_accounts.php \
-              modules/treasury/api/account_transactions.php; do
+              modules/treasury/api/account_transactions.php \
+              modules/treasury/lib/workflow_sync.php \
+              scripts/audit_business_integrity.php; do
               php -l "$PHP_FILE"
             done
 
@@ -685,13 +718,16 @@ jobs:
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/141_payroll_module_access_backfill.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/143_export_template_system_dedup.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/144_staffing_timesheet_artifacts.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/145_business_logic_hardening.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/006_run_enterprise_controls.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/007_accounting_posting.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/008_run_artifacts.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/ap/migrations/020_payment_entity_scope.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/ap/migrations/021_vendor_payment_defaults_repair.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/billing/migrations/013_item_catalog.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/billing/migrations/014_invoice_amount_consistency.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/accounting/migrations/028_journal_line_tenant_scope.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] modules/accounting/migrations/029_reconciliation_artifacts.sql'
 
             php tests/login_redirect_paths_smoke.php
             php tests/live_basic_error_regressions_smoke.php
@@ -781,6 +817,7 @@ jobs:
             php tests/staffing_bulk_timesheet_approval_smoke.php
             php tests/staffing_shell_and_weekly_timesheet_smoke.php
             php tests/timesheet_first_class_artifact_smoke.php
+            php tests/business_logic_hardening_smoke.php
             php tests/sweep_destination_ui_and_divergence_smoke.php
             php tests/time_entry_approved_audit_smoke.php
             php tests/time_intake_smoke.php

@@ -7,9 +7,19 @@
     "debits_equal_credits",
     "no_orphan_events",
     "no_direct_gl",
+    "subledger_balances_match_gl",
+    "business_graph_consistent",
     "replay_reproducible"
   ],
   "steps": [
+    {
+      "action": "create_ap_bill",
+      "id": 9001,
+      "bill_number": "SIM-DUP-0001",
+      "internal_ref": "SIM-DUP-0001",
+      "vendor_name": "Globex LLC",
+      "amount": 750.00
+    },
     {
       "action": "emit_event",
       "event_type": "ap.bill.approved",
@@ -23,8 +33,8 @@
         "amount": 750.00,
         "currency": "USD",
         "lines": [
-          { "account_code": "6000", "debit": 750.00, "credit": 0,      "description": "Office supplies" },
-          { "account_code": "2010", "debit": 0,      "credit": 750.00, "description": "AP payable" }
+          { "account_code": "6990", "debit": 750.00, "credit": 0,      "description": "Office supplies" },
+          { "account_code": "2000", "debit": 0,      "credit": 750.00, "description": "AP payable" }
         ]
       }
     },
@@ -41,8 +51,8 @@
         "amount": 750.00,
         "currency": "USD",
         "lines": [
-          { "account_code": "6000", "debit": 750.00, "credit": 0,      "description": "Office supplies (replay)" },
-          { "account_code": "2010", "debit": 0,      "credit": 750.00, "description": "AP payable (replay)" }
+          { "account_code": "6990", "debit": 750.00, "credit": 0,      "description": "Office supplies (replay)" },
+          { "account_code": "2000", "debit": 0,      "credit": 750.00, "description": "AP payable (replay)" }
         ]
       }
     }

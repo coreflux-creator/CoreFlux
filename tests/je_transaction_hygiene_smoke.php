@@ -3,8 +3,8 @@
  * Smoke — JE post-flow transaction hygiene.
  *
  * Locks:
- *   - `accountingPostJe()` defensively rolls back any stale active
- *     transaction before its own `beginTransaction()` call.
+ *   - `accountingPostJe()` joins an outer transaction without committing or
+ *     rolling back work owned by its caller.
  *   - The two `beginTransaction` call sites in
  *     `recurring_journal_entries.php` are now both guarded.
  *   - The `cf_begin_transaction()` helper in api_bootstrap.php still
@@ -30,18 +30,17 @@ function check(string $label, bool $cond) {
 echo "\nJE transaction-hygiene smoke\n";
 echo "==============================\n\n";
 
-// ─── accountingPostJe guard ───
+// ─── accountingPostJe nested-safe boundary ───
 echo "── lib/accounting.php (accountingPostJe) ──\n";
 $src = (string) file_get_contents('/app/modules/accounting/lib/accounting.php');
-check('accountingPostJe contains stale-tx rollback guard',
-    str_contains($src, "rolling back stale active transaction before begin"));
-check('guard checks inTransaction before rollBack',
-    str_contains($src, "if (\$pdo->inTransaction()) {") &&
-    str_contains($src, "\$pdo->rollBack()"));
-check('beginTransaction is called AFTER the guard',
-    preg_match("/inTransaction\\(\\)\\) \\{[^}]*rollBack\\(\\)[^}]*\\}\\s*\\\$pdo->beginTransaction\\(\\);/s", $src) === 1);
-check('outer catch block guards rollBack with inTransaction()',
-    str_contains($src, 'if ($pdo->inTransaction()) $pdo->rollBack();'));
+check('accountingPostJe acquires nested-safe transaction ownership',
+    preg_match('/function\s+accountingPostJe\b.*?\$ownsTransaction\s*=\s*cf_tx_begin\(\$pdo\)/s', $src) === 1);
+check('success commits only when the function owns the transaction',
+    preg_match('/function\s+accountingPostJe\b.*?cf_tx_commit\(\$pdo, \$ownsTransaction\)/s', $src) === 1);
+check('failure rolls back only when the function owns the transaction',
+    preg_match('/function\s+accountingPostJe\b.*?cf_tx_rollback\(\$pdo, \$ownsTransaction\)/s', $src) === 1);
+check('accountingPostJe never clears an inherited transaction',
+    preg_match('/function\s+accountingPostJe\b.*?rolling back stale active transaction before begin/s', $src) !== 1);
 
 // ─── recurring_journal_entries guards ───
 echo "\n── api/recurring_journal_entries.php ──\n";

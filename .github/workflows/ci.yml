@@ -5,6 +5,8 @@ on:
     branches: [main, master, develop]
   pull_request:
     branches: [main, master, develop]
+  schedule:
+    - cron: '17 6 * * *'
 
 jobs:
   # ─────────────────────────────────────────────────────────────────
@@ -81,10 +83,10 @@ jobs:
       - name: Run sim scenario dry-runs (determinism check)
         run: bash scripts/ci_sim_scenarios.sh
 
-  nightly-full-sim:
-    if: github.event_name == 'schedule'
+  live-business-graph:
     runs-on: ubuntu-latest
-    name: Nightly — full sim execution against sim tenant
+    timeout-minutes: 15
+    name: Live business graph simulation
 
     services:
       mysql:
@@ -117,7 +119,7 @@ jobs:
           php-version: '8.2'
           extensions: mbstring, pdo_mysql, curl, json, openssl
 
-      - name: Run all migrations + seed sim tenant
+      - name: Build production business graph + seed sim tenant
         run: php scripts/ci_seed_sim_tenant.php
 
       - name: Run full sim execution

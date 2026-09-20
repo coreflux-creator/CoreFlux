@@ -18,11 +18,13 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/payment_rails.php';
 require_once __DIR__ . '/../../../core/payment_rails/originate_helpers.php';
+require_once __DIR__ . '/../../../core/tx_helpers.php';
 require_once __DIR__ . '/../lib/payroll.php';
 require_once __DIR__ . '/../lib/compute.php';
 require_once __DIR__ . '/../lib/anomalies.php';
 require_once __DIR__ . '/../lib/workflow.php';
 require_once __DIR__ . '/../lib/accounting_posting.php';
+require_once __DIR__ . '/../lib/artifacts.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -51,15 +53,11 @@ function _payrollRequireRead(array $user, string $permission): void {
 }
 
 function _payrollMarkEconomicObligationsPaid(int $runId): void {
-    try {
-        getDB()->prepare(
-            'UPDATE placement_economic_obligations
-                SET status = "paid", updated_at = NOW()
-              WHERE tenant_id = :t AND payroll_ref_id = :run_id AND status = "payroll"'
-        )->execute(['t' => currentTenantId(), 'run_id' => $runId]);
-    } catch (\Throwable $e) {
-        error_log('[payroll economics paid] ' . $e->getMessage());
-    }
+    getDB()->prepare(
+        'UPDATE placement_economic_obligations
+            SET status = "paid", updated_at = NOW()
+          WHERE tenant_id = :t AND payroll_ref_id = :run_id AND status = "payroll"'
+    )->execute(['t' => currentTenantId(), 'run_id' => $runId]);
 }
 
 // --------------------------------------------------------------------
@@ -229,20 +227,29 @@ switch (api_method()) {
             if ($existingRun) {
                 api_ok(['id' => (int) $existingRun['id'], 'status' => $existingRun['status'], 'existing' => true]);
             }
-            $runId = scopedInsert('payroll_runs', [
-                'pay_period_id' => (int) $body['pay_period_id'],
-                'run_type'      => $runType,
-                'created_by_user_id' => $user['id'] ?? null,
-                'status'        => 'draft',
-            ]);
-            payrollAudit('payroll.run.created', [
-                'run_id' => $runId,
-                'pay_period_id' => (int) $body['pay_period_id'],
-                'created_by_user_id' => $user['id'] ?? null,
-            ], $runId, [
-                'after' => payrollRunAuditRow((int) currentTenantId(), $runId),
-            ]);
-            api_ok(['id' => $runId], 201);
+            $pdo = getDB();
+            $ownsTx = cf_tx_begin($pdo);
+            try {
+                $runId = scopedInsert('payroll_runs', [
+                    'pay_period_id' => (int) $body['pay_period_id'],
+                    'run_type'      => $runType,
+                    'created_by_user_id' => $user['id'] ?? null,
+                    'status'        => 'draft',
+                ]);
+                $artifact = payrollRunSyncArtifact((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
+                payrollAudit('payroll.run.created', [
+                    'run_id' => $runId,
+                    'pay_period_id' => (int) $body['pay_period_id'],
+                    'created_by_user_id' => $user['id'] ?? null,
+                ], $runId, [
+                    'after' => payrollRunAuditRow((int) currentTenantId(), $runId),
+                ]);
+                cf_tx_commit($pdo, $ownsTx);
+            } catch (\Throwable $e) {
+                cf_tx_rollback($pdo, $ownsTx);
+                throw $e;
+            }
+            api_ok(['id' => $runId, 'artifact_id' => $artifact['id']], 201);
         }
 
         $runId = (int) ($body['run_id'] ?? api_query('id') ?? 0);
@@ -353,43 +360,46 @@ switch (api_method()) {
                     api_error('Cannot mark payroll paid until its accrual posts: ' . $e->getMessage(), 422);
                 }
             }
-            scopedUpdate('payroll_runs', $runId, [
-                'status'          => 'paid',
-                'paid_at'         => date('Y-m-d H:i:s'),
-                'paid_by_user_id' => $user['id'] ?? null,
-            ]);
             $pdo = getDB();
-            if ($pdo) {
+            $ownsTx = cf_tx_begin($pdo);
+            try {
+                scopedUpdate('payroll_runs', $runId, [
+                    'status'          => 'paid',
+                    'paid_at'         => date('Y-m-d H:i:s'),
+                    'paid_by_user_id' => $user['id'] ?? null,
+                ]);
                 $stmt = $pdo->prepare(
                     "UPDATE payroll_line_items SET status='paid', updated_at=NOW()
                      WHERE tenant_id = :tenant_id AND run_id = :rid"
                 );
                 $stmt->execute(['tenant_id' => currentTenantId(), 'rid' => $runId]);
-            }
-            scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'paid']);
-            _payrollMarkEconomicObligationsPaid($runId);
-            $paidRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
-            payrollAudit('payroll.run.marked_paid', [
-                'run_id' => $runId,
-                'paid_by_user_id' => $user['id'] ?? null,
-            ], $runId, [
-                'before' => $run,
-                'after' => $paidRun,
-            ]);
-            $accountingWarning = null;
-            if (!empty($postingSettings['auto_post_to_ledger'])) {
-                try {
-                    payrollPostRunCash((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
-                } catch (\Throwable $e) {
-                    $accountingWarning = $e->getMessage();
+                scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'paid']);
+                _payrollMarkEconomicObligationsPaid($runId);
+                payrollRunSyncArtifact((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
+                $paidRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
+                payrollAudit('payroll.run.marked_paid', [
+                    'run_id' => $runId,
+                    'paid_by_user_id' => $user['id'] ?? null,
+                ], $runId, [
+                    'before' => $run,
+                    'after' => $paidRun,
+                ]);
+                $cashPosting = null;
+                if (!empty($postingSettings['auto_post_to_ledger'])) {
+                    $cashPosting = payrollPostRunCash((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
                 }
+                cf_tx_commit($pdo, $ownsTx);
+            } catch (\Throwable $e) {
+                cf_tx_rollback($pdo, $ownsTx);
+                api_error('Could not mark payroll paid: ' . $e->getMessage(), 422);
             }
             $detail = _payrollRunDetail($runId);
             api_ok([
                 'ok' => true,
                 'status' => 'paid',
                 'accounting' => $detail['accounting'] ?? null,
-                'accounting_warning' => $accountingWarning,
+                'cash_post' => $cashPosting,
+                'accounting_warning' => null,
             ]);
         }
 
@@ -557,42 +567,44 @@ switch (api_method()) {
                     api_error('Cannot mark Gusto payroll paid until its accrual posts: ' . $e->getMessage(), 422);
                 }
             }
-            scopedUpdate('payroll_runs', $runId, [
-                'gusto_status' => 'paid',
-                'gusto_paid_at'=> date('Y-m-d H:i:s'),
-            ]);
-            // Mirror to local status so reports, reconciliation, and the
-            // accounting bridge all see the completed disbursement.
-            if ($run['status'] !== 'paid') {
+            $pdo = getDB();
+            $ownsTx = cf_tx_begin($pdo);
+            try {
                 scopedUpdate('payroll_runs', $runId, [
-                    'status'          => 'paid',
-                    'paid_at'         => $run['paid_at'] ?: date('Y-m-d H:i:s'),
-                    'paid_by_user_id' => $user['id'] ?? null,
+                    'gusto_status' => 'paid',
+                    'gusto_paid_at'=> date('Y-m-d H:i:s'),
                 ]);
-                $pdo = getDB();
-                if ($pdo) {
+                // Mirror to local status so reports, reconciliation, and the
+                // accounting bridge all see the completed disbursement.
+                if ($run['status'] !== 'paid') {
+                    scopedUpdate('payroll_runs', $runId, [
+                        'status'          => 'paid',
+                        'paid_at'         => $run['paid_at'] ?: date('Y-m-d H:i:s'),
+                        'paid_by_user_id' => $user['id'] ?? null,
+                    ]);
                     $stmt = $pdo->prepare(
                         "UPDATE payroll_line_items SET status='paid', updated_at=NOW()
                          WHERE tenant_id = :tenant_id AND run_id = :rid"
                     );
                     $stmt->execute(['tenant_id' => currentTenantId(), 'rid' => $runId]);
+                    scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'paid']);
+                    _payrollMarkEconomicObligationsPaid($runId);
                 }
-                scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'paid']);
-                _payrollMarkEconomicObligationsPaid($runId);
-            }
-            $gustoPaidRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
-            payrollAudit('payroll.run.gusto_marked_paid',
-                ['gusto_run_id' => $run['gusto_run_id'], 'paid_by_user_id' => $user['id'] ?? null], $runId, [
-                    'before' => $run,
-                    'after' => $gustoPaidRun,
-                ]);
-            $accountingWarning = null;
-            if (!empty($postingSettings['auto_post_to_ledger'])) {
-                try {
-                    payrollPostRunCash((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
-                } catch (\Throwable $e) {
-                    $accountingWarning = $e->getMessage();
+                payrollRunSyncArtifact((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
+                $gustoPaidRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
+                payrollAudit('payroll.run.gusto_marked_paid',
+                    ['gusto_run_id' => $run['gusto_run_id'], 'paid_by_user_id' => $user['id'] ?? null], $runId, [
+                        'before' => $run,
+                        'after' => $gustoPaidRun,
+                    ]);
+                $cashPosting = null;
+                if (!empty($postingSettings['auto_post_to_ledger'])) {
+                    $cashPosting = payrollPostRunCash((int) currentTenantId(), $runId, (int) ($user['id'] ?? 0));
                 }
+                cf_tx_commit($pdo, $ownsTx);
+            } catch (\Throwable $e) {
+                cf_tx_rollback($pdo, $ownsTx);
+                api_error('Could not finish the Gusto payroll: ' . $e->getMessage(), 422);
             }
             $detail = _payrollRunDetail($runId);
             api_ok([
@@ -600,7 +612,8 @@ switch (api_method()) {
                 'gusto_status' => 'paid',
                 'status' => 'paid',
                 'accounting' => $detail['accounting'] ?? null,
-                'accounting_warning' => $accountingWarning,
+                'cash_post' => $cashPosting,
+                'accounting_warning' => null,
             ]);
         }
         if ($action === 'unlink_gusto') {
@@ -884,6 +897,8 @@ function _payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorU
             'computed_at'            => date('Y-m-d H:i:s'),
             'computed_by_user_id'    => $actorUserId !== null && $actorUserId > 0 ? $actorUserId : null,
         ]);
+
+        payrollRunSyncArtifact($tenant, $runId, $actorUserId);
 
         $pdo->commit();
     } catch (Throwable $e) {

@@ -7,16 +7,18 @@
     "debits_equal_credits",
     "no_orphan_events",
     "no_direct_gl",
+    "business_graph_consistent",
     "replay_reproducible"
   ],
   "steps": [
     {
       "action": "emit_event",
-      "event_type": "treasury.bank_transaction.matched",
+      "event_type": "treasury.bank_transaction.categorized",
       "source_module": "treasury",
       "source_record_id": "sim:bank_line:0001",
       "entity_id": 1,
       "payload": {
+        "bank_txn_id": 1,
         "bank_account_id": 1,
         "amount": 850.00,
         "currency": "USD",
@@ -24,7 +26,7 @@
         "category_account_code": "6000",
         "description": "Categorized: office supplies",
         "lines": [
-          { "account_code": "6000", "debit": 850.00, "credit": 0,       "description": "Office supplies" },
+          { "account_code": "6990", "debit": 850.00, "credit": 0,       "description": "Office supplies" },
           { "account_code": "1010", "debit": 0,      "credit": 850.00,  "description": "Bank account" }
         ]
       }

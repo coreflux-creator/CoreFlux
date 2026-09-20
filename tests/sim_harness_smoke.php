@@ -24,7 +24,9 @@ $read = fn (string $p) => (string) file_get_contents($p);
 echo "Migration 043 — simulation harness tables\n";
 $mig = $read(__DIR__ . '/../core/migrations/043_simulation_harness.sql');
 $a('migration file exists',                $mig !== '');
-$a('adds tenants.is_simulation flag',      str_contains($mig, 'ADD COLUMN IF NOT EXISTS is_simulation TINYINT'));
+$a('guards tenants.is_simulation creation',
+    str_contains(strtolower($mig), 'information_schema.columns')
+    && str_contains($mig, 'ADD COLUMN is_simulation TINYINT'));
 foreach (['simulation_runs', 'simulation_assertions', 'simulation_failures', 'replay_logs'] as $t) {
     $a("creates table {$t}",               str_contains($mig, "CREATE TABLE IF NOT EXISTS {$t}"));
 }
@@ -90,11 +92,14 @@ $a('runner parses --seed',                 str_contains($runner, "'seed::'"));
 $a('runner parses --tenant',               str_contains($runner, "'tenant::'"));
 $a('runner supports --dry-run',            str_contains($runner, "'dry-run::'"));
 $a('runner supports --list',               str_contains($runner, "'list::'"));
+$a('runner installs validated tenant context', str_contains($runner, 'setRequestTenantId($tenantId)'));
 $a('runner refuses non-sim tenant',        str_contains($runner, 'is not flagged is_simulation=1. Refusing to run'));
 $a('runner reuses accountingProcessEvent', str_contains($runner, 'accountingProcessEvent(') && str_contains($runner, 'posting_engine/process.php'));
 $a('runner persists simulation_runs row',  str_contains($runner, 'INSERT INTO simulation_runs'));
 $a('runner persists assertions',           str_contains($runner, 'INSERT INTO simulation_assertions'));
 $a('runner persists replay_logs',          str_contains($runner, 'INSERT INTO replay_logs'));
+$a('sim AP bills include line items',      str_contains($runner, 'INSERT INTO ap_bill_lines'));
+$a('sim AR invoices include line items',   str_contains($runner, 'INSERT INTO billing_invoice_lines'));
 $a('runner exits non-zero on failure',     str_contains($runner, "exit(\$status === 'passed' ? 0 : 1)"));
 
 echo "\nDry-run executes end-to-end without DB\n";

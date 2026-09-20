@@ -7,9 +7,18 @@
     "debits_equal_credits",
     "no_orphan_events",
     "no_direct_gl",
-    "ap_module_matches_gl"
+    "subledger_balances_match_gl",
+    "business_graph_consistent"
   ],
   "steps": [
+    {
+      "action": "create_ap_bill",
+      "id": 9101,
+      "bill_number": "SIM-LC-BILL-0001",
+      "internal_ref": "SIM-LC-BILL-0001",
+      "vendor_name": "Initech Logistics",
+      "amount": 2400.00
+    },
     {
       "action": "emit_event",
       "event_type": "ap.bill.approved",
@@ -23,8 +32,8 @@
         "amount": 2400.00,
         "currency": "USD",
         "lines": [
-          { "account_code": "6500", "debit": 2400.00, "credit": 0,       "description": "Logistics services" },
-          { "account_code": "2010", "debit": 0,       "credit": 2400.00, "description": "AP payable" }
+          { "account_code": "6990", "debit": 2400.00, "credit": 0,       "description": "Logistics services" },
+          { "account_code": "2000", "debit": 0,       "credit": 2400.00, "description": "AP payable" }
         ]
       }
     },
@@ -40,6 +49,7 @@
       "entity_id": 1,
       "payload": {
         "payment_id": 7001,
+        "cleared_date": "2026-01-16",
         "payment_number": "SIM-LC-PAY-0001",
         "vendor_name": "Initech Logistics",
         "amount": 2400.00,
@@ -48,6 +58,10 @@
         "bank_gl_account_code": "1010",
         "bill_id": 9101
       }
+    },
+    {
+      "action": "settle_ap_bill",
+      "id": 9101
     }
   ]
 }

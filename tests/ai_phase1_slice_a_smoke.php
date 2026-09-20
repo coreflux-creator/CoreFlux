@@ -114,7 +114,8 @@ $a('artifactUpdate bumps version + writes updated event',
     $c($art, 'version = version + 1')
     && $c($art, "artifactWriteEvent(\$tenantId, \$artifactId, 'updated'"));
 $a('artifactTransition bumps version + sets archived_at',
-    $c($art, 'archived_at = CASE WHEN :s2 = "archived" THEN NOW() ELSE archived_at END'));
+    $c($art, 'archived_at = CASE WHEN :s2 =')
+    && $c($art, 'THEN CURRENT_TIMESTAMP ELSE archived_at END'));
 
 // Lineage shape.
 $a('artifactLineage returns outgoing + incoming + event_history',

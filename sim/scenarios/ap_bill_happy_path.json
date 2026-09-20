@@ -7,13 +7,22 @@
     "debits_equal_credits",
     "no_orphan_events",
     "no_direct_gl",
-    "ap_module_matches_gl",
+    "subledger_balances_match_gl",
+    "business_graph_consistent",
     "replay_reproducible"
   ],
   "steps": [
     {
       "action": "advance_clock",
       "by": "+1 day"
+    },
+    {
+      "action": "create_ap_bill",
+      "id": 1,
+      "bill_number": "SIM-BILL-0001",
+      "internal_ref": "SIM-BILL-0001",
+      "vendor_name": "Acme Industrial",
+      "amount": 1500.00
     },
     {
       "action": "emit_event",
@@ -28,8 +37,8 @@
         "amount": 1500.00,
         "currency": "USD",
         "lines": [
-          { "account_code": "6000", "debit": 1500.00, "credit": 0,       "description": "Office supplies" },
-          { "account_code": "2010", "debit": 0,       "credit": 1500.00, "description": "AP payable" }
+          { "account_code": "6990", "debit": 1500.00, "credit": 0,       "description": "Office supplies" },
+          { "account_code": "2000", "debit": 0,       "credit": 1500.00, "description": "AP payable" }
         ]
       }
     }

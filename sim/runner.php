@@ -57,7 +57,7 @@ if (!$dryRun) {
     require_once __DIR__ . '/../core/tenant_scope.php';
     $pdo = getDB();
     if (!$pdo) { fwrite(STDERR, "ERROR: cannot connect to DB\n"); exit(3); }
-    setCurrentTenantId($tenantId);
+    setRequestTenantId($tenantId);
 
     // Refuse to run against a non-sim tenant — hard safety guard.
     $st = $pdo->prepare('SELECT is_simulation FROM tenants WHERE id = :id');
@@ -91,6 +91,7 @@ $ctx = [
     'state'     => [],          // step name → captured ids (vendor_id, bill_id, etc.)
     'replay'    => [],          // append-order log of (event_type, payload_hash, je_hash)
     'metrics'   => ['events_emitted' => 0, 'je_posted' => 0, 'steps_run' => 0],
+    'step_failures' => [],
 ];
 
 foreach ($scenario['steps'] as $i => $step) {
@@ -101,6 +102,7 @@ foreach ($scenario['steps'] as $i => $step) {
         simExecuteStep($ctx, $action, $step);
     } catch (\Throwable $e) {
         echo "  ✗ step #{$i} ({$action}) threw: " . $e->getMessage() . "\n";
+        $ctx['step_failures'][] = ['step_index' => $i, 'action' => $action, 'error' => $e->getMessage()];
         if (!$dryRun) {
             $pdo->prepare(
                 'INSERT INTO simulation_failures (run_id, invariant, message, context)
@@ -126,7 +128,10 @@ if (!$dryRun) {
             case 'no_direct_gl':
                 $assertions[] = simInvariantNoLegacyDirectGL($pdo, $tenantId); break;
             case 'ap_module_matches_gl':
+            case 'subledger_balances_match_gl':
                 $assertions[] = simInvariantCustomerBalanceMatchesGL($pdo, $tenantId); break;
+            case 'business_graph_consistent':
+                $assertions[] = simInvariantBusinessGraphConsistent($pdo, $tenantId); break;
             case 'replay_reproducible':
                 // Compares the in-memory $ctx['replay'] to any previously
                 // persisted replay_logs for the same scenario+seed.
@@ -136,10 +141,33 @@ if (!$dryRun) {
                                               'details' => ['baseline_run' => null]];
                 break;
             default:
-                $assertions[] = ['name' => $name, 'ok' => true, 'severity' => 'info',
+                $assertions[] = ['name' => $name, 'ok' => false, 'severity' => 'error',
                                  'details' => ['unknown_invariant' => $name]];
         }
     }
+
+    $assertions[] = [
+        'name' => 'scenario_steps_completed',
+        'ok' => empty($ctx['step_failures']),
+        'severity' => 'error',
+        'details' => ['failure_count' => count($ctx['step_failures']), 'sample' => array_slice($ctx['step_failures'], 0, 10)],
+    ];
+    $metricMismatches = [];
+    foreach (['events_emitted', 'je_posted', 'steps_run'] as $metric) {
+        if (array_key_exists($metric, $scenario['expected'])
+            && (int) $scenario['expected'][$metric] !== (int) $ctx['metrics'][$metric]) {
+            $metricMismatches[$metric] = [
+                'expected' => (int) $scenario['expected'][$metric],
+                'actual' => (int) $ctx['metrics'][$metric],
+            ];
+        }
+    }
+    $assertions[] = [
+        'name' => 'scenario_expected_metrics',
+        'ok' => empty($metricMismatches),
+        'severity' => 'error',
+        'details' => ['mismatches' => $metricMismatches],
+    ];
 
     // Persist replay log + assertions
     foreach ($ctx['replay'] as $idx => $r) {
@@ -226,6 +254,15 @@ function simExecuteStep(array &$ctx, string $action, array $step): void {
         case 'emit_event':
             simStepEmitEvent($ctx, $step);
             return;
+        case 'create_ap_bill':
+            simStepCreateApBill($ctx, $step);
+            return;
+        case 'settle_ap_bill':
+            simStepSettleApBill($ctx, $step);
+            return;
+        case 'create_billing_invoice':
+            simStepCreateBillingInvoice($ctx, $step);
+            return;
         default:
             throw new \RuntimeException("Unknown sim action: {$action} (extend simExecuteStep in /app/sim/runner.php)");
     }
@@ -241,6 +278,18 @@ function simStepEmitEvent(array &$ctx, array $step): void {
 
     if (!$ctx['dry_run']) {
         require_once __DIR__ . '/../core/posting_engine/process.php';
+        if (!empty($payload['bank_gl_account_code'])) {
+            $account = getDB()->prepare(
+                'SELECT id FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :code LIMIT 1'
+            );
+            $account->execute([
+                'tenant_id' => $ctx['tenant_id'],
+                'code' => (string) $payload['bank_gl_account_code'],
+            ]);
+            $accountId = (int) $account->fetchColumn();
+            if ($accountId <= 0) throw new \RuntimeException('Bank GL account code was not found');
+            $payload['bank_gl_account_id'] = $accountId;
+        }
         $event = [
             'entity_id'        => (int) ($step['entity_id'] ?? 0),
             'event_type'       => $type,
@@ -251,14 +300,25 @@ function simStepEmitEvent(array &$ctx, array $step): void {
         ];
         try {
             $r = accountingProcessEvent($ctx['tenant_id'], $event, /* actor */ 0, /* dryRun */ false);
-            if (($r['status'] ?? null) === 'posted') {
-                $jeId   = (int) ($r['journal_entry_id'] ?? 0) ?: null;
-                $jeHash = simHash([$r['je_number'] ?? null, $r['journal_entry_id'] ?? null]);
+            if (($r['status'] ?? null) !== 'posted') {
+                throw new \RuntimeException(
+                    'Posting did not complete: ' . (string) ($r['error'] ?? $r['status'] ?? 'unknown result')
+                );
+            }
+            $jeId = (int) ($r['journal_entry_id'] ?? 0) ?: null;
+            $jeHash = $jeId ? simHash(['journal_entry_id' => $jeId]) : null;
+            if (empty($r['idempotent_replay'])) {
                 $ctx['metrics']['je_posted']++;
             }
         } catch (\Throwable $e) {
-            // Capture, don't crash — invariant 'no_orphan_events' will
-            // surface stuck events; the runner stays deterministic.
+            $ctx['metrics']['events_emitted']++;
+            $ctx['replay'][] = [
+                'event_type'   => $type,
+                'payload_hash' => $payloadHash,
+                'je_id'        => null,
+                'je_hash'      => null,
+            ];
+            throw new \RuntimeException("{$type} failed: {$e->getMessage()}", 0, $e);
         }
     }
     $ctx['metrics']['events_emitted']++;
@@ -268,6 +328,122 @@ function simStepEmitEvent(array &$ctx, array $step): void {
         'je_id'        => $jeId,
         'je_hash'      => $jeHash,
     ];
+}
+
+function simStepCreateApBill(array &$ctx, array $step): void {
+    if ($ctx['dry_run']) return;
+    $id = (int) ($step['id'] ?? 0);
+    $amount = round((float) ($step['amount'] ?? 0), 2);
+    if ($id <= 0 || $amount <= 0) throw new \InvalidArgumentException('create_ap_bill requires positive id and amount');
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare(
+            'INSERT INTO ap_bills
+                (id, tenant_id, bill_number, internal_ref, vendor_name, vendor_type,
+                 received_at, bill_date, due_date, currency, subtotal, tax_total,
+                 total, amount_paid, amount_due, status, source)
+             VALUES
+                (:id, :tenant_id, :bill_number, :internal_ref, :vendor_name, "other",
+                 :received_at, :bill_date, :due_date, "USD", :amount, 0,
+                 :amount2, 0, :amount3, "approved", "manual")
+             ON DUPLICATE KEY UPDATE total = VALUES(total), amount_due = VALUES(amount_due),
+                 amount_paid = 0, status = "approved", updated_at = NOW()'
+        )->execute([
+            'id' => $id,
+            'tenant_id' => $ctx['tenant_id'],
+            'bill_number' => (string) ($step['bill_number'] ?? "SIM-{$id}"),
+            'internal_ref' => (string) ($step['internal_ref'] ?? "SIM-{$id}"),
+            'vendor_name' => (string) ($step['vendor_name'] ?? 'Simulation Vendor'),
+            'received_at' => simNow('Y-m-d'),
+            'bill_date' => simNow('Y-m-d'),
+            'due_date' => simNow('Y-m-d'),
+            'amount' => $amount,
+            'amount2' => $amount,
+            'amount3' => $amount,
+        ]);
+        $pdo->prepare('DELETE FROM ap_bill_lines WHERE bill_id = :bill_id')
+            ->execute(['bill_id' => $id]);
+        $pdo->prepare(
+            'INSERT INTO ap_bill_lines
+                (bill_id, line_no, source_type, description, quantity, unit,
+                 unit_price, subtotal, tax_rate_pct, tax_amount, total, gl_expense_account_code)
+             VALUES (:bill_id, 1, "manual", :description, 1, "item",
+                     :amount, :amount2, 0, 0, :amount3, "6990")'
+        )->execute([
+            'bill_id' => $id,
+            'description' => 'Simulation bill line',
+            'amount' => $amount,
+            'amount2' => $amount,
+            'amount3' => $amount,
+        ]);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
+function simStepSettleApBill(array &$ctx, array $step): void {
+    if ($ctx['dry_run']) return;
+    $id = (int) ($step['id'] ?? 0);
+    if ($id <= 0) throw new \InvalidArgumentException('settle_ap_bill requires id');
+    $stmt = getDB()->prepare(
+        'UPDATE ap_bills SET amount_paid = total, amount_due = 0, status = "paid", updated_at = NOW()
+          WHERE tenant_id = :tenant_id AND id = :id'
+    );
+    $stmt->execute(['tenant_id' => $ctx['tenant_id'], 'id' => $id]);
+    if ($stmt->rowCount() !== 1) throw new \RuntimeException("AP bill {$id} was not found");
+}
+
+function simStepCreateBillingInvoice(array &$ctx, array $step): void {
+    if ($ctx['dry_run']) return;
+    $id = (int) ($step['id'] ?? 0);
+    $amount = round((float) ($step['amount'] ?? 0), 2);
+    if ($id <= 0 || $amount <= 0) throw new \InvalidArgumentException('create_billing_invoice requires positive id and amount');
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare(
+            'INSERT INTO billing_invoices
+                (id, tenant_id, invoice_number, client_name, currency, issue_date, due_date,
+                 subtotal, tax_total, total, amount_paid, amount_due, status, aggregation)
+             VALUES
+                (:id, :tenant_id, :invoice_number, :client_name, "USD", :issue_date, :due_date,
+                 :amount, 0, :amount2, 0, :amount3, "sent", "per_client")
+             ON DUPLICATE KEY UPDATE total = VALUES(total), amount_due = VALUES(amount_due),
+                 amount_paid = 0, status = "sent", updated_at = NOW()'
+        )->execute([
+            'id' => $id,
+            'tenant_id' => $ctx['tenant_id'],
+            'invoice_number' => (string) ($step['invoice_number'] ?? "SIM-INV-{$id}"),
+            'client_name' => (string) ($step['client_name'] ?? 'Simulation Client'),
+            'issue_date' => simNow('Y-m-d'),
+            'due_date' => simNow('Y-m-d'),
+            'amount' => $amount,
+            'amount2' => $amount,
+            'amount3' => $amount,
+        ]);
+        $pdo->prepare('DELETE FROM billing_invoice_lines WHERE invoice_id = :invoice_id')
+            ->execute(['invoice_id' => $id]);
+        $pdo->prepare(
+            'INSERT INTO billing_invoice_lines
+                (invoice_id, line_no, source_type, description, quantity, unit,
+                 unit_price, subtotal, tax_rate_pct, tax_amount, total)
+             VALUES (:invoice_id, 1, "manual", :description, 1, "item",
+                     :amount, :amount2, 0, 0, :amount3)'
+        )->execute([
+            'invoice_id' => $id,
+            'description' => 'Simulation invoice line',
+            'amount' => $amount,
+            'amount2' => $amount,
+            'amount3' => $amount,
+        ]);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
 }
 
 function simFindPreviousRunForReplay(\PDO $pdo, int $tenantId, string $scenario, int $seed, int $excludeRunId): ?int {

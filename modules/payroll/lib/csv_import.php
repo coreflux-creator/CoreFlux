@@ -8,6 +8,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/artifacts.php';
+
 function payrollCsvFindColumn(array $headers, array $aliases): ?int
 {
     foreach ($headers as $i => $header) {
@@ -583,6 +585,8 @@ function payrollImportRunCsv(
             'run_id' => $runId,
             'tenant_id' => $tenantId,
         ]);
+
+        payrollRunSyncArtifact($tenantId, $runId, $actorUserId);
 
         cf_tx_commit($pdo, $ownsTransaction);
         $summary['run_id'] = $runId;

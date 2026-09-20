@@ -2,12 +2,9 @@
 /**
  * Generic WorkflowEngine (Sprint 4 / A1).
  *
- * Replaces hand-rolled per-module approval flows. Subject types in use:
- *   • 'ap_bill'                      (replaces ap_bill_approvals)
- *   • 'billing_invoice'              (Billing two-eye)
- *   • 'accounting_period_close'      (period close manager sign-off)
- *   • 'time_period'                  (time approval)
- *   • 'accounting_journal_entry'     (JE approval over threshold)
+ * Replaces hand-rolled per-module approval flows. Subject types currently
+ * projected back to their owning records are AP bills, billing invoices,
+ * payroll runs, treasury payments, and treasury transfers.
  *
  * Public surface:
  *   workflowDefine($tenantId, $defKey, $subjectType, $label, $steps, $opts) → definition_id
@@ -47,6 +44,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/audit.php';
 require_once __DIR__ . '/push_service.php';
 require_once __DIR__ . '/people_graph.php';
+require_once __DIR__ . '/tx_helpers.php';
 
 const WORKFLOW_STATUS_PENDING   = 'pending';
 const WORKFLOW_STATUS_APPROVED  = 'approved';
@@ -224,7 +222,10 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     $pdo = getDB();
     if (!$pdo) throw new \RuntimeException('No DB');
 
-    $instance = _workflowFetchRow($tenantId, $instanceId);
+    $ownsTx = cf_tx_begin($pdo);
+    try {
+
+    $instance = _workflowFetchRow($tenantId, $instanceId, true);
     if (!$instance) throw new \RuntimeException("Instance not found");
     if ($instance['status'] !== WORKFLOW_STATUS_PENDING) {
         throw new \RuntimeException("Instance already {$instance['status']}");
@@ -243,6 +244,13 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     }
     if (in_array($action, ['approve', 'reject', 'skip'], true) && is_array($currentStepDef)) {
         _workflowEnforceSeparationOfDuties($tenantId, $instance, $currentStepDef, $payload, $userId);
+        _workflowAssertActorHasNotDecided(
+            $tenantId,
+            $instanceId,
+            (int) $instance['current_step'],
+            $userId,
+            $actorEmail
+        );
     }
 
     // Record the action.
@@ -279,25 +287,55 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
         $result = _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_REJECTED, $userId, $comment);
         _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
                              $action, $userId, WORKFLOW_STATUS_REJECTED, $comment);
-        return $result;
+        return _workflowActCommit($pdo, $ownsTx, $result);
     }
     if ($action === 'comment') {
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare("UPDATE workflow_instances SET last_activity_at = NOW() WHERE id = :id")->execute(['id' => $instanceId]);
-        return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
+        return _workflowActCommit($pdo, $ownsTx, _workflowHydrate(_workflowFetchRow($tenantId, $instanceId)));
     }
     if ($action === 'delegate') {
         // Delegation does not advance the step but unblocks the delegate to approve.
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare("UPDATE workflow_instances SET last_activity_at = NOW() WHERE id = :id")->execute(['id' => $instanceId]);
-        return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
+        return _workflowActCommit($pdo, $ownsTx, _workflowHydrate(_workflowFetchRow($tenantId, $instanceId)));
+    }
+    if ($action === 'escalate') {
+        // Escalation reroutes attention; it is never an approval decision.
+        $pdo->prepare(
+            "UPDATE workflow_instances
+                SET last_activity_at = NOW(), sla_due_at = NULL
+              WHERE tenant_id = :tenant_id AND id = :id"
+        )->execute(['tenant_id' => $tenantId, 'id' => $instanceId]);
+        $result = _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
+        cf_tx_commit($pdo, $ownsTx);
+
+        $escalationUserId = (int) ($currentStepDef['escalate_to_user_id'] ?? 0);
+        if ($escalationUserId > 0) {
+            try {
+                _workflowPushApprovers(
+                    $tenantId,
+                    $instanceId,
+                    (string) $instance['subject_type'],
+                    (int) $instance['subject_id'],
+                    ['approver_user_ids' => [$escalationUserId]],
+                    $payload
+                );
+            } catch (\Throwable $notifyError) {
+                error_log('[workflow] escalation notification failed after commit: ' . $notifyError->getMessage());
+            }
+        }
+        return $result;
     }
 
     // Approve / skip — check quorum on the current step.
     $stepIdx  = (int) $instance['current_step'] - 1;
     $stepDef  = $currentStepDef ?? ($steps[$stepIdx] ?? null);
     if (!$stepDef) {
-        return _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_APPROVED, $userId, $comment);
+        $result = _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_APPROVED, $userId, $comment);
+        _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
+                             $action, $userId, WORKFLOW_STATUS_APPROVED, $comment);
+        return _workflowActCommit($pdo, $ownsTx, $result);
     }
     $quorum = max(1, (int) ($stepDef['quorum'] ?? 1));
 
@@ -317,7 +355,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
         // advanced yet, so per-approver rows flip 'pending' → 'approved'.
         _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
                              $action, $userId, WORKFLOW_STATUS_PENDING, $comment);
-        return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
+        return _workflowActCommit($pdo, $ownsTx, _workflowHydrate(_workflowFetchRow($tenantId, $instanceId)));
     }
 
     // Advance to next step or complete.
@@ -326,7 +364,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
         $result = _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_APPROVED, $userId, $comment);
         _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
                              $action, $userId, WORKFLOW_STATUS_APPROVED, $comment);
-        return $result;
+        return _workflowActCommit($pdo, $ownsTx, $result);
     }
     $nextStep = $steps[$nextIdx];
     $sla = (int) ($nextStep['sla_hours'] ?? 0);
@@ -348,77 +386,54 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
         'after_json' => ['status' => WORKFLOW_STATUS_PENDING, 'current_step' => $nextIdx + 1],
     ]);
 
-    _workflowPushApprovers($tenantId, $instanceId,
-        (string) $instance['subject_type'], (int) $instance['subject_id'],
-        $nextStep, json_decode((string) ($instance['payload_json'] ?? '{}'), true) ?: []
-    );
-
     // Sync the per-approver decision that caused the advance.
     _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
                          $action, $userId, WORKFLOW_STATUS_PENDING, $comment);
 
-    return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
+    $result = _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
+    cf_tx_commit($pdo, $ownsTx);
+    try {
+        _workflowPushApprovers($tenantId, $instanceId,
+            (string) $instance['subject_type'], (int) $instance['subject_id'],
+            $nextStep, json_decode((string) ($instance['payload_json'] ?? '{}'), true) ?: []
+        );
+    } catch (\Throwable $notifyError) {
+        error_log('[workflow] approver notification failed after commit: ' . $notifyError->getMessage());
+    }
+    return $result;
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTx);
+        throw $e;
+    }
+}
+
+/** @internal */
+function _workflowActCommit(\PDO $pdo, bool $ownsTx, array $result): array {
+    cf_tx_commit($pdo, $ownsTx);
+    return $result;
 }
 
 /**
- * Pluggable subject-sync dispatch. Currently only `ap_bill` has a
- * legacy mirror; other subject types are no-ops. Kept at the bottom
- * of the engine so the core stays vertical-agnostic — each vertical
- * owns its own sync file under its module.
+ * Apply a workflow decision to the owning domain row. Supported subjects are
+ * deliberately explicit: a missing projection is a consistency failure and
+ * must roll the workflow action back, not leave two conflicting statuses.
  */
 function _workflowSubjectSync(int $tenantId, string $subjectType, int $subjectId, string $action, ?int $userId, string $instanceStatus, ?string $comment = null): void {
-    try {
-        if ($subjectType === 'ap_bill') {
-            require_once __DIR__ . '/../modules/ap/lib/workflow_sync.php';
-            if (function_exists('apSyncFromWorkflow')) {
-                apSyncFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
-            }
-        }
-        if ($subjectType === 'time_timesheet') {
-            require_once __DIR__ . '/../modules/time/lib/workflow_sync.php';
-            if (function_exists('timeSyncTimesheetFromWorkflow')) {
-                timeSyncTimesheetFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
-            }
-        }
-        if ($subjectType === 'payroll_run') {
-            require_once __DIR__ . '/../modules/payroll/lib/workflow_sync.php';
-            if (function_exists('payrollSyncRunFromWorkflow')) {
-                payrollSyncRunFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
-            }
-        }
-        if ($subjectType === 'placement_rate') {
-            require_once __DIR__ . '/../modules/placements/lib/workflow_sync.php';
-            if (function_exists('placementsSyncRateFromWorkflow')) {
-                placementsSyncRateFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
-            }
-        }
-        if ($subjectType === 'billing_invoice') {
-            require_once __DIR__ . '/../modules/billing/lib/workflow_sync.php';
-            if (function_exists('billingSyncInvoiceFromWorkflow')) {
-                billingSyncInvoiceFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
-            }
-        }
-        if ($subjectType === 'accounting_journal_entry') {
-            require_once __DIR__ . '/../modules/accounting/lib/workflow_sync.php';
-            if (function_exists('accountingSyncJournalEntryFromWorkflow')) {
-                accountingSyncJournalEntryFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
-            }
-        }
-        if ($subjectType === 'treasury_payment') {
-            require_once __DIR__ . '/../modules/treasury/lib/workflow_sync.php';
-            if (function_exists('treasurySyncPaymentFromWorkflow')) {
-                treasurySyncPaymentFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
-            }
-        }
-        if ($subjectType === 'treasury_transfer') {
-            require_once __DIR__ . '/../modules/treasury/lib/workflow_sync.php';
-            if (function_exists('treasurySyncTransferFromWorkflow')) {
-                treasurySyncTransferFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
-            }
-        }
-    } catch (\Throwable $_) {
-        // Absolutely non-fatal.
+    $handlers = [
+        'ap_bill' => [__DIR__ . '/../modules/ap/lib/workflow_sync.php', 'apSyncFromWorkflow'],
+        'billing_invoice' => [__DIR__ . '/../modules/billing/lib/workflow_sync.php', 'billingSyncInvoiceFromWorkflow'],
+        'payroll_run' => [__DIR__ . '/../modules/payroll/lib/workflow_sync.php', 'payrollSyncRunFromWorkflow'],
+        'treasury_payment' => [__DIR__ . '/../modules/treasury/lib/workflow_sync.php', 'treasurySyncPaymentFromWorkflow'],
+        'treasury_transfer' => [__DIR__ . '/../modules/treasury/lib/workflow_sync.php', 'treasurySyncTransferFromWorkflow'],
+    ];
+    if (!isset($handlers[$subjectType])) return;
+
+    [$file, $handler] = $handlers[$subjectType];
+    require_once $file;
+    if (!function_exists($handler)) {
+        throw new \LogicException("Workflow projection handler {$handler} is unavailable");
     }
+    $handler($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
 }
 
 /** @internal */
@@ -708,17 +723,50 @@ function workflowResolveCurrentStepApprovers(int $tenantId, int $instanceId): ar
 
 /* ---------------------------------------------------------------------- */
 /** @internal */
-function _workflowFetchRow(int $tenantId, int $instanceId): ?array {
+function _workflowFetchRow(int $tenantId, int $instanceId, bool $forUpdate = false): ?array {
     $pdo = getDB();
     if (!$pdo) return null;
     $stmt = $pdo->prepare(
         "SELECT i.*, d.def_key, d.label AS workflow_label, d.steps_json
            FROM workflow_instances i
            JOIN workflow_definitions d ON d.id = i.definition_id
-          WHERE i.tenant_id = :t AND i.id = :id"
+          WHERE i.tenant_id = :t AND i.id = :id" . ($forUpdate ? ' FOR UPDATE' : '')
     );
     $stmt->execute(['t' => $tenantId, 'id' => $instanceId]);
     return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+/** @internal Prevent one human from satisfying a quorum more than once. */
+function _workflowAssertActorHasNotDecided(
+    int $tenantId,
+    int $instanceId,
+    int $stepNo,
+    ?int $userId,
+    ?string $actorEmail
+): void {
+    $identitySql = '';
+    $params = ['t' => $tenantId, 'i' => $instanceId, 's' => $stepNo];
+    if ($userId !== null && $userId > 0) {
+        $identitySql = 'actor_user_id = :u';
+        $params['u'] = $userId;
+    } elseif ($actorEmail !== null && trim($actorEmail) !== '') {
+        $identitySql = 'LOWER(actor_email) = LOWER(:email)';
+        $params['email'] = trim($actorEmail);
+    } else {
+        throw new \RuntimeException('A workflow decision requires an identified actor');
+    }
+
+    $stmt = getDB()->prepare(
+        "SELECT action FROM workflow_step_actions
+          WHERE tenant_id = :t AND instance_id = :i AND step_no = :s
+            AND action IN ('approve','reject','skip') AND {$identitySql}
+          LIMIT 1"
+    );
+    $stmt->execute($params);
+    $prior = $stmt->fetchColumn();
+    if ($prior !== false) {
+        throw new \RuntimeException("This approver already decided this step ({$prior})");
+    }
 }
 
 /** @internal */

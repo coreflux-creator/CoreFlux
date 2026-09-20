@@ -8,14 +8,13 @@
  *   - cashForecastList / Get  — reviewer surface backing.
  *
  * Heuristic, not predictive ML — pulls deterministic inputs:
- *   - Opening cash: SUM of accounting_bank_accounts.last_known_balance
- *     (or last_balance_cents for accounts that track that), scaled to
- *     cents.
+ *   - Opening cash: posted GL balance of every active bank account.
  *   - Weekly AP outflow: ap_bills with status IN
  *     ('approved','partially_paid') whose due_date falls in the week.
  *   - Weekly AR inflow: billing_invoices with status IN
- *     ('sent','partial') whose due_date falls in the week.
- *   - Weekly payroll outflow: payroll_runs scheduled in the week.
+ *     ('sent','partially_paid') whose due_date falls in the week.
+ *   - Weekly payroll outflow: computed/approved payroll runs whose pay
+ *     period pay date falls in the week.
  *
  * Stores both the totals (starting / ending / min_week) AND the
  * per-week JSON payload so the dashboard renders without recomputing.
@@ -23,6 +22,9 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../sub_tenants.php';
+require_once __DIR__ . '/../tx_helpers.php';
+require_once __DIR__ . '/artifacts.php';
 
 const CASH_FORECAST_DEFAULT_WEEKS = 13;
 
@@ -37,6 +39,11 @@ const CASH_FORECAST_DEFAULT_WEEKS = 13;
 function cashForecastRun(int $tenantId, array $opts = []): array
 {
     if ($tenantId <= 0) throw new \InvalidArgumentException('tenantId required');
+    $activeTenantId = $tenantId;
+    $forecastTenantId = cashForecastModuleTenantId('accounting', $activeTenantId);
+    $apTenantId = cashForecastModuleTenantId('ap', $activeTenantId);
+    $billingTenantId = cashForecastModuleTenantId('billing', $activeTenantId);
+    $payrollTenantId = cashForecastModuleTenantId('payroll', $activeTenantId);
     $weeks   = max(1, min(52, (int) ($opts['weeks'] ?? CASH_FORECAST_DEFAULT_WEEKS)));
     $start   = (string) ($opts['starting_at'] ?? date('Y-m-d'));
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $start)) {
@@ -46,7 +53,7 @@ function cashForecastRun(int $tenantId, array $opts = []): array
     $actorUid = isset($opts['actor_user_id']) ? (int) $opts['actor_user_id'] : null;
 
     // 1) Snapshot cash position.
-    $openingCents = cashForecastReadOpeningBalanceCents($tenantId);
+    $openingCents = cashForecastReadOpeningBalanceCents($forecastTenantId, $start, $currency);
 
     // 2) Build weekly buckets.
     $buckets = [];
@@ -56,9 +63,9 @@ function cashForecastRun(int $tenantId, array $opts = []): array
         $weekStart = date('Y-m-d', strtotime("$start +" . ($i * 7) . " days"));
         $weekEnd   = date('Y-m-d', strtotime("$weekStart +6 days"));
 
-        $apOut       = cashForecastApOutflowCents($tenantId, $weekStart, $weekEnd);
-        $arIn        = cashForecastArInflowCents($tenantId, $weekStart, $weekEnd);
-        $payrollOut  = cashForecastPayrollOutflowCents($tenantId, $weekStart, $weekEnd);
+        $apOut       = cashForecastApOutflowCents($apTenantId, $weekStart, $weekEnd);
+        $arIn        = cashForecastArInflowCents($billingTenantId, $weekStart, $weekEnd);
+        $payrollOut  = cashForecastPayrollOutflowCents($payrollTenantId, $weekStart, $weekEnd);
         $otherOut    = 0; // hook for future categories.
 
         $closing = $runningCents + $arIn - $apOut - $payrollOut - $otherOut;
@@ -81,7 +88,9 @@ function cashForecastRun(int $tenantId, array $opts = []): array
 
     // 3) Persist.
     $pdo = getDB();
-    $pdo->prepare(
+    $ownsTx = cf_tx_begin($pdo);
+    try {
+        $pdo->prepare(
         'INSERT INTO cash_forecast_runs
             (tenant_id, sub_tenant_id, weeks_count, starting_at, currency,
              starting_balance_cents, ending_balance_cents, min_week_balance_cents,
@@ -90,23 +99,72 @@ function cashForecastRun(int $tenantId, array $opts = []): array
             (:t, :st, :w, :sa, :c,
              :sb, :eb, :mb,
              :p, :ai, :u, NOW())'
-    )->execute([
-        't'  => $tenantId,
-        'st' => isset($opts['sub_tenant_id']) ? (int) $opts['sub_tenant_id'] : null,
-        'w'  => $weeks,
-        'sa' => $start,
-        'c'  => $currency,
-        'sb' => $openingCents,
-        'eb' => $runningCents,
-        'mb' => $minWeekCents,
-        'p'  => json_encode($buckets, JSON_UNESCAPED_SLASHES),
-        'ai' => $opts['ai_run_id'] ?? null,
-        'u'  => $actorUid,
-    ]);
-    $forecastId = (int) $pdo->lastInsertId();
+        )->execute([
+            't'  => $forecastTenantId,
+            'st' => isset($opts['sub_tenant_id']) ? (int) $opts['sub_tenant_id'] : ($activeTenantId !== $forecastTenantId ? $activeTenantId : null),
+            'w'  => $weeks,
+            'sa' => $start,
+            'c'  => $currency,
+            'sb' => $openingCents,
+            'eb' => $runningCents,
+            'mb' => $minWeekCents,
+            'p'  => json_encode($buckets, JSON_UNESCAPED_SLASHES),
+            'ai' => $opts['ai_run_id'] ?? null,
+            'u'  => $actorUid,
+        ]);
+        $forecastId = (int) $pdo->lastInsertId();
+
+        $artifact = artifactEnsureForSource(
+            $forecastTenantId,
+            'cash_forecast',
+            'ai',
+            'cash_forecast_run',
+            $forecastId,
+            [
+                'title' => "Cash forecast from {$start}",
+                'sub_tenant_id' => isset($opts['sub_tenant_id']) ? (int) $opts['sub_tenant_id'] : ($activeTenantId !== $forecastTenantId ? $activeTenantId : null),
+                'payload' => [
+                    'starting_at' => $start,
+                    'weeks_count' => $weeks,
+                    'currency' => $currency,
+                    'starting_balance_cents' => $openingCents,
+                    'ending_balance_cents' => $runningCents,
+                    'min_week_balance_cents' => $minWeekCents,
+                    'weeks' => $buckets,
+                ],
+                'created_by_user_id' => $actorUid,
+                'created_by_ai_run' => $opts['ai_run_id'] ?? null,
+                'initial_status' => 'review',
+            ]
+        );
+        $pdo->prepare(
+            'UPDATE cash_forecast_runs SET artifact_id = :artifact_id
+              WHERE tenant_id = :tenant_id AND id = :id'
+        )->execute([
+            'artifact_id' => $artifact['id'],
+            'tenant_id' => $forecastTenantId,
+            'id' => $forecastId,
+        ]);
+        artifactLink(
+            $forecastTenantId,
+            (string) $artifact['id'],
+            'represents',
+            null,
+            'cash_forecast_runs',
+            $forecastId,
+            [],
+            $actorUid,
+            $opts['ai_run_id'] ?? null
+        );
+        cf_tx_commit($pdo, $ownsTx);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTx);
+        throw $e;
+    }
 
     return [
         'forecast_id'             => $forecastId,
+        'artifact_id'             => (string) $artifact['id'],
         'starting_at'             => $start,
         'weeks_count'             => $weeks,
         'currency'                => $currency,
@@ -121,6 +179,7 @@ function cashForecastRun(int $tenantId, array $opts = []): array
 function cashForecastGet(int $tenantId, int $forecastId): ?array
 {
     if ($tenantId <= 0 || $forecastId <= 0) return null;
+    $tenantId = cashForecastModuleTenantId('accounting', $tenantId);
     $stmt = getDB()->prepare(
         'SELECT * FROM cash_forecast_runs
           WHERE id = :id AND tenant_id = :t LIMIT 1'
@@ -143,6 +202,7 @@ function cashForecastGet(int $tenantId, int $forecastId): ?array
 function cashForecastList(int $tenantId, array $filters = []): array
 {
     if ($tenantId <= 0) return [];
+    $tenantId = cashForecastModuleTenantId('accounting', $tenantId);
     $limit = max(1, min(200, (int) ($filters['limit'] ?? 50)));
     $stmt = getDB()->prepare(
         'SELECT id, tenant_id, weeks_count, starting_at, currency,
@@ -164,67 +224,74 @@ function cashForecastList(int $tenantId, array $filters = []): array
 }
 
 /* ────────────────────────────────────────────────────────────────── */
-/* Helpers — each best-effort. Schema misses tolerated for sandbox.   */
+/* Helpers — input failures are fatal. A forecast must never turn a   */
+/* missing table or schema mismatch into a plausible-looking zero.    */
 /* tenant-leak-allow: each query is tenant-scoped via the parameter.  */
 /* ────────────────────────────────────────────────────────────────── */
 
-function cashForecastReadOpeningBalanceCents(int $tenantId): int
+function cashForecastModuleTenantId(string $module, int $activeTenantId): int
 {
-    try {
-        $stmt = getDB()->prepare(
-            'SELECT COALESCE(SUM(last_known_balance), 0) AS bal
-               FROM accounting_bank_accounts
-              WHERE tenant_id = :t'
-        );
-        $stmt->execute(['t' => $tenantId]);
-        $bal = (float) ($stmt->fetchColumn() ?: 0);
-        return (int) round($bal * 100);
-    } catch (\Throwable $e) {
-        // Sandbox / table missing — return 0 and let the caller flag it.
-        return 0;
-    }
+    return (int) (effectiveTenantIdForModule($module, $activeTenantId) ?? $activeTenantId);
+}
+
+function cashForecastReadOpeningBalanceCents(int $tenantId, ?string $asOfDate = null, string $currency = 'USD'): int
+{
+    $asOfDate = $asOfDate ?: date('Y-m-d');
+    $stmt = getDB()->prepare(
+        "SELECT COALESCE(SUM(l.debit - l.credit), 0) AS bal
+           FROM accounting_bank_accounts b
+           JOIN accounting_accounts a
+             ON a.tenant_id = b.tenant_id AND a.code = b.gl_account_code
+           JOIN accounting_journal_entry_lines l ON l.account_id = a.id
+           JOIN accounting_journal_entries j
+             ON j.id = l.je_id AND j.tenant_id = b.tenant_id
+          WHERE b.tenant_id = :t
+            AND b.status = 'active'
+            AND b.currency = :currency
+            AND j.status = 'posted'
+            AND j.posting_date <= :as_of"
+    );
+    $stmt->execute(['t' => $tenantId, 'currency' => $currency, 'as_of' => $asOfDate]);
+    return (int) round(((float) ($stmt->fetchColumn() ?: 0)) * 100);
 }
 
 function cashForecastApOutflowCents(int $tenantId, string $weekStart, string $weekEnd): int
 {
-    try {
-        $stmt = getDB()->prepare(
-            "SELECT COALESCE(SUM(amount_due), 0) AS due
+    $stmt = getDB()->prepare(
+        "SELECT COALESCE(SUM(amount_due), 0) AS due
                FROM ap_bills
               WHERE tenant_id = :t
                 AND status IN ('approved','partially_paid','pending_approval')
                 AND due_date BETWEEN :a AND :b"
-        );
-        $stmt->execute(['t' => $tenantId, 'a' => $weekStart, 'b' => $weekEnd]);
-        return (int) round(((float) ($stmt->fetchColumn() ?: 0)) * 100);
-    } catch (\Throwable $e) { return 0; }
+    );
+    $stmt->execute(['t' => $tenantId, 'a' => $weekStart, 'b' => $weekEnd]);
+    return (int) round(((float) ($stmt->fetchColumn() ?: 0)) * 100);
 }
 
 function cashForecastArInflowCents(int $tenantId, string $weekStart, string $weekEnd): int
 {
-    try {
-        $stmt = getDB()->prepare(
-            "SELECT COALESCE(SUM(balance_due), 0) AS due
+    $stmt = getDB()->prepare(
+        "SELECT COALESCE(SUM(amount_due), 0) AS due
                FROM billing_invoices
               WHERE tenant_id = :t
-                AND status IN ('sent','partial')
+                AND status IN ('sent','partially_paid')
                 AND due_date BETWEEN :a AND :b"
-        );
-        $stmt->execute(['t' => $tenantId, 'a' => $weekStart, 'b' => $weekEnd]);
-        return (int) round(((float) ($stmt->fetchColumn() ?: 0)) * 100);
-    } catch (\Throwable $e) { return 0; }
+    );
+    $stmt->execute(['t' => $tenantId, 'a' => $weekStart, 'b' => $weekEnd]);
+    return (int) round(((float) ($stmt->fetchColumn() ?: 0)) * 100);
 }
 
 function cashForecastPayrollOutflowCents(int $tenantId, string $weekStart, string $weekEnd): int
 {
-    try {
-        $stmt = getDB()->prepare(
-            "SELECT COALESCE(SUM(net_total), 0) AS net
-               FROM payroll_runs
-              WHERE tenant_id = :t
-                AND pay_date BETWEEN :a AND :b"
-        );
-        $stmt->execute(['t' => $tenantId, 'a' => $weekStart, 'b' => $weekEnd]);
-        return (int) round(((float) ($stmt->fetchColumn() ?: 0)) * 100);
-    } catch (\Throwable $e) { return 0; }
+    $stmt = getDB()->prepare(
+        "SELECT COALESCE(SUM(r.net_total_cents), 0) AS net
+           FROM payroll_runs r
+           JOIN payroll_pay_periods p
+             ON p.tenant_id = r.tenant_id AND p.id = r.pay_period_id
+          WHERE r.tenant_id = :t
+            AND r.status IN ('computed','approved')
+            AND p.pay_date BETWEEN :a AND :b"
+    );
+    $stmt->execute(['t' => $tenantId, 'a' => $weekStart, 'b' => $weekEnd]);
+    return (int) ($stmt->fetchColumn() ?: 0);
 }

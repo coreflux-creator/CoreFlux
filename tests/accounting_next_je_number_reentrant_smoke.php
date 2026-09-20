@@ -49,19 +49,18 @@ $a('sequence increment still atomic with the SELECT',
 $a('docstring calls out the New Journal Entry → Post JE surface',
     $c($acc, 'New Journal Entry → Post JE'));
 
-// accountingPostJe still uses an outer transaction (the call path this fix unblocks).
-$a('accountingPostJe still wraps its writes in a transaction',
-    preg_match('/function\s+accountingPostJe\b.*?\$pdo->beginTransaction\(\)/s', $acc) === 1);
+// accountingPostJe still uses an atomic transaction boundary, but now joins
+// an existing caller transaction instead of destroying it.
+$a('accountingPostJe still wraps its writes in a nested-safe transaction',
+    preg_match('/function\s+accountingPostJe\b.*?\$ownsTransaction\s*=\s*cf_tx_begin\(\$pdo\)/s', $acc) === 1);
 $a('accountingPostJe still calls accountingNextJeNumber inside that transaction',
-    preg_match('/\$pdo->beginTransaction\(\);.*?accountingNextJeNumber\(\$tenantId\)/s', $acc) === 1);
+    preg_match('/\$ownsTransaction\s*=\s*cf_tx_begin\(\$pdo\);.*?accountingNextJeNumber\(\$tenantId\)/s', $acc) === 1);
 
-// Defensive begin — accountingPostJe rolls back any stale transaction
-// inherited from a prior failed handler in the SAME PHP request before
-// opening its own. Same guard mirrored in accountingPromoteDraftToPosted.
-$a('accountingPostJe rolls back stale tx before beginning own',
-    preg_match('/function\s+accountingPostJe\b.*?if\s*\(\s*\$pdo->inTransaction\(\)\s*\)\s*\{\s*error_log\([^)]*post-je[^)]*\);\s*\$pdo->rollBack\(\);\s*\}/s', $acc) === 1);
-$a('accountingPromoteDraftToPosted rolls back stale tx before beginning own',
-    preg_match('/function\s+accountingPromoteDraftToPosted\b.*?if\s*\(\s*\$pdo->inTransaction\(\)\s*\)\s*\{\s*error_log\([^)]*promote-draft[^)]*\);\s*\$pdo->rollBack\(\);\s*\}/s', $acc) === 1);
+// Both posting paths must preserve a transaction owned by their caller.
+$a('accountingPostJe commits and rolls back only its own transaction',
+    preg_match('/function\s+accountingPostJe\b.*?cf_tx_commit\(\$pdo, \$ownsTransaction\).*?cf_tx_rollback\(\$pdo, \$ownsTransaction\)/s', $acc) === 1);
+$a('accountingPromoteDraftToPosted preserves caller transaction ownership',
+    preg_match('/function\s+accountingPromoteDraftToPosted\b.*?\$ownsTransaction\s*=\s*cf_tx_begin\(\$pdo\).*?cf_tx_commit\(\$pdo, \$ownsTransaction\).*?cf_tx_rollback\(\$pdo, \$ownsTransaction\)/s', $acc) === 1);
 
 // php -l clean.
 exec('php -l /app/modules/accounting/lib/accounting.php 2>&1', $out, $rc);

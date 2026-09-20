@@ -16,8 +16,19 @@
 -- 1. Sim tenant flag — tells SPA + middlewares that this tenant is
 --    a synthetic environment (suppresses external integrations,
 --    disables real money movement, allows resets).
-ALTER TABLE tenants
-    ADD COLUMN IF NOT EXISTS is_simulation TINYINT(1) NOT NULL DEFAULT 0 AFTER name;
+SET @sim_col := (
+    SELECT COUNT(*)
+      FROM information_schema.columns
+     WHERE table_schema = DATABASE()
+       AND table_name = 'tenants'
+       AND column_name = 'is_simulation'
+);
+SET @sql := IF(
+    @sim_col = 0,
+    'ALTER TABLE tenants ADD COLUMN is_simulation TINYINT(1) NOT NULL DEFAULT 0 AFTER name',
+    'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 2. simulation_runs — one row per scenario execution.
 CREATE TABLE IF NOT EXISTS simulation_runs (

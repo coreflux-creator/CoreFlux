@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/payroll.php';
+require_once __DIR__ . '/artifacts.php';
 
 function payrollSyncRunFromWorkflow(
     int $tenantId,
@@ -13,10 +14,10 @@ function payrollSyncRunFromWorkflow(
     string $instanceStatus,
     ?string $comment = null
 ): void {
-    try {
         $pdo = getDB();
-        if (!$pdo) return;
-        $beforeRun = payrollSyncRunRow($tenantId, $runId) ?? ['id' => $runId];
+        if (!$pdo) throw new \RuntimeException('No database');
+        $beforeRun = payrollSyncRunRow($tenantId, $runId);
+        if (!$beforeRun) throw new \RuntimeException("Payroll run {$runId} not found");
 
         if ($action === 'reject' && $userId) {
             payrollAudit('payroll.run.approval_rejected', [
@@ -27,10 +28,13 @@ function payrollSyncRunFromWorkflow(
             ], $runId, ['before' => $beforeRun, 'after' => payrollSyncRunRow($tenantId, $runId) ?? $beforeRun]);
             return;
         }
-        if (!in_array($action, ['approve', 'skip'], true) || $instanceStatus !== 'approved' || !$userId) return;
+        if (!in_array($action, ['approve', 'skip'], true) || $instanceStatus !== 'approved') return;
 
         $run = payrollSyncRunRow($tenantId, $runId);
-        if (!$run || !in_array((string) ($run['status'] ?? ''), ['computed', 'approved'], true)) return;
+        if (!$run) throw new \RuntimeException("Payroll run {$runId} not found");
+        if (!in_array((string) ($run['status'] ?? ''), ['computed', 'approved'], true)) {
+            throw new \RuntimeException("Payroll run {$runId} cannot be approved from status {$run['status']}");
+        }
 
         $pdo->prepare(
             "UPDATE payroll_runs SET status = 'approved', approved_at = COALESCE(approved_at, NOW()),
@@ -46,6 +50,8 @@ function payrollSyncRunFromWorkflow(
               WHERE tenant_id = :t AND id = :pid AND status <> 'paid'"
         )->execute(['t' => $tenantId, 'pid' => (int) ($run['pay_period_id'] ?? 0)]);
 
+        payrollRunSyncArtifact($tenantId, $runId, $userId);
+
         $updated = payrollSyncRunRow($tenantId, $runId) ?? $run;
         payrollAudit('payroll.run.approved', [
             'run_id' => $runId,
@@ -53,9 +59,6 @@ function payrollSyncRunFromWorkflow(
             'source' => 'workflow',
             'workflow_instance_status' => $instanceStatus,
         ], $runId, ['before' => $beforeRun, 'after' => $updated]);
-    } catch (\Throwable $e) {
-        error_log('[payroll.workflow_sync] sync failed: ' . $e->getMessage());
-    }
 }
 
 function payrollSyncRunRow(int $tenantId, int $runId): ?array {
