@@ -47,6 +47,8 @@ $assert('deployment accepts explicit restore guards',
 $assert('deployment packages and executes the guarded repair',
     str_contains($workflow, 'scripts/repair_jobdiva_active_status_regression.php')
     && str_contains($workflow, 'php scripts/repair_jobdiva_active_status_regression.php'));
+$assert('deployment verifies the current placements search control',
+    str_contains($workflow, "grep -Fq 'Search person, role, client or ID'"));
 
 $syntax = [];
 $syntaxCode = 0;
