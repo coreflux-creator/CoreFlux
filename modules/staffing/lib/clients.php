@@ -51,7 +51,12 @@ function staffingClientFindForCompany(int $tenantId, ?int $companyId): ?array
     if (!$companyId || $companyId <= 0) return null;
     return staffingClientCatalogFind(
         $tenantId,
-        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND company_id = :company_id LIMIT 1',
+        "SELECT *
+           FROM staffing_clients
+          WHERE tenant_id = :tenant_id
+            AND company_id = :company_id
+       ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, id ASC
+          LIMIT 1",
         ['company_id' => $companyId]
     );
 }
@@ -67,9 +72,22 @@ function staffingClientRelinkCanonicalPlacements(int $tenantId): int
     if (!$pdo) throw new \RuntimeException('No database connection');
     $stmt = $pdo->prepare(
         'UPDATE placements p
+           JOIN (
+                 SELECT tenant_id,
+                        company_id,
+                        COALESCE(
+                            MIN(CASE WHEN status = \'active\' THEN id END),
+                            MIN(id)
+                        ) AS client_id
+                   FROM staffing_clients
+                  WHERE company_id IS NOT NULL
+               GROUP BY tenant_id, company_id
+                ) canonical_choice
+             ON canonical_choice.tenant_id = p.tenant_id
+            AND canonical_choice.company_id = p.end_client_company_id
            JOIN staffing_clients canonical
-             ON canonical.tenant_id = p.tenant_id
-            AND canonical.company_id = p.end_client_company_id
+             ON canonical.id = canonical_choice.client_id
+            AND canonical.tenant_id = canonical_choice.tenant_id
       LEFT JOIN staffing_clients current_client
              ON current_client.tenant_id = p.tenant_id
             AND current_client.id = p.client_id
@@ -84,6 +102,8 @@ function staffingClientRelinkCanonicalPlacements(int $tenantId): int
               OR current_client.id IS NULL
               OR current_client.company_id IS NULL
               OR current_client.company_id <> p.end_client_company_id
+              OR current_client.id <> canonical.id
+              OR COALESCE(p.end_client_name, \'\') <> canonical.name
             )'
     );
     $stmt->execute(['tenant_id' => $tenantId]);
@@ -326,6 +346,146 @@ function staffingClientRetireQboSubcustomers(int $tenantId): int
     return $stmt->rowCount();
 }
 
+/**
+ * Restore a real client consumer row when an active placement would otherwise
+ * point at an inactive client. Only durable business provenance can reactivate
+ * a row; synthetic JobDiva placeholders remain ineligible.
+ *
+ * @return array{companies_checked:int,clients_reactivated:int,unresolved_company_ids:array<int>}
+ */
+function staffingClientReactivateProvenActivePlacementClients(int $tenantId): array
+{
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+
+    $companyStmt = $pdo->prepare(
+        "SELECT p.end_client_company_id AS company_id,
+                MIN(COALESCE(p.client_id, 0)) AS preferred_client_id
+           FROM placements p
+          WHERE p.tenant_id = :tenant_id
+            AND p.status = 'active'
+            AND p.deleted_at IS NULL
+            AND p.end_client_company_id IS NOT NULL
+            AND NOT EXISTS (
+                SELECT 1
+                  FROM staffing_clients active_client
+                 WHERE active_client.tenant_id = p.tenant_id
+                   AND active_client.company_id = p.end_client_company_id
+                   AND active_client.status = 'active'
+            )
+       GROUP BY p.end_client_company_id
+       ORDER BY p.end_client_company_id"
+    );
+    $companyStmt->execute(['tenant_id' => $tenantId]);
+    $companies = $companyStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $candidateStmt = $pdo->prepare(
+        "SELECT sc.id, sc.company_id
+           FROM staffing_clients sc
+          WHERE sc.tenant_id = :tenant_id
+            AND sc.company_id = :company_id
+            AND sc.status <> 'active'
+            AND sc.name NOT REGEXP '^JobDiva Company [0-9]+$'
+            AND (
+                 COALESCE(NULLIF(TRIM(sc.source_system), ''), 'manual') <> 'manual'
+              OR EXISTS (
+                    SELECT 1
+                      FROM external_entity_mappings customer_map
+                     WHERE customer_map.tenant_id = sc.tenant_id
+                       AND customer_map.internal_entity_type = 'customer'
+                       AND customer_map.internal_entity_id = sc.id
+                       AND customer_map.source_system IN ('qbo', 'quickbooks_online', 'zoho', 'zoho_books')
+                 )
+              OR EXISTS (
+                    SELECT 1
+                      FROM audit_log manual_audit
+                     WHERE manual_audit.tenant_id = sc.tenant_id
+                       AND manual_audit.target_id = sc.id
+                       AND manual_audit.event IN ('staffing.client.created', 'staffing.client.updated', 'staffing.client.imported')
+                 )
+              OR EXISTS (
+                    SELECT 1
+                      FROM placements direct_placement
+                     WHERE direct_placement.tenant_id = sc.tenant_id
+                       AND direct_placement.end_client_company_id = sc.company_id
+                       AND direct_placement.deleted_at IS NULL
+                       AND NOT EXISTS (
+                           SELECT 1
+                             FROM external_entity_mappings placement_map
+                            WHERE placement_map.tenant_id = direct_placement.tenant_id
+                              AND placement_map.source_system = 'jobdiva'
+                              AND placement_map.internal_entity_type = 'placement'
+                              AND placement_map.internal_entity_id = direct_placement.id
+                       )
+                 )
+            )
+       ORDER BY CASE WHEN sc.id = :preferred_client_id THEN 0 ELSE 1 END,
+                CASE WHEN COALESCE(NULLIF(TRIM(sc.source_system), ''), 'manual') <> 'manual' THEN 0 ELSE 1 END,
+                sc.id ASC
+          LIMIT 1"
+    );
+    $activateStmt = $pdo->prepare(
+        "UPDATE staffing_clients
+            SET status = 'active', updated_at = NOW()
+          WHERE tenant_id = :tenant_id
+            AND id = :id
+            AND status <> 'active'"
+    );
+
+    $reactivated = 0;
+    $unresolved = [];
+    foreach ($companies as $company) {
+        $companyId = (int) ($company['company_id'] ?? 0);
+        if ($companyId <= 0) continue;
+        $candidateStmt->execute([
+            'tenant_id' => $tenantId,
+            'company_id' => $companyId,
+            'preferred_client_id' => (int) ($company['preferred_client_id'] ?? 0),
+        ]);
+        $candidate = $candidateStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if (!$candidate) {
+            $unresolved[] = $companyId;
+            continue;
+        }
+        $activateStmt->execute(['tenant_id' => $tenantId, 'id' => (int) $candidate['id']]);
+        $reactivated += $activateStmt->rowCount();
+        companiesAddRole($companyId, 'client');
+    }
+
+    return [
+        'companies_checked' => count($companies),
+        'clients_reactivated' => $reactivated,
+        'unresolved_company_ids' => $unresolved,
+    ];
+}
+
+/** @return array<int,array<string,mixed>> */
+function staffingClientActivePlacementClientIssues(int $tenantId, int $limit = 25): array
+{
+    $limit = max(1, min(100, $limit));
+    return staffingClientCatalogQuery(
+        $tenantId,
+        "SELECT p.id AS placement_id,
+                p.external_id,
+                p.end_client_company_id,
+                p.end_client_name,
+                p.client_id,
+                sc.name AS client_name,
+                sc.status AS client_status,
+                sc.source_system AS client_source_system
+           FROM placements p
+      LEFT JOIN staffing_clients sc
+             ON sc.tenant_id = p.tenant_id
+            AND sc.id = p.client_id
+          WHERE p.tenant_id = :tenant_id
+            AND p.status = 'active'
+            AND p.deleted_at IS NULL
+            AND (sc.id IS NULL OR sc.status <> 'active')
+       ORDER BY p.id
+          LIMIT {$limit}"
+    );
+}
+
 function staffingClientCatalogIntegritySummary(int $tenantId): array
 {
     $pdo = getDB();
@@ -477,9 +637,7 @@ function staffingClientEnsureForCompany(int $tenantId, ?int $companyId, string $
 
     $existing = null;
     if ($companyId) {
-        $stmt = $pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id = :t AND company_id = :cid LIMIT 1');
-        $stmt->execute(['t' => $tenantId, 'cid' => $companyId]);
-        $existing = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        $existing = staffingClientFindForCompany($tenantId, $companyId);
     }
     if (!$existing) {
         $stmt = $pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id = :t AND name = :n LIMIT 1');

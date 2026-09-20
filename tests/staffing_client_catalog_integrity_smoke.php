@@ -57,6 +57,20 @@ $assert('QuickBooks sub-customers are not promoted as active top-level clients',
 $assert('catalog repair relinks before retiring unsupported promotions',
     strpos($repair, 'staffingClientRelinkCanonicalPlacements')
         < strpos($repair, 'staffingClientRetireUnsupportedJobDivaPromotions'));
+$assert('company lookup and canonical relink prefer the active consumer row',
+    str_contains($clients, "CASE WHEN status = 'active' THEN 0 ELSE 1 END")
+    && str_contains($clients, "MIN(CASE WHEN status = \\'active\\' THEN id END)")
+    && str_contains($clients, 'current_client.id <> canonical.id'));
+$assert('active placements can only reactivate clients with durable provenance',
+    str_contains($clients, 'function staffingClientReactivateProvenActivePlacementClients')
+    && str_contains($clients, "sc.name NOT REGEXP '^JobDiva Company [0-9]+$'")
+    && str_contains($clients, "COALESCE(NULLIF(TRIM(sc.source_system), ''), 'manual') <> 'manual'")
+    && str_contains($clients, "manual_audit.event IN ('staffing.client.created', 'staffing.client.updated', 'staffing.client.imported')"));
+$assert('catalog repair restores proven active-placement clients after cleanup and relinks again',
+    strpos($repair, 'staffingClientReactivateProvenActivePlacementClients')
+        > strpos($repair, 'staffingClientRetireJobDivaPlaceholders')
+    && substr_count($repair, 'staffingClientRelinkCanonicalPlacements') === 2
+    && str_contains($repair, 'active_placement_client_issues'));
 $assert('exact JobDiva assignment clients carry integration provenance',
     str_contains($clients, "'source_system'")
     && substr_count($read($root . '/core/jobdiva/projector.php'), "'source_system' => 'jobdiva'") >= 2

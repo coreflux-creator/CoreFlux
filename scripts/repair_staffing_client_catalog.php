@@ -11,28 +11,36 @@ if ($tenantId <= 0) {
 
 $before = staffingClientCatalogIntegritySummary($tenantId);
 $clientLinks = jobdivaMappingRepairStaffingClientLinks($tenantId, null, 5000);
-$relinked = staffingClientRelinkCanonicalPlacements($tenantId);
+$relinkedBeforeCleanup = staffingClientRelinkCanonicalPlacements($tenantId);
 $qboSubcustomersRetired = staffingClientRetireQboSubcustomers($tenantId);
 $retired = staffingClientRetireUnsupportedJobDivaPromotions($tenantId);
 $legacyRowsRetired = staffingClientRetireUnsupportedLegacyRows($tenantId);
 $placeholdersRetired = staffingClientRetireJobDivaPlaceholders($tenantId);
+$activePlacementClients = staffingClientReactivateProvenActivePlacementClients($tenantId);
+$relinkedAfterCleanup = staffingClientRelinkCanonicalPlacements($tenantId);
 $after = staffingClientCatalogIntegritySummary($tenantId);
+$activePlacementClientIssues = staffingClientActivePlacementClientIssues($tenantId);
 
 $result = [
     'tenant_id' => $tenantId,
     'before' => $before,
     'assignment_client_links' => $clientLinks,
-    'canonical_links_repaired' => $relinked,
+    'canonical_links_repaired' => $relinkedBeforeCleanup + $relinkedAfterCleanup,
+    'canonical_links_repaired_before_cleanup' => $relinkedBeforeCleanup,
+    'canonical_links_repaired_after_cleanup' => $relinkedAfterCleanup,
     'qbo_subcustomers_retired' => $qboSubcustomersRetired,
     'unsupported_jobdiva_clients_retired' => $retired,
     'unsupported_legacy_clients_retired' => $legacyRowsRetired,
     'jobdiva_placeholders_retired' => $placeholdersRetired,
+    'active_placement_clients' => $activePlacementClients,
+    'active_placement_client_issues' => $activePlacementClientIssues,
     'after' => $after,
 ];
 echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
 
 $failed = (int) ($clientLinks['failed'] ?? 0);
 if ($failed > 0
+    || !empty($activePlacementClients['unresolved_company_ids'])
     || (int) ($after['client_company_mismatches'] ?? 0) > 0
     || (int) ($after['active_jobdiva_placeholders'] ?? 0) > 0
     || (int) ($after['active_unproven_clients'] ?? 0) > 0
