@@ -26,6 +26,7 @@ $projector = $read("$root/core/jobdiva/projector.php");
 $clients = $read("$root/modules/staffing/lib/clients.php");
 $servicePath = "$root/core/jobdiva/mapping_alignment.php";
 $service = $read($servicePath);
+$reconcile = $read("$root/core/jobdiva/placement_reconciliation.php");
 $apiPath = "$root/api/admin/integrations/jobdiva_mapping_alignment.php";
 $api = $read($apiPath);
 $ui = $read("$root/dashboard/src/pages/JobDivaSettings.jsx");
@@ -113,10 +114,30 @@ $a('duplicate detector includes source bindings and title-only JobDiva shells',
     && str_contains($service, "p.title LIKE 'JobDiva Placement %'")
     && str_contains($service, 'm.id IS NOT NULL')
     && str_contains($service, '_jobdivaMappingPlacementStartIdFromRow($row, $mapped, $mappedByInternalId)'));
+$a('duplicate detector reconciles the reviewed spreadsheet row conservatively',
+    str_contains($service, 'function _jobdivaMappingLegacySpreadsheetDuplicateGroups')
+    && str_contains($service, "'duplicate_basis' => 'legacy_spreadsheet_identity'")
+    && str_contains($service, "'preferred_keeper_id' => \$preferredKeeper")
+    && str_contains($service, 'approved_rate_count')
+    && str_contains($reconcile, 'function jobdivaPlacementReconcilePair')
+    && str_contains($reconcile, "'month_day_swap'")
+    && str_contains($reconcile, "'name_prefix_alias'"));
 $a('duplicate repair prefers the row carrying downstream workflow activity',
     str_contains($service, 'function _jobdivaMappingDuplicatePlacementChildCounts')
     && str_contains($service, 'multiple_rows_have_downstream_activity')
     && str_contains($service, '$keepId = count($rowsWithChildren) === 1'));
+$a('legacy duplicate repair consolidates source metadata, rates, and configuration',
+    str_contains($service, 'function _jobdivaMappingConsolidateLegacyPlacementPair')
+    && str_contains($service, 'function _jobdivaMappingMergePlacementRates')
+    && str_contains($service, 'function _jobdivaMappingMergePlacementConfiguration')
+    && str_contains($service, 'placementEconomicsReconcile($tenantId, $keepId)')
+    && str_contains($service, 'function _jobdivaMappingRateHasReferences')
+    && str_contains($service, 'JOIN {$parentTable} parent ON parent.id = child.{$parentKey}'));
+$a('duplicate repair blocks every settled downstream placement artifact',
+    str_contains($service, "'time_downstream_feed'")
+    && str_contains($service, "'placement_economic_obligations'")
+    && str_contains($service, "'placement_economic_items'")
+    && str_contains($service, "'ap_bills'"));
 $a('duplicate repair prefers fully projected rows over placeholder shells',
     str_contains($service, "!preg_match('/^JobDiva\\s+Placement\\s+\\d+$/i', \$title)")
     && str_contains($service, '$score += 40')

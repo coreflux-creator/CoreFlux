@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/sync.php';
 require_once __DIR__ . '/canonical_graph.php';
+require_once __DIR__ . '/placement_reconciliation.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
 require_once __DIR__ . '/../../modules/placements/lib/rate_approve.php';
 
@@ -218,6 +219,10 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
         );
         $duplicatePlacementGroups = _jobdivaMappingDuplicatePlacementGroups($pdo, $tenantId, $limit);
         $relationships['placement_graph']['duplicate_jobdiva_external_id_groups'] = count($duplicatePlacementGroups);
+        $relationships['placement_graph']['duplicate_legacy_spreadsheet_groups'] = count(array_filter(
+            $duplicatePlacementGroups,
+            static fn(array $group): bool => (string) ($group['duplicate_basis'] ?? '') === 'legacy_spreadsheet_identity'
+        ));
         if ($duplicatePlacementGroups) {
             $samples['duplicate_placements'] = array_slice($duplicatePlacementGroups, 0, min(10, $limit));
         }
@@ -227,8 +232,8 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
             'duplicate_jobdiva_placement_rows',
             'placement',
             count($duplicatePlacementGroups),
-            'Some JobDiva placement identities resolve to more than one active CoreFlux placement row.',
-            'Preview duplicates, then archive duplicate rows with no downstream billing/time/AP activity.'
+            'Some JobDiva engagements resolve to more than one active CoreFlux placement row.',
+            'Preview duplicates, then consolidate spreadsheet and JobDiva rows that have no conflicting downstream activity.'
         );
 
         $staleActiveRows = _jobdivaMappingStaleActivePlacementRows($pdo, $tenantId, 5000);
@@ -1309,6 +1314,11 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
         'external_ids_restored' => 0,
         'person_mappings_rehomed' => 0,
         'people_inactivated' => 0,
+        'legacy_groups_repaired' => 0,
+        'source_fields_merged' => 0,
+        'rates_rehomed' => 0,
+        'draft_rates_removed' => 0,
+        'config_rows_rehomed' => 0,
         'skipped' => 0,
         'failed' => 0,
         'errors' => [],
@@ -1354,9 +1364,12 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
             ];
             continue;
         }
+        $preferredKeeper = (int) ($group['preferred_keeper_id'] ?? 0);
         $keepId = count($rowsWithChildren) === 1
             ? (int) $rowsWithChildren[0]
-            : _jobdivaMappingChooseDuplicatePlacementKeeper($group);
+            : ($preferredKeeper > 0 && in_array($preferredKeeper, $rowIds, true)
+                ? $preferredKeeper
+                : _jobdivaMappingChooseDuplicatePlacementKeeper($group));
         if ($keepId <= 0) {
             $summary['skipped']++;
             $summary['skipped_groups'][] = ['external_id' => $norm, 'reason' => 'no_keep_candidate'];
@@ -1370,6 +1383,27 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
         if (!$duplicateIds) {
             $summary['skipped']++;
             continue;
+        }
+        if ((string) ($group['duplicate_basis'] ?? '') === 'legacy_spreadsheet_identity') {
+            $keepApproved = 0;
+            $duplicateApproved = 0;
+            foreach ($rows as $row) {
+                if ((int) ($row['id'] ?? 0) === $keepId) {
+                    $keepApproved += (int) ($row['approved_rate_count'] ?? 0);
+                } else {
+                    $duplicateApproved += (int) ($row['approved_rate_count'] ?? 0);
+                }
+            }
+            if ($keepApproved === 0 && $duplicateApproved > 0) {
+                $summary['skipped']++;
+                $summary['skipped_groups'][] = [
+                    'external_id' => $norm,
+                    'keep_id' => $keepId,
+                    'duplicate_ids' => $duplicateIds,
+                    'reason' => 'approved_rate_snapshot_belongs_to_duplicate',
+                ];
+                continue;
+            }
         }
         $blocking = _jobdivaMappingDuplicatePlacementBlockingChildren($pdo, $tenantId, $duplicateIds);
         if ($blocking) {
@@ -1385,6 +1419,9 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
         if ($dryRun) {
             $summary['groups_repaired']++;
             $summary['placements_archived'] += count($duplicateIds);
+            if ((string) ($group['duplicate_basis'] ?? '') === 'legacy_spreadsheet_identity') {
+                $summary['legacy_groups_repaired']++;
+            }
             $canonicalPreview = (string) ($group['canonical_external_id'] ?? '');
             foreach ($rows as $row) {
                 if ((int) ($row['id'] ?? 0) === $keepId && $canonicalPreview !== '' && (string) ($row['external_id'] ?? '') !== $canonicalPreview) {
@@ -1416,6 +1453,16 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
         try {
             $pdo->beginTransaction();
             $canonical = (string) ($group['canonical_external_id'] ?? '');
+            $merge = [];
+            if ((string) ($group['duplicate_basis'] ?? '') === 'legacy_spreadsheet_identity') {
+                $merge = _jobdivaMappingConsolidateLegacyPlacementPair(
+                    $pdo,
+                    $tenantId,
+                    $group,
+                    $keepId,
+                    $duplicateIds
+                );
+            }
             [$inSql, $params] = _jobdivaMappingInClause('id', $duplicateIds);
             $params['t'] = $tenantId;
             $pdo->prepare(
@@ -1448,9 +1495,23 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
                 if ($st->rowCount() > 0) $summary['external_ids_restored']++;
             }
 
+            if ((string) ($group['duplicate_basis'] ?? '') === 'legacy_spreadsheet_identity'
+                && function_exists('placementEconomicsReconcile')) {
+                $economics = placementEconomicsReconcile($tenantId, $keepId);
+                if (empty($economics['available']) && !empty($economics['errors'])) {
+                    throw new \RuntimeException('Economics reconciliation failed: ' . implode('; ', (array) $economics['errors']));
+                }
+            }
+
             $pdo->commit();
             $summary['groups_repaired']++;
             $summary['placements_archived'] += count($duplicateIds);
+            if ((string) ($group['duplicate_basis'] ?? '') === 'legacy_spreadsheet_identity') {
+                $summary['legacy_groups_repaired']++;
+                foreach (['source_fields_merged', 'rates_rehomed', 'draft_rates_removed', 'config_rows_rehomed'] as $key) {
+                    $summary[$key] += (int) ($merge[$key] ?? 0);
+                }
+            }
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             $summary['failed']++;
@@ -1475,6 +1536,353 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
     }
 
     return $summary;
+}
+
+function _jobdivaMappingConsolidateLegacyPlacementPair(
+    \PDO $pdo,
+    int $tenantId,
+    array $group,
+    int $keepId,
+    array $duplicateIds
+): array {
+    $summary = [
+        'source_fields_merged' => 0,
+        'rates_rehomed' => 0,
+        'draft_rates_removed' => 0,
+        'config_rows_rehomed' => 0,
+    ];
+    $legacyId = (int) ($group['legacy_spreadsheet_id'] ?? 0);
+    $sourceId = (int) ($group['jobdiva_placement_id'] ?? 0);
+    if ($legacyId <= 0 || $sourceId <= 0 || !in_array($keepId, [$legacyId, $sourceId], true)) {
+        throw new \RuntimeException('Invalid legacy placement consolidation identity');
+    }
+
+    $summary['source_fields_merged'] = _jobdivaMappingMergePlacementCoreFields(
+        $pdo,
+        $tenantId,
+        $keepId,
+        $legacyId,
+        $sourceId
+    );
+    $rateSummary = _jobdivaMappingMergePlacementRates($pdo, $tenantId, $keepId, $duplicateIds);
+    $summary['rates_rehomed'] = (int) ($rateSummary['rates_rehomed'] ?? 0);
+    $summary['draft_rates_removed'] = (int) ($rateSummary['draft_rates_removed'] ?? 0);
+    $summary['config_rows_rehomed'] = _jobdivaMappingMergePlacementConfiguration(
+        $pdo,
+        $tenantId,
+        $keepId,
+        $legacyId,
+        $duplicateIds
+    );
+    return $summary;
+}
+
+function _jobdivaMappingMergePlacementCoreFields(
+    \PDO $pdo,
+    int $tenantId,
+    int $keepId,
+    int $legacyId,
+    int $sourceId
+): int {
+    [$inSql, $params] = _jobdivaMappingInClause('id', [$keepId, $legacyId, $sourceId]);
+    $params['t'] = $tenantId;
+    $rows = _jobdivaMappingRows(
+        $pdo,
+        "SELECT * FROM placements WHERE tenant_id = :t AND {$inSql}",
+        $params
+    );
+    $byId = [];
+    foreach ($rows as $row) $byId[(int) ($row['id'] ?? 0)] = $row;
+    if (empty($byId[$keepId]) || empty($byId[$legacyId]) || empty($byId[$sourceId])) {
+        throw new \RuntimeException('Placement consolidation rows could not be loaded');
+    }
+
+    $keeper = $byId[$keepId];
+    $legacy = $byId[$legacyId];
+    $source = $byId[$sourceId];
+    $updates = [];
+    $overrides = json_decode((string) ($legacy['coreflux_overridden_fields'] ?? ''), true);
+    $overrides = is_array($overrides) ? array_fill_keys(array_map('strval', $overrides), true) : [];
+
+    if ($keepId === $legacyId) {
+        $sourceFields = [
+            'title', 'status', 'start_date', 'end_date', 'actual_end_date', 'due_date',
+            'engagement_type', 'worksite_state', 'worksite_country', 'remote_policy',
+            'end_client_name', 'end_client_company_id', 'client_id', 'staffing_job_id',
+            'jobdiva_job_id', 'recruiter_name', 'recruiter_email',
+            'account_manager_name', 'account_manager_email',
+        ];
+        foreach ($sourceFields as $column) {
+            if (!array_key_exists($column, $keeper) || !array_key_exists($column, $source) || !empty($overrides[$column])) continue;
+            $value = $source[$column];
+            if ($value === null || (is_string($value) && trim($value) === '')) continue;
+            if ($column === 'title') {
+                $currentTitle = strtolower(trim((string) ($keeper[$column] ?? '')));
+                $genericTitle = $currentTitle === ''
+                    || in_array($currentTitle, ['consultant', 'contractor', 'employee', 'placement'], true)
+                    || (bool) preg_match('/^jobdiva\s+placement\s+\d+$/i', $currentTitle);
+                if (!$genericTitle) continue;
+            }
+            if ((string) ($keeper[$column] ?? '') !== (string) $value) $updates[$column] = $value;
+        }
+        foreach (['client_approver_name', 'client_approver_email'] as $column) {
+            if (!array_key_exists($column, $keeper) || !array_key_exists($column, $source)) continue;
+            if (trim((string) ($keeper[$column] ?? '')) !== '') continue;
+            if (trim((string) ($source[$column] ?? '')) !== '') $updates[$column] = $source[$column];
+        }
+    } else {
+        $commercialFields = [
+            'billing_cycle_id', 'ap_cycle_id', 'payroll_cycle_id',
+            'billing_operating_cycle_id', 'ap_operating_cycle_id', 'payroll_operating_cycle_id',
+            'client_bill_cycle_anchor', 'vendor_pay_cycle_anchor',
+            'client_payment_terms_override', 'vendor_payment_terms_override', 'vendor_pwp_enabled',
+            'client_approver_name', 'client_approver_email',
+            'tokenized_email_approval_enabled', 'bulk_uploads_can_be_pre_approved',
+        ];
+        foreach ($commercialFields as $column) {
+            if (!array_key_exists($column, $keeper) || !array_key_exists($column, $legacy)) continue;
+            $value = $legacy[$column];
+            if ($value === null || (is_string($value) && trim($value) === '')) continue;
+            if ((string) ($keeper[$column] ?? '') !== (string) $value) $updates[$column] = $value;
+        }
+        $legacyNotes = trim((string) ($legacy['notes'] ?? ''));
+        $keeperNotes = trim((string) ($keeper['notes'] ?? ''));
+        if ($legacyNotes !== '' && !str_contains($keeperNotes, $legacyNotes)) {
+            $updates['notes'] = trim($keeperNotes . ($keeperNotes !== '' ? "\n" : '') . $legacyNotes);
+        }
+    }
+
+    if (array_key_exists('coreflux_overridden_fields', $keeper)) {
+        $keeperOverrides = json_decode((string) ($keeper['coreflux_overridden_fields'] ?? ''), true);
+        $legacyOverrides = json_decode((string) ($legacy['coreflux_overridden_fields'] ?? ''), true);
+        $mergedOverrides = array_values(array_unique(array_merge(
+            is_array($keeperOverrides) ? array_map('strval', $keeperOverrides) : [],
+            is_array($legacyOverrides) ? array_map('strval', $legacyOverrides) : []
+        )));
+        sort($mergedOverrides);
+        if ($mergedOverrides) $updates['coreflux_overridden_fields'] = json_encode($mergedOverrides);
+    }
+
+    if (!$updates) return 0;
+    $sets = [];
+    $bind = ['t' => $tenantId, 'id' => $keepId];
+    foreach ($updates as $column => $value) {
+        $key = 'merge_' . preg_replace('/[^A-Za-z0-9_]/', '', $column);
+        $sets[] = "`{$column}` = :{$key}";
+        $bind[$key] = $value;
+    }
+    $sets[] = 'updated_at = NOW()';
+    $pdo->prepare(
+        'UPDATE placements SET ' . implode(', ', $sets) . ' WHERE tenant_id = :t AND id = :id'
+    )->execute($bind);
+    return count($updates);
+}
+
+function _jobdivaMappingMergePlacementRates(
+    \PDO $pdo,
+    int $tenantId,
+    int $keepId,
+    array $duplicateIds
+): array {
+    $summary = ['rates_rehomed' => 0, 'draft_rates_removed' => 0];
+    if (!_jobdivaMappingTableExists($pdo, 'placement_rates')) return $summary;
+    $placementIds = array_values(array_unique(array_merge([$keepId], array_map('intval', $duplicateIds))));
+    [$inSql, $params] = _jobdivaMappingInClause('placement_id', $placementIds);
+    $params['t'] = $tenantId;
+    $rates = _jobdivaMappingRows(
+        $pdo,
+        "SELECT * FROM placement_rates WHERE tenant_id = :t AND {$inSql} ORDER BY id",
+        $params
+    );
+
+    $keeperApproved = array_values(array_filter($rates, static fn(array $rate): bool =>
+        (int) ($rate['placement_id'] ?? 0) === $keepId && !empty($rate['approved_at'])
+    ));
+    $duplicateApproved = array_values(array_filter($rates, static fn(array $rate): bool =>
+        (int) ($rate['placement_id'] ?? 0) !== $keepId && !empty($rate['approved_at'])
+    ));
+    if (!$keeperApproved && $duplicateApproved) {
+        // Approved snapshots embed economic-party IDs from their original
+        // placement. The detector should select the row with the locked rate;
+        // never silently move that immutable snapshot to another contract.
+        throw new \RuntimeException('Preferred placement has no approved rate while the duplicate does');
+    }
+    if (!$keeperApproved) {
+        foreach ($rates as $rate) {
+            if ((int) ($rate['placement_id'] ?? 0) === $keepId) continue;
+            $pdo->prepare(
+                'UPDATE placement_rates SET placement_id = :keep WHERE tenant_id = :t AND id = :id'
+            )->execute(['keep' => $keepId, 't' => $tenantId, 'id' => (int) $rate['id']]);
+            $summary['rates_rehomed']++;
+        }
+    }
+
+    $allRates = _jobdivaMappingRows(
+        $pdo,
+        'SELECT * FROM placement_rates WHERE tenant_id = :t AND placement_id = :p ORDER BY id',
+        ['t' => $tenantId, 'p' => $keepId]
+    );
+    $approved = array_values(array_filter($allRates, static fn(array $rate): bool => !empty($rate['approved_at'])));
+    foreach ($allRates as $draft) {
+        if (!empty($draft['approved_at']) || !array_key_exists('created_by_user_id', $draft) || !empty($draft['created_by_user_id'])) continue;
+        $redundant = false;
+        foreach ($approved as $locked) {
+            if (_jobdivaMappingRatesEquivalent($draft, $locked)
+                && _jobdivaMappingDateRangesOverlap(
+                    (string) ($draft['effective_from'] ?? ''),
+                    (string) ($draft['effective_to'] ?? ''),
+                    (string) ($locked['effective_from'] ?? ''),
+                    (string) ($locked['effective_to'] ?? '')
+                )) {
+                $redundant = true;
+                break;
+            }
+        }
+        if (!$redundant || _jobdivaMappingRateHasReferences($pdo, $tenantId, (int) $draft['id'])) continue;
+        $pdo->prepare('DELETE FROM placement_rates WHERE tenant_id = :t AND id = :id AND approved_at IS NULL')
+            ->execute(['t' => $tenantId, 'id' => (int) $draft['id']]);
+        $summary['draft_rates_removed']++;
+    }
+    return $summary;
+}
+
+function _jobdivaMappingRatesEquivalent(array $left, array $right): bool
+{
+    foreach (['bill_rate', 'pay_rate', 'ot_multiplier', 'dt_multiplier'] as $column) {
+        if (abs((float) ($left[$column] ?? 0) - (float) ($right[$column] ?? 0)) >= 0.0001) return false;
+    }
+    foreach (['bill_rate_unit', 'pay_rate_unit', 'currency'] as $column) {
+        if (strtolower(trim((string) ($left[$column] ?? ''))) !== strtolower(trim((string) ($right[$column] ?? '')))) return false;
+    }
+    return true;
+}
+
+function _jobdivaMappingDateRangesOverlap(string $startA, string $endA, string $startB, string $endB): bool
+{
+    if ($startA === '' || $startB === '') return false;
+    $endA = $endA !== '' ? $endA : '9999-12-31';
+    $endB = $endB !== '' ? $endB : '9999-12-31';
+    return $startA <= $endB && $startB <= $endA;
+}
+
+function _jobdivaMappingRateHasReferences(\PDO $pdo, int $tenantId, int $rateId): bool
+{
+    $sources = [
+        ['table' => 'time_entries'],
+        ['table' => 'time_daily_finance'],
+        ['table' => 'time_downstream_feed'],
+        [
+            'table' => 'billing_invoice_lines',
+            'parent_table' => 'billing_invoices',
+            'parent_key' => 'invoice_id',
+        ],
+        [
+            'table' => 'ap_bill_lines',
+            'parent_table' => 'ap_bills',
+            'parent_key' => 'bill_id',
+        ],
+    ];
+    foreach ($sources as $source) {
+        $table = (string) $source['table'];
+        if (!_jobdivaMappingTableExists($pdo, $table)
+            || !_jobdivaMappingColumnExists($pdo, $table, 'rate_snapshot_id')) {
+            continue;
+        }
+        $parentTable = (string) ($source['parent_table'] ?? '');
+        if ($parentTable !== '') {
+            if (!_jobdivaMappingTableExists($pdo, $parentTable)) continue;
+            $parentKey = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($source['parent_key'] ?? ''));
+            if ($parentKey === '') continue;
+            $sql = "SELECT COUNT(*)
+                      FROM {$table} child
+                      JOIN {$parentTable} parent ON parent.id = child.{$parentKey}
+                     WHERE parent.tenant_id = :t AND child.rate_snapshot_id = :r";
+        } else {
+            if (!_jobdivaMappingColumnExists($pdo, $table, 'tenant_id')) continue;
+            $sql = "SELECT COUNT(*) FROM {$table} WHERE tenant_id = :t AND rate_snapshot_id = :r";
+        }
+        if (_jobdivaMappingScalar($pdo, $sql, ['t' => $tenantId, 'r' => $rateId]) > 0) return true;
+    }
+    return false;
+}
+
+function _jobdivaMappingMergePlacementConfiguration(
+    \PDO $pdo,
+    int $tenantId,
+    int $keepId,
+    int $legacyId,
+    array $duplicateIds
+): int {
+    $moved = 0;
+    foreach (['placement_commissions', 'placement_referrals', 'placement_documents'] as $table) {
+        if (!_jobdivaMappingTableExists($pdo, $table) || !_jobdivaMappingColumnExists($pdo, $table, 'placement_id')) continue;
+        [$inSql, $params] = _jobdivaMappingInClause('placement_id', $duplicateIds);
+        $params['t'] = $tenantId;
+        $params['keep'] = $keepId;
+        $st = $pdo->prepare("UPDATE {$table} SET placement_id = :keep WHERE tenant_id = :t AND {$inSql}");
+        $st->execute($params);
+        $moved += $st->rowCount();
+    }
+
+    if (_jobdivaMappingTableExists($pdo, 'placement_client_chain')) {
+        [$inSql, $params] = _jobdivaMappingInClause('placement_id', $duplicateIds);
+        $params['t'] = $tenantId;
+        $chain = _jobdivaMappingRows(
+            $pdo,
+            "SELECT id, position FROM placement_client_chain WHERE tenant_id = :t AND {$inSql} ORDER BY id",
+            $params
+        );
+        foreach ($chain as $row) {
+            $exists = _jobdivaMappingScalar(
+                $pdo,
+                'SELECT COUNT(*) FROM placement_client_chain WHERE tenant_id = :t AND placement_id = :p AND position = :pos',
+                ['t' => $tenantId, 'p' => $keepId, 'pos' => (int) $row['position']]
+            );
+            if ($exists > 0) continue;
+            $st = $pdo->prepare('UPDATE placement_client_chain SET placement_id = :p WHERE tenant_id = :t AND id = :id');
+            $st->execute(['p' => $keepId, 't' => $tenantId, 'id' => (int) $row['id']]);
+            $moved += $st->rowCount();
+        }
+    }
+
+    if (_jobdivaMappingTableExists($pdo, 'placement_corp_details')) {
+        $keeperCorp = _jobdivaMappingScalar(
+            $pdo,
+            'SELECT COUNT(*) FROM placement_corp_details WHERE tenant_id = :t AND placement_id = :p',
+            ['t' => $tenantId, 'p' => $keepId]
+        );
+        if ($keeperCorp === 0) {
+            [$inSql, $params] = _jobdivaMappingInClause('placement_id', $duplicateIds);
+            $params['t'] = $tenantId;
+            $params['keep'] = $keepId;
+            $st = $pdo->prepare("UPDATE placement_corp_details SET placement_id = :keep WHERE tenant_id = :t AND {$inSql}");
+            $st->execute($params);
+            $moved += $st->rowCount();
+        }
+    }
+
+    if (_jobdivaMappingTableExists($pdo, 'placement_economic_parties')) {
+        [$inSql, $params] = _jobdivaMappingInClause('placement_id', $duplicateIds);
+        $params['t'] = $tenantId;
+        $manual = _jobdivaMappingRows(
+            $pdo,
+            "SELECT id, source_ref FROM placement_economic_parties
+              WHERE tenant_id = :t AND source_type = 'manual' AND {$inSql}",
+            $params
+        );
+        foreach ($manual as $row) {
+            $exists = _jobdivaMappingScalar(
+                $pdo,
+                'SELECT COUNT(*) FROM placement_economic_parties WHERE tenant_id = :t AND placement_id = :p AND source_ref = :ref',
+                ['t' => $tenantId, 'p' => $keepId, 'ref' => (string) $row['source_ref']]
+            );
+            if ($exists > 0) continue;
+            $st = $pdo->prepare('UPDATE placement_economic_parties SET placement_id = :p WHERE tenant_id = :t AND id = :id');
+            $st->execute(['p' => $keepId, 't' => $tenantId, 'id' => (int) $row['id']]);
+            $moved += $st->rowCount();
+        }
+    }
+    return $moved;
 }
 
 function _jobdivaMappingRehomePlacementMapping(\PDO $pdo, int $tenantId, string $externalId, int $keepId, array $duplicateIds): void
@@ -1964,9 +2372,122 @@ function _jobdivaMappingDuplicatePlacementGroups(\PDO $pdo, int $tenantId, int $
         $groups[$key]['count']++;
     }
     $out = array_values(array_filter($groups, static fn($group) => (int) ($group['count'] ?? 0) > 1));
+    $alreadyGrouped = [];
+    foreach ($out as $group) {
+        foreach ((array) ($group['rows'] ?? []) as $row) {
+            $id = (int) ($row['id'] ?? 0);
+            if ($id > 0) $alreadyGrouped[$id] = true;
+        }
+    }
+    $out = array_merge($out, _jobdivaMappingLegacySpreadsheetDuplicateGroups(
+        $pdo,
+        $tenantId,
+        $mapped,
+        $mappedByInternalId,
+        $alreadyGrouped
+    ));
     usort($out, static fn($a, $b) => ((int) ($b['count'] ?? 0) <=> (int) ($a['count'] ?? 0))
         ?: strcmp((string) ($a['external_id'] ?? ''), (string) ($b['external_id'] ?? '')));
     return array_slice($out, 0, $limit);
+}
+
+/**
+ * Pair the reviewed Placements.xlsx row with its JobDiva source row when the
+ * identity differs only by a known import wrinkle. This is intentionally much
+ * narrower than a general fuzzy match: same person and classification, a safe
+ * client alias, and an exact/adjacent/month-day-swapped start date are all
+ * required.
+ */
+function _jobdivaMappingLegacySpreadsheetDuplicateGroups(
+    \PDO $pdo,
+    int $tenantId,
+    array $mapped,
+    array $mappedByInternalId,
+    array $excludedIds = []
+): array {
+    $approvedRateSelect = _jobdivaMappingTableExists($pdo, 'placement_rates')
+        ? '(SELECT COUNT(*) FROM placement_rates pr
+              WHERE pr.tenant_id = p.tenant_id
+                AND pr.placement_id = p.id
+                AND pr.approved_at IS NOT NULL)'
+        : '0';
+    $rows = _jobdivaMappingRows($pdo,
+        "SELECT p.*, {$approvedRateSelect} AS approved_rate_count
+           FROM placements p
+          WHERE p.tenant_id = :t
+            AND p.status IN ('pending_start', 'active', 'on_hold')
+            AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
+       ORDER BY p.person_id, p.id
+          LIMIT 5000",
+        ['t' => $tenantId]
+    );
+
+    $byPerson = [];
+    foreach ($rows as $row) {
+        $id = (int) ($row['id'] ?? 0);
+        $personId = (int) ($row['person_id'] ?? 0);
+        if ($id <= 0 || $personId <= 0 || !empty($excludedIds[$id])) continue;
+        $row['is_jobdiva_mapping'] = !empty($mappedByInternalId[$id]);
+        $byPerson[$personId][] = $row;
+    }
+
+    $candidates = [];
+    foreach ($byPerson as $personRows) {
+        $sources = array_values(array_filter(
+            $personRows,
+            static fn(array $row): bool => !empty($row['is_jobdiva_mapping'])
+        ));
+        $legacy = array_values(array_filter(
+            $personRows,
+            static fn(array $row): bool => empty($row['is_jobdiva_mapping'])
+                && jobdivaPlacementReconcileIsSpreadsheetImport($row)
+        ));
+        $candidates = array_merge(
+            $candidates,
+            jobdivaPlacementReconcileUniquePairs($sources, $legacy)
+        );
+    }
+
+    usort($candidates, static fn(array $a, array $b): int =>
+        ((int) ($b['score'] ?? 0) <=> (int) ($a['score'] ?? 0))
+        ?: ((int) ($a['source']['id'] ?? 0) <=> (int) ($b['source']['id'] ?? 0))
+        ?: ((int) ($a['legacy']['id'] ?? 0) <=> (int) ($b['legacy']['id'] ?? 0))
+    );
+
+    $used = [];
+    $groups = [];
+    foreach ($candidates as $candidate) {
+        $source = (array) ($candidate['source'] ?? []);
+        $legacy = (array) ($candidate['legacy'] ?? []);
+        $sourceId = (int) ($source['id'] ?? 0);
+        $legacyId = (int) ($legacy['id'] ?? 0);
+        if ($sourceId <= 0 || $legacyId <= 0 || !empty($used[$sourceId]) || !empty($used[$legacyId])) continue;
+
+        $startId = _jobdivaMappingPlacementStartIdFromRow($source, $mapped, $mappedByInternalId);
+        if ($startId === '') continue;
+        $canonical = 'jd:' . $startId;
+        $source['is_current_mapping'] = !empty($mapped[$startId]['internal_ids'][$sourceId]);
+        $source['canonical_external_id'] = $canonical;
+        $legacy['is_current_mapping'] = false;
+        $legacy['canonical_external_id'] = $canonical;
+        $legacyApproved = (int) ($legacy['approved_rate_count'] ?? 0);
+        $sourceApproved = (int) ($source['approved_rate_count'] ?? 0);
+        $preferredKeeper = $legacyApproved > 0 || $sourceApproved === 0 ? $legacyId : $sourceId;
+        $groups[] = [
+            'external_id' => $startId,
+            'duplicate_basis' => 'legacy_spreadsheet_identity',
+            'canonical_external_id' => $canonical,
+            'count' => 2,
+            'preferred_keeper_id' => $preferredKeeper,
+            'jobdiva_placement_id' => $sourceId,
+            'legacy_spreadsheet_id' => $legacyId,
+            'match_reason' => (array) ($candidate['match'] ?? []),
+            'rows' => [$source, $legacy],
+        ];
+        $used[$sourceId] = true;
+        $used[$legacyId] = true;
+    }
+    return $groups;
 }
 
 function _jobdivaMappingPlacementStartIdFromRow(array $row, array $mapped = [], array $mappedByInternalId = []): string
@@ -2297,6 +2818,8 @@ function _jobdivaMappingPlacementChildActivity(\PDO $pdo, int $tenantId, array $
         ['table' => 'ap_bills'],
         ['table' => 'placement_documents'],
         ['table' => 'people_pipeline_stages'],
+        ['table' => 'placement_economic_items'],
+        ['table' => 'placement_economic_obligations'],
         [
             'table' => 'billing_invoice_lines',
             'parent_table' => 'billing_invoices',
