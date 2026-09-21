@@ -526,6 +526,77 @@ function jobdivaPersonIdentityConflicts(array $jd, array $person): bool
     return $source['email'] !== $personEmail;
 }
 
+/**
+ * Find one spreadsheet-imported person whose placement is the same JobDiva
+ * assignment. This closes the identity gap between the historical placement
+ * import and the later source sync without merging people on name alone.
+ */
+function jobdivaLegacyImportPersonCandidate(
+    int $tenantId,
+    string $firstName,
+    string $lastName,
+    string $email,
+    array $payload
+): int {
+    $firstName = trim($firstName);
+    $lastName = trim($lastName);
+    if ($tenantId <= 0 || $firstName === '' || $lastName === '') return 0;
+
+    $startDate = jobdivaNormaliseDate(jobdivaPluckFieldDeep($payload, [
+        'startDate', 'start_date', 'start date', 'startdate',
+    ]));
+    if ($startDate === null) return 0;
+
+    $normalise = static fn(string $value): string => preg_replace(
+        '/[^a-z0-9]+/',
+        '',
+        strtolower(trim($value))
+    ) ?: '';
+    $sourceClientKey = $normalise(jobdivaEndClientNameFromPayload($payload));
+    $sourceEmail = strtolower(trim($email));
+    $sourceEmailUsable = $sourceEmail !== '' && !str_ends_with($sourceEmail, '@no-email.invalid');
+
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        "SELECT pe.id, pe.external_id AS person_external_id, pe.email_primary,
+                pl.start_date, pl.end_client_name
+           FROM people pe
+           JOIN placements pl
+             ON pl.tenant_id = pe.tenant_id
+            AND pl.person_id = pe.id
+          WHERE pe.tenant_id = :t
+            AND pe.deleted_at IS NULL
+            AND LOWER(TRIM(pe.first_name)) = LOWER(TRIM(:fn))
+            AND LOWER(TRIM(pe.last_name)) = LOWER(TRIM(:ln))
+            AND (pl.deleted_at IS NULL OR pl.deleted_at = '0000-00-00 00:00:00')
+            AND pl.status IN ('draft', 'pending_start', 'active', 'on_hold')
+            AND pl.external_id LIKE 'placements-xlsx-%'
+       ORDER BY pl.id ASC"
+    );
+    $stmt->execute(['t' => $tenantId, 'fn' => $firstName, 'ln' => $lastName]);
+
+    $matches = [];
+    while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+        $personExternalId = trim((string) ($row['person_external_id'] ?? ''));
+        if (stripos($personExternalId, 'jd:') === 0) continue;
+
+        $candidateEmail = strtolower(trim((string) ($row['email_primary'] ?? '')));
+        $candidateEmailUsable = $candidateEmail !== '' && !str_ends_with($candidateEmail, '@no-email.invalid');
+        if ($sourceEmailUsable && $candidateEmailUsable && $sourceEmail !== $candidateEmail) continue;
+
+        $candidateStart = jobdivaNormaliseDate((string) ($row['start_date'] ?? ''));
+        if ($candidateStart === null) continue;
+        $distance = abs((int) floor((strtotime($candidateStart) - strtotime($startDate)) / 86400));
+        $candidateClientKey = $normalise((string) ($row['end_client_name'] ?? ''));
+        $clientMatches = $sourceClientKey !== '' && $candidateClientKey !== ''
+            && $sourceClientKey === $candidateClientKey;
+        if ($distance !== 0 && !($distance <= 31 && $clientMatches)) continue;
+        $matches[(int) $row['id']] = true;
+    }
+
+    return count($matches) === 1 ? (int) array_key_first($matches) : 0;
+}
+
 function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?int
 {
     require_once __DIR__ . '/../integrations/field_map.php';
@@ -715,7 +786,28 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
         return $existingId;
     }
 
-    // Channel 4: auto-create.
+    // Channel 4: adopt a person already created by the reconciled placement
+    // spreadsheet. The placement evidence makes this materially stronger than
+    // a broad name-only people merge.
+    $legacyPersonId = jobdivaLegacyImportPersonCandidate(
+        $tid,
+        $firstName,
+        $lastName,
+        $email,
+        $jd
+    );
+    if ($legacyPersonId > 0) {
+        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $legacyPersonId, $jd, 'pull', $userId);
+        try {
+            require_once __DIR__ . '/../integrations/field_map_apply.php';
+            integrationFieldMapApplyAll($tid, 'jobdiva', 'person', $jd, ['self' => $legacyPersonId]);
+        } catch (\Throwable $e) {
+            error_log('[jobdiva person sync] legacy-import applyAll failed: ' . $e->getMessage());
+        }
+        return $legacyPersonId;
+    }
+
+    // Channel 5: auto-create.
     $pdo->prepare(
         'INSERT INTO people
             (tenant_id, external_id, first_name, last_name,
