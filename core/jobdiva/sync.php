@@ -6291,6 +6291,77 @@ function jobdivaAuditPlacementProjection(
     }
 }
 
+/**
+ * Locate an unambiguous placement created by the historical spreadsheet
+ * import so the first JobDiva projection can adopt it instead of inserting a
+ * parallel placement. Exact dates are strongest; short date drift also needs
+ * the same client.
+ */
+function jobdivaFindLegacyPlacementAdoptionCandidate(
+    \PDO $pdo,
+    int $tenantId,
+    int $personId,
+    string $startDate,
+    ?int $endClientCompanyId,
+    string $endClientName
+): int {
+    if ($tenantId <= 0 || $personId <= 0 || $startDate === '') return 0;
+
+    $stmt = $pdo->prepare(
+        "SELECT p.id, p.start_date, p.end_client_name, p.end_client_company_id
+           FROM placements p
+          WHERE p.tenant_id = :t
+            AND p.person_id = :person_id
+            AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
+            AND p.status IN ('draft', 'pending_start', 'active', 'on_hold')
+            AND p.external_id LIKE 'placements-xlsx-%'
+            AND NOT EXISTS (
+                SELECT 1
+                  FROM external_entity_mappings mapped
+                 WHERE mapped.tenant_id = p.tenant_id
+                   AND mapped.source_system = 'jobdiva'
+                   AND mapped.internal_entity_type = 'placement'
+                   AND mapped.internal_entity_id = p.id
+            )
+       ORDER BY p.id ASC"
+    );
+    $stmt->execute(['t' => $tenantId, 'person_id' => $personId]);
+    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $normalise = static fn(string $value): string => preg_replace(
+        '/[^a-z0-9]+/',
+        '',
+        strtolower(trim($value))
+    ) ?: '';
+    $sourceClientKey = $normalise($endClientName);
+    $exact = [];
+    $near = [];
+    foreach ($rows as $row) {
+        $candidateStart = jobdivaNormaliseDate((string) ($row['start_date'] ?? ''));
+        $candidateId = (int) ($row['id'] ?? 0);
+        if ($candidateStart === null || $candidateId <= 0) continue;
+        if ($candidateStart === $startDate) {
+            $exact[$candidateId] = true;
+            continue;
+        }
+
+        $distance = abs((int) floor((strtotime($candidateStart) - strtotime($startDate)) / 86400));
+        if ($distance > 31) continue;
+        $candidateCompanyId = (int) ($row['end_client_company_id'] ?? 0);
+        $sameCompany = $endClientCompanyId !== null && $endClientCompanyId > 0
+            && $candidateCompanyId > 0
+            && $candidateCompanyId === $endClientCompanyId;
+        $candidateClientKey = $normalise((string) ($row['end_client_name'] ?? ''));
+        $sameClientName = $sourceClientKey !== '' && $candidateClientKey !== ''
+            && $sourceClientKey === $candidateClientKey;
+        if ($sameCompany || $sameClientName) $near[$candidateId] = true;
+    }
+
+    if (count($exact) === 1) return (int) array_key_first($exact);
+    if (count($exact) > 1) return 0;
+    return count($near) === 1 ? (int) array_key_first($near) : 0;
+}
+
 function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId, ?int $userId = null): int
 {
     require_once __DIR__ . '/../integrations/field_map.php';
@@ -6793,6 +6864,29 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         ])
     );
     $vendorPayCycleAnchor = jobdivaNormaliseDate($vendorPayCycleAnchorRaw);
+
+    if ($existingId <= 0) {
+        $legacyPlacementId = jobdivaFindLegacyPlacementAdoptionCandidate(
+            $pdo,
+            $tid,
+            $personId,
+            $startDate,
+            $endClientCompanyId,
+            $endClientName
+        );
+        if ($legacyPlacementId > 0) {
+            $existingId = $legacyPlacementId;
+            $pdo->prepare(
+                'UPDATE placements
+                    SET external_id = :ext, updated_at = NOW()
+                  WHERE tenant_id = :t AND id = :id'
+            )->execute([
+                'ext' => $canonicalExternalId,
+                't' => $tid,
+                'id' => $existingId,
+            ]);
+        }
+    }
 
     if ($existingId > 0) {
         $projectionBefore = jobdivaPlacementProjectionAuditSnapshot($tid, $existingId);

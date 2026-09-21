@@ -1307,6 +1307,8 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
         'groups_repaired' => 0,
         'placements_archived' => 0,
         'external_ids_restored' => 0,
+        'person_mappings_rehomed' => 0,
+        'people_inactivated' => 0,
         'skipped' => 0,
         'failed' => 0,
         'errors' => [],
@@ -1390,6 +1392,24 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
                     break;
                 }
             }
+            if ((string) ($group['duplicate_basis'] ?? '') === 'jobdiva_start_legacy_import') {
+                $keepPersonId = 0;
+                foreach ($rows as $row) {
+                    if ((int) ($row['id'] ?? 0) === $keepId) {
+                        $keepPersonId = (int) ($row['person_id'] ?? 0);
+                        break;
+                    }
+                }
+                $duplicatePersonIds = [];
+                foreach ($rows as $row) {
+                    $rowId = (int) ($row['id'] ?? 0);
+                    $personId = (int) ($row['person_id'] ?? 0);
+                    if ($rowId !== $keepId && $personId > 0 && $personId !== $keepPersonId) {
+                        $duplicatePersonIds[$personId] = true;
+                    }
+                }
+                $summary['person_mappings_rehomed'] += count($duplicatePersonIds);
+            }
             continue;
         }
 
@@ -1405,6 +1425,18 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
             )->execute($params);
 
             _jobdivaMappingRehomePlacementMapping($pdo, $tenantId, $norm, $keepId, $duplicateIds);
+
+            if ((string) ($group['duplicate_basis'] ?? '') === 'jobdiva_start_legacy_import') {
+                $personRepair = _jobdivaMappingRehomeLegacyBridgePeople(
+                    $pdo,
+                    $tenantId,
+                    $keepId,
+                    $duplicateIds,
+                    $rows
+                );
+                $summary['person_mappings_rehomed'] += (int) ($personRepair['mappings_rehomed'] ?? 0);
+                $summary['people_inactivated'] += (int) ($personRepair['people_inactivated'] ?? 0);
+            }
 
             if ($canonical !== '') {
                 $st = $pdo->prepare(
@@ -1541,6 +1573,138 @@ function _jobdivaMappingRehomePlacementMapping(\PDO $pdo, int $tenantId, string 
         'content_hash' => $hash,
         'direction' => $direction,
     ]);
+}
+
+/**
+ * When the spreadsheet import and JobDiva projection also created parallel
+ * people, move the source mapping to the retained person. The identity check
+ * is intentionally strict and the duplicate person is only inactivated after
+ * its last live placement has been archived.
+ *
+ * @return array{mappings_rehomed:int,people_inactivated:int}
+ */
+function _jobdivaMappingRehomeLegacyBridgePeople(
+    \PDO $pdo,
+    int $tenantId,
+    int $keepPlacementId,
+    array $duplicatePlacementIds,
+    array $rows
+): array {
+    $summary = ['mappings_rehomed' => 0, 'people_inactivated' => 0];
+    if (!_jobdivaMappingTableExists($pdo, 'people')) return $summary;
+
+    $byPlacementId = [];
+    foreach ($rows as $row) {
+        $rowId = (int) ($row['id'] ?? 0);
+        if ($rowId > 0) $byPlacementId[$rowId] = $row;
+    }
+    $keep = $byPlacementId[$keepPlacementId] ?? [];
+    $keepPersonId = (int) ($keep['person_id'] ?? 0);
+    if ($keepPersonId <= 0) return $summary;
+
+    $normaliseName = static fn(array $row): string => preg_replace(
+        '/[^a-z0-9]+/',
+        '',
+        strtolower(trim(
+            (string) ($row['person_first_name'] ?? '') . ' ' . (string) ($row['person_last_name'] ?? '')
+        ))
+    ) ?: '';
+    $usableEmail = static function (array $row): string {
+        $email = strtolower(trim((string) ($row['person_email'] ?? '')));
+        return $email !== '' && !str_ends_with($email, '@no-email.invalid') ? $email : '';
+    };
+    $keepName = $normaliseName($keep);
+    $keepEmail = $usableEmail($keep);
+
+    $duplicatePersonIds = [];
+    foreach ($duplicatePlacementIds as $placementId) {
+        $duplicate = $byPlacementId[(int) $placementId] ?? [];
+        $duplicatePersonId = (int) ($duplicate['person_id'] ?? 0);
+        if ($duplicatePersonId <= 0 || $duplicatePersonId === $keepPersonId) continue;
+        $duplicateName = $normaliseName($duplicate);
+        $duplicateEmail = $usableEmail($duplicate);
+        if ($keepName === '' || $duplicateName === '' || $keepName !== $duplicateName) {
+            throw new \RuntimeException('legacy placement bridge refused a conflicting person identity');
+        }
+        if ($keepEmail !== '' && $duplicateEmail !== '' && $keepEmail !== $duplicateEmail) {
+            throw new \RuntimeException('legacy placement bridge refused conflicting person emails');
+        }
+        $duplicatePersonIds[$duplicatePersonId] = true;
+    }
+
+    foreach (array_keys($duplicatePersonIds) as $duplicatePersonId) {
+        if (_jobdivaMappingTableExists($pdo, 'external_entity_mappings')) {
+            $identityStmt = $pdo->prepare(
+                "SELECT internal_entity_id, external_id
+                   FROM external_entity_mappings
+                  WHERE tenant_id = :t
+                    AND source_system = 'jobdiva'
+                    AND internal_entity_type = 'person'
+                    AND internal_entity_id IN (:keep_person_id, :duplicate_person_id)
+               ORDER BY id ASC"
+            );
+            $identityStmt->execute([
+                't' => $tenantId,
+                'keep_person_id' => $keepPersonId,
+                'duplicate_person_id' => $duplicatePersonId,
+            ]);
+            $identityRows = $identityStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+            $keepMappings = array_values(array_filter(
+                $identityRows,
+                static fn(array $row): bool => (int) ($row['internal_entity_id'] ?? 0) === $keepPersonId
+            ));
+            $duplicateMappings = array_values(array_filter(
+                $identityRows,
+                static fn(array $row): bool => (int) ($row['internal_entity_id'] ?? 0) === $duplicatePersonId
+            ));
+            if ($keepMappings && $duplicateMappings) {
+                throw new \RuntimeException(
+                    'legacy placement bridge refused to combine distinct JobDiva person mappings'
+                );
+            }
+
+            $stmt = $pdo->prepare(
+                "UPDATE external_entity_mappings
+                    SET internal_entity_id = :keep_person_id,
+                        sync_status = 'ok',
+                        last_error = NULL,
+                        updated_at = NOW()
+                  WHERE tenant_id = :t
+                    AND source_system = 'jobdiva'
+                    AND internal_entity_type = 'person'
+                    AND internal_entity_id = :duplicate_person_id"
+            );
+            $stmt->execute([
+                'keep_person_id' => $keepPersonId,
+                't' => $tenantId,
+                'duplicate_person_id' => $duplicatePersonId,
+            ]);
+            $summary['mappings_rehomed'] += $stmt->rowCount();
+        }
+
+        $liveStmt = $pdo->prepare(
+            "SELECT COUNT(*)
+               FROM placements
+              WHERE tenant_id = :t
+                AND person_id = :person_id
+                AND (deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00')
+                AND status IN ('draft', 'pending_start', 'active', 'on_hold')"
+        );
+        $liveStmt->execute(['t' => $tenantId, 'person_id' => $duplicatePersonId]);
+        if ((int) $liveStmt->fetchColumn() === 0) {
+            $stmt = $pdo->prepare(
+                "UPDATE people
+                    SET status = 'inactive', updated_at = NOW()
+                  WHERE tenant_id = :t
+                    AND id = :person_id
+                    AND deleted_at IS NULL
+                    AND status IN ('active', 'bench')"
+            );
+            $stmt->execute(['t' => $tenantId, 'person_id' => $duplicatePersonId]);
+            $summary['people_inactivated'] += $stmt->rowCount();
+        }
+    }
+    return $summary;
 }
 
 function _jobdivaMappingInvalidPlacementSources(\PDO $pdo, int $tenantId, int $limit = 5000): array
@@ -1707,24 +1871,34 @@ function _jobdivaMappingDuplicatePlacementGroups(\PDO $pdo, int $tenantId, int $
     if ($hasJobDivaJobId) $sourceWhere[] = "(p.jobdiva_job_id IS NOT NULL AND p.jobdiva_job_id <> '')";
     $jobIdSelect = $hasJobDivaJobId ? 'p.jobdiva_job_id' : 'NULL AS jobdiva_job_id';
     $jobIdGroup = $hasJobDivaJobId ? 'p.jobdiva_job_id' : 'NULL';
+    $hasPeople = _jobdivaMappingTableExists($pdo, 'people');
+    $peopleJoin = $hasPeople
+        ? 'LEFT JOIN people pe ON pe.tenant_id = p.tenant_id AND pe.id = p.person_id'
+        : '';
+    $personSelect = $hasPeople
+        ? 'pe.first_name AS person_first_name, pe.last_name AS person_last_name, pe.email_primary AS person_email'
+        : "'' AS person_first_name, '' AS person_last_name, '' AS person_email";
+    $personGroup = $hasPeople ? ', pe.first_name, pe.last_name, pe.email_primary' : '';
 
     $placementRows = _jobdivaMappingRows($pdo,
         "SELECT p.id, p.external_id, p.title, p.person_id, p.start_date, p.end_date,
                 p.end_client_name, p.end_client_company_id, {$jobIdSelect}, p.status,
-                p.created_at, p.updated_at
+                p.created_at, p.updated_at, {$personSelect}
            FROM placements p
            {$mappingJoin}
+           {$peopleJoin}
           WHERE p.tenant_id = :t
             AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
             AND (" . implode(' OR ', $sourceWhere) . ")
        GROUP BY p.id, p.external_id, p.title, p.person_id, p.start_date, p.end_date,
                 p.end_client_name, p.end_client_company_id, {$jobIdGroup}, p.status,
-                p.created_at, p.updated_at
+                p.created_at, p.updated_at{$personGroup}
        ORDER BY p.id ASC",
         ['t' => $tenantId]
     );
     $groups = [];
     $rowsGroupedByStartId = [];
+    $startIdByPlacementId = [];
     foreach ($placementRows as $row) {
         $id = (int) ($row['id'] ?? 0);
         $startId = _jobdivaMappingPlacementStartIdFromRow($row, $mapped, $mappedByInternalId);
@@ -1741,7 +1915,34 @@ function _jobdivaMappingDuplicatePlacementGroups(\PDO $pdo, int $tenantId, int $
         ];
         $groups[$key]['rows'][] = $row;
         $groups[$key]['count']++;
-        if ($id > 0) $rowsGroupedByStartId[$id] = true;
+        if ($id > 0) {
+            $rowsGroupedByStartId[$id] = true;
+            $startIdByPlacementId[$id] = $startId;
+        }
+    }
+
+    foreach (_jobdivaMappingLegacyPlacementBridgePairs($placementRows, $startIdByPlacementId) as $pair) {
+        $startId = (string) ($pair['start_id'] ?? '');
+        $canonicalId = (int) ($pair['canonical_id'] ?? 0);
+        $legacyId = (int) ($pair['legacy_id'] ?? 0);
+        $key = 'start:' . $startId;
+        if ($startId === '' || $canonicalId <= 0 || $legacyId <= 0 || !isset($groups[$key])) continue;
+        if ((int) ($groups[$key]['count'] ?? 0) !== 1) continue;
+        $legacyRow = null;
+        foreach ($placementRows as $candidateRow) {
+            if ((int) ($candidateRow['id'] ?? 0) === $legacyId) {
+                $legacyRow = $candidateRow;
+                break;
+            }
+        }
+        if (!is_array($legacyRow)) continue;
+        $legacyRow['is_current_mapping'] = false;
+        $legacyRow['canonical_external_id'] = 'jd:' . $startId;
+        $legacyRow['legacy_import_bridge'] = true;
+        $groups[$key]['duplicate_basis'] = 'jobdiva_start_legacy_import';
+        $groups[$key]['rows'][] = $legacyRow;
+        $groups[$key]['count']++;
+        $rowsGroupedByStartId[$legacyId] = true;
     }
 
     foreach ($placementRows as $row) {
@@ -1791,6 +1992,100 @@ function _jobdivaMappingPlacementStartIdFromRow(array $row, array $mapped = [], 
         return (string) $m[1];
     }
     return '';
+}
+
+/**
+ * Pair a canonical JobDiva Start with one legacy spreadsheet placement. Every
+ * match must be one-to-one in both directions; ambiguous rows are left for
+ * manual review.
+ */
+function _jobdivaMappingLegacyPlacementBridgePairs(array $rows, array $startIdByPlacementId): array
+{
+    $liveStatuses = ['draft', 'pending_start', 'active', 'on_hold'];
+    $canonicalRows = [];
+    $legacyRows = [];
+    $startCounts = [];
+    foreach ($startIdByPlacementId as $placementId => $startId) {
+        $startId = trim((string) $startId);
+        if ($startId !== '') $startCounts[$startId] = (int) ($startCounts[$startId] ?? 0) + 1;
+    }
+    foreach ($rows as $row) {
+        $id = (int) ($row['id'] ?? 0);
+        if ($id <= 0 || !in_array((string) ($row['status'] ?? ''), $liveStatuses, true)) continue;
+        $externalId = trim((string) ($row['external_id'] ?? ''));
+        $startId = (string) ($startIdByPlacementId[$id] ?? '');
+        if ($startId !== '' && (int) ($startCounts[$startId] ?? 0) === 1) {
+            $canonicalRows[$id] = $row + ['__bridge_start_id' => $startId];
+            continue;
+        }
+        if ($startId === '' && preg_match('/^placements-xlsx-/i', $externalId)) {
+            $legacyRows[$id] = $row;
+        }
+    }
+
+    $normalise = static fn(string $value): string => preg_replace(
+        '/[^a-z0-9]+/',
+        '',
+        strtolower(trim($value))
+    ) ?: '';
+    $usableEmail = static function (string $value): string {
+        $value = strtolower(trim($value));
+        return $value !== '' && !str_ends_with($value, '@no-email.invalid') ? $value : '';
+    };
+    $nameKey = static function (array $row) use ($normalise): string {
+        return $normalise(trim(
+            (string) ($row['person_first_name'] ?? '') . ' ' . (string) ($row['person_last_name'] ?? '')
+        ));
+    };
+
+    $byCanonical = [];
+    $byLegacy = [];
+    foreach ($canonicalRows as $canonicalId => $canonical) {
+        $canonicalStart = jobdivaNormaliseDate((string) ($canonical['start_date'] ?? ''));
+        if ($canonicalStart === null) continue;
+        foreach ($legacyRows as $legacyId => $legacy) {
+            $legacyStart = jobdivaNormaliseDate((string) ($legacy['start_date'] ?? ''));
+            if ($legacyStart === null) continue;
+
+            $samePerson = (int) ($canonical['person_id'] ?? 0) > 0
+                && (int) ($canonical['person_id'] ?? 0) === (int) ($legacy['person_id'] ?? 0);
+            $canonicalEmail = $usableEmail((string) ($canonical['person_email'] ?? ''));
+            $legacyEmail = $usableEmail((string) ($legacy['person_email'] ?? ''));
+            $sameEmail = $canonicalEmail !== '' && $canonicalEmail === $legacyEmail;
+            $canonicalName = $nameKey($canonical);
+            $legacyName = $nameKey($legacy);
+            $sameName = $canonicalName !== '' && $canonicalName === $legacyName;
+            if (!$samePerson && !$sameEmail && !$sameName) continue;
+
+            $sameCompany = (int) ($canonical['end_client_company_id'] ?? 0) > 0
+                && (int) ($canonical['end_client_company_id'] ?? 0) === (int) ($legacy['end_client_company_id'] ?? 0);
+            $canonicalClient = $normalise((string) ($canonical['end_client_name'] ?? ''));
+            $legacyClient = $normalise((string) ($legacy['end_client_name'] ?? ''));
+            $sameClient = $sameCompany
+                || ($canonicalClient !== '' && $canonicalClient === $legacyClient);
+            $distance = abs((int) floor((strtotime($canonicalStart) - strtotime($legacyStart)) / 86400));
+            if ($distance !== 0 && !($distance <= 31 && $sameClient)) continue;
+            if (!$samePerson && !$sameEmail && !$sameClient) continue;
+
+            $byCanonical[$canonicalId] ??= [];
+            $byCanonical[$canonicalId][$legacyId] = true;
+            $byLegacy[$legacyId] ??= [];
+            $byLegacy[$legacyId][$canonicalId] = true;
+        }
+    }
+
+    $pairs = [];
+    foreach ($byCanonical as $canonicalId => $legacyCandidates) {
+        if (count($legacyCandidates) !== 1) continue;
+        $legacyId = (int) array_key_first($legacyCandidates);
+        if (count($byLegacy[$legacyId] ?? []) !== 1) continue;
+        $pairs[] = [
+            'start_id' => (string) ($canonicalRows[$canonicalId]['__bridge_start_id'] ?? ''),
+            'canonical_id' => (int) $canonicalId,
+            'legacy_id' => $legacyId,
+        ];
+    }
+    return $pairs;
 }
 
 function _jobdivaMappingStaleActivePlacementRows(\PDO $pdo, int $tenantId, int $limit = 500): array
@@ -1926,6 +2221,7 @@ function _jobdivaMappingChooseDuplicatePlacementKeeper(array $group): int
 {
     $rows = is_array($group['rows'] ?? null) ? $group['rows'] : [];
     $canonical = (string) ($group['canonical_external_id'] ?? '');
+    $preferLegacyImport = (string) ($group['duplicate_basis'] ?? '') === 'jobdiva_start_legacy_import';
     $bestId = 0;
     $bestScore = -1;
     foreach ($rows as $row) {
@@ -1933,6 +2229,12 @@ function _jobdivaMappingChooseDuplicatePlacementKeeper(array $group): int
         if ($id <= 0) continue;
         $title = trim((string) ($row['title'] ?? ''));
         $score = 0;
+        if ($preferLegacyImport && preg_match('/^placements-xlsx-/i', (string) ($row['external_id'] ?? ''))) {
+            // Preserve the row that already owns reviewed rates, C2C details,
+            // documents, and spreadsheet lineage. Its external identity and
+            // source mapping are rebound to JobDiva in the same transaction.
+            $score += 200;
+        }
         if ($canonical !== '' && (string) ($row['external_id'] ?? '') === $canonical) $score += 30;
         if (!empty($row['is_current_mapping'])) $score += 25;
         if ($title !== '' && !preg_match('/^JobDiva\s+Placement\s+\d+$/i', $title)) $score += 40;
@@ -1958,32 +2260,9 @@ function _jobdivaMappingDuplicatePlacementChildCounts(\PDO $pdo, int $tenantId, 
     foreach ($ids as $id) $counts[$id] = 0;
     if (!$ids) return $counts;
 
-    $tables = [
-        'time_entries',
-        'time_daily_finance',
-        'time_approval_tokens',
-        'billing_invoice_lines',
-        'ap_bill_lines',
-    ];
-    foreach ($tables as $table) {
-        if (!_jobdivaMappingTableExists($pdo, $table) || !_jobdivaMappingColumnExists($pdo, $table, 'placement_id')) {
-            continue;
-        }
-        [$inSql, $params] = _jobdivaMappingInClause('placement_id', $ids);
-        $params['t'] = $tenantId;
-        $rows = _jobdivaMappingRows($pdo,
-            "SELECT placement_id, COUNT(*) AS c
-               FROM {$table}
-              WHERE tenant_id = :t AND {$inSql}
-           GROUP BY placement_id",
-            $params
-        );
-        foreach ($rows as $row) {
-            $id = (int) ($row['placement_id'] ?? 0);
-            if ($id > 0 && array_key_exists($id, $counts)) {
-                $counts[$id] += (int) ($row['c'] ?? 0);
-            }
-        }
+    $activity = _jobdivaMappingPlacementChildActivity($pdo, $tenantId, $ids);
+    foreach (($activity['per_placement'] ?? []) as $id => $count) {
+        if (array_key_exists((int) $id, $counts)) $counts[(int) $id] += (int) $count;
     }
     return $counts;
 }
@@ -1992,27 +2271,79 @@ function _jobdivaMappingDuplicatePlacementBlockingChildren(\PDO $pdo, int $tenan
 {
     $ids = array_values(array_filter(array_map('intval', $placementIds), static fn($id) => $id > 0));
     if (!$ids) return [];
-    $tables = [
-        'time_entries',
-        'time_daily_finance',
-        'time_approval_tokens',
-        'billing_invoice_lines',
-        'ap_bill_lines',
+    $activity = _jobdivaMappingPlacementChildActivity($pdo, $tenantId, $ids);
+    return (array) ($activity['by_table'] ?? []);
+}
+
+/**
+ * Count every placement-owned workflow artifact. Invoice and bill lines are
+ * tenant-scoped through their parent document; those line tables do not carry
+ * tenant_id themselves.
+ *
+ * @return array{per_placement:array<int,int>,by_table:array<string,int>}
+ */
+function _jobdivaMappingPlacementChildActivity(\PDO $pdo, int $tenantId, array $placementIds): array
+{
+    $ids = array_values(array_filter(array_map('intval', $placementIds), static fn($id) => $id > 0));
+    $perPlacement = [];
+    foreach ($ids as $id) $perPlacement[$id] = 0;
+    if (!$ids) return ['per_placement' => $perPlacement, 'by_table' => []];
+
+    $sources = [
+        ['table' => 'time_entries'],
+        ['table' => 'time_daily_finance'],
+        ['table' => 'time_approval_tokens'],
+        ['table' => 'time_downstream_feed'],
+        ['table' => 'ap_bills'],
+        ['table' => 'placement_documents'],
+        ['table' => 'people_pipeline_stages'],
+        [
+            'table' => 'billing_invoice_lines',
+            'parent_table' => 'billing_invoices',
+            'parent_key' => 'invoice_id',
+        ],
+        [
+            'table' => 'ap_bill_lines',
+            'parent_table' => 'ap_bills',
+            'parent_key' => 'bill_id',
+        ],
     ];
-    $blocking = [];
-    foreach ($tables as $table) {
-        if (!_jobdivaMappingTableExists($pdo, $table) || !_jobdivaMappingColumnExists($pdo, $table, 'placement_id')) {
+    $byTable = [];
+    foreach ($sources as $source) {
+        $table = (string) $source['table'];
+        if (!_jobdivaMappingTableExists($pdo, $table)
+            || !_jobdivaMappingColumnExists($pdo, $table, 'placement_id')) {
             continue;
         }
         [$inSql, $params] = _jobdivaMappingInClause('placement_id', $ids);
         $params['t'] = $tenantId;
-        $count = _jobdivaMappingScalar($pdo,
-            "SELECT COUNT(*) FROM {$table} WHERE tenant_id = :t AND {$inSql}",
-            $params
-        );
-        if ($count > 0) $blocking[$table] = $count;
+        $parentTable = (string) ($source['parent_table'] ?? '');
+        if ($parentTable !== '') {
+            if (!_jobdivaMappingTableExists($pdo, $parentTable)) continue;
+            $parentKey = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($source['parent_key'] ?? ''));
+            if ($parentKey === '') continue;
+            $sql = "SELECT child.placement_id, COUNT(*) AS c
+                      FROM {$table} child
+                      JOIN {$parentTable} parent ON parent.id = child.{$parentKey}
+                     WHERE parent.tenant_id = :t AND child.{$inSql}
+                  GROUP BY child.placement_id";
+        } else {
+            if (!_jobdivaMappingColumnExists($pdo, $table, 'tenant_id')) continue;
+            $sql = "SELECT child.placement_id, COUNT(*) AS c
+                      FROM {$table} child
+                     WHERE child.tenant_id = :t AND child.{$inSql}
+                  GROUP BY child.placement_id";
+        }
+        $rows = _jobdivaMappingRows($pdo, $sql, $params);
+        foreach ($rows as $row) {
+            $placementId = (int) ($row['placement_id'] ?? 0);
+            $count = (int) ($row['c'] ?? 0);
+            if ($placementId <= 0 || $count <= 0 || !array_key_exists($placementId, $perPlacement)) continue;
+            $perPlacement[$placementId] += $count;
+            $byTable[$table] = (int) ($byTable[$table] ?? 0) + $count;
+        }
     }
-    return $blocking;
+    return ['per_placement' => $perPlacement, 'by_table' => $byTable];
 }
 
 function _jobdivaMappingInClause(string $column, array $values): array
