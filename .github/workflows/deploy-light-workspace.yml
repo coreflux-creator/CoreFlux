@@ -367,6 +367,7 @@ jobs:
             modules/staffing/api/seed_posting_rules.php \
             modules/staffing/api/timesheets.php \
             modules/staffing/lib/dimensions.php \
+            modules/staffing/lib/dimension_snapshot.php \
             modules/staffing/lib/posting_rules_seed.php \
             modules/staffing/lib/timesheets.php \
             modules/staffing/migrations/001_timesheets.sql \
@@ -434,6 +435,7 @@ jobs:
             core/migrations/143_export_template_system_dedup.sql \
             core/migrations/144_staffing_timesheet_artifacts.sql \
             core/migrations/145_business_logic_hardening.sql \
+            core/migrations/146_staffing_time_dimension_snapshots.sql \
             scripts/ap_weekly_queue_sunday.php \
             scripts/audit_business_integrity.php \
             scripts/billing_recurring_generate.php \
@@ -494,6 +496,7 @@ jobs:
             tests/csv_external_id_wave1_smoke.php \
             tests/csv_external_id_wave2_smoke.php \
             tests/csv_import_service_smoke.php \
+            tests/csv_import_atomic_smoke.php \
             tests/csv_importers_subtenant_scope_smoke.php \
             tests/csv_interactive_mapping_smoke.php \
             tests/csv_phase_b_smoke.php \
@@ -541,6 +544,7 @@ jobs:
             tests/p2_liquidity_and_auto_reverse_smoke.php \
             tests/staffing_economic_graph_smoke.php \
             tests/staffing_dimensions_smoke.php \
+            tests/staffing_dimension_snapshot_smoke.php \
             tests/staffing_email_approval_smoke.php \
             tests/staffing_bulk_timesheet_approval_smoke.php \
             tests/staffing_shell_and_weekly_timesheet_smoke.php \
@@ -623,11 +627,13 @@ jobs:
             test -f "$STAGE_ROOT/modules/placements/migrations/006_assignment_dimensions.sql"
             test -f "$STAGE_ROOT/modules/staffing/api/assignment_dimensions.php"
             test -f "$STAGE_ROOT/modules/staffing/lib/dimensions.php"
+            test -f "$STAGE_ROOT/modules/staffing/lib/dimension_snapshot.php"
             test -f "$STAGE_ROOT/graphql/subgraph-coreflux/schema.graphql"
             test -f "$STAGE_ROOT/graphql/subgraph-coreflux/src/index.ts"
             test -f "$STAGE_ROOT/modules/time/migrations/010_referral_costs_view.sql"
             test -f "$STAGE_ROOT/modules/treasury/migrations/007_liability_account_entity.sql"
             test -f "$STAGE_ROOT/tests/staffing_dimensions_smoke.php"
+            test -f "$STAGE_ROOT/tests/staffing_dimension_snapshot_smoke.php"
             test -f "$STAGE_ROOT/tests/treasury_dimension_integrity_smoke.php"
             test -f "$STAGE_ROOT/tests/csv_import_service_smoke.php"
             test -f "$STAGE_ROOT/tests/csv_interactive_mapping_smoke.php"
@@ -635,6 +641,7 @@ jobs:
             test -f "$STAGE_ROOT/core/migrations/103_ap_payments_method_mercury.sql"
             test -f "$STAGE_ROOT/core/migrations/144_staffing_timesheet_artifacts.sql"
             test -f "$STAGE_ROOT/core/migrations/145_business_logic_hardening.sql"
+            test -f "$STAGE_ROOT/core/migrations/146_staffing_time_dimension_snapshots.sql"
             test -f "$STAGE_ROOT/core/business_integrity.php"
             test -f "$STAGE_ROOT/modules/accounting/lib/reconciliation_artifact.php"
             test -f "$STAGE_ROOT/modules/payroll/lib/artifacts.php"
@@ -795,6 +802,7 @@ jobs:
               modules/staffing/api/seed_posting_rules.php \
               modules/staffing/api/timesheet_email_approver.php \
               modules/staffing/lib/dimensions.php \
+              modules/staffing/lib/dimension_snapshot.php \
               modules/staffing/lib/posting_rules_seed.php \
               modules/staffing/lib/timesheets.php \
               modules/time/api/csv_import.php \
@@ -819,6 +827,7 @@ jobs:
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/143_export_template_system_dedup.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/144_staffing_timesheet_artifacts.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/145_business_logic_hardening.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/146_staffing_time_dimension_snapshots.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/006_run_enterprise_controls.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/007_accounting_posting.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/008_run_artifacts.sql'
@@ -880,6 +889,8 @@ jobs:
             php tests/csv_external_id_wave1_smoke.php
             php tests/csv_external_id_wave2_smoke.php
             php tests/csv_import_service_smoke.php
+            php tests/csv_import_atomic_smoke.php
+            php tests/staffing_dimension_snapshot_smoke.php
             php tests/csv_importers_subtenant_scope_smoke.php
             php tests/csv_interactive_mapping_smoke.php
             php tests/csv_phase_b_smoke.php

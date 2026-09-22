@@ -117,4 +117,14 @@ accountingSeedSystemAccounts($tenantId);
 postingRulesSeedDefaults($tenantId);
 eventRegistrySeedRun($pdo);
 
+// Real tenants rename account labels. Posting must rely on stable codes.
+$pdo->prepare(
+    "UPDATE accounting_accounts
+        SET name = CASE code
+            WHEN '1100' THEN 'Trade receivables - custom label'
+            WHEN '2000' THEN 'Vendor obligations - custom label'
+            ELSE name END
+      WHERE tenant_id = :tenant_id AND code IN ('1100', '2000')"
+)->execute(['tenant_id' => $tenantId]);
+
 echo "Simulation tenant {$tenantId} seeded with production business-graph schema, books, accounts, and posting rules." . PHP_EOL;

@@ -198,13 +198,15 @@ function _lifecycleAccrualEvents(\PDO $pdo, int $tenantId, int $timesheetId): ar
                  ON je.id = ae.journal_entry_id AND je.tenant_id = ae.tenant_id
               WHERE ae.tenant_id = :t
                 AND ae.source_module = 'staffing'
-                AND (ae.source_record_id = :id1 OR ae.source_record_id LIKE :pfx)
+                AND (ae.source_record_id = :id1 OR ae.source_record_id LIKE :pfx
+                     OR ae.source_record_id LIKE :assignment_pfx)
               ORDER BY ae.created_at ASC"
         );
         $st->execute([
             't'   => $tenantId,
             'id1' => (string) $timesheetId,
             'pfx' => $timesheetId . ':%',
+            'assignment_pfx' => 'timesheet:' . $timesheetId . ':placement:%',
         ]);
         return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     } catch (\Throwable $_) {

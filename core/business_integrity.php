@@ -364,6 +364,30 @@ function businessIntegrityAudit(int $tenantId): array
         ['time_entries', 'staffing_timesheets']
     );
 
+    if (businessIntegrityTableExists('time_entries')
+        && businessIntegrityColumnExists('time_entries', 'dimension_snapshot_json')
+        && businessIntegrityColumnExists('time_entries', 'dimension_snapshot_hash')) {
+        $checks[] = businessIntegrityCountCheck(
+            $staffingTenantId,
+            'time_dimension_snapshot_pairs',
+            'Approved time has a complete or absent dimension snapshot',
+            'critical',
+            "SELECT COUNT(*) FROM time_entries
+              WHERE tenant_id = :tenant_id AND status = 'approved'
+                AND ((dimension_snapshot_json IS NULL) <> (dimension_snapshot_hash IS NULL)
+                     OR (dimension_snapshot_hash IS NOT NULL
+                         AND dimension_snapshot_hash NOT REGEXP '^[0-9a-f]{64}$'))",
+            "SELECT id, timesheet_id, placement_id, work_date, dimension_snapshot_hash
+               FROM time_entries
+              WHERE tenant_id = :tenant_id AND status = 'approved'
+                AND ((dimension_snapshot_json IS NULL) <> (dimension_snapshot_hash IS NULL)
+                     OR (dimension_snapshot_hash IS NOT NULL
+                         AND dimension_snapshot_hash NOT REGEXP '^[0-9a-f]{64}$'))
+              ORDER BY id DESC LIMIT 25",
+            ['time_entries']
+        );
+    }
+
     $checks[] = businessIntegrityCountCheck(
         $placementsTenantId,
         'placement_person_ownership',
@@ -452,6 +476,93 @@ function businessIntegrityAudit(int $tenantId): array
         ['ap_bills', 'ap_bill_lines']
     );
 
+    $arAllocationIssues = "SELECT i.id AS invoice_id, i.invoice_number, i.amount_paid,
+                COALESCE(SUM(CASE WHEN p.tenant_id = i.tenant_id THEN a.amount_applied ELSE 0 END), 0) AS allocated,
+                SUM(CASE WHEN a.id IS NOT NULL AND
+                    (p.id IS NULL OR p.tenant_id <> i.tenant_id OR a.amount_applied <= 0)
+                    THEN 1 ELSE 0 END) AS invalid_links
+           FROM billing_invoices i
+      LEFT JOIN billing_payment_allocations a ON a.invoice_id = i.id
+      LEFT JOIN billing_payments p ON p.id = a.payment_id
+          WHERE i.tenant_id = :tenant_id
+          GROUP BY i.id, i.invoice_number, i.amount_paid
+         HAVING ABS(amount_paid - allocated) >= 0.01 OR invalid_links > 0";
+    $checks[] = businessIntegrityCountCheck(
+        $billingTenantId,
+        'ar_invoice_allocations',
+        'Invoice paid balances agree with same-tenant payment allocations',
+        'critical',
+        "SELECT COUNT(*) FROM ({$arAllocationIssues}) bad_allocations",
+        "{$arAllocationIssues} ORDER BY i.id DESC LIMIT 25",
+        ['billing_invoices', 'billing_payment_allocations', 'billing_payments']
+    );
+
+    $arPaymentIssues = "SELECT p.id AS payment_id, p.reference, p.amount, p.unallocated_amount,
+                COALESCE(SUM(a.amount_applied), 0) AS allocated,
+                SUM(CASE WHEN a.id IS NOT NULL AND
+                    (i.id IS NULL OR i.tenant_id <> p.tenant_id OR a.amount_applied <= 0)
+                    THEN 1 ELSE 0 END) AS invalid_links
+           FROM billing_payments p
+      LEFT JOIN billing_payment_allocations a ON a.payment_id = p.id
+      LEFT JOIN billing_invoices i ON i.id = a.invoice_id
+          WHERE p.tenant_id = :tenant_id
+          GROUP BY p.id, p.reference, p.amount, p.unallocated_amount
+         HAVING ABS(amount - unallocated_amount - allocated) >= 0.01
+             OR amount < 0 OR unallocated_amount < 0 OR invalid_links > 0";
+    $checks[] = businessIntegrityCountCheck(
+        $billingTenantId,
+        'ar_payment_allocations',
+        'Receipt allocations and unallocated cash add up to the payment',
+        'critical',
+        "SELECT COUNT(*) FROM ({$arPaymentIssues}) bad_payments",
+        "{$arPaymentIssues} ORDER BY p.id DESC LIMIT 25",
+        ['billing_payments', 'billing_payment_allocations', 'billing_invoices']
+    );
+
+    $apAllocationIssues = "SELECT b.id AS bill_id, b.internal_ref, b.amount_paid,
+                COALESCE(SUM(CASE WHEN p.tenant_id = b.tenant_id
+                    AND p.status IN ('sent','cleared') THEN a.amount_applied ELSE 0 END), 0) AS released,
+                SUM(CASE WHEN a.id IS NOT NULL AND
+                    (p.id IS NULL OR p.tenant_id <> b.tenant_id OR a.amount_applied <= 0)
+                    THEN 1 ELSE 0 END) AS invalid_links
+           FROM ap_bills b
+      LEFT JOIN ap_payment_allocations a ON a.bill_id = b.id
+      LEFT JOIN ap_payments p ON p.id = a.payment_id
+          WHERE b.tenant_id = :tenant_id
+          GROUP BY b.id, b.internal_ref, b.amount_paid
+         HAVING ABS(amount_paid - released) >= 0.01 OR invalid_links > 0";
+    $checks[] = businessIntegrityCountCheck(
+        $apTenantId,
+        'ap_bill_allocations',
+        'Bill paid balances agree with released, same-tenant payment allocations',
+        'critical',
+        "SELECT COUNT(*) FROM ({$apAllocationIssues}) bad_allocations",
+        "{$apAllocationIssues} ORDER BY b.id DESC LIMIT 25",
+        ['ap_bills', 'ap_payment_allocations', 'ap_payments']
+    );
+
+    $apPaymentIssues = "SELECT p.id AS payment_id, p.reference, p.status, p.amount,
+                p.unallocated_amount, COALESCE(SUM(a.amount_applied), 0) AS allocated,
+                SUM(CASE WHEN a.id IS NOT NULL AND
+                    (b.id IS NULL OR b.tenant_id <> p.tenant_id OR a.amount_applied <= 0)
+                    THEN 1 ELSE 0 END) AS invalid_links
+           FROM ap_payments p
+      LEFT JOIN ap_payment_allocations a ON a.payment_id = p.id
+      LEFT JOIN ap_bills b ON b.id = a.bill_id
+          WHERE p.tenant_id = :tenant_id
+          GROUP BY p.id, p.reference, p.status, p.amount, p.unallocated_amount
+         HAVING ABS(amount - unallocated_amount - allocated) >= 0.01
+             OR amount < 0 OR unallocated_amount < 0 OR invalid_links > 0";
+    $checks[] = businessIntegrityCountCheck(
+        $apTenantId,
+        'ap_payment_allocations',
+        'Vendor payment allocations and unallocated balance add up to the payment',
+        'critical',
+        "SELECT COUNT(*) FROM ({$apPaymentIssues}) bad_payments",
+        "{$apPaymentIssues} ORDER BY p.id DESC LIMIT 25",
+        ['ap_payments', 'ap_payment_allocations', 'ap_bills']
+    );
+
     $checks[] = businessIntegrityCountCheck(
         $payrollTenantId,
         'payroll_run_totals',
@@ -514,7 +625,7 @@ function businessIntegrityAudit(int $tenantId): array
             AND bank_line.match_status = 'matched'
             AND (
                 bank_line.matched_je_id IS NULL OR account.id IS NULL OR journal.id IS NULL
-                OR journal.status NOT IN ('posted','reversed')
+                OR journal.status <> 'posted'
                 OR NOT EXISTS (
                     SELECT 1 FROM accounting_journal_entry_lines journal_line
                      WHERE journal_line.je_id = journal.id AND journal_line.account_id = account.id
@@ -534,7 +645,7 @@ function businessIntegrityAudit(int $tenantId): array
             AND bank_line.match_status = 'matched'
             AND (
                 bank_line.matched_je_id IS NULL OR account.id IS NULL OR journal.id IS NULL
-                OR journal.status NOT IN ('posted','reversed')
+                OR journal.status <> 'posted'
                 OR NOT EXISTS (
                     SELECT 1 FROM accounting_journal_entry_lines journal_line
                      WHERE journal_line.je_id = journal.id AND journal_line.account_id = account.id

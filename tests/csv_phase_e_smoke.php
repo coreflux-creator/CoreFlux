@@ -64,7 +64,9 @@ $a('billing uses billing.payments.record',   str_contains($blP, "'billing.paymen
 echo "\nUpdate-existing on placements + time\n";
 $pl = $read(__DIR__ . '/../modules/placements/api/csv_import.php');
 $a('placements reads ?update_existing=1',    str_contains($pl, "\$updateExisting = !empty(\$_GET['update_existing'])"));
-$a('placements matches by external_id',      str_contains($pl, "external_id = :x"));
+$a('placements matches by external_id',
+    str_contains($pl, 'external_id = :external_id')
+    && str_contains($pl, 'placement_id and external_id identify different placements'));
 $a('placements falls back to (person,title,start_date)',
     str_contains($pl, "person_id = :p AND title = :t AND start_date = :s"));
 $a('placements updates instead of insert',   str_contains($pl, "scopedUpdate('placements'"));
