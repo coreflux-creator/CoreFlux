@@ -146,6 +146,7 @@ jobs:
             dashboard/src/components/CsvImportPage.jsx \
             dashboard/src/components/ExportTemplatePicker.jsx \
             dashboard/src/components/FinancialReportLibrary.jsx \
+            dashboard/src/components/IntercompanySplitDialog.jsx \
             dashboard/src/components/LineItemEditor.jsx \
             dashboard/src/components/RailPicker.jsx \
             dashboard/src/components/MetricCard.jsx \
@@ -612,6 +613,7 @@ jobs:
             test -f "$STAGE_ROOT/modules/billing/migrations/014_invoice_amount_consistency.sql"
             test -f "$STAGE_ROOT/modules/accounting/api/import.php"
             test -f "$STAGE_ROOT/modules/accounting/ui/AccountingImport.jsx"
+            test -f "$STAGE_ROOT/dashboard/src/components/IntercompanySplitDialog.jsx"
             test -f "$STAGE_ROOT/modules/accounting/migrations/028_journal_line_tenant_scope.sql"
             test -f "$STAGE_ROOT/modules/accounting/migrations/029_reconciliation_artifacts.sql"
             test -f "$STAGE_ROOT/modules/accounting/migrations/030_staffing_system_account_map.sql"
