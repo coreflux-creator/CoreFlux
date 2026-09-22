@@ -57,6 +57,8 @@ $internalBlock = ($internalStart !== false && $referralStart !== false && $refer
     : '';
 $a('function staffingSeedPostingRules defined',   str_contains($seed, 'function staffingSeedPostingRules'));
 $a('seeds system accounts first',                 str_contains($seed, 'accountingSeedSystemAccounts'));
+$a('resolves customized system-account names by canonical identity',
+    str_contains($seed, 'accountingSystemAccountId($tenantId, $name)'));
 $a('W2 template separates wages and burden before accrued payroll',
     str_contains($seed, "['Direct Labor Expense', 'payload.wage_cost'")
     && str_contains($seed, "['Employer Payroll Tax Expense', 'payload.employer_load_cost'")

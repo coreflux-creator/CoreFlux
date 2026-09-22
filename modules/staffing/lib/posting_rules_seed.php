@@ -104,12 +104,8 @@ function staffingSeedPostingRules(int $tenantId): array {
             AND reference_table = 'placement_economic_parties'"
     )->execute(['tenant_id' => $tenantId]);
 
-    $accountId = function (string $name) use ($pdo, $tenantId): ?int {
-        $st = $pdo->prepare("SELECT id FROM accounting_accounts WHERE tenant_id = :t AND name = :n AND is_system_account = 1 LIMIT 1");
-        $st->execute(['t' => $tenantId, 'n' => $name]);
-        $id = $st->fetchColumn();
-        return $id ? (int) $id : null;
-    };
+    $accountId = static fn (string $name): ?int =>
+        accountingSystemAccountId($tenantId, $name);
 
     $needed = [
         'Direct Labor Expense', 'Subcontractor Expense',

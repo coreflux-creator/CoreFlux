@@ -141,8 +141,12 @@ function accountingSeedSystemAccounts(int $tenantId): array {
 }
 
 /**
- * Lookup a system account id by name for a tenant. Returns null if the
- * tenant hasn't been seeded yet — caller should call seed first.
+ * Lookup a system account by its canonical semantic name.
+ *
+ * Tenants may rename an account without changing its stable system code.
+ * Prefer the display name for backward compatibility, then fall back to the
+ * code from ACCOUNTING_SYSTEM_ACCOUNTS so posting rules survive those safe
+ * chart-of-accounts customizations.
  */
 function accountingSystemAccountId(int $tenantId, string $name): ?int {
     $pdo = getDB();
@@ -154,5 +158,23 @@ function accountingSystemAccountId(int $tenantId, string $name): ?int {
     );
     $st->execute(['t' => $tenantId, 'n' => $name]);
     $id = $st->fetchColumn();
+    if ($id) return (int) $id;
+
+    $canonicalCode = null;
+    foreach (ACCOUNTING_SYSTEM_ACCOUNTS as $account) {
+        if ((string) ($account['name'] ?? '') === $name) {
+            $canonicalCode = (string) ($account['code'] ?? '');
+            break;
+        }
+    }
+    if ($canonicalCode === null || $canonicalCode === '') return null;
+
+    $byCode = $pdo->prepare(
+        'SELECT id FROM accounting_accounts
+          WHERE tenant_id = :t AND code = :c AND is_system_account = 1
+          LIMIT 1'
+    );
+    $byCode->execute(['t' => $tenantId, 'c' => $canonicalCode]);
+    $id = $byCode->fetchColumn();
     return $id ? (int) $id : null;
 }
