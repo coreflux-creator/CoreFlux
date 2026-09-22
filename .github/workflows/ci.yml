@@ -124,3 +124,6 @@ jobs:
 
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh
+
+      - name: Verify approved staffing dimensions post to separate journals
+        run: php tests/staffing_posting_live.php
