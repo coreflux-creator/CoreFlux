@@ -54,6 +54,9 @@ $assert('expanded system account catalog',         substr_count($helper, "'name'
 
 $assert('seed function exposed',                  strpos($helper, 'function accountingSeedSystemAccounts') !== false);
 $assert('lookup function exposed',                strpos($helper, 'function accountingSystemAccountId') !== false);
+$assert('semantic lookup falls back to canonical code',
+    strpos($helper, 'foreach (ACCOUNTING_SYSTEM_ACCOUNTS as $account)') !== false
+    && strpos($helper, "code = :c AND is_system_account = 1") !== false);
 $assert('idempotent — checks existing first',     stripos($helper, 'WHERE tenant_id = :t AND code = :c') !== false);
 $assert('stamps is_system_account on existing',   stripos($helper, 'SET is_system_account = 1') !== false);
 
