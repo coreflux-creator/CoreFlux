@@ -116,7 +116,9 @@ if (stripos($bashProbe, 'not recognized') !== false || stripos($bashProbe, 'not 
     $a('all scenarios pass dry-run',       str_contains($wf, 'ci_sim_scenarios.sh'));
 } else {
     $out = (string) shell_exec($cmd);
-    $a('all scenarios pass dry-run',       (bool) preg_match('/5 passed, 0 failed/', $out));
+    $scenarioCount = count(glob(__DIR__ . '/../sim/scenarios/*.json') ?: []);
+    $a('all scenarios pass dry-run',
+        str_contains($out, "{$scenarioCount} passed, 0 failed"));
 }
 
 echo "\nRun-from-web — POST /api/admin/simulation_runs.php?action=run\n";
