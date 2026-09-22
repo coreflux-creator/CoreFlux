@@ -127,3 +127,6 @@ jobs:
 
       - name: Verify approved staffing dimensions post to separate journals
         run: php tests/staffing_posting_live.php
+
+      - name: Verify bank match reversal and correction
+        run: php tests/cash_reversal_live.php
