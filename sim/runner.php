@@ -233,7 +233,12 @@ if (!$dryRun && $runId) {
 echo sprintf("▶ %s in %dms — %d events, %d JEs, %d/%d assertions failed\n",
     $status, $duration, $ctx['metrics']['events_emitted'], $ctx['metrics']['je_posted'],
     count($failed), count($assertions));
-foreach ($failed as $a) echo "  ✗ " . $a['name'] . "\n";
+foreach ($failed as $a) {
+    echo "  ✗ " . $a['name'] . "\n";
+    if (!empty($a['details'])) {
+        echo '    ' . json_encode($a['details'], JSON_UNESCAPED_SLASHES) . "\n";
+    }
+}
 
 exit($status === 'passed' ? 0 : 1);
 
