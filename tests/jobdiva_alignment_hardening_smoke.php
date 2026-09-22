@@ -94,7 +94,10 @@ $a('force-projection override sentinel is removed',
     && !str_contains($sync, "'force_projection' => true"));
 $a('placement upsert always respects coreflux_overridden_fields',
     !str_contains($sync, '$forceProjection')
-    && str_contains($sync, 'SELECT coreflux_overridden_fields FROM placements'));
+    && preg_match(
+        '/SELECT\s+[^;]*coreflux_overridden_fields[^;]*FROM\s+placements/is',
+        $sync
+    ) === 1);
 $a('repair refreshes source indexes without replaying canonical records',
     str_contains($alignment, "'projection_mode' => 'source_indexes_only'")
     && !str_contains(
