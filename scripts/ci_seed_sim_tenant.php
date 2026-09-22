@@ -67,6 +67,7 @@ $schemaFiles = [
     'modules/people/migrations/003_spec_alignment.sql',
     'modules/accounting/migrations/007_consolidation.sql',
     'modules/placements/migrations/001_init.sql',
+    'modules/placements/migrations/002_cycle_config.sql',
     'modules/people/migrations/004_companies.sql',
     'modules/staffing/migrations/003_clients.sql',
     'modules/staffing/migrations/005_company_bridge.sql',
