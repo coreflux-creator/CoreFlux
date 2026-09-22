@@ -452,19 +452,26 @@ function postingEngineRender(\PDO $pdo, int $tenantId, int $templateId, array $c
         if ($debit > 0 && $credit > 0) {
             throw new \RuntimeException("line {$tl['line_no']} cannot have both debit and credit");
         }
+        $debit = round($debit, 2);
+        $credit = round($credit, 2);
+        if ($debit == 0.0 && $credit == 0.0) continue;
         $memo = $tl['description_template'] ? formulaInterpolate((string) $tl['description_template'], $context) : null;
         $dimensions = $tl['dimensions_json'] ? json_decode((string) $tl['dimensions_json'], true) : [];
         if (!is_array($dimensions)) $dimensions = [];
         $lines[] = [
             'account_id'  => $accountId,
-            'debit'       => round($debit, 2),
-            'credit'      => round($credit, 2),
+            'debit'       => $debit,
+            'credit'      => $credit,
             'description' => $memo,
             'dims'        => array_replace(
                 $eventDimensions,
                 postingEngineResolveDimensions($dimensions, $context)
             ),
         ];
+    }
+
+    if (count($lines) < 2) {
+        throw new \RuntimeException("template {$templateId} produced fewer than two non-zero lines");
     }
 
     $memo = $tpl['memo_template'] ? formulaInterpolate((string) $tpl['memo_template'], $context) : null;
