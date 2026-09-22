@@ -34,6 +34,10 @@ $a('line table has debit + credit DECIMAL(18,2)',      preg_match('/debit\s+DECI
 $a('utf8mb4_unicode_ci only (Cloudways safe)',
     strpos($mig, 'utf8mb4_unicode_ci') !== false &&
     stripos($mig, 'utf8mb4_0900_ai_ci') === false);
+$dimMig = (string) file_get_contents(__DIR__ . '/../modules/accounting/migrations/031_recurring_je_dimensions.sql');
+$a('recurring lines retain reporting dimensions',
+    strpos($dimMig, "TABLE_NAME = 'accounting_recurring_je_lines'") !== false
+    && strpos($dimMig, 'ADD COLUMN dim_json JSON NULL') !== false);
 
 echo "\nlib/recurring_je.php\n";
 $libPath = __DIR__ . '/../modules/accounting/lib/recurring_je.php';
@@ -42,6 +46,11 @@ $a('declares recurringJeListDue',                      strpos($lib, 'function re
 $a('declares recurringJeRunOnce',                      strpos($lib, 'function recurringJeRunOnce') !== false);
 $a('declares recurringJeRunDueForTenant',              strpos($lib, 'function recurringJeRunDueForTenant') !== false);
 $a('declares recurringJeAdvanceDate',                  strpos($lib, 'function recurringJeAdvanceDate') !== false);
+$a('refreshes assignment dimensions on each run',      strpos($lib, 'function recurringJePrepareLines') !== false
+    && strpos($lib, 'staffingAssignmentDimensionContext(') !== false);
+$a('limits inherited vendors to vendor-required lines', strpos($lib, "\$requiresVendor") !== false
+    && strpos($lib, "\$context['vendor_dimension']") !== false
+    && strpos($lib, "'vendor',") !== false);
 $a('posts via accountingPostJe (central chokepoint)',  strpos($lib, 'accountingPostJe(') !== false);
 $a('idempotency key shape recurring:{id}:{date}',      strpos($lib, "'recurring:' . \$templateId . ':' . \$runDate") !== false);
 $a('advances next_run_date after run',                 strpos($lib, 'next_run_date') !== false && strpos($lib, 'recurringJeAdvanceDate(') !== false);
@@ -78,6 +87,15 @@ $a('validates cadence whitelist',                      strpos($api, "['weekly','
 $a('validates next_run_date ISO shape',                strpos($api, "/^\\d{4}-\\d{2}-\\d{2}\$/") !== false);
 $a('validates balanced lines (td == tc, >0)',          strpos($api, 'abs($td - $tc) > 0.005 || $td <= 0') !== false);
 $a('requires at least 2 lines',                        strpos($api, 'count($lines) < 2') !== false);
+$a('stores and returns line dimensions',               strpos($api, 'description, dim_json') !== false
+    && strpos($api, "'dim_json'") !== false
+    && strpos($api, "\$line['dims']") !== false);
+$a('surfaces line-level validation errors',            strpos($api, 'function recurringJeValidationMessage') !== false
+    && strpos($api, "\$validation['line_validations']") !== false);
+$a('PUT validates and updates header plus lines atomically',
+    strpos($api, "\$hasLinePayload = array_key_exists('lines', \$body)") !== false
+    && strpos($api, 'Recurring template is not ready:') !== false
+    && strpos($api, "'lines_updated'") !== false);
 $a('emits accounting.recurring_je.created audit',      strpos($api, "'accounting.recurring_je.created'") !== false);
 $a('emits accounting.recurring_je.lines_replaced',     strpos($api, "'accounting.recurring_je.lines_replaced'") !== false);
 $a('emits accounting.recurring_je.updated',            strpos($api, "'accounting.recurring_je.updated'") !== false);
@@ -129,7 +147,13 @@ $a('editor line test-ids',
 $a('balance status indicator',                         strpos($ui, 'accounting-recurring-balance-status') !== false);
 $a('save-template button',                             strpos($ui, 'accounting-recurring-save') !== false);
 $a('calls create POST on new path',                    strpos($ui, "api.post('/modules/accounting/api/recurring_journal_entries.php'") !== false);
-$a('calls replace_lines on edit',                      strpos($ui, "action=replace_lines&id=") !== false);
+$a('edit sends header and lines together through PUT', strpos($ui, 'await api.put(`/modules/accounting/api/recurring_journal_entries.php?id=${id}`, payload)') !== false
+    && strpos($ui, "action=replace_lines&id=") === false);
+$a('editor selects entity and assignment dimensions', strpos($ui, 'accounting-recurring-entity') !== false
+    && strpos($ui, 'PlacementPicker') !== false
+    && strpos($ui, 'refreshAssignmentDimensions') !== false);
+$a('editor scopes vendor inheritance by account',      strpos($ui, 'accountNeedsVendor') !== false
+    && strpos($ui, 'data?.vendor_dimension') !== false);
 
 echo "\nmanifest.php\n";
 $man = (string) file_get_contents(__DIR__ . '/../modules/accounting/manifest.php');

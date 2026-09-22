@@ -6,7 +6,7 @@
  *
  * Optional filters:
  *   ?status=draft|active|ended|cancelled
- *   ?engagement_type=w2|1099|c2c|temp_to_perm|direct_hire
+ *   ?engagement_type=w2|1099|c2c|temp_to_perm|direct_hire|internal|referral
  *   ?end_client_company_id=N
  *   ?q=person|title|client|placement-id
  *
@@ -82,6 +82,8 @@ $rows = scopedQuery(
             p.start_date, p.end_date, p.actual_end_date, p.due_date,
             p.end_client_company_id,
             p.end_client_name, p.worksite_state, p.worksite_country, p.remote_policy,
+            p.staffing_job_id, p.branch, p.service_line, p.workers_comp_class,
+            p.department, p.cost_center, p.accounting_entity_id,
             p.client_approver_name, p.client_approver_email,
             p.jobdiva_job_id, p.recruiter_name, p.recruiter_email,
             p.account_manager_name, p.account_manager_email,
@@ -92,6 +94,15 @@ $rows = scopedQuery(
             r.effective_to AS rate_effective_to,
             r.bill_rate, r.bill_rate_unit,
             r.pay_rate, r.pay_rate_unit,
+            CASE WHEN p.engagement_type = "referral" THEN r.bill_rate ELSE NULL END AS referral_client_rate,
+            (SELECT pr.referrer_vendor_name FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_vendor_name,
+            (SELECT pr.referrer_company_id FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_vendor_company_id,
+            (SELECT pr.fee_flat FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_payout_rate,
+            (SELECT pr.payment_terms_override FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_payment_terms,
+            (SELECT pr.pwp_enabled FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_paid_when_paid,
+            (SELECT pr.start_date FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_start_date,
+            (SELECT pr.end_date FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_end_date,
+            (SELECT pr.notes FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_notes,
             r.currency, r.ot_multiplier, r.dt_multiplier,
             r.adder_pct, r.background_fee_total,
             r.bill_adder_pct, r.bill_adder_flat,
@@ -202,6 +213,13 @@ exportDatasetAudit($tenantId, $userId ?: null, 'placement.exported', null, expor
     'worksite_state'    => 'Worksite state',
     'worksite_country'  => 'Worksite country',
     'remote_policy'     => 'Remote policy',
+    'staffing_job_id'   => 'CoreFlux job ID',
+    'branch'            => 'Branch / business unit',
+    'service_line'      => 'Service line',
+    'workers_comp_class'=> 'WC class',
+    'department'        => 'Department',
+    'cost_center'       => 'Cost center',
+    'accounting_entity_id' => 'Legal entity ID',
     'client_approver_name'  => 'Client approver name',
     'client_approver_email' => 'Client approver email',
     'jobdiva_job_id'        => 'JobDiva job ID',
@@ -222,6 +240,15 @@ exportDatasetAudit($tenantId, $userId ?: null, 'placement.exported', null, expor
     'bill_rate_unit'    => 'Bill rate unit',
     'pay_rate'          => 'Pay rate ($/hr)',
     'pay_rate_unit'     => 'Pay rate unit',
+    'referral_client_rate' => 'Hourly referral fee paid by client',
+    'referral_vendor_name' => 'Referral vendor',
+    'referral_vendor_company_id' => 'Referral vendor company ID',
+    'referral_payout_rate' => 'Vendor referral payout',
+    'referral_payment_terms' => 'Referral vendor payment terms',
+    'referral_paid_when_paid' => 'Referral vendor paid when paid',
+    'referral_start_date' => 'Referral payout start date',
+    'referral_end_date' => 'Referral payout end date',
+    'referral_notes' => 'Referral notes',
     'currency'          => 'Currency',
     'ot_multiplier'     => 'OT multiplier',
     'dt_multiplier'     => 'DT multiplier',

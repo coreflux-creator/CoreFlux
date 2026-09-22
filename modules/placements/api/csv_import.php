@@ -22,6 +22,7 @@ require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../lib/rate_approve.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
 require_once __DIR__ . '/../../staffing/lib/clients.php';
+require_once __DIR__ . '/../../accounting/lib/accounting.php';
 
 use Core\CsvImportService;
 
@@ -43,7 +44,8 @@ CsvImportService::registerSchema('placements', [
                                 'enum' => ['draft','pending_start','active','on_hold','ended','cancelled']],
         'title'             => ['label' => 'Title',            'required' => true],
         'engagement_type'   => ['label' => 'Engagement type',  'required' => true,
-                                'enum' => ['w2','1099','c2c','temp_to_perm','direct_hire']],
+                                'enum' => ['w2','1099','c2c','temp_to_perm','direct_hire','internal','referral'],
+                                'aliases' => ['Engagement type', 'Worker type', 'Worker classification', 'Placement type']],
         'start_date'        => ['label' => 'Start date',       'required' => true, 'type' => 'date'],
         'end_date'          => ['label' => 'End date',         'type' => 'date'],
         'actual_end_date'   => ['label' => 'Actual end date',  'type' => 'date'],
@@ -53,6 +55,13 @@ CsvImportService::registerSchema('placements', [
         'worksite_state'    => ['label' => 'Worksite state'],
         'worksite_country'  => ['label' => 'Worksite country (2-letter)'],
         'remote_policy'     => ['label' => 'Remote policy',    'enum' => ['onsite','hybrid','remote']],
+        'staffing_job_id'   => ['label' => 'CoreFlux job ID',  'type' => 'integer'],
+        'branch'            => ['label' => 'Branch / business unit'],
+        'service_line'      => ['label' => 'Service line'],
+        'workers_comp_class'=> ['label' => 'WC class'],
+        'department'        => ['label' => 'Department'],
+        'cost_center'       => ['label' => 'Cost center'],
+        'accounting_entity_id' => ['label' => 'Legal entity ID', 'type' => 'integer'],
         'client_approver_name'  => ['label' => 'Client approver name'],
         'client_approver_email' => ['label' => 'Client approver email', 'type' => 'email'],
         'jobdiva_job_id'        => ['label' => 'JobDiva job ID'],
@@ -67,6 +76,18 @@ CsvImportService::registerSchema('placements', [
         'vendor_pay_cycle_anchor' => ['label' => 'Vendor pay cycle anchor', 'type' => 'date'],
         'vendor_payment_terms_override' => ['label' => 'Primary vendor payment terms'],
         'vendor_pwp_enabled'    => ['label' => 'Primary vendor paid when paid', 'type' => 'boolean'],
+        'referral_client_rate'  => ['label' => 'Hourly referral fee paid by client', 'type' => 'number',
+                                    'aliases' => ['Referral client rate', 'Client referral fee', 'Hourly Referral Fee Paid by Client']],
+        'referral_vendor_name'  => ['label' => 'Referral vendor',
+                                    'aliases' => ['Referral Vendor', 'Vendor referral company']],
+        'referral_vendor_company_id' => ['label' => 'Referral vendor company ID', 'type' => 'integer'],
+        'referral_payout_rate'  => ['label' => 'Vendor referral payout', 'type' => 'number',
+                                    'aliases' => ['Referral payout rate', 'Vendor Referral Payout', 'Hourly vendor referral payout']],
+        'referral_payment_terms' => ['label' => 'Referral vendor payment terms'],
+        'referral_paid_when_paid' => ['label' => 'Referral vendor paid when paid', 'type' => 'boolean'],
+        'referral_start_date'   => ['label' => 'Referral payout start date', 'type' => 'date'],
+        'referral_end_date'     => ['label' => 'Referral payout end date', 'type' => 'date'],
+        'referral_notes'        => ['label' => 'Referral notes'],
         'bill_rate'         => ['label' => 'Bill rate ($/hr)', 'type' => 'number'],
         'pay_rate'          => ['label' => 'Pay rate ($/hr)',  'type' => 'number'],
         'rate_effective_from' => ['label' => 'Rate effective from', 'type' => 'date'],
@@ -192,16 +213,21 @@ function placementsCsvNormaliseCurrency(mixed $value): string
 
 function placementsCsvBuildRatePayload(array $row): ?array
 {
-    if (($row['bill_rate'] ?? '') === '' || ($row['pay_rate'] ?? '') === '') {
+    $isReferral = strtolower(trim((string) ($row['engagement_type'] ?? ''))) === 'referral';
+    $billRate = $isReferral && ($row['referral_client_rate'] ?? '') !== ''
+        ? $row['referral_client_rate']
+        : ($row['bill_rate'] ?? '');
+    $payRate = $isReferral ? 0 : ($row['pay_rate'] ?? '');
+    if ($billRate === '' || (!$isReferral && $payRate === '')) {
         return null;
     }
     return [
         'effective_from' => $row['rate_effective_from'] ?? $row['start_date'],
         'effective_to'   => placementsCsvBlankToNull($row['rate_effective_to'] ?? null),
-        'bill_rate'      => (float) $row['bill_rate'],
-        'bill_rate_unit' => $row['bill_rate_unit'] ?? 'hour',
-        'pay_rate'       => (float) $row['pay_rate'],
-        'pay_rate_unit'  => $row['pay_rate_unit'] ?? 'hour',
+        'bill_rate'      => (float) $billRate,
+        'bill_rate_unit' => $isReferral ? 'hour' : ($row['bill_rate_unit'] ?? 'hour'),
+        'pay_rate'       => (float) $payRate,
+        'pay_rate_unit'  => $isReferral ? 'hour' : ($row['pay_rate_unit'] ?? 'hour'),
         'currency'       => placementsCsvNormaliseCurrency($row['currency'] ?? 'USD'),
         'ot_multiplier'  => ($row['ot_multiplier'] ?? '') !== '' ? (float) $row['ot_multiplier'] : 1.5,
         'dt_multiplier'  => ($row['dt_multiplier'] ?? '') !== '' ? (float) $row['dt_multiplier'] : 2.0,
@@ -219,6 +245,63 @@ function placementsCsvBuildRatePayload(array $row): ?array
             ? (float) $row['background_fee_total']
             : null,
     ];
+}
+
+function placementsCsvUpsertReferralEngagement(int $placementId, array $row, ?int $userId): void
+{
+    if (strtolower(trim((string) ($row['engagement_type'] ?? ''))) !== 'referral') return;
+
+    $companyId = (int) ($row['referral_vendor_company_id'] ?? 0);
+    $vendorName = trim((string) ($row['referral_vendor_name'] ?? ''));
+    if ($companyId > 0) {
+        $company = companiesGet($companyId);
+        if (!$company) throw new \RuntimeException("referral_vendor_company_id not found: {$companyId}");
+        $vendorName = (string) $company['name'];
+        companiesAddRole($companyId, 'referrer');
+        companiesAddRole($companyId, 'vendor');
+        companiesBumpUsage($companyId);
+    } elseif ($vendorName !== '') {
+        $companyId = companiesUpsertByName(currentTenantId(), $vendorName, [
+            'created_by_user_id' => $userId,
+        ], ['referrer', 'vendor']);
+        companiesBumpUsage($companyId);
+    }
+    if ($companyId <= 0 || $vendorName === '') {
+        throw new \RuntimeException('Referral-only placements require a referral vendor.');
+    }
+
+    $payout = (float) ($row['referral_payout_rate'] ?? 0);
+    if ($payout <= 0) throw new \RuntimeException('Referral-only placements require a positive vendor referral payout.');
+    $payload = [
+        'referrer_type' => 'vendor',
+        'referrer_vendor_name' => $vendorName,
+        'referrer_company_id' => $companyId,
+        'referrer_person_id' => null,
+        'referrer_user_id' => null,
+        'fee_pct' => null,
+        'fee_flat' => $payout,
+        'fee_basis' => 'per_hour',
+        'payment_terms_override' => trim((string) ($row['referral_payment_terms'] ?? '')) !== ''
+            ? placementEconomicsNormaliseTerms((string) $row['referral_payment_terms']) : null,
+        'pwp_enabled' => !empty($row['referral_paid_when_paid']) ? 1 : 0,
+        'duration_months' => null,
+        'start_date' => placementsCsvBlankToNull($row['referral_start_date'] ?? null) ?? $row['start_date'],
+        'end_date' => placementsCsvBlankToNull($row['referral_end_date'] ?? ($row['end_date'] ?? null)),
+        'notes' => placementsCsvBlankToNull($row['referral_notes'] ?? null),
+    ];
+    $existing = scopedFind(
+        'SELECT id FROM placement_referrals
+          WHERE tenant_id = :tenant_id AND placement_id = :p
+            AND referrer_type = "vendor" AND fee_basis = "per_hour"
+          ORDER BY id ASC LIMIT 1',
+        ['p' => $placementId]
+    );
+    if ($existing) {
+        scopedUpdate('placement_referrals', (int) $existing['id'], $payload);
+        return;
+    }
+    $payload['placement_id'] = $placementId;
+    scopedInsert('placement_referrals', $payload);
 }
 
 function placementsCsvUpsertDraftRate(int $placementId, array $row, ?int $userId, bool $updateExisting): void
@@ -689,8 +772,60 @@ if ($method === 'POST' && $action === 'dry_run') {
                 $result['errors'][$rn][] = $msg;
             }
         }
-        $result['error_count'] = count($result['errors']);
     }
+    if ($result['rows']) {
+        $pdo = getDB();
+        $placementsTenantId = effectiveTenantIdForModule('placements') ?? currentTenantId();
+        $accountingTenantId = effectiveTenantIdForModule('accounting') ?? currentTenantId();
+        $jobIds = [];
+        $entityIds = [];
+        foreach ($result['rows'] as $row) {
+            if (!empty($row['staffing_job_id'])) $jobIds[] = (int) $row['staffing_job_id'];
+            if (!empty($row['accounting_entity_id'])) $entityIds[] = (int) $row['accounting_entity_id'];
+        }
+        $loadIds = static function (\PDO $pdo, string $table, int $tenantId, array $ids, string $extraWhere = ''): array {
+            $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
+            if (!$ids) return [];
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT id FROM {$table} WHERE tenant_id = ? AND id IN ({$placeholders}) {$extraWhere}"
+            );
+            $stmt->execute(array_merge([$tenantId], $ids));
+            return array_fill_keys(array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN) ?: []), true);
+        };
+        $validJobs = $loadIds($pdo, 'staffing_jobs', $placementsTenantId, $jobIds);
+        $validEntities = $loadIds($pdo, 'accounting_entities', $accountingTenantId, $entityIds, 'AND active = 1');
+        foreach ($result['rows'] as $rn => $row) {
+            $jobId = (int) ($row['staffing_job_id'] ?? 0);
+            if ($jobId > 0 && !isset($validJobs[$jobId])) {
+                $result['errors'][$rn] = $result['errors'][$rn] ?? [];
+                $result['errors'][$rn][] = "staffing_job_id: {$jobId} is not a job in this placement catalog";
+            }
+            $entityId = (int) ($row['accounting_entity_id'] ?? 0);
+            if ($entityId > 0 && !isset($validEntities[$entityId])) {
+                $result['errors'][$rn] = $result['errors'][$rn] ?? [];
+                $result['errors'][$rn][] = "accounting_entity_id: {$entityId} is not an active legal entity in this accounting workspace";
+            }
+        }
+    }
+    foreach (($result['rows'] ?? []) as $rn => $row) {
+        if (strtolower(trim((string) ($row['engagement_type'] ?? ''))) !== 'referral') continue;
+        $clientRate = (float) (($row['referral_client_rate'] ?? '') !== ''
+            ? $row['referral_client_rate'] : ($row['bill_rate'] ?? 0));
+        $payout = (float) ($row['referral_payout_rate'] ?? 0);
+        $vendorId = (int) ($row['referral_vendor_company_id'] ?? 0);
+        $vendorName = trim((string) ($row['referral_vendor_name'] ?? ''));
+        if ($clientRate <= 0) {
+            $result['errors'][$rn][] = 'Referral-only placements require a positive hourly referral fee paid by client.';
+        }
+        if ($payout <= 0) {
+            $result['errors'][$rn][] = 'Referral-only placements require a positive vendor referral payout.';
+        }
+        if ($vendorId <= 0 && $vendorName === '') {
+            $result['errors'][$rn][] = 'Referral-only placements require referral_vendor_name or referral_vendor_company_id.';
+        }
+    }
+    $result['error_count'] = count($result['errors']);
     api_ok($result);
 }
 
@@ -702,8 +837,10 @@ if ($method === 'POST' && $action === 'commit') {
     $columnMap      = CsvImportService::readRequestColumnMap();
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
+    $accountingTenantId = effectiveTenantIdForModule('accounting') ?? currentTenantId();
+    $defaultAssignmentEntityId = (int) accountingDefaultEntity($accountingTenantId)['id'];
 
-    $result = CsvImportService::commit('placements', $csv, function (array $row) use ($user, $updateExisting) {
+    $result = CsvImportService::commit('placements', $csv, function (array $row) use ($user, $updateExisting, $accountingTenantId, $defaultAssignmentEntityId) {
         // Resolve person — id wins over email. Same precedence as
         // dry_run: the operator's choice of person_id is honoured even
         // if the email column is also present (the email might be
@@ -784,6 +921,24 @@ if ($method === 'POST' && $action === 'commit') {
             }
         }
 
+        if (!empty($row['staffing_job_id'])) {
+            $job = scopedFind(
+                'SELECT id FROM staffing_jobs WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+                ['id' => (int) $row['staffing_job_id']]
+            );
+            if (!$job) throw new \RuntimeException("staffing_job_id not found: {$row['staffing_job_id']}");
+        }
+        $rowEntityId = null;
+        if (!empty($row['accounting_entity_id'])) {
+            try {
+                $rowEntityId = accountingValidateActiveEntityId($accountingTenantId, $row['accounting_entity_id']);
+            } catch (\Throwable $e) {
+                throw new \RuntimeException('accounting_entity_id: ' . $e->getMessage());
+            }
+        } elseif (!$existing) {
+            $rowEntityId = $defaultAssignmentEntityId;
+        }
+
         $payload = [
             'person_id'        => (int) $person['id'],
             'external_id'      => $row['external_id']     ?? null,
@@ -795,6 +950,13 @@ if ($method === 'POST' && $action === 'commit') {
             'worksite_state'   => $row['worksite_state']  ?? null,
             'worksite_country' => $row['worksite_country']?? null,
             'remote_policy'    => placementsNormalizeRemotePolicy($row['remote_policy'] ?? null),
+            'staffing_job_id'  => !empty($row['staffing_job_id']) ? (int) $row['staffing_job_id'] : null,
+            'branch'           => $row['branch']            ?? null,
+            'service_line'     => $row['service_line']      ?? null,
+            'workers_comp_class' => $row['workers_comp_class'] ?? null,
+            'department'       => $row['department']        ?? null,
+            'cost_center'      => $row['cost_center']       ?? null,
+            'accounting_entity_id' => $rowEntityId,
             'title'            => $row['title'],
             'end_client_name'  => $row['end_client_name'] ?? null,
             'end_client_company_id' => !empty($row['end_client_company_id']) ? (int) $row['end_client_company_id'] : null,
@@ -868,6 +1030,7 @@ if ($method === 'POST' && $action === 'commit') {
         // the same canonical graph the UI and JobDiva projector consume.
         placementsCsvUpsertCommissions($pid, $row, (bool) $existing);
         placementsCsvUpsertCorpDetails($pid, $row);
+        placementsCsvUpsertReferralEngagement($pid, $row, $user['id'] ?? null);
         placementEconomicsReconcile(currentTenantId(), $pid);
 
         // Round-trip exports include status. Apply it only to matched rows;

@@ -537,8 +537,24 @@ function exportDatasetRegistry(): array {
                 'worksite_state'     => ['label' => 'Worksite state',    'sample' => 'NY'],
                 'worksite_country'   => ['label' => 'Worksite country',  'sample' => 'US'],
                 'remote_policy'      => ['label' => 'Remote policy',     'sample' => 'hybrid'],
+                'staffing_job_id'    => ['label' => 'CoreFlux job ID',   'sample' => '4821'],
+                'branch'             => ['label' => 'Branch / business unit', 'sample' => 'Charlotte'],
+                'service_line'       => ['label' => 'Service line',      'sample' => 'Contract staffing'],
+                'workers_comp_class' => ['label' => 'WC class',          'sample' => '8810'],
+                'department'         => ['label' => 'Department',        'sample' => 'Delivery'],
+                'cost_center'        => ['label' => 'Cost center',       'sample' => 'CLT-DEL'],
+                'accounting_entity_id' => ['label' => 'Legal entity ID', 'sample' => '1'],
                 'bill_rate'          => ['label' => 'Bill rate ($/hr)',  'sample' => '100.00', 'field_type' => 'number'],
                 'pay_rate'           => ['label' => 'Pay rate ($/hr)',   'sample' => '60.00', 'field_type' => 'number'],
+                'referral_client_rate' => ['label' => 'Hourly referral fee paid by client', 'sample' => '4.00', 'field_type' => 'number'],
+                'referral_vendor_name' => ['label' => 'Referral vendor', 'sample' => 'Global Profile'],
+                'referral_vendor_company_id' => ['label' => 'Referral vendor company ID', 'sample' => '301'],
+                'referral_payout_rate' => ['label' => 'Vendor referral payout', 'sample' => '2.00', 'field_type' => 'number'],
+                'referral_payment_terms' => ['label' => 'Referral vendor payment terms', 'sample' => 'NET30'],
+                'referral_paid_when_paid' => ['label' => 'Referral vendor paid when paid', 'sample' => '0'],
+                'referral_start_date' => ['label' => 'Referral payout start date', 'sample' => '2026-02-01'],
+                'referral_end_date' => ['label' => 'Referral payout end date', 'sample' => ''],
+                'referral_notes' => ['label' => 'Referral notes', 'sample' => ''],
                 'placement_count'    => ['label' => 'Placement count',   'sample' => '1', 'field_type' => 'number', 'aggregate' => 'sum'],
                 'external_id'        => ['label' => 'External ID',       'sample' => 'jd:1234'],
                 'notes'              => ['label' => 'Notes',             'sample' => ''],
@@ -1495,12 +1511,27 @@ function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): arra
                 END AS expiring_date,
                 COALESCE(ec.name, p.end_client_name) AS end_client_name,
                 p.worksite_state, p.worksite_country, p.remote_policy,
+                p.staffing_job_id, p.branch, p.service_line, p.workers_comp_class,
+                p.department, p.cost_center, p.accounting_entity_id,
                 (SELECT bill_rate FROM placement_rates r
                   WHERE r.tenant_id = p.tenant_id AND r.placement_id = p.id
                   ORDER BY r.effective_from DESC LIMIT 1) AS bill_rate,
                 (SELECT pay_rate FROM placement_rates r
                   WHERE r.tenant_id = p.tenant_id AND r.placement_id = p.id
                   ORDER BY r.effective_from DESC LIMIT 1) AS pay_rate,
+                CASE WHEN p.engagement_type = "referral" THEN (
+                    SELECT bill_rate FROM placement_rates r
+                     WHERE r.tenant_id = p.tenant_id AND r.placement_id = p.id
+                     ORDER BY r.effective_from DESC LIMIT 1
+                ) ELSE NULL END AS referral_client_rate,
+                (SELECT pr.referrer_vendor_name FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_vendor_name,
+                (SELECT pr.referrer_company_id FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_vendor_company_id,
+                (SELECT pr.fee_flat FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_payout_rate,
+                (SELECT pr.payment_terms_override FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_payment_terms,
+                (SELECT pr.pwp_enabled FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_paid_when_paid,
+                (SELECT pr.start_date FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_start_date,
+                (SELECT pr.end_date FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_end_date,
+                (SELECT pr.notes FROM placement_referrals pr WHERE pr.tenant_id = p.tenant_id AND pr.placement_id = p.id AND pr.referrer_type = "vendor" AND pr.fee_basis = "per_hour" ORDER BY pr.id LIMIT 1) AS referral_notes,
                 1 AS placement_count,
                 p.external_id, p.notes
            FROM placements p

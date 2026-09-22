@@ -4,8 +4,8 @@
  *
  * Asserts:
  *   - api/ap_bill_replay.php (POST-only, RBAC, days clamp 1..1825,
- *     since regex, source_module='ap_replay', stub-event fallback when
- *     no rule matches, status filter clamping, idempotency check).
+ *     since regex, source_module='ap_replay', audit-only linking to the
+ *     existing JE, status filter clamping, idempotency check).
  *   - api/billing_invoice_replay.php (same shape).
  *   - Module-namespaced kebab aliases delegate cleanly.
  *   - modules/billing/api/invoices.php?action=post emits
@@ -45,19 +45,27 @@ $assert('only-unlinked checks live event row',
 $assert('idempotent skip if replay event exists',
     strpos($apr, "source_module = 'ap_replay'") !== false
     && strpos($apr, "skipped_already_event") !== false);
-$assert('rebuilds payload.lines from ap_bill_lines',
-    strpos($apr, "FROM ap_bill_lines") !== false);
-$assert('passthrough lines + AP credit',
-    strpos($apr, "'account_code' => '2000'") !== false
-    && strpos($apr, "'lines'        => \$payloadLines") !== false);
+$assert('snapshots original posted journal lines',
+    strpos($apr, 'FROM accounting_journal_entries je') !== false
+    && strpos($apr, 'JOIN accounting_journal_entry_lines jl') !== false
+    && strpos($apr, 'je.status = "posted"') !== false);
+$assert('preserves original line dimensions',
+    strpos($apr, "json_decode((string) \$line['dim_json']") !== false
+    && strpos($apr, "'dims' => \$dimensions") !== false);
 $assert('replay payload flag',                   strpos($apr, "'replay'       => true") !== false);
+$assert('audit-link-only replay mode',
+    strpos($apr, "'replay_mode'  => 'audit_link_only'") !== false);
 $assert('original_journal_entry_id captured',
     strpos($apr, "'original_journal_entry_id' => (int) \$b['journal_entry_id']") !== false);
-$assert('stub-event fallback when status=ignored',
-    strpos($apr, "(\$r['status'] ?? null) === 'ignored'") !== false
-    && strpos($apr, 'INSERT IGNORE INTO accounting_events') !== false);
-$assert('stub-event fallback writes subledger_links',
-    strpos($apr, 'INSERT IGNORE INTO accounting_subledger_links') !== false);
+$assert('replay never invokes posting engine',
+    strpos($apr, 'accountingProcessEvent') === false
+    && strpos($apr, 'posting_engine/process.php') === false);
+$assert('writes event and linked existing JE atomically',
+    strpos($apr, 'INSERT IGNORE INTO accounting_events') !== false
+    && strpos($apr, 'INSERT IGNORE INTO accounting_subledger_links') !== false
+    && strpos($apr, 'accounting_event_id') !== false
+    && strpos($apr, 'cf_tx_begin($pdo)') !== false
+    && strpos($apr, 'cf_tx_commit($pdo, $ownsTxn)') !== false);
 $assert('returns full counts envelope',
     strpos($apr, "'replayed'") !== false
     && strpos($apr, "'skipped_already_event'") !== false
@@ -75,14 +83,24 @@ $assert('source_module=billing_replay',          strpos($bir, "'source_module'  
 $assert('event_type=billing.invoice.sent',       strpos($bir, "'event_type'       => 'billing.invoice.sent'") !== false);
 $assert('status filter whitelist',
     strpos($bir, "['approved','sent','partially_paid','paid']") !== false);
-$assert('rebuilds payload.lines from invoice_lines',
-    strpos($bir, "FROM billing_invoice_lines") !== false);
-$assert('AR debit + revenue buckets + tax',
-    strpos($bir, "'account_code' => '1100'") !== false
-    && strpos($bir, "'account_code' => '2100'") !== false);
-$assert('stub-event fallback when status=ignored',
-    strpos($bir, "(\$rs2['status'] ?? null) === 'ignored'") !== false
-    && strpos($bir, 'INSERT IGNORE INTO accounting_events') !== false);
+$assert('snapshots original posted journal lines',
+    strpos($bir, 'FROM accounting_journal_entries je') !== false
+    && strpos($bir, 'JOIN accounting_journal_entry_lines jl') !== false
+    && strpos($bir, 'je.status = "posted"') !== false);
+$assert('preserves original line dimensions',
+    strpos($bir, "json_decode((string) \$line['dim_json']") !== false
+    && strpos($bir, "'dims' => \$dimensions") !== false);
+$assert('audit-link-only replay mode',
+    strpos($bir, "'replay_mode'       => 'audit_link_only'") !== false);
+$assert('replay never invokes posting engine',
+    strpos($bir, 'accountingProcessEvent') === false
+    && strpos($bir, 'posting_engine/process.php') === false);
+$assert('writes event and linked existing JE atomically',
+    strpos($bir, 'INSERT IGNORE INTO accounting_events') !== false
+    && strpos($bir, 'INSERT IGNORE INTO accounting_subledger_links') !== false
+    && strpos($bir, 'accounting_event_id') !== false
+    && strpos($bir, 'cf_tx_begin($pdo)') !== false
+    && strpos($bir, 'cf_tx_commit($pdo, $ownsTxn)') !== false);
 
 echo "\nModule-namespaced kebab aliases\n";
 $apAlias = "{$ROOT}/modules/ap/api/bill_replay.php";

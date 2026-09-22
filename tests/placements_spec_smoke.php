@@ -63,6 +63,9 @@ $assert('status ENUM 6 values',
     strpos($sql, "ENUM('draft','pending_start','active','on_hold','ended','cancelled')") !== false);
 $assert('engagement_type ENUM 5 values',
     strpos($sql, "ENUM('w2','1099','c2c','temp_to_perm','direct_hire')") !== false);
+$referralMigration = (string) file_get_contents(__DIR__ . '/../modules/placements/migrations/005_referral_engagement_type.sql');
+$assert('referral migration adds first-class engagement type',
+    strpos($referralMigration, "ENUM('w2','1099','c2c','temp_to_perm','direct_hire','internal','referral')") !== false);
 $assert('chain party_role ENUM 5 values',
     strpos($sql, "ENUM('end_client','msp','prime_vendor','sub_vendor','direct')") !== false);
 

@@ -28,6 +28,13 @@ type Placement @key(fields: "id") {
   remotePolicy: RemotePolicy
   worksiteState: String
   worksiteCountry: String
+  staffingJobId: ID
+  branch: String
+  serviceLine: String
+  workersCompClass: String
+  department: String
+  costCenter: String
+  accountingEntityId: ID
   notes: String
   endClientName: String
   clientApproverName: String
@@ -53,6 +60,8 @@ enum EngagementType {
   contract_1099
   temp_to_perm
   direct_hire
+  internal
+  referral
 }
 
 enum RemotePolicy {

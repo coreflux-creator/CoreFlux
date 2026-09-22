@@ -437,6 +437,7 @@ function jobdivaPersonClassificationFromPlacementPayload(int $tid, array $jd): s
         'w2', '1099', 'c2c' => $engagement,
         'temp_to_perm' => 'temp',
         'direct_hire' => 'perm',
+        'referral' => 'candidate',
         default => 'candidate',
     };
 }

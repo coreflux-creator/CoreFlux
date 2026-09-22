@@ -73,7 +73,13 @@ if ($method === 'POST' && $action === '') {
     $dstId = (int) $body['destination_bank_account_id'];
     if ($srcId === $dstId) api_error('source and destination cannot be the same', 422);
 
-    $oneStmt = $pdo->prepare('SELECT id, entity_id FROM accounting_bank_accounts WHERE tenant_id = :t AND id = :id');
+    $oneStmt = $pdo->prepare(
+        'SELECT ba.id, ba.entity_id, ae.id AS active_entity_id
+           FROM accounting_bank_accounts ba
+      LEFT JOIN accounting_entities ae
+             ON ae.tenant_id = ba.tenant_id AND ae.id = ba.entity_id AND ae.active = 1
+          WHERE ba.tenant_id = :t AND ba.id = :id AND ba.status = "active"'
+    );
     $oneStmt->execute(['t' => $tid, 'id' => $srcId]);
     $src = $oneStmt->fetch(\PDO::FETCH_ASSOC);
     $oneStmt->execute(['t' => $tid, 'id' => $dstId]);
@@ -81,7 +87,14 @@ if ($method === 'POST' && $action === '') {
     if (!$src || !$dst) api_error('Bank account not found', 404);
     $srcEntity = (int) ($src['entity_id'] ?? 0);
     $dstEntity = (int) ($dst['entity_id'] ?? 0);
-    $kind = ($srcEntity && $dstEntity && $srcEntity !== $dstEntity) ? 'intercompany' : 'internal';
+    if ($srcEntity <= 0 || empty($src['active_entity_id'])) {
+        api_error('Assign an active legal entity to the source bank account', 422);
+    }
+    if ($dstEntity <= 0 || empty($dst['active_entity_id'])) {
+        api_error('Assign an active legal entity to the destination bank account', 422);
+    }
+    if (round((float) $body['amount'], 2) <= 0) api_error('amount must be greater than zero', 422);
+    $kind = $srcEntity !== $dstEntity ? 'intercompany' : 'internal';
 
     $num = $body['transfer_number'] ?? sprintf('TXF-%d-%s', $tid, substr(bin2hex(random_bytes(4)), 0, 8));
     $stmt = $pdo->prepare(
@@ -98,8 +111,8 @@ if ($method === 'POST' && $action === '') {
         'k' => $kind,
         'sba' => $srcId,
         'dba' => $dstId,
-        'se' => $srcEntity ?: 0,
-        'de' => $dstEntity ?: $srcEntity ?: 0,
+        'se' => $srcEntity,
+        'de' => $dstEntity,
         'amt' => round((float) $body['amount'], 2),
         'cur' => (string) ($body['currency'] ?? 'USD'),
         'td' => (string) $body['transfer_date'],
@@ -214,7 +227,7 @@ if ($method === 'POST' && $action === 'execute') {
         : 'treasury.transfer.completed';
 
     $bankStmt = $pdo->prepare(
-        'SELECT ba.id, ba.gl_account_code, aa.id AS gl_account_id
+        'SELECT ba.id, ba.entity_id, ba.gl_account_code, aa.id AS gl_account_id
            FROM accounting_bank_accounts ba
            LEFT JOIN accounting_accounts aa
              ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
@@ -224,6 +237,185 @@ if ($method === 'POST' && $action === 'execute') {
     $srcBank = $bankStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
     $bankStmt->execute(['t' => $tid, 'id' => (int) $xfer['destination_bank_account_id']]);
     $dstBank = $bankStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+    if (empty($srcBank['gl_account_id']) || empty($dstBank['gl_account_id'])) {
+        api_error('Both transfer accounts need active ledger accounts', 422);
+    }
+    if ((int) ($srcBank['entity_id'] ?? 0) !== (int) $xfer['source_entity_id']) {
+        api_error('Source bank account no longer matches the transfer legal entity', 422);
+    }
+    if ((int) ($dstBank['entity_id'] ?? 0) !== (int) $xfer['destination_entity_id']) {
+        api_error('Destination bank account no longer matches the transfer legal entity', 422);
+    }
+
+    if ((string) $xfer['transfer_kind'] === 'intercompany') {
+        require_once __DIR__ . '/../modules/accounting/lib/intercompany.php';
+        accountingSeedSystemAccounts($tid);
+        $mapping = intercompanyGetMapping(
+            $tid,
+            (int) $xfer['source_entity_id'],
+            (int) $xfer['destination_entity_id']
+        );
+        $override = $mapping ? null : [
+            'due_from_account_code' => '1500',
+            'due_to_account_code' => '2500',
+        ];
+        $ownsTransaction = cf_tx_begin($pdo);
+        try {
+            $paired = intercompanyPostSplit($tid, [
+                'posting_date' => (string) $xfer['transfer_date'],
+                'memo' => (string) ($xfer['memo'] ?: ('Intercompany transfer ' . $xfer['transfer_number'])),
+                'source' => [
+                    'entity_id' => (int) $xfer['source_entity_id'],
+                    'offset_line' => [
+                        'account_code' => (string) $srcBank['gl_account_code'],
+                        'amount' => (float) $xfer['amount'],
+                        'side' => 'credit',
+                        'memo' => 'Transfer out',
+                    ],
+                ],
+                'splits' => [[
+                    'entity_id' => (int) $xfer['destination_entity_id'],
+                    'account_code' => (string) $dstBank['gl_account_code'],
+                    'amount' => (float) $xfer['amount'],
+                    'memo' => 'Transfer in',
+                    'ic_override' => $override,
+                ]],
+                'idempotency_prefix' => 'treasury_transfer:' . (int) $xfer['id'],
+                'source_module' => 'treasury_transfers',
+                'source_ref_type' => 'treasury_transfer',
+                'source_ref_id' => (int) $xfer['id'],
+            ], $actorUserId);
+
+            $sourceJe = null;
+            $destinationJe = null;
+            foreach ((array) ($paired['jes'] ?? []) as $journal) {
+                if (($journal['role'] ?? null) === 'source') $sourceJe = $journal;
+                if (($journal['role'] ?? null) === 'target'
+                    && (int) ($journal['entity_id'] ?? 0) === (int) $xfer['destination_entity_id']) {
+                    $destinationJe = $journal;
+                }
+            }
+            if (!$sourceJe || !$destinationJe) {
+                throw new \RuntimeException('Intercompany transfer did not produce both legal-entity journals');
+            }
+
+            $eventPayload = [
+                'transfer_id' => (int) $xfer['id'],
+                'transfer_number' => (string) $xfer['transfer_number'],
+                'from_entity_id' => (int) $xfer['source_entity_id'],
+                'to_entity_id' => (int) $xfer['destination_entity_id'],
+                'from_bank_account_id' => (int) $xfer['source_bank_account_id'],
+                'to_bank_account_id' => (int) $xfer['destination_bank_account_id'],
+                'amount' => (float) $xfer['amount'],
+                'currency' => (string) $xfer['currency'],
+                'memo' => $xfer['memo'],
+                'intercompany_group_id' => (string) $paired['group_id'],
+                'source_journal_entry_id' => (int) $sourceJe['je_id'],
+                'destination_journal_entry_id' => (int) $destinationJe['je_id'],
+                'dimensions' => [
+                    'legal_entity' => (int) $xfer['source_entity_id'],
+                    'counterparty_entity' => (int) $xfer['destination_entity_id'],
+                ],
+            ];
+            $validation = eventRegistryValidate('treasury.intercompany.transfer.completed', $eventPayload);
+            if (!$validation['ok']) {
+                throw new \RuntimeException('Intercompany event is invalid: ' . implode('; ', $validation['errors']));
+            }
+            $eventStmt = $pdo->prepare(
+                'INSERT INTO accounting_events
+                    (tenant_id, entity_id, event_type, source_module, source_record_id,
+                     event_date, payload, status, journal_entry_id, created_by_user_id,
+                     posted_at)
+                 VALUES
+                    (:tenant_id, :entity_id, "treasury.intercompany.transfer.completed",
+                     "treasury_transfers", :source_record_id, :event_date, :payload,
+                     "posted", :journal_entry_id, :actor_user_id, NOW())
+                 ON DUPLICATE KEY UPDATE
+                    id = LAST_INSERT_ID(id), payload = VALUES(payload), status = "posted",
+                    journal_entry_id = VALUES(journal_entry_id), posted_at = NOW()'
+            );
+            $eventStmt->execute([
+                'tenant_id' => $tid,
+                'entity_id' => (int) $xfer['source_entity_id'],
+                'source_record_id' => 'txf:' . (int) $xfer['id'],
+                'event_date' => (string) $xfer['transfer_date'],
+                'payload' => json_encode($eventPayload),
+                'journal_entry_id' => (int) $sourceJe['je_id'],
+                'actor_user_id' => $actorUserId,
+            ]);
+            $eventId = (int) $pdo->lastInsertId();
+
+            $linkStmt = $pdo->prepare(
+                'INSERT IGNORE INTO accounting_subledger_links
+                    (tenant_id, source_module, source_record_id, journal_entry_id,
+                     accounting_event_id, link_kind)
+                 VALUES (:tenant_id, "treasury_transfers", :source_record_id,
+                         :journal_entry_id, :event_id, :link_kind)'
+            );
+            foreach ([
+                ['journal' => $sourceJe, 'kind' => 'source'],
+                ['journal' => $destinationJe, 'kind' => 'destination'],
+            ] as $link) {
+                $linkStmt->execute([
+                    'tenant_id' => $tid,
+                    'source_record_id' => 'txf:' . (int) $xfer['id'],
+                    'journal_entry_id' => (int) $link['journal']['je_id'],
+                    'event_id' => $eventId,
+                    'link_kind' => $link['kind'],
+                ]);
+            }
+
+            $pdo->prepare(
+                'UPDATE treasury_transfers
+                    SET status="executed", executed_by_user_id=:user_id, executed_at=NOW(),
+                        source_journal_entry_id=:source_je,
+                        destination_journal_entry_id=:destination_je,
+                        accounting_event_id=:event_id, failure_reason=NULL
+                  WHERE tenant_id=:tenant_id AND id=:id'
+            )->execute([
+                'user_id' => $actorUserId,
+                'source_je' => (int) $sourceJe['je_id'],
+                'destination_je' => (int) $destinationJe['je_id'],
+                'event_id' => $eventId,
+                'tenant_id' => $tid,
+                'id' => $id,
+            ]);
+            $executed = treasuryTransferWorkflowRow($tid, $id) ?? $xfer;
+            treasuryWorkflowAudit($tid, $actorUserId, 'treasury.transfer.executed', [
+                'transfer_id' => $id,
+                'transfer_kind' => 'intercompany',
+                'intercompany_group_id' => (string) $paired['group_id'],
+                'source_journal_entry_id' => (int) $sourceJe['je_id'],
+                'destination_journal_entry_id' => (int) $destinationJe['je_id'],
+                'event_id' => $eventId,
+            ], $id, [
+                'before' => $xfer,
+                'after' => $executed,
+            ]);
+            cf_tx_commit($pdo, $ownsTransaction);
+        } catch (\Throwable $e) {
+            cf_tx_rollback($pdo, $ownsTransaction);
+            $pdo->prepare(
+                'UPDATE treasury_transfers SET status="failed", failure_reason=:failure
+                  WHERE tenant_id=:tenant_id AND id=:id'
+            )->execute([
+                'failure' => $e->getMessage(),
+                'tenant_id' => $tid,
+                'id' => $id,
+            ]);
+            api_error('Execute failed: ' . $e->getMessage(), 422);
+        }
+
+        api_ok([
+            'id' => $id,
+            'status' => 'executed',
+            'transfer_kind' => 'intercompany',
+            'intercompany_group_id' => (string) $paired['group_id'],
+            'source_journal_entry_id' => (int) $sourceJe['je_id'],
+            'destination_journal_entry_id' => (int) $destinationJe['je_id'],
+            'event_id' => $eventId,
+        ]);
+    }
 
     $event = [
         'entity_id' => (int) $xfer['source_entity_id'],
@@ -237,6 +429,8 @@ if ($method === 'POST' && $action === 'execute') {
             'transfer_kind' => (string) $xfer['transfer_kind'],
             'amount' => (float) $xfer['amount'],
             'currency' => (string) $xfer['currency'],
+            'from_bank_account_id' => (int) $xfer['source_bank_account_id'],
+            'to_bank_account_id' => (int) $xfer['destination_bank_account_id'],
             'source_bank_account_id' => (int) $xfer['source_bank_account_id'],
             'destination_bank_account_id' => (int) $xfer['destination_bank_account_id'],
             'source_bank_gl_account_id' => isset($srcBank['gl_account_id']) ? (int) $srcBank['gl_account_id'] : null,
@@ -245,6 +439,8 @@ if ($method === 'POST' && $action === 'execute') {
             'destination_bank_gl_account_code' => $dstBank['gl_account_code'] ?? null,
             'source_entity_id' => (int) $xfer['source_entity_id'],
             'destination_entity_id' => (int) $xfer['destination_entity_id'],
+            'legal_entity_dimension' => (int) $xfer['source_entity_id'],
+            'dimensions' => ['legal_entity' => (int) $xfer['source_entity_id']],
             'memo' => $xfer['memo'],
         ],
     ];

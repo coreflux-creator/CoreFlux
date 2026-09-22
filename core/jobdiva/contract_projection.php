@@ -157,7 +157,7 @@ function jobdivaContractProjectionBuild(
     $vmsBill = jobdivaContractProjectionAmount($contract['bill_rate_in_vms'] ?? null) ?? 0.0;
     $netBill = jobdivaContractProjectionAmount($contract['net_bill_rate'] ?? null) ?? 0.0;
     $laborRate = jobdivaContractProjectionAmount(
-        in_array($engagement, ['c2c', '1099'], true)
+        in_array($engagement, ['c2c', '1099', 'referral'], true)
             ? ($contract['pay_rate_to_vendor'] ?? $contract['pay_rate'] ?? null)
             : ($contract['pay_rate'] ?? null)
     ) ?? 0.0;
@@ -175,10 +175,6 @@ function jobdivaContractProjectionBuild(
     $classificationLoadPct = $engagement === 'w2'
         ? $payrollLoadPct + $workersCompPct + $benefitsLoadPct
         : ($engagement === 'c2c' ? $c2cOverheadPct : 0.0);
-    $hourlyCosts = $laborRate * (1 + $classificationLoadPct) + $otherHourly;
-    $margin = $invoiceRate - $hourlyCosts;
-    $marginPct = $invoiceRate > 0 ? $margin / $invoiceRate : 0.0;
-
     $clientCadence = (string) ($contract['client_bill_cycle'] ?? '');
     $payCadence = (string) ($contract['vendor_pay_cycle'] ?? '');
     $clientTerms = (string) ($contract['client_payment_terms'] ?? '');
@@ -189,6 +185,15 @@ function jobdivaContractProjectionBuild(
     if (str_starts_with($vendorTerms, 'PWP')) $pwp = true;
     $corporationId = trim((string) ($contract['corporation_id'] ?? ''));
     $corporationName = trim((string) ($contract['corporation_name'] ?? ''));
+    $referralName = trim((string) ($contract['referral_vendor'] ?? ''));
+    $referralAmount = jobdivaContractProjectionAmount($contract['referral_fee_amount'] ?? null) ?? 0.0;
+    $referralVendorName = $referralName !== '' ? $referralName : $corporationName;
+    $referralPayoutRate = $laborRate > 0 ? $laborRate : $referralAmount;
+    $canonicalPayRate = $engagement === 'referral' ? 0.0 : $laborRate;
+    $hourlyCosts = ($engagement === 'referral' ? $referralPayoutRate : $laborRate)
+        * (1 + $classificationLoadPct) + $otherHourly;
+    $margin = $invoiceRate - $hourlyCosts;
+    $marginPct = $invoiceRate > 0 ? $margin / $invoiceRate : 0.0;
 
     $participants = [];
     if ($clientName !== '' || $clientExternalId !== '') {
@@ -229,11 +234,18 @@ function jobdivaContractProjectionBuild(
             'payment_terms' => $vendorTerms ?: 'NET30', 'paid_when_paid' => (bool) ($pwp ?? false),
             'source' => 'Start candidate identity + Assignment SALARY',
         ];
+    } elseif ($engagement === 'referral' && $referralVendorName !== '' && $referralPayoutRate > 0) {
+        $participants[] = [
+            'role' => 'referrer', 'name' => $referralVendorName, 'external_id' => $corporationId ?: null,
+            'money_flow' => 'payable', 'settlement_channel' => 'ap',
+            'calculation' => 'per_hour', 'amount' => $referralPayoutRate,
+            'cadence' => $payCadence ?: 'monthly',
+            'payment_terms' => $vendorTerms ?: 'NET30', 'paid_when_paid' => (bool) ($pwp ?? false),
+            'source' => 'Referral placement payout terms',
+        ];
     }
 
-    $referralName = trim((string) ($contract['referral_vendor'] ?? ''));
-    $referralAmount = jobdivaContractProjectionAmount($contract['referral_fee_amount'] ?? null) ?? 0.0;
-    if ($referralName !== '' && $referralAmount > 0) {
+    if ($engagement !== 'referral' && $referralName !== '' && $referralAmount > 0) {
         $participants[] = [
             'role' => 'referrer', 'name' => $referralName, 'external_id' => null,
             'money_flow' => 'payable', 'settlement_channel' => 'ap',
@@ -263,12 +275,25 @@ function jobdivaContractProjectionBuild(
 
     $currentPlacement = is_array($currentGraph['placement'] ?? null) ? $currentGraph['placement'] : [];
     $currentRate = jobdivaContractProjectionCurrentRate($currentGraph);
+    $currentReferralPayout = null;
+    if ($engagement === 'referral') {
+        $currentReferralRates = array_map(
+            static fn(array $party): float => (float) ($party['fee_flat'] ?? 0),
+            array_filter(
+                $currentGraph['economic_parties'] ?? [],
+                static fn(array $party): bool => (!isset($party['active']) || (int) $party['active'] === 1)
+                    && ($party['role'] ?? '') === 'referrer'
+                    && ($party['fee_basis'] ?? '') === 'per_hour'
+            )
+        );
+        if ($currentReferralRates !== []) $currentReferralPayout = array_sum($currentReferralRates);
+    }
     $provenance = is_array($contract['_provenance'] ?? null) ? $contract['_provenance'] : [];
     $sourceFor = static function (string $field, string $fallback) use ($provenance): string {
         return (string) ($provenance[$field]['path'] ?? $fallback);
     };
     $fields = [
-        jobdivaContractProjectionField('Placement', 'engagement_type', 'Worker classification', $currentPlacement['engagement_type'] ?? null, $engagement ?: null, $sourceFor('engagement_type', 'Assignment.EMPLOYMENT_CATEGORY')),
+        jobdivaContractProjectionField('Placement', 'engagement_type', 'Engagement type', $currentPlacement['engagement_type'] ?? null, $engagement ?: null, $sourceFor('engagement_type', 'Assignment.EMPLOYMENT_CATEGORY')),
         jobdivaContractProjectionField('Placement', 'status', 'Lifecycle status', $currentPlacement['status'] ?? null, $contract['placement_status'] ?? null, $sourceFor('placement_status', 'Assignment.BILLING lifecycle flags')),
         jobdivaContractProjectionField('Placement', 'start_date', 'Start date', $currentPlacement['start_date'] ?? null, $startDate, $sourceFor('start_date', 'Assignment.BILLING.START_DATE')),
         jobdivaContractProjectionField('Placement', 'end_date', 'End date', $currentPlacement['end_date'] ?? null, $endDate, $sourceFor('end_date', 'Assignment.BILLING.END_DATE')),
@@ -276,7 +301,10 @@ function jobdivaContractProjectionBuild(
         jobdivaContractProjectionField('Rate', 'bill_rate', 'Gross client rate', $currentRate['bill_rate'] ?? null, $grossBill > 0 ? round($grossBill, 4) : null, $sourceFor($vmsBill > 0 ? 'bill_rate_in_vms' : 'bill_rate', 'Assignment.BILLING.BILL_RATE')),
         jobdivaContractProjectionField('Rate', 'bill_discount_pct', 'VMS / client discount', $currentRate['bill_discount_pct'] ?? null, $discountPct > 0 ? round($discountPct, 6) : null, $sourceFor('net_bill_rate', 'Assignment.BILLING.NET_BILL')),
         jobdivaContractProjectionField('Rate', 'invoice_bill_rate', 'Net invoice rate', $currentRate['adjusted_bill_rate'] ?? null, $invoiceRate > 0 ? round($invoiceRate, 4) : null, $sourceFor('net_bill_rate', 'Assignment.BILLING.NET_BILL')),
-        jobdivaContractProjectionField('Rate', 'pay_rate', 'Labor pay / vendor rate', $currentRate['pay_rate'] ?? null, $laborRate > 0 ? round($laborRate, 4) : null, $sourceFor(in_array($engagement, ['c2c', '1099'], true) ? 'pay_rate_to_vendor' : 'pay_rate', 'Assignment.SALARY')),
+        jobdivaContractProjectionField('Rate', 'pay_rate', $engagement === 'referral' ? 'Worker pay rate' : 'Labor pay / vendor rate', $currentRate['pay_rate'] ?? null, $engagement === 'referral' ? 0.0 : ($canonicalPayRate > 0 ? round($canonicalPayRate, 4) : null), $engagement === 'referral' ? 'CoreFlux referral model' : $sourceFor(in_array($engagement, ['c2c', '1099'], true) ? 'pay_rate_to_vendor' : 'pay_rate', 'Assignment.SALARY')),
+        ...($engagement === 'referral' ? [
+            jobdivaContractProjectionField('Settlement', 'referral_payout_rate', 'Referral payout rate', $currentReferralPayout, $referralPayoutRate > 0 ? round($referralPayoutRate, 4) : null, $sourceFor('pay_rate_to_vendor', 'Assignment.SALARY')),
+        ] : []),
         jobdivaContractProjectionField('Overhead', 'payroll_load_pct', 'Payroll / employer load', $currentRate['adder_pct'] ?? null, $payrollLoadPct ?: null, $sourceFor('payroll_load_pct', 'Assignment.OVERHEADS')),
         jobdivaContractProjectionField('Overhead', 'workers_comp_pct', 'Workers compensation', $currentRate['workers_comp_pct'] ?? null, $workersCompPct ?: null, $sourceFor('workers_comp_pct', 'Assignment.OVERHEADS')),
         jobdivaContractProjectionField('Overhead', 'benefits_load_pct', 'Benefits load', $currentRate['benefits_load_pct'] ?? null, $benefitsLoadPct ?: null, $sourceFor('benefits_load_pct', 'Assignment.OVERHEADS')),
@@ -289,10 +317,11 @@ function jobdivaContractProjectionBuild(
         jobdivaContractProjectionField('Settlement', 'paid_when_paid', 'Paid when paid', isset($currentPlacement['vendor_pwp_enabled']) ? (bool) $currentPlacement['vendor_pwp_enabled'] : null, $pwp, $sourceFor('paid_when_paid', 'Assignment.SALARY payment terms')),
     ];
 
-    $knownEngagement = in_array($engagement, ['w2', 'c2c', '1099', 'temp_to_perm', 'direct_hire', 'internal'], true);
+    $knownEngagement = in_array($engagement, ['w2', 'c2c', '1099', 'temp_to_perm', 'direct_hire', 'internal', 'referral'], true);
     $requiresHourlyEconomics = !in_array($engagement, ['direct_hire', 'internal'], true);
     $datesValid = $startDate !== null && ($endDate === null || $endDate >= $startDate);
     $c2cPayeePresent = $engagement !== 'c2c' || $corporationId !== '' || $corporationName !== '';
+    $referralPayeePresent = $engagement !== 'referral' || $referralVendorName !== '';
     $existingLaborPayees = array_values(array_filter(
         $currentGraph['economic_parties'] ?? [],
         static function (array $party): bool {
@@ -329,20 +358,28 @@ function jobdivaContractProjectionBuild(
                 count($existingLaborPayees) . ' stale source-owned labor recipients will be reconciled to the exact assignment payee.',
                 'warning'
             ));
+    $paymentPayeeCheck = $engagement === 'referral'
+        ? jobdivaContractProjectionCheck(
+            'referral_payee',
+            'Referral payout vendor',
+            $referralPayeePresent,
+            $referralPayeePresent ? ($referralVendorName ?: 'Not a referral placement.') : 'Referral vendor is missing.'
+        )
+        : $laborPayeeCheck;
     $checks = [
         jobdivaContractProjectionCheck('exact_assignment_contract', 'Exact assignment financial contract', $contract !== [] && $startId !== '' && ($expectedStartId === '' || $startId === $expectedStartId), $contract === [] ? 'EmployeeAssignmentRecordsDetail has not been stored for this Start ID.' : "Start ID {$startId}"),
         jobdivaContractProjectionCheck('candidate_identity', 'Candidate identity', $candidateId !== '', $candidateId !== '' ? "Candidate {$candidateId}" : 'Candidate ID is missing.'),
         jobdivaContractProjectionCheck('job_identity', 'Job identity', $jobId !== '', $jobId !== '' ? "Job {$jobId}" : 'Job ID is missing.'),
         jobdivaContractProjectionCheck('client_identity', 'Bill-to client', $clientName !== '' || $clientExternalId !== '', $clientName !== '' ? $clientName : ($clientExternalId !== '' ? "Company {$clientExternalId}" : 'Client is missing.')),
-        jobdivaContractProjectionCheck('classification', 'Worker classification', $knownEngagement, $knownEngagement ? strtoupper($engagement) : 'Assignment employment category is missing or unsupported.'),
+        jobdivaContractProjectionCheck('classification', 'Engagement type', $knownEngagement, $knownEngagement ? strtoupper($engagement) : 'Assignment employment category is missing or unsupported.'),
         jobdivaContractProjectionCheck('business_dates', 'Business dates', $datesValid, $datesValid ? trim(($startDate ?? '') . ' through ' . ($endDate ?? 'open')) : 'Start/end dates are missing or reversed.'),
         jobdivaContractProjectionCheck('client_rate', 'Client rate', !$requiresHourlyEconomics || $grossBill > 0, $grossBill > 0 ? number_format($grossBill, 2) : 'No positive assignment bill rate.'),
-        jobdivaContractProjectionCheck('labor_rate', 'Labor pay rate', !$requiresHourlyEconomics || $laborRate > 0, $laborRate > 0 ? number_format($laborRate, 2) : 'No positive salary/vendor pay rate.'),
+        jobdivaContractProjectionCheck('labor_rate', $engagement === 'referral' ? 'Referral payout rate' : 'Labor pay rate', !$requiresHourlyEconomics || ($engagement === 'referral' ? $referralPayoutRate > 0 : $laborRate > 0), ($engagement === 'referral' ? $referralPayoutRate : $laborRate) > 0 ? number_format($engagement === 'referral' ? $referralPayoutRate : $laborRate, 2) : ($engagement === 'referral' ? 'No positive hourly referral payout.' : 'No positive salary/vendor pay rate.')),
         jobdivaContractProjectionCheck('rate_arithmetic', 'Gross-to-net arithmetic', $grossBill <= 0 || ($invoiceRate >= 0 && $invoiceRate <= $grossBill + 0.0001), $grossBill > 0 ? number_format($grossBill, 2) . ' gross - ' . number_format($discountAmount, 2) . ' adjustment = ' . number_format($invoiceRate, 2) . ' invoice' : 'No hourly client rate.'),
         jobdivaContractProjectionCheck('c2c_payee', 'C2C vendor identity', $c2cPayeePresent, $c2cPayeePresent ? ($corporationName ?: "JobDiva company {$corporationId}") : 'Subcontract company ID and name are both missing.'),
         jobdivaContractProjectionCheck('billing_frequency', 'Client billing frequency', $clientCadence !== '' || !$requiresHourlyEconomics, $clientCadence !== '' ? $clientCadence : 'Will use the client/tenant default.', 'warning'),
-        jobdivaContractProjectionCheck('payment_frequency', 'Labor payment frequency', $payCadence !== '' || !$requiresHourlyEconomics, $payCadence !== '' ? $payCadence : 'Will use the worker/vendor default.', 'warning'),
-        $laborPayeeCheck,
+        jobdivaContractProjectionCheck('payment_frequency', $engagement === 'referral' ? 'Referral payment frequency' : 'Labor payment frequency', $payCadence !== '' || !$requiresHourlyEconomics, $payCadence !== '' ? $payCadence : 'Will use the worker/vendor default.', 'warning'),
+        $paymentPayeeCheck,
     ];
     $blocking = array_values(array_filter($checks, static fn(array $check): bool => $check['status'] === 'blocked'));
     $warnings = array_values(array_filter($checks, static fn(array $check): bool => $check['status'] === 'warning'));
@@ -364,7 +401,8 @@ function jobdivaContractProjectionBuild(
             'client_adjustment_amount' => round($discountAmount, 4),
             'client_adjustment_pct' => round($discountPct, 6),
             'invoice_rate' => round($invoiceRate, 4),
-            'labor_rate' => round($laborRate, 4),
+            'labor_rate' => round($canonicalPayRate, 4),
+            'referral_payout_rate' => $engagement === 'referral' ? round($referralPayoutRate, 4) : null,
             'hourly_costs' => round($hourlyCosts, 4),
             'gross_margin' => round($margin, 4),
             'gross_margin_pct' => round($marginPct, 6),

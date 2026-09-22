@@ -2,15 +2,17 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, UserRoundPlus } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import EntityPicker from '../../../dashboard/src/components/EntityPicker';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 
-const ETYPES = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal'];
+const ETYPES = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'referral', 'internal'];
 const ETYPE_LABELS = {
   w2: 'W-2 employee',
   1099: '1099 contractor',
   c2c: 'C2C contractor',
   temp_to_perm: 'Temp-to-perm',
   direct_hire: 'Direct hire',
+  referral: 'Referral placement',
   internal: 'Internal employee',
 };
 const RATE_UNITS = ['hour', 'day', 'week', 'month', 'project'];
@@ -25,6 +27,7 @@ const PERSON_CLASSIFICATION_LABELS = {
   c2c: 'C2C contractor',
   temp: 'Temporary worker',
   perm: 'Permanent employee',
+  candidate: 'Candidate / referred person',
 };
 
 /**
@@ -59,6 +62,10 @@ export default function PlacementCreate() {
     end_date: '', due_date: '',
     worksite_state: '', worksite_country: 'US',
     remote_policy: '', external_id: '', notes: '',
+    staffing_job_id: '', branch: '', service_line: '', workers_comp_class: '',
+    department: '', cost_center: '', accounting_entity_id: '',
+    recruiter_name: '', recruiter_email: '',
+    account_manager_name: '', account_manager_email: '',
     client_approver_name: '', client_approver_email: '',
   });
   const [personMode, setPersonMode] = useState(prefilledPersonId ? 'existing' : 'new');
@@ -87,6 +94,7 @@ export default function PlacementCreate() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const isReferral = form.engagement_type === 'referral';
 
   // Person typeahead
   const [personSearch, setPersonSearch] = useState('');
@@ -103,11 +111,42 @@ export default function PlacementCreate() {
   // Tenant user list (for commission row "user_id" picker)
   const usersLookup = useApi('/api/users.php');
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
+  const jobsLookup = useApi('/modules/staffing/api/jobs.php?action=list&limit=500');
+  const staffingJobs = jobsLookup.data?.rows || [];
+  const ownerUsers = tenantUsers.filter(user => Number(user.is_active ?? 1) !== 0);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const setNewPersonF = (k) => (e) => setNewPerson({ ...newPerson, [k]: e.target.value });
   const setRateF = (k) => (e) => setRate({ ...rate, [k]: e.target.value });
   const setCorpF = (k) => (e) => setCorp({ ...corp, [k]: e.target.value });
+  const setOwner = (prefix) => (e) => {
+    const selected = ownerUsers.find(user => String(user.id) === e.target.value);
+    setForm(current => ({
+      ...current,
+      [`${prefix}_name`]: selected?.name || '',
+      [`${prefix}_email`]: selected?.email || '',
+    }));
+  };
+
+  useEffect(() => {
+    if (!isReferral) return;
+    setRate(current => ({
+      ...current,
+      pay_rate: '0',
+      bill_rate_unit: 'hour',
+      pay_rate_unit: 'hour',
+    }));
+    setReferral(current => current ? {
+      ...current,
+      referrer_type: 'vendor',
+      fee_basis: 'per_hour',
+    } : {
+      referrer_type: 'vendor',
+      fee_basis: 'per_hour',
+      payment_terms_override: 'NET30',
+      pwp_enabled: false,
+    });
+  }, [isReferral]);
 
   // Internal-hire toggle: short-circuit end-client / vendor-chain noise.
   const onToggleInternal = (e) => {
@@ -132,8 +171,14 @@ export default function PlacementCreate() {
     if (!form.title.trim())     m.push('Title');
     if (!form.start_date)       m.push('Start date');
     if (!form.engagement_type)  m.push('Engagement type');
+    if (form.engagement_type === 'referral') {
+      if (!endClient?.name) m.push('End client');
+      if (!(Number(rate.bill_rate) > 0)) m.push('Client referral fee');
+      if (!referral?.referrer_company?.name && !referral?.referrer_vendor_name) m.push('Referral vendor');
+      if (!(Number(referral?.fee_flat) > 0)) m.push('Vendor referral payout');
+    }
     return m;
-  }, [personMode, newPerson, form.person_id, form.title, form.start_date, form.engagement_type]);
+  }, [personMode, newPerson, form.person_id, form.title, form.start_date, form.engagement_type, endClient, rate.bill_rate, referral]);
 
   const personClassification = classificationForEngagement(form.engagement_type);
 
@@ -199,11 +244,11 @@ export default function PlacementCreate() {
       }
 
       // 3) Initial rate row
-      if (rate.bill_rate || rate.pay_rate) {
+      if (rate.bill_rate || rate.pay_rate || isReferral) {
         await api.post(`/modules/placements/api/rates.php?placement_id=${placementId}`, {
           effective_from: rate.effective_from || form.start_date,
           bill_rate:  rate.bill_rate  ? Number(rate.bill_rate)  : 0,
-          pay_rate:   rate.pay_rate   ? Number(rate.pay_rate)   : 0,
+          pay_rate:   isReferral ? 0 : (rate.pay_rate ? Number(rate.pay_rate) : 0),
           bill_rate_unit: rate.bill_rate_unit || 'hour',
           pay_rate_unit:  rate.pay_rate_unit  || 'hour',
           currency: rate.currency || 'USD',
@@ -239,9 +284,12 @@ export default function PlacementCreate() {
           referrer_user_id:     referral.referrer_user_id   ? parseInt(referral.referrer_user_id, 10)   : null,
           fee_pct:  referral.fee_pct  ? Number(referral.fee_pct) / 100 : null,
           fee_flat: referral.fee_flat ? Number(referral.fee_flat)      : null,
-          fee_basis: referral.fee_basis,
+          fee_basis: isReferral ? 'per_hour' : referral.fee_basis,
+          payment_terms_override: referral.payment_terms_override || null,
+          pwp_enabled: Boolean(referral.pwp_enabled),
           duration_months: referral.duration_months ? parseInt(referral.duration_months, 10) : null,
           start_date: referral.start_date || form.start_date,
+          end_date: referral.end_date || form.end_date || null,
           notes: referral.notes || null,
         });
       }
@@ -367,6 +415,49 @@ export default function PlacementCreate() {
             <Field label="Due date"><input className="input" type="date" value={form.due_date} onChange={set('due_date')} data-testid="placement-create-due" /></Field>
           </Row>
 
+          <SectionTitle>Assignment reporting</SectionTitle>
+          <Row>
+            <Field label="Job / requisition">
+              <select className="input" value={form.staffing_job_id} onChange={set('staffing_job_id')} data-testid="placement-create-job">
+                <option value="">— Not linked —</option>
+                {staffingJobs.map(job => <option key={job.id} value={job.id}>{job.external_id ? `${job.external_id} · ` : ''}{job.title}{job.client_name ? ` · ${job.client_name}` : ''}</option>)}
+              </select>
+            </Field>
+            <Field label="Branch / business unit"><input className="input" value={form.branch} onChange={set('branch')} data-testid="placement-create-branch" placeholder="Charlotte" /></Field>
+            <Field label="Service line"><input className="input" list="placement-service-lines" value={form.service_line} onChange={set('service_line')} data-testid="placement-create-service-line" placeholder="Contract staffing" /></Field>
+          </Row>
+          <datalist id="placement-service-lines">
+            <option value="Contract staffing" /><option value="Direct hire" /><option value="Referral" />
+            <option value="EOR / payrolling" /><option value="SOW / project" /><option value="Internal" />
+          </datalist>
+          <Row>
+            <Field label="WC class"><input className="input" value={form.workers_comp_class} onChange={set('workers_comp_class')} data-testid="placement-create-wc-class" placeholder="8810" /></Field>
+            <Field label="Department"><input className="input" value={form.department} onChange={set('department')} data-testid="placement-create-department" placeholder="Delivery" /></Field>
+            <Field label="Cost center"><input className="input" value={form.cost_center} onChange={set('cost_center')} data-testid="placement-create-cost-center" placeholder="CLT-DEL" /></Field>
+          </Row>
+          <Row>
+            <Field label="Recruiter">
+              <select className="input" value={ownerUserId(ownerUsers, form.recruiter_email)} onChange={setOwner('recruiter')} data-testid="placement-create-recruiter">
+                <option value="">— Not assigned —</option>
+                {ownerUsers.map(user => <option key={user.id} value={user.id}>{ownerUserLabel(user)}</option>)}
+              </select>
+            </Field>
+            <Field label="Account manager">
+              <select className="input" value={ownerUserId(ownerUsers, form.account_manager_email)} onChange={setOwner('account_manager')} data-testid="placement-create-account-manager">
+                <option value="">— Not assigned —</option>
+                {ownerUsers.map(user => <option key={user.id} value={user.id}>{ownerUserLabel(user)}</option>)}
+              </select>
+            </Field>
+          </Row>
+          <Row>
+            <EntityPicker
+              value={form.accounting_entity_id || null}
+              onChange={(value) => setForm({ ...form, accounting_entity_id: value || '' })}
+              label="Legal entity"
+              testId="placement-create-legal-entity"
+            />
+          </Row>
+
           {!internalHire && (
             <>
               <SectionTitle>3. End client</SectionTitle>
@@ -428,20 +519,24 @@ export default function PlacementCreate() {
             </>
           )}
 
-          <SectionTitle>{internalHire ? '3. Initial rate' : '5. Initial rate'} (optional but recommended)</SectionTitle>
+          <SectionTitle>{internalHire ? '3. Initial rate' : isReferral ? '5. Referral economics' : '5. Initial rate'} {isReferral ? '' : '(optional but recommended)'}</SectionTitle>
           <Row>
-            <Field label="Bill rate"><input className="input" type="number" step="0.01" value={rate.bill_rate} onChange={setRateF('bill_rate')} data-testid="placement-create-rate-bill" placeholder="125.00" /></Field>
-            <Field label="Bill unit">
+            <Field label={isReferral ? 'Client referral fee / hour *' : 'Bill rate'}><input className="input" type="number" min="0" step="0.01" value={rate.bill_rate} onChange={setRateF('bill_rate')} data-testid="placement-create-rate-bill" placeholder={isReferral ? '4.00' : '125.00'} /></Field>
+            {!isReferral && <Field label="Bill unit">
               <select className="input" value={rate.bill_rate_unit} onChange={setRateF('bill_rate_unit')} data-testid="placement-create-rate-bill-unit">
                 {RATE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
-            </Field>
-            <Field label="Pay rate"><input className="input" type="number" step="0.01" value={rate.pay_rate} onChange={setRateF('pay_rate')} data-testid="placement-create-rate-pay" placeholder="75.00" /></Field>
-            <Field label="Pay unit">
+            </Field>}
+            {!isReferral && <Field label="Pay rate"><input className="input" type="number" step="0.01" value={rate.pay_rate} onChange={setRateF('pay_rate')} data-testid="placement-create-rate-pay" placeholder="75.00" /></Field>}
+            {!isReferral && <Field label="Pay unit">
               <select className="input" value={rate.pay_rate_unit} onChange={setRateF('pay_rate_unit')} data-testid="placement-create-rate-pay-unit">
                 {RATE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
-            </Field>
+            </Field>}
+            {isReferral && <Field label="Referral vendor *">
+              <CompanyTypeahead role="referrer" value={referral?.referrer_company || null} onChange={(co) => setReferral({ ...referral, referrer_company: co, referrer_vendor_name: co?.name || '' })} testId="placement-create-referral-company" placeholder="Vendor / agency name..." />
+            </Field>}
+            {isReferral && <Field label="Vendor referral payout / hour *"><input className="input" type="number" min="0" step="0.01" value={referral?.fee_flat || ''} onChange={(e) => setReferral({ ...referral, fee_flat: e.target.value })} data-testid="placement-create-referral-flat" placeholder="2.00" /></Field>}
             <Field label="Currency">
               <select className="input" value={rate.currency} onChange={setRateF('currency')} data-testid="placement-create-rate-currency">
                 <option value="USD">USD</option><option value="CAD">CAD</option><option value="GBP">GBP</option>
@@ -449,6 +544,18 @@ export default function PlacementCreate() {
               </select>
             </Field>
           </Row>
+          {isReferral && <Row>
+            <Field label="Referral vendor payment terms">
+              <select className="input" value={referral?.payment_terms_override || 'NET30'} onChange={(e) => setReferral({ ...referral, payment_terms_override: e.target.value })} data-testid="placement-create-referral-terms">
+                {['DUE_ON_RECEIPT','NET7','NET15','NET30','NET45','NET60','NET90'].map(term => <option key={term} value={term}>{term === 'DUE_ON_RECEIPT' ? 'Due on receipt' : term.replace('NET', 'Net ')}</option>)}
+              </select>
+            </Field>
+            <Field label="Payout ends"><input className="input" type="date" value={referral?.end_date || form.end_date || ''} onChange={(e) => setReferral({ ...referral, end_date: e.target.value })} data-testid="placement-create-referral-end" /></Field>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 220, paddingTop: 22 }}>
+              <input type="checkbox" checked={Boolean(referral?.pwp_enabled)} onChange={(e) => setReferral({ ...referral, pwp_enabled: e.target.checked })} data-testid="placement-create-referral-pwp" />
+              Pay vendor after client pays
+            </label>
+          </Row>}
           <Row>
             <Field label="Effective from"><input className="input" type="date" value={rate.effective_from} onChange={setRateF('effective_from')} data-testid="placement-create-rate-effective" placeholder={form.start_date} /></Field>
             <Field label="OT mult"><input className="input" type="number" step="0.01" value={rate.overtime_multiplier} onChange={setRateF('overtime_multiplier')} data-testid="placement-create-rate-ot" /></Field>
@@ -460,7 +567,7 @@ export default function PlacementCreate() {
 
           <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="btn btn--ghost"
                   data-testid="placement-create-toggle-advanced" style={{ marginTop: 8, fontSize: 13 }}>
-            {showAdvanced ? '− Hide' : '+ Show'} commissions, referral{form.engagement_type === 'c2c' ? ', corp details' : ''}
+            {showAdvanced ? '− Hide' : '+ Show'} commissions{!isReferral ? ', referral' : ''}{form.engagement_type === 'c2c' ? ', corp details' : ''}
           </button>
 
           {showAdvanced && (
@@ -497,7 +604,7 @@ export default function PlacementCreate() {
               <button type="button" onClick={() => setCommissions([...commissions, { role: 'recruiter', basis: 'net_margin', split_pct: '' }])}
                       className="btn btn--ghost" data-testid="placement-create-commission-add">+ Add commission split</button>
 
-              <SectionTitle>{internalHire ? '5' : '7'}. Referral (optional)</SectionTitle>
+              {!isReferral && <><SectionTitle>{internalHire ? '5' : '7'}. Referral (optional)</SectionTitle>
               {!referral && (
                 <button type="button" onClick={() => setReferral({ referrer_type: 'vendor', fee_basis: 'pct_bill' })}
                         className="btn btn--ghost" data-testid="placement-create-referral-add">+ Add referral fee</button>
@@ -540,7 +647,7 @@ export default function PlacementCreate() {
                   </Row>
                   <button type="button" onClick={() => setReferral(null)} className="btn btn--ghost" data-testid="placement-create-referral-remove" style={{ fontSize: 12, color: '#ef4444' }}>Remove referral</button>
                 </div>
-              )}
+              )}</>}
 
               {form.engagement_type === 'c2c' && (
                 <>
@@ -634,6 +741,7 @@ function classificationForEngagement(engagementType) {
   if (engagementType === '1099') return '1099';
   if (engagementType === 'temp_to_perm') return 'temp';
   if (engagementType === 'direct_hire') return 'perm';
+  if (engagementType === 'referral') return 'candidate';
   return 'w2';
 }
 
@@ -642,4 +750,16 @@ function personDisplayName(person) {
   const email = person?.email_primary || '';
   if (name && email) return `${name} (${email})`;
   return name || email || `Person #${person?.id || ''}`;
+}
+
+function ownerUserId(users, email) {
+  if (!email) return '';
+  const match = users.find(user => String(user.email || '').toLowerCase() === String(email).toLowerCase());
+  return match ? String(match.id) : '';
+}
+
+function ownerUserLabel(user) {
+  const name = String(user?.name || '').trim();
+  const email = String(user?.email || '').trim();
+  return name && email ? `${name} (${email})` : name || email || `User #${user?.id || ''}`;
 }

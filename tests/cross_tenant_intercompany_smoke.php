@@ -37,6 +37,15 @@ $a('accountingReverseCrossTenantIntercompany() defined',
    str_contains($src, 'function accountingReverseCrossTenantIntercompany('));
 $a('_cxIcStampGroupId() helper defined',
    str_contains($src, 'function _cxIcStampGroupId('));
+$a('cross-tenant posting resolves both legal entities before posting',
+   str_contains($src, 'function _cxIcResolveEntityId(')
+   && substr_count($src, "'entity_id'       => \$sourceEntityId") >= 2
+   && substr_count($src, "'entity_id'       => \$targetEntityId") >= 2);
+$a('IC control lines retain the other tenant entity as counterparty',
+   substr_count($src, "'counterparty_entity_id' => \$targetEntityId") >= 2
+   && substr_count($src, "'counterparty_entity' => \$targetEntityId") >= 2
+   && substr_count($src, "'counterparty_entity_id' => \$sourceEntityId") >= 2
+   && substr_count($src, "'counterparty_entity' => \$sourceEntityId") >= 2);
 
 // ─── FX surface ───────────────────────────────────────────────────────
 $a('post fn reads to_currency option',     str_contains($src, "\$opts['to_currency']"));

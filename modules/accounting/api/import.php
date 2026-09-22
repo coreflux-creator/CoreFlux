@@ -16,6 +16,8 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../lib/accounting.php';
+require_once __DIR__ . '/../lib/dimensions.php';
+require_once __DIR__ . '/../../staffing/lib/dimensions.php';
 
 use Core\CsvImportService;
 
@@ -56,7 +58,21 @@ CsvImportService::registerSchema('accounting_je', [
         'debit'        => ['label' => 'Debit',        'type' => 'number'],
         'credit'       => ['label' => 'Credit',       'type' => 'number'],
         'line_memo'    => ['label' => 'Line memo'],
-        'entity_id'    => ['label' => 'Entity id',    'type' => 'number'],
+        'entity_id'    => ['label' => 'Entity id',    'required' => true, 'type' => 'number'],
+        'client'       => ['label' => 'Client dimension'],
+        'placement'    => ['label' => 'Assignment dimension'],
+        'worker'       => ['label' => 'Worker dimension'],
+        'job'          => ['label' => 'Job dimension'],
+        'recruiter'    => ['label' => 'Recruiter dimension'],
+        'account_manager' => ['label' => 'Account manager dimension'],
+        'branch'       => ['label' => 'Branch dimension'],
+        'service_line' => ['label' => 'Service line dimension'],
+        'work_state'   => ['label' => 'Work state dimension'],
+        'wc_class'     => ['label' => 'WC class dimension'],
+        'department'   => ['label' => 'Department dimension'],
+        'cost_center'  => ['label' => 'Cost center dimension'],
+        'vendor'       => ['label' => 'Vendor dimension'],
+        'counterparty_entity' => ['label' => 'Counterparty entity dimension'],
     ],
     // batch_ref groups rows into a single JE; uniqueness is across (batch_ref + line).
 ]);
@@ -113,8 +129,118 @@ $defaults = $type === 'je' && $defaultBatchRef !== ''
     ? ['batch_ref' => $defaultBatchRef]
     : [];
 
+/**
+ * Normalize journal rows into batches and hydrate assignment-owned dimensions.
+ * The same preparation runs during preview and commit so an import can never
+ * look valid in the UI and then fail for a newly discovered structural issue.
+ */
+function accountingPrepareJeImport(int $tenantId, array $dry): array
+{
+    $dimensionKeys = [
+        'client','placement','worker','job','recruiter','account_manager',
+        'branch','service_line','work_state','wc_class','department',
+        'cost_center','vendor','counterparty_entity',
+    ];
+    $grouped = [];
+    $batchErrors = [];
+    $assignmentContextCache = [];
+    foreach ($dry['rows'] as $rowNum => $row) {
+        if (isset($dry['errors'][$rowNum])) continue;
+        $batch = (string) $row['batch_ref'];
+        $rowEntityId = !empty($row['entity_id']) ? (int) $row['entity_id'] : null;
+        if (!isset($grouped[$batch])) {
+            $grouped[$batch] = [
+                'posting_date' => $row['posting_date'],
+                'memo' => $row['memo'] ?? null,
+                'entity_id' => $rowEntityId,
+                'lines' => [],
+            ];
+        } else {
+            if ((string) $grouped[$batch]['posting_date'] !== (string) $row['posting_date']) {
+                $batchErrors[$batch][] = 'all rows must use the same posting date';
+            }
+            if ($rowEntityId !== null && (int) $grouped[$batch]['entity_id'] !== $rowEntityId) {
+                $batchErrors[$batch][] = 'all rows must use the same entity id';
+            }
+        }
+
+        $dims = [];
+        foreach ($dimensionKeys as $dimensionKey) {
+            $value = $row[$dimensionKey] ?? null;
+            if ($value !== null && trim((string) $value) !== '') $dims[$dimensionKey] = $value;
+        }
+        if (!empty($dims['placement']) && $rowEntityId) {
+            $placementId = (int) preg_replace('/^PL-/i', '', trim((string) $dims['placement']));
+            if ($placementId <= 0) {
+                $batchErrors[$batch][] = "row {$rowNum}: assignment dimension must be an internal ID such as PL-123";
+            } else {
+                $cacheKey = $rowEntityId . ':' . (string) $row['posting_date'] . ':' . $placementId;
+                try {
+                    if (!isset($assignmentContextCache[$cacheKey])) {
+                        $assignmentContextCache[$cacheKey] = staffingAssignmentDimensionContext(
+                            $tenantId,
+                            $placementId,
+                            $rowEntityId,
+                            (string) $row['posting_date']
+                        );
+                    }
+                    $assignmentContext = $assignmentContextCache[$cacheKey];
+                    $resolvedEntityId = (int) ($assignmentContext['event_entity_id'] ?? 0);
+                    if ($resolvedEntityId !== $rowEntityId) {
+                        $batchErrors[$batch][] = "row {$rowNum}: assignment PL-{$placementId} belongs to entity {$resolvedEntityId}, not {$rowEntityId}";
+                    }
+                    $requiredDimensions = accountingRequiredDimensionKeysForAccountCodes(
+                        $tenantId,
+                        [(string) ($row['account_code'] ?? '')]
+                    );
+                    $blockingMissing = staffingDimensionMissingForRequirements(
+                        $assignmentContext,
+                        $requiredDimensions,
+                        $dims
+                    );
+                    if ($blockingMissing) {
+                        $batchErrors[$batch][] = "row {$rowNum}: assignment PL-{$placementId} is missing "
+                            . implode(', ', staffingDimensionMissingLabels($blockingMissing));
+                    }
+                    $inheritedDimensions = (array) ($assignmentContext['dimensions'] ?? []);
+                    if (!empty($assignmentContext['vendor_dimension'])) {
+                        $inheritedDimensions['vendor'] = $assignmentContext['vendor_dimension'];
+                    }
+                    // The assignment master is authoritative for inherited
+                    // axes. Explicit CSV values remain available for dimensions
+                    // the assignment does not own, such as counterparty entity.
+                    $dims = array_replace($dims, $inheritedDimensions, ['placement' => $placementId]);
+                } catch (\Throwable $e) {
+                    $batchErrors[$batch][] = "row {$rowNum}: could not resolve assignment PL-{$placementId}: " . $e->getMessage();
+                }
+            }
+        }
+        $grouped[$batch]['lines'][] = [
+            'account_code' => $row['account_code'],
+            'debit' => (float) ($row['debit'] ?? 0),
+            'credit' => (float) ($row['credit'] ?? 0),
+            'memo' => $row['line_memo'] ?? null,
+            'dims' => $dims,
+        ];
+    }
+    foreach ($grouped as $batch => $je) {
+        if (count($je['lines']) < 2) $batchErrors[$batch][] = 'needs at least 2 lines';
+    }
+    foreach ($batchErrors as $batch => $messages) {
+        $batchErrors[$batch] = array_values(array_unique($messages));
+    }
+    return ['grouped' => $grouped, 'batch_errors' => $batchErrors];
+}
+
 if ($action === 'dry_run') {
     $res = CsvImportService::dryRun($schemaKey, $raw, null, $defaults);
+    if ($type === 'je') {
+        $prepared = accountingPrepareJeImport($tid, $res);
+        foreach ($prepared['batch_errors'] as $batch => $messages) {
+            $res['errors']['batch:' . $batch] = $messages;
+        }
+        $res['error_count'] = count($res['errors']);
+    }
     api_ok($res);
 }
 
@@ -161,6 +287,11 @@ if ($type === 'je') {
     // Group rows into JEs by batch_ref; post each batch via accountingPostJe
     // with idempotency key 'csv:<sha256(batch_ref)>'.
     $dry = CsvImportService::dryRun($schemaKey, $raw, null, $defaults);
+    $prepared = accountingPrepareJeImport($tid, $dry);
+    foreach ($prepared['batch_errors'] as $batch => $messages) {
+        $dry['errors']['batch:' . $batch] = $messages;
+    }
+    $dry['error_count'] = count($dry['errors']);
     if (!$skipInvalid && $dry['error_count'] > 0) {
         api_ok([
             'imported_count' => 0,
@@ -170,28 +301,15 @@ if ($type === 'je') {
             'message'        => 'Validation errors present; commit aborted. Pass skip_invalid=1 to import valid rows only.',
         ]);
     }
-    $grouped = [];
-    foreach ($dry['rows'] as $rowNum => $row) {
-        if (isset($dry['errors'][$rowNum])) continue;
-        $batch = (string) $row['batch_ref'];
-        if (!isset($grouped[$batch])) {
-            $grouped[$batch] = [
-                'posting_date' => $row['posting_date'],
-                'memo'         => $row['memo'] ?? null,
-                'entity_id'    => !empty($row['entity_id']) ? (int) $row['entity_id'] : null,
-                'lines'        => [],
-            ];
-        }
-        $grouped[$batch]['lines'][] = [
-            'account_code' => $row['account_code'],
-            'debit'        => (float) ($row['debit']  ?? 0),
-            'credit'       => (float) ($row['credit'] ?? 0),
-            'memo'         => $row['line_memo'] ?? null,
-        ];
-    }
+    $grouped = $prepared['grouped'];
+    $batchErrors = $prepared['batch_errors'];
     $imported = 0; $skipped = 0; $errors = $dry['errors']; $ids = [];
     foreach ($grouped as $batch => $je) {
-        if (count($je['lines']) < 2) { $skipped++; $errors['batch:' . $batch] = ['needs at least 2 lines']; continue; }
+        if (!empty($batchErrors[$batch])) {
+            $skipped++;
+            $errors['batch:' . $batch] = array_values(array_unique($batchErrors[$batch]));
+            continue;
+        }
         try {
             $res = accountingPostJe($tid, $je + [
                 'source_module'   => 'manual',

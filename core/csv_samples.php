@@ -34,6 +34,9 @@ return [
         ['first_name'=>'Priya','last_name'=>'Singh','email_primary'=>'priya.singh@example.com',
          'phone_primary'=>'512-555-0114','classification'=>'perm','status'=>'active','work_auth_status'=>'opt',
          'work_auth_expiry'=>'2026-12-31','requires_sponsorship'=>1,'external_id'=>'EMP-1005'],
+        ['first_name'=>'Seema','last_name'=>'Kumari','email_primary'=>'seema.kumari@example.com',
+         'phone_primary'=>'704-555-0115','classification'=>'1099','status'=>'active','work_auth_status'=>'citizen',
+         'requires_sponsorship'=>0,'source'=>'Referral','external_id'=>'EMP-1006'],
     ],
 
     'ap_vendors' => [
@@ -50,6 +53,9 @@ return [
          'default_terms'=>'NET21','payment_method'=>'ach','requires_1099'=>0],
         ['vendor_name'=>'Iron Office Supplies','vendor_type'=>'w9_business','vendor_category'=>'service_provider',
          'default_terms'=>'NET30','remit_to_email'=>'ap@ironoffice.example','payment_method'=>'check',
+         'requires_1099'=>0],
+        ['vendor_name'=>'Global Profile','vendor_type'=>'c2c_corp','vendor_category'=>'hourly_labor',
+         'default_terms'=>'NET30','remit_to_email'=>'billing@globalprofile.example','payment_method'=>'ach',
          'requires_1099'=>0],
     ],
 
@@ -74,6 +80,10 @@ return [
          'primary_contact_email'=>'ap@acmelogistics.example',
          'billing_city'=>'Chicago','billing_state'=>'IL','billing_country'=>'US',
          'payment_terms_days'=>30,'status'=>'active'],
+        ['name'=>'Thunderhawk Technology Partners','legal_name'=>'Thunderhawk Technology Partners LLC','industry'=>'Technology Staffing',
+         'primary_contact_name'=>'Accounts Payable','primary_contact_email'=>'ap@thunderhawk.example',
+         'primary_contact_phone'=>'704-555-0215','billing_city'=>'Charlotte','billing_state'=>'NC','billing_country'=>'US',
+         'payment_terms_days'=>30,'status'=>'active'],
     ],
 
     'placements' => [
@@ -92,6 +102,10 @@ return [
         ['person_email'=>'james.oconnor@example.com','title'=>'Cloud SRE','engagement_type'=>'w2',
          'start_date'=>'2026-02-24','end_client_name'=>'Acme Logistics','worksite_state'=>'IL',
          'worksite_country'=>'US','remote_policy'=>'remote','bill_rate'=>120,'pay_rate'=>82,'external_id'=>'PL-2005'],
+        ['person_email'=>'seema.kumari@example.com','title'=>'Hourly referral','engagement_type'=>'referral',
+         'start_date'=>'2026-03-01','end_client_name'=>'Thunderhawk Technology Partners','remote_policy'=>'remote',
+         'referral_client_rate'=>4,'referral_vendor_name'=>'Global Profile','referral_payout_rate'=>2,
+         'referral_payment_terms'=>'NET30','external_id'=>'PL-2006'],
     ],
 
     'time' => [

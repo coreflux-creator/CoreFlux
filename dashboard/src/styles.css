@@ -4797,6 +4797,7 @@ textarea.input {
 .badge--cancelled { color: #bc4b5b; background: #fdebee; }
 .badge--w2 { color: #1b69bb; background: #e7f2ff; }
 .badge--c2c { color: #7655ad; background: #f1ebfa; }
+.badge--referral { color: #0f766e; background: #e6f7f5; }
 
 .approved-hours-ready {
     margin: 0 0 14px;

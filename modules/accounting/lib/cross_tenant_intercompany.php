@@ -66,6 +66,27 @@ function _cxIcStampGroupId(\PDO $pdo, int $tenantId, int $jeId, string $ref): vo
     }
 }
 
+/**
+ * Resolve the legal entity that owns one side of a cross-tenant entry.
+ * Entity ids are globally unique, but each header entity must still belong
+ * to the tenant whose books receive that journal.
+ */
+function _cxIcResolveEntityId(int $tenantId, $requestedEntityId, string $side): int {
+    try {
+        $entityId = accountingValidateActiveEntityId($tenantId, $requestedEntityId);
+    } catch (\Throwable $e) {
+        throw new \InvalidArgumentException("{$side} legal entity is invalid: " . $e->getMessage());
+    }
+    if ($entityId !== null) return $entityId;
+
+    $entity = accountingDefaultEntity($tenantId);
+    $entityId = (int) ($entity['id'] ?? 0);
+    if ($entityId <= 0) {
+        throw new \RuntimeException("{$side} tenant has no active legal entity");
+    }
+    return $entityId;
+}
+
 function accountingPostCrossTenantIntercompany(
     int $fromTenantId,
     int $toTenantId,
@@ -98,6 +119,16 @@ function accountingPostCrossTenantIntercompany(
     $fromOffsetCode   = (string) ($opts['from_offset_code']   ?? '1000');
     $toOffsetCode     = (string) ($opts['to_offset_code']     ?? '1000');
     $postingDate      = (string) ($opts['posting_date']       ?? date('Y-m-d'));
+    $sourceEntityId   = _cxIcResolveEntityId(
+        $fromTenantId,
+        $opts['source_entity_id'] ?? $opts['from_entity_id'] ?? null,
+        'Source'
+    );
+    $targetEntityId   = _cxIcResolveEntityId(
+        $toTenantId,
+        $opts['target_entity_id'] ?? $opts['to_entity_id'] ?? null,
+        'Target'
+    );
 
     // ── Multi-currency: from_currency drives the from-leg; to_currency the
     //    to-leg. When they differ the caller MUST supply fx_rate (units of
@@ -137,6 +168,7 @@ function accountingPostCrossTenantIntercompany(
 
     // ── Post the FROM leg first (Dr IC Receivable / Cr cash). ──
     $fromJe = accountingPostJe($fromTenantId, [
+        'entity_id'       => $sourceEntityId,
         'posting_date'    => $postingDate,
         'currency'        => $fromCurrency,
         'source_module'   => 'cross_tenant_intercompany',
@@ -144,8 +176,22 @@ function accountingPostCrossTenantIntercompany(
         'memo'            => $memo . " [{$ref}]" . $fxNote,
         'idempotency_key' => "cross_intercompany:{$ref}:from",
         'lines' => [
-            ['account_code' => $fromAccountCode, 'debit'  => $amount, 'memo' => $memo . $fxNote],
-            ['account_code' => $fromOffsetCode,  'credit' => $amount, 'memo' => $memo . $fxNote],
+            [
+                'account_code' => $fromAccountCode,
+                'debit' => $amount,
+                'memo' => $memo . $fxNote,
+                'counterparty_entity_id' => $targetEntityId,
+                'dims' => [
+                    'legal_entity' => $sourceEntityId,
+                    'counterparty_entity' => $targetEntityId,
+                ],
+            ],
+            [
+                'account_code' => $fromOffsetCode,
+                'credit' => $amount,
+                'memo' => $memo . $fxNote,
+                'dims' => ['legal_entity' => $sourceEntityId],
+            ],
         ],
     ], $actorUserId, true);
 
@@ -156,6 +202,7 @@ function accountingPostCrossTenantIntercompany(
     //    carry a half-posted intercompany pair.
     try {
         $toJe = accountingPostJe($toTenantId, [
+            'entity_id'       => $targetEntityId,
             'posting_date'    => $postingDate,
             'currency'        => $toCurrency,
             'source_module'   => 'cross_tenant_intercompany',
@@ -163,8 +210,22 @@ function accountingPostCrossTenantIntercompany(
             'memo'            => $memo . " [{$ref}]" . $fxNote,
             'idempotency_key' => "cross_intercompany:{$ref}:to",
             'lines' => [
-                ['account_code' => $toOffsetCode,  'debit'  => $toAmount, 'memo' => $memo . $fxNote],
-                ['account_code' => $toAccountCode, 'credit' => $toAmount, 'memo' => $memo . $fxNote],
+                [
+                    'account_code' => $toOffsetCode,
+                    'debit' => $toAmount,
+                    'memo' => $memo . $fxNote,
+                    'dims' => ['legal_entity' => $targetEntityId],
+                ],
+                [
+                    'account_code' => $toAccountCode,
+                    'credit' => $toAmount,
+                    'memo' => $memo . $fxNote,
+                    'counterparty_entity_id' => $sourceEntityId,
+                    'dims' => [
+                        'legal_entity' => $targetEntityId,
+                        'counterparty_entity' => $sourceEntityId,
+                    ],
+                ],
             ],
         ], $actorUserId, true);
     } catch (\Throwable $e) {
@@ -391,6 +452,16 @@ function accountingProposeCrossTenantIntercompany(
     $fromOffsetCode  = (string) ($opts['from_offset_code']  ?? '1000');
     $toOffsetCode    = (string) ($opts['to_offset_code']    ?? '1000');
     $postingDate     = (string) ($opts['posting_date']      ?? date('Y-m-d'));
+    $sourceEntityId  = _cxIcResolveEntityId(
+        $fromTenantId,
+        $opts['source_entity_id'] ?? $opts['from_entity_id'] ?? null,
+        'Source'
+    );
+    $targetEntityId  = _cxIcResolveEntityId(
+        $toTenantId,
+        $opts['target_entity_id'] ?? $opts['to_entity_id'] ?? null,
+        'Target'
+    );
 
     $fromCurrency = strtoupper((string) ($opts['from_currency'] ?? $opts['currency'] ?? 'USD'));
     $toCurrency   = strtoupper((string) ($opts['to_currency']   ?? $fromCurrency));
@@ -421,6 +492,7 @@ function accountingProposeCrossTenantIntercompany(
 
     // Post the FROM leg immediately.
     $fromJe = accountingPostJe($fromTenantId, [
+        'entity_id'       => $sourceEntityId,
         'posting_date'    => $postingDate,
         'currency'        => $fromCurrency,
         'source_module'   => 'cross_tenant_intercompany',
@@ -428,20 +500,25 @@ function accountingProposeCrossTenantIntercompany(
         'memo'            => $memo . " [{$ref}]" . $fxNote,
         'idempotency_key' => "cross_intercompany_propose:{$ref}:from",
         'lines' => [
-            ['account_code' => $fromAccountCode, 'debit'  => $amount, 'memo' => $memo . $fxNote],
-            ['account_code' => $fromOffsetCode,  'credit' => $amount, 'memo' => $memo . $fxNote],
+            [
+                'account_code' => $fromAccountCode,
+                'debit' => $amount,
+                'memo' => $memo . $fxNote,
+                'counterparty_entity_id' => $targetEntityId,
+                'dims' => [
+                    'legal_entity' => $sourceEntityId,
+                    'counterparty_entity' => $targetEntityId,
+                ],
+            ],
+            [
+                'account_code' => $fromOffsetCode,
+                'credit' => $amount,
+                'memo' => $memo . $fxNote,
+                'dims' => ['legal_entity' => $sourceEntityId],
+            ],
         ],
     ], $actorUserId, true);
     _cxIcStampGroupId($pdo, $fromTenantId, (int) $fromJe['je_id'], $ref);
-
-    // Best-effort entity ids — pulled by the existing accountingPostJe
-    // path via the entity_resolver.  Fetch them back for the queue row.
-    try {
-        $eSt = $pdo->prepare('SELECT entity_id FROM accounting_journal_entries WHERE id = :id AND tenant_id = :t LIMIT 1');
-        $eSt->execute(['id' => $fromJe['je_id'], 't' => $fromTenantId]);
-        $sourceEntityId = (int) ($eSt->fetchColumn() ?: 0);
-    } catch (\Throwable $_) { $sourceEntityId = 0; }
-    $targetEntityId = (int) ($opts['target_entity_id'] ?? 0);
 
     // Insert the queue row.  Idempotency-key on intercompany_ref ensures
     // a re-call with the same ref is a no-op.
@@ -463,11 +540,11 @@ function accountingProposeCrossTenantIntercompany(
         $ins->execute([
             'ref'   => $ref,
             'stid'  => $fromTenantId,
-            'seid'  => $sourceEntityId ?: null,
+            'seid'  => $sourceEntityId,
             'sjeid' => (int) $fromJe['je_id'],
             'sac'   => $fromAccountCode, 'soc' => $fromOffsetCode,
             'ttid'  => $toTenantId,
-            'teid'  => $targetEntityId ?: null,
+            'teid'  => $targetEntityId,
             'tac'   => $toAccountCode,   'toc' => $toOffsetCode,
             'amt'   => $amount, 'cur'  => $fromCurrency, 'fx' => $fxRate,
             'tamt'  => $toAmount, 'tcur' => $toCurrency,
@@ -554,11 +631,21 @@ function accountingApproveCrossTenantIntercompany(int $queueId, ?int $actorUserI
     $fromCurrency= (string) $row['currency'];
     $fxRate      = (float)  $row['fx_rate'];
     $toAmount    = (float)  $row['target_amount'];
+    $sourceEntityId = (int) ($row['source_entity_id'] ?? 0);
+    if ($sourceEntityId <= 0) {
+        $sourceEntityId = _cxIcResolveEntityId((int) $row['source_tenant_id'], null, 'Source');
+    }
+    $targetEntityId = _cxIcResolveEntityId(
+        $toTenantId,
+        $row['target_entity_id'] ?? null,
+        'Target'
+    );
     $fxNote      = $fromCurrency === $toCurrency
         ? ''
         : sprintf(' [FX %s→%s @ %.6f]', $fromCurrency, $toCurrency, $fxRate);
 
     $toJe = accountingPostJe($toTenantId, [
+        'entity_id'       => $targetEntityId,
         'posting_date'    => (string) $row['posting_date'],
         'currency'        => $toCurrency,
         'source_module'   => 'cross_tenant_intercompany',
@@ -566,8 +653,22 @@ function accountingApproveCrossTenantIntercompany(int $queueId, ?int $actorUserI
         'memo'            => $memo . " [{$ref}]" . $fxNote,
         'idempotency_key' => "cross_intercompany_approve:{$ref}:to",
         'lines' => [
-            ['account_code' => (string) $row['target_offset_code'],  'debit'  => $toAmount, 'memo' => $memo . $fxNote],
-            ['account_code' => (string) $row['target_account_code'], 'credit' => $toAmount, 'memo' => $memo . $fxNote],
+            [
+                'account_code' => (string) $row['target_offset_code'],
+                'debit' => $toAmount,
+                'memo' => $memo . $fxNote,
+                'dims' => ['legal_entity' => $targetEntityId],
+            ],
+            [
+                'account_code' => (string) $row['target_account_code'],
+                'credit' => $toAmount,
+                'memo' => $memo . $fxNote,
+                'counterparty_entity_id' => $sourceEntityId,
+                'dims' => [
+                    'legal_entity' => $targetEntityId,
+                    'counterparty_entity' => $sourceEntityId,
+                ],
+            ],
         ],
     ], $actorUserId, true);
     _cxIcStampGroupId($pdo, $toTenantId, (int) $toJe['je_id'], $ref);
@@ -576,11 +677,18 @@ function accountingApproveCrossTenantIntercompany(int $queueId, ?int $actorUserI
     // tenant-leak-allow: queue row PK is globally unique; cross-tenant by design (source+target tenants).
     $upd = $pdo->prepare(
         'UPDATE intercompany_xtenant_queue
-            SET status = "approved", target_je_id = :tje,
+            SET status = "approved", source_entity_id = :seid,
+                target_entity_id = :teid, target_je_id = :tje,
                 decided_by_user_id = :uid, decided_at = NOW()
           WHERE id = :id'
     );
-    $upd->execute(['tje' => (int) $toJe['je_id'], 'uid' => $actorUserId, 'id' => $queueId]);
+    $upd->execute([
+        'seid' => $sourceEntityId,
+        'teid' => $targetEntityId,
+        'tje' => (int) $toJe['je_id'],
+        'uid' => $actorUserId,
+        'id' => $queueId,
+    ]);
 
     try {
         subTenantAudit(0, $toTenantId, $actorUserId, 'cross_tenant.intercompany.approved', [

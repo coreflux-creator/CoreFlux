@@ -81,8 +81,8 @@ const POSTING_RULES_DEFAULT_PACK = [
             'name'           => 'Payment executed — default',
             'memo_template'  => 'Payment {payload.payment_number} to {payload.payee_name}',
             'lines' => [
-                ['line_no' => 1, 'account_selector' => 'payload.counterparty_account_id', 'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Settle {payload.payee_name}'],
-                ['line_no' => 2, 'account_selector' => 'payload.bank_gl_account_id',      'debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Bank disbursement'],
+                ['line_no' => 1, 'account_selector' => 'payload.counterparty_account_id', 'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Settle {payload.payee_name}', 'dimensions' => ['vendor' => 'payload.vendor_dimension', 'legal_entity' => 'payload.legal_entity_dimension']],
+                ['line_no' => 2, 'account_selector' => 'payload.bank_gl_account_id',      'debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Bank disbursement', 'dimensions' => ['legal_entity' => 'payload.legal_entity_dimension']],
             ],
         ],
     ],
@@ -93,8 +93,8 @@ const POSTING_RULES_DEFAULT_PACK = [
             'name'           => 'Internal transfer — default',
             'memo_template'  => 'Internal transfer {payload.transfer_number}',
             'lines' => [
-                ['line_no' => 1, 'account_selector' => 'payload.destination_bank_gl_account_id', 'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Transfer in'],
-                ['line_no' => 2, 'account_selector' => 'payload.source_bank_gl_account_id',      'debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Transfer out'],
+                ['line_no' => 1, 'account_selector' => 'payload.destination_bank_gl_account_id', 'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Transfer in', 'dimensions' => ['legal_entity' => 'payload.legal_entity_dimension']],
+                ['line_no' => 2, 'account_selector' => 'payload.source_bank_gl_account_id',      'debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Transfer out', 'dimensions' => ['legal_entity' => 'payload.legal_entity_dimension']],
             ],
         ],
     ],
@@ -105,8 +105,8 @@ const POSTING_RULES_DEFAULT_PACK = [
             'name'           => 'Intercompany transfer (source) — default',
             'memo_template'  => 'Intercompany transfer {payload.transfer_number} (source side)',
             'lines' => [
-                ['line_no' => 1, 'account_selector' => 'system:Intercompany Receivable',    'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Receivable from entity {payload.destination_entity_id}'],
-                ['line_no' => 2, 'account_selector' => 'payload.source_bank_gl_account_id', 'debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Cash out (intercompany)'],
+                ['line_no' => 1, 'account_selector' => 'system:Intercompany Receivable',    'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Receivable from entity {payload.destination_entity_id}', 'dimensions' => ['legal_entity' => 'payload.source_entity_id', 'counterparty_entity' => 'payload.destination_entity_id']],
+                ['line_no' => 2, 'account_selector' => 'payload.source_bank_gl_account_id', 'debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Cash out (intercompany)', 'dimensions' => ['legal_entity' => 'payload.source_entity_id']],
             ],
         ],
     ],
@@ -163,8 +163,8 @@ const POSTING_RULES_DEFAULT_PACK = [
             'name'           => 'AP payment cleared — default',
             'memo_template'  => 'AP payment {payload.payment_number} to {payload.vendor_name}',
             'lines' => [
-                ['line_no' => 1, 'account_selector' => 'system:Accounts Payable',   'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Pay {payload.vendor_name}'],
-                ['line_no' => 2, 'account_selector' => 'payload.bank_gl_account_id','debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Bank disbursement'],
+                ['line_no' => 1, 'account_selector' => 'system:Accounts Payable',   'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Pay {payload.vendor_name}', 'dimensions' => ['vendor' => 'payload.vendor_dimension', 'legal_entity' => 'payload.legal_entity_dimension']],
+                ['line_no' => 2, 'account_selector' => 'payload.bank_gl_account_id','debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Bank disbursement', 'dimensions' => ['legal_entity' => 'payload.legal_entity_dimension']],
             ],
         ],
     ],
@@ -175,8 +175,8 @@ const POSTING_RULES_DEFAULT_PACK = [
             'name'           => 'AR payment received — default',
             'memo_template'  => 'Payment received {payload.payment_number} from {payload.client_name}',
             'lines' => [
-                ['line_no' => 1, 'account_selector' => 'payload.bank_gl_account_id', 'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Bank receipt'],
-                ['line_no' => 2, 'account_selector' => 'system:Accounts Receivable', 'debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Collect from {payload.client_name}'],
+                ['line_no' => 1, 'account_selector' => 'payload.bank_gl_account_id', 'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Bank receipt', 'dimensions' => ['legal_entity' => 'payload.legal_entity_dimension']],
+                ['line_no' => 2, 'account_selector' => 'system:Accounts Receivable', 'debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Collect from {payload.client_name}', 'dimensions' => ['client' => 'payload.client_dimension', 'legal_entity' => 'payload.legal_entity_dimension']],
             ],
         ],
     ],
@@ -228,8 +228,14 @@ function postingRulesSeedDefaults(int $tenantId): array {
     $insLine = $pdo->prepare(
         'INSERT INTO accounting_journal_template_lines
             (tenant_id, journal_template_id, line_no, account_selector,
-             debit_formula, credit_formula, description_template)
-         VALUES (:t, :tpl, :ln, :sel, :df, :cf, :desc)'
+             debit_formula, credit_formula, description_template, dimensions_json)
+         VALUES (:t, :tpl, :ln, :sel, :df, :cf, :desc, :dims)'
+    );
+    $backfillLineDimensions = $pdo->prepare(
+        'UPDATE accounting_journal_template_lines
+            SET dimensions_json = :dims
+          WHERE tenant_id = :t AND journal_template_id = :tpl AND line_no = :ln
+            AND (dimensions_json IS NULL OR CAST(dimensions_json AS CHAR) IN (\'{}\',\'[]\',\'null\'))'
     );
     $findRule = $pdo->prepare(
         'SELECT id FROM accounting_posting_rules
@@ -265,10 +271,24 @@ function postingRulesSeedDefaults(int $tenantId): array {
                         'df' => $l['debit_formula']  ?? null,
                         'cf' => $l['credit_formula'] ?? null,
                         'desc' => $l['description_template'] ?? null,
+                        'dims' => !empty($l['dimensions']) ? json_encode($l['dimensions']) : null,
                     ]);
                 }
             }
             $templatesInserted++;
+        } elseif ($lineSource === 'template') {
+            // Dimension maps were added to the default pack after the original
+            // templates shipped. Fill only empty maps on the exact default
+            // lines; tenant customizations remain authoritative.
+            foreach ($entry['template']['lines'] ?? [] as $l) {
+                if (empty($l['dimensions'])) continue;
+                $backfillLineDimensions->execute([
+                    'dims' => json_encode($l['dimensions']),
+                    't' => $tenantId,
+                    'tpl' => $tplId,
+                    'ln' => (int) $l['line_no'],
+                ]);
+            }
         }
 
         // Rule

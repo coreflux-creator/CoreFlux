@@ -52,6 +52,6 @@ $states = _execFiltersSafe($pdo,
 api_ok([
     'clients'         => $clients,
     'recruiters'      => $recruiters,
-    'placement_types' => ['w2','1099','c2c','direct_hire','temp_to_perm'],
+    'placement_types' => ['w2','1099','c2c','direct_hire','temp_to_perm','internal','referral'],
     'worksite_states' => array_column($states, 'state'),
 ]);

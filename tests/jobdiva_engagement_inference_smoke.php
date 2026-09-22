@@ -54,6 +54,10 @@ $a('null JobDiva crop-to-crop flag is not C2C proof',
 echo "\n3. Other classifications still resolve\n";
 $a('workerType 1099 -> 1099',
     jobdivaInferPlacementEngagementTypeFromPayload(['workerType' => '1099'], 'w2') === '1099');
+$a('workerType Ref -> referral',
+    jobdivaInferPlacementEngagementTypeFromPayload(['workerType' => 'Ref'], 'w2') === 'referral');
+$a('EMPLOYMENT_CATEGORY Referral -> referral',
+    jobdivaInferPlacementEngagementTypeFromPayload(['assignment' => ['EMPLOYMENT_CATEGORY' => 'Referral']], 'w2') === 'referral');
 $a('EMPLOYMENT_CATEGORY C2C -> c2c',
     jobdivaInferPlacementEngagementTypeFromPayload(['assignment' => ['EMPLOYMENT_CATEGORY' => 'C2C']], 'w2') === 'c2c');
 $a('EMPLOYMENT_CATEGORY W2 -> w2',

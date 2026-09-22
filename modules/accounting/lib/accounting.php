@@ -176,6 +176,35 @@ function accountingValidateActiveEntityId(int $tenantId, $value): ?int
     return $entityId;
 }
 
+/**
+ * Legal entity is both a journal boundary and a reporting dimension. Keep the
+ * line-level dimension synchronized with the journal header in every entry
+ * path, including draft edits and legacy draft promotion.
+ *
+ * @param list<array<string,mixed>> $lines
+ * @return list<array<string,mixed>>
+ */
+function accountingStampLegalEntityDimension(array $lines, int $entityId): array
+{
+    if ($entityId <= 0) throw new \InvalidArgumentException('A valid legal entity is required.');
+    foreach ($lines as $index => &$line) {
+        if (isset($line['dims']) && !is_array($line['dims'])) {
+            throw new \InvalidArgumentException("Line {$index}: dims must be an object");
+        }
+        $dims = (array) ($line['dims'] ?? []);
+        $lineEntityId = $dims['legal_entity'] ?? null;
+        if ($lineEntityId !== null && $lineEntityId !== '' && (int) $lineEntityId !== $entityId) {
+            throw new \InvalidArgumentException(
+                "Line {$index}: legal_entity must match journal entity_id {$entityId}"
+            );
+        }
+        $dims['legal_entity'] = $entityId;
+        $line['dims'] = $dims;
+    }
+    unset($line);
+    return $lines;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // JE posting — atomic, balanced, idempotent
 // ─────────────────────────────────────────────────────────────────────────
@@ -188,7 +217,7 @@ function accountingValidateActiveEntityId(int $tenantId, $value): ?int
  *   source_module ('manual'|'ap'|'billing'|...),
  *   source_ref_type?, source_ref_id?,
  *   idempotency_key (REQUIRED for subledgers),
- *   lines: [{account_code|account_id, debit, credit, memo?, description?, counterparty_company_id?, counterparty_person_id?}, ...]
+ *   lines: [{account_code|account_id, debit, credit, memo?, description?, counterparty_company_id?, counterparty_person_id?, dims?}, ...]
  * }
  * @param int|null $actorUserId
  * @param bool     $post  when false, leaves JE in 'draft'
@@ -233,8 +262,10 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
         }
     }
 
-    $entityId = !empty($je['entity_id']) ? (int) $je['entity_id']
-                                         : (int) accountingDefaultEntity($tenantId)['id'];
+    $requestedEntityId = accountingValidateActiveEntityId($tenantId, $je['entity_id'] ?? null);
+    $entityId = $requestedEntityId ?? (int) accountingDefaultEntity($tenantId)['id'];
+
+    $lines = accountingStampLegalEntityDimension($lines, $entityId);
 
     $period = accountingResolvePeriod($tenantId, $entityId, $postingDate);
     if (in_array($period['status'], ['closed','soft_closed'], true)) {
@@ -450,11 +481,15 @@ function accountingUpdateDraftJe(int $tenantId, int $jeId, array $je, ?int $acto
     }
     accountingAssertManualDraftLifecycle($existing);
 
+    $candidateEntityId = accountingValidateActiveEntityId(
+        $tenantId,
+        !empty($je['entity_id']) ? $je['entity_id'] : $existing['entity_id']
+    ) ?? (int) accountingDefaultEntity($tenantId)['id'];
     $candidate = [
-        'entity_id'    => !empty($je['entity_id']) ? (int) $je['entity_id'] : (int) $existing['entity_id'],
+        'entity_id'    => $candidateEntityId,
         'posting_date' => (string) ($je['posting_date'] ?? $existing['posting_date']),
         'currency'     => (string) ($je['currency'] ?? $existing['currency'] ?? 'USD'),
-        'lines'        => $je['lines'] ?? [],
+        'lines'        => accountingStampLegalEntityDimension((array) ($je['lines'] ?? []), $candidateEntityId),
     ];
     $report = accountingValidateJe($tenantId, $candidate);
     if (!$report['ok']) {
@@ -607,7 +642,9 @@ function accountingPostDraftJe(int $tenantId, int $jeId, ?int $actorUserId = nul
           ORDER BY l.line_no'
     );
     $lineStmt->execute(['t_account' => $tenantId, 't_line' => $tenantId, 'id' => $jeId]);
+    $storedLines = $lineStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     $lines = array_map(static fn (array $line): array => [
+        'line_id' => (int) $line['id'],
         'account_id' => (int) $line['account_id'],
         'account_code' => (string) $line['account_code'],
         'debit' => (float) $line['debit'],
@@ -618,7 +655,8 @@ function accountingPostDraftJe(int $tenantId, int $jeId, ?int $actorUserId = nul
         'counterparty_person_id' => !empty($line['counterparty_person_id']) ? (int) $line['counterparty_person_id'] : null,
         'counterparty_entity_id' => !empty($line['counterparty_entity_id']) ? (int) $line['counterparty_entity_id'] : null,
         'dims' => !empty($line['dim_json']) ? (json_decode((string) $line['dim_json'], true) ?: []) : [],
-    ], $lineStmt->fetchAll(\PDO::FETCH_ASSOC) ?: []);
+    ], $storedLines);
+    $lines = accountingStampLegalEntityDimension($lines, (int) $row['entity_id']);
 
     $report = accountingValidateJe($tenantId, [
         'entity_id' => (int) $row['entity_id'],
@@ -630,14 +668,37 @@ function accountingPostDraftJe(int $tenantId, int $jeId, ?int $actorUserId = nul
         throw new \RuntimeException('Draft can no longer be posted: ' . implode('; ', $report['errors'] ?: ['validation failed']));
     }
 
-    $update = $pdo->prepare(
-        'UPDATE accounting_journal_entries
-            SET status = "posted", posted_at = NOW(), posted_by_user_id = :u
-          WHERE tenant_id = :t AND id = :id AND status = "draft"'
-    );
-    $update->execute(['u' => $actorUserId, 't' => $tenantId, 'id' => $jeId]);
-    if ($update->rowCount() !== 1) {
-        throw new \RuntimeException('This journal entry changed while you were posting it. Refresh and try again.');
+    $ownsTransaction = cf_tx_begin($pdo);
+    try {
+        // Repair legacy drafts that pre-date the legal-entity line dimension
+        // in the same transaction that posts the draft.
+        $dimensionUpdate = $pdo->prepare(
+            'UPDATE accounting_journal_entry_lines
+                SET dim_json = :dims
+              WHERE tenant_id = :tenant_id AND je_id = :je_id AND id = :line_id'
+        );
+        foreach ($lines as $line) {
+            $dimensionUpdate->execute([
+                'dims' => json_encode($line['dims'], JSON_UNESCAPED_SLASHES),
+                'tenant_id' => $tenantId,
+                'je_id' => $jeId,
+                'line_id' => (int) $line['line_id'],
+            ]);
+        }
+
+        $update = $pdo->prepare(
+            'UPDATE accounting_journal_entries
+                SET status = "posted", posted_at = NOW(), posted_by_user_id = :u
+              WHERE tenant_id = :t AND id = :id AND status = "draft"'
+        );
+        $update->execute(['u' => $actorUserId, 't' => $tenantId, 'id' => $jeId]);
+        if ($update->rowCount() !== 1) {
+            throw new \RuntimeException('This journal entry changed while you were posting it. Refresh and try again.');
+        }
+        cf_tx_commit($pdo, $ownsTransaction);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTransaction);
+        throw $e;
     }
 
     try {
@@ -1217,10 +1278,13 @@ function accountingValidateJe(int $tenantId, array $je): array
     }
 
     try {
-        $entityId = !empty($je['entity_id']) ? (int) $je['entity_id']
-                                              : (int) accountingDefaultEntity($tenantId)['id'];
+        $requestedEntityId = accountingValidateActiveEntityId($tenantId, $je['entity_id'] ?? null);
+        $entityId = $requestedEntityId ?? (int) accountingDefaultEntity($tenantId)['id'];
+        if (is_array($lines)) {
+            $lines = accountingStampLegalEntityDimension($lines, $entityId);
+        }
     } catch (\Throwable $e) {
-        $errors[] = 'no default accounting entity — pass entity_id explicitly';
+        $errors[] = 'entity validation failed: ' . substr($e->getMessage(), 0, 200);
     }
 
     if ($entityId > 0 && $postingDate !== '') {
@@ -1370,7 +1434,7 @@ function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = 
     // Reassemble line dictionary and re-validate at promotion time.
     // tenant-leak-allow: parent JE was fetched tenant-scoped above; lines join by je_id
     $lstmt = $pdo->prepare(
-        'SELECT l.line_no, l.debit, l.credit, l.memo, l.dim_json,
+        'SELECT l.id AS line_id, l.line_no, l.debit, l.credit, l.memo, l.dim_json,
                 a.id   AS account_id, a.code AS account_code, a.active, a.is_postable
            FROM accounting_journal_entry_lines l
            JOIN accounting_accounts a ON a.id = l.account_id
@@ -1380,12 +1444,14 @@ function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = 
     $lstmt->execute(['je' => $jeId]);
     $lineRows = $lstmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     $linesForValidate = array_map(fn ($r) => [
+        'line_id'    => (int) $r['line_id'],
         'account_id' => (int) $r['account_id'],
         'debit'      => (float) $r['debit'],
         'credit'     => (float) $r['credit'],
         'memo'       => $r['memo'] ?? null,
         'dims'       => $r['dim_json'] ? (json_decode((string) $r['dim_json'], true) ?: []) : [],
     ], $lineRows);
+    $linesForValidate = accountingStampLegalEntityDimension($linesForValidate, (int) $row['entity_id']);
 
     $report = accountingValidateJe($tenantId, [
         'entity_id'    => (int) $row['entity_id'],
@@ -1404,6 +1470,19 @@ function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = 
     // promotion racing for the same approval is rejected.
     $ownsTransaction = cf_tx_begin($pdo);
     try {
+        $dimensionUpdate = $pdo->prepare(
+            'UPDATE accounting_journal_entry_lines
+                SET dim_json = :dims
+              WHERE tenant_id = :tenant_id AND je_id = :je_id AND id = :line_id'
+        );
+        foreach ($linesForValidate as $line) {
+            $dimensionUpdate->execute([
+                'dims' => json_encode($line['dims'], JSON_UNESCAPED_SLASHES),
+                'tenant_id' => $tenantId,
+                'je_id' => $jeId,
+                'line_id' => (int) $line['line_id'],
+            ]);
+        }
         $pdo->prepare(
             'UPDATE accounting_journal_entries
                 SET status = "posted",

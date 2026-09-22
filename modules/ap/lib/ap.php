@@ -379,8 +379,13 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
                 "Entry #{$e['id']} is approved but has no locked pay-rate snapshot. Repair approved time snapshots first."
             );
         }
+        $party = placementEconomicsPrimaryPayable(
+            $tenantId,
+            (int) $e['placement_id'],
+            (int) $rate['id']
+        );
         $base = (float) ($rate['pay_rate'] ?? 0);
-        if ($base <= 0) {
+        if ($party && $base <= 0) {
             throw new \RuntimeException(
                 "Placement #{$e['placement_id']} approved rate #{$rate['id']} has no positive pay_rate."
             );
@@ -389,11 +394,6 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
         $e['_pay_rate']         = round($base * $mult, 4);
         $e['_bill_rate']        = round((float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0) * $mult, 4);
         $e['_rate_snapshot_id'] = (int) $rate['id'];
-        $party = placementEconomicsPrimaryPayable(
-            $tenantId,
-            (int) $e['placement_id'],
-            (int) $rate['id']
-        );
         $e['_primary_ap_party'] = $party;
         if ($party) {
             $e['_vendor_name'] = (string) ($party['vendor_name'] ?: $party['display_name']);
@@ -759,13 +759,51 @@ function apPaymentPostingContext(int $tenantId, array $payment, ?int $requestedB
 {
     $pdo = getDB();
     $entityId = (int) ($payment['entity_id'] ?? 0);
+    $paymentId = (int) ($payment['id'] ?? 0);
+    if ($paymentId <= 0) throw new \InvalidArgumentException('Payment id is required');
+
+    $vendorStmt = $pdo->prepare(
+        'SELECT b.vendor_company_id, b.vendor_name
+           FROM ap_payment_allocations a
+           JOIN ap_bills b ON b.id = a.bill_id AND b.tenant_id = :tenant_id
+          WHERE a.payment_id = :payment_id'
+    );
+    $vendorStmt->execute(['tenant_id' => $tenantId, 'payment_id' => $paymentId]);
+    $allocatedVendorRows = $vendorStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $allocatedVendorCompanyIds = array_values(array_unique(array_filter(array_map(
+        static fn(array $bill): int => (int) ($bill['vendor_company_id'] ?? 0),
+        $allocatedVendorRows
+    ), static fn(int $id): bool => $id > 0)));
+    if (count($allocatedVendorCompanyIds) > 1) {
+        throw new \RuntimeException('This payment spans multiple vendors and cannot be posted. Create one payment per vendor.');
+    }
+    $paymentVendorCompanyId = (int) ($payment['vendor_company_id'] ?? 0);
+    if ($paymentVendorCompanyId > 0 && $allocatedVendorCompanyIds
+        && $allocatedVendorCompanyIds[0] !== $paymentVendorCompanyId) {
+        throw new \RuntimeException('The payment vendor does not match its allocated bills.');
+    }
+    $vendorCompanyId = $paymentVendorCompanyId > 0
+        ? $paymentVendorCompanyId
+        : ($allocatedVendorCompanyIds[0] ?? null);
+    $vendorName = trim((string) ($payment['vendor_name'] ?? ''));
+    $allocatedVendorNames = array_values(array_unique(array_filter(array_map(
+        static fn(array $bill): string => strtolower(trim((string) ($bill['vendor_name'] ?? ''))),
+        $allocatedVendorRows
+    ))));
+    if (!$vendorCompanyId && count($allocatedVendorNames) > 1) {
+        throw new \RuntimeException('This payment spans multiple unlinked vendor names. Link the bills to a vendor or create one payment per vendor.');
+    }
+    if ($vendorName === '' && count($allocatedVendorNames) === 1) $vendorName = $allocatedVendorNames[0];
+    if ($vendorName === '') throw new \RuntimeException('Assign a vendor to this payment before clearing it.');
+    $vendorDimension = $vendorCompanyId ?: 'name:' . strtolower($vendorName);
+
     $entityStmt = $pdo->prepare(
         'SELECT DISTINCT b.entity_id
            FROM ap_payment_allocations a
            JOIN ap_bills b ON b.id = a.bill_id AND b.tenant_id = :tenant_id
           WHERE a.payment_id = :payment_id AND b.entity_id IS NOT NULL'
     );
-    $entityStmt->execute(['tenant_id' => $tenantId, 'payment_id' => (int) $payment['id']]);
+    $entityStmt->execute(['tenant_id' => $tenantId, 'payment_id' => $paymentId]);
     $allocatedEntities = array_values(array_unique(array_map('intval', $entityStmt->fetchAll(PDO::FETCH_COLUMN))));
     if (count($allocatedEntities) > 1) {
         throw new \RuntimeException('This payment spans multiple entities and cannot be posted. Void it and create one payment per entity.');
@@ -798,6 +836,9 @@ function apPaymentPostingContext(int $tenantId, array $payment, ?int $requestedB
         if (!$bankGl) throw new \RuntimeException('The funding bank account is not mapped to an active ledger account.');
         return [
             'entity_id' => $entityId,
+            'legal_entity_dimension' => $entityId,
+            'vendor_company_id' => $vendorCompanyId,
+            'vendor_dimension' => $vendorDimension,
             'bank_account_id' => (int) $bank['id'],
             'bank_gl_account_id' => (int) $bankGl['id'],
             'bank_gl_account_code' => (string) $bank['gl_account_code'],
@@ -830,6 +871,9 @@ function apPaymentPostingContext(int $tenantId, array $payment, ?int $requestedB
         if (!$bankGl) throw new \RuntimeException('The funding bank account is not mapped to an active ledger account.');
         return [
             'entity_id' => $entityId,
+            'legal_entity_dimension' => $entityId,
+            'vendor_company_id' => $vendorCompanyId,
+            'vendor_dimension' => $vendorDimension,
             'bank_account_id' => (int) $banks[0]['id'],
             'bank_gl_account_id' => (int) $bankGl['id'],
             'bank_gl_account_code' => (string) $banks[0]['gl_account_code'],
@@ -909,6 +953,9 @@ function apClearPayment(
                 'payment_id' => $paymentId,
                 'payment_number' => (string) ($row['reference'] ?: ('PAY-' . $paymentId)),
                 'vendor_name' => (string) $row['vendor_name'],
+                'vendor_company_id' => $posting['vendor_company_id'],
+                'vendor_dimension' => $posting['vendor_dimension'],
+                'legal_entity_dimension' => $posting['legal_entity_dimension'],
                 'amount' => (float) $row['amount'],
                 'currency' => (string) $row['currency'],
                 'method' => (string) $row['method'],

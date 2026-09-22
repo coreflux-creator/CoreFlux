@@ -80,7 +80,8 @@ $assert('emits ap.bill.approved event',          strpos($bills, "'event_type'   
 $assert('source_module = ap',                    strpos($bills, "'source_module'    => 'ap'") !== false);
 $assert('source_record_id namespaced ap_bill:',  strpos($bills, "'source_record_id' => 'ap_bill:' . \$id") !== false);
 $assert('payload carries lines[] for passthrough',
-    strpos($bills, "'lines'        => \$payloadLines,") !== false);
+    strpos($bills, "'lines'        => \$eventPostingLines,") !== false
+    && strpos($bills, '$eventPostingLines = $reclassifyOnly ? $reclassLines : $payloadLines;') !== false);
 $assert('payload carries currency + amount',
     strpos($bills, "'amount'       => (float) \$row['total']") !== false
     && strpos($bills, "'currency'     => (string) \$row['currency']") !== false);

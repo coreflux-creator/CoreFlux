@@ -69,6 +69,10 @@ $a('coa commit UPSERTS by code',                $contains($im, 'UPDATE accountin
 $a('je commit uses accountingPostJe',           $contains($im, 'accountingPostJe(') && $contains($im, "'idempotency_key' => 'csv:'"));
 $a('je idempotency keyed by SHA-256(batch_ref)',$contains($im, "hash('sha256'"));
 $a('JE paste accepts an explicit default batch ref', $contains($im, 'default_batch_ref') && $contains($im, "['batch_ref' => \$defaultBatchRef]"));
+$a('JE preview and commit share assignment-dimension hydration',
+    $contains($im, 'function accountingPrepareJeImport')
+    && substr_count($im, 'accountingPrepareJeImport($tid,') >= 2
+    && $contains($im, 'staffingAssignmentDimensionContext('));
 $a('periods commit UPSERTS by (entity_id, start_date)', $contains($im, 'entity_id = :e AND start_date = :sd'));
 $a('emits accounting.ledger.imported audit',    $contains($im, "'accounting.ledger.imported'"));
 

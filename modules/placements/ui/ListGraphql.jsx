@@ -20,7 +20,7 @@ import { Zap, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
  */
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
-const ETYPES   = ['', 'w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal'];
+const ETYPES   = ['', 'w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'referral', 'internal'];
 const PER_PAGE = 25;
 // PHP's placementsList caps per_page at 200. Ask for the max so we get
 // every record for a typical tenant in one round-trip. A future iteration

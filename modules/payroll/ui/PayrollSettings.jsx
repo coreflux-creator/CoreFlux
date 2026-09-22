@@ -23,7 +23,7 @@ export default function PayrollSettings() {
     nacha_company_id: '',
     nacha_origin_routing: '',
     wage_expense_account_code: '5000',
-    payroll_tax_expense_account_code: '5010',
+    payroll_tax_expense_account_code: '5020',
     payroll_payable_account_code: '2200',
     payroll_tax_payable_account_code: '2210',
     payroll_deduction_payable_account_code: '2220',

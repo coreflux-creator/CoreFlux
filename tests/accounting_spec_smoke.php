@@ -39,6 +39,12 @@ $a('JE number format prefix-YYYY-NNNNNN',      strpos($lib, "sprintf('%s-%s-%06d
 $a('resolvePeriod auto-creates monthly',       strpos($lib, 'Auto-create a monthly period') !== false);
 $a('defaultEntity auto-creates MAIN',          strpos($lib, "VALUES (:t, \"MAIN\", \"Main Entity\"") !== false);
 $a('accountingPostJe(): idempotency replay',   strpos($lib, 'idempotent_replay') !== false);
+$a('accountingPostJe(): validates active entity ownership',
+    strpos($lib, "accountingValidateActiveEntityId(\$tenantId, \$je['entity_id'] ?? null)") !== false);
+$a('accountingPostJe(): stamps legal entity on every line',
+    strpos($lib, "\$dims['legal_entity'] = \$entityId") !== false);
+$a('accountingPostJe(): rejects header/line entity conflicts',
+    strpos($lib, 'legal_entity must match journal entity_id') !== false);
 $a('needs ≥ 2 lines',                          strpos($lib, 'Need at least 2 lines') !== false);
 $a('rejects closed periods',                   strpos($lib, 'cannot post') !== false);
 $a('rejects negative amounts',                 strpos($lib, 'negative amounts not allowed') !== false);

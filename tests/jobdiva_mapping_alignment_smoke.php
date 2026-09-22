@@ -48,7 +48,7 @@ $a('update field set includes client_id',
 $a('insert column list includes client_id next to end_client_company_id',
     str_contains($sync, 'end_client_name, end_client_company_id, client_id'));
 $a('insert values bind :cli and preserve staffing job link slot',
-    str_contains($sync, ':rp, :notes, :ecn, :ecc, :cli, :sji, :can'));
+    str_contains($sync, ':notes, :ecn, :ecc, :cli, :sji, :can, :cae'));
 
 echo "\n2. Staffing client bridge is tenant-explicit\n";
 $a('helper no longer scopedUpdate()s staffing_clients',

@@ -20,13 +20,15 @@ require_once __DIR__ . '/../lib/rate_approve.php';
 require_once __DIR__ . '/../../staffing/lib/clients.php';
 require_once __DIR__ . '/../../people/lib/people.php';
 require_once __DIR__ . '/../../people/lib/audit.php';
+require_once __DIR__ . '/../../accounting/lib/accounting.php';
+require_once __DIR__ . '/../../staffing/lib/dimensions.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
 $method = api_method();
 
 const ALLOWED_STATUS = ['draft','pending_start','active','on_hold','ended','cancelled'];
-const ALLOWED_ETYPE  = ['w2','1099','c2c','temp_to_perm','direct_hire','internal'];
+const ALLOWED_ETYPE  = ['w2','1099','c2c','temp_to_perm','direct_hire','internal','referral'];
 const ALLOWED_REMOTE = ['onsite','hybrid','remote'];
 
 if ($method === 'GET') {
@@ -35,8 +37,42 @@ if ($method === 'GET') {
         rbac_legacy_require($user, 'placements.view');
         $row = placementGet($id);
         if (!$row) api_error('Not found', 404);
+        $dimensionReadiness = null;
+        try {
+            $asOfDate = date('Y-m-d');
+            $startDate = trim((string) ($row['start_date'] ?? ''));
+            $endDate = trim((string) ($row['actual_end_date'] ?? $row['end_date'] ?? ''));
+            if ($startDate !== '' && $asOfDate < $startDate) $asOfDate = $startDate;
+            if ($endDate !== '' && $asOfDate > $endDate) $asOfDate = $endDate;
+            $dimensionContext = staffingAssignmentDimensionContext(
+                (int) $ctx['tenant_id'],
+                $id,
+                (int) ($row['accounting_entity_id'] ?? 0),
+                $asOfDate
+            );
+            $reportingGaps = (array) ($dimensionContext['reporting_gaps'] ?? $dimensionContext['missing'] ?? []);
+            $dimensionReadiness = [
+                'ready' => $reportingGaps === [],
+                'as_of' => $asOfDate,
+                'reporting_gaps' => array_values($reportingGaps),
+                'missing_labels' => staffingDimensionMissingLabels($reportingGaps),
+                'time_blockers' => staffingDimensionBlockingMissing($dimensionContext, 'time'),
+                'billing_blockers' => staffingDimensionBlockingMissing($dimensionContext, 'billing'),
+                'ap_blockers' => staffingDimensionBlockingMissing($dimensionContext, 'ap'),
+            ];
+        } catch (\Throwable $e) {
+            error_log('[placements] dimension readiness failed for placement ' . $id . ': ' . $e->getMessage());
+            $dimensionReadiness = [
+                'ready' => false,
+                'as_of' => date('Y-m-d'),
+                'reporting_gaps' => [],
+                'missing_labels' => [],
+                'error' => 'Reporting setup check is temporarily unavailable.',
+            ];
+        }
         api_ok([
             'placement'   => $row,
+            'dimension_readiness' => $dimensionReadiness,
             'chain'       => placementChain($id),
             'rates'       => placementRates($id),
             'current_rate'=> placementCurrentRate($id),
@@ -365,6 +401,12 @@ if ($method === 'POST') {
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $body['start_date'])) {
         api_error('start_date must be YYYY-MM-DD', 422);
     }
+    foreach (['recruiter_email' => 'recruiter', 'account_manager_email' => 'account manager'] as $field => $label) {
+        $email = trim((string) ($body[$field] ?? ''));
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            api_error("Enter a valid {$label} email", 422);
+        }
+    }
 
     $personId = (int) ($body['person_id'] ?? 0);
     $newPersonBody = is_array($body['new_person'] ?? null) ? $body['new_person'] : null;
@@ -421,6 +463,23 @@ if ($method === 'POST') {
         api_error('Placements cannot be created active. Create as draft/pending_start, approve rates, then activate.', 422);
     }
 
+    if (!empty($body['staffing_job_id'])) {
+        $job = scopedFind(
+            'SELECT id FROM staffing_jobs WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+            ['id' => (int) $body['staffing_job_id']]
+        );
+        if (!$job) api_error('staffing_job_id not found in this tenant', 422);
+    }
+    $accountingTenantId = effectiveTenantIdForModule('accounting', (int) $ctx['tenant_id']) ?? (int) $ctx['tenant_id'];
+    try {
+        $assignmentEntityId = accountingValidateActiveEntityId(
+            $accountingTenantId,
+            $body['accounting_entity_id'] ?? null
+        ) ?? (int) accountingDefaultEntity($accountingTenantId)['id'];
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
+
     $pdo = null;
     $combinedCreateTransaction = false;
     $createdPersonId = null;
@@ -454,9 +513,20 @@ if ($method === 'POST') {
             'worksite_state'   => $body['worksite_state']   ?? null,
             'worksite_country' => $body['worksite_country'] ?? null,
             'remote_policy'    => placementsNormalizeRemotePolicy($body['remote_policy'] ?? null),
+            'branch'           => $body['branch']           ?? null,
+            'service_line'     => $body['service_line']     ?? null,
+            'workers_comp_class' => $body['workers_comp_class'] ?? null,
+            'department'       => $body['department']       ?? null,
+            'cost_center'      => $body['cost_center']      ?? null,
+            'accounting_entity_id' => $assignmentEntityId,
+            'staffing_job_id'  => !empty($body['staffing_job_id']) ? (int) $body['staffing_job_id'] : null,
             'title'            => $body['title'],
             'end_client_name'  => $body['end_client_name']  ?? null,
             'end_client_company_id' => !empty($body['end_client_company_id']) ? (int) $body['end_client_company_id'] : null,
+            'recruiter_name'        => trim((string) ($body['recruiter_name'] ?? '')) ?: null,
+            'recruiter_email'       => strtolower(trim((string) ($body['recruiter_email'] ?? ''))) ?: null,
+            'account_manager_name'  => trim((string) ($body['account_manager_name'] ?? '')) ?: null,
+            'account_manager_email' => strtolower(trim((string) ($body['account_manager_email'] ?? ''))) ?: null,
             'client_approver_name'  => $body['client_approver_name']  ?? null,
             'client_approver_email' => $body['client_approver_email'] ?? null,
             'notes'            => $body['notes']            ?? null,
@@ -559,6 +629,42 @@ if ($method === 'PATCH') {
     if (array_key_exists('remote_policy', $body)) {
         $body['remote_policy'] = placementsNormalizeRemotePolicy($body['remote_policy']);
     }
+    foreach (['staffing_job_id'] as $idField) {
+        if (array_key_exists($idField, $body)) {
+            $body[$idField] = (int) $body[$idField] > 0 ? (int) $body[$idField] : null;
+        }
+    }
+    if (array_key_exists('accounting_entity_id', $body)) {
+        $accountingTenantId = effectiveTenantIdForModule('accounting', (int) $ctx['tenant_id']) ?? (int) $ctx['tenant_id'];
+        try {
+            $body['accounting_entity_id'] = accountingValidateActiveEntityId(
+                $accountingTenantId,
+                $body['accounting_entity_id']
+            ) ?? (int) accountingDefaultEntity($accountingTenantId)['id'];
+        } catch (\Throwable $e) {
+            api_error($e->getMessage(), 422);
+        }
+    }
+    foreach (['branch', 'service_line', 'workers_comp_class', 'department', 'cost_center'] as $dimensionField) {
+        if (array_key_exists($dimensionField, $body)) {
+            $body[$dimensionField] = trim((string) $body[$dimensionField]);
+            if ($body[$dimensionField] === '') $body[$dimensionField] = null;
+        }
+    }
+    foreach (['recruiter', 'account_manager'] as $ownerPrefix) {
+        $nameField = $ownerPrefix . '_name';
+        $emailField = $ownerPrefix . '_email';
+        if (array_key_exists($nameField, $body)) {
+            $body[$nameField] = trim((string) $body[$nameField]) ?: null;
+        }
+        if (array_key_exists($emailField, $body)) {
+            $ownerEmail = strtolower(trim((string) $body[$emailField]));
+            if ($ownerEmail !== '' && !filter_var($ownerEmail, FILTER_VALIDATE_EMAIL)) {
+                api_error('Enter a valid ' . str_replace('_', ' ', $ownerPrefix) . ' email', 422);
+            }
+            $body[$emailField] = $ownerEmail ?: null;
+        }
+    }
     if (!$body) api_error('No fields to update', 422);
 
     // Slice 2: for JobDiva-sourced placements, every field touched by a
@@ -569,6 +675,13 @@ if ($method === 'PATCH') {
     $existing = placementGet($id);
     if (!$existing) api_error('Not found', 404);
     $before = placementAuditRow($id) ?? $existing;
+    if (!empty($body['staffing_job_id'])) {
+        $job = scopedFind(
+            'SELECT id FROM staffing_jobs WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+            ['id' => (int) $body['staffing_job_id']]
+        );
+        if (!$job) api_error('staffing_job_id not found in this tenant', 422);
+    }
     $autoApproved = 0;
     $promotingFromDraft = isset($body['status'])
         && (string) $existing['status'] === 'draft'
@@ -679,6 +792,7 @@ function placementPersonClassification(string $engagementType): string
         'c2c' => 'c2c',
         'temp_to_perm' => 'temp',
         'direct_hire' => 'perm',
+        'referral' => 'candidate',
         default => 'w2',
     };
 }

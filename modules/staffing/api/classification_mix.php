@@ -1,6 +1,6 @@
 <?php
 /**
- * /api/staffing/classification_mix — W2-vs-1099-vs-internal mix over time.
+ * /api/staffing/classification_mix - engagement mix over time.
  *
  *   GET ?weeks=12          → weekly buckets for the last N weeks
  *   GET ?period_start=&period_end=
@@ -8,7 +8,7 @@
  *   Returns:
  *     {
  *       weeks: [
- *         { week_start, w2_hours, w2_cost, c1099_hours, c1099_cost, c2c_hours, c2c_cost, internal_hours, internal_cost, total_hours, total_cost }
+ *         { week_start, w2_hours, w2_cost, c1099_hours, c1099_cost, c2c_hours, c2c_cost, internal_hours, internal_cost, referral_hours, referral_cost, total_hours, total_cost }
  *       ],
  *       classification_changes: [
  *         { person_id, name, prior_type, current_type, changed_at }
@@ -38,11 +38,11 @@ try {
         "SELECT
             DATE_SUB(te.work_date, INTERVAL WEEKDAY(te.work_date) DAY) AS week_start,
             COALESCE(pl.engagement_type, 'w2') AS engagement_type,
-            SUM(te.hours)                              AS hours,
-            SUM(te.hours * COALESCE(pr.pay_rate, 0))   AS cost
+            SUM(te.hours) AS hours,
+            SUM(COALESCE(v.cost, 0)) AS cost
            FROM time_entries te
            LEFT JOIN placements pl     ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
-           LEFT JOIN placement_rates pr ON pr.id = te.rate_snapshot_id
+           LEFT JOIN v_timesheet_day_fin v ON v.entry_id = te.id AND v.tenant_id = te.tenant_id
           WHERE te.tenant_id = :tenant_id
             AND te.work_date BETWEEN :ps AND :pe
             AND te.status != 'superseded'
@@ -65,6 +65,7 @@ foreach ($rows as $r) {
             'c1099_hours'    => 0.0, 'c1099_cost'    => 0.0,
             'c2c_hours'      => 0.0, 'c2c_cost'      => 0.0,
             'internal_hours' => 0.0, 'internal_cost' => 0.0,
+            'referral_hours' => 0.0, 'referral_cost' => 0.0,
             'other_hours'    => 0.0, 'other_cost'    => 0.0,
             'total_hours'    => 0.0, 'total_cost'    => 0.0,
         ];
@@ -76,6 +77,7 @@ foreach ($rows as $r) {
     elseif ($type === '1099')    { $byWeek[$w]['c1099_hours']    += $hours; $byWeek[$w]['c1099_cost']    += $cost; }
     elseif ($type === 'c2c')     { $byWeek[$w]['c2c_hours']      += $hours; $byWeek[$w]['c2c_cost']      += $cost; }
     elseif ($type === 'internal'){ $byWeek[$w]['internal_hours'] += $hours; $byWeek[$w]['internal_cost'] += $cost; }
+    elseif ($type === 'referral'){ $byWeek[$w]['referral_hours'] += $hours; $byWeek[$w]['referral_cost'] += $cost; }
     else                         { $byWeek[$w]['other_hours']    += $hours; $byWeek[$w]['other_cost']    += $cost; }
     $byWeek[$w]['total_hours'] += $hours;
     $byWeek[$w]['total_cost']  += $cost;
@@ -97,6 +99,7 @@ try {
           WHERE pl.tenant_id = :placements_tid
             AND pl.start_date BETWEEN :ps AND :pe
             AND pl.person_id IS NOT NULL
+            AND pl.engagement_type IN ('w2', '1099', 'c2c', 'temp_to_perm')
           GROUP BY pl.person_id
          HAVING COUNT(DISTINCT pl.engagement_type) > 1"
     );

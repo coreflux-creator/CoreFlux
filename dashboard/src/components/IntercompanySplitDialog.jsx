@@ -18,11 +18,14 @@ import { api } from '../../../dashboard/src/lib/api';
  *   - sourceOffsetSide  'credit'|'debit'  — 'credit' = money left source (expense side)
  *   - bankStatementLineId?  number  — optional; when present, auto-matches on post
  *   - defaultMemo?  string
+ *   - initialPostingDate? string
+ *   - initialSplits? [{entity_id,account_code,amount,memo?}]
  */
 export default function IntercompanySplitDialog({
   open, onClose, onPosted,
   amount, sourceEntityId, sourceOffsetAccountCode, sourceOffsetSide = 'credit',
   bankStatementLineId = null, defaultMemo = '',
+  initialPostingDate = null, initialSplits = null,
   postUrl = '/modules/accounting/api/intercompany.php?action=post_split',
 }) {
   const [entities, setEntities] = useState([]);
@@ -47,11 +50,21 @@ export default function IntercompanySplitDialog({
     });
   }, [open]);
 
-  // Keep splits in sync if `amount` changes (new bank line opened)
+  // Keep the editor in sync when a new source transaction is opened.
   useEffect(() => {
     if (!open) return;
-    setSplits([{ entity_id: sourceEntityId, account_code: '', amount: String(amount || 0) }]);
-  }, [amount, sourceEntityId, open]);
+    const seeded = Array.isArray(initialSplits) && initialSplits.length > 0
+      ? initialSplits.map((split) => ({
+          entity_id: Number(split.entity_id || sourceEntityId),
+          account_code: split.account_code || '',
+          amount: String(split.amount || ''),
+          memo: split.memo || '',
+        }))
+      : [{ entity_id: sourceEntityId, account_code: '', amount: String(amount || 0) }];
+    setSplits(seeded);
+    setMemo(defaultMemo || '');
+    setDate(initialPostingDate || new Date().toISOString().slice(0, 10));
+  }, [amount, defaultMemo, initialPostingDate, initialSplits, sourceEntityId, open]);
 
   if (!open) return null;
 

@@ -30,6 +30,57 @@ $tenantId = (int) $ctx['tenant_id'];
 rbac_legacy_require($ctx['user'], 'accounting.bank.manage');
 $pdo = getDB();
 
+function _treasuryStatementEntityId(\PDO $pdo, int $tenantId, string $type, int $accountId): int
+{
+    if ($type === 'deposit') {
+        $stmt = $pdo->prepare(
+            'SELECT ba.entity_id, ae.id AS active_entity_id
+               FROM accounting_bank_accounts ba
+          LEFT JOIN accounting_entities ae
+                 ON ae.tenant_id = ba.tenant_id AND ae.id = ba.entity_id AND ae.active = 1
+              WHERE ba.tenant_id = :tenant_id AND ba.id = :account_id
+              LIMIT 1'
+        );
+        $table = 'accounting_bank_accounts';
+        $idColumn = 'id';
+    } else {
+        $stmt = $pdo->prepare(
+            'SELECT tla.entity_id, ae.id AS active_entity_id
+               FROM treasury_liability_accounts tla
+          LEFT JOIN accounting_entities ae
+                 ON ae.tenant_id = tla.tenant_id AND ae.id = tla.entity_id AND ae.active = 1
+              WHERE tla.tenant_id = :tenant_id AND tla.account_id = :account_id
+              LIMIT 1'
+        );
+        $table = 'treasury_liability_accounts';
+        $idColumn = 'account_id';
+    }
+    $stmt->execute(['tenant_id' => $tenantId, 'account_id' => $accountId]);
+    $account = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$account) throw new \RuntimeException('Treasury account not found');
+    if (!empty($account['active_entity_id'])) return (int) $account['active_entity_id'];
+    if (!empty($account['entity_id'])) {
+        throw new \RuntimeException('This Treasury account belongs to an inactive or invalid legal entity');
+    }
+
+    $entities = accountingListActiveEntities($tenantId);
+    if (count($entities) !== 1) {
+        throw new \RuntimeException(
+            'Assign a legal entity to this Treasury account before posting its transactions'
+        );
+    }
+    $entityId = (int) $entities[0]['id'];
+    $pdo->prepare(
+        "UPDATE {$table} SET entity_id = :entity_id
+          WHERE tenant_id = :tenant_id AND {$idColumn} = :account_id AND entity_id IS NULL"
+    )->execute([
+        'entity_id' => $entityId,
+        'tenant_id' => $tenantId,
+        'account_id' => $accountId,
+    ]);
+    return $entityId;
+}
+
 if (api_method() === 'POST') {
     $action = (string) ($_GET['action'] ?? '');
     if (!in_array($action, ['ignore', 'unmatch', 'categorize_and_post', 'match', 'split_categorize', 'bulk_update'], true)) {
@@ -197,6 +248,16 @@ if (api_method() === 'POST') {
         require_once __DIR__ . '/../../../core/posting_engine/process.php';
 
         if (($line['match_status'] ?? '') !== 'unmatched') api_error('Already matched', 422);
+        try {
+            $postingEntityId = _treasuryStatementEntityId(
+                $pdo,
+                $tenantId,
+                $type,
+                (int) $line[$col]
+            );
+        } catch (\Throwable $e) {
+            api_error($e->getMessage(), 422);
+        }
         $splits = (array) ($body['splits'] ?? []);
         if (count($splits) < 1) api_error('At least one split row required', 422);
 
@@ -214,6 +275,7 @@ if (api_method() === 'POST') {
             } catch (\InvalidArgumentException $e) {
                 api_error($e->getMessage(), 422);
             }
+            if ($counterpartyEntityId === $postingEntityId) $counterpartyEntityId = null;
             $normalizedSplits[] = [
                 'account_id' => (int) $s['account_id'],
                 'amount' => $portion,
@@ -246,6 +308,7 @@ if (api_method() === 'POST') {
             'debit'      => $isOutflow ? 0 : $abs,
             'credit'     => $isOutflow ? $abs : 0,
             'memo'       => 'split categorize',
+            'dims'       => ['legal_entity' => $postingEntityId],
         ]];
         foreach ($splits as $s) {
             $portion = round((float) $s['amount'], 2);
@@ -255,6 +318,10 @@ if (api_method() === 'POST') {
                 'credit'     => $isOutflow ? 0 : $portion,
                 'memo'       => trim((string) ($s['memo'] ?? '')) ?: ($line['description'] ?? 'split'),
                 'counterparty_entity_id' => $s['counterparty_entity_id'],
+                'dims' => array_filter([
+                    'legal_entity' => $postingEntityId,
+                    'counterparty_entity' => $s['counterparty_entity_id'],
+                ], static fn($value): bool => $value !== null),
             ];
         }
 
@@ -265,13 +332,14 @@ if (api_method() === 'POST') {
                 'credit'      => (float) ($l['credit'] ?? 0),
                 'description' => (string) ($l['memo'] ?? ''),
                 'counterparty_entity_id' => $l['counterparty_entity_id'] ?? null,
+                'dims' => (array) ($l['dims'] ?? []),
             ];
         }, $jeLines);
 
         $eventResult = null; $eventError = null;
         try {
             $eventResult = accountingProcessEvent($tenantId, [
-                'entity_id'        => 0,
+                'entity_id'        => $postingEntityId,
                 'event_type'       => 'treasury.bank_transaction.categorized',
                 'source_module'    => 'treasury_feed',
                 'source_record_id' => ($type === 'deposit' ? 'bank_line:split:' : 'liab_line:split:') . $lineId,
@@ -283,6 +351,7 @@ if (api_method() === 'POST') {
                     'direction'   => $isOutflow ? 'outflow' : 'inflow',
                     'memo'        => 'split categorize - ' . ($line['description'] ?? ''),
                     'split_count' => count($splits),
+                    'dimensions'  => ['legal_entity' => $postingEntityId],
                     'lines'       => $payloadLines,
                 ],
             ], (int) ($ctx['user']['id'] ?? 0));
@@ -298,6 +367,7 @@ if (api_method() === 'POST') {
         } else {
             try {
                 $res = accountingPostJe($tenantId, [
+                    'entity_id'      => $postingEntityId,
                     'posting_date'   => (string) $line['posted_date'],
                     'memo'           => 'split categorize - ' . ($line['description'] ?? ''),
                     'currency'       => 'USD',
@@ -431,14 +501,25 @@ if (api_method() === 'POST') {
     // the legacy direct JE posting path when the engine returns
     // 'ignored' (no rule seeded) or throws — same pattern as ap.bill.approved.
     require_once __DIR__ . '/../../../core/posting_engine/process.php';
+    try {
+        $postingEntityId = _treasuryStatementEntityId(
+            $pdo,
+            $tenantId,
+            $type,
+            (int) $line[$col]
+        );
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
+    $postingDimensions = ['legal_entity' => $postingEntityId];
     $payloadLines = [
-        ['account_id' => $debitId,  'debit' => $abs, 'credit' => 0,    'description' => $memo],
-        ['account_id' => $creditId, 'debit' => 0,    'credit' => $abs, 'description' => $memo],
+        ['account_id' => $debitId,  'debit' => $abs, 'credit' => 0,    'description' => $memo, 'dims' => $postingDimensions],
+        ['account_id' => $creditId, 'debit' => 0,    'credit' => $abs, 'description' => $memo, 'dims' => $postingDimensions],
     ];
     $eventResult = null; $eventError = null;
     try {
         $eventResult = accountingProcessEvent($tenantId, [
-            'entity_id'        => 0,
+            'entity_id'        => $postingEntityId,
             'event_type'       => 'treasury.bank_transaction.categorized',
             'source_module'    => 'treasury_feed',
             'source_record_id' => ($type === 'deposit' ? 'bank_line:' : 'liab_line:') . $lineId,
@@ -451,6 +532,7 @@ if (api_method() === 'POST') {
                 'memo'                    => $memo,
                 'counterpart_account_id'  => $counterId,
                 'split_count'             => 1,
+                'dimensions'              => $postingDimensions,
                 'lines'                   => $payloadLines,
             ],
         ], (int) ($ctx['user']['id'] ?? 0));
@@ -475,6 +557,7 @@ if (api_method() === 'POST') {
         // fallback fires in production before we hard-error this path.
         try {
             $res = accountingPostJe($tenantId, [
+                'entity_id'      => $postingEntityId,
                 'posting_date'   => (string) $line['posted_date'],
                 'memo'           => $memo,
                 'currency'       => 'USD',
@@ -483,8 +566,8 @@ if (api_method() === 'POST') {
                 'source_ref_id'  => $lineId,
                 'idempotency_key'=> "treasury_feed:{$type}:{$lineId}",
                 'lines'          => [
-                    ['account_id' => $debitId,  'debit'  => $abs, 'credit' => 0,    'memo' => $memo],
-                    ['account_id' => $creditId, 'debit'  => 0,    'credit' => $abs, 'memo' => $memo],
+                    ['account_id' => $debitId,  'debit'  => $abs, 'credit' => 0,    'memo' => $memo, 'dims' => $postingDimensions],
+                    ['account_id' => $creditId, 'debit'  => 0,    'credit' => $abs, 'memo' => $memo, 'dims' => $postingDimensions],
                 ],
             ], (int) ($ctx['user']['id'] ?? 0), true);
         } catch (\Throwable $e) {

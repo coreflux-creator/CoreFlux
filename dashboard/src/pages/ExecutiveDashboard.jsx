@@ -344,6 +344,7 @@ export default function ExecutiveDashboard({ session, bandFilter = null }) {
                   s.headcount?.contractors_c2c  && `${s.headcount.contractors_c2c} C2C`,
                   s.headcount?.contractors_1099 && `${s.headcount.contractors_1099} 1099`,
                   s.headcount?.perm             && `${s.headcount.perm} perm`,
+                  s.active_referral_placements  && `${s.active_referral_placements} referral placements`,
                 ].filter(Boolean).join(' · ') || '—'}
                 href="/modules/placements/list?status=active"
                 testid="kpi-headcount" />

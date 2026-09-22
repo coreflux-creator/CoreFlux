@@ -578,7 +578,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
 
         $personName = trim((string) (($placement['first_name'] ?? '') . ' ' . ($placement['last_name'] ?? '')));
         $engagement = strtolower((string) ($placement['engagement_type'] ?? ''));
-        if ($personName !== '' && $engagement !== 'c2c') {
+        if ($personName !== '' && !in_array($engagement, ['c2c', 'referral'], true)) {
             $workerChannel = in_array($engagement, ['w2','temp_to_perm','internal'], true)
                 ? 'payroll'
                 : 'ap';
@@ -1083,6 +1083,12 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
     $engagement = (string) ($placement['engagement_type'] ?? '');
     $requiresLaborPayee = in_array($engagement, ['w2','1099','c2c','temp_to_perm','internal'], true);
     $requiresBilling = $engagement !== 'internal';
+    $referralPayables = array_values(array_filter($payables, static fn(array $r): bool =>
+        $r['role'] === 'referrer'
+        && $r['fee_basis'] === 'per_hour'
+        && (float) ($r['fee_flat'] ?? 0) > 0
+        && in_array($r['settlement_channel'], ['ap', 'payroll'], true)
+    ));
     $unresolved = array_values(array_filter($payables, static function (array $r) use ($tenantId): bool {
         if ($r['settlement_channel'] === 'ap') return empty($r['ap_vendor_id']);
         if ($r['settlement_channel'] === 'payroll') {
@@ -1135,6 +1141,8 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         'missing_labor_payee' => $requiresLaborPayee && count($laborPayables) === 0,
         'multiple_labor_payees' => count($laborPayables) > 1,
         'missing_c2c_vendor' => ($placement['engagement_type'] ?? '') === 'c2c' && !$hasC2cVendor,
+        'missing_referral_payee' => $engagement === 'referral' && count($referralPayables) === 0,
+        'multiple_referral_payees' => $engagement === 'referral' && count($referralPayables) > 1,
         'missing_billing_cycle' => $requiresBilling && count($missingArSchedules) > 0,
         'missing_ap_cycle' => count($missingApSchedules) > 0,
         'missing_payroll_cycle' => count($missingPayrollSchedules) > 0,
@@ -1155,6 +1163,8 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
         && !$readiness['missing_labor_payee']
         && !$readiness['multiple_labor_payees']
         && !$readiness['missing_c2c_vendor']
+        && !$readiness['missing_referral_payee']
+        && !$readiness['multiple_referral_payees']
         && !$readiness['missing_billing_cycle']
         && !$readiness['missing_ap_cycle']
         && !$readiness['missing_payroll_cycle']

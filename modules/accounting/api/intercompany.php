@@ -201,7 +201,7 @@ if ($method === 'POST' && $action === 'xtenant_propose') {
     foreach ([
         'from_account_code','to_account_code','from_offset_code','to_offset_code',
         'from_currency','to_currency','fx_rate','posting_date',
-        'intercompany_ref','ttl_days','target_entity_id',
+        'intercompany_ref','ttl_days','source_entity_id','target_entity_id',
     ] as $k) {
         if (isset($body[$k]) && $body[$k] !== '' && $body[$k] !== null) $opts[$k] = $body[$k];
     }
