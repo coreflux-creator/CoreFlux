@@ -33,6 +33,12 @@ $assert('events carry dynamic balanced lines',
     && str_contains($posting, "'account_code'")
     && str_contains($posting, "'debit'")
     && str_contains($posting, "'credit'"));
+$assert('payroll lines carry worker, organization, assignment, and legal-entity dimensions',
+    str_contains($posting, "'worker' =>")
+    && str_contains($posting, "'department' =>")
+    && str_contains($posting, "'branch' =>")
+    && str_contains($posting, '$assignmentDimensions[\'legal_entity\']')
+    && substr_count($posting, "'dims' => \$dimensions") >= 2);
 $assert('default rules register both payroll event types',
     str_contains($defaults, "'payroll.run.approved'")
     && str_contains($defaults, "'payroll.cash.disbursed'")

@@ -5,7 +5,7 @@ import { useApi } from '../../../dashboard/src/lib/api';
  * Staffing → Profitability → Worker Mix.
  *
  * Stacked bar chart: weekly hours (or cost) broken down by engagement_type
- * (W2 / 1099 / C2C / internal / other). Plus a flag list of workers seen
+ * (W2 / 1099 / C2C / internal / referral / other). Plus a flag list of workers seen
  * on placements of more than one engagement_type — potential
  * misclassification / 1099-K/W2 reissue triggers.
  */
@@ -14,8 +14,10 @@ const COLORS = {
   c1099:    { label: '1099',     color: '#f59e0b' },
   c2c:      { label: 'C2C',      color: '#a855f7' },
   internal: { label: 'Internal', color: '#10b981' },
+  referral: { label: 'Referral', color: '#0d9488' },
   other:    { label: 'Other',    color: '#94a3b8' },
 };
+const MIX_KEYS = ['w2', 'c1099', 'c2c', 'internal', 'referral', 'other'];
 
 export default function WorkerMix() {
   const [metric, setMetric] = useState('cost'); // 'cost' or 'hours'
@@ -36,10 +38,10 @@ export default function WorkerMix() {
         <div style={{ flex: 1, minWidth: 240 }}>
           <h1 style={{ margin: 0, fontSize:22, fontWeight:700,
                        color:'#0f172a', letterSpacing:'-0.01em' }}>
-            Worker Classification Mix
+            Engagement Mix
           </h1>
           <p style={{ color:'#64748b', margin:'4px 0 0', fontSize:13 }}>
-            Labor {metric} composition by engagement type · flags workers with mixed classifications across the window.
+            Labor and referral {metric} by engagement type. Worker classification changes are flagged separately.
           </p>
         </div>
         <div style={{ display:'flex', gap:8 }}>
@@ -95,12 +97,9 @@ export default function WorkerMix() {
 }
 
 function StackedBars({ rows, metric }) {
-  const keys = ['w2','c1099','c2c','internal','other'];
-  const fieldOf = (k) => k + '_' + metric;        // e.g. w2_cost, w2_hours
-
   const { yMax } = useMemo(() => {
     const max = rows.reduce((m, r) => {
-      const tot = keys.reduce((s, k) => s + (parseFloat(r[fieldOf(k)]) || 0), 0);
+      const tot = MIX_KEYS.reduce((s, k) => s + (parseFloat(r[`${k}_${metric}`]) || 0), 0);
       return Math.max(m, tot);
     }, 0);
     return { yMax: Math.max(max, 1) };
@@ -133,8 +132,8 @@ function StackedBars({ rows, metric }) {
           let yTop = H - pad.b;
           return (
             <g key={r.week_start}>
-              {keys.map(k => {
-                const v = parseFloat(r[fieldOf(k)]) || 0;
+              {MIX_KEYS.map(k => {
+                const v = parseFloat(r[`${k}_${metric}`]) || 0;
                 if (v <= 0) return null;
                 const segH = (v / yMax) * (H - pad.t - pad.b);
                 yTop -= segH;
@@ -161,8 +160,7 @@ function StackedBars({ rows, metric }) {
 }
 
 function MixLegend({ rows, metric }) {
-  const keys = ['w2','c1099','c2c','internal','other'];
-  const totals = keys.map(k => ({
+  const totals = MIX_KEYS.map(k => ({
     k, label: COLORS[k].label, color: COLORS[k].color,
     value: rows.reduce((s, r) => s + (parseFloat(r[k + '_' + metric]) || 0), 0)
   }));

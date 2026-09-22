@@ -162,6 +162,8 @@ foreach ([
     'billing_invoice_totals', 'ap_bill_totals', 'payroll_run_totals',
     'bank_match_integrity', 'reconciliation_balance_integrity',
     'active_placement_rates', 'active_placement_receivables',
+    'active_placement_payable_parties', 'active_contractor_vendor_linkage',
+    'active_placement_dimension_coverage',
 ] as $check) {
     $assert("integrity audit includes {$check}", str_contains($integrity, "'{$check}'"));
 }

@@ -83,7 +83,7 @@ $tt = (string) file_get_contents("{$ROOT}/api/treasury_transfers.php");
 $assert('parses',                             $lint("{$ROOT}/api/treasury_transfers.php"));
 $assert('create rejects same src+dst',        strpos($tt, 'source and destination cannot be the same') !== false);
 $assert('detects intercompany via entity mismatch',
-    strpos($tt, "\$srcEntity !== \$dstEntity) ? 'intercompany' : 'internal'") !== false);
+    strpos($tt, "\$srcEntity !== \$dstEntity ? 'intercompany' : 'internal'") !== false);
 $assert('execute internal emits treasury.transfer.completed',
     strpos($tt, "'treasury.transfer.completed'") !== false);
 $assert('execute intercompany emits treasury.intercompany.transfer.completed',

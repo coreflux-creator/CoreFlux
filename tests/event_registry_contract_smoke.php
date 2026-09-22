@@ -4,7 +4,7 @@
  *
  * Pins:
  *   • Migration 036_event_registry.sql creates the right shape.
- *   • Seed defines 52 canonical events + 3 deprecated aliases.
+ *   • Seed defines 53 canonical events + 2 deprecated aliases.
  *   • Helper library exposes the public surface we depend on.
  *   • posting_engine/process.php validates every emit against the registry.
  *   • Every event_type referenced by an existing emit site in the codebase
@@ -32,8 +32,8 @@ echo "\nSeed file\n";
 require_once __DIR__ . '/../core/seeds/event_registry_seed.php';
 $rows    = eventRegistrySeedRows();
 $aliases = eventRegistryAliasRows();
-$a('seed defines exactly 52 canonical events', count($rows) === 52);
-$a('seed defines exactly 3 deprecated aliases', count($aliases) === 3);
+$a('seed defines exactly 53 canonical events', count($rows) === 53);
+$a('seed defines exactly 2 deprecated aliases', count($aliases) === 2);
 $a('every seed row is a 9-tuple', (function () use ($rows) {
     foreach ($rows as $r) if (count($r) !== 9) return false; return true;
 })());
@@ -43,7 +43,7 @@ $canonicalNames = array_column($rows, 0);
 foreach ([
     'ar.invoice.issued','ar.payment.received','ar.cash.applied','ar.writeoff.recorded',
     'ap.bill.approved','ap.payment.executed','ap.payment.cleared','ap.po.issued',
-    'treasury.transfer.completed','treasury.bank_transaction.matched','treasury.bank_fee.detected','treasury.fx.revaluation.recorded',
+    'treasury.payment.executed','treasury.transfer.completed','treasury.bank_transaction.matched','treasury.bank_fee.detected','treasury.fx.revaluation.recorded',
     'payroll.run.approved','payroll.cash.disbursed','payroll.tax_liability.paid',
     'staffing.worker_hours.approved','staffing.worker.classification_changed',
     'fixed_asset.depreciation.recorded','tax.sales_tax.collected',
@@ -57,8 +57,9 @@ $a('alias billing.invoice.sent → ar.invoice.issued',
     in_array(['billing.invoice.sent','ar.invoice.issued'], $aliases, true));
 $a('alias billing.payment.received → ar.payment.received',
     in_array(['billing.payment.received','ar.payment.received'], $aliases, true));
-$a('alias treasury.payment.executed → ap.payment.executed',
-    in_array(['treasury.payment.executed','ap.payment.executed'], $aliases, true));
+$a('treasury payment is canonical rather than an AP alias',
+    in_array('treasury.payment.executed', $canonicalNames, true)
+    && !in_array(['treasury.payment.executed','ap.payment.executed'], $aliases, true));
 
 // Sanity: each alias points at a real canonical name.
 foreach ($aliases as [$legacy, $canonical]) {

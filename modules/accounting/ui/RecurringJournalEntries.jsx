@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import PlacementPicker from '../../placements/ui/PlacementPicker';
+import { Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 
 /**
  * Recurring journal entries module.
@@ -108,22 +111,39 @@ function List() {
 function pillBg(s) { return { active: '#d1fae5', paused: '#fef3c7', ended: '#f3f4f6' }[s] || '#f3f4f6'; }
 function pillFg(s) { return { active: '#065f46', paused: '#92400e', ended: '#374151' }[s] || '#374151'; }
 
-const newLine = () => ({ account_code: '', debit: '', credit: '', description: '' });
+const ASSIGNMENT_DIMENSION_KEYS = [
+  'client', 'placement', 'worker', 'job', 'recruiter', 'account_manager',
+  'branch', 'service_line', 'work_state', 'wc_class', 'department', 'cost_center',
+  'vendor',
+];
+
+const newLine = () => ({
+  account_code: '', debit: '', credit: '', description: '', dims: {},
+  assignment_entity_id: null,
+});
 
 function Editor({ edit }) {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { activeEntityId, entities, loaded: entitiesLoaded } = useActiveEntity();
   const [accounts, setAccounts] = useState([]);
-  const [form, setForm] = useState({ name: '', cadence: 'monthly', next_run_date: new Date().toISOString().slice(0,10), end_date: '', auto_post: 1, memo: '' });
+  const [dimensions, setDimensions] = useState([]);
+  const [form, setForm] = useState({ entity_id: '', name: '', cadence: 'monthly', next_run_date: new Date().toISOString().slice(0,10), end_date: '', auto_post: 1, memo: '' });
   const [lines, setLines] = useState([newLine(), newLine()]);
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
+  const [expandedLine, setExpandedLine] = useState(null);
+  const [assignmentStatus, setAssignmentStatus] = useState({});
 
   useEffect(() => {
     api.get('/modules/accounting/api/accounts.php').then(d => setAccounts(d?.rows || d?.accounts || []));
+    api.get('/modules/accounting/api/dimensions.php').then(d => {
+      setDimensions((d?.dimensions || []).filter(dimension => Number(dimension.active) === 1 && dimension.dim_key !== 'legal_entity'));
+    }).catch(() => setDimensions([]));
     if (edit && id) {
       api.get(`/modules/accounting/api/recurring_journal_entries.php?id=${id}`).then(d => {
         if (d?.template) setForm({
+          entity_id: d.template.entity_id ? String(d.template.entity_id) : '',
           name: d.template.name || '',
           cadence: d.template.cadence || 'monthly',
           next_run_date: d.template.next_run_date || '',
@@ -131,29 +151,151 @@ function Editor({ edit }) {
           auto_post: Number(d.template.auto_post) === 1 ? 1 : 0,
           memo: d.template.memo || '',
         });
-        if (d?.lines?.length) setLines(d.lines.map(l => ({ ...l, debit: String(l.debit), credit: String(l.credit) })));
+        if (d?.lines?.length) setLines(d.lines.map(l => {
+          const dims = parseDims(l.dims || l.dim_json);
+          const storedLegalEntity = dims.legal_entity || null;
+          delete dims.legal_entity;
+          return {
+            ...l,
+            debit: Number(l.debit) > 0 ? String(l.debit) : '',
+            credit: Number(l.credit) > 0 ? String(l.credit) : '',
+            dims,
+            assignment_entity_id: dims.placement ? (storedLegalEntity || d.template.entity_id || null) : null,
+          };
+        }));
       });
     }
   }, [edit, id]);
 
+  useEffect(() => {
+    if (!entitiesLoaded || form.entity_id) return;
+    const fallback = activeEntityId || (entities.length === 1 ? entities[0]?.id : null);
+    if (fallback) setForm(current => ({ ...current, entity_id: String(fallback) }));
+  }, [activeEntityId, entities, entitiesLoaded, form.entity_id]);
+
   const totals = lines.reduce((acc, l) => ({ debit: acc.debit + (parseFloat(l.debit) || 0), credit: acc.credit + (parseFloat(l.credit) || 0) }), { debit: 0, credit: 0 });
   const balanced = Math.abs(totals.debit - totals.credit) < 0.005 && totals.debit > 0;
+
+  const updateLineDimension = (index, key, value) => {
+    setLines(current => {
+      const next = [...current];
+      const dims = { ...(next[index]?.dims || {}) };
+      if (value === '') delete dims[key];
+      else dims[key] = value;
+      next[index] = { ...next[index], dims };
+      return next;
+    });
+  };
+
+  const applyAssignmentDimensions = async (index, placement) => {
+    if (!placement) {
+      setLines(current => {
+        const next = [...current];
+        const dims = { ...(next[index]?.dims || {}) };
+        ASSIGNMENT_DIMENSION_KEYS.forEach(key => delete dims[key]);
+        next[index] = { ...next[index], dims, assignment_entity_id: null };
+        return next;
+      });
+      setAssignmentStatus(current => ({ ...current, [index]: null }));
+      return;
+    }
+    if (!form.entity_id) {
+      setAssignmentStatus(current => ({ ...current, [index]: { error: true, message: 'Choose the legal entity first.' } }));
+      return;
+    }
+    setAssignmentStatus(current => ({ ...current, [index]: { loading: true, message: 'Loading assignment context…' } }));
+    try {
+      const params = new URLSearchParams({
+        placement_id: String(placement.id),
+        as_of: form.next_run_date,
+        entity_id: String(form.entity_id),
+      });
+      const data = await api.get(`/modules/staffing/api/assignment_dimensions.php?${params.toString()}`);
+      const inherited = { ...(data?.dimensions || {}) };
+      delete inherited.legal_entity;
+      setLines(current => {
+        const next = [...current];
+        const preserved = { ...(next[index]?.dims || {}) };
+        ASSIGNMENT_DIMENSION_KEYS.forEach(key => delete preserved[key]);
+        if (accountNeedsVendor(next[index]?.account_code) && data?.vendor_dimension) {
+          inherited.vendor = data.vendor_dimension;
+        }
+        next[index] = {
+          ...next[index],
+          dims: { ...preserved, ...inherited, placement: placement.id },
+          assignment_entity_id: data?.resolved_entity_id || null,
+        };
+        return next;
+      });
+      const missing = recurringRelevantMissing(data?.missing || [], accountNeedsVendor(lines[index]?.account_code));
+      setAssignmentStatus(current => ({
+        ...current,
+        [index]: {
+          warning: missing.length > 0,
+          message: missing.length > 0
+            ? `Assignment master is missing: ${missing.map(key => String(key).replaceAll('_', ' ')).join(', ')}.`
+            : 'Assignment context will refresh on every run.',
+        },
+      }));
+    } catch (requestError) {
+      setAssignmentStatus(current => ({
+        ...current,
+        [index]: { error: true, message: requestError.message || String(requestError) },
+      }));
+    }
+  };
+
+  const refreshAssignmentDimensions = async () => Promise.all(lines.map(async (line, index) => {
+    const placementId = line.dims?.placement;
+    if (!placementId) return line;
+    const params = new URLSearchParams({
+      placement_id: String(placementId),
+      as_of: form.next_run_date,
+      entity_id: String(form.entity_id),
+    });
+    const data = await api.get(`/modules/staffing/api/assignment_dimensions.php?${params.toString()}`);
+    if (data?.resolved_entity_id && Number(data.resolved_entity_id) !== Number(form.entity_id)) {
+      throw new Error(`Line ${index + 1}: assignment PL-${placementId} belongs to a different legal entity.`);
+    }
+    const needsVendor = accountNeedsVendor(line.account_code);
+    const missing = recurringRelevantMissing(data?.missing || [], needsVendor);
+    if (missing.length > 0) {
+      throw new Error(`Line ${index + 1}: assignment PL-${placementId} is missing ${missing.map(key => String(key).replaceAll('_', ' ')).join(', ')}.`);
+    }
+    const inherited = { ...(data?.dimensions || {}) };
+    delete inherited.legal_entity;
+    const preserved = { ...(line.dims || {}) };
+    ASSIGNMENT_DIMENSION_KEYS.forEach(key => delete preserved[key]);
+    if (needsVendor) {
+      if (!data?.vendor_dimension) throw new Error(`Line ${index + 1}: assignment PL-${placementId} has no payable vendor.`);
+      inherited.vendor = data.vendor_dimension;
+    }
+    return {
+      ...line,
+      dims: { ...preserved, ...inherited, placement: placementId },
+      assignment_entity_id: data?.resolved_entity_id || null,
+    };
+  }));
 
   const submit = async () => {
     setBusy(true); setErr(null);
     try {
+      if (!form.entity_id) throw new Error('Choose the legal entity for this recurring entry.');
+      const submissionLines = await refreshAssignmentDimensions();
+      setLines(submissionLines);
       const payload = {
         ...form,
+        entity_id: Number(form.entity_id),
         end_date: form.end_date || null,
-        lines: lines.filter(l => l.account_code && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0)).map(l => ({
+        lines: submissionLines.filter(l => l.account_code && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0)).map(l => ({
           account_code: l.account_code,
           debit: parseFloat(l.debit) || 0, credit: parseFloat(l.credit) || 0,
           description: l.description || null,
+          dims: l.dims || {},
         })),
       };
       if (edit && id) {
         await api.put(`/modules/accounting/api/recurring_journal_entries.php?id=${id}`, payload);
-        await api.post(`/modules/accounting/api/recurring_journal_entries.php?action=replace_lines&id=${id}`, { lines: payload.lines });
         navigate('/modules/accounting/recurring');
       } else {
         await api.post('/modules/accounting/api/recurring_journal_entries.php', payload);
@@ -169,6 +311,21 @@ function Editor({ edit }) {
       <h2 style={{ marginTop: 8 }}>{edit ? 'Edit' : 'New'} recurring template</h2>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, maxWidth: 900 }}>
+        <label style={{ fontSize: 13 }}>Legal entity
+          <select
+            className="input"
+            value={form.entity_id}
+            onChange={(e) => setForm({ ...form, entity_id: e.target.value })}
+            data-testid="accounting-recurring-entity"
+            style={{ display: 'block', width: '100%', marginTop: 4 }}
+            required
+          >
+            <option value="">— select entity —</option>
+            {entities.filter(entity => Number(entity.active ?? 1) === 1).map(entity => (
+              <option key={entity.id} value={entity.id}>{entity.legal_name || entity.code}{entity.code && entity.legal_name ? ` (${entity.code})` : ''}</option>
+            ))}
+          </select>
+        </label>
         <label style={{ fontSize: 13 }}>Name<input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-recurring-name" required style={{ display: 'block', width: '100%', marginTop: 4 }} /></label>
         <label style={{ fontSize: 13 }}>Cadence
           <select className="input" value={form.cadence} onChange={(e) => setForm({ ...form, cadence: e.target.value })} data-testid="accounting-recurring-cadence" style={{ display: 'block', width: '100%', marginTop: 4 }}>
@@ -188,10 +345,11 @@ function Editor({ edit }) {
 
       <h3 style={{ marginTop: 24 }}>Lines</h3>
       <table className="data-table" data-testid="accounting-recurring-lines">
-        <thead><tr><th>Account</th><th>Description</th><th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th><th></th></tr></thead>
+        <thead><tr><th>Account</th><th>Description</th><th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th><th>Dimensions</th><th></th></tr></thead>
         <tbody>
           {lines.map((l, i) => (
-            <tr key={i}>
+            <React.Fragment key={i}>
+            <tr>
               <td>
                 <select className="input" value={l.account_code} onChange={(e) => upd(i, 'account_code', e.target.value)} data-testid={`accounting-recurring-line-account-${i}`}>
                   <option value="">— select —</option>
@@ -201,25 +359,104 @@ function Editor({ edit }) {
               <td><input className="input" value={l.description || ''} onChange={(e) => upd(i, 'description', e.target.value)} data-testid={`accounting-recurring-line-desc-${i}`} /></td>
               <td><input className="input" type="number" step="0.01" value={l.debit}  onChange={(e) => upd(i, 'debit', e.target.value)}  data-testid={`accounting-recurring-line-debit-${i}`}  style={{ textAlign: 'right' }} /></td>
               <td><input className="input" type="number" step="0.01" value={l.credit} onChange={(e) => upd(i, 'credit', e.target.value)} data-testid={`accounting-recurring-line-credit-${i}`} style={{ textAlign: 'right' }} /></td>
-              <td><button className="btn btn--ghost" onClick={() => setLines(lines.filter((_, j) => j !== i))} data-testid={`accounting-recurring-line-remove-${i}`}>×</button></td>
+              <td>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--icon"
+                  onClick={() => setExpandedLine(expandedLine === i ? null : i)}
+                  data-testid={`accounting-recurring-line-dimensions-${i}`}
+                  aria-expanded={expandedLine === i}
+                  aria-label={`Edit dimensions for line ${i + 1}`}
+                  title={`Edit dimensions for line ${i + 1}`}
+                >
+                  <SlidersHorizontal size={15} aria-hidden="true" />
+                  <span style={{ fontSize: 11 }}>{dimensionCount(l.dims)}</span>
+                </button>
+              </td>
+              <td><button type="button" className="btn btn--ghost btn--icon" onClick={() => removeLine(i)} data-testid={`accounting-recurring-line-remove-${i}`} aria-label={`Remove line ${i + 1}`} title={`Remove line ${i + 1}`}><Trash2 size={15} aria-hidden="true" /></button></td>
             </tr>
+            {expandedLine === i && (
+              <tr data-testid={`accounting-recurring-line-dimensions-panel-${i}`}>
+                <td colSpan={6} style={{ background: 'var(--cf-surface-subtle, #f7fbff)', borderLeft: '3px solid var(--cf-primary, #1683ff)', padding: '14px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <SlidersHorizontal size={15} aria-hidden="true" />
+                    <strong style={{ fontSize: 13 }}>Line {i + 1} dimensions</strong>
+                    <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>Assignment context refreshes on each run date.</span>
+                  </div>
+                  {dimensions.length === 0 ? (
+                    <p style={{ margin: 0, fontSize: 13, color: 'var(--cf-text-secondary)' }}>No additional dimensions are configured.</p>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
+                      {dimensions.map(dimension => (
+                        <label key={dimension.id || dimension.dim_key} style={{ minWidth: 0, fontSize: 12 }}>
+                          <span style={{ display: 'block', color: 'var(--cf-text-secondary)', marginBottom: 4 }}>{dimension.label}</span>
+                          {dimension.dim_key === 'placement' ? (
+                            <div>
+                              <PlacementPicker
+                                value={l.dims?.placement || ''}
+                                onChange={placement => applyAssignmentDimensions(i, placement)}
+                                placeholder="Search all assignments"
+                                testId={`accounting-recurring-line-${i}-dimension-placement`}
+                              />
+                              {assignmentStatus[i]?.message ? (
+                                <span style={{
+                                  display: 'block', marginTop: 4, fontSize: 11,
+                                  color: assignmentStatus[i].error
+                                    ? '#b42318'
+                                    : (assignmentStatus[i].warning ? '#9a6700' : 'var(--cf-text-secondary)'),
+                                }}>
+                                  {assignmentStatus[i].message}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : dimension.dim_key === 'counterparty_entity' ? (
+                            <select
+                              className="input"
+                              value={l.dims?.[dimension.dim_key] || ''}
+                              onChange={event => updateLineDimension(i, dimension.dim_key, event.target.value)}
+                              data-testid={`accounting-recurring-line-${i}-dimension-${dimension.dim_key}`}
+                              style={{ width: '100%' }}
+                            >
+                              <option value="">— none —</option>
+                              {entities.filter(entity => Number(entity.active ?? 1) === 1).map(entity => (
+                                <option key={entity.id} value={entity.id}>{entity.legal_name || entity.code}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              className="input"
+                              value={l.dims?.[dimension.dim_key] || ''}
+                              onChange={event => updateLineDimension(i, dimension.dim_key, event.target.value)}
+                              data-testid={`accounting-recurring-line-${i}-dimension-${dimension.dim_key}`}
+                              placeholder={dimensionPlaceholder(dimension)}
+                              style={{ width: '100%' }}
+                            />
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </td>
+              </tr>
+            )}
+            </React.Fragment>
           ))}
           <tr>
             <td colSpan={2} style={{ fontWeight: 600 }}>Totals</td>
             <td style={{ textAlign: 'right', fontWeight: 600 }} data-testid="accounting-recurring-total-debit">{totals.debit.toFixed(2)}</td>
             <td style={{ textAlign: 'right', fontWeight: 600 }} data-testid="accounting-recurring-total-credit">{totals.credit.toFixed(2)}</td>
-            <td></td>
+            <td></td><td></td>
           </tr>
         </tbody>
       </table>
-      <button className="btn btn--ghost" onClick={() => setLines([...lines, newLine()])} data-testid="accounting-recurring-add-line" style={{ marginTop: 8 }}>+ Add line</button>
+      <button type="button" className="btn btn--ghost" onClick={() => setLines([...lines, newLine()])} data-testid="accounting-recurring-add-line" style={{ marginTop: 8 }}><Plus size={15} aria-hidden="true" />Add line</button>
 
       <p style={{ marginTop: 16, fontSize: 13, color: balanced ? '#065f46' : '#991b1b' }} data-testid="accounting-recurring-balance-status">
         {balanced ? '✓ Lines balance.' : `Lines must balance and total > 0. Diff: ${(totals.debit - totals.credit).toFixed(2)}`}
       </p>
       {err && <p className="error" data-testid="accounting-recurring-editor-error">{err}</p>}
       <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-        <button className="btn btn--primary" onClick={submit} disabled={busy || !balanced || !form.name} data-testid="accounting-recurring-save">{busy ? 'Saving…' : 'Save template'}</button>
+        <button className="btn btn--primary" onClick={submit} disabled={busy || !balanced || !form.name || !form.entity_id} data-testid="accounting-recurring-save">{busy ? 'Saving…' : 'Save template'}</button>
       </div>
     </section>
   );
@@ -227,4 +464,44 @@ function Editor({ edit }) {
   function upd(i, field, val) {
     const next = [...lines]; next[i] = { ...next[i], [field]: val }; setLines(next);
   }
+
+  function removeLine(index) {
+    setLines(current => current.filter((_, lineIndex) => lineIndex !== index));
+    setExpandedLine(current => {
+      if (current === index) return null;
+      return current !== null && current > index ? current - 1 : current;
+    });
+    setAssignmentStatus(current => Object.fromEntries(
+      Object.entries(current)
+        .filter(([key]) => Number(key) !== index)
+        .map(([key, value]) => [Number(key) > index ? Number(key) - 1 : Number(key), value])
+    ));
+  }
+}
+
+function parseDims(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return { ...value };
+  try { return JSON.parse(value) || {}; }
+  catch { return {}; }
+}
+
+function dimensionCount(dims) {
+  return Object.entries(dims || {}).filter(([key, value]) => key !== 'legal_entity' && value !== null && String(value).trim() !== '').length;
+}
+
+function dimensionPlaceholder(dimension) {
+  if (dimension.reference_table === 'people') return 'Person ID';
+  if (dimension.reference_table === 'companies') return 'Company ID';
+  if (dimension.reference_table === 'users') return 'User ID';
+  if (dimension.reference_table) return 'Reference ID';
+  return `Enter ${String(dimension.label || dimension.dim_key).toLowerCase()}`;
+}
+
+function accountNeedsVendor(accountCode) {
+  return ['2000', '2050', '5010', '5070'].includes(String(accountCode || '').trim());
+}
+
+function recurringRelevantMissing(missing, needsVendor) {
+  return (missing || []).filter(key => needsVendor || !['vendor', 'vendor_ap_link'].includes(key));
 }

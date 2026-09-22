@@ -70,7 +70,7 @@ foreach ($endpoints as $f) {
 }
 
 // ----------------------------------------------------------------- exec_dashboard.php shares the Placements catalog scope
-$execSrc = file_get_contents('/app/api/exec_dashboard.php');
+$execSrc = file_get_contents(__DIR__ . '/../api/exec_dashboard.php');
 $a('exec_dashboard.php resolves placement KPIs through the Placements catalog',
    str_contains($execSrc, "effectiveTenantIdForModule('placements', \$tenantId) ?? \$tenantId"));
 $a('exec_dashboard.php does not use the unrelated staffing module scope',

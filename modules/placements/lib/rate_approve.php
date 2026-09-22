@@ -453,6 +453,8 @@ if (!function_exists('placementsRequireActiveReady')) {
                 'missing_labor_payee' => 'primary labor payee',
                 'multiple_labor_payees' => 'multiple primary labor payees',
                 'missing_c2c_vendor' => 'C2C corporate vendor',
+                'missing_referral_payee' => 'referral payout vendor and hourly rate',
+                'multiple_referral_payees' => 'one referral payout vendor',
                 'missing_billing_cycle' => 'client billing frequency',
                 'missing_ap_cycle' => 'vendor payment frequency',
                 'missing_payroll_cycle' => 'payroll frequency',

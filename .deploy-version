@@ -300,11 +300,25 @@ sentinels:
 - modules/billing/ui/DunningQueue.jsx
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
+- modules/accounting/migrations/030_staffing_system_account_map.sql
+- modules/accounting/migrations/031_recurring_je_dimensions.sql
+- modules/payroll/migrations/009_payroll_account_map_repair.sql
+- modules/placements/migrations/005_referral_engagement_type.sql
+- modules/placements/migrations/006_assignment_dimensions.sql
+- modules/staffing/api/assignment_dimensions.php
+- modules/staffing/lib/dimensions.php
+- graphql/router/supergraph.graphql
+- graphql/subgraph-coreflux/schema.graphql
+- graphql/subgraph-coreflux/src/index.ts
+- modules/time/migrations/010_referral_costs_view.sql
+- modules/treasury/migrations/007_liability_account_entity.sql
+- tests/staffing_dimensions_smoke.php
+- tests/treasury_dimension_integrity_smoke.php
 expected_bundle:
-- spa-assets/index-BMhzf05o.js
-- spa-assets/index-Dr0BVpUh.css
-- spa-assets/index-BocgpSPi.js
+- spa-assets/index-yem2tB8l.js
+- spa-assets/index-rzHK8Pva.css
 - spa-assets/index-CNYK7wlO.css
+- spa-assets/index-D1BJG75R.js
 last_known_features:
 - placements.economics.one_time_items
 - placements.economics.one_time_items.downstream_settlement

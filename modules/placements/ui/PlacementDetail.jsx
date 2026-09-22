@@ -6,6 +6,7 @@ import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 import SyncHistoryDrawer from '../../../dashboard/src/components/SyncHistoryDrawer';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import EntityPicker from '../../../dashboard/src/components/EntityPicker';
 import PlacementTimesheetsTab from './PlacementTimesheetsTab';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 
@@ -25,6 +26,7 @@ export default function PlacementDetail({ session }) {
   const commissions = data?.commissions ?? [];
   const referrals   = data?.referrals ?? [];
   const documents   = data?.documents ?? [];
+  const dimensionReadiness = data?.dimension_readiness ?? null;
 
   if (loading) return <p data-testid="placement-detail-loading">Loading…</p>;
   if (error)   return <p className="error" data-testid="placement-detail-error">Error: {error.message}</p>;
@@ -100,7 +102,7 @@ export default function PlacementDetail({ session }) {
 
       <Routes>
         <Route index             element={<Navigate to="overview" replace />} />
-        <Route path="overview"   element={<OverviewTab    placement={placement} reload={reload} />} />
+        <Route path="overview"   element={<OverviewTab    placement={placement} dimensionReadiness={dimensionReadiness} reload={reload} />} />
         <Route path="economics"  element={<EconomicsTab   placement={placement} chain={chain} rates={rates} commissions={commissions} referrals={referrals} reload={reload} />} />
         <Route path="chain"      element={<Navigate to="../economics" replace />} />
         <Route path="rates"      element={<Navigate to="../economics" replace />} />
@@ -153,6 +155,26 @@ function formatPhone(value) {
   return value;
 }
 
+function assignmentOwnerLabel(name, email) {
+  const cleanName = String(name || '').trim();
+  const cleanEmail = String(email || '').trim();
+  return cleanName && cleanEmail ? `${cleanName} (${cleanEmail})` : cleanName || cleanEmail || '—';
+}
+
+function ownerUserId(users, email, name = '') {
+  if (!email && !name) return '';
+  const match = email
+    ? users.find(user => String(user.email || '').toLowerCase() === String(email).toLowerCase())
+    : null;
+  return match ? String(match.id) : '__current__';
+}
+
+function ownerUserLabel(user) {
+  const name = String(user?.name || '').trim();
+  const email = String(user?.email || '').trim();
+  return name && email ? `${name} (${email})` : name || email || `User #${user?.id || ''}`;
+}
+
 /**
  * True when the placement was pulled in from JobDiva. The override
  * affordances only render for these — direct-CoreFlux placements don't
@@ -188,8 +210,11 @@ function OverridePill({ field }) {
   );
 }
 
-function OverviewTab({ placement, reload }) {
+function OverviewTab({ placement, dimensionReadiness, reload }) {
   const [editing, setEditing] = useState(false);
+  const entitiesLookup = useApi('/modules/accounting/api/entities.php');
+  const legalEntity = (entitiesLookup.data?.rows || entitiesLookup.data?.entities || [])
+    .find((entity) => Number(entity.id) === Number(placement.accounting_entity_id));
   if (editing) return <OverviewEdit placement={placement} onClose={() => { setEditing(false); reload(); }} />;
   const overrides = parseOverrides(placement);
   const fromJD    = isJobDivaSourced(placement);
@@ -205,7 +230,7 @@ function OverviewTab({ placement, reload }) {
 
   // Person fields surfaced from the new placementGet() JOIN. Operator
   // complaint was that the detail page "doesn't even have the NAME?!"
-  // — we now expose name, email, phone, classification, work auth,
+  // — we now expose name, email, phone, and work auth,
   // plus a clickable link back to the person profile.
   const personName = [placement.person_first_name, placement.person_last_name].filter(Boolean).join(' ').trim();
   const personLink = placement.person_id ? `/modules/people/${placement.person_id}` : null;
@@ -247,6 +272,33 @@ function OverviewTab({ placement, reload }) {
           <Item k="Due"              v={placement.due_date}         t="overview-due"         field="due_date" />
           <Item k="Worksite"         v={[placement.worksite_state, placement.worksite_country].filter(Boolean).join(', ') || null} t="overview-site" />
           <Item k="Remote policy"    v={humanizeValue(placement.remote_policy)} t="overview-remote" field="remote_policy" />
+        </div>
+      </section>
+
+      <section data-testid="tab-overview-section-dimensions" style={{ marginBottom: 'var(--cf-space-4)' }}>
+        <h4 style={{ marginBottom: 'var(--cf-space-2)', color: '#475569', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assignment reporting</h4>
+        {dimensionReadiness?.missing_labels?.length > 0 && (
+          <div className="alert alert--warn" data-testid="placement-dimension-readiness" style={{ marginBottom: 'var(--cf-space-3)' }}>
+            Reporting setup still needs: {dimensionReadiness.missing_labels.join(', ')}. Add these once here; time, billing, AP, and accounting will inherit them.
+          </div>
+        )}
+        {dimensionReadiness?.error && (
+          <div className="alert alert--error" data-testid="placement-dimension-readiness-error" style={{ marginBottom: 'var(--cf-space-3)' }}>
+            Reporting setup could not be checked: {dimensionReadiness.error}
+          </div>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
+          <Item k="Job / requisition" v={placement.staffing_job_title || (placement.staffing_job_id ? `Job #${placement.staffing_job_id}` : null)} t="overview-staffing-job" field="staffing_job_id" />
+          <Item k="Recruiter" v={assignmentOwnerLabel(placement.recruiter_name, placement.recruiter_email)} t="overview-recruiter" field="recruiter_email" />
+          <Item k="Account manager" v={assignmentOwnerLabel(placement.account_manager_name, placement.account_manager_email)} t="overview-account-manager" field="account_manager_email" />
+          <Item k="Branch / business unit" v={placement.branch} t="overview-branch" field="branch" />
+          <Item k="Service line" v={placement.service_line || humanizeValue(placement.engagement_type)} t="overview-service-line" field="service_line" />
+          <Item k="WC class" v={placement.workers_comp_class} t="overview-wc-class" field="workers_comp_class" />
+          <Item k="Department" v={placement.department} t="overview-department" field="department" />
+          <Item k="Cost center" v={placement.cost_center} t="overview-cost-center" field="cost_center" />
+          <Item k="Legal entity" v={legalEntity
+            ? `${legalEntity.legal_name || legalEntity.code}${legalEntity.code && legalEntity.legal_name ? ` (${legalEntity.code})` : ''}`
+            : (placement.accounting_entity_id ? `Entity #${placement.accounting_entity_id}` : null)} t="overview-legal-entity" field="accounting_entity_id" />
         </div>
       </section>
 
@@ -326,11 +378,25 @@ function OverviewEdit({ placement, onClose }) {
   // every clear_override call so the UI updates without a full reload.
   const [overrides, setOverrides] = useState(() => parseOverrides(placement));
   const fromJD = isJobDivaSourced(placement);
+  const jobsLookup = useApi('/modules/staffing/api/jobs.php?action=list&limit=500');
+  const staffingJobs = jobsLookup.data?.rows || [];
+  const usersLookup = useApi('/api/users.php');
+  const ownerUsers = (usersLookup.data?.users || usersLookup.data?.rows || [])
+    .filter(user => Number(user.is_active ?? 1) !== 0);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const setOwner = (prefix) => (e) => {
+    if (e.target.value === '__current__') return;
+    const selected = ownerUsers.find(user => String(user.id) === e.target.value);
+    setForm(current => ({
+      ...current,
+      [`${prefix}_name`]: selected?.name || '',
+      [`${prefix}_email`]: selected?.email || '',
+    }));
+  };
   const save = async () => {
     setSaving(true); setError(null);
     try {
-      const fields = ['title','status','start_date','end_date','due_date','end_client_name','worksite_state','worksite_country','remote_policy','engagement_type','notes','external_id'];
+      const fields = ['title','status','start_date','end_date','due_date','end_client_name','worksite_state','worksite_country','remote_policy','engagement_type','notes','external_id','staffing_job_id','branch','service_line','workers_comp_class','department','cost_center','accounting_entity_id','recruiter_name','recruiter_email','account_manager_name','account_manager_email'];
       const patch = {};
       for (const f of fields) if (form[f] !== placement[f]) patch[f] = form[f];
       if (!Object.keys(patch).length) { onClose(); return; }
@@ -399,7 +465,9 @@ function OverviewEdit({ placement, onClose }) {
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
         {[['title','Title'],['end_client_name','End client'],['external_id','External ID'],
-          ['worksite_state','State'],['worksite_country','Country (2)'],['notes','Notes']].map(([k, l]) => (
+          ['worksite_state','State'],['worksite_country','Country (2)'],['branch','Branch / business unit'],
+          ['service_line','Service line'],['workers_comp_class','WC class'],['department','Department'],
+          ['cost_center','Cost center'],['notes','Notes']].map(([k, l]) => (
           <label key={k} style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>
               {l}
@@ -409,6 +477,37 @@ function OverviewEdit({ placement, onClose }) {
             <RevertControl field={k} />
           </label>
         ))}
+        <label style={{ display: 'flex', flexDirection: 'column' }}>
+          <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>Job / requisition</span>
+          <select className="input" value={form.staffing_job_id ?? ''} onChange={set('staffing_job_id')} data-testid="overview-edit-staffing-job-id">
+            <option value="">— Not linked —</option>
+            {staffingJobs.map(job => <option key={job.id} value={job.id}>{job.external_id ? `${job.external_id} · ` : ''}{job.title}{job.client_name ? ` · ${job.client_name}` : ''}</option>)}
+          </select>
+        </label>
+        {[
+          ['recruiter', 'Recruiter', 'overview-edit-recruiter'],
+          ['account_manager', 'Account manager', 'overview-edit-account-manager'],
+        ].map(([prefix, label, testId]) => {
+          const email = form[`${prefix}_email`] || '';
+          const name = form[`${prefix}_name`] || '';
+          const selectedId = ownerUserId(ownerUsers, email, name);
+          return (
+            <label key={prefix} style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>{label}</span>
+              <select className="input" value={selectedId} onChange={setOwner(prefix)} data-testid={testId}>
+                <option value="">— Not assigned —</option>
+                {selectedId === '__current__' && <option value="__current__">{assignmentOwnerLabel(name, email)} (current)</option>}
+                {ownerUsers.map(user => <option key={user.id} value={user.id}>{ownerUserLabel(user)}</option>)}
+              </select>
+            </label>
+          );
+        })}
+        <EntityPicker
+          value={form.accounting_entity_id || null}
+          onChange={(value) => setForm({ ...form, accounting_entity_id: value || '' })}
+          label="Legal entity"
+          testId="overview-edit-accounting-entity-id"
+        />
         {[['start_date','Start'],['end_date','End'],['due_date','Due']].map(([k, l]) => (
           <label key={k} style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>
@@ -435,7 +534,7 @@ function OverviewEdit({ placement, onClose }) {
             {fromJD && overrides.has('engagement_type') ? <OverridePill field="engagement_type" /> : null}
           </span>
           <select className="input" value={form.engagement_type} onChange={set('engagement_type')} data-testid="overview-edit-etype">
-            {['w2','1099','c2c','temp_to_perm','direct_hire'].map(s => <option key={s} value={s}>{humanizeValue(s)}</option>)}
+            {['w2','1099','c2c','temp_to_perm','direct_hire','referral','internal'].map(s => <option key={s} value={s}>{humanizeValue(s)}</option>)}
           </select>
           <RevertControl field="engagement_type" />
         </label>
@@ -486,6 +585,9 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
     + Number(tenantEconomicsDefaults.workers_comp_pct || 0)
     + Number(tenantEconomicsDefaults.benefits_load_pct || 0);
   const tenantC2CDefault = Number(tenantEconomicsDefaults.c2c_overhead_pct || 0);
+  const referralHourlyCost = parties
+    .filter((party) => party.money_flow === 'payable' && party.fee_basis === 'per_hour')
+    .reduce((total, party) => total + Number(party.fee_flat || 0), 0);
   const rawOverheadFields = sourceOverheads.source_fields || {};
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -658,6 +760,8 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
     readiness.missing_labor_payee && 'Primary labor payee',
     readiness.multiple_labor_payees && 'Resolve multiple primary labor payees',
     readiness.missing_c2c_vendor && 'C2C corporate vendor',
+    readiness.missing_referral_payee && 'Referral payout vendor and hourly rate',
+    readiness.multiple_referral_payees && 'Choose one referral payout vendor',
     readiness.missing_billing_cycle && 'Client billing frequency', readiness.missing_ap_cycle && 'Vendor payment frequency',
     readiness.missing_payroll_cycle && 'Payroll frequency',
     readiness.missing_ar_payment_terms && 'Client payment terms',
@@ -679,7 +783,7 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
       {message && <div className={message.includes('failed') ? 'alert alert--err' : 'alert alert--ok'} style={{ marginTop: 12 }}>{message}</div>}
 
       <section style={{ marginTop: 24 }}>
-        <RatesTab pid={placement.id} rates={rates} startDate={placement.start_date} reload={refreshAll} embedded employerCostsRequired={readiness.missing_w2_overhead_cost} c2cCostsRequired={readiness.missing_c2c_overhead_cost} tenantEconomicsDefaults={tenantEconomicsDefaults} isW2={placement.engagement_type === 'w2'} isC2C={placement.engagement_type === 'c2c'} sourceC2COverhead={sourceC2COverhead} />
+        <RatesTab pid={placement.id} rates={rates} startDate={placement.start_date} reload={refreshAll} embedded employerCostsRequired={readiness.missing_w2_overhead_cost} c2cCostsRequired={readiness.missing_c2c_overhead_cost} tenantEconomicsDefaults={tenantEconomicsDefaults} isW2={placement.engagement_type === 'w2'} isC2C={placement.engagement_type === 'c2c'} isReferral={placement.engagement_type === 'referral'} referralHourlyCost={referralHourlyCost} sourceC2COverhead={sourceC2COverhead} />
       </section>
 
       <section style={{ marginTop: 24 }} data-testid="economics-one-time-items">
@@ -1094,7 +1198,7 @@ function rateDraftForm(rate, startDate, sourceC2COverhead = null) {
   };
 }
 
-function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCostsRequired = false, c2cCostsRequired = false, tenantEconomicsDefaults = {}, isW2 = false, isC2C = false, sourceC2COverhead = null }) {
+function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCostsRequired = false, c2cCostsRequired = false, tenantEconomicsDefaults = {}, isW2 = false, isC2C = false, isReferral = false, referralHourlyCost = 0, sourceC2COverhead = null }) {
   const sourceDraft = rates.find((rate) => !rate.approved_at) || null;
   const latestRate = sourceDraft || rates[0] || null;
   const [form, setForm] = useState(() => rateDraftForm(latestRate, startDate, sourceC2COverhead));
@@ -1129,6 +1233,7 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
         ? effectiveC2CPct(rate.c2c_overhead_pct)
         : 0;
     const laborAndLoad = pay * (1 + classificationLoad)
+      + (isReferral ? Number(referralHourlyCost || 0) : 0)
       + Number(rate.other_cost_per_hour || 0);
     return { invoice: Math.max(0, invoice), margin: invoice - laborAndLoad };
   };
@@ -1140,7 +1245,7 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
       const percentOrNull = (value) => value === '' ? null : Number(value) / 100;
       await api.post(`/modules/placements/api/rates.php?placement_id=${pid}`, {
         ...form,
-        bill_rate: Number(form.bill_rate), pay_rate: Number(form.pay_rate),
+        bill_rate: Number(form.bill_rate), pay_rate: isReferral ? 0 : Number(form.pay_rate),
         ot_multiplier: Number(form.ot_multiplier), dt_multiplier: Number(form.dt_multiplier),
         bill_adder_pct: percentOrNull(form.bill_adder_pct),
         bill_adder_flat: numberOrNull(form.bill_adder_flat),
@@ -1197,7 +1302,9 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
         <div>
           <h4 style={{ margin: 0 }}>{embedded ? 'Effective-dated rate and adjustments' : 'Rates'}</h4>
           <p style={{ color: 'var(--cf-text-secondary)', margin: '4px 0 0' }}>
-            Client revenue, labor compensation, and operating cost factors. Approved rows are locked snapshots used by billing, AP, payroll, and margin.
+            {isReferral
+              ? 'Client referral revenue and vendor payout economics. Approved rows are locked snapshots used by billing, AP, accounting, and margin.'
+              : 'Client revenue, labor compensation, and operating cost factors. Approved rows are locked snapshots used by billing, AP, payroll, and margin.'}
           </p>
         </div>
         {draftCount > 0 && (
@@ -1213,7 +1320,7 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
         )}
       </header>
       <table className="data-table" data-testid="rates-table">
-        <thead><tr><th>From</th><th>To</th><th>Client rate</th><th>Labor pay</th><th>Invoice rate</th><th>Margin</th><th>State</th><th></th></tr></thead>
+        <thead><tr><th>From</th><th>To</th><th>{isReferral ? 'Client referral fee' : 'Client rate'}</th><th>{isReferral ? 'Worker pay' : 'Labor pay'}</th><th>Invoice rate</th><th>Margin</th><th>State</th><th></th></tr></thead>
         <tbody>
           {rates.length === 0 && <tr><td colSpan={8} className="empty" data-testid="rates-empty">No rate rows yet.</td></tr>}
           {rates.map(r => {
@@ -1226,7 +1333,7 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
               <td>{r.effective_from}</td>
               <td>{r.effective_to || '—'}</td>
               <td>${parseFloat(r.bill_rate).toFixed(2)}</td>
-              <td>${parseFloat(r.pay_rate).toFixed(2)}</td>
+              <td>{isReferral ? 'Not applicable' : `$${parseFloat(r.pay_rate).toFixed(2)}`}</td>
               <td>${invoiceRate.toFixed(2)}{!r.approved_at ? ' preview' : ''}</td>
               <td>${marginRate.toFixed(2)}{!r.approved_at ? ' preview' : ''}</td>
               <td>{r.approved_at ? <span className="badge badge--active" data-testid={`rate-state-${r.id}`}>approved</span>
@@ -1242,8 +1349,10 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
       <form onSubmit={draft} style={{ marginTop: 'var(--cf-space-3)' }} data-testid="rates-draft-form">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
           <Field label="Effective from"><input className="input" type="date" value={form.effective_from} onChange={e => setForm({ ...form, effective_from: e.target.value })} data-testid="rates-effective-from" required /></Field>
-          <Field label="Client bill rate"><input className="input" type="number" min="0" step="0.0001" placeholder="0.00" value={form.bill_rate} onChange={e => setForm({ ...form, bill_rate: e.target.value })} data-testid="rates-bill" required /></Field>
-          <Field label="Labor pay / vendor rate"><input className="input" type="number" min="0" step="0.0001" placeholder="0.00" value={form.pay_rate} onChange={e => setForm({ ...form, pay_rate: e.target.value })} data-testid="rates-pay" required /></Field>
+          <Field label={isReferral ? 'Client referral fee / hour' : 'Client bill rate'}><input className="input" type="number" min="0" step="0.0001" placeholder="0.00" value={form.bill_rate} onChange={e => setForm({ ...form, bill_rate: e.target.value })} data-testid="rates-bill" required /></Field>
+          {isReferral
+            ? <Field label="Worker pay"><input className="input" value="Not applicable for referral-only work" disabled data-testid="rates-pay-not-applicable" /></Field>
+            : <Field label="Labor pay / vendor rate"><input className="input" type="number" min="0" step="0.0001" placeholder="0.00" value={form.pay_rate} onChange={e => setForm({ ...form, pay_rate: e.target.value })} data-testid="rates-pay" required /></Field>}
           <Field label="Unit"><select className="input" value={form.bill_rate_unit} onChange={e => setForm({ ...form, bill_rate_unit: e.target.value, pay_rate_unit: e.target.value })}>{['hour','day','week','month','project'].map((unit) => <option key={unit}>{unit}</option>)}</select></Field>
           <Field label="Currency"><input className="input" value={form.currency} maxLength={3} onChange={e => setForm({ ...form, currency: e.target.value.toUpperCase() })} /></Field>
           <Field label="Overtime multiplier"><input className="input" type="number" min="0" step="0.01" value={form.ot_multiplier} onChange={e => setForm({ ...form, ot_multiplier: e.target.value })} /></Field>

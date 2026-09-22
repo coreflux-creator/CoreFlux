@@ -624,6 +624,7 @@ if ($method === 'GET' && $action === 'approved_hours_ready') {
     api_require_legacy_permission($ctx, 'staffing.time.approve');
     $base = "FROM time_entries te
         LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
+        LEFT JOIN placement_rates pr ON pr.id = te.rate_snapshot_id
         LEFT JOIN people     pe ON pe.id = te.person_id   AND pe.tenant_id = :people_tid
             WHERE te.tenant_id = :tenant_id
               AND te.status IN ('approved','locked','billing_ready','payroll_ready')
@@ -636,6 +637,8 @@ if ($method === 'GET' && $action === 'approved_hours_ready') {
             COUNT(DISTINCT te.id)                             AS entry_count,
             COUNT(DISTINCT te.placement_id)                   AS placements,
             COUNT(DISTINCT pl.end_client_name)                AS clients,
+            COALESCE(SUM(te.hours * COALESCE(pr.bill_rate, 0) *
+                CASE WHEN te.category = 'OT_billable' THEN COALESCE(pr.ot_multiplier, 1.5) ELSE 1 END), 0) AS estimated_amount,
             MIN(te.work_date)                                 AS earliest_date,
             MAX(te.work_date)                                 AS latest_date
         {$base}
@@ -655,9 +658,23 @@ if ($method === 'GET' && $action === 'approved_hours_ready') {
             COUNT(DISTINCT te.id)                             AS entry_count,
             COUNT(DISTINCT te.placement_id)                   AS placements,
             COUNT(DISTINCT CASE
-                WHEN UPPER(COALESCE(pl.engagement_type, '')) = 'C2C'
+                WHEN UPPER(COALESCE(pl.engagement_type, '')) IN ('C2C', 'REFERRAL')
                   THEN pl.id
                 ELSE pe.id END)                               AS vendors,
+            COALESCE(SUM(te.hours * CASE
+                WHEN pl.engagement_type = 'referral' THEN COALESCE((
+                    SELECT SUM(ref.fee_flat)
+                      FROM placement_referrals ref
+                     WHERE ref.tenant_id = pl.tenant_id
+                       AND ref.placement_id = pl.id
+                       AND ref.fee_basis = 'per_hour'
+                       AND ref.start_date <= te.work_date
+                       AND (ref.end_date IS NULL OR ref.end_date >= te.work_date)
+                ), 0)
+                ELSE COALESCE(pr.pay_rate, 0) *
+                    CASE WHEN te.category = 'OT_billable' OR te.category = 'OT_nonbillable'
+                         THEN COALESCE(pr.ot_multiplier, 1.5) ELSE 1 END
+            END), 0)                                          AS estimated_amount,
             MIN(te.work_date)                                 AS earliest_date,
             MAX(te.work_date)                                 AS latest_date
         {$base}
@@ -690,26 +707,8 @@ if ($method === 'GET' && $action === 'approved_hours_ready') {
         $payroll  = scopedQuery($payrollSql, $scopeParams)[0]  ?? [];
     } catch (\Throwable $e) { api_error($e->getMessage(), 500); }
 
-    // Rough $-amount estimate per bucket using a cached avg bill/pay
-    // rate per placement.  Cheap to compute and good enough for
-    // dashboard headlines (the picker recomputes precisely at draft).
-    $estBilling = (float) ($billing['hours'] ?? 0) * 100.0;
-    $estAp      = (float) ($ap['hours']      ?? 0) * 75.0;
-    try {
-        // Refine with an actual average bill rate across approved
-        // placement_rates if available — coarse but realistic.
-        $stmt = getDB()->prepare(
-            "SELECT AVG(NULLIF(bill_rate, 0)) AS avg_bill, AVG(NULLIF(pay_rate, 0)) AS avg_pay
-               FROM placement_rates
-              WHERE tenant_id = :tenant_id AND approved_at IS NOT NULL"
-        );
-        $stmt->execute(['tenant_id' => $placementsTenantId]);
-        $r = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-        if ($r) {
-            if (!empty($r['avg_bill'])) $estBilling = round((float) ($billing['hours'] ?? 0) * (float) $r['avg_bill'], 2);
-            if (!empty($r['avg_pay']))  $estAp      = round((float) ($ap['hours']      ?? 0) * (float) $r['avg_pay'], 2);
-        }
-    } catch (\Throwable $_) { /* keep heuristic */ }
+    $estBilling = (float) ($billing['estimated_amount'] ?? 0);
+    $estAp      = (float) ($ap['estimated_amount'] ?? 0);
 
     api_ok([
         'billing' => [

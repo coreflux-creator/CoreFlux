@@ -16,6 +16,7 @@ require_once __DIR__ . '/../../../core/tx_helpers.php';
 require_once __DIR__ . '/../../../core/audit.php';
 require_once __DIR__ . '/../../../core/ai/artifacts.php';
 require_once __DIR__ . '/../../time/lib/time.php';
+require_once __DIR__ . '/dimensions.php';
 
 const STAFFING_HOUR_TYPES = [
     'regular','overtime','doubletime','holiday','pto','sick','bereavement','unpaid','nonbillable',
@@ -864,6 +865,18 @@ function staffingTimesheetApprovalPlan(?int $userId, array $header, ?int $tenant
     }
 
     $snapshots = [];
+    $accountingTenantId = effectiveTenantIdForModule('accounting', $tenantId) ?? $tenantId;
+    $entityStmt = getDB()->prepare(
+        'SELECT id FROM accounting_entities
+          WHERE tenant_id = :tenant_id AND active = 1
+          ORDER BY id LIMIT 1'
+    );
+    $entityStmt->execute(['tenant_id' => $accountingTenantId]);
+    $defaultEntityId = (int) ($entityStmt->fetchColumn() ?: 0);
+    if ($defaultEntityId <= 0) {
+        throw new \RuntimeException('Set up an active legal entity before approving time.');
+    }
+    $dimensionReadiness = [];
     foreach ($entries as $entry) {
         $entryId = (int) $entry['id'];
         if ((float) $entry['hours'] <= 0) {
@@ -882,6 +895,25 @@ function staffingTimesheetApprovalPlan(?int $userId, array $header, ?int $tenant
             throw new \RuntimeException(
                 "Timesheet #{$headerId}, entry #{$entryId} has no approved rate covering {$entry['work_date']} for placement #{$entry['placement_id']}."
             );
+        }
+        $placementId = (int) $entry['placement_id'];
+        $readinessKey = $placementId . ':' . (string) $entry['work_date'];
+        if (!isset($dimensionReadiness[$readinessKey])) {
+            $dimensionContext = staffingAssignmentDimensionContext(
+                $tenantId,
+                $placementId,
+                $defaultEntityId,
+                (string) $entry['work_date']
+            );
+            $missing = staffingDimensionBlockingMissing($dimensionContext, 'time');
+            if ($missing) {
+                throw new \RuntimeException(
+                    "Complete placement #{$placementId} before approving time. Missing: "
+                    . implode(', ', staffingDimensionMissingLabels($missing))
+                    . '. You can update these fields in the placement or by CSV import.'
+                );
+            }
+            $dimensionReadiness[$readinessKey] = true;
         }
         $snapshots[$entryId] = (int) $snap['id'];
     }
@@ -1092,64 +1124,258 @@ function staffingTimesheetRequirePositiveEntries(int $headerId, string $action, 
 }
 
 /** Emit `staffing.worker_hours.approved` events to the accounting posting
- *  engine. One event PER (timesheet × engagement_type) combo so posting
- *  rules can route W2 hours to Accrued Payroll and 1099/C2C hours to
- *  Accrued AP. Best-effort: failures don't roll back the approval. */
+ *  engine. One event PER (timesheet x placement) keeps every revenue and
+ *  direct-cost posting on the assignment that generated it. Posting rules
+ *  still route the event by engagement type. Best-effort: failures don't
+ *  roll back the approval. */
 function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?string {
     try {
         require_once __DIR__ . '/../../../core/posting_engine/process.php';
         $pdo = getDB();
+        $placementsTenantId = staffingPlacementsTenantId($tenantId) ?? $tenantId;
+        $accountingTenantId = effectiveTenantIdForModule('accounting', $tenantId) ?? $tenantId;
 
-        // Group hours/revenue/cost by engagement_type (w2/1099/c2c/etc.) on
-        // the placement so each tax classification books to the right
-        // liability account.
+        // The approved rate snapshot is the immutable economic source for
+        // each entry. Revenue only follows billable hours; direct cost only
+        // follows payable hours and includes the recurring employer/vendor
+        // loads used by placement margin reporting. Referral assignments use
+        // their dated vendor payout rather than a fabricated worker pay rate.
         $stmt = $pdo->prepare(
             "SELECT t.id, t.person_id, t.period_start, t.period_end,
+                    te.placement_id,
                     COALESCE(pl.engagement_type, 'w2') AS engagement_type,
-                    SUM(te.hours)                                    AS hours,
-                    SUM(te.hours * COALESCE(pr.bill_rate, 0))        AS revenue,
-                    SUM(te.hours * COALESCE(pr.pay_rate,  0))        AS cost
+                    SUM(te.hours) AS hours,
+                    SUM(CASE WHEN te.billable = 1 THEN
+                        te.hours
+                        * COALESCE(
+                            pr.adjusted_bill_rate,
+                            GREATEST(0,
+                                COALESCE(pr.bill_rate, 0)
+                                * (1 + COALESCE(pr.bill_adder_pct, 0) - COALESCE(pr.bill_discount_pct, 0))
+                                + COALESCE(pr.bill_adder_flat, 0)
+                                - COALESCE(pr.bill_discount_flat, 0)
+                            )
+                        )
+                        * CASE te.hour_type
+                            WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
+                            WHEN 'doubletime' THEN COALESCE(pr.dt_multiplier, 2.00)
+                            ELSE 1.00
+                          END
+                        ELSE 0 END) AS revenue,
+                    SUM(CASE
+                        WHEN te.payable <> 1 THEN 0
+                        WHEN pl.engagement_type = 'referral' THEN te.hours * COALESCE((
+                            SELECT SUM(ref.fee_flat)
+                              FROM placement_referrals ref
+                             WHERE ref.tenant_id = pl.tenant_id
+                               AND ref.placement_id = pl.id
+                               AND ref.fee_basis = 'per_hour'
+                               AND ref.start_date <= te.work_date
+                               AND (ref.end_date IS NULL OR ref.end_date >= te.work_date)
+                        ), 0)
+                        WHEN pl.engagement_type IN ('w2','temp_to_perm','internal') THEN
+                            te.hours * (
+                                COALESCE(pr.pay_rate, 0)
+                                * CASE te.hour_type
+                                    WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
+                                    WHEN 'doubletime' THEN COALESCE(pr.dt_multiplier, 2.00)
+                                    ELSE 1.00
+                                  END
+                                * (1 + COALESCE(pr.adder_pct, 0)
+                                     + COALESCE(pr.workers_comp_pct, 0)
+                                     + COALESCE(pr.benefits_load_pct, 0))
+                                + COALESCE(pr.other_cost_per_hour, 0)
+                            )
+                        WHEN pl.engagement_type = 'c2c' THEN
+                            te.hours * (
+                                COALESCE(pr.pay_rate, 0)
+                                * CASE te.hour_type
+                                    WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
+                                    WHEN 'doubletime' THEN COALESCE(pr.dt_multiplier, 2.00)
+                                    ELSE 1.00
+                                  END
+                                * (1 + COALESCE(pr.c2c_overhead_pct, 0))
+                                + COALESCE(pr.other_cost_per_hour, 0)
+                            )
+                        ELSE
+                            te.hours * (
+                                COALESCE(pr.pay_rate, 0)
+                                * CASE te.hour_type
+                                    WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
+                                    WHEN 'doubletime' THEN COALESCE(pr.dt_multiplier, 2.00)
+                                    ELSE 1.00
+                                  END
+                                + COALESCE(pr.other_cost_per_hour, 0)
+                            )
+                    END) AS cost,
+                    SUM(CASE WHEN te.payable = 1
+                                  AND pl.engagement_type IN ('w2','temp_to_perm','internal')
+                             THEN te.hours * COALESCE(pr.pay_rate, 0)
+                                * CASE te.hour_type
+                                    WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
+                                    WHEN 'doubletime' THEN COALESCE(pr.dt_multiplier, 2.00)
+                                    ELSE 1.00
+                                  END
+                             ELSE 0 END) AS wage_cost,
+                    SUM(CASE WHEN te.payable = 1
+                                  AND pl.engagement_type IN ('w2','temp_to_perm','internal')
+                             THEN te.hours * COALESCE(pr.pay_rate, 0)
+                                * CASE te.hour_type
+                                    WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
+                                    WHEN 'doubletime' THEN COALESCE(pr.dt_multiplier, 2.00)
+                                    ELSE 1.00
+                                  END * COALESCE(pr.adder_pct, 0)
+                             ELSE 0 END) AS employer_load_cost,
+                    SUM(CASE WHEN te.payable = 1
+                                  AND pl.engagement_type IN ('w2','temp_to_perm','internal')
+                             THEN te.hours * COALESCE(pr.pay_rate, 0)
+                                * CASE te.hour_type
+                                    WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
+                                    WHEN 'doubletime' THEN COALESCE(pr.dt_multiplier, 2.00)
+                                    ELSE 1.00
+                                  END * COALESCE(pr.workers_comp_pct, 0)
+                             ELSE 0 END) AS workers_comp_cost,
+                    SUM(CASE WHEN te.payable = 1
+                                  AND pl.engagement_type IN ('w2','temp_to_perm','internal')
+                             THEN te.hours * COALESCE(pr.pay_rate, 0)
+                                * CASE te.hour_type
+                                    WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
+                                    WHEN 'doubletime' THEN COALESCE(pr.dt_multiplier, 2.00)
+                                    ELSE 1.00
+                                  END * COALESCE(pr.benefits_load_pct, 0)
+                             ELSE 0 END) AS benefits_cost,
+                    SUM(CASE WHEN te.payable = 1
+                                  AND pl.engagement_type IN ('w2','temp_to_perm','internal')
+                             THEN te.hours * COALESCE(pr.other_cost_per_hour, 0)
+                             ELSE 0 END) AS other_direct_cost
                FROM staffing_timesheets t
                JOIN time_entries te ON te.timesheet_id = t.id AND te.tenant_id = t.tenant_id AND te.status != 'superseded'
                LEFT JOIN placements pl     ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
-               LEFT JOIN placement_rates pr ON pr.id = te.rate_snapshot_id
+               LEFT JOIN placement_rates pr ON pr.id = te.rate_snapshot_id AND pr.tenant_id = :rates_tid
               WHERE t.tenant_id = :t AND t.id = :id
-              GROUP BY t.id, engagement_type"
+              GROUP BY t.id, t.person_id, t.period_start, t.period_end,
+                       te.placement_id, engagement_type"
         );
-        $stmt->execute(['t' => $tenantId, 'id' => $headerId, 'placements_tid' => staffingPlacementsTenantId($tenantId)]);
+        $stmt->execute([
+            't' => $tenantId,
+            'id' => $headerId,
+            'placements_tid' => $placementsTenantId,
+            'rates_tid' => $placementsTenantId,
+        ]);
         $groups = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         if (!$groups) return null;
 
-        $ent = $pdo->prepare("SELECT id FROM accounting_entities WHERE tenant_id = :t LIMIT 1");
-        $ent->execute(['t' => $tenantId]);
+        $ent = $pdo->prepare(
+            'SELECT id FROM accounting_entities
+              WHERE tenant_id = :t AND active = 1
+              ORDER BY id LIMIT 1'
+        );
+        $ent->execute(['t' => $accountingTenantId]);
         $entityId = (int) ($ent->fetchColumn() ?: 0);
-        if (!$entityId) return null;
+        if (!$entityId) {
+            throw new \RuntimeException('No active accounting entity is available for approved hours.');
+        }
+
+        // Before assignment-level posting, the legacy emitter created one
+        // event for an entire timesheet/engagement bucket. If that event was
+        // already posted, the new assignment events must not double-book it.
+        $legacyPosted = $pdo->prepare(
+            "SELECT 1 FROM accounting_events
+              WHERE tenant_id = :tenant_id
+                AND source_module = 'staffing'
+                AND source_record_id = :source_record_id
+                AND event_type = 'staffing.worker_hours.approved'
+                AND status = 'posted'
+              LIMIT 1"
+        );
 
         foreach ($groups as $g) {
-            $rev  = (float) $g['revenue'];
-            $cost = (float) $g['cost'];
-            accountingProcessEvent($tenantId, [
-                'entity_id'        => $entityId,
+            $placementId = (int) ($g['placement_id'] ?? 0);
+            if ($placementId <= 0) {
+                throw new \RuntimeException("Timesheet #{$headerId} has approved hours without a placement.");
+            }
+            $engagementType = (string) $g['engagement_type'];
+            $legacyPosted->execute([
+                'tenant_id' => $accountingTenantId,
+                'source_record_id' => (string) $g['id'] . ':' . $engagementType,
+            ]);
+            if ($legacyPosted->fetchColumn()) continue;
+
+            $dimensionContext = staffingAssignmentDimensionContext(
+                $tenantId,
+                $placementId,
+                $entityId,
+                (string) $g['period_end']
+            );
+            $eventEntityId = (int) ($dimensionContext['event_entity_id'] ?? 0);
+            if ($eventEntityId <= 0) {
+                throw new \RuntimeException("Placement #{$placementId} has no valid accounting entity.");
+            }
+            $blockingMissing = staffingDimensionBlockingMissing($dimensionContext, 'time');
+            if ($blockingMissing) {
+                throw new \RuntimeException(
+                    "Placement #{$placementId} is missing dimensions required for time accounting: "
+                    . implode(', ', staffingDimensionMissingLabels($blockingMissing))
+                );
+            }
+            if (in_array($engagementType, ['1099','c2c','referral'], true)
+                && empty($dimensionContext['vendor_ap_id'])) {
+                throw new \RuntimeException(
+                    "Placement #{$placementId} has no AP vendor linked to its primary payable party."
+                );
+            }
+            $rev  = round((float) $g['revenue'], 2);
+            $cost = round((float) $g['cost'], 2);
+            $wageCost = round((float) ($g['wage_cost'] ?? 0), 2);
+            $employerLoadCost = round((float) ($g['employer_load_cost'] ?? 0), 2);
+            $workersCompCost = round((float) ($g['workers_comp_cost'] ?? 0), 2);
+            $benefitsCost = round((float) ($g['benefits_cost'] ?? 0), 2);
+            $otherDirectCost = round((float) ($g['other_direct_cost'] ?? 0), 2);
+            if (in_array($engagementType, ['w2','temp_to_perm','internal'], true)) {
+                $cost = round(
+                    $wageCost + $employerLoadCost + $workersCompCost + $benefitsCost + $otherDirectCost,
+                    2
+                );
+            }
+            $result = accountingProcessEvent($accountingTenantId, [
+                'entity_id'        => $eventEntityId,
                 'event_type'       => 'staffing.worker_hours.approved',
                 'source_module'    => 'staffing',
-                'source_record_id' => (string) $g['id'] . ':' . $g['engagement_type'],
+                'source_record_id' => 'timesheet:' . (string) $g['id']
+                    . ':placement:' . $placementId . ':' . $engagementType,
                 'event_date'       => (string) $g['period_end'],
                 'payload'          => [
                     'timesheet_id'    => (int) $g['id'],
                     'person_id'       => (int) $g['person_id'],
+                    'placement_id'    => $placementId,
                     'period_start'    => $g['period_start'],
                     'period_end'      => $g['period_end'],
-                    'engagement_type' => (string) $g['engagement_type'],
+                    'engagement_type' => $engagementType,
                     'hours'           => (float) $g['hours'],
                     'revenue'         => $rev,
                     'cost'            => $cost,
+                    'wage_cost'       => $wageCost,
+                    'employer_load_cost' => $employerLoadCost,
+                    'workers_comp_cost' => $workersCompCost,
+                    'benefits_cost'   => $benefitsCost,
+                    'other_direct_cost' => $otherDirectCost,
                     'gross_profit'    => $rev - $cost,
+                    'dimensions'      => $dimensionContext['dimensions'],
+                    'vendor_dimension'=> $dimensionContext['vendor_dimension'],
+                    'vendor_economic_party_id'=> $dimensionContext['vendor_economic_party_id'],
+                    'vendor_company_id'=> $dimensionContext['vendor_company_id'],
+                    'vendor_ap_id'     => $dimensionContext['vendor_ap_id'],
+                    'dimension_missing'=> $dimensionContext['missing'],
                     // Convenience flags for posting-rule `conditions` matching.
-                    'is_w2'           => $g['engagement_type'] === 'w2' ? 1 : 0,
-                    'is_1099_or_c2c'  => in_array($g['engagement_type'], ['1099','c2c'], true) ? 1 : 0,
-                    'is_internal'     => $g['engagement_type'] === 'internal' ? 1 : 0,
+                    'is_w2'           => in_array($engagementType, ['w2','temp_to_perm'], true) ? 1 : 0,
+                    'is_1099_or_c2c'  => in_array($engagementType, ['1099','c2c'], true) ? 1 : 0,
+                    'is_internal'     => $engagementType === 'internal' ? 1 : 0,
+                    'is_referral'     => $engagementType === 'referral' ? 1 : 0,
                 ],
             ], null);
+            if (($result['status'] ?? '') !== 'posted') {
+                throw new \RuntimeException((string) ($result['error'] ?? 'Approved hours were not posted to accounting.'));
+            }
         }
         return null;
     } catch (\Throwable $e) {

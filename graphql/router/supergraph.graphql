@@ -72,6 +72,8 @@ enum EngagementType
   contract_1099 @join__enumValue(graph: COREFLUX)
   temp_to_perm @join__enumValue(graph: COREFLUX)
   direct_hire @join__enumValue(graph: COREFLUX)
+  internal @join__enumValue(graph: COREFLUX)
+  referral @join__enumValue(graph: COREFLUX)
 }
 
 type ExternalMapping
@@ -368,6 +370,13 @@ type Placement
   remotePolicy: RemotePolicy @join__field(graph: COREFLUX)
   worksiteState: String @join__field(graph: COREFLUX)
   worksiteCountry: String @join__field(graph: COREFLUX)
+  staffingJobId: ID @join__field(graph: COREFLUX)
+  branch: String @join__field(graph: COREFLUX)
+  serviceLine: String @join__field(graph: COREFLUX)
+  workersCompClass: String @join__field(graph: COREFLUX)
+  department: String @join__field(graph: COREFLUX)
+  costCenter: String @join__field(graph: COREFLUX)
+  accountingEntityId: ID @join__field(graph: COREFLUX)
   notes: String @join__field(graph: COREFLUX)
   endClientName: String @join__field(graph: COREFLUX)
   clientApproverName: String @join__field(graph: COREFLUX)

@@ -371,6 +371,10 @@ function postingEngineRender(\PDO $pdo, int $tenantId, int $templateId, array $c
     // verbatim instead of materialising a fixed-N template. The emitter is
     // responsible for balance.
     $lineSource = (string) ($tpl['line_source'] ?? 'template');
+    $eventDimensions = postingEngineResolveDimensions(
+        is_array($context['payload']['dimensions'] ?? null) ? $context['payload']['dimensions'] : [],
+        $context
+    );
     if ($lineSource === 'payload') {
         $payloadLines = $context['payload']['lines'] ?? null;
         if (!is_array($payloadLines) || count($payloadLines) < 2) {
@@ -393,6 +397,14 @@ function postingEngineRender(\PDO $pdo, int $tenantId, int $templateId, array $c
             if ($debit  < 0 || $credit < 0)                  throw new \RuntimeException("payload.lines[{$i}] negative amount");
             if ($debit  > 0 && $credit > 0)                  throw new \RuntimeException("payload.lines[{$i}] cannot have both debit and credit");
             $td += $debit; $tc += $credit;
+            $lineDimensions = [];
+            if (isset($pl['dims']) && is_array($pl['dims'])) {
+                $lineDimensions = $pl['dims'];
+            } elseif (isset($pl['dimensions']) && is_array($pl['dimensions'])) {
+                // `dimensions` is retained as an event-payload compatibility
+                // alias; accountingPostJe() consumes the canonical `dims` key.
+                $lineDimensions = $pl['dimensions'];
+            }
             $lines[] = [
                 'account_id'  => $accountId,
                 'debit'       => round($debit, 2),
@@ -401,7 +413,10 @@ function postingEngineRender(\PDO $pdo, int $tenantId, int $templateId, array $c
                 'counterparty_company_id' => !empty($pl['counterparty_company_id']) ? (int) $pl['counterparty_company_id'] : null,
                 'counterparty_person_id' => !empty($pl['counterparty_person_id']) ? (int) $pl['counterparty_person_id'] : null,
                 'counterparty_entity_id' => !empty($pl['counterparty_entity_id']) ? (int) $pl['counterparty_entity_id'] : null,
-                'dimensions'  => isset($pl['dimensions']) && is_array($pl['dimensions']) ? $pl['dimensions'] : null,
+                'dims'        => array_replace(
+                    $eventDimensions,
+                    postingEngineResolveDimensions($lineDimensions, $context)
+                ),
             ];
         }
         if (round($td, 2) !== round($tc, 2)) {
@@ -438,14 +453,17 @@ function postingEngineRender(\PDO $pdo, int $tenantId, int $templateId, array $c
             throw new \RuntimeException("line {$tl['line_no']} cannot have both debit and credit");
         }
         $memo = $tl['description_template'] ? formulaInterpolate((string) $tl['description_template'], $context) : null;
-        $dimensions = $tl['dimensions_json'] ? json_decode((string) $tl['dimensions_json'], true) : null;
-        if (!is_array($dimensions)) $dimensions = null;
+        $dimensions = $tl['dimensions_json'] ? json_decode((string) $tl['dimensions_json'], true) : [];
+        if (!is_array($dimensions)) $dimensions = [];
         $lines[] = [
             'account_id'  => $accountId,
             'debit'       => round($debit, 2),
             'credit'      => round($credit, 2),
             'description' => $memo,
-            'dimensions'  => $dimensions,
+            'dims'        => array_replace(
+                $eventDimensions,
+                postingEngineResolveDimensions($dimensions, $context)
+            ),
         ];
     }
 
@@ -457,6 +475,35 @@ function postingEngineRender(\PDO $pdo, int $tenantId, int $templateId, array $c
         'memo'         => $memo,
         'lines'        => $lines,
     ];
+}
+
+/**
+ * Resolve a journal-line dimension map against an accounting-event context.
+ *
+ * Dimension values are ordinarily scalar IDs/codes. A template may instead
+ * use a dotted reference such as `payload.vendor_dimension`; those references
+ * are resolved here before accountingPostJe() validates and persists them.
+ * Empty values are omitted so optional dimensions are not fabricated.
+ *
+ * @param array<string,mixed> $raw
+ * @return array<string,int|float|string|bool>
+ */
+function postingEngineResolveDimensions(array $raw, array $context): array {
+    $resolved = [];
+    foreach ($raw as $key => $value) {
+        $key = trim((string) $key);
+        if ($key === '') continue;
+
+        if (is_string($value) && preg_match('/^(payload|event)\.[a-zA-Z_][a-zA-Z0-9_.]*$/', $value)) {
+            $value = formulaResolveRef($value, $context, false);
+        }
+        if ($value === null || $value === '') continue;
+        if (!is_scalar($value)) {
+            throw new \RuntimeException("dimension '{$key}' must resolve to a scalar value");
+        }
+        $resolved[$key] = $value;
+    }
+    return $resolved;
 }
 
 /**

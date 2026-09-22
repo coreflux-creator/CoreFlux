@@ -117,7 +117,7 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
                 $unitPrice = $target === 'billing'
                     ? (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0)
                     : (float) ($rate['pay_rate'] ?? 0);
-                if ($unitPrice <= 0) {
+                if ($target === 'billing' && $unitPrice <= 0) {
                     $rateField = $target === 'billing' ? 'bill_rate' : 'pay_rate';
                     throw new TimeSettlementException("Entry #{$e['id']} rate snapshot #{$rateId} has no positive {$rateField}");
                 }

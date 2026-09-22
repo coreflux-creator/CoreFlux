@@ -15,6 +15,7 @@
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/active_entity.php';
 
 $ctx = api_require_auth();
 
@@ -75,6 +76,7 @@ switch (api_method()) {
         $rows = scopedQuery(
             "SELECT
                 aa.id, aa.code, aa.name, aa.account_type, aa.active,
+                tla.entity_id, ae.code AS entity_code, ae.legal_name AS entity_name,
                 tla.subtype, tla.last4, tla.institution_name, tla.credit_limit_cents,
                 tla.apr_bps, tla.statement_day, tla.autopay_from_bank_account_id,
                 tla.plaid_account_id,
@@ -86,6 +88,8 @@ switch (api_method()) {
              FROM accounting_accounts aa
              INNER JOIN treasury_liability_accounts tla
                ON tla.tenant_id = aa.tenant_id AND tla.account_id = aa.id
+             LEFT JOIN accounting_entities ae
+               ON ae.tenant_id = tla.tenant_id AND ae.id = tla.entity_id
              LEFT JOIN plaid_accounts pa
                ON pa.tenant_id = aa.tenant_id AND pa.account_id = tla.plaid_account_id
              LEFT JOIN accounting_journal_entries je
@@ -124,6 +128,15 @@ switch (api_method()) {
         if (!in_array((string) $body['subtype'], $allowedSubtypes, true)) {
             api_error('subtype must be one of: ' . implode(', ', $allowedSubtypes), 422);
         }
+        try {
+            $entity = activeEntityResolveForTenant(
+                (int) $ctx['tenant_id'],
+                !empty($body['entity_id']) ? (int) $body['entity_id'] : null
+            );
+        } catch (\Throwable $e) {
+            api_error($e->getMessage(), 422);
+        }
+        if (!$entity) api_error('Create an accounting entity before adding a liability account', 422);
 
         $pdo = getDB();
         $pdo->beginTransaction();
@@ -136,6 +149,7 @@ switch (api_method()) {
             ]);
             scopedInsert('treasury_liability_accounts', [
                 'account_id'          => $accountId,
+                'entity_id'           => (int) $entity['id'],
                 'subtype'             => $body['subtype'],
                 'last4'               => $body['last4'] ?? null,
                 'institution_name'    => $body['institution_name'] ?? null,
@@ -151,7 +165,11 @@ switch (api_method()) {
                 't' => currentTenantId(), 'u' => (int) ($ctx['user']['id'] ?? 0),
                 'e' => 'treasury.liability.created',
                 'tid' => $accountId,
-                'm' => json_encode(['subtype' => $body['subtype'], 'name' => $body['name']]),
+                'm' => json_encode([
+                    'subtype' => $body['subtype'],
+                    'name' => $body['name'],
+                    'entity_id' => (int) $entity['id'],
+                ]),
             ]);
             $pdo->commit();
             api_ok(['id' => $accountId, 'account_id' => $accountId], 201);

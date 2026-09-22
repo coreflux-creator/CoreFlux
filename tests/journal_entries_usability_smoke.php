@@ -12,6 +12,8 @@ $manifest = (string) file_get_contents($root . '/modules/accounting/manifest.php
 $accounting = (string) file_get_contents($root . '/modules/accounting/lib/accounting.php');
 $standardReports = (string) file_get_contents($root . '/modules/accounting/api/standard_reports.php');
 $export = (string) file_get_contents($root . '/modules/accounting/api/export.php');
+$import = (string) file_get_contents($root . '/modules/accounting/api/import.php');
+$intercompanyDialog = (string) file_get_contents($root . '/dashboard/src/components/IntercompanySplitDialog.jsx');
 
 $checks = [
     'journal navigation uses bookmarkable canonical routes' =>
@@ -43,8 +45,39 @@ $checks = [
         && str_contains($editor, 'action=post_draft&id=${id}'),
     'draft editing and copying preserve accounting context' =>
         str_contains($editor, 'counterparty_entity_id: line.counterparty_entity_id || null')
-        && str_contains($editor, 'dims: parseDims(line.dim_json)')
-        && str_contains($editor, "{ entity_id: sourceEntry.entity_id }"),
+        && str_contains($editor, 'const dims = parseDims(line.dim_json)')
+        && str_contains($editor, 'setEntityId(entry.entity_id ? String(entry.entity_id)')
+        && str_contains($editor, 'entity_id: Number(entityId)'),
+    'manual journal exposes legal entity and per-line dimensions' =>
+        str_contains($editor, 'data-testid="accounting-je-entity"')
+        && str_contains($editor, 'data-testid={`accounting-je-line-dimensions-${i}`}')
+        && str_contains($editor, 'data-testid={`accounting-je-line-${i}-dimension-${dimension.dim_key}`}')
+        && str_contains($editor, "dimension.dim_key !== 'legal_entity'"),
+    'assignment choice inherits canonical dimensions and revalidates at submit' =>
+        str_contains($editor, '<PlacementPicker')
+        && str_contains($editor, 'applyAssignmentDimensions')
+        && str_contains($editor, 'refreshAssignmentDimensions')
+        && str_contains($editor, 'accounting-je-assignment-entity-error'),
+    'manual intercompany split inherits the selected entity and entered lines' =>
+        str_contains($editor, 'sourceEntityId={Number(entityId)}')
+        && str_contains($editor, 'initialSplits={icSeed.splits}')
+        && str_contains($intercompanyDialog, 'initialSplits = null')
+        && str_contains($intercompanyDialog, 'initialPostingDate = null'),
+    'journal CSV import carries entity and staffing dimensions' =>
+        str_contains($import, "'entity_id'    => ['label' => 'Entity id',    'required' => true")
+        && str_contains($import, "'placement'    => ['label' => 'Assignment dimension']")
+        && str_contains($import, "'cost_center'  => ['label' => 'Cost center dimension']")
+        && str_contains($import, "'counterparty_entity' => ['label' => 'Counterparty entity dimension']")
+        && str_contains($import, "'dims' => \$dims"),
+    'journal CSV derives assignment dimensions during preview and commit' =>
+        str_contains($import, 'function accountingPrepareJeImport')
+        && str_contains($import, 'staffingAssignmentDimensionContext(')
+        && substr_count($import, 'accountingPrepareJeImport($tid,') >= 2
+        && str_contains($import, '$dims = array_replace($dims, $inheritedDimensions'),
+    'legal entity is stamped through post edit validation and draft promotion' =>
+        str_contains($accounting, 'function accountingStampLegalEntityDimension')
+        && substr_count($accounting, 'accountingStampLegalEntityDimension(') >= 5
+        && str_contains($accounting, 'Repair legacy drafts that pre-date the legal-entity line dimension'),
     'draft mutation endpoints are permission gated' =>
         str_contains($api, "'accounting.je.edit_draft'")
         && str_contains($api, "'accounting.je.void'")

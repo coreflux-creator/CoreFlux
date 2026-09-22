@@ -899,8 +899,10 @@ if ($method === 'POST' && $action === 'post') {
         ], $id);
     }
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
+    require_once __DIR__ . '/../../accounting/lib/dimensions.php';
     require_once __DIR__ . '/../../accounting/lib/multi_period.php';
     require_once __DIR__ . '/../../../core/posting_engine/process.php';
+    require_once __DIR__ . '/../../staffing/lib/dimensions.php';
 
     // Accrual-at-approval reclassification gate (2026-02). When the
     // tenant has `multi_period_split_enabled=1`, revenue + AR Unbilled
@@ -929,59 +931,190 @@ if ($method === 'POST' && $action === 'post') {
     $taxTotal = (float) $row['tax_total'];
     $total    = (float) $row['total'];
     $party    = !empty($row['client_company_id']) ? (int) $row['client_company_id'] : null;
+    try {
+        $postingEntity = activeEntityResolveForTenant(
+            $tid,
+            !empty($row['entity_id']) ? (int) $row['entity_id'] : null
+        );
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
+    if (!$postingEntity) api_error('An active issuing entity is required before this invoice can post', 422);
+    $documentEntityId = (int) $postingEntity['id'];
+    if (empty($row['entity_id'])) {
+        getDB()->prepare('UPDATE billing_invoices SET entity_id = :entity_id WHERE tenant_id = :tenant_id AND id = :id')
+            ->execute(['entity_id' => $documentEntityId, 'tenant_id' => $tid, 'id' => $id]);
+        $row['entity_id'] = $documentEntityId;
+    }
+    $documentDimensions = array_filter([
+        'client' => $party,
+        'legal_entity' => $documentEntityId > 0 ? $documentEntityId : null,
+    ], static fn(mixed $value): bool => $value !== null && $value !== '');
 
     // Group revenue per gl_revenue_account_code so non-labor lines land in
     // their own account (e.g. 4100 Reimbursable, 4200 Materials, 4300 SOW
     // Fees). Lines without an override fall back to 4000 Revenue.
     $pdo = getDB();
     $linesStmt = $pdo->prepare(
-        'SELECT item_type, gl_revenue_account_code, SUM(subtotal) AS s
+        'SELECT item_type, gl_revenue_account_code, COALESCE(placement_id, 0) AS placement_id,
+                SUM(subtotal) AS s
          FROM billing_invoice_lines WHERE invoice_id = :id
-         GROUP BY item_type, gl_revenue_account_code'
+         GROUP BY item_type, gl_revenue_account_code, placement_id'
     );
     $linesStmt->execute(['id' => $id]);
-    $bucketSums = [];
+    $revenueBuckets = [];
+    $placementSubtotals = [];
+    $placementAccountCodes = [];
     foreach ($linesStmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
         $code = $r['gl_revenue_account_code'] ?: '4000';
-        $bucketSums[$code] = ($bucketSums[$code] ?? 0) + (float) $r['s'];
+        $placementId = (int) ($r['placement_id'] ?? 0);
+        $bucketKey = $placementId . ':' . $code;
+        if (!isset($revenueBuckets[$bucketKey])) {
+            $revenueBuckets[$bucketKey] = [
+                'placement_id' => $placementId,
+                'account_code' => $code,
+                'amount' => 0.0,
+            ];
+        }
+        $revenueBuckets[$bucketKey]['amount'] += (float) $r['s'];
+        $placementSubtotals[$placementId] = ($placementSubtotals[$placementId] ?? 0) + (float) $r['s'];
+        if ($placementId > 0) $placementAccountCodes[$placementId][$code] = true;
     }
-    if (!$bucketSums) $bucketSums['4000'] = $subtotal;
+    if (!$revenueBuckets) {
+        $revenueBuckets['0:4000'] = ['placement_id' => 0, 'account_code' => '4000', 'amount' => $subtotal];
+        $placementSubtotals[0] = $subtotal;
+    }
+
+    $placementContexts = [];
+    foreach (array_keys($placementSubtotals) as $placementId) {
+        $placementId = (int) $placementId;
+        if ($placementId <= 0) continue;
+        try {
+            $placementContexts[$placementId] = staffingAssignmentDimensionContext(
+                $tid,
+                $placementId,
+                $documentEntityId,
+                (string) $row['issue_date']
+            );
+        } catch (\Throwable $e) {
+            api_error("Invoice {$row['invoice_number']} could not resolve reporting dimensions for placement #{$placementId}: " . $e->getMessage(), 422);
+        }
+        $accountRequired = accountingRequiredDimensionKeysForAccountCodes(
+            $tid,
+            array_keys($placementAccountCodes[$placementId] ?? [])
+        );
+        $blockingMissing = staffingDimensionBlockingMissing(
+            $placementContexts[$placementId],
+            'billing',
+            $accountRequired
+        );
+        if ($blockingMissing) {
+            api_error(
+                "Complete placement #{$placementId} before posting invoice {$row['invoice_number']}: missing "
+                . implode(', ', staffingDimensionMissingLabels($blockingMissing)),
+                422
+            );
+        }
+        $placementEntityId = (int) ($placementContexts[$placementId]['event_entity_id'] ?? 0);
+        if ($documentEntityId > 0 && $placementEntityId > 0 && $placementEntityId !== $documentEntityId) {
+            api_error("Invoice {$row['invoice_number']} contains placement #{$placementId} from a different legal entity", 422);
+        }
+        $placementClientCompanyId = (int) ($placementContexts[$placementId]['placement']['end_client_company_id'] ?? 0)
+            ?: (int) ($placementContexts[$placementId]['placement']['staffing_client_company_id'] ?? 0);
+        if ($party && $placementClientCompanyId > 0 && $placementClientCompanyId !== $party) {
+            api_error(
+                "Invoice {$row['invoice_number']} is for a different client than placement #{$placementId}",
+                422
+            );
+        }
+    }
 
     $lines = [
-        ['account_code' => '1100', 'debit' => $total, 'credit' => 0, 'memo' => "Inv {$row['invoice_number']} / {$row['client_name']}", 'counterparty_company_id' => $party],
+        ['account_code' => '1100', 'debit' => $total, 'credit' => 0, 'memo' => "Inv {$row['invoice_number']} / {$row['client_name']}", 'counterparty_company_id' => $party, 'dims' => $documentDimensions],
     ];
-    foreach ($bucketSums as $code => $amt) {
-        $amt = round($amt, 2);
+    foreach ($revenueBuckets as $bucket) {
+        $amt = round((float) $bucket['amount'], 2);
         if (abs($amt) <= 0.005) continue;
+        $placementId = (int) $bucket['placement_id'];
+        $lineDimensions = $placementId > 0
+            ? (array) ($placementContexts[$placementId]['dimensions'] ?? [])
+            : $documentDimensions;
         $lines[] = [
-            'account_code' => $code,
+            'account_code' => (string) $bucket['account_code'],
             'debit' => $amt < 0 ? abs($amt) : 0,
             'credit' => $amt > 0 ? $amt : 0,
             'memo' => "Revenue — {$row['invoice_number']}",
             'counterparty_company_id' => $party,
+            'dims' => $lineDimensions,
         ];
     }
     if ($taxTotal > 0.005) {
-        $lines[] = ['account_code' => '2100', 'debit' => 0, 'credit' => $taxTotal, 'memo' => "Sales tax — {$row['invoice_number']}", 'counterparty_company_id' => $party];
+        $lines[] = ['account_code' => '2100', 'debit' => 0, 'credit' => $taxTotal, 'memo' => "Sales tax — {$row['invoice_number']}", 'counterparty_company_id' => $party, 'dims' => $documentDimensions];
     }
+
+    // When the work was accrued at approval, issue-time posting must clear
+    // AR Unbilled instead of recognizing revenue a second time. Split the
+    // clearing lines by placement so the balance-sheet roll-forward retains
+    // the same assignment trail as the original accrual.
+    $reclassLines = [];
+    if ($reclassifyOnly) {
+        accountingEnsureAccrualAccounts($tid, $settings);
+        $arUnbilled = (string) $settings['ar_unbilled_account_code'];
+        $reclassLines[] = [
+            'account_code' => '1100',
+            'debit' => round($total, 2),
+            'credit' => 0,
+            'memo' => "Inv {$row['invoice_number']} / {$row['client_name']}",
+            'counterparty_company_id' => $party,
+            'dims' => $documentDimensions,
+        ];
+        foreach ($placementSubtotals as $placementId => $amount) {
+            $amount = round((float) $amount, 2);
+            if (abs($amount) <= 0.005) continue;
+            $placementId = (int) $placementId;
+            $lineDimensions = $placementId > 0
+                ? (array) ($placementContexts[$placementId]['dimensions'] ?? [])
+                : $documentDimensions;
+            $reclassLines[] = [
+                'account_code' => $arUnbilled,
+                'debit' => $amount < 0 ? abs($amount) : 0,
+                'credit' => $amount > 0 ? $amount : 0,
+                'memo' => "Clear AR Unbilled — {$row['invoice_number']}",
+                'counterparty_company_id' => $party,
+                'dims' => $lineDimensions,
+            ];
+        }
+        if ($taxTotal > 0.005) {
+            $reclassLines[] = [
+                'account_code' => '2100',
+                'debit' => 0,
+                'credit' => round($taxTotal, 2),
+                'memo' => "Sales tax — {$row['invoice_number']}",
+                'counterparty_company_id' => $party,
+                'dims' => $documentDimensions,
+            ];
+        }
+    }
+    $eventPostingLines = $reclassifyOnly ? $reclassLines : $lines;
 
     // Sprint 7e — preferred path: emit billing.invoice.sent into the
     // posting engine. Falls back to the legacy direct accountingPostJe()
     // call when no rule has been seeded for this tenant.
     $payloadLines = [];
-    foreach ($lines as $l) {
+    foreach ($eventPostingLines as $l) {
         $payloadLines[] = [
             'account_code' => $l['account_code'],
             'debit'        => (float) ($l['debit']  ?? 0),
             'credit'       => (float) ($l['credit'] ?? 0),
             'description'  => $l['memo'] ?? null,
             'counterparty_company_id' => $l['counterparty_company_id'] ?? null,
+            'dims'          => (array) ($l['dims'] ?? []),
         ];
     }
     $eventResult = null; $eventError = null;
     try {
         $eventResult = accountingProcessEvent($tid, [
-            'entity_id'        => !empty($row['entity_id']) ? (int) $row['entity_id'] : 0,
+            'entity_id'        => $documentEntityId,
             'event_type'       => 'billing.invoice.sent',
             'source_module'    => 'billing',
             'source_record_id' => 'billing_invoice:' . $id,
@@ -995,6 +1128,8 @@ if ($method === 'POST' && $action === 'post') {
                 'amount'         => (float) $row['total'],
                 'currency'       => (string) $row['currency'],
                 'due_date'       => (string) $row['due_date'],
+                'posting_mode'   => $reclassifyOnly ? 'ar_reclassification' : 'invoice_recognition',
+                'dimensions'     => $documentDimensions,
                 'lines'          => $payloadLines,
             ],
         ], $user['id'] ?? null);
@@ -1031,31 +1166,14 @@ if ($method === 'POST' && $action === 'post') {
     // tenant flag is ON, revenue + AR Unbilled were already posted by
     // the bundle-accrual hook at timesheet approval time, so the
     // invoice post is a pure AR reclassification — no revenue, no
-    // expense, no multi-period batching. Placed AFTER the event-layer
-    // attempt so the Sprint 7e contract guardrails stay green; the
-    // event-layer rule wins over reclassification when both are
-    // configured for the same tenant.
+    // expense, no multi-period batching. The event layer above receives
+    // this same reclassification shape; this branch is its direct-post
+    // fallback when no event rule is available.
     if ($reclassifyOnly) {
-        accountingEnsureAccrualAccounts($tid, $settings);
-        $arUnbilled = (string) $settings['ar_unbilled_account_code'];
-        $reclassLines = [
-            // Dr Accounts Receivable for the full invoice total.
-            ['account_code' => '1100', 'debit' => round((float) $row['total'], 2), 'credit' => 0,
-             'memo' => "Inv {$row['invoice_number']} / {$row['client_name']}", 'counterparty_company_id' => $party],
-            // Cr AR Unbilled for the subtotal — clears the prior accrual.
-            ['account_code' => $arUnbilled, 'debit' => 0, 'credit' => round((float) $row['subtotal'], 2),
-             'memo' => "Clear AR Unbilled — {$row['invoice_number']}", 'counterparty_company_id' => $party],
-        ];
-        if ((float) $row['tax_total'] > 0.005) {
-            // Sales tax was NOT accrued at approval (it's an invoice-time
-            // construct), so credit it directly here. The AR debit
-            // above already includes the tax in the total.
-            $reclassLines[] = ['account_code' => '2100', 'debit' => 0, 'credit' => round((float) $row['tax_total'], 2),
-                               'memo' => "Sales tax — {$row['invoice_number']}", 'counterparty_company_id' => $party];
-        }
         $pdo_mp = getDB();
         try {
             $resRc = accountingPostJe($tid, [
+                'entity_id'       => $documentEntityId,
                 'posting_date'    => $row['issue_date'],
                 'currency'        => $row['currency'],
                 'source_module'   => 'billing',
@@ -1092,6 +1210,7 @@ if ($method === 'POST' && $action === 'post') {
 
     try {
         $res = accountingPostJe($tid, [
+            'entity_id'       => $documentEntityId,
             'posting_date'    => $row['issue_date'],
             'currency'        => $row['currency'],
             'source_module'   => 'billing',

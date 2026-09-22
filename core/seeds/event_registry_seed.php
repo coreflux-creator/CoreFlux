@@ -124,6 +124,12 @@ function eventRegistrySeedRows(): array {
             'Dr AP / Cr expense (or vendor credits liability).'],
 
         /* ---------- 4. Treasury (10) ----------------------------------------- */
+        ['treasury.payment.executed', 'treasury',
+            'Treasury payment disbursed from a bank account.',
+            $req(['payment_id','amount','currency','bank_account_id','method']),
+            ['payee_type','payee_id','payee_name','counterparty_account_id','bank_ref'],
+            'payee', ['accounting','treasury'], [],
+            'Dr selected liability or expense / Cr cash.'],
         ['treasury.transfer.completed', 'treasury',
             'Internal bank-to-bank transfer between two accounts of the same entity.',
             $req(['from_bank_account_id','to_bank_account_id','amount','currency']),
@@ -364,7 +370,6 @@ function eventRegistryAliasRows(): array {
     return [
         ['billing.invoice.sent',      'ar.invoice.issued'],
         ['billing.payment.received',  'ar.payment.received'],
-        ['treasury.payment.executed', 'ap.payment.executed'],
     ];
 }
 
@@ -384,7 +389,9 @@ function eventRegistrySeedRun(\PDO $pdo): array {
            counterparty_type     = VALUES(counterparty_type),
            expected_consumers    = VALUES(expected_consumers),
            parent_event_types    = VALUES(parent_event_types),
-           typical_accounting    = VALUES(typical_accounting)"
+           typical_accounting    = VALUES(typical_accounting),
+           deprecated_at         = NULL,
+           deprecated_alias_for  = NULL"
     );
     $count = 0;
     foreach ($rows as $r) {

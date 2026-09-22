@@ -22,7 +22,7 @@ function jobdivaReconciliationSchema(): array
             'job_id'               => ['label' => 'Job ID'],
             'title'                => ['label' => 'Title'],
             'status'               => ['label' => 'Status'],
-            'engagement_type'      => ['label' => 'Worker Classification'],
+            'engagement_type'      => ['label' => 'Engagement Type'],
             'start_date'           => ['label' => 'Start Date'],
             'end_date'             => ['label' => 'End Date'],
             'end_client_name'      => ['label' => 'End Client'],
@@ -195,6 +195,8 @@ function jobdivaReconciliationNormaliseEngagement(mixed $value, string $sourceHe
     if ($truthy === true && preg_match('/\b(c2c|corp|crop)\b/', $header)) return 'c2c';
     if ($truthy === true && preg_match('/\bw ?2\b/', $header)) return 'w2';
     $flat = preg_replace('/[^a-z0-9]+/', ' ', $raw) ?? $raw;
+    if ($flat === 'ref' || preg_match('/\breferral\b/', $flat)) return 'referral';
+    if ($flat === 'internal') return 'internal';
     if (preg_match('/\b(c2c|corp to corp|corporation)\b/', $flat)) return 'c2c';
     if (preg_match('/\b(w2|w 2|employee)\b/', $flat)) return 'w2';
     if (preg_match('/\b(1099|independent contractor|contractor)\b/', $flat)) return '1099';
@@ -644,7 +646,7 @@ function jobdivaReconciliationBuildRowPlan(
         foreach ([
             'title' => 'Title',
             'start_date' => 'Start Date',
-            'engagement_type' => 'Worker Classification',
+            'engagement_type' => 'Engagement Type',
         ] as $field => $label) {
             if (empty($source[$field])) $errors[] = "{$label} is required to create a missing placement.";
         }
@@ -663,7 +665,7 @@ function jobdivaReconciliationBuildRowPlan(
     $fieldMap = [
         'title' => 'Title',
         'status' => 'Status',
-        'engagement_type' => 'Worker Classification',
+        'engagement_type' => 'Engagement Type',
         'start_date' => 'Start Date',
         'end_date' => 'End Date',
         'end_client_name' => 'End Client',

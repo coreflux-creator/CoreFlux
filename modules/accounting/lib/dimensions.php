@@ -70,6 +70,44 @@ function accountingAccountDimRules(int $tenantId, int $accountId): array {
 }
 
 /**
+ * Union of dimensions required by the active accounts identified by code.
+ * Tenant rules and required-default dimensions are both honored, matching the
+ * validation performed by accountingValidateLineDims().
+ *
+ * @param list<string> $accountCodes
+ * @return list<string>
+ */
+function accountingRequiredDimensionKeysForAccountCodes(int $tenantId, array $accountCodes): array {
+    $codes = array_values(array_unique(array_filter(array_map(
+        static fn(mixed $code): string => trim((string) $code),
+        $accountCodes
+    ))));
+    if (!$codes) return [];
+
+    $registry = accountingDimensionRegistry($tenantId);
+    if (!$registry) return [];
+    $pdo = getDB();
+    $accountLookup = $pdo->prepare(
+        'SELECT id FROM accounting_accounts
+          WHERE tenant_id = :tenant_id AND code = :code
+            AND active = 1 AND is_postable = 1
+          LIMIT 1'
+    );
+    $required = [];
+    foreach ($codes as $code) {
+        $accountLookup->execute(['tenant_id' => $tenantId, 'code' => $code]);
+        $accountId = (int) ($accountLookup->fetchColumn() ?: 0);
+        if ($accountId <= 0) continue;
+        $rules = accountingAccountDimRules($tenantId, $accountId);
+        foreach ($registry as $key => $definition) {
+            $requirement = $rules[$key] ?? (!empty($definition['required_default']) ? 'required' : 'optional');
+            if ($requirement === 'required') $required[$key] = true;
+        }
+    }
+    return array_keys($required);
+}
+
+/**
  * Validate a journal-entry line's dims against per-account rules + dimension defaults.
  *
  * @param array $dims  e.g. ['department' => 'ENG', 'project' => 'PRJ-01']

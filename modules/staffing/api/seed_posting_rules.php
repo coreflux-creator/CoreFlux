@@ -2,7 +2,7 @@
 /**
  * POST /api/staffing/seed_posting_rules
  *
- * One-shot admin action to install the three default journal templates +
+ * One-shot admin action to install the four default journal templates +
  * posting rules for `staffing.worker_hours.approved`.
  *
  * Body: {} (empty)

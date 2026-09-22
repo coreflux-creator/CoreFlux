@@ -4,7 +4,8 @@
  *
  * Verifies:
  *   - migration 012 extends accounting_accounts with system + tax columns
- *   - core/accounting/system_accounts.php defines all 17 spec accounts
+ *   - core/accounting/system_accounts.php defines the core control accounts
+ *     and the expanded staffing/payroll account set
  *   - migration 013 adds entity.accounting_basis
  *   - migration 014 adds JE.soft_close_override_reason
  */
@@ -30,23 +31,26 @@ $assert('tax_mapping_id column',                  stripos($mig, "column_name = '
 $assert('statement_section column',               stripos($mig, "column_name = 'statement_section'") !== false);
 $assert('sort_order column',                      stripos($mig, "column_name = 'sort_order'") !== false);
 
-echo "\ncore/accounting/system_accounts.php — 17 system accounts\n";
+echo "\ncore/accounting/system_accounts.php — system account catalog\n";
 $helper = (string) file_get_contents("{$ROOT}/core/accounting/system_accounts.php");
 $assert('helper file exists',                     strlen($helper) > 0);
 
 $required = [
     'Cash', 'Clearing Accounts', 'Accounts Receivable', 'Accounts Payable',
-    'Payroll Liability', 'Sales Tax Payable', 'Retained Earnings',
+    'Sales Tax Payable', 'Accrued Payroll', 'Payroll Payable',
+    'Payroll Tax Payable', 'Payroll Deduction Payable', 'Retained Earnings',
     'Opening Balance Equity', 'Suspense', 'Uncategorized Income',
     'Uncategorized Expense', 'Rounding Gain/Loss', 'Intercompany Receivable',
     'Intercompany Payable', 'Bank Fees Expense', 'Interest Income',
-    'Interest Expense',
+    'Interest Expense', 'Service Revenue', 'Direct Labor Expense',
+    'Subcontractor Expense', 'Employer Payroll Tax Expense',
 ];
 foreach ($required as $name) {
     $assert("system account defined: {$name}",   strpos($helper, "'name' => '{$name}'") !== false);
 }
-// And the count is exactly 17 — guards against drift
-$assert('at least 17 system accounts',             substr_count($helper, "'name' =>") >= 17);
+// Keep the original control catalog while allowing the staffing-specific
+// additions required by the posting engine.
+$assert('expanded system account catalog',         substr_count($helper, "'name' =>") >= count($required));
 
 $assert('seed function exposed',                  strpos($helper, 'function accountingSeedSystemAccounts') !== false);
 $assert('lookup function exposed',                strpos($helper, 'function accountingSystemAccountId') !== false);

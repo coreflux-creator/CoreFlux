@@ -14,12 +14,13 @@
  *
  * Use case: backfill `accounting_events` + `accounting_subledger_links`
  * for AP bills that were posted before Sprint 7e shipped (or that took
- * the legacy fallback path because no rule was seeded yet). Re-emits each
+ * the legacy fallback path because no rule was seeded yet). Records each
  * bill as `ap.bill.approved` with `source_module='ap_replay'` and a
  * differentiated `source_record_id` namespace so the (tenant,
  * source_module, source_record_id, event_type) unique key on
  * accounting_events keeps replay idempotent and doesn't collide with the
- * live `source_module='ap'` events.
+ * live `source_module='ap'` events. Replay links to the existing journal
+ * entry; it never runs posting rules or creates a second journal entry.
  *
  * RBAC: `accounting.manage_posting_rules` (admin-gated).
  */
@@ -27,7 +28,6 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
-require_once __DIR__ . '/../core/posting_engine/process.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -97,7 +97,44 @@ $liveEvCheck = $pdo->prepare(
         AND event_type = 'ap.bill.approved'
       LIMIT 1"
 );
-$lineStmt = $pdo->prepare('SELECT * FROM ap_bill_lines WHERE bill_id = :id ORDER BY line_no');
+$journalStmt = $pdo->prepare(
+    'SELECT je.entity_id, je.posting_date, je.currency AS journal_currency,
+            je.memo AS journal_memo, jl.line_no, a.code AS account_code,
+            jl.debit, jl.credit, jl.memo, jl.description,
+            jl.counterparty_company_id, jl.counterparty_person_id,
+            jl.counterparty_entity_id, jl.dim_json
+       FROM accounting_journal_entries je
+       JOIN accounting_journal_entry_lines jl
+         ON jl.je_id = je.id AND jl.tenant_id = :line_tenant
+       JOIN accounting_accounts a
+         ON a.id = jl.account_id AND a.tenant_id = :account_tenant
+      WHERE je.tenant_id = :journal_tenant
+        AND je.id = :je
+        AND je.status = "posted"
+   ORDER BY jl.line_no ASC'
+);
+$insertEvent = $pdo->prepare(
+    'INSERT IGNORE INTO accounting_events
+        (tenant_id, entity_id, event_type, source_module,
+         source_record_id, event_date, payload, status,
+         journal_entry_id, posted_at, created_by_user_id)
+     VALUES (:t, :e, :et, :sm, :sr, :ed, :pl, "posted",
+             :je, NOW(), :u)'
+);
+$findEvent = $pdo->prepare(
+    'SELECT id FROM accounting_events
+      WHERE tenant_id = :t
+        AND source_module = "ap_replay"
+        AND source_record_id = :sr
+        AND event_type = "ap.bill.approved"
+      LIMIT 1'
+);
+$insertLink = $pdo->prepare(
+    'INSERT IGNORE INTO accounting_subledger_links
+        (tenant_id, source_module, source_record_id, journal_entry_id,
+         accounting_event_id, link_kind)
+     VALUES (:t, "ap", :sr, :je, :ev, "primary")'
+);
 
 foreach ($rows as $b) {
     $billId = (int) $b['id'];
@@ -114,32 +151,46 @@ foreach ($rows as $b) {
         if ($liveEvCheck->fetchColumn()) { $out['skipped_already_event']++; continue; }
     }
 
+    $journalStmt->execute([
+        'line_tenant' => $tid,
+        'account_tenant' => $tid,
+        'journal_tenant' => $tid,
+        'je' => (int) $b['journal_entry_id'],
+    ]);
+    $journalRows = $journalStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    if (!$journalRows) {
+        $out['failed']++;
+        $out['errors'][] = [
+            'bill_id' => $billId,
+            'internal_ref' => (string) $b['internal_ref'],
+            'error' => 'The linked journal entry is missing, unposted, or has no lines.',
+        ];
+        if (count($out['errors']) > 50) break;
+        continue;
+    }
+
     if ($dryRun) { $out['replayed']++; continue; }
 
-    // Rebuild payload.lines from ap_bill_lines.
-    $lineStmt->execute(['id' => $billId]);
-    $billLines = $lineStmt->fetchAll(\PDO::FETCH_ASSOC);
-
-    $payloadLines = [];
-    foreach ($billLines as $bl) {
-        $payloadLines[] = [
-            'account_code' => $bl['gl_expense_account_code'] ?? '5000',
-            'debit'        => (float) $bl['total'],
-            'credit'       => 0,
-            'description'  => $bl['description'],
-            'counterparty_company_id' => !empty($b['vendor_company_id']) ? (int) $b['vendor_company_id'] : null,
+    $payloadLines = array_map(static function (array $line): array {
+        $dimensions = !empty($line['dim_json'])
+            ? (json_decode((string) $line['dim_json'], true) ?: [])
+            : [];
+        return [
+            'line_no' => (int) $line['line_no'],
+            'account_code' => (string) $line['account_code'],
+            'debit' => (float) $line['debit'],
+            'credit' => (float) $line['credit'],
+            'memo' => $line['memo'] !== null ? (string) $line['memo'] : null,
+            'description' => $line['description'] !== null ? (string) $line['description'] : null,
+            'counterparty_company_id' => !empty($line['counterparty_company_id']) ? (int) $line['counterparty_company_id'] : null,
+            'counterparty_person_id' => !empty($line['counterparty_person_id']) ? (int) $line['counterparty_person_id'] : null,
+            'counterparty_entity_id' => !empty($line['counterparty_entity_id']) ? (int) $line['counterparty_entity_id'] : null,
+            'dims' => $dimensions,
         ];
-    }
-    $payloadLines[] = [
-        'account_code' => '2000',
-        'debit'        => 0,
-        'credit'       => (float) $b['total'],
-        'description'  => "AP " . $b['internal_ref'] . " — " . $b['vendor_name'],
-        'counterparty_company_id' => !empty($b['vendor_company_id']) ? (int) $b['vendor_company_id'] : null,
-    ];
+    }, $journalRows);
 
     $event = [
-        'entity_id'        => !empty($b['entity_id']) ? (int) $b['entity_id'] : 0,
+        'entity_id'        => (int) $journalRows[0]['entity_id'],
         'event_type'       => 'ap.bill.approved',
         'source_module'    => 'ap_replay',
         'source_record_id' => $sr,
@@ -153,56 +204,45 @@ foreach ($rows as $b) {
             'currency'     => (string) $b['currency'],
             'lines'        => $payloadLines,
             'replay'       => true,
+            'replay_mode'  => 'audit_link_only',
+            'journal_posting_date' => (string) $journalRows[0]['posting_date'],
+            'journal_currency' => (string) $journalRows[0]['journal_currency'],
+            'journal_memo' => $journalRows[0]['journal_memo'] !== null ? (string) $journalRows[0]['journal_memo'] : null,
             'original_journal_entry_id' => (int) $b['journal_entry_id'],
         ],
     ];
 
     try {
-        $r = accountingProcessEvent($tid, $event, $user['id'] ?? null, /* dryRun */ false);
-        if (($r['status'] ?? null) === 'posted') {
-            $out['replayed']++;
-        } elseif (($r['status'] ?? null) === 'ignored') {
-            // No rule seeded — degrade to writing a stub event row + a
-            // subledger_links row pointing back at the original JE so the
-            // audit trail isn't lost. This is the "everything has an
-            // audit trail" guarantee.
-            $insStub = $pdo->prepare(
-                'INSERT IGNORE INTO accounting_events
-                    (tenant_id, entity_id, event_type, source_module,
-                     source_record_id, event_date, payload, status,
-                     journal_entry_id, posted_at, error_message,
-                     created_by_user_id)
-                 VALUES (:t, :e, :et, :sm, :sr, :ed, :pl, "posted",
-                         :je, NOW(), :err, :u)'
-            );
-            $insStub->execute([
-                't' => $tid, 'e' => (int) ($event['entity_id'] ?? 0),
-                'et' => 'ap.bill.approved', 'sm' => 'ap_replay',
-                'sr' => $sr, 'ed' => $event['event_date'],
-                'pl' => json_encode($event['payload']),
+        $ownsTxn = cf_tx_begin($pdo);
+        try {
+            $insertEvent->execute([
+                't' => $tid,
+                'e' => (int) $event['entity_id'],
+                'et' => 'ap.bill.approved',
+                'sm' => 'ap_replay',
+                'sr' => $sr,
+                'ed' => $event['event_date'],
+                'pl' => json_encode($event['payload'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
                 'je' => (int) $b['journal_entry_id'],
-                'err' => 'replay: stamped existing JE (no rule matched, JE was posted via legacy path)',
                 'u' => $user['id'] ?? null,
             ]);
-            // Backfill subledger_links too.
-            $pdo->prepare(
-                'INSERT IGNORE INTO accounting_subledger_links
-                    (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
-                 VALUES (:t, "ap", :sr, :je, "primary")'
-            )->execute([
-                't' => $tid, 'sr' => $sr, 'je' => (int) $b['journal_entry_id'],
+            $findEvent->execute(['t' => $tid, 'sr' => $sr]);
+            $eventId = (int) ($findEvent->fetchColumn() ?: 0);
+            if ($eventId <= 0) {
+                throw new \RuntimeException('Could not create or locate the replay audit event.');
+            }
+            $insertLink->execute([
+                't' => $tid,
+                'sr' => $sr,
+                'je' => (int) $b['journal_entry_id'],
+                'ev' => $eventId,
             ]);
-            $out['replayed']++;
-        } else {
-            $out['failed']++;
-            $out['errors'][] = [
-                'bill_id'      => $billId,
-                'internal_ref' => (string) $b['internal_ref'],
-                'status'       => $r['status'] ?? 'unknown',
-                'error'        => $r['error']  ?? null,
-            ];
-            if (count($out['errors']) > 50) break;
+            cf_tx_commit($pdo, $ownsTxn);
+        } catch (\Throwable $e) {
+            cf_tx_rollback($pdo, $ownsTxn);
+            throw $e;
         }
+        $out['replayed']++;
     } catch (\Throwable $e) {
         $out['failed']++;
         $out['errors'][] = [

@@ -87,6 +87,12 @@ $assert('clear failure leaves payment sent and explicitly retryable',
 $assert('bank clearing and the AP screen share one payment clearing helper',
     str_contains($lib, 'function apClearPayment(')
     && str_contains($payments, 'apClearPayment($tid, $id'));
+$assert('clearing derives one canonical vendor from allocated bills',
+    str_contains($lib, 'SELECT b.vendor_company_id, b.vendor_name')
+    && str_contains($lib, 'This payment spans multiple vendors')
+    && str_contains($lib, "'vendor_dimension' => \$posting['vendor_dimension']"));
+$assert('clearing carries legal entity into the journal event',
+    str_contains($lib, "'legal_entity_dimension' => \$posting['legal_entity_dimension']"));
 
 echo "Entity scope and CSV safety\n";
 $assert('payment entity migration and backfill exist',

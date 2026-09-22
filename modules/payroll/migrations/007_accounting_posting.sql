@@ -12,7 +12,7 @@ SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payroll_settings'
                AND COLUMN_NAME = 'payroll_tax_expense_account_code');
 SET @sql := IF(@col = 0,
-    'ALTER TABLE payroll_settings ADD COLUMN payroll_tax_expense_account_code VARCHAR(64) NOT NULL DEFAULT ''5010'' AFTER wage_expense_account_code',
+    'ALTER TABLE payroll_settings ADD COLUMN payroll_tax_expense_account_code VARCHAR(64) NOT NULL DEFAULT ''5020'' AFTER wage_expense_account_code',
     'DO 0');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 

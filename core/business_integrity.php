@@ -622,6 +622,258 @@ function businessIntegrityAudit(int $tenantId): array
         ['placements', 'placement_economic_parties']
     );
 
+    $checks[] = businessIntegrityCountCheck(
+        $placementsTenantId,
+        'active_referral_vendor_linkage',
+        'Active referral assignments have a canonical AP vendor',
+        'error',
+        "SELECT COUNT(*) FROM placements p
+          WHERE p.tenant_id = :tenant_id
+            AND p.status = 'active'
+            AND p.engagement_type = 'referral'
+            AND p.deleted_at IS NULL
+            AND NOT EXISTS (
+                SELECT 1
+                  FROM placement_referrals r
+                  JOIN placement_economic_parties ep
+                    ON ep.tenant_id = r.tenant_id
+                   AND ep.placement_id = r.placement_id
+                   AND ep.source_ref = CONCAT('referral:', r.id)
+                   AND ep.active = 1
+                   AND ep.money_flow = 'payable'
+                   AND ep.settlement_channel = 'ap'
+                  JOIN ap_vendors_index v
+                    ON v.tenant_id = ep.tenant_id
+                   AND v.id = ep.ap_vendor_id
+                 WHERE r.tenant_id = p.tenant_id
+                   AND r.placement_id = p.id
+                   AND r.referrer_type IN ('vendor','person')
+                   AND (r.referrer_company_id IS NOT NULL OR r.referrer_person_id IS NOT NULL)
+                   AND r.start_date <= CURDATE()
+                   AND (r.end_date IS NULL OR r.end_date >= CURDATE())
+            )",
+        "SELECT p.id AS placement_id, p.external_id, p.title, p.end_client_name
+           FROM placements p
+          WHERE p.tenant_id = :tenant_id
+            AND p.status = 'active'
+            AND p.engagement_type = 'referral'
+            AND p.deleted_at IS NULL
+            AND NOT EXISTS (
+                SELECT 1
+                  FROM placement_referrals r
+                  JOIN placement_economic_parties ep
+                    ON ep.tenant_id = r.tenant_id
+                   AND ep.placement_id = r.placement_id
+                   AND ep.source_ref = CONCAT('referral:', r.id)
+                   AND ep.active = 1
+                   AND ep.money_flow = 'payable'
+                   AND ep.settlement_channel = 'ap'
+                  JOIN ap_vendors_index v
+                    ON v.tenant_id = ep.tenant_id
+                   AND v.id = ep.ap_vendor_id
+                 WHERE r.tenant_id = p.tenant_id
+                   AND r.placement_id = p.id
+                   AND r.referrer_type IN ('vendor','person')
+                   AND (r.referrer_company_id IS NOT NULL OR r.referrer_person_id IS NOT NULL)
+                   AND r.start_date <= CURDATE()
+                   AND (r.end_date IS NULL OR r.end_date >= CURDATE())
+            )
+          ORDER BY p.id LIMIT 25",
+        ['placements', 'placement_referrals', 'placement_economic_parties', 'ap_vendors_index']
+    );
+
+    $checks[] = businessIntegrityCountCheck(
+        $placementsTenantId,
+        'active_placement_payable_parties',
+        'Active assignment AP parties have canonical identities and vendor records',
+        'error',
+        "SELECT COUNT(*)
+           FROM placement_economic_parties ep
+      LEFT JOIN ap_vendors_index v
+             ON v.tenant_id = ep.tenant_id AND v.id = ep.ap_vendor_id
+          WHERE ep.tenant_id = :tenant_id
+            AND ep.active = 1
+            AND ep.money_flow = 'payable'
+            AND ep.settlement_channel = 'ap'
+            AND (
+                (ep.company_id IS NULL AND ep.person_id IS NULL)
+                OR ep.ap_vendor_id IS NULL
+                OR v.id IS NULL
+                OR (ep.company_id IS NOT NULL AND COALESCE(v.company_id, 0) <> ep.company_id)
+            )",
+        "SELECT ep.id AS economic_party_id, ep.placement_id, ep.role,
+                ep.display_name, ep.company_id, ep.person_id, ep.ap_vendor_id,
+                v.company_id AS vendor_company_id
+           FROM placement_economic_parties ep
+      LEFT JOIN ap_vendors_index v
+             ON v.tenant_id = ep.tenant_id AND v.id = ep.ap_vendor_id
+          WHERE ep.tenant_id = :tenant_id
+            AND ep.active = 1
+            AND ep.money_flow = 'payable'
+            AND ep.settlement_channel = 'ap'
+            AND (
+                (ep.company_id IS NULL AND ep.person_id IS NULL)
+                OR ep.ap_vendor_id IS NULL
+                OR v.id IS NULL
+                OR (ep.company_id IS NOT NULL AND COALESCE(v.company_id, 0) <> ep.company_id)
+            )
+          ORDER BY ep.placement_id, ep.id LIMIT 25",
+        ['placement_economic_parties', 'ap_vendors_index']
+    );
+
+    $checks[] = businessIntegrityCountCheck(
+        $placementsTenantId,
+        'active_contractor_vendor_linkage',
+        'Active contractor assignments have a canonical AP vendor',
+        'error',
+        "SELECT COUNT(*) FROM placements p
+          WHERE p.tenant_id = :tenant_id
+            AND p.status = 'active'
+            AND p.engagement_type IN ('1099','c2c')
+            AND p.deleted_at IS NULL
+            AND NOT EXISTS (
+                SELECT 1
+                  FROM placement_economic_parties ep
+                  JOIN ap_vendors_index v
+                    ON v.tenant_id = ep.tenant_id AND v.id = ep.ap_vendor_id
+                 WHERE ep.tenant_id = p.tenant_id
+                   AND ep.placement_id = p.id
+                   AND ep.active = 1
+                   AND ep.money_flow = 'payable'
+                   AND ep.settlement_channel = 'ap'
+                   AND (ep.company_id IS NOT NULL OR ep.person_id IS NOT NULL)
+                   AND (ep.effective_from IS NULL OR ep.effective_from <= CURDATE())
+                   AND (ep.effective_to IS NULL OR ep.effective_to >= CURDATE())
+            )",
+        "SELECT p.id AS placement_id, p.external_id, p.person_id, p.title,
+                p.engagement_type, p.end_client_name
+           FROM placements p
+          WHERE p.tenant_id = :tenant_id
+            AND p.status = 'active'
+            AND p.engagement_type IN ('1099','c2c')
+            AND p.deleted_at IS NULL
+            AND NOT EXISTS (
+                SELECT 1
+                  FROM placement_economic_parties ep
+                  JOIN ap_vendors_index v
+                    ON v.tenant_id = ep.tenant_id AND v.id = ep.ap_vendor_id
+                 WHERE ep.tenant_id = p.tenant_id
+                   AND ep.placement_id = p.id
+                   AND ep.active = 1
+                   AND ep.money_flow = 'payable'
+                   AND ep.settlement_channel = 'ap'
+                   AND (ep.company_id IS NOT NULL OR ep.person_id IS NOT NULL)
+                   AND (ep.effective_from IS NULL OR ep.effective_from <= CURDATE())
+                   AND (ep.effective_to IS NULL OR ep.effective_to >= CURDATE())
+            )
+          ORDER BY p.id LIMIT 25",
+        ['placements', 'placement_economic_parties', 'ap_vendors_index']
+    );
+
+    $dimensionGapWhere = "(
+           COALESCE(p.person_id, 0) = 0
+        OR (p.engagement_type <> 'internal'
+                AND COALESCE(p.end_client_company_id, sc.company_id, 0) = 0)
+        OR (COALESCE(p.staffing_job_id, 0) = 0 AND COALESCE(p.jobdiva_job_id, '') = '')
+        OR (COALESCE(p.recruiter_name, '') = '' AND COALESCE(p.recruiter_email, '') = ''
+            AND NOT EXISTS (
+                SELECT 1 FROM placement_commissions pc
+                 WHERE pc.tenant_id = p.tenant_id AND pc.placement_id = p.id
+                   AND pc.role = 'recruiter' AND pc.user_id IS NOT NULL
+                   AND pc.effective_from <= CURDATE()
+                   AND (pc.effective_to IS NULL OR pc.effective_to >= CURDATE())
+            ))
+        OR (COALESCE(p.account_manager_name, '') = '' AND COALESCE(p.account_manager_email, '') = ''
+            AND NOT EXISTS (
+                SELECT 1 FROM placement_commissions pc
+                 WHERE pc.tenant_id = p.tenant_id AND pc.placement_id = p.id
+                   AND pc.role = 'account_manager' AND pc.user_id IS NOT NULL
+                   AND pc.effective_from <= CURDATE()
+                   AND (pc.effective_to IS NULL OR pc.effective_to >= CURDATE())
+            ))
+        OR COALESCE(p.branch, '') = ''
+        OR COALESCE(p.worksite_state, sj.location_state, '') = ''
+        OR (p.engagement_type IN ('w2','temp_to_perm') AND COALESCE(p.workers_comp_class, '') = '')
+        OR (p.engagement_type = 'internal'
+            AND COALESCE(p.department, sj.department, '') = '' AND COALESCE(p.cost_center, '') = '')
+        OR NOT EXISTS (
+            SELECT 1 FROM accounting_entities ae
+             WHERE ae.tenant_id = :accounting_tenant_id
+               AND ae.active = 1
+               AND ae.id IN (COALESCE(p.accounting_entity_id, 0), COALESCE(pe.entity_id, 0))
+        )
+    )";
+    $checks[] = businessIntegrityCountCheck(
+        $placementsTenantId,
+        'active_placement_dimension_coverage',
+        'Active assignments carry the reporting and compliance dimensions they need',
+        'warning',
+        "SELECT COUNT(*)
+           FROM placements p
+      LEFT JOIN people pe
+             ON pe.tenant_id = :people_tenant_id AND pe.id = p.person_id
+      LEFT JOIN staffing_jobs sj
+             ON sj.tenant_id = p.tenant_id AND sj.id = p.staffing_job_id
+      LEFT JOIN staffing_clients sc
+             ON sc.tenant_id = p.tenant_id AND sc.id = p.client_id
+          WHERE p.tenant_id = :tenant_id
+            AND p.status = 'active'
+            AND p.deleted_at IS NULL
+            AND {$dimensionGapWhere}",
+        "SELECT p.id AS placement_id, p.external_id, p.title, p.engagement_type,
+                CONCAT_WS(', ',
+                    IF(COALESCE(p.person_id, 0) = 0, 'worker', NULL),
+                    IF(p.engagement_type <> 'internal' AND COALESCE(p.end_client_company_id, sc.company_id, 0) = 0, 'client', NULL),
+                    IF(COALESCE(p.staffing_job_id, 0) = 0 AND COALESCE(p.jobdiva_job_id, '') = '', 'job', NULL),
+                    IF(COALESCE(p.recruiter_name, '') = '' AND COALESCE(p.recruiter_email, '') = ''
+                        AND NOT EXISTS (
+                            SELECT 1 FROM placement_commissions pcr
+                             WHERE pcr.tenant_id = p.tenant_id AND pcr.placement_id = p.id
+                               AND pcr.role = 'recruiter' AND pcr.user_id IS NOT NULL
+                               AND pcr.effective_from <= CURDATE()
+                               AND (pcr.effective_to IS NULL OR pcr.effective_to >= CURDATE())
+                        ), 'recruiter', NULL),
+                    IF(COALESCE(p.account_manager_name, '') = '' AND COALESCE(p.account_manager_email, '') = ''
+                        AND NOT EXISTS (
+                            SELECT 1 FROM placement_commissions pca
+                             WHERE pca.tenant_id = p.tenant_id AND pca.placement_id = p.id
+                               AND pca.role = 'account_manager' AND pca.user_id IS NOT NULL
+                               AND pca.effective_from <= CURDATE()
+                               AND (pca.effective_to IS NULL OR pca.effective_to >= CURDATE())
+                        ), 'account_manager', NULL),
+                    IF(COALESCE(p.branch, '') = '', 'branch', NULL),
+                    IF(COALESCE(p.worksite_state, sj.location_state, '') = '', 'work_state', NULL),
+                    IF(p.engagement_type IN ('w2','temp_to_perm') AND COALESCE(p.workers_comp_class, '') = '', 'wc_class', NULL),
+                    IF(p.engagement_type = 'internal'
+                        AND COALESCE(p.department, sj.department, '') = '' AND COALESCE(p.cost_center, '') = '', 'department_or_cost_center', NULL),
+                    IF(NOT EXISTS (
+                        SELECT 1 FROM accounting_entities ae
+                         WHERE ae.tenant_id = :accounting_tenant_id_sample
+                           AND ae.active = 1
+                           AND ae.id IN (COALESCE(p.accounting_entity_id, 0), COALESCE(pe.entity_id, 0))
+                    ), 'legal_entity', NULL)
+                ) AS missing_dimensions
+           FROM placements p
+      LEFT JOIN people pe
+             ON pe.tenant_id = :people_tenant_id_sample AND pe.id = p.person_id
+      LEFT JOIN staffing_jobs sj
+             ON sj.tenant_id = p.tenant_id AND sj.id = p.staffing_job_id
+      LEFT JOIN staffing_clients sc
+             ON sc.tenant_id = p.tenant_id AND sc.id = p.client_id
+          WHERE p.tenant_id = :tenant_id
+            AND p.status = 'active'
+            AND p.deleted_at IS NULL
+            AND {$dimensionGapWhere}
+          ORDER BY p.id LIMIT 25",
+        ['placements', 'people', 'staffing_clients', 'staffing_jobs', 'placement_commissions', 'accounting_entities'],
+        [
+            'people_tenant_id' => $peopleTenantId,
+            'people_tenant_id_sample' => $peopleTenantId,
+            'accounting_tenant_id' => $accountingTenantId,
+            'accounting_tenant_id_sample' => $accountingTenantId,
+        ]
+    );
+
     $summary = ['ok' => 0, 'fail' => 0, 'error' => 0, 'skipped' => 0, 'issues' => 0];
     foreach ($checks as $check) {
         $status = (string) ($check['status'] ?? 'error');
@@ -698,12 +950,12 @@ function businessIntegrityCountCheck(
         $pdo = getDB();
         $queryParams = array_merge(['tenant_id' => $tenantId], $params);
         $count = $pdo->prepare($countSql);
-        $count->execute($queryParams);
+        $count->execute(businessIntegritySqlParams($queryParams, $countSql));
         $issueCount = (int) $count->fetchColumn();
         $sample = [];
         if ($issueCount > 0) {
             $rows = $pdo->prepare($sampleSql);
-            $rows->execute($queryParams);
+            $rows->execute(businessIntegritySqlParams($queryParams, $sampleSql));
             $sample = $rows->fetchAll(PDO::FETCH_ASSOC) ?: [];
         }
         return [
@@ -727,6 +979,20 @@ function businessIntegrityCountCheck(
             'duration_ms' => (int) round((microtime(true) - $started) * 1000),
         ];
     }
+}
+
+/** Keep PDO named bindings aligned with each query. Some checks share a
+ * parameter map between their count and sample SQL, but PDO rejects bindings
+ * that are not present in the prepared statement. */
+function businessIntegritySqlParams(array $params, string $sql): array
+{
+    $bound = [];
+    foreach ($params as $key => $value) {
+        if (preg_match('/(?<!:):' . preg_quote((string) $key, '/') . '\\b/', $sql)) {
+            $bound[$key] = $value;
+        }
+    }
+    return $bound;
 }
 
 function businessIntegritySkipped(string $key, string $label, string $reason): array

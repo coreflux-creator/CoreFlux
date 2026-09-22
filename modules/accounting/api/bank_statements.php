@@ -427,19 +427,30 @@ if ($method === 'POST' && $action === 'split_match_invoices') {
     }
 
     require_once __DIR__ . '/../../billing/lib/billing.php';
+    $receiptEntityId = (int) ($line['bank_entity_id'] ?? 0);
+    $cashDimensions = $receiptEntityId > 0 ? ['legal_entity' => $receiptEntityId] : [];
     $jeLines = [[
         'account_code' => (string) $line['gl_account_code'],
         'debit' => $lineAmount,
         'credit' => 0,
         'memo' => (string) ($line['description'] ?: 'Customer receipt'),
+        'dims' => $cashDimensions,
     ]];
     foreach ($invoiceRows as $invoice) {
+        $invoiceClientDimension = !empty($invoice['client_company_id'])
+            ? (int) $invoice['client_company_id']
+            : (trim((string) ($invoice['client_name'] ?? '')) !== ''
+                ? 'name:' . strtolower(trim((string) $invoice['client_name']))
+                : null);
+        $invoiceDimensions = $cashDimensions;
+        if ($invoiceClientDimension !== null) $invoiceDimensions['client'] = $invoiceClientDimension;
         $jeLines[] = [
             'account_code' => '1100',
             'debit' => 0,
             'credit' => (float) $invoice['apply_amount'],
             'memo' => 'Apply receipt to ' . $invoice['invoice_number'],
             'counterparty_company_id' => $invoice['client_company_id'] ?? null,
+            'dims' => $invoiceDimensions,
         ];
     }
     foreach ($validatedAccountSplits as $split) {
@@ -449,6 +460,10 @@ if ($method === 'POST' && $action === 'split_match_invoices') {
             'credit' => $split['amount'],
             'memo' => $split['memo'] ?: ((string) ($line['description'] ?? 'Receipt split')),
             'counterparty_entity_id' => $split['entity_id'],
+            'dims' => array_filter([
+                'legal_entity' => $receiptEntityId > 0 ? $receiptEntityId : null,
+                'counterparty_entity' => $split['entity_id'],
+            ], static fn($value) => $value !== null && $value !== ''),
         ];
     }
 
@@ -624,6 +639,16 @@ if ($method === 'POST' && $action === 'match_invoice') {
     require_once __DIR__ . '/../../billing/lib/billing.php';
     require_once __DIR__ . '/../lib/accounting.php';
 
+    $receiptEntityId = (int) ($invoice['entity_id'] ?: $line['bank_entity_id']);
+    $invoiceClientDimension = !empty($invoice['client_company_id'])
+        ? (int) $invoice['client_company_id']
+        : (trim((string) ($invoice['client_name'] ?? '')) !== ''
+            ? 'name:' . strtolower(trim((string) $invoice['client_name']))
+            : null);
+    $cashDimensions = $receiptEntityId > 0 ? ['legal_entity' => $receiptEntityId] : [];
+    $receivableDimensions = $cashDimensions;
+    if ($invoiceClientDimension !== null) $receivableDimensions['client'] = $invoiceClientDimension;
+
     $externalId = 'bank-line:' . $lid;
     $existingPayment = scopedFind(
         'SELECT * FROM billing_payments
@@ -644,7 +669,7 @@ if ($method === 'POST' && $action === 'match_invoice') {
 
     try {
         $receiptJe = accountingPostJe((int) $ctx['tenant_id'], [
-            'entity_id' => (int) ($invoice['entity_id'] ?: $line['bank_entity_id']),
+            'entity_id' => $receiptEntityId,
             'posting_date' => (string) $line['posted_date'],
             'currency' => (string) ($invoice['currency'] ?: 'USD'),
             'source_module' => 'billing',
@@ -659,6 +684,7 @@ if ($method === 'POST' && $action === 'match_invoice') {
                     'credit' => 0,
                     'memo' => (string) ($line['description'] ?: 'Customer receipt'),
                     'counterparty_company_id' => $invoice['client_company_id'] ?? null,
+                    'dims' => $cashDimensions,
                 ],
                 [
                     'account_code' => '1100',
@@ -666,6 +692,7 @@ if ($method === 'POST' && $action === 'match_invoice') {
                     'credit' => $amount,
                     'memo' => 'Apply receipt to ' . $invoice['invoice_number'],
                     'counterparty_company_id' => $invoice['client_company_id'] ?? null,
+                    'dims' => $receivableDimensions,
                 ],
             ],
         ], $user['id'] ?? null, true);

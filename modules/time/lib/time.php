@@ -605,6 +605,77 @@ function timeRateSnapshotsById(array $rateIds, ?int $tenantId = null): array
     return $rows;
 }
 
+/**
+ * Decorate referral-only entries with the dated hourly vendor payout that
+ * replaces worker pay for profitability and period-close totals.
+ *
+ * A null referral_pay_rate deliberately marks an incomplete referral graph;
+ * the bundle calculation will surface that entry as a financial blocker.
+ */
+function timeAttachReferralPayoutRates(array $entries, ?int $tenantId = null): array
+{
+    $placementIds = array_values(array_unique(array_filter(array_map(
+        static fn(array $entry): int => (int) ($entry['placement_id'] ?? 0),
+        $entries
+    ))));
+    if (!$placementIds) return $entries;
+
+    $tenantId = timePlacementGraphTenantId($tenantId);
+    $pdo = getDB();
+    if (!$pdo || !$tenantId) return $entries;
+
+    $params = ['tenant_id' => $tenantId];
+    $placeholders = [];
+    foreach ($placementIds as $idx => $placementId) {
+        $key = 'placement_' . $idx;
+        $placeholders[] = ':' . $key;
+        $params[$key] = $placementId;
+    }
+    $stmt = $pdo->prepare(
+        'SELECT p.id AS placement_id, ref.start_date, ref.end_date, ref.fee_flat
+           FROM placements p
+      LEFT JOIN placement_referrals ref
+             ON ref.tenant_id = p.tenant_id
+            AND ref.placement_id = p.id
+            AND ref.fee_basis = "per_hour"
+          WHERE p.tenant_id = :tenant_id
+            AND p.engagement_type = "referral"
+            AND p.id IN (' . implode(',', $placeholders) . ')
+          ORDER BY p.id, ref.start_date, ref.id'
+    );
+    $stmt->execute($params);
+
+    $windowsByPlacement = [];
+    foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        $placementId = (int) $row['placement_id'];
+        $windowsByPlacement[$placementId] ??= [];
+        if ($row['start_date'] !== null) {
+            $windowsByPlacement[$placementId][] = [
+                'start_date' => (string) $row['start_date'],
+                'end_date' => $row['end_date'] !== null ? (string) $row['end_date'] : null,
+                'rate' => (float) ($row['fee_flat'] ?? 0),
+            ];
+        }
+    }
+
+    foreach ($entries as &$entry) {
+        $placementId = (int) ($entry['placement_id'] ?? 0);
+        if (!array_key_exists($placementId, $windowsByPlacement)) continue;
+
+        $workDate = (string) ($entry['work_date'] ?? '');
+        $payoutRate = 0.0;
+        foreach ($windowsByPlacement[$placementId] as $window) {
+            if ($workDate < $window['start_date']) continue;
+            if ($window['end_date'] !== null && $workDate > $window['end_date']) continue;
+            if ($window['rate'] > 0) $payoutRate += $window['rate'];
+        }
+        $entry['referral_pay_rate'] = $payoutRate > 0 ? $payoutRate : null;
+    }
+    unset($entry);
+
+    return $entries;
+}
+
 function timeRateCategoryMultiplier(array $rate, string $category): float
 {
     $category = strtolower(trim($category));
@@ -647,8 +718,20 @@ function timeEntrySnapshotFinancialTotals(array $entries, array $ratesById): arr
         $rateIds[] = $rateId;
         $multiplier = timeRateCategoryMultiplier($rate, $category);
         $billBase = (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0);
-        $payBase = (float) ($rate['pay_rate'] ?? 0);
         $amountBill += $billBase * $multiplier * $hours;
+
+        if (array_key_exists('referral_pay_rate', $entry)) {
+            if ($entry['referral_pay_rate'] === null || (float) $entry['referral_pay_rate'] <= 0) {
+                $missing[] = (int) ($entry['id'] ?? 0);
+                continue;
+            }
+            // Referral payouts are a flat amount per worked hour. They do not
+            // inherit the worker-rate overtime multiplier.
+            $amountPay += (float) $entry['referral_pay_rate'] * $hours;
+            continue;
+        }
+
+        $payBase = (float) ($rate['pay_rate'] ?? 0);
         $amountPay += $payBase * $multiplier * $hours;
     }
 
@@ -693,6 +776,7 @@ function timeBuildBundlesForPeriod(int $periodId): array
          ORDER BY placement_id, work_date',
         ['pid' => $periodId]
     );
+    $entries = timeAttachReferralPayoutRates($entries, currentTenantId());
 
     // Group by placement_id
     $byPlacement = [];
@@ -854,6 +938,7 @@ function timePreviewBundlesForPeriod(int $periodId): array
          ORDER BY te.placement_id, te.work_date',
         ['pid' => $periodId, 'placements_tid' => effectiveTenantIdForModule('placements') ?? currentTenantId()]
     );
+    $entries = timeAttachReferralPayoutRates($entries, currentTenantId());
 
     $byPlacement = [];
     foreach ($entries as $e) { $byPlacement[$e['placement_id']][] = $e; }

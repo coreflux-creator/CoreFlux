@@ -695,6 +695,15 @@ if ($method === 'POST' && $action === '') {
     $taxPct  = (float) ($body['tax_rate_pct'] ?? 0);
 
     $computed = apComputeTotals($body['lines'], $taxPct);
+    try {
+        $issuingEntity = activeEntityResolveForTenant(
+            $tid,
+            !empty($body['entity_id']) ? (int) $body['entity_id'] : null
+        );
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
+    if (!$issuingEntity) api_error('An active issuing entity is required', 422);
 
     cf_begin_transaction();
     try {
@@ -721,7 +730,7 @@ if ($method === 'POST' && $action === '') {
             'currency'          => (string) ($body['currency']    ?? 'USD'),
             'po_number'         => $body['po_number']     ?? null,
             'placement_id'      => !empty($body['placement_id']) ? (int) $body['placement_id'] : null,
-            'entity_id'         => !empty($body['entity_id'])    ? (int) $body['entity_id']    : null,
+            'entity_id'         => (int) $issuingEntity['id'],
             'notes_internal'    => $body['notes_internal'] ?? null,
             'subtotal'          => $computed['subtotal'],
             'tax_total'         => $computed['tax_total'],
@@ -730,6 +739,24 @@ if ($method === 'POST' && $action === '') {
             'status'            => 'pending_approval',
             'source'            => 'manual',
             'created_by_user_id'=> $user['id'] ?? null,
+        ]);
+        $pdo->prepare(
+            'INSERT INTO ap_vendors_index
+                (tenant_id, vendor_name, company_id, vendor_type, requires_1099, last_bill_at, placement_id_last)
+             VALUES (:tenant_id, :vendor_name, :company_id, :vendor_type, :requires_1099, NOW(), :placement_id)
+             ON DUPLICATE KEY UPDATE
+                company_id = COALESCE(VALUES(company_id), company_id),
+                vendor_type = VALUES(vendor_type),
+                requires_1099 = GREATEST(requires_1099, VALUES(requires_1099)),
+                last_bill_at = NOW(),
+                placement_id_last = COALESCE(VALUES(placement_id_last), placement_id_last)'
+        )->execute([
+            'tenant_id' => $tid,
+            'vendor_name' => (string) $body['vendor_name'],
+            'company_id' => $vendorCompanyId,
+            'vendor_type' => $vendorType,
+            'requires_1099' => $vendorType === '1099_individual' ? 1 : 0,
+            'placement_id' => !empty($body['placement_id']) ? (int) $body['placement_id'] : null,
         ]);
         $line_no = 1;
         foreach ($computed['lines'] as $l) {
@@ -952,36 +979,187 @@ if ($method === 'POST' && $action === 'post') {
     }
 
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
+    require_once __DIR__ . '/../../accounting/lib/dimensions.php';
     require_once __DIR__ . '/../../accounting/lib/multi_period.php';
     require_once __DIR__ . '/../../../core/posting_engine/process.php';
+    require_once __DIR__ . '/../../staffing/lib/dimensions.php';
 
     // Accrual-at-approval reclassification gate (2026-02). When the
-    // tenant has `multi_period_split_enabled=1`, expense + AP Accrued
-    // were already recognised by `accountingPostBundleAccrual()` at
-    // timesheet/bundle approval time. The bill post becomes a pure
-    // RECLASSIFICATION (single JE on bill_date):
+    // tenant has `multi_period_split_enabled=1` and every bill line came
+    // from approved-time accruals, expense + AP Accrued were already
+    // recognised by `accountingPostBundleAccrual()`. The bill post becomes
+    // a pure RECLASSIFICATION (single JE on bill_date):
     //   Dr  AP Accrued     (subtotal — clears the prior accrual)
     //   Dr  Input Tax 1310 (tax_total, if any)
     //   Cr  Accounts Payable (full total)
     // No expense line — recognition is owned by the bundle accrual.
     $settings = accountingSettingsGet($tid);
-    $reclassifyOnly = !empty($settings['multi_period_split_enabled']);
 
     $pdo = getDB();
     $linesStmt = $pdo->prepare('SELECT * FROM ap_bill_lines WHERE bill_id = :id ORDER BY line_no');
     $linesStmt->execute(['id' => $id]);
     $billLines = $linesStmt->fetchAll(\PDO::FETCH_ASSOC);
+    $accruedLineCount = count(array_filter(
+        $billLines,
+        static fn(array $line): bool => in_array(
+            (string) ($line['source_type'] ?? ''),
+            ['time', 'time_entry', 'economic_item'],
+            true
+        )
+    ));
+    $allLinesWereAccrued = count($billLines) > 0 && $accruedLineCount === count($billLines);
+    $reclassifyOnly = !empty($settings['multi_period_split_enabled']) && $allLinesWereAccrued;
+
+    try {
+        $postingEntity = activeEntityResolveForTenant(
+            $tid,
+            !empty($row['entity_id']) ? (int) $row['entity_id'] : null
+        );
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
+    if (!$postingEntity) api_error('An active issuing entity is required before this bill can post', 422);
+    $documentEntityId = (int) $postingEntity['id'];
+    if (empty($row['entity_id'])) {
+        $pdo->prepare('UPDATE ap_bills SET entity_id = :entity_id WHERE tenant_id = :tenant_id AND id = :id')
+            ->execute(['entity_id' => $documentEntityId, 'tenant_id' => $tid, 'id' => $id]);
+        $row['entity_id'] = $documentEntityId;
+    }
+    $vendorCompanyId = !empty($row['vendor_company_id']) ? (int) $row['vendor_company_id'] : null;
+    $placementSubtotals = [];
+    $placementAccountCodes = [];
+    $accountRequiredDimensions = [];
+    foreach ($billLines as $bl) {
+        $placementId = (int) ($bl['placement_id'] ?? $row['placement_id'] ?? 0);
+        $placementSubtotals[$placementId] = ($placementSubtotals[$placementId] ?? 0) + (float) ($bl['subtotal'] ?? 0);
+        if ($placementId > 0) {
+            $accountCode = trim((string) ($bl['gl_expense_account_code'] ?? '')) ?: '6990';
+            $placementAccountCodes[$placementId][$accountCode] = true;
+        }
+    }
+
+    $placementContexts = [];
+    $placementRequiresAssignmentVendor = [];
+    foreach (array_keys($placementSubtotals) as $placementId) {
+        $placementId = (int) $placementId;
+        if ($placementId <= 0) continue;
+        try {
+            $placementContexts[$placementId] = staffingAssignmentDimensionContext(
+                $tid,
+                $placementId,
+                $documentEntityId,
+                (string) $row['bill_date'],
+                $vendorCompanyId
+            );
+        } catch (\Throwable $e) {
+            api_error("Bill {$row['internal_ref']} could not resolve reporting dimensions for placement #{$placementId}: " . $e->getMessage(), 422);
+        }
+        $accountRequired = accountingRequiredDimensionKeysForAccountCodes(
+            $tid,
+            array_keys($placementAccountCodes[$placementId] ?? [])
+        );
+        $placementRequiresAssignmentVendor[$placementId] = in_array('vendor', $accountRequired, true);
+        $blockingMissing = staffingDimensionBlockingMissing(
+            $placementContexts[$placementId],
+            'ap',
+            $accountRequired
+        );
+        if ($blockingMissing) {
+            api_error(
+                "Complete placement #{$placementId} before posting bill {$row['internal_ref']}: missing "
+                . implode(', ', staffingDimensionMissingLabels($blockingMissing)),
+                422
+            );
+        }
+        $placementEntityId = (int) ($placementContexts[$placementId]['event_entity_id'] ?? 0);
+        if ($documentEntityId > 0 && $placementEntityId > 0 && $placementEntityId !== $documentEntityId) {
+            api_error("Bill {$row['internal_ref']} contains placement #{$placementId} from a different legal entity", 422);
+        }
+        $contextVendorCompanyId = (int) ($placementContexts[$placementId]['vendor_company_id'] ?? 0);
+        if ($placementRequiresAssignmentVendor[$placementId]
+            && $vendorCompanyId && $contextVendorCompanyId > 0 && $contextVendorCompanyId !== $vendorCompanyId) {
+            api_error("Bill {$row['internal_ref']} does not match the payable vendor linked to placement #{$placementId}", 422);
+        }
+        if ($placementRequiresAssignmentVendor[$placementId]
+            && ($placementContexts[$placementId]['vendor_dimension'] ?? null) === null) {
+            api_error("Placement #{$placementId} needs a linked payable vendor before bill {$row['internal_ref']} can post", 422);
+        }
+    }
+
+    $documentVendorDimension = $vendorCompanyId;
+    if (!$documentVendorDimension) {
+        $vendorLookup = $pdo->prepare(
+            'SELECT id, company_id
+               FROM ap_vendors_index
+              WHERE tenant_id = :tenant_id AND vendor_name = :vendor_name
+              LIMIT 1'
+        );
+        $vendorLookup->execute([
+            'tenant_id' => $tid,
+            'vendor_name' => (string) $row['vendor_name'],
+        ]);
+        $vendorRow = $vendorLookup->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if ($vendorRow) {
+            $documentVendorDimension = (int) ($vendorRow['company_id'] ?? 0) > 0
+                ? (int) $vendorRow['company_id']
+                : 'ap_vendor:' . (int) $vendorRow['id'];
+        }
+    }
+    $documentDimensions = array_filter([
+        'vendor' => $documentVendorDimension,
+        'legal_entity' => $documentEntityId > 0 ? $documentEntityId : null,
+    ], static fn(mixed $value): bool => $value !== null && $value !== '');
+    $documentVendorDimensions = [];
+    foreach ($placementContexts as $context) {
+        $vendorDimension = $context['vendor_dimension'] ?? null;
+        if ($vendorDimension !== null && $vendorDimension !== '') {
+            $documentVendorDimensions[(string) $vendorDimension] = $vendorDimension;
+        }
+    }
+    if (!isset($documentDimensions['vendor']) && count($documentVendorDimensions) === 1) {
+        $documentDimensions['vendor'] = reset($documentVendorDimensions);
+    }
 
     // Build the JE shape — N expense lines (debits) + 1 AP credit.
     $payloadLines = [];
     foreach ($billLines as $bl) {
-        $acct = $bl['gl_expense_account_code'] ?? '5000';
+        // A blank coding choice is an exception to resolve, not direct labor.
+        // Keep ordinary vendor bills out of staffing COGS unless the operator
+        // deliberately chooses an assignment-specific account.
+        $acct = trim((string) ($bl['gl_expense_account_code'] ?? '')) ?: '6990';
+        $placementId = (int) ($bl['placement_id'] ?? $row['placement_id'] ?? 0);
+        $lineDimensions = $placementId > 0
+            ? (array) ($placementContexts[$placementId]['dimensions'] ?? [])
+            : $documentDimensions;
+        if ($placementId > 0) {
+            if (!isset($accountRequiredDimensions[$acct])) {
+                $accountRequiredDimensions[$acct] = accountingRequiredDimensionKeysForAccountCodes($tid, [$acct]);
+            }
+            $lineVendorDimension = in_array('vendor', $accountRequiredDimensions[$acct], true)
+                ? ($placementContexts[$placementId]['vendor_dimension'] ?? null)
+                : ($documentDimensions['vendor'] ?? null);
+            if ($lineVendorDimension !== null && $lineVendorDimension !== '') {
+                $lineDimensions['vendor'] = $lineVendorDimension;
+            }
+        }
         $payloadLines[] = [
             'account_code' => $acct,
-            'debit'        => (float) $bl['total'],
+            'debit'        => (float) $bl['subtotal'],
             'credit'       => 0,
             'description'  => $bl['description'],
-            'counterparty_company_id' => !empty($row['vendor_company_id']) ? (int) $row['vendor_company_id'] : null,
+            'counterparty_company_id' => $vendorCompanyId,
+            'dims'          => $lineDimensions,
+        ];
+    }
+    $billTaxTotal = round((float) ($row['tax_total'] ?? 0), 2);
+    if ($billTaxTotal > 0.005) {
+        $payloadLines[] = [
+            'account_code' => '1310',
+            'debit' => $billTaxTotal,
+            'credit' => 0,
+            'description' => "Input tax — {$row['internal_ref']}",
+            'counterparty_company_id' => $vendorCompanyId,
+            'dims' => $documentDimensions,
         ];
     }
     $payloadLines[] = [
@@ -989,10 +1167,58 @@ if ($method === 'POST' && $action === 'post') {
         'debit'        => 0,
         'credit'       => (float) $row['total'],
         'description'  => "AP " . $row['internal_ref'] . " — " . $row['vendor_name'],
-        'counterparty_company_id' => !empty($row['vendor_company_id']) ? (int) $row['vendor_company_id'] : null,
+        'counterparty_company_id' => $vendorCompanyId,
+        'dims'          => $documentDimensions,
     ];
 
     $jeLines = $payloadLines; // reused if we have to fall back to legacy direct post
+    $reclassLines = [];
+    if ($reclassifyOnly) {
+        accountingEnsureAccrualAccounts($tid, $settings);
+        $apAccrued = (string) $settings['ap_accrued_account_code'];
+        foreach ($placementSubtotals as $placementId => $amount) {
+            $amount = round((float) $amount, 2);
+            if (abs($amount) <= 0.005) continue;
+            $placementId = (int) $placementId;
+            $lineDimensions = $placementId > 0
+                ? (array) ($placementContexts[$placementId]['dimensions'] ?? [])
+                : $documentDimensions;
+            if ($placementId > 0) {
+                $reclassVendorDimension = $placementContexts[$placementId]['vendor_dimension']
+                    ?? ($documentDimensions['vendor'] ?? null);
+                if ($reclassVendorDimension !== null && $reclassVendorDimension !== '') {
+                    $lineDimensions['vendor'] = $reclassVendorDimension;
+                }
+            }
+            $reclassLines[] = [
+                'account_code' => $apAccrued,
+                'debit' => $amount > 0 ? $amount : 0,
+                'credit' => $amount < 0 ? abs($amount) : 0,
+                'memo' => "Clear AP Accrued — {$row['internal_ref']}",
+                'counterparty_company_id' => $vendorCompanyId,
+                'dims' => $lineDimensions,
+            ];
+        }
+        if ($billTaxTotal > 0.005) {
+            $reclassLines[] = [
+                'account_code' => '1310',
+                'debit' => $billTaxTotal,
+                'credit' => 0,
+                'memo' => "Input tax — {$row['internal_ref']}",
+                'counterparty_company_id' => $vendorCompanyId,
+                'dims' => $documentDimensions,
+            ];
+        }
+        $reclassLines[] = [
+            'account_code' => '2000',
+            'debit' => 0,
+            'credit' => round((float) $row['total'], 2),
+            'memo' => "AP {$row['internal_ref']} / {$row['vendor_name']}",
+            'counterparty_company_id' => $vendorCompanyId,
+            'dims' => $documentDimensions,
+        ];
+    }
+    $eventPostingLines = $reclassifyOnly ? $reclassLines : $payloadLines;
 
     // Sprint 7e — preferred path: emit ap.bill.approved into the event
     // layer; the engine renders + posts via the seed-pack passthrough
@@ -1002,7 +1228,7 @@ if ($method === 'POST' && $action === 'post') {
     $eventResult = null; $eventError = null;
     try {
         $eventResult = accountingProcessEvent($tid, [
-            'entity_id'        => !empty($row['entity_id']) ? (int) $row['entity_id'] : 0,
+            'entity_id'        => $documentEntityId,
             'event_type'       => 'ap.bill.approved',
             'source_module'    => 'ap',
             'source_record_id' => 'ap_bill:' . $id,
@@ -1014,7 +1240,9 @@ if ($method === 'POST' && $action === 'post') {
                 'vendor_company_id' => !empty($row['vendor_company_id']) ? (int) $row['vendor_company_id'] : null,
                 'amount'       => (float) $row['total'],
                 'currency'     => (string) $row['currency'],
-                'lines'        => $payloadLines,
+                'posting_mode' => $reclassifyOnly ? 'ap_reclassification' : 'bill_recognition',
+                'dimensions'   => $documentDimensions,
+                'lines'        => $eventPostingLines,
             ],
         ], $user['id'] ?? null);
     } catch (\Throwable $e) {
@@ -1054,42 +1282,16 @@ if ($method === 'POST' && $action === 'post') {
         'event_status' => $eventResult['status'] ?? null,
     ]);
 
-    // Multi-period split branch (AP mirror) — gated by per-tenant opt-in.
-    // Engages ONLY when the underlying work_dates cross > 1 accounting
-    // period, posting N JEs (one per period) via AP Accrued instead of a
-    // single JE tied to bill_date. Placed AFTER the event-layer attempt
-    // and discipline log so the Sprint 7e contract guardrails stay green;
-    // event-layer rule wins over multi-period when both are configured.
     // Reclassification branch (accrual-at-approval AP mirror). When the
     // tenant flag is ON, expense + AP Accrued were already posted by
     // the bundle-accrual hook at timesheet approval time, so the bill
     // post is a pure AP reclassification — no expense, no multi-period
-    // batching. Placed AFTER the event-layer attempt and discipline
-    // log so the Sprint 7e contract guardrails stay green.
+    // batching. The event layer above receives this same shape; this is
+    // the direct-post fallback when no matching rule is available.
     if ($reclassifyOnly) {
-        accountingEnsureAccrualAccounts($tid, $settings);
-        $apAccrued = (string) $settings['ap_accrued_account_code'];
-        $partyAp = !empty($row['vendor_company_id']) ? (int) $row['vendor_company_id'] : null;
-        $subtotalAp = (float) ($row['subtotal'] ?? 0);
-        $taxAp      = (float) ($row['tax_total'] ?? 0);
-        $totalAp    = (float) $row['total'];
-        $reclassLines = [
-            // Dr AP Accrued for the subtotal — clears the prior accrual.
-            ['account_code' => $apAccrued, 'debit' => round($subtotalAp, 2), 'credit' => 0,
-             'memo' => "Clear AP Accrued — {$row['internal_ref']}", 'counterparty_company_id' => $partyAp],
-        ];
-        if ($taxAp > 0.005) {
-            // Input tax wasn't accrued at approval — debit it directly here.
-            $reclassLines[] = ['account_code' => '1310', 'debit' => round($taxAp, 2), 'credit' => 0,
-                               'memo' => "Input tax — {$row['internal_ref']}", 'counterparty_company_id' => $partyAp];
-        }
-        $reclassLines[] = [
-            // Cr Accounts Payable for the full bill total.
-            'account_code' => '2000', 'debit' => 0, 'credit' => round($totalAp, 2),
-            'memo' => "AP {$row['internal_ref']} / {$row['vendor_name']}", 'counterparty_company_id' => $partyAp,
-        ];
         try {
             $resRc = accountingPostJe($tid, [
+                'entity_id'       => $documentEntityId,
                 'posting_date'    => $row['bill_date'],
                 'currency'        => $row['currency'] ?? 'USD',
                 'source_module'   => 'ap',
@@ -1122,6 +1324,7 @@ if ($method === 'POST' && $action === 'post') {
 
     try {
         $res = accountingPostJe($tid, [
+            'entity_id'       => $documentEntityId,
             'posting_date'    => $row['bill_date'],
             'currency'        => $row['currency'],
             'source_module'   => 'ap',

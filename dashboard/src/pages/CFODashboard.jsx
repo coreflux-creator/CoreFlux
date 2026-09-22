@@ -361,11 +361,12 @@ function renderWidgetCard(spec, data) {
     }
     case 'staffing.headcount': {
       const h = s.headcount || {};
+      const activeReferralPlacements = s.active_referral_placements ?? 0;
       return (
-        <div data-snapshot={JSON.stringify(h)}>
+        <div data-snapshot={JSON.stringify({ ...h, active_referral_placements: activeReferralPlacements })}>
           <div style={{ fontSize:26, fontWeight:600 }} data-testid="cfo-headcount-active">{h.active ?? 0}</div>
           <div style={{ fontSize:12, color:'#64748b' }}>
-            W2 {h.contractors_w2 ?? 0} · 1099 {h.contractors_1099 ?? 0} · C2C {h.contractors_c2c ?? 0} · Perm {h.perm ?? 0}
+            W2 {h.contractors_w2 ?? 0} · 1099 {h.contractors_1099 ?? 0} · C2C {h.contractors_c2c ?? 0} · Perm {h.perm ?? 0} · Referral placements {activeReferralPlacements}
           </div>
         </div>
       );

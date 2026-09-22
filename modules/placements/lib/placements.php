@@ -44,7 +44,8 @@ function placementsSafeFields(string $alias = 'p'): string
 {
     $cols = ['id','tenant_id','person_id','external_id','jobdiva_job_id','status','start_date','end_date',
              'actual_end_date','due_date','engagement_type','worksite_state','worksite_country',
-             'remote_policy','title','end_client_name','end_client_company_id','client_id','staffing_job_id','notes',
+             'remote_policy','branch','service_line','workers_comp_class','department','cost_center','accounting_entity_id',
+             'title','end_client_name','end_client_company_id','client_id','staffing_job_id','notes',
              'recruiter_name','recruiter_email','account_manager_name','account_manager_email',
              'client_approver_name','client_approver_email','tokenized_email_approval_enabled',
              'bulk_uploads_can_be_pre_approved',
@@ -240,6 +241,7 @@ function placementsList(array $filters = []): array
         'SELECT
             SUM(CASE WHEN p.engagement_type = "w2" THEN 1 ELSE 0 END) AS w2,
             SUM(CASE WHEN p.engagement_type = "c2c" THEN 1 ELSE 0 END) AS c2c,
+            SUM(CASE WHEN p.engagement_type = "referral" THEN 1 ELSE 0 END) AS referral,
             SUM(CASE WHEN p.status = "active"
                       AND COALESCE(p.actual_end_date, p.end_date) BETWEEN CURRENT_DATE AND DATE_ADD(CURRENT_DATE, INTERVAL 30 DAY)
                      THEN 1 ELSE 0 END) AS ending_30d
@@ -250,6 +252,7 @@ function placementsList(array $filters = []): array
     $summary = [
         'w2'         => (int) ($summaryRow['w2'] ?? 0),
         'c2c'        => (int) ($summaryRow['c2c'] ?? 0),
+        'referral'   => (int) ($summaryRow['referral'] ?? 0),
         'ending_30d' => (int) ($summaryRow['ending_30d'] ?? 0),
     ];
     $rows  = scopedQuery(

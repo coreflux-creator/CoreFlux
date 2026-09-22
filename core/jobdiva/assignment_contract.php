@@ -249,6 +249,7 @@ function jobdivaAssignmentContractEngagement(string $category, ?bool $w2, ?bool 
     $value = strtolower(trim($category));
     $value = preg_replace('/[\s_\-\/]+/', ' ', $value) ?: $value;
     if ($value !== '') {
+        if ($value === 'ref' || str_contains($value, 'referral')) return 'referral';
         if (str_contains($value, 'subcontract') || str_contains($value, 'corp to corp')
             || str_contains($value, 'c2c')) return 'c2c';
         if (str_contains($value, 'independent contractor') || str_contains($value, '1099')) return '1099';
@@ -533,7 +534,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     ]) ?? $pick([
         'Pay Rate to Vendor', 'payRateToVendor', 'pay_rate_to_vendor', 'Vendor Pay Rate',
     ]));
-    $payRate = in_array($engagement, ['c2c', '1099'], true) && $vendorPayRate !== null && $vendorPayRate > 0
+    $payRate = in_array($engagement, ['c2c', '1099', 'referral'], true) && $vendorPayRate !== null && $vendorPayRate > 0
         ? $vendorPayRate
         : $basePayRate;
     $primarySales = trim((string) $pick([
@@ -640,6 +641,21 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'worksite_state' => $billingPick(['Working State', 'WORKING_STATE', 'worksiteState', 'worksite_state']),
         'worksite_country' => $billingPick(['Working Country', 'WORKING_COUNTRY', 'worksiteCountry', 'worksite_country']),
         'remote_policy' => $billingPick(['Working Location', 'WORKING_LOCATION', 'workLocation', 'remotePolicy']),
+        'branch' => trim((string) ($billingPick([
+            'Branch', 'Branch Name', 'Office', 'Office Name', 'Business Unit', 'businessUnit',
+        ]) ?? $pick(['Branch', 'Branch Name', 'Office', 'Office Name', 'Business Unit', 'businessUnit']) ?? '')),
+        'service_line' => trim((string) ($billingPick([
+            'Service Line', 'serviceLine', 'Business Line', 'businessLine',
+        ]) ?? $pick(['Service Line', 'serviceLine', 'Business Line', 'businessLine']) ?? '')),
+        'workers_comp_class' => trim((string) ($salaryPick([
+            'WC Class', 'Workers Comp Class', 'Workers Compensation Class', 'wcClass', 'workersCompClass',
+        ]) ?? $pick(['WC Class', 'Workers Comp Class', 'Workers Compensation Class', 'wcClass', 'workersCompClass']) ?? '')),
+        'department' => trim((string) ($billingPick([
+            'Department', 'Department Name', 'departmentName',
+        ]) ?? $pick(['Department', 'Department Name', 'departmentName']) ?? '')),
+        'cost_center' => trim((string) ($billingPick([
+            'Cost Center', 'Cost Centre', 'costCenter', 'cost_center',
+        ]) ?? $pick(['Cost Center', 'Cost Centre', 'costCenter', 'cost_center']) ?? '')),
         'client_company_name' => trim((string) ($billingCompanyPick([
             'Company Name', 'COMPANY_NAME', 'COMPANYNAME', 'companyName',
             'Customer Company Name', 'CLIENT_COMPANY_NAME',

@@ -47,6 +47,63 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/accounting.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
+
+/**
+ * Determine whether the approved entries in a downstream bundle were already
+ * recognized by the assignment-grained staffing event. The bundle accrual is
+ * the legacy period-splitting path; it must never book the same economics a
+ * second time after staffing.worker_hours.approved has posted them.
+ *
+ * @return array{expected:int,posted:int}
+ */
+function accountingBundleAssignmentRecognitionState(int $tenantId, array $bundle): array {
+    $entryPayload = json_decode((string) ($bundle['entries_json'] ?? ''), true);
+    $entryIds = array_values(array_unique(array_filter(
+        array_map('intval', (array) ($entryPayload['entry_ids'] ?? [])),
+        static fn(int $id): bool => $id > 0
+    )));
+    if (!$entryIds) return ['expected' => 0, 'posted' => 0];
+
+    $params = [
+        'time_tenant_id' => $tenantId,
+        'placements_tenant_id' => effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId,
+        'accounting_tenant_id' => effectiveTenantIdForModule('accounting', $tenantId) ?? $tenantId,
+        'placement_id' => (int) ($bundle['placement_id'] ?? 0),
+    ];
+    $placeholders = [];
+    foreach ($entryIds as $index => $entryId) {
+        $key = 'entry_' . $index;
+        $placeholders[] = ':' . $key;
+        $params[$key] = $entryId;
+    }
+
+    $stmt = getDB()->prepare(
+        "SELECT COUNT(DISTINCT te.timesheet_id) AS expected_count,
+                COUNT(DISTINCT CASE WHEN event.id IS NOT NULL THEN te.timesheet_id END) AS posted_count
+           FROM time_entries te
+           JOIN placements placement
+             ON placement.tenant_id = :placements_tenant_id
+            AND placement.id = te.placement_id
+      LEFT JOIN accounting_events event
+             ON event.tenant_id = :accounting_tenant_id
+            AND event.event_type = 'staffing.worker_hours.approved'
+            AND event.status = 'posted'
+            AND event.source_record_id IN (
+                CONCAT('timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', placement.engagement_type),
+                CONCAT(te.timesheet_id, ':', placement.engagement_type)
+            )
+          WHERE te.tenant_id = :time_tenant_id
+            AND te.placement_id = :placement_id
+            AND te.id IN (" . implode(',', $placeholders) . ')'
+    );
+    $stmt->execute($params);
+    $state = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+    return [
+        'expected' => (int) ($state['expected_count'] ?? 0),
+        'posted' => (int) ($state['posted_count'] ?? 0),
+    ];
+}
 
 /**
  * Ensure the AR Unbilled + AP Accrued accounts exist in this tenant's
@@ -645,7 +702,7 @@ function accountingPostBundleAccrual(int $tenantId, int $bundleId, string $bundl
 
     $pdo = getDB();
     $b = $pdo->prepare(
-        'SELECT id, period_id, placement_id, bundle_type, status,
+        'SELECT id, period_id, placement_id, bundle_type, status, entries_json,
                 total_amount_bill, total_amount_pay
            FROM time_downstream_feed
           WHERE tenant_id = :t AND id = :id'
@@ -653,6 +710,16 @@ function accountingPostBundleAccrual(int $tenantId, int $bundleId, string $bundl
     $b->execute(['t' => $tenantId, 'id' => $bundleId]);
     $bundle = $b->fetch(\PDO::FETCH_ASSOC);
     if (!$bundle) return [];
+
+    $recognition = accountingBundleAssignmentRecognitionState($tenantId, $bundle);
+    if ($recognition['expected'] > 0 && $recognition['posted'] === $recognition['expected']) {
+        return [];
+    }
+    if ($recognition['posted'] > 0) {
+        throw new \RuntimeException(
+            "Bundle #{$bundleId} is only partly recognized by assignment events; repair the missing event before accruing it"
+        );
+    }
 
     $byDate = accountingBreakdownBundleByDate($tenantId, $bundleId, $bundleType);
     if (!$byDate) return []; // zero-bill or no billable hours — nothing to accrue
@@ -664,32 +731,39 @@ function accountingPostBundleAccrual(int $tenantId, int $bundleId, string $bundl
     foreach ($byDate as $date => $amt) {
         $byDateCoded[$date] = ['__accrual' => $amt];
     }
-    // Resolve placement → entity_id (multi-entity tenants route the
-    // accrual to the placement's owning entity).
-    $entityStmt = $pdo->prepare(
-        'SELECT entity_id FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
+    // Resolve the assignment once up front to choose the legal entity used
+    // for period lookup. The same resolver is called per period below so
+    // effective-dated ownership and vendor dimensions remain accurate.
+    require_once __DIR__ . '/../../staffing/lib/dimensions.php';
+    $dimensionContext = staffingAssignmentDimensionContext(
+        $tenantId,
+        (int) $bundle['placement_id'],
+        0,
+        (string) array_key_first($byDate)
     );
-    try { $entityStmt->execute(['t' => $tenantId, 'id' => (int) $bundle['placement_id']]); } catch (\Throwable $_) {}
-    $entityId = (int) ($entityStmt ? ($entityStmt->fetchColumn() ?: 0) : 0);
+    $accrualPurpose = $bundleType === 'ar' ? 'ar_accrual' : 'ap_accrual';
+    $blockingMissing = staffingDimensionBlockingMissing($dimensionContext, $accrualPurpose);
+    if ($blockingMissing) {
+        throw new \RuntimeException(
+            "Complete placement #{$bundle['placement_id']} before posting its accrual: missing "
+            . implode(', ', staffingDimensionMissingLabels($blockingMissing))
+        );
+    }
+    $engagementType = strtolower((string) ($dimensionContext['placement']['engagement_type'] ?? ''));
+    if ($bundleType === 'ap' && !in_array($engagementType, ['1099', 'c2c', 'referral'], true)) {
+        return [];
+    }
+    $entityId = (int) ($dimensionContext['event_entity_id'] ?? 0);
+    if ($entityId <= 0) {
+        throw new \RuntimeException("Placement #{$bundle['placement_id']} needs a legal entity before its accrual can post");
+    }
 
     $perPeriod = accountingGroupBreakdownByPeriod($tenantId, $entityId, $byDateCoded);
-
-    // Resolve counterparty: AR bundle → client; AP bundle → vendor.
-    // We pull both via a single placement join. Both may be NULL —
-    // accountingPostJe accepts that.
-    $partyStmt = $pdo->prepare(
-        'SELECT end_client_company_id, person_id
-           FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
-    );
-    $partyStmt->execute(['t' => $tenantId, 'id' => (int) $bundle['placement_id']]);
-    $partyRow = $partyStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-    $partyCompanyId = $bundleType === 'ar' && !empty($partyRow['end_client_company_id'])
-        ? (int) $partyRow['end_client_company_id'] : null;
 
     $arUnbilled = (string) $settings['ar_unbilled_account_code'];
     $apAccrued  = (string) $settings['ap_accrued_account_code'];
     $revenueCode = '4000';
-    $expenseCode = '5000';
+    $expenseCode = '5010';
 
     $results = [];
     foreach ($perPeriod as $grp) {
@@ -697,27 +771,58 @@ function accountingPostBundleAccrual(int $tenantId, int $bundleId, string $bundl
         $amt    = (float) ($grp['amounts']['__accrual'] ?? 0);
         if (round($amt, 2) <= 0.005) continue;
 
+        $dimensionContext = staffingAssignmentDimensionContext(
+            $tenantId,
+            (int) $bundle['placement_id'],
+            $entityId,
+            (string) $period['end_date']
+        );
+        $blockingMissing = staffingDimensionBlockingMissing($dimensionContext, $accrualPurpose);
+        if ($blockingMissing) {
+            throw new \RuntimeException(
+                "Complete placement #{$bundle['placement_id']} before posting its accrual: missing "
+                . implode(', ', staffingDimensionMissingLabels($blockingMissing))
+            );
+        }
+        $assignmentDimensions = (array) ($dimensionContext['dimensions'] ?? []);
+        $partyCompanyId = null;
+        if ($bundleType === 'ar') {
+            $partyCompanyId = !empty($dimensionContext['placement']['end_client_company_id'])
+                ? (int) $dimensionContext['placement']['end_client_company_id']
+                : null;
+        } else {
+            $partyCompanyId = !empty($dimensionContext['vendor_company_id'])
+                ? (int) $dimensionContext['vendor_company_id']
+                : null;
+            $vendorDimension = $dimensionContext['vendor_dimension'] ?? null;
+            if ($vendorDimension === null || $vendorDimension === '') {
+                throw new \RuntimeException("Placement #{$bundle['placement_id']} needs a linked payable vendor before its AP accrual can post");
+            }
+            $assignmentDimensions['vendor'] = $vendorDimension;
+        }
+
         if ($bundleType === 'ar') {
             $lines = [
                 ['account_code' => $arUnbilled,  'debit' => round($amt, 2), 'credit' => 0,
-                 'memo' => "Accrue unbilled revenue — bundle #{$bundleId} period {$period['period_number']}",
-                 'counterparty_company_id' => $partyCompanyId],
+                  'memo' => "Accrue unbilled revenue — bundle #{$bundleId} period {$period['period_number']}",
+                  'counterparty_company_id' => $partyCompanyId, 'dims' => $assignmentDimensions],
                 ['account_code' => $revenueCode, 'debit' => 0, 'credit' => round($amt, 2),
-                 'memo' => "Revenue (work performed) — bundle #{$bundleId}",
-                 'counterparty_company_id' => $partyCompanyId],
+                  'memo' => "Revenue (work performed) — bundle #{$bundleId}",
+                  'counterparty_company_id' => $partyCompanyId, 'dims' => $assignmentDimensions],
             ];
         } else { // 'ap'
             $lines = [
                 ['account_code' => $expenseCode, 'debit' => round($amt, 2), 'credit' => 0,
-                 'memo' => "Accrue cost — bundle #{$bundleId} period {$period['period_number']}",
-                 'counterparty_company_id' => null],
+                  'memo' => "Accrue cost — bundle #{$bundleId} period {$period['period_number']}",
+                  'counterparty_company_id' => $partyCompanyId, 'dims' => $assignmentDimensions],
                 ['account_code' => $apAccrued,   'debit' => 0, 'credit' => round($amt, 2),
-                 'memo' => "AP accrued (work performed) — bundle #{$bundleId}",
-                 'counterparty_company_id' => null],
+                  'memo' => "AP accrued (work performed) — bundle #{$bundleId}",
+                  'counterparty_company_id' => $partyCompanyId, 'dims' => $assignmentDimensions],
             ];
         }
 
         $res = accountingPostJe($tenantId, [
+            'entity_id'       => $entityId,
             // Accruals land on the period's end_date so the GL stamp is
             // unambiguous; the work_date is preserved in the memo line.
             'posting_date'    => (string) $period['end_date'],

@@ -13,11 +13,12 @@ import { api } from '../../../dashboard/src/lib/api';
 const IMPORT_TYPES = {
   je: {
     label: 'Journal entries',
-    description: 'One row per debit or credit line. Lines with the same batch reference become one journal entry.',
+    description: 'One row per debit or credit line. A Placement ID automatically supplies its assignment dimensions.',
     required: [
       { label: 'Batch ref', aliases: ['batch ref', 'batch_ref'], defaultable: true },
       { label: 'Posting date', aliases: ['posting date', 'posting_date'] },
       { label: 'Account code', aliases: ['account code', 'account_code'] },
+      { label: 'Entity id', aliases: ['entity id', 'entity_id'] },
     ],
   },
   coa: {

@@ -186,6 +186,8 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             // Engagement metadata
             'engagement_type', 'remote_policy',
             'worksite_state', 'worksite_country',
+            'branch', 'service_line', 'workers_comp_class',
+            'department', 'cost_center', 'accounting_entity_id',
             // Client / approval
             'end_client_name',
             'client_approver_name', 'client_approver_email',
@@ -749,12 +751,14 @@ function tenantIntegrationFieldMapApplyTransform(mixed $value, string $transform
         }
         $key = str_replace(['_', '-', '/', '\\'], ' ', $text);
         $key = preg_replace('/\s+/', ' ', $key) ?: $key;
+        if ($key === 'ref' || str_contains($key, 'referral')) return 'referral';
+        if ($key === 'internal') return 'internal';
         if (str_contains($key, 'temp to perm') || str_contains($key, 'contract to hire')) return 'temp_to_perm';
         if (str_contains($key, 'direct hire') || str_contains($key, 'direct placement')) return 'direct_hire';
         if (str_contains($key, '1099') || str_contains($key, 'independent contractor')) return '1099';
         if (str_contains($key, 'c2c') || str_contains($key, 'corp to corp') || str_contains($key, 'crop to crop')) return 'c2c';
         if (str_contains($key, 'w2') || str_contains($key, 'w 2')) return 'w2';
-        return in_array($key, ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire'], true) ? $key : null;
+        return in_array($key, ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal', 'referral'], true) ? $key : null;
     };
     $truthyTo = static function (mixed $raw, string $target): ?string {
         if (is_bool($raw)) return $raw ? $target : null;

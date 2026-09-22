@@ -64,7 +64,7 @@ echo "\nAccounting event emission\n";
 $lib = $read(__DIR__ . '/../modules/staffing/lib/timesheets.php');
 $a('staffingEmitWorkerHoursApprovedEvent defined',  str_contains($lib, 'function staffingEmitWorkerHoursApprovedEvent'));
 $a('called from staffingTimesheetApprove',          preg_match('/staffingEmitWorkerHoursApprovedEvent\(currentTenantId\(\), \$headerId\)/', $lib) === 1);
-$a('uses accountingProcessEvent',                   str_contains($lib, 'accountingProcessEvent($tenantId,'));
+$a('uses accountingProcessEvent in accounting scope', str_contains($lib, 'accountingProcessEvent($accountingTenantId,'));
 $a('event_type = staffing.worker_hours.approved',   str_contains($lib, "'event_type'       => 'staffing.worker_hours.approved'"));
 $a('payload includes revenue + cost + gp',          str_contains($lib, "'revenue'") && str_contains($lib, "'cost'") && str_contains($lib, "'gross_profit'"));
 $a('failure is non-blocking (best-effort)',         str_contains($lib, 'error_log("[staffing] accounting event emit failed'));

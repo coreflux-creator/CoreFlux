@@ -11,6 +11,23 @@ $ctx = api_require_auth();
 $user = $ctx['user'];
 $method = api_method();
 
+function placementReferralValidateFee(array $values): void
+{
+    $basis = strtolower(trim((string) ($values['fee_basis'] ?? '')));
+    $allowed = ['per_hour', 'per_invoice', 'one_time', 'pct_bill', 'pct_margin'];
+    if (!in_array($basis, $allowed, true)) api_error('Invalid fee_basis', 422);
+    if (in_array($basis, ['pct_bill', 'pct_margin'], true)) {
+        $pct = (float) ($values['fee_pct'] ?? 0);
+        if ($pct <= 0 || $pct > 1) api_error('Percentage referral fees must be greater than 0 and no more than 1.0', 422);
+        return;
+    }
+    if ((float) ($values['fee_flat'] ?? 0) <= 0) {
+        api_error($basis === 'per_hour'
+            ? 'Hourly referral payout must be greater than 0'
+            : 'Referral fee amount must be greater than 0', 422);
+    }
+}
+
 if ($method === 'GET') {
     rbac_legacy_require($user, 'placements.view');
     $pid = (int) api_query('placement_id', 0);
@@ -25,6 +42,7 @@ if ($method === 'POST') {
     $body = api_json_body();
     api_require_fields($body, ['referrer_type', 'fee_basis', 'start_date']);
     if (!in_array($body['referrer_type'], ['vendor','person','user'], true)) api_error('Invalid referrer_type', 422);
+    placementReferralValidateFee($body);
 
     // Vendor referrer? Resolve to canonical company_id (auto-create if needed).
     require_once __DIR__ . '/../../people/lib/companies.php';
@@ -98,7 +116,9 @@ if ($method === 'PATCH') {
     }
     if (array_key_exists('pwp_enabled', $body)) $body['pwp_enabled'] = !empty($body['pwp_enabled']) ? 1 : 0;
     if (!$body) api_error('No fields to update', 422);
-    $source = scopedFind('SELECT placement_id FROM placement_referrals WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    $source = scopedFind('SELECT * FROM placement_referrals WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$source) api_error('Not found', 404);
+    placementReferralValidateFee(array_replace($source, $body));
     $rows = scopedUpdate('placement_referrals', $id, $body);
     if ($rows === 0) api_error('Not found or no change', 404);
     placementsAudit('placement.referral.updated', ['referral_id' => $id], $id);

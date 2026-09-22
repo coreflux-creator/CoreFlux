@@ -1608,6 +1608,7 @@ function _jobdivaMappingMergePlacementCoreFields(
         $sourceFields = [
             'title', 'status', 'start_date', 'end_date', 'actual_end_date', 'due_date',
             'engagement_type', 'worksite_state', 'worksite_country', 'remote_policy',
+            'branch', 'service_line', 'workers_comp_class', 'department', 'cost_center', 'accounting_entity_id',
             'end_client_name', 'end_client_company_id', 'client_id', 'staffing_job_id',
             'jobdiva_job_id', 'recruiter_name', 'recruiter_email',
             'account_manager_name', 'account_manager_email',

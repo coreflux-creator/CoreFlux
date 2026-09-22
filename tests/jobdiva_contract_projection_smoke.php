@@ -144,6 +144,44 @@ $assert('raw exact assignment detail materializes the same canonical rates',
     abs((float) ($derivedContract['bill_rate_in_vms'] ?? 0) - 67.0) < 0.0001
     && abs((float) ($derivedContract['pay_rate_to_vendor'] ?? 0) - 60.0) < 0.0001);
 
+$referralContract = $contract;
+$referralContract['engagement_type'] = 'referral';
+$referralContract['bill_rate'] = 4.0;
+$referralContract['bill_rate_in_vms'] = null;
+$referralContract['net_bill_rate'] = 4.0;
+$referralContract['pay_rate'] = 2.0;
+$referralContract['pay_rate_to_vendor'] = 2.0;
+$referralContract['referral_vendor'] = 'Global Profile';
+$referralContract['corporation_name'] = 'Global Profile';
+$referralContract['corporation_id'] = 'REF-301';
+$referralPayload = $payload;
+$referralPayload['_jd_contract'] = $referralContract;
+$referralGraph = $currentGraph;
+$referralGraph['rates'][0]['bill_rate'] = 4.0;
+$referralGraph['rates'][0]['pay_rate'] = 2.0;
+$referralGraph['economic_parties'] = [[
+    'active' => 1,
+    'role' => 'referrer',
+    'money_flow' => 'payable',
+    'settlement_channel' => 'ap',
+    'fee_basis' => 'per_hour',
+    'fee_flat' => 2.0,
+]];
+$referralProposal = jobdivaContractProjectionBuild($referralPayload, $referralGraph, '57137454');
+$assert('referral projection separates zero worker pay from the vendor payout',
+    !empty($referralProposal['complete'])
+    && abs((float) ($referralProposal['economics']['labor_rate'] ?? -1)) < 0.0001
+    && abs((float) ($referralProposal['economics']['referral_payout_rate'] ?? 0) - 2.0) < 0.0001
+    && abs((float) ($referralProposal['economics']['gross_margin'] ?? 0) - 2.0) < 0.0001
+    && count(array_filter($referralProposal['participants'], static fn(array $party): bool =>
+        $party['role'] === 'referrer'
+        && $party['calculation'] === 'per_hour'
+        && abs((float) ($party['amount'] ?? 0) - 2.0) < 0.0001
+    )) === 1
+    && count(array_filter($referralProposal['fields'], static fn(array $field): bool =>
+        $field['field'] === 'pay_rate' && abs((float) $field['proposed']) < 0.0001
+    )) === 1);
+
 $conflictingPayees = $currentGraph;
 $conflictingPayees['economic_parties'] = [
     ['active' => 1, 'money_flow' => 'payable', 'fee_basis' => 'pay_rate'],
@@ -185,6 +223,9 @@ $assert('exact contract overheads outrank broad tenant mappings',
     str_contains($syncSource, "array_key_exists('payroll_load_pct', \$sourceContract)")
     && str_contains($syncSource, "array_key_exists('workers_comp_pct', \$sourceContract)")
     && str_contains($syncSource, "array_key_exists('other_cost_flat', \$sourceContract)"));
+$assert('JobDiva referral sync never writes its vendor payout as worker pay',
+    str_contains($syncSource, "if (\$isReferralEngagement)")
+    && str_contains($syncSource, '$payRate = 0.0;'));
 $assert('placement API exposes a current draft model without changing downstream approval rules',
     str_contains($economicsSource, 'placementEconomicsCurrentContractModel')
     && str_contains($economicsSource, "'contract_model' => \$contractModel"));

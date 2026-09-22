@@ -21,7 +21,8 @@
  */
 declare(strict_types=1);
 
-require_once '/app/modules/accounting/lib/multi_period.php';
+$root = dirname(__DIR__);
+require_once $root . '/modules/accounting/lib/multi_period.php';
 
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
@@ -31,7 +32,7 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 
 echo "\n1. accountingEnsureAccrualAccounts — still defined + idempotent shape\n";
 $a('function declared', function_exists('accountingEnsureAccrualAccounts'));
-$lib = (string) file_get_contents('/app/modules/accounting/lib/multi_period.php');
+$lib = (string) file_get_contents($root . '/modules/accounting/lib/multi_period.php');
 $a('checks accounting_accounts for existing code (no double-insert)',
    str_contains($lib, "SELECT id FROM accounting_accounts WHERE tenant_id = :t AND account_code = :c LIMIT 1"));
 $a('AR Unbilled inserted as account_type=asset',
@@ -58,9 +59,15 @@ $a('bundle accrual idempotency key is time:bundle:<id>:accrual:<period>',
    str_contains($lib, "sprintf('time:bundle:%d:accrual:%d', \$bundleId, (int) \$period['id'])"));
 $a('bundle accrual source_ref_type=time_bundle',
    str_contains($lib, "'source_ref_type' => 'time_bundle'"));
+$a('bundle accrual cannot duplicate posted assignment events',
+   str_contains($lib, 'accountingBundleAssignmentRecognitionState')
+   && str_contains($lib, 'is only partly recognized by assignment events'));
+$a('AP bundle accrual is contractor/referral only',
+   str_contains($lib, "['1099', 'c2c', 'referral']")
+   && str_contains($lib, "\$expenseCode = '5010';"));
 
 echo "\n3. Invoice post handler — reclassification wiring (billing/api/invoices.php)\n";
-$inv = (string) file_get_contents('/app/modules/billing/api/invoices.php');
+$inv = (string) file_get_contents($root . '/modules/billing/api/invoices.php');
 $a('require_once multi_period.php at top of post handler',
    str_contains($inv, "require_once __DIR__ . '/../../accounting/lib/multi_period.php';"));
 $a('reads accountingSettingsGet($tid) inside post action',
@@ -73,19 +80,24 @@ $a('direct manual invoices are excluded from approved-time reclassification',
 $a('reclassification block engages on the flag',
    str_contains($inv, "if (\$reclassifyOnly) {"));
 $a('reclassification debits AR (account 1100) for full total',
-   str_contains($inv, "'account_code' => '1100', 'debit' => round((float) \$row['total'], 2)"));
-$a('reclassification credits AR Unbilled for subtotal',
-   str_contains($inv, "'account_code' => \$arUnbilled, 'debit' => 0, 'credit' => round((float) \$row['subtotal'], 2)"));
+   str_contains($inv, "'account_code' => '1100'")
+   && str_contains($inv, "'debit' => round(\$total, 2)"));
+$a('reclassification credits AR Unbilled by placement subtotal',
+   str_contains($inv, "'account_code' => \$arUnbilled")
+   && str_contains($inv, "'credit' => \$amount > 0 ? \$amount : 0")
+   && str_contains($inv, "\$placementSubtotals as \$placementId => \$amount"));
 $a('reclassification credits Sales Tax Payable (2100) when tax > 0',
-   str_contains($inv, "'account_code' => '2100', 'debit' => 0, 'credit' => round((float) \$row['tax_total'], 2)"));
+   str_contains($inv, "'account_code' => '2100'")
+   && str_contains($inv, "'credit' => round(\$taxTotal, 2)"));
 $a('reclassification idempotency key includes :post:reclass',
    str_contains($inv, "sprintf('billing:invoice:%d:post:reclass', \$id)"));
 $a('reclassification audits with via=ar_reclassification',
    str_contains($inv, "'via' => 'ar_reclassification'"));
-$a('reclassification block placed AFTER event-layer try',
-   strpos($inv, 'accountingProcessEvent(') < strpos($inv, 'if ($reclassifyOnly)'));
+$a('event layer receives the reclassification shape',
+   str_contains($inv, '$eventPostingLines = $reclassifyOnly ? $reclassLines : $lines')
+   && str_contains($inv, "'lines'          => \$payloadLines"));
 $a('reclassification block placed BEFORE legacy accountingPostJe',
-   strpos($inv, 'if ($reclassifyOnly)') < strpos($inv, "sprintf('billing:invoice:%d:post',"));
+   strpos($inv, "sprintf('billing:invoice:%d:post:reclass',") < strpos($inv, "sprintf('billing:invoice:%d:post',"));
 $a('legacy single-period revenue-recognition path still present',
    str_contains($inv, "sprintf('billing:invoice:%d:post', \$id)"));
 $a('OLD multi-period-split phrases removed from invoice handler',
@@ -94,27 +106,35 @@ $a('OLD multi-period-split phrases removed from invoice handler',
    && !str_contains($inv, 'is_issue_period'));
 
 echo "\n4. AP bill post handler — reclassification wiring (ap/api/bills.php)\n";
-$ap = (string) file_get_contents('/app/modules/ap/api/bills.php');
+$ap = (string) file_get_contents($root . '/modules/ap/api/bills.php');
 $a('require_once multi_period.php at top of post handler',
    str_contains($ap, "require_once __DIR__ . '/../../accounting/lib/multi_period.php';"));
 $a('reads accountingSettingsGet inside post action',
    str_contains($ap, '$settings = accountingSettingsGet($tid);'));
-$a('reclassifyOnly gate set from multi_period_split_enabled',
-   str_contains($ap, "\$reclassifyOnly = !empty(\$settings['multi_period_split_enabled']);"));
-$a('AP reclassification debits AP Accrued for subtotal',
-   str_contains($ap, "'account_code' => \$apAccrued, 'debit' => round(\$subtotalAp, 2)"));
+$a('reclassifyOnly gate requires multi-period mode and fully accrued source lines',
+   str_contains($ap, "\$reclassifyOnly = !empty(\$settings['multi_period_split_enabled']) && \$allLinesWereAccrued;"));
+$a('manual AP bills are excluded from approved-time reclassification',
+   str_contains($ap, "['time', 'time_entry', 'economic_item']")
+   && str_contains($ap, '$allLinesWereAccrued ='));
+$a('AP reclassification debits AP Accrued by placement subtotal',
+   str_contains($ap, "'account_code' => \$apAccrued")
+   && str_contains($ap, "'debit' => \$amount > 0 ? \$amount : 0")
+   && str_contains($ap, "\$placementSubtotals as \$placementId => \$amount"));
 $a('AP reclassification credits Accounts Payable (2000) for total',
-   str_contains($ap, "'account_code' => '2000', 'debit' => 0, 'credit' => round(\$totalAp, 2)"));
+   str_contains($ap, "'account_code' => '2000'")
+   && str_contains($ap, "'credit' => round((float) \$row['total'], 2)"));
 $a('AP reclassification debits Input Tax (1310) when tax > 0',
-   str_contains($ap, "'account_code' => '1310', 'debit' => round(\$taxAp, 2)"));
+   str_contains($ap, "'account_code' => '1310'")
+   && str_contains($ap, "'debit' => \$billTaxTotal"));
 $a('AP reclassification idempotency key includes :post:reclass',
    str_contains($ap, "sprintf('ap:bill:%d:post:reclass', \$id)"));
 $a('AP reclassification audits with via=ap_reclassification',
    str_contains($ap, "'via'               => 'ap_reclassification'"));
-$a('AP reclassification placed AFTER event-layer try',
-   strpos($ap, 'accountingProcessEvent(') < strpos($ap, 'if ($reclassifyOnly)'));
+$a('AP event layer receives the reclassification shape',
+   str_contains($ap, '$eventPostingLines = $reclassifyOnly ? $reclassLines : $payloadLines')
+   && str_contains($ap, "'lines'        => \$eventPostingLines"));
 $a('AP reclassification placed BEFORE legacy accountingPostJe',
-   strpos($ap, 'if ($reclassifyOnly)') < strpos($ap, "sprintf('ap:bill:%d:post',"));
+   strpos($ap, "sprintf('ap:bill:%d:post:reclass',") < strpos($ap, "sprintf('ap:bill:%d:post',"));
 $a('AP legacy expense-recognition path still present',
    str_contains($ap, "sprintf('ap:bill:%d:post', \$id)"));
 $a('OLD multi-period-split phrases removed from AP bill handler',
@@ -123,7 +143,7 @@ $a('OLD multi-period-split phrases removed from AP bill handler',
    && !str_contains($ap, 'is_recognition_period'));
 
 echo "\n5. Bundle accrual hook in timeBuildBundlesForPeriod (modules/time/lib/time.php)\n";
-$time = (string) file_get_contents('/app/modules/time/lib/time.php');
+$time = (string) file_get_contents($root . '/modules/time/lib/time.php');
 $a('time.php requires multi_period helper after bundle build',
    str_contains($time, "require_once __DIR__ . '/../../accounting/lib/multi_period.php';"));
 $a('hook gated by multi_period_split_enabled',
@@ -160,10 +180,10 @@ $a('AP bill: moduleEmissionDisciplineLog before legacy direct post',
 
 echo "\n7. PHP syntax\n";
 foreach ([
-    '/app/modules/accounting/lib/multi_period.php',
-    '/app/modules/billing/api/invoices.php',
-    '/app/modules/ap/api/bills.php',
-    '/app/modules/time/lib/time.php',
+    $root . '/modules/accounting/lib/multi_period.php',
+    $root . '/modules/billing/api/invoices.php',
+    $root . '/modules/ap/api/bills.php',
+    $root . '/modules/time/lib/time.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);

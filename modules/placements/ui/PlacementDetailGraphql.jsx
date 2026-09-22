@@ -171,7 +171,7 @@ export default function PlacementDetailGraphql() {
       {placement && (
         <>
           <Section title="Engagement" testid="placement-gql-detail-engagement">
-            <Field label="Worker classification" testid="placement-gql-detail-engagement-type">{placement.engagementType}</Field>
+            <Field label="Engagement type" testid="placement-gql-detail-engagement-type">{placement.engagementType}</Field>
             <Field label="Remote policy"   testid="placement-gql-detail-remote-policy">{placement.remotePolicy}</Field>
             <Field label="Start date"      testid="placement-gql-detail-start">{placement.startDate}</Field>
             <Field label="End date"        testid="placement-gql-detail-end">{placement.endDate}</Field>

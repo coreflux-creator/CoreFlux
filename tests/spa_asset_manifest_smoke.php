@@ -12,6 +12,7 @@ $spa = (string) file_get_contents($root . '/spa.php');
 $updater = (string) file_get_contents($root . '/update.php');
 $lightDeployPath = $root . '/.github/workflows/deploy-light-workspace.yml';
 $lightDeploy = is_file($lightDeployPath) ? (string) file_get_contents($lightDeployPath) : null;
+if ($lightDeploy !== null) $lightDeploy = str_replace("\r\n", "\n", $lightDeploy);
 $dist = (string) file_get_contents($root . '/dashboard/dist/index.html');
 $stamp = (string) file_get_contents($root . '/.deploy-version');
 

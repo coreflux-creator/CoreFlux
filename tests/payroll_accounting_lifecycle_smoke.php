@@ -16,6 +16,7 @@ function payroll_lifecycle_assert(string $label, bool $condition): void {
 
 $root = dirname(__DIR__);
 $migration = (string) file_get_contents($root . '/modules/payroll/migrations/007_accounting_posting.sql');
+$accountRepairMigration = (string) file_get_contents($root . '/modules/payroll/migrations/009_payroll_account_map_repair.sql');
 $posting = (string) file_get_contents($root . '/modules/payroll/lib/accounting_posting.php');
 $runs = (string) file_get_contents($root . '/modules/payroll/api/runs.php');
 $settingsApi = (string) file_get_contents($root . '/modules/payroll/api/settings.php');
@@ -30,6 +31,10 @@ payroll_lifecycle_assert('adds automatic posting preference',
     str_contains($migration, 'auto_post_to_ledger'));
 payroll_lifecycle_assert('adds durable accrual and cash JE links',
     str_contains($migration, 'journal_entry_id') && str_contains($migration, 'cash_journal_entry_id'));
+payroll_lifecycle_assert('repairs the shipped employer-tax mapping without overwriting custom mappings',
+    str_contains($accountRepairMigration, "DEFAULT '5020'")
+    && str_contains($accountRepairMigration, "payroll_tax_expense_account_code = '5010'")
+    && str_contains($accountRepairMigration, "name = 'Subcontractor Expense'"));
 
 echo "\nPosting bridge\n";
 payroll_lifecycle_assert('accrual uses stable event identity',
@@ -41,10 +46,24 @@ payroll_lifecycle_assert('cash leg uses stable event identity',
 payroll_lifecycle_assert('accrual recognizes wage and employer-tax expense',
     str_contains($posting, "wage_expense_account_code")
     && str_contains($posting, "payroll_tax_expense_account_code"));
+payroll_lifecycle_assert('approved staffing cost is reclassified instead of expensed twice',
+    str_contains($posting, 'payrollAccountingStaffingAccrualGroups')
+    && str_contains($posting, "'2150'")
+    && str_contains($posting, 'clear approved-time accrual'));
+payroll_lifecycle_assert('legacy aggregate accruals stop payroll rather than risk duplicate labor',
+    str_contains($posting, 'legacy aggregate staffing accrual')
+    && str_contains($posting, 'otherwise labor would be counted twice'));
+payroll_lifecycle_assert('cross-entity payroll is split before posting',
+    str_contains($posting, 'spans multiple legal entities')
+    && str_contains($posting, 'one payroll run per entity'));
 payroll_lifecycle_assert('cash leg clears net-pay payable',
     str_contains($posting, "payrollPostRunCash")
     && str_contains($posting, "payroll_payable_account_code")
     && str_contains($posting, "payroll_cash_account_code"));
+payroll_lifecycle_assert('cash leg inherits the accrual entity and dimensions both lines',
+    str_contains($posting, '$entityId = payrollAccountingRunEntityId($tenantId, $run);')
+    && substr_count($posting, "'dims' => \$dimensions") >= 2
+    && str_contains($posting, "'dimensions' => \$dimensions"));
 payroll_lifecycle_assert('mapping readiness validates account types',
     str_contains($posting, "account_type'] !== \$expectation['type']"));
 

@@ -24,14 +24,16 @@ $a('weeks param clamped 1..52',                 str_contains($api, 'max(1, min(5
 $a('period_start / period_end overrides honored', str_contains($api, "period_start") && str_contains($api, "period_end"));
 $a('tenant-scoped time_entries query',          str_contains($api, "te.tenant_id = :tenant_id"));
 $a('joins placements for engagement_type',      str_contains($api, "LEFT JOIN placements pl") && str_contains($api, 'engagement_type'));
-$a('joins placement_rates for cost',            str_contains($api, "LEFT JOIN placement_rates pr"));
+$a('uses canonical timesheet economics for cost',
+    str_contains($api, 'LEFT JOIN v_timesheet_day_fin v')
+    && str_contains($api, 'COALESCE(v.cost, 0)'));
 $a('excludes superseded entries',               str_contains($api, "te.status != 'superseded'"));
 $a('week_start via WEEKDAY pivot',              str_contains($api, "DATE_SUB(te.work_date, INTERVAL WEEKDAY"));
 $a('graceful fallback on schema drift',         str_contains($api, "'note' => 'No data: '"));
 $a('classification_changes query (GROUP_CONCAT + HAVING > 1)', str_contains($api, "GROUP_CONCAT(DISTINCT pl.engagement_type") && str_contains($api, "HAVING COUNT(DISTINCT pl.engagement_type) > 1"));
-$a('per-week pivot keys (w2 / c1099 / c2c / internal / other)',
+$a('per-week pivot keys (w2 / c1099 / c2c / internal / referral / other)',
     str_contains($api, "'w2_hours'") && str_contains($api, "'c1099_hours'") && str_contains($api, "'c2c_hours'")
-    && str_contains($api, "'internal_hours'") && str_contains($api, "'other_hours'"));
+    && str_contains($api, "'internal_hours'") && str_contains($api, "'referral_hours'") && str_contains($api, "'other_hours'"));
 
 echo "\nWorkerMix UI\n";
 $ui = $read(__DIR__ . '/../modules/staffing/ui/WorkerMix.jsx');
@@ -40,6 +42,7 @@ $a('metric toggle (cost / hours)',              str_contains($ui, 'data-testid="
 $a('weeks window selector',                     str_contains($ui, 'data-testid="worker-mix-weeks"'));
 $a('stacked-bar chart svg',                     str_contains($ui, 'data-testid="worker-mix-chart"'));
 $a('mix legend rendered',                       str_contains($ui, 'data-testid="worker-mix-legend"'));
+$a('referral mix is visible',                   str_contains($ui, "referral: { label: 'Referral'") && str_contains($ui, "'referral'"));
 $a('change-flag table rendered when changes',   str_contains($ui, 'data-testid="worker-mix-changes-table"'));
 $a('empty-state messaging',                     str_contains($ui, 'data-testid="worker-mix-empty"'));
 $a('section testid',                            str_contains($ui, 'data-testid="staffing-worker-mix"'));

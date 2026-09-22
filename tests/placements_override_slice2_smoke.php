@@ -52,7 +52,10 @@ $assert('migration is ALTER TABLE on placements',
 echo "\nSync writer — jobdivaSyncUpsertPlacement respects override list\n";
 $syncSrc = (string) file_get_contents('/app/core/jobdiva/sync.php');
 $assert('sync reads coreflux_overridden_fields before UPDATE',
-    str_contains($syncSrc, 'SELECT coreflux_overridden_fields FROM placements'));
+    preg_match(
+        '/SELECT\s+[^;]*coreflux_overridden_fields[^;]*FROM\s+placements/is',
+        $syncSrc
+    ) === 1);
 $assert('sync decodes the JSON override list',
     str_contains($syncSrc, 'json_decode($rawOverride, true)'));
 $assert('sync builds UPDATE assignments dynamically',

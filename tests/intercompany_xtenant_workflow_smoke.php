@@ -72,6 +72,12 @@ $a('propose enforces same-master parent guard',
     str_contains($lib, 'cross-tenant intercompany requires the same master parent'));
 $a('propose posts FROM leg immediately via accountingPostJe',
     str_contains($lib, "'idempotency_key' => \"cross_intercompany_propose:{\$ref}:from\""));
+$a('propose persists resolved source and target legal entities',
+    str_contains($lib, "'seid'  => \$sourceEntityId")
+    && str_contains($lib, "'teid'  => \$targetEntityId"));
+$a('propose dimensions the source IC line with its counterparty entity',
+    str_contains($lib, "'counterparty_entity_id' => \$targetEntityId")
+    && str_contains($lib, "'counterparty_entity' => \$targetEntityId"));
 $a('propose inserts queue row with status pending',
     str_contains($lib, 'INSERT INTO intercompany_xtenant_queue')
     && str_contains($lib, '"pending"'));
@@ -90,6 +96,9 @@ $a('approve is idempotent on already-approved rows',
     && str_contains($lib, "'approved'"));
 $a('approve posts TO leg via accountingPostJe with cross_intercompany_approve key',
     str_contains($lib, "'idempotency_key' => \"cross_intercompany_approve:{\$ref}:to\""));
+$a('approve dimensions the target IC line with its source counterparty',
+    str_contains($lib, "'counterparty_entity_id' => \$sourceEntityId")
+    && str_contains($lib, "'counterparty_entity' => \$sourceEntityId"));
 $a('approve updates queue row to status approved + stamps target_je_id',
     str_contains($lib, 'UPDATE intercompany_xtenant_queue')
     && str_contains($lib, 'status = "approved"')

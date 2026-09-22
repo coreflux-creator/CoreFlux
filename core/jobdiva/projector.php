@@ -464,7 +464,7 @@ function jobdivaProjectorPlacementReadiness(int $tenantId, int $placementId): ar
 
         $engagement = strtolower((string) ($row['engagement_type'] ?? ''));
         $requiresPayroll = in_array($engagement, ['w2', 'temp_to_perm', 'internal'], true);
-        $requiresAp = in_array($engagement, ['1099', 'c2c'], true);
+        $requiresAp = in_array($engagement, ['1099', 'c2c', 'referral'], true);
         if (empty($row['billing_operating_cycle_id'])) $out['missing'][] = 'billing_cycle';
         if ($requiresPayroll && empty($row['payroll_operating_cycle_id'])) {
             $out['missing'][] = 'payroll_cycle';

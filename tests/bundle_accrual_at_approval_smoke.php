@@ -9,7 +9,8 @@
  *   • accountingPostBundleAccrual rejects payroll/revrec bundles
  *     up-front (no GL write).
  *   • The helper's posted JE shape uses AR Unbilled / Revenue (4000)
- *     for ar bundles and Expense (5000) / AP Accrued for ap bundles.
+ *     for ar bundles and Subcontractor Expense (5010) / AP Accrued for
+ *     contractor/referral ap bundles.
  *   • Idempotency key embeds bundle_id + period_id.
  *   • source_module routes through 'time' (recognition event owner),
  *     source_ref_type='time_bundle' so the audit trail is unambiguous.
@@ -19,7 +20,8 @@
  */
 declare(strict_types=1);
 
-require_once '/app/modules/accounting/lib/multi_period.php';
+$root = dirname(__DIR__);
+require_once $root . '/modules/accounting/lib/multi_period.php';
 
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
@@ -52,7 +54,7 @@ $a('unknown bundle type short-circuits to empty array',
    accountingPostBundleAccrual(1, 9999, 'mystery') === []);
 
 echo "\n3. Source-level shape (the JE the helper would build)\n";
-$lib = (string) file_get_contents('/app/modules/accounting/lib/multi_period.php');
+$lib = (string) file_get_contents($root . '/modules/accounting/lib/multi_period.php');
 
 // AR shape:
 $a('AR accrual: Dr AR Unbilled debit, Cr Revenue credit (per period)',
@@ -61,14 +63,21 @@ $a('AR accrual: Dr AR Unbilled debit, Cr Revenue credit (per period)',
 $a('AR accrual revenue code defaults to 4000',
    str_contains($lib, "\$revenueCode = '4000';"));
 $a('AR accrual carries counterparty_company_id (client) when known',
-   str_contains($lib, "\$partyCompanyId = \$bundleType === 'ar' && !empty(\$partyRow['end_client_company_id'])"));
+   str_contains($lib, "\$partyCompanyId = !empty(\$dimensionContext['placement']['end_client_company_id'])"));
 
 // AP shape:
 $a('AP accrual: Dr Expense debit, Cr AP Accrued credit (per period)',
    str_contains($lib, "'account_code' => \$expenseCode, 'debit' => round(\$amt, 2), 'credit' => 0,")
    && str_contains($lib, "'account_code' => \$apAccrued,   'debit' => 0, 'credit' => round(\$amt, 2),"));
-$a('AP accrual expense code defaults to 5000',
-   str_contains($lib, "\$expenseCode = '5000';"));
+$a('AP accrual uses contractor cost code 5010',
+   str_contains($lib, "\$expenseCode = '5010';"));
+$a('AP accrual excludes W-2 and internal assignments',
+   str_contains($lib, "\$bundleType === 'ap' && !in_array(\$engagementType, ['1099', 'c2c', 'referral'], true)"));
+$a('bundle accrual skips economics already posted by assignment event',
+   str_contains($lib, 'accountingBundleAssignmentRecognitionState')
+   && str_contains($lib, "\$recognition['posted'] === \$recognition['expected']"));
+$a('partial assignment recognition blocks legacy accrual',
+   str_contains($lib, 'is only partly recognized by assignment events'));
 
 // Period anchoring + idempotency:
 $a('accrual posts on period end_date (not work_date) for unambiguous stamp',
@@ -105,7 +114,7 @@ $a('filter excludes PTO/unpaid/non-billable',
 
 echo "\n7. PHP syntax\n";
 $out = []; $rc = 0;
-exec('php -l /app/modules/accounting/lib/multi_period.php 2>&1', $out, $rc);
+exec('php -l ' . escapeshellarg($root . '/modules/accounting/lib/multi_period.php') . ' 2>&1', $out, $rc);
 $a('multi_period.php syntax clean', $rc === 0, implode("\n", $out));
 
 echo "\n=========================================\n";

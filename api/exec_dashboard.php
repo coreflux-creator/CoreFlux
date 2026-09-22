@@ -14,7 +14,7 @@
  *   weeks            — trendline window in weeks (default 12, max 104)
  *   client_id        — filter by placements.end_client_name OR companies.id
  *   recruiter_id     — filter by placement_commissions.user_id (role='recruiter')
- *   placement_type   — w2 | 1099 | c2c | direct_hire | temp_to_perm
+ *   placement_type   - w2 | 1099 | c2c | direct_hire | temp_to_perm | internal | referral
  *   worksite_state   — placement worksite filter
  *
  * Output shape:
@@ -30,6 +30,7 @@
  *     },
  *     staffing: {
  *       headcount:    { active, contractors_w2, contractors_c2c, contractors_1099, perm },
+ *       active_referral_placements: int,
  *       new_starts:   { period, trend: [...] },
  *       terminations: { period, trend: [...] },
  *       net_change:   { period, trend: [...] },
@@ -341,6 +342,7 @@ if (_execRowsExist($pdo, 'payroll_runs')) {
 /* ---------- STAFFING ---------- */
 $staffing = [
     'headcount'        => ['active' => 0, 'contractors_w2' => 0, 'contractors_c2c' => 0, 'contractors_1099' => 0, 'perm' => 0],
+    'active_referral_placements' => 0,
     'new_starts'       => ['period' => 0, 'trend' => []],
     'terminations'     => ['period' => 0, 'trend' => []],
     'net_change'       => ['period' => 0, 'trend' => []],
@@ -356,6 +358,7 @@ if (_execRowsExist($pdo, 'placements')) {
            FROM placements p
           WHERE $placementWhereSql
             AND p.status = 'active'
+            AND p.engagement_type <> 'referral'
             AND p.person_id IS NOT NULL",
         $pwParams
     );
@@ -366,6 +369,7 @@ if (_execRowsExist($pdo, 'placements')) {
            FROM placements p
           WHERE $placementWhereSql
             AND p.status = 'active'
+            AND p.engagement_type <> 'referral'
             AND p.person_id IS NOT NULL
        GROUP BY p.engagement_type",
         $pwParams
@@ -375,13 +379,23 @@ if (_execRowsExist($pdo, 'placements')) {
             case 'w2':   $staffing['headcount']['contractors_w2']   = (int) $r['c']; break;
             case 'c2c':  $staffing['headcount']['contractors_c2c']  = (int) $r['c']; break;
             case '1099': $staffing['headcount']['contractors_1099'] = (int) $r['c']; break;
-            case 'perm': $staffing['headcount']['perm']             = (int) $r['c']; break;
+            case 'direct_hire': $staffing['headcount']['perm']      = (int) $r['c']; break;
         }
     }
+
+    $referralRows = _execSafeFetch($pdo,
+        "SELECT COUNT(*) AS c FROM placements p
+          WHERE $placementWhereSql
+            AND p.status = 'active'
+            AND p.engagement_type = 'referral'",
+        $pwParams
+    );
+    $staffing['active_referral_placements'] = (int) ($referralRows[0]['c'] ?? 0);
 
     $startsRows = _execSafeFetch($pdo,
         "SELECT p.start_date AS d, 1 AS v FROM placements p
           WHERE $placementWhereSql
+            AND p.engagement_type <> 'referral'
             AND p.start_date BETWEEN :start_from AND :start_to",
         array_merge($pwParams, [
             'start_from' => $from->format('Y-m-d'),
@@ -394,6 +408,7 @@ if (_execRowsExist($pdo, 'placements')) {
     $termRows = _execSafeFetch($pdo,
         "SELECT COALESCE(p.actual_end_date, p.end_date) AS d, 1 AS v FROM placements p
           WHERE $placementWhereSql
+            AND p.engagement_type <> 'referral'
             AND p.status IN ('ended', 'cancelled')
             AND COALESCE(p.actual_end_date, p.end_date) BETWEEN :term_from AND :term_to",
         array_merge($pwParams, [
@@ -557,6 +572,7 @@ if ($compareEnabled) {
         $r = _execSafeFetch($pdo,
             "SELECT COUNT(*) AS c FROM placements p
               WHERE $placementWhereSql
+                AND p.engagement_type <> 'referral'
                 AND p.start_date BETWEEN :a AND :b",
             array_merge($pwParams, ['a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')])
         );
@@ -564,6 +580,7 @@ if ($compareEnabled) {
         $r = _execSafeFetch($pdo,
             "SELECT COUNT(*) AS c FROM placements p
               WHERE $placementWhereSql
+                AND p.engagement_type <> 'referral'
                 AND p.status IN ('ended', 'cancelled')
                 AND COALESCE(p.actual_end_date, p.end_date) BETWEEN :a AND :b",
             array_merge($pwParams, ['a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')])

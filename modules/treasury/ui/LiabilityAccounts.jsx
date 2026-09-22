@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
@@ -28,7 +28,9 @@ export default function LiabilityAccounts() {
 
 function LiabilityList() {
   const { data, loading, reload } = useApi('/modules/treasury/api/liability_accounts.php');
+  const entitiesApi = useApi('/modules/accounting/api/entities.php');
   const rows = data?.rows || [];
+  const entities = (entitiesApi.data?.rows || []).filter((entity) => Number(entity.active) !== 0);
   const [showNew, setShowNew] = useState(false);
   const navigate = useNavigate();
 
@@ -51,7 +53,7 @@ function LiabilityList() {
         </button>
       </header>
 
-      {showNew && <NewLiabilityForm onDone={() => { setShowNew(false); reload(); }} />}
+      {showNew && <NewLiabilityForm entities={entities} onDone={() => { setShowNew(false); reload(); }} />}
 
       {loading && <p>Loading…</p>}
       {!loading && rows.length === 0 && (
@@ -64,7 +66,7 @@ function LiabilityList() {
         <table className="data-table" data-testid="treasury-liabilities-table">
           <thead>
             <tr>
-              <th>Code</th><th>Name</th><th>Type</th><th>Institution</th>
+              <th>Code</th><th>Name</th><th>Entity</th><th>Type</th><th>Institution</th>
               <th>Last 4</th>
               <th style={{ textAlign: 'right' }}>Bank balance</th>
               <th style={{ textAlign: 'right' }}>GL balance</th>
@@ -145,6 +147,7 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
     >
       <td><AccountLink accountId={r.id} accountCode={r.code} onClick={(e) => e.stopPropagation()}><code>{r.code}</code></AccountLink></td>
       <td><AccountLink accountId={r.id} accountCode={r.code} onClick={(e) => e.stopPropagation()}>{r.name}</AccountLink></td>
+      <td>{r.entity_code || r.entity_name || <span style={{ color: '#b91c1c' }}>Assign entity</span>}</td>
       <td>{SUBTYPE_LABELS[r.subtype] || r.subtype || '—'}</td>
       <td>{r.institution_name || '—'}</td>
       <td>{r.last4 || '—'}</td>
@@ -205,7 +208,7 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
     </tr>
     {err && (
       <tr data-testid={`treasury-liability-err-${r.id}`}>
-        <td colSpan={12} style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 16 }}>{err}</td>
+        <td colSpan={13} style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 16 }}>{err}</td>
       </tr>
     )}
     </>
@@ -226,7 +229,7 @@ function LiabilityDetail() {
     <section data-testid="treasury-liability-detail">
       <p style={{ marginBottom: 12 }}>
         <Link to="/modules/treasury/liabilities" className="muted" style={{ fontSize: 13 }} data-testid="treasury-liability-detail-back">← Back to liability accounts</Link>
-        {account && <>{' '}<AccountLink accountId={account.id} accountCode={account.code}>Account terms</AccountLink></>}
+        {account && <>{' '}<AccountLink accountId={account.id} accountCode={account.code} entityId={account.entity_id}>Account terms</AccountLink></>}
       </p>
       <AccountTransactions
         accountId={accountId}
@@ -237,18 +240,25 @@ function LiabilityDetail() {
   );
 }
 
-function NewLiabilityForm({ onDone }) {
+function NewLiabilityForm({ entities, onDone }) {
   const [f, setF] = useState({
     code: '', name: '', subtype: 'credit_card',
+    entity_id: '',
     institution_name: '', last4: '',
     credit_limit: '', apr_pct: '', statement_day: '',
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
+  useEffect(() => {
+    if (!f.entity_id && entities.length === 1) {
+      setF((current) => ({ ...current, entity_id: String(entities[0].id) }));
+    }
+  }, [entities, f.entity_id]);
   const submit = async () => {
     setBusy(true); setErr(null);
     try {
       const body = { ...f };
+      body.entity_id = Number(body.entity_id);
       if (body.credit_limit === '')   delete body.credit_limit;   else body.credit_limit = Number(body.credit_limit);
       if (body.apr_pct === '')        delete body.apr_pct;        else body.apr_pct = Number(body.apr_pct);
       if (body.statement_day === '')  delete body.statement_day;  else body.statement_day = Number(body.statement_day);
@@ -272,6 +282,14 @@ function NewLiabilityForm({ onDone }) {
         <input className="input" placeholder="Name (Chase Business Ink)"
           value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })}
           data-testid="treasury-liability-name" required />
+        <select className="input" value={f.entity_id}
+          onChange={(e) => setF({ ...f, entity_id: e.target.value })}
+          data-testid="treasury-liability-entity" required>
+          <option value="">Legal entity</option>
+          {entities.map((entity) => (
+            <option key={entity.id} value={entity.id}>{entity.code} · {entity.legal_name}</option>
+          ))}
+        </select>
         <select className="input" value={f.subtype}
           onChange={(e) => setF({ ...f, subtype: e.target.value })}
           data-testid="treasury-liability-subtype">
@@ -296,7 +314,7 @@ function NewLiabilityForm({ onDone }) {
         <button
           type="button" className="btn btn--primary"
           onClick={submit}
-          disabled={busy || !f.code || !f.name}
+          disabled={busy || !f.code || !f.name || !f.entity_id}
           data-testid="treasury-liability-save">
           {busy ? 'Saving…' : 'Save'}
         </button>

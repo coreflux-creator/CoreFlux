@@ -196,6 +196,9 @@ function intercompanyPostSplit(int $tenantId, array $payload, ?int $actorUserId 
     $postingDate    = (string) ($payload['posting_date'] ?? date('Y-m-d'));
     $memo           = (string) ($payload['memo'] ?? '');
     $idemPrefix     = (string) ($payload['idempotency_prefix'] ?? 'ic:' . intercompanyDeriveGroupId());
+    $sourceModule   = (string) ($payload['source_module'] ?? 'manual');
+    $sourceRefType  = (string) ($payload['source_ref_type'] ?? 'intercompany_group');
+    $sourceRefId    = !empty($payload['source_ref_id']) ? (int) $payload['source_ref_id'] : null;
 
     // Sum splits — must equal the offset amount to within half a cent.
     $total = 0.0;
@@ -245,6 +248,7 @@ function intercompanyPostSplit(int $tenantId, array $payload, ?int $actorUserId 
                 'debit'        => $isOffsetCredit ? $l['amount'] : 0,
                 'credit'       => $isOffsetCredit ? 0 : $l['amount'],
                 'memo'         => $l['memo'],
+                'dims'         => ['legal_entity' => $sourceEntityId],
             ];
         }
         foreach ($crossByEntity as $targetEntityId => $targetLines) {
@@ -256,6 +260,10 @@ function intercompanyPostSplit(int $tenantId, array $payload, ?int $actorUserId 
                 'credit'                 => $isOffsetCredit ? 0 : $sum,
                 'memo'                   => 'IC Due-From entity ' . $targetEntityId,
                 'counterparty_entity_id' => $targetEntityId,
+                'dims'                   => [
+                    'legal_entity' => $sourceEntityId,
+                    'counterparty_entity' => $targetEntityId,
+                ],
             ];
         }
         // Offset line (cash / CC liability / AP / etc.)
@@ -264,14 +272,15 @@ function intercompanyPostSplit(int $tenantId, array $payload, ?int $actorUserId 
             'debit'        => $isOffsetCredit ? 0 : $offsetAmount,
             'credit'       => $isOffsetCredit ? $offsetAmount : 0,
             'memo'         => $offset['memo'] ?? null,
+            'dims'         => ['legal_entity' => $sourceEntityId],
         ];
 
         $sourceJe = accountingPostJe($tenantId, [
             'posting_date'      => $postingDate,
             'memo'              => $memo ? ($memo . ' (IC group ' . substr($groupId, 0, 8) . ')') : 'IC source leg',
-            'source_module'     => 'manual',
-            'source_ref_type'   => 'intercompany_group',
-            'source_ref_id'     => null,
+            'source_module'     => $sourceModule,
+            'source_ref_type'   => $sourceRefType,
+            'source_ref_id'     => $sourceRefId,
             'idempotency_key'   => $idemPrefix . ':source',
             'entity_id'         => $sourceEntityId,
             'lines'             => $sourceLines,
@@ -291,6 +300,7 @@ function intercompanyPostSplit(int $tenantId, array $payload, ?int $actorUserId 
                     'debit'        => $isOffsetCredit ? $tl['amount'] : 0,
                     'credit'       => $isOffsetCredit ? 0 : $tl['amount'],
                     'memo'         => $tl['memo'],
+                    'dims'         => ['legal_entity' => $targetEntityId],
                 ];
             }
             $lines[] = [
@@ -299,14 +309,18 @@ function intercompanyPostSplit(int $tenantId, array $payload, ?int $actorUserId 
                 'credit'                 => $isOffsetCredit ? $targetSum : 0,
                 'memo'                   => 'IC Due-To entity ' . $sourceEntityId,
                 'counterparty_entity_id' => $sourceEntityId,
+                'dims'                   => [
+                    'legal_entity' => $targetEntityId,
+                    'counterparty_entity' => $sourceEntityId,
+                ],
             ];
 
             $tjs = accountingPostJe($tenantId, [
                 'posting_date'      => $postingDate,
                 'memo'              => $memo ? ($memo . ' (IC group ' . substr($groupId, 0, 8) . ')') : 'IC target leg',
-                'source_module'     => 'manual',
-                'source_ref_type'   => 'intercompany_group',
-                'source_ref_id'     => null,
+                'source_module'     => $sourceModule,
+                'source_ref_type'   => $sourceRefType,
+                'source_ref_id'     => $sourceRefId,
                 'idempotency_key'   => $idemPrefix . ':target:' . $targetEntityId,
                 'entity_id'         => $targetEntityId,
                 'lines'             => $lines,

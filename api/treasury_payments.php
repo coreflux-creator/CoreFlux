@@ -69,6 +69,24 @@ if ($method === 'POST' && $action === '') {
     api_require_fields($body, ['entity_id', 'payee_name', 'amount', 'payment_date', 'bank_account_id']);
 
     $pdo = getDB();
+    try {
+        $entityId = accountingValidateActiveEntityId($tid, $body['entity_id']);
+    } catch (\InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    }
+    $bankId = (int) $body['bank_account_id'];
+    $bankOwner = $pdo->prepare(
+        'SELECT entity_id
+           FROM accounting_bank_accounts
+          WHERE tenant_id = :tenant_id AND id = :bank_account_id AND status = "active"
+          LIMIT 1'
+    );
+    $bankOwner->execute(['tenant_id' => $tid, 'bank_account_id' => $bankId]);
+    $bankEntityId = (int) ($bankOwner->fetchColumn() ?: 0);
+    if ($bankEntityId <= 0) api_error('Choose an active bank account with a legal entity', 422);
+    if ($bankEntityId !== $entityId) api_error('The selected bank account belongs to a different legal entity', 422);
+    if (round((float) $body['amount'], 2) <= 0) api_error('amount must be greater than zero', 422);
+
     $payNum = $body['payment_number'] ?? sprintf('TPY-%d-%s', $tid, substr(bin2hex(random_bytes(4)), 0, 8));
     $status = in_array($body['status'] ?? 'draft', ['draft', 'pending_approval'], true) ? (string) $body['status'] : 'draft';
     $stmt = $pdo->prepare(
@@ -81,7 +99,7 @@ if ($method === 'POST' && $action === '') {
     );
     $stmt->execute([
         't' => $tid,
-        'e' => (int) $body['entity_id'],
+        'e' => $entityId,
         'n' => $payNum,
         'pt' => (string) ($body['payee_type'] ?? 'vendor'),
         'pid' => isset($body['payee_id']) ? (int) $body['payee_id'] : null,
@@ -90,7 +108,7 @@ if ($method === 'POST' && $action === '') {
         'cur' => (string) ($body['currency'] ?? 'USD'),
         'pd' => (string) $body['payment_date'],
         'pm' => (string) ($body['payment_method'] ?? 'ach'),
-        'ba' => (int) $body['bank_account_id'],
+        'ba' => $bankId,
         'cp' => isset($body['counterparty_account_id']) ? (int) $body['counterparty_account_id'] : null,
         'memo' => $body['memo'] ?? null,
         'st' => $status,
@@ -196,7 +214,7 @@ if ($method === 'POST' && $action === 'execute') {
     }
 
     $bankStmt = $pdo->prepare(
-        'SELECT ba.gl_account_code, aa.id AS gl_account_id
+        'SELECT ba.gl_account_code, ba.entity_id, aa.id AS gl_account_id
            FROM accounting_bank_accounts ba
            LEFT JOIN accounting_accounts aa
              ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
@@ -204,6 +222,29 @@ if ($method === 'POST' && $action === 'execute') {
     );
     $bankStmt->execute(['t' => $tid, 'id' => (int) $payment['bank_account_id']]);
     $bank = $bankStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+    if (empty($bank['gl_account_id'])) api_error('Payment bank account has no active ledger account', 422);
+    if ((int) ($bank['entity_id'] ?? 0) !== (int) $payment['entity_id']) {
+        api_error('Payment entity no longer matches the selected bank account', 422);
+    }
+
+    $vendorDimension = null;
+    if ((string) $payment['payee_type'] === 'vendor' && (int) ($payment['payee_id'] ?? 0) > 0) {
+        $vendorStmt = $pdo->prepare(
+            'SELECT company_id
+               FROM ap_vendors_index
+              WHERE tenant_id = :tenant_id AND id = :vendor_id
+              LIMIT 1'
+        );
+        $vendorStmt->execute([
+            'tenant_id' => $tid,
+            'vendor_id' => (int) $payment['payee_id'],
+        ]);
+        $companyId = (int) ($vendorStmt->fetchColumn() ?: 0);
+        $vendorDimension = $companyId > 0
+            ? 'company:' . $companyId
+            : 'ap_vendor:' . (int) $payment['payee_id'];
+    }
+    $legalEntityDimension = (int) $payment['entity_id'];
 
     $event = [
         'entity_id' => (int) $payment['entity_id'],
@@ -217,12 +258,17 @@ if ($method === 'POST' && $action === 'execute') {
             'payment_number' => (string) $payment['payment_number'],
             'amount' => (float) $payment['amount'],
             'currency' => (string) $payment['currency'],
+            'method' => (string) $payment['payment_method'],
             'bank_account_id' => (int) $payment['bank_account_id'],
             'bank_gl_account_id' => isset($bank['gl_account_id']) ? (int) $bank['gl_account_id'] : null,
             'bank_gl_account_code' => $bank['gl_account_code'] ?? null,
             'counterparty_account_id' => $payment['counterparty_account_id'] ? (int) $payment['counterparty_account_id'] : null,
             'payee_type' => (string) $payment['payee_type'],
+            'payee_id' => !empty($payment['payee_id']) ? (int) $payment['payee_id'] : null,
             'payee_name' => (string) $payment['payee_name'],
+            'vendor_dimension' => $vendorDimension,
+            'legal_entity_dimension' => $legalEntityDimension,
+            'dimensions' => ['legal_entity' => $legalEntityDimension],
             'memo' => $payment['memo'],
         ],
     ];

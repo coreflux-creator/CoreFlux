@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
-const ETYPES   = ['', 'w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal'];
+const ETYPES   = ['', 'w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'referral', 'internal'];
 const PAGE_SIZES = [25, 50, 100, 200];
 const STATUS_LABELS = {
   '': 'All statuses',
@@ -24,12 +24,13 @@ const STATUS_LABELS = {
   cancelled: 'Cancelled',
 };
 const ETYPE_LABELS = {
-  '': 'All worker types',
+  '': 'All engagement types',
   w2: 'W-2 employee',
   1099: '1099 contractor',
   c2c: 'C2C contractor',
   temp_to_perm: 'Temp-to-perm',
   direct_hire: 'Direct hire',
+  referral: 'Referral placement',
   internal: 'Internal employee',
 };
 const REMOTE_LABELS = { onsite: 'On-site', hybrid: 'Hybrid', remote: 'Remote' };
@@ -156,7 +157,7 @@ export default function List() {
       options: STATUSES.filter(Boolean).map(value => ({ value, label: STATUS_LABELS[value] })),
     },
     {
-      key: 'engagement_type', label: 'Worker type', type: 'select', placeholder: 'Choose worker type',
+      key: 'engagement_type', label: 'Engagement type', type: 'select', placeholder: 'Choose engagement type',
       options: ETYPES.filter(Boolean).map(value => ({ value, label: ETYPE_LABELS[value] })),
     },
     {
@@ -243,6 +244,7 @@ export default function List() {
         <PageKpi label={status === 'active' ? 'Active' : 'Matching placements'} value={total} />
         <PageKpi label="W-2 placements" value={summary.w2 ?? 0} />
         <PageKpi label="C2C placements" value={summary.c2c ?? 0} />
+        <PageKpi label="Referral placements" value={summary.referral ?? 0} />
         <PageKpi label="Ending in 30 days" value={summary.ending_30d ?? 0} tone="amber" />
       </div>
 
@@ -270,7 +272,7 @@ export default function List() {
           <select className="input" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }} aria-label="Placement status" data-testid="placements-status-filter">
             {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
           </select>
-          <select className="input" value={engagementType} onChange={e => { setETYPE(e.target.value); setPage(1); }} aria-label="Worker type" data-testid="placements-etype-filter">
+          <select className="input" value={engagementType} onChange={e => { setETYPE(e.target.value); setPage(1); }} aria-label="Engagement type" data-testid="placements-etype-filter">
             {ETYPES.map(s => <option key={s} value={s}>{ETYPE_LABELS[s]}</option>)}
           </select>
           <select className="input" value={endClientCompanyId} onChange={e => { setEndClientCompanyId(e.target.value); setPage(1); }} aria-label="End client" data-testid="placements-client-filter">

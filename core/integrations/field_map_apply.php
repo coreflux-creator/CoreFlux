@@ -895,12 +895,14 @@ function integrationFieldMapEngagementValue(mixed $raw): ?string
     }
     $key = strtolower(str_replace(['-', '/', '\\'], ' ', $s));
     $key = preg_replace('/\s+/', ' ', $key) ?: $key;
+    if ($key === 'ref' || str_contains($key, 'referral')) return 'referral';
+    if ($key === 'internal') return 'internal';
     if (str_contains($key, 'temp to perm') || str_contains($key, 'contract to hire')) return 'temp_to_perm';
     if (str_contains($key, 'direct hire') || str_contains($key, 'perm')) return 'direct_hire';
     if (str_contains($key, '1099') || str_contains($key, 'independent contractor')) return '1099';
     if (str_contains($key, 'c2c') || str_contains($key, 'corp to corp') || str_contains($key, 'crop to crop')) return 'c2c';
     if (str_contains($key, 'w2') || str_contains($key, 'w 2') || str_contains($key, 'employee')) return 'w2';
-    return in_array($key, ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal'], true) ? $key : null;
+    return in_array($key, ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal', 'referral'], true) ? $key : null;
 }
 
 function integrationFieldMapPersonClassificationValue(mixed $raw): ?string
@@ -910,6 +912,7 @@ function integrationFieldMapPersonClassificationValue(mixed $raw): ?string
         return match ($eng) {
             'temp_to_perm' => 'temp',
             'direct_hire' => 'perm',
+            'referral' => 'candidate',
             default => $eng,
         };
     }
@@ -956,6 +959,7 @@ function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
                 '1099' => 'contractor_1099',
                 'c2c' => 'c2c',
                 'w2' => 'w2_temp',
+                'referral' => null,
                 default => 'employee',
             };
         }
