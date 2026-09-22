@@ -14,6 +14,8 @@ $standardReports = (string) file_get_contents($root . '/modules/accounting/api/s
 $export = (string) file_get_contents($root . '/modules/accounting/api/export.php');
 $import = (string) file_get_contents($root . '/modules/accounting/api/import.php');
 $intercompanyDialog = (string) file_get_contents($root . '/dashboard/src/components/IntercompanySplitDialog.jsx');
+$deployPath = $root . '/.github/workflows/deploy-light-workspace.yml';
+$deploy = is_file($deployPath) ? (string) file_get_contents($deployPath) : null;
 
 $checks = [
     'journal navigation uses bookmarkable canonical routes' =>
@@ -123,6 +125,11 @@ $checks = [
         && str_contains($sidebar, "to: '/modules/accounting/journal-entries'")
         && str_contains($module, 'Tools <ChevronDown'),
 ];
+
+if ($deploy !== null) {
+    $checks['production release includes the intercompany split source contract'] =
+        substr_count($deploy, 'dashboard/src/components/IntercompanySplitDialog.jsx') >= 2;
+}
 
 $failed = 0;
 foreach ($checks as $label => $passed) {
