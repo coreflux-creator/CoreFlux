@@ -43,6 +43,7 @@ function _authGateAllowedUnauthEndpoints(): array {
         'api/webhooks/resend.php'         => 'Resend webhook — verified by Svix-style HMAC signature + replay window',
         'api/webhooks/mercury.php'        => 'Mercury webhook — verified by HMAC-SHA256 signature + 5min replay window',
         'api/webhooks/qbo.php'            => 'QBO Accounting webhook — verified by intuit-signature HMAC-SHA256 of raw body',
+        'api/webhooks/purepay.php'        => 'PurePay webhook — verified by HMAC-SHA256 signature, timestamp, and event ID',
 
         // ── Public-facing endpoints (deliberate; consumed by recipients without accounts) ──
         'api/billing/invoice_public.php'  => 'Public invoice viewer — auth via single-use token_hash in URL',

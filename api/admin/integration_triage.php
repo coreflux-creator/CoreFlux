@@ -54,12 +54,12 @@ if ($tenantId <= 0) {
 $limit = max(10, min(500, (int) ($_GET['limit'] ?? 200)));
 $wantedSources = $_GET['sources'] ?? 'all'; // comma-list or 'all'
 $wanted = $wantedSources === 'all'
-    ? ['qbo-dlq', 'qbo-drift', 'qbo-payments', 'mercury-failed']
+    ? ['qbo-dlq', 'qbo-drift', 'qbo-payments', 'mercury-failed', 'purepay-failed']
     : array_map('trim', explode(',', (string) $wantedSources));
 
 $items  = [];
 $counts = ['critical' => 0, 'warn' => 0, 'info' => 0, 'total' => 0,
-           'by_source' => ['qbo-dlq' => 0, 'qbo-drift' => 0, 'qbo-payments' => 0, 'mercury-failed' => 0]];
+           'by_source' => ['qbo-dlq' => 0, 'qbo-drift' => 0, 'qbo-payments' => 0, 'mercury-failed' => 0, 'purepay-failed' => 0]];
 $db = getDB();
 
 // ─────── 1. QBO push DLQ ───────
@@ -276,6 +276,49 @@ if (in_array('mercury-failed', $wanted, true)) {
             $counts[$sev]++;
         }
     } catch (\Throwable $_) { /* table missing */ }
+}
+
+if (in_array('purepay-failed', $wanted, true)) {
+    try {
+        $stmt = $db->prepare(
+            "SELECT id, tenant_id, source_ref, core_payment_id, purepay_bill_id,
+                    purepay_payment_id, amount_cents, status, last_error, created_at, updated_at
+               FROM purepay_payment_links
+              WHERE tenant_id=:t
+                AND status IN ('failed','returned','needs_review','pushed_unverified','posted_unverified','settled_failed_review')
+           ORDER BY updated_at DESC, id DESC LIMIT {$limit}"
+        );
+        $stmt->execute(['t' => $tenantId]);
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $critical = in_array($row['status'], ['needs_review', 'posted_unverified', 'settled_failed_review'], true);
+            $severity = $critical ? 'critical' : 'warn';
+            $items[] = [
+                'source' => 'purepay-failed', 'id' => (int) $row['id'], 'tenant_id' => (int) $row['tenant_id'],
+                'severity' => $severity,
+                'summary' => 'Pure//Pay payment ' . $row['status'] . ' — ' . $row['source_ref']
+                    . ' ($' . number_format(((int) $row['amount_cents']) / 100, 2) . ')',
+                'playbook' => [
+                    'code' => $row['status'], 'category' => 'payment_rail',
+                    'severity' => $critical ? 'manual_review' : 'fix_data',
+                    'summary' => $row['last_error'] ?: 'Pure//Pay release requires attention',
+                    'suggested_fix' => $row['status'] === 'settled_failed_review'
+                        ? 'A failure arrived after settlement. Compare provider and bank records, then resolve the accounting discrepancy manually; do not resend this payout.'
+                        : (in_array($row['status'], ['needs_review','pushed_unverified','posted_unverified'], true)
+                            ? 'Verify the provider bill and payment before retrying the same CoreFlux reference. Do not create another payout while the outcome is uncertain.'
+                            : 'Confirm the failed or returned payout in Pure//Pay, then prepare a new CoreFlux payment for the reopened AP balance.'),
+                    'docs_link' => 'https://purepay.online/developers',
+                ],
+                'meta' => [
+                    'source_ref' => $row['source_ref'], 'core_payment_id' => $row['core_payment_id'],
+                    'bill_id' => $row['purepay_bill_id'], 'payment_id' => $row['purepay_payment_id'],
+                    'status' => $row['status'],
+                ],
+                'created_at' => $row['updated_at'] ?: $row['created_at'], 'actionable' => null,
+            ];
+            $counts['by_source']['purepay-failed']++;
+            $counts[$severity]++;
+        }
+    } catch (\Throwable $_) { /* migration pending */ }
 }
 
 // Order: critical first, then warn, then info; secondary by created_at desc.

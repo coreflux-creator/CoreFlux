@@ -13,7 +13,7 @@ const METHOD_LABELS = {
   ach: 'Bank transfer (ACH)', wire: 'Wire', check: 'Check', card: 'Card', cash: 'Cash',
   plaid: 'Online bank payment', mercury: 'Mercury', other: 'Other',
 };
-const RAIL_LABELS = { plaid_transfer: 'Online bank payment', nacha: 'Bank payment file', mercury: 'Mercury' };
+const RAIL_LABELS = { plaid_transfer: 'Online bank payment', nacha: 'Bank payment file', mercury: 'Mercury', purepay: 'Pure//Pay' };
 
 export default function PaymentsList() {
   const location = useLocation();
@@ -27,6 +27,8 @@ export default function PaymentsList() {
   if (query) paymentParams.set('q', query);
   const paymentsPath = `/modules/ap/api/payments.php?${paymentParams.toString()}`;
   const { data, loading, error, reload } = useApi(paymentsPath);
+  const apSettings = useApi('/modules/ap/api/settings.php');
+  const defaultRail = apSettings.data?.settings?.disbursement_rail || 'nacha';
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
   const total = Number(data?.total ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -34,6 +36,7 @@ export default function PaymentsList() {
   const plaidEnabled = !!data?.plaid_enabled;
   const plaidTransferLinked = !!data?.plaid_transfer_linked;
   const mercuryConnected = !!data?.mercury_connected;
+  const purepayConnected = !!data?.purepay_connected;
   const [showRecord, setShowRecord] = useState(false);
   const [showAllocate, setShowAllocate] = useState(null); // payment row
   const [batching, setBatching]   = useState(false);
@@ -87,6 +90,21 @@ export default function PaymentsList() {
       setPlaidRow(s => ({ ...s, [p.id]: { error: e.message || String(e) } }));
     }
   };
+  const [purepayRow, setPurepayRow] = useState({});
+  const purepayEligible = (p) => purepayConnected && ['ach', 'plaid'].includes(p.method)
+    && String(p.currency || 'USD').toUpperCase() === 'USD'
+    && p.status === 'sent' && !p.rail_external_ref;
+  const sendViaPurepay = async (p) => {
+    if (!confirm(`Pay ${p.vendor_name} ${Number(p.amount).toFixed(2)} ${p.currency} through Pure//Pay now? This releases money from your Pure//Pay wallet.`)) return;
+    setPurepayRow(s => ({ ...s, [p.id]: 'busy' }));
+    try {
+      const res = await api.post(`/modules/ap/api/payments.php?action=originate&id=${p.id}&rail=purepay`, {});
+      setPurepayRow(s => ({ ...s, [p.id]: { ok: true, ref: res.batch_id } }));
+      await reload();
+    } catch (e) {
+      setPurepayRow(s => ({ ...s, [p.id]: { error: e.message || String(e) } }));
+    }
+  };
   // Eligibility for the per-row "Send via Plaid" button — must be a sent
   // payment with method=plaid that hasn't been originated yet, and the
   // tenant must have linked a funding source.
@@ -121,13 +139,15 @@ export default function PaymentsList() {
     Number(p.unallocated_amount) <= 0.005 &&
     (['draft','queued'].includes(p.status) || (p.status === 'sent' && !p.rail_external_ref));
 
-  const eligibleSelected = rows.filter(p => sel.has(p.id) && isOriginatable(p));
+  const eligibleSelected = rows.filter(p => sel.has(p.id) && isOriginatable(p)
+    && (defaultRail !== 'purepay' || String(p.currency || 'USD').toUpperCase() === 'USD'));
   const releasableSelected = rows.filter(p => (
     sel.has(p.id) && ['draft', 'queued'].includes(p.status) && Number(p.unallocated_amount) <= 0.005
   ));
   const mercurySelected = rows.filter(p => (
     sel.has(p.id) && p.method === 'mercury' && p.status === 'sent' && !p.rail_external_ref
   ));
+  const purepaySelected = rows.filter(p => sel.has(p.id) && purepayEligible(p));
 
   const releasePayment = async (payment) => {
     if (!confirm(`Release payment #${payment.id} for ${payment.vendor_name} (${Number(payment.amount).toFixed(2)} ${payment.currency})?`)) return;
@@ -198,16 +218,25 @@ export default function PaymentsList() {
     a.click();
   };
 
-  const originateBatch = async () => {
-    if (!eligibleSelected.length) return;
-    if (!confirm(
-      `Prepare a bank batch for ${eligibleSelected.length} selected payment${eligibleSelected.length === 1 ? '' : 's'}?\n\n` +
-      'CoreFlux will run all release controls first and prepare the batch only if every payment passes.'
-    )) return;
+  const originateBatch = async (railOverride = null) => {
+    const selected = railOverride === 'purepay' ? purepaySelected : eligibleSelected;
+    if (!selected.length) return;
+    let selectedRail = railOverride;
+    if (!selectedRail) {
+      try {
+        const current = await api.get('/modules/ap/api/settings.php');
+        selectedRail = current.settings?.disbursement_rail || 'nacha';
+      } catch (e) { setBatchErr(e); return; }
+    }
+    const totalAmount = selected.reduce((sum, p) => sum + Number(p.amount || 0), 0).toFixed(2);
+    const prompt = selectedRail === 'purepay'
+      ? `Pay ${selected.length} selected vendor payment${selected.length === 1 ? '' : 's'} totaling $${totalAmount} through Pure//Pay now? This releases money from your Pure//Pay wallet. Each payment is checked against the AP release policy.`
+      : `Prepare a ${RAIL_LABELS[selectedRail] || selectedRail} batch for ${selected.length} selected payment${selected.length === 1 ? '' : 's'}? CoreFlux will check each payment before dispatch.`;
+    if (!confirm(prompt)) return;
     setBatching(true); setBatchErr(null); setBatchInfo(null);
     try {
       const res = await api.post('/modules/ap/api/payments.php?action=originate_batch', {
-        ids: eligibleSelected.map(p => p.id),
+        ids: selected.map(p => p.id), rail: selectedRail,
       });
       // Trigger NACHA file download from the base64 payload.
       if (res?.nacha_file_b64) {
@@ -222,6 +251,7 @@ export default function PaymentsList() {
       }
       setBatchInfo(res);
       sel.clear();
+      if (res.failed_items?.length) sel.selectMany(res.failed_items.map(item => item.payment_id));
       reload();
     } catch (e) { setBatchErr(e); }
     finally { setBatching(false); }
@@ -297,9 +327,14 @@ export default function PaymentsList() {
           <button className="btn btn--primary" onClick={releaseSelected} disabled={batching || !releasableSelected.length} data-testid="ap-payments-release-selected">
             <Send size={15} aria-hidden="true" /> Release ({releasableSelected.length})
           </button>
-          <button className="btn btn--primary" onClick={originateBatch} disabled={batching || !eligibleSelected.length} data-testid="ap-payments-originate-selected">
-            <Landmark size={15} aria-hidden="true" /> Prepare bank batch ({eligibleSelected.length})
+          <button className="btn btn--primary" onClick={() => originateBatch()} disabled={batching || apSettings.loading || (defaultRail === 'purepay' && !purepayConnected) || !eligibleSelected.length} data-testid="ap-payments-originate-selected">
+            <Landmark size={15} aria-hidden="true" /> {defaultRail === 'purepay' ? 'Pay via Pure//Pay' : 'Prepare bank batch'} ({eligibleSelected.length})
           </button>
+          {purepayConnected && defaultRail !== 'purepay' && (
+            <button className="btn btn--ghost" onClick={() => originateBatch('purepay')} disabled={batching || !purepaySelected.length} data-testid="ap-payments-purepay-selected">
+              <Landmark size={15} aria-hidden="true" /> Pay via Pure//Pay ({purepaySelected.length})
+            </button>
+          )}
           {mercuryConnected && (
             <button className="btn btn--ghost" onClick={queueMercurySelected} disabled={batching || !mercurySelected.length} data-testid="ap-payments-mercury-selected">
               <Landmark size={15} aria-hidden="true" /> Queue Mercury ({mercurySelected.length})
@@ -327,8 +362,9 @@ export default function PaymentsList() {
       )}
       {batchInfo && (
         <p data-testid="ap-payments-batch-success" style={{ background: '#ecfdf5', color: '#065f46', padding: 8, borderRadius: 6, fontSize: 13 }}>
-          ✓ Batch originated — rail={batchInfo.rail}, batch_id={batchInfo.batch_id}, items={batchInfo.item_count}, total=${Number(batchInfo.amount_total).toFixed(2)}
+          {batchInfo.originated_count ?? batchInfo.item_count - (batchInfo.failed_items?.length || 0)} of {batchInfo.item_count} dispatched via {RAIL_LABELS[batchInfo.rail] || batchInfo.rail} · total ${Number(batchInfo.amount_total).toFixed(2)}
           {batchInfo.nacha_filename && <> · file: <code>{batchInfo.nacha_filename}</code></>}
+          {!!batchInfo.failed_items?.length && <> · {batchInfo.failed_items.length} failed: {batchInfo.failed_items.map(item => `#${item.payment_id}: ${item.error}`).join('; ')}</>}
         </p>
       )}
 
@@ -441,6 +477,15 @@ export default function PaymentsList() {
                     ✓ Queued as {mercuryRow[p.id].ref}
                   </div>
                 )}
+                {purepayEligible(p) && (
+                  <button className="btn btn--primary" style={{ marginLeft: 6 }}
+                    onClick={() => sendViaPurepay(p)} disabled={purepayRow[p.id] === 'busy'}
+                    data-testid={`ap-send-via-purepay-${p.id}`} title="Release this approved AP payment through Pure//Pay">
+                    {purepayRow[p.id] === 'busy' ? 'Paying…' : 'Pay via Pure//Pay'}
+                  </button>
+                )}
+                {purepayRow[p.id]?.error && <div className="error" data-testid={`ap-send-via-purepay-error-${p.id}`} style={{ fontSize: 11, marginTop: 4 }}>{purepayRow[p.id].error}</div>}
+                {purepayRow[p.id]?.ok && <div className="success" data-testid={`ap-send-via-purepay-ok-${p.id}`} style={{ fontSize: 11, marginTop: 4 }}>Submitted via Pure//Pay ({purepayRow[p.id].ref})</div>}
               </td>
             </tr>
           ))}

@@ -133,6 +133,18 @@ $providers = [
         'error_surface' => true,
         'mapping_fallback' => null,
     ],
+    [
+        'id'        => 'purepay',
+        'label'     => 'Pure//Pay',
+        'spec'      => $ROOT . '/spec/purepay_schema.json',
+        'snapshot'  => $ROOT . '/spec/purepay_docs',
+        'contract'  => $ROOT . '/tests/purepay_payload_contract_smoke.php',
+        'freshness' => $ROOT . '/tests/purepay_spec_freshness_smoke.php',
+        'tool'      => $ROOT . '/tools/refresh_purepay_spec.sh',
+        'verify_create' => true,
+        'error_surface' => true,
+        'mapping_fallback' => null,
+    ],
 ];
 
 $STALE_AFTER_DAYS = 90;

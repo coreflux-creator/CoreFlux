@@ -258,8 +258,8 @@ $apPath = __DIR__ . '/../modules/ap/api/payments.php';
 $ap = (string) file_get_contents($apPath);
 $a('originate action accepts ?rail= query param',
     $c($ap, "(string) (\$_GET['rail'] ?? '')"));
-$a('rail override allowlist (nacha / plaid_transfer)',
-    $c($ap, "['nacha', 'plaid_transfer']"));
+$a('rail override allowlist (nacha / plaid_transfer / purepay)',
+    $c($ap, "['nacha', 'plaid_transfer', 'purepay']"));
 $a('rail override mutates row.disbursement_rail before dispatch',
     $c($ap, "\$row['disbursement_rail'] = \$railOverride"));
 
