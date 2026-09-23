@@ -436,6 +436,7 @@ jobs:
             core/migrations/144_staffing_timesheet_artifacts.sql \
             core/migrations/145_business_logic_hardening.sql \
             core/migrations/146_staffing_time_dimension_snapshots.sql \
+            core/migrations/147_staffing_timesheet_approval_columns.sql \
             scripts/ap_weekly_queue_sunday.php \
             scripts/audit_business_integrity.php \
             scripts/billing_recurring_generate.php \
@@ -642,6 +643,7 @@ jobs:
             test -f "$STAGE_ROOT/core/migrations/144_staffing_timesheet_artifacts.sql"
             test -f "$STAGE_ROOT/core/migrations/145_business_logic_hardening.sql"
             test -f "$STAGE_ROOT/core/migrations/146_staffing_time_dimension_snapshots.sql"
+            test -f "$STAGE_ROOT/core/migrations/147_staffing_timesheet_approval_columns.sql"
             test -f "$STAGE_ROOT/core/business_integrity.php"
             test -f "$STAGE_ROOT/modules/accounting/lib/reconciliation_artifact.php"
             test -f "$STAGE_ROOT/modules/payroll/lib/artifacts.php"
@@ -828,6 +830,7 @@ jobs:
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/144_staffing_timesheet_artifacts.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/145_business_logic_hardening.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/146_staffing_time_dimension_snapshots.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/147_staffing_timesheet_approval_columns.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/006_run_enterprise_controls.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/007_accounting_posting.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/008_run_artifacts.sql'

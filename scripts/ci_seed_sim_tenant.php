@@ -84,6 +84,7 @@ $schemaFiles = [
     'core/migrations/135_tenant_staffing_economics_defaults.sql',
     'core/migrations/136_c2c_overhead_load.sql',
     'core/migrations/146_staffing_time_dimension_snapshots.sql',
+    'core/migrations/147_staffing_timesheet_approval_columns.sql',
     'modules/payroll/migrations/001_init.sql',
     'core/migrations/036_event_registry.sql',
     'core/migrations/043_simulation_harness.sql',
