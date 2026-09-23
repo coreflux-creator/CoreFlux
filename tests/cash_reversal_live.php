@@ -19,7 +19,7 @@ setRequestTenantId($tenantId);
 $pdo->prepare(
     "INSERT INTO accounting_bank_accounts
         (id, tenant_id, entity_id, name, gl_account_code, currency)
-     VALUES (9501, :tenant_id, 1, 'CI operating bank', '1000', 'USD')"
+     VALUES (9501, :tenant_id, 1, 'CI clearing bank', '1010', 'USD')"
 )->execute(['tenant_id' => $tenantId]);
 $pdo->prepare(
     "INSERT INTO accounting_bank_statement_lines
@@ -34,7 +34,7 @@ $postReceipt = static fn(string $memo): array => accountingPostJe($tenantId, [
     'source_module' => 'manual',
     'memo' => $memo,
     'lines' => [
-        ['account_code' => '1000', 'debit' => 100, 'credit' => 0],
+        ['account_code' => '1010', 'debit' => 100, 'credit' => 0],
         ['account_code' => '4000', 'debit' => 0, 'credit' => 100],
     ],
 ]);
