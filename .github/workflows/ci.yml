@@ -131,14 +131,17 @@ jobs:
       - name: Verify submitted staffing week approves and posts
         run: php tests/staffing_approval_live.php
 
-      - name: Verify time CSV becomes an approved invoice
+      - name: Verify time CSV through invoice delivery and bank collection
         run: |
           php -S 127.0.0.1:8765 -t . tests/ci_business_api_router.php > /tmp/coreflux-business-api.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
-          php tests/csv_to_invoice_live.php || { cat /tmp/coreflux-business-api.log; exit 1; }
+          php tests/csv_to_invoice_live.php || { tail -n 120 /tmp/coreflux-business-api.log; exit 1; }
         env:
           SIM_API_BASE: http://127.0.0.1:8765
+          APP_URL: http://127.0.0.1:8765
+          MAIL_DRIVER: log
+          MAIL_LOG_PATH: /tmp/coreflux-ci-mail.log
 
       - name: Verify bank match reversal and correction
         run: php tests/cash_reversal_live.php

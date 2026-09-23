@@ -49,6 +49,7 @@ function ciApplySimulationSql(PDO $pdo, string $relativePath): void
 $schemaFiles = [
     'sql/layer_sandbox_seed.sql',
     'core/migrations/007_subtenant_provisioning.sql',
+    'core/migrations/003_mail_service.sql',
     'modules/accounting/migrations/001_init.sql',
     'modules/accounting/migrations/002_phase2.sql',
     'modules/accounting/migrations/006_intercompany.sql',
@@ -103,6 +104,8 @@ $schemaFiles = [
     'core/migrations/145_business_logic_hardening.sql',
     'modules/accounting/migrations/029_reconciliation_artifacts.sql',
     'modules/payroll/migrations/008_run_artifacts.sql',
+    'core/migrations/096_csv_import_external_ids_wave2.sql',
+    'core/migrations/132_bank_transaction_identity.sql',
 ];
 
 try {
