@@ -75,6 +75,7 @@ $schemaFiles = [
     'modules/placements/migrations/001_init.sql',
     'core/migrations/071_jobdiva_placement_metadata.sql',
     'modules/placements/migrations/002_cycle_config.sql',
+    'modules/placements/migrations/002_cycles.sql',
     'modules/people/migrations/004_companies.sql',
     'modules/people/migrations/006_unify_and_extend.sql',
     'modules/staffing/migrations/003_clients.sql',
