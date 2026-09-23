@@ -45,9 +45,12 @@ function paymentRailsDecryptBank(?string $routingCt, ?string $accountCt, string 
  * Required keys in $row: external_ref, recipient_name, routing, account,
  *                        account_type, amount_cents, sec_code, description.
  */
-function paymentRailsBuildItem(array $row): array
+function paymentRailsBuildItem(array $row, bool $providerVault = false): array
 {
-    foreach (['external_ref','recipient_name','routing','account','amount_cents','sec_code','description'] as $k) {
+    $required = ['external_ref','recipient_name','amount_cents','sec_code','description'];
+    if (!$providerVault) $required = array_merge($required, ['routing','account']);
+    if ($providerVault) $required = array_merge($required, ['recipient_ref','recipient_email']);
+    foreach ($required as $k) {
         if (!isset($row[$k]) || $row[$k] === '' || $row[$k] === null) {
             throw new PaymentRailsOriginateException("RailItem missing key: $k");
         }
@@ -55,19 +58,27 @@ function paymentRailsBuildItem(array $row): array
     if ((int) $row['amount_cents'] <= 0) {
         throw new PaymentRailsOriginateException('RailItem amount_cents must be > 0');
     }
-    return [
+    $item = [
         'external_ref'    => (string) $row['external_ref'],
         'recipient_name'  => substr((string) $row['recipient_name'], 0, 22),
-        'account_routing' => (string) $row['routing'],
-        'account_number'  => (string) $row['account'],
+        'recipient_full_name' => (string) $row['recipient_name'],
+        'recipient_ref'   => (string) ($row['recipient_ref'] ?? ''),
+        'recipient_email' => (string) ($row['recipient_email'] ?? ''),
+        'invoice_number'  => (string) ($row['invoice_number'] ?? ''),
         'account_type'    => in_array($row['account_type'] ?? 'checking', ['checking','savings'], true)
                               ? $row['account_type']
                               : 'checking',
         'amount_cents'    => (int) $row['amount_cents'],
+        'currency'        => strtoupper((string) ($row['currency'] ?? 'USD')),
         'sec_code'        => (string) $row['sec_code'],
         'description'     => substr((string) $row['description'], 0, 10),
         'addenda'         => $row['addenda'] ?? null,
     ];
+    if (!$providerVault) {
+        $item['account_routing'] = (string) $row['routing'];
+        $item['account_number'] = (string) $row['account'];
+    }
+    return $item;
 }
 
 /**
@@ -83,6 +94,10 @@ function paymentRailsDispatch(string $module, array $sourceRow, array $settings,
 {
     $rail   = paymentRailsResolveRail($module, $sourceRow, $settings);
     $driver = paymentRailsGetDriver($rail);
+    $supportedModules = $driver->metadata()['supported_modules'] ?? null;
+    if (is_array($supportedModules) && !in_array($module, $supportedModules, true)) {
+        throw new PaymentRailsOriginateException("Rail '$rail' does not support $module payments");
+    }
     if (!$driver->isConfigured()) {
         // Plaid Transfer not configured for this tenant. Per product
         // direction (2026-02), we no longer auto-fall-back to NACHA — instead

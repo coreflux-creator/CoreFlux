@@ -18,6 +18,7 @@ import MailHealthCard from './MailHealthCard';
 export default function IntegrationsHub() {
   const plaid    = useApi('/api/plaid_transfer_link.php?action=status');
   const mercury  = useApi('/api/mercury_connection.php?action=status');
+  const purepay  = useApi('/api/purepay_connection.php?action=status');
   const jobdiva  = useApi('/api/jobdiva/status.php?action=status');
   const qbo      = useApi('/api/qbo/status.php?action=status');
   const zoho     = useApi('/api/zoho_books/status.php?action=status');
@@ -37,6 +38,10 @@ export default function IntegrationsHub() {
   const mercuryStatus = mercury.loading
     ? 'loading'
     : mercury.data?.connected ? 'connected' : 'not_connected';
+
+  const purepayStatus = purepay.loading
+    ? 'loading'
+    : purepay.data?.connected ? 'connected' : purepay.data?.configured ? 'not_connected' : 'not_configured';
 
   const jobdivaStatus = jobdiva.loading
     ? 'loading'
@@ -103,6 +108,14 @@ export default function IntegrationsHub() {
             description="Mercury workspace connection — feeds, recipient vault, pay-out engine."
             href="/admin/integrations/mercury"
             status={mercuryStatus}
+          />
+          <IntegrationCard
+            testid="integration-card-purepay"
+            icon={Banknote}
+            title="Pure//Pay"
+            description="Vendor bills and wallet payouts with signed settlement updates."
+            href="/admin/integrations/purepay"
+            status={purepayStatus}
           />
         </ActionCardsGrid>
       </Section>

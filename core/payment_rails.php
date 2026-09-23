@@ -99,12 +99,11 @@ interface PaymentRailsDriver
  * (e.g. Plaid scaffold called without keys). Callers should fall back to
  * the configured default rail (nacha) and log it.
  */
-class PaymentRailsNotConfiguredException extends \RuntimeException {}
-
 /**
  * Thrown for validation or driver-side originate failures.
  */
 class PaymentRailsOriginateException extends \RuntimeException {}
+class PaymentRailsNotConfiguredException extends PaymentRailsOriginateException {}
 
 /**
  * Resolve a driver instance by name. Throws InvalidArgumentException for
@@ -122,6 +121,9 @@ function paymentRailsGetDriver(string $rail): PaymentRailsDriver
         case 'mercury':
             require_once __DIR__ . '/payment_rails/mercury_driver.php';
             return new MercuryRailDriver();
+        case 'purepay':
+            require_once __DIR__ . '/payment_rails/purepay_driver.php';
+            return new PurePayRailDriver();
         default:
             throw new \InvalidArgumentException("Unknown payment rail: {$rail}");
     }
@@ -134,34 +136,55 @@ function paymentRailsGetDriver(string $rail): PaymentRailsDriver
  *
  * @return array<int, array{id: string, name: string, configured: bool, description: string, metadata: array<string, mixed>}>
  */
-function paymentRailsList(): array
+function paymentRailsList(?int $tenantId = null, ?string $module = null): array
 {
     $nacha   = paymentRailsGetDriver('nacha');
     $plaid   = paymentRailsGetDriver('plaid_transfer');
     $mercury = paymentRailsGetDriver('mercury');
-    return [
+    $purepay = paymentRailsGetDriver('purepay');
+    $configured = static function (PaymentRailsDriver $driver) use ($tenantId): bool {
+        if (!$driver->isConfigured()) return false;
+        return $tenantId && method_exists($driver, 'isConfiguredForTenant')
+            ? $driver->isConfiguredForTenant($tenantId)
+            : true;
+    };
+    $rails = [
         [
             'id'          => 'nacha',
             'name'        => 'NACHA file',
-            'configured'  => $nacha->isConfigured(),
+            'configured'  => $configured($nacha),
             'description' => 'Create a bank-ready ACH file, then upload it through your bank portal.',
             'metadata'    => $nacha->metadata(),
         ],
         [
             'id'          => 'plaid_transfer',
             'name'        => 'Plaid Transfer',
-            'configured'  => $plaid->isConfigured(),
+            'configured'  => $configured($plaid),
             'description' => 'Send ACH or real-time payments from a linked operating account. A workspace administrator must enable and connect it first.',
             'metadata'    => $plaid->metadata(),
         ],
         [
             'id'          => 'mercury',
             'name'        => 'Mercury (ACH)',
-            'configured'  => $mercury->isConfigured(),
+            'configured'  => $configured($mercury),
             'description' => 'Send ACH from a connected Mercury operating account. Payment batches continue to follow your approval policy.',
             'metadata'    => $mercury->metadata(),
         ],
+        [
+            'id'          => 'purepay',
+            'name'        => 'Pure//Pay',
+            'configured'  => $configured($purepay),
+            'description' => 'Release approved AP payments through a connected Pure//Pay wallet. Vendor payout details stay with Pure//Pay.',
+            'metadata'    => $purepay->metadata(),
+        ],
     ];
+    if ($module !== null) {
+        $rails = array_values(array_filter($rails, static function (array $rail) use ($module): bool {
+            $supported = $rail['metadata']['supported_modules'] ?? null;
+            return !is_array($supported) || in_array($module, $supported, true);
+        }));
+    }
+    return $rails;
 }
 
 /**

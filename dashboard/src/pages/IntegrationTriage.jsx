@@ -305,6 +305,7 @@ function FilterRow({ filter, setFilter, counts }) {
     'qbo-drift': `QBO drift${counts ? ` (${counts.by_source['qbo-drift']})` : ''}`,
     'qbo-payments': `QBO payments${counts ? ` (${counts.by_source['qbo-payments']})` : ''}`,
     'mercury-failed': `Mercury Failed${counts ? ` (${counts.by_source['mercury-failed']})` : ''}`,
+    'purepay-failed': `Pure//Pay${counts ? ` (${counts.by_source['purepay-failed']})` : ''}`,
   };
   return (
     <div style={{ display: 'flex', gap: 12, marginBottom: 12, fontSize: 13 }}>

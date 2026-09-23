@@ -123,7 +123,7 @@ $a('describes deterministic payment-run preparation instead of an AI dependency'
     && str_contains($mod, 'grouped by vendor')
     && !str_contains($mod, 'Asking the AI for a payment run'));
 $a('uses vendor payment method with a rail-safe fallback',
-    str_contains($mod, 'method: g.payment_method || methodForRail(rail)'));
+    str_contains($mod, "rail === 'purepay' ? 'ach' : (g.payment_method || methodForRail(rail))"));
 $a('default-selects only rail_eligible vendor groups',
     str_contains($mod, 'g => g.rail_eligible'));
 $a('disables checkbox for non-rail-eligible vendors',

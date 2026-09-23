@@ -17,12 +17,14 @@ const RAIL_OPTIONS = [
   { id: 'mercury',        label: 'Mercury'        },
   { id: 'plaid_transfer', label: 'Plaid Transfer' },
   { id: 'nacha',          label: 'NACHA file'     },
+  { id: 'purepay',        label: 'Pure//Pay'      },
 ];
 
 const methodForRail = (rail) => ({
   mercury: 'mercury',
   plaid_transfer: 'plaid',
   nacha: 'ach',
+  purepay: 'ach',
 }[rail] || 'ach');
 
 export default function SuggestPaymentRunModal({ entityId = null, onClose, onCreated }) {
@@ -83,7 +85,7 @@ export default function SuggestPaymentRunModal({ entityId = null, onClose, onCre
         .map(g => ({
           vendor_name: g.vendor_name,
           bill_ids: g.bill_ids,
-          method: g.payment_method || methodForRail(rail),
+          method: rail === 'purepay' ? 'ach' : (g.payment_method || methodForRail(rail)),
         }));
       const res = await api.post('/modules/ap/api/bills.php?action=execute-payment-run', {
         rail, vendor_groups: payloadGroups, entity_id: entityId || null,

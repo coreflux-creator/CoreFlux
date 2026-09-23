@@ -1141,6 +1141,10 @@ function apSuggestPaymentRun(
             ];
         }
         $g = &$groups[$v];
+        if (strtoupper((string) $g['currency']) !== strtoupper((string) ($b['currency'] ?? 'USD'))) {
+            $g['rail_eligible'] = false;
+            $g['eligibility_note'] = 'This vendor has bills in multiple currencies. Create separate payments by currency.';
+        }
         $g['bill_count']++;
         $g['bill_ids'][]  = (int) $b['id'];
         $g['bill_refs'][] = (string) ($b['internal_ref'] ?? $b['bill_number'] ?? ('#' . $b['id']));
@@ -1167,6 +1171,30 @@ function apSuggestPaymentRun(
         $params = ['t' => $tenantId];
         foreach ($vendorNames as $i => $vn) {
             $k = 'v' . $i; $placeholders[] = ':' . $k; $params[$k] = $vn;
+        }
+        if ($rail === 'purepay') {
+            $vendorIndex = [];
+            $vendorStmt = $pdo->prepare(
+                'SELECT vendor_name, remit_to_email, contact_email FROM ap_vendors_index
+                  WHERE tenant_id = :t AND vendor_name IN (' . implode(',', $placeholders) . ')'
+            );
+            $vendorStmt->execute($params);
+            foreach ($vendorStmt->fetchAll(\PDO::FETCH_ASSOC) as $vendorRow) {
+                $vendorIndex[(string) $vendorRow['vendor_name']] = $vendorRow;
+            }
+            foreach ($groups as $vn => &$g) {
+                if (!$g['rail_eligible']) continue;
+                $vendorRow = $vendorIndex[$vn] ?? null;
+                $email = trim((string) ($vendorRow['remit_to_email'] ?? $vendorRow['contact_email'] ?? ''));
+                if (strtoupper((string) $g['currency']) !== 'USD') {
+                    $g['rail_eligible'] = false;
+                    $g['eligibility_note'] = 'Pure//Pay wallet payouts require USD bills.';
+                } elseif (!$vendorRow || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $g['rail_eligible'] = false;
+                    $g['eligibility_note'] = 'Add a valid remit-to email to this AP vendor before paying with Pure//Pay.';
+                }
+            }
+            unset($g);
         }
         // Mercury-specific recipient check (only when rail=mercury).
         if ($rail === 'mercury') {
@@ -1326,7 +1354,7 @@ function apExecutePaymentRun(
         }
         $allocations = [];
         $total = 0.0;
-        $currency = 'USD';
+        $currency = null;
         $groupEntityIds = [];
         foreach ($rows as $b) {
             if ($b['vendor_name'] !== $vendorName) {
@@ -1345,11 +1373,18 @@ function apExecutePaymentRun(
             if ($due <= 0) continue;
             $allocations[] = ['bill_id' => (int) $b['id'], 'amount' => round($due, 2)];
             $total += $due;
-            $currency = (string) ($b['currency'] ?? 'USD');
+            $billCurrency = strtoupper((string) ($b['currency'] ?: 'USD'));
+            if ($currency !== null && $currency !== $billCurrency) {
+                throw new \RuntimeException("Bills for {$vendorName} use multiple currencies; create separate payments");
+            }
+            $currency = $billCurrency;
             if (!empty($b['entity_id'])) $groupEntityIds[(int) $b['entity_id']] = true;
         }
         if (empty($allocations)) {
             throw new \RuntimeException("No payable balance remains for {$vendorName}; refresh the run and try again");
+        }
+        if ($rail === 'purepay' && $currency !== 'USD') {
+            throw new \RuntimeException("Pure//Pay wallet payouts require USD bills for {$vendorName}");
         }
         if (count($groupEntityIds) > 1) {
             throw new \RuntimeException("Bills for {$vendorName} span multiple entities; run them separately");
@@ -1359,7 +1394,7 @@ function apExecutePaymentRun(
         $method = strtolower(trim((string) ($g['method'] ?? '')));
         $method = match ($method) {
             'plaid_transfer' => 'plaid',
-            'nacha' => 'ach',
+            'nacha', 'purepay' => 'ach',
             default => $method,
         };
         if (!in_array($method, ['ach','wire','check','card','cash','plaid','mercury','other'], true)) {

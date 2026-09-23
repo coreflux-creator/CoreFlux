@@ -99,6 +99,14 @@ if ($method === 'GET') {
     } catch (\Throwable $e) {
         $mercuryConnected = false;
     }
+    $purepayConnected = false;
+    try {
+        $purepay = scopedFind('SELECT status, key_scope FROM purepay_connections WHERE tenant_id = :tenant_id LIMIT 1', []);
+        $purepayConnected = $purepay && ($purepay['status'] ?? '') === 'active'
+            && ($purepay['key_scope'] ?? '') === 'read_write';
+    } catch (\Throwable $e) {
+        $purepayConnected = false;
+    }
     // 4-WAY MATCH GATE — attach `pwp_blocked` flag to each row so the
     // UI can pre-warn / disable Send before the operator clicks. Single
     // GROUP BY query keeps this O(N) instead of N+1.
@@ -142,6 +150,7 @@ if ($method === 'GET') {
         'plaid_enabled'         => apPlaidConfigured(),
         'plaid_transfer_linked' => $plaidLinked,
         'mercury_connected'     => $mercuryConnected,
+        'purepay_connected'     => $purepayConnected,
     ]);
 }
 
@@ -324,15 +333,30 @@ if ($method === 'POST' && $action === 'originate_batch') {
         );
     }
 
-    // Build all RailItems before opening the transaction. Any failure here =>
-    // 422, no DB writes — the user retries after fixing vendor banking.
+    $settings = scopedFind('SELECT * FROM ap_settings WHERE tenant_id = :tenant_id LIMIT 1') ?: [];
+    $railOverride = trim((string) ($body['rail'] ?? ''));
+    if ($railOverride !== '' && !in_array($railOverride, ['nacha', 'plaid_transfer', 'purepay'], true)) {
+        api_error('Unsupported batch rail', 422);
+    }
+    $targetRail = paymentRailsResolveRail('ap', ['disbursement_rail' => $railOverride], $settings);
+    if ($targetRail === 'purepay') {
+        foreach ($rows as $r) {
+            if (strtoupper((string) ($r['currency'] ?? 'USD')) !== 'USD') {
+                api_error("Payment #{$r['id']} is not in USD; Pure//Pay wallet payouts require USD", 422);
+            }
+        }
+    }
+
+    // Build the complete payload before dispatch. Provider-vault rails use
+    // vendor identity and never receive bank numbers from CoreFlux.
     $items   = [];
     $vendors = [];
     foreach ($rows as $r) {
         $vname = $r['vendor_name'];
         if (!isset($vendors[$vname])) {
             $v = scopedFind(
-                'SELECT vendor_type, payment_routing_ct, payment_account_ct, payment_account_type
+                'SELECT id, vendor_type, remit_to_email, contact_email,
+                        payment_routing_ct, payment_account_ct, payment_account_type
                  FROM ap_vendors_index WHERE tenant_id = :tenant_id AND vendor_name = :vn LIMIT 1',
                 ['vn' => $vname]
             );
@@ -340,31 +364,38 @@ if ($method === 'POST' && $action === 'originate_batch') {
             $vendors[$vname] = $v;
         }
         $v = $vendors[$vname];
-        try {
-            $bank = paymentRailsDecryptBank(
-                $v['payment_routing_ct'] ?? null, $v['payment_account_ct'] ?? null,
-                "vendor $vname (payment #{$r['id']})"
-            );
-        } catch (\Throwable $e) {
-            api_error($e->getMessage(), 422);
-        }
-        $items[] = paymentRailsBuildItem([
+        $itemData = [
             'external_ref'   => 'ap_payment:' . $r['id'],
             'recipient_name' => (string) $vname,
-            'routing'        => $bank['routing'],
-            'account'        => $bank['account'],
-            'account_type'   => $v['payment_account_type'] ?: 'checking',
+            'recipient_ref'  => 'ap_vendor:' . (int) $v['id'],
+            'recipient_email'=> (string) ($v['remit_to_email'] ?: $v['contact_email'] ?: ''),
             'amount_cents'   => (int) round(((float) $r['amount']) * 100),
+            'currency'       => (string) ($r['currency'] ?? 'USD'),
             'sec_code'       => $v['vendor_type'] === '1099_individual' ? 'ppd' : 'ccd',
             'description'    => 'AP-PAY',
-        ]);
+            'invoice_number' => (string) ($r['reference'] ?: ('PAY-' . $r['id'])),
+        ];
+        if ($targetRail !== 'purepay') {
+            try {
+                $bank = paymentRailsDecryptBank(
+                    $v['payment_routing_ct'] ?? null, $v['payment_account_ct'] ?? null,
+                    "vendor $vname (payment #{$r['id']})"
+                );
+            } catch (\Throwable $e) {
+                api_error($e->getMessage(), 422);
+            }
+            $itemData['routing'] = $bank['routing'];
+            $itemData['account'] = $bank['account'];
+            $itemData['account_type'] = $v['payment_account_type'] ?: 'checking';
+        }
+        $items[] = paymentRailsBuildItem($itemData, $targetRail === 'purepay');
     }
 
-    $settings = scopedFind('SELECT * FROM ap_settings WHERE tenant_id = :tenant_id LIMIT 1') ?: [];
     try {
         $res = paymentRailsDispatch('ap', [
             'tenant_id' => (int) currentTenantId(),
             'effective_date' => date('Y-m-d', strtotime('+1 day')),
+            'disbursement_rail' => $railOverride,
         ], $settings, $items);
     } catch (PaymentRailsOriginateException $e) {
         apAudit('ap.payment.batch_originate_failed', [
@@ -375,7 +406,10 @@ if ($method === 'POST' && $action === 'originate_batch') {
         api_error($e->getMessage(), 422);
     }
 
-    // Atomic persist: every payment in the batch flips together or none do.
+    // Pure//Pay can partially accept a batch. Failed items stay eligible for
+    // review and retry; successful provider payouts are never rolled back.
+    $failedItems = [];
+    $originatedIds = [];
     $pdo->beginTransaction();
     try {
         $upd = $pdo->prepare(
@@ -391,13 +425,18 @@ if ($method === 'POST' && $action === 'originate_batch') {
         foreach ($res['items'] as $it) $byRef[$it['external_ref']] = $it;
         foreach ($rows as $r) {
             $itemRes = $byRef['ap_payment:' . $r['id']] ?? ['status' => $res['status'] ?? 'submitted', 'rail_external_ref' => $res['batch_id']];
+            if (($itemRes['status'] ?? '') === 'failed') {
+                $failedItems[] = ['payment_id' => (int) $r['id'], 'error' => (string) ($itemRes['error'] ?? 'Provider rejected payment')];
+                continue;
+            }
             $upd->execute([
                 'r'  => $res['rail'],
-                'x'  => $itemRes['rail_external_ref'] ?? $res['batch_id'],
+                'x'  => array_key_exists('rail_external_ref', $itemRes) ? $itemRes['rail_external_ref'] : $res['batch_id'],
                 's'  => $itemRes['status']            ?? 'submitted',
                 't'  => $tid,
                 'id' => $r['id'],
             ]);
+            $originatedIds[] = (int) $r['id'];
             apRefreshReleasedPaymentBillsForPayment($pdo, $tid, (int) $r['id']);
         }
         $pdo->commit();
@@ -413,10 +452,14 @@ if ($method === 'POST' && $action === 'originate_batch') {
     }
 
     $originatedRows = apPaymentAuditRows($tid, $ids);
+    $originatedAmount = array_sum(array_map(
+        static fn($r) => in_array((int) $r['id'], $originatedIds, true) ? (float) $r['amount'] : 0.0,
+        $rows
+    ));
     apAudit('ap.payment.batch_originated', [
-        'count'    => count($ids), 'ids' => $ids,
+        'count'    => count($originatedIds), 'ids' => $originatedIds, 'failed_items' => $failedItems,
         'rail'     => $res['rail'], 'batch_id' => $res['batch_id'],
-        'amount_total' => array_sum(array_map(fn($r) => (float) $r['amount'], $rows)),
+        'amount_total' => $originatedAmount,
     ], null, [
         'before' => $rows,
         'after' => $originatedRows,
@@ -427,7 +470,9 @@ if ($method === 'POST' && $action === 'originate_batch') {
         'rail'        => $res['rail'],
         'batch_id'    => $res['batch_id'],
         'item_count'  => count($items),
-        'amount_total'=> array_sum(array_map(fn($r) => (float) $r['amount'], $rows)),
+        'originated_count' => count($originatedIds),
+        'failed_items'=> $failedItems,
+        'amount_total'=> $originatedAmount,
     ];
     if ($res['rail'] === 'nacha' && !empty($res['payload']['content'])) {
         $resp['nacha_file_b64'] = base64_encode((string) $res['payload']['content']);
@@ -462,13 +507,14 @@ if ($method === 'POST' && $action === 'originate') {
     if ($row['status'] !== 'sent') api_error('Originate requires status=sent', 409);
     if (!in_array($row['method'], ['ach','plaid'], true)) api_error('Originate only supports ach/plaid methods', 422);
     if (!empty($row['rail_external_ref']))      api_error('Already originated on rail ' . $row['disbursement_rail'], 409);
+    apPaymentReleaseGateOrError($tid, $row, null, 'originate');
 
     // Optional per-call rail override (?rail=plaid_transfer). Used by the
     // PaymentsList "Send via Plaid" per-row button so the UI can pick the rail
     // explicitly instead of relying on the tenant's default ap_settings rail.
     $railOverride = trim((string) ($_GET['rail'] ?? ''));
     if ($railOverride !== '') {
-        $allowedRails = ['nacha', 'plaid_transfer'];
+        $allowedRails = ['nacha', 'plaid_transfer', 'purepay'];
         if (!in_array($railOverride, $allowedRails, true)) {
             api_error("rail override must be one of: " . implode(', ', $allowedRails), 422);
         }
@@ -477,32 +523,43 @@ if ($method === 'POST' && $action === 'originate') {
 
     // Pull vendor banking + tenant settings.
     $vendor = scopedFind(
-        'SELECT id, vendor_name, vendor_type, vendor_category, payment_routing_ct,
+        'SELECT id, vendor_name, vendor_type, vendor_category, remit_to_email, contact_email, payment_routing_ct,
                 payment_account_ct, payment_account_type
          FROM ap_vendors_index WHERE tenant_id = :tenant_id AND vendor_name = :vn LIMIT 1',
         ['vn' => $row['vendor_name']]
     );
     if (!$vendor) api_error('Vendor not found in vendor index', 422);
-    try {
-        $bank = paymentRailsDecryptBank($vendor['payment_routing_ct'] ?? null,
-                                        $vendor['payment_account_ct']  ?? null,
-                                        'vendor ' . $vendor['vendor_name']);
-    } catch (\Throwable $e) {
-        api_error($e->getMessage(), 422);
-    }
     $settings = scopedFind('SELECT * FROM ap_settings WHERE tenant_id = :tenant_id LIMIT 1') ?: [];
+    $targetRail = paymentRailsResolveRail('ap', $row, $settings);
+    if ($targetRail === 'purepay' && strtoupper((string) ($row['currency'] ?? 'USD')) !== 'USD') {
+        api_error('Pure//Pay wallet payouts require a USD payment', 422);
+    }
 
-    $item = paymentRailsBuildItem([
+    $itemData = [
         'external_ref'   => 'ap_payment:' . $row['id'],
         'recipient_name' => (string) $row['vendor_name'],
-        'routing'        => $bank['routing'],
-        'account'        => $bank['account'],
-        'account_type'   => $vendor['payment_account_type'] ?: 'checking',
+        'recipient_ref'  => 'ap_vendor:' . (int) $vendor['id'],
+        'recipient_email'=> (string) ($vendor['remit_to_email'] ?: $vendor['contact_email'] ?: ''),
         'amount_cents'   => (int) round(((float) $row['amount']) * 100),
+        'currency'       => (string) ($row['currency'] ?? 'USD'),
         // CCD = corporate credit (vendor pay). PPD only for individual 1099 contractors.
         'sec_code'       => $vendor['vendor_type'] === '1099_individual' ? 'ppd' : 'ccd',
         'description'    => 'AP-PAY',
-    ]);
+        'invoice_number' => (string) ($row['reference'] ?: ('PAY-' . $row['id'])),
+    ];
+    if ($targetRail !== 'purepay') {
+        try {
+            $bank = paymentRailsDecryptBank($vendor['payment_routing_ct'] ?? null,
+                                            $vendor['payment_account_ct']  ?? null,
+                                            'vendor ' . $vendor['vendor_name']);
+        } catch (\Throwable $e) {
+            api_error($e->getMessage(), 422);
+        }
+        $itemData['routing'] = $bank['routing'];
+        $itemData['account'] = $bank['account'];
+        $itemData['account_type'] = $vendor['payment_account_type'] ?: 'checking';
+    }
+    $item = paymentRailsBuildItem($itemData, $targetRail === 'purepay');
 
     try {
         $res = paymentRailsDispatch('ap', $row, $settings, [$item]);
@@ -520,7 +577,7 @@ if ($method === 'POST' && $action === 'originate') {
          WHERE tenant_id = :t AND id = :id'
     )->execute([
         'r'  => $res['rail'],
-        'x'  => $itemRes['rail_external_ref'] ?? $res['batch_id'],
+        'x'  => array_key_exists('rail_external_ref', $itemRes) ? $itemRes['rail_external_ref'] : $res['batch_id'],
         's'  => $itemRes['status'] ?? $res['status'],
         't'  => $tid,
         'id' => $id,
@@ -587,6 +644,10 @@ if ($method === 'POST' && $action === 'void') {
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if ($row['status'] === 'void') api_error('Already void', 409);
+    if (($row['disbursement_rail'] ?? '') === 'purepay' && !empty($row['rail_external_ref'])
+        && !in_array((string) ($row['rail_status'] ?? ''), ['failed','returned','cancelled'], true)) {
+        api_error('Pure//Pay has already received this payout. Confirm a provider failure or cancellation before voiding it.', 409);
+    }
     $body = api_json_body();
     $reason = trim((string) ($body['reason'] ?? ''));
     if ($reason === '') api_error('reason required', 422);

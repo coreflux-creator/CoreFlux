@@ -1,0 +1,166 @@
+name: Deploy PurePay connector
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coreflux-cloudways-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout production revision
+        uses: actions/checkout@v4
+
+      - name: Package connector release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t ENTRY_ASSETS < <(grep -oE 'index-[A-Za-z0-9_-]+\.(js|css)' index.html | sort -u)
+          test "${#ENTRY_ASSETS[@]}" -gt 0
+          BUILT_ASSETS=()
+          declare -A SEEN_ASSETS=()
+          for asset in "${ENTRY_ASSETS[@]}"; do
+            if [ -z "${SEEN_ASSETS[$asset]:-}" ]; then
+              SEEN_ASSETS[$asset]=1
+              BUILT_ASSETS+=("$asset")
+            fi
+          done
+          for ((index = 0; index < ${#BUILT_ASSETS[@]}; index++)); do
+            asset="${BUILT_ASSETS[$index]}"
+            test -f "spa-assets/$asset"
+            if [[ "$asset" == *.js ]]; then
+              mapfile -t IMPORTS < <(grep -oE 'index-[A-Za-z0-9_-]+\.(js|css)' "spa-assets/$asset" | sort -u || true)
+              for imported in "${IMPORTS[@]}"; do
+                if [ -z "${SEEN_ASSETS[$imported]:-}" ]; then
+                  SEEN_ASSETS[$imported]=1
+                  BUILT_ASSETS+=("$imported")
+                fi
+              done
+            fi
+          done
+          ROOT_ASSETS=()
+          for asset in "${BUILT_ASSETS[@]}"; do
+            test -f "spa-assets/$asset"
+            ROOT_ASSETS+=("spa-assets/$asset")
+          done
+          tar -czf coreflux-purepay-release.tar.gz \
+            .deploy-version \
+            api/admin/integration_triage.php api/admin/integrations_health.php \
+            api/purepay_connection.php api/webhooks/purepay.php \
+            core/api/payment_rails.php core/integrations/schema_health.php \
+            core/migrations/146_purepay_rail.sql \
+            core/payment_rails.php core/payment_rails/originate_helpers.php \
+            core/payment_rails/purepay_driver.php \
+            core/purepay_adapter.php core/purepay_service.php core/purepay_webhooks.php \
+            cron/purepay_health_probe.php cron/purepay_payment_sync.php \
+            dashboard/dist/index.html dashboard/src/components/RailPicker.jsx \
+            dashboard/src/pages/AdminModule.jsx dashboard/src/pages/IntegrationTriage.jsx \
+            dashboard/src/pages/IntegrationsHub.jsx \
+            index.html \
+            modules/ap/api/payments.php modules/ap/lib/ap.php \
+            modules/ap/ui/PaymentsList.jsx modules/ap/ui/Settings.jsx \
+            modules/ap/ui/SuggestPaymentRunModal.jsx \
+            modules/payroll/ui/PayrollSettings.jsx \
+            modules/treasury/ui/PurePaySettings.jsx \
+            spec/purepay_schema.json spec/purepay_docs/README.md \
+            spec/purepay_docs/.fetched_at \
+            tests/purepay_integration_smoke.php tests/purepay_payload_contract_smoke.php \
+            tests/purepay_spec_freshness_smoke.php \
+            tests/ap_suggest_payment_run_smoke.php tests/payment_rails_enhancements_smoke.php \
+            tools/refresh_purepay_spec.sh \
+            scripts/opcache_flush_deploy.php.template \
+            "${ROOT_ASSETS[@]}" spa-assets/index.html spa-assets/sw.js
+
+      - name: Stage connector release
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: coreflux-purepay-release.tar.gz
+          target: /tmp/coreflux-purepay-${{ github.run_id }}
+          overwrite: true
+
+      - name: Publish and verify without making a payment
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 10m
+          script: |
+            set -eu
+            APP_BASE="${{ secrets.CW_REMOTE_PATH }}"
+            APP_ROOT="$APP_BASE/public_html"
+            STAGE_ROOT="/tmp/coreflux-purepay-${{ github.run_id }}"
+            OPCACHE_TEMPLATE="$APP_ROOT/scripts/opcache_flush_deploy.php.template"
+            OPCACHE_ENDPOINT="$APP_ROOT/api/admin/opcache_flush_deploy_${{ github.run_id }}.php"
+            OPCACHE_RESPONSE="/tmp/coreflux-purepay-opcache-${{ github.run_id }}.json"
+
+            test -n "$APP_BASE"
+            test "$APP_BASE" != "/"
+            test -f "$STAGE_ROOT/coreflux-purepay-release.tar.gz"
+            tar -xzf "$STAGE_ROOT/coreflux-purepay-release.tar.gz" -C "$STAGE_ROOT"
+            rm -f -- "$STAGE_ROOT/coreflux-purepay-release.tar.gz"
+            test -f "$STAGE_ROOT/core/migrations/146_purepay_rail.sql"
+            test -f "$STAGE_ROOT/core/payment_rails/purepay_driver.php"
+
+            cleanup_deploy() {
+              rm -rf -- "$STAGE_ROOT"
+              rm -f -- "$OPCACHE_ENDPOINT" "$OPCACHE_RESPONSE" "$OPCACHE_TEMPLATE"
+            }
+            trap cleanup_deploy EXIT
+
+            cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
+            cd "$APP_ROOT"
+            SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' index.html | head -n 1)"
+            test -n "$SPA_ENTRY"
+            test -f "$SPA_ENTRY"
+            grep -Fq 'Pure//Pay' "$SPA_ENTRY"
+            grep -Fq -- "- $SPA_ENTRY" .deploy-version
+
+            php deploy/run_migrations.php
+            php deploy/run_migrations.php --status | grep -F 'core/migrations/146_purepay_rail.sql'
+            php -r 'require "core/api_bootstrap.php"; $db=getDB(); foreach (["purepay_connections","purepay_vendor_mappings","purepay_payment_links","purepay_webhook_events"] as $table) { $q=$db->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:name"); $q->execute(["name"=>$table]); if ((int)$q->fetchColumn() !== 1) { fwrite(STDERR,"$table missing\n"); exit(1); } } $active=(int)$db->query("SELECT COUNT(*) FROM purepay_connections WHERE status=\"active\"")->fetchColumn(); echo "PurePay schema verified; existing active connections: $active (unchanged by deployment).\n";'
+
+            for file in api/purepay_connection.php api/webhooks/purepay.php core/purepay_adapter.php core/purepay_service.php core/purepay_webhooks.php core/payment_rails/purepay_driver.php modules/ap/api/payments.php cron/purepay_health_probe.php cron/purepay_payment_sync.php; do
+              php -l "$file"
+            done
+            php tests/purepay_payload_contract_smoke.php
+            php tests/purepay_integration_smoke.php
+            php tests/purepay_spec_freshness_smoke.php
+
+            mkdir -p logs
+            CRON_BACKUP="$HOME/.coreflux-crontab-before-purepay-$(date +%Y%m%d%H%M%S)"
+            CRON_NEXT="$(mktemp)"
+            (crontab -l 2>/dev/null || true) | tee "$CRON_BACKUP" \
+              | sed '/cron\/purepay_health_probe\.php/d; /cron\/purepay_payment_sync\.php/d; /# CoreFlux PurePay workers/d' \
+              > "$CRON_NEXT"
+            PHP_BIN="$(command -v php)"
+            {
+              echo '# CoreFlux PurePay workers (read-only provider probes/status)'
+              echo "7,37 * * * * cd $APP_ROOT && $PHP_BIN cron/purepay_health_probe.php >> logs/purepay_health_probe.log 2>&1"
+              echo "22 * * * * cd $APP_ROOT && $PHP_BIN cron/purepay_payment_sync.php >> logs/purepay_payment_sync.log 2>&1"
+            } >> "$CRON_NEXT"
+            crontab "$CRON_NEXT"
+            rm -f -- "$CRON_NEXT"
+            crontab -l | grep -Fq 'cron/purepay_health_probe.php'
+            crontab -l | grep -Fq 'cron/purepay_payment_sync.php'
+
+            OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
+            php -r '$template=file_get_contents($argv[1]); if ($template === false || substr_count($template, "__COREFLUX_OPCACHE_TOKEN__") !== 1) exit(1); $content=str_replace("__COREFLUX_OPCACHE_TOKEN__", $argv[3], $template); if (file_put_contents($argv[2], $content, LOCK_EX) === false) exit(1); chmod($argv[2], 0640);' "$OPCACHE_TEMPLATE" "$OPCACHE_ENDPOINT" "$OPCACHE_TOKEN"
+            rm -f -- "$OPCACHE_TEMPLATE"
+            OPCACHE_STATUS="$(curl -sS --max-time 20 -o "$OPCACHE_RESPONSE" -w '%{http_code}' -X POST -H "X-CoreFlux-Deploy-Reset: $OPCACHE_TOKEN" "https://www.corefluxapp.com/api/admin/opcache_flush_deploy_${{ github.run_id }}.php")"
+            unset OPCACHE_TOKEN
+            test "$OPCACHE_STATUS" = "200"
+            php -r '$r=json_decode((string) file_get_contents($argv[1]), true); if (!is_array($r) || ($r["ok"] ?? false) !== true) exit(1);' "$OPCACHE_RESPONSE"
+            echo "PurePay connector deployed from commit ${{ github.sha }}; no key or payment was created."
