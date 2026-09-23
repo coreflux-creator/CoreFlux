@@ -70,7 +70,10 @@ $snapshot = json_decode($snapshotJson, true, 512, JSON_THROW_ON_ERROR);
 if ($approved['status'] !== 'approved' || (int) $approved['rate_snapshot_id'] !== 9601
     || ($snapshot['dimensions']['branch'] ?? '') !== 'East'
     || ($snapshot['engagement_type'] ?? '') !== 'w2'
-    || !hash_equals((string) $approved['dimension_snapshot_hash'], hash('sha256', $snapshotJson))) {
+    || !hash_equals(
+        (string) $approved['dimension_snapshot_hash'],
+        hash('sha256', staffingDimensionSnapshotCanonicalJson($snapshot))
+    )) {
     throw new RuntimeException('Approval did not freeze the rate and assignment dimensions');
 }
 
@@ -80,6 +83,12 @@ $timesheet = $header->fetch(PDO::FETCH_ASSOC);
 if ($timesheet['status'] !== 'approved' || !$timesheet['artifact_id']) {
     throw new RuntimeException('Approved week has no first-class timesheet artifact');
 }
+$audit = $pdo->prepare(
+    "SELECT COUNT(*) FROM audit_log
+      WHERE tenant_id = :t AND event = 'staffing.timesheet.approved' AND target_id = 9601"
+);
+$audit->execute(['t' => $tenantId]);
+if ((int) $audit->fetchColumn() !== 1) throw new RuntimeException('Timesheet approval was not audited');
 $event = $pdo->prepare(
     "SELECT status, journal_entry_id, payload FROM accounting_events
       WHERE tenant_id = :t AND event_type = 'staffing.worker_hours.approved'
