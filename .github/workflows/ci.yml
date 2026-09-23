@@ -142,6 +142,7 @@ jobs:
           APP_URL: http://127.0.0.1:8765
           MAIL_DRIVER: log
           MAIL_LOG_PATH: /tmp/coreflux-ci-mail.log
+          CF_PDF_RENDERER_BIN: /bin/false
 
       - name: Verify bank match reversal and correction
         run: php tests/cash_reversal_live.php

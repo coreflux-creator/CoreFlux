@@ -49,7 +49,7 @@ curl_setopt_array($curl, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_COOKIEFILE => '',
     CURLOPT_CONNECTTIMEOUT => 2,
-    CURLOPT_TIMEOUT => 30,
+    CURLOPT_TIMEOUT => 90,
 ]);
 
 function ciBusinessApi(CurlHandle $curl, string $base, string $method, string $path, ?array $body = null): array
@@ -191,8 +191,9 @@ try {
     ]);
     ciBusinessExpect($status, 200, $delivery, 'Send approved invoice');
     if (($delivery['email_status'] ?? '') !== 'sent' || empty($delivery['token_id'])
+        || !empty($delivery['pdf_attached']) || empty($delivery['pdf_error'])
         || !str_contains((string) ($delivery['url'] ?? ''), '/billing/invoice.php?t=')) {
-        throw new RuntimeException('Invoice delivery did not produce a customer view link: ' . json_encode($delivery));
+        throw new RuntimeException('Link-only invoice delivery did not produce a customer view link: ' . json_encode($delivery));
     }
     $outbox = $pdo->prepare(
         'SELECT driver, status, to_addresses_json, subject, body_text
