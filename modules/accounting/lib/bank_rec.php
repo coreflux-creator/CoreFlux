@@ -44,62 +44,76 @@ function bankRecImportCsv(int $tenantId, int $bankAccountId, string $csvBody, ?a
         throw new RuntimeException('CSV must have date, description, and amount columns');
     }
 
-    $pdo  = getDB();
-    $now  = date('Y-m-d H:i:s');
-
-    // Create a parent import row first
-    $importId = scopedInsert('accounting_bank_statement_imports', [
-        'bank_account_id'    => $bankAccountId,
-        'source'             => 'csv',
-        'created_by_user_id' => $userId,
-    ]);
-
-    $inserted = 0; $duplicates = 0; $minDate = null; $maxDate = null;
-    $stmt = $pdo->prepare(
-        'INSERT IGNORE INTO accounting_bank_statement_lines
-            (tenant_id, bank_account_id, import_id, posted_date, description, amount, bank_reference, fitid)
-         VALUES (:t, :b, :i, :d, :desc, :amt, :ref, :fitid)'
-    );
-    while (($r = fgetcsv($fh)) !== false) {
-        if (!isset($r[$dateCol], $r[$descCol], $r[$amtCol])) continue;
-        $date  = trim((string) $r[$dateCol]);
-        $desc  = trim((string) $r[$descCol]);
-        $amt   = (float) preg_replace('/[^0-9.\-]/', '', (string) $r[$amtCol]);
-        if ($date === '' || $desc === '') continue;
-        // Normalize to YYYY-MM-DD
-        $ts = strtotime($date);
-        if ($ts === false) continue;
-        $iso = date('Y-m-d', $ts);
-        $fit = $fitidCol !== null && isset($r[$fitidCol]) ? trim((string) $r[$fitidCol]) : null;
-        if ($fit === '' || $fit === null) {
-            // Synthesize a stable FITID so de-dup still works
-            $fit = sha1($bankAccountId . '|' . $iso . '|' . $desc . '|' . $amt);
-        }
-        $stmt->execute([
-            't'     => $tenantId,
-            'b'     => $bankAccountId,
-            'i'     => $importId,
-            'd'     => $iso,
-            'desc'  => substr($desc, 0, 255),
-            'amt'   => $amt,
-            'ref'   => null,
-            'fitid' => substr($fit, 0, 120),
+    $pdo = getDB();
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) $pdo->beginTransaction();
+    try {
+        $importId = scopedInsert('accounting_bank_statement_imports', [
+            'bank_account_id'    => $bankAccountId,
+            'source'             => 'csv',
+            'created_by_user_id' => $userId,
         ]);
-        if ($stmt->rowCount() === 1) {
-            $inserted++;
-            if ($minDate === null || $iso < $minDate) $minDate = $iso;
-            if ($maxDate === null || $iso > $maxDate) $maxDate = $iso;
-        } else {
-            $duplicates++;
-        }
-    }
-    fclose($fh);
 
-    scopedUpdate('accounting_bank_statement_imports', $importId, [
-        'statement_from' => $minDate,
-        'statement_to'   => $maxDate,
-        'line_count'     => $inserted,
-    ]);
+        $inserted = 0; $duplicates = 0; $minDate = null; $maxDate = null;
+        $stmt = $pdo->prepare(
+            'INSERT IGNORE INTO accounting_bank_statement_lines
+                (tenant_id, bank_account_id, import_id, posted_date, description, amount, bank_reference, fitid)
+             VALUES (:t, :b, :i, :d, :desc, :amt, :ref, :fitid)'
+        );
+        while (($r = fgetcsv($fh)) !== false) {
+            if (!isset($r[$dateCol], $r[$descCol], $r[$amtCol])) continue;
+            $date  = trim((string) $r[$dateCol]);
+            $desc  = trim((string) $r[$descCol]);
+            $amt   = (float) preg_replace('/[^0-9.\-]/', '', (string) $r[$amtCol]);
+            if ($date === '' || $desc === '') continue;
+            // Normalize to YYYY-MM-DD
+            $ts = strtotime($date);
+            if ($ts === false) continue;
+            $iso = date('Y-m-d', $ts);
+            $fit = $fitidCol !== null && isset($r[$fitidCol]) ? trim((string) $r[$fitidCol]) : null;
+            if ($fit === '' || $fit === null) {
+                // Synthesize a stable FITID so de-dup still works
+                $fit = sha1($bankAccountId . '|' . $iso . '|' . $desc . '|' . $amt);
+            }
+            $stmt->execute([
+                't'     => $tenantId,
+                'b'     => $bankAccountId,
+                'i'     => $importId,
+                'd'     => $iso,
+                'desc'  => substr($desc, 0, 255),
+                'amt'   => $amt,
+                'ref'   => null,
+                'fitid' => substr($fit, 0, 120),
+            ]);
+            if ($stmt->rowCount() === 1) {
+                $inserted++;
+                if ($minDate === null || $iso < $minDate) $minDate = $iso;
+                if ($maxDate === null || $iso > $maxDate) $maxDate = $iso;
+            } else {
+                $duplicates++;
+            }
+        }
+
+        // This table has no updated_at column, so scopedUpdate cannot be used.
+        $update = $pdo->prepare(
+            'UPDATE accounting_bank_statement_imports
+                SET statement_from = :date_from, statement_to = :date_to, line_count = :line_count
+              WHERE tenant_id = :tenant_id AND id = :id'
+        );
+        $update->execute([
+            'date_from' => $minDate,
+            'date_to' => $maxDate,
+            'line_count' => $inserted,
+            'tenant_id' => $tenantId,
+            'id' => $importId,
+        ]);
+        if ($ownsTransaction) $pdo->commit();
+    } catch (Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    } finally {
+        fclose($fh);
+    }
 
     return [
         'import_id'  => $importId,

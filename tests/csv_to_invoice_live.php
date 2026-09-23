@@ -242,6 +242,18 @@ try {
     if (($bankImport['inserted'] ?? 0) !== 1) {
         throw new RuntimeException('Customer receipt was not imported to the bank feed: ' . json_encode($bankImport));
     }
+    $importSummary = $pdo->prepare('SELECT line_count FROM accounting_bank_statement_imports WHERE tenant_id = :t AND id = :id');
+    $importSummary->execute(['t' => $tenantId, 'id' => (int) $bankImport['import_id']]);
+    if ((int) $importSummary->fetchColumn() !== 1) {
+        throw new RuntimeException('Bank import summary did not retain its imported line count');
+    }
+    [$status, $repeatImport] = ciBusinessApi($curl, $base, 'POST', '/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=9701', [
+        'csv' => $bankCsv,
+    ]);
+    ciBusinessExpect($status, 201, $repeatImport, 'Repeat customer receipt import');
+    if (($repeatImport['inserted'] ?? -1) !== 0 || ($repeatImport['duplicates'] ?? 0) !== 1) {
+        throw new RuntimeException('Repeated bank CSV created a duplicate receipt: ' . json_encode($repeatImport));
+    }
     $bankLineStmt = $pdo->prepare('SELECT id FROM accounting_bank_statement_lines WHERE tenant_id = :t AND bank_account_id = 9701 AND fitid = :fitid');
     $bankLineStmt->execute(['t' => $tenantId, 'fitid' => 'ci-invoice-' . $invoiceId]);
     $bankLineId = (int) $bankLineStmt->fetchColumn();
