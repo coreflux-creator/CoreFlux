@@ -24,6 +24,7 @@ export default function IntegrationsHub() {
   const zoho     = useApi('/api/zoho_books/status.php?action=status');
   const airtable = useApi('/api/airtable/status.php?action=status');
   const connecteam = useApi('/api/connecteam/status.php?action=status');
+  const quanta = useApi('/api/quanta.php?action=status');
   const jaz      = useApi('/api/accounting.php?action=tenant_status&provider=jaz');
   const health   = useApi('/api/admin/schema_health.php');
 
@@ -137,6 +138,14 @@ export default function IntegrationsHub() {
             description="Discover workforce, jobs, schedules, time clocks, leave, and policy access before linking approved time to CoreFlux."
             href="/admin/integrations/connecteam"
             status={connecteamStatus}
+          />
+          <IntegrationCard
+            testid="integration-card-quanta"
+            icon={Clock3}
+            title="Quanta"
+            description="Review Quanta time, map workers to placements, and import weekly timesheets."
+            href="/admin/integrations/quanta"
+            status={quanta.loading ? 'loading' : quanta.data?.connected ? 'connected' : 'not_connected'}
           />
         </ActionCardsGrid>
       </Section>

@@ -130,7 +130,9 @@ final class RbacLegacyMap
             'integrations.airtable.manage'       => ['integrations', 'admin'],
             'integrations.airtable.view'         => ['integrations', 'read'],
             'integrations.connecteam.manage'     => ['integrations', 'admin'],
-            'integrations.connecteam.view'       => ['integrations', 'read'],
+              'integrations.connecteam.view'       => ['integrations', 'read'],
+              'integrations.quanta.manage'         => ['integrations', 'admin'],
+              'integrations.quanta.view'           => ['integrations', 'read'],
             // Tenant Integration Field Map registry (Slice 3 scaffolding) —
             // admin-only because misconfiguration drives data into wrong
             // columns. master_admin + tenant_admin via the 'integrations'
