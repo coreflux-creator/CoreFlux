@@ -42,7 +42,7 @@ CsvImportService::registerSchema('time', [
         'description'           => ['label' => 'Description'],
         'external_id'           => ['label' => 'External ID (source row)'],
         'source_system'         => ['label' => 'Source system',
-                                    'enum' => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
+                                    'enum' => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','quanta','other']],
     ],
     'unique_within_batch' => ['entry_id', 'external_id'],
 ]);
