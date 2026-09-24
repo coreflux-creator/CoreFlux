@@ -49,6 +49,7 @@ function ciApplySimulationSql(PDO $pdo, string $relativePath): void
 $schemaFiles = [
     'sql/layer_sandbox_seed.sql',
     'core/migrations/007_subtenant_provisioning.sql',
+    'core/migrations/003_mail_service.sql',
     'modules/accounting/migrations/001_init.sql',
     'modules/accounting/migrations/002_phase2.sql',
     'modules/accounting/migrations/006_intercompany.sql',
@@ -62,15 +63,49 @@ $schemaFiles = [
     'modules/accounting/migrations/025_journal_entry_source_module_varchar.sql',
     'modules/accounting/migrations/028_journal_line_tenant_scope.sql',
     'core/migrations/024_auto_reversing_accruals.sql',
+    'core/migrations/097_audit_log_event_column.sql',
     'modules/ap/migrations/001_init.sql',
     'modules/billing/migrations/001_init.sql',
+    'modules/billing/migrations/007_line_item_types.sql',
+    'modules/billing/migrations/009_dunning.sql',
+    'modules/billing/migrations/012_economic_item_source.sql',
+    'modules/billing/migrations/013_item_catalog.sql',
+    'modules/people/migrations/003_spec_alignment.sql',
+    'modules/accounting/migrations/007_consolidation.sql',
+    'modules/accounting/migrations/008_consolidation_runs.sql',
+    'modules/placements/migrations/001_init.sql',
+    'core/migrations/071_jobdiva_placement_metadata.sql',
+    'modules/placements/migrations/002_cycle_config.sql',
+    'modules/placements/migrations/002_cycles.sql',
+    'modules/people/migrations/004_companies.sql',
+    'modules/people/migrations/006_unify_and_extend.sql',
+    'modules/staffing/migrations/003_clients.sql',
+    'modules/staffing/migrations/005_company_bridge.sql',
+    'modules/staffing/migrations/006_jobs.sql',
+    'modules/time/migrations/001_init.sql',
+    'modules/time/migrations/003_settlement.sql',
+    'modules/staffing/migrations/001_timesheets.sql',
+    'modules/staffing/migrations/002_timesheet_id_on_entries.sql',
+    'core/migrations/078_integration_writable_targets.sql',
+    'modules/placements/migrations/006_assignment_dimensions.sql',
+    'core/migrations/126_staffing_economic_graph.sql',
+    'core/migrations/127_staffing_contract_terms.sql',
+    'core/migrations/128_placement_commercial_contract.sql',
+    'core/migrations/135_tenant_staffing_economics_defaults.sql',
+    'core/migrations/136_c2c_overhead_load.sql',
+    'core/migrations/138_placement_one_time_items.sql',
+    'core/migrations/146_staffing_time_dimension_snapshots.sql',
+    'core/migrations/147_staffing_timesheet_approval_columns.sql',
     'modules/payroll/migrations/001_init.sql',
     'core/migrations/036_event_registry.sql',
+    'core/migrations/019_workflow_engine.sql',
     'core/migrations/043_simulation_harness.sql',
     'core/migrations/105_ai_phase1_tool_registry_and_artifact_layer.sql',
     'core/migrations/145_business_logic_hardening.sql',
     'modules/accounting/migrations/029_reconciliation_artifacts.sql',
     'modules/payroll/migrations/008_run_artifacts.sql',
+    'core/migrations/096_csv_import_external_ids_wave2.sql',
+    'core/migrations/132_bank_transaction_identity.sql',
 ];
 
 try {
@@ -116,5 +151,15 @@ require_once __DIR__ . '/../core/seeds/event_registry_seed.php';
 accountingSeedSystemAccounts($tenantId);
 postingRulesSeedDefaults($tenantId);
 eventRegistrySeedRun($pdo);
+
+// Real tenants rename account labels. Posting must rely on stable codes.
+$pdo->prepare(
+    "UPDATE accounting_accounts
+        SET name = CASE code
+            WHEN '1100' THEN 'Trade receivables - custom label'
+            WHEN '2000' THEN 'Vendor obligations - custom label'
+            ELSE name END
+      WHERE tenant_id = :tenant_id AND code IN ('1100', '2000')"
+)->execute(['tenant_id' => $tenantId]);
 
 echo "Simulation tenant {$tenantId} seeded with production business-graph schema, books, accounts, and posting rules." . PHP_EOL;

@@ -233,7 +233,12 @@ if (!$dryRun && $runId) {
 echo sprintf("▶ %s in %dms — %d events, %d JEs, %d/%d assertions failed\n",
     $status, $duration, $ctx['metrics']['events_emitted'], $ctx['metrics']['je_posted'],
     count($failed), count($assertions));
-foreach ($failed as $a) echo "  ✗ " . $a['name'] . "\n";
+foreach ($failed as $a) {
+    echo "  ✗ " . $a['name'] . "\n";
+    if (!empty($a['details'])) {
+        echo '    ' . json_encode($a['details'], JSON_UNESCAPED_SLASHES) . "\n";
+    }
+}
 
 exit($status === 'passed' ? 0 : 1);
 
@@ -262,6 +267,12 @@ function simExecuteStep(array &$ctx, string $action, array $step): void {
             return;
         case 'create_billing_invoice':
             simStepCreateBillingInvoice($ctx, $step);
+            return;
+        case 'record_billing_payment':
+            simStepRecordBillingPayment($ctx, $step);
+            return;
+        case 'assert_document_balance':
+            simStepAssertDocumentBalance($ctx, $step);
             return;
         default:
             throw new \RuntimeException("Unknown sim action: {$action} (extend simExecuteStep in /app/sim/runner.php)");
@@ -388,12 +399,96 @@ function simStepSettleApBill(array &$ctx, array $step): void {
     if ($ctx['dry_run']) return;
     $id = (int) ($step['id'] ?? 0);
     if ($id <= 0) throw new \InvalidArgumentException('settle_ap_bill requires id');
-    $stmt = getDB()->prepare(
-        'UPDATE ap_bills SET amount_paid = total, amount_due = 0, status = "paid", updated_at = NOW()
-          WHERE tenant_id = :tenant_id AND id = :id'
-    );
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        $billStmt = $pdo->prepare('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE');
+        $billStmt->execute(['tenant_id' => $ctx['tenant_id'], 'id' => $id]);
+        $bill = $billStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$bill) throw new \RuntimeException("AP bill {$id} was not found");
+        $amount = round((float) ($step['amount'] ?? $bill['amount_due']), 2);
+        if ($amount <= 0 || $amount > (float) $bill['amount_due'] + 0.005) {
+            throw new \RuntimeException('AP payment must be positive and no greater than the remaining bill balance');
+        }
+        $paymentId = (int) ($step['payment_id'] ?? (1000000 + $id));
+        $pdo->prepare(
+            'INSERT INTO ap_payments
+                (id, tenant_id, vendor_name, pay_date, method, reference, amount, unallocated_amount, status)
+             VALUES (:id, :tenant_id, :vendor_name, :pay_date, "ach", :reference, :amount, 0, "cleared")'
+        )->execute([
+            'id' => $paymentId,
+            'tenant_id' => $ctx['tenant_id'],
+            'vendor_name' => $bill['vendor_name'],
+            'pay_date' => simNow('Y-m-d'),
+            'reference' => 'SIM-PAY-' . $paymentId,
+            'amount' => $amount,
+        ]);
+        $pdo->prepare(
+            'INSERT INTO ap_payment_allocations (payment_id, bill_id, amount_applied)
+             VALUES (:payment_id, :bill_id, :amount)'
+        )->execute(['payment_id' => $paymentId, 'bill_id' => $id, 'amount' => $amount]);
+        $paid = round((float) $bill['amount_paid'] + $amount, 2);
+        $due = max(0, round((float) $bill['total'] - $paid, 2));
+        $pdo->prepare(
+            'UPDATE ap_bills SET amount_paid = :paid, amount_due = :due, status = :status, updated_at = NOW()
+              WHERE tenant_id = :tenant_id AND id = :id'
+        )->execute([
+            'paid' => $paid, 'due' => $due,
+            'status' => $due < 0.005 ? 'paid' : 'partially_paid',
+            'tenant_id' => $ctx['tenant_id'], 'id' => $id,
+        ]);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
+function simStepRecordBillingPayment(array &$ctx, array $step): void {
+    if ($ctx['dry_run']) return;
+    $invoiceId = (int) ($step['invoice_id'] ?? 0);
+    $paymentId = (int) ($step['payment_id'] ?? 0);
+    $amount = round((float) ($step['amount'] ?? 0), 2);
+    if ($invoiceId <= 0 || $paymentId <= 0 || $amount <= 0) {
+        throw new \InvalidArgumentException('record_billing_payment requires invoice_id, payment_id, and positive amount');
+    }
+    $pdo = getDB();
+    $invoiceStmt = $pdo->prepare('SELECT client_name FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id');
+    $invoiceStmt->execute(['tenant_id' => $ctx['tenant_id'], 'id' => $invoiceId]);
+    $clientName = $invoiceStmt->fetchColumn();
+    if (!$clientName) throw new \RuntimeException("Invoice {$invoiceId} was not found");
+    $pdo->prepare(
+        'INSERT INTO billing_payments
+            (id, tenant_id, client_name, received_at, method, reference, amount, unallocated_amount)
+         VALUES (:id, :tenant_id, :client_name, :received_at, "ach", :reference, :amount, :unallocated)'
+    )->execute([
+        'id' => $paymentId, 'tenant_id' => $ctx['tenant_id'], 'client_name' => $clientName,
+        'received_at' => simNow('Y-m-d'), 'reference' => 'SIM-REC-' . $paymentId,
+        'amount' => $amount, 'unallocated' => $amount,
+    ]);
+    require_once __DIR__ . '/../modules/billing/lib/billing.php';
+    billingAllocatePayment($paymentId, [
+        'allocations' => [['invoice_id' => $invoiceId, 'amount' => $amount]],
+    ]);
+}
+
+function simStepAssertDocumentBalance(array &$ctx, array $step): void {
+    if ($ctx['dry_run']) return;
+    $type = (string) ($step['type'] ?? '');
+    $table = match ($type) {
+        'invoice' => 'billing_invoices',
+        'bill' => 'ap_bills',
+        default => throw new \InvalidArgumentException('assert_document_balance type must be invoice or bill'),
+    };
+    $id = (int) ($step['id'] ?? 0);
+    $stmt = getDB()->prepare("SELECT amount_paid, amount_due, status FROM {$table} WHERE tenant_id = :tenant_id AND id = :id");
     $stmt->execute(['tenant_id' => $ctx['tenant_id'], 'id' => $id]);
-    if ($stmt->rowCount() !== 1) throw new \RuntimeException("AP bill {$id} was not found");
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$row || abs((float) $row['amount_paid'] - (float) ($step['paid'] ?? -1)) >= 0.01
+        || abs((float) $row['amount_due'] - (float) ($step['due'] ?? -1)) >= 0.01
+        || $row['status'] !== (string) ($step['status'] ?? '')) {
+        throw new \RuntimeException("{$type} #{$id} does not have the expected paid, due, and status values");
+    }
 }
 
 function simStepCreateBillingInvoice(array &$ctx, array $step): void {

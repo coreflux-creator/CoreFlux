@@ -19,7 +19,14 @@ $read = fn (string $p) => (string) file_get_contents($p);
 
 echo "Event emitter — per-assignment breakdown\n";
 $lib = $read(__DIR__ . '/../modules/staffing/lib/timesheets.php');
-$a('GROUP BY keeps placements separate',          str_contains($lib, 'te.placement_id, engagement_type'));
+$a('GROUP BY keeps placements and dimension versions separate',
+    str_contains($lib, 'te.placement_id, te.dimension_snapshot_hash, {$engagementExpr}'));
+$a('referral fee is frozen when time is approved',
+    str_contains($lib, "'referral_fee_per_hour' => \$referralFee")
+    && str_contains($lib, "JSON_EXTRACT(te.dimension_snapshot_json, '$.referral_fee_per_hour')"));
+$postingEngine = (string) file_get_contents(__DIR__ . '/../core/posting_engine/process.php');
+$a('zero-value optional staffing journal lines are omitted',
+    str_contains($postingEngine, 'if ($debit == 0.0 && $credit == 0.0) continue;'));
 $a('LEFT JOIN placements for engagement_type',    str_contains($lib, 'LEFT JOIN placements pl'));
 $a('one event per timesheet and placement',       str_contains($lib, 'foreach ($groups as $g)') && str_contains($lib, "':placement:' . \$placementId"));
 $a('payload includes engagement_type',            str_contains($lib, "'engagement_type' => \$engagementType"));

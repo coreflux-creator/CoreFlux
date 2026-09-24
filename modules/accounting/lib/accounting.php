@@ -1091,60 +1091,87 @@ function accountingReplaceJe(
 function accountingReverseJe(int $tenantId, int $jeId, string $reason, ?int $actorUserId = null): array
 {
     $pdo = getDB();
-    $jeStmt = $pdo->prepare('SELECT * FROM accounting_journal_entries WHERE tenant_id = :t AND id = :id');
-    $jeStmt->execute(['t' => $tenantId, 'id' => $jeId]);
-    $je = $jeStmt->fetch(\PDO::FETCH_ASSOC);
-    if (!$je) throw new \RuntimeException("JE {$jeId} not found");
-    if ($je['status'] === 'reversed' && $je['reversed_by_je_id']) {
-        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $rev = $pdo->prepare('SELECT * FROM accounting_journal_entries WHERE id = :id');
-        $rev->execute(['id' => $je['reversed_by_je_id']]);
-        $r = $rev->fetch(\PDO::FETCH_ASSOC);
-        return [
-            'je_id' => (int) $r['id'], 'je_number' => $r['je_number'], 'status' => $r['status'],
-            'total_debit' => (float) $r['total_debit'], 'total_credit' => (float) $r['total_credit'],
-            'idempotent_replay' => true,
-        ];
-    }
-    if ($je['status'] !== 'posted') throw new \RuntimeException("Can only reverse posted JEs (was {$je['status']})");
+    $ownsTransaction = cf_tx_begin($pdo);
+    try {
+        $jeStmt = $pdo->prepare(
+            'SELECT * FROM accounting_journal_entries WHERE tenant_id = :t AND id = :id FOR UPDATE'
+        );
+        $jeStmt->execute(['t' => $tenantId, 'id' => $jeId]);
+        $je = $jeStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$je) throw new \RuntimeException("JE {$jeId} not found");
+        if ($je['status'] === 'reversed' && $je['reversed_by_je_id']) {
+            $prior = $pdo->prepare('SELECT * FROM accounting_journal_entries WHERE tenant_id = :t AND id = :id');
+            $prior->execute(['t' => $tenantId, 'id' => $je['reversed_by_je_id']]);
+            $r = $prior->fetch(\PDO::FETCH_ASSOC);
+            if (!$r) throw new \RuntimeException("Reversal for JE {$jeId} not found");
+            cf_tx_commit($pdo, $ownsTransaction);
+            return [
+                'je_id' => (int) $r['id'], 'je_number' => $r['je_number'], 'status' => $r['status'],
+                'total_debit' => (float) $r['total_debit'], 'total_credit' => (float) $r['total_credit'],
+                'idempotent_replay' => true,
+            ];
+        }
+        if ($je['status'] !== 'posted') throw new \RuntimeException("Can only reverse posted JEs (was {$je['status']})");
 
-    // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
-    $lines = $pdo->prepare('SELECT * FROM accounting_journal_entry_lines WHERE je_id = :j ORDER BY line_no');
-    $lines->execute(['j' => $jeId]);
-    $flipped = [];
-    foreach ($lines->fetchAll(\PDO::FETCH_ASSOC) as $l) {
-        $flipped[] = [
-            'account_id'              => (int) $l['account_id'],
-            'debit'                   => (float) $l['credit'],
-            'credit'                  => (float) $l['debit'],
-            'memo'                    => 'Reversal: ' . ($l['memo'] ?? ''),
-            'description'             => 'Reversal: ' . ($l['description'] ?? $l['memo'] ?? ''),
-            'counterparty_company_id' => $l['counterparty_company_id'],
-            'counterparty_person_id'  => $l['counterparty_person_id'],
-            'counterparty_entity_id'  => $l['counterparty_entity_id'] ?? null,
-            'dims'                    => !empty($l['dim_json']) ? (json_decode((string) $l['dim_json'], true) ?: []) : [],
-        ];
-    }
-    $rev = accountingPostJe($tenantId, [
-        'entity_id'       => (int) $je['entity_id'],
-        'posting_date'    => date('Y-m-d'),
-        'currency'        => $je['currency'],
-        'source_module'   => 'reversal',
-        'source_ref_type' => 'je',
-        'source_ref_id'   => $jeId,
-        'memo'            => "Reversal of {$je['je_number']}: {$reason}",
-        'lines'           => $flipped,
-    ], $actorUserId, true);
+        $lines = $pdo->prepare(
+            'SELECT * FROM accounting_journal_entry_lines WHERE tenant_id = :t AND je_id = :j ORDER BY line_no'
+        );
+        $lines->execute(['t' => $tenantId, 'j' => $jeId]);
+        $flipped = [];
+        foreach ($lines->fetchAll(\PDO::FETCH_ASSOC) as $l) {
+            $flipped[] = [
+                'account_id'              => (int) $l['account_id'],
+                'debit'                   => (float) $l['credit'],
+                'credit'                  => (float) $l['debit'],
+                'memo'                    => 'Reversal: ' . ($l['memo'] ?? ''),
+                'description'             => 'Reversal: ' . ($l['description'] ?? $l['memo'] ?? ''),
+                'counterparty_company_id' => $l['counterparty_company_id'],
+                'counterparty_person_id'  => $l['counterparty_person_id'],
+                'counterparty_entity_id'  => $l['counterparty_entity_id'] ?? null,
+                'dims'                    => !empty($l['dim_json']) ? (json_decode((string) $l['dim_json'], true) ?: []) : [],
+            ];
+        }
+        $rev = accountingPostJe($tenantId, [
+            'entity_id'       => (int) $je['entity_id'],
+            'posting_date'    => date('Y-m-d'),
+            'currency'        => $je['currency'],
+            'source_module'   => 'reversal',
+            'source_ref_type' => 'je',
+            'source_ref_id'   => $jeId,
+            'memo'            => "Reversal of {$je['je_number']}: {$reason}",
+            'lines'           => $flipped,
+        ], $actorUserId, true);
 
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    $pdo->prepare(
-        'UPDATE accounting_journal_entries
-         SET status = "reversed", reversed_by_je_id = :rid
-         WHERE id = :id'
-    )->execute(['rid' => $rev['je_id'], 'id' => $jeId]);
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    $pdo->prepare('UPDATE accounting_journal_entries SET reverses_je_id = :orig WHERE id = :rid')
-        ->execute(['orig' => $jeId, 'rid' => $rev['je_id']]);
+        $pdo->prepare(
+            'UPDATE accounting_journal_entries
+                SET status = "reversed", reversed_by_je_id = :rid
+              WHERE tenant_id = :t AND id = :id'
+        )->execute(['rid' => $rev['je_id'], 't' => $tenantId, 'id' => $jeId]);
+        $pdo->prepare(
+            'UPDATE accounting_journal_entries SET reverses_je_id = :orig
+              WHERE tenant_id = :t AND id = :rid'
+        )->execute(['orig' => $jeId, 't' => $tenantId, 'rid' => $rev['je_id']]);
+
+        if (accountingTableHasColumn($pdo, 'accounting_bank_statement_lines', 'matched_je_id')) {
+            $pdo->prepare(
+                "UPDATE accounting_bank_statement_lines
+                    SET match_status = 'unmatched', matched_je_id = NULL,
+                        matched_at = NULL, matched_by_user_id = NULL
+                  WHERE tenant_id = :t AND matched_je_id = :id"
+            )->execute(['t' => $tenantId, 'id' => $jeId]);
+        }
+        if (accountingTableHasColumn($pdo, 'treasury_liability_statement_lines', 'matched_je_id')) {
+            $pdo->prepare(
+                "UPDATE treasury_liability_statement_lines
+                    SET match_status = 'unmatched', matched_je_id = NULL
+                  WHERE tenant_id = :t AND matched_je_id = :id"
+            )->execute(['t' => $tenantId, 'id' => $jeId]);
+        }
+        cf_tx_commit($pdo, $ownsTransaction);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTransaction);
+        throw $e;
+    }
 
     // The original period changed status and the reversal's period was
     // auto-marked dirty by accountingPostJe() above. Readers include both
