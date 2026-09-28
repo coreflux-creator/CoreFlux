@@ -2,8 +2,8 @@
 
 The Quanta connector is intentionally disconnected on deployment. There is no
 scheduled sync, webhook, or automatic tenant link. A CoreFlux tenant admin must
-connect a Quanta API key, review worker/placement routes, preview source time,
-and select the entries to import.
+connect a Quanta API key, link worker identities, review placement routes,
+preview source time, and select the entries to import.
 
 ## Connection and scope
 
@@ -21,11 +21,17 @@ CoreFlux time.
 
 - The initial preview is approved Quanta entries changed in the last 30 days.
   A submitted-plus-approved review mode and earlier dates are available.
+- A Quanta worker ID must be explicitly linked to one canonical CoreFlux person
+  before any placement route or import. Exact email can suggest a person, and
+  multiple suggested links can be saved together. A stored link cannot silently
+  move to another person. Unlink requires removing routes first and is blocked
+  if imported time depends on the worker.
 - An entry is routed by its Quanta worker ID, worksite ID, dimension values,
   and work date to one effective-dated CoreFlux placement. No fuzzy match is
-  committed automatically. An exact worker-email match can suggest a
-  placement, but an admin must save it. A missing or overlapping route blocks
-  import.
+  committed automatically. Only placements for the linked person are available,
+  and a unique placement with an exact worksite/client name may be suggested,
+  but an admin must save the
+  route. A missing or overlapping route or a person mismatch blocks import.
 - Regular, overtime, double-time, and classified PTO hours remain separate
   atomic CoreFlux time rows. PTO without a supported vacation/holiday/sick/
   bereavement subtype is blocked rather than guessed. Missing classification,
@@ -51,3 +57,15 @@ define a time-entry response schema. Before any live import, connect the
 correct Quanta workspace, inspect a preview containing real regular/OT/PTO
 entries, and confirm that its response fields and dimension values match the
 normalizer. Do not import while that preview contains unresolved rows.
+
+## Direction of authority
+
+Quanta owns clock events, timesheet submission, and its source approval state.
+CoreFlux owns placements, rates, accounting dimensions, and downstream billing,
+AP, and payroll decisions. Import never writes an approval or correction back
+to Quanta. Quanta documents write endpoints, but the tenant API-key screen only
+offers read scopes; a bidirectional workflow requires separately verified
+write credentials, conflict rules, and an agreed source of truth before it can
+be enabled. Running Connecteam-to-Quanta and Connecteam-to-CoreFlux time feeds
+for the same activity would risk duplicate time, so only one ingestion path
+should be active for each source clock.

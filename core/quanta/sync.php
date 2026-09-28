@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/client.php';
+require_once __DIR__ . '/identity.php';
 require_once __DIR__ . '/../sub_tenants.php';
 require_once __DIR__ . '/../../modules/time/lib/time.php';
 require_once __DIR__ . '/../../modules/staffing/lib/timesheets.php';
@@ -80,7 +81,7 @@ function quantaNormalizeEntry(array $raw, array $worksites, string $requestedSta
     if ($status === '' && is_array($raw['timesheet'] ?? null)) {
         $status = strtolower(trim((string) ($raw['timesheet']['status'] ?? '')));
     }
-    if ($status === '') $status = $requestedStatus === 'approved' ? 'approved' : 'not_reported';
+    if ($status === '') throw new InvalidArgumentException("Quanta entry {$id} has no reported timesheet status");
     if (!in_array($status, ['approved', 'submitted', 'not_reported'], true)) {
         throw new InvalidArgumentException("Quanta entry {$id} has unsupported timesheet status {$status}");
     }
@@ -187,8 +188,12 @@ function quantaRoutes(int $tenantId): array
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
-function quantaRouteFor(array $routes, array $entry): array
+function quantaRouteFor(array $routes, array $entry, array $workerPeople): array
 {
+    $workerId = (string) $entry['worker_id'];
+    if (!isset($workerPeople[$workerId])) {
+        throw new RuntimeException('Link this Quanta worker to a CoreFlux person before routing time');
+    }
     $matching = array_values(array_filter($routes, static fn (array $route): bool =>
         (string) $route['worker_id'] === $entry['worker_id']
         && (string) $route['worksite_id'] === $entry['worksite_id']
@@ -200,6 +205,7 @@ function quantaRouteFor(array $routes, array $entry): array
     if (count($matching) !== 1) throw new RuntimeException('Overlapping Quanta placement routes need correction');
     $route = $matching[0];
     if (empty($route['person_id']) || empty($route['person_name'])) throw new RuntimeException('The mapped placement has no available person');
+    quantaAssertWorkerPerson($workerId, (int) $route['person_id'], $workerPeople);
     if (!empty($route['deleted_at']) || $route['placement_status'] === 'cancelled') throw new RuntimeException('The mapped placement is deleted or cancelled');
     if (!empty($route['start_date']) && $entry['work_date'] < $route['start_date']) throw new RuntimeException('Work date is before placement start');
     $end = $route['actual_end_date'] ?: $route['end_date'];
@@ -268,6 +274,7 @@ function quantaEntryDecision(array $entry, array $route, array $imports): array
 function quantaPreviewRows(int $tenantId, array $rawEntries, array $worksites, string $requestedStatus): array
 {
     $routes = quantaRoutes($tenantId);
+    $workerPeople = quantaWorkerPersonMap(quantaWorkerLinks($tenantId));
     $ids = [];
     foreach ($rawEntries as $raw) {
         $id = trim((string) quantaValue($raw, ['id', 'entry_id']));
@@ -282,7 +289,7 @@ function quantaPreviewRows(int $tenantId, array $rawEntries, array $worksites, s
         try {
             $entry = quantaNormalizeEntry($raw, $worksites, $requestedStatus);
             $row += $entry;
-            $route = quantaRouteFor($routes, $entry);
+            $route = quantaRouteFor($routes, $entry, $workerPeople);
             $row['placement_id'] = (int) $route['placement_id'];
             $row['person_name'] = $route['person_name'];
             [$row['status'], $row['message']] = quantaEntryDecision($entry, $route, $imports);
@@ -326,10 +333,11 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
     $skipped = 0;
     try {
         $routes = quantaRoutes($tenantId);
+        $workerPeople = quantaWorkerPersonMap(quantaWorkerLinks($tenantId, true));
         $imports = quantaImportLookup($tenantId, $selectedIds);
         foreach ($selectedIds as $id) {
             $entry = quantaNormalizeEntry($source[$id], $worksites, $requestedStatus);
-            $route = quantaRouteFor($routes, $entry);
+            $route = quantaRouteFor($routes, $entry, $workerPeople);
             [$decision, $message] = quantaEntryDecision($entry, $route, $imports);
             if ($decision === 'conflict') throw new RuntimeException("Quanta entry {$id}: {$message}");
             if ($decision === 'imported') { $skipped++; continue; }
@@ -377,6 +385,7 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
                     scopedUpdate('time_entries', $existingId, $payload);
                     scopedUpdate('quanta_time_imports', (int) $prior['id'], [
                         'source_hash' => $hash, 'source_timesheet_status' => $entry['source_status'],
+                        'worker_id' => $entry['worker_id'],
                         'timesheet_id' => (int) $timesheet['id'], 'imported_by_user_id' => $actorId,
                     ]);
                     $updated++;
@@ -386,6 +395,7 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
                     $entryId = scopedInsert('time_entries', $payload);
                     scopedInsert('quanta_time_imports', [
                         'quanta_entry_id' => $id, 'component' => $component,
+                        'worker_id' => $entry['worker_id'],
                         'time_entry_id' => $entryId, 'timesheet_id' => (int) $timesheet['id'],
                         'source_hash' => $hash, 'source_timesheet_status' => $entry['source_status'],
                         'imported_by_user_id' => $actorId,

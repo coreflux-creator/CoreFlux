@@ -54,7 +54,8 @@ jobs:
             .deploy-version \
             api/quanta.php \
             core/migrations/147_quanta_time_integration.sql \
-            core/quanta/client.php core/quanta/sync.php core/rbac/legacy_map.php \
+            core/migrations/148_quanta_worker_identity.sql \
+            core/quanta/client.php core/quanta/identity.php core/quanta/sync.php core/rbac/legacy_map.php \
             dashboard/dist/index.html dashboard/src/pages/AdminModule.jsx \
             dashboard/src/pages/IntegrationsHub.jsx dashboard/src/pages/QuantaSettings.jsx \
             index.html modules/time/api/csv_import.php \
@@ -73,7 +74,7 @@ jobs:
           target: /tmp/coreflux-quanta-${{ github.run_id }}
           overwrite: true
 
-      - name: Publish and verify without connecting Quanta
+      - name: Publish and verify Quanta identity graph
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.CW_SSH_HOST }}
@@ -96,7 +97,9 @@ jobs:
             tar -xzf "$STAGE_ROOT/coreflux-quanta-release.tar.gz" -C "$STAGE_ROOT"
             rm -f -- "$STAGE_ROOT/coreflux-quanta-release.tar.gz"
             test -f "$STAGE_ROOT/core/migrations/147_quanta_time_integration.sql"
+            test -f "$STAGE_ROOT/core/migrations/148_quanta_worker_identity.sql"
             test -f "$STAGE_ROOT/core/quanta/sync.php"
+            test -f "$STAGE_ROOT/core/quanta/identity.php"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
@@ -104,18 +107,21 @@ jobs:
             }
             trap cleanup_deploy EXIT
 
-            cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
             cd "$APP_ROOT"
+            QUANTA_BEFORE="$(php -r 'require "core/api_bootstrap.php"; $db=getDB(); $active=(int)$db->query("SELECT COUNT(*) FROM quanta_connections WHERE status=\"active\"")->fetchColumn(); $imports=(int)$db->query("SELECT COUNT(*) FROM quanta_time_imports")->fetchColumn(); echo "$active:$imports";')"
+            cp --no-preserve=mode,ownership,timestamps "$STAGE_ROOT/core/migrations/148_quanta_worker_identity.sql" "$APP_ROOT/core/migrations/148_quanta_worker_identity.sql"
+            php deploy/run_migrations.php
+            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/148_quanta_worker_identity.sql'
+            cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
             SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' index.html | head -n 1)"
             test -n "$SPA_ENTRY"
             test -f "$SPA_ENTRY"
             grep -Fq -- "- $SPA_ENTRY" .deploy-version
 
-            php deploy/run_migrations.php
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/147_quanta_time_integration.sql'
-            php -r 'require "core/api_bootstrap.php"; $db=getDB(); foreach (["quanta_connections","quanta_time_routes","quanta_time_imports"] as $table) { $q=$db->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:name"); $q->execute(["name"=>$table]); if ((int)$q->fetchColumn() !== 1) { fwrite(STDERR,"$table missing\n"); exit(1); } } $active=(int)$db->query("SELECT COUNT(*) FROM quanta_connections WHERE status=\"active\"")->fetchColumn(); $imports=(int)$db->query("SELECT COUNT(*) FROM quanta_time_imports")->fetchColumn(); if ($active !== 0 || $imports !== 0) { fwrite(STDERR,"Quanta was unexpectedly connected or imported\n"); exit(1); } echo "Quanta schema verified; no connections or imports.\n";'
+            php -r 'require "core/api_bootstrap.php"; $db=getDB(); foreach (["quanta_connections","quanta_time_routes","quanta_time_imports","quanta_worker_links"] as $table) { $q=$db->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:name"); $q->execute(["name"=>$table]); if ((int)$q->fetchColumn() !== 1) { fwrite(STDERR,"$table missing\n"); exit(1); } } $column=$db->query("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=\"quanta_time_imports\" AND column_name=\"worker_id\""); if ((int)$column->fetchColumn() !== 1) exit(1); $active=(int)$db->query("SELECT COUNT(*) FROM quanta_connections WHERE status=\"active\"")->fetchColumn(); $imports=(int)$db->query("SELECT COUNT(*) FROM quanta_time_imports")->fetchColumn(); if ("$active:$imports" !== $argv[1]) { fwrite(STDERR,"Quanta connection or import counts changed during deployment\n"); exit(1); } echo "Quanta identity schema verified; connection and import counts preserved.\n";' "$QUANTA_BEFORE"
 
-            for file in api/quanta.php core/quanta/client.php core/quanta/sync.php modules/time/api/csv_import.php; do
+            for file in api/quanta.php core/quanta/client.php core/quanta/identity.php core/quanta/sync.php modules/time/api/csv_import.php; do
               php -l "$file"
             done
             php tests/quanta_integration_smoke.php
@@ -129,4 +135,4 @@ jobs:
             php -r '$r=json_decode((string) file_get_contents($argv[1]), true); if (!is_array($r) || ($r["ok"] ?? false) !== true) exit(1);' "$OPCACHE_RESPONSE"
 
             curl -fsS --max-time 30 -o /dev/null "https://www.corefluxapp.com/$SPA_ENTRY?release=${{ github.sha }}"
-            echo "Quanta connector deployed from commit ${{ github.sha }}; no account was linked or time imported."
+            echo "Quanta identity graph deployed from commit ${{ github.sha }}; existing connections and imports preserved."
