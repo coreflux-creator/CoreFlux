@@ -51,7 +51,7 @@ export default function QuantaSettings() {
   const [confirmWorkspace, setConfirmWorkspace] = useState(false);
   const [confirmSame, setConfirmSame] = useState(false);
   const [since, setSince] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); });
-  const [sourceStatus, setSourceStatus] = useState('approved');
+  const sourceStatus = 'approved';
   const [preview, setPreview] = useState(null);
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState([]);
@@ -282,7 +282,7 @@ export default function QuantaSettings() {
         {timeAccess?.available === false && <Notice error>{timeAccess.error || 'Quanta denied access to /time-entries with this key. The worker catalog is connected, but time preview and import are unavailable. No hours have been imported.'}</Notice>}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end', marginTop: 14 }}>
           <label style={{ display: 'grid', gap: 4, fontSize: 13 }}>Changed since<input type="date" value={since} onChange={e => setSince(e.target.value)} style={field} /></label>
-          <label style={{ display: 'grid', gap: 4, fontSize: 13 }}>Quanta status<select value={sourceStatus} onChange={e => setSourceStatus(e.target.value)} style={field}><option value="approved">Approved only</option><option value="submitted,approved">Submitted and approved</option></select></label>
+          <div style={{ display: 'grid', gap: 4, fontSize: 13 }}><span>Quanta status</span><strong>Approved only</strong></div>
           <button className="btn btn-primary" type="button" disabled={!!busy || !timeAccess?.available} onClick={() => showPreview(0)}><Clock3 size={15} /> Preview time</button>
         </div>
         {preview && <>

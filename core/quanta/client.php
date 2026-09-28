@@ -91,7 +91,7 @@ function quantaProbeConnection(string $apiKey): void
 function quantaTimeEntryAccess(string $apiKey): bool
 {
     try {
-        $result = quantaGet($apiKey, '/time-entries', ['limit' => 1]);
+        $result = quantaGet($apiKey, '/time-entries', ['timesheet_status' => 'approved', 'limit' => 1]);
         if (!isset($result['items']) || !is_array($result['items'])) {
             throw new QuantaApiException('Quanta /time-entries did not return a list');
         }
@@ -139,8 +139,8 @@ function quantaCatalog(string $apiKey): array
 
 function quantaEntries(string $apiKey, string $updatedSince, string $status = 'approved'): array
 {
-    if (!in_array($status, ['approved', 'submitted,approved'], true)) {
-        throw new InvalidArgumentException('Unsupported Quanta timesheet status filter');
+    if ($status !== 'approved') {
+        throw new InvalidArgumentException('Only approved Quanta time can be imported');
     }
     $since = DateTimeImmutable::createFromFormat('!Y-m-d', $updatedSince);
     if (!$since || $since->format('Y-m-d') !== $updatedSince) {

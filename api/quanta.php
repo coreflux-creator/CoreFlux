@@ -24,8 +24,8 @@ function quantaApiWindow(array $body): array
 {
     $since = quantaApiDate((string) ($body['changed_since'] ?? date('Y-m-d', strtotime('-30 days'))), 'Changed since');
     $status = (string) ($body['source_status'] ?? 'approved');
-    if (!in_array($status, ['approved', 'submitted,approved'], true)) {
-        throw new InvalidArgumentException('Choose approved only or submitted and approved');
+    if ($status !== 'approved') {
+        throw new InvalidArgumentException('Only approved Quanta time can be previewed or imported');
     }
     return [$since, $status];
 }

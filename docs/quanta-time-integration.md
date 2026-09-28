@@ -20,7 +20,8 @@ CoreFlux time.
 ## Review and import
 
 - The initial preview is approved Quanta entries changed in the last 30 days.
-  A submitted-plus-approved review mode and earlier dates are available.
+  Earlier dates are available. A `timesheets:read` key must never expose
+  submitted or draft entries through this connector.
 - A Quanta worker ID must be explicitly linked to one canonical CoreFlux person
   before any placement route or import. Exact email can suggest a person, and
   multiple suggested links can be saved together. A stored link cannot silently

@@ -36,7 +36,7 @@ $probeCalls = [];
 $denyTimeEntries = true;
 $GLOBALS['__quanta_transport'] = static function (string $method, string $url, array $headers) use (&$probeCalls, &$denyTimeEntries): array {
     $path = (string) parse_url($url, PHP_URL_PATH);
-    $probeCalls[] = $path;
+    $probeCalls[] = $url;
     if ($path === '/api/v1/time-entries' && $denyTimeEntries) {
         return ['status' => 403, 'body' => '{"detail":"Missing time-entry scope"}'];
     }
@@ -45,11 +45,14 @@ $GLOBALS['__quanta_transport'] = static function (string $method, string $url, a
 $probeSucceeded = true;
 try { quantaProbeConnection('fixture-key'); } catch (Throwable $e) { $probeSucceeded = false; }
 $check('catalog connection probes workers, worksites, and timesheets', $probeSucceeded
-    && $probeCalls === ['/api/v1/workers', '/api/v1/worksites', '/api/v1/timesheets']);
+    && array_map(static fn (string $url): string => (string) parse_url($url, PHP_URL_PATH), $probeCalls)
+        === ['/api/v1/workers', '/api/v1/worksites', '/api/v1/timesheets']);
 $check('denied time entries do not masquerade as import access', !quantaTimeEntryAccess('fixture-key'));
+$check('time access probes approved entries only', str_contains(end($probeCalls), 'timesheet_status=approved'));
 $timeError = '';
 try { quantaEntries('fixture-key', '2026-09-01'); } catch (QuantaApiException $e) { $timeError = $e->getMessage(); }
 $check('denied import explains that no hours moved', str_contains($timeError, 'No time was imported'));
+$check('submitted source filter is rejected before any request', $throws(static fn () => quantaEntries('fixture-key', '2026-09-01', 'submitted,approved')));
 $denyTimeEntries = false;
 $check('granted time-entry access is reported separately', quantaTimeEntryAccess('fixture-key'));
 unset($GLOBALS['__quanta_transport']);
@@ -78,8 +81,7 @@ $pto = array_replace($raw, ['pto_hours' => 1, 'reg_hours' => 7, 'ot_hours' => 0,
 $check('classified sick time stays distinct', isset(quantaNormalizeEntry($pto, $site, 'approved')['components']['pto_sick']));
 $submitted = $raw;
 $submitted['timesheet_status'] = 'submitted';
-$check('submitted source is allowed only in review mode', $throws(static fn () => quantaNormalizeEntry($submitted, $site, 'approved'))
-    && quantaNormalizeEntry($submitted, $site, 'submitted,approved')['source_status'] === 'submitted');
+$check('submitted source is not accepted as approved', $throws(static fn () => quantaNormalizeEntry($submitted, $site, 'approved')));
 $check('unreported source approval is not inferred from the filter', $throws(static fn () => quantaNormalizeEntry(
     array_diff_key($raw, ['timesheet_status' => true]), $site, 'approved'
 )));
