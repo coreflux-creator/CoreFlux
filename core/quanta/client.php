@@ -109,6 +109,7 @@ function quantaListPage(array $result, string $path): array
     } else {
         $rows = $result['items'] ?? null;
         $page = $result;
+        if (!array_key_exists('has_more', $page)) $page['has_more'] = false;
     }
     if (!is_array($rows) || !array_is_list($rows) || !is_array($page)
         || !array_key_exists('has_more', $page) || !is_bool($page['has_more'])) {

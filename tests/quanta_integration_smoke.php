@@ -31,6 +31,7 @@ $check('key goes in bearer header, not URL', str_contains(implode(' ', $calls[0]
     && !str_contains($calls[0][1], 'fixture-key'));
 $check('arbitrary API host/path is rejected', $throws(static fn () => quantaGet('fixture-key', '/../../../evil')));
 $check('approved-entry contract rejects old items envelope', $throws(static fn () => quantaListPage(['items' => [], 'has_more' => false], '/time-entries')));
+$check('catalog accepts its existing items-only response', quantaListPage(['items' => []], '/workers') === [[], ['items' => [], 'has_more' => false]]);
 unset($GLOBALS['__quanta_transport']);
 
 $probeCalls = [];
