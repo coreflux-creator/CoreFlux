@@ -1,5 +1,5 @@
 <?php
-/** Contract and safety smoke for the dormant Quanta time connector. */
+/** Contract and safety smoke for the Quanta time connector. */
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/core/quanta/sync.php';
@@ -30,6 +30,28 @@ $check('read-only requests target the documented host', count($calls) === 2 && $
 $check('key goes in bearer header, not URL', str_contains(implode(' ', $calls[0][2]), 'Bearer fixture-key')
     && !str_contains($calls[0][1], 'fixture-key'));
 $check('arbitrary API host/path is rejected', $throws(static fn () => quantaGet('fixture-key', '/../../../evil')));
+unset($GLOBALS['__quanta_transport']);
+
+$probeCalls = [];
+$denyTimeEntries = true;
+$GLOBALS['__quanta_transport'] = static function (string $method, string $url, array $headers) use (&$probeCalls, &$denyTimeEntries): array {
+    $path = (string) parse_url($url, PHP_URL_PATH);
+    $probeCalls[] = $path;
+    if ($path === '/api/v1/time-entries' && $denyTimeEntries) {
+        return ['status' => 403, 'body' => '{"detail":"Missing time-entry scope"}'];
+    }
+    return ['status' => 200, 'body' => '{"items":[]}'];
+};
+$probeSucceeded = true;
+try { quantaProbeConnection('fixture-key'); } catch (Throwable $e) { $probeSucceeded = false; }
+$check('catalog connection probes workers, worksites, and timesheets', $probeSucceeded
+    && $probeCalls === ['/api/v1/workers', '/api/v1/worksites', '/api/v1/timesheets']);
+$check('denied time entries do not masquerade as import access', !quantaTimeEntryAccess('fixture-key'));
+$timeError = '';
+try { quantaEntries('fixture-key', '2026-09-01'); } catch (QuantaApiException $e) { $timeError = $e->getMessage(); }
+$check('denied import explains that no hours moved', str_contains($timeError, 'No time was imported'));
+$denyTimeEntries = false;
+$check('granted time-entry access is reported separately', quantaTimeEntryAccess('fixture-key'));
 unset($GLOBALS['__quanta_transport']);
 
 $site = ['work-1' => ['timezone_override' => 'America/New_York']];
@@ -119,6 +141,8 @@ $identityMigration = (string) file_get_contents($root . '/core/migrations/148_qu
 $ui = (string) file_get_contents($root . '/dashboard/src/pages/QuantaSettings.jsx');
 $check('connection and import are tenant-admin gated', str_contains($api, 'integrations.quanta.manage')
     && str_contains($api, 'confirm_tenant_id'));
+$check('time access is checked separately from catalog connection', str_contains($api, "\$action === 'time_access'")
+    && str_contains($ui, 'timeAccess?.available === false') && str_contains($ui, 'disabled={!!busy || !timeAccess?.available}'));
 $check('source component and CoreFlux row IDs have unique fences', str_contains($migration, 'uq_quanta_import_source (tenant_id, quanta_entry_id, component)')
     && str_contains($migration, 'uq_quanta_import_entry (tenant_id, time_entry_id)'));
 $check('worker and person links are one-to-one per workspace', str_contains($identityMigration, 'uq_quanta_worker_identity (tenant_id, worker_id)')

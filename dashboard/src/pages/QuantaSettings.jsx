@@ -46,6 +46,7 @@ export default function QuantaSettings() {
   const status = useApi(`${endpoint}status`);
   const connected = !!status.data?.connected;
   const [catalog, setCatalog] = useState(null);
+  const [timeAccess, setTimeAccess] = useState(null);
   const [key, setKey] = useState('');
   const [confirmWorkspace, setConfirmWorkspace] = useState(false);
   const [confirmSame, setConfirmSame] = useState(false);
@@ -68,14 +69,23 @@ export default function QuantaSettings() {
     finally { setBusy(''); }
   };
   const loadCatalog = async () => setCatalog(await api.get(`${endpoint}catalog`, { timeoutMs: 60000 }));
+  const loadTimeAccess = async () => {
+    const access = await api.get(`${endpoint}time_access`, { timeoutMs: 60000 });
+    setTimeAccess(access);
+    return access;
+  };
   useEffect(() => {
-    if (!connected) { setCatalog(null); setPreview(null); return; }
+    setCatalog(null); setPreview(null); setTimeAccess(null);
+    if (!connected) return;
     let active = true;
     api.get(`${endpoint}catalog`, { timeoutMs: 60000 })
       .then(data => { if (active) setCatalog(data); })
       .catch(e => { if (active) setError(e.message || 'Could not load Quanta workers'); });
+    api.get(`${endpoint}time_access`, { timeoutMs: 60000 })
+      .then(data => { if (active) setTimeAccess(data); })
+      .catch(e => { if (active) setTimeAccess({ available: false, error: e.message || 'Could not check time-entry access' }); });
     return () => { active = false; };
-  }, [connected]);
+  }, [connected, status.data?.workspace?.id]);
 
   const workers = useMemo(() => new Map((catalog?.workers || []).map(w => [String(w.id), w])), [catalog]);
   const sites = useMemo(() => new Map((catalog?.worksites || []).map(s => [String(s.id), s])), [catalog]);
@@ -206,8 +216,8 @@ export default function QuantaSettings() {
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 16, flexWrap: 'wrap' }}>
       <div><h1 style={{ margin: '0 0 5px', fontSize: 26 }}>Quanta time</h1><div style={{ color: 'var(--cf-text-secondary)' }}>Workspace: <strong>{status.data?.workspace?.name || 'Loading'}</strong></div></div>
       <span style={{ padding: '4px 9px', borderRadius: 4, fontSize: 12, fontWeight: 700,
-        background: connected ? '#dcfce7' : '#fef3c7', color: connected ? '#166534' : '#92400e' }}>
-        {status.loading ? 'Checking' : connected ? 'Connected' : 'Not connected'}
+        background: connected && timeAccess?.available ? '#dcfce7' : '#fef3c7', color: connected && timeAccess?.available ? '#166534' : '#92400e' }}>
+        {status.loading ? 'Checking' : connected ? (timeAccess === null ? 'Checking access' : timeAccess.available ? 'Connected' : 'Catalog connected') : 'Not connected'}
       </span>
     </div>
     {status.error && <Notice error>{status.error.message}</Notice>}
@@ -218,7 +228,7 @@ export default function QuantaSettings() {
       <h2 style={{ fontSize: 18, margin: '0 0 12px' }}>Connection</h2>
       {connected ? <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <span>Connected key ending {status.data?.api_key_last4 || '••••'}</span>
-        <button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => run('probe', async () => { await api.post(`${endpoint}probe`); await status.reload(); setNotice('Quanta read access verified.'); })}><RefreshCw size={15} /> Check access</button>
+        <button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => run('probe', async () => { await api.post(`${endpoint}probe`); const access = await loadTimeAccess(); await status.reload(); setNotice(access.available ? 'Quanta read access verified.' : 'Worker, worksite, and timesheet access verified. Quanta still denies time-entry access.'); })}><RefreshCw size={15} /> Check access</button>
         <button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => { if (window.confirm('Disconnect Quanta from this CoreFlux workspace? Existing imported time stays in CoreFlux.')) run('disconnect', async () => { await api.post(`${endpoint}disconnect`); await status.reload(); setNotice('Quanta disconnected.'); }); }}><Unplug size={15} /> Disconnect</button>
         {status.data?.last_probe_error && <Notice error>{status.data.last_probe_error}</Notice>}
       </div> : <div style={{ display: 'grid', gap: 12, maxWidth: 640 }}>
@@ -228,7 +238,7 @@ export default function QuantaSettings() {
         {status.data?.status && <label style={{ display: 'flex', gap: 8, alignItems: 'start' }}><input type="checkbox" checked={confirmSame} onChange={e => setConfirmSame(e.target.checked)} /> This key belongs to the same Quanta workspace previously connected here.</label>}
         <div><button className="btn btn-primary" type="button" disabled={!key || !confirmWorkspace || (!!status.data?.status && !confirmSame) || !!busy} onClick={() => run('connect', async () => {
           await api.post(`${endpoint}connect`, { api_key: key, confirm_tenant_id: status.data.workspace.id, confirm_same_quanta_workspace: confirmSame }, { timeoutMs: 60000 });
-          setKey(''); await status.reload(); setNotice('Quanta connected. Review placement routes before importing time.');
+          setKey(''); await status.reload(); setNotice('Quanta catalog connected. Time-entry access is checked separately.');
         })}><KeyRound size={15} /> Connect Quanta</button></div>
       </div>}
     </div>
@@ -269,10 +279,11 @@ export default function QuantaSettings() {
           <div><h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Review source time</h2><span style={{ color: 'var(--cf-text-secondary)' }}>Quanta time stays pending review in CoreFlux after import.</span></div>
           <button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => run('catalog', async () => { await loadCatalog(); setPreview(null); setNotice('Quanta workers and placements refreshed.'); })}><RefreshCw size={15} /> Refresh workers</button>
         </div>
+        {timeAccess?.available === false && <Notice error>{timeAccess.error || 'Quanta denied access to /time-entries with this key. The worker catalog is connected, but time preview and import are unavailable. No hours have been imported.'}</Notice>}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end', marginTop: 14 }}>
           <label style={{ display: 'grid', gap: 4, fontSize: 13 }}>Changed since<input type="date" value={since} onChange={e => setSince(e.target.value)} style={field} /></label>
           <label style={{ display: 'grid', gap: 4, fontSize: 13 }}>Quanta status<select value={sourceStatus} onChange={e => setSourceStatus(e.target.value)} style={field}><option value="approved">Approved only</option><option value="submitted,approved">Submitted and approved</option></select></label>
-          <button className="btn btn-primary" type="button" disabled={!!busy} onClick={() => showPreview(0)}><Clock3 size={15} /> Preview time</button>
+          <button className="btn btn-primary" type="button" disabled={!!busy || !timeAccess?.available} onClick={() => showPreview(0)}><Clock3 size={15} /> Preview time</button>
         </div>
         {preview && <>
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', margin: '18px 0 12px', fontSize: 14 }}>

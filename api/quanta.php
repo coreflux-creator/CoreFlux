@@ -13,16 +13,6 @@ $actorId = (int) ($user['id'] ?? 0);
 $method = api_method();
 $action = (string) (api_query('action') ?? 'status');
 
-function quantaApiProbe(string $key): void
-{
-    foreach (['/workers', '/worksites', '/time-entries'] as $path) {
-        $result = quantaGet($key, $path, ['limit' => 1]);
-        if (!isset($result['items']) || !is_array($result['items'])) {
-            throw new QuantaApiException("Quanta {$path} did not return a list");
-        }
-    }
-}
-
 function quantaApiDate(string $date, string $label): string
 {
     $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
@@ -109,6 +99,11 @@ try {
         ]);
     }
 
+    if ($method === 'GET' && $action === 'time_access') {
+        rbac_legacy_require($user, 'integrations.quanta.view');
+        api_ok(['available' => quantaTimeEntryAccess(quantaApiKey($tenantId))]);
+    }
+
     if ($method !== 'POST') api_error('Method not allowed', 405);
     rbac_legacy_require($user, 'integrations.quanta.manage');
     $body = api_json_body();
@@ -123,7 +118,7 @@ try {
         if ($existing && empty($body['confirm_same_quanta_workspace'])) {
             throw new InvalidArgumentException('Confirm this key belongs to the same Quanta workspace as the previous connection');
         }
-        quantaApiProbe($key);
+        quantaProbeConnection($key);
         $ciphertext = encryptField($key);
         $params = ['t' => $tenantId, 'k' => $ciphertext, 'l' => substr($key, -4), 'u' => $actorId];
         getDB()->prepare(
@@ -148,7 +143,7 @@ try {
     if ($action === 'probe') {
         $key = quantaApiKey($tenantId);
         try {
-            quantaApiProbe($key);
+            quantaProbeConnection($key);
             getDB()->prepare('UPDATE quanta_connections SET last_probe_at = NOW(), last_probe_error = NULL WHERE tenant_id = :t')
                 ->execute(['t' => $tenantId]);
         } catch (Throwable $e) {
