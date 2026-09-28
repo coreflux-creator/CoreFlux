@@ -51,12 +51,16 @@ CoreFlux time.
 ## Verification boundary
 
 The signed-in Quanta workspace had no API key or time entries when this was
-built. Unit/contract tests and a frontend build run without connecting it.
-Quanta's OpenAPI publishes the endpoint and filter contracts but does not
-define a time-entry response schema. Before any live import, connect the
-correct Quanta workspace, inspect a preview containing real regular/OT/PTO
-entries, and confirm that its response fields and dimension values match the
-normalizer. Do not import while that preview contains unresolved rows.
+built. On September 28, 2026, an Arabella key with the three read scopes
+successfully read `/workers` and `/worksites`, but Quanta returned HTTP 403
+for `/time-entries`. The connection probe now checks `/timesheets` separately
+from entry-level import access. CoreFlux disables time preview and import
+when entry access is denied; catalog connectivity does not imply that hours
+can be imported. Quanta's OpenAPI publishes endpoint and filter contracts but
+does not define a time-entry response schema. Before any live import, obtain
+entry-level read access, inspect a preview containing real regular/OT/PTO
+entries, and confirm its fields and dimensions match the normalizer. Do not
+import while that preview contains unresolved rows.
 
 ## Direction of authority
 

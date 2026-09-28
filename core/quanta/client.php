@@ -77,6 +77,31 @@ function quantaGet(string $apiKey, string $path, array $query = []): array
     return $data;
 }
 
+function quantaProbeConnection(string $apiKey): void
+{
+    foreach (['/workers', '/worksites'] as $path) {
+        $result = quantaGet($apiKey, $path, ['limit' => 1]);
+        if (!isset($result['items']) || !is_array($result['items'])) {
+            throw new QuantaApiException("Quanta {$path} did not return a list");
+        }
+    }
+    quantaGet($apiKey, '/timesheets', ['page' => 1, 'page_size' => 1]);
+}
+
+function quantaTimeEntryAccess(string $apiKey): bool
+{
+    try {
+        $result = quantaGet($apiKey, '/time-entries', ['limit' => 1]);
+        if (!isset($result['items']) || !is_array($result['items'])) {
+            throw new QuantaApiException('Quanta /time-entries did not return a list');
+        }
+        return true;
+    } catch (QuantaApiException $e) {
+        if ($e->httpStatus === 403) return false;
+        throw $e;
+    }
+}
+
 /** Quanta's cursor contract is {items, next_cursor, has_more}. Never return a partial set. */
 function quantaListAll(string $apiKey, string $path, array $query = [], int $maxItems = 10000): array
 {
@@ -121,8 +146,15 @@ function quantaEntries(string $apiKey, string $updatedSince, string $status = 'a
     if (!$since || $since->format('Y-m-d') !== $updatedSince) {
         throw new InvalidArgumentException('Changed since must be YYYY-MM-DD');
     }
-    return quantaListAll($apiKey, '/time-entries', [
-        'timesheet_status' => $status,
-        'updated_since' => $updatedSince . 'T00:00:00Z',
-    ]);
+    try {
+        return quantaListAll($apiKey, '/time-entries', [
+            'timesheet_status' => $status,
+            'updated_since' => $updatedSince . 'T00:00:00Z',
+        ]);
+    } catch (QuantaApiException $e) {
+        if ($e->httpStatus === 403) {
+            throw new QuantaApiException('Quanta denied time-entry read access. No time was imported. Ask Quanta to enable /time-entries for this key.', 403);
+        }
+        throw $e;
+    }
 }
