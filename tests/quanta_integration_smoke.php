@@ -36,9 +36,13 @@ unset($GLOBALS['__quanta_transport']);
 
 $probeCalls = [];
 $denyTimeEntries = true;
-$GLOBALS['__quanta_transport'] = static function (string $method, string $url, array $headers) use (&$probeCalls, &$denyTimeEntries): array {
+$missingTimeEntries = false;
+$GLOBALS['__quanta_transport'] = static function (string $method, string $url, array $headers) use (&$probeCalls, &$denyTimeEntries, &$missingTimeEntries): array {
     $path = (string) parse_url($url, PHP_URL_PATH);
     $probeCalls[] = $url;
+    if ($path === '/api/v1/time-entries/approved' && $missingTimeEntries) {
+        return ['status' => 404, 'body' => '{"detail":"Not Found"}'];
+    }
     if ($path === '/api/v1/time-entries/approved' && $denyTimeEntries) {
         return ['status' => 403, 'body' => '{"detail":"Missing time-entry scope"}'];
     }
@@ -61,6 +65,12 @@ try { quantaEntries('fixture-key', '2026-09-01'); } catch (QuantaApiException $e
 $check('denied import explains that no hours moved', str_contains($timeError, 'No time was imported'));
 $check('submitted source filter is rejected before any request', $throws(static fn () => quantaEntries('fixture-key', '2026-09-01', 'submitted,approved')));
 $denyTimeEntries = false;
+$missingTimeEntries = true;
+$unpublishedMessage = '';
+try { quantaTimeEntryAccess('fixture-key'); } catch (QuantaApiException $e) { $unpublishedMessage = $e->getMessage(); }
+$check('unpublished approved endpoint has actionable no-import message',
+    str_contains($unpublishedMessage, 'not published') && str_contains($unpublishedMessage, 'No hours have been imported'));
+$missingTimeEntries = false;
 $check('granted time-entry access is reported separately', quantaTimeEntryAccess('fixture-key'));
 $requestStart = count($probeCalls);
 quantaEntries('fixture-key', '2026-09-01');

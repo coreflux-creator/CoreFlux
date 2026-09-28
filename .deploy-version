@@ -315,10 +315,10 @@ sentinels:
 - tests/staffing_dimensions_smoke.php
 - tests/treasury_dimension_integrity_smoke.php
 expected_bundle:
-- spa-assets/index-BW_WGgie.js
+- spa-assets/index-DcnUh8bq.js
 - spa-assets/index-rzHK8Pva.css
+- spa-assets/index-m-pfcCS5.js
 - spa-assets/index-SRkxIh9x.css
-- spa-assets/index-tlwRkTzO.js
 last_known_features:
 - placements.economics.one_time_items
 - placements.economics.one_time_items.downstream_settlement

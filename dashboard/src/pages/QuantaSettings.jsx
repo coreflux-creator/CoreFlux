@@ -279,7 +279,7 @@ export default function QuantaSettings() {
           <div><h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Review source time</h2><span style={{ color: 'var(--cf-text-secondary)' }}>Quanta time stays pending review in CoreFlux after import.</span></div>
           <button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => run('catalog', async () => { await loadCatalog(); setPreview(null); setNotice('Quanta workers and placements refreshed.'); })}><RefreshCw size={15} /> Refresh workers</button>
         </div>
-        {timeAccess?.available === false && <Notice error>{timeAccess.error || 'Quanta denied access to /time-entries with this key. The worker catalog is connected, but time preview and import are unavailable. No hours have been imported.'}</Notice>}
+        {timeAccess?.available === false && <Notice error>{timeAccess.error || 'Quanta denied access to approved time entries with this key. The worker catalog is connected, but time preview and import are unavailable. No hours have been imported.'}</Notice>}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end', marginTop: 14 }}>
           <label style={{ display: 'grid', gap: 4, fontSize: 13 }}>Changed since<input type="date" value={since} onChange={e => setSince(e.target.value)} style={field} /></label>
           <div style={{ display: 'grid', gap: 4, fontSize: 13 }}><span>Quanta status</span><strong>Approved only</strong></div>

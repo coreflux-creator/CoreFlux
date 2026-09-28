@@ -97,6 +97,9 @@ function quantaTimeEntryAccess(string $apiKey): bool
         return true;
     } catch (QuantaApiException $e) {
         if ($e->httpStatus === 403) return false;
+        if ($e->httpStatus === 404) {
+            throw new QuantaApiException('Quanta has not published its approved time-entry endpoint yet. No hours have been imported.', 404);
+        }
         throw $e;
     }
 }
@@ -168,6 +171,9 @@ function quantaEntries(string $apiKey, string $updatedSince, string $status = 'a
     } catch (QuantaApiException $e) {
         if ($e->httpStatus === 403) {
             throw new QuantaApiException('Quanta denied approved time-entry read access. No time was imported. Ask Quanta to enable /time-entries/approved for this key.', 403);
+        }
+        if ($e->httpStatus === 404) {
+            throw new QuantaApiException('Quanta has not published its approved time-entry endpoint yet. No hours have been imported.', 404);
         }
         throw $e;
     }
