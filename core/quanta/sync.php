@@ -26,6 +26,18 @@ function quantaDecimalHours(mixed $value, string $field): float
     return round($hours, 2);
 }
 
+function quantaMinutes(mixed $value, string $field): int
+{
+    if (!is_int($value) && (!is_string($value) || !preg_match('/^\d+$/', $value))) {
+        throw new InvalidArgumentException("Quanta {$field} must be whole minutes");
+    }
+    $minutes = filter_var($value, FILTER_VALIDATE_INT);
+    if ($minutes === false || $minutes < 0 || $minutes > 1440) {
+        throw new InvalidArgumentException("Quanta {$field} must be between 0 and 1440 minutes");
+    }
+    return $minutes;
+}
+
 function quantaDimensions(mixed $values): array
 {
     if ($values === null) return [];
@@ -89,12 +101,36 @@ function quantaNormalizeEntry(array $raw, array $worksites, string $requestedSta
         throw new InvalidArgumentException("Quanta entry {$id} is not approved");
     }
 
-    $breakdown = [
-        'regular' => quantaValue($raw, ['reg_hours', 'regular_hours']),
-        'overtime' => quantaValue($raw, ['ot_hours', 'overtime_hours']),
-        'doubletime' => quantaValue($raw, ['dt_hours', 'doubletime_hours']),
-        'pto' => quantaValue($raw, ['pto_hours']),
+    $minuteFields = [
+        'regular' => 'regular_minutes',
+        'overtime' => 'overtime_minutes',
+        'doubletime' => 'doubletime_minutes',
+        'pto' => 'pto_minutes',
     ];
+    $hasMinuteBreakdown = count(array_intersect(array_values($minuteFields), array_keys($raw))) > 0;
+    if ($hasMinuteBreakdown) {
+        $sourceMinutes = 0;
+        $breakdown = [];
+        foreach ($minuteFields as $type => $field) {
+            if (!array_key_exists($field, $raw)) {
+                throw new InvalidArgumentException("Quanta entry {$id} is missing {$field}");
+            }
+            $minutes = quantaMinutes($raw[$field], $field);
+            $sourceMinutes += $minutes;
+            $breakdown[$type] = $minutes / 60;
+        }
+        $durationMinutes = quantaMinutes($raw['duration_minutes'] ?? null, 'duration_minutes');
+        if ($sourceMinutes !== $durationMinutes) {
+            throw new InvalidArgumentException("Quanta entry {$id} duration does not match its hour breakdown");
+        }
+    } else {
+        $breakdown = [
+            'regular' => quantaValue($raw, ['reg_hours', 'regular_hours']),
+            'overtime' => quantaValue($raw, ['ot_hours', 'overtime_hours']),
+            'doubletime' => quantaValue($raw, ['dt_hours', 'doubletime_hours']),
+            'pto' => quantaValue($raw, ['pto_hours']),
+        ];
+    }
     $components = [];
     $hasBreakdown = false;
     foreach ($breakdown as $type => $value) {
@@ -105,9 +141,13 @@ function quantaNormalizeEntry(array $raw, array $worksites, string $requestedSta
     }
     if (isset($components['pto'])) {
         $leaveType = strtolower(trim((string) quantaValue($raw, ['pto_type', 'leave_type', 'time_off_type'])));
-        if (!in_array($leaveType, ['vacation', 'holiday', 'sick', 'bereavement'], true)) {
-            throw new InvalidArgumentException("Quanta entry {$id} has PTO without a supported leave type");
-        }
+        $leaveType = match ($leaveType) {
+            'vac', 'vacation' => 'vacation',
+            'hol', 'holiday' => 'holiday',
+            'sick' => 'sick',
+            'ber', 'bereavement' => 'bereavement',
+            default => throw new InvalidArgumentException("Quanta entry {$id} has PTO without a supported leave type"),
+        };
         $components['pto_' . $leaveType] = $components['pto'];
         unset($components['pto']);
     }
@@ -122,7 +162,7 @@ function quantaNormalizeEntry(array $raw, array $worksites, string $requestedSta
             if ($seconds !== null && is_numeric($seconds)) $hours = (float) $seconds / 3600;
         }
         if ($hours === null) throw new InvalidArgumentException("Quanta entry {$id} has no duration");
-        $type = strtolower(trim((string) quantaValue($raw, ['hour_type', 'time_type', 'category'])));
+        $type = strtolower(trim((string) quantaValue($raw, ['hour_type', 'time_type', 'category', 'classification'])));
         if ($type === '') {
             throw new InvalidArgumentException("Quanta entry {$id} has no regular/overtime breakdown or time type");
         }

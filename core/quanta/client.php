@@ -92,9 +92,7 @@ function quantaTimeEntryAccess(string $apiKey): bool
 {
     try {
         $result = quantaGet($apiKey, '/time-entries', ['timesheet_status' => 'approved', 'limit' => 1]);
-        if (!isset($result['items']) || !is_array($result['items'])) {
-            throw new QuantaApiException('Quanta /time-entries did not return a list');
-        }
+        quantaListPage($result, '/time-entries');
         return true;
     } catch (QuantaApiException $e) {
         if ($e->httpStatus === 403) return false;
@@ -102,7 +100,24 @@ function quantaTimeEntryAccess(string $apiKey): bool
     }
 }
 
-/** Quanta's cursor contract is {items, next_cursor, has_more}. Never return a partial set. */
+/** The approved-entry endpoint uses {data, pagination}; catalog lists use {items, ...}. */
+function quantaListPage(array $result, string $path): array
+{
+    if ($path === '/time-entries') {
+        $rows = $result['data'] ?? null;
+        $page = $result['pagination'] ?? null;
+    } else {
+        $rows = $result['items'] ?? null;
+        $page = $result;
+    }
+    if (!is_array($rows) || !array_is_list($rows) || !is_array($page)
+        || !array_key_exists('has_more', $page) || !is_bool($page['has_more'])) {
+        throw new QuantaApiException('Quanta list response has an invalid page shape');
+    }
+    return [$rows, $page];
+}
+
+/** Collect every cursor page or fail; never return a partial source set. */
 function quantaListAll(string $apiKey, string $path, array $query = [], int $maxItems = 10000): array
 {
     $query['limit'] = 200;
@@ -110,16 +125,14 @@ function quantaListAll(string $apiKey, string $path, array $query = [], int $max
     $seenCursors = [];
     for ($page = 0; $page < 100; $page++) {
         $result = quantaGet($apiKey, $path, $query);
-        if (!isset($result['items']) || !is_array($result['items']) || !array_is_list($result['items'])) {
-            throw new QuantaApiException('Quanta list response has no items array');
-        }
-        foreach ($result['items'] as $item) {
+        [$rows, $pagination] = quantaListPage($result, $path);
+        foreach ($rows as $item) {
             if (!is_array($item)) throw new QuantaApiException('Quanta returned an invalid list item');
             $items[] = $item;
             if (count($items) > $maxItems) throw new QuantaApiException('Quanta result exceeds the safe page limit; narrow Changed since');
         }
-        if (empty($result['has_more'])) return $items;
-        $cursor = (string) ($result['next_cursor'] ?? '');
+        if (!$pagination['has_more']) return $items;
+        $cursor = (string) ($pagination['next_cursor'] ?? '');
         if ($cursor === '' || isset($seenCursors[$cursor])) {
             throw new QuantaApiException('Quanta pagination cursor is missing or repeated');
         }

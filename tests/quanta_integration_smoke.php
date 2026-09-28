@@ -19,9 +19,9 @@ $GLOBALS['__quanta_transport'] = static function (string $method, string $url, a
     $calls[] = [$method, $url, $headers];
     parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
     if (($query['cursor'] ?? '') === 'next') {
-        return ['status' => 200, 'body' => json_encode(['items' => [['id' => 'second']], 'next_cursor' => null, 'has_more' => false])];
+        return ['status' => 200, 'body' => json_encode(['data' => [['id' => 'second']], 'pagination' => ['next_cursor' => null, 'has_more' => false, 'limit' => 2]])];
     }
-    return ['status' => 200, 'body' => json_encode(['items' => [['id' => 'first']], 'next_cursor' => 'next', 'has_more' => true])];
+    return ['status' => 200, 'body' => json_encode(['data' => [['id' => 'first']], 'pagination' => ['next_cursor' => 'next', 'has_more' => true, 'limit' => 2]])];
 };
 $entries = quantaListAll('fixture-key', '/time-entries');
 $check('cursor pagination collects complete list', array_column($entries, 'id') === ['first', 'second']);
@@ -30,6 +30,7 @@ $check('read-only requests target the documented host', count($calls) === 2 && $
 $check('key goes in bearer header, not URL', str_contains(implode(' ', $calls[0][2]), 'Bearer fixture-key')
     && !str_contains($calls[0][1], 'fixture-key'));
 $check('arbitrary API host/path is rejected', $throws(static fn () => quantaGet('fixture-key', '/../../../evil')));
+$check('approved-entry contract rejects old items envelope', $throws(static fn () => quantaListPage(['items' => [], 'has_more' => false], '/time-entries')));
 unset($GLOBALS['__quanta_transport']);
 
 $probeCalls = [];
@@ -39,6 +40,9 @@ $GLOBALS['__quanta_transport'] = static function (string $method, string $url, a
     $probeCalls[] = $url;
     if ($path === '/api/v1/time-entries' && $denyTimeEntries) {
         return ['status' => 403, 'body' => '{"detail":"Missing time-entry scope"}'];
+    }
+    if ($path === '/api/v1/time-entries') {
+        return ['status' => 200, 'body' => '{"data":[],"pagination":{"next_cursor":null,"has_more":false,"limit":1}}'];
     }
     return ['status' => 200, 'body' => '{"items":[]}'];
 };
@@ -87,6 +91,37 @@ $check('unreported source approval is not inferred from the filter', $throws(sta
 )));
 $check('source total must equal classified hours', $throws(static fn () => quantaNormalizeEntry(
     array_replace($raw, ['duration_hours' => 9]), $site, 'approved'
+)));
+
+$quantaRow = [
+    'id' => 'entry-approved-1', 'worker_id' => 'worker-1', 'worksite_id' => 'work-1',
+    'work_date' => '2026-03-29', 'in_time' => '2026-03-29T08:00:00-07:00',
+    'out_time' => '2026-03-29T16:00:00-07:00', 'timezone' => 'America/Los_Angeles',
+    'duration_minutes' => 480, 'regular_minutes' => 450, 'overtime_minutes' => 30,
+    'doubletime_minutes' => 0, 'pto_minutes' => 0, 'classification' => 'mixed',
+    'timesheet_id' => 'sheet-approved-1', 'timesheet_status' => 'approved',
+    'dimension_values' => ['department' => 'department-1'], 'updated_at' => '2026-04-05T17:00:00Z',
+];
+$normalizedQuantaRow = quantaNormalizeEntry($quantaRow, $site, 'approved');
+$check('Quanta approved-entry minutes keep regular and overtime distinct',
+    $normalizedQuantaRow['components'] === ['regular' => 7.5, 'overtime' => 0.5]
+    && $normalizedQuantaRow['work_date'] === '2026-03-29');
+$check('Quanta minute breakdown must exactly match source duration', $throws(static fn () => quantaNormalizeEntry(
+    array_replace($quantaRow, ['duration_minutes' => 479]), $site, 'approved'
+)));
+$check('Quanta incomplete minute breakdown is blocked', $throws(static fn () => quantaNormalizeEntry(
+    array_diff_key($quantaRow, ['overtime_minutes' => true]), $site, 'approved'
+)));
+$quantaPto = array_replace($quantaRow, [
+    'id' => 'entry-approved-pto', 'worksite_id' => null, 'work_date' => '2026-03-31',
+    'duration_minutes' => 480, 'regular_minutes' => 0, 'overtime_minutes' => 0,
+    'pto_minutes' => 480, 'classification' => 'pto', 'pto_type' => 'VAC',
+    'dimension_values' => [],
+]);
+$check('Quanta VAC code preserves classified PTO',
+    quantaNormalizeEntry($quantaPto, $site, 'approved')['components'] === ['pto_vacation' => 8.0]);
+$check('Quanta submitted rows remain blocked even with approved query', $throws(static fn () => quantaNormalizeEntry(
+    array_replace($quantaRow, ['timesheet_status' => 'submitted']), $site, 'approved'
 )));
 
 $route = [
