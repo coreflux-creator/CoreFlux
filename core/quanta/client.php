@@ -6,6 +6,7 @@ require_once __DIR__ . '/../encryption.php';
 require_once __DIR__ . '/../db.php';
 
 const QUANTA_API_BASE = 'https://helloquanta.app/api/v1';
+const QUANTA_APPROVED_ENTRIES_PATH = '/time-entries/approved';
 
 final class QuantaApiException extends RuntimeException
 {
@@ -91,8 +92,8 @@ function quantaProbeConnection(string $apiKey): void
 function quantaTimeEntryAccess(string $apiKey): bool
 {
     try {
-        $result = quantaGet($apiKey, '/time-entries', ['limit' => 1]);
-        quantaListPage($result, '/time-entries');
+        $result = quantaGet($apiKey, QUANTA_APPROVED_ENTRIES_PATH, ['limit' => 1]);
+        quantaListPage($result, QUANTA_APPROVED_ENTRIES_PATH);
         return true;
     } catch (QuantaApiException $e) {
         if ($e->httpStatus === 403) return false;
@@ -103,7 +104,7 @@ function quantaTimeEntryAccess(string $apiKey): bool
 /** The approved-entry endpoint uses {data, pagination}; catalog lists use {items, ...}. */
 function quantaListPage(array $result, string $path): array
 {
-    if ($path === '/time-entries') {
+    if ($path === QUANTA_APPROVED_ENTRIES_PATH) {
         $rows = $result['data'] ?? null;
         $page = $result['pagination'] ?? null;
     } else {
@@ -161,12 +162,12 @@ function quantaEntries(string $apiKey, string $updatedSince, string $status = 'a
         throw new InvalidArgumentException('Changed since must be YYYY-MM-DD');
     }
     try {
-        return quantaListAll($apiKey, '/time-entries', [
+        return quantaListAll($apiKey, QUANTA_APPROVED_ENTRIES_PATH, [
             'updated_since' => $updatedSince . 'T00:00:00Z',
         ]);
     } catch (QuantaApiException $e) {
         if ($e->httpStatus === 403) {
-            throw new QuantaApiException('Quanta denied time-entry read access. No time was imported. Ask Quanta to enable /time-entries for this key.', 403);
+            throw new QuantaApiException('Quanta denied approved time-entry read access. No time was imported. Ask Quanta to enable /time-entries/approved for this key.', 403);
         }
         throw $e;
     }

@@ -22,8 +22,10 @@ CoreFlux time.
 - The initial preview is approved Quanta entries changed in the last 30 days.
   Earlier dates are available. A `timesheets:read` key must never expose
   submitted or draft entries through this connector. Quanta enforces this on
-  the server and rejects status or tenant override parameters; CoreFlux does
-  not send them and still checks each returned row's approval status.
+  the server on `/time-entries/approved`; CoreFlux does not send status or
+  tenant override parameters and still checks each returned row's approval
+  status. Quanta's existing `/time-entries` route retains its prior contract
+  for clients with `read:entries`.
 - A Quanta worker ID must be explicitly linked to one canonical CoreFlux person
   before any placement route or import. Exact email can suggest a person, and
   multiple suggested links can be saved together. A stored link cannot silently
@@ -59,8 +61,9 @@ CoreFlux time.
 
 On September 28, 2026, an Arabella key with the three read scopes successfully
 read `/workers`, `/worksites`, and `/timesheets`, but production Quanta returned
-HTTP 403 for `/time-entries`. A Quanta preview build now tests an approved-only
-read path under `timesheets:read`. Its tested response wraps rows in `data` and
+HTTP 403 for `/time-entries`. A Quanta preview build is adding
+`/time-entries/approved` under `timesheets:read` without changing the existing
+entry-reader contract. Its tested response wraps rows in `data` and
 cursor fields in `pagination`, and includes `worker_id`, `worksite_id`,
 `work_date`, `duration_minutes`, classified minute fields, `pto_type`,
 `timesheet_status`, `dimension_values`, and `updated_at`. CoreFlux's connector

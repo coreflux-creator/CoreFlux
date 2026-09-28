@@ -23,14 +23,14 @@ $GLOBALS['__quanta_transport'] = static function (string $method, string $url, a
     }
     return ['status' => 200, 'body' => json_encode(['data' => [['id' => 'first']], 'pagination' => ['next_cursor' => 'next', 'has_more' => true, 'limit' => 2]])];
 };
-$entries = quantaListAll('fixture-key', '/time-entries');
+$entries = quantaListAll('fixture-key', QUANTA_APPROVED_ENTRIES_PATH);
 $check('cursor pagination collects complete list', array_column($entries, 'id') === ['first', 'second']);
 $check('read-only requests target the documented host', count($calls) === 2 && $calls[0][0] === 'GET'
-    && str_starts_with($calls[0][1], 'https://helloquanta.app/api/v1/time-entries'));
+    && str_starts_with($calls[0][1], 'https://helloquanta.app/api/v1/time-entries/approved'));
 $check('key goes in bearer header, not URL', str_contains(implode(' ', $calls[0][2]), 'Bearer fixture-key')
     && !str_contains($calls[0][1], 'fixture-key'));
 $check('arbitrary API host/path is rejected', $throws(static fn () => quantaGet('fixture-key', '/../../../evil')));
-$check('approved-entry contract rejects old items envelope', $throws(static fn () => quantaListPage(['items' => [], 'has_more' => false], '/time-entries')));
+$check('approved-entry contract rejects old items envelope', $throws(static fn () => quantaListPage(['items' => [], 'has_more' => false], QUANTA_APPROVED_ENTRIES_PATH)));
 $check('catalog accepts its existing items-only response', quantaListPage(['items' => []], '/workers') === [[], ['items' => [], 'has_more' => false]]);
 unset($GLOBALS['__quanta_transport']);
 
@@ -39,10 +39,10 @@ $denyTimeEntries = true;
 $GLOBALS['__quanta_transport'] = static function (string $method, string $url, array $headers) use (&$probeCalls, &$denyTimeEntries): array {
     $path = (string) parse_url($url, PHP_URL_PATH);
     $probeCalls[] = $url;
-    if ($path === '/api/v1/time-entries' && $denyTimeEntries) {
+    if ($path === '/api/v1/time-entries/approved' && $denyTimeEntries) {
         return ['status' => 403, 'body' => '{"detail":"Missing time-entry scope"}'];
     }
-    if ($path === '/api/v1/time-entries') {
+    if ($path === '/api/v1/time-entries/approved') {
         return ['status' => 200, 'body' => '{"data":[],"pagination":{"next_cursor":null,"has_more":false,"limit":1}}'];
     }
     return ['status' => 200, 'body' => '{"items":[]}'];
@@ -54,7 +54,8 @@ $check('catalog connection probes workers, worksites, and timesheets', $probeSuc
         === ['/api/v1/workers', '/api/v1/worksites', '/api/v1/timesheets']);
 $check('denied time entries do not masquerade as import access', !quantaTimeEntryAccess('fixture-key'));
 $check('time access probe uses server-enforced approved-only endpoint',
-    !str_contains(end($probeCalls), 'timesheet_status='));
+    str_contains(end($probeCalls), '/time-entries/approved?')
+    && !str_contains(end($probeCalls), 'timesheet_status='));
 $timeError = '';
 try { quantaEntries('fixture-key', '2026-09-01'); } catch (QuantaApiException $e) { $timeError = $e->getMessage(); }
 $check('denied import explains that no hours moved', str_contains($timeError, 'No time was imported'));
