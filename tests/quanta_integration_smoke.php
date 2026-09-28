@@ -58,6 +58,9 @@ $submitted = $raw;
 $submitted['timesheet_status'] = 'submitted';
 $check('submitted source is allowed only in review mode', $throws(static fn () => quantaNormalizeEntry($submitted, $site, 'approved'))
     && quantaNormalizeEntry($submitted, $site, 'submitted,approved')['source_status'] === 'submitted');
+$check('unreported source approval is not inferred from the filter', $throws(static fn () => quantaNormalizeEntry(
+    array_diff_key($raw, ['timesheet_status' => true]), $site, 'approved'
+)));
 $check('source total must equal classified hours', $throws(static fn () => quantaNormalizeEntry(
     array_replace($raw, ['duration_hours' => 9]), $site, 'approved'
 )));
@@ -69,17 +72,23 @@ $route = [
     'effective_to' => null, 'placement_status' => 'active', 'start_date' => '2026-01-01',
     'end_date' => null, 'actual_end_date' => null, 'deleted_at' => null,
 ];
-$check('route resolves worker and worksite by effective date', (int) quantaRouteFor([$route], $entry)['placement_id'] === 42);
+$workerPeople = ['worker-1' => 19];
+$check('identity links resolve by immutable source worker ID', quantaWorkerPersonMap([
+    ['worker_id' => 'worker-1', 'person_id' => '19'],
+]) === $workerPeople);
+$check('route resolves worker and worksite by effective date', (int) quantaRouteFor([$route], $entry, $workerPeople)['placement_id'] === 42);
+$check('unlinked worker cannot be routed', $throws(static fn () => quantaRouteFor([$route], $entry, [])));
+$check('worker cannot route to another person placement', $throws(static fn () => quantaRouteFor([$route], $entry, ['worker-1' => 20])));
 $check('worker/worksite mismatch is not auto-routed', $throws(static fn () => quantaRouteFor([
     array_replace($route, ['worksite_id' => 'other']),
-], $entry)));
+], $entry, $workerPeople)));
 $check('dimension mismatch is not auto-routed', $throws(static fn () => quantaRouteFor([
     array_replace($route, ['dimension_key' => quantaDimensionKey(['project' => 'another'])]),
-], $entry)));
-$check('overlapping routes block import', $throws(static fn () => quantaRouteFor([$route, $route], $entry)));
+], $entry, $workerPeople)));
+$check('overlapping routes block import', $throws(static fn () => quantaRouteFor([$route, $route], $entry, $workerPeople)));
 $check('placement dates block out-of-range time', $throws(static fn () => quantaRouteFor([
     array_replace($route, ['end_date' => '2026-09-01']),
-], $entry)));
+], $entry, $workerPeople)));
 
 [$state] = quantaEntryDecision($entry, $route, []);
 $check('new source entry is ready', $state === 'ready');
@@ -106,13 +115,18 @@ $check('removed hour component is blocked for correction', quantaEntryDecision($
 $root = dirname(__DIR__);
 $api = (string) file_get_contents($root . '/api/quanta.php');
 $migration = (string) file_get_contents($root . '/core/migrations/147_quanta_time_integration.sql');
+$identityMigration = (string) file_get_contents($root . '/core/migrations/148_quanta_worker_identity.sql');
 $ui = (string) file_get_contents($root . '/dashboard/src/pages/QuantaSettings.jsx');
 $check('connection and import are tenant-admin gated', str_contains($api, 'integrations.quanta.manage')
     && str_contains($api, 'confirm_tenant_id'));
 $check('source component and CoreFlux row IDs have unique fences', str_contains($migration, 'uq_quanta_import_source (tenant_id, quanta_entry_id, component)')
     && str_contains($migration, 'uq_quanta_import_entry (tenant_id, time_entry_id)'));
+$check('worker and person links are one-to-one per workspace', str_contains($identityMigration, 'uq_quanta_worker_identity (tenant_id, worker_id)')
+    && str_contains($identityMigration, 'uq_quanta_person_identity (tenant_id, person_id)'));
+$check('imports retain source worker identity for guarded unlink', str_contains($identityMigration, 'ADD COLUMN worker_id')
+    && str_contains((string) file_get_contents($root . '/core/quanta/sync.php'), "'worker_id' => \$entry['worker_id']"));
 $check('page exposes preview, explicit mapping, and selected import', str_contains($ui, 'save_routes')
-    && str_contains($ui, 'Import {selected.length} selected') && str_contains($ui, 'Preview time'));
+    && str_contains($ui, 'save_worker_links') && str_contains($ui, 'Import {selected.length} selected') && str_contains($ui, 'Preview time'));
 $check('integration hub links Quanta', str_contains((string) file_get_contents($root . '/dashboard/src/pages/IntegrationsHub.jsx'), 'integration-card-quanta'));
 
 echo "Quanta integration: {$passed} passed, " . count($failed) . " failed\n";

@@ -143,7 +143,7 @@ export default function IntegrationsHub() {
             testid="integration-card-quanta"
             icon={Clock3}
             title="Quanta"
-            description="Review Quanta time, map workers to placements, and import weekly timesheets."
+            description="Link Quanta workers to people, route work to placements, and review time imports."
             href="/admin/integrations/quanta"
             status={quanta.loading ? 'loading' : quanta.data?.connected ? 'connected' : 'not_connected'}
           />
