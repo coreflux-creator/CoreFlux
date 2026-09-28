@@ -91,7 +91,7 @@ function quantaProbeConnection(string $apiKey): void
 function quantaTimeEntryAccess(string $apiKey): bool
 {
     try {
-        $result = quantaGet($apiKey, '/time-entries', ['timesheet_status' => 'approved', 'limit' => 1]);
+        $result = quantaGet($apiKey, '/time-entries', ['limit' => 1]);
         quantaListPage($result, '/time-entries');
         return true;
     } catch (QuantaApiException $e) {
@@ -162,7 +162,6 @@ function quantaEntries(string $apiKey, string $updatedSince, string $status = 'a
     }
     try {
         return quantaListAll($apiKey, '/time-entries', [
-            'timesheet_status' => $status,
             'updated_since' => $updatedSince . 'T00:00:00Z',
         ]);
     } catch (QuantaApiException $e) {

@@ -53,13 +53,18 @@ $check('catalog connection probes workers, worksites, and timesheets', $probeSuc
     && array_map(static fn (string $url): string => (string) parse_url($url, PHP_URL_PATH), $probeCalls)
         === ['/api/v1/workers', '/api/v1/worksites', '/api/v1/timesheets']);
 $check('denied time entries do not masquerade as import access', !quantaTimeEntryAccess('fixture-key'));
-$check('time access probes approved entries only', str_contains(end($probeCalls), 'timesheet_status=approved'));
+$check('time access probe uses server-enforced approved-only endpoint',
+    !str_contains(end($probeCalls), 'timesheet_status='));
 $timeError = '';
 try { quantaEntries('fixture-key', '2026-09-01'); } catch (QuantaApiException $e) { $timeError = $e->getMessage(); }
 $check('denied import explains that no hours moved', str_contains($timeError, 'No time was imported'));
 $check('submitted source filter is rejected before any request', $throws(static fn () => quantaEntries('fixture-key', '2026-09-01', 'submitted,approved')));
 $denyTimeEntries = false;
 $check('granted time-entry access is reported separately', quantaTimeEntryAccess('fixture-key'));
+$requestStart = count($probeCalls);
+quantaEntries('fixture-key', '2026-09-01');
+$check('time listing omits forbidden source-status query', count($probeCalls) === $requestStart + 1
+    && !str_contains(end($probeCalls), 'timesheet_status='));
 unset($GLOBALS['__quanta_transport']);
 
 $site = ['work-1' => ['timezone_override' => 'America/New_York']];
@@ -121,7 +126,7 @@ $quantaPto = array_replace($quantaRow, [
 ]);
 $check('Quanta VAC code preserves classified PTO',
     quantaNormalizeEntry($quantaPto, $site, 'approved')['components'] === ['pto_vacation' => 8.0]);
-$check('Quanta submitted rows remain blocked even with approved query', $throws(static fn () => quantaNormalizeEntry(
+$check('Quanta submitted rows remain blocked in approved source window', $throws(static fn () => quantaNormalizeEntry(
     array_replace($quantaRow, ['timesheet_status' => 'submitted']), $site, 'approved'
 )));
 
