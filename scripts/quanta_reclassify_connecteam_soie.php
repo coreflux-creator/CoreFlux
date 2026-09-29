@@ -130,8 +130,6 @@ function quantaSoieMain(array $argv): void
     if (count($argv) !== 2 || !in_array($argv[1], ['--preview', '--apply'], true)) {
         throw new InvalidArgumentException('Use --preview or --apply');
     }
-    require_once __DIR__ . '/../core/api_bootstrap.php';
-    require_once __DIR__ . '/../core/quanta/client.php';
     $rows = getDB()->query(
         "SELECT c.tenant_id, t.name FROM quanta_connections c JOIN tenants t ON t.id = c.tenant_id
           WHERE c.status = 'active' AND t.name LIKE 'Arabella%'"
@@ -155,6 +153,8 @@ function quantaSoieMain(array $argv): void
 }
 
 if (realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? '')) === __FILE__) {
+    require_once __DIR__ . '/../core/api_bootstrap.php';
+    require_once __DIR__ . '/../core/quanta/client.php';
     try { quantaSoieMain($argv); }
     catch (Throwable $e) { fwrite(STDERR, $e->getMessage() . "\n"); exit(1); }
 }
