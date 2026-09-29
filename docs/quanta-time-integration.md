@@ -20,7 +20,12 @@ CoreFlux time.
 ## Review and import
 
 - The initial preview is approved Quanta entries changed in the last 30 days.
-  A submitted-plus-approved review mode and earlier dates are available.
+  Earlier dates are available. A `timesheets:read` key must never expose
+  submitted or draft entries through this connector. Quanta enforces this on
+  the server on `/time-entries/approved`; CoreFlux does not send status or
+  tenant override parameters and still checks each returned row's approval
+  status. Quanta's existing `/time-entries` route retains its prior contract
+  for clients with `read:entries`.
 - A Quanta worker ID must be explicitly linked to one canonical CoreFlux person
   before any placement route or import. Exact email can suggest a person, and
   multiple suggested links can be saved together. A stored link cannot silently
@@ -33,10 +38,14 @@ CoreFlux time.
   but an admin must save the
   route. A missing or overlapping route or a person mismatch blocks import.
 - Regular, overtime, double-time, and classified PTO hours remain separate
-  atomic CoreFlux time rows. PTO without a supported vacation/holiday/sick/
-  bereavement subtype is blocked rather than guessed. Missing classification,
-  invalid dates, hours beyond daily limits, and a breakdown that disagrees
-  with the total also block import.
+  atomic CoreFlux time rows. Quanta's approved-entry response supplies each
+  component in whole minutes; CoreFlux verifies their sum against
+  `duration_minutes` before converting to decimal hours. `VAC` maps to
+  vacation. PTO without a supported vacation/holiday/sick/bereavement subtype
+  is blocked rather than guessed. Missing classification, invalid dates, hours
+  beyond daily limits, and a breakdown that disagrees with the total also
+  block import. Quanta PTO can have no worksite; that requires an explicit
+  worker/empty-worksite/empty-dimensions route to a placement before import.
 - Import preserves Quanta source entry IDs and creates CoreFlux's normal
   person/week timesheet artifact. Rows enter `pending_review` even if Quanta
   approved them; CoreFlux approval and its rate checks still govern billing,
@@ -50,17 +59,19 @@ CoreFlux time.
 
 ## Verification boundary
 
-The signed-in Quanta workspace had no API key or time entries when this was
-built. On September 28, 2026, an Arabella key with the three read scopes
-successfully read `/workers` and `/worksites`, but Quanta returned HTTP 403
-for `/time-entries`. The connection probe now checks `/timesheets` separately
-from entry-level import access. CoreFlux disables time preview and import
-when entry access is denied; catalog connectivity does not imply that hours
-can be imported. Quanta's OpenAPI publishes endpoint and filter contracts but
-does not define a time-entry response schema. Before any live import, obtain
-entry-level read access, inspect a preview containing real regular/OT/PTO
-entries, and confirm its fields and dimensions match the normalizer. Do not
-import while that preview contains unresolved rows.
+On September 28, 2026, an Arabella key with the three read scopes successfully
+read `/workers`, `/worksites`, and `/timesheets`, but production Quanta returned
+HTTP 403 for `/time-entries`. A Quanta preview build is adding
+`/time-entries/approved` under `timesheets:read` without changing the existing
+entry-reader contract. Its tested response wraps rows in `data` and
+cursor fields in `pagination`, and includes `worker_id`, `worksite_id`,
+`work_date`, `duration_minutes`, classified minute fields, `pto_type`,
+`timesheet_status`, `dimension_values`, and `updated_at`. CoreFlux's connector
+matches that tested shape, but this is not a production verification: the
+Quanta change must be reviewed and published, the existing Arabella key must
+be re-probed, and an actual approved entry must be previewed before import.
+Catalog connectivity alone does not imply that hours can be imported. Do not
+import while a preview contains unresolved rows.
 
 ## Direction of authority
 

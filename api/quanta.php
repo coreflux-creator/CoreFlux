@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/quanta/sync.php';
+require_once __DIR__ . '/../modules/people/lib/people.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -24,8 +25,8 @@ function quantaApiWindow(array $body): array
 {
     $since = quantaApiDate((string) ($body['changed_since'] ?? date('Y-m-d', strtotime('-30 days'))), 'Changed since');
     $status = (string) ($body['source_status'] ?? 'approved');
-    if (!in_array($status, ['approved', 'submitted,approved'], true)) {
-        throw new InvalidArgumentException('Choose approved only or submitted and approved');
+    if ($status !== 'approved') {
+        throw new InvalidArgumentException('Only approved Quanta time can be previewed or imported');
     }
     return [$since, $status];
 }
@@ -102,6 +103,15 @@ try {
     if ($method === 'GET' && $action === 'time_access') {
         rbac_legacy_require($user, 'integrations.quanta.view');
         api_ok(['available' => quantaTimeEntryAccess(quantaApiKey($tenantId))]);
+    }
+
+    if ($method === 'GET' && $action === 'route_candidates') {
+        rbac_legacy_require($user, 'integrations.quanta.view');
+        $since = quantaApiDate((string) (api_query('changed_since') ?? date('Y-m-d', strtotime('-30 days'))), 'Changed since');
+        $key = quantaApiKey($tenantId);
+        $sites = quantaWorksitesById(quantaListAll($key, '/worksites', [], 2000));
+        $entries = quantaListAll($key, '/time-entries', ['updated_since' => $since . 'T00:00:00Z']);
+        api_ok(quantaRouteCandidates($entries, $sites));
     }
 
     if ($method !== 'POST') api_error('Method not allowed', 405);
@@ -197,6 +207,62 @@ try {
         api_ok(['worker_links' => quantaWorkerLinks($tenantId)]);
     }
 
+    if ($action === 'create_worker_person') {
+        rbac_legacy_require($user, 'people.manage');
+        $workerId = trim((string) ($body['worker_id'] ?? ''));
+        $firstName = trim((string) ($body['first_name'] ?? ''));
+        $lastName = trim((string) ($body['last_name'] ?? ''));
+        if ($workerId === '' || strlen($workerId) > 128) throw new InvalidArgumentException('Choose a Quanta worker');
+        $catalog = quantaCatalog(quantaApiKey($tenantId));
+        $worker = null;
+        foreach ($catalog['workers'] as $candidate) {
+            if ((string) ($candidate['id'] ?? '') === $workerId) { $worker = $candidate; break; }
+        }
+        if (!$worker) throw new InvalidArgumentException('This worker is no longer in Quanta');
+        $email = strtolower(trim((string) ($worker['email'] ?? '')));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new InvalidArgumentException('This Quanta worker needs a valid email before creating a CoreFlux person');
+        }
+        $peopleTenant = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
+        $pdo = getDB();
+        $owns = cf_tx_begin($pdo);
+        try {
+            $linked = $pdo->prepare('SELECT person_id FROM quanta_worker_links WHERE tenant_id = :t AND worker_id = :w FOR UPDATE');
+            $linked->execute(['t' => $tenantId, 'w' => $workerId]);
+            if ($linked->fetchColumn()) throw new RuntimeException('This worker is already linked. Refresh the directory.');
+            $duplicate = $pdo->prepare('SELECT id FROM people WHERE tenant_id = :t AND LOWER(email_primary) = :e LIMIT 1 FOR UPDATE');
+            $duplicate->execute(['t' => $peopleTenant, 'e' => $email]);
+            if ($duplicate->fetchColumn()) throw new RuntimeException('A CoreFlux person already has this email. Link that person instead.');
+            $sameName = $pdo->prepare(
+                'SELECT id FROM people WHERE tenant_id = :t AND deleted_at IS NULL
+                    AND LOWER(first_name) = LOWER(:f) AND LOWER(last_name) = LOWER(:l) LIMIT 1 FOR UPDATE'
+            );
+            $sameName->execute(['t' => $peopleTenant, 'f' => $firstName, 'l' => $lastName]);
+            if ($sameName->fetchColumn() && empty($body['confirm_distinct_person'])) {
+                throw new RuntimeException('A CoreFlux person already has this name. Review the existing person or confirm they are different people.');
+            }
+            $personId = peopleCreateExternalCandidate($peopleTenant, [
+                'first_name' => $firstName, 'last_name' => $lastName, 'email_primary' => $email,
+                'phone_primary' => (string) ($worker['phone'] ?? ''),
+                'status' => ($worker['active'] ?? false) === true ? 'active' : 'inactive',
+            ], 'quanta', $actorId);
+            $pdo->prepare('INSERT INTO quanta_worker_links (tenant_id, worker_id, person_id, linked_by_user_id) VALUES (:t,:w,:p,:u)')
+                ->execute(['t' => $tenantId, 'w' => $workerId, 'p' => $personId, 'u' => $actorId]);
+            cf_tx_commit($pdo, $owns);
+        } catch (Throwable $e) {
+            cf_tx_rollback($pdo, $owns);
+            if ($e instanceof PDOException && $e->getCode() === '23000') {
+                throw new RuntimeException('This person or worker was added elsewhere. Refresh the directory and link the existing person.');
+            }
+            throw $e;
+        }
+        platformAuditLogWrite($peopleTenant, $actorId, 'people.created', $personId,
+            ['source' => 'quanta', 'classification' => 'candidate']);
+        platformAuditLogWrite($tenantId, $actorId, 'quanta.worker_link.created_person', $personId,
+            ['worker_id' => $workerId, 'people_tenant_id' => $peopleTenant], ['source' => 'quanta']);
+        api_ok(['person_id' => $personId, 'worker_links' => quantaWorkerLinks($tenantId)], 201);
+    }
+
     if ($action === 'delete_worker_link') {
         $workerId = trim((string) ($body['worker_id'] ?? ''));
         if ($workerId === '' || strlen($workerId) > 128) throw new InvalidArgumentException('Quanta worker ID required');
@@ -251,13 +317,17 @@ try {
                 if ($worker === '' || strlen($worker) > 128 || !isset($workers[$worker])) throw new InvalidArgumentException('Choose a worker from Quanta');
                 if (strlen($site) > 128 || ($site !== '' && !isset($sites[$site]))) throw new InvalidArgumentException('Choose a worksite from Quanta');
                 $placement = $pdo->prepare(
-                    'SELECT p.person_id FROM placements p JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :pet
+                    'SELECT p.person_id, p.status FROM placements p JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :pet
                      WHERE p.id = :id AND p.tenant_id = :pt AND p.deleted_at IS NULL AND pe.deleted_at IS NULL
                        AND p.status != "cancelled" LIMIT 1'
                 );
                 $placement->execute(['id' => $placementId, 'pt' => $placementTenant, 'pet' => $peopleTenant]);
-                $personId = (int) $placement->fetchColumn();
+                $placementRow = $placement->fetch(PDO::FETCH_ASSOC);
+                $personId = (int) ($placementRow['person_id'] ?? 0);
                 if (!$personId) throw new InvalidArgumentException("Placement PL-{$placementId} is not available");
+                if (!in_array((string) $placementRow['status'], ['active', 'ended'], true)) {
+                    throw new InvalidArgumentException("Placement PL-{$placementId} must be activated before routing time");
+                }
                 quantaAssertWorkerPerson($worker, $personId, $workerPeople);
                 $routeId = (int) ($route['id'] ?? 0);
                 if ($routeId > 0) {

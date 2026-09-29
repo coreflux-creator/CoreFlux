@@ -54,11 +54,12 @@ export default function PlacementCreate() {
   const nav = useNavigate();
   const [search] = useSearchParams();
   const prefilledPersonId = search.get('person_id');
+  const fromQuanta = search.get('from') === 'quanta' && !!prefilledPersonId;
 
   const [form, setForm] = useState({
     person_id: prefilledPersonId || '',
-    title: '', engagement_type: 'w2',
-    start_date: new Date().toISOString().slice(0, 10),
+    title: '', engagement_type: fromQuanta ? '' : 'w2',
+    start_date: fromQuanta ? '' : new Date().toISOString().slice(0, 10),
     end_date: '', due_date: '',
     worksite_state: '', worksite_country: 'US',
     remote_policy: '', external_id: '', notes: '',
@@ -299,7 +300,7 @@ export default function PlacementCreate() {
         await api.post(`/modules/placements/api/corp.php?placement_id=${placementId}`, corp);
       }
 
-      nav(`../${placementId}`);
+      nav(fromQuanta ? `/admin/integrations/quanta?placement_created=${placementId}` : `../${placementId}`);
     } catch (e) {
       if (e.status === 409 && e.data?.conflict_id) {
         setPersonConflict(e.data.conflict || {
@@ -324,7 +325,7 @@ export default function PlacementCreate() {
             {prefilledPersonId ? <span data-testid="placement-create-prefilled">For person #{prefilledPersonId}</span> : 'Add the person and engagement in one pass.'}
           </p>
         </div>
-        <Link to=".." className="btn btn--ghost" data-testid="placement-create-back">← Back</Link>
+        <Link to={fromQuanta ? '/admin/integrations/quanta' : '..'} className="btn btn--ghost" data-testid="placement-create-back">← Back</Link>
       </header>
 
       <div data-testid="placement-create-required-hint"
@@ -344,10 +345,10 @@ export default function PlacementCreate() {
 
           <SectionTitle>1. Person</SectionTitle>
           <div role="group" aria-label="Person source" style={modeSwitchStyle} data-testid="placement-create-person-mode">
-            <button type="button" aria-pressed={personMode === 'new'} onClick={() => choosePersonMode('new')}
+            {!fromQuanta && <button type="button" aria-pressed={personMode === 'new'} onClick={() => choosePersonMode('new')}
                     data-testid="placement-create-person-new" style={{ ...modeButtonStyle, ...(personMode === 'new' ? modeButtonActiveStyle : {}) }}>
               <UserRoundPlus size={16} aria-hidden="true" /> New person
-            </button>
+            </button>}
             <button type="button" aria-pressed={personMode === 'existing'} onClick={() => choosePersonMode('existing')}
                     data-testid="placement-create-person-existing" style={{ ...modeButtonStyle, ...(personMode === 'existing' ? modeButtonActiveStyle : {}) }}>
               <Search size={16} aria-hidden="true" /> Existing person
@@ -370,7 +371,7 @@ export default function PlacementCreate() {
             </div>
           ) : (
             <Field label="Person *">
-              <input className="input" placeholder="Search by name, email, or ID" value={personSearch}
+              <input className="input" placeholder="Search by name, email, or ID" value={personSearch} readOnly={fromQuanta}
                      onChange={e => { setPersonSearch(e.target.value); if (form.person_id && !prefilledPersonId) setForm({ ...form, person_id: '' }); }}
                      data-testid="placement-create-person-search" />
               {!form.person_id && personLookup.data?.rows?.length > 0 && (
@@ -403,6 +404,7 @@ export default function PlacementCreate() {
             <Field label="Title *"><input className="input" required value={form.title} onChange={set('title')} data-testid="placement-create-title" placeholder="Senior Software Engineer" /></Field>
             <Field label="Engagement type *">
               <select className="input" required disabled={internalHire} value={form.engagement_type} onChange={set('engagement_type')} data-testid="placement-create-etype">
+                <option value="" disabled>Choose engagement type</option>
                 {ETYPES.map(t => <option key={t} value={t}>{ETYPE_LABELS[t]}</option>)}
               </select>
             </Field>
