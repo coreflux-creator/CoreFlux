@@ -114,7 +114,11 @@ function quantaSoiePatch(string $key, array $patch): void
     $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
     if ($response === false || $status < 200 || $status >= 300) {
-        throw new RuntimeException("Quanta refused entry {$id} update (HTTP {$status}); stop and reconcile before retrying");
+        $error = json_decode((string) $response, true);
+        $detail = is_array($error) ? ($error['detail'] ?? $error['message'] ?? '') : '';
+        if (is_array($detail)) $detail = json_encode($detail);
+        $detail = substr(str_replace($key, '[redacted]', (string) $detail), 0, 240);
+        throw new RuntimeException("Quanta refused entry {$id} update (HTTP {$status}: {$detail}); stop and reconcile before retrying");
     }
     $saved = quantaGet($key, '/time-entries/' . $id);
     if (($saved['worksite_id'] ?? null) !== $patch['worksite_id']
