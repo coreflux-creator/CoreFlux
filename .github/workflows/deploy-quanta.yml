@@ -58,7 +58,8 @@ jobs:
             core/quanta/client.php core/quanta/identity.php core/quanta/sync.php core/rbac/legacy_map.php \
             dashboard/dist/index.html dashboard/src/pages/AdminModule.jsx \
             dashboard/src/pages/IntegrationsHub.jsx dashboard/src/pages/QuantaSettings.jsx \
-            index.html modules/time/api/csv_import.php \
+            index.html modules/people/lib/people.php modules/placements/ui/PlacementCreate.jsx \
+            modules/time/api/csv_import.php \
             tests/quanta_integration_smoke.php \
             scripts/opcache_flush_deploy.php.template \
             "${ROOT_ASSETS[@]}" spa-assets/index.html spa-assets/sw.js
@@ -100,6 +101,7 @@ jobs:
             test -f "$STAGE_ROOT/core/migrations/148_quanta_worker_identity.sql"
             test -f "$STAGE_ROOT/core/quanta/sync.php"
             test -f "$STAGE_ROOT/core/quanta/identity.php"
+            test -f "$STAGE_ROOT/modules/people/lib/people.php"
 
             cleanup_deploy() {
               rm -rf -- "$STAGE_ROOT"
@@ -121,7 +123,7 @@ jobs:
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/147_quanta_time_integration.sql'
             php -r 'require "core/api_bootstrap.php"; $db=getDB(); foreach (["quanta_connections","quanta_time_routes","quanta_time_imports","quanta_worker_links"] as $table) { $q=$db->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:name"); $q->execute(["name"=>$table]); if ((int)$q->fetchColumn() !== 1) { fwrite(STDERR,"$table missing\n"); exit(1); } } $column=$db->query("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=\"quanta_time_imports\" AND column_name=\"worker_id\""); if ((int)$column->fetchColumn() !== 1) exit(1); $active=(int)$db->query("SELECT COUNT(*) FROM quanta_connections WHERE status=\"active\"")->fetchColumn(); $imports=(int)$db->query("SELECT COUNT(*) FROM quanta_time_imports")->fetchColumn(); if ("$active:$imports" !== $argv[1]) { fwrite(STDERR,"Quanta connection or import counts changed during deployment\n"); exit(1); } echo "Quanta identity schema verified; connection and import counts preserved.\n";' "$QUANTA_BEFORE"
 
-            for file in api/quanta.php core/quanta/client.php core/quanta/identity.php core/quanta/sync.php modules/time/api/csv_import.php; do
+            for file in api/quanta.php core/quanta/client.php core/quanta/identity.php core/quanta/sync.php modules/people/lib/people.php modules/time/api/csv_import.php; do
               php -l "$file"
             done
             php tests/quanta_integration_smoke.php
