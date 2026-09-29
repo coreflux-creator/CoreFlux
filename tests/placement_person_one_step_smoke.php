@@ -55,12 +55,15 @@ $assert('validates tenant-wide email uniqueness and returns an actionable confli
     && str_contains($api, "'conflict_id'")
     && str_contains($api, "'conflict' =>"));
 $assert('person and placement share one transaction',
-    str_contains($api, '$pdo = cf_begin_transaction();')
+    str_contains($api, '$createTransactionPdo = cf_begin_transaction();')
     && str_contains($api, 'peopleCreateForPlacement(')
     && str_contains($people, "scopedInsert('people', [")
     && str_contains($api, "scopedInsert('placements', \$insert)")
-    && str_contains($api, '$pdo->commit()')
-    && str_contains($api, '$pdo->rollBack()'));
+    && str_contains($api, '$createTransactionPdo->commit()')
+    && str_contains($api, '$createTransactionPdo->rollBack()'));
+$assert('existing-person placement create leaves the shared database connection intact',
+    str_contains($api, '$createTransactionPdo = null;')
+    && !str_contains($api, '$pdo = null;'));
 $assert('server derives classification instead of trusting the browser',
     str_contains($api, 'function placementPersonClassification')
     && str_contains($api, "'temp_to_perm' => 'temp'")
