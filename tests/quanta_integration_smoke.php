@@ -334,6 +334,23 @@ $check('SOIE correction preserves other dimensions and targets exactly 26 known 
     && $correctionPlan[0]['worksite_id'] === 'boc-id'
     && $correctionPlan[0]['dimension_values'] === ['client' => 'BOC_BOC_CAPITAL', 'department' => 'BOC', 'task' => 'review']
     && $correctionPlan[25]['worksite_id'] === 'internal-id');
+$correctionDimensions = [
+    ['key' => 'client', 'values' => [
+        ['id' => 'client-boc-id', 'code' => 'BOC_BOC_CAPITAL'],
+        ['id' => 'client-internal-id', 'code' => 'INTERNAL'],
+    ]],
+    ['key' => 'department', 'values' => [
+        ['id' => 'department-boc-id', 'code' => 'BOC'],
+        ['id' => 'department-internal-id', 'code' => 'Internal'],
+    ]],
+    ['key' => 'task', 'values' => [['id' => 'task-review-id', 'code' => 'review']]],
+];
+$resolvedCorrection = quantaSoieResolveDimensionIds($correctionPlan, $correctionDimensions);
+$check('Quanta correction writes catalog value IDs while retaining readable codes',
+    $resolvedCorrection[0]['dimension_values'] === [
+        'client' => 'client-boc-id', 'department' => 'department-boc-id', 'task' => 'task-review-id',
+    ] && $resolvedCorrection[0]['dimension_codes']['client'] === 'BOC_BOC_CAPITAL'
+    && $resolvedCorrection[25]['dimension_values']['client'] === 'client-internal-id');
 $correctionDrift = $correctionEntries;
 $correctionDrift[1]['duration_minutes'] = 215;
 try { quantaSoiePlan($correctionWorkers, $correctionSites, $correctionDrift); $rejectedDrift = false; }

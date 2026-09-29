@@ -44,7 +44,7 @@ function dimensionLabel(values, dimensions = []) {
     const parts = Object.entries(parsed || {}).map(([key, value]) => {
       const dimension = dimensions.find(item => item.key === key);
       const code = String(value);
-      const option = (dimension?.values || []).find(item => String(item.code ?? item.id) === code);
+      const option = (dimension?.values || []).find(item => String(item.code) === code || String(item.id) === code);
       const label = option?.label && option.label !== code ? `${option.label} (${code})` : code;
       return `${dimension?.label || key}: ${label}`;
     });

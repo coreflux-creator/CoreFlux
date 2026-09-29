@@ -87,6 +87,34 @@ function quantaSoiePlan(array $workers, array $worksites, array $entries): array
     return $patches;
 }
 
+function quantaSoieResolveDimensionIds(array $patches, array $catalog): array
+{
+    $ids = [];
+    foreach ($catalog as $dimension) {
+        $key = (string) ($dimension['key'] ?? '');
+        if ($key === '') continue;
+        foreach (($dimension['values'] ?? []) as $value) {
+            $code = (string) ($value['code'] ?? '');
+            $id = (string) ($value['id'] ?? '');
+            if ($code !== '' && $id !== '') $ids[$key][$code] = $id;
+        }
+    }
+    foreach ($patches as &$patch) {
+        $codes = $patch['dimension_values'];
+        $resolved = [];
+        foreach ($codes as $key => $code) {
+            if (!isset($ids[$key][$code])) {
+                throw new RuntimeException("Quanta dimension {$key} has no active value for {$code}");
+            }
+            $resolved[$key] = $ids[$key][$code];
+        }
+        $patch['dimension_codes'] = $codes;
+        $patch['dimension_values'] = $resolved;
+    }
+    unset($patch);
+    return $patches;
+}
+
 function quantaSoiePatch(string $key, array $patch): void
 {
     $id = $patch['id'];
@@ -121,8 +149,18 @@ function quantaSoiePatch(string $key, array $patch): void
         throw new RuntimeException("Quanta refused entry {$id} update (HTTP {$status}: {$detail}); stop and reconcile before retrying");
     }
     $saved = quantaGet($key, '/time-entries/' . $id);
+    $savedDimensions = $saved['dimension_values'] ?? null;
+    $dimensionsMatch = is_array($savedDimensions) && count($savedDimensions) === count($patch['dimension_values']);
+    if ($dimensionsMatch) {
+        foreach ($patch['dimension_values'] as $dimensionKey => $valueId) {
+            if (!in_array(($savedDimensions[$dimensionKey] ?? null), [$valueId, $patch['dimension_codes'][$dimensionKey]], true)) {
+                $dimensionsMatch = false;
+                break;
+            }
+        }
+    }
     if (($saved['worksite_id'] ?? null) !== $patch['worksite_id']
-        || ($saved['dimension_values'] ?? null) !== $patch['dimension_values']
+        || !$dimensionsMatch
         || (int) ($saved['duration_minutes'] ?? -1) !== $patch['duration_minutes']
         || strtolower((string) ($saved['timesheet_status'] ?? $saved['timesheet']['status'] ?? 'draft')) !== $patch['timesheet_status']) {
         throw new RuntimeException("Quanta entry {$id} did not read back with the requested context");
@@ -145,6 +183,7 @@ function quantaSoieMain(array $argv): void
     $dimensions = quantaListAll($key, '/dimensions', [], 2000);
     $entries = quantaListAll($key, '/time-entries', [], 10000);
     $patches = quantaSoiePlan($workers, $worksites, $entries);
+    $patches = quantaSoieResolveDimensionIds($patches, $dimensions);
     foreach ($dimensions as $dimension) {
         if (!in_array(($dimension['key'] ?? ''), ['client', 'department'], true)) continue;
         $values = array_map(static fn (array $value): array => [
