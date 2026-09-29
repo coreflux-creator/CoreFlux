@@ -111,7 +111,10 @@ try {
         $key = quantaApiKey($tenantId);
         $sites = quantaWorksitesById(quantaListAll($key, '/worksites', [], 2000));
         $entries = quantaListAll($key, '/time-entries', ['updated_since' => $since . 'T00:00:00Z']);
-        api_ok(quantaRouteCandidates($entries, $sites));
+        api_ok(quantaRouteCandidates(
+            $entries, $sites, quantaRoutes($tenantId),
+            quantaWorkerPersonMap(quantaWorkerLinks($tenantId))
+        ));
     }
 
     if ($method !== 'POST') api_error('Method not allowed', 405);

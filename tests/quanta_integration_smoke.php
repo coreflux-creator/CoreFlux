@@ -180,6 +180,15 @@ $check('overlapping routes block import', $throws(static fn () => quantaRouteFor
 $check('placement dates block out-of-range time', $throws(static fn () => quantaRouteFor([
     array_replace($route, ['end_date' => '2026-09-01']),
 ], $entry, $workerPeople)));
+$routeUntil = array_replace($route, ['end_date' => '2026-09-23', 'effective_to' => '2026-09-23']);
+$unroutedLaterWork = quantaRouteCandidates([
+    array_replace($raw, ['id' => 'q-covered', 'work_date' => '2026-09-23']),
+    array_replace($raw, ['id' => 'q-uncovered', 'work_date' => '2026-09-24']),
+], $site, [$routeUntil], $workerPeople);
+$check('later work remains visible after an earlier placement route ends',
+    count($unroutedLaterWork['rows']) === 1
+    && $unroutedLaterWork['rows'][0]['work_date'] === '2026-09-24'
+    && $unroutedLaterWork['rows'][0]['entry_count'] === 1);
 
 [$state] = quantaEntryDecision($entry, $route, []);
 $check('new source entry is ready', $state === 'ready');
@@ -229,6 +238,9 @@ $check('provisional people do not guess employment type or activate a placement'
 $check('placement creation from Quanta requires reviewed type and date',
     str_contains((string) file_get_contents($root . '/modules/placements/ui/PlacementCreate.jsx'), "engagement_type: fromQuanta ? '' : 'w2'")
     && str_contains($ui, 'Create and link') && str_contains($ui, 'Find work to route'));
+$check('new route defaults to uncovered work and ends with the selected placement',
+    str_contains($ui, 'effective_from: routeStartDrafts[row.routeKey] || row.work_date')
+    && str_contains($ui, 'effective_to: placement?.end_date || null'));
 $check('integration hub links Quanta', str_contains((string) file_get_contents($root . '/dashboard/src/pages/IntegrationsHub.jsx'), 'integration-card-quanta'));
 
 echo "Quanta integration: {$passed} passed, " . count($failed) . " failed\n";

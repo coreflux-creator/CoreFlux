@@ -152,14 +152,8 @@ export default function QuantaSettings() {
       const prior = pairs.get(routeKey);
       if (!prior || row.work_date < prior.work_date) pairs.set(routeKey, row);
     }
-    return [...pairs.entries()].filter(([, row]) => !activeRoutes.some(route =>
-      String(route.worker_id) === String(row.worker_id)
-      && String(route.worksite_id || '') === String(row.worksite_id || '')
-      && String(route.dimension_key) === String(row.dimension_key)
-      && route.effective_from <= row.work_date
-      && (!route.effective_to || route.effective_to >= row.work_date)))
-      .map(([routeKey, row]) => ({ ...row, routeKey }));
-  }, [preview, routeCandidates, activeRoutes]);
+    return [...pairs.entries()].map(([routeKey, row]) => ({ ...row, routeKey }));
+  }, [preview, routeCandidates]);
 
   const suggestedPlacement = (row) => {
     const personId = linkedPeople.get(String(row.worker_id));
@@ -212,12 +206,18 @@ export default function QuantaSettings() {
       const placement = placements.find(p => String(p.id) === String(chosen));
       return { worker_id: row.worker_id, worksite_id: row.worksite_id || '', dimension_values: row.dimension_values,
         placement_id: Number(chosen),
-        effective_from: routeStartDrafts[row.routeKey] || placement?.start_date || row.work_date };
+        effective_from: routeStartDrafts[row.routeKey] || row.work_date,
+        effective_to: placement?.end_date || null };
     }).filter(Boolean);
     if (!routes.length) throw new Error('Choose at least one placement');
     const saved = await api.post(`${endpoint}save_routes`, { routes }, { timeoutMs: 120000 });
     setCatalog(prev => ({ ...prev, routes: saved.routes }));
     setRouteDrafts({}); setRouteStartDrafts({});
+    if (routeCandidates) {
+      try {
+        setRouteCandidates(await api.get(`${endpoint}route_candidates&changed_since=${encodeURIComponent(since)}`, { timeoutMs: 120000 }));
+      } catch { setRouteCandidates(null); }
+    }
     if (preview) {
       const data = await api.post(`${endpoint}preview`, { changed_since: since, source_status: sourceStatus, offset }, { timeoutMs: 120000 });
       setPreview(data); setSelected([]);
@@ -351,7 +351,7 @@ export default function QuantaSettings() {
               <div>{linkedPersonId ? <><select aria-label={`Placement for ${workerName(workers.get(String(row.worker_id)))}`} value={chosen} onChange={e => { setRouteDrafts(prev => ({ ...prev, [row.routeKey]: e.target.value })); setRouteStartDrafts(prev => ({ ...prev, [row.routeKey]: '' })); }} style={{ ...field, width: '100%' }}>
                 <option value="">Choose a placement</option>{options.map(p => <option key={p.id} value={p.id}>{placementName(p)}</option>)}
               </select>{options.length === 0 && <Link to={`/modules/placements/new?person_id=${linkedPersonId}&from=quanta`} style={{ fontSize: 12 }}>Create a placement for this person</Link>}</> : <span style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>Link or create the person first</span>}</div>
-              <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>Route from<input type="date" aria-label={`Route start for ${workerName(workers.get(String(row.worker_id)))}`} value={routeStartDrafts[row.routeKey] || placement?.start_date || row.work_date} onChange={e => setRouteStartDrafts(prev => ({ ...prev, [row.routeKey]: e.target.value }))} style={{ ...field, width: '100%' }} /></label>
+              <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>Route from<input type="date" aria-label={`Route start for ${workerName(workers.get(String(row.worker_id)))}`} value={routeStartDrafts[row.routeKey] || row.work_date} onChange={e => setRouteStartDrafts(prev => ({ ...prev, [row.routeKey]: e.target.value }))} style={{ ...field, width: '100%' }} /></label>
             </div>;
           })}
           <div><button className="btn btn-primary" type="button" disabled={!!busy || !needsRoute.some(row => routeDrafts[row.routeKey] || suggestedPlacement(row))} onClick={saveRoutes}><Save size={15} /> Save chosen routes</button></div>
