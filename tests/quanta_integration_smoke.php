@@ -90,6 +90,11 @@ $raw = [
 $entry = quantaNormalizeEntry($raw, $site, 'approved');
 $check('work date honors worksite timezone', $entry['work_date'] === '2026-09-23');
 $check('regular and OT remain separate components', $entry['components'] === ['regular' => 6.5, 'overtime' => 1.5]);
+$check('client work remains billable', quantaComponentCategory('regular') === ['regular', 'regular_billable', 1]);
+$check('internal regular and overtime cannot enter client billing',
+    quantaComponentCategory('regular', true) === ['regular', 'regular_nonbillable', 0]
+    && quantaComponentCategory('overtime', true) === ['overtime', 'OT_nonbillable', 0]
+    && quantaComponentCategory('doubletime', true) === ['doubletime', 'OT_nonbillable', 0]);
 $check('dimension ordering has a stable route identity', $entry['dimension_key'] === quantaDimensionKey(['client' => 'c-3', 'project' => 'p-7']));
 $check('entries without dimensions use a stable empty route', quantaNormalizeEntry(array_diff_key($raw, ['dimension_values' => true]), $site, 'approved')['dimension_key'] === quantaDimensionKey([]));
 $check('unclassified duration is blocked', $throws(static fn () => quantaNormalizeEntry([
@@ -168,6 +173,10 @@ $check('identity links resolve by immutable source worker ID', quantaWorkerPerso
     ['worker_id' => 'worker-1', 'person_id' => '19'],
 ]) === $workerPeople);
 $check('route resolves worker and worksite by effective date', (int) quantaRouteFor([$route], $entry, $workerPeople)['placement_id'] === 42);
+$check('internal classification changes the import fingerprint',
+    quantaComponentHash($entry, $route, 'regular', 6.5) !== quantaComponentHash(
+        $entry, array_replace($route, ['engagement_type' => 'internal']), 'regular', 6.5
+    ));
 $check('unlinked worker cannot be routed', $throws(static fn () => quantaRouteFor([$route], $entry, [])));
 $check('worker cannot route to another person placement', $throws(static fn () => quantaRouteFor([$route], $entry, ['worker-1' => 20])));
 $check('worker/worksite mismatch is not auto-routed', $throws(static fn () => quantaRouteFor([
@@ -202,12 +211,17 @@ foreach ($entry['components'] as $component => $hours) {
     ];
 }
 $check('repeat import is idempotent', quantaEntryDecision($entry, $route, $prior)[0] === 'imported');
+$internalRoute = array_replace($route, ['engagement_type' => 'internal']);
+$check('internal reclassification updates only unapproved imported time',
+    quantaEntryDecision($entry, $internalRoute, $prior)[0] === 'update');
 $revised = $entry;
 $revised['components']['regular'] = 6.25;
 $check('changed unapproved source can update', quantaEntryDecision($revised, $route, $prior)[0] === 'update');
 $approved = $prior;
 $approved[$entry['id']]['regular']['entry_status'] = 'approved';
 $check('changed approved source is blocked', quantaEntryDecision($revised, $route, $approved)[0] === 'conflict');
+$check('approved imported time cannot silently become non-billable',
+    quantaEntryDecision($entry, $internalRoute, $approved)[0] === 'conflict');
 $removed = $entry;
 unset($removed['components']['overtime']);
 $check('removed hour component is blocked for correction', quantaEntryDecision($removed, $route, $prior)[0] === 'conflict');
@@ -238,6 +252,10 @@ $check('provisional people do not guess employment type or activate a placement'
 $check('placement creation from Quanta requires reviewed type and date',
     str_contains((string) file_get_contents($root . '/modules/placements/ui/PlacementCreate.jsx'), "engagement_type: fromQuanta ? '' : 'w2'")
     && str_contains($ui, 'Create and link') && str_contains($ui, 'Find work to route'));
+$placementCreateApi = (string) file_get_contents($root . '/modules/placements/api/placements.php');
+$check('placement creation preserves the shared database connection',
+    str_contains($placementCreateApi, '$createTransactionPdo = null;')
+    && !str_contains($placementCreateApi, '$pdo = null;'));
 $check('new route defaults to uncovered work and ends with the selected placement',
     str_contains($ui, 'effective_from: routeStartDrafts[row.routeKey] || row.work_date')
     && str_contains($ui, 'effective_to: placement?.end_date || null'));

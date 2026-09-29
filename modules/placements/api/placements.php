@@ -480,14 +480,14 @@ if ($method === 'POST') {
         api_error($e->getMessage(), 422);
     }
 
-    $pdo = null;
+    $createTransactionPdo = null;
     $combinedCreateTransaction = false;
     $createdPersonId = null;
     try {
         if ($newPersonInsert !== null) {
             // Person + placement is one unit of work. A placement failure must
             // never leave an orphaned person in the directory.
-            $pdo = cf_begin_transaction();
+            $createTransactionPdo = cf_begin_transaction();
             $combinedCreateTransaction = true;
             $personId = peopleCreateForPlacement(
                 $newPersonInsert,
@@ -581,9 +581,9 @@ if ($method === 'POST') {
             'after' => placementAuditRow($id),
         ]);
         placementEconomicsReconcile((int) $ctx['tenant_id'], $id);
-        if ($combinedCreateTransaction && $pdo && $pdo->inTransaction()) $pdo->commit();
+        if ($combinedCreateTransaction && $createTransactionPdo && $createTransactionPdo->inTransaction()) $createTransactionPdo->commit();
     } catch (\Throwable $e) {
-        if ($combinedCreateTransaction && $pdo && $pdo->inTransaction()) $pdo->rollBack();
+        if ($combinedCreateTransaction && $createTransactionPdo && $createTransactionPdo->inTransaction()) $createTransactionPdo->rollBack();
 
         // Close the small race between duplicate-email validation and INSERT.
         // When another request wins, return the same actionable conflict shape.

@@ -244,12 +244,12 @@ function quantaRouteCandidates(array $rawEntries, array $worksites, array $route
     return ['rows' => $candidates, 'skipped' => $skipped, 'source_entries' => count($rawEntries)];
 }
 
-function quantaComponentCategory(string $component): array
+function quantaComponentCategory(string $component, bool $internal = false): array
 {
     return match ($component) {
-        'regular' => ['regular', 'regular_billable', 1],
-        'overtime' => ['overtime', 'OT_billable', 1],
-        'doubletime' => ['doubletime', 'OT_billable', 1],
+        'regular' => ['regular', $internal ? 'regular_nonbillable' : 'regular_billable', $internal ? 0 : 1],
+        'overtime' => ['overtime', $internal ? 'OT_nonbillable' : 'OT_billable', $internal ? 0 : 1],
+        'doubletime' => ['doubletime', $internal ? 'OT_nonbillable' : 'OT_billable', $internal ? 0 : 1],
         'pto_vacation' => ['pto', 'vacation', 0],
         'pto_holiday' => ['holiday', 'holiday', 0],
         'pto_sick' => ['sick', 'sick', 0],
@@ -263,7 +263,8 @@ function quantaRoutes(int $tenantId): array
     $placementTenant = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
     $peopleTenant = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
     $stmt = getDB()->prepare(
-        'SELECT r.*, p.person_id, p.status AS placement_status, p.start_date, p.end_date, p.actual_end_date,
+        'SELECT r.*, p.person_id, p.status AS placement_status, p.engagement_type,
+                p.start_date, p.end_date, p.actual_end_date,
                 p.title, p.end_client_name, p.deleted_at, pe.email_primary AS person_email,
                 CONCAT_WS(" ", pe.first_name, pe.last_name) AS person_name
            FROM quanta_time_routes r
@@ -326,10 +327,12 @@ function quantaImportLookup(int $tenantId, array $entryIds): array
 
 function quantaComponentHash(array $entry, array $route, string $component, float $hours): string
 {
-    return hash('sha256', json_encode([
+    $parts = [
         (int) $route['placement_id'], (int) $route['person_id'], $entry['work_date'],
         $component, $hours, $entry['description'], $entry['dimension_key'],
-    ], JSON_THROW_ON_ERROR));
+    ];
+    if (($route['engagement_type'] ?? '') === 'internal') $parts[] = 'internal';
+    return hash('sha256', json_encode($parts, JSON_THROW_ON_ERROR));
 }
 
 function quantaEntryDecision(array $entry, array $route, array $imports): array
@@ -442,7 +445,9 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
                 $prior = $imports[$id][$component] ?? null;
                 $hash = quantaComponentHash($entry, $route, $component, $hours);
                 if ($prior && $prior['source_hash'] === $hash) continue;
-                [$hourType, $category, $billable] = quantaComponentCategory($component);
+                [$hourType, $category, $billable] = quantaComponentCategory(
+                    $component, ($route['engagement_type'] ?? '') === 'internal'
+                );
                 $existingId = $prior ? (int) $prior['time_entry_id'] : 0;
                 $usage = scopedFind(
                     'SELECT COALESCE(SUM(hours),0) AS hours FROM time_entries
