@@ -35,6 +35,27 @@ $check('approved-entry contract rejects old items envelope', $throws(static fn (
 $check('catalog accepts its existing items-only response', quantaListPage(['items' => []], '/workers') === [[], ['items' => [], 'has_more' => false]]);
 unset($GLOBALS['__quanta_transport']);
 
+$GLOBALS['__quanta_transport'] = static function (string $method, string $url, array $headers): array {
+    $path = (string) parse_url($url, PHP_URL_PATH);
+    if ($path === '/api/v1/dimensions') {
+        return ['status' => 200, 'body' => '{"items":[{"key":"client","label":"Client","values":[{"code":"BOC_BOC_CAPITAL","label":"BOC & BOC Capital"}]}],"has_more":false}'];
+    }
+    return ['status' => 200, 'body' => '{"items":[],"has_more":false}'];
+};
+$catalog = quantaCatalog('fixture-key');
+$check('dimension catalog includes source codes and labels',
+    $catalog['dimensions_access'] && $catalog['dimensions'][0]['values'][0]['code'] === 'BOC_BOC_CAPITAL');
+$GLOBALS['__quanta_transport'] = static function (string $method, string $url, array $headers): array {
+    if ((string) parse_url($url, PHP_URL_PATH) === '/api/v1/dimensions') {
+        return ['status' => 403, 'body' => '{"detail":"Missing dimensions:read"}'];
+    }
+    return ['status' => 200, 'body' => '{"items":[],"has_more":false}'];
+};
+$catalog = quantaCatalog('fixture-key');
+$check('missing dimension scope is visible without breaking worker catalog',
+    $catalog['dimensions_access'] === false && $catalog['dimensions'] === [] && $catalog['workers'] === []);
+unset($GLOBALS['__quanta_transport']);
+
 $probeCalls = [];
 $denyTimeEntries = true;
 $missingTimeEntries = false;
@@ -96,6 +117,10 @@ $check('internal regular and overtime cannot enter client billing',
     && quantaComponentCategory('overtime', true) === ['overtime', 'OT_nonbillable', 0]
     && quantaComponentCategory('doubletime', true) === ['doubletime', 'OT_nonbillable', 0]);
 $check('dimension ordering has a stable route identity', $entry['dimension_key'] === quantaDimensionKey(['client' => 'c-3', 'project' => 'p-7']));
+$context = quantaSourceContext($entry, ['work-1' => ['name' => 'BOC worksite']]);
+$check('import context retains source worksite and dimension codes',
+    $context['source_worksite_id'] === 'work-1' && $context['source_worksite_name'] === 'BOC worksite'
+    && json_decode($context['source_dimension_values_json'], true) === ['client' => 'c-3', 'project' => 'p-7']);
 $check('entries without dimensions use a stable empty route', quantaNormalizeEntry(array_diff_key($raw, ['dimension_values' => true]), $site, 'approved')['dimension_key'] === quantaDimensionKey([]));
 $check('unclassified duration is blocked', $throws(static fn () => quantaNormalizeEntry([
     'id' => 'q-102', 'worker_id' => 'worker-1', 'work_date' => '2026-09-23',
@@ -205,12 +230,28 @@ $prior = [];
 foreach ($entry['components'] as $component => $hours) {
     $prior[$entry['id']][$component] = [
         'source_hash' => quantaComponentHash($entry, $route, $component, $hours),
+        'source_worksite_id' => 'work-1',
         'entry_status' => 'pending_review', 'placement_id' => 42, 'person_id' => 19,
         'work_date' => $entry['work_date'], 'bill_extracted_at' => null,
         'ap_extracted_at' => null, 'payroll_extracted_at' => null,
     ];
 }
 $check('repeat import is idempotent', quantaEntryDecision($entry, $route, $prior)[0] === 'imported');
+$movedWorksite = array_replace($entry, ['worksite_id' => 'work-2']);
+$check('worksite change is not hidden by unchanged hours and dimensions',
+    quantaComponentHash($movedWorksite, $route, 'regular', 6.5) !== quantaComponentHash($entry, $route, 'regular', 6.5)
+    && quantaEntryDecision($movedWorksite, $route, $prior)[0] === 'update');
+$legacy = $prior;
+foreach ($entry['components'] as $component => $hours) {
+    $legacy[$entry['id']][$component]['source_hash'] = quantaLegacyComponentHash($entry, $route, $component, $hours);
+    $legacy[$entry['id']][$component]['source_worksite_id'] = null;
+}
+$check('unapproved legacy import can capture verified source context',
+    quantaEntryDecision($entry, $route, $legacy)[0] === 'update');
+$legacyApproved = $legacy;
+$legacyApproved[$entry['id']]['regular']['entry_status'] = 'approved';
+$check('approved legacy import does not silently acquire a guessed worksite',
+    quantaEntryDecision($entry, $route, $legacyApproved)[0] === 'conflict');
 $internalRoute = array_replace($route, ['engagement_type' => 'internal']);
 $check('internal reclassification updates only unapproved imported time',
     quantaEntryDecision($entry, $internalRoute, $prior)[0] === 'update');
@@ -220,6 +261,8 @@ $check('changed unapproved source can update', quantaEntryDecision($revised, $ro
 $approved = $prior;
 $approved[$entry['id']]['regular']['entry_status'] = 'approved';
 $check('changed approved source is blocked', quantaEntryDecision($revised, $route, $approved)[0] === 'conflict');
+$check('approved source cannot silently move worksites',
+    quantaEntryDecision($movedWorksite, $route, $approved)[0] === 'conflict');
 $check('approved imported time cannot silently become non-billable',
     quantaEntryDecision($entry, $internalRoute, $approved)[0] === 'conflict');
 $removed = $entry;
@@ -230,6 +273,7 @@ $root = dirname(__DIR__);
 $api = (string) file_get_contents($root . '/api/quanta.php');
 $migration = (string) file_get_contents($root . '/core/migrations/147_quanta_time_integration.sql');
 $identityMigration = (string) file_get_contents($root . '/core/migrations/148_quanta_worker_identity.sql');
+$contextMigration = (string) file_get_contents($root . '/core/migrations/149_quanta_time_source_context.sql');
 $ui = (string) file_get_contents($root . '/dashboard/src/pages/QuantaSettings.jsx');
 $check('connection and import are tenant-admin gated', str_contains($api, 'integrations.quanta.manage')
     && str_contains($api, 'confirm_tenant_id'));
@@ -241,6 +285,11 @@ $check('worker and person links are one-to-one per workspace', str_contains($ide
     && str_contains($identityMigration, 'uq_quanta_person_identity (tenant_id, person_id)'));
 $check('imports retain source worker identity for guarded unlink', str_contains($identityMigration, 'ADD COLUMN worker_id')
     && str_contains((string) file_get_contents($root . '/core/quanta/sync.php'), "'worker_id' => \$entry['worker_id']"));
+$check('imported time preserves the Quanta source context for timesheet review',
+    str_contains($contextMigration, 'source_worksite_id')
+    && str_contains($contextMigration, 'source_dimension_values_json')
+    && str_contains((string) file_get_contents($root . '/modules/staffing/api/timesheets.php'), 'qi.source_dimension_values_json')
+    && str_contains((string) file_get_contents($root . '/modules/staffing/ui/TimesheetDetail.jsx'), 'sourceDimensions(e.source_dimension_values_json)'));
 $check('page exposes preview, explicit mapping, and selected import', str_contains($ui, 'save_routes')
     && str_contains($ui, 'save_worker_links') && str_contains($ui, 'Import {selected.length} selected') && str_contains($ui, 'Preview time'));
 $check('new person requires people permission and is linked in one transaction',
@@ -260,6 +309,36 @@ $check('new route defaults to uncovered work and ends with the selected placemen
     str_contains($ui, 'effective_from: routeStartDrafts[row.routeKey] || row.work_date')
     && str_contains($ui, 'effective_to: placement?.end_date || null'));
 $check('integration hub links Quanta', str_contains((string) file_get_contents($root . '/dashboard/src/pages/IntegrationsHub.jsx'), 'integration-card-quanta'));
+
+require_once $root . '/scripts/quanta_reclassify_connecteam_soie.php';
+$correctionWorkers = [
+    ['id' => 'alice-id', 'full_name' => 'Alice Mesonzhnik'],
+    ['id' => 'erica-id', 'first_name' => 'Erica', 'last_name' => 'Maye'],
+];
+$correctionSites = [
+    ['id' => 'soie-id', 'code' => 'CT-SOIE'],
+    ['id' => 'boc-id', 'code' => 'CT-BOC'],
+    ['id' => 'internal-id', 'code' => 'CT-INTERNAL'],
+];
+$correctionEntries = [['id' => 'alice-entry', 'worker_id' => 'alice-id', 'worksite_id' => 'soie-id',
+    'duration_minutes' => 180, 'timesheet_status' => 'draft',
+    'dimension_values' => ['client' => 'SOIE', 'department' => 'BOC', 'task' => 'review']]];
+for ($i = 0; $i < 25; $i++) {
+    $correctionEntries[] = ['id' => 'erica-' . $i, 'worker_id' => 'erica-id', 'worksite_id' => 'soie-id',
+        'duration_minutes' => 216, 'timesheet_status' => 'draft',
+        'dimension_values' => ['client' => 'SOIE', 'department' => 'Internal']];
+}
+$correctionPlan = quantaSoiePlan($correctionWorkers, $correctionSites, $correctionEntries);
+$check('SOIE correction preserves other dimensions and targets exactly 26 known entries',
+    count($correctionPlan) === 26
+    && $correctionPlan[0]['worksite_id'] === 'boc-id'
+    && $correctionPlan[0]['dimension_values'] === ['client' => 'BOC_BOC_CAPITAL', 'department' => 'BOC', 'task' => 'review']
+    && $correctionPlan[25]['worksite_id'] === 'internal-id');
+$correctionDrift = $correctionEntries;
+$correctionDrift[1]['duration_minutes'] = 215;
+try { quantaSoiePlan($correctionWorkers, $correctionSites, $correctionDrift); $rejectedDrift = false; }
+catch (RuntimeException $e) { $rejectedDrift = true; }
+$check('SOIE correction refuses unexpected source hour totals', $rejectedDrift);
 
 echo "Quanta integration: {$passed} passed, " . count($failed) . " failed\n";
 exit($failed ? 1 : 0);

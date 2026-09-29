@@ -329,10 +329,31 @@ function quantaComponentHash(array $entry, array $route, string $component, floa
 {
     $parts = [
         (int) $route['placement_id'], (int) $route['person_id'], $entry['work_date'],
+        $component, $hours, $entry['description'], $entry['dimension_key'], $entry['worksite_id'],
+    ];
+    if (($route['engagement_type'] ?? '') === 'internal') $parts[] = 'internal';
+    return hash('sha256', json_encode($parts, JSON_THROW_ON_ERROR));
+}
+
+function quantaLegacyComponentHash(array $entry, array $route, string $component, float $hours): string
+{
+    $parts = [
+        (int) $route['placement_id'], (int) $route['person_id'], $entry['work_date'],
         $component, $hours, $entry['description'], $entry['dimension_key'],
     ];
     if (($route['engagement_type'] ?? '') === 'internal') $parts[] = 'internal';
     return hash('sha256', json_encode($parts, JSON_THROW_ON_ERROR));
+}
+
+function quantaSourceContext(array $entry, array $worksites): array
+{
+    $site = (string) $entry['worksite_id'];
+    $name = trim((string) ($worksites[$site]['name'] ?? ''));
+    return [
+        'source_worksite_id' => $site,
+        'source_worksite_name' => $name === '' ? null : substr($name, 0, 255),
+        'source_dimension_values_json' => json_encode($entry['dimension_values'], JSON_THROW_ON_ERROR),
+    ];
 }
 
 function quantaEntryDecision(array $entry, array $route, array $imports): array
@@ -347,10 +368,16 @@ function quantaEntryDecision(array $entry, array $route, array $imports): array
         $priorRow = $prior[$component] ?? null;
         if (!$priorRow) { $new = true; continue; }
         if (empty($priorRow['entry_status'])) return ['conflict', 'The original CoreFlux time row was deleted'];
-        if ($priorRow['source_hash'] === quantaComponentHash($entry, $route, $component, $hours)) continue;
+        $currentHash = quantaComponentHash($entry, $route, $component, $hours);
+        if ($priorRow['source_hash'] === $currentHash
+            && ($priorRow['source_worksite_id'] ?? null) === $entry['worksite_id']) continue;
+        $legacyContext = ($priorRow['source_worksite_id'] ?? null) === null
+            && $priorRow['source_hash'] === quantaLegacyComponentHash($entry, $route, $component, $hours);
         if (!in_array($priorRow['entry_status'], ['draft', 'pending_review', 'rejected'], true)
             || $priorRow['bill_extracted_at'] || $priorRow['ap_extracted_at'] || $priorRow['payroll_extracted_at']) {
-            return ['conflict', 'Changed Quanta time has already been approved or used downstream'];
+            return ['conflict', $legacyContext
+                ? 'Legacy Quanta import lacks a verified worksite snapshot; review before changing approved time'
+                : 'Changed Quanta time has already been approved or used downstream'];
         }
         if ((int) $priorRow['placement_id'] !== (int) $route['placement_id']
             || (int) $priorRow['person_id'] !== (int) $route['person_id']
@@ -444,7 +471,8 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
             foreach ($entry['components'] as $component => $hours) {
                 $prior = $imports[$id][$component] ?? null;
                 $hash = quantaComponentHash($entry, $route, $component, $hours);
-                if ($prior && $prior['source_hash'] === $hash) continue;
+                if ($prior && $prior['source_hash'] === $hash
+                    && ($prior['source_worksite_id'] ?? null) === $entry['worksite_id']) continue;
                 [$hourType, $category, $billable] = quantaComponentCategory(
                     $component, ($route['engagement_type'] ?? '') === 'internal'
                 );
@@ -480,6 +508,7 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
                     scopedUpdate('quanta_time_imports', (int) $prior['id'], [
                         'source_hash' => $hash, 'source_timesheet_status' => $entry['source_status'],
                         'worker_id' => $entry['worker_id'],
+                        ...quantaSourceContext($entry, $worksites),
                         'timesheet_id' => (int) $timesheet['id'], 'imported_by_user_id' => $actorId,
                     ]);
                     $updated++;
@@ -490,6 +519,7 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
                     scopedInsert('quanta_time_imports', [
                         'quanta_entry_id' => $id, 'component' => $component,
                         'worker_id' => $entry['worker_id'],
+                        ...quantaSourceContext($entry, $worksites),
                         'time_entry_id' => $entryId, 'timesheet_id' => (int) $timesheet['id'],
                         'source_hash' => $hash, 'source_timesheet_status' => $entry['source_status'],
                         'imported_by_user_id' => $actorId,

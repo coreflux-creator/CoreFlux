@@ -2,6 +2,12 @@ name: Deploy Quanta connector
 
 on:
   workflow_dispatch:
+    inputs:
+      reclassify_soie:
+        description: 'Arabella historical SOIE correction'
+        type: choice
+        options: [none, preview, apply]
+        default: none
 
 permissions:
   contents: read
@@ -55,13 +61,17 @@ jobs:
             api/quanta.php \
             core/migrations/147_quanta_time_integration.sql \
             core/migrations/148_quanta_worker_identity.sql \
+            core/migrations/149_quanta_time_source_context.sql \
             core/quanta/client.php core/quanta/identity.php core/quanta/sync.php core/rbac/legacy_map.php \
             dashboard/dist/index.html dashboard/src/pages/AdminModule.jsx \
             dashboard/src/pages/IntegrationsHub.jsx dashboard/src/pages/QuantaSettings.jsx \
             index.html modules/people/lib/people.php \
             modules/placements/api/placements.php modules/placements/ui/PlacementCreate.jsx \
             modules/time/api/csv_import.php \
+            modules/staffing/api/timesheets.php modules/staffing/ui/TimesheetDetail.jsx \
             tests/placement_person_one_step_smoke.php tests/quanta_integration_smoke.php \
+            tests/timesheets_drill_in_and_placement_smoke.php \
+            scripts/quanta_reclassify_connecteam_soie.php \
             scripts/opcache_flush_deploy.php.template \
             "${ROOT_ASSETS[@]}" spa-assets/index.html spa-assets/sw.js
 
@@ -100,6 +110,7 @@ jobs:
             rm -f -- "$STAGE_ROOT/coreflux-quanta-release.tar.gz"
             test -f "$STAGE_ROOT/core/migrations/147_quanta_time_integration.sql"
             test -f "$STAGE_ROOT/core/migrations/148_quanta_worker_identity.sql"
+            test -f "$STAGE_ROOT/core/migrations/149_quanta_time_source_context.sql"
             test -f "$STAGE_ROOT/core/quanta/sync.php"
             test -f "$STAGE_ROOT/core/quanta/identity.php"
             test -f "$STAGE_ROOT/modules/people/lib/people.php"
@@ -114,8 +125,10 @@ jobs:
             cd "$APP_ROOT"
             QUANTA_BEFORE="$(php -r 'require "core/api_bootstrap.php"; $db=getDB(); $active=(int)$db->query("SELECT COUNT(*) FROM quanta_connections WHERE status=\"active\"")->fetchColumn(); $imports=(int)$db->query("SELECT COUNT(*) FROM quanta_time_imports")->fetchColumn(); echo "$active:$imports";')"
             cp --no-preserve=mode,ownership,timestamps "$STAGE_ROOT/core/migrations/148_quanta_worker_identity.sql" "$APP_ROOT/core/migrations/148_quanta_worker_identity.sql"
+            cp --no-preserve=mode,ownership,timestamps "$STAGE_ROOT/core/migrations/149_quanta_time_source_context.sql" "$APP_ROOT/core/migrations/149_quanta_time_source_context.sql"
             php deploy/run_migrations.php
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/148_quanta_worker_identity.sql'
+            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/149_quanta_time_source_context.sql'
             cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
             SPA_ENTRY="$(sed -n 's#.*src="/\(spa-assets/index-[^"]*\.js\)".*#\1#p' index.html | head -n 1)"
             test -n "$SPA_ENTRY"
@@ -123,13 +136,21 @@ jobs:
             grep -Fq -- "- $SPA_ENTRY" .deploy-version
 
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/147_quanta_time_integration.sql'
-            php -r 'require "core/api_bootstrap.php"; $db=getDB(); foreach (["quanta_connections","quanta_time_routes","quanta_time_imports","quanta_worker_links"] as $table) { $q=$db->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:name"); $q->execute(["name"=>$table]); if ((int)$q->fetchColumn() !== 1) { fwrite(STDERR,"$table missing\n"); exit(1); } } $column=$db->query("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=\"quanta_time_imports\" AND column_name=\"worker_id\""); if ((int)$column->fetchColumn() !== 1) exit(1); $active=(int)$db->query("SELECT COUNT(*) FROM quanta_connections WHERE status=\"active\"")->fetchColumn(); $imports=(int)$db->query("SELECT COUNT(*) FROM quanta_time_imports")->fetchColumn(); if ("$active:$imports" !== $argv[1]) { fwrite(STDERR,"Quanta connection or import counts changed during deployment\n"); exit(1); } echo "Quanta identity schema verified; connection and import counts preserved.\n";' "$QUANTA_BEFORE"
+            php -r 'require "core/api_bootstrap.php"; $db=getDB(); foreach (["quanta_connections","quanta_time_routes","quanta_time_imports","quanta_worker_links"] as $table) { $q=$db->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:name"); $q->execute(["name"=>$table]); if ((int)$q->fetchColumn() !== 1) { fwrite(STDERR,"$table missing\n"); exit(1); } } foreach (["worker_id","source_worksite_id","source_worksite_name","source_dimension_values_json"] as $name) { $column=$db->prepare("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=\"quanta_time_imports\" AND column_name=:name"); $column->execute(["name"=>$name]); if ((int)$column->fetchColumn() !== 1) { fwrite(STDERR,"$name missing\n"); exit(1); } } $active=(int)$db->query("SELECT COUNT(*) FROM quanta_connections WHERE status=\"active\"")->fetchColumn(); $imports=(int)$db->query("SELECT COUNT(*) FROM quanta_time_imports")->fetchColumn(); if ("$active:$imports" !== $argv[1]) { fwrite(STDERR,"Quanta connection or import counts changed during deployment\n"); exit(1); } echo "Quanta source-context schema verified; connection and import counts preserved.\n";' "$QUANTA_BEFORE"
 
-            for file in api/quanta.php core/quanta/client.php core/quanta/identity.php core/quanta/sync.php modules/people/lib/people.php modules/placements/api/placements.php modules/time/api/csv_import.php; do
+            for file in api/quanta.php core/quanta/client.php core/quanta/identity.php core/quanta/sync.php modules/people/lib/people.php modules/placements/api/placements.php modules/time/api/csv_import.php modules/staffing/api/timesheets.php scripts/quanta_reclassify_connecteam_soie.php; do
               php -l "$file"
             done
             php tests/placement_person_one_step_smoke.php
             php tests/quanta_integration_smoke.php
+            php tests/timesheets_drill_in_and_placement_smoke.php
+
+            case '${{ inputs.reclassify_soie }}' in
+              preview) php scripts/quanta_reclassify_connecteam_soie.php --preview ;;
+              apply) php scripts/quanta_reclassify_connecteam_soie.php --apply ;;
+              none) ;;
+              *) echo 'Invalid correction mode' >&2; exit 1 ;;
+            esac
 
             OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
             php -r '$template=file_get_contents($argv[1]); if ($template === false || substr_count($template, "__COREFLUX_OPCACHE_TOKEN__") !== 1) exit(1); $content=str_replace("__COREFLUX_OPCACHE_TOKEN__", $argv[3], $template); if (file_put_contents($argv[2], $content, LOCK_EX) === false) exit(1); chmod($argv[2], 0640);' "$OPCACHE_TEMPLATE" "$OPCACHE_ENDPOINT" "$OPCACHE_TOKEN"

@@ -355,9 +355,12 @@ if ($method === 'GET' && $action === 'detail') {
     $entries = scopedQuery(
         "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
                 te.hours, te.billable, te.payable, te.description, te.status,
+                qi.quanta_entry_id, qi.source_worksite_id, qi.source_worksite_name,
+                qi.source_dimension_values_json,
                 pl.title AS placement_title,
                 COALESCE(pl.end_client_name, '') AS client_name
            FROM time_entries te
+      LEFT JOIN quanta_time_imports qi ON qi.time_entry_id = te.id AND qi.tenant_id = te.tenant_id
       LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
           WHERE te.tenant_id = :tenant_id
             AND te.timesheet_id = :tid
@@ -440,9 +443,12 @@ if ($method === 'GET' && $action === 'detail_for_placement') {
     $entries = scopedQuery(
         "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
                 te.hours, te.billable, te.payable, te.description, te.status,
+                qi.quanta_entry_id, qi.source_worksite_id, qi.source_worksite_name,
+                qi.source_dimension_values_json,
                 pl.title AS placement_title,
                 COALESCE(pl.end_client_name, '') AS client_name
            FROM time_entries te
+      LEFT JOIN quanta_time_imports qi ON qi.time_entry_id = te.id AND qi.tenant_id = te.tenant_id
       LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
           WHERE te.tenant_id = :tenant_id
             AND te.timesheet_id = :tid
