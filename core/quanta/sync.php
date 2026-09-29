@@ -209,7 +209,7 @@ function quantaNormalizeEntry(array $raw, array $worksites, string $requestedSta
 }
 
 /** Distinct worker/worksite/dimension combinations, including unapproved source time. */
-function quantaRouteCandidates(array $rawEntries, array $worksites): array
+function quantaRouteCandidates(array $rawEntries, array $worksites, array $routes = [], array $workerPeople = []): array
 {
     $candidates = [];
     $skipped = 0;
@@ -219,6 +219,12 @@ function quantaRouteCandidates(array $rawEntries, array $worksites): array
         } catch (Throwable $e) {
             $skipped++;
             continue;
+        }
+        try {
+            quantaRouteFor($routes, $entry, $workerPeople);
+            continue;
+        } catch (RuntimeException $e) {
+            // A missing or invalid route still needs operator review.
         }
         $key = $entry['worker_id'] . '|' . $entry['worksite_id'] . '|' . $entry['dimension_key'];
         if (!isset($candidates[$key])) {
