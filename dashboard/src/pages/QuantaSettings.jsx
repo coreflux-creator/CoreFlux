@@ -37,11 +37,17 @@ function placementName(placement) {
   return `PL-${placement.id} · ${placement.person_name || 'Unnamed person'} · ${placement.title || 'Placement'}${placement.end_client_name ? ` · ${placement.end_client_name}` : ''}`;
 }
 
-function dimensionLabel(values) {
+function dimensionLabel(values, dimensions = []) {
   if (!values) return 'No dimensions';
   try {
     const parsed = typeof values === 'string' ? JSON.parse(values) : values;
-    const parts = Object.entries(parsed || {}).map(([key, value]) => `${key}: ${value}`);
+    const parts = Object.entries(parsed || {}).map(([key, value]) => {
+      const dimension = dimensions.find(item => item.key === key);
+      const code = String(value);
+      const option = (dimension?.values || []).find(item => String(item.code) === code || String(item.id) === code);
+      const label = option?.label && option.label !== code ? `${option.label} (${code})` : code;
+      return `${dimension?.label || key}: ${label}`;
+    });
     return parts.length ? parts.join(' · ') : 'No dimensions';
   } catch { return 'Dimension values unavailable'; }
 }
@@ -102,6 +108,7 @@ export default function QuantaSettings() {
 
   const workers = useMemo(() => new Map((catalog?.workers || []).map(w => [String(w.id), w])), [catalog]);
   const sites = useMemo(() => new Map((catalog?.worksites || []).map(s => [String(s.id), s])), [catalog]);
+  const dimensions = useMemo(() => catalog?.dimensions || [], [catalog]);
   const people = useMemo(() => catalog?.people || [], [catalog]);
   const workerLinks = useMemo(() => catalog?.worker_links || [], [catalog]);
   const linkedPeople = useMemo(() => new Map(workerLinks.map(link => [String(link.worker_id), Number(link.person_id)])), [workerLinks]);
@@ -271,7 +278,7 @@ export default function QuantaSettings() {
         <button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => { if (window.confirm('Disconnect Quanta from this CoreFlux workspace? Existing imported time stays in CoreFlux.')) run('disconnect', async () => { await api.post(`${endpoint}disconnect`); await status.reload(); setNotice('Quanta disconnected.'); }); }}><Unplug size={15} /> Disconnect</button>
         {status.data?.last_probe_error && <Notice error>{status.data.last_probe_error}</Notice>}
       </div> : <div style={{ display: 'grid', gap: 12, maxWidth: 640 }}>
-        <div>Use a Quanta key with <strong>timesheets:read, workers:read, and worksites:read</strong>. No data moves until you preview and choose entries to import.</div>
+        <div>Use a Quanta key with <strong>timesheets:read, workers:read, worksites:read, and dimensions:read</strong>. No data moves until you preview and choose entries to import.</div>
         <label style={{ display: 'grid', gap: 5 }}>Quanta API key<input type="password" autoComplete="off" value={key} onChange={e => setKey(e.target.value)} style={field} /></label>
         <label style={{ display: 'flex', gap: 8, alignItems: 'start' }}><input type="checkbox" checked={confirmWorkspace} onChange={e => setConfirmWorkspace(e.target.checked)} /> This Quanta account is for {status.data?.workspace?.name || 'this CoreFlux workspace'}.</label>
         {status.data?.status && <label style={{ display: 'flex', gap: 8, alignItems: 'start' }}><input type="checkbox" checked={confirmSame} onChange={e => setConfirmSame(e.target.checked)} /> This key belongs to the same Quanta workspace previously connected here.</label>}
@@ -332,6 +339,15 @@ export default function QuantaSettings() {
           </tr>)}</tbody></table></div>}
         </div>}
       </div>
+      <div style={section} data-testid="quanta-dimension-catalog">
+        <h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Work dimensions</h2>
+        <div style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>Quanta codes identify the source work context. CoreFlux retains them on imported time and routes each combination to a reviewed placement.</div>
+        {catalog?.dimensions_access === false && <Notice error>Quanta denied dimension catalog access. Add dimensions:read to the existing key before validating source codes. Worker and time access are unaffected.</Notice>}
+        {catalog?.dimensions_access !== false && catalog && dimensions.length === 0 && <div style={{ marginTop: 12, color: 'var(--cf-text-secondary)', fontSize: 13 }}>No Quanta dimensions are configured.</div>}
+        {dimensions.length > 0 && <div style={{ overflowX: 'auto', marginTop: 12 }}><table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr><th style={head}>Dimension</th><th style={head}>Code</th><th style={head}>Values</th></tr></thead><tbody>
+          {dimensions.map(item => <tr key={item.id || item.key}><td style={cell}><strong>{item.label || item.key}</strong>{item.required && <span style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}> · Required</span>}</td><td style={cell}><code>{item.key}</code></td><td style={cell}>{(item.values || []).map(value => `${value.label || value.code} (${value.code})`).join(' · ') || 'No values'}</td></tr>)}
+        </tbody></table></div>}
+      </div>
       <div style={section}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <div><h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Placement routing</h2><span style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>Find worker, worksite, and dimension combinations in Quanta time. Draft entries can guide mapping, but cannot be imported.</span></div>
@@ -347,7 +363,7 @@ export default function QuantaSettings() {
             const options = placements.filter(p => Number(p.person_id) === linkedPersonId && ['active', 'ended'].includes(p.status)
               && (!p.start_date || p.start_date <= row.work_date) && (!p.end_date || p.end_date >= row.work_date));
             return <div key={row.routeKey} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10, alignItems: 'end', padding: '10px 0', borderBottom: '1px solid var(--cf-border)' }}>
-              <div><strong>{workerName(workers.get(String(row.worker_id)))}</strong><div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>{sites.get(String(row.worksite_id))?.name || row.worksite_id || 'No worksite'} · first seen {row.work_date}{row.entry_count ? ` · ${row.entry_count} entries` : ''}</div><div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>{dimensionLabel(row.dimension_values)}</div></div>
+              <div><strong>{workerName(workers.get(String(row.worker_id)))}</strong><div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>{sites.get(String(row.worksite_id))?.name || row.worksite_id || 'No worksite'} · first seen {row.work_date}{row.entry_count ? ` · ${row.entry_count} entries` : ''}</div><div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>{dimensionLabel(row.dimension_values, dimensions)}</div></div>
               <div>{linkedPersonId ? <><select aria-label={`Placement for ${workerName(workers.get(String(row.worker_id)))}`} value={chosen} onChange={e => { setRouteDrafts(prev => ({ ...prev, [row.routeKey]: e.target.value })); setRouteStartDrafts(prev => ({ ...prev, [row.routeKey]: '' })); }} style={{ ...field, width: '100%' }}>
                 <option value="">Choose a placement</option>{options.map(p => <option key={p.id} value={p.id}>{placementName(p)}</option>)}
               </select>{options.length === 0 && <Link to={`/modules/placements/new?person_id=${linkedPersonId}&from=quanta`} style={{ fontSize: 12 }}>Create a placement for this person</Link>}</> : <span style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>Link or create the person first</span>}</div>
@@ -378,7 +394,7 @@ export default function QuantaSettings() {
               <thead><tr><th style={head}><input type="checkbox" aria-label="Select all ready entries on this page" checked={allSelected} onChange={selectAll} /></th>{['Date', 'Worker', 'Worksite', 'Hours', 'Placement', 'Status', 'Detail'].map(h => <th key={h} style={head}>{h}</th>)}</tr></thead>
               <tbody>{preview.rows.map((row, index) => <tr key={`${row.id}-${index}`}>
                 <td style={cell}><input type="checkbox" aria-label={`Select Quanta entry ${row.id}`} disabled={!['ready', 'update'].includes(row.status)} checked={selected.includes(row.id)} onChange={e => setSelected(prev => e.target.checked ? [...prev, row.id] : prev.filter(id => id !== row.id))} /></td>
-                <td style={cell}>{row.work_date || '—'}</td><td style={cell}>{workerName(workers.get(String(row.worker_id)))}</td><td style={cell}>{sites.get(String(row.worksite_id))?.name || row.worksite_id || '—'}<div style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>{dimensionLabel(row.dimension_values)}</div></td>
+                <td style={cell}>{row.work_date || '—'}</td><td style={cell}>{workerName(workers.get(String(row.worker_id)))}</td><td style={cell}>{sites.get(String(row.worksite_id))?.name || row.worksite_id || '—'}<div style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>{dimensionLabel(row.dimension_values, dimensions)}</div></td>
                 <td style={cell}>{row.hours ?? '—'}</td><td style={cell}>{row.placement_id ? `PL-${row.placement_id} · ${row.person_name}` : '—'}</td>
                 <td style={cell}><Status status={row.status} /></td><td style={{ ...cell, color: 'var(--cf-text-secondary)' }}>{row.message}</td>
               </tr>)}</tbody>
@@ -394,7 +410,7 @@ export default function QuantaSettings() {
       {activeRoutes.length > 0 && <div style={section}>
         <h2 style={{ fontSize: 18, margin: '0 0 10px' }}>Placement routes</h2>
         <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 650 }}><thead><tr>{['Worker', 'Worksite / dimensions', 'Placement', 'Effective', ''].map(h => <th key={h} style={head}>{h}</th>)}</tr></thead><tbody>{activeRoutes.map(route => <tr key={route.id}>
-          <td style={cell}>{workerName(workers.get(String(route.worker_id)))}</td><td style={cell}>{sites.get(String(route.worksite_id))?.name || route.worksite_id || '—'}<div style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>{dimensionLabel(route.dimension_values_json)}</div></td>
+          <td style={cell}>{workerName(workers.get(String(route.worker_id)))}</td><td style={cell}>{sites.get(String(route.worksite_id))?.name || route.worksite_id || '—'}<div style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>{dimensionLabel(route.dimension_values_json, dimensions)}</div></td>
           <td style={cell}>{routeEdit?.id === route.id ? <select aria-label="Route placement" style={{ ...field, minWidth: 210 }} value={routeEdit.placement_id} onChange={e => setRouteEdit(prev => ({ ...prev, placement_id: e.target.value }))}>{placements.filter(p => Number(p.person_id) === linkedPeople.get(String(route.worker_id))).map(p => <option key={p.id} value={p.id}>{placementName(p)}</option>)}</select> : placementName({ id: route.placement_id, person_name: route.person_name, title: route.title, end_client_name: route.end_client_name })}</td>
           <td style={cell}>{routeEdit?.id === route.id ? <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}><input aria-label="Route start" type="date" style={field} value={routeEdit.effective_from} onChange={e => setRouteEdit(prev => ({ ...prev, effective_from: e.target.value }))} /><input aria-label="Route end" type="date" style={field} value={routeEdit.effective_to} onChange={e => setRouteEdit(prev => ({ ...prev, effective_to: e.target.value }))} /></div> : <>{route.effective_from}{route.effective_to ? ` to ${route.effective_to}` : ' onward'}</>}</td>
           <td style={cell}><div style={{ display: 'flex', gap: 5 }}>{routeEdit?.id === route.id ? <><button className="btn btn-primary" type="button" disabled={!!busy} onClick={saveEditedRoute}><Save size={14} /> Save</button><button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => setRouteEdit(null)}>Cancel</button></> : <><button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => setRouteEdit({ id: route.id, placement_id: String(route.placement_id), effective_from: route.effective_from, effective_to: route.effective_to || '' })}>Edit</button><button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => { if (window.confirm('Remove this route? Imported time will remain in CoreFlux.')) run('delete-route', async () => { const result = await api.post(`${endpoint}delete_route`, { id: route.id }); setCatalog(prev => ({ ...prev, routes: result.routes })); setPreview(null); }); }}>Remove</button></>}</div></td>

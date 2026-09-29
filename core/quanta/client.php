@@ -149,9 +149,19 @@ function quantaListAll(string $apiKey, string $path, array $query = [], int $max
 
 function quantaCatalog(string $apiKey): array
 {
+    $dimensions = [];
+    $dimensionsAccess = true;
+    try {
+        $dimensions = quantaListAll($apiKey, '/dimensions', [], 2000);
+    } catch (QuantaApiException $e) {
+        if ($e->httpStatus !== 403) throw $e;
+        $dimensionsAccess = false;
+    }
     return [
         'workers' => quantaListAll($apiKey, '/workers', [], 5000),
         'worksites' => quantaListAll($apiKey, '/worksites', [], 2000),
+        'dimensions' => $dimensions,
+        'dimensions_access' => $dimensionsAccess,
     ];
 }
 

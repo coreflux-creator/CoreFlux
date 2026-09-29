@@ -40,7 +40,7 @@ $a('detail joins people for worker name',
 $a('detail returns entries joined to placements',
     preg_match("/'GET' && \\\$action === 'detail'[\s\S]{0,1400}LEFT JOIN placements pl ON pl\\.id = te\\.placement_id/", $api) === 1);
 $a('detail filters out superseded entries',
-    preg_match("/'GET' && \\\$action === 'detail'[\s\S]{0,1400}te\\.status != 'superseded'/", $api) === 1);
+    preg_match("/'GET' && \\\$action === 'detail'[\s\S]{0,1900}te\\.status != 'superseded'/", $api) === 1);
 $a('detail 404s when timesheet not found',
     str_contains($api, "api_error('timesheet not found', 404)"));
 

@@ -54,6 +54,15 @@ const STATUS_LABELS = {
   billing_ready: 'Ready for billing',
 };
 
+function sourceDimensions(value) {
+  if (value == null) return 'Source dimensions not yet captured';
+  try {
+    const values = JSON.parse(value);
+    const pairs = Object.entries(values || {}).map(([key, code]) => `${key}: ${code}`);
+    return pairs.length ? pairs.join(' · ') : 'No source dimensions';
+  } catch { return 'Source dimensions unavailable'; }
+}
+
 export default function TimesheetDetail({ session }) {
   const { id } = useParams();
   const nav = useNavigate();
@@ -81,6 +90,10 @@ export default function TimesheetDetail({ session }) {
         end_client_name: existing.end_client_name,
         person_first_name: existing.person_first_name,
         person_last_name:  existing.person_last_name,
+        quanta_entry_id: existing.quanta_entry_id,
+        source_worksite_id: existing.source_worksite_id,
+        source_worksite_name: existing.source_worksite_name,
+        source_dimension_values_json: existing.source_dimension_values_json,
         ...savedEntry,
       };
       const nextEntries = prevEntries.some(e => e.id === savedEntry.id)
@@ -302,6 +315,10 @@ export default function TimesheetDetail({ session }) {
               end_client_name:   existing.end_client_name,
               person_first_name: existing.person_first_name,
               person_last_name:  existing.person_last_name,
+              quanta_entry_id: existing.quanta_entry_id,
+              source_worksite_id: existing.source_worksite_id,
+              source_worksite_name: existing.source_worksite_name,
+              source_dimension_values_json: existing.source_dimension_values_json,
               ...r.entry,
             };
             if (idx >= 0) nextEntries[idx] = merged;
@@ -623,6 +640,11 @@ export default function TimesheetDetail({ session }) {
                       {e.client_name && <span style={{ display: 'block', color: '#666', fontSize: 11 }}>{e.client_name}</span>}
                     </>
                   )}
+                  {e.quanta_entry_id && <span data-testid={`timesheet-detail-entry-${e.id}-source-context`}
+                    title={`Quanta entry ${e.quanta_entry_id}${e.source_worksite_id ? ` · worksite ${e.source_worksite_id}` : ''}`}
+                    style={{ display: 'block', color: 'var(--cf-text-secondary)', fontSize: 11, marginTop: 3 }}>
+                    Quanta · {e.source_worksite_name || e.source_worksite_id || 'No worksite'} · {sourceDimensions(e.source_dimension_values_json)}
+                  </span>}
                 </td>
                 <td style={{ fontSize: 12 }}>
                   {canEditRows ? (
