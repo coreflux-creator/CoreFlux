@@ -142,8 +142,16 @@ function quantaSoieMain(array $argv): void
     $key = quantaApiKey((int) $rows[0]['tenant_id']);
     $workers = quantaListAll($key, '/workers', [], 5000);
     $worksites = quantaListAll($key, '/worksites', [], 2000);
+    $dimensions = quantaListAll($key, '/dimensions', [], 2000);
     $entries = quantaListAll($key, '/time-entries', [], 10000);
     $patches = quantaSoiePlan($workers, $worksites, $entries);
+    foreach ($dimensions as $dimension) {
+        if (!in_array(($dimension['key'] ?? ''), ['client', 'department'], true)) continue;
+        $values = array_map(static fn (array $value): array => [
+            'id' => $value['id'] ?? null, 'code' => $value['code'] ?? null,
+        ], is_array($dimension['values'] ?? null) ? $dimension['values'] : []);
+        echo 'Quanta ' . $dimension['key'] . ' value identifiers: ' . json_encode($values, JSON_THROW_ON_ERROR) . "\n";
+    }
     $sample = quantaGet($key, '/time-entries/' . $patches[0]['id']);
     if (($sample['worksite_id'] ?? null) !== $patches[0]['original_worksite_id']
         || ($sample['dimension_values'] ?? null) !== $patches[0]['original_dimensions']
