@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/core/quanta/sync.php';
+require_once dirname(__DIR__) . '/modules/people/lib/people.php';
 
 $passed = 0;
 $failed = [];
@@ -110,6 +111,20 @@ $check('source total must equal classified hours', $throws(static fn () => quant
     array_replace($raw, ['duration_hours' => 9]), $site, 'approved'
 )));
 
+$draftForRouting = array_replace($raw, ['timesheet_status' => 'draft']);
+$routeDiscovery = quantaRouteCandidates([
+    $draftForRouting,
+    array_replace($draftForRouting, ['id' => 'q-102', 'clock_in_at' => '2026-09-22T01:00:00Z']),
+    ['id' => 'bad-entry'],
+], $site);
+$check('draft time identifies a placement route without importing hours',
+    count($routeDiscovery['rows']) === 1 && $routeDiscovery['rows'][0]['entry_count'] === 2
+    && $routeDiscovery['rows'][0]['work_date'] === '2026-09-21' && $routeDiscovery['skipped'] === 1);
+$check('draft time remains blocked from approved import', $throws(static fn () => quantaNormalizeEntry($draftForRouting, $site, 'approved')));
+$check('provisional person creation rejects missing identity before database access', $throws(static fn () => peopleCreateExternalCandidate(7, [
+    'first_name' => 'Example', 'last_name' => '', 'email_primary' => 'invalid', 'status' => 'active',
+], 'quanta')));
+
 $quantaRow = [
     'id' => 'entry-approved-1', 'worker_id' => 'worker-1', 'worksite_id' => 'work-1',
     'work_date' => '2026-03-29', 'in_time' => '2026-03-29T08:00:00-07:00',
@@ -205,6 +220,15 @@ $check('imports retain source worker identity for guarded unlink', str_contains(
     && str_contains((string) file_get_contents($root . '/core/quanta/sync.php'), "'worker_id' => \$entry['worker_id']"));
 $check('page exposes preview, explicit mapping, and selected import', str_contains($ui, 'save_routes')
     && str_contains($ui, 'save_worker_links') && str_contains($ui, 'Import {selected.length} selected') && str_contains($ui, 'Preview time'));
+$check('new person requires people permission and is linked in one transaction',
+    str_contains($api, "\$action === 'create_worker_person'") && str_contains($api, "'people.manage'")
+    && str_contains($api, 'peopleCreateExternalCandidate') && str_contains($api, 'cf_tx_commit($pdo, $owns)'));
+$check('provisional people do not guess employment type or activate a placement',
+    str_contains((string) file_get_contents($root . '/modules/people/lib/people.php'), '"candidate", :status, "unknown"')
+    && str_contains($api, 'must be activated before routing time'));
+$check('placement creation from Quanta requires reviewed type and date',
+    str_contains((string) file_get_contents($root . '/modules/placements/ui/PlacementCreate.jsx'), "engagement_type: fromQuanta ? '' : 'w2'")
+    && str_contains($ui, 'Create and link') && str_contains($ui, 'Find work to route'));
 $check('integration hub links Quanta', str_contains((string) file_get_contents($root . '/dashboard/src/pages/IntegrationsHub.jsx'), 'integration-card-quanta'));
 
 echo "Quanta integration: {$passed} passed, " . count($failed) . " failed\n";

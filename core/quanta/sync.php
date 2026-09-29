@@ -63,8 +63,8 @@ function quantaDimensionKey(array $values): string
     return hash('sha256', json_encode(quantaDimensions($values), JSON_THROW_ON_ERROR));
 }
 
-/** No guessed person, placement, timezone, or overtime classification. */
-function quantaNormalizeEntry(array $raw, array $worksites, string $requestedStatus): array
+/** Identify the work context without treating draft hours as approved time. */
+function quantaRouteIdentity(array $raw, array $worksites): array
 {
     $id = trim((string) quantaValue($raw, ['id', 'entry_id']));
     $worker = trim((string) quantaValue($raw, ['worker_id', 'user_id']));
@@ -88,6 +88,19 @@ function quantaNormalizeEntry(array $raw, array $worksites, string $requestedSta
     }
     $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
     if (!$parsed || $parsed->format('Y-m-d') !== $date) throw new InvalidArgumentException("Quanta entry {$id} has an invalid work date");
+
+    return [
+        'id' => $id, 'worker_id' => $worker, 'worksite_id' => $site,
+        'dimension_values' => $dimensions, 'dimension_key' => quantaDimensionKey($dimensions),
+        'work_date' => $date,
+    ];
+}
+
+/** No guessed person, placement, timezone, or overtime classification. */
+function quantaNormalizeEntry(array $raw, array $worksites, string $requestedStatus): array
+{
+    $identity = quantaRouteIdentity($raw, $worksites);
+    $id = $identity['id'];
 
     $status = strtolower(trim((string) quantaValue($raw, ['timesheet_status'])));
     if ($status === '' && is_array($raw['timesheet'] ?? null)) {
@@ -187,14 +200,42 @@ function quantaNormalizeEntry(array $raw, array $worksites, string $requestedSta
     if ($hasBreakdown && $duration !== null && abs((float) $duration - $total) > 0.02) {
         throw new InvalidArgumentException("Quanta entry {$id} duration does not match its hour breakdown");
     }
-    return [
-        'id' => $id, 'worker_id' => $worker, 'worksite_id' => $site,
-        'dimension_values' => $dimensions, 'dimension_key' => quantaDimensionKey($dimensions),
-        'work_date' => $date, 'source_status' => $status,
+    return $identity + [
+        'source_status' => $status,
         'components' => $components,
         'hours' => round($total, 2),
         'description' => substr(trim((string) ($raw['notes'] ?? $raw['description'] ?? '')), 0, 500),
     ];
+}
+
+/** Distinct worker/worksite/dimension combinations, including unapproved source time. */
+function quantaRouteCandidates(array $rawEntries, array $worksites): array
+{
+    $candidates = [];
+    $skipped = 0;
+    foreach ($rawEntries as $raw) {
+        try {
+            $entry = quantaRouteIdentity($raw, $worksites);
+        } catch (Throwable $e) {
+            $skipped++;
+            continue;
+        }
+        $key = $entry['worker_id'] . '|' . $entry['worksite_id'] . '|' . $entry['dimension_key'];
+        if (!isset($candidates[$key])) {
+            $candidates[$key] = [
+                'route_key' => $key, 'worker_id' => $entry['worker_id'],
+                'worksite_id' => $entry['worksite_id'], 'dimension_values' => $entry['dimension_values'],
+                'dimension_key' => $entry['dimension_key'], 'work_date' => $entry['work_date'],
+                'entry_count' => 0,
+            ];
+        }
+        $candidates[$key]['work_date'] = min($candidates[$key]['work_date'], $entry['work_date']);
+        $candidates[$key]['entry_count']++;
+    }
+    usort($candidates, static fn (array $a, array $b): int =>
+        [$a['worker_id'], $a['worksite_id'], $a['work_date']]
+        <=> [$b['worker_id'], $b['worksite_id'], $b['work_date']]);
+    return ['rows' => $candidates, 'skipped' => $skipped, 'source_entries' => count($rawEntries)];
 }
 
 function quantaComponentCategory(string $component): array
@@ -246,7 +287,9 @@ function quantaRouteFor(array $routes, array $entry, array $workerPeople): array
     $route = $matching[0];
     if (empty($route['person_id']) || empty($route['person_name'])) throw new RuntimeException('The mapped placement has no available person');
     quantaAssertWorkerPerson($workerId, (int) $route['person_id'], $workerPeople);
-    if (!empty($route['deleted_at']) || $route['placement_status'] === 'cancelled') throw new RuntimeException('The mapped placement is deleted or cancelled');
+    if (!empty($route['deleted_at']) || !in_array((string) $route['placement_status'], ['active', 'ended'], true)) {
+        throw new RuntimeException('The mapped placement must be active or ended before importing time');
+    }
     if (!empty($route['start_date']) && $entry['work_date'] < $route['start_date']) throw new RuntimeException('Work date is before placement start');
     $end = $route['actual_end_date'] ?: $route['end_date'];
     if ($end && $entry['work_date'] > $end) throw new RuntimeException('Work date is after placement end');

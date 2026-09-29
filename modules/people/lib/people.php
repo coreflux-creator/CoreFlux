@@ -94,6 +94,35 @@ function peopleCreateForPlacement(array $identity, string $classification, ?int 
     ]);
 }
 
+/** Create a provisional person from a verified external worker identity. */
+function peopleCreateExternalCandidate(int $tenantId, array $identity, string $source, ?int $createdByUserId = null): int
+{
+    $firstName = trim((string) ($identity['first_name'] ?? ''));
+    $lastName = trim((string) ($identity['last_name'] ?? ''));
+    $email = strtolower(trim((string) ($identity['email_primary'] ?? '')));
+    $phone = trim((string) ($identity['phone_primary'] ?? ''));
+    $status = (string) ($identity['status'] ?? 'inactive');
+    if ($tenantId <= 0 || $firstName === '' || $lastName === ''
+        || strlen($firstName) > 100 || strlen($lastName) > 100
+        || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 255
+        || strlen($phone) > 40 || !in_array($status, ['active', 'inactive'], true)
+        || !preg_match('/^[a-z][a-z0-9_]{0,119}$/', $source)) {
+        throw new InvalidArgumentException('Valid external worker name, email, and status are required');
+    }
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'INSERT INTO people (tenant_id, first_name, last_name, email_primary, phone_primary,
+                classification, status, work_auth_status, requires_sponsorship, source, created_by_user_id)
+         VALUES (:tenant, :first, :last, :email, :phone, "candidate", :status, "unknown", 0, :source, :actor)'
+    );
+    $stmt->execute([
+        'tenant' => $tenantId, 'first' => $firstName, 'last' => $lastName, 'email' => $email,
+        'phone' => $phone !== '' ? $phone : null, 'status' => $status,
+        'source' => $source, 'actor' => $createdByUserId,
+    ]);
+    return (int) $pdo->lastInsertId();
+}
+
 /**
  * Get a person WITH PII. Caller MUST have already checked
  * rbac_legacy_can($user, 'people.pii.view') AND have written a
