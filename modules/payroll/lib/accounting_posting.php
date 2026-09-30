@@ -298,6 +298,7 @@ function payrollAccountingStaffingAccrualGroups(
     $accountingTenantId = effectiveTenantIdForModule('accounting', $tenantId) ?? $tenantId;
     $ref = 'payroll:run#' . $runId;
     $groups = [];
+    $engagementExpr = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(te.dimension_snapshot_json, '$.engagement_type')), pl.engagement_type)";
 
     $legacyCheck = getDB()->prepare(
         "SELECT COUNT(*)
@@ -308,13 +309,15 @@ function payrollAccountingStaffingAccrualGroups(
              ON legacy_event.tenant_id = :accounting_tenant_id
             AND legacy_event.event_type = 'staffing.worker_hours.approved'
             AND legacy_event.status = 'posted'
-            AND legacy_event.source_record_id = CONCAT(te.timesheet_id, ':', pl.engagement_type)
+            AND legacy_event.source_record_id = CONCAT(te.timesheet_id, ':', {$engagementExpr})
       LEFT JOIN accounting_events assignment_event
              ON assignment_event.tenant_id = :accounting_tenant_id_2
             AND assignment_event.event_type = 'staffing.worker_hours.approved'
             AND assignment_event.status = 'posted'
-            AND assignment_event.source_record_id = CONCAT(
-                'timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', pl.engagement_type
+            AND assignment_event.source_record_id IN (
+                CONCAT('timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', {$engagementExpr}),
+                CONCAT('timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', {$engagementExpr},
+                    ':segment:', LEFT(te.dimension_snapshot_hash, 24))
             )
           WHERE te.tenant_id = :time_tenant_id
             AND te.person_id = :person_id
@@ -324,7 +327,7 @@ function payrollAccountingStaffingAccrualGroups(
             AND assignment_event.id IS NULL"
     );
     $coverage = getDB()->prepare(
-        "SELECT te.placement_id, te.timesheet_id, pl.engagement_type,
+        "SELECT te.placement_id, te.timesheet_id, {$engagementExpr} AS engagement_type,
                 event.id AS accounting_event_id, event.entity_id,
                 MAX(CAST(event.payload AS CHAR)) AS event_payload,
                 MAX(te.work_date) AS as_of_date,
@@ -359,16 +362,18 @@ function payrollAccountingStaffingAccrualGroups(
              ON event.tenant_id = :accounting_tenant_id
             AND event.event_type = 'staffing.worker_hours.approved'
             AND event.status = 'posted'
-            AND event.source_record_id = CONCAT(
-                'timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', pl.engagement_type
+            AND event.source_record_id IN (
+                CONCAT('timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', {$engagementExpr}),
+                CONCAT('timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', {$engagementExpr},
+                    ':segment:', LEFT(te.dimension_snapshot_hash, 24))
             )
           WHERE te.tenant_id = :time_tenant_id
             AND te.person_id = :person_id
             AND te.payroll_extracted_ref = :payroll_ref
             AND te.payable = 1
             AND te.status = 'approved'
-            AND pl.engagement_type IN ('w2','temp_to_perm','internal')
-          GROUP BY te.placement_id, te.timesheet_id, pl.engagement_type,
+            AND {$engagementExpr} IN ('w2','temp_to_perm','internal')
+          GROUP BY te.placement_id, te.timesheet_id, engagement_type,
                    event.id, event.entity_id"
     );
 

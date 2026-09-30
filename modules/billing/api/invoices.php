@@ -714,8 +714,11 @@ if ($method === 'POST' && $action === 'send') {
     }
 
     $subject = sprintf('Invoice %s — %s due', $row['invoice_number'], number_format((float) $row['amount_due'], 2) . ' ' . $row['currency']);
+    $deliveryLine = $attachments
+        ? "Please find your invoice %s attached."
+        : "Your invoice %s is ready to view online.";
     $textBody = sprintf(
-        "Hi,\n\nPlease find your invoice %s attached.\n\nAmount due: %s %s\nDue date: %s\n\nView online: %s\n\nThank you.\n",
+        "Hi,\n\n{$deliveryLine}\n\nAmount due: %s %s\nDue date: %s\n\nView online: %s\n\nThank you.\n",
         $row['invoice_number'], number_format((float) $row['amount_due'], 2), $row['currency'], $row['due_date'], $tok['url']
     );
     $htmlBody = sprintf(

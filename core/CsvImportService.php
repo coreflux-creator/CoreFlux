@@ -328,8 +328,7 @@ class CsvImportService
      *
      * @param callable $onRow  fn(array $row): int  — module's writer; returns inserted id, or throws
      * $opts['atomic'] wraps all valid row callbacks in one transaction.
-     * It is ignored when skip_invalid is explicitly enabled because that
-     * mode intentionally asks for a partial import.
+     * $opts['row_atomic'] protects each accepted row when skip_invalid is on.
      *
      * @return array {imported_count, skipped_count, errors, ids}
      */
@@ -355,20 +354,44 @@ class CsvImportService
         $errors   = $dry['errors'];
         $ids      = [];
         $atomic   = !empty($opts['atomic']) && !$skipInvalid;
+        $rowAtomic = !empty($opts['row_atomic']) && $skipInvalid;
         $pdo      = null;
         $ownsTxn  = false;
+        $batchSavepoint = false;
         if ($atomic) {
             $pdo = \getDB();
             $ownsTxn = !$pdo->inTransaction();
             if ($ownsTxn) $pdo->beginTransaction();
+            else {
+                $pdo->exec('SAVEPOINT csv_import_batch');
+                $batchSavepoint = true;
+            }
         }
         foreach ($dry['rows'] as $rowNum => $row) {
             if (isset($dry['errors'][$rowNum])) { $skipped++; continue; }
+            $rowOwnsTxn = false;
+            $rowSavepoint = false;
             try {
+                if ($rowAtomic) {
+                    $pdo ??= \getDB();
+                    $rowOwnsTxn = !$pdo->inTransaction();
+                    if ($rowOwnsTxn) $pdo->beginTransaction();
+                    else {
+                        $pdo->exec('SAVEPOINT csv_import_row');
+                        $rowSavepoint = true;
+                    }
+                }
                 $id = (int) $onRow($row);
+                if ($rowOwnsTxn) $pdo->commit();
+                elseif ($rowSavepoint) $pdo->exec('RELEASE SAVEPOINT csv_import_row');
                 $ids[$rowNum] = $id;
                 $imported++;
             } catch (\Throwable $e) {
+                if ($rowOwnsTxn && $pdo?->inTransaction()) $pdo->rollBack();
+                elseif ($rowSavepoint && $pdo?->inTransaction()) {
+                    $pdo->exec('ROLLBACK TO SAVEPOINT csv_import_row');
+                    $pdo->exec('RELEASE SAVEPOINT csv_import_row');
+                }
                 $errors[$rowNum] = $errors[$rowNum] ?? [];
                 $errors[$rowNum][] = 'persist failed: ' . $e->getMessage();
                 $skipped++;
@@ -377,6 +400,10 @@ class CsvImportService
 
         if ($atomic && $errors) {
             if ($ownsTxn && $pdo?->inTransaction()) $pdo->rollBack();
+            elseif ($batchSavepoint && $pdo?->inTransaction()) {
+                $pdo->exec('ROLLBACK TO SAVEPOINT csv_import_batch');
+                $pdo->exec('RELEASE SAVEPOINT csv_import_batch');
+            }
             return [
                 'imported_count' => 0,
                 'skipped_count'  => $dry['row_count'],
@@ -386,6 +413,7 @@ class CsvImportService
             ];
         }
         if ($atomic && $ownsTxn && $pdo?->inTransaction()) $pdo->commit();
+        elseif ($batchSavepoint && $pdo?->inTransaction()) $pdo->exec('RELEASE SAVEPOINT csv_import_batch');
 
         return [
             'imported_count' => $imported,

@@ -213,7 +213,8 @@ export default function CsvImportPage({
     try {
       const body = { csv: csvText };
       if (columnMap) body.column_map = columnMap;
-      const res = await api.post(`${endpoint}?action=dry_run`, body);
+      const path = `${endpoint}?action=dry_run${updateExisting ? '&update_existing=1' : ''}`;
+      const res = await api.post(path, body);
       setPreview(res);
     } catch (e) { setError(e); }
     finally     { setRunning(false); }

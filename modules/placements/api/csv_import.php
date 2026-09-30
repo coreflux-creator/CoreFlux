@@ -808,6 +808,60 @@ if ($method === 'POST' && $action === 'dry_run') {
             }
         }
     }
+    if ($result['rows'] && !empty($_GET['update_existing'])) {
+        $pdo = getDB();
+        $placementsTenantId = effectiveTenantIdForModule('placements') ?? currentTenantId();
+        $placementIds = [];
+        $externalIds = [];
+        foreach ($result['rows'] as $row) {
+            if ((int) ($row['placement_id'] ?? 0) > 0) $placementIds[] = (int) $row['placement_id'];
+            $externalId = trim((string) ($row['external_id'] ?? ''));
+            if ($externalId !== '') $externalIds[] = $externalId;
+        }
+        $existingById = [];
+        $existingByExternal = [];
+        foreach ([['id', array_unique($placementIds)], ['external_id', array_unique($externalIds)]] as [$field, $values]) {
+            if (!$values) continue;
+            $placeholders = implode(',', array_fill(0, count($values), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT id, person_id, external_id FROM placements
+                  WHERE tenant_id = ? AND deleted_at IS NULL AND {$field} IN ({$placeholders})"
+            );
+            $stmt->execute(array_merge([$placementsTenantId], array_values($values)));
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $existing) {
+                $existingById[(int) $existing['id']] = $existing;
+                if ($field === 'external_id') $existingByExternal[(string) $existing['external_id']][] = $existing;
+            }
+        }
+        foreach ($result['rows'] as $rn => $row) {
+            if (isset($result['errors'][$rn])) continue;
+            $placementId = (int) ($row['placement_id'] ?? 0);
+            $externalId = trim((string) ($row['external_id'] ?? ''));
+            $byId = $placementId > 0 ? ($existingById[$placementId] ?? null) : null;
+            $byExternal = $externalId !== '' ? ($existingByExternal[$externalId] ?? []) : [];
+            if ($placementId > 0 && !$byId) {
+                $result['errors'][$rn][] = "placement_id not found: {$placementId}";
+                continue;
+            }
+            if (count($byExternal) > 1) {
+                $result['errors'][$rn][] = 'external_id matches multiple placements; reconcile duplicate source IDs first';
+                continue;
+            }
+            $matched = $byId ?: ($byExternal[0] ?? null);
+            if ($byId && $byExternal && (int) $byId['id'] !== (int) $byExternal[0]['id']) {
+                $result['errors'][$rn][] = 'placement_id and external_id identify different placements';
+            }
+            if ($matched && $externalId !== '' && trim((string) ($matched['external_id'] ?? '')) !== ''
+                && $externalId !== trim((string) $matched['external_id'])) {
+                $result['errors'][$rn][] = 'external_id conflicts with the matched placement';
+            }
+            $personId = (int) ($row['person_id'] ?? 0);
+            if ($personId <= 0) $personId = (int) ($foundByEmail[placementsCsvNormaliseEmail((string) ($row['person_email'] ?? ''))] ?? 0);
+            if ($matched && $personId > 0 && (int) $matched['person_id'] !== $personId) {
+                $result['errors'][$rn][] = 'placement identity conflicts with the matched person';
+            }
+        }
+    }
     foreach (($result['rows'] ?? []) as $rn => $row) {
         if (strtolower(trim((string) ($row['engagement_type'] ?? ''))) !== 'referral') continue;
         $clientRate = (float) (($row['referral_client_rate'] ?? '') !== ''
@@ -894,30 +948,45 @@ if ($method === 'POST' && $action === 'commit') {
         //   3. (person_id + title + start_date) composite
         $existing = null;
         if ($updateExisting) {
+            $externalId = trim((string) ($row['external_id'] ?? ''));
+            $externalMatch = $externalId !== '' ? scopedFind(
+                'SELECT id FROM placements WHERE tenant_id = :tenant_id AND external_id = :external_id AND deleted_at IS NULL',
+                ['external_id' => $externalId]
+            ) : null;
             if (!empty($row['placement_id'])) {
                 $existing = scopedFind(
-                    'SELECT id, status, start_date, external_id, coreflux_overridden_fields
+                    'SELECT id, person_id, status, start_date, external_id, coreflux_overridden_fields
                        FROM placements WHERE tenant_id = :tenant_id AND id = :pid AND deleted_at IS NULL',
                     ['pid' => (int) $row['placement_id']]
                 );
                 if (!$existing) {
                     throw new \RuntimeException("placement_id not found: {$row['placement_id']}");
                 }
+                if ($externalMatch && (int) $externalMatch['id'] !== (int) $existing['id']) {
+                    throw new \RuntimeException('placement_id and external_id identify different placements');
+                }
             }
-            if (!$existing && !empty($row['external_id'])) {
+            if (!$existing && $externalMatch) {
                 $existing = scopedFind(
-                    'SELECT id, status, start_date, external_id, coreflux_overridden_fields
-                       FROM placements WHERE tenant_id = :tenant_id AND external_id = :x AND deleted_at IS NULL',
-                    ['x' => $row['external_id']]
+                    'SELECT id, person_id, status, start_date, external_id, coreflux_overridden_fields
+                       FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
+                    ['id' => (int) $externalMatch['id']]
                 );
             }
             if (!$existing) {
                 $existing = scopedFind(
-                    'SELECT id, status, start_date, external_id, coreflux_overridden_fields FROM placements
+                    'SELECT id, person_id, status, start_date, external_id, coreflux_overridden_fields FROM placements
                       WHERE tenant_id = :tenant_id AND person_id = :p AND title = :t AND start_date = :s
                             AND deleted_at IS NULL',
                     ['p' => (int) $person['id'], 't' => $row['title'], 's' => $row['start_date']]
                 );
+            }
+            if ($existing && $externalId !== '' && trim((string) ($existing['external_id'] ?? '')) !== ''
+                && $externalId !== trim((string) $existing['external_id'])) {
+                throw new \RuntimeException('external_id conflicts with the matched placement; correct the source ID before importing');
+            }
+            if ($existing && (int) $existing['person_id'] !== (int) $person['id']) {
+                throw new \RuntimeException('placement identity conflicts with the matched person; review the source row before importing');
             }
         }
 
@@ -1071,7 +1140,7 @@ if ($method === 'POST' && $action === 'commit') {
         }
 
         return $pid;
-    }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
+    }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap, 'atomic' => true, 'row_atomic' => true]);
 
     placementsAudit('placement.csv_imported', [
         'imported'        => $result['imported_count'],

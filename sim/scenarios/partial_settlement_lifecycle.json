@@ -1,0 +1,19 @@
+{
+  "name": "partial_settlement_lifecycle",
+  "description": "AR and AP documents stay consistent through partial and final allocations.",
+  "default_seed": 29,
+  "expected": { "events_emitted": 0, "je_posted": 0, "assertions_failed": 0 },
+  "invariants": ["debits_equal_credits", "no_orphan_events", "business_graph_consistent"],
+  "steps": [
+    { "action": "create_billing_invoice", "id": 9201, "invoice_number": "SIM-PART-INV", "client_name": "Simulation Client", "amount": 1000.00 },
+    { "action": "record_billing_payment", "invoice_id": 9201, "payment_id": 9202, "amount": 350.00 },
+    { "action": "assert_document_balance", "type": "invoice", "id": 9201, "paid": 350.00, "due": 650.00, "status": "partially_paid" },
+    { "action": "record_billing_payment", "invoice_id": 9201, "payment_id": 9203, "amount": 650.00 },
+    { "action": "assert_document_balance", "type": "invoice", "id": 9201, "paid": 1000.00, "due": 0.00, "status": "paid" },
+    { "action": "create_ap_bill", "id": 9301, "bill_number": "SIM-PART-BILL", "vendor_name": "Simulation Vendor", "amount": 800.00 },
+    { "action": "settle_ap_bill", "id": 9301, "payment_id": 9302, "amount": 300.00 },
+    { "action": "assert_document_balance", "type": "bill", "id": 9301, "paid": 300.00, "due": 500.00, "status": "partially_paid" },
+    { "action": "settle_ap_bill", "id": 9301, "payment_id": 9303, "amount": 500.00 },
+    { "action": "assert_document_balance", "type": "bill", "id": 9301, "paid": 800.00, "due": 0.00, "status": "paid" }
+  ]
+}

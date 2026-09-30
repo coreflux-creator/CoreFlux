@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../../core/audit.php';
 require_once __DIR__ . '/../../../core/ai/artifacts.php';
 require_once __DIR__ . '/../../time/lib/time.php';
 require_once __DIR__ . '/dimensions.php';
+require_once __DIR__ . '/dimension_snapshot.php';
 
 const STAFFING_HOUR_TYPES = [
     'regular','overtime','doubletime','holiday','pto','sick','bereavement','unpaid','nonbillable',
@@ -877,6 +878,12 @@ function staffingTimesheetApprovalPlan(?int $userId, array $header, ?int $tenant
         throw new \RuntimeException('Set up an active legal entity before approving time.');
     }
     $dimensionReadiness = [];
+    $referralFeeStmt = getDB()->prepare(
+        "SELECT COALESCE(SUM(fee_flat), 0) FROM placement_referrals
+          WHERE tenant_id = :tenant_id AND placement_id = :placement_id
+            AND fee_basis = 'per_hour' AND start_date <= :work_date
+            AND (end_date IS NULL OR end_date >= :work_date_end)"
+    );
     foreach ($entries as $entry) {
         $entryId = (int) $entry['id'];
         if ((float) $entry['hours'] <= 0) {
@@ -913,9 +920,35 @@ function staffingTimesheetApprovalPlan(?int $userId, array $header, ?int $tenant
                     . '. You can update these fields in the placement or by CSV import.'
                 );
             }
-            $dimensionReadiness[$readinessKey] = true;
+            $dimensions = (array) ($dimensionContext['dimensions'] ?? []);
+            ksort($dimensions);
+            $engagementType = (string) ($dimensionContext['placement']['engagement_type'] ?? '');
+            $referralFee = null;
+            if ($engagementType === 'referral') {
+                $referralFeeStmt->execute([
+                    'tenant_id' => staffingPlacementsTenantId($tenantId) ?? $tenantId,
+                    'placement_id' => $placementId,
+                    'work_date' => (string) $entry['work_date'],
+                    'work_date_end' => (string) $entry['work_date'],
+                ]);
+                $referralFee = number_format((float) $referralFeeStmt->fetchColumn(), 4, '.', '');
+            }
+            $dimensionReadiness[$readinessKey] = [
+                'dimensions' => $dimensions,
+                'vendor_dimension' => $dimensionContext['vendor_dimension'] ?? null,
+                'vendor_economic_party_id' => $dimensionContext['vendor_economic_party_id'] ?? null,
+                'vendor_company_id' => $dimensionContext['vendor_company_id'] ?? null,
+                'vendor_ap_id' => $dimensionContext['vendor_ap_id'] ?? null,
+                'event_entity_id' => $dimensionContext['event_entity_id'] ?? null,
+                'engagement_type' => $engagementType,
+                'referral_fee_per_hour' => $referralFee,
+                'missing' => $dimensionContext['missing'] ?? [],
+            ];
         }
-        $snapshots[$entryId] = (int) $snap['id'];
+        $snapshots[$entryId] = [
+            'rate_id' => (int) $snap['id'],
+            'dimensions' => $dimensionReadiness[$readinessKey],
+        ];
     }
     return $snapshots;
 }
@@ -963,6 +996,8 @@ function staffingTimesheetApplyApproval(?int $userId, int $headerId, array $snap
         "UPDATE time_entries
             SET status = 'approved',
                 rate_snapshot_id = :rid,
+                dimension_snapshot_json = :dimension_snapshot,
+                dimension_snapshot_hash = :dimension_hash,
                 approved_at = NOW(),
                 approved_by_user_id = :u,
                 approved_via = :approved_via,
@@ -972,12 +1007,15 @@ function staffingTimesheetApplyApproval(?int $userId, int $headerId, array $snap
             AND id = :id
             AND status = 'pending_review'"
     );
-    foreach ($snapshots as $entryId => $rateId) {
+    foreach ($snapshots as $entryId => $snapshot) {
+        $dimensionJson = staffingDimensionSnapshotCanonicalJson($snapshot['dimensions']);
         $upd->execute([
             't' => $tenantId,
             'tid' => $headerId,
             'id' => $entryId,
-            'rid' => $rateId,
+            'rid' => $snapshot['rate_id'],
+            'dimension_snapshot' => $dimensionJson,
+            'dimension_hash' => hash('sha256', $dimensionJson),
             'u' => $userId,
             'approved_via' => $entryVia,
         ]);
@@ -1140,10 +1178,12 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
         // follows payable hours and includes the recurring employer/vendor
         // loads used by placement margin reporting. Referral assignments use
         // their dated vendor payout rather than a fabricated worker pay rate.
+        $engagementExpr = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(te.dimension_snapshot_json, '$.engagement_type')), pl.engagement_type, 'w2')";
         $stmt = $pdo->prepare(
             "SELECT t.id, t.person_id, t.period_start, t.period_end,
-                    te.placement_id,
-                    COALESCE(pl.engagement_type, 'w2') AS engagement_type,
+                    te.placement_id, te.dimension_snapshot_hash,
+                    MAX(CAST(te.dimension_snapshot_json AS CHAR)) AS dimension_snapshot_json,
+                    {$engagementExpr} AS engagement_type,
                     SUM(te.hours) AS hours,
                     SUM(CASE WHEN te.billable = 1 THEN
                         te.hours
@@ -1164,7 +1204,8 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
                         ELSE 0 END) AS revenue,
                     SUM(CASE
                         WHEN te.payable <> 1 THEN 0
-                        WHEN pl.engagement_type = 'referral' THEN te.hours * COALESCE((
+                        WHEN {$engagementExpr} = 'referral' THEN te.hours * COALESCE(
+                            CAST(JSON_UNQUOTE(JSON_EXTRACT(te.dimension_snapshot_json, '$.referral_fee_per_hour')) AS DECIMAL(12,4)), (
                             SELECT SUM(ref.fee_flat)
                               FROM placement_referrals ref
                              WHERE ref.tenant_id = pl.tenant_id
@@ -1173,7 +1214,7 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
                                AND ref.start_date <= te.work_date
                                AND (ref.end_date IS NULL OR ref.end_date >= te.work_date)
                         ), 0)
-                        WHEN pl.engagement_type IN ('w2','temp_to_perm','internal') THEN
+                        WHEN {$engagementExpr} IN ('w2','temp_to_perm','internal') THEN
                             te.hours * (
                                 COALESCE(pr.pay_rate, 0)
                                 * CASE te.hour_type
@@ -1186,7 +1227,7 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
                                      + COALESCE(pr.benefits_load_pct, 0))
                                 + COALESCE(pr.other_cost_per_hour, 0)
                             )
-                        WHEN pl.engagement_type = 'c2c' THEN
+                        WHEN {$engagementExpr} = 'c2c' THEN
                             te.hours * (
                                 COALESCE(pr.pay_rate, 0)
                                 * CASE te.hour_type
@@ -1209,7 +1250,7 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
                             )
                     END) AS cost,
                     SUM(CASE WHEN te.payable = 1
-                                  AND pl.engagement_type IN ('w2','temp_to_perm','internal')
+                                  AND {$engagementExpr} IN ('w2','temp_to_perm','internal')
                              THEN te.hours * COALESCE(pr.pay_rate, 0)
                                 * CASE te.hour_type
                                     WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
@@ -1218,7 +1259,7 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
                                   END
                              ELSE 0 END) AS wage_cost,
                     SUM(CASE WHEN te.payable = 1
-                                  AND pl.engagement_type IN ('w2','temp_to_perm','internal')
+                                  AND {$engagementExpr} IN ('w2','temp_to_perm','internal')
                              THEN te.hours * COALESCE(pr.pay_rate, 0)
                                 * CASE te.hour_type
                                     WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
@@ -1227,7 +1268,7 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
                                   END * COALESCE(pr.adder_pct, 0)
                              ELSE 0 END) AS employer_load_cost,
                     SUM(CASE WHEN te.payable = 1
-                                  AND pl.engagement_type IN ('w2','temp_to_perm','internal')
+                                  AND {$engagementExpr} IN ('w2','temp_to_perm','internal')
                              THEN te.hours * COALESCE(pr.pay_rate, 0)
                                 * CASE te.hour_type
                                     WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
@@ -1236,7 +1277,7 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
                                   END * COALESCE(pr.workers_comp_pct, 0)
                              ELSE 0 END) AS workers_comp_cost,
                     SUM(CASE WHEN te.payable = 1
-                                  AND pl.engagement_type IN ('w2','temp_to_perm','internal')
+                                  AND {$engagementExpr} IN ('w2','temp_to_perm','internal')
                              THEN te.hours * COALESCE(pr.pay_rate, 0)
                                 * CASE te.hour_type
                                     WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
@@ -1245,7 +1286,7 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
                                   END * COALESCE(pr.benefits_load_pct, 0)
                              ELSE 0 END) AS benefits_cost,
                     SUM(CASE WHEN te.payable = 1
-                                  AND pl.engagement_type IN ('w2','temp_to_perm','internal')
+                                  AND {$engagementExpr} IN ('w2','temp_to_perm','internal')
                              THEN te.hours * COALESCE(pr.other_cost_per_hour, 0)
                              ELSE 0 END) AS other_direct_cost
                FROM staffing_timesheets t
@@ -1254,7 +1295,7 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
                LEFT JOIN placement_rates pr ON pr.id = te.rate_snapshot_id AND pr.tenant_id = :rates_tid
               WHERE t.tenant_id = :t AND t.id = :id
               GROUP BY t.id, t.person_id, t.period_start, t.period_end,
-                       te.placement_id, engagement_type"
+                       te.placement_id, te.dimension_snapshot_hash, {$engagementExpr}"
         );
         $stmt->execute([
             't' => $tenantId,
@@ -1283,7 +1324,7 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
             "SELECT 1 FROM accounting_events
               WHERE tenant_id = :tenant_id
                 AND source_module = 'staffing'
-                AND source_record_id = :source_record_id
+                AND source_record_id IN (:legacy_source_id, :assignment_source_id)
                 AND event_type = 'staffing.worker_hours.approved'
                 AND status = 'posted'
               LIMIT 1"
@@ -1295,18 +1336,32 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
                 throw new \RuntimeException("Timesheet #{$headerId} has approved hours without a placement.");
             }
             $engagementType = (string) $g['engagement_type'];
+            $baseSourceId = 'timesheet:' . (string) $g['id']
+                . ':placement:' . $placementId . ':' . $engagementType;
             $legacyPosted->execute([
                 'tenant_id' => $accountingTenantId,
-                'source_record_id' => (string) $g['id'] . ':' . $engagementType,
+                'legacy_source_id' => (string) $g['id'] . ':' . $engagementType,
+                'assignment_source_id' => $baseSourceId,
             ]);
             if ($legacyPosted->fetchColumn()) continue;
 
-            $dimensionContext = staffingAssignmentDimensionContext(
-                $tenantId,
-                $placementId,
-                $entityId,
-                (string) $g['period_end']
-            );
+            $snapshotHash = (string) ($g['dimension_snapshot_hash'] ?? '');
+            if ($snapshotHash !== '') {
+                $snapshotJson = (string) ($g['dimension_snapshot_json'] ?? '');
+                $dimensionContext = json_decode($snapshotJson, true);
+                if (!is_array($dimensionContext)
+                    || hash('sha256', staffingDimensionSnapshotCanonicalJson($dimensionContext)) !== $snapshotHash) {
+                    throw new \RuntimeException("Timesheet #{$headerId} has an invalid approved dimension snapshot.");
+                }
+                $dimensionContext['placement'] = ['engagement_type' => $dimensionContext['engagement_type'] ?? null];
+            } else {
+                $dimensionContext = staffingAssignmentDimensionContext(
+                    $tenantId,
+                    $placementId,
+                    $entityId,
+                    (string) $g['period_end']
+                );
+            }
             $eventEntityId = (int) ($dimensionContext['event_entity_id'] ?? 0);
             if ($eventEntityId <= 0) {
                 throw new \RuntimeException("Placement #{$placementId} has no valid accounting entity.");
@@ -1341,8 +1396,8 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
                 'entity_id'        => $eventEntityId,
                 'event_type'       => 'staffing.worker_hours.approved',
                 'source_module'    => 'staffing',
-                'source_record_id' => 'timesheet:' . (string) $g['id']
-                    . ':placement:' . $placementId . ':' . $engagementType,
+                'source_record_id' => $baseSourceId . ($snapshotHash !== ''
+                    ? ':segment:' . substr($snapshotHash, 0, 24) : ''),
                 'event_date'       => (string) $g['period_end'],
                 'payload'          => [
                     'timesheet_id'    => (int) $g['id'],
