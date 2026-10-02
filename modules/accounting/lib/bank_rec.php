@@ -32,7 +32,10 @@ function bankRecImportCsv(int $tenantId, int $bankAccountId, string $csvBody, ?a
     fwrite($fh, $csvBody);
     rewind($fh);
     $header = fgetcsv($fh);
-    if (!$header) throw new RuntimeException('CSV is empty or unreadable');
+    if (!$header) {
+        fclose($fh);
+        throw new RuntimeException('CSV is empty or unreadable');
+    }
 
     // Resolve column indexes
     $dateCol  = bankRecResolveCol($header, $headerMap['date_col']   ?? null, ['date','posted','transaction_date']);
@@ -41,73 +44,79 @@ function bankRecImportCsv(int $tenantId, int $bankAccountId, string $csvBody, ?a
     $fitidCol = bankRecResolveCol($header, $headerMap['fitid_col']  ?? null, ['fitid','transaction_id','txn_id','reference']);
 
     if ($dateCol === null || $descCol === null || $amtCol === null) {
+        fclose($fh);
         throw new RuntimeException('CSV must have date, description, and amount columns');
     }
 
     $pdo  = getDB();
-    $now  = date('Y-m-d H:i:s');
+    $ownsTransaction = !$pdo->inTransaction();
+    try {
+        if ($ownsTransaction) $pdo->beginTransaction();
 
-    // Create a parent import row first
-    $importId = scopedInsert('accounting_bank_statement_imports', [
-        'bank_account_id'    => $bankAccountId,
-        'source'             => 'csv',
-        'created_by_user_id' => $userId,
-    ]);
-
-    $inserted = 0; $duplicates = 0; $minDate = null; $maxDate = null;
-    $stmt = $pdo->prepare(
-        'INSERT IGNORE INTO accounting_bank_statement_lines
-            (tenant_id, bank_account_id, import_id, posted_date, description, amount, bank_reference, fitid)
-         VALUES (:t, :b, :i, :d, :desc, :amt, :ref, :fitid)'
-    );
-    while (($r = fgetcsv($fh)) !== false) {
-        if (!isset($r[$dateCol], $r[$descCol], $r[$amtCol])) continue;
-        $date  = trim((string) $r[$dateCol]);
-        $desc  = trim((string) $r[$descCol]);
-        $amt   = (float) preg_replace('/[^0-9.\-]/', '', (string) $r[$amtCol]);
-        if ($date === '' || $desc === '') continue;
-        // Normalize to YYYY-MM-DD
-        $ts = strtotime($date);
-        if ($ts === false) continue;
-        $iso = date('Y-m-d', $ts);
-        $fit = $fitidCol !== null && isset($r[$fitidCol]) ? trim((string) $r[$fitidCol]) : null;
-        if ($fit === '' || $fit === null) {
-            // Synthesize a stable FITID so de-dup still works
-            $fit = sha1($bankAccountId . '|' . $iso . '|' . $desc . '|' . $amt);
-        }
-        $stmt->execute([
-            't'     => $tenantId,
-            'b'     => $bankAccountId,
-            'i'     => $importId,
-            'd'     => $iso,
-            'desc'  => substr($desc, 0, 255),
-            'amt'   => $amt,
-            'ref'   => null,
-            'fitid' => substr($fit, 0, 120),
+        $importId = scopedInsert('accounting_bank_statement_imports', [
+            'bank_account_id'    => $bankAccountId,
+            'source'             => 'csv',
+            'created_by_user_id' => $userId,
         ]);
-        if ($stmt->rowCount() === 1) {
-            $inserted++;
-            if ($minDate === null || $iso < $minDate) $minDate = $iso;
-            if ($maxDate === null || $iso > $maxDate) $maxDate = $iso;
-        } else {
-            $duplicates++;
+
+        $inserted = 0; $duplicates = 0; $minDate = null; $maxDate = null;
+        $stmt = $pdo->prepare(
+            'INSERT IGNORE INTO accounting_bank_statement_lines
+                (tenant_id, bank_account_id, import_id, posted_date, description, amount, bank_reference, fitid)
+             VALUES (:t, :b, :i, :d, :desc, :amt, :ref, :fitid)'
+        );
+        while (($r = fgetcsv($fh)) !== false) {
+            if (!isset($r[$dateCol], $r[$descCol], $r[$amtCol])) continue;
+            $date  = trim((string) $r[$dateCol]);
+            $desc  = trim((string) $r[$descCol]);
+            $amt   = (float) preg_replace('/[^0-9.\-]/', '', (string) $r[$amtCol]);
+            if ($date === '' || $desc === '') continue;
+            $ts = strtotime($date);
+            if ($ts === false) continue;
+            $iso = date('Y-m-d', $ts);
+            $fit = $fitidCol !== null && isset($r[$fitidCol]) ? trim((string) $r[$fitidCol]) : null;
+            if ($fit === '' || $fit === null) {
+                $fit = sha1($bankAccountId . '|' . $iso . '|' . $desc . '|' . $amt);
+            }
+            $stmt->execute([
+                't'     => $tenantId,
+                'b'     => $bankAccountId,
+                'i'     => $importId,
+                'd'     => $iso,
+                'desc'  => substr($desc, 0, 255),
+                'amt'   => $amt,
+                'ref'   => null,
+                'fitid' => substr($fit, 0, 120),
+            ]);
+            if ($stmt->rowCount() === 1) {
+                $inserted++;
+                if ($minDate === null || $iso < $minDate) $minDate = $iso;
+                if ($maxDate === null || $iso > $maxDate) $maxDate = $iso;
+            } else {
+                $duplicates++;
+            }
         }
+
+        scopedUpdate('accounting_bank_statement_imports', $importId, [
+            'statement_from' => $minDate,
+            'statement_to'   => $maxDate,
+            'line_count'     => $inserted,
+        ]);
+        if ($ownsTransaction) $pdo->commit();
+
+        return [
+            'import_id'  => $importId,
+            'inserted'   => $inserted,
+            'duplicates' => $duplicates,
+            'date_from'  => $minDate,
+            'date_to'    => $maxDate,
+        ];
+    } catch (Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    } finally {
+        fclose($fh);
     }
-    fclose($fh);
-
-    scopedUpdate('accounting_bank_statement_imports', $importId, [
-        'statement_from' => $minDate,
-        'statement_to'   => $maxDate,
-        'line_count'     => $inserted,
-    ]);
-
-    return [
-        'import_id'  => $importId,
-        'inserted'   => $inserted,
-        'duplicates' => $duplicates,
-        'date_from'  => $minDate,
-        'date_to'    => $maxDate,
-    ];
 }
 
 function bankRecResolveCol(array $header, $explicit, array $keywords): ?int
