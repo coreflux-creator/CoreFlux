@@ -20,6 +20,47 @@ $user   = $ctx['user'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
+function bankAccountValidateLedger(string $code, string $currency, ?int $excludeId = null): void
+{
+    $account = scopedFind(
+        'SELECT id, account_type, normal_side, is_postable, active, currency
+           FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :code',
+        ['code' => $code]
+    );
+    if (!$account || (int) $account['active'] !== 1 || (int) $account['is_postable'] !== 1
+        || $account['account_type'] !== 'asset' || $account['normal_side'] !== 'debit') {
+        api_error('Choose an active, postable cash asset account from the chart of accounts', 422);
+    }
+    if (!empty($account['currency']) && strcasecmp((string) $account['currency'], $currency) !== 0) {
+        api_error('The bank and cash ledger account must use the same currency', 422);
+    }
+    $usedSql = 'SELECT id FROM accounting_bank_accounts
+                 WHERE tenant_id = :tenant_id AND gl_account_code = :code';
+    $usedParams = ['code' => $code];
+    if ($excludeId !== null) {
+        $usedSql .= ' AND id <> :exclude_id';
+        $usedParams['exclude_id'] = $excludeId;
+    }
+    $used = scopedFind($usedSql . ' LIMIT 1', $usedParams);
+    if ($used) api_error('This cash ledger account is already linked to a bank account. Choose a different cash account.', 409);
+}
+
+function bankAccountResolveEntity(int $tenantId, ?int $requestedId): array
+{
+    if ($requestedId !== null) {
+        $entity = scopedFind(
+            'SELECT id, base_currency FROM accounting_entities
+              WHERE tenant_id = :tenant_id AND id = :id AND active = 1',
+            ['id' => $requestedId]
+        );
+        if (!$entity) api_error('Choose an active legal entity in this organization', 422);
+        return $entity;
+    }
+    $entity = activeEntityResolveForTenant($tenantId);
+    if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
+    return $entity;
+}
+
 if ($method === 'GET' && !empty($_GET['id'])) {
     rbac_legacy_require($user, 'accounting.coa.view');
     $id  = (int) $_GET['id'];
@@ -109,26 +150,33 @@ if ($method === 'POST') {
     rbac_legacy_require($user, 'accounting.coa.edit');
     $body = api_json_body();
     api_require_fields($body, ['name', 'gl_account_code']);
-    try {
-        $entity = activeEntityResolveForTenant(
-            (int) $ctx['tenant_id'],
-            !empty($body['entity_id']) ? (int) $body['entity_id'] : null
-        );
-    } catch (\Throwable $e) {
-        api_error($e->getMessage(), 422);
+    $entity = bankAccountResolveEntity((int) $ctx['tenant_id'],
+        !empty($body['entity_id']) ? (int) $body['entity_id'] : null);
+    $code = trim((string) $body['gl_account_code']);
+    $currency = strtoupper(trim((string) ($body['currency'] ?? 'USD')));
+    if (!preg_match('/^[A-Z]{3}$/', $currency)) api_error('Currency must be a three-letter code', 422);
+    if (strcasecmp((string) $entity['base_currency'], $currency) !== 0) {
+        api_error('The bank account currency must match the legal entity currency', 422);
     }
-    if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
-    $id = scopedInsert('accounting_bank_accounts', [
-        'entity_id'        => (int) $entity['id'],
-        'name'             => (string) $body['name'],
-        'gl_account_code'  => (string) $body['gl_account_code'],
-        'bank_name'        => $body['bank_name']      ?? null,
-        'routing_number'   => $body['routing_number'] ?? null,
-        'last4'            => $body['last4']          ?? null,
-        'currency'         => $body['currency']       ?? 'USD',
-        'feed_provider'    => $body['feed_provider']  ?? null,
-        'plaid_account_id' => $body['plaid_account_id'] ?? null,
-    ]);
+    bankAccountValidateLedger($code, $currency);
+    try {
+        $id = scopedInsert('accounting_bank_accounts', [
+            'entity_id'        => (int) $entity['id'],
+            'name'             => (string) $body['name'],
+            'gl_account_code'  => $code,
+            'bank_name'        => $body['bank_name']      ?? null,
+            'routing_number'   => $body['routing_number'] ?? null,
+            'last4'            => $body['last4']          ?? null,
+            'currency'         => $currency,
+            'feed_provider'    => $body['feed_provider']  ?? null,
+            'plaid_account_id' => $body['plaid_account_id'] ?? null,
+        ]);
+    } catch (\PDOException $e) {
+        if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+            api_error('This cash ledger account is already linked to a bank account. Choose a different cash account.', 409);
+        }
+        throw $e;
+    }
     accountingAudit('accounting.bank_account.created', ['name' => $body['name']], $id);
     api_ok(['id' => $id], 201);
 }
@@ -138,19 +186,52 @@ if ($method === 'PUT') {
     $id   = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
-    if (array_key_exists('entity_id', $body)) {
-        try {
-            $entity = activeEntityResolveForTenant((int) $ctx['tenant_id'], (int) $body['entity_id']);
-            if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
-            $body['entity_id'] = (int) $entity['id'];
-        } catch (\Throwable $e) {
-            api_error($e->getMessage(), 422);
-        }
+    $current = scopedFind(
+        'SELECT id, entity_id, gl_account_code, currency FROM accounting_bank_accounts
+          WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $id]
+    );
+    if (!$current) api_error('Bank account not found', 404);
+    $nextEntityId = (int) ($body['entity_id'] ?? $current['entity_id']);
+    $nextCode = trim((string) ($body['gl_account_code'] ?? $current['gl_account_code']));
+    $nextCurrency = strtoupper(trim((string) ($body['currency'] ?? $current['currency'])));
+    if (!preg_match('/^[A-Z]{3}$/', $nextCurrency)) api_error('Currency must be a three-letter code', 422);
+    $mappingChanged = $nextEntityId !== (int) $current['entity_id']
+        || $nextCode !== (string) $current['gl_account_code']
+        || $nextCurrency !== (string) $current['currency'];
+    if ($mappingChanged) {
+        $activity = scopedFind(
+            'SELECT id FROM accounting_bank_statement_lines
+              WHERE tenant_id = :tenant_id AND bank_account_id = :id LIMIT 1',
+            ['id' => $id]
+        );
+        if ($activity) api_error('Bank account entity, cash account, and currency cannot change after statement activity', 409);
     }
+    if (array_key_exists('entity_id', $body)) {
+        $body['entity_id'] = $nextEntityId;
+    }
+    if ($mappingChanged) {
+        $entity = bankAccountResolveEntity((int) $ctx['tenant_id'], $nextEntityId);
+        if (strcasecmp((string) $entity['base_currency'], $nextCurrency) !== 0) {
+            api_error('The bank account currency must match the legal entity currency', 422);
+        }
+        bankAccountValidateLedger($nextCode, $nextCurrency, $id);
+    }
+    if (array_key_exists('gl_account_code', $body)) $body['gl_account_code'] = $nextCode;
+    if (array_key_exists('currency', $body)) $body['currency'] = $nextCurrency;
     $allowed = ['entity_id','name','gl_account_code','bank_name','routing_number','last4','currency','feed_provider','plaid_account_id','status'];
     $data = [];
     foreach ($allowed as $f) if (array_key_exists($f, $body)) $data[$f] = $body[$f];
-    if ($data) scopedUpdate('accounting_bank_accounts', $id, $data);
+    if ($data) {
+        try {
+            scopedUpdate('accounting_bank_accounts', $id, $data);
+        } catch (\PDOException $e) {
+            if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+                api_error('This cash ledger account is already linked to a bank account. Choose a different cash account.', 409);
+            }
+            throw $e;
+        }
+    }
     accountingAudit('accounting.bank_account.updated', ['fields' => array_keys($data)], $id);
     api_ok(['ok' => true]);
 }
