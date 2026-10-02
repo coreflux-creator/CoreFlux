@@ -471,6 +471,7 @@ a:hover {
 .main-content {
     position: relative;
     flex: 1;
+    min-width: 0;
     margin-left: var(--cf-sidebar-width);
     padding: 18px 24px 28px;
     min-height: calc(100vh - var(--cf-header-height));
@@ -1171,6 +1172,49 @@ select.input { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http:/
 }
 .data-table a { color: var(--cf-accent-dark); text-decoration: none; font-weight: 600; }
 .data-table a:hover { color: var(--cf-primary); text-decoration: underline; }
+
+.invoice-receipt-list {
+    border-top: 1px solid var(--cf-border);
+}
+
+.invoice-receipt-list__header,
+.invoice-receipt-list__row {
+    display: grid;
+    grid-template-columns: 100px 145px minmax(0, 1fr) 115px max-content;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 12px;
+}
+
+.invoice-receipt-list__header {
+    background: var(--cf-surface-alt);
+    color: var(--cf-text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.invoice-receipt-list__row {
+    border-bottom: 1px solid var(--cf-border);
+    font-size: 13px;
+}
+
+.invoice-receipt-list__row > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.invoice-receipt-list__amount { text-align: right; font-variant-numeric: tabular-nums; }
+.invoice-receipt-list__action { justify-self: end; }
+
+@media (max-width: 760px) {
+    .invoice-receipt-list__header { display: none; }
+    .invoice-receipt-list__row { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; }
+    .invoice-receipt-list__date { grid-column: 1; font-size: 11px; color: var(--cf-text-muted); }
+    .invoice-receipt-list__bank { grid-column: 1; font-weight: 600; }
+    .invoice-receipt-list__description { grid-column: 1 / -1; }
+    .invoice-receipt-list__amount { grid-column: 2; grid-row: 1 / 3; align-self: start; }
+    .invoice-receipt-list__action { grid-column: 1 / -1; justify-self: start; }
+}
 
 /* ─── Badges ─────────────────────────────────────────── */
 .badge {

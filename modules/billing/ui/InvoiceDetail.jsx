@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { ArrowRight, BookOpenCheck, Landmark } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 
@@ -12,6 +13,13 @@ export default function InvoiceDetail() {
   const [actionError, setActionError] = useState(null);
   const [sendTo, setSendTo] = useState('');
   const [showSend, setShowSend] = useState(false);
+  const canFindReceipts = ['approved', 'sent', 'partially_paid'].includes(data?.invoice?.status)
+    && data?.invoice?.journal_status === 'posted'
+    && Number(data?.invoice?.amount_due) > 0;
+  const receipts = useApi(
+    canFindReceipts ? `/modules/accounting/api/bank_statements.php?action=receipt_candidates&invoice_id=${id}` : null,
+    { enabled: canFindReceipts }
+  );
 
   useEffect(() => {
     const saved = data?.default_recipient?.email || '';
@@ -29,30 +37,48 @@ export default function InvoiceDetail() {
 
   const canEdit = inv.status === 'draft' && lines.every((line) => line.source_type === 'manual');
   const canApprove = inv.status === 'draft';
-  const canSend = inv.status === 'approved';
+  const canSend = inv.status === 'approved' && inv.journal_status === 'posted';
   const canPost = ['approved', 'sent', 'partially_paid', 'paid'].includes(inv.status) && !inv.journal_entry_id;
   const canVoid = inv.status !== 'void';
 
   const run = async (label, fn) => {
     setBusy(label); setActionError(null);
-    try { await fn(); reload(); } catch (e) { setActionError(e); }
-    finally { setBusy(null); }
+    try { await fn(); } catch (e) { setActionError(e); }
+    finally { await reload(); setBusy(null); }
   };
 
-  const approve = () => run('approve', () => api.post(`/api/v1/billing/invoices?action=approve&id=${id}`, {}));
+  const approve = () => run('approve', async () => {
+    const result = await api.post(`/api/v1/billing/invoices?action=approve&id=${id}`, {});
+    if (!result.approved) return;
+    try {
+      await api.post(`/api/v1/billing/invoices?action=post&id=${id}`, {});
+    } catch (e) {
+      throw new Error(`Invoice approved, but ledger posting failed: ${e.message}`);
+    }
+  });
   const post = () => run('post', () => api.post(`/api/v1/billing/invoices?action=post&id=${id}`, {}));
   const send    = () => run('send',    async () => {
     const res = await api.post(`/api/v1/billing/invoices?action=send&id=${id}`, { to: sendTo.trim() });
     setShowSend(false);
-    try {
-      await api.post(`/api/v1/billing/invoices?action=post&id=${id}`, {});
-    } catch (e) {
-      await reload();
-      throw new Error(`Invoice was sent, but it could not be posted to the ledger: ${e.message}`);
-    }
     if (res.email_status !== 'sent') alert(`Token created but email status: ${res.email_status} (${res.email_error || 'no detail'})`);
     if (res.pdf_attached === false && res.pdf_error) alert(`PDF could not be generated: ${res.pdf_error}\nEmail sent without attachment.`);
   });
+  const applyReceipt = (line) => {
+    const amount = Number(line.amount);
+    const due = Number(inv.amount_due);
+    if (!confirm(`Apply the ${inv.currency} ${amount.toFixed(2)} deposit from ${line.bank_account_name} to invoice ${inv.invoice_number}?`)) return;
+    run(`receipt-${line.id}`, async () => {
+      if (Math.abs(amount - due) < 0.005) {
+        await api.post(`/modules/accounting/api/bank_statements.php?action=match_invoice&line_id=${line.id}`, { invoice_id: Number(id) });
+      } else {
+        await api.post(`/modules/accounting/api/bank_statements.php?action=split_match_invoices&line_id=${line.id}`, {
+          allocations: [{ invoice_id: Number(id), amount }],
+          account_splits: [],
+        });
+      }
+      await receipts.reload();
+    });
+  };
   const previewPdf = () => {
     // Open the inline PDF in a new tab. The endpoint streams application/pdf
     // so the browser's built-in viewer takes over — no JS download needed.
@@ -72,17 +98,17 @@ export default function InvoiceDetail() {
     <section data-testid="billing-invoice-detail">
       <Link to="/modules/billing/invoices" style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← All invoices</Link>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 8, marginBottom: 'var(--cf-space-4)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginTop: 8, marginBottom: 'var(--cf-space-4)' }}>
         <div>
           <h2 style={{ margin: 0 }} data-testid="billing-invoice-detail-number">{inv.invoice_number}</h2>
           <p style={{ margin: '4px 0', color: 'var(--cf-text-secondary)', fontSize: 14 }}>{inv.client_name} · issued {inv.issue_date} · due {inv.due_date}</p>
           <span className={`badge badge--${inv.status}`}>{statusLabel(inv.status)}</span>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {canEdit && <Link className="btn btn--ghost" to={`/modules/billing/invoices/${id}/edit`} data-testid="billing-invoice-edit">Edit draft</Link>}
           <button className="btn btn--ghost" onClick={previewPdf} data-testid="billing-invoice-preview-pdf" title="Open PDF preview in a new tab">Preview PDF</button>
           <button className="btn btn--ghost" onClick={downloadPdf} data-testid="billing-invoice-download-pdf" title="Download PDF">Download</button>
-          {canApprove && <button className="btn btn--primary" onClick={approve} disabled={busy==='approve'} data-testid="billing-invoice-approve">{busy==='approve' ? 'Approving…' : 'Approve'}</button>}
+          {canApprove && <button className="btn btn--primary" onClick={approve} disabled={Boolean(busy)} data-testid="billing-invoice-approve">{busy==='approve' ? 'Approving…' : 'Approve & post'}</button>}
           {canSend && <button className="btn btn--primary" onClick={() => setShowSend(true)} data-testid="billing-invoice-send-open">Send</button>}
           {canPost && <button className="btn btn--ghost" onClick={post} disabled={busy==='post'} data-testid="billing-invoice-post">{busy==='post' ? 'Posting…' : 'Post to ledger'}</button>}
           {canVoid && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="billing-invoice-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}
@@ -90,6 +116,19 @@ export default function InvoiceDetail() {
       </div>
 
       {actionError && <p className="error" data-testid="billing-invoice-action-error">Error: {actionError.message}</p>}
+      {inv.journal_entry_id && inv.journal_status !== 'posted' && (
+        <p className="error" data-testid="billing-invoice-ledger-error">This invoice points to a journal entry that is not posted. Review the ledger link before sending or applying a receipt.</p>
+      )}
+
+      {inv.journal_status === 'posted' && (
+        <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, margin: '0 0 16px' }}>
+          <BookOpenCheck size={16} aria-hidden="true" />
+          Posted to the ledger
+          <Link to={`/modules/accounting/journal-entries/${inv.journal_entry_id}`} data-testid="billing-invoice-journal-link">
+            View journal entry <ArrowRight size={13} aria-hidden="true" />
+          </Link>
+        </p>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 'var(--cf-space-4)' }}>
         <SummaryBox label="Subtotal"   value={`${Number(inv.subtotal).toFixed(2)} ${inv.currency}`} />
@@ -107,7 +146,8 @@ export default function InvoiceDetail() {
       )}
 
       <h3 style={{ margin: '24px 0 8px', fontSize: 14 }}>Line items</h3>
-      <table className="data-table" data-testid="billing-invoice-detail-lines">
+      <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+      <table className="data-table" style={{ minWidth: 680 }} data-testid="billing-invoice-detail-lines">
         <thead><tr><th>#</th><th>Product / service</th><th>Description</th><th style={{textAlign:'right'}}>Qty</th><th>Unit</th><th style={{textAlign:'right'}}>Price</th><th style={{textAlign:'right'}}>Subtotal</th><th style={{textAlign:'right'}}>Tax</th><th style={{textAlign:'right'}}>Total</th></tr></thead>
         <tbody>
           {lines.map(l => (
@@ -125,11 +165,13 @@ export default function InvoiceDetail() {
           ))}
         </tbody>
       </table>
+      </div>
 
       {allocations.length > 0 && (
         <>
           <h3 style={{ margin: '24px 0 8px', fontSize: 14 }}>Payments allocated</h3>
-          <table className="data-table" data-testid="billing-invoice-allocations">
+          <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+          <table className="data-table" style={{ minWidth: 520 }} data-testid="billing-invoice-allocations">
             <thead><tr><th>Date</th><th>Method</th><th>Reference</th><th style={{textAlign:'right'}}>Applied</th></tr></thead>
             <tbody>
               {allocations.map((a, i) => (
@@ -142,7 +184,50 @@ export default function InvoiceDetail() {
               ))}
             </tbody>
           </table>
+          </div>
         </>
+      )}
+
+      {canFindReceipts && (
+        <section style={{ marginTop: 24 }} data-testid="billing-invoice-receipts">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Landmark size={16} aria-hidden="true" /> Incoming bank receipts
+            </h3>
+            <Link to="/modules/accounting/bank-rec" className="btn btn--ghost" data-testid="billing-invoice-open-bank-feed">Open bank feed <ArrowRight size={14} aria-hidden="true" /></Link>
+          </div>
+          <p className="muted" style={{ fontSize: 12, margin: '6px 0 12px' }}>Review the deposit before applying it. A larger deposit can be split across invoices in the bank feed.</p>
+          {receipts.loading && <p className="muted">Looking for deposits…</p>}
+          {receipts.error && <p className="error">Could not load bank receipts: {receipts.error.message}</p>}
+          {!receipts.loading && !receipts.error && (receipts.data?.rows || []).length === 0 && (
+            <p className="muted">No unmatched incoming deposits are available for this invoice.</p>
+          )}
+          {(receipts.data?.rows || []).length > 0 && (
+            <div className="invoice-receipt-list" role="table" data-testid="billing-invoice-receipt-candidates">
+              <div className="invoice-receipt-list__header" role="row">
+                <span role="columnheader">Date</span><span role="columnheader">Bank account</span>
+                <span role="columnheader">Description</span><span role="columnheader">Amount</span><span role="columnheader">Action</span>
+              </div>
+              {receipts.data.rows.map(line => (
+                <div className="invoice-receipt-list__row" role="row" key={line.id}>
+                  <span className="invoice-receipt-list__date" role="cell">{line.posted_date}</span>
+                  <span className="invoice-receipt-list__bank" role="cell">{line.bank_account_name}</span>
+                  <span className="invoice-receipt-list__description" role="cell">{line.description}{line.reference_match && <span className="badge" style={{ marginLeft: 6 }}>Reference match</span>}</span>
+                  <span className="invoice-receipt-list__amount" role="cell">{Number(line.amount).toFixed(2)} {inv.currency}</span>
+                  <span className="invoice-receipt-list__action" role="cell">
+                    {line.can_apply_directly ? (
+                      <button className="btn btn--primary" type="button" disabled={Boolean(busy)} onClick={() => applyReceipt(line)} data-testid={`billing-invoice-apply-receipt-${line.id}`}>
+                        {busy === `receipt-${line.id}` ? 'Applying…' : Number(line.amount) < Number(inv.amount_due) ? 'Apply partial receipt' : 'Apply receipt'}
+                      </button>
+                    ) : (
+                      <Link className="btn btn--ghost" to={`/modules/accounting/bank-rec/${line.bank_account_id}`}>Split in bank feed</Link>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       {showSend && (

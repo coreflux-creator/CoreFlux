@@ -17,11 +17,15 @@ $bankLib = $read('modules/accounting/lib/bank_rec.php');
 $bankApi = $read('modules/accounting/api/bank_statements.php');
 $bankAi = $read('modules/accounting/api/bank_ai.php');
 $bankUi = $read('modules/accounting/ui/BankReconciliation.jsx');
+$accountingNav = $read('modules/accounting/ui/AccountingModule.jsx');
 $treasuryUi = $read('modules/treasury/ui/AccountTransactions.jsx');
+$billingLib = $read('modules/billing/lib/billing.php');
 $rbac = $read('core/rbac/legacy_map.php');
 $lightWorkspaceDeployPath = $root . '/.github/workflows/deploy-light-workspace.yml';
 
 echo "Invoice visibility and issuing entity\n";
+$check('accounting opens the native billing invoice workflow',
+    str_contains($accountingNav, "to: '/modules/billing/invoices', label: 'Invoices'"));
 $check('invoice list is tenant-wide', !str_contains($list, "qs.set('entity_id'"));
 $check('new invoice defaults from active entity', str_contains($create, 'activeEntityId') && str_contains($create, 'setEntityId(activeEntityId'));
 $check('issuing entity is required in UI', str_contains($create, 'allowNone={false}') && str_contains($create, 'required'));
@@ -45,6 +49,14 @@ $check('posts cash receipt journal', str_contains($bankApi, "'idempotency_key' =
 $check('allocates payment and closes bank line', str_contains($bankApi, 'billingAllocatePayment(') && str_contains($bankApi, 'bankRecMarkLineMatched('));
 $check('bank UI reviews and applies invoice match', str_contains($bankUi, 'Review match') && str_contains($bankUi, 'Apply payment'));
 $check('bank UI can accept posted journal match', str_contains($bankUi, 'Match line') && str_contains($bankUi, "action=match&line_id="));
+$check('direct receipt validates bank currency and invoice date',
+    str_contains($bankApi, 'The invoice and bank account use different currencies')
+    && str_contains($bankApi, 'The invoice was issued after this bank receipt'));
+$check('invoice page finds tenant-scoped, unbooked receipt candidates',
+    str_contains($bankApi, "\$action === 'receipt_candidates'")
+    && str_contains($bankApi, 'bankRecRepairPostedMatches(')
+    && str_contains($bankApi, 'bl.matched_je_id IS NULL')
+    && str_contains($detail, 'billing-invoice-receipt-candidates'));
 
 echo "\nPartial invoice matching from Treasury\n";
 $check('manual invoice candidates include client and open balance',
@@ -66,6 +78,18 @@ $check('split receipt posts AR by invoice and allocates the subledger payment',
     str_contains($bankApi, "'account_code' => '1100'")
     && str_contains($bankApi, 'billingAllocatePayment(')
     && str_contains($bankApi, "'billing:bank-receipt-split:'"));
+$splitAction = substr($bankApi, strpos($bankApi, "\$action === 'split_match_invoices'"),
+    strpos($bankApi, "\$action === 'match_invoice'") - strpos($bankApi, "\$action === 'split_match_invoices'"));
+$directAction = substr($bankApi, strpos($bankApi, "\$action === 'match_invoice'"),
+    strpos($bankApi, "\$action === 'unmatch'") - strpos($bankApi, "\$action === 'match_invoice'"));
+foreach (['split' => $splitAction, 'direct' => $directAction] as $name => $actionSource) {
+    $check("{$name} receipt journal, allocation and match share one transaction",
+        preg_match('/cf_begin_transaction\(\);[\s\S]*accountingPostJe\([\s\S]*billingAllocatePayment\([\s\S]*bankRecMarkLineMatched\([\s\S]*\$pdo->commit\(\)/', $actionSource) === 1
+        && str_contains($actionSource, '$pdo->rollBack()'));
+}
+$check('pay-when-paid release is deferred until the bank transaction commits',
+    str_contains($billingLib, "\$request['defer_pwp']")
+    && str_contains($bankApi, 'billingReleasePayWhenPaidForAllocations('));
 $check('generic AR is rejected when an invoice target is required',
     str_contains($bankApi, 'Use an Invoice target instead of posting a generic Accounts Receivable split'));
 $check('GL remainder validates the selected intercompany entity',
@@ -99,7 +123,16 @@ if (is_file($lightWorkspaceDeployPath)) {
 echo "\nInvoice finalization\n";
 $check('post permission maps to billing admin', str_contains($rbac, "'billing.invoice.post'               => ['billing', 'admin']"));
 $check('invoice detail exposes post action', str_contains($detail, 'data-testid="billing-invoice-post"'));
-$check('sending also posts to ledger', substr_count($detail, 'action=post&id=${id}') >= 2);
+$check('approval posts before send and retry reuses the posted journal',
+    str_contains($detail, "if (!result.approved) return;")
+    && str_contains($invoiceApi, "'idempotent_replay' => true"));
+$check('sending requires a posted journal in API and UI',
+    str_contains($invoiceApi, 'Post the invoice to the ledger before sending it')
+    && str_contains($detail, "inv.journal_status === 'posted'")
+    && str_contains($list, "row.journal_status === 'posted'"));
+$check('invoice page applies direct and partial deposits through native bank APIs',
+    str_contains($detail, 'action=match_invoice&line_id=')
+    && str_contains($detail, 'action=split_match_invoices&line_id='));
 
 echo "Passed: {$passed}; Failed: {$failed}" . PHP_EOL;
 exit($failed > 0 ? 1 : 0);

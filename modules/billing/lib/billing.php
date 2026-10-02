@@ -951,6 +951,31 @@ function billingTokenFindByRaw(string $raw): ?array
  *   $allocations = [['invoice_id' => N, 'amount' => 123.45], ...]
  *   OR ['auto' => 'fifo'] — picks oldest unpaid invoices for that client.
  */
+function billingReleasePayWhenPaidForAllocations(int $tenantId, array $applied, ?int $actorUserId = null): array
+{
+    $results = [];
+    foreach ($applied as $allocation) {
+        if (($allocation['new_status'] ?? null) !== 'paid') continue;
+        try {
+            if (!function_exists('apPwpReleaseForArInvoice')) {
+                @require_once __DIR__ . '/../../ap/lib/pwp.php';
+            }
+            if (function_exists('apPwpReleaseForArInvoice')) {
+                $res = apPwpReleaseForArInvoice($tenantId, (int) $allocation['invoice_id'], $actorUserId);
+                if (!empty($res['released'])) {
+                    $results[] = [
+                        'ar_invoice_id' => (int) $allocation['invoice_id'],
+                        'released' => $res['released'],
+                    ];
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('[billingAllocatePayment] PWP release failed for AR invoice ' . $allocation['invoice_id'] . ': ' . $e->getMessage());
+        }
+    }
+    return $results;
+}
+
 function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserId = null): array
 {
     $pdo = getDB();
@@ -1046,31 +1071,11 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
 
         if ($ownsTxn) $pdo->commit();
 
-        // Pay-When-Paid trigger — runs AFTER commit so the AR invoice's new
-        // status ('paid') is durable before we release any vendor bills.
-        // Best-effort: errors here are logged but never roll back the AR
-        // payment, since the customer's cash is real either way.
         $tenantId = (int) $pay['tenant_id'];
-        $pwpResults = [];
-        foreach ($applied as $a) {
-            if (($a['new_status'] ?? null) !== 'paid') continue;
-            try {
-                if (!function_exists('apPwpReleaseForArInvoice')) {
-                    @require_once __DIR__ . '/../../ap/lib/pwp.php';
-                }
-                if (function_exists('apPwpReleaseForArInvoice')) {
-                    $res = apPwpReleaseForArInvoice($tenantId, (int) $a['invoice_id'], $actorUserId);
-                    if (!empty($res['released'])) {
-                        $pwpResults[] = [
-                            'ar_invoice_id' => (int) $a['invoice_id'],
-                            'released'      => $res['released'],
-                        ];
-                    }
-                }
-            } catch (\Throwable $e) {
-                error_log('[billingAllocatePayment] PWP release failed for AR invoice ' . $a['invoice_id'] . ': ' . $e->getMessage());
-            }
-        }
+        // Callers that own a larger transaction release PWP after their commit.
+        $pwpResults = !empty($request['defer_pwp'])
+            ? []
+            : billingReleasePayWhenPaidForAllocations($tenantId, $applied, $actorUserId);
 
         return ['applied' => $applied, 'unallocated_remaining' => $newUnalloc, 'pwp' => $pwpResults];
     } catch (\Throwable $e) {

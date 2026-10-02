@@ -137,7 +137,14 @@ function billingInsertDirectInvoiceLines(PDO $pdo, int $invoiceId, array $lines)
 if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     rbac_legacy_require($user, 'billing.view');
     $id = (int) $_GET['id'];
-    $inv = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    $inv = scopedFind(
+        'SELECT bi.*, je.status AS journal_status
+           FROM billing_invoices bi
+           LEFT JOIN accounting_journal_entries je
+             ON je.tenant_id = bi.tenant_id AND je.id = bi.journal_entry_id
+          WHERE bi.tenant_id = :tenant_id AND bi.id = :id',
+        ['id' => $id]
+    );
     if (!$inv) api_error('Not found', 404);
     $pdo = getDB();
     $linesStmt = $pdo->prepare(
@@ -201,7 +208,10 @@ if ($method === 'GET' && $action === '') {
     $rows = scopedQuery(
         'SELECT id, invoice_number, client_name, issue_date, due_date, currency,
                 subtotal, tax_total, total, amount_paid, amount_due, status,
-                po_number, bill_to_json, journal_entry_id, sent_at, created_at
+                po_number, bill_to_json, journal_entry_id, sent_at, created_at,
+                (SELECT je.status FROM accounting_journal_entries je
+                  WHERE je.tenant_id = billing_invoices.tenant_id
+                    AND je.id = billing_invoices.journal_entry_id) AS journal_status
          FROM billing_invoices WHERE ' . implode(' AND ', $where) . '
          ORDER BY id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
@@ -665,6 +675,12 @@ if ($method === 'POST' && $action === 'send') {
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if (!billingTransitionAllowed($row['status'], 'sent')) api_error("Cannot send from status {$row['status']}", 409);
+    $postedEntry = !empty($row['journal_entry_id']) ? scopedFind(
+        'SELECT id FROM accounting_journal_entries
+          WHERE tenant_id = :tenant_id AND id = :id AND status = "posted"',
+        ['id' => (int) $row['journal_entry_id']]
+    ) : null;
+    if (!$postedEntry) api_error('Post the invoice to the ledger before sending it', 409);
 
     $beforeNormalization = $row;
     try {
@@ -879,6 +895,22 @@ if ($method === 'POST' && $action === 'post') {
     if (!$row) api_error('Not found', 404);
     if (!in_array($row['status'], ['approved','sent','partially_paid','paid'], true)) {
         api_error("Cannot post from status {$row['status']}", 409);
+    }
+    if (!empty($row['journal_entry_id'])) {
+        $existingJe = scopedFind(
+            'SELECT id, je_number, status FROM accounting_journal_entries
+              WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => (int) $row['journal_entry_id']]
+        );
+        if (($existingJe['status'] ?? null) !== 'posted') {
+            api_error('This invoice already points to a missing or unposted journal entry. Correct that link before retrying.', 409);
+        }
+        api_ok([
+            'ok' => true,
+            'journal_entry_id' => (int) $existingJe['id'],
+            'je_number' => $existingJe['je_number'],
+            'idempotent_replay' => true,
+        ]);
     }
 
     $beforeNormalization = $row;

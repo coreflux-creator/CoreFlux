@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, NavLink, Link, useLocation } from 'react-route
 import {
   AlertTriangle, BarChart3, BookOpen, Building2, Calendar, CheckSquare,
   ChevronDown, FileText, GitBranch, Landmark, Layers, ListChecks, Network,
-  Plus, Repeat, Scale, Settings, Sparkles, TrendingUp, Upload, Wallet, Wrench,
+  Plus, Receipt, Repeat, Scale, Settings, Sparkles, TrendingUp, Upload, Wallet, Wrench,
 } from 'lucide-react';
 import ChartOfAccounts from './ChartOfAccounts';
 import AccountDetail from './AccountDetail';
@@ -46,6 +46,7 @@ const LAYER_SANDBOX_ENABLED =
 
 const PRIMARY_NAV = [
   { to: 'journal-entries', label: 'Entries', Icon: FileText },
+  { to: '/modules/billing/invoices', label: 'Invoices', Icon: Receipt },
   { to: 'transactions-to-review', label: 'Bank feed', Icon: ListChecks },
   { to: 'bank-rec', label: 'Reconcile', Icon: Scale },
   { to: 'reports', label: 'Reports', Icon: BarChart3 },

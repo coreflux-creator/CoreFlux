@@ -102,7 +102,7 @@ export default function InvoicesList({ session }) {
     ['approved', 'sent', 'partially_paid', 'paid'].includes(row.status) && !row.journal_entry_id
   )), [selectedRows]);
   const sendableItems = useMemo(
-    () => selectedRows.filter((row) => row.status === 'approved'),
+    () => selectedRows.filter((row) => row.status === 'approved' && row.journal_status === 'posted'),
     [selectedRows]
   );
   const allActionableSelected = selectableItems.length > 0
@@ -189,7 +189,7 @@ export default function InvoicesList({ session }) {
     const ids = sendableItems.map((row) => row.id);
     if (ids.length === 0) return;
     if (!confirm(
-      `Email ${ids.length} approved invoice${ids.length === 1 ? '' : 's'} now?\n\n` +
+      `Email ${ids.length} posted invoice${ids.length === 1 ? '' : 's'} now?\n\n` +
       'Each message will use the invoice bill-to email or the client’s saved AR contact. Rows without a valid recipient will stay selected with an explanation.'
     )) return;
 
