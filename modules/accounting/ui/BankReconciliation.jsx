@@ -512,7 +512,7 @@ function AccountDetail() {
               bankAccount={bankAccount}
               accounts={accountsApi.data?.rows || []}
             />
-          ) : <ResolvedBankLineRow key={l.id} line={l} />)}
+          ) : <ResolvedBankLineRow key={l.id} line={l} reload={reload} />)}
         </tbody>
       </table>
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 10 }}>
@@ -528,12 +528,37 @@ function AccountDetail() {
   );
 }
 
-function ResolvedBankLineRow({ line }) {
+function ResolvedBankLineRow({ line, reload }) {
+  const [showCorrection, setShowCorrection] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const correctReceipt = async (event) => {
+    event.preventDefault();
+    if (!reason.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`/modules/accounting/api/bank_statements.php?action=reverse_receipt&line_id=${line.id}`, { reason: reason.trim() });
+      setShowCorrection(false);
+      setReason('');
+      await reload();
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  };
   return (
+    <>
     <tr data-testid={`accounting-bank-line-${line.id}`}>
       <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(line.posted_date)}</td>
       <td>
         {line.description}
+        {Number(line.correction_count) > 0 && (
+          <div style={{ marginTop: 3, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+            Corrected {line.correction_count} time{Number(line.correction_count) === 1 ? '' : 's'}
+            {line.last_reversal_je_id && <> · <Link to={`/modules/accounting/journal-entries/${line.last_reversal_je_id}`}>View reversal</Link></>}
+          </div>
+        )}
         {(line.applied_invoices || []).length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 3, fontSize: 12 }} data-testid={`accounting-bank-line-invoices-${line.id}`}>
             {line.applied_invoices.map(invoice => (
@@ -547,12 +572,38 @@ function ResolvedBankLineRow({ line }) {
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(line.amount)}</td>
       <td><span data-testid={`accounting-bank-line-status-${line.match_status}`}>{line.match_status}</span></td>
       <td>—</td>
-      <td>{line.matched_je_id ? (
-        <Link to={`/modules/accounting/journal-entries/${line.matched_je_id}`}>
-          View journal
-        </Link>
-      ) : '—'}</td>
+      <td style={{ whiteSpace: 'nowrap' }}>
+        {line.matched_je_id ? <Link to={`/modules/accounting/journal-entries/${line.matched_je_id}`}>View journal</Link> : '—'}
+        {line.can_correct_receipt && (
+          <button type="button" className="btn btn--ghost" onClick={() => setShowCorrection(value => !value)}
+                  data-testid={`accounting-bank-correct-receipt-${line.id}`} style={{ marginLeft: 8 }}>
+            Correct receipt
+          </button>
+        )}
+      </td>
     </tr>
+    {showCorrection && (
+      <tr><td colSpan={6}>
+        <form onSubmit={correctReceipt} style={{ display: 'flex', alignItems: 'end', flexWrap: 'wrap', gap: 8, padding: '8px 0' }}>
+          <label style={{ flex: '1 1 300px', fontSize: 12 }}>
+            Correction reason
+            <input className="input" value={reason} onChange={event => setReason(event.target.value)}
+                   maxLength={500} required disabled={busy} style={{ display: 'block', width: '100%' }}
+                   data-testid={`accounting-bank-correction-reason-${line.id}`} />
+          </label>
+          <button type="submit" className="btn btn--primary" disabled={busy || !reason.trim()}
+                  data-testid={`accounting-bank-correction-submit-${line.id}`}>
+            {busy ? 'Correcting…' : 'Reverse and reopen'}
+          </button>
+          <button type="button" className="btn btn--ghost" disabled={busy} onClick={() => setShowCorrection(false)}>Cancel</button>
+          <small style={{ flexBasis: '100%', color: 'var(--cf-text-secondary)' }}>
+            Restores invoice balances and reopens this bank line for matching. This does not send a cash refund.
+          </small>
+          {error && <span className="error" role="alert" style={{ flexBasis: '100%' }}>{error}</span>}
+        </form>
+      </td></tr>
+    )}
+    </>
   );
 }
 
@@ -587,7 +638,15 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
     <>
       <tr data-testid={`accounting-bank-line-${line.id}`}>
         <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(line.posted_date)}</td>
-        <td>{line.description}</td>
+        <td>
+          {line.description}
+          {Number(line.correction_count) > 0 && (
+            <div style={{ marginTop: 3, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+              Corrected {line.correction_count} time{Number(line.correction_count) === 1 ? '' : 's'}
+              {line.last_reversal_je_id && <> · <Link to={`/modules/accounting/journal-entries/${line.last_reversal_je_id}`}>View reversal</Link></>}
+            </div>
+          )}
+        </td>
         <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: line.amount < 0 ? '#991b1b' : '#065f46' }}>{fmtMoney(line.amount)}</td>
         <td><span data-testid={`accounting-bank-line-status-${line.match_status}`}>{line.match_status}</span></td>
         <td style={{ fontSize: 11 }}>

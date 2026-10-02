@@ -75,10 +75,10 @@ export default function PaymentsList() {
               <td>{p.client_name}</td>
               <td>{p.method}</td>
               <td>{p.reference || '—'}</td>
-              <td style={{textAlign:'right'}}>{Number(p.amount).toFixed(2)} {p.currency}</td>
+              <td style={{textAlign:'right'}}>{Number(p.amount).toFixed(2)} {p.currency}{p.voided_at && <span className="badge" style={{ marginLeft: 6 }}>Corrected</span>}</td>
               <td style={{textAlign:'right'}}><strong>{Number(p.unallocated_amount).toFixed(2)}</strong></td>
               <td>
-                {Number(p.unallocated_amount) > 0 && (
+                {!p.voided_at && Number(p.unallocated_amount) > 0 && (
                   <button className="btn" onClick={() => setAllocFor(p)} data-testid={`billing-payment-allocate-${p.id}`}>Allocate</button>
                 )}
               </td>

@@ -141,7 +141,7 @@ if ($method === 'POST' && $action === 'commit') {
             $existing = null;
             if ($paymentId > 0) {
                 $existing = scopedFind(
-                    'SELECT id, amount, unallocated_amount, external_id, source_system
+                    'SELECT id, amount, unallocated_amount, external_id, source_system, voided_at
                        FROM billing_payments
                       WHERE tenant_id = :tenant_id AND id = :id
                       FOR UPDATE',
@@ -152,7 +152,7 @@ if ($method === 'POST' && $action === 'commit') {
                 }
             } elseif ($externalId !== null) {
                 $existing = scopedFind(
-                    'SELECT id, amount, unallocated_amount, external_id, source_system
+                    'SELECT id, amount, unallocated_amount, external_id, source_system, voided_at
                        FROM billing_payments
                       WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e
                       FOR UPDATE',
@@ -161,6 +161,9 @@ if ($method === 'POST' && $action === 'commit') {
             }
 
             if ($existing) {
+                if ($existing['voided_at'] !== null) {
+                    throw new RuntimeException('Corrected receipts cannot be updated by CSV');
+                }
                 if (!$updateExisting) {
                     throw new RuntimeException('Receipt #' . $existing['id'] . ' already exists; enable Update matching editable records to change it');
                 }

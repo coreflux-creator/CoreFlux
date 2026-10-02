@@ -593,7 +593,7 @@ function qboApplyCapturedPayment(
     $allocatedStmt = $pdo->prepare(
         'SELECT COALESCE(SUM(amount_applied), 0)
            FROM billing_payment_allocations
-          WHERE payment_id = :p AND invoice_id = :i'
+          WHERE payment_id = :p AND invoice_id = :i AND reversed_at IS NULL'
     );
     $allocatedStmt->execute(['p' => $paymentId, 'i' => $invoiceId]);
     $alreadyAllocated = round((float) $allocatedStmt->fetchColumn(), 2);

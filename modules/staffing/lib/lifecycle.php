@@ -282,6 +282,7 @@ function _lifecycleArSide(\PDO $pdo, int $tenantId, array $entryIds): array
            JOIN billing_payments p ON p.id = a.payment_id
           WHERE p.tenant_id = :t
             AND a.invoice_id IN (' . implode(',', $invPlace) . ')
+            AND a.reversed_at IS NULL AND p.voided_at IS NULL
           ORDER BY a.applied_at ASC, a.id ASC'
     );
     $allocStmt->execute($invParams);

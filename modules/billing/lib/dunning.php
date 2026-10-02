@@ -275,7 +275,8 @@ function billingDunningAiEscalationSuggestion(int $tenantId, string $clientName,
             "SELECT i.id, i.dunning_stage, i.status, i.due_date,
                     (SELECT MAX(p.received_at) FROM billing_payment_allocations a
                        JOIN billing_payments p ON p.id = a.payment_id
-                      WHERE a.invoice_id = i.id) AS paid_at
+                      WHERE a.invoice_id = i.id AND a.reversed_at IS NULL
+                        AND p.voided_at IS NULL AND p.tenant_id = i.tenant_id) AS paid_at
                FROM billing_invoices i
               WHERE i.tenant_id = :t AND i.client_name = :c
                 AND i.created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)

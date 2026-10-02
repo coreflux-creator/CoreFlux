@@ -72,5 +72,8 @@ exportDatasetAudit($tenantId, $userId ?: null, 'billing.payment.exported', null,
     'amount'             => 'Amount',
     'currency'           => 'Currency',
     'unallocated_amount' => 'Unallocated',
+    'voided_at'          => 'Corrected at',
+    'void_reason'        => 'Correction reason',
+    'void_je_id'         => 'Reversal journal ID',
     'notes'              => 'Notes',
 ]))->stream($rows, 'billing_payments_export_' . date('Y-m-d') . '.csv');

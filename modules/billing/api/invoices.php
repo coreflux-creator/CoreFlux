@@ -160,9 +160,11 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
         'SELECT bpa.amount_applied, bpa.applied_at, bp.id AS payment_id, bp.received_at, bp.method, bp.reference, bp.amount AS payment_amount
          FROM billing_payment_allocations bpa
          JOIN billing_payments bp ON bp.id = bpa.payment_id
-         WHERE bpa.invoice_id = :id ORDER BY bpa.applied_at DESC'
+         WHERE bpa.invoice_id = :id AND bpa.reversed_at IS NULL
+           AND bp.tenant_id = :tenant_id AND bp.voided_at IS NULL
+         ORDER BY bpa.applied_at DESC'
     );
-    $allocStmt->execute(['id' => $id]);
+    $allocStmt->execute(['id' => $id, 'tenant_id' => $tid]);
     $allocations = $allocStmt->fetchAll(\PDO::FETCH_ASSOC);
     $tokStmt = $pdo->prepare(
         'SELECT id, token, issued_at, expires_at, last_viewed_at, view_count

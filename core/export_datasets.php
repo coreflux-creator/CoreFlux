@@ -396,6 +396,9 @@ function exportDatasetRegistry(): array {
                 'amount'             => ['label' => 'Amount',         'sample' => '500.00', 'field_type' => 'number'],
                 'currency'           => ['label' => 'Currency',       'sample' => 'USD'],
                 'unallocated_amount' => ['label' => 'Unallocated',    'sample' => '0.00', 'field_type' => 'number'],
+                'voided_at'          => ['label' => 'Corrected at',   'sample' => '2026-02-15 11:00:00'],
+                'void_reason'        => ['label' => 'Correction reason', 'sample' => 'Applied to wrong invoice'],
+                'void_je_id'         => ['label' => 'Reversal journal ID', 'sample' => '502'],
                 'notes'              => ['label' => 'Notes',          'sample' => 'Partial payment'],
             ],
         ],
@@ -1240,7 +1243,8 @@ function exportDatasetFetchBillingPayments(int $tenantId, array $opts): array {
 
     $stmt = $pdo->prepare(
         'SELECT id AS payment_id, client_name, received_at, method, reference,
-                external_id, source_system, amount, currency, unallocated_amount, notes
+                external_id, source_system, amount, currency, unallocated_amount,
+                voided_at, void_reason, void_je_id, notes
            FROM billing_payments
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY received_at DESC, id DESC

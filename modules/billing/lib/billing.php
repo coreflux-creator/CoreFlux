@@ -990,6 +990,7 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
         $payStmt->execute(['id' => $paymentId]);
         $pay = $payStmt->fetch(\PDO::FETCH_ASSOC);
         if (!$pay) throw new \RuntimeException("payment {$paymentId} not found");
+        if ($pay['voided_at'] !== null) throw new \RuntimeException('A corrected receipt cannot be allocated again');
         $remaining = (float) $pay['unallocated_amount'];
         if ($remaining <= 0) throw new \RuntimeException('payment has no unallocated amount');
 
@@ -1102,7 +1103,9 @@ function billingComputeAging(int $tenantId, string $asOf): array
            FROM (
                 SELECT i.id, i.client_name, i.due_date,
                        GREATEST(0, ROUND(i.total - COALESCE(SUM(
-                           CASE WHEN p.received_at <= :payment_as_of THEN alloc.amount_applied ELSE 0 END
+                           CASE WHEN p.received_at <= :payment_as_of
+                                 AND (alloc.reversed_at IS NULL OR DATE(alloc.reversed_at) > :reversal_as_of)
+                                THEN alloc.amount_applied ELSE 0 END
                        ), 0), 2)) AS amount_due
                   FROM billing_invoices i
                   JOIN accounting_journal_entries je
@@ -1124,6 +1127,7 @@ function billingComputeAging(int $tenantId, string $asOf): array
     $bind = [
         'tid' => $tenantId,
         'payment_as_of' => $asOf,
+        'reversal_as_of' => $asOf,
         'posted_as_of' => $asOf,
         'document_as_of' => $asOf,
         'void_as_of' => $asOf,
