@@ -2,15 +2,8 @@
 /**
  * Core\PdfRenderer — pure-PHP HTML→PDF using a system renderer.
  *
- * We prefer headless Chromium for fidelity (modern CSS, web fonts, flexbox,
- * grid all work). We fall back to wkhtmltopdf if Chromium isn't present
- * and finally throw a clear "no renderer installed" error so the operator
- * knows what to install on the host.
- *
- * Why not a composer-installed PHP library (Dompdf, mPDF)?
- *   - CoreFlux has no vendor/ directory deployed today
- *   - Chromium is already present in the container/host
- *   - Output fidelity is markedly better for invoice-style layouts
+ * Prefer headless Chromium for modern CSS, then wkhtmltopdf. Shared hosts
+ * without a system binary use the Composer-installed Dompdf fallback.
  *
  * Usage:
  *   require_once 'core/pdf_renderer.php';
@@ -44,18 +37,14 @@ function cf_render_html_to_pdf(string $html, string $outPath, array $opts = []):
         throw new RuntimeException("cf_render_html_to_pdf: directory not writable: {$dir}");
     }
 
+    $bin = _cf_pdf_find_renderer();
+    if ($bin === null) return _cf_pdf_render_dompdf($html, $outPath, $opts);
+
     $timeout = (int) ($opts['timeout_sec'] ?? 30);
     $tmpHtml = tempnam(sys_get_temp_dir(), 'cf-pdf-') . '.html';
     file_put_contents($tmpHtml, $html);
 
     try {
-        $bin = _cf_pdf_find_renderer();
-        if ($bin === null) {
-            throw new RuntimeException(
-                'No PDF renderer found. Install chromium-browser (apt: chromium) or wkhtmltopdf on the host.'
-            );
-        }
-
         if (str_contains($bin, 'wkhtmltopdf')) {
             $cmd = _cf_pdf_wkhtmltopdf_cmd($bin, $tmpHtml, $outPath, $opts);
         } else {
@@ -104,6 +93,40 @@ function cf_render_html_to_pdf(string $html, string $outPath, array $opts = []):
     } finally {
         @unlink($tmpHtml);
     }
+}
+
+function _cf_pdf_render_dompdf(string $html, string $outPath, array $opts): bool {
+    $autoload = dirname(__DIR__) . '/vendor/autoload.php';
+    if (is_file($autoload)) require_once $autoload;
+    if (!class_exists(\Dompdf\Dompdf::class)) {
+        throw new RuntimeException('No PDF renderer available. Run composer install for the application or configure CF_PDF_RENDERER_BIN.');
+    }
+
+    $options = new \Dompdf\Options();
+    $options->set('isRemoteEnabled', false);
+    $options->set('isPhpEnabled', false);
+    $options->set('tempDir', sys_get_temp_dir());
+    $renderer = new \Dompdf\Dompdf($options);
+    $renderer->setPaper((string) ($opts['paper'] ?? 'letter'), !empty($opts['landscape']) ? 'landscape' : 'portrait');
+    try {
+        $renderer->loadHtml($html, 'UTF-8');
+        $renderer->render();
+        $pdf = $renderer->output();
+    } catch (Throwable $e) {
+        throw new RuntimeException('PDF rendering failed: ' . $e->getMessage(), 0, $e);
+    }
+    if (!str_starts_with($pdf, '%PDF-')) throw new RuntimeException('PDF rendering did not produce a valid file');
+    $tempPath = tempnam(dirname($outPath), '.pdf-');
+    if ($tempPath === false) throw new RuntimeException('Could not reserve PDF output path');
+    try {
+        $written = file_put_contents($tempPath, $pdf);
+        if ($written !== strlen($pdf) || !rename($tempPath, $outPath)) {
+            throw new RuntimeException('Could not save the rendered PDF');
+        }
+    } finally {
+        if (is_file($tempPath)) @unlink($tempPath);
+    }
+    return true;
 }
 
 function _cf_pdf_find_renderer(): ?string {

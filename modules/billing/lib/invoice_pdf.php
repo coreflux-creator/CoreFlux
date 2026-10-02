@@ -91,13 +91,15 @@ function invoiceBuildPdfHtml(int $invoiceId): string {
 <style>
   * { box-sizing: border-box; }
   body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #0f172a; font-size: 11pt; margin: 0; padding: 0 32px; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; padding: 36px 0 20px; border-bottom: 3px solid {$brandColor}; }
+  .header { display: table; width: 100%; padding: 36px 0 20px; border-bottom: 3px solid {$brandColor}; }
+  .header > div { display: table-cell; vertical-align: top; }
   .header .logo { max-height: 56px; max-width: 220px; }
   .brand-name { font-size: 22pt; font-weight: 700; color: {$brandColor}; }
   .title { text-align: right; }
   .title h1 { margin: 0 0 4px; font-size: 26pt; color: {$brandColor}; letter-spacing: 0.04em; }
   .title .meta { color: #64748b; font-size: 10pt; line-height: 1.55; }
-  .parties { display: flex; justify-content: space-between; margin: 24px 0; gap: 20px; }
+  .parties { display: table; width: 100%; margin: 24px 0; }
+  .parties > .party { display: table-cell; vertical-align: top; padding-right: 20px; }
   .party h4 { margin: 0 0 6px; font-size: 9pt; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; }
   .party .line { font-size: 11pt; line-height: 1.55; }
   table.lines { width: 100%; border-collapse: collapse; margin-top: 12px; }
