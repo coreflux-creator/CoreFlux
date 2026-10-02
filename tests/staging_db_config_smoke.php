@@ -51,9 +51,15 @@ if ($exit === 0 || !str_contains($output, 'Staging database configuration is inc
 }
 
 $definitions = "define('DB_HOST', '127.0.0.1'); define('DB_NAME', 'stage_test'); define('DB_USER', 'stage_user'); define('DB_PASS', 'stage_pass');";
-[$exit, $output] = runConfigCheck($definitions . " require $config; echo DB_NAME . ':' . (COREFLUX_STAGING ? 'staging' : 'prod') . ':' . getenv('MAIL_DRIVER');", ['COREFLUX_ENV' => 'staging']);
-if ($exit !== 0 || trim($output) !== 'stage_test:staging:log') {
+[$exit, $output] = runConfigCheck($definitions . " require $config; echo DB_NAME . ':' . (COREFLUX_STAGING ? 'staging' : 'prod');", ['COREFLUX_ENV' => 'staging']);
+if ($exit !== 0 || trim($output) !== 'stage_test:staging') {
     throw new RuntimeException('Explicit staging database settings were not honored.');
+}
+
+$mailBootstrap = var_export(dirname(__DIR__) . '/core/mail_bootstrap.php', true);
+[$exit, $output] = runConfigCheck($definitions . " require $mailBootstrap; echo cf_mail_bootstrap()->default_driver_name() . ':' . (cf_mail_bootstrap()->driver('resend') ? 'resend' : 'none');", ['COREFLUX_ENV' => 'staging']);
+if ($exit !== 0 || !str_contains($output, 'log:none')) {
+    throw new RuntimeException('Staging mail bootstrap did not enforce log-only delivery.');
 }
 
 echo "Staging database configuration checks passed.\n";

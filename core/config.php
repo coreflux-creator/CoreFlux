@@ -19,7 +19,6 @@ if (!defined('COREFLUX_STAGING')) {
     define('COREFLUX_STAGING', $requiresExplicitDb);
 }
 if ($requiresExplicitDb) {
-    putenv('MAIL_DRIVER=log');
     foreach (['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASS'] as $setting) {
         if (!defined($setting) || trim((string) constant($setting)) === '') {
             throw new RuntimeException('Staging database configuration is incomplete.');

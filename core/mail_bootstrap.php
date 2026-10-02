@@ -50,7 +50,8 @@ if (!function_exists('cf_mail_bootstrap')) {
         // produce a failed send (from ResendDriver's configuration guard), not
         // a false `sent` result from LogDriver when nothing left the server.
         $mailDriverOverride = strtolower(trim((string) getenv('MAIL_DRIVER')));
-        $logOnly            = $mailDriverOverride === 'log';
+        $staging            = defined('COREFLUX_STAGING') && COREFLUX_STAGING;
+        $logOnly            = $staging || $mailDriverOverride === 'log';
         $default            = $logOnly
             ? new LogDriver()
             : new ResendDriver();
@@ -101,7 +102,7 @@ if (!function_exists('cf_mail_bootstrap')) {
         $booted = MailService::reset($default, $writer);
         // Keep both drivers addressable for diagnostics and explicit overrides.
         if ($default->driver_name() === 'resend') $booted->register_driver(new LogDriver());
-        else                                      $booted->register_driver(new ResendDriver());
+        elseif (!$staging)                        $booted->register_driver(new ResendDriver());
         return $booted;
     }
 }
