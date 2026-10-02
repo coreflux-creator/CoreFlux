@@ -82,6 +82,11 @@ Staging must have its own PHP deployment, MySQL database, migrations, encryption
 - The Ignore API previously accepted a matched line and could hide a posted receipt. It now changes only an unmatched line with a conditional write, rejects a matched line with HTTP 409, and treats an already ignored line as a harmless retry. On staging, attempting to ignore matched receipt line `17` returned 409 and left it matched; retrying ignored test line `18` returned an idempotent success. The five accounting snapshot checks remained green afterward.
 - Source-level receipt correction remains open. The present allocation table has no reversal state, while aging, dunning, bank suggestions and invoice detail read its rows. A correct implementation needs dated allocation-reversal lineage, an append-only reversal journal, invoice/payment balance restoration, coherent bank-line state, and protection against downstream pay-when-paid releases. A generic unmatch or journal reverse is deliberately blocked until that coordinated path exists.
 
+## Installation boundary
+
+- The web installer is not a blank-database bootstrap: it requires existing CoreFlux platform identity and the People, Placements, Time, and Staffing base tables. Its migration helper now checks those prerequisites before creating its own migration ledger and names missing tables in the failure message. It also treats failed or unreadable migration files as installation failure instead of reporting “Setup complete.” The read-only `deploy/check_base_schema.php` command reports these prerequisites without changing the database; it passed on the isolated staging database. A new isolated database bootstrap is still required before claiming standalone install support.
+- `deploy/run_migrations.php` is an older independent migration runner that does not resolve this dependency order. Do not use it as evidence of a clean installation. The staging database was provisioned with the required base tables before the canonical migrator ran.
+
 ## Decisions to revisit
 
 | Decision | Reason | Revisit when |
