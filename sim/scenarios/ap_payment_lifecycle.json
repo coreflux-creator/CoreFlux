@@ -54,8 +54,7 @@
         "vendor_name": "Initech Logistics",
         "amount": 2400.00,
         "currency": "USD",
-        "bank_gl_account_id": 1010,
-        "bank_gl_account_code": "1010",
+        "bank_gl_account_code": "1000",
         "bill_id": 9101
       }
     },

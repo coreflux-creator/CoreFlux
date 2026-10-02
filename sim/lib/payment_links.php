@@ -44,36 +44,22 @@ function simLinkClearedPayment(int $tenantId, int $billId, int $paymentId, int $
         $payment = $pdo->prepare('SELECT tenant_id, entity_id, amount, status, journal_entry_id FROM ap_payments WHERE id = :id FOR UPDATE');
         $payment->execute(['id' => $paymentId]);
         $existing = $payment->fetch(\PDO::FETCH_ASSOC);
-        if ($existing) {
-            if ((int) $existing['tenant_id'] !== $tenantId
-                || (int) ($existing['journal_entry_id'] ?? 0) !== $jeId
-                || round((float) $existing['amount'], 2) !== $amount
-                || $existing['status'] !== 'cleared'
-                || ((int) ($existing['entity_id'] ?? 0) !== 0 && (int) $existing['entity_id'] !== $entityId)) {
-                throw new \RuntimeException('The simulation payment conflicts with an existing payment');
-            }
-            if ((int) ($existing['entity_id'] ?? 0) === 0) {
-                $pdo->prepare('UPDATE ap_payments SET entity_id = :entity_id WHERE tenant_id = :tenant_id AND id = :id')
-                    ->execute(['entity_id' => $entityId, 'tenant_id' => $tenantId, 'id' => $paymentId]);
-            }
-        } else {
+        if (!$existing || (int) $existing['tenant_id'] !== $tenantId
+            || round((float) $existing['amount'], 2) !== $amount
+            || ((int) ($existing['entity_id'] ?? 0) !== 0 && (int) $existing['entity_id'] !== $entityId)) {
+            throw new \RuntimeException('The simulation payment conflicts with its reserved source record');
+        }
+        if ($existing['status'] === 'draft' && (int) ($existing['journal_entry_id'] ?? 0) === 0) {
             $pdo->prepare(
-                'INSERT INTO ap_payments
-                   (id, tenant_id, entity_id, vendor_name, pay_date, reference, amount, unallocated_amount,
-                    status, cleared_at, journal_entry_id)
-                 VALUES (:id, :tenant_id, :entity_id, :vendor_name, :pay_date, :reference, :amount, 0,
-                         "cleared", :cleared_at, :je_id)'
+                'UPDATE ap_payments SET entity_id = :entity_id, status = "cleared", cleared_at = :cleared_at,
+                        journal_entry_id = :je_id, unallocated_amount = 0
+                  WHERE tenant_id = :tenant_id AND id = :id AND status = "draft"'
             )->execute([
-                'id' => $paymentId,
-                'tenant_id' => $tenantId,
-                'entity_id' => $entityId,
-                'vendor_name' => (string) $b['vendor_name'],
-                'pay_date' => $payDate,
-                'reference' => (string) ($payload['payment_number'] ?? "SIM-PAY-{$paymentId}"),
-                'amount' => $amount,
-                'cleared_at' => $payDate . ' 12:00:00',
-                'je_id' => $jeId,
+                'entity_id' => $entityId, 'cleared_at' => $payDate . ' 12:00:00',
+                'je_id' => $jeId, 'tenant_id' => $tenantId, 'id' => $paymentId,
             ]);
+        } elseif ($existing['status'] !== 'cleared' || (int) ($existing['journal_entry_id'] ?? 0) !== $jeId) {
+            throw new \RuntimeException('The simulation payment conflicts with its posted journal entry');
         }
 
         $allocation = $pdo->prepare(

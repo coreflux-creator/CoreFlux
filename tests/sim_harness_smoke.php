@@ -101,6 +101,10 @@ $a('runner persists simulation_runs row',  str_contains($runner, 'INSERT INTO si
 $a('runner checks posted source links', str_contains($runner, 'simInvariantPostedSourceLinks($pdo, $tenantId)'));
 $a('runner persists assertions',           str_contains($runner, 'INSERT INTO simulation_assertions'));
 $a('runner persists replay_logs',          str_contains($runner, 'INSERT INTO replay_logs'));
+$a('replays count unique observed JEs without claiming new postings',
+    str_contains($runner, "'je_observed' => 0")
+    && str_contains($runner, "\$ctx['state']['observed_je_ids'][\$jeId]")
+    && str_contains($runner, "\$metric === 'je_posted' ? \$ctx['metrics']['je_observed']"));
 $a('sim AP bills include line items',      str_contains($runner, 'INSERT INTO ap_bill_lines'));
 $a('sim AR invoices include line items',   str_contains($runner, 'INSERT INTO billing_invoice_lines'));
 $a('posted sim invoices and bills link to the journal entry',
@@ -110,8 +114,27 @@ $a('posted sim invoices and bills link to the journal entry',
 $paymentLinks = $read(__DIR__ . '/../sim/lib/payment_links.php');
 $a('cleared sim payments retain their bill allocation and posted JE',
     str_contains($runner, 'simLinkClearedPayment(')
-    && str_contains($paymentLinks, 'INSERT INTO ap_payments')
+    && str_contains($runner, 'INSERT INTO ap_payments')
+    && str_contains($paymentLinks, 'journal_entry_id = :je_id')
     && str_contains($paymentLinks, 'INSERT INTO ap_payment_allocations'));
+$a('scenario records use tenant-scoped generated IDs',
+    str_contains($runner, "WHERE tenant_id = :tenant_id AND internal_ref = :internal_ref FOR UPDATE")
+    && str_contains($runner, "WHERE tenant_id = :tenant_id AND invoice_number = :number FOR UPDATE")
+    && str_contains($runner, 'simResolveDocumentId($ctx, \'bills\'')
+    && !str_contains($runner, 'ON DUPLICATE KEY UPDATE total = VALUES(total)'));
+$bankLinks = $read(__DIR__ . '/../sim/lib/bank_links.php');
+$bankScenario = $read(__DIR__ . '/../sim/scenarios/treasury_bank_feed_categorize.json');
+$a('treasury simulation creates and matches a real bank line',
+    str_contains($runner, 'simStepCreateBankLine($ctx, $step)')
+    && str_contains($runner, 'simLinkPostedBankLine($ctx[\'tenant_id\'], $lineId, $jeId)')
+    && str_contains($bankLinks, 'matched_je_id = :je_id')
+    && str_contains($bankScenario, '"bank_line_matched"'));
+$seedScript = $read(__DIR__ . '/../scripts/ci_seed_sim_tenant.php');
+$a('tenant-only seed skips schema and rejects non-simulation tenants',
+    str_contains($seedScript, 'in_array(\'--tenant-only\', $argv, true)')
+    && str_contains($seedScript, 'if (!$tenantOnly)')
+    && str_contains($seedScript, '(int) $existingTenant[\'is_simulation\'] !== 1')
+    && !str_contains($seedScript, 'ON DUPLICATE KEY UPDATE tenant_id = VALUES(tenant_id)'));
 $a('runner exits non-zero on failure',     str_contains($runner, "exit(\$status === 'passed' ? 0 : 1)"));
 
 echo "\nDry-run executes end-to-end without DB\n";
