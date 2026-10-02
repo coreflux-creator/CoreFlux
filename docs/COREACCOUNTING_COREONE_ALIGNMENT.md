@@ -26,3 +26,11 @@ CoreAccounting is a workflow surface over the existing CoreFlux ERP accounting e
 Run the full flow against an isolated MySQL ERP tenant: draft, approval policy, journal posting, sending, exact and partial receipts, split across invoices, retry, failed-allocation rollback, reversal, tenant/entity isolation, and agreement among AR aging, GL, trial balance, cash flow and bank reconciliation. The local PHP installation used for this slice lacks the MySQL PDO driver, so source checks and the frontend preview do not satisfy this gate.
 
 After that gate, build AP on the same modules, then define a CoreOne-facing API/package boundary around the canonical owners. Deployment may be separate; ledger authority may not.
+
+## Connecting the local UI to the canonical backend
+
+The Vite dashboard is only a frontend. Its development server forwards `/api/*`, `/core/api/*`, `/modules/{module}/api/*`, session/login/logout/tenant-switch requests, and static `/assets/*` to the CoreFlux PHP backend. Ordinary `/modules/*` screens remain in the local SPA. The browser never connects to MySQL directly.
+
+For an isolated hosted staging installation, set `COREFLUX_BACKEND_ORIGIN=https://<staging-host>` in `dashboard/.env.local`, then run `npm run dev` from `dashboard`. Leave `VITE_API_BASE` unset so all requests use the same-origin proxy and session cookie. The proxy strips the upstream cookie domain for local development and rejects CoreFlux production/tenant domains unless `COREFLUX_ALLOW_PRODUCTION_PROXY=1` is explicitly set. The default backend remains `http://127.0.0.1:8080` when no origin is configured.
+
+Staging must have its own PHP deployment, MySQL database, migrations, encryption key and test tenant. A staging host is not currently configured in this repository; this proxy wiring alone does not establish a live backend connection. Verify login and invoice-to-cash against that staging tenant before making the CoreAccounting UI available for operational use.

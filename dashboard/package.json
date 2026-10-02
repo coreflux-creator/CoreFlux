@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "test:dev-proxy": "node --test tests/devProxy.test.mjs",
     "lint:hooks": "cd .. && node dashboard/node_modules/eslint/bin/eslint.js \"dashboard/src/**/*.{js,jsx}\" \"modules/**/ui/**/*.{js,jsx}\"",
     "prebuild": "npm run lint:hooks",
     "build": "vite build",
