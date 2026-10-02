@@ -65,6 +65,7 @@ export default defineConfig(({ command, mode }) => {
         '^/core/api(?:/|$)': backendProxy,
         '^/modules/[^/]+/api(?:/|$)': backendProxy,
         '/session.php': backendProxy,
+        '/login.html': backendProxy,
         '/login.php': backendProxy,
         '/logout.php': backendProxy,
         '/switch_tenant.php': backendProxy,

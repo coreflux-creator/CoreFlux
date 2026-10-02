@@ -10,6 +10,11 @@ const dashboardRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 test('development UI forwards backend requests without intercepting SPA routes', async () => {
   const backend = createHttpServer((req, res) => {
+    if (req.url.startsWith('/login.html')) {
+      res.setHeader('Content-Type', 'text/html');
+      res.end('<form action="/login.php">CoreFlux sign in</form>');
+      return;
+    }
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Set-Cookie', 'PHPSESSID=test; Domain=staging.example.test; Path=/; HttpOnly');
     res.end(JSON.stringify({ method: req.method, path: req.url, host: req.headers.host }));
@@ -31,6 +36,7 @@ test('development UI forwards backend requests without intercepting SPA routes',
 
     for (const path of [
       '/session.php',
+      '/login.php',
       '/api/v1/billing/invoices.php',
       '/modules/payroll/api/runs.php',
       '/core/api/payment_rails.php',
@@ -45,6 +51,11 @@ test('development UI forwards backend requests without intercepting SPA routes',
         host: `127.0.0.1:${backend.address().port}`,
       });
     }
+
+    const login = await fetch(frontendOrigin + '/login.html?next=%2Fmodules%2Faccounting');
+    assert.equal(login.status, 200);
+    assert.match(login.headers.get('content-type'), /text\/html/);
+    assert.match(await login.text(), /CoreFlux sign in/);
 
     const posted = await fetch(frontendOrigin + '/modules/billing/api/invoices.php', {
       method: 'POST',
