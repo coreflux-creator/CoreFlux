@@ -246,6 +246,9 @@ function AccountDetail() {
   }, [id, lineStatus, page, perPage, appliedFilters]);
   const { data, loading, error, reload } = useApi(statementUrl);
   const [csv, setCsv]       = useState('');
+  const [csvSource, setCsvSource] = useState('');
+  const [importResult, setImportResult] = useState(null);
+  const [importError, setImportError] = useState(null);
   const [busy, setBusy]     = useState(null);
   const [actErr, setErr]    = useState(null);
   const bankAccount = accountApi.data?.account || null;
@@ -260,13 +263,31 @@ function AccountDetail() {
 
   const importCsv = async (e) => {
     e.preventDefault();
-    setBusy('import'); setErr(null);
+    setBusy('import'); setImportError(null); setImportResult(null);
     try {
-      await api.post(`/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=${id}`, { csv });
+      const result = await api.post(`/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=${id}`, { csv });
+      setImportResult(result);
       setCsv('');
+      setCsvSource('');
       reload();
-    } catch (e2) { setErr(e2.message); }
+    } catch (e2) { setImportError(e2.message); }
     finally { setBusy(null); }
+  };
+  const selectCsvFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImportError(null); setImportResult(null);
+    if (file.size > 10000000) {
+      setImportError('CSV is too large (10 MB maximum)');
+      return;
+    }
+    try {
+      setCsv(await file.text());
+      setCsvSource(file.name);
+    } catch (_e) {
+      setImportError('Could not read that CSV file. Try again or paste its contents.');
+    }
   };
   const applyRules = async () => {
     setBusy('apply'); setErr(null);
@@ -278,9 +299,9 @@ function AccountDetail() {
   return (
     <section data-testid="accounting-bank-account-detail">
       <Link to=".." style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Bank accounts</Link>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 16 }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginTop: 8, marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Statement lines</h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', minWidth: 0 }}>
           <PlaidLinkButton
             purpose="bank_feed"
             accountingBankAccountId={Number(id)}
@@ -312,14 +333,22 @@ function AccountDetail() {
 
       {accountApi.loading && <p>Loading account...</p>}
       {accountApi.error && <p className="error">{accountApi.error.message}</p>}
+      {actErr && <p className="error" data-testid="accounting-bank-action-error">{actErr}</p>}
 
       <form onSubmit={importCsv} style={{ marginBottom: 16 }}>
         <details>
           <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--cf-text-secondary)' }}>Import CSV</summary>
+          <label style={{ display: 'block', marginTop: 8, fontSize: 13 }}>
+            Choose a bank CSV file
+            <input type="file" accept=".csv,text/csv" className="input" onChange={selectCsvFile}
+                   data-testid="accounting-bank-csv-file" style={{ display: 'block', marginTop: 4 }} />
+          </label>
+          {csvSource && <p style={{ fontSize: 12, margin: '6px 0' }}>{csvSource} ready to import</p>}
           <textarea
             value={csv}
-            onChange={(e) => setCsv(e.target.value)}
-            placeholder="date,description,amount,fitid&#10;2026-02-15,AWS Charge,-340.12,abc123"
+            onChange={(e) => { setCsv(e.target.value); setCsvSource(''); setImportResult(null); setImportError(null); }}
+            placeholder={'date,description,amount,fitid\n2026-02-15,AWS Charge,-340.12,abc123'}
+            aria-label="Bank CSV contents"
             rows={6}
             className="input"
             data-testid="accounting-bank-csv-input"
@@ -328,9 +357,16 @@ function AccountDetail() {
           <button className="btn btn--primary" type="submit" disabled={!csv.trim() || busy === 'import'} data-testid="accounting-bank-csv-import" style={{ marginTop: 8 }}>
             {busy === 'import' ? 'Importing…' : 'Import CSV'}
           </button>
-          {actErr && <p className="error" data-testid="accounting-bank-import-error">{actErr}</p>}
+          {importError && <p className="error" data-testid="accounting-bank-import-error">{importError}</p>}
         </details>
       </form>
+      {importResult && (
+        <p role="status" data-testid="accounting-bank-import-result" style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>
+          Imported {importResult.inserted} line{importResult.inserted === 1 ? '' : 's'}.
+          {' '}{importResult.duplicates} already present.
+          {importResult.date_from && ` ${importResult.date_from} to ${importResult.date_to}.`}
+        </p>
+      )}
 
       <div role="group" aria-label="Statement line status" data-testid="accounting-bank-line-status-filter"
            style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>

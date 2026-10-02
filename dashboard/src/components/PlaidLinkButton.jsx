@@ -53,6 +53,7 @@ export default function PlaidLinkButton({
   const [status, setStatus] = useState('idle'); // idle | loading | ready | linking | exchanging | done | error
   const [error, setError] = useState(null);
   const [linkToken, setLinkToken] = useState(null);
+  const [retry, setRetry] = useState(0);
 
   // Pre-fetch the link_token + Plaid SDK on mount so click is instant.
   // products: explicit prop wins; else server picks per-purpose defaults
@@ -78,7 +79,7 @@ export default function PlaidLinkButton({
         onError && onError(err);
       });
     return () => { cancelled = true; };
-  }, [purpose, JSON.stringify(products)]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [purpose, JSON.stringify(products), retry]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleClick = useCallback(() => {
     if (!window.Plaid || !linkToken) return;
@@ -118,15 +119,16 @@ export default function PlaidLinkButton({
     handler.open();
   }, [linkToken, purpose, vendorId, employeeId, accountingBankAccountId, onLinked, onError]);
 
-  const disabled = !['ready','done'].includes(status);
+  const disabled = !['ready','done','error'].includes(status);
   const tid = `plaid-link-btn${testIdSuffix ? '-' + testIdSuffix : ''}`;
 
   return (
-    <div className="plaid-link" data-testid={`plaid-link-${purpose}`}>
+    <div className="plaid-link" data-testid={`plaid-link-${purpose}`} style={{ minWidth: 0, maxWidth: 220 }}>
       <button
         type="button"
-        onClick={handleClick}
+        onClick={status === 'error' ? () => { setError(null); setRetry(value => value + 1); } : handleClick}
         disabled={disabled}
+        title={error || undefined}
         data-testid={tid}
         className="btn btn-secondary"
       >
@@ -137,7 +139,9 @@ export default function PlaidLinkButton({
         {status === 'done'        && '✓ Connected'}
         {status === 'error'       && 'Retry'}
       </button>
-      {error && <div className="plaid-link__error" data-testid="plaid-link-error">{error}</div>}
+      {error && <div className="plaid-link__error" data-testid="plaid-link-error" title={error} style={{ fontSize: 11, overflowWrap: 'anywhere' }}>
+        {error.includes('not configured') ? 'Bank connection not configured' : error}
+      </div>}
     </div>
   );
 }

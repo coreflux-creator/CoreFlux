@@ -320,7 +320,11 @@ if ($method === 'POST' && $action === 'import_csv') {
     $csv  = (string) ($body['csv'] ?? '');
     $map  = $body['header_map'] ?? null;
     if ($csv === '') api_error('csv body required', 422);
-    $res = bankRecImportCsv((int) $ctx['tenant_id'], $bid, $csv, is_array($map) ? $map : null, $user['id'] ?? null);
+    try {
+        $res = bankRecImportCsv((int) $ctx['tenant_id'], $bid, $csv, is_array($map) ? $map : null, $user['id'] ?? null);
+    } catch (RuntimeException $e) {
+        api_error($e->getMessage(), 422);
+    }
     accountingAudit('accounting.bank.statement_imported',
         ['bank_account_id' => $bid, 'rows' => $res['inserted'], 'duplicates' => $res['duplicates']],
         $res['import_id']);

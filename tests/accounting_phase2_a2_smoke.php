@@ -98,7 +98,9 @@ $a('bankRecUnmatchLine declared',                  strpos($lib, 'function bankRe
 $a('bankRecApplyRules declared',                   strpos($lib, 'function bankRecApplyRules') !== false);
 $a('bankRecLineMatchesRule declared',              strpos($lib, 'function bankRecLineMatchesRule') !== false);
 $a('bankRecAutoSuggestMatches declared',           strpos($lib, 'function bankRecAutoSuggestMatches') !== false);
-$a('CSV import dedups via INSERT IGNORE',          strpos($lib, 'INSERT IGNORE INTO accounting_bank_statement_lines') !== false);
+$a('CSV import checks duplicate IDs for conflicting details',
+    strpos($lib, 'INSERT INTO accounting_bank_statement_lines') !== false
+    && strpos($lib, 'reuses a transaction ID with different details') !== false);
 $a('CSV synthesizes FITID for de-dup when missing',strpos($lib, 'sha1(') !== false);
 $a('rule auto-apply stamps applied_rule_id',
     strpos($lib, "'applied_rule_id'           => \$r['id']") !== false);

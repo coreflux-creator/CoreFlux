@@ -27,26 +27,7 @@ declare(strict_types=1);
  */
 function bankRecImportCsv(int $tenantId, int $bankAccountId, string $csvBody, ?array $headerMap, ?int $userId): array
 {
-    $rows = [];
-    $fh   = fopen('php://memory', 'r+');
-    fwrite($fh, $csvBody);
-    rewind($fh);
-    $header = fgetcsv($fh);
-    if (!$header) {
-        fclose($fh);
-        throw new RuntimeException('CSV is empty or unreadable');
-    }
-
-    // Resolve column indexes
-    $dateCol  = bankRecResolveCol($header, $headerMap['date_col']   ?? null, ['date','posted','transaction_date']);
-    $descCol  = bankRecResolveCol($header, $headerMap['desc_col']   ?? null, ['description','memo','payee','narrative']);
-    $amtCol   = bankRecResolveCol($header, $headerMap['amount_col'] ?? null, ['amount','value','debit_credit']);
-    $fitidCol = bankRecResolveCol($header, $headerMap['fitid_col']  ?? null, ['fitid','transaction_id','txn_id','reference']);
-
-    if ($dateCol === null || $descCol === null || $amtCol === null) {
-        fclose($fh);
-        throw new RuntimeException('CSV must have date, description, and amount columns');
-    }
+    $rows = bankRecParseCsvRows($csvBody, $headerMap, $bankAccountId);
 
     $pdo  = getDB();
     $ownsTransaction = !$pdo->inTransaction();
@@ -61,38 +42,35 @@ function bankRecImportCsv(int $tenantId, int $bankAccountId, string $csvBody, ?a
 
         $inserted = 0; $duplicates = 0; $minDate = null; $maxDate = null;
         $stmt = $pdo->prepare(
-            'INSERT IGNORE INTO accounting_bank_statement_lines
+            'INSERT INTO accounting_bank_statement_lines
                 (tenant_id, bank_account_id, import_id, posted_date, description, amount, bank_reference, fitid)
              VALUES (:t, :b, :i, :d, :desc, :amt, :ref, :fitid)'
         );
-        while (($r = fgetcsv($fh)) !== false) {
-            if (!isset($r[$dateCol], $r[$descCol], $r[$amtCol])) continue;
-            $date  = trim((string) $r[$dateCol]);
-            $desc  = trim((string) $r[$descCol]);
-            $amt   = (float) preg_replace('/[^0-9.\-]/', '', (string) $r[$amtCol]);
-            if ($date === '' || $desc === '') continue;
-            $ts = strtotime($date);
-            if ($ts === false) continue;
-            $iso = date('Y-m-d', $ts);
-            $fit = $fitidCol !== null && isset($r[$fitidCol]) ? trim((string) $r[$fitidCol]) : null;
-            if ($fit === '' || $fit === null) {
-                $fit = sha1($bankAccountId . '|' . $iso . '|' . $desc . '|' . $amt);
-            }
-            $stmt->execute([
-                't'     => $tenantId,
-                'b'     => $bankAccountId,
-                'i'     => $importId,
-                'd'     => $iso,
-                'desc'  => substr($desc, 0, 255),
-                'amt'   => $amt,
-                'ref'   => null,
-                'fitid' => substr($fit, 0, 120),
-            ]);
-            if ($stmt->rowCount() === 1) {
+        $existing = $pdo->prepare(
+            'SELECT posted_date, description, amount FROM accounting_bank_statement_lines
+              WHERE tenant_id = :tenant_id AND bank_account_id = :bank_account_id AND fitid = :fitid'
+        );
+        foreach ($rows as $row) {
+            try {
+                $stmt->execute([
+                    't' => $tenantId, 'b' => $bankAccountId, 'i' => $importId,
+                    'd' => $row['date'], 'desc' => $row['description'],
+                    'amt' => $row['amount'], 'ref' => null, 'fitid' => $row['fitid'],
+                ]);
                 $inserted++;
-                if ($minDate === null || $iso < $minDate) $minDate = $iso;
-                if ($maxDate === null || $iso > $maxDate) $maxDate = $iso;
-            } else {
+                if ($minDate === null || $row['date'] < $minDate) $minDate = $row['date'];
+                if ($maxDate === null || $row['date'] > $maxDate) $maxDate = $row['date'];
+            } catch (PDOException $e) {
+                if ((int) ($e->errorInfo[1] ?? 0) !== 1062) throw $e;
+                $existing->execute([
+                    'tenant_id' => $tenantId, 'bank_account_id' => $bankAccountId, 'fitid' => $row['fitid'],
+                ]);
+                $prior = $existing->fetch(PDO::FETCH_ASSOC);
+                if (!$prior || (string) $prior['posted_date'] !== $row['date']
+                    || (string) $prior['description'] !== $row['description']
+                    || round((float) $prior['amount'], 2) !== $row['amount']) {
+                    throw new RuntimeException("CSV record {$row['record']} reuses a transaction ID with different details");
+                }
                 $duplicates++;
             }
         }
@@ -114,20 +92,120 @@ function bankRecImportCsv(int $tenantId, int $bankAccountId, string $csvBody, ?a
     } catch (Throwable $e) {
         if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
+    }
+}
+
+function bankRecParseCsvRows(string $csvBody, ?array $headerMap, int $bankAccountId): array
+{
+    if (strlen($csvBody) > 10000000) throw new RuntimeException('CSV is too large (10 MB maximum)');
+    $fh = fopen('php://temp', 'w+');
+    if (!$fh) throw new RuntimeException('Could not open CSV for reading');
+    try {
+        fwrite($fh, $csvBody);
+        rewind($fh);
+        $header = fgetcsv($fh, 0, ',', '"', '');
+        if (!$header) throw new RuntimeException('CSV is empty or unreadable');
+        $header = array_map(static fn($cell): string => trim((string) $cell), $header);
+        $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', $header[0]);
+
+        $dateCol = bankRecResolveCol($header, $headerMap['date_col'] ?? null, ['date', 'posted', 'transaction_date']);
+        $descCol = bankRecResolveCol($header, $headerMap['desc_col'] ?? null, ['description', 'memo', 'payee', 'narrative']);
+        $amtCol = bankRecResolveCol($header, $headerMap['amount_col'] ?? null, ['amount', 'value', 'debit_credit']);
+        $fitidCol = bankRecResolveCol($header, $headerMap['fitid_col'] ?? null, ['fitid', 'transaction_id', 'txn_id', 'reference']);
+        if ($dateCol === null || $descCol === null || $amtCol === null) {
+            throw new RuntimeException('CSV needs date, description, and amount columns');
+        }
+        if (count(array_unique([$dateCol, $descCol, $amtCol])) !== 3) {
+            throw new RuntimeException('Date, description, and amount must map to different columns');
+        }
+        if ($headerMap && array_key_exists('fitid_col', $headerMap) && $fitidCol === null) {
+            throw new RuntimeException('Transaction ID column was not found in the CSV header');
+        }
+        if ($fitidCol !== null && in_array($fitidCol, [$dateCol, $descCol, $amtCol], true)) {
+            throw new RuntimeException('Transaction ID must map to a separate CSV column');
+        }
+
+        $rows = []; $errors = []; $record = 1; $identicalRows = [];
+        while (($cells = fgetcsv($fh, 0, ',', '"', '')) !== false) {
+            $record++;
+            if (count($cells) === 1 && trim((string) $cells[0]) === '') continue;
+            if (count($rows) + count($errors) >= 20000) {
+                throw new RuntimeException('CSV has more than 20,000 transactions; split it into smaller files');
+            }
+            $date = bankRecParseCsvDate((string) ($cells[$dateCol] ?? ''));
+            $description = trim((string) ($cells[$descCol] ?? ''));
+            $amount = bankRecParseCsvAmount((string) ($cells[$amtCol] ?? ''));
+            $issue = $date === null ? 'invalid date' : ($description === '' ? 'missing description'
+                : ($amount === null ? 'invalid amount' : null));
+            if ($issue !== null) {
+                $errors[] = "record {$record}: {$issue}";
+                continue;
+            }
+            $description = substr($description, 0, 255);
+            $fitid = $fitidCol !== null ? trim((string) ($cells[$fitidCol] ?? '')) : '';
+            if ($fitid === '') {
+                $signature = $bankAccountId . '|' . $date . '|' . $description . '|' . number_format($amount, 2, '.', '');
+                $identicalRows[$signature] = ($identicalRows[$signature] ?? 0) + 1;
+                $fitid = sha1($signature . '|' . $identicalRows[$signature]);
+            }
+            if (strlen($fitid) > 120) {
+                $errors[] = "record {$record}: transaction ID is longer than 120 characters";
+                continue;
+            }
+            $rows[] = [
+                'record' => $record, 'date' => $date, 'description' => $description,
+                'amount' => $amount, 'fitid' => $fitid,
+            ];
+        }
+        if ($errors) {
+            throw new RuntimeException('CSV has ' . count($errors) . ' invalid record(s): ' . implode('; ', array_slice($errors, 0, 5)));
+        }
+        if (!$rows) throw new RuntimeException('CSV has no transactions');
+        return $rows;
     } finally {
         fclose($fh);
     }
 }
 
+function bankRecParseCsvDate(string $value): ?string
+{
+    $value = trim($value);
+    if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $value, $parts)
+        || preg_match('/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/', $value, $parts)) {
+        [$year, $month, $day] = [(int) $parts[1], (int) $parts[2], (int) $parts[3]];
+    } elseif (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $value, $parts)) {
+        [$year, $month, $day] = [(int) $parts[3], (int) $parts[1], (int) $parts[2]];
+    } else {
+        return null;
+    }
+    return checkdate($month, $day, $year) ? sprintf('%04d-%02d-%02d', $year, $month, $day) : null;
+}
+
+function bankRecParseCsvAmount(string $value): ?float
+{
+    $value = trim($value);
+    $parenthesized = str_starts_with($value, '(') && str_ends_with($value, ')');
+    if ($parenthesized) $value = substr($value, 1, -1);
+    $value = preg_replace('/[,\s$]/', '', $value);
+    if (!preg_match('/^[+-]?\d+(?:\.\d{1,2})?$/', $value)) return null;
+    if ($parenthesized && ($value[0] === '-' || $value[0] === '+')) return null;
+    $amount = (float) $value * ($parenthesized ? -1 : 1);
+    return is_finite($amount) && abs($amount) < 1000000000000 && $amount != 0.0
+        ? round($amount, 2) : null;
+}
+
 function bankRecResolveCol(array $header, $explicit, array $keywords): ?int
 {
-    if (is_int($explicit))    return $explicit;
+    if (is_int($explicit)) return $explicit >= 0 && $explicit < count($header) ? $explicit : null;
     if (is_string($explicit)) {
-        $i = array_search($explicit, $header, true);
-        if ($i !== false) return (int) $i;
+        foreach ($header as $i => $name) {
+            if (strcasecmp(trim($explicit), trim((string) $name)) === 0) return (int) $i;
+        }
+        return null;
     }
     foreach ($header as $i => $h) {
         $hLow = strtolower(trim((string) $h));
+        $hLow = preg_replace('/[^a-z0-9]+/', '_', $hLow);
         foreach ($keywords as $k) {
             if ($hLow === $k || str_contains($hLow, $k)) return (int) $i;
         }
@@ -266,8 +344,8 @@ function bankRecUnmatchLine(int $tenantId, int $lineId): array
     }
     if ($journalWasCreatedFromLine) {
         throw new RuntimeException(
-            'This bank line created its ledger entry and cannot be detached from it. '
-            . 'Reverse or correct the posted transaction instead.'
+            'This bank line created a posted ledger entry. Unmatching it would leave the books out of sync. '
+            . 'A source-level receipt reversal is required before its allocation can change.'
         );
     }
 
