@@ -961,7 +961,23 @@ if ($method === 'POST' && $action === 'ignore') {
     rbac_legacy_require($user, 'accounting.je.create');
     $lid = (int) ($_GET['line_id'] ?? 0);
     if ($lid <= 0) api_error('line_id required', 400);
-    scopedUpdate('accounting_bank_statement_lines', $lid, ['match_status' => 'ignored']);
+    $line = scopedFind(
+        'SELECT match_status FROM accounting_bank_statement_lines
+          WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $lid]
+    );
+    if (!$line) api_error('Line not found', 404);
+    if ($line['match_status'] === 'ignored') api_ok(['ok' => true, 'idempotent_replay' => true]);
+    if ($line['match_status'] !== 'unmatched') {
+        api_error('A matched bank line cannot be ignored. Correct its source transaction first.', 409);
+    }
+    $update = getDB()->prepare(
+        'UPDATE accounting_bank_statement_lines
+            SET match_status = "ignored", updated_at = NOW()
+          WHERE tenant_id = :tenant_id AND id = :id AND match_status = "unmatched"'
+    );
+    $update->execute(['tenant_id' => (int) $ctx['tenant_id'], 'id' => $lid]);
+    if ($update->rowCount() !== 1) api_error('This bank line changed. Refresh and try again.', 409);
     accountingAudit('accounting.bank.line_ignored', ['line_id' => $lid], $lid);
     api_ok(['ok' => true]);
 }
