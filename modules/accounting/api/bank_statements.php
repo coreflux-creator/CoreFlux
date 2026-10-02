@@ -258,6 +258,45 @@ if ($method === 'GET') {
     );
     if (rbac_legacy_can($user, 'billing.view')) {
         $rows = bankRecAttachInvoiceSuggestions((int) $ctx['tenant_id'], $bid, $rows);
+        $matchedIds = array_values(array_map(
+            'intval',
+            array_column(array_filter($rows, static fn(array $row): bool => $row['match_status'] === 'matched'), 'id')
+        ));
+        if ($matchedIds) {
+            $idParams = [];
+            $placeholders = [];
+            foreach ($matchedIds as $index => $lineId) {
+                $key = 'line_' . $index;
+                $idParams[$key] = $lineId;
+                $placeholders[] = ':' . $key;
+            }
+            $applied = scopedQuery(
+                'SELECT bl.id AS line_id, i.id AS invoice_id, i.invoice_number, a.amount_applied
+                   FROM accounting_bank_statement_lines bl
+                   JOIN billing_payments p ON p.tenant_id = bl.tenant_id
+                    AND (p.external_id = CONCAT("bank-line:", bl.id)
+                      OR p.external_id LIKE CONCAT("bank-line:", bl.id, ":%"))
+                   JOIN billing_payment_allocations a ON a.payment_id = p.id
+                   JOIN billing_invoices i ON i.tenant_id = bl.tenant_id AND i.id = a.invoice_id
+                  WHERE bl.tenant_id = :tenant_id AND bl.id IN (' . implode(',', $placeholders) . ')
+                  ORDER BY bl.id, i.invoice_number',
+                $idParams
+            );
+            $byLine = [];
+            foreach ($applied as $allocation) {
+                $byLine[(int) $allocation['line_id']][] = [
+                    'id' => (int) $allocation['invoice_id'],
+                    'invoice_number' => (string) $allocation['invoice_number'],
+                    'amount' => (float) $allocation['amount_applied'],
+                ];
+            }
+            foreach ($rows as &$lineRow) {
+                if ($lineRow['match_status'] === 'matched') {
+                    $lineRow['applied_invoices'] = $byLine[(int) $lineRow['id']] ?? [];
+                }
+            }
+            unset($lineRow);
+        }
     }
     if (rbac_legacy_can($user, 'ap.view')) {
         $rows = bankRecAttachApPaymentSuggestions((int) $ctx['tenant_id'], $bid, $rows);

@@ -27,6 +27,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/lib/seed.php';
 require_once __DIR__ . '/lib/scenario.php';
 require_once __DIR__ . '/lib/invariants.php';
+require_once __DIR__ . '/lib/document_links.php';
+require_once __DIR__ . '/lib/payment_links.php';
 
 // CLI arg parse
 $opts = getopt('', ['scenario:', 'seed::', 'tenant::', 'dry-run::', 'list::', 'help::']);
@@ -145,6 +147,8 @@ if (!$dryRun) {
                                  'details' => ['unknown_invariant' => $name]];
         }
     }
+
+    $assertions[] = simInvariantPostedSourceLinks($pdo, $tenantId);
 
     $assertions[] = [
         'name' => 'scenario_steps_completed',
@@ -306,6 +310,12 @@ function simStepEmitEvent(array &$ctx, array $step): void {
                 );
             }
             $jeId = (int) ($r['journal_entry_id'] ?? 0) ?: null;
+            if ($jeId !== null) {
+                simLinkPostedDocument($ctx['tenant_id'], $type, $payload, $jeId);
+                if ($type === 'ap.payment.cleared' && (int) ($payload['payment_id'] ?? 0) > 0) {
+                    $ctx['state']['posted_payments'][(int) $payload['payment_id']] = $jeId;
+                }
+            }
             $jeHash = $jeId ? simHash(['journal_entry_id' => $jeId]) : null;
             if (empty($r['idempotent_replay'])) {
                 $ctx['metrics']['je_posted']++;
@@ -387,13 +397,12 @@ function simStepCreateApBill(array &$ctx, array $step): void {
 function simStepSettleApBill(array &$ctx, array $step): void {
     if ($ctx['dry_run']) return;
     $id = (int) ($step['id'] ?? 0);
-    if ($id <= 0) throw new \InvalidArgumentException('settle_ap_bill requires id');
-    $stmt = getDB()->prepare(
-        'UPDATE ap_bills SET amount_paid = total, amount_due = 0, status = "paid", updated_at = NOW()
-          WHERE tenant_id = :tenant_id AND id = :id'
-    );
-    $stmt->execute(['tenant_id' => $ctx['tenant_id'], 'id' => $id]);
-    if ($stmt->rowCount() !== 1) throw new \RuntimeException("AP bill {$id} was not found");
+    $paymentId = (int) ($step['payment_id'] ?? 0);
+    $jeId = (int) ($ctx['state']['posted_payments'][$paymentId] ?? 0);
+    if ($id <= 0 || $paymentId <= 0 || $jeId <= 0) {
+        throw new \InvalidArgumentException('settle_ap_bill requires a bill id and a posted payment_id');
+    }
+    simLinkClearedPayment($ctx['tenant_id'], $id, $paymentId, $jeId, simNow('Y-m-d'));
 }
 
 function simStepCreateBillingInvoice(array &$ctx, array $step): void {

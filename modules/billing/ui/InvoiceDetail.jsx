@@ -39,7 +39,10 @@ export default function InvoiceDetail() {
   const canApprove = inv.status === 'draft';
   const canSend = inv.status === 'approved' && inv.journal_status === 'posted';
   const canPost = ['approved', 'sent', 'partially_paid', 'paid'].includes(inv.status) && !inv.journal_entry_id;
-  const canVoid = inv.status !== 'void';
+  const canVoid = inv.status === 'draft'
+    && !inv.journal_entry_id
+    && Number(inv.amount_paid || 0) === 0
+    && allocations.length === 0;
 
   const run = async (label, fn) => {
     setBusy(label); setActionError(null);
@@ -127,6 +130,12 @@ export default function InvoiceDetail() {
           <Link to={`/modules/accounting/journal-entries/${inv.journal_entry_id}`} data-testid="billing-invoice-journal-link">
             View journal entry <ArrowRight size={13} aria-hidden="true" />
           </Link>
+        </p>
+      )}
+
+      {!canVoid && inv.status !== 'void' && (
+        <p className="muted" style={{ fontSize: 12, margin: '0 0 16px' }} data-testid="billing-invoice-void-note">
+          This invoice cannot be voided from here. Its approval, ledger, and payment activity must be corrected together.
         </p>
       )}
 

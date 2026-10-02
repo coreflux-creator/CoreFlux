@@ -36,6 +36,10 @@ $cases = [
         ['code' => '1100', 'name' => 'Accounts Receivable', 'account_type' => 'asset'],
         'operating_wc_ar', 'inferred',
     ],
+    'system clearing account is operating working capital' => [
+        ['code' => '1010', 'name' => 'Clearing Accounts', 'account_type' => 'asset'],
+        'operating_wc_other', 'inferred',
+    ],
     'AR abbreviation is operating' => [
         ['code' => '1100', 'name' => 'AR', 'account_type' => 'asset'],
         'operating_wc_ar', 'inferred',

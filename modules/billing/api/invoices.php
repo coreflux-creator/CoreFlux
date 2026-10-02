@@ -833,25 +833,41 @@ if ($method === 'POST' && $action === 'void') {
     $pdo = getDB();
     cf_begin_transaction();
     try {
-        // If no payments allocated, free up consumed bundles back to ready.
+        $locked = $pdo->prepare(
+            'SELECT * FROM billing_invoices WHERE tenant_id = :t AND id = :id FOR UPDATE'
+        );
+        $locked->execute(['t' => $tid, 'id' => $id]);
+        $row = $locked->fetch(PDO::FETCH_ASSOC);
+        if (!$row || $row['status'] !== 'draft') {
+            throw new \DomainException('Only draft invoices can be voided here. Posted or approved invoices need a coordinated reversal.');
+        }
+
         $allocCount = $pdo->prepare('SELECT COUNT(*) FROM billing_payment_allocations WHERE invoice_id = :id');
         $allocCount->execute(['id' => $id]);
         $hasPayments = (int) $allocCount->fetchColumn() > 0;
+        $sourceJe = $pdo->prepare(
+            'SELECT id FROM accounting_journal_entries
+              WHERE tenant_id = :t AND source_module = "billing"
+                AND source_ref_type = "billing_invoice" AND source_ref_id = :id
+              LIMIT 1'
+        );
+        $sourceJe->execute(['t' => $tid, 'id' => $id]);
+        if ($hasPayments || (float) $row['amount_paid'] > 0 || !empty($row['journal_entry_id']) || $sourceJe->fetchColumn()) {
+            throw new \DomainException('This invoice has ledger or payment activity. Reverse that activity through its source workflow before voiding.');
+        }
 
-        if (!$hasPayments) {
-            $pdo->prepare(
-                'UPDATE time_downstream_feed
+        $pdo->prepare(
+            'UPDATE time_downstream_feed
                  SET status = "ready", consumed_at = NULL, consumed_by_module = NULL, consumed_ref_id = NULL
                  WHERE tenant_id = :t AND consumed_by_module = "billing" AND consumed_ref_id = :id'
-            )->execute(['t' => $tid, 'id' => $id]);
-            $pdo->prepare(
-                'UPDATE time_entries
+        )->execute(['t' => $tid, 'id' => $id]);
+        $pdo->prepare(
+            'UPDATE time_entries
                     SET bill_extracted_at = NULL,
                         bill_extracted_ref = NULL,
                         bill_extracted_by_user_id = NULL
                   WHERE tenant_id = :t AND bill_extracted_ref = :id'
-            )->execute(['t' => $tid, 'id' => $id]);
-        }
+        )->execute(['t' => $tid, 'id' => $id]);
 
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
@@ -859,17 +875,16 @@ if ($method === 'POST' && $action === 'void') {
              voided_by_user_id = :u, void_reason = :r WHERE id = :id'
         )->execute(['u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id]);
 
-        if (!$hasPayments) {
-            $pdo->prepare(
-                'UPDATE placement_economic_obligations
+        $pdo->prepare(
+            'UPDATE placement_economic_obligations
                     SET status = "void"
                   WHERE tenant_id = :tenant_id AND ar_invoice_id = :invoice_id'
-            )->execute(['tenant_id' => $placementsTenantId, 'invoice_id' => $id]);
-        }
+        )->execute(['tenant_id' => $placementsTenantId, 'invoice_id' => $id]);
 
         $pdo->commit();
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e instanceof \DomainException) api_error($e->getMessage(), 409);
         throw $e;
     }
 
@@ -880,7 +895,7 @@ if ($method === 'POST' && $action === 'void') {
         'before' => $row,
         'after' => scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]) ?? $row,
     ]);
-    api_ok(['ok' => true, 'bundles_released' => !$hasPayments]);
+    api_ok(['ok' => true, 'bundles_released' => true]);
 }
 
 if ($method === 'POST' && $action === 'post') {

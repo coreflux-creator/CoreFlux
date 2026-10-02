@@ -36,6 +36,9 @@ function reportCashFlowClassification(array $account): array
     }
 
     if ($type === 'asset') {
+        if ($code === '1010' && $name === 'clearing accounts') {
+            return ['tag' => 'operating_wc_other', 'source' => 'inferred'];
+        }
         if (in_array($name, ['ar', 'a/r'], true)
             || str_contains($text, 'accounts receivable')
             || str_contains($text, 'trade receivable')) {

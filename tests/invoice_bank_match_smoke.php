@@ -38,6 +38,12 @@ $check('invoice candidate helper exists', str_contains($bankLib, 'function bankR
 $check('drafts may be surfaced but not applied', str_contains($bankLib, '"draft", "approved", "sent", "partially_paid"') && str_contains($bankLib, "'can_apply_payment' => \$canApply"));
 $check('only a posted invoice can be applied', str_contains($bankLib, "\$invoice['journal_status'] ?? null") && str_contains($bankLib, "=== 'posted'"));
 $check('bank list preloads invoice suggestions', str_contains($bankApi, 'bankRecAttachInvoiceSuggestions('));
+$check('matched bank lines show applied invoices',
+    str_contains($bankApi, "\$lineRow['applied_invoices']")
+    && str_contains($bankUi, 'line.applied_invoices.map(invoice =>'));
+$check('bank lines can be reviewed by status',
+    str_contains($bankUi, "['matched', 'Matched']")
+    && str_contains($bankUi, "params.set('match_status', lineStatus)"));
 $check('AI match combines invoices and journals', str_contains($bankAi, 'array_merge($invoiceCandidates, $jeCandidates)'));
 
 echo "\nApplying a receipt\n";
@@ -121,6 +127,11 @@ if (is_file($lightWorkspaceDeployPath)) {
 }
 
 echo "\nInvoice finalization\n";
+$check('invoice void is restricted to unposted, unpaid drafts',
+    str_contains($invoiceApi, "\$row['status'] !== 'draft'")
+    && str_contains($invoiceApi, '$sourceJe->fetchColumn()')
+    && str_contains($invoiceApi, '$hasPayments || (float) $row[\'amount_paid\'] > 0')
+    && str_contains($detail, "const canVoid = inv.status === 'draft'"));
 $check('post permission maps to billing admin', str_contains($rbac, "'billing.invoice.post'               => ['billing', 'admin']"));
 $check('invoice detail exposes post action', str_contains($detail, 'data-testid="billing-invoice-post"'));
 $check('approval posts before send and retry reuses the posted journal',

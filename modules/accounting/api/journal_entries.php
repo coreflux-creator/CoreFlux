@@ -24,6 +24,18 @@ $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
+function accountingRequireManualJournalAction(int $jeId): void
+{
+    $entry = scopedFind(
+        'SELECT source_module FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $jeId]
+    );
+    if (!$entry) api_error('Journal entry not found', 404);
+    if (($entry['source_module'] ?? '') !== 'manual') {
+        api_error('This journal entry is managed by its source transaction. Change the source record to keep the ledger in sync.', 409);
+    }
+}
+
 if ($method === 'GET' && $action === 'trial_balance') {
     rbac_legacy_require($user, 'accounting.je.create');
     $asOf = (string) ($_GET['as_of'] ?? date('Y-m-d'));
@@ -59,6 +71,34 @@ if ($method === 'GET' && !empty($_GET['id'])) {
     $correction = $correctedBy->fetch(\PDO::FETCH_ASSOC) ?: null;
     $je['corrected_by_je_id'] = $correction ? (int) $correction['id'] : null;
     $je['corrected_by_je_number'] = $correction['je_number'] ?? null;
+    if ($je['source_module'] === 'billing') {
+        $invoice = scopedFind(
+            'SELECT id, invoice_number FROM billing_invoices
+              WHERE tenant_id = :tenant_id AND journal_entry_id = :id LIMIT 1',
+            ['id' => $id]
+        );
+        if ($invoice) {
+            $je['source_document'] = [
+                'type' => 'billing_invoice',
+                'id' => (int) $invoice['id'],
+                'label' => 'Invoice ' . $invoice['invoice_number'],
+            ];
+        } else {
+            $bankLine = scopedFind(
+                'SELECT id, bank_account_id FROM accounting_bank_statement_lines
+                  WHERE tenant_id = :tenant_id AND matched_je_id = :id LIMIT 1',
+                ['id' => $id]
+            );
+            if ($bankLine) {
+                $je['source_document'] = [
+                    'type' => 'bank_statement_line',
+                    'id' => (int) $bankLine['id'],
+                    'bank_account_id' => (int) $bankLine['bank_account_id'],
+                    'label' => 'Bank receipt #' . $bankLine['id'],
+                ];
+            }
+        }
+    }
     api_ok(['entry' => $je, 'lines' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
 }
 
@@ -101,6 +141,7 @@ if ($method === 'PATCH') {
     rbac_legacy_require($user, 'accounting.je.edit_draft');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
+    accountingRequireManualJournalAction($id);
     $body = api_json_body();
     api_require_fields($body, ['posting_date', 'lines']);
     try {
@@ -118,6 +159,7 @@ if ($method === 'DELETE') {
     rbac_legacy_require($user, 'accounting.je.void');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
+    accountingRequireManualJournalAction($id);
     $reason = trim((string) ($_GET['reason'] ?? ''));
     try {
         $res = accountingDeleteJe($tid, $id, $reason, $user['id'] ?? null);
@@ -140,6 +182,7 @@ if ($method === 'POST' && $action === 'delete') {
     rbac_legacy_require($user, 'accounting.je.void');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
+    accountingRequireManualJournalAction($id);
     $body = api_json_body();
     $reason = trim((string) ($body['reason'] ?? ''));
     try {
@@ -163,6 +206,7 @@ if ($method === 'POST' && $action === 'post_draft') {
     rbac_legacy_require($user, 'accounting.je.post');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
+    accountingRequireManualJournalAction($id);
     try {
         $res = accountingPostDraftJe($tid, $id, $user['id'] ?? null);
     } catch (\Throwable $e) { api_error($e->getMessage(), 409); }
@@ -179,6 +223,8 @@ if ($method === 'POST' && $action === 'post_draft') {
 if ($method === 'POST' && $action === 'reverse') {
     rbac_legacy_require($user, 'accounting.je.reverse');
     $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 422);
+    accountingRequireManualJournalAction($id);
     $body = api_json_body();
     $reason = trim((string) ($body['reason'] ?? ''));
     if ($reason === '') api_error('reason required', 422);
@@ -194,6 +240,7 @@ if ($method === 'POST' && $action === 'replace') {
     rbac_legacy_require($user, 'accounting.je.void');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
+    accountingRequireManualJournalAction($id);
     $body = api_json_body();
     api_require_fields($body, ['posting_date', 'lines', 'reason']);
     $reason = trim((string) ($body['reason'] ?? ''));
@@ -215,7 +262,10 @@ if ($method === 'POST' && $action === 'replace') {
 if ($method === 'POST') {
     $body = api_json_body();
     api_require_fields($body, ['posting_date','lines']);
-    $body['source_module'] = $body['source_module'] ?? 'manual';
+    if (($body['source_module'] ?? 'manual') !== 'manual') {
+        api_error('Use the source module to create non-manual journal entries', 422);
+    }
+    $body['source_module'] = 'manual';
     $postNow = ($action !== 'draft');
     rbac_legacy_require($user, $postNow ? 'accounting.je.post' : 'accounting.je.create');
     try {

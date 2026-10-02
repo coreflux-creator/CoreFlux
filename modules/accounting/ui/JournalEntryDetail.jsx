@@ -9,8 +9,8 @@ import {
 
 /**
  * Journal Entry detail and correction hub.
- * Drafts can be edited directly. Posted entries can be corrected or removed
- * from active books while their original rows remain available for audit.
+ * User-created entries can be corrected here; source-owned entries are
+ * changed through their originating workflow.
  */
 export default function JournalEntryDetail() {
   const { id } = useParams();
@@ -62,10 +62,11 @@ export default function JournalEntryDetail() {
   const isDraft = entry.status === 'draft';
   const isPosted = entry.status === 'posted';
   const isReversed = entry.status === 'reversed';
+  const isManual = entry.source_module === 'manual';
   const approvalControlled = entry.source_module === 'system'
     || ['ai_workflow', 'workflow_run'].includes(entry.source_ref_type);
-  const canManageDraft = isDraft && !approvalControlled;
-  const canCorrect = isPosted || isReversed;
+  const canManageDraft = isDraft && isManual;
+  const canCorrect = isManual && (isPosted || isReversed);
   const canDelete = canManageDraft || canCorrect;
 
   return (
@@ -111,7 +112,7 @@ export default function JournalEntryDetail() {
         </div>
       </header>
 
-      <EntryStatusNote status={entry.status} approvalControlled={approvalControlled} />
+      <EntryStatusNote status={entry.status} approvalControlled={approvalControlled} managedBySource={!isManual} />
 
       {isDraft && approvalControlled && (
         <div className="entry-related" data-testid="accounting-je-approval-workflow-note">
@@ -164,7 +165,7 @@ export default function JournalEntryDetail() {
         </table>
       </div>
 
-      {reverseOpen && isPosted && (
+      {reverseOpen && canCorrect && isPosted && (
         <div className="entry-action-modal-backdrop" onClick={() => setReverseOpen(false)}>
         <section className="entry-action-panel entry-action-panel--warning entry-action-panel--modal" role="dialog" aria-modal="true" aria-labelledby="reverse-entry-heading" data-testid="accounting-je-reverse-panel" onClick={(event) => event.stopPropagation()}>
           <button type="button" className="btn btn--ghost btn--icon entry-action-panel__close" onClick={() => setReverseOpen(false)} aria-label="Close reversal form" title="Close"><X size={15} /></button>
@@ -232,11 +233,19 @@ export default function JournalEntryDetail() {
   );
 }
 
-function EntryStatusNote({ status, approvalControlled = false }) {
+function EntryStatusNote({ status, approvalControlled = false, managedBySource = false }) {
   if (status === 'draft' && approvalControlled) {
     return (
       <div className="entry-status-note entry-status-note--draft" data-testid="accounting-je-status-note">
         <strong>Awaiting approval</strong><span>This system-generated draft stays off the ledger until it completes its review workflow.</span>
+      </div>
+    );
+  }
+  if (managedBySource && ['draft', 'posted', 'reversed'].includes(status)) {
+    return (
+      <div className={`entry-status-note entry-status-note--${status}`} data-testid="accounting-je-status-note">
+        <strong>{status === 'draft' ? 'Draft' : status === 'reversed' ? 'Reversed' : 'Posted'}</strong>
+        <span>This entry is managed by its source transaction. Change the source record to keep the ledger in sync.</span>
       </div>
     );
   }
@@ -255,6 +264,12 @@ function EntryStatusNote({ status, approvalControlled = false }) {
 }
 
 function renderSource(entry) {
+  if (entry.source_document?.type === 'billing_invoice') {
+    return <Link to={`/modules/billing/invoices/${entry.source_document.id}`} data-testid="accounting-je-source-link">{entry.source_document.label} <ExternalLink size={12} aria-hidden="true" /></Link>;
+  }
+  if (entry.source_document?.type === 'bank_statement_line') {
+    return <Link to={`/modules/accounting/bank-rec/${entry.source_document.bank_account_id}?match_status=matched`} data-testid="accounting-je-source-link">{entry.source_document.label} <ExternalLink size={12} aria-hidden="true" /></Link>;
+  }
   if (entry.source_ref_type === 'replaces_je' && entry.source_ref_id) {
     return <Link to={`/modules/accounting/journal-entries/${entry.source_ref_id}`} data-testid="accounting-je-source-link">Correction of journal entry <ExternalLink size={12} aria-hidden="true" /></Link>;
   }
@@ -264,6 +279,7 @@ function renderSource(entry) {
   const links = {
     ap_bills: sourceId ? `/modules/ap/bills/${sourceId}` : null,
     ap_payments: sourceId ? `/modules/ap/payments/${sourceId}` : null,
+    billing_invoice: sourceId ? `/modules/billing/invoices/${sourceId}` : null,
     billing_invoices: sourceId ? `/modules/billing/invoices/${sourceId}` : null,
     payroll_runs: sourceId ? `/modules/payroll/runs/${sourceId}` : null,
   };

@@ -84,6 +84,20 @@ $checks = [
         str_contains($api, "'accounting.je.edit_draft'")
         && str_contains($api, "'accounting.je.void'")
         && str_contains($api, "'accounting.je.post'"),
+    'generic journal mutations reject source-owned entries' =>
+        str_contains($api, "function accountingRequireManualJournalAction(int \$jeId)")
+        && substr_count($api, 'accountingRequireManualJournalAction($id);') === 6
+        && str_contains($api, "\$entry['source_module'] ?? '') !== 'manual'"),
+    'journal actions appear only for manual entries' =>
+        str_contains($detail, "const canCorrect = isManual && (isPosted || isReversed)")
+        && str_contains($ui, "r.source_module === 'manual' && ['posted', 'reversed'].includes(r.status)")
+        && str_contains($ui, "entry?.source_module === 'manual'"),
+    'source-owned journals link back to invoices and bank receipts' =>
+        str_contains($api, "'type' => 'billing_invoice'")
+        && str_contains($api, "'type' => 'bank_statement_line'")
+        && str_contains($detail, 'entry.source_document?.type')
+        && str_contains($detail, '?match_status=matched')
+        && str_contains($detail, 'data-testid="accounting-je-source-link"'),
     'manual draft actions cannot bypass AI approval workflows' =>
         str_contains($accounting, 'function accountingDraftRequiresApproval')
         && str_contains($accounting, 'accountingAssertManualDraftLifecycle($existing)')

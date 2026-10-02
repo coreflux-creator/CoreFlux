@@ -80,12 +80,14 @@ foreach ([
     'simInvariantNoLegacyDirectGL',
     'simInvariantReplayReproducible',
     'simInvariantCustomerBalanceMatchesGL',
+    'simInvariantPostedSourceLinks',
 ] as $fn) {
     $a("function exported: {$fn}",         function_exists($fn));
 }
 
 echo "\nRunner CLI shape + safety guards\n";
 $runner = $read(__DIR__ . '/../sim/runner.php');
+$documentLinks = $read(__DIR__ . '/../sim/lib/document_links.php');
 $a('runner exists',                        $runner !== '');
 $a('runner parses --scenario',             str_contains($runner, "'scenario:'"));
 $a('runner parses --seed',                 str_contains($runner, "'seed::'"));
@@ -96,10 +98,20 @@ $a('runner installs validated tenant context', str_contains($runner, 'setRequest
 $a('runner refuses non-sim tenant',        str_contains($runner, 'is not flagged is_simulation=1. Refusing to run'));
 $a('runner reuses accountingProcessEvent', str_contains($runner, 'accountingProcessEvent(') && str_contains($runner, 'posting_engine/process.php'));
 $a('runner persists simulation_runs row',  str_contains($runner, 'INSERT INTO simulation_runs'));
+$a('runner checks posted source links', str_contains($runner, 'simInvariantPostedSourceLinks($pdo, $tenantId)'));
 $a('runner persists assertions',           str_contains($runner, 'INSERT INTO simulation_assertions'));
 $a('runner persists replay_logs',          str_contains($runner, 'INSERT INTO replay_logs'));
 $a('sim AP bills include line items',      str_contains($runner, 'INSERT INTO ap_bill_lines'));
 $a('sim AR invoices include line items',   str_contains($runner, 'INSERT INTO billing_invoice_lines'));
+$a('posted sim invoices and bills link to the journal entry',
+    str_contains($runner, 'simLinkPostedDocument($ctx[\'tenant_id\'], $type, $payload, $jeId)')
+    && str_contains($documentLinks, "'billing.invoice.sent' => ['billing_invoices', 'invoice_id']")
+    && str_contains($documentLinks, "'ap.bill.approved' => ['ap_bills', 'bill_id']"));
+$paymentLinks = $read(__DIR__ . '/../sim/lib/payment_links.php');
+$a('cleared sim payments retain their bill allocation and posted JE',
+    str_contains($runner, 'simLinkClearedPayment(')
+    && str_contains($paymentLinks, 'INSERT INTO ap_payments')
+    && str_contains($paymentLinks, 'INSERT INTO ap_payment_allocations'));
 $a('runner exits non-zero on failure',     str_contains($runner, "exit(\$status === 'passed' ? 0 : 1)"));
 
 echo "\nDry-run executes end-to-end without DB\n";

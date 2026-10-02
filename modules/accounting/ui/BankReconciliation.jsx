@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
+import { Routes, Route, Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate, fmtDateTime } from '../../../dashboard/src/lib/format';
 import ReconciliationPacket from './ReconciliationPacket';
@@ -215,6 +215,10 @@ function NewAccountForm({ onDone, onCancel }) {
 
 function AccountDetail() {
   const { id } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedStatus = searchParams.get('match_status');
+  const lineStatus = requestedStatus === 'all' ? ''
+    : ['matched', 'ignored'].includes(requestedStatus) ? requestedStatus : 'unmatched';
   const accountApi = useApi(`/modules/accounting/api/bank_accounts.php?id=${id}`);
   const accountsApi = useApi('/modules/accounting/api/accounts.php?active=1&postable=1');
   const [filters, setFilters] = useState({ q: '', date_from: '', date_to: '', amount_min: '', amount_max: '' });
@@ -231,15 +235,15 @@ function AccountDetail() {
   const statementUrl = useMemo(() => {
     const params = new URLSearchParams({
       bank_account_id: id,
-      match_status: 'unmatched',
       page: String(page),
       per_page: String(perPage),
     });
+    if (lineStatus) params.set('match_status', lineStatus);
     Object.entries(appliedFilters).forEach(([key, value]) => {
       if (String(value || '').trim()) params.set(key, String(value).trim());
     });
     return `/modules/accounting/api/bank_statements.php?${params.toString()}`;
-  }, [id, page, perPage, appliedFilters]);
+  }, [id, lineStatus, page, perPage, appliedFilters]);
   const { data, loading, error, reload } = useApi(statementUrl);
   const [csv, setCsv]       = useState('');
   const [busy, setBusy]     = useState(null);
@@ -328,6 +332,28 @@ function AccountDetail() {
         </details>
       </form>
 
+      <div role="group" aria-label="Statement line status" data-testid="accounting-bank-line-status-filter"
+           style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
+        {[
+          ['unmatched', 'Needs review'],
+          ['matched', 'Matched'],
+          ['ignored', 'Ignored'],
+          ['', 'All'],
+        ].map(([value, label]) => (
+          <button key={label} type="button" aria-pressed={lineStatus === value}
+                  className={lineStatus === value ? 'btn btn--primary' : 'btn btn--ghost'}
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    if (value === 'unmatched') next.delete('match_status');
+                    else next.set('match_status', value || 'all');
+                    setSearchParams(next);
+                    setPage(1);
+                  }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div
         data-testid="accounting-bank-line-filters"
         style={{
@@ -381,7 +407,7 @@ function AccountDetail() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
         <span data-testid="accounting-bank-line-result-count">
-          {total === 0 ? 'No' : `${((currentPage - 1) * perPage) + 1}-${Math.min(currentPage * perPage, total)} of ${total}`} unmatched lines
+          {total === 0 ? 'No' : `${((currentPage - 1) * perPage) + 1}-${Math.min(currentPage * perPage, total)} of ${total}`} {lineStatus || 'total'} lines
         </span>
         <label>
           Rows&nbsp;
@@ -406,10 +432,12 @@ function AccountDetail() {
         <tbody>
           {(data?.rows || []).length === 0 && !loading && (
             <tr><td colSpan={6} className="empty" data-testid="accounting-bank-lines-empty">
-              {hasFilters ? 'No unmatched lines match these filters.' : 'No unmatched lines. Import a statement above to get started.'}
+              {hasFilters ? 'No statement lines match these filters.'
+                : lineStatus === 'unmatched' ? 'No lines need review.'
+                : `No ${lineStatus || 'statement'} lines yet.`}
             </td></tr>
           )}
-          {(data?.rows || []).map(l => (
+          {(data?.rows || []).map(l => l.match_status === 'unmatched' ? (
             <BankLineRow
               key={l.id}
               line={l}
@@ -417,7 +445,7 @@ function AccountDetail() {
               bankAccount={bankAccount}
               accounts={accountsApi.data?.rows || []}
             />
-          ))}
+          ) : <ResolvedBankLineRow key={l.id} line={l} />)}
         </tbody>
       </table>
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 10 }}>
@@ -430,6 +458,34 @@ function AccountDetail() {
                 disabled={currentPage >= pages || loading} data-testid="accounting-bank-line-page-next">Next</button>
       </div>
     </section>
+  );
+}
+
+function ResolvedBankLineRow({ line }) {
+  return (
+    <tr data-testid={`accounting-bank-line-${line.id}`}>
+      <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(line.posted_date)}</td>
+      <td>
+        {line.description}
+        {(line.applied_invoices || []).length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 3, fontSize: 12 }} data-testid={`accounting-bank-line-invoices-${line.id}`}>
+            {line.applied_invoices.map(invoice => (
+              <Link key={invoice.id} to={`/modules/billing/invoices/${invoice.id}`}>
+                {invoice.invoice_number} · {fmtMoney(invoice.amount)}
+              </Link>
+            ))}
+          </div>
+        )}
+      </td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(line.amount)}</td>
+      <td><span data-testid={`accounting-bank-line-status-${line.match_status}`}>{line.match_status}</span></td>
+      <td>—</td>
+      <td>{line.matched_je_id ? (
+        <Link to={`/modules/accounting/journal-entries/${line.matched_je_id}`}>
+          View journal
+        </Link>
+      ) : '—'}</td>
+    </tr>
   );
 }
 

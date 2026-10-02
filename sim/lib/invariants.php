@@ -14,6 +14,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/seed.php';
+require_once __DIR__ . '/document_links.php';
 
 /** debits == credits across every JE in the tenant's books. */
 function simInvariantDebitsEqualCredits(\PDO $pdo, int $tenantId): array {
@@ -56,6 +57,66 @@ function simInvariantNoOrphanEvents(\PDO $pdo, int $tenantId): array {
         'ok'       => empty($stuck),
         'severity' => 'error',
         'details'  => ['orphan_event_count' => count($stuck), 'sample' => array_slice($stuck, 0, 5)],
+    ];
+}
+
+/** Posted simulation events must remain linked to their documents and payment allocations. */
+function simInvariantPostedSourceLinks(\PDO $pdo, int $tenantId): array {
+    $events = $pdo->prepare(
+        'SELECT e.id, e.event_type, e.payload, e.journal_entry_id, j.entity_id, j.status AS journal_status
+           FROM accounting_events e
+           LEFT JOIN accounting_journal_entries j ON j.id = e.journal_entry_id AND j.tenant_id = e.tenant_id
+          WHERE e.tenant_id = :tenant_id AND e.status = "posted" AND e.source_record_id LIKE "sim:%"
+            AND e.event_type IN ("billing.invoice.sent", "ap.bill.approved", "ap.payment.cleared")'
+    );
+    $events->execute(['tenant_id' => $tenantId]);
+    $missing = [];
+    foreach ($events->fetchAll(\PDO::FETCH_ASSOC) as $event) {
+        $payload = json_decode((string) $event['payload'], true);
+        $jeId = (int) ($event['journal_entry_id'] ?? 0);
+        $entityId = (int) ($event['entity_id'] ?? 0);
+        $issue = null;
+        if (!is_array($payload) || $jeId <= 0 || $entityId <= 0 || $event['journal_status'] !== 'posted') {
+            $issue = 'missing posted journal or payload';
+        } elseif ($event['event_type'] === 'ap.payment.cleared') {
+            $paymentId = (int) ($payload['payment_id'] ?? 0);
+            $billId = (int) ($payload['bill_id'] ?? 0);
+            $payment = $pdo->prepare(
+                'SELECT p.id, p.journal_entry_id, p.entity_id, p.status, p.amount,
+                        a.amount_applied, b.amount_due, b.total AS bill_total
+                   FROM ap_payments p
+                   JOIN ap_payment_allocations a ON a.payment_id = p.id AND a.bill_id = :bill_id
+                   JOIN ap_bills b ON b.id = a.bill_id AND b.tenant_id = p.tenant_id
+                  WHERE p.tenant_id = :tenant_id AND p.id = :payment_id'
+            );
+            $payment->execute(['bill_id' => $billId, 'tenant_id' => $tenantId, 'payment_id' => $paymentId]);
+            $rows = $payment->fetchAll(\PDO::FETCH_ASSOC);
+            if (count($rows) !== 1
+                || (int) $rows[0]['journal_entry_id'] !== $jeId
+                || (int) $rows[0]['entity_id'] !== $entityId
+                || $rows[0]['status'] !== 'cleared'
+                || round((float) $rows[0]['amount'], 2) !== round((float) $rows[0]['amount_applied'], 2)
+                || round((float) $rows[0]['amount'], 2) !== round((float) $rows[0]['bill_total'], 2)
+                || round((float) $rows[0]['amount_due'], 2) !== 0.0) {
+                $issue = 'missing or inconsistent cleared payment allocation';
+            }
+        } else {
+            [$table, $idField] = simDocumentForEvent((string) $event['event_type']);
+            $documentId = (int) ($payload[$idField] ?? 0);
+            $document = $pdo->prepare("SELECT journal_entry_id, entity_id FROM {$table} WHERE tenant_id = :tenant_id AND id = :id");
+            $document->execute(['tenant_id' => $tenantId, 'id' => $documentId]);
+            $linked = $document->fetch(\PDO::FETCH_ASSOC);
+            if (!$linked || (int) $linked['journal_entry_id'] !== $jeId || (int) $linked['entity_id'] !== $entityId) {
+                $issue = 'missing or inconsistent source document link';
+            }
+        }
+        if ($issue !== null) $missing[] = ['event_id' => (int) $event['id'], 'issue' => $issue];
+    }
+    return [
+        'name' => 'posted_source_links',
+        'ok' => $missing === [],
+        'severity' => 'error',
+        'details' => ['mismatch_count' => count($missing), 'sample' => array_slice($missing, 0, 5)],
     ];
 }
 

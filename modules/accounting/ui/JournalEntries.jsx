@@ -172,7 +172,7 @@ function List({ onOpen, onEdit, onCorrect }) {
                     <Pencil size={14} aria-hidden="true" />
                   </button>
                 )}
-                {['posted', 'reversed'].includes(r.status) && (
+                {r.source_module === 'manual' && ['posted', 'reversed'].includes(r.status) && (
                   <button type="button" className="btn btn--ghost btn--icon" onClick={() => onCorrect(r.id)} aria-label={`Correct ${r.je_number}`} title="Correct entry">
                     <Pencil size={14} aria-hidden="true" />
                   </button>
@@ -297,7 +297,7 @@ function Detail({ id, onBack }) {
           </tr>
         </tbody>
       </table>
-      {je.status === 'posted' && (
+      {je.status === 'posted' && je.source_module === 'manual' && (
         <div style={{ marginTop: 16, padding: 12, background: '#fffbea', borderRadius: 6, border: '1px solid #fde68a' }}>
           <h4 style={{ margin: '0 0 8px' }}>Reverse this entry</h4>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -413,10 +413,10 @@ function sourceLabel(entry) {
 
 function isManualDraft(entry) {
   return entry.status === 'draft'
-    && entry.source_module !== 'system'
-    && !['ai_workflow', 'workflow_run'].includes(entry.source_ref_type);
+    && entry.source_module === 'manual';
 }
 
 function isDeletable(entry) {
-  return isManualDraft(entry) || ['posted', 'reversed'].includes(entry?.status);
+  return entry?.source_module === 'manual'
+    && (isManualDraft(entry) || ['posted', 'reversed'].includes(entry.status));
 }

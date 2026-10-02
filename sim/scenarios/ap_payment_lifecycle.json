@@ -61,7 +61,8 @@
     },
     {
       "action": "settle_ap_bill",
-      "id": 9101
+      "id": 9101,
+      "payment_id": 7001
     }
   ]
 }
