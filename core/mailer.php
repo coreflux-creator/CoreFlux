@@ -32,6 +32,9 @@ require_once __DIR__ . '/tenant_mail.php';
 require_once __DIR__ . '/mail/suppressions.php';
 
 function sendEmail(array $args): array {
+    if (defined('COREFLUX_STAGING') && COREFLUX_STAGING) {
+        throw new RuntimeException('Direct SMTP delivery is disabled in staging.');
+    }
     if (empty($args['to']))       throw new InvalidArgumentException('sendEmail: to is required');
     if (empty($args['subject']))  throw new InvalidArgumentException('sendEmail: subject is required');
     if (empty($args['body_text']))throw new InvalidArgumentException('sendEmail: body_text is required');
