@@ -54,7 +54,7 @@ function apEvaluateApprovalPolicy(int $tenantId, array $bill): array {
     $policies = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $entityId   = isset($bill['entity_id']) ? (int) $bill['entity_id'] : null;
-    $amount     = (float) ($bill['total_amount'] ?? 0);
+    $amount     = (float) ($bill['total_amount'] ?? $bill['total'] ?? 0);
     $vendorType = $bill['vendor_type'] ?? null;
     $glCode     = $bill['gl_account_code'] ?? null;
     $bRisk      = $risk['level'];
@@ -97,6 +97,7 @@ function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = 
 
     $eval = apEvaluateApprovalPolicy($tenantId, $bill);
     $billId = (int) $bill['id'];
+    $billAmount = (float) ($bill['total_amount'] ?? $bill['total'] ?? 0);
 
     // Append evaluation log.
     $pdo->prepare(
@@ -158,12 +159,12 @@ function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = 
                 'title'         => 'AP bill needs approval',
                 'body'          => sprintf('Bill #%d for $%s%s. Open to review.',
                                     $billId,
-                                    number_format((float) ($bill['total_amount'] ?? 0), 2),
+                                    number_format($billAmount, 2),
                                     $eval['risk']['level'] !== 'none' ? " ({$eval['risk']['level']} risk)" : ''),
                 'deep_link'     => '/modules/ap/bills/' . $billId,
                 // mobile_deep_link defaults to coreflux://approvals/<instance_id>
                 // which workflow_engine fills in automatically; no override needed.
-                'amount_label'  => '$' . number_format((float) ($bill['total_amount'] ?? 0), 2),
+                'amount_label'  => '$' . number_format($billAmount, 2),
                 'risk'          => $eval['risk']['level'],
                 'policy_id'     => $policyId,
                 'bill_id'       => $billId,
@@ -192,7 +193,7 @@ function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = 
         $title = 'AP bill needs approval';
         $body  = sprintf('Bill #%d for $%s%s. Open to review.',
             $billId,
-            number_format((float) ($bill['total_amount'] ?? 0), 2),
+            number_format($billAmount, 2),
             $eval['risk']['level'] !== 'none' ? " ({$eval['risk']['level']} risk)" : ''
         );
         if ($aiExplain) $body .= "\n\n" . $aiExplain;
@@ -214,7 +215,7 @@ function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = 
         foreach ($step1['approver_user_ids'] as $uid) {
             $pushCount += pushSendToUser($tenantId, (int) $uid, $title, $body, [
                 'bill_id'              => $billId,
-                'amount'               => (float) ($bill['total_amount'] ?? 0),
+                'amount'               => $billAmount,
                 'risk_level'           => $eval['risk']['level'],
                 'policy_id'            => $eval['policy_id'],
                 'workflow_instance_id' => $workflowInstanceId,

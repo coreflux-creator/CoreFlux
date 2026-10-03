@@ -109,6 +109,24 @@ try {
         'is_primary' => true, 'status' => 'active',
     ]);
 
+    $approvalPolicy = $pdo->prepare(
+        'INSERT INTO ap_approval_policies
+            (tenant_id, name, description, priority, chain_json, active)
+         VALUES (:tenant_id, :name, :description, 100, :chain_json, 1)'
+    );
+    $approvalPolicy->execute([
+        'tenant_id' => $tenantId,
+        'name' => 'Initial finance approval',
+        'description' => 'Route AP bills to the initial finance administrator until a reviewed policy replaces this one.',
+        'chain_json' => json_encode([[
+            'step' => 1,
+            'approver_user_ids' => [$userId],
+            'quorum' => 1,
+            'label' => 'Finance approval',
+        ]], JSON_THROW_ON_ERROR),
+    ]);
+    $approvalPolicyId = (int) $pdo->lastInsertId();
+
     $entity = $pdo->prepare(
         'INSERT INTO accounting_entities (tenant_id, code, legal_name, country, base_currency, active)
          VALUES (:tenant_id, "MAIN", :legal_name, "US", "USD", 1)'
@@ -160,6 +178,7 @@ try {
         'database' => $connectedDatabase,
         'tenant_id' => $tenantId,
         'admin_user_id' => $userId,
+        'ap_approval_policy_id' => $approvalPolicyId,
         'entity_id' => $entityId,
         'periods_created' => 12,
         'accounts' => $accounts,

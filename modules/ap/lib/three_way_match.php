@@ -3,7 +3,7 @@
  * AP Phase A1 — Three-way match library.
  *
  * Computes match status for a bill against its referenced PO + receipts.
- * Returns a soft warnings/blockers structure that the UI surfaces.
+ * A bill without a PO is not a three-way-match transaction.
  */
 declare(strict_types=1);
 
@@ -49,7 +49,7 @@ function apThreeWayMatch(int $tenantId, int $billId): array
             'matched' => false, 'po' => null,
             'po_total' => 0.0, 'receipt_total' => 0.0, 'bill_total' => $billTotal,
             'tolerance_pct' => $tolPct, 'warnings' => ['No PO referenced on bill'],
-            'enforce' => $enforce,
+            'enforce' => false,
         ];
     }
 
