@@ -72,6 +72,15 @@ $check('AP clear and bank match commit or roll back together',
 
 echo "\nReconciliation integrity\n";
 $check('manual journal match requires a posted journal', str_contains($bankLib, 'Only a posted journal entry can be matched'));
+$matchFunction = substr($bankLib, (int) strpos($bankLib, 'function bankRecMatchLine('), 4200);
+$journalLock = strpos($matchFunction, 'accounting_journal_entries') !== false
+    ? strpos($matchFunction, 'WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE') : false;
+$bankLineLock = strpos($matchFunction, 'WHERE bl.tenant_id = :tenant_id AND bl.id = :id FOR UPDATE');
+$check('manual match serializes journal reversal before locking the bank line',
+    str_contains($matchFunction, 'cf_tx_begin($pdo)')
+    && $journalLock !== false && $bankLineLock !== false && $journalLock < $bankLineLock
+    && str_contains($matchFunction, 'cf_tx_commit($pdo, $ownsTransaction)')
+    && str_contains($matchFunction, 'cf_tx_rollback($pdo, $ownsTransaction)'));
 $check('manual journal match validates signed bank movement',
     str_contains($bankLib, 'line.debit - line.credit')
     && str_contains($bankLib, 'does not contain the matching cash movement'));

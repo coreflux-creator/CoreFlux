@@ -997,6 +997,7 @@ function apClearPaymentLocked(
     ?int $bankAccountId,
     ?int $actorUserId
 ): array {
+    $pdo = getDB();
     $row = scopedFind(
         'SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE',
         ['id' => $paymentId]
@@ -1004,6 +1005,9 @@ function apClearPaymentLocked(
     if (!$row) throw new \RuntimeException('Payment not found');
 
     if (($row['status'] ?? '') === 'cleared') {
+        if ($bankAccountId && (int) ($row['bank_account_id'] ?? 0) !== $bankAccountId) {
+            throw new \RuntimeException('This payment cleared through a different bank account.');
+        }
         $journalEntryId = (int) ($row['journal_entry_id'] ?? 0);
         $journal = $journalEntryId > 0 ? scopedFind(
             'SELECT id, status FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id',
@@ -1096,6 +1100,8 @@ function apClearPaymentLocked(
             throw new \RuntimeException('The payment changed while it was being cleared. Refresh and review it before retrying.');
         }
     }
+
+    apRefreshReleasedPaymentBillsForPayment($pdo, $tenantId, $paymentId);
 
     $after = scopedFind(
         'SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id',
@@ -1194,7 +1200,7 @@ function apSuggestPaymentRun(
                     SELECT SUM(a.amount_applied)
                       FROM ap_payment_allocations a
                       JOIN ap_payments p ON p.id = a.payment_id
-                     WHERE a.bill_id = b.id AND p.status IN ('draft', 'queued')
+                     WHERE a.bill_id = b.id AND p.status IN ('draft', 'queued', 'sent')
                 ), 0) AS reserved_amount
            FROM ap_bills b
            LEFT JOIN ap_vendors_index v
@@ -1438,7 +1444,7 @@ function apExecutePaymentRun(
                         SELECT SUM(a.amount_applied)
                           FROM ap_payment_allocations a
                           JOIN ap_payments p ON p.id = a.payment_id
-                         WHERE a.bill_id = b.id AND p.status IN ("draft", "queued")
+                         WHERE a.bill_id = b.id AND p.status IN ("draft", "queued", "sent")
                     ), 0) AS reserved_amount
                FROM ap_bills
                   b
@@ -1551,9 +1557,8 @@ function apExecutePaymentRun(
 }
 
 /**
- * Recompute bill settlement from released payments only. Draft and queued
- * allocations reserve a bill for a payment run, but they are not cash and
- * must not reduce AP aging or mark the bill paid.
+ * Recompute bill settlement from cleared, posted payments only. Draft,
+ * queued, and sent allocations reserve a bill but do not extinguish AP.
  */
 function apRefreshReleasedPaymentBills(PDO $pdo, int $tenantId, array $billIds): void
 {
@@ -1570,9 +1575,11 @@ function apRefreshReleasedPaymentBills(PDO $pdo, int $tenantId, array $billIds):
         'SELECT COALESCE(SUM(a.amount_applied), 0)
            FROM ap_payment_allocations a
            JOIN ap_payments p ON p.id = a.payment_id
+           JOIN accounting_journal_entries je ON je.id = p.journal_entry_id
+             AND je.tenant_id = p.tenant_id AND je.status = "posted"
           WHERE a.bill_id = :bill_id
             AND p.tenant_id = :tenant_id
-            AND p.status IN ("sent", "cleared")'
+            AND p.status = "cleared"'
     );
     $update = $pdo->prepare(
         'UPDATE ap_bills
@@ -1646,28 +1653,42 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
         $payStmt->execute(['id' => $paymentId]);
         $pay = $payStmt->fetch(\PDO::FETCH_ASSOC);
         if (!$pay) throw new \RuntimeException("payment {$paymentId} not found");
+        if (!in_array($pay['status'], ['draft', 'queued'], true)) {
+            throw new \RuntimeException('A released payment cannot be reallocated. Void or correct it, then create a replacement.');
+        }
         $remaining = (float) $pay['unallocated_amount'];
         if ($remaining <= 0) throw new \RuntimeException('payment has no unallocated amount');
-        $released = in_array($pay['status'], ['sent', 'cleared'], true);
-        $touchedBillIds = [];
 
         $targets = [];
         if (isset($request['auto']) && $request['auto'] === 'fifo') {
-            $entityClause = !empty($pay['entity_id']) ? ' AND entity_id = :entity_id' : '';
-            $fifoParams = ['t' => $pay['tenant_id'], 'v' => $pay['vendor_name']];
+            $entityClause = !empty($pay['entity_id']) ? ' AND b.entity_id = :entity_id' : '';
+            $fifoParams = [
+                't' => $pay['tenant_id'],
+                'v' => $pay['vendor_name'],
+                'reservation_tenant_id' => $pay['tenant_id'],
+            ];
             if (!empty($pay['entity_id'])) $fifoParams['entity_id'] = (int) $pay['entity_id'];
             $q = $pdo->prepare(
-                'SELECT id, amount_due FROM ap_bills
-                 WHERE tenant_id = :t AND vendor_name = :v
-                   AND status IN ("approved","partially_paid")
-                   AND amount_due > 0
+                'SELECT b.id, b.amount_due,
+                        COALESCE((SELECT SUM(a.amount_applied)
+                                    FROM ap_payment_allocations a
+                                    JOIN ap_payments reserved ON reserved.id = a.payment_id
+                                   WHERE a.bill_id = b.id
+                                     AND reserved.tenant_id = :reservation_tenant_id
+                                     AND reserved.status IN ("draft", "queued", "sent")), 0) AS reserved_amount
+                   FROM ap_bills b
+                 WHERE b.tenant_id = :t AND b.vendor_name = :v
+                   AND b.status IN ("approved","partially_paid")
+                   AND b.amount_due > 0
                    ' . $entityClause . '
-                 ORDER BY due_date ASC, id ASC'
+                 ORDER BY b.due_date ASC, b.id ASC'
             );
             $q->execute($fifoParams);
             foreach ($q->fetchAll(\PDO::FETCH_ASSOC) as $bill) {
                 if ($remaining <= 0) break;
-                $apply = min($remaining, (float) $bill['amount_due']);
+                $available = max(0, round((float) $bill['amount_due'] - (float) $bill['reserved_amount'], 2));
+                if ($available <= 0) continue;
+                $apply = min($remaining, $available);
                 $targets[] = ['bill_id' => (int) $bill['id'], 'amount' => round($apply, 2)];
                 $remaining -= $apply;
             }
@@ -1706,20 +1727,18 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
             }
 
             $available = (float) $bRow['amount_due'];
-            if (!$released) {
-                $reservedStmt = $pdo->prepare(
-                    'SELECT COALESCE(SUM(a.amount_applied), 0)
-                       FROM ap_payment_allocations a
-                       JOIN ap_payments p ON p.id = a.payment_id
-                      WHERE a.bill_id = :bill_id AND p.tenant_id = :tenant_id
-                        AND p.status IN ("draft", "queued")'
-                );
-                $reservedStmt->execute([
-                    'bill_id' => (int) $bRow['id'],
-                    'tenant_id' => (int) $pay['tenant_id'],
-                ]);
-                $available = max(0, round($available - (float) $reservedStmt->fetchColumn(), 2));
-            }
+            $reservedStmt = $pdo->prepare(
+                'SELECT COALESCE(SUM(a.amount_applied), 0)
+                   FROM ap_payment_allocations a
+                   JOIN ap_payments p ON p.id = a.payment_id
+                  WHERE a.bill_id = :bill_id AND p.tenant_id = :tenant_id
+                    AND p.status IN ("draft", "queued", "sent")'
+            );
+            $reservedStmt->execute([
+                'bill_id' => (int) $bRow['id'],
+                'tenant_id' => (int) $pay['tenant_id'],
+            ]);
+            $available = max(0, round($available - (float) $reservedStmt->fetchColumn(), 2));
             $apply = min($t['amount'], $available);
             if ($apply <= 0) continue;
 
@@ -1731,25 +1750,17 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
                 'p' => $paymentId, 'b' => $bRow['id'], 'a' => $apply, 'u' => $actorUserId,
             ]);
 
-            $touchedBillIds[] = (int) $bRow['id'];
-
             $applied[] = [
                 'bill_id'        => (int) $bRow['id'],
                 'internal_ref'   => $bRow['internal_ref'],
                 'amount_applied' => $apply,
-                'new_status'     => $released ? null : $bRow['status'],
-                'reserved'       => !$released,
+                'new_status'     => $bRow['status'],
+                'reserved'       => true,
             ];
         }
         $newUnalloc = round((float) $pay['unallocated_amount'] - array_sum(array_column($applied, 'amount_applied')), 2);
         $pdo->prepare('UPDATE ap_payments SET unallocated_amount = :u WHERE tenant_id = :tenant_id AND id = :id')
             ->execute(['u' => $newUnalloc, 'tenant_id' => (int) $pay['tenant_id'], 'id' => $paymentId]);
-
-        if ($released) {
-            apRefreshReleasedPaymentBills($pdo, (int) $pay['tenant_id'], $touchedBillIds);
-            foreach ($applied as &$application) $application['new_status'] = null;
-            unset($application);
-        }
 
         if ($ownsTxn) $pdo->commit();
         return ['applied' => $applied, 'unallocated_remaining' => $newUnalloc];
@@ -1777,7 +1788,14 @@ function apComputeAging(int $tenantId, string $asOf): array
            FROM (
                 SELECT b.id, b.vendor_name, b.due_date,
                        GREATEST(0, ROUND(b.total - COALESCE(SUM(
-                           CASE WHEN p.pay_date <= :payment_as_of AND p.status IN ("sent", "cleared")
+                           CASE WHEN p.status IN ("cleared", "void")
+                                     AND p.cleared_at IS NOT NULL
+                                     AND DATE(p.cleared_at) <= :payment_as_of
+                                     AND (p.status = "cleared" OR DATE(p.voided_at) > :payment_void_as_of)
+                                     AND payment_je.status IN ("posted", "reversed")
+                                     AND payment_je.posting_date <= :payment_posted_as_of
+                                     AND (payment_je.status = "posted"
+                                          OR payment_reversal.posting_date > :payment_reversed_as_of)
                                 THEN alloc.amount_applied ELSE 0 END
                        ), 0), 2)) AS amount_due
                   FROM ap_bills b
@@ -1790,6 +1808,11 @@ function apComputeAging(int $tenantId, string $asOf): array
                     ON reversal.id = je.reversed_by_je_id AND reversal.tenant_id = b.tenant_id
              LEFT JOIN ap_payment_allocations alloc ON alloc.bill_id = b.id
              LEFT JOIN ap_payments p ON p.id = alloc.payment_id AND p.tenant_id = b.tenant_id
+             LEFT JOIN accounting_journal_entries payment_je
+                    ON payment_je.id = p.journal_entry_id AND payment_je.tenant_id = b.tenant_id
+             LEFT JOIN accounting_journal_entries payment_reversal
+                    ON payment_reversal.id = payment_je.reversed_by_je_id
+                   AND payment_reversal.tenant_id = b.tenant_id
                  WHERE b.tenant_id = :tid
                    AND b.bill_date <= :document_as_of
                    AND (je.status = "posted" OR reversal.posting_date > :reversed_as_of)
@@ -1803,6 +1826,9 @@ function apComputeAging(int $tenantId, string $asOf): array
     $bind = [
         'tid' => $tenantId,
         'payment_as_of' => $asOf,
+        'payment_void_as_of' => $asOf,
+        'payment_posted_as_of' => $asOf,
+        'payment_reversed_as_of' => $asOf,
         'posted_as_of' => $asOf,
         'reversed_as_of' => $asOf,
         'document_as_of' => $asOf,

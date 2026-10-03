@@ -8,6 +8,7 @@
  *   POST /api/ap/payments?action=send&id=N     → transition queued/draft → sent  (ap.payment.send; SoD-guarded)
  *   POST /api/ap/payments?action=clear&id=N    → mark cleared (manual bank rec)
  *   POST /api/ap/payments?action=void&id=N     → body: {reason}
+ *   POST /api/ap/payments?action=correct_cleared&id=N → reverse a manual clearance
  *
  * SPEC: /app/modules/ap/SPEC.md §5.3.
  */
@@ -22,6 +23,26 @@ $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
+
+if ($method === 'GET' && $action === 'correction_check') {
+    rbac_legacy_require($user, 'ap.view');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 400);
+    $payment = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$payment) api_error('Payment not found', 404);
+    $permitted = rbac_legacy_can($user, 'ap.payment.send')
+        && rbac_legacy_can($user, 'accounting.je.reverse');
+    if (!$permitted) {
+        api_ok(['available' => false, 'reason' => 'An authorized AP and accounting reviewer must correct this payment']);
+    }
+    require_once __DIR__ . '/../lib/payment_correction.php';
+    try {
+        $review = apInspectClearedManualPayment(getDB(), $tid, $payment);
+        api_ok(['available' => true, 'review' => $review]);
+    } catch (\Throwable $e) {
+        api_ok(['available' => false, 'reason' => $e->getMessage()]);
+    }
+}
 
 if ($method === 'GET' && $action === 'export_template') {
     rbac_legacy_require($user, 'ap.payment.send');
@@ -142,6 +163,25 @@ if ($method === 'GET') {
             unset($row);
         }
     }
+    $journalIds = array_values(array_unique(array_filter(array_map(
+        static fn(array $row): int => (int) ($row['journal_entry_id'] ?? 0), $rows
+    ))));
+    if ($journalIds) {
+        $placeholders = implode(',', array_fill(0, count($journalIds), '?'));
+        $reversals = getDB()->prepare(
+            'SELECT id, reversed_by_je_id FROM accounting_journal_entries
+              WHERE tenant_id = ? AND id IN (' . $placeholders . ')'
+        );
+        $reversals->execute(array_merge([$tid], $journalIds));
+        $byJournal = [];
+        foreach ($reversals->fetchAll(\PDO::FETCH_ASSOC) as $journal) {
+            $byJournal[(int) $journal['id']] = $journal['reversed_by_je_id'] ?: null;
+        }
+        foreach ($rows as &$row) {
+            $row['reversal_journal_entry_id'] = $byJournal[(int) ($row['journal_entry_id'] ?? 0)] ?? null;
+        }
+        unset($row);
+    }
     api_ok([
         'rows'                  => $rows,
         'total'                 => (int) ($count['c'] ?? 0),
@@ -151,6 +191,9 @@ if ($method === 'GET') {
         'plaid_transfer_linked' => $plaidLinked,
         'mercury_connected'     => $mercuryConnected,
         'purepay_connected'     => $purepayConnected,
+        'can_void_payment'      => rbac_legacy_can($user, 'ap.payment.send'),
+        'can_correct_manual_payment' => rbac_legacy_can($user, 'ap.payment.send')
+            && rbac_legacy_can($user, 'accounting.je.reverse'),
     ]);
 }
 
@@ -636,6 +679,27 @@ if ($method === 'POST' && $action === 'clear') {
         'journal_entry_id' => (int) $result['journal_entry_id'],
         'idempotent_replay' => !empty($result['idempotent_replay']),
     ]);
+}
+
+if ($method === 'POST' && $action === 'correct_cleared') {
+    rbac_legacy_require($user, 'ap.payment.send');
+    rbac_legacy_require($user, 'accounting.je.reverse');
+    $id = (int) ($_GET['id'] ?? 0);
+    $reason = trim((string) (api_json_body()['reason'] ?? ''));
+    if ($id <= 0 || $reason === '') api_error('Payment and correction reason are required', 422);
+    require_once __DIR__ . '/../lib/payment_correction.php';
+    $before = apPaymentAuditRow($tid, $id);
+    if (!$before) api_error('Payment not found', 404);
+    try {
+        $result = apCorrectClearedManualPayment($tid, $id, $reason, $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 409);
+    }
+    apAudit('ap.payment.corrected', $result + ['reason' => $reason], $id, [
+        'before' => $before,
+        'after' => apPaymentAuditRow($tid, $id),
+    ]);
+    api_ok(['ok' => true] + $result);
 }
 
 if ($method === 'POST' && $action === 'void') {

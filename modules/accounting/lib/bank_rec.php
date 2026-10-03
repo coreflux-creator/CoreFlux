@@ -19,6 +19,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../../core/tx_helpers.php';
+
 /**
  * Parse + insert CSV rows. The CSV is expected to have a header row.
  * If $headerMap is null we auto-detect by header name keywords.
@@ -250,59 +252,75 @@ function bankRecMarkLineMatched(int $tenantId, int $lineId, int $jeId, ?int $use
 
 function bankRecMatchLine(int $tenantId, int $lineId, int $jeId, ?int $userId): array
 {
-    $line = scopedFind(
-        'SELECT bl.id, bl.amount, bl.match_status, bl.matched_je_id,
-                ba.gl_account_code, ba.entity_id AS bank_entity_id,
-                COALESCE(NULLIF(ba.currency, ""), "USD") AS bank_currency
-           FROM accounting_bank_statement_lines bl
-           JOIN accounting_bank_accounts ba
-             ON ba.tenant_id = bl.tenant_id AND ba.id = bl.bank_account_id
-          WHERE bl.tenant_id = :tenant_id AND bl.id = :id',
-        ['id' => $lineId]
-    );
-    if (!$line) throw new RuntimeException('Line not found');
-    if (($line['match_status'] ?? '') === 'matched' && (int) ($line['matched_je_id'] ?? 0) === $jeId) {
-        return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId, 'idempotent_replay' => true];
-    }
-    if (($line['match_status'] ?? '') !== 'unmatched') {
-        throw new RuntimeException('This bank line is already resolved');
-    }
+    $pdo = getDB();
+    $ownsTransaction = cf_tx_begin($pdo);
+    try {
+        $journal = scopedFind(
+            'SELECT id, status FROM accounting_journal_entries
+              WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE',
+            ['id' => $jeId]
+        );
+        if (!$journal) throw new RuntimeException('JE not found');
+        if (($journal['status'] ?? '') !== 'posted') throw new RuntimeException('Only a posted journal entry can be matched');
 
-    $je = scopedFind(
-        'SELECT je.id, je.status, je.entity_id, je.currency,
-                ROUND(COALESCE(SUM(CASE WHEN account.code = :bank_code
-                     THEN line.debit - line.credit ELSE 0 END), 0), 2) AS bank_movement
-           FROM accounting_journal_entries je
-           LEFT JOIN accounting_journal_entry_lines line ON line.je_id = je.id
-           LEFT JOIN accounting_accounts account
-             ON account.tenant_id = je.tenant_id AND account.id = line.account_id
-          WHERE je.tenant_id = :tenant_id AND je.id = :id
-          GROUP BY je.id, je.status, je.entity_id, je.currency',
-        ['id' => $jeId, 'bank_code' => (string) $line['gl_account_code']]
-    );
-    if (!$je) throw new RuntimeException('JE not found');
-    if (($je['status'] ?? '') !== 'posted') throw new RuntimeException('Only a posted journal entry can be matched');
-    if (!empty($line['bank_entity_id']) && !empty($je['entity_id'])
-        && (int) $line['bank_entity_id'] !== (int) $je['entity_id']) {
-        throw new RuntimeException('The journal entry belongs to a different entity');
-    }
-    if (strcasecmp((string) ($line['bank_currency'] ?: 'USD'), (string) ($je['currency'] ?: 'USD')) !== 0) {
-        throw new RuntimeException('The journal entry uses a different currency');
-    }
-    if (abs((float) $je['bank_movement'] - (float) $line['amount']) > 0.005) {
-        throw new RuntimeException('The journal entry does not contain the matching cash movement for this bank account and amount');
-    }
-    $used = scopedFind(
-        'SELECT id FROM accounting_bank_statement_lines
-          WHERE tenant_id = :tenant_id AND matched_je_id = :je_id
-            AND match_status = "matched" AND id <> :line_id
-          LIMIT 1',
-        ['je_id' => $jeId, 'line_id' => $lineId]
-    );
-    if ($used) throw new RuntimeException('That journal entry is already matched to another bank line');
+        $line = scopedFind(
+            'SELECT bl.id, bl.amount, bl.match_status, bl.matched_je_id,
+                    ba.gl_account_code, ba.entity_id AS bank_entity_id,
+                    COALESCE(NULLIF(ba.currency, ""), "USD") AS bank_currency
+               FROM accounting_bank_statement_lines bl
+               JOIN accounting_bank_accounts ba
+                 ON ba.tenant_id = bl.tenant_id AND ba.id = bl.bank_account_id
+              WHERE bl.tenant_id = :tenant_id AND bl.id = :id FOR UPDATE',
+            ['id' => $lineId]
+        );
+        if (!$line) throw new RuntimeException('Line not found');
+        if (($line['match_status'] ?? '') === 'matched' && (int) ($line['matched_je_id'] ?? 0) === $jeId) {
+            cf_tx_commit($pdo, $ownsTransaction);
+            return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId, 'idempotent_replay' => true];
+        }
+        if (($line['match_status'] ?? '') !== 'unmatched') {
+            throw new RuntimeException('This bank line is already resolved');
+        }
 
-    bankRecMarkLineMatched($tenantId, $lineId, $jeId, $userId);
-    return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId, 'idempotent_replay' => false];
+        $je = scopedFind(
+            'SELECT je.id, je.status, je.entity_id, je.currency,
+                    ROUND(COALESCE(SUM(CASE WHEN account.code = :bank_code
+                         THEN line.debit - line.credit ELSE 0 END), 0), 2) AS bank_movement
+               FROM accounting_journal_entries je
+               LEFT JOIN accounting_journal_entry_lines line ON line.je_id = je.id
+               LEFT JOIN accounting_accounts account
+                 ON account.tenant_id = je.tenant_id AND account.id = line.account_id
+              WHERE je.tenant_id = :tenant_id AND je.id = :id
+              GROUP BY je.id, je.status, je.entity_id, je.currency',
+            ['id' => $jeId, 'bank_code' => (string) $line['gl_account_code']]
+        );
+        if (!$je) throw new RuntimeException('JE not found');
+        if (!empty($line['bank_entity_id']) && !empty($je['entity_id'])
+            && (int) $line['bank_entity_id'] !== (int) $je['entity_id']) {
+            throw new RuntimeException('The journal entry belongs to a different entity');
+        }
+        if (strcasecmp((string) ($line['bank_currency'] ?: 'USD'), (string) ($je['currency'] ?: 'USD')) !== 0) {
+            throw new RuntimeException('The journal entry uses a different currency');
+        }
+        if (abs((float) $je['bank_movement'] - (float) $line['amount']) > 0.005) {
+            throw new RuntimeException('The journal entry does not contain the matching cash movement for this bank account and amount');
+        }
+        $used = scopedFind(
+            'SELECT id FROM accounting_bank_statement_lines
+              WHERE tenant_id = :tenant_id AND matched_je_id = :je_id
+                AND match_status = "matched" AND id <> :line_id
+              LIMIT 1',
+            ['je_id' => $jeId, 'line_id' => $lineId]
+        );
+        if ($used) throw new RuntimeException('That journal entry is already matched to another bank line');
+
+        bankRecMarkLineMatched($tenantId, $lineId, $jeId, $userId);
+        cf_tx_commit($pdo, $ownsTransaction);
+        return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId, 'idempotent_replay' => false];
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTransaction);
+        throw $e;
+    }
 }
 
 function bankRecUnmatchLine(int $tenantId, int $lineId): array

@@ -99,10 +99,11 @@ $lightWorkspaceDeployPath = $root . '/.github/workflows/deploy-light-workspace.y
 $assert('AR aging is ledger-backed', str_contains($billing, 'JOIN accounting_journal_entries je'));
 $assert('AR aging excludes future invoices and payments', str_contains($billing, 'i.issue_date <= :document_as_of') && str_contains($billing, 'p.received_at <= :payment_as_of'));
 $assert('AP aging is ledger-backed', str_contains($ap, 'JOIN accounting_journal_entries je'));
-$assert('AP aging excludes future bills and undisbursed payments',
+$assert('AP aging excludes future bills and unposted payments',
     str_contains($ap, 'b.bill_date <= :document_as_of')
-    && str_contains($ap, 'p.pay_date <= :payment_as_of')
-    && str_contains($ap, 'p.status IN ("sent", "cleared")'));
+    && str_contains($ap, 'DATE(p.cleared_at) <= :payment_as_of')
+    && str_contains($ap, 'payment_je.status IN ("posted", "reversed")')
+    && str_contains($ap, 'payment_reversal.posting_date > :payment_reversed_as_of'));
 $assert('report library links all core statements',
     str_contains($library, '/modules/accounting/pnl')
     && str_contains($library, '/modules/accounting/balance')

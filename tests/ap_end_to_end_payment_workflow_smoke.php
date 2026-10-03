@@ -26,12 +26,17 @@ $dataset = (string) file_get_contents($root . '/core/export_datasets.php');
 $migration = (string) file_get_contents($root . '/modules/ap/migrations/020_payment_entity_scope.sql');
 
 echo "Reservation and payment-run integrity\n";
-$assert('payment suggestions subtract draft and queued reservations',
-    str_contains($lib, "p.status IN ('draft', 'queued')")
+$assert('payment suggestions subtract draft, queued and sent reservations',
+    str_contains($lib, "p.status IN ('draft', 'queued', 'sent')")
     && str_contains($lib, '$availableDue = max(0'));
 $assert('payment-run execution rechecks live reservations',
     str_contains($lib, 'AS reserved_amount')
     && str_contains($lib, "amount_due'] - (float) (\$b['reserved_amount']"));
+$allocateFunction = substr($lib, (int) strpos($lib, 'function apAllocatePayment('), 7500);
+$assert('automatic FIFO allocation skips amounts already reserved by other payments',
+    str_contains($allocateFunction, 'reserved.status IN ("draft", "queued", "sent")')
+    && str_contains($allocateFunction, "\$bill['amount_due'] - (float) \$bill['reserved_amount']")
+    && str_contains($allocateFunction, 'if ($available <= 0) continue;'));
 $assert('payment runs are all-or-nothing transactions',
     str_contains($lib, '$ownsTransaction = !$pdo->inTransaction()')
     && str_contains($lib, 'if ($ownsTransaction) $pdo->commit()')
@@ -39,18 +44,19 @@ $assert('payment runs are all-or-nothing transactions',
 $assert('stale vendor and PWP rows fail instead of being skipped',
     str_contains($lib, 'belongs to {$b[\'vendor_name\']}, not {$vendorName}')
     && str_contains($lib, 'is still waiting for the linked client payment'));
-$assert('draft allocations do not settle bills',
-    str_contains($lib, '$released = in_array($pay[\'status\'], [\'sent\', \'cleared\'], true)')
-    && str_contains($lib, "p.status IN (\"sent\", \"cleared\")"));
-$assert('release refreshes every allocated bill atomically',
-    str_contains($payments, 'apRefreshReleasedPaymentBillsForPayment($pdo, $tid, $id)'));
+$assert('only posted clearance settles bills',
+    str_contains($lib, 'A released payment cannot be reallocated.')
+    && str_contains($lib, 'p.status = "cleared"')
+    && str_contains($lib, 'je.status = "posted"'));
+$assert('clearance refreshes every allocated bill atomically',
+    str_contains($lib, 'apRefreshReleasedPaymentBillsForPayment($pdo, $tenantId, $paymentId)'));
 $assert('release refuses any unallocated remainder',
     str_contains($payments, "'code' => 'payment_not_fully_allocated'")
     && str_contains($payments, 'Allocate the full payment before releasing it.'));
 
 echo "Queue accuracy and bulk usability\n";
 $assert('ready-to-pay rows exclude fully reserved bills',
-    str_contains($bills, 'ready_payment.status IN ("draft", "queued")')
+    str_contains($bills, 'ready_payment.status IN ("draft", "queued", "sent")')
     && str_contains($bills, ") > 0.005';"));
 $assert('ready-to-pay summary subtracts reservations',
     str_contains($bills, 'GREATEST(amount_due - payment_reserved, 0)')

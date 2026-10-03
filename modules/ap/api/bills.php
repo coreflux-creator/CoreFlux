@@ -326,7 +326,7 @@ if ($method === 'GET') {
                   FROM ap_payment_allocations ready_alloc
                   JOIN ap_payments ready_payment ON ready_payment.id = ready_alloc.payment_id
                  WHERE ready_alloc.bill_id = ap_bills.id
-                   AND ready_payment.status IN ("draft", "queued")
+                   AND ready_payment.status IN ("draft", "queued", "sent")
             ), 0)) > 0.005';
         } elseif ($statusFilter === 'needs_review') {
             $where[] = "status IN ('inbox', 'pending_review', 'disputed')";
@@ -360,14 +360,14 @@ if ($method === 'GET') {
                     SELECT SUM(a.amount_applied)
                       FROM ap_payment_allocations a
                       JOIN ap_payments p ON p.id = a.payment_id
-                     WHERE a.bill_id = ap_bills.id AND p.status IN ("draft", "queued")
+                     WHERE a.bill_id = ap_bills.id AND p.status IN ("draft", "queued", "sent")
                 ), 0) AS payment_reserved,
                 GREATEST(0, amount_due - COALESCE((
                     SELECT SUM(available_alloc.amount_applied)
                       FROM ap_payment_allocations available_alloc
                       JOIN ap_payments available_payment ON available_payment.id = available_alloc.payment_id
                      WHERE available_alloc.bill_id = ap_bills.id
-                       AND available_payment.status IN ("draft", "queued")
+                       AND available_payment.status IN ("draft", "queued", "sent")
                 ), 0)) AS payment_available
          FROM ap_bills WHERE ' . implode(' AND ', $where) . '
          ORDER BY id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
@@ -406,7 +406,7 @@ if ($method === 'GET') {
                          FROM ap_payment_allocations summary_alloc
                          JOIN ap_payments summary_payment ON summary_payment.id = summary_alloc.payment_id
                         WHERE summary_alloc.bill_id = b.id
-                          AND summary_payment.status IN ("draft", "queued")
+                          AND summary_payment.status IN ("draft", "queued", "sent")
                    ), 0) AS payment_reserved
               FROM ap_bills b
              WHERE ' . implode(' AND ', $summaryWhere) . '

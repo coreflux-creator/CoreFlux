@@ -6,7 +6,7 @@ import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import VendorTypeahead from './VendorTypeahead';
-import { ChevronLeft, ChevronRight, Landmark, Search, Send } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, CircleX, Landmark, RotateCcw, Search, Send } from 'lucide-react';
 
 const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 const METHOD_LABELS = {
@@ -37,6 +37,8 @@ export default function PaymentsList() {
   const plaidTransferLinked = !!data?.plaid_transfer_linked;
   const mercuryConnected = !!data?.mercury_connected;
   const purepayConnected = !!data?.purepay_connected;
+  const canVoidPayment = !!data?.can_void_payment;
+  const canCorrectManualPayment = !!data?.can_correct_manual_payment;
   const [showRecord, setShowRecord] = useState(false);
   const [showAllocate, setShowAllocate] = useState(null); // payment row
   const [batching, setBatching]   = useState(false);
@@ -44,6 +46,8 @@ export default function PaymentsList() {
   const [batchInfo, setBatchInfo] = useState(null);
   const [bulkResult, setBulkResult] = useState(null);
   const [releaseRow, setReleaseRow] = useState({});
+  const [paymentAction, setPaymentAction] = useState(null);
+  const [paymentActionResult, setPaymentActionResult] = useState(null);
 
   const sel = useBulkSelection(rows.map(r => r.id));
   const autoSelectedRunRef = useRef('');
@@ -367,6 +371,13 @@ export default function PaymentsList() {
           {!!batchInfo.failed_items?.length && <> · {batchInfo.failed_items.length} failed: {batchInfo.failed_items.map(item => `#${item.payment_id}: ${item.error}`).join('; ')}</>}
         </p>
       )}
+      {paymentActionResult && (
+        <p className="success" data-testid="ap-payment-action-result">
+          {paymentActionResult.mode === 'correct' ? 'Manual payment corrected.' : 'Payment voided.'}
+          {paymentActionResult.result?.reversal_je_id && <>{' '}<Link to={`/modules/accounting/journal-entries/${paymentActionResult.result.reversal_je_id}`}>View reversal journal</Link>.</>}
+          {paymentActionResult.result?.bank_line_id && ' The bank line is ready for a new match.'}
+        </p>
+      )}
 
       {loading && <p>Loading…</p>}
       {error && <p className="error">Error: {error.message}</p>}
@@ -416,6 +427,7 @@ export default function PaymentsList() {
                   : '—'}
               </td>
               <td>
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                 {['draft', 'queued'].includes(p.status) && (
                   <button
                     className="btn btn--ghost"
@@ -486,6 +498,36 @@ export default function PaymentsList() {
                 )}
                 {purepayRow[p.id]?.error && <div className="error" data-testid={`ap-send-via-purepay-error-${p.id}`} style={{ fontSize: 11, marginTop: 4 }}>{purepayRow[p.id].error}</div>}
                 {purepayRow[p.id]?.ok && <div className="success" data-testid={`ap-send-via-purepay-ok-${p.id}`} style={{ fontSize: 11, marginTop: 4 }}>Submitted via Pure//Pay ({purepayRow[p.id].ref})</div>}
+                {canCorrectManualPayment && p.status === 'cleared'
+                  && !p.disbursement_rail && !p.rail_external_ref && !p.plaid_transfer_id && (
+                    <button className="btn btn--ghost" type="button"
+                      onClick={() => setPaymentAction({ payment: p, mode: 'correct' })}
+                      title="Review a linked correction of this manual payment"
+                      data-testid={`ap-payment-correct-${p.id}`}>
+                      <RotateCcw size={14} aria-hidden="true" /> Correct
+                    </button>
+                  )}
+                {canVoidPayment && ['draft', 'queued', 'sent', 'failed'].includes(p.status) && (
+                  <button className="btn btn--ghost" type="button"
+                    onClick={() => setPaymentAction({ payment: p, mode: 'void' })}
+                    title="Void this payment and release its bill reservation"
+                    data-testid={`ap-payment-void-${p.id}`}>
+                    <CircleX size={14} aria-hidden="true" /> Void
+                  </button>
+                )}
+                {p.journal_entry_id && (
+                  <Link to={`/modules/accounting/journal-entries/${p.journal_entry_id}`} className="btn btn--ghost"
+                    title="View the original payment journal" data-testid={`ap-payment-journal-${p.id}`}>
+                    <BookOpen size={14} aria-hidden="true" /> Journal
+                  </Link>
+                )}
+                {p.reversal_journal_entry_id && (
+                  <Link to={`/modules/accounting/journal-entries/${p.reversal_journal_entry_id}`} className="btn btn--ghost"
+                    title="View the reversing journal" data-testid={`ap-payment-reversal-${p.id}`}>
+                    <RotateCcw size={14} aria-hidden="true" /> Reversal
+                  </Link>
+                )}
+                </div>
               </td>
             </tr>
           ))}
@@ -509,6 +551,16 @@ export default function PaymentsList() {
 
       {showRecord && <RecordPaymentModal onClose={() => setShowRecord(false)} onCreated={() => { setShowRecord(false); reload(); }} plaidEnabled={plaidEnabled} mercuryEnabled={mercuryConnected} entityId={activeEntityId} />}
       {showAllocate && <AllocateModal payment={showAllocate} onClose={() => setShowAllocate(null)} onDone={() => { setShowAllocate(null); reload(); }} />}
+      {paymentAction && <PaymentActionModal
+        payment={paymentAction.payment}
+        mode={paymentAction.mode}
+        onClose={() => setPaymentAction(null)}
+        onDone={(result) => {
+          setPaymentActionResult({ mode: paymentAction.mode, result });
+          setPaymentAction(null);
+          reload();
+        }}
+      />}
     </section>
   );
 }
@@ -689,6 +741,78 @@ function AllocateModal({ payment, onClose, onDone }) {
             disabled={busy || (mode === 'manual' && (manualAllocations.length === 0 || manualTotal - Number(payment.unallocated_amount) > 0.005))}
             data-testid="ap-alloc-confirm"
           >{busy ? 'Allocating…' : 'Allocate'}</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function PaymentActionModal({ payment, mode, onClose, onDone }) {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const isCorrection = mode === 'correct';
+  const check = useApi(
+    isCorrection ? `/modules/ap/api/payments.php?action=correction_check&id=${payment.id}` : null,
+    { enabled: isCorrection },
+  );
+  const review = check.data?.review;
+
+  const submit = async () => {
+    setBusy(true); setError(null);
+    try {
+      const action = isCorrection ? 'correct_cleared' : 'void';
+      const result = await api.post(`/modules/ap/api/payments.php?action=${action}&id=${payment.id}`, { reason: reason.trim() });
+      onDone?.(result);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={modalOverlay} data-testid="ap-payment-action-modal"
+      onClick={(event) => event.target === event.currentTarget && !busy && onClose?.()}>
+      <div style={{ ...modalBox, borderRadius: 8 }} role="dialog" aria-modal="true" aria-labelledby="ap-payment-action-title">
+        <header style={modalHeader}>
+          <h3 id="ap-payment-action-title" style={{ margin: 0 }}>
+            {isCorrection ? 'Correct cleared payment' : 'Void payment'} #{payment.id}
+          </h3>
+          <p style={{ margin: '6px 0 0', color: 'var(--cf-text-secondary)', fontSize: 13 }}>
+            {payment.vendor_name} · {Number(payment.amount).toFixed(2)} {payment.currency}
+          </p>
+        </header>
+        <div style={{ padding: 20, display: 'grid', gap: 12 }}>
+          {isCorrection ? <>
+            {check.loading && <p className="muted">Checking the journal, bills and bank reconciliation…</p>}
+            {check.error && <p className="error">Could not review this payment: {check.error.message}</p>}
+            {check.data && !check.data.available && <p className="error">{check.data.reason}</p>}
+            {review && <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+              <div>Original journal #{review.original_je_id}</div>
+              <div>{review.bill_ids.length} bill{review.bill_ids.length === 1 ? '' : 's'} will reopen</div>
+              <div>{review.bank_line_id ? `Bank line #${review.bank_line_id} will become unmatched` : 'No bank line is matched'}</div>
+            </div>}
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+              This reverses the accounting record; it does not recall money from a bank or payment provider.
+            </p>
+          </> : <p style={{ margin: 0, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+            This cancels an unposted payment and releases its bill reservation. A payout already sent to a provider must be cancelled there first.
+          </p>}
+          <Field label="Reason">
+            <textarea className="input" rows={3} maxLength={500} value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="What needs to be corrected?" data-testid="ap-payment-action-reason" />
+          </Field>
+          {error && <p className="error" data-testid="ap-payment-action-error">{error.message}</p>}
+        </div>
+        <footer style={modalFooter}>
+          <button className="btn btn--ghost" type="button" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn btn--primary" type="button" onClick={submit}
+            disabled={busy || !reason.trim() || (isCorrection && !check.data?.available)}
+            data-testid="ap-payment-action-confirm">
+            {busy ? 'Saving…' : isCorrection ? 'Correct payment' : 'Void payment'}
+          </button>
         </footer>
       </div>
     </div>
