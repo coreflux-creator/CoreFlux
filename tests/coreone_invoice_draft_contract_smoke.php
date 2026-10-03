@@ -6,6 +6,7 @@ $root = dirname(__DIR__);
 require_once $root . '/core/accounting/coreone_invoices_v1.php';
 $route = (string) file_get_contents($root . '/api/coreone/v1/invoices.php');
 $service = (string) file_get_contents($root . '/core/accounting/coreone_invoices_v1.php');
+$documents = (string) file_get_contents($root . '/core/accounting/coreone_documents_v1.php');
 $credential = (string) file_get_contents($root . '/core/accounting/coreone_v1.php');
 $migration = (string) file_get_contents($root . '/core/migrations/154_coreone_document_requests.sql');
 $checks = [];
@@ -43,8 +44,9 @@ $check('entity is supplied by credential and draft uses shared Billing service',
     && !str_contains($route, 'billingNextInvoiceNumber('));
 $check('source ID has tenant-level unique key and atomically maps to invoice',
     str_contains($migration, 'UNIQUE KEY uq_coreone_source (tenant_id, source_type, source_record_id)')
-    && str_contains($service, 'SELECT entity_id, intent_hash FROM coreone_document_requests')
-    && str_contains($service, 'hash_equals('));
+    && str_contains($service, 'coreoneV1SubmitDocument(')
+    && str_contains($documents, 'SELECT entity_id, intent_hash FROM coreone_document_requests')
+    && str_contains($documents, 'hash_equals('));
 $cross = $body; $cross['entity_id'] = 2;
 $check('caller cannot override entity', $rejects(static fn() => coreoneV1NormalizeInvoiceDraft($identity, $cross)));
 $cross = $body; $cross['currency'] = 'EUR';
@@ -56,9 +58,9 @@ $check('taxable must be a boolean', $rejects(static fn() => coreoneV1NormalizeIn
 $cross = $body; $cross['lines'][0]['quantity'] = '0';
 $check('zero quantity is rejected', $rejects(static fn() => coreoneV1NormalizeInvoiceDraft($identity, $cross)));
 $check('fractional-cent parser is bounded to four places',
-    coreoneV1InvoiceDecimal4('0.0001', 'quantity', true) === '0.0001'
-    && $rejects(static fn() => coreoneV1InvoiceDecimal4('0.00001', 'quantity'))
-    && $rejects(static fn() => coreoneV1InvoiceDecimal4('-1', 'quantity')));
+    coreoneV1DocumentDecimal4('0.0001', 'quantity', true) === '0.0001'
+    && $rejects(static fn() => coreoneV1DocumentDecimal4('0.00001', 'quantity'))
+    && $rejects(static fn() => coreoneV1DocumentDecimal4('-1', 'quantity')));
 $check('route cannot approve, send or post invoices',
     !str_contains($route, 'billing.invoice.sent')
     && !str_contains($route, 'accountingPostJe(')

@@ -178,7 +178,10 @@ echo "\nLibrary source sanity\n";
 $libSrc = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/ap.php');
 $assert('aging includes 5 buckets',            strpos($libSrc, 'bucket_current') !== false && strpos($libSrc, 'bucket_91_plus') !== false);
 $assert('aging includes posted bills only',    strpos($libSrc, 'JOIN accounting_journal_entries je') !== false && strpos($libSrc, 'je.status = "posted"') !== false);
-$assert('aging reconstructs balance as of date', strpos($libSrc, 'p.pay_date <= :payment_as_of') !== false && strpos($libSrc, 'b.bill_date <= :document_as_of') !== false);
+$assert('aging reconstructs balance as of date',
+    strpos($libSrc, 'DATE(p.cleared_at) <= :payment_as_of') !== false
+    && strpos($libSrc, 'payment_je.posting_date <= :payment_posted_as_of') !== false
+    && strpos($libSrc, 'b.bill_date <= :document_as_of') !== false);
 $assert('1099 joins payments + allocations',   strpos($libSrc, 'FROM ap_payments p') !== false && strpos($libSrc, 'ap_payment_allocations a') !== false);
 $assert('1099 only counts cleared',            strpos($libSrc, 'p.status = "cleared"') !== false);
 $assert('1099 threshold is 600 default',       strpos($libSrc, '600.0') !== false);

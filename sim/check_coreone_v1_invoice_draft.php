@@ -91,7 +91,7 @@ try {
     $changed['lines'][0]['unit_price'] = '13.00';
     $checks['changed_intent_conflicts_without_editing_invoice'] = $rejects(
         static fn() => coreoneV1CreateInvoiceDraft($credential, $changed),
-        CoreOneInvoiceConflictException::class
+        CoreOneDocumentConflictException::class
     ) && (float) coreoneV1GetInvoiceDraft($credential, $sourceId)['total'] === 25.0;
 
     $pdo->prepare(
@@ -108,7 +108,7 @@ try {
         coreoneV1GetInvoiceDraft($secondCredential, $sourceId) === null;
     $checks['same_source_id_cannot_cross_entities'] = $rejects(
         static fn() => coreoneV1CreateInvoiceDraft($secondCredential, $body),
-        CoreOneInvoiceConflictException::class
+        CoreOneDocumentConflictException::class
     );
     $secondBody = $body;
     $secondBody['source_record_id'] = 'stage-invoice:second:' . bin2hex(random_bytes(8));

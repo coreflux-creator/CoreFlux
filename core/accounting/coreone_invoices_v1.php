@@ -2,27 +2,8 @@
 /** Entity-scoped CoreOne invoice drafts backed by the existing Billing service. */
 declare(strict_types=1);
 
-require_once __DIR__ . '/coreone_v1.php';
+require_once __DIR__ . '/coreone_documents_v1.php';
 require_once __DIR__ . '/../../modules/billing/lib/invoice_drafts.php';
-
-final class CoreOneInvoiceConflictException extends RuntimeException {}
-
-function coreoneV1InvoiceDecimal4(mixed $value, string $field, bool $positive = false): string
-{
-    if (!is_int($value) && !is_float($value) && !is_string($value)) {
-        throw new InvalidArgumentException("{$field} must be a nonnegative decimal with at most four places.");
-    }
-    $raw = (string) $value;
-    if (!preg_match('/^(?:0|[1-9][0-9]{0,7})(?:\.[0-9]{1,4})?$/D', $raw)) {
-        throw new InvalidArgumentException("{$field} must be a nonnegative decimal with at most four places.");
-    }
-    [$whole, $fraction] = array_pad(explode('.', $raw, 2), 2, '');
-    $scaled = (int) $whole * 10000 + (int) str_pad($fraction, 4, '0');
-    if ($positive && $scaled === 0) {
-        throw new InvalidArgumentException("{$field} must be greater than zero.");
-    }
-    return sprintf('%d.%04d', intdiv($scaled, 10000), $scaled % 10000);
-}
 
 function coreoneV1NormalizeInvoiceDraft(array $credential, array $body): array
 {
@@ -58,7 +39,7 @@ function coreoneV1NormalizeInvoiceDraft(array $credential, array $body): array
     if (($body['currency'] ?? null) !== (string) $credential['base_currency']) {
         throw new InvalidArgumentException('currency must match the entity base currency.');
     }
-    $taxRate = coreoneV1InvoiceDecimal4($body['tax_rate_pct'] ?? null, 'tax_rate_pct');
+    $taxRate = coreoneV1DocumentDecimal4($body['tax_rate_pct'] ?? null, 'tax_rate_pct');
     if ((float) $taxRate > 100) {
         throw new InvalidArgumentException('tax_rate_pct must be between 0 and 100.');
     }
@@ -97,8 +78,8 @@ function coreoneV1NormalizeInvoiceDraft(array $credential, array $body): array
         if (!is_bool($line['taxable'] ?? null)) {
             throw new InvalidArgumentException("Line {$index} needs a taxable boolean.");
         }
-        $quantity = coreoneV1InvoiceDecimal4($line['quantity'] ?? null, "lines[{$index}].quantity", true);
-        $unitPrice = coreoneV1InvoiceDecimal4($line['unit_price'] ?? null, "lines[{$index}].unit_price");
+        $quantity = coreoneV1DocumentDecimal4($line['quantity'] ?? null, "lines[{$index}].quantity", true);
+        $unitPrice = coreoneV1DocumentDecimal4($line['unit_price'] ?? null, "lines[{$index}].unit_price");
         $gross += (float) $quantity * (float) $unitPrice;
         if ($gross > 4999999999) {
             throw new InvalidArgumentException('Invoice total exceeds the supported amount.');
@@ -164,58 +145,15 @@ function coreoneV1CreateInvoiceDraft(array $credential, array $body): array
     $sourceId = $normalized['source_record_id'];
     $tenantId = (int) $credential['tenant_id'];
     $entityId = (int) $credential['entity_id'];
-    $hash = hash('sha256', json_encode($normalized, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
-    $pdo = getDB();
-    $owns = !$pdo->inTransaction();
-    if ($owns) $pdo->beginTransaction();
-    try {
-        try {
-            $reserve = $pdo->prepare(
-                'INSERT INTO coreone_document_requests
-                    (tenant_id, entity_id, source_type, source_record_id, intent_hash, target_id, credential_id)
-                 VALUES (:t, :e, "billing.invoice", :source_id, :intent_hash, 0, :credential_id)'
-            );
-            $reserve->execute(['t' => $tenantId, 'e' => $entityId,
-                'source_id' => $sourceId, 'intent_hash' => $hash,
-                'credential_id' => (int) $credential['id']]);
-            $created = true;
-        } catch (PDOException $e) {
-            if ($e->getCode() !== '23000') throw $e;
-            $created = false;
-        }
-        if (!$created) {
-            $existing = $pdo->prepare(
-                'SELECT entity_id, intent_hash FROM coreone_document_requests
-                  WHERE tenant_id = :t AND source_type = "billing.invoice"
-                    AND source_record_id = :source_id FOR UPDATE'
-            );
-            $existing->execute(['t' => $tenantId, 'source_id' => $sourceId]);
-            $prior = $existing->fetch(PDO::FETCH_ASSOC);
-            if (!$prior || (int) $prior['entity_id'] !== $entityId
-                || !hash_equals((string) $prior['intent_hash'], $hash)) {
-                throw new CoreOneInvoiceConflictException('Source ID already exists with different invoice details.');
+    $result = coreoneV1SubmitDocument($credential, 'billing.invoice', $sourceId, $normalized,
+        static function () use ($tenantId, $entityId, $normalized): int {
+            $draft = billingCreateDirectInvoiceDraft($tenantId,
+                array_merge($normalized, ['entity_id' => $entityId]), null);
+            if ((float) $draft['total'] <= 0) {
+                throw new RuntimeException('Billing did not produce a positive draft invoice.');
             }
-            $invoice = coreoneV1GetInvoiceDraft($credential, $sourceId);
-            if (!$invoice) throw new RuntimeException('Existing CoreOne invoice source has no Billing document.');
-            if ($owns) $pdo->commit();
-            return ['invoice' => $invoice, 'idempotent_replay' => true];
-        }
-        $draft = billingCreateDirectInvoiceDraft($tenantId,
-            array_merge($normalized, ['entity_id' => $entityId]), null);
-        $pdo->prepare(
-            'UPDATE coreone_document_requests SET target_id = :invoice_id
-              WHERE tenant_id = :t AND entity_id = :e
-                AND source_type = "billing.invoice" AND source_record_id = :source_id'
-        )->execute(['invoice_id' => (int) $draft['id'], 't' => $tenantId,
-            'e' => $entityId, 'source_id' => $sourceId]);
-        $invoice = coreoneV1GetInvoiceDraft($credential, $sourceId);
-        if (!$invoice || $invoice['status'] !== 'draft' || (float) $invoice['total'] <= 0) {
-            throw new RuntimeException('Billing did not produce a valid draft invoice.');
-        }
-        if ($owns) $pdo->commit();
-        return ['invoice' => $invoice, 'idempotent_replay' => false];
-    } catch (Throwable $e) {
-        if ($owns && $pdo->inTransaction()) $pdo->rollBack();
-        throw $e;
-    }
+            return (int) $draft['id'];
+        },
+        static fn(string $id): ?array => coreoneV1GetInvoiceDraft($credential, $id));
+    return ['invoice' => $result['record'], 'idempotent_replay' => $result['idempotent_replay']];
 }

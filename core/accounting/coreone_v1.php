@@ -10,7 +10,7 @@ const COREONE_V1_PROTECTED_ACCOUNTS = [
     '2150', '2200', '2210', '2220', '2300', '2500',
 ];
 const COREONE_V1_DEFAULT_SCOPES = ['journals:write', 'reports:read'];
-const COREONE_V1_ALLOWED_SCOPES = ['journals:write', 'reports:read', 'invoices:draft'];
+const COREONE_V1_ALLOWED_SCOPES = ['journals:write', 'reports:read', 'invoices:draft', 'bills:prepare'];
 
 function coreoneV1IssueCredential(int $tenantId, int $entityId, string $label,
     int $days, ?int $actorUserId, ?array $scopes = null): array

@@ -22,6 +22,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/StorageService.php';
 require_once __DIR__ . '/../../../core/storage_register.php';
 require_once __DIR__ . '/../lib/ap.php';
+require_once __DIR__ . '/../lib/bill_drafts.php';
 require_once __DIR__ . '/../lib/pwp.php';
 require_once __DIR__ . '/../lib/workflow_bridge.php';
 
@@ -692,132 +693,16 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
 if ($method === 'POST' && $action === '') {
     rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
-    api_require_fields($body, ['vendor_name', 'lines']);
-    if (empty($body['lines']) || !is_array($body['lines'])) api_error('lines must be a non-empty array', 422);
-
-    $pdo = getDB();
-    $taxStmt = $pdo->prepare('SELECT ap_default_terms FROM tenants WHERE id = :id');
-    $taxStmt->execute(['id' => $tid]);
-    $cfg = $taxStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-    $netDays = preg_match('/^NET(\d+)$/i', (string) ($cfg['ap_default_terms'] ?? 'NET30'), $m) ? (int) $m[1] : 30;
-
-    // Per-vendor override: if the companies row (or ap_vendors_index) has
-    // a non-null payment_terms_days, use that. Look up by vendor_company_id
-    // first; fall back to name match.
     try {
-        $vc = !empty($body['vendor_company_id']) ? (int) $body['vendor_company_id'] : 0;
-        if ($vc > 0) {
-            $vt = $pdo->prepare("SELECT payment_terms_days FROM companies WHERE tenant_id = :t AND id = :id AND payment_terms_days IS NOT NULL LIMIT 1");
-            $vt->execute(['t' => $tid, 'id' => $vc]);
-            $perVendor = $vt->fetchColumn();
-        } else {
-            $vt = $pdo->prepare("SELECT payment_terms_days FROM companies WHERE tenant_id = :t AND name = :n AND payment_terms_days IS NOT NULL LIMIT 1");
-            $vt->execute(['t' => $tid, 'n' => (string) $body['vendor_name']]);
-            $perVendor = $vt->fetchColumn();
-        }
-        if ($perVendor !== false && $perVendor !== null && (int) $perVendor > 0) {
-            $netDays = (int) $perVendor;
-        }
-    } catch (\Throwable $_) { /* companies.payment_terms_days may not exist yet — fall through */ }
-    $taxPct  = (float) ($body['tax_rate_pct'] ?? 0);
-
-    $computed = apComputeTotals($body['lines'], $taxPct);
-    try {
-        $issuingEntity = activeEntityResolveForTenant(
-            $tid,
-            !empty($body['entity_id']) ? (int) $body['entity_id'] : null
-        );
-    } catch (\Throwable $e) {
+        $created = apCreateManualBill($tid, $body, $user['id'] ?? null);
+    } catch (\InvalidArgumentException $e) {
         api_error($e->getMessage(), 422);
+    } catch (\DomainException $e) {
+        api_error($e->getMessage(), 409);
     }
-    if (!$issuingEntity) api_error('An active issuing entity is required', 422);
-
-    cf_begin_transaction();
-    try {
-        $internalRef = apNextInternalRef($tid);
-        $vendorType = (string) ($body['vendor_type'] ?? 'other');
-        $vendorCompanyId = !empty($body['vendor_company_id']) ? (int) $body['vendor_company_id'] : null;
-        if (!$vendorCompanyId && in_array($vendorType, ['c2c_corp','w9_business','utility','other'], true)) {
-            require_once __DIR__ . '/../../people/lib/companies.php';
-            $vendorCompanyId = companiesUpsertByName($tid, (string) $body['vendor_name'], [
-                'created_by_user_id' => $user['id'] ?? null,
-            ], ['vendor']);
-            companiesBumpUsage($vendorCompanyId);
-        }
-        $billId = scopedInsert('ap_bills', [
-            'tenant_id'         => $tid,
-            'bill_number'       => (string) ($body['bill_number'] ?? $internalRef),
-            'internal_ref'      => $internalRef,
-            'vendor_name'       => (string) $body['vendor_name'],
-            'vendor_company_id' => $vendorCompanyId,
-            'vendor_type'       => $vendorType,
-            'received_at'       => (string) ($body['received_at'] ?? date('Y-m-d')),
-            'bill_date'         => (string) ($body['bill_date']   ?? date('Y-m-d')),
-            'due_date'          => (string) ($body['due_date']    ?? date('Y-m-d', strtotime("+{$netDays} days"))),
-            'currency'          => (string) ($body['currency']    ?? 'USD'),
-            'po_number'         => $body['po_number']     ?? null,
-            'placement_id'      => !empty($body['placement_id']) ? (int) $body['placement_id'] : null,
-            'entity_id'         => (int) $issuingEntity['id'],
-            'notes_internal'    => $body['notes_internal'] ?? null,
-            'subtotal'          => $computed['subtotal'],
-            'tax_total'         => $computed['tax_total'],
-            'total'             => $computed['total'],
-            'amount_due'        => $computed['total'],
-            'status'            => 'pending_approval',
-            'source'            => 'manual',
-            'created_by_user_id'=> $user['id'] ?? null,
-        ]);
-        $pdo->prepare(
-            'INSERT INTO ap_vendors_index
-                (tenant_id, vendor_name, company_id, vendor_type, requires_1099, last_bill_at, placement_id_last)
-             VALUES (:tenant_id, :vendor_name, :company_id, :vendor_type, :requires_1099, NOW(), :placement_id)
-             ON DUPLICATE KEY UPDATE
-                company_id = COALESCE(VALUES(company_id), company_id),
-                vendor_type = VALUES(vendor_type),
-                requires_1099 = GREATEST(requires_1099, VALUES(requires_1099)),
-                last_bill_at = NOW(),
-                placement_id_last = COALESCE(VALUES(placement_id_last), placement_id_last)'
-        )->execute([
-            'tenant_id' => $tid,
-            'vendor_name' => (string) $body['vendor_name'],
-            'company_id' => $vendorCompanyId,
-            'vendor_type' => $vendorType,
-            'requires_1099' => $vendorType === '1099_individual' ? 1 : 0,
-            'placement_id' => !empty($body['placement_id']) ? (int) $body['placement_id'] : null,
-        ]);
-        $line_no = 1;
-        foreach ($computed['lines'] as $l) {
-            $stmt = $pdo->prepare(
-                'INSERT INTO ap_bill_lines
-                  (bill_id, line_no, source_type, item_type, description, quantity, unit, unit_price,
-                   subtotal, tax_rate_pct, tax_amount, total, gl_expense_account_code, is_1099_eligible)
-                 VALUES
-                  (:bill_id, :line_no, "manual", :item_type, :description, :quantity, :unit, :unit_price,
-                   :subtotal, :tax_rate_pct, :tax_amount, :total, :gl, :is_1099)'
-            );
-            $stmt->execute([
-                'bill_id'     => $billId,
-                'line_no'     => $line_no++,
-                'item_type'   => apNormalizeItemType($l['item_type'] ?? null, 'manual'),
-                'description' => $l['description'] ?? '',
-                'quantity'    => $l['quantity']    ?? 0,
-                'unit'        => $l['unit']        ?? 'each',
-                'unit_price'  => $l['unit_price']  ?? 0,
-                'subtotal'    => $l['subtotal'],
-                'tax_rate_pct'=> $l['tax_rate_pct'],
-                'tax_amount'  => $l['tax_amount'],
-                'total'       => $l['total'],
-                'gl'          => $l['gl_expense_account_code'] ?? null,
-                'is_1099'     => !empty($l['is_1099_eligible']) ? 1 : 0,
-            ]);
-        }
-        apAudit('ap.bill.created', ['bill_id' => $billId, 'internal_ref' => $internalRef, 'source' => 'manual'], $billId);
-        $pdo->commit();
-    } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        throw $e;
-    }
-    api_ok(['id' => $billId, 'internal_ref' => $internalRef], 201);
+    apAudit('ap.bill.created', ['bill_id' => $created['id'],
+        'internal_ref' => $created['internal_ref'], 'source' => 'manual'], $created['id']);
+    api_ok(['id' => $created['id'], 'internal_ref' => $created['internal_ref']], 201);
 }
 
 if ($method === 'PATCH') {
