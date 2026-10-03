@@ -75,6 +75,10 @@ $proc = (string) file_get_contents("{$ROOT}/core/posting_engine/process.php");
 $assert('parses',                          $lint("{$ROOT}/core/posting_engine/process.php"));
 $assert('exposes accountingProcessEvent',  strpos($proc, 'function accountingProcessEvent') !== false);
 $assert('dryRun parameter',                strpos($proc, 'bool $dryRun = false') !== false);
+$assert('event engine owns its transaction unless caller already does',
+    str_contains($proc, '$ownsTransaction = cf_tx_begin($pdo)')
+    && str_contains($proc, 'cf_tx_commit($pdo, $ownsTransaction)')
+    && str_contains($proc, 'cf_tx_rollback($pdo, $ownsTransaction)'));
 $assert('idempotent replay path',          strpos($proc, "'idempotent_replay' => true") !== false);
 $assert('writes subledger_links on post',  strpos($proc, 'INSERT IGNORE INTO accounting_subledger_links') !== false);
 $assert('uses formula evaluator',          strpos($proc, 'formulaEvaluate') !== false);
@@ -96,6 +100,15 @@ $assert('balanced-line guard (no double dr+cr)',
 $assert('negative-amount guard',           strpos($proc, 'produced negative amount') !== false);
 $assert('unique-key idempotency replay',
     strpos($proc, "errorInfo[1]") !== false && strpos($proc, '1062') !== false);
+$assert('duplicate event preserves source intent',
+    str_contains($proc, 'AccountingEventConflictException')
+    && str_contains($proc, "SELECT id, entity_id, event_date, payload, status, journal_entry_id")
+    && str_contains($proc, '$originalPayload != $payload'));
+$assert('replay refreshes selected posting rule',
+    str_contains($proc, 'posting_rule_id=:rid')
+    && str_contains($proc, 'posting_rule_id=NULL'));
+$assert('reversed journal cannot be revived by event replay',
+    str_contains($proc, '($posted[\'status\'] ?? \'\') !== \'posted\''));
 $assert('marks status=ignored on no rule',
                                            strpos($proc, "no posting rule matched") !== false);
 $assert('marks status=failed on render error',
@@ -130,6 +143,11 @@ $assert('retry preserves event identity and locks it through posting',
     && str_contains($api, '$pdo->commit()')
     && !str_contains($api, 'DELETE FROM accounting_events'));
 $assert('dry_run honoured on create',      strpos($api, "api_query('dry_run')") !== false);
+$assert('direct event posting commits event, journal and source link together',
+    str_contains($api, 'if ($dryRun) api_ok(')
+    && str_contains($api, '$result = accountingProcessEvent($tid, $event, $user[\'id\'] ?? null);')
+    && str_contains($api, 'catch (AccountingEventConflictException $e)')
+    && str_contains($api, 'api_error($e->getMessage(), 409);'));
 $assert('sandbox returns failed-on-throwable, not 500',
     strpos($api, "'status' => 'failed'") !== false
     && strpos($api, '$e->getMessage()') !== false);

@@ -172,7 +172,21 @@ if ($method === 'POST') {
         'payload'          => is_array($body['payload']) ? $body['payload'] : [],
     ];
     $dryRun = !empty(api_query('dry_run'));
-    api_ok(accountingProcessEvent($tid, $event, $user['id'] ?? null, $dryRun));
+    if ($dryRun) api_ok(accountingProcessEvent($tid, $event, $user['id'] ?? null, true));
+
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        $result = accountingProcessEvent($tid, $event, $user['id'] ?? null);
+        $pdo->commit();
+        api_ok($result);
+    } catch (AccountingEventConflictException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 409);
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
 }
 
 api_error('Method not allowed', 405);

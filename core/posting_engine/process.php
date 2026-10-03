@@ -20,9 +20,9 @@
  *
  * Idempotency
  *   - The (tenant_id, source_module, source_record_id, event_type)
- *     unique key on accounting_events guarantees a given source record's
- *     event is processed at most once. Re-calling process on a
- *     status='posted' event is a no-op.
+ *     unique key on accounting_events preserves one event identity per
+ *     source. Exact posted replays are no-ops; failed/ignored events may
+ *     be retried, but changed source intent is rejected.
  *
  * Dry run
  *   - When $dryRun=true, the engine renders the JE shape and returns it
@@ -36,6 +36,8 @@ require_once __DIR__ . '/formula.php';
 require_once __DIR__ . '/../accounting/system_accounts.php';
 require_once __DIR__ . '/../../modules/accounting/lib/accounting.php';
 
+class AccountingEventConflictException extends \RuntimeException {}
+
 /**
  * @param array $event { entity_id, event_type, source_module,
  *                       source_record_id, event_date, payload }
@@ -46,6 +48,24 @@ require_once __DIR__ . '/../../modules/accounting/lib/accounting.php';
  * }
  */
 function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId = null, bool $dryRun = false): array {
+    if ($dryRun) {
+        return accountingProcessEventInner($tenantId, $event, $actorUserId, true);
+    }
+
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('no DB');
+    $ownsTransaction = cf_tx_begin($pdo);
+    try {
+        $result = accountingProcessEventInner($tenantId, $event, $actorUserId, false);
+        cf_tx_commit($pdo, $ownsTransaction);
+        return $result;
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTransaction);
+        throw $e;
+    }
+}
+
+function accountingProcessEventInner(int $tenantId, array $event, ?int $actorUserId, bool $dryRun): array {
     foreach (['entity_id', 'event_type', 'source_module', 'source_record_id', 'event_date', 'payload'] as $req) {
         if (!array_key_exists($req, $event)) {
             throw new \InvalidArgumentException("event is missing '{$req}'");
@@ -106,9 +126,9 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
             // either return its existing posted result or re-attempt.
             if ((int) $e->errorInfo[1] === 1062) {
                 $sel = $pdo->prepare(
-                    'SELECT id, status, journal_entry_id FROM accounting_events
+                    'SELECT id, entity_id, event_date, payload, status, journal_entry_id FROM accounting_events
                       WHERE tenant_id = :t AND source_module = :sm
-                        AND source_record_id = :sr AND event_type = :et'
+                        AND source_record_id = :sr AND event_type = :et FOR UPDATE'
                 );
                 $sel->execute([
                     't' => $tenantId, 'sm' => $event['source_module'],
@@ -116,7 +136,18 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
                     'et' => $event['event_type'],
                 ]);
                 $existing = $sel->fetch(\PDO::FETCH_ASSOC);
-                if ($existing && $existing['status'] === 'posted') {
+                if (!$existing) {
+                    throw new \RuntimeException('Event source key collided without an event row');
+                }
+                $originalPayload = json_decode((string) $existing['payload'], true);
+                if ((int) $existing['entity_id'] !== (int) $event['entity_id']
+                    || (string) $existing['event_date'] !== (string) $event['event_date']
+                    || !is_array($originalPayload) || $originalPayload != $payload) {
+                    throw new AccountingEventConflictException(
+                        'Event source ID already exists with different entity, date, or payload'
+                    );
+                }
+                if ($existing['status'] === 'posted') {
                     return [
                         'status' => 'posted',
                         'event_id' => (int) $existing['id'],
@@ -124,7 +155,12 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
                         'idempotent_replay' => true,
                     ];
                 }
-                $eventId = $existing ? (int) $existing['id'] : null;
+                if (!in_array($existing['status'], ['received', 'failed', 'ignored'], true)) {
+                    throw new AccountingEventConflictException(
+                        "Cannot reprocess event in status {$existing['status']}"
+                    );
+                }
+                $eventId = (int) $existing['id'];
             } else {
                 throw $e;
             }
@@ -135,7 +171,7 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
     if (!$rule) {
         if ($eventId) {
             // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-            $pdo->prepare('UPDATE accounting_events SET status="ignored", error_message=:m WHERE id = :id')
+            $pdo->prepare('UPDATE accounting_events SET status="ignored", posting_rule_id=NULL, error_message=:m WHERE id = :id')
                 ->execute(['m' => 'no posting rule matched', 'id' => $eventId]);
         }
         return [
@@ -151,8 +187,8 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
     } catch (\Throwable $e) {
         if ($eventId) {
             // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-            $pdo->prepare('UPDATE accounting_events SET status="failed", error_message=:m WHERE id = :id')
-                ->execute(['m' => $e->getMessage(), 'id' => $eventId]);
+            $pdo->prepare('UPDATE accounting_events SET status="failed", posting_rule_id=:rid, error_message=:m WHERE id = :id')
+                ->execute(['rid' => (int) $rule['id'], 'm' => $e->getMessage(), 'id' => $eventId]);
         }
         return [
             'status' => 'failed',
@@ -179,10 +215,13 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
         $rendered['idempotency_key'] = sprintf('event_%d_%d', $tenantId, $eventId);
         $rendered['source_module'] = (string) $event['source_module'];
         $posted = accountingPostJe($tenantId, $rendered, $actorUserId, /* post */ true);
+        if (($posted['status'] ?? '') !== 'posted') {
+            throw new \RuntimeException('Event journal is no longer posted; review its correction before retrying');
+        }
     } catch (\Throwable $e) {
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $pdo->prepare('UPDATE accounting_events SET status="failed", error_message=:m WHERE id = :id')
-            ->execute(['m' => $e->getMessage(), 'id' => $eventId]);
+        $pdo->prepare('UPDATE accounting_events SET status="failed", posting_rule_id=:rid, error_message=:m WHERE id = :id')
+            ->execute(['rid' => (int) $rule['id'], 'm' => $e->getMessage(), 'id' => $eventId]);
 
         // Phase 1d — surface the failure on the unified exception queue
         // so it shows up in the operator's inbox.
@@ -215,9 +254,10 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare(
         'UPDATE accounting_events
-            SET status="posted", journal_entry_id=:je, posted_at=NOW(), error_message=NULL
+            SET status="posted", journal_entry_id=:je, posting_rule_id=:rid,
+                posted_at=NOW(), error_message=NULL
           WHERE id=:id'
-    )->execute(['je' => $posted['je_id'], 'id' => $eventId]);
+    )->execute(['je' => $posted['je_id'], 'rid' => (int) $rule['id'], 'id' => $eventId]);
 
     $linkStmt = $pdo->prepare(
         'INSERT IGNORE INTO accounting_subledger_links
