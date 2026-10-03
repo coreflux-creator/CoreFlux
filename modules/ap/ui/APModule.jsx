@@ -37,7 +37,7 @@ const navItems = [
   { to: '/modules/ap/settings',         label: 'Settings' },
 ];
 
-export default function APModule() {
+export default function APModule({ session }) {
   return (
     <div className="people-directory" data-testid="ap-module">
       <header className="module-workspace-header">
@@ -49,10 +49,10 @@ export default function APModule() {
 
       <Routes>
         <Route index element={<Navigate to="bills" replace />} />
-        <Route path="bills" element={<BillsList />} />
+        <Route path="bills" element={<BillsList session={session} />} />
         <Route path="bills/csv_import" element={<BillsCsvImport />} />
         <Route path="bills/new" element={<BillCreate />} />
-        <Route path="bills/:id" element={<BillDetail />} />
+        <Route path="bills/:id" element={<BillDetail session={session} />} />
         <Route path="weekly-queue" element={<WeeklyQueue />} />
         <Route path="payments" element={<PaymentsList />} />
         <Route path="payments/csv_import" element={<PaymentsCsvImport />} />

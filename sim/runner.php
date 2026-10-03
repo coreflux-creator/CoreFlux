@@ -249,7 +249,8 @@ if (!$dryRun && $runId) {
 echo sprintf("▶ %s in %dms — %d events, %d JEs, %d/%d assertions failed\n",
     $status, $duration, $ctx['metrics']['events_emitted'], $ctx['metrics']['je_posted'],
     count($failed), count($assertions));
-foreach ($failed as $a) echo "  ✗ " . $a['name'] . "\n";
+foreach ($failed as $a) echo "  ✗ " . $a['name'] . ': '
+    . json_encode($a['details'] ?? null, JSON_UNESCAPED_SLASHES) . "\n";
 
 exit($status === 'passed' ? 0 : 1);
 
@@ -517,6 +518,14 @@ function simStepCreateApBill(array &$ctx, array $step): void {
     $pdo = getDB();
     $pdo->beginTransaction();
     try {
+        $pdo->prepare(
+            'INSERT INTO ap_vendors_index (tenant_id, vendor_name, vendor_type, last_bill_at)
+             VALUES (:tenant_id, :vendor_name, "other", :last_bill_at)
+             ON DUPLICATE KEY UPDATE last_bill_at = COALESCE(last_bill_at, VALUES(last_bill_at))'
+        )->execute([
+            'tenant_id' => $ctx['tenant_id'], 'vendor_name' => $vendor,
+            'last_bill_at' => simNow('Y-m-d H:i:s'),
+        ]);
         $find = $pdo->prepare(
             'SELECT id, bill_number, vendor_name, total FROM ap_bills
               WHERE tenant_id = :tenant_id AND internal_ref = :internal_ref FOR UPDATE'

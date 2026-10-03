@@ -107,7 +107,8 @@ $assert('manual bill liability retains canonical vendor dimension',
     str_contains($apPost, "'vendor' => \$documentVendorDimension")
     && str_contains($apPost, "!isset(\$documentDimensions['vendor'])"));
 $assert('AP documents resolve and persist an issuing entity',
-    str_contains($apPost, 'activeEntityResolveForTenant(')
+    str_contains($apPost, "require_once __DIR__ . '/../../../core/active_entity.php';")
+    && str_contains($apPost, 'activeEntityResolveForTenant(')
     && str_contains($apPost, 'UPDATE ap_bills SET entity_id'));
 $assert('billing documents repair legacy missing entity ownership',
     str_contains($billingPost, 'activeEntityResolveForTenant(')

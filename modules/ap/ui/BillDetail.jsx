@@ -6,15 +6,18 @@ import IntercompanySplitDialog from '../../../dashboard/src/components/Intercomp
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 import ThreeWayMatchPanel from './ThreeWayMatchPanel';
 import BillApprovalThread from './BillApprovalThread';
+import { Pencil } from 'lucide-react';
 
 const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 
-export default function BillDetail() {
+export default function BillDetail({ session }) {
   const { id } = useParams();
   const { data, loading, error, reload } = useApi(`/modules/ap/api/bills.php?id=${id}`);
   const [busy, setBusy] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [icSplitOpen, setIcSplitOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState(null);
 
   if (loading) return <p>Loading…</p>;
   if (error)   return <p className="error" data-testid="ap-bill-detail-error">Error: {error.message}</p>;
@@ -24,10 +27,19 @@ export default function BillDetail() {
   const lines = data.lines || [];
   const allocations = data.allocations || [];
 
-  const canApprove = ['pending_review','pending_approval'].includes(bill.status);
-  const canDispute = ['pending_review','pending_approval','approved'].includes(bill.status);
-  const canVoid    = bill.status !== 'void';
+  const createdByCurrentUser = Number(session?.user?.id) > 0
+    && Number(bill.created_by_user_id) === Number(session.user.id);
+  const canApprove = ['pending_review','pending_approval'].includes(bill.status)
+    && !createdByCurrentUser;
+  const hasAccountingActivity = Boolean(bill.journal_entry_id)
+    || Number(bill.amount_paid) > 0.005 || allocations.length > 0;
+  const canDispute = ['pending_review','pending_approval','approved'].includes(bill.status)
+    && !hasAccountingActivity;
+  const canVoid    = bill.status !== 'void' && !hasAccountingActivity
+    && !['partially_paid', 'paid'].includes(bill.status);
   const canPost    = ['approved','partially_paid','paid'].includes(bill.status) && !bill.journal_entry_id;
+  const canEdit    = ['inbox','pending_review','pending_approval'].includes(bill.status)
+    && !hasAccountingActivity;
 
   const run = async (label, fn) => {
     setBusy(label); setActionError(null);
@@ -47,6 +59,24 @@ export default function BillDetail() {
     run('dispute', () => api.post(`/modules/ap/api/bills.php?action=dispute&id=${id}`, { reason }));
   };
   const postGl  = () => run('post', () => api.post(`/modules/ap/api/bills.php?action=post&id=${id}`, {}));
+  const startEdit = () => {
+    setEditForm({
+      bill_number: bill.bill_number || '',
+      bill_date: bill.bill_date || '',
+      due_date: bill.due_date || '',
+      po_number: bill.po_number || '',
+      notes_internal: bill.notes_internal || '',
+    });
+    setActionError(null);
+    setEditing(true);
+  };
+  const saveDetails = (event) => {
+    event.preventDefault();
+    run('edit', async () => {
+      await api.patch(`/modules/ap/api/bills.php?id=${id}`, editForm);
+      setEditing(false);
+    });
+  };
 
   return (
     <section data-testid="ap-bill-detail">
@@ -62,6 +92,7 @@ export default function BillDetail() {
           <span className={`badge badge--${bill.status}`}>{statusLabel(bill.status)}</span>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {canEdit && <button className="btn btn--ghost" onClick={startEdit} disabled={busy === 'edit'} data-testid="ap-bill-edit"><Pencil size={15} aria-hidden="true" /> Edit details</button>}
           {canApprove && <button className="btn btn--primary" onClick={approve} disabled={busy==='approve'} data-testid="ap-bill-approve">{busy==='approve' ? 'Approving…' : 'Approve'}</button>}
           {canPost    && <button className="btn btn--ghost" onClick={postGl} disabled={busy==='post'} data-testid="ap-bill-post">{busy==='post' ? 'Posting…' : 'Post to GL'}</button>}
           {canPost    && <button className="btn btn--ghost" onClick={() => setIcSplitOpen(true)} data-testid="ap-bill-post-ic-split">⊕ Post with IC split</button>}
@@ -69,6 +100,28 @@ export default function BillDetail() {
           {canVoid    && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="ap-bill-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}
         </div>
       </div>
+
+      {createdByCurrentUser && ['pending_review','pending_approval'].includes(bill.status) && (
+        <p className="operational-state" data-testid="ap-bill-two-eye-note">Another authorized user must approve this bill.</p>
+      )}
+      {hasAccountingActivity && bill.status !== 'void' && (
+        <p className="operational-state" data-testid="ap-bill-correction-note">Posted and paid bills need a linked accounting or payment correction; they cannot be voided here.</p>
+      )}
+      {editing && editForm && (
+        <form onSubmit={saveDetails} data-testid="ap-bill-edit-form" style={{ marginBottom: 'var(--cf-space-4)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+            <label>Vendor bill #<input className="input" value={editForm.bill_number} onChange={e => setEditForm({ ...editForm, bill_number: e.target.value })} /></label>
+            <label>Bill date<input className="input" type="date" required value={editForm.bill_date} onChange={e => setEditForm({ ...editForm, bill_date: e.target.value })} /></label>
+            <label>Due date<input className="input" type="date" required value={editForm.due_date} onChange={e => setEditForm({ ...editForm, due_date: e.target.value })} /></label>
+            <label>PO #<input className="input" value={editForm.po_number} onChange={e => setEditForm({ ...editForm, po_number: e.target.value })} /></label>
+          </div>
+          <label>Internal notes<textarea className="input" value={editForm.notes_internal} onChange={e => setEditForm({ ...editForm, notes_internal: e.target.value })} /></label>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button className="btn btn--primary" type="submit" disabled={busy === 'edit'}>{busy === 'edit' ? 'Saving…' : 'Save changes'}</button>
+            <button className="btn btn--ghost" type="button" onClick={() => setEditing(false)} disabled={busy === 'edit'}>Cancel</button>
+          </div>
+        </form>
+      )}
 
       {bill.status === 'disputed' && bill.dispute_reason && (
         <p className="error" data-testid="ap-bill-disputed-reason" style={{ marginBottom: 12 }}>Disputed: {bill.dispute_reason}</p>
@@ -111,7 +164,7 @@ export default function BillDetail() {
           onClose={() => setIcSplitOpen(false)}
           onPosted={() => { setIcSplitOpen(false); reload(); }}
           amount={Number(bill.total)}
-          sourceEntityId={1}
+          sourceEntityId={Number(bill.entity_id)}
           sourceOffsetAccountCode="2000"
           sourceOffsetSide="credit"
           defaultMemo={`AP Bill ${bill.internal_ref} / ${bill.vendor_name}`}

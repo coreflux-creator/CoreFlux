@@ -706,8 +706,8 @@ function apComputeTotals(array $lines, float $taxPct = 0.0): array
  *  - pending_review → pending_approval | void | disputed
  *  - pending_approval → approved | void | disputed
  *  - approved → partially_paid | paid | void | disputed
- *  - partially_paid → paid | void
- *  - paid → void (with reason; A0 permissive)
+ *  - partially_paid → paid
+ *  - paid → terminal until a controlled payment/accounting correction exists
  *  - disputed → pending_approval | void
  *  - void → (terminal)
  */
@@ -718,13 +718,41 @@ function apBillTransitionAllowed(string $from, string $to): bool
         'pending_review'    => ['pending_approval','void','disputed'],
         'pending_approval'  => ['approved','void','disputed'],
         'approved'          => ['partially_paid','paid','void','disputed'],
-        'partially_paid'    => ['paid','void'],
-        'paid'              => ['void'],
+        'partially_paid'    => ['paid'],
+        'paid'              => [],
         'disputed'          => ['pending_approval','void'],
         'void'              => [],
     ];
     if (!isset($allowed[$from])) return false;
     return in_array($to, $allowed[$from], true);
+}
+
+/** A bill with any ledger or payment lineage needs source-level correction. */
+function apBillHasLedgerOrPaymentActivity(\PDO $pdo, int $tenantId, array $bill): bool
+{
+    if (!empty($bill['journal_entry_id']) || (float) ($bill['amount_paid'] ?? 0) > 0.005) return true;
+    $billId = (int) ($bill['id'] ?? 0);
+    if ($billId <= 0) return false;
+
+    $allocations = $pdo->prepare('SELECT 1 FROM ap_payment_allocations WHERE bill_id = :bill_id LIMIT 1');
+    $allocations->execute(['bill_id' => $billId]);
+    if ($allocations->fetchColumn()) return true;
+
+    $journals = $pdo->prepare(
+        'SELECT 1 FROM accounting_journal_entries
+          WHERE tenant_id = :tenant_id AND source_module = "ap"
+            AND source_ref_type = "ap_bill" AND source_ref_id = :bill_id LIMIT 1'
+    );
+    $journals->execute(['tenant_id' => $tenantId, 'bill_id' => $billId]);
+    if ($journals->fetchColumn()) return true;
+
+    $links = $pdo->prepare(
+        'SELECT 1 FROM accounting_subledger_links
+          WHERE tenant_id = :tenant_id AND source_module = "ap"
+            AND source_record_id = :source_record_id LIMIT 1'
+    );
+    $links->execute(['tenant_id' => $tenantId, 'source_record_id' => 'ap_bill:' . $billId]);
+    return (bool) $links->fetchColumn();
 }
 
 /**

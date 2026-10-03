@@ -196,7 +196,7 @@ function simInvariantCustomerBalanceMatchesGL(\PDO $pdo, int $tenantId): array {
            FROM accounting_journal_entry_lines l
            JOIN accounting_journal_entries je ON je.id = l.je_id
            JOIN accounting_accounts a         ON a.id  = l.account_id
-          WHERE je.tenant_id = :t AND je.status = "posted" AND a.code = "2000"'
+          WHERE je.tenant_id = :t AND je.status IN ("posted", "reversed") AND a.code = "2000"'
     );
     $apGl->execute(['t' => $tenantId]);
     $apLedger = (float) $apGl->fetchColumn();
@@ -215,7 +215,7 @@ function simInvariantCustomerBalanceMatchesGL(\PDO $pdo, int $tenantId): array {
            FROM accounting_journal_entry_lines l
            JOIN accounting_journal_entries je ON je.id = l.je_id
            JOIN accounting_accounts a         ON a.id  = l.account_id
-          WHERE je.tenant_id = :t AND je.status = "posted" AND a.code = "1100"'
+          WHERE je.tenant_id = :t AND je.status IN ("posted", "reversed") AND a.code = "1100"'
     );
     $arGl->execute(['t' => $tenantId]);
     $arLedger = (float) $arGl->fetchColumn();

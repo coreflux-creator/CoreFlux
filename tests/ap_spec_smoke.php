@@ -74,7 +74,8 @@ $assert('approved → paid',                     apBillTransitionAllowed('approv
 $assert('approved → disputed',                 apBillTransitionAllowed('approved', 'disputed'));
 $assert('approved → pending_review (NO)',      !apBillTransitionAllowed('approved', 'pending_review'));
 $assert('partially_paid → paid',               apBillTransitionAllowed('partially_paid', 'paid'));
-$assert('paid → void',                         apBillTransitionAllowed('paid', 'void'));
+$assert('partially_paid → void (NO)',          !apBillTransitionAllowed('partially_paid', 'void'));
+$assert('paid → void (NO)',                    !apBillTransitionAllowed('paid', 'void'));
 $assert('paid → approved (NO)',                !apBillTransitionAllowed('paid', 'approved'));
 $assert('disputed → pending_approval',         apBillTransitionAllowed('disputed', 'pending_approval'));
 $assert('void terminal',                       !apBillTransitionAllowed('void', 'approved') && !apBillTransitionAllowed('void', 'pending_review'));
@@ -121,6 +122,9 @@ foreach (['from-time-bundle','approve','void','dispute','post'] as $a) {
 $assert('two-eye approve guard',               strpos($bills, 'cannot approve your own bill') !== false);
 $assert('approve refuses zero-total lines',    strpos($bills, 'All bill lines must have total > 0') !== false);
 $assert('void releases bundles when no pmts',  strpos($bills, 'consumed_by_module = NULL') !== false);
+$assert('bill mutations refuse ledger or payment lineage',
+    substr_count($bills, 'apBillHasLedgerOrPaymentActivity(') >= 3
+    && strpos($bills, 'FOR UPDATE') !== false);
 $assert('approve checks transition allowed',   strpos($bills, "apBillTransitionAllowed(\$row['status'], 'approved')") !== false);
 $assert('from-time-bundle marks bundles consumed', strpos($bills, 'status = "consumed"') !== false);
 $assert('from-time-bundle upserts vendors_index', strpos($bills, 'INSERT INTO ap_vendors_index') !== false);

@@ -16,6 +16,7 @@
  * SPEC: /app/modules/ap/SPEC.md §5.1, §9.
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/active_entity.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/StorageService.php';
 require_once __DIR__ . '/../../../core/storage_register.php';
@@ -798,9 +799,6 @@ if ($method === 'PATCH') {
     $id = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
-    if (!in_array($row['status'], ['inbox','pending_review','pending_approval'], true)) {
-        api_error('Only inbox/pending_review/pending_approval bills can be edited', 409);
-    }
 
     $body = api_json_body();
     $editable = ['vendor_name','vendor_company_id','vendor_type','bill_number','bill_date','due_date','po_number','notes_internal','placement_id'];
@@ -812,7 +810,28 @@ if ($method === 'PATCH') {
         }
     }
     if (!$sets) api_error('Nothing to update', 422);
-    getDB()->prepare('UPDATE ap_bills SET ' . implode(',', $sets) . ' WHERE id = :id')->execute($binds);
+    $pdo = getDB();
+    cf_begin_transaction();
+    try {
+        $locked = $pdo->prepare('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE');
+        $locked->execute(['tenant_id' => $tid, 'id' => $id]);
+        $row = $locked->fetch(\PDO::FETCH_ASSOC);
+        if (!$row || !in_array($row['status'], ['inbox','pending_review','pending_approval'], true)) {
+            throw new \DomainException('Only unposted bills awaiting review or approval can be edited');
+        }
+        if (apBillHasLedgerOrPaymentActivity($pdo, $tid, $row)) {
+            throw new \DomainException('A posted or paid bill must be corrected through its source workflow');
+        }
+        $pdo->prepare('UPDATE ap_bills SET ' . implode(',', $sets) . ' WHERE tenant_id = :tenant_id AND id = :id')
+            ->execute($binds + ['tenant_id' => $tid]);
+        $pdo->commit();
+    } catch (\DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 409);
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
     apAudit('ap.bill.updated', ['bill_id' => $id, 'fields' => array_keys(array_intersect_key($body, array_flip($editable)))], $id);
     api_ok(['ok' => true]);
 }
@@ -911,17 +930,20 @@ if ($method === 'POST' && $action === 'void') {
     $pdo = getDB();
     cf_begin_transaction();
     try {
-        $allocCount = $pdo->prepare('SELECT COUNT(*) FROM ap_payment_allocations WHERE bill_id = :id');
-        $allocCount->execute(['id' => $id]);
-        $hasPayments = (int) $allocCount->fetchColumn() > 0;
-
-        if (!$hasPayments) {
-            $pdo->prepare(
-                'UPDATE time_downstream_feed
-                 SET status = "ready", consumed_at = NULL, consumed_by_module = NULL, consumed_ref_id = NULL
-                 WHERE tenant_id = :t AND consumed_by_module = "ap" AND consumed_ref_id = :id'
-            )->execute(['t' => $tid, 'id' => $id]);
+        $locked = $pdo->prepare('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE');
+        $locked->execute(['tenant_id' => $tid, 'id' => $id]);
+        $row = $locked->fetch(\PDO::FETCH_ASSOC);
+        if (!$row || $row['status'] === 'void') throw new \DomainException('Bill is already void or unavailable');
+        if (apBillHasLedgerOrPaymentActivity($pdo, $tid, $row)
+            || in_array($row['status'], ['partially_paid', 'paid'], true)) {
+            throw new \DomainException('Posted or paid bills cannot be voided here; correct the linked journal and payments first');
         }
+
+        $pdo->prepare(
+            'UPDATE time_downstream_feed
+             SET status = "ready", consumed_at = NULL, consumed_by_module = NULL, consumed_ref_id = NULL
+             WHERE tenant_id = :t AND consumed_by_module = "ap" AND consumed_ref_id = :id'
+        )->execute(['t' => $tid, 'id' => $id]);
 
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
@@ -929,15 +951,16 @@ if ($method === 'POST' && $action === 'void') {
              voided_by_user_id = :u, void_reason = :r WHERE id = :id'
         )->execute(['u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id]);
 
-        if (!$hasPayments) {
-            $pdo->prepare(
-                'UPDATE placement_economic_obligations
-                    SET status = "void"
-                  WHERE tenant_id = :tenant_id AND ap_bill_id = :bill_id'
-            )->execute(['tenant_id' => $tid, 'bill_id' => $id]);
-        }
+        $pdo->prepare(
+            'UPDATE placement_economic_obligations
+                SET status = "void"
+              WHERE tenant_id = :tenant_id AND ap_bill_id = :bill_id'
+        )->execute(['tenant_id' => $tid, 'bill_id' => $id]);
 
         $pdo->commit();
+    } catch (\DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 409);
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;
@@ -945,9 +968,9 @@ if ($method === 'POST' && $action === 'void') {
 
     apAudit('ap.bill.voided', [
         'bill_id' => $id, 'internal_ref' => $row['internal_ref'],
-        'reason' => $reason, 'had_payments' => $hasPayments,
+        'reason' => $reason, 'had_payments' => false,
     ], $id);
-    api_ok(['ok' => true, 'bundles_released' => !$hasPayments]);
+    api_ok(['ok' => true, 'bundles_released' => true]);
 }
 
 if ($method === 'POST' && $action === 'dispute') {
@@ -955,13 +978,33 @@ if ($method === 'POST' && $action === 'dispute') {
     $id = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
-    if (!apBillTransitionAllowed($row['status'], 'disputed')) api_error("Cannot dispute from status {$row['status']}", 409);
     $body = api_json_body();
     $reason = trim((string) ($body['reason'] ?? ''));
     if ($reason === '') api_error('reason required', 422);
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    getDB()->prepare('UPDATE ap_bills SET status = "disputed", disputed_at = NOW(), dispute_reason = :r WHERE id = :id')
-        ->execute(['r' => $reason, 'id' => $id]);
+    $pdo = getDB();
+    cf_begin_transaction();
+    try {
+        $locked = $pdo->prepare('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE');
+        $locked->execute(['tenant_id' => $tid, 'id' => $id]);
+        $row = $locked->fetch(\PDO::FETCH_ASSOC);
+        if (!$row || !apBillTransitionAllowed($row['status'], 'disputed')) {
+            throw new \DomainException('Bill cannot be disputed from its current status');
+        }
+        if (apBillHasLedgerOrPaymentActivity($pdo, $tid, $row)) {
+            throw new \DomainException('A posted or paid bill must be corrected through its source workflow');
+        }
+        $pdo->prepare(
+            'UPDATE ap_bills SET status = "disputed", disputed_at = NOW(), dispute_reason = :r
+              WHERE tenant_id = :tenant_id AND id = :id'
+        )->execute(['r' => $reason, 'tenant_id' => $tid, 'id' => $id]);
+        $pdo->commit();
+    } catch (\DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 409);
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
     apAudit('ap.bill.disputed', ['bill_id' => $id, 'internal_ref' => $row['internal_ref'], 'reason' => $reason], $id);
     api_ok(['ok' => true]);
 }

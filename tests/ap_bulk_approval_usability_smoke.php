@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $ui = (string) file_get_contents($root . '/modules/ap/ui/Approvals.jsx');
+$billDetail = (string) file_get_contents($root . '/modules/ap/ui/BillDetail.jsx');
+$billList = (string) file_get_contents($root . '/modules/ap/ui/BillsList.jsx');
+$module = (string) file_get_contents($root . '/modules/ap/ui/APModule.jsx');
 
 $pass = 0;
 $fail = 0;
@@ -30,6 +33,18 @@ $check('pending count refreshes after decisions',
     substr_count($ui, 'reloadCount();') >= 2);
 $check('approval errors are translated into useful guidance',
     str_contains($ui, 'function friendlyApprovalError(error)'));
+$check('bill detail does not invite its creator to self-approve',
+    str_contains($module, '<BillDetail session={session}')
+    && str_contains($billDetail, '!createdByCurrentUser')
+    && str_contains($billDetail, 'Another authorized user must approve this bill.'));
+$check('bulk approval excludes bills created by the acting user',
+    str_contains($module, '<BillsList session={session}')
+    && str_contains($billList, 'Number(row.created_by_user_id) !== currentUserId'));
+$check('pending bills offer an audited detail edit',
+    str_contains($billDetail, 'data-testid="ap-bill-edit-form"')
+    && str_contains($billDetail, 'api.patch(`/modules/ap/api/bills.php?id=${id}`, editForm)'));
+$check('intercompany bill split uses the bill owner rather than entity one',
+    str_contains($billDetail, 'sourceEntityId={Number(bill.entity_id)}'));
 
 echo PHP_EOL . "{$pass} passed, {$fail} failed" . PHP_EOL;
 exit($fail === 0 ? 0 : 1);

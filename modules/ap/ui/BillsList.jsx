@@ -27,7 +27,7 @@ const STATUS_FILTERS = [
 ];
 const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 
-export default function BillsList() {
+export default function BillsList({ session }) {
   const navigate = useNavigate();
   const [status, setStatus] = useState('all');
   const [showFromBundle, setShowFromBundle] = useState(false);
@@ -82,10 +82,16 @@ export default function BillsList() {
     numericKeys: ['id', 'total', 'amount_due'],
   });
   const selectedRows = useMemo(() => items.filter((row) => sel.has(row.id)), [items, sel.ids]); // eslint-disable-line react-hooks/exhaustive-deps
-  const approvableRows = useMemo(
+  const currentUserId = Number(session?.user?.id);
+  const pendingApprovalRows = useMemo(
     () => selectedRows.filter((row) => ['pending_review', 'pending_approval'].includes(row.status)),
     [selectedRows]
   );
+  const approvableRows = useMemo(
+    () => pendingApprovalRows.filter((row) => !currentUserId || Number(row.created_by_user_id) !== currentUserId),
+    [pendingApprovalRows, currentUserId]
+  );
+  const ownPendingCount = pendingApprovalRows.length - approvableRows.length;
   const postableRows = useMemo(
     () => selectedRows.filter((row) => ['approved', 'partially_paid', 'paid'].includes(row.status) && !row.journal_entry_id),
     [selectedRows]
@@ -238,6 +244,7 @@ export default function BillsList() {
             <button className="btn btn--primary" onClick={approveSelected} disabled={bulkBusy || !approvableRows.length} data-testid="ap-bills-approve-selected">
               <CheckCheck size={15} aria-hidden="true" /> Approve ({approvableRows.length})
             </button>
+            {ownPendingCount > 0 && <span data-testid="ap-bills-two-eye-note">{ownPendingCount} created by you need another approver.</span>}
             <button className="btn btn--ghost" onClick={postSelected} disabled={bulkBusy || !postableRows.length} data-testid="ap-bills-post-selected">
               <BookOpenCheck size={15} aria-hidden="true" /> Post to ledger ({postableRows.length})
             </button>
