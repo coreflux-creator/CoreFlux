@@ -6,9 +6,13 @@
  *        [&q=vendor][&date_from=YYYY-MM-DD][&date_to=YYYY-MM-DD]
  *        [&amount_min=-100][&amount_max=100][&page=1][&per_page=25]
  *   GET  /api/accounting/bank_statements?action=invoice_candidates&line_id=N
+ *   GET  /api/accounting/bank_statements?action=processor_payout_candidates&line_id=N
  *   POST /api/accounting/bank_statements?action=import_csv&bank_account_id=N
  *        Body: { csv: <text>, header_map?: { date_col, desc_col, amount_col, fitid_col } }
  *   POST /api/accounting/bank_statements?action=match&line_id=N         Body: { je_id }
+ *   POST /api/accounting/bank_statements?action=settle_processor_payout&line_id=N
+ *        Body: { payment_ids: [N], fee_amount, fee_account_id? }
+ *   POST /api/accounting/bank_statements?action=correct_processor_payout&line_id=N Body: { reason }
  *   POST /api/accounting/bank_statements?action=match_ap_payment&line_id=N Body: { payment_id }
  *   POST /api/accounting/bank_statements?action=match_invoice&line_id=N Body: { invoice_id }
  *   POST /api/accounting/bank_statements?action=split_match_invoices&line_id=N
@@ -28,11 +32,24 @@ require_once __DIR__ . '/../../../core/treasury/bank_transaction_identity.php';
 require_once __DIR__ . '/../lib/accounting.php';
 require_once __DIR__ . '/../lib/bank_rec.php';
 require_once __DIR__ . '/../../billing/lib/bank_receipt_correction.php';
+require_once __DIR__ . '/../../billing/lib/processor_payouts.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
+
+if ($method === 'GET' && $action === 'processor_payout_candidates') {
+    rbac_legacy_require($user, 'accounting.bank.manage');
+    rbac_legacy_require($user, 'billing.view');
+    $lineId = (int) ($_GET['line_id'] ?? 0);
+    if ($lineId <= 0) api_error('line_id required', 400);
+    try {
+        api_ok(billingProcessorPayoutCandidates((int) $ctx['tenant_id'], $lineId));
+    } catch (Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
 
 if ($method === 'GET' && $action === 'invoice_candidates') {
     rbac_legacy_require($user, 'accounting.bank.manage');
@@ -282,6 +299,23 @@ if ($method === 'GET') {
             $lineRow['last_reversal_je_id'] = $history ? (int) $history['last_reversal_je_id'] : null;
         }
         unset($lineRow);
+        $payouts = scopedQuery(
+            'SELECT bank_line_id, id, journal_entry_id, gross_amount, fee_amount, net_amount
+               FROM billing_processor_payouts
+              WHERE tenant_id = :tenant_id AND status = "posted"
+                AND bank_line_id IN (' . implode(',', $correctionPlaceholders) . ')',
+            $correctionParams
+        );
+        $payoutByLine = [];
+        foreach ($payouts as $payout) $payoutByLine[(int) $payout['bank_line_id']] = $payout;
+        foreach ($rows as &$lineRow) {
+            $payout = $payoutByLine[(int) $lineRow['id']] ?? null;
+            $lineRow['processor_payout'] = $payout
+                && $lineRow['match_status'] === 'matched'
+                && (int) $lineRow['matched_je_id'] === (int) $payout['journal_entry_id']
+                ? $payout : null;
+        }
+        unset($lineRow);
     }
     if (rbac_legacy_can($user, 'billing.view')) {
         $rows = bankRecAttachInvoiceSuggestions((int) $ctx['tenant_id'], $bid, $rows);
@@ -381,6 +415,48 @@ if ($method === 'POST' && $action === 'match') {
     }
     accountingAudit('accounting.bank.line_matched', ['line_id' => $lid, 'je_id' => $jeId], $lid);
     api_ok($res);
+}
+
+if ($method === 'POST' && $action === 'settle_processor_payout') {
+    rbac_legacy_require($user, 'accounting.bank.manage');
+    rbac_legacy_require($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'billing.payments.record');
+    $lineId = (int) ($_GET['line_id'] ?? 0);
+    if ($lineId <= 0) api_error('line_id required', 400);
+    $body = api_json_body();
+    if (!is_array($body['payment_ids'] ?? null) || !is_numeric($body['fee_amount'] ?? null)) {
+        api_error('payment_ids and fee_amount required', 422);
+    }
+    try {
+        $result = billingSettleProcessorPayout((int) $ctx['tenant_id'], $lineId,
+            $body['payment_ids'], (float) $body['fee_amount'],
+            !empty($body['fee_account_id']) ? (int) $body['fee_account_id'] : null,
+            $user['id'] ?? null);
+    } catch (Throwable $e) {
+        api_error($e->getMessage(), 409);
+    }
+    if (empty($result['idempotent_replay'])) {
+        billingAudit('billing.processor_payout.posted', $result, (int) $result['payout_id']);
+    }
+    api_ok($result);
+}
+
+if ($method === 'POST' && $action === 'correct_processor_payout') {
+    rbac_legacy_require($user, 'accounting.bank.manage');
+    rbac_legacy_require($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'billing.payments.record');
+    $lineId = (int) ($_GET['line_id'] ?? 0);
+    if ($lineId <= 0) api_error('line_id required', 400);
+    $body = api_json_body();
+    try {
+        $result = billingCorrectProcessorPayout((int) $ctx['tenant_id'], $lineId,
+            (string) ($body['reason'] ?? ''), $user['id'] ?? null);
+    } catch (Throwable $e) {
+        api_error($e->getMessage(), 409);
+    }
+    billingAudit('billing.processor_payout.corrected', $result + ['reason' => (string) $body['reason']],
+        (int) $result['payout_id']);
+    api_ok($result);
 }
 
 if ($method === 'POST' && $action === 'match_ap_payment') {

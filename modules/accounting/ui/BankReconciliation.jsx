@@ -530,6 +530,7 @@ function AccountDetail() {
 
 function ResolvedBankLineRow({ line, reload }) {
   const [showCorrection, setShowCorrection] = useState(false);
+  const [showPayoutCorrection, setShowPayoutCorrection] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -542,6 +543,18 @@ function ResolvedBankLineRow({ line, reload }) {
     try {
       await api.post(`/modules/accounting/api/bank_statements.php?action=reverse_receipt&line_id=${line.id}`, { reason: reason.trim() });
       setShowCorrection(false);
+      setReason('');
+      await reload();
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  };
+  const correctPayout = async (event) => {
+    event.preventDefault();
+    if (!reason.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      await api.post(`/modules/accounting/api/bank_statements.php?action=correct_processor_payout&line_id=${line.id}`, { reason: reason.trim() });
+      setShowPayoutCorrection(false);
       setReason('');
       await reload();
     } catch (e) { setError(e.message); }
@@ -568,6 +581,12 @@ function ResolvedBankLineRow({ line, reload }) {
             ))}
           </div>
         )}
+        {line.processor_payout && (
+          <div style={{ marginTop: 3, fontSize: 12, color: 'var(--cf-text-secondary)' }}
+               data-testid={`accounting-processor-payout-${line.id}`}>
+            Processor payout · gross {fmtMoney(line.processor_payout.gross_amount)} · fees {fmtMoney(line.processor_payout.fee_amount)}
+          </div>
+        )}
       </td>
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(line.amount)}</td>
       <td><span data-testid={`accounting-bank-line-status-${line.match_status}`}>{line.match_status}</span></td>
@@ -578,6 +597,12 @@ function ResolvedBankLineRow({ line, reload }) {
           <button type="button" className="btn btn--ghost" onClick={() => setShowCorrection(value => !value)}
                   data-testid={`accounting-bank-correct-receipt-${line.id}`} style={{ marginLeft: 8 }}>
             Correct receipt
+          </button>
+        )}
+        {line.processor_payout && (
+          <button type="button" className="btn btn--ghost" onClick={() => setShowPayoutCorrection(value => !value)}
+                  data-testid={`accounting-bank-correct-payout-${line.id}`} style={{ marginLeft: 8 }}>
+            Correct payout
           </button>
         )}
       </td>
@@ -603,6 +628,25 @@ function ResolvedBankLineRow({ line, reload }) {
         </form>
       </td></tr>
     )}
+    {showPayoutCorrection && (
+      <tr><td colSpan={6}>
+        <form onSubmit={correctPayout} style={{ display: 'flex', alignItems: 'end', flexWrap: 'wrap', gap: 8, padding: '8px 0' }}>
+          <label style={{ flex: '1 1 300px', fontSize: 12 }}>
+            Correction reason
+            <input className="input" value={reason} onChange={event => setReason(event.target.value)}
+                   maxLength={500} required disabled={busy} style={{ display: 'block', width: '100%' }} />
+          </label>
+          <button type="submit" className="btn btn--primary" disabled={busy || !reason.trim()}>
+            {busy ? 'Correcting…' : 'Reverse and reopen'}
+          </button>
+          <button type="button" className="btn btn--ghost" disabled={busy} onClick={() => setShowPayoutCorrection(false)}>Cancel</button>
+          <small style={{ flexBasis: '100%', color: 'var(--cf-text-secondary)' }}>
+            Reverses only the clearing-to-bank payout and fee, then reopens this bank line. Captured customer payments stay applied to invoices.
+          </small>
+          {error && <span className="error" role="alert" style={{ flexBasis: '100%' }}>{error}</span>}
+        </form>
+      </td></tr>
+    )}
     </>
   );
 }
@@ -614,6 +658,7 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
   const [splitOpen, setSplitOpen] = useState(false);
   const [receiptSplitOpen, setReceiptSplitOpen] = useState(false);
   const [apPaymentOpen, setApPaymentOpen] = useState(false);
+  const [payoutOpen, setPayoutOpen] = useState(false);
 
   const callAi = async (action) => {
     setBusy(action); setErr(null);
@@ -706,6 +751,13 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
                 ? 'Apply this receipt to one or more customer invoices and assign any remainder'
                 : 'Split this line across entities'}
             >{Number(line.amount) > 0 ? 'Apply receipt' : 'Split / IC'}</button>
+            {Number(line.amount) > 0 && (
+              <button type="button" className="btn btn--ghost" onClick={() => setPayoutOpen(true)}
+                      disabled={!bankAccount?.entity_id || !bankAccount?.gl_account_code}
+                      data-testid={`accounting-bank-settle-processor-${line.id}`}>
+                Processor payout
+              </button>
+            )}
           </div>
         </td>
       </tr>
@@ -749,6 +801,14 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
           </td>
         </tr>
       )}
+      {payoutOpen && (
+        <tr data-testid={`accounting-bank-processor-payout-row-${line.id}`}>
+          <td colSpan={6} style={{ background: '#f0f9ff', padding: 14, borderLeft: '3px solid #0284c7' }}>
+            <ProcessorPayoutPanel line={line} onMatched={() => { setPayoutOpen(false); reload(); }}
+                                  onCancel={() => setPayoutOpen(false)} />
+          </td>
+        </tr>
+      )}
       {splitOpen && (
         <IntercompanySplitDialog
           open={splitOpen}
@@ -778,6 +838,100 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
         <tr><td colSpan={6}><p className="error" data-testid={`accounting-bank-ai-error-${line.id}`}>{err}</p></td></tr>
       )}
     </>
+  );
+}
+
+function ProcessorPayoutPanel({ line, onMatched, onCancel }) {
+  const { data, loading, error } = useApi(`/modules/accounting/api/bank_statements.php?action=processor_payout_candidates&line_id=${line.id}`);
+  const [selected, setSelected] = useState([]);
+  const [search, setSearch] = useState('');
+  const [feeAccountId, setFeeAccountId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [postError, setPostError] = useState(null);
+  const filteredPayments = (data?.payments || []).filter(payment =>
+    `${payment.client_name || ''} ${payment.reference || ''} ${payment.qbo_charge_id || ''}`
+      .toLowerCase().includes(search.trim().toLowerCase()));
+  const grossCents = (data?.payments || []).filter(payment => selected.includes(Number(payment.payment_id)))
+    .reduce((sum, payment) => sum + Math.round(Number(payment.amount) * 100), 0);
+  const netCents = Math.round(Number(line.amount) * 100);
+  const feeCents = grossCents - netCents;
+  const ready = selected.length > 0 && feeCents >= 0 && (feeCents === 0 || Boolean(feeAccountId));
+  const toggle = (id) => setSelected(current => current.includes(id)
+    ? current.filter(value => value !== id) : [...current, id]);
+  const settle = async (event) => {
+    event.preventDefault();
+    if (!ready) return;
+    setBusy(true); setPostError(null);
+    try {
+      await api.post(`/modules/accounting/api/bank_statements.php?action=settle_processor_payout&line_id=${line.id}`, {
+        payment_ids: selected,
+        fee_amount: (feeCents / 100).toFixed(2),
+        fee_account_id: feeCents > 0 ? Number(feeAccountId) : null,
+      });
+      onMatched?.();
+    } catch (e) { setPostError(e.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form onSubmit={settle} data-testid={`accounting-processor-payout-panel-${line.id}`}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        <strong>Settle captured processor payments</strong>
+        <button type="button" className="btn btn--ghost" onClick={onCancel}>Close</button>
+      </div>
+      {loading && <p className="muted">Loading captures…</p>}
+      {error && <p className="error" role="alert">{error.message}</p>}
+      {!loading && !error && (data?.payments || []).length === 0 && (
+        <p className="muted">No captured processor payments are available for this entity and currency.</p>
+      )}
+      {(data?.payments || []).length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <label style={{ display: 'block', maxWidth: 360, fontSize: 12 }}>
+            Find capture
+            <input className="input" type="search" value={search} onChange={event => setSearch(event.target.value)}
+                   placeholder="Client, reference or charge ID" style={{ display: 'block', width: '100%' }} />
+          </label>
+          <small className="muted">{selected.length} selected</small>
+          <div style={{ maxHeight: 230, overflowY: 'auto' }}>
+          <table className="data-table" style={{ width: '100%', fontSize: 12 }}>
+            <thead><tr><th></th><th>Captured</th><th>Client</th><th>Charge</th><th style={{ textAlign: 'right' }}>Gross</th></tr></thead>
+            <tbody>{filteredPayments.map(payment => (
+              <tr key={payment.payment_id}>
+                <td><input type="checkbox" checked={selected.includes(Number(payment.payment_id))}
+                           onChange={() => toggle(Number(payment.payment_id))} disabled={busy}
+                           aria-label={`Include payment ${payment.payment_id}`} /></td>
+                <td>{fmtDate(payment.received_at)}</td>
+                <td>{payment.client_name}</td>
+                <td>{payment.qbo_charge_id}</td>
+                <td style={{ textAlign: 'right' }}>{fmtMoney(payment.amount)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {filteredPayments.length === 0 && <p className="muted">No captures match that search.</p>}
+          </div>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'end', marginTop: 12 }}>
+        <span>Gross <strong>{fmtMoney(grossCents / 100)}</strong></span>
+        <span>Bank deposit <strong>{fmtMoney(netCents / 100)}</strong></span>
+        <span>Processor fee <strong>{feeCents >= 0 ? fmtMoney(feeCents / 100) : 'Select more captures'}</strong></span>
+        {feeCents > 0 && (
+          <label>Fee expense account
+            <select className="input" value={feeAccountId} onChange={event => setFeeAccountId(event.target.value)}
+                    required style={{ display: 'block' }}>
+              <option value="">Select an account</option>
+              {(data?.fee_accounts || []).map(account => (
+                <option key={account.id} value={account.id}>{account.code} · {account.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        <button type="submit" className="btn btn--primary" disabled={busy || !ready}
+                data-testid={`accounting-processor-payout-submit-${line.id}`}>
+          {busy ? 'Posting…' : 'Post and match payout'}
+        </button>
+      </div>
+      {postError && <p className="error" role="alert">{postError}</p>}
+    </form>
   );
 }
 

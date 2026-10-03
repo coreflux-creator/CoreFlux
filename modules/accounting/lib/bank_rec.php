@@ -348,6 +348,11 @@ function bankRecUnmatchLine(int $tenantId, int $lineId): array
             . 'A source-level receipt reversal is required before its allocation can change.'
         );
     }
+    if ($line['source_module'] === 'billing' && $line['source_ref_type'] === 'processor_payout') {
+        throw new RuntimeException(
+            'This bank line settled captured processor payments. Correct the processor payout to reverse its journal and reopen the line.'
+        );
+    }
 
     scopedUpdate('accounting_bank_statement_lines', $lineId, [
         'match_status'      => 'unmatched',
