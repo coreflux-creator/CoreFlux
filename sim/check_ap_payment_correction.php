@@ -10,6 +10,7 @@ require_once __DIR__ . '/../core/config.php';
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../modules/ap/lib/payment_correction.php';
 require_once __DIR__ . '/../modules/accounting/lib/bank_rec.php';
+require_once __DIR__ . '/audit_ap_payment_lineage.php';
 
 $args = [];
 foreach (array_slice($argv, 1) as $arg) {
@@ -107,6 +108,7 @@ try {
     $paymentStmt->execute(['t' => $tenantId, 'id' => $paymentId]);
     $paymentRow = $paymentStmt->fetch(PDO::FETCH_ASSOC);
     $review = apInspectClearedManualPayment($pdo, $tenantId, $paymentRow);
+    $auditBefore = simAuditApPaymentLineage($pdo, $tenantId);
 
     $providerRefused = false;
     $providerRow = $paymentRow;
@@ -133,6 +135,7 @@ try {
         ->execute(['t' => $tenantId, 'id' => $closedId]);
 
     $result = apCorrectClearedManualPayment($tenantId, $paymentId, 'Simulation correction', null);
+    $auditAfter = simAuditApPaymentLineage($pdo, $tenantId);
     $paymentStmt->execute(['t' => $tenantId, 'id' => $paymentId]);
     $correctedPayment = $paymentStmt->fetch(PDO::FETCH_ASSOC);
     $billState = $pdo->prepare('SELECT status, amount_paid, amount_due FROM ap_bills WHERE tenant_id = :t AND id = :id');
@@ -169,6 +172,11 @@ try {
     }
 
     $checks = [
+        'fresh_clearance_passes_lineage_audit' => !array_filter($auditBefore['issues'], static fn(array $issue): bool =>
+            ($issue['payment_id'] ?? null) === $paymentId || ($issue['bill_id'] ?? null) === $billId
+        ) && !array_filter($auditBefore['manual_correction_blockers'], static fn(array $blocker): bool =>
+            $blocker['payment_id'] === $paymentId
+        ),
         'matched_manual_payment_eligible' => $review['bank_line_id'] === $lineId
             && $review['original_je_id'] === $originalJeId,
         'provider_payment_refused' => $providerRefused,
@@ -185,6 +193,9 @@ try {
             && abs((float) $reopenedBill['amount_due'] - 7.25) < 0.005,
         'bank_line_reopened' => $reopenedLine['match_status'] === 'unmatched'
             && !$reopenedLine['matched_je_id'],
+        'corrected_payment_passes_lineage_audit' => !array_filter($auditAfter['issues'], static fn(array $issue): bool =>
+            ($issue['payment_id'] ?? null) === $paymentId || ($issue['bill_id'] ?? null) === $billId
+        ),
         'current_aging_restored' => abs($dueToday - 7.25) < 0.005,
         'historical_aging_preserved' => abs($duePrior) < 0.005,
         'duplicate_correction_refused' => $duplicateRefused,

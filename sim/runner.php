@@ -145,6 +145,8 @@ if (!$dryRun) {
                 $assertions[] = simInvariantBusinessGraphConsistent($pdo, $tenantId); break;
             case 'bank_line_matched':
                 $assertions[] = simInvariantBankLineMatched($pdo, $tenantId, $ctx['state']); break;
+            case 'ap_payment_canonical_lineage':
+                $assertions[] = simInvariantCanonicalApPayment($pdo, $tenantId, $ctx['state']); break;
             case 'replay_reproducible':
                 // Compares the in-memory $ctx['replay'] to any previously
                 // persisted replay_logs for the same scenario+seed.
@@ -277,6 +279,9 @@ function simExecuteStep(array &$ctx, string $action, array $step): void {
         case 'settle_ap_bill':
             simStepSettleApBill($ctx, $step);
             return;
+        case 'clear_ap_payment':
+            simStepClearApPayment($ctx, $step);
+            return;
         case 'create_billing_invoice':
             simStepCreateBillingInvoice($ctx, $step);
             return;
@@ -400,7 +405,8 @@ function simReserveApPayment(array $ctx, array $payload): int {
     }
 
     $pdo = getDB();
-    $pdo->beginTransaction();
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) $pdo->beginTransaction();
     try {
         $find = $pdo->prepare(
             'SELECT id, entity_id, vendor_name, amount, status FROM ap_payments
@@ -430,12 +436,127 @@ function simReserveApPayment(array $ctx, array $payload): int {
             ]);
             $id = (int) $pdo->lastInsertId();
         }
-        $pdo->commit();
+        if ($ownsTransaction) $pdo->commit();
         return $id;
+    } catch (\Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
+function simStepClearApPayment(array &$ctx, array $step): void {
+    $eventType = 'ap.payment.cleared';
+    if ($ctx['dry_run']) {
+        $ctx['metrics']['events_emitted']++;
+        $ctx['replay'][] = [
+            'event_type' => $eventType,
+            'payload_hash' => simHash($step),
+            'je_id' => null,
+            'je_hash' => null,
+        ];
+        return;
+    }
+
+    require_once __DIR__ . '/../modules/ap/lib/ap.php';
+    $tenantId = (int) $ctx['tenant_id'];
+    $billId = simResolveDocumentId($ctx, 'bills', (int) ($step['bill_id'] ?? 0));
+    $logicalPaymentId = (int) ($step['payment_id'] ?? 0);
+    $reference = trim((string) ($step['reference'] ?? ''));
+    $bankCode = trim((string) ($step['bank_gl_account_code'] ?? ''));
+    if ($logicalPaymentId <= 0 || $reference === '' || $bankCode === '') {
+        throw new \InvalidArgumentException('clear_ap_payment requires a payment id, reference, and bank GL code');
+    }
+
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        $billStmt = $pdo->prepare(
+            'SELECT id, entity_id, vendor_name, total, journal_entry_id, status
+               FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE'
+        );
+        $billStmt->execute(['tenant_id' => $tenantId, 'id' => $billId]);
+        $bill = $billStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$bill || (int) $bill['entity_id'] !== (int) $ctx['entity_id']
+            || (int) $bill['journal_entry_id'] <= 0
+            || !in_array($bill['status'], ['approved', 'partially_paid', 'paid'], true)) {
+            throw new \RuntimeException('The simulation bill is not a posted obligation in the selected entity');
+        }
+        $bankStmt = $pdo->prepare(
+            'SELECT id, entity_id, status FROM accounting_bank_accounts
+              WHERE tenant_id = :tenant_id AND gl_account_code = :code FOR UPDATE'
+        );
+        $bankStmt->execute(['tenant_id' => $tenantId, 'code' => $bankCode]);
+        $bank = $bankStmt->fetch(\PDO::FETCH_ASSOC);
+        if ($bank) {
+            if ($bank['status'] !== 'active' || (int) $bank['entity_id'] !== (int) $ctx['entity_id']) {
+                throw new \RuntimeException('The simulation funding bank belongs to another entity or is inactive');
+            }
+            $bankId = (int) $bank['id'];
+        } else {
+            $pdo->prepare(
+                'INSERT INTO accounting_bank_accounts
+                    (tenant_id, entity_id, name, gl_account_code, currency, feed_provider, status)
+                 VALUES (:tenant_id, :entity_id, "Simulation operating cash", :code, "USD", "manual_csv", "active")'
+            )->execute([
+                'tenant_id' => $tenantId, 'entity_id' => (int) $ctx['entity_id'], 'code' => $bankCode,
+            ]);
+            $bankId = (int) $pdo->lastInsertId();
+        }
+
+        $amount = round((float) $bill['total'], 2);
+        $paymentId = simReserveApPayment($ctx, [
+            'payment_id' => $logicalPaymentId,
+            'payment_number' => $reference,
+            'vendor_name' => (string) $bill['vendor_name'],
+            'amount' => $amount,
+        ]);
+        $paymentStmt = $pdo->prepare(
+            'SELECT status, bank_account_id FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE'
+        );
+        $paymentStmt->execute(['tenant_id' => $tenantId, 'id' => $paymentId]);
+        $payment = $paymentStmt->fetch(\PDO::FETCH_ASSOC);
+        if ($payment['status'] === 'draft') {
+            $allocation = apAllocatePayment($paymentId, [
+                'allocations' => [['bill_id' => $billId, 'amount' => $amount]],
+            ]);
+            if (abs((float) $allocation['unallocated_remaining']) > 0.005) {
+                throw new \RuntimeException('The simulation payment could not fully reserve its bill');
+            }
+            $pdo->prepare(
+                'UPDATE ap_payments
+                    SET status = "sent", sent_at = :sent_at, bank_account_id = :bank_account_id
+                  WHERE tenant_id = :tenant_id AND id = :id AND status = "draft"'
+            )->execute([
+                'sent_at' => simNow('Y-m-d') . ' 12:00:00',
+                'bank_account_id' => $bankId, 'tenant_id' => $tenantId, 'id' => $paymentId,
+            ]);
+        } elseif ($payment['status'] !== 'cleared'
+            || (int) ($payment['bank_account_id'] ?? 0) !== $bankId) {
+            throw new \RuntimeException('The simulation payment cannot be replayed from its current state');
+        }
+
+        $cleared = apClearPayment($tenantId, $paymentId, simNow('Y-m-d'), $bankId, null);
+        $pdo->commit();
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
+
+    $jeId = (int) $cleared['journal_entry_id'];
+    $ctx['state']['payments'][$logicalPaymentId] = $paymentId;
+    $ctx['state']['posted_payments'][$paymentId] = $jeId;
+    if (!isset($ctx['state']['observed_je_ids'][$jeId])) {
+        $ctx['state']['observed_je_ids'][$jeId] = true;
+        $ctx['metrics']['je_observed']++;
+    }
+    if (empty($cleared['idempotent_replay'])) $ctx['metrics']['je_posted']++;
+    $ctx['metrics']['events_emitted']++;
+    $ctx['replay'][] = [
+        'event_type' => $eventType,
+        'payload_hash' => simHash([$paymentId, $billId, $bankId, $amount, simNow('Y-m-d')]),
+        'je_id' => $jeId,
+        'je_hash' => simHash(['journal_entry_id' => $jeId]),
+    ];
 }
 
 function simStepCreateBankLine(array &$ctx, array $step): void {

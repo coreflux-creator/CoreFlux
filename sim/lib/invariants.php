@@ -120,6 +120,34 @@ function simInvariantPostedSourceLinks(\PDO $pdo, int $tenantId): array {
     ];
 }
 
+/** Canonical AP clearances must be correctable, not merely balanced JEs. */
+function simInvariantCanonicalApPayment(\PDO $pdo, int $tenantId, array $state): array {
+    require_once __DIR__ . '/../../modules/ap/lib/payment_correction.php';
+    $payments = $state['posted_payments'] ?? [];
+    $issues = [];
+    if (!$payments) $issues[] = ['issue' => 'scenario did not clear an AP payment'];
+    $stmt = $pdo->prepare('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id');
+    foreach ($payments as $paymentId => $expectedJournalId) {
+        $stmt->execute(['tenant_id' => $tenantId, 'id' => (int) $paymentId]);
+        $payment = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$payment || (int) ($payment['journal_entry_id'] ?? 0) !== (int) $expectedJournalId) {
+            $issues[] = ['payment_id' => (int) $paymentId, 'issue' => 'missing linked AP payment journal'];
+            continue;
+        }
+        try {
+            apInspectClearedManualPayment($pdo, $tenantId, $payment);
+        } catch (\Throwable $e) {
+            $issues[] = ['payment_id' => (int) $paymentId, 'issue' => $e->getMessage()];
+        }
+    }
+    return [
+        'name' => 'ap_payment_canonical_lineage',
+        'ok' => $issues === [],
+        'severity' => 'error',
+        'details' => ['mismatch_count' => count($issues), 'sample' => array_slice($issues, 0, 5)],
+    ];
+}
+
 /** Every posted JE must trace to either an accounting_event OR an
  *  approved manual JE. Anything else is a direct-GL bypass — exactly the
  *  Phase-2a discipline gap. Allowlists known module sources during the
