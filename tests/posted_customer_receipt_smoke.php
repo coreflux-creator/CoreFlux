@@ -12,6 +12,8 @@ $refundMigration = file_get_contents($root . '/modules/accounting/migrations/033
 $correctionMigration = file_get_contents($root . '/modules/accounting/migrations/034_customer_deposit_corrections.sql');
 $fingerprintMigration = file_get_contents($root . '/modules/accounting/migrations/035_receipt_request_fingerprint.sql');
 $movement = file_get_contents($root . '/modules/billing/lib/money_movement.php');
+$registry = file_get_contents($root . '/core/seeds/event_registry_seed.php');
+$rules = file_get_contents($root . '/core/posting_engine/seed_defaults.php');
 $export = file_get_contents($root . '/modules/billing/api/payments_csv_export.php');
 $import = file_get_contents($root . '/modules/billing/api/payments_csv_import.php');
 $failures = 0;
@@ -25,7 +27,19 @@ $check('manual receipt has durable bank and JE links',
 $check('record action uses one service for receipt, allocation and posting',
     str_contains($api, 'billingPostReceivedPayment($tid, $body')
     && str_contains($service, 'billingAllocatePayment(')
-    && str_contains($service, 'accountingPostJe('));
+    && str_contains($service, "'event_type' => 'billing.manual_receipt.posted'")
+    && substr_count($service, 'accountingProcessEvent(') === 3
+    && !str_contains($service, 'accountingPostJe('));
+$check('receipt, application and refund events have registered payload-line rules',
+    (static function () use ($registry, $rules): bool {
+        foreach (['billing.manual_receipt.posted', 'billing.customer_deposit.applied',
+                  'billing.customer_deposit.refunded'] as $type) {
+            if (!str_contains($registry, "'{$type}'")
+                || !preg_match('/\x27event_type\x27\s*=>\s*\x27' . preg_quote($type, '/')
+                    . '\x27.*?\x27line_source\x27\s*=>\s*\x27payload\x27/s', $rules)) return false;
+        }
+        return true;
+    })());
 $check('failed posting rolls back receipt and invoice allocation',
     str_contains($service, 'cf_begin_transaction()')
     && str_contains($service, '$pdo->commit()')
@@ -76,6 +90,7 @@ $check('bank-matched receipts cannot be posted again as manual receipts',
 $check('source correction reverses JE, allocations and any bank match',
     str_contains($service, 'billingCorrectPostedPayment(')
     && str_contains($service, 'accountingReverseJe(')
+    && substr_count($service, 'billingReverseReceiptEvent($tenantId, $eventId)') === 3
     && str_contains($service, 'reversed_at = NOW()')
     && str_contains($service, 'match_status = "unmatched"'));
 $check('correction refuses closed reconciliation and released PWP',
@@ -99,5 +114,5 @@ $check('CSV preview and commit reject reserved internal receipt IDs',
     && str_contains($import, 'CsvImportService::dryRun')
     && str_contains($import, 'CsvImportService::commit'));
 
-echo ($failures ? "Failed: {$failures}" : 'Passed: 19') . PHP_EOL;
+echo ($failures ? "Failed: {$failures}" : 'Passed: 20') . PHP_EOL;
 exit($failures ? 1 : 0);

@@ -190,6 +190,33 @@ const POSTING_RULES_DEFAULT_PACK = [
         ],
     ],
     [
+        'event_type'  => 'billing.manual_receipt.posted',
+        'rule_name'   => 'Manual receipt posted — passthrough',
+        'template'    => [
+            'name'           => 'Manual receipt posted — passthrough',
+            'memo_template'  => '{payload.memo}',
+            'line_source'    => 'payload',
+        ],
+    ],
+    [
+        'event_type'  => 'billing.customer_deposit.applied',
+        'rule_name'   => 'Customer deposit applied — passthrough',
+        'template'    => [
+            'name'           => 'Customer deposit applied — passthrough',
+            'memo_template'  => '{payload.memo}',
+            'line_source'    => 'payload',
+        ],
+    ],
+    [
+        'event_type'  => 'billing.customer_deposit.refunded',
+        'rule_name'   => 'Customer deposit refunded — passthrough',
+        'template'    => [
+            'name'           => 'Customer deposit refunded — passthrough',
+            'memo_template'  => '{payload.memo}',
+            'line_source'    => 'payload',
+        ],
+    ],
+    [
         'event_type'  => 'payroll.run.approved',
         'rule_name'   => 'Payroll accrual — passthrough',
         'template'    => [

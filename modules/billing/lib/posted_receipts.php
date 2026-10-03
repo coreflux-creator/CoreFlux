@@ -3,6 +3,51 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/billing.php';
 require_once __DIR__ . '/../../accounting/lib/accounting.php';
+require_once __DIR__ . '/../../../core/posting_engine/process.php';
+
+function billingReceiptParentEventId(int $tenantId, int $paymentId): ?int
+{
+    $stmt = getDB()->prepare(
+        'SELECT id, status FROM accounting_events
+          WHERE tenant_id = :tenant_id AND source_module = "billing"
+            AND source_record_id = :source_record_id
+            AND event_type = "billing.manual_receipt.posted" LIMIT 1'
+    );
+    $stmt->execute(['tenant_id' => $tenantId, 'source_record_id' => 'payment:' . $paymentId]);
+    $event = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$event) return null;
+    if ($event['status'] !== 'posted') {
+        throw new RuntimeException('The deposit receipt event is no longer posted. Review before continuing.');
+    }
+    return (int) $event['id'];
+}
+
+function billingReceiptEventForCorrection(int $tenantId, string $eventType, string $sourceRecordId, int $journalId): ?int
+{
+    $stmt = getDB()->prepare(
+        'SELECT id, status, journal_entry_id FROM accounting_events
+          WHERE tenant_id = :tenant_id AND source_module = "billing"
+            AND source_record_id = :source_record_id AND event_type = :event_type FOR UPDATE'
+    );
+    $stmt->execute(['tenant_id' => $tenantId, 'source_record_id' => $sourceRecordId, 'event_type' => $eventType]);
+    $event = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$event) return null; // Historic receipts predate the event contract.
+    if ($event['status'] !== 'posted' || (int) $event['journal_entry_id'] !== $journalId) {
+        throw new RuntimeException('The billing event does not match its posted journal. Review before correcting.');
+    }
+    return (int) $event['id'];
+}
+
+function billingReverseReceiptEvent(int $tenantId, ?int $eventId): void
+{
+    if ($eventId === null) return;
+    $stmt = getDB()->prepare(
+        'UPDATE accounting_events SET status = "reversed"
+          WHERE tenant_id = :tenant_id AND id = :id AND status = "posted"'
+    );
+    $stmt->execute(['tenant_id' => $tenantId, 'id' => $eventId]);
+    if ($stmt->rowCount() !== 1) throw new RuntimeException('Billing event changed while correcting.');
+}
 
 function billingRequireCustomerDepositAccount(int $tenantId): void
 {
@@ -230,18 +275,27 @@ function billingPostReceivedPayment(int $tenantId, array $request, ?int $actorUs
                 'dims' => $cashDims + ['client' => 'name:' . strtolower(trim((string) $payment['client_name']))],
             ];
         }
-        $journal = accountingPostJe($tenantId, [
+        $event = accountingProcessEvent($tenantId, [
             'entity_id' => $entityId,
-            'posting_date' => (string) $payment['received_at'],
-            'currency' => (string) $payment['currency'],
+            'event_type' => 'billing.manual_receipt.posted',
             'source_module' => 'billing',
-            'source_ref_type' => 'billing_payment',
-            'source_ref_id' => $paymentId,
-            'idempotency_key' => 'billing:manual-receipt:' . $paymentId,
-            'memo' => 'Customer receipt / ' . $payment['client_name'],
-            'lines' => $lines,
-        ], $actorUserId, true);
-        if (!empty($journal['idempotent_replay'])) throw new RuntimeException('Receipt journal already exists; refresh before posting.');
+            'source_record_id' => 'payment:' . $paymentId,
+            'event_date' => (string) $payment['received_at'],
+            'payload' => [
+                'payment_id' => $paymentId, 'bank_account_id' => $bankAccountId,
+                'client_name' => (string) $payment['client_name'],
+                'invoice_ids' => array_map('intval', array_column($invoices, 'invoice_id')),
+                'amount' => (float) $payment['amount'], 'unapplied_amount' => $unapplied,
+                'currency' => (string) $payment['currency'],
+                'source_ref_type' => 'billing_payment', 'source_ref_id' => $paymentId,
+                'memo' => 'Customer receipt / ' . $payment['client_name'], 'lines' => $lines,
+            ],
+        ], $actorUserId);
+        if (($event['status'] ?? '') !== 'posted') {
+            throw new RuntimeException('Receipt could not be posted: ' . ($event['error'] ?? 'no posting rule matched'));
+        }
+        if (!empty($event['idempotent_replay'])) throw new RuntimeException('Receipt journal already exists; refresh before posting.');
+        $journalId = (int) $event['journal_entry_id'];
 
         $save = $pdo->prepare(
             'UPDATE billing_payments SET bank_account_id = :bank_account_id,
@@ -249,23 +303,15 @@ function billingPostReceivedPayment(int $tenantId, array $request, ?int $actorUs
               WHERE tenant_id = :tenant_id AND id = :id AND journal_entry_id IS NULL AND voided_at IS NULL'
         );
         $save->execute([
-            'bank_account_id' => $bankAccountId, 'journal_entry_id' => (int) $journal['je_id'],
+            'bank_account_id' => $bankAccountId, 'journal_entry_id' => $journalId,
             'unallocated' => $unapplied, 'tenant_id' => $tenantId, 'id' => $paymentId,
         ]);
         if ($save->rowCount() !== 1) throw new RuntimeException('Payment changed while posting. Refresh and try again.');
-        $pdo->prepare(
-            'INSERT INTO accounting_subledger_links
-                (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
-             VALUES (:tenant_id, "billing", :source_record_id, :journal_entry_id, "primary")'
-        )->execute([
-            'tenant_id' => $tenantId, 'source_record_id' => 'payment:' . $paymentId,
-            'journal_entry_id' => (int) $journal['je_id'],
-        ]);
         $pdo->commit();
         $pwp = billingReleasePayWhenPaidForAllocations($tenantId, $newApplied, $actorUserId);
         return [
-            'id' => $paymentId, 'journal_entry_id' => (int) $journal['je_id'],
-            'je_number' => $journal['je_number'], 'applied' => $invoices,
+            'id' => $paymentId, 'journal_entry_id' => $journalId,
+            'je_number' => $event['je_number'], 'applied' => $invoices,
             'unallocated_remaining' => $unapplied, 'pwp' => $pwp, 'idempotent_replay' => false,
         ];
     } catch (Throwable $e) {
@@ -383,27 +429,36 @@ function billingApplyCustomerDeposit(int $tenantId, int $paymentId, array $reque
         $clientDimension = !empty($invoice['client_company_id'])
             ? (int) $invoice['client_company_id']
             : 'name:' . strtolower(trim((string) $invoice['client_name']));
-        $journal = accountingPostJe($tenantId, [
+        $event = accountingProcessEvent($tenantId, [
             'entity_id' => $entityId,
-            'posting_date' => $appliedAt,
-            'currency' => (string) $payment['currency'],
+            'event_type' => 'billing.customer_deposit.applied',
             'source_module' => 'billing',
-            'source_ref_type' => 'billing_deposit_application',
-            'source_ref_id' => $paymentId,
-            'idempotency_key' => 'billing:deposit-apply:' . $paymentId . ':' . $requestKey,
-            'memo' => 'Apply customer deposit / ' . $invoice['invoice_number'],
-            'lines' => [
-                ['account_code' => '2300', 'debit' => $amount, 'credit' => 0,
-                    'dims' => ['legal_entity' => $entityId, 'client' => $clientDimension]],
-                ['account_code' => '1100', 'debit' => 0, 'credit' => $amount,
-                    'counterparty_company_id' => $invoice['client_company_id'] ?? null,
-                    'dims' => ['legal_entity' => $entityId, 'client' => $clientDimension]],
+            'source_record_id' => 'deposit_apply:' . $paymentId . ':' . $requestKey,
+            'event_date' => $appliedAt,
+            'parent_event_id' => billingReceiptParentEventId($tenantId, $paymentId),
+            'lineage_relationship' => 'applies_to',
+            'payload' => [
+                'payment_id' => $paymentId, 'invoice_id' => $invoiceId,
+                'amount' => $amount, 'currency' => (string) $payment['currency'],
+                'request_key' => $requestKey,
+                'source_ref_type' => 'billing_deposit_application', 'source_ref_id' => $paymentId,
+                'memo' => 'Apply customer deposit / ' . $invoice['invoice_number'],
+                'lines' => [
+                    ['account_code' => '2300', 'debit' => $amount, 'credit' => 0,
+                        'dims' => ['legal_entity' => $entityId, 'client' => $clientDimension]],
+                    ['account_code' => '1100', 'debit' => 0, 'credit' => $amount,
+                        'counterparty_company_id' => $invoice['client_company_id'] ?? null,
+                        'dims' => ['legal_entity' => $entityId, 'client' => $clientDimension]],
+                ],
             ],
-        ], $actorUserId, true);
-        if (!empty($journal['idempotent_replay'])) {
+        ], $actorUserId);
+        if (($event['status'] ?? '') !== 'posted') {
+            throw new RuntimeException('Deposit application could not be posted: ' . ($event['error'] ?? 'no posting rule matched'));
+        }
+        if (!empty($event['idempotent_replay'])) {
             throw new RuntimeException('Deposit application journal already exists without its source link.');
         }
-        $jeId = (int) $journal['je_id'];
+        $jeId = (int) $event['journal_entry_id'];
         $pdo->prepare(
             'UPDATE billing_payment_allocations SET application_je_id = :je WHERE id = :id AND payment_id = :p'
         )->execute(['je' => $jeId, 'id' => (int) $applied['allocation_id'], 'p' => $paymentId]);
@@ -545,26 +600,36 @@ function billingRecordCustomerDepositRefund(int $tenantId, int $paymentId, array
         }
 
         $clientDimension = 'name:' . strtolower(trim((string) $payment['client_name']));
-        $journal = accountingPostJe($tenantId, [
+        $event = accountingProcessEvent($tenantId, [
             'entity_id' => $entityId,
-            'posting_date' => $refundedAt,
-            'currency' => (string) $payment['currency'],
+            'event_type' => 'billing.customer_deposit.refunded',
             'source_module' => 'billing',
-            'source_ref_type' => 'billing_deposit_refund',
-            'source_ref_id' => $paymentId,
-            'idempotency_key' => 'billing:deposit-refund:' . $paymentId . ':' . $requestKey,
-            'memo' => 'Customer deposit refund / ' . $payment['client_name'],
-            'lines' => [
-                ['account_code' => '2300', 'debit' => $amount, 'credit' => 0,
-                    'dims' => ['legal_entity' => $entityId, 'client' => $clientDimension]],
-                ['account_code' => (string) $bank['gl_account_code'], 'debit' => 0, 'credit' => $amount,
-                    'memo' => $reference ?: 'Customer deposit refund',
-                    'dims' => ['legal_entity' => $entityId]],
+            'source_record_id' => 'deposit_refund:' . $paymentId . ':' . $requestKey,
+            'event_date' => $refundedAt,
+            'parent_event_id' => billingReceiptParentEventId($tenantId, $paymentId),
+            'lineage_relationship' => 'spawned_by',
+            'payload' => [
+                'payment_id' => $paymentId, 'bank_account_id' => $bankAccountId,
+                'amount' => $amount, 'currency' => (string) $payment['currency'],
+                'request_key' => $requestKey, 'reference' => $reference,
+                'source_ref_type' => 'billing_deposit_refund', 'source_ref_id' => $paymentId,
+                'memo' => 'Customer deposit refund / ' . $payment['client_name'],
+                'lines' => [
+                    ['account_code' => '2300', 'debit' => $amount, 'credit' => 0,
+                        'dims' => ['legal_entity' => $entityId, 'client' => $clientDimension]],
+                    ['account_code' => (string) $bank['gl_account_code'], 'debit' => 0, 'credit' => $amount,
+                        'memo' => $reference ?: 'Customer deposit refund',
+                        'dims' => ['legal_entity' => $entityId]],
+                ],
             ],
-        ], $actorUserId, true);
-        if (!empty($journal['idempotent_replay'])) {
+        ], $actorUserId);
+        if (($event['status'] ?? '') !== 'posted') {
+            throw new RuntimeException('Deposit refund could not be posted: ' . ($event['error'] ?? 'no posting rule matched'));
+        }
+        if (!empty($event['idempotent_replay'])) {
             throw new RuntimeException('Refund journal already exists without its source link.');
         }
+        $journalId = (int) $event['journal_entry_id'];
         $save = $pdo->prepare(
             'UPDATE billing_payments SET unallocated_amount = ROUND(unallocated_amount - :amount, 2)
               WHERE tenant_id = :t AND id = :p AND voided_at IS NULL AND unallocated_amount >= :minimum'
@@ -579,17 +644,17 @@ function billingRecordCustomerDepositRefund(int $tenantId, int $paymentId, array
         )->execute(['t' => $tenantId, 'p' => $paymentId, 'b' => $bankAccountId,
             'amount' => $amount, 'currency' => (string) $payment['currency'],
             'date' => $refundedAt, 'reference' => $reference ?: null,
-            'key' => $requestKey, 'je' => (int) $journal['je_id'], 'actor' => $actorUserId]);
+            'key' => $requestKey, 'je' => $journalId, 'actor' => $actorUserId]);
         $refundId = (int) $pdo->lastInsertId();
         $pdo->prepare(
             'INSERT INTO accounting_subledger_links
                 (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
              VALUES (:t, "billing", :ref, :je, "refund")'
         )->execute(['t' => $tenantId, 'ref' => 'payment:' . $paymentId,
-            'je' => (int) $journal['je_id']]);
+            'je' => $journalId]);
         $pdo->commit();
         return ['refund_id' => $refundId, 'payment_id' => $paymentId,
-            'journal_entry_id' => (int) $journal['je_id'],
+            'journal_entry_id' => $journalId,
             'unallocated_remaining' => round((float) $payment['unallocated_amount'] - $amount, 2),
             'idempotent_replay' => false];
     } catch (Throwable $e) {
@@ -669,8 +734,12 @@ function billingCorrectCustomerDepositApplication(int $tenantId, int $applicatio
         if ($pwpStmt->fetchColumn()) {
             throw new RuntimeException('Pay-when-paid bills were released by this invoice. Correct those bills first.');
         }
+        $eventId = billingReceiptEventForCorrection($tenantId, 'billing.customer_deposit.applied',
+            'deposit_apply:' . $paymentId . ':' . (string) $application['request_key'],
+            (int) $application['journal_entry_id']);
         $reversal = accountingReverseJe($tenantId, (int) $application['journal_entry_id'], $reason, $actorUserId);
         if (!empty($reversal['idempotent_replay'])) throw new RuntimeException('Application journal was already reversed.');
+        billingReverseReceiptEvent($tenantId, $eventId);
         $reversalId = (int) $reversal['je_id'];
         $reverseAllocation = $pdo->prepare(
             'UPDATE billing_payment_allocations
@@ -773,8 +842,12 @@ function billingCorrectCustomerDepositRefund(int $tenantId, int $refundId, strin
             || ($matched && (int) $matched[0]['bank_account_id'] !== (int) $refund['bank_account_id'])) {
             throw new RuntimeException('Refund has inconsistent bank matches. Review before correcting.');
         }
+        $eventId = billingReceiptEventForCorrection($tenantId, 'billing.customer_deposit.refunded',
+            'deposit_refund:' . $paymentId . ':' . (string) $refund['request_key'],
+            (int) $refund['journal_entry_id']);
         $reversal = accountingReverseJe($tenantId, (int) $refund['journal_entry_id'], $reason, $actorUserId);
         if (!empty($reversal['idempotent_replay'])) throw new RuntimeException('Refund journal was already reversed.');
+        billingReverseReceiptEvent($tenantId, $eventId);
         $reversalId = (int) $reversal['je_id'];
         $pdo->prepare(
             'UPDATE billing_payments SET unallocated_amount = ROUND(unallocated_amount + :amount, 2)
@@ -955,10 +1028,13 @@ function billingCorrectPostedPayment(int $tenantId, int $paymentId, string $reas
             $restored[] = ['id' => $id, 'amount_paid' => $paid, 'amount_due' => $due, 'status' => $status];
         }
 
+        $eventId = billingReceiptEventForCorrection($tenantId, 'billing.manual_receipt.posted',
+            'payment:' . $paymentId, (int) $payment['journal_entry_id']);
         $reversal = accountingReverseJe(
             $tenantId, (int) $payment['journal_entry_id'], $reason, $actorUserId
         );
         if (!empty($reversal['idempotent_replay'])) throw new RuntimeException('The receipt journal was already reversed.');
+        billingReverseReceiptEvent($tenantId, $eventId);
         $reversalId = (int) $reversal['je_id'];
         $reverseAllocation = $pdo->prepare(
             'UPDATE billing_payment_allocations
