@@ -9,11 +9,13 @@
  *
  * Intuit doesn't fire a dedicated webhook for charge settlement, so
  * every pending charge (ISSUED / PENDING / CAPTURED-not-yet-SETTLED)
- * needs to be polled. We page through `qbo_payment_charges` and call
+ * needs to be polled. Captured or settled charges missing a posted
+ * CoreFlux receipt also stay in the queue for recovery. We page through
+ * `qbo_payment_charges` and call
  * the matching card/e-check retrieval endpoint, then re-upsert via
  * `qboRecordChargeShadow`
  * to advance `status`, `settled_at`, `error_*` fields.  A transition to
- * CAPTURED also creates and allocates the CoreFlux billing payment.
+ * CAPTURED also posts and allocates the CoreFlux billing payment.
  *
  * Schedule: every 15 minutes, aligned with the other QBO workflows.
  *
@@ -33,9 +35,12 @@ try {
         "SELECT DISTINCT c.tenant_id
            FROM qbo_payment_charges c
            JOIN qbo_connections cn ON cn.tenant_id = c.tenant_id AND cn.status = 'active'
-          WHERE c.status IN ('ISSUED','PENDING','CAPTURED','AUTHORIZED')
-            AND (c.settled_at IS NULL)
-            AND c.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)"
+      LEFT JOIN billing_payments p ON p.tenant_id = c.tenant_id AND p.id = c.coreflux_payment_id
+          WHERE ((c.status IN ('ISSUED','PENDING','CAPTURED','AUTHORIZED')
+                  AND c.settled_at IS NULL
+                  AND c.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY))
+              OR (c.status IN ('CAPTURED','SETTLED') AND (p.id IS NULL OR p.journal_entry_id IS NULL)))
+        "
     )->fetchAll(\PDO::FETCH_ASSOC);
 } catch (\Throwable $e) {
     fwrite(STDERR, "qbo_payments_poll: bootstrap failed — {$e->getMessage()}\n");
@@ -54,12 +59,16 @@ foreach ($tenants as $row) {
 
     try {
         $stmt = $pdo->prepare(
-            "SELECT id, qbo_charge_id, status, charge_type, coreflux_invoice_id, context_token
-               FROM qbo_payment_charges
-              WHERE tenant_id = :t
-                AND status IN ('ISSUED','PENDING','CAPTURED','AUTHORIZED')
-                AND (settled_at IS NULL)
-              ORDER BY created_at ASC LIMIT 200"
+            "SELECT c.id, c.qbo_charge_id, c.status, c.charge_type,
+                    c.coreflux_invoice_id, c.context_token
+               FROM qbo_payment_charges c
+          LEFT JOIN billing_payments p ON p.tenant_id = c.tenant_id AND p.id = c.coreflux_payment_id
+              WHERE c.tenant_id = :t
+                AND ((c.status IN ('ISSUED','PENDING','CAPTURED','AUTHORIZED')
+                      AND c.settled_at IS NULL
+                      AND c.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY))
+                  OR (c.status IN ('CAPTURED','SETTLED') AND (p.id IS NULL OR p.journal_entry_id IS NULL)))
+              ORDER BY c.created_at DESC LIMIT 200"
         );
         $stmt->execute(['t' => $tid]);
         $charges = $stmt->fetchAll(\PDO::FETCH_ASSOC);

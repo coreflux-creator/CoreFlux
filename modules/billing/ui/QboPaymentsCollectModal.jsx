@@ -187,7 +187,7 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
         description: desc.trim() || undefined,
       });
       setResult(res);
-      if (res?.charge?.status === 'CAPTURED' && typeof onCollected === 'function') {
+      if (res?.application?.applied === true && res?.journal_entry_id && typeof onCollected === 'function') {
         onCollected(res);
       }
     } catch (err) {
@@ -197,6 +197,34 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
       if (recaptchaWidgetRef.current !== null && globalThis.grecaptcha?.reset) {
         globalThis.grecaptcha.reset(recaptchaWidgetRef.current);
       }
+      setBusy(false);
+    }
+  };
+
+  const refreshStatus = async () => {
+    const chargeId = result?.charge?.id;
+    if (!chargeId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const refreshed = await api.get(`/api/admin/qbo/payments_charge.php?charge_id=${encodeURIComponent(chargeId)}`);
+      if (refreshed?.live?.error) throw new Error(refreshed.live.error);
+      const next = {
+        ...result,
+        charge: refreshed.live || result.charge,
+        application: refreshed.application,
+        payment_id: refreshed.application?.payment_id || result.payment_id,
+        journal_entry_id: refreshed.application?.journal_entry_id || result.journal_entry_id,
+        posting_error: refreshed.posting_error || null,
+        allocation_error: null,
+      };
+      setResult(next);
+      if (next.application?.applied && next.journal_entry_id && typeof onCollected === 'function') {
+        onCollected(next);
+      }
+    } catch (err) {
+      setError(err.message || 'Could not refresh the payment status.');
+    } finally {
       setBusy(false);
     }
   };
@@ -325,16 +353,29 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
 
           {error && <div data-testid="qbo-payments-error" style={errorStyle}>{error}</div>}
           {result?.charge && (
-            <div data-testid="qbo-payments-result" role="status" aria-label="QuickBooks payment receipt" style={resultStyle(result.charge.status)}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Payment receipt</div>
+            <div data-testid="qbo-payments-result" role="status" aria-label="QuickBooks payment receipt" style={resultStyle(result)}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                {result.application?.applied && result.journal_entry_id
+                  ? 'Payment posted to invoice'
+                  : ['CAPTURED', 'SETTLED'].includes(result.charge.status)
+                    ? 'Payment captured; accounting review needed'
+                    : 'Payment processing'}
+              </div>
               <div><strong>Status:</strong> {result.charge.status}</div>
               <div><strong>Payment amount:</strong> {formatReceiptMoney(result.receipt)}</div>
               <div><strong>Total amount:</strong> {formatReceiptMoney(result.receipt)}</div>
               <div><strong>Date of transaction:</strong> {formatReceiptDate(result.receipt?.transaction_at)}</div>
               <div><strong>Payment method:</strong> {result.receipt?.payment_method || (type === 'card' ? 'Card' : 'ACH e-check')}</div>
               <div><strong>Transaction ID:</strong> {result.receipt?.transaction_id || result.charge.id}</div>
-              {result.payment_id && <div><strong>CoreFlux payment:</strong> #{result.payment_id} — allocated to invoice.</div>}
-              {result.allocation_error && <div style={{ color: '#92400e' }}><strong>Allocation:</strong> {result.allocation_error}</div>}
+              {result.application?.applied && result.journal_entry_id && (
+                <div><strong>CoreFlux payment:</strong> #{result.payment_id} · journal #{result.journal_entry_id}</div>
+              )}
+              {(result.posting_error || result.allocation_error) && (
+                <div style={{ color: '#92400e' }}>
+                  <strong>Review needed:</strong> {result.posting_error || result.allocation_error}
+                  {' '}The card or bank payment may already be captured. Do not charge it again; refresh this transaction after resolving the issue.
+                </div>
+              )}
               <div style={{ marginTop: 8, fontSize: 11 }} data-testid="qbo-payments-processor-disclosure">
                 Payment is processed by Intuit Payments Inc., 2700 Coast Avenue, Mountain View, CA 94043.
                 {' '}Phone 1-888-536-4801. NMLS #1098819.
@@ -344,10 +385,15 @@ export default function QboPaymentsCollectModal({ invoice, environment = 'sandbo
 
           <footer style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
             <button type="button" onClick={onClose} data-testid="qbo-payments-cancel" style={btnGhost}>Close</button>
+            {result?.charge?.id && (
+              <button type="button" onClick={refreshStatus} disabled={busy} style={btnGhost}>
+                Refresh status
+              </button>
+            )}
             <button type="submit"
-                    disabled={busy || !recaptchaToken}
+                    disabled={busy || !recaptchaToken || Boolean(result?.charge)}
                     data-testid="qbo-payments-submit"
-                    style={{ ...btnPrimary, opacity: busy || !recaptchaToken ? 0.6 : 1 }}>
+                    style={{ ...btnPrimary, opacity: busy || !recaptchaToken || result?.charge ? 0.6 : 1 }}>
               {busy ? 'Charging…' : `Charge $${Number(amount || 0).toFixed(2)}`}
             </button>
           </footer>
@@ -403,8 +449,8 @@ const typeBtn = (active) => ({
 const errorStyle = {
   padding: '8px 10px', borderRadius: 6, background: '#fee2e2', color: '#991b1b', fontSize: 13, marginBottom: 8,
 };
-const resultStyle = (status) => ({
+const resultStyle = (result) => ({
   padding: '8px 10px', borderRadius: 6, fontSize: 13, marginBottom: 8,
-  background: status === 'CAPTURED' ? '#d1fae5' : '#fef3c7',
-  color:      status === 'CAPTURED' ? '#065f46' : '#92400e',
+  background: result?.application?.applied && result?.journal_entry_id ? '#d1fae5' : '#fef3c7',
+  color:      result?.application?.applied && result?.journal_entry_id ? '#065f46' : '#92400e',
 });

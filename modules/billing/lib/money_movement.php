@@ -55,7 +55,7 @@ function moneyMovementCashIn(int $tenantId, string $start, string $end): array
                  ON je.tenant_id = p.tenant_id AND je.id = p.journal_entry_id
               WHERE p.tenant_id = :t AND p.received_at BETWEEN :s AND :e
                 AND p.voided_at IS NULL
-                AND ((p.journal_entry_id IS NOT NULL AND je.status = "posted")
+                AND ((p.bank_account_id IS NOT NULL AND p.journal_entry_id IS NOT NULL AND je.status = "posted")
                   OR (p.source_system = "manual" AND p.external_id LIKE "bank-line:%"))
               GROUP BY p.method'
         );

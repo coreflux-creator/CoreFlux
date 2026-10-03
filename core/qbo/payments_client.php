@@ -19,8 +19,8 @@
  *   2. CoreFlux backend POSTs /quickbooks/v4/payments/charges with the
  *      token and the desired capture flag (true = auth+capture).
  *   3. On `status=CAPTURED`, we INSERT a `qbo_payment_charges` shadow
- *      row, create a matching `billing_payments` entry, and allocate
- *      it against the originating invoice via `billingAllocatePayment`.
+ *      row, then atomically create the receipt, allocate it, and post
+ *      DR processor clearing / CR accounts receivable in CoreFlux.
  *   4. Pending card/e-check transactions are polled through their
  *      respective retrieve endpoints. When one advances to CAPTURED,
  *      qboApplyCapturedPayment() idempotently creates and allocates the
@@ -380,10 +380,16 @@ function qboRecordChargeShadow(int $tenantId, array $charge, array $context = []
     $captured = $status === 'CAPTURED' ? date('Y-m-d H:i:s') : null;
     $settled  = $status === 'SETTLED'  ? date('Y-m-d H:i:s') : null;
 
+    // Serialize status progression for one charge, including overlapping
+    // poll and operator-refresh requests.
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) $pdo->beginTransaction();
+    try {
     // Upsert by (tenant_id, qbo_charge_id).
     $sel = $pdo->prepare(
-        'SELECT id FROM qbo_payment_charges
-          WHERE tenant_id = :t AND qbo_charge_id = :c LIMIT 1'
+        'SELECT id, status, amount_cents, currency, coreflux_invoice_id, context_token
+           FROM qbo_payment_charges
+          WHERE tenant_id = :t AND qbo_charge_id = :c LIMIT 1 FOR UPDATE'
     );
     $sel->execute(['t' => $tenantId, 'c' => $chargeId]);
     $existing = $sel->fetch(\PDO::FETCH_ASSOC);
@@ -414,7 +420,34 @@ function qboRecordChargeShadow(int $tenantId, array $charge, array $context = []
         'settled_at'      => $settled,
     ];
 
-    $updateExisting = static function (int $id) use ($pdo, $params): int {
+    $updateExisting = static function (array $prior) use ($pdo, $params): int {
+        $id = (int) $prior['id'];
+        if (!empty($prior['coreflux_invoice_id']) && !empty($params['coreflux_invoice_id'])
+            && (int) $prior['coreflux_invoice_id'] !== (int) $params['coreflux_invoice_id']) {
+            throw new \RuntimeException('Processor charge is already linked to another invoice.');
+        }
+        if (!empty($prior['context_token']) && !empty($params['context_token'])
+            && (string) $prior['context_token'] !== (string) $params['context_token']) {
+            throw new \RuntimeException('Processor charge Request-Id changed on replay.');
+        }
+        if ((int) $prior['amount_cents'] > 0
+            && ((int) $prior['amount_cents'] !== (int) $params['amount_cents']
+                || strcasecmp((string) $prior['currency'], (string) $params['currency']) !== 0)) {
+            throw new \RuntimeException('Processor charge amount or currency changed on replay.');
+        }
+
+        $rank = ['ISSUED' => 1, 'PENDING' => 1, 'AUTHORIZED' => 1,
+            'CAPTURED' => 2, 'SETTLED' => 3,
+            'REFUNDED' => 4, 'VOIDED' => 4, 'DECLINED' => 4, 'FAILED' => 4];
+        $oldStatus = strtoupper((string) $prior['status']);
+        $newStatus = strtoupper((string) $params['status']);
+        if (isset($rank[$oldStatus], $rank[$newStatus]) && $rank[$newStatus] < $rank[$oldStatus]) {
+            return $id;
+        }
+        if (($rank[$oldStatus] ?? 0) === 4 && ($rank[$newStatus] ?? 0) === 4
+            && $oldStatus !== $newStatus) {
+            throw new \RuntimeException('Processor charge terminal status changed unexpectedly.');
+        }
         $cols = 'amount_cents=:amount_cents, currency=:currency, status=:status,
                  card_brand=:card_brand, card_last4=:card_last4,
                  card_exp_month=:card_exp_month, card_exp_year=:card_exp_year,
@@ -436,7 +469,9 @@ function qboRecordChargeShadow(int $tenantId, array $charge, array $context = []
     };
 
     if ($existing) {
-        return $updateExisting((int) $existing['id']);
+        $id = $updateExisting($existing);
+        if ($ownsTransaction) $pdo->commit();
+        return $id;
     }
 
     $colList = implode(', ', array_keys($params));
@@ -450,22 +485,30 @@ function qboRecordChargeShadow(int $tenantId, array $charge, array $context = []
         $sel->execute(['t' => $tenantId, 'c' => $chargeId]);
         $raced = $sel->fetch(\PDO::FETCH_ASSOC) ?: null;
         if (!$raced) throw $insertError;
-        return $updateExisting((int) $raced['id']);
+        $id = $updateExisting($raced);
+        if ($ownsTransaction) $pdo->commit();
+        return $id;
     }
-    return (int) $pdo->lastInsertId();
+    $id = (int) $pdo->lastInsertId();
+    if ($ownsTransaction) $pdo->commit();
+    return $id;
+    } catch (\Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
 }
 
 /**
- * Turn a captured Intuit transaction into a CoreFlux AR payment.
+ * Turn a captured Intuit transaction into a posted CoreFlux AR receipt.
  *
  * This is deliberately shared by the initial POST, the operator refresh
  * endpoint, and the polling cron.  Previously only an immediately
  * CAPTURED card was allocated; an ACH transaction that became captured
  * later updated the shadow row but left the invoice open forever.
  *
- * The billing_payments (tenant_id, source_system, external_id) unique key
- * and the payment row lock inside billingAllocatePayment() make retries
- * safe across HTTP retries, cron overlap, and concurrent operator refreshes.
+ * The shadow-row lock serializes retries for one charge. The payment's
+ * external-id unique key and JE idempotency key provide a second defense.
+ * A capture never changes invoice balances without its matching ledger entry.
  *
  * @return array{applied:bool,reused:bool,payment_id:?int,allocation:?array,reason:?string}
  */
@@ -488,168 +531,234 @@ function qboApplyCapturedPayment(
         throw new \InvalidArgumentException('charge.id required for captured-payment application');
     }
 
-    if (!function_exists('billingAllocatePayment') || !function_exists('billingAudit')) {
+    if (!function_exists('billingAllocatePayment')) {
         require_once __DIR__ . '/../../modules/billing/lib/billing.php';
     }
+    if (!function_exists('accountingPostJe')) {
+        require_once __DIR__ . '/../../modules/accounting/lib/accounting.php';
+    }
     $pdo = getDB();
+    if ($pdo->inTransaction()) throw new \RuntimeException('Captured-payment application requires its own transaction.');
+    $pdo->beginTransaction();
+    try {
+        $shadowStmt = $pdo->prepare(
+            'SELECT * FROM qbo_payment_charges
+              WHERE tenant_id = :t AND qbo_charge_id = :c LIMIT 1 FOR UPDATE'
+        );
+        $shadowStmt->execute(['t' => $tenantId, 'c' => $chargeId]);
+        $shadow = $shadowStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$shadow) throw new \RuntimeException('Captured charge has no persisted shadow record.');
+        if (!in_array(strtoupper((string) $shadow['status']), ['CAPTURED', 'SETTLED'], true)) {
+            throw new \RuntimeException('Saved charge is no longer captured; review its processor status.');
+        }
 
-    $shadowStmt = $pdo->prepare(
-        'SELECT id, charge_type, amount_cents, coreflux_invoice_id,
-                coreflux_payment_id, context_token
-           FROM qbo_payment_charges
-          WHERE tenant_id = :t AND qbo_charge_id = :c LIMIT 1'
-    );
-    $shadowStmt->execute(['t' => $tenantId, 'c' => $chargeId]);
-    $shadow = $shadowStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        $invoiceId = (int) $shadow['coreflux_invoice_id'];
+        if ($invoiceId <= 0 || (!empty($context['coreflux_invoice_id'])
+            && (int) $context['coreflux_invoice_id'] !== $invoiceId)) {
+            throw new \RuntimeException('Captured charge is not linked to this invoice.');
+        }
+        $amountCents = (int) $shadow['amount_cents'];
+        $reportedCents = (int) round(((float) ($charge['amount'] ?? 0)) * 100);
+        $currency = strtoupper((string) ($charge['currency'] ?? $shadow['currency']));
+        if ($amountCents <= 0 || ($reportedCents > 0 && $reportedCents !== $amountCents)
+            || $currency !== strtoupper((string) $shadow['currency'])) {
+            throw new \RuntimeException('Captured charge amount or currency differs from its saved payment intent.');
+        }
+        $amount = $amountCents / 100;
 
-    $invoiceId = (int) ($context['coreflux_invoice_id'] ?? ($shadow['coreflux_invoice_id'] ?? 0));
-    if ($invoiceId <= 0) {
-        return [
-            'applied' => false, 'reused' => false, 'payment_id' => null,
-            'allocation' => null, 'reason' => 'invoice_not_linked',
-        ];
-    }
+        $paymentStmt = $pdo->prepare(
+            "SELECT * FROM billing_payments WHERE tenant_id = :t
+                AND source_system = 'qbo' AND external_id = :c LIMIT 1 FOR UPDATE"
+        );
+        $paymentStmt->execute(['t' => $tenantId, 'c' => $chargeId]);
+        $payment = $paymentStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
 
-    $invoiceStmt = $pdo->prepare(
-        'SELECT id, invoice_number, client_name, currency, status, amount_due
-           FROM billing_invoices
-          WHERE tenant_id = :t AND id = :id LIMIT 1'
-    );
-    $invoiceStmt->execute(['t' => $tenantId, 'id' => $invoiceId]);
-    $invoice = $invoiceStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-    if (!$invoice) {
-        return [
-            'applied' => false, 'reused' => false, 'payment_id' => null,
-            'allocation' => null, 'reason' => 'invoice_not_found',
-        ];
-    }
+        $invoiceStmt = $pdo->prepare(
+            'SELECT i.*, je.status AS invoice_je_status, je.entity_id AS invoice_je_entity_id
+               FROM billing_invoices i
+          LEFT JOIN accounting_journal_entries je
+                 ON je.tenant_id = i.tenant_id AND je.id = i.journal_entry_id
+              WHERE i.tenant_id = :t AND i.id = :id LIMIT 1 FOR UPDATE'
+        );
+        $invoiceStmt->execute(['t' => $tenantId, 'id' => $invoiceId]);
+        $invoice = $invoiceStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$invoice || $invoice['invoice_je_status'] !== 'posted') {
+            throw new \RuntimeException('The linked invoice must be posted before a captured payment can be applied.');
+        }
+        if ($currency !== strtoupper((string) $invoice['currency'])) {
+            throw new \RuntimeException('Captured payment and invoice currencies differ.');
+        }
+        $entityId = (int) ($invoice['invoice_je_entity_id'] ?? 0);
+        if ($entityId <= 0 || (!empty($invoice['entity_id']) && (int) $invoice['entity_id'] !== $entityId)
+            || in_array((string) $invoice['status'], ['void', 'cancelled'], true)) {
+            throw new \RuntimeException('Invoice and posted journal legal entity or status is inconsistent.');
+        }
+        $receiptDate = $payment ? (string) $payment['received_at'] : date('Y-m-d');
+        if ($receiptDate < (string) $invoice['issue_date']) {
+            throw new \RuntimeException('Payment date cannot precede the invoice date.');
+        }
 
-    $amount = round((float) ($charge['amount'] ?? 0), 2);
-    if ($amount <= 0 && $shadow) {
-        $amount = round(((int) ($shadow['amount_cents'] ?? 0)) / 100, 2);
-    }
-    if ($amount <= 0) {
-        throw new \InvalidArgumentException('captured charge amount must be greater than zero');
-    }
-
-    $paymentStmt = $pdo->prepare(
-        "SELECT id, unallocated_amount
-           FROM billing_payments
-          WHERE tenant_id = :t AND source_system = 'qbo' AND external_id = :e
-          LIMIT 1"
-    );
-    $paymentStmt->execute(['t' => $tenantId, 'e' => $chargeId]);
-    $payment = $paymentStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-    $created = false;
-
-    if (!$payment) {
-        $chargeType = (string) ($context['charge_type'] ?? ($shadow['charge_type'] ?? 'card'));
-        $method = $chargeType === 'echeck' ? 'ach' : 'card';
-        $requestId = trim((string) ($context['context_token'] ?? ($shadow['context_token'] ?? '')));
-        try {
+        $created = false;
+        $allocation = null;
+        if ($payment) {
+            if ($payment['voided_at'] !== null
+                || abs((float) $payment['amount'] - $amount) > 0.005
+                || strcasecmp((string) $payment['currency'], $currency) !== 0
+                || strcasecmp(trim((string) $payment['client_name']), trim((string) $invoice['client_name'])) !== 0) {
+                throw new \RuntimeException('An existing processor receipt does not match the captured charge.');
+            }
+        } else {
+            if (!in_array((string) $invoice['status'], ['approved', 'sent', 'partially_paid'], true)
+                || (float) $invoice['amount_due'] + 0.005 < $amount) {
+                throw new \RuntimeException('The invoice cannot absorb this captured charge. Review the excess or closed balance before applying it.');
+            }
+            $chargeType = (string) $shadow['charge_type'];
+            $requestId = trim((string) ($shadow['context_token'] ?? ''));
             $pdo->prepare(
                 "INSERT INTO billing_payments
                     (tenant_id, client_name, received_at, method, reference,
                      external_id, source_system, amount, currency, unallocated_amount,
                      notes, created_by_user_id, created_at)
-                 VALUES
-                    (:t, :cn, :rd, :method, :ref, :ext, 'qbo',
-                     :amt, :cur, :amt2, :nt, :u, CURRENT_TIMESTAMP)"
+                 VALUES (:t, :cn, :rd, :method, :ref, :ext, 'qbo',
+                         :amt, :cur, :amt2, :nt, :u, CURRENT_TIMESTAMP)"
             )->execute([
-                't'      => $tenantId,
-                'cn'     => (string) $invoice['client_name'],
-                'rd'     => date('Y-m-d'),
-                'method' => $method,
-                'ref'    => ($chargeType === 'echeck' ? 'QBO E-check ' : 'QBO Charge ') . $chargeId,
-                'ext'    => $chargeId,
-                'amt'    => $amount,
-                'amt2'   => $amount,
-                'cur'    => strtoupper((string) ($charge['currency'] ?? $invoice['currency'] ?? 'USD')),
-                'nt'     => 'Captured through QuickBooks Payments'
+                't' => $tenantId,
+                'cn' => (string) $invoice['client_name'],
+                'rd' => $receiptDate,
+                'method' => $chargeType === 'echeck' ? 'ach' : 'card',
+                'ref' => ($chargeType === 'echeck' ? 'QBO E-check ' : 'QBO Charge ') . $chargeId,
+                'ext' => $chargeId,
+                'amt' => $amount,
+                'amt2' => $amount,
+                'cur' => $currency,
+                'nt' => 'Captured through QuickBooks Payments'
                     . ($requestId !== '' ? ' (Request-Id: ' . $requestId . ')' : '') . '.',
-                'u'      => $actorUserId,
+                'u' => $actorUserId,
             ]);
-            $payment = ['id' => (int) $pdo->lastInsertId(), 'unallocated_amount' => $amount];
+            $payment = ['id' => (int) $pdo->lastInsertId(), 'unallocated_amount' => $amount,
+                'journal_entry_id' => null];
             $created = true;
-        } catch (\Throwable $insertError) {
-            // A concurrent retry may have won the unique external-id
-            // insert. Re-read it; rethrow only when this was a real DB
-            // failure rather than the expected idempotency race.
-            $paymentStmt->execute(['t' => $tenantId, 'e' => $chargeId]);
-            $payment = $paymentStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-            if (!$payment) throw $insertError;
         }
-    }
 
-    $paymentId = (int) $payment['id'];
-    if ($shadow) {
+        $paymentId = (int) $payment['id'];
+        if (!empty($shadow['coreflux_payment_id']) && (int) $shadow['coreflux_payment_id'] !== $paymentId) {
+            throw new \RuntimeException('Charge shadow is linked to a different CoreFlux payment.');
+        }
+        $allocatedStmt = $pdo->prepare(
+            'SELECT invoice_id, ROUND(SUM(amount_applied), 2) AS applied
+               FROM billing_payment_allocations
+              WHERE payment_id = :p AND reversed_at IS NULL GROUP BY invoice_id'
+        );
+        $allocatedStmt->execute(['p' => $paymentId]);
+        $priorAllocations = $allocatedStmt->fetchAll(\PDO::FETCH_ASSOC);
+        if (!$priorAllocations) {
+            if (!empty($payment['journal_entry_id'])) {
+                throw new \RuntimeException('Posted processor receipt has no invoice allocation.');
+            }
+            if (!$created && abs((float) $payment['unallocated_amount'] - $amount) > 0.005) {
+                throw new \RuntimeException('Existing processor receipt has an inconsistent unallocated balance.');
+            }
+            if (!in_array((string) $invoice['status'], ['approved', 'sent', 'partially_paid'], true)
+                || (float) $invoice['amount_due'] + 0.005 < $amount) {
+                throw new \RuntimeException('The invoice cannot absorb this captured charge.');
+            }
+            $allocation = billingAllocatePayment($paymentId, [
+                'allocations' => [['invoice_id' => $invoiceId, 'amount' => $amount]],
+                'defer_pwp' => true,
+            ], $actorUserId);
+            if (abs((float) ($allocation['unallocated_remaining'] ?? $amount)) > 0.005) {
+                throw new \RuntimeException('The captured charge was not fully applied.');
+            }
+        } elseif (count($priorAllocations) !== 1
+            || (int) $priorAllocations[0]['invoice_id'] !== $invoiceId
+            || abs((float) $priorAllocations[0]['applied'] - $amount) > 0.005
+            || abs((float) $payment['unallocated_amount']) > 0.005) {
+            throw new \RuntimeException('Existing processor receipt allocations do not match its charge.');
+        }
+
+        if (!empty($payment['journal_entry_id'])) {
+            $jeStmt = $pdo->prepare(
+                'SELECT status, source_module, source_ref_type, source_ref_id
+                   FROM accounting_journal_entries WHERE tenant_id = :t AND id = :id LIMIT 1'
+            );
+            $jeStmt->execute(['t' => $tenantId, 'id' => (int) $payment['journal_entry_id']]);
+            $priorJe = $jeStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$priorJe || $priorJe['status'] !== 'posted'
+                || $priorJe['source_module'] !== 'billing'
+                || $priorJe['source_ref_type'] !== 'billing_payment'
+                || (int) $priorJe['source_ref_id'] !== $paymentId) {
+                throw new \RuntimeException('Processor receipt has an invalid ledger link.');
+            }
+            $pdo->prepare('UPDATE qbo_payment_charges SET coreflux_payment_id = :p WHERE id = :id')
+                ->execute(['p' => $paymentId, 'id' => (int) $shadow['id']]);
+            $pdo->commit();
+            return ['applied' => true, 'reused' => true, 'payment_id' => $paymentId,
+                'journal_entry_id' => (int) $payment['journal_entry_id'],
+                'allocation' => null, 'reason' => 'already_posted'];
+        }
+
+        $clientDimension = !empty($invoice['client_company_id'])
+            ? (int) $invoice['client_company_id']
+            : 'name:' . strtolower(trim((string) $invoice['client_name']));
+        $journal = accountingPostJe($tenantId, [
+            'entity_id' => $entityId,
+            'posting_date' => $receiptDate,
+            'currency' => $currency,
+            'source_module' => 'billing',
+            'source_ref_type' => 'billing_payment',
+            'source_ref_id' => $paymentId,
+            'idempotency_key' => 'billing:qbo-capture:' . $chargeId,
+            'memo' => 'Processor receipt / ' . $invoice['invoice_number'],
+            'lines' => [
+                ['account_code' => '1010', 'debit' => $amount, 'credit' => 0,
+                    'memo' => 'QuickBooks Payments clearing ' . $chargeId,
+                    'dims' => ['legal_entity' => $entityId]],
+                ['account_code' => '1100', 'debit' => 0, 'credit' => $amount,
+                    'memo' => 'Apply processor receipt to ' . $invoice['invoice_number'],
+                    'counterparty_company_id' => $invoice['client_company_id'] ?? null,
+                    'dims' => ['legal_entity' => $entityId, 'client' => $clientDimension]],
+            ],
+        ], $actorUserId, true);
+        if (!empty($journal['idempotent_replay'])) {
+            throw new \RuntimeException('Processor receipt journal already exists without a valid payment link.');
+        }
+        $savePayment = $pdo->prepare(
+            'UPDATE billing_payments SET journal_entry_id = :je, posted_at = NOW(), unallocated_amount = 0
+              WHERE tenant_id = :t AND id = :p AND journal_entry_id IS NULL AND voided_at IS NULL'
+        );
+        $savePayment->execute(['je' => (int) $journal['je_id'], 't' => $tenantId, 'p' => $paymentId]);
+        if ($savePayment->rowCount() !== 1) {
+            throw new \RuntimeException('Processor receipt changed while posting.');
+        }
+        $pdo->prepare(
+            'INSERT INTO accounting_subledger_links
+                (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
+             VALUES (:t, "billing", :ref, :je, "primary")'
+        )->execute(['t' => $tenantId, 'ref' => 'payment:' . $paymentId, 'je' => (int) $journal['je_id']]);
         $pdo->prepare(
             'UPDATE qbo_payment_charges
-                SET coreflux_payment_id = :p
-              WHERE id = :id AND tenant_id = :t'
-        )->execute(['p' => $paymentId, 'id' => (int) $shadow['id'], 't' => $tenantId]);
+                SET coreflux_payment_id = :p, error_code = NULL, error_message = NULL WHERE id = :id'
+        )->execute(['p' => $paymentId, 'id' => (int) $shadow['id']]);
+        $pdo->commit();
+
+        $pwp = $allocation
+            ? billingReleasePayWhenPaidForAllocations($tenantId, $allocation['applied'], $actorUserId)
+            : [];
+        billingAudit('billing.qbo_payments.captured', [
+            'invoice_id' => $invoiceId, 'amount' => $amount, 'charge_id' => $chargeId,
+            'payment_id' => $paymentId, 'journal_entry_id' => (int) $journal['je_id'],
+        ], $paymentId);
+        return ['applied' => true, 'reused' => !$created, 'payment_id' => $paymentId,
+            'journal_entry_id' => (int) $journal['je_id'],
+            'allocation' => $allocation, 'reason' => null, 'pwp' => $pwp];
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        try {
+            $pdo->prepare(
+                'UPDATE qbo_payment_charges SET error_message = :error WHERE tenant_id = :t AND qbo_charge_id = :c'
+            )->execute(['error' => substr('posting_error: ' . $e->getMessage(), 0, 500),
+                't' => $tenantId, 'c' => $chargeId]);
+        } catch (\Throwable $_) {}
+        throw $e;
     }
-
-    $allocatedStmt = $pdo->prepare(
-        'SELECT COALESCE(SUM(amount_applied), 0)
-           FROM billing_payment_allocations
-          WHERE payment_id = :p AND invoice_id = :i AND reversed_at IS NULL'
-    );
-    $allocatedStmt->execute(['p' => $paymentId, 'i' => $invoiceId]);
-    $alreadyAllocated = round((float) $allocatedStmt->fetchColumn(), 2);
-    if ($alreadyAllocated > 0 || in_array((string) $invoice['status'], ['paid', 'void', 'cancelled'], true)) {
-        return [
-            'applied' => $alreadyAllocated > 0,
-            'reused' => true,
-            'payment_id' => $paymentId,
-            'allocation' => null,
-            'reason' => $alreadyAllocated > 0 ? 'already_allocated' : 'invoice_closed',
-        ];
-    }
-
-    $applyAmount = min(
-        $amount,
-        round((float) ($payment['unallocated_amount'] ?? 0), 2),
-        round((float) ($invoice['amount_due'] ?? 0), 2)
-    );
-    if ($applyAmount <= 0) {
-        return [
-            'applied' => false, 'reused' => !$created, 'payment_id' => $paymentId,
-            'allocation' => null, 'reason' => 'nothing_to_allocate',
-        ];
-    }
-
-    try {
-        $allocation = billingAllocatePayment(
-            $paymentId,
-            ['allocations' => [['invoice_id' => $invoiceId, 'amount' => $applyAmount]]],
-            $actorUserId
-        );
-    } catch (\Throwable $allocationError) {
-        // Resolve an overlap where another worker allocated after our
-        // read but before billingAllocatePayment acquired its row lock.
-        $allocatedStmt->execute(['p' => $paymentId, 'i' => $invoiceId]);
-        if ((float) $allocatedStmt->fetchColumn() <= 0) throw $allocationError;
-        return [
-            'applied' => true, 'reused' => true, 'payment_id' => $paymentId,
-            'allocation' => null, 'reason' => 'already_allocated',
-        ];
-    }
-
-    billingAudit('billing.qbo_payments.captured', [
-        'invoice_id' => $invoiceId,
-        'amount'     => $applyAmount,
-        'charge_id'  => $chargeId,
-        'payment_id' => $paymentId,
-        'request_id' => $context['context_token'] ?? ($shadow['context_token'] ?? null),
-        'allocated'  => $allocation['applied'] ?? [],
-    ], $paymentId);
-
-    return [
-        'applied' => true,
-        'reused' => !$created,
-        'payment_id' => $paymentId,
-        'allocation' => $allocation,
-        'reason' => null,
-    ];
 }
