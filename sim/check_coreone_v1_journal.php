@@ -7,6 +7,7 @@ if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging') {
     exit(2);
 }
 require_once __DIR__ . '/../core/accounting/coreone_v1.php';
+require_once __DIR__ . '/../modules/accounting/lib/standard_reports.php';
 
 $tenantId = 0;
 foreach (array_slice($argv, 1) as $arg) {
@@ -150,6 +151,8 @@ try {
     $secondBody = $body;
     $secondBody['source_record_id'] = 'stage-coreone:second:' . bin2hex(random_bytes(8));
     $secondBody['memo'] = 'Second-entity rollback-only acceptance';
+    $secondBody['lines'][0]['debit'] = '2.00';
+    $secondBody['lines'][1]['credit'] = '2.00';
     $secondPosted = coreoneV1PostJournal($secondCredential, $secondBody);
     $secondView = coreoneV1GetJournal($secondCredential, $secondBody['source_record_id']);
     $checks['second_entity_posts_its_own_scoped_journal'] =
@@ -157,6 +160,26 @@ try {
         && $secondView !== null
         && (int) $secondView['journal_entry_id'] === (int) $secondPosted['journal_entry_id']
         && coreoneV1GetJournal($credential, $secondBody['source_record_id']) === null;
+    $today = date('Y-m-d');
+    $income = reportIncomeStatement($tenantId, $today, $today, $secondEntityId);
+    $balance = reportBalanceSheet($tenantId, $today, $secondEntityId);
+    $trial = accountingTrialBalance($tenantId, $today, $secondEntityId);
+    $cashFlow = reportCashFlowIndirect($tenantId, $today, $today, $secondEntityId);
+    $accountBalance = static function (array $rows, string $code): ?float {
+        foreach ($rows as $row) {
+            if ((string) ($row['code'] ?? '') === $code) return (float) $row['balance_signed'];
+        }
+        return null;
+    };
+    $checks['second_entity_reports_use_only_its_own_lines'] =
+        (float) $income['total_revenue'] === 2.0
+        && (float) $income['total_expense'] === 2.0
+        && (float) $income['net_income'] === 0.0
+        && $accountBalance($trial, '4000') === 2.0
+        && $accountBalance($trial, '6990') === 2.0;
+    $checks['second_entity_balance_and_cash_flow_reconcile'] =
+        !empty($balance['balanced']) && !empty($cashFlow['balanced'])
+        && (float) $cashFlow['reconciliation_diff'] === 0.0;
     $secondReversal = coreoneV1ReverseJournal($secondCredential,
         $secondBody['source_record_id'], 'Undo second rollback-only fixture');
     $checks['second_entity_reverses_only_its_own_journal'] =
