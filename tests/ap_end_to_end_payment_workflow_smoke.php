@@ -67,6 +67,9 @@ $assert('payment list supports server search and pagination',
     && str_contains($payments, "'total'                 =>")
     && str_contains($paymentsUi, 'data-testid="ap-payments-search"')
     && str_contains($paymentsUi, 'data-testid="ap-payments-pagination"'));
+$assert('wide payment table scrolls within its mobile viewport',
+    str_contains($paymentsUi, 'className="data-table-wrap" style={{ maxWidth:')
+    && str_contains($paymentsUi, 'aria-label="Vendor payments"'));
 $assert('new payment-run rows are auto-selected',
     str_contains($paymentsUi, 'autoSelectedRunRef')
     && str_contains($paymentsUi, 'selectMany(visible)')

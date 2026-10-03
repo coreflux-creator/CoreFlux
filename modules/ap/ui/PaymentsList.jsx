@@ -382,6 +382,7 @@ export default function PaymentsList() {
       {loading && <p>Loading…</p>}
       {error && <p className="error">Error: {error.message}</p>}
 
+      <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Vendor payments" tabIndex={0}>
       <table className="data-table" data-testid="ap-payments-table">
         <thead>
           <tr>
@@ -533,6 +534,7 @@ export default function PaymentsList() {
           ))}
         </tbody>
       </table>
+      </div>
 
       {total > 0 && (
         <footer className="operational-footer" data-testid="ap-payments-pagination">
