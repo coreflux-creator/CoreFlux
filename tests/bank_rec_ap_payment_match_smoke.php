@@ -24,6 +24,15 @@ $check('AP screen delegates to the shared clearing operation', str_contains($apA
 $check('clearing is idempotent only with a valid journal',
     str_contains($apLib, '(($row[\'status\'] ?? \'\') === \'cleared\'')
     && str_contains($apLib, 'has no valid ledger posting'));
+$check('AP clearing locks payment and owns its journal transaction',
+    str_contains($apLib, 'function apClearPaymentLocked(')
+    && str_contains($apLib, 'FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE')
+    && str_contains($apLib, 'cf_tx_commit($pdo, $ownsTransaction)')
+    && str_contains($apLib, 'cf_tx_rollback($pdo, $ownsTransaction)'));
+$check('ordinary void refuses payment ledger activity under lock',
+    str_contains($apApi, 'apPaymentHasLedgerActivity($pdo, $tid, $row)')
+    && str_contains($apApi, 'Cleared payments need a linked accounting and bank correction')
+    && str_contains($apApi, 'ap_payments WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE'));
 $check('clearing requires a real entity bank account',
     str_contains($apLib, 'Connect or create an active bank account for this entity before clearing the payment.'));
 $check('payment and bank currencies must agree',
@@ -55,6 +64,11 @@ $check('endpoint clears once and then reconciles the resulting journal',
     str_contains($bankApi, 'apClearPayment(')
     && str_contains($bankApi, 'bankRecMatchLine(')
     && str_contains($bankApi, 'accounting.bank.ap_payment_matched'));
+$matchAction = substr($bankApi, (int) strpos($bankApi, "if (\$method === 'POST' && \$action === 'match_ap_payment')"), 6000);
+$check('AP clear and bank match commit or roll back together',
+    str_contains($matchAction, 'cf_tx_begin($pdo)')
+    && str_contains($matchAction, 'cf_tx_commit($pdo, $ownsTransaction)')
+    && str_contains($matchAction, 'cf_tx_rollback($pdo, $ownsTransaction)'));
 
 echo "\nReconciliation integrity\n";
 $check('manual journal match requires a posted journal', str_contains($bankLib, 'Only a posted journal entry can be matched'));

@@ -145,6 +145,13 @@ Staging must have its own PHP deployment, MySQL database, migrations, encryption
 - After publishing this pass only to isolated staging, all five financial snapshot checks remained green: AP due and GL `2000` both $2,250; AR due and GL `1100` both $2,194; cash flow and bank GL both $575.82; the balance sheet balanced. The separate AR-by-entity audit found no differences. The local signed-in bill detail withheld correction for the simulator-linked legacy bill and displayed its original journal link and review reason.
 - This path does **not** correct paid bills, time/placement-generated obligations, intercompany splits or bank-linked journals. Those require coordinated source, payment and cash corrections before this can be called a complete AP correction workflow.
 
+## AP payment clearance and bank matching (October 2026)
+
+- Clearing a released AP payment now locks the payment and commits its status with the canonical `ap.payment.cleared` cash journal. Matching that payment to a bank statement debit wraps both steps in one outer transaction: a failed match rolls back the payment, journal, event and bank-line change together. A replay accepts only a still-posted linked journal.
+- Ordinary payment Void locks the row and refuses cleared payments or any AP ledger/event lineage. It also refuses a provider-originated payout unless the provider reports a failed, returned, cancelled or rejected state. This is a safety boundary, not a cash reversal or instruction to recall money.
+- A rollback-only tenant `999` staging exercise passed ten checks, including a deliberately mismatched bank amount and no surviving payment, bill, cash journal, bank line or accounting event. The five cross-ledger snapshot checks still passed afterward: AP due and GL `2000` both $2,250; AR due and GL `1100` both $2,194; cash flow and bank GL both $575.82; balance sheet balanced.
+- A source-owned correction for an already-cleared manual AP payment, including its journal, bill settlement and any bank match, remains open. Until that workflow is complete, the ordinary Void action deliberately refuses it. Externally originated payouts require a separate provider-confirmed reversal/return path.
+
 ## Environment-safe public links (October 2026)
 
 - The ERP-wide `APP_URL` was previously hard-coded to production, so an existing staging invoice's public **Open** link pointed at the wrong site. On staging, the shared configuration now uses only a validated staging HTTPS host or an explicitly configured staging public origin. An untrusted host gets no public origin; issuing a new invoice token then fails closed before inserting it. Production retains its existing URL.

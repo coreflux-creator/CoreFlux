@@ -29,6 +29,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/treasury/bank_transaction_identity.php';
+require_once __DIR__ . '/../../../core/tx_helpers.php';
 require_once __DIR__ . '/../lib/accounting.php';
 require_once __DIR__ . '/../lib/bank_rec.php';
 require_once __DIR__ . '/../../billing/lib/bank_receipt_correction.php';
@@ -509,6 +510,8 @@ if ($method === 'POST' && $action === 'match_ap_payment') {
     }
 
     require_once __DIR__ . '/../../ap/lib/ap.php';
+    $pdo = getDB();
+    $ownsTransaction = cf_tx_begin($pdo);
     try {
         $cleared = apClearPayment(
             (int) $ctx['tenant_id'],
@@ -523,7 +526,9 @@ if ($method === 'POST' && $action === 'match_ap_payment') {
             (int) $cleared['journal_entry_id'],
             $user['id'] ?? null
         );
+        cf_tx_commit($pdo, $ownsTransaction);
     } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTransaction);
         api_error($e->getMessage(), 422, ['retryable' => true]);
     }
 

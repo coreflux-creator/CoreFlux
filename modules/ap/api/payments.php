@@ -644,10 +644,6 @@ if ($method === 'POST' && $action === 'void') {
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if ($row['status'] === 'void') api_error('Already void', 409);
-    if (($row['disbursement_rail'] ?? '') === 'purepay' && !empty($row['rail_external_ref'])
-        && !in_array((string) ($row['rail_status'] ?? ''), ['failed','returned','cancelled'], true)) {
-        api_error('Pure//Pay has already received this payout. Confirm a provider failure or cancellation before voiding it.', 409);
-    }
     $body = api_json_body();
     $reason = trim((string) ($body['reason'] ?? ''));
     if ($reason === '') api_error('reason required', 422);
@@ -655,12 +651,29 @@ if ($method === 'POST' && $action === 'void') {
     $pdo = getDB();
     $pdo->beginTransaction();
     try {
-        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $pdo->prepare('UPDATE ap_payments SET status = "void", voided_at = NOW(), void_reason = :r WHERE id = :id')
-            ->execute(['r' => $reason, 'id' => $id]);
+        $locked = $pdo->prepare('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE');
+        $locked->execute(['tenant_id' => $tid, 'id' => $id]);
+        $row = $locked->fetch(\PDO::FETCH_ASSOC);
+        if (!$row || $row['status'] === 'void') throw new \DomainException('Payment is already void or unavailable');
+        if (apPaymentHasLedgerActivity($pdo, $tid, $row)) {
+            throw new \DomainException('Cleared payments need a linked accounting and bank correction; they cannot be voided here');
+        }
+        if (!empty($row['rail_external_ref'])
+            && !in_array((string) ($row['rail_status'] ?? ''), ['failed','returned','cancelled','rejected'], true)) {
+            throw new \DomainException('This payout has been sent to its provider. Confirm a failure or cancellation before voiding it');
+        }
+        $void = $pdo->prepare(
+            'UPDATE ap_payments SET status = "void", voided_at = NOW(), void_reason = :reason
+              WHERE tenant_id = :tenant_id AND id = :id AND status <> "void"'
+        );
+        $void->execute(['reason' => $reason, 'tenant_id' => $tid, 'id' => $id]);
+        if ($void->rowCount() !== 1) throw new \DomainException('Payment changed while voiding it');
         apRefreshReleasedPaymentBillsForPayment($pdo, $tid, $id);
 
         $pdo->commit();
+    } catch (\DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 409);
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;

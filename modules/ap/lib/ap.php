@@ -16,6 +16,7 @@
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../../core/encryption.php';
+require_once __DIR__ . '/../../../core/tx_helpers.php';
 require_once __DIR__ . '/../../placements/lib/economics.php';
 
 /**
@@ -779,6 +780,30 @@ function apAttachPostedBillJournal(\PDO $pdo, int $tenantId, int $billId, int $j
     throw new \RuntimeException('Bill changed during posting; no accounting journal was committed');
 }
 
+/** A payment with posted accounting cannot be voided without a source-level reversal. */
+function apPaymentHasLedgerActivity(\PDO $pdo, int $tenantId, array $payment): bool
+{
+    if (($payment['status'] ?? '') === 'cleared' || !empty($payment['journal_entry_id'])) return true;
+    $paymentId = (int) ($payment['id'] ?? 0);
+    if ($paymentId <= 0) return false;
+
+    $link = $pdo->prepare(
+        'SELECT 1 FROM accounting_subledger_links
+          WHERE tenant_id = :tenant_id AND source_module = "ap"
+            AND source_record_id = :source_record_id LIMIT 1'
+    );
+    $link->execute(['tenant_id' => $tenantId, 'source_record_id' => 'ap_payment:' . $paymentId]);
+    if ($link->fetchColumn()) return true;
+
+    $event = $pdo->prepare(
+        'SELECT 1 FROM accounting_events
+          WHERE tenant_id = :tenant_id AND source_module = "ap"
+            AND source_record_id = :source_record_id AND status = "posted" LIMIT 1'
+    );
+    $event->execute(['tenant_id' => $tenantId, 'source_record_id' => 'ap_payment:' . $paymentId]);
+    return (bool) $event->fetchColumn();
+}
+
 /**
  * Payment state machine.
  *  - draft → queued | sent | void
@@ -952,8 +977,28 @@ function apClearPayment(
         throw new \InvalidArgumentException('cleared_date must use YYYY-MM-DD');
     }
 
+    $pdo = getDB();
+    $ownsTransaction = cf_tx_begin($pdo);
+    try {
+        $result = apClearPaymentLocked($tenantId, $paymentId, $clearedDate, $bankAccountId, $actorUserId);
+        cf_tx_commit($pdo, $ownsTransaction);
+        return $result;
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTransaction);
+        throw $e;
+    }
+}
+
+/** The caller owns a transaction, including the payment row lock and journal post. */
+function apClearPaymentLocked(
+    int $tenantId,
+    int $paymentId,
+    string $clearedDate,
+    ?int $bankAccountId,
+    ?int $actorUserId
+): array {
     $row = scopedFind(
-        'SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id',
+        'SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE',
         ['id' => $paymentId]
     );
     if (!$row) throw new \RuntimeException('Payment not found');
@@ -964,7 +1009,7 @@ function apClearPayment(
             'SELECT id, status FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id',
             ['id' => $journalEntryId]
         ) : null;
-        if (!$journal || !in_array((string) $journal['status'], ['posted', 'reversed'], true)) {
+        if (!$journal || (string) $journal['status'] !== 'posted') {
             throw new \RuntimeException('This payment is marked cleared but has no valid ledger posting. Repair the payment before matching it.');
         }
         $posting = apPaymentPostingContext($tenantId, $row, $bankAccountId);
