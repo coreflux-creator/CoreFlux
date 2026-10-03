@@ -217,6 +217,15 @@ const POSTING_RULES_DEFAULT_PACK = [
         ],
     ],
     [
+        'event_type'  => 'coreone.journal.posted',
+        'rule_name'   => 'CoreOne general journal — passthrough',
+        'template'    => [
+            'name'           => 'CoreOne general journal — passthrough',
+            'memo_template'  => '{payload.memo}',
+            'line_source'    => 'payload',
+        ],
+    ],
+    [
         'event_type'  => 'payroll.run.approved',
         'rule_name'   => 'Payroll accrual — passthrough',
         'template'    => [
