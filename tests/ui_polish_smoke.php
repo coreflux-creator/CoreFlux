@@ -32,6 +32,9 @@ $reports = (string) file_get_contents($root . '/modules/accounting/ui/StandardRe
 $coa = (string) file_get_contents($root . '/modules/accounting/ui/ChartOfAccounts.jsx');
 $journal = (string) file_get_contents($root . '/modules/accounting/ui/JournalEntries.jsx');
 $accountLink = (string) file_get_contents($root . '/dashboard/src/components/AccountLink.jsx');
+$comparison = (string) file_get_contents($root . '/dashboard/src/components/ComparisonTable.jsx');
+$bankRec = (string) file_get_contents($root . '/modules/accounting/ui/BankReconciliation.jsx');
+$invoices = (string) file_get_contents($root . '/modules/billing/ui/InvoicesList.jsx');
 
 echo "\n1. Shared visual system\n";
 $assert('application shell uses the supplied CoreFlux brand assets',
@@ -150,6 +153,15 @@ $assert('journal entries use the shared ledger header and table container',
     str_contains($journal, 'className="ledger-page"')
     && str_contains($journal, 'className="ledger-page-header"')
     && str_contains($journal, 'className="data-table-wrap"'));
+$assert('shared financial comparison tables scroll without widening mobile reports',
+    str_contains($comparison, "overflowX: 'auto'")
+    && str_contains($comparison, '252 + valueColumns * 110'));
+$assert('bank reconciliation tables stay inside scrollable regions',
+    substr_count($bankRec, 'className="data-table-wrap" style={{ maxWidth:') >= 4
+    && str_contains($bankRec, 'aria-label="Bank statement lines"'));
+$assert('invoice worklist keeps its wide table within the mobile viewport',
+    str_contains($invoices, 'className="data-table-wrap" style={{ maxWidth:')
+    && str_contains($invoices, 'aria-label="Invoices"'));
 
 echo "\nUI polish smoke: {$pass} passed / {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

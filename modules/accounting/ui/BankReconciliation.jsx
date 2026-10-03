@@ -62,6 +62,7 @@ function ReconciliationsList() {
       {err && <p className="error">{err}</p>}
       {loading && <p>Loading…</p>}
       {error && <p className="error">{error.message}</p>}
+      <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Reconciliations" tabIndex={0}>
       <table className="data-table" data-testid="accounting-recon-table">
         <thead><tr><th>Period end</th><th>Status</th><th style={{textAlign:'right'}}>Statement</th><th style={{textAlign:'right'}}>GL</th><th style={{textAlign:'right'}}>Diff</th><th>Opened</th><th>Closed</th><th></th></tr></thead>
         <tbody>
@@ -82,6 +83,7 @@ function ReconciliationsList() {
           ))}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }
@@ -134,6 +136,7 @@ function AccountsList() {
       {loading && <p>Loading…</p>}
       {error   && <p className="error">{error.message}</p>}
       {showNew && <NewAccountForm onDone={() => { setShow(false); reload(); }} onCancel={() => setShow(false)} />}
+      <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Bank accounts" tabIndex={0}>
       <table className="data-table" data-testid="accounting-bank-accounts-table">
         <thead><tr><th>Name</th><th>Entity</th><th>GL code</th><th>Bank</th><th>Last4</th><th>Feed</th><th>Last sync</th><th>Status</th><th></th></tr></thead>
         <tbody>
@@ -184,6 +187,7 @@ function AccountsList() {
           ))}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }
@@ -494,6 +498,7 @@ function AccountDetail() {
 
       {loading && <p>Loading…</p>}
       {error   && <p className="error">{error.message}</p>}
+      <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Bank statement lines" tabIndex={0}>
       <table className="data-table" data-testid="accounting-bank-lines-table">
         <thead><tr><th>Date</th><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th>Status</th><th>AI</th><th></th></tr></thead>
         <tbody>
@@ -515,6 +520,7 @@ function AccountDetail() {
           ) : <ResolvedBankLineRow key={l.id} line={l} reload={reload} />)}
         </tbody>
       </table>
+      </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 10 }}>
         <button className="btn btn--ghost" type="button" onClick={() => setPage((value) => Math.max(1, value - 1))}
                 disabled={currentPage <= 1 || loading} data-testid="accounting-bank-line-page-prev">Previous</button>
@@ -1226,6 +1232,7 @@ function RulesList() {
       )}
       {loading && <p>Loading…</p>}
       {error   && <p className="error">{error.message}</p>}
+      <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Bank rules" tabIndex={0}>
       <table className="data-table" data-testid="accounting-bank-rules-table">
         <thead><tr><th>Name</th><th>Pattern</th><th>Target</th><th>Direction</th><th>Mode</th><th>Applied</th><th>Source</th><th></th></tr></thead>
         <tbody>
@@ -1260,6 +1267,7 @@ function RulesList() {
           ))}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }

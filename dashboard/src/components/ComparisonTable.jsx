@@ -38,9 +38,12 @@ export default function ComparisonTable({
   const baselineKey = columns.find(c => c.key === 'prior_period')?.key
                    ?? columns.find(c => c.key === 'prior_year')?.key
                    ?? null;
+  const valueColumns = columns.length + (showVariance && baselineKey ? 1 : 0);
 
   return (
-    <table data-testid={testIdPrefix} style={tableStyle}>
+    <div role="region" aria-label={testIdPrefix.replace(/-/g, ' ')} tabIndex={0}
+         style={{ maxWidth: '100%', overflowX: 'auto' }}>
+    <table data-testid={testIdPrefix} style={{ ...tableStyle, minWidth: 252 + valueColumns * 110 }}>
       <thead>
         <tr>
           <th style={thLeft}>Code</th>
@@ -138,6 +141,7 @@ export default function ComparisonTable({
         })}
       </tbody>
     </table>
+    </div>
   );
 }
 

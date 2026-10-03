@@ -186,6 +186,11 @@ Staging must have its own PHP deployment, MySQL database, migrations, encryption
 - On narrow screens, the dense GL table scrolls within its own region rather than widening the entire page.
 - An authenticated isolated-staging check on 37 synthetic cash-account lines returned 25 and 12 lines on successive pages. The second page opened at the first page's final running balance and ended at the full-period balance. A 50-line page had the same totals; invalid page size was rejected. The hosted staging browser rendered both pages on a 390-pixel viewport with no document overflow or script error. Its five cross-ledger snapshot checks remained green. This is a synthetic staging check, not a production-ledger audit or a walkthrough of the entire application.
 
+## Accounting worklist viewport check (October 2026)
+
+- A view-only sweep of 12 hosted-staging accounting, AP and Billing routes found six mobile document-overflow cases. The shared financial comparison table now scrolls inside reports; bank accounts, reconciliation lists, statement lines, rules and the invoice list use contained table regions. AP payments and GL detail were corrected in the preceding passes.
+- Repeating the signed-in 390-pixel sweep showed all 12 routes at exactly viewport width with no visible error or browser script exception. Trial balance, bank reconciliation and invoices also retained their 1440-pixel desktop width. This checks layout and read-only loading only; it does not validate every action or replace a full workflow acceptance pass.
+
 ## Decisions to revisit
 
 | Decision | Reason | Revisit when |

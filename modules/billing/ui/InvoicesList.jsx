@@ -328,6 +328,7 @@ export default function InvoicesList({ session }) {
       {loading && <p>Loading…</p>}
       {error && <p className="error" data-testid="billing-invoices-error">Error: {error.message}</p>}
 
+      <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Invoices" tabIndex={0}>
       <table className="data-table" data-testid="billing-invoices-table">
         <thead><tr>
           <th style={{ width: 34 }}>
@@ -406,6 +407,7 @@ export default function InvoicesList({ session }) {
           })}
         </tbody>
       </table>
+      </div>
 
       {total > 0 && (
         <div
