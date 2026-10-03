@@ -24,6 +24,7 @@ $csvImport = (string) file_get_contents($root . '/modules/ap/api/payments_csv_im
 $csvExport = (string) file_get_contents($root . '/modules/ap/api/payments_csv_export.php');
 $dataset = (string) file_get_contents($root . '/core/export_datasets.php');
 $migration = (string) file_get_contents($root . '/modules/ap/migrations/020_payment_entity_scope.sql');
+$correction = (string) file_get_contents($root . '/modules/ap/lib/payment_correction.php');
 
 echo "Reservation and payment-run integrity\n";
 $assert('payment suggestions subtract draft, queued and sent reservations',
@@ -99,6 +100,9 @@ $assert('clearing derives one canonical vendor from allocated bills',
     && str_contains($lib, "'vendor_dimension' => \$posting['vendor_dimension']"));
 $assert('clearing carries legal entity into the journal event',
     str_contains($lib, "'legal_entity_dimension' => \$posting['legal_entity_dimension']"));
+$assert('legacy payments name the missing clearance evidence before correction',
+    str_contains($correction, 'This payment has no verified funding bank or clearance date.')
+    && str_contains($correction, 'Provider or bank-file payouts need a confirmed return or cancellation before correction'));
 
 echo "Entity scope and CSV safety\n";
 $assert('payment entity migration and backfill exist',

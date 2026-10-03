@@ -13,13 +13,16 @@ function apInspectClearedManualPayment(\PDO $pdo, int $tenantId, array $payment,
     $entityId = (int) ($payment['entity_id'] ?? 0);
     $amount = (float) ($payment['amount'] ?? 0);
     if ($paymentId <= 0 || ($payment['status'] ?? '') !== 'cleared' || $journalId <= 0
-        || $bankAccountId <= 0 || $entityId <= 0 || $amount <= 0
-        || empty($payment['cleared_at']) || abs((float) ($payment['unallocated_amount'] ?? 0)) > 0.005) {
+        || $entityId <= 0 || $amount <= 0
+        || abs((float) ($payment['unallocated_amount'] ?? 0)) > 0.005) {
         throw new \RuntimeException('Only a fully allocated, posted manual payment can be corrected here');
     }
     if (!empty($payment['disbursement_rail']) || !empty($payment['rail_external_ref'])
         || !empty($payment['plaid_transfer_id'])) {
         throw new \RuntimeException('Provider or bank-file payouts need a confirmed return or cancellation before correction');
+    }
+    if ($bankAccountId <= 0 || empty($payment['cleared_at'])) {
+        throw new \RuntimeException('This payment has no verified funding bank or clearance date. Review its bank and journal history before correction.');
     }
 
     $journalStmt = $pdo->prepare(
