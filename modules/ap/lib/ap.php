@@ -1772,11 +1772,13 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
 
 /**
  * Compute AP aging buckets on-read for a tenant + as_of date.
+ * An entity filter follows the bill journal, including dated reversals.
  * Returns array keyed by vendor_name.
  */
-function apComputeAging(int $tenantId, string $asOf): array
+function apComputeAging(int $tenantId, string $asOf, ?int $entityId = null): array
 {
     $pdo = getDB();
+    $entityFilter = $entityId === null ? '' : ' AND je.entity_id = :entity_id';
     $q = $pdo->prepare(
         'SELECT aged.vendor_name,
                 SUM(CASE WHEN aged.due_date >= :a1 THEN aged.amount_due ELSE 0 END) AS bucket_current,
@@ -1813,7 +1815,7 @@ function apComputeAging(int $tenantId, string $asOf): array
              LEFT JOIN accounting_journal_entries payment_reversal
                     ON payment_reversal.id = payment_je.reversed_by_je_id
                    AND payment_reversal.tenant_id = b.tenant_id
-                 WHERE b.tenant_id = :tid
+                 WHERE b.tenant_id = :tid' . $entityFilter . '
                    AND b.bill_date <= :document_as_of
                    AND (je.status = "posted" OR reversal.posting_date > :reversed_as_of)
                    AND (b.status <> "void" OR b.voided_at IS NULL OR DATE(b.voided_at) > :void_as_of)
@@ -1834,6 +1836,7 @@ function apComputeAging(int $tenantId, string $asOf): array
         'document_as_of' => $asOf,
         'void_as_of' => $asOf,
     ];
+    if ($entityId !== null) $bind['entity_id'] = $entityId;
     foreach (['a1','a2','a3','a4','a5','a6','a7','a8','a9'] as $k) $bind[$k] = $asOf;
     $q->execute($bind);
     return $q->fetchAll(\PDO::FETCH_ASSOC);

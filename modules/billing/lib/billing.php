@@ -1114,11 +1114,13 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
 
 /**
  * Compute aging buckets on-read for a given tenant + as_of date.
+ * An entity filter follows the posted invoice journal, which owns the AR balance.
  * Returns array per client_name.
  */
-function billingComputeAging(int $tenantId, string $asOf): array
+function billingComputeAging(int $tenantId, string $asOf, ?int $entityId = null): array
 {
     $pdo = getDB();
+    $entityFilter = $entityId === null ? '' : ' AND je.entity_id = :entity_id';
     $q = $pdo->prepare(
         'SELECT aged.client_name,
                 SUM(CASE WHEN aged.due_date >= :a1 THEN aged.amount_due ELSE 0 END) AS bucket_current,
@@ -1142,7 +1144,7 @@ function billingComputeAging(int $tenantId, string $asOf): array
                    AND je.posting_date <= :posted_as_of
              LEFT JOIN billing_payment_allocations alloc ON alloc.invoice_id = i.id
              LEFT JOIN billing_payments p ON p.id = alloc.payment_id AND p.tenant_id = i.tenant_id
-                 WHERE i.tenant_id = :tid
+                 WHERE i.tenant_id = :tid' . $entityFilter . '
                    AND i.issue_date <= :document_as_of
                    AND (i.status <> "void" OR i.voided_at IS NULL OR DATE(i.voided_at) > :void_as_of)
               GROUP BY i.id, i.client_name, i.due_date, i.total
@@ -1159,6 +1161,7 @@ function billingComputeAging(int $tenantId, string $asOf): array
         'document_as_of' => $asOf,
         'void_as_of' => $asOf,
     ];
+    if ($entityId !== null) $bind['entity_id'] = $entityId;
     foreach (['a1','a2','a3','a4','a5','a6','a7','a8','a9'] as $k) $bind[$k] = $asOf;
     $q->execute($bind);
     return $q->fetchAll(\PDO::FETCH_ASSOC);

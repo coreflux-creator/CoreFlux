@@ -19,9 +19,9 @@ $checks = [
     'one consistent snapshot and machine-readable failure' =>
         str_contains($source, 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
         && str_contains($source, "api_error('Report could not be prepared', 503)"),
-    'tenant-wide aging not exposed as entity-scoped data' =>
-        !str_contains($source, 'billingComputeAging(')
-        && !str_contains($source, 'apComputeAging('),
+    'aging uses entity-scoped canonical builders' =>
+        str_contains($source, "'ar_aging' => ['rows' => billingComputeAging(\$tenantId, \$dates['as_of'], \$entityId)]")
+        && str_contains($source, "'ap_aging' => ['rows' => apComputeAging(\$tenantId, \$dates['as_of'], \$entityId)]"),
 ];
 $failed = 0;
 foreach ($checks as $name => $passed) {

@@ -5,6 +5,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/accounting/coreone_v1.php';
 require_once __DIR__ . '/../../../modules/accounting/lib/standard_reports.php';
+require_once __DIR__ . '/../../../modules/billing/lib/billing.php';
+require_once __DIR__ . '/../../../modules/ap/lib/ap.php';
 
 $credential = coreoneV1Authenticate($_SERVER['HTTP_AUTHORIZATION'] ?? null);
 if (!$credential) api_error('Invalid or expired service credential', 401);
@@ -14,7 +16,7 @@ if (api_method() !== 'GET') api_error('Method not allowed', 405);
 
 $type = api_query('type', '');
 $periodTypes = ['income_statement', 'cash_flow_indirect'];
-$snapshotTypes = ['balance_sheet', 'trial_balance'];
+$snapshotTypes = ['balance_sheet', 'trial_balance', 'ar_aging', 'ap_aging'];
 if (!is_string($type) || !in_array($type, array_merge($periodTypes, $snapshotTypes), true)) {
     api_error('Unknown report type', 422);
 }
@@ -47,6 +49,8 @@ try {
         'balance_sheet' => reportBalanceSheet($tenantId, $dates['as_of'], $entityId),
         'trial_balance' => ['rows' => accountingTrialBalance($tenantId, $dates['as_of'], $entityId)],
         'cash_flow_indirect' => reportCashFlowIndirect($tenantId, $dates['from'], $dates['to'], $entityId),
+        'ar_aging' => ['rows' => billingComputeAging($tenantId, $dates['as_of'], $entityId)],
+        'ap_aging' => ['rows' => apComputeAging($tenantId, $dates['as_of'], $entityId)],
     };
     $pdo->commit();
 } catch (Throwable $e) {
