@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../accounting/lib/accounting.php';
 require_once __DIR__ . '/../../accounting/lib/bank_rec.php';
+require_once __DIR__ . '/../../../core/posting_engine/process.php';
 
 function billingProcessorPayoutBankLine(int $tenantId, int $lineId, bool $lock = false): array
 {
@@ -300,29 +301,35 @@ function billingSettleProcessorPayout(
         }
         $lines[] = ['account_code' => '1010', 'debit' => 0, 'credit' => $grossCents / 100,
             'memo' => 'Clear captured processor receipts', 'dims' => ['legal_entity' => (int) $line['entity_id']]];
-        $journal = accountingPostJe($tenantId, [
-            'entity_id' => (int) $line['entity_id'], 'posting_date' => (string) $line['posted_date'],
-            'currency' => (string) $line['currency'], 'source_module' => 'billing',
-            'source_ref_type' => 'processor_payout', 'source_ref_id' => $payoutId,
-            'idempotency_key' => 'billing:processor-payout:' . $lineId . ':attempt:' . $attempt,
-            'memo' => 'Processor payout / bank line ' . $lineId, 'lines' => $lines,
-        ], $actorUserId, true);
-        if (!empty($journal['idempotent_replay'])) throw new RuntimeException('Payout journal exists without its source record.');
-        bankRecMatchLine($tenantId, $lineId, (int) $journal['je_id'], $actorUserId);
+        $event = accountingProcessEvent($tenantId, [
+            'entity_id' => (int) $line['entity_id'],
+            'event_type' => 'billing.processor_payout.settled',
+            'source_module' => 'billing',
+            'source_record_id' => 'processor_payout:' . $payoutId,
+            'event_date' => (string) $line['posted_date'],
+            'payload' => [
+                'payout_id' => $payoutId, 'bank_line_id' => $lineId,
+                'payment_ids' => $ids, 'gross_amount' => $grossCents / 100,
+                'fee_amount' => $feeCents / 100, 'net_amount' => $netCents / 100,
+                'currency' => (string) $line['currency'],
+                'source_ref_type' => 'processor_payout', 'source_ref_id' => $payoutId,
+                'memo' => 'Processor payout / bank line ' . $lineId, 'lines' => $lines,
+            ],
+        ], $actorUserId);
+        if (($event['status'] ?? '') !== 'posted') {
+            throw new RuntimeException('Payout could not be posted: ' . ($event['error'] ?? 'no posting rule matched'));
+        }
+        if (!empty($event['idempotent_replay'])) throw new RuntimeException('Payout journal exists without its source record.');
+        $journalId = (int) $event['journal_entry_id'];
+        bankRecMatchLine($tenantId, $lineId, $journalId, $actorUserId);
         $savePayout = $pdo->prepare(
             'UPDATE billing_processor_payouts SET journal_entry_id = :journal_id, status = "posted"
               WHERE tenant_id = :tenant_id AND id = :id AND status = "posting"'
         );
-        $savePayout->execute(['journal_id' => (int) $journal['je_id'], 'tenant_id' => $tenantId, 'id' => $payoutId]);
+        $savePayout->execute(['journal_id' => $journalId, 'tenant_id' => $tenantId, 'id' => $payoutId]);
         if ($savePayout->rowCount() !== 1) throw new RuntimeException('Payout changed while posting.');
-        $pdo->prepare(
-            'INSERT INTO accounting_subledger_links
-                (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
-             VALUES (:tenant_id, "billing", :source_record_id, :journal_entry_id, "primary")'
-        )->execute(['tenant_id' => $tenantId, 'source_record_id' => 'processor_payout:' . $payoutId,
-            'journal_entry_id' => (int) $journal['je_id']]);
         $pdo->commit();
-        return ['payout_id' => $payoutId, 'journal_entry_id' => (int) $journal['je_id'],
+        return ['payout_id' => $payoutId, 'journal_entry_id' => $journalId,
             'bank_line_id' => $lineId, 'gross_amount' => $grossCents / 100,
             'fee_amount' => $feeCents / 100, 'net_amount' => $netCents / 100,
             'idempotent_replay' => false];
@@ -371,7 +378,24 @@ function billingCorrectProcessorPayout(int $tenantId, int $lineId, string $reaso
             || (int) $journal['source_ref_id'] !== (int) $payout['id']) {
             throw new RuntimeException('The payout journal does not match its source record.');
         }
+        $eventStmt = $pdo->prepare(
+            'SELECT id, status, journal_entry_id FROM accounting_events
+              WHERE tenant_id = :tenant_id AND source_module = "billing"
+                AND source_record_id = :source_record_id
+                AND event_type = "billing.processor_payout.settled" FOR UPDATE'
+        );
+        $eventStmt->execute(['tenant_id' => $tenantId,
+            'source_record_id' => 'processor_payout:' . (int) $payout['id']]);
+        $event = $eventStmt->fetch(PDO::FETCH_ASSOC);
+        if ($event && ($event['status'] !== 'posted'
+            || (int) $event['journal_entry_id'] !== (int) $payout['journal_entry_id'])) {
+            throw new RuntimeException('The payout event does not match its posted journal.');
+        }
         $reversal = accountingReverseJe($tenantId, (int) $payout['journal_entry_id'], $reason, $actorUserId);
+        if ($event) {
+            $pdo->prepare('UPDATE accounting_events SET status = "reversed" WHERE tenant_id = :t AND id = :id')
+                ->execute(['t' => $tenantId, 'id' => (int) $event['id']]);
+        }
         $saveCorrection = $pdo->prepare(
             'UPDATE billing_processor_payouts
                 SET status = "corrected", reversal_je_id = :reversal_je_id,

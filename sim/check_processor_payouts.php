@@ -104,6 +104,23 @@ $check('other tenant rejected', $rejects(static fn() => billingSettleProcessorPa
     998, $lineId, [$paymentId], 0.03, $feeAccountId, null)));
 
 $posted = billingSettleProcessorPayout($tenantId, $lineId, [$paymentId], 0.03, $feeAccountId, null);
+$eventStmt = $pdo->prepare(
+    'SELECT e.id, e.status, e.journal_entry_id, l.accounting_event_id
+       FROM accounting_events e
+       LEFT JOIN accounting_subledger_links l ON l.tenant_id = e.tenant_id
+        AND l.source_module = e.source_module AND l.source_record_id = e.source_record_id
+        AND l.journal_entry_id = e.journal_entry_id AND l.link_kind = "primary"
+      WHERE e.tenant_id = :tenant_id AND e.source_module = "billing"
+        AND e.source_record_id = :source_record_id
+        AND e.event_type = "billing.processor_payout.settled" LIMIT 1'
+);
+$eventStmt->execute(['tenant_id' => $tenantId,
+    'source_record_id' => 'processor_payout:' . (int) $posted['payout_id']]);
+$postedEvent = $eventStmt->fetch(PDO::FETCH_ASSOC);
+$check('payout has posted event and primary source link', $postedEvent
+    && $postedEvent['status'] === 'posted'
+    && (int) $postedEvent['journal_entry_id'] === (int) $posted['journal_entry_id']
+    && (int) $postedEvent['accounting_event_id'] === (int) $postedEvent['id']);
 $replay = billingSettleProcessorPayout($tenantId, $lineId, [$paymentId], 0.03, $feeAccountId, null);
 $check('exact retry returns same payout', !empty($replay['idempotent_replay'])
     && (int) $replay['payout_id'] === (int) $posted['payout_id']);
@@ -128,6 +145,10 @@ $check('gross clearing credit', abs((float) ($journalLines['1010']['credit'] ?? 
 
 $corrected = billingCorrectProcessorPayout($tenantId, $lineId, 'Correct synthetic payout selection', null);
 $check('correction creates reversal', (int) $corrected['reversal_je_id'] > 0);
+$eventStmt->execute(['tenant_id' => $tenantId,
+    'source_record_id' => 'processor_payout:' . (int) $posted['payout_id']]);
+$reversedEvent = $eventStmt->fetch(PDO::FETCH_ASSOC);
+$check('corrected payout marks event reversed', $reversedEvent && $reversedEvent['status'] === 'reversed');
 $lineStmt->execute(['tenant_id' => $tenantId, 'bank_account_id' => (int) $bank['id'], 'fitid' => $fitid]);
 $check('correction reopens bank line', $lineStmt->fetch(PDO::FETCH_ASSOC)['match_status'] === 'unmatched');
 $check('second correction refused', $rejects(static fn() => billingCorrectProcessorPayout(
@@ -136,6 +157,10 @@ $check('capture available after correction', in_array($paymentId,
     array_map('intval', array_column(billingProcessorPayoutCandidates($tenantId, $lineId)['payments'], 'payment_id')), true));
 $replacement = billingSettleProcessorPayout($tenantId, $lineId, [$paymentId], 0.03, $feeAccountId, null);
 $check('corrected payout can be replaced', (int) $replacement['payout_id'] !== (int) $posted['payout_id']);
+$eventStmt->execute(['tenant_id' => $tenantId,
+    'source_record_id' => 'processor_payout:' . (int) $replacement['payout_id']]);
+$replacementEvent = $eventStmt->fetch(PDO::FETCH_ASSOC);
+$check('replacement has its own posted event', $replacementEvent && $replacementEvent['status'] === 'posted');
 $invoicePaidStmt->execute(['tenant_id' => $tenantId, 'payment_id' => $paymentId]);
 $check('invoice application unaffected', abs((float) $invoicePaidStmt->fetchColumn() - $invoicePaidBefore) < 0.005);
 $lineStmt->execute(['tenant_id' => $tenantId, 'bank_account_id' => (int) $bank['id'], 'fitid' => $fitid]);

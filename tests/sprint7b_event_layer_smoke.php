@@ -109,6 +109,9 @@ $assert('replay refreshes selected posting rule',
     && str_contains($proc, 'posting_rule_id=NULL'));
 $assert('reversed journal cannot be revived by event replay',
     str_contains($proc, '($posted[\'status\'] ?? \'\') !== \'posted\''));
+$assert('source-owned event reference reaches canonical journal',
+    str_contains($proc, '$rendered[\'source_ref_type\'] = $sourceRefType')
+    && str_contains($proc, '$rendered[\'source_ref_id\'] = $sourceRefId'));
 $assert('marks status=ignored on no rule',
                                            strpos($proc, "no posting rule matched") !== false);
 $assert('marks status=failed on render error',

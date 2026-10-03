@@ -2,8 +2,7 @@
 /**
  * Phase 1a — Event Registry seed.
  *
- * 51 canonical events for v1 (per /app/memory/EVENT_REGISTRY.md, user-
- * approved 2026-02-14).
+ * Canonical v1 events, including later CoreAccounting source events.
  *
  * Run via the seed runner or manually:
  *   php core/seeds/event_registry_seed.php
@@ -54,6 +53,12 @@ function eventRegistrySeedRows(): array {
             ['client_company_id','reference','invoice_ids'],
             'customer', ['accounting','treasury'], [],
             'Dr cash / Cr AR (or unapplied cash if not yet matched).'],
+        ['billing.processor_payout.settled', 'ar',
+            'Captured processor receipts settled to a bank account net of reviewed fees.',
+            $req(['payout_id','bank_line_id','gross_amount','fee_amount','net_amount','currency','lines']),
+            ['payment_ids','source_ref_type','source_ref_id','memo'],
+            'processor', ['accounting','treasury'], ['ar.payment.received'],
+            'Dr bank and processor fee expense / Cr processor clearing.'],
         ['ar.cash.applied', 'ar',
             'Customer payment applied to a specific invoice.',
             $req(['payment_id','application_id','amount','invoice_id']),

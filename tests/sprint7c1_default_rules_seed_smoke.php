@@ -44,6 +44,9 @@ foreach ($expected as $et) {
     $assert("event_type covered: {$et}",   strpos($seed, "'event_type'  => '{$et}'") !== false);
 }
 $assert('exactly 7 entries',                substr_count($seed, "'event_type'  => 'treasury.") === 7);
+$assert('processor payout uses a payload-line rule',
+    str_contains($seed, "'event_type'  => 'billing.processor_payout.settled'")
+    && str_contains($seed, "'name'           => 'Processor payout settled — passthrough'"));
 
 echo "\nDefault pack — uses system accounts + payload refs\n";
 $assert('Bank Fees Expense referenced',    strpos($seed, "'system:Bank Fees Expense'") !== false);

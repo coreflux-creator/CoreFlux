@@ -85,8 +85,10 @@ $assert('payload carries lines[] for passthrough',
 $assert('payload carries currency + amount',
     strpos($bills, "'amount'       => (float) \$row['total']") !== false
     && strpos($bills, "'currency'     => (string) \$row['currency']") !== false);
-$assert('preferred path: stamp journal_entry_id from event result',
-    strpos($bills, "'j' => \$eventResult['journal_entry_id']") !== false);
+$assert('preferred path: atomically attach journal from event result',
+    strpos($bills, 'apAttachPostedBillJournal(') !== false
+    && strpos($bills, "(int) \$eventResult['journal_entry_id']") !== false
+    && strpos($bills, '$pdo->commit();') !== false);
 $assert('preferred path: audit via=event_layer',
     strpos($bills, "'via' => 'event_layer'") !== false);
 $assert('fallback: legacy accountingPostJe still wired',

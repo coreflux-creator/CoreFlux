@@ -199,6 +199,16 @@ function accountingProcessEventInner(int $tenantId, array $event, ?int $actorUse
         ];
     }
 
+    if (array_key_exists('source_ref_type', $payload) || array_key_exists('source_ref_id', $payload)) {
+        $sourceRefType = trim((string) ($payload['source_ref_type'] ?? ''));
+        $sourceRefId = (int) ($payload['source_ref_id'] ?? 0);
+        if ($sourceRefType === '' || $sourceRefId <= 0) {
+            throw new \InvalidArgumentException('Event source_ref_type and source_ref_id must be supplied together');
+        }
+        $rendered['source_ref_type'] = $sourceRefType;
+        $rendered['source_ref_id'] = $sourceRefId;
+    }
+
     // 5) Dry-run? Return the rendered shape.
     if ($dryRun) {
         return [
