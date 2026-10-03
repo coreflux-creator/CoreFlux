@@ -757,6 +757,7 @@ function PaymentActionModal({ payment, mode, onClose, onDone }) {
     { enabled: isCorrection },
   );
   const review = check.data?.review;
+  const canEnterReason = !isCorrection || check.data?.available;
 
   const submit = async () => {
     setBusy(true); setError(null);
@@ -799,20 +800,20 @@ function PaymentActionModal({ payment, mode, onClose, onDone }) {
           </> : <p style={{ margin: 0, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
             This cancels an unposted payment and releases its bill reservation. A payout already sent to a provider must be cancelled there first.
           </p>}
-          <Field label="Reason">
+          {canEnterReason && <Field label="Reason">
             <textarea className="input" rows={3} maxLength={500} value={reason}
               onChange={(event) => setReason(event.target.value)}
               placeholder="What needs to be corrected?" data-testid="ap-payment-action-reason" />
-          </Field>
+          </Field>}
           {error && <p className="error" data-testid="ap-payment-action-error">{error.message}</p>}
         </div>
         <footer style={modalFooter}>
-          <button className="btn btn--ghost" type="button" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="btn btn--primary" type="button" onClick={submit}
-            disabled={busy || !reason.trim() || (isCorrection && !check.data?.available)}
+          <button className="btn btn--ghost" type="button" onClick={onClose} disabled={busy}>{canEnterReason ? 'Cancel' : 'Close'}</button>
+          {canEnterReason && <button className="btn btn--primary" type="button" onClick={submit}
+            disabled={busy || !reason.trim()}
             data-testid="ap-payment-action-confirm">
             {busy ? 'Saving…' : isCorrection ? 'Correct payment' : 'Void payment'}
-          </button>
+          </button>}
         </footer>
       </div>
     </div>

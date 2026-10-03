@@ -103,6 +103,10 @@ $assert('clearing carries legal entity into the journal event',
 $assert('legacy payments name the missing clearance evidence before correction',
     str_contains($correction, 'This payment has no verified funding bank or clearance date.')
     && str_contains($correction, 'Provider or bank-file payouts need a confirmed return or cancellation before correction'));
+$assert('ineligible correction review does not ask for a reason or show a disabled confirm action',
+    str_contains($paymentsUi, 'const canEnterReason = !isCorrection || check.data?.available;')
+    && str_contains($paymentsUi, '{canEnterReason && <Field label="Reason">')
+    && str_contains($paymentsUi, '{canEnterReason && <button className="btn btn--primary"'));
 
 echo "Entity scope and CSV safety\n";
 $assert('payment entity migration and backfill exist',
