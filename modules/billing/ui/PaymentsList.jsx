@@ -10,6 +10,7 @@ export default function PaymentsList() {
   const rows = data?.rows ?? [];
   const [showRecord, setShowRecord] = useState(false);
   const [allocFor, setAllocFor] = useState(null);
+  const [correctFor, setCorrectFor] = useState(null);
   const [pwpToast, setPwpToast] = useState(null);
 
   const handleAllocResult = (res) => {
@@ -65,9 +66,9 @@ export default function PaymentsList() {
       {error && <p className="error" data-testid="billing-payments-error">Error: {error.message}</p>}
 
       <table className="data-table" data-testid="billing-payments-table">
-        <thead><tr><th>ID</th><th>Received</th><th>Client</th><th>Method</th><th>Reference</th><th style={{textAlign:'right'}}>Amount</th><th style={{textAlign:'right'}}>Unallocated</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>Received</th><th>Client</th><th>Method</th><th>Reference</th><th style={{textAlign:'right'}}>Amount</th><th style={{textAlign:'right'}}>Unallocated</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={8} className="empty" data-testid="billing-payments-empty">No payments recorded yet.</td></tr>}
+          {rows.length === 0 && !loading && <tr><td colSpan={9} className="empty" data-testid="billing-payments-empty">No payments recorded yet.</td></tr>}
           {rows.map(p => (
             <tr key={p.id} data-testid={`billing-payment-row-${p.id}`}>
               <td><IdBadge id={p.id} prefix="RCP" /></td>
@@ -75,12 +76,13 @@ export default function PaymentsList() {
               <td>{p.client_name}</td>
               <td>{p.method}</td>
               <td>{p.reference || '—'}</td>
-              <td style={{textAlign:'right'}}>{Number(p.amount).toFixed(2)} {p.currency}{p.voided_at && <span className="badge" style={{ marginLeft: 6 }}>Corrected</span>}</td>
+              <td style={{textAlign:'right'}}>{Number(p.amount).toFixed(2)} {p.currency}</td>
               <td style={{textAlign:'right'}}><strong>{Number(p.unallocated_amount).toFixed(2)}</strong></td>
+              <td>{p.receipt_state === 'corrected' ? 'Corrected' : p.receipt_state === 'posted' ? 'Posted' : 'Pending ledger'}</td>
               <td>
-                {!p.voided_at && Number(p.unallocated_amount) > 0 && (
-                  <button className="btn" onClick={() => setAllocFor(p)} data-testid={`billing-payment-allocate-${p.id}`}>Allocate</button>
-                )}
+                {p.receipt_state === 'pending' && <button className="btn" onClick={() => setAllocFor(p)} data-testid={`billing-payment-allocate-${p.id}`}>Post payment</button>}
+                {p.can_correct && <button className="btn" onClick={() => setCorrectFor(p)} data-testid={`billing-payment-correct-${p.id}`}>Correct</button>}
+                {p.journal_entry_id && <Link className="btn btn--ghost" to={`/modules/accounting/journal-entries/${p.journal_entry_id}`}>Journal</Link>}
               </td>
             </tr>
           ))}
@@ -89,23 +91,49 @@ export default function PaymentsList() {
 
       {showRecord && <RecordPaymentModal onClose={() => setShowRecord(false)} onSaved={handleAllocResult} />}
       {allocFor && <AllocateModal payment={allocFor} onClose={() => setAllocFor(null)} onSaved={handleAllocResult} />}
+      {correctFor && <CorrectPaymentModal payment={correctFor} onClose={() => setCorrectFor(null)} onSaved={() => { setCorrectFor(null); reload(); }} />}
     </section>
   );
 }
 
 function RecordPaymentModal({ onClose, onSaved }) {
+  const { data: bankData, error: bankError } = useApi('/modules/accounting/api/bank_accounts.php');
+  const [search, setSearch] = useState('');
+  const { data: invoiceData, error: invoiceError } = useApi(`/api/v1/billing/payments?action=eligible_invoices&q=${encodeURIComponent(search)}`);
   const [form, setForm] = useState({
     client_name: '', received_at: new Date().toISOString().slice(0,10),
-    method: 'ach', reference: '', amount: '', currency: 'USD', notes: '',
-    auto_allocate: true,
+    method: 'ach', reference: '', amount: '', currency: 'USD', bank_account_id: '',
   });
+  const [requestKey] = useState(() => crypto.randomUUID());
+  const [mode, setMode] = useState('fifo');
+  const [allocs, setAllocs] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const banks = bankData?.rows || [];
+  const bank = banks.find(b => String(b.id) === String(form.bank_account_id));
+  const eligible = (invoiceData?.rows || []).filter(i =>
+    i.currency === form.currency && (!bank?.entity_id || !i.entity_id || Number(i.entity_id) === Number(bank.entity_id))
+  );
+  const clients = [...new Set(eligible.map(i => i.client_name))];
+  const open = eligible.filter(i => i.client_name === form.client_name && i.issue_date <= form.received_at);
+  const openBalance = open.reduce((sum, i) => sum + Number(i.amount_due), 0);
+  const allocated = Object.values(allocs).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  const amount = Number(form.amount);
+  const validAmount = Number.isFinite(amount) && amount > 0;
+  const ready = form.client_name && form.bank_account_id && validAmount
+    && (mode === 'fifo' ? open.length > 0 && amount <= openBalance + 0.005 : Math.abs(allocated - amount) < 0.005);
 
   const submit = async () => {
     setBusy(true); setError(null);
     try {
-      const res = await api.post('/api/v1/billing/payments', { ...form, amount: Number(form.amount) });
+      const allocations = Object.entries(allocs)
+        .filter(([, value]) => Number(value) > 0)
+        .map(([invoice_id, value]) => ({ invoice_id: Number(invoice_id), amount: Number(value) }));
+      const res = await api.post('/api/v1/billing/payments', {
+        ...form, bank_account_id: Number(form.bank_account_id), amount,
+        request_key: requestKey, auto_allocate: mode === 'fifo',
+        allocations: mode === 'specific' ? allocations : [],
+      });
       onSaved?.(res);
     } catch (e) { setError(e); }
     finally { setBusy(false); }
@@ -113,24 +141,36 @@ function RecordPaymentModal({ onClose, onSaved }) {
 
   return (
     <div data-testid="billing-record-payment-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
-      <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 12, width: 'min(520px, 100%)', padding: 24 }}>
+      <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 8, width: 'min(700px, 100%)', maxHeight: '90vh', overflow: 'auto', padding: 24 }}>
         <h3 style={{ margin: '0 0 16px' }}>Record payment</h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Field label="Client" testid="billing-rp-client"><input className="input" value={form.client_name} onChange={(e) => setForm({ ...form, client_name: e.target.value })} data-testid="billing-rp-client-input" /></Field>
+          <Field label="Find client or invoice"><input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search open invoices" data-testid="billing-rp-search" /></Field>
+          <Field label="Client"><select className="input" value={form.client_name} onChange={(e) => { setForm({ ...form, client_name: e.target.value }); setAllocs({}); }} data-testid="billing-rp-client-input"><option value="">Choose a client</option>{clients.map(client => <option key={client} value={client}>{client}</option>)}</select></Field>
           <Field label="Received" testid="billing-rp-date"><input className="input" type="date" value={form.received_at} onChange={(e) => setForm({ ...form, received_at: e.target.value })} data-testid="billing-rp-date-input" /></Field>
+          <Field label="Deposit to"><select className="input" value={form.bank_account_id} onChange={(e) => { const selected = banks.find(b => String(b.id) === e.target.value); setForm({ ...form, client_name: '', bank_account_id: e.target.value, currency: selected?.currency || form.currency }); setAllocs({}); }} data-testid="billing-rp-bank"><option value="">Choose bank account</option>{banks.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currency}</option>)}</select></Field>
           <Field label="Method"><select className="input" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })} data-testid="billing-rp-method">{METHODS.map(m => <option key={m}>{m}</option>)}</select></Field>
           <Field label="Reference"><input className="input" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} data-testid="billing-rp-reference" /></Field>
           <Field label="Amount"><input className="input" type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} data-testid="billing-rp-amount" /></Field>
-          <Field label="Currency"><input className="input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} maxLength={3} data-testid="billing-rp-currency" /></Field>
+          <Field label="Currency"><input className="input" value={form.currency} readOnly data-testid="billing-rp-currency" /></Field>
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13 }}>
-          <input type="checkbox" checked={form.auto_allocate} onChange={(e) => setForm({ ...form, auto_allocate: e.target.checked })} data-testid="billing-rp-auto-allocate" />
-          Auto-allocate FIFO to oldest unpaid invoices for this client
-        </label>
+        <div style={{ display: 'flex', gap: 6, marginTop: 16 }} role="group" aria-label="Invoice allocation">
+          <button className={`btn ${mode === 'fifo' ? 'btn--primary' : ''}`} onClick={() => setMode('fifo')} data-testid="billing-rp-auto-allocate">Oldest invoices</button>
+          <button className={`btn ${mode === 'specific' ? 'btn--primary' : ''}`} onClick={() => setMode('specific')}>Choose invoices</button>
+        </div>
+        {form.client_name && <p style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>{open.length} posted open invoice{open.length === 1 ? '' : 's'} for {form.client_name}, with {openBalance.toFixed(2)} {form.currency} available. The full receipt will be applied and posted to cash and receivables together.</p>}
+        {mode === 'fifo' && validAmount && form.client_name && amount > openBalance + 0.005 && <p className="error">The receipt exceeds this client's open invoices. Use the bank receipt split flow for the remainder.</p>}
+        {mode === 'specific' && open.length > 0 && (
+          <table className="data-table" data-testid="billing-rp-invoices">
+            <thead><tr><th>Invoice</th><th>Due</th><th style={{ textAlign: 'right' }}>Open</th><th>Apply</th></tr></thead>
+            <tbody>{open.map(i => <tr key={i.id}><td>{i.invoice_number}</td><td>{i.due_date}</td><td style={{ textAlign: 'right' }}>{Number(i.amount_due).toFixed(2)}</td><td><input className="input" type="number" min="0" max={i.amount_due} step="0.01" value={allocs[i.id] || ''} onChange={e => setAllocs({ ...allocs, [i.id]: e.target.value })} data-testid={`billing-rp-invoice-${i.id}`} style={{ width: 110 }} /></td></tr>)}</tbody>
+          </table>
+        )}
+        {mode === 'specific' && <p style={{ fontSize: 13 }}>Applied: {allocated.toFixed(2)} of {validAmount ? amount.toFixed(2) : '0.00'} {form.currency}</p>}
+        {(bankError || invoiceError) && <p className="error">Could not load bank accounts or open invoices. Refresh and try again.</p>}
         {error && <p className="error" data-testid="billing-rp-error" style={{ marginTop: 12 }}>Error: {error.message}</p>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
           <button className="btn btn--ghost" onClick={onClose} disabled={busy} data-testid="billing-rp-cancel">Cancel</button>
-          <button className="btn btn--primary" onClick={submit} disabled={busy || !form.client_name || !form.amount} data-testid="billing-rp-save">{busy ? 'Saving…' : 'Save'}</button>
+          <button className="btn btn--primary" onClick={submit} disabled={busy || !ready} data-testid="billing-rp-save">{busy ? 'Posting…' : 'Record and post'}</button>
         </div>
       </div>
     </div>
@@ -138,11 +178,18 @@ function RecordPaymentModal({ onClose, onSaved }) {
 }
 
 function AllocateModal({ payment, onClose, onSaved }) {
-  const { data } = useApi(`/api/v1/billing/invoices?client_name=${encodeURIComponent(payment.client_name)}&status=sent`);
+  const { data } = useApi(`/api/v1/billing/payments?action=eligible_invoices&q=${encodeURIComponent(payment.client_name)}`);
+  const { data: bankData } = useApi('/modules/accounting/api/bank_accounts.php');
+  const [bankAccountId, setBankAccountId] = useState('');
   const [allocs, setAllocs] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const open = (data?.rows || []).filter(r => Number(r.amount_due) > 0);
+  const banks = bankData?.rows || [];
+  const bank = banks.find(b => String(b.id) === bankAccountId);
+  const open = (data?.rows || []).filter(r => r.client_name === payment.client_name
+    && r.currency === payment.currency
+    && (!bank?.entity_id || !r.entity_id || Number(r.entity_id) === Number(bank.entity_id))
+    && r.issue_date <= payment.received_at);
   const totalAlloc = Object.values(allocs).reduce((s, v) => s + (Number(v) || 0), 0);
 
   const set = (id, v) => setAllocs(prev => ({ ...prev, [id]: v }));
@@ -150,7 +197,7 @@ function AllocateModal({ payment, onClose, onSaved }) {
   const autoFifo = async () => {
     setBusy(true); setError(null);
     try {
-      const res = await api.post(`/api/v1/billing/payments?action=allocate&id=${payment.id}`, { auto: 'fifo' });
+      const res = await api.post(`/api/v1/billing/payments?action=post&id=${payment.id}`, { bank_account_id: Number(bankAccountId), auto: 'fifo' });
       onSaved?.(res);
     }
     catch (e) { setError(e); }
@@ -163,8 +210,8 @@ function AllocateModal({ payment, onClose, onSaved }) {
       const allocations = Object.entries(allocs)
         .filter(([_, v]) => Number(v) > 0)
         .map(([invoice_id, amount]) => ({ invoice_id: Number(invoice_id), amount: Number(amount) }));
-      if (allocations.length === 0) { setError(new Error('Enter at least one allocation amount.')); setBusy(false); return; }
-      const res = await api.post(`/api/v1/billing/payments?action=allocate&id=${payment.id}`, { allocations });
+      if (Number(payment.unallocated_amount) > 0 && allocations.length === 0) { setError(new Error('Enter at least one allocation amount.')); setBusy(false); return; }
+      const res = await api.post(`/api/v1/billing/payments?action=post&id=${payment.id}`, { bank_account_id: Number(bankAccountId), allocations });
       onSaved?.(res);
     } catch (e) { setError(e); }
     finally { setBusy(false); }
@@ -174,11 +221,13 @@ function AllocateModal({ payment, onClose, onSaved }) {
     <div data-testid="billing-allocate-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
       <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 12, width: 'min(640px, 100%)', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
         <header style={{ padding: 20, borderBottom: '1px solid var(--cf-border, #e5e7eb)' }}>
-          <h3 style={{ margin: '0 0 4px' }}>Allocate payment to {payment.client_name}'s invoices</h3>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--cf-text-secondary)' }}>Available to allocate: <strong>${Number(payment.unallocated_amount).toFixed(2)}</strong> {payment.currency}</p>
+          <h3 style={{ margin: '0 0 4px' }}>Post {payment.client_name}'s payment</h3>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--cf-text-secondary)' }}>Apply the remaining <strong>${Number(payment.unallocated_amount).toFixed(2)}</strong> {payment.currency} to posted invoices and record the cash entry.</p>
         </header>
         <div style={{ overflow: 'auto', padding: 20, flex: 1 }}>
-          {open.length === 0 && <p style={{ color: 'var(--cf-text-secondary)' }} data-testid="billing-allocate-empty">No open invoices for this client.</p>}
+          <Field label="Deposit to"><select className="input" value={bankAccountId} onChange={e => setBankAccountId(e.target.value)} data-testid="billing-allocate-bank"><option value="">Choose bank account</option>{banks.filter(b => b.currency === payment.currency).map(b => <option key={b.id} value={b.id}>{b.name} · {b.currency}</option>)}</select></Field>
+          {open.length === 0 && Number(payment.unallocated_amount) > 0 && <p style={{ color: 'var(--cf-text-secondary)' }} data-testid="billing-allocate-empty">No posted open invoices for this client.</p>}
+          {Number(payment.unallocated_amount) === 0 && <p style={{ color: 'var(--cf-text-secondary)' }}>This payment is already fully allocated. Post it to the selected bank account and receivables.</p>}
           {open.length > 0 && (
             <table className="data-table" data-testid="billing-allocate-table">
               <thead><tr><th>Invoice</th><th>Due</th><th style={{textAlign:'right'}}>Amount due</th><th>Apply</th></tr></thead>
@@ -197,13 +246,41 @@ function AllocateModal({ payment, onClose, onSaved }) {
           {error && <p className="error" data-testid="billing-allocate-error" style={{ marginTop: 12 }}>Error: {error.message}</p>}
         </div>
         <footer style={{ padding: 16, borderTop: '1px solid var(--cf-border, #e5e7eb)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--cf-surface-alt, #f9fafb)' }}>
-          <span style={{ fontSize: 13 }}>Total to allocate: <strong>${totalAlloc.toFixed(2)}</strong></span>
+          <span style={{ fontSize: 13 }}>New allocation: <strong>${totalAlloc.toFixed(2)}</strong></span>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn--ghost" onClick={onClose} disabled={busy} data-testid="billing-allocate-cancel">Cancel</button>
-            <button className="btn" onClick={autoFifo} disabled={busy || open.length === 0} data-testid="billing-allocate-fifo">Auto-FIFO</button>
-            <button className="btn btn--primary" onClick={submit} disabled={busy || totalAlloc <= 0} data-testid="billing-allocate-confirm">{busy ? 'Applying…' : 'Apply'}</button>
+            {Number(payment.unallocated_amount) > 0 && <button className="btn" onClick={autoFifo} disabled={busy || !bankAccountId || open.length === 0} data-testid="billing-allocate-fifo">Post oldest first</button>}
+            <button className="btn btn--primary" onClick={submit} disabled={busy || !bankAccountId || Math.abs(totalAlloc - Number(payment.unallocated_amount)) > 0.005} data-testid="billing-allocate-confirm">{busy ? 'Posting…' : 'Post payment'}</button>
           </div>
         </footer>
+      </div>
+    </div>
+  );
+}
+
+function CorrectPaymentModal({ payment, onClose, onSaved }) {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const submit = async () => {
+    setBusy(true); setError(null);
+    try {
+      await api.post(`/api/v1/billing/payments?action=correct&id=${payment.id}`, { reason });
+      onSaved();
+    } catch (e) { setError(e); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div data-testid="billing-correct-payment-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={e => e.target === e.currentTarget && !busy && onClose()}>
+      <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 8, width: 'min(480px, 100%)', padding: 24 }}>
+        <h3 style={{ marginTop: 0 }}>Correct receipt RCP-{payment.id}</h3>
+        <p style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>This reverses the ledger entry, restores the invoice balances, and reopens a matched bank line. It does not refund cash.</p>
+        <Field label="Reason"><textarea className="input" value={reason} onChange={e => setReason(e.target.value)} maxLength={500} rows={3} data-testid="billing-correct-payment-reason" /></Field>
+        {error && <p className="error" data-testid="billing-correct-payment-error">{error.message}</p>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn btn--primary" onClick={submit} disabled={busy || !reason.trim()} data-testid="billing-correct-payment-confirm">{busy ? 'Correcting…' : 'Reverse receipt'}</button>
+        </div>
       </div>
     </div>
   );

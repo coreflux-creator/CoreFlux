@@ -8,7 +8,7 @@
  * them out without touching the renderer.
  *
  * Sections (each tolerates missing tables on minimal installs):
- *   1. Cash IN  last week  — billing_payments.amount where received_at ≥ start
+ *   1. Cash IN  last week  — posted, active billing receipts in the window
  *   2. Cash OUT last week  — ap_payments.amount where pay_date ≥ start AND status NOT IN (draft, void, failed)
  *   3. AR statements sent  — count from audit_log (event = billing.statement.sent)
  *   4. Dunning notices     — count from billing_dunning_log where status=sent
@@ -49,10 +49,15 @@ function moneyMovementCashIn(int $tenantId, string $start, string $end): array
     $out = ['total' => 0.0, 'count' => 0, 'by_method' => []];
     try {
         $st = getDB()->prepare(
-            'SELECT method, SUM(amount) AS total, COUNT(*) AS n
-               FROM billing_payments
-              WHERE tenant_id = :t AND received_at BETWEEN :s AND :e
-              GROUP BY method'
+            'SELECT p.method, SUM(p.amount) AS total, COUNT(*) AS n
+               FROM billing_payments p
+          LEFT JOIN accounting_journal_entries je
+                 ON je.tenant_id = p.tenant_id AND je.id = p.journal_entry_id
+              WHERE p.tenant_id = :t AND p.received_at BETWEEN :s AND :e
+                AND p.voided_at IS NULL
+                AND ((p.journal_entry_id IS NOT NULL AND je.status = "posted")
+                  OR (p.source_system = "manual" AND p.external_id LIKE "bank-line:%"))
+              GROUP BY p.method'
         );
         $st->execute(['t' => $tenantId, 's' => $start, 'e' => $end]);
         foreach ($st->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $r) {

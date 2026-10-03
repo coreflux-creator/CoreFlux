@@ -34,6 +34,8 @@
  *                           'enum'  => ['w2','1099','c2c','temp','perm','candidate','alumni']],
  *       'email_primary' => ['label' => 'Primary email', 'required' => true,
  *                           'type'  => 'email'],
+ *       'external_id'   => ['label' => 'External ID',
+ *                           'validate' => fn(string $value): ?string => null],
  *       'work_auth_expiry' => ['label' => 'Work auth expiry', 'type' => 'date'],
  *     ],
  *     'unique_within_batch' => ['email_primary'],
@@ -289,6 +291,12 @@ class CsvImportService
                     if (in_array($lc, ['1','true','yes','y','t'], true))      $row[$field] = 1;
                     else if (in_array($lc, ['0','false','no','n','f',''], true)) $row[$field] = 0;
                     else $rowErrors[] = "{$field}: invalid boolean '{$val}'";
+                }
+                if (isset($def['validate'])) {
+                    $message = $def['validate']((string) $val);
+                    if (is_string($message) && $message !== '') {
+                        $rowErrors[] = "{$field}: {$message}";
+                    }
                 }
             }
 

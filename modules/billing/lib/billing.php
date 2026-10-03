@@ -997,14 +997,28 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
         // Build target list
         $targets = [];
         if (isset($request['auto']) && $request['auto'] === 'fifo') {
+            $postedOnly = !empty($request['require_posted']);
+            $invoiceFilters = 'i.tenant_id = :t AND i.client_name = :c
+                   AND i.status IN ("sent","partially_paid","approved") AND i.amount_due > 0';
+            $invoiceParams = ['t' => $pay['tenant_id'], 'c' => $pay['client_name']];
+            $postedJoin = '';
+            if ($postedOnly) {
+                $postedJoin = ' JOIN accounting_journal_entries je
+                    ON je.tenant_id = i.tenant_id AND je.id = i.journal_entry_id AND je.status = "posted"';
+                $invoiceFilters .= ' AND i.currency = :currency AND i.issue_date <= :receipt_date';
+                $invoiceParams['currency'] = (string) ($request['currency'] ?? $pay['currency']);
+                $invoiceParams['receipt_date'] = (string) ($request['receipt_date'] ?? $pay['received_at']);
+                if (!empty($request['entity_id'])) {
+                    $invoiceFilters .= ' AND (i.entity_id = :entity_id OR i.entity_id IS NULL)';
+                    $invoiceParams['entity_id'] = (int) $request['entity_id'];
+                }
+            }
             $q = $pdo->prepare(
-                'SELECT id, amount_due FROM billing_invoices
-                 WHERE tenant_id = :t AND client_name = :c
-                   AND status IN ("sent","partially_paid","approved")
-                   AND amount_due > 0
-                 ORDER BY due_date ASC, id ASC'
+                'SELECT i.id, i.amount_due FROM billing_invoices i' . $postedJoin . '
+                 WHERE ' . $invoiceFilters . '
+                 ORDER BY i.due_date ASC, i.id ASC'
             );
-            $q->execute(['t' => $pay['tenant_id'], 'c' => $pay['client_name']]);
+            $q->execute($invoiceParams);
             foreach ($q->fetchAll(\PDO::FETCH_ASSOC) as $inv) {
                 if ($remaining <= 0) break;
                 $apply = min($remaining, (float) $inv['amount_due']);

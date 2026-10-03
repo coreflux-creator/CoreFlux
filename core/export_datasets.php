@@ -396,6 +396,10 @@ function exportDatasetRegistry(): array {
                 'amount'             => ['label' => 'Amount',         'sample' => '500.00', 'field_type' => 'number'],
                 'currency'           => ['label' => 'Currency',       'sample' => 'USD'],
                 'unallocated_amount' => ['label' => 'Unallocated',    'sample' => '0.00', 'field_type' => 'number'],
+                'receipt_state'      => ['label' => 'Receipt state',  'sample' => 'posted'],
+                'bank_account_id'    => ['label' => 'Bank account ID', 'sample' => '1'],
+                'journal_entry_id'   => ['label' => 'Receipt journal ID', 'sample' => '501'],
+                'posted_at'          => ['label' => 'Posted at',      'sample' => '2026-02-14 11:00:00'],
                 'voided_at'          => ['label' => 'Corrected at',   'sample' => '2026-02-15 11:00:00'],
                 'void_reason'        => ['label' => 'Correction reason', 'sample' => 'Applied to wrong invoice'],
                 'void_je_id'         => ['label' => 'Reversal journal ID', 'sample' => '502'],
@@ -1244,6 +1248,11 @@ function exportDatasetFetchBillingPayments(int $tenantId, array $opts): array {
     $stmt = $pdo->prepare(
         'SELECT id AS payment_id, client_name, received_at, method, reference,
                 external_id, source_system, amount, currency, unallocated_amount,
+                CASE WHEN voided_at IS NOT NULL THEN "corrected"
+                     WHEN journal_entry_id IS NOT NULL
+                       OR (source_system = "manual" AND external_id LIKE "bank-line:%") THEN "posted"
+                     ELSE "pending" END AS receipt_state,
+                bank_account_id, journal_entry_id, posted_at,
                 voided_at, void_reason, void_je_id, notes
            FROM billing_payments
           WHERE ' . implode(' AND ', $where) . '

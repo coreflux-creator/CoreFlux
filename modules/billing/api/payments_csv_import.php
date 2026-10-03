@@ -9,8 +9,8 @@
  *   POST /api/billing/payments_csv_import?action=commit (+ ?skip_invalid=1)
  *   POST /api/billing/payments_csv_import?action=ai_suggest_map
  *
- * Invoice allocations stay out of scope — done via the Payment Detail UI
- * where the user can match against open invoices.
+ * Imported receipts remain pending until the user posts them against open
+ * invoices and a bank account from Payments received.
  *
  * Built on Core\CsvImportService primitive per HARD_RULES (2026-02-XX).
  */
@@ -36,7 +36,14 @@ CsvImportService::registerSchema('billing_payments', [
         // receipt id, lockbox file id, etc.). When supplied, becomes
         // the upsert key so re-uploading the same export does not
         // double-credit the client.
-        'external_id'  => ['label' => 'External ID (audit / integration)'],
+        'external_id'  => [
+            'label' => 'External ID (audit / integration)',
+            'validate' => static function (string $value): ?string {
+                return str_starts_with($value, 'bank-line:') || str_starts_with($value, 'manual-receipt:')
+                    ? 'this ID format is reserved for bank matches and on-screen payments'
+                    : null;
+            },
+        ],
         'source_system'=> ['label' => 'Source system',
                           'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
         'amount'      => ['label' => 'Amount',      'required' => true, 'type' => 'number'],

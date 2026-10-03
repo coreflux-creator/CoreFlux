@@ -96,6 +96,28 @@ $assert("missing batch ref is normally rejected",    isset($withoutDefault['erro
 $assert("explicit default supplies missing batch ref", $withDefault['error_count'] === 0);
 $assert("default appears in normalized preview row", ($withDefault['rows'][2]['batch_ref'] ?? null) === 'MAR-2025');
 
+echo "\nField validator is shared by preview and commit\n";
+CsvImportService::registerSchema('receipt_id_test', [
+    'fields' => [
+        'external_id' => [
+            'label' => 'External ID',
+            'required' => true,
+            'validate' => static fn(string $value): ?string => str_starts_with($value, 'bank-line:')
+                ? 'reserved for bank matches' : null,
+        ],
+    ],
+]);
+$reservedCsv = "External ID\nbank-line:123\n";
+$reservedPreview = CsvImportService::dryRun('receipt_id_test', $reservedCsv);
+$assert('preview flags reserved receipt ID',
+    ($reservedPreview['error_count'] ?? 0) === 1
+    && str_contains(implode(' ', $reservedPreview['errors'][2] ?? []), 'reserved for bank matches'));
+$reservedWrites = 0;
+$reservedCommit = CsvImportService::commit('receipt_id_test', $reservedCsv,
+    static function () use (&$reservedWrites): int { $reservedWrites++; return 1; });
+$assert('commit refuses the same reserved receipt ID',
+    $reservedCommit['imported_count'] === 0 && $reservedWrites === 0);
+
 echo "\nCommit — calls onRow for valid rows only (skip_invalid=true)\n";
 $mixedCsv = "First name,Last name,Primary email,Classification\n"
           . "Jane,Doe,jane@x.co,w2\n"
