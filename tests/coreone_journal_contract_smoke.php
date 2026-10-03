@@ -8,6 +8,7 @@ $service = (string) file_get_contents($root . '/core/accounting/coreone_v1.php')
 $endpoint = (string) file_get_contents($root . '/api/coreone/v1/journals.php');
 $management = (string) file_get_contents($root . '/api/coreone_credentials.php');
 $migration = (string) file_get_contents($root . '/core/migrations/153_coreone_accounting_credentials.sql');
+$scopeMigration = (string) file_get_contents($root . '/core/migrations/154_coreone_document_requests.sql');
 $registry = (string) file_get_contents($root . '/core/seeds/event_registry_seed.php');
 $rules = (string) file_get_contents($root . '/core/posting_engine/seed_defaults.php');
 $checks = [];
@@ -26,8 +27,18 @@ $check('credential is bound to one tenant and legal entity',
     && str_contains($service, 'e.tenant_id = c.tenant_id AND e.id = c.entity_id AND e.active = 1'));
 $check('service route uses bearer auth and credential tenant, not browser login',
     str_contains($endpoint, 'coreoneV1Authenticate(')
+    && str_contains($endpoint, "coreoneV1HasScope(\$credential, 'journals:write')")
     && str_contains($endpoint, "setRequestTenantId((int) \$credential['tenant_id'])")
     && !str_contains($endpoint, 'api_require_auth('));
+$check('existing credentials retain only their original scopes',
+    str_contains($scopeMigration, '["journals:write","reports:read"]')
+    && COREONE_V1_DEFAULT_SCOPES === ['journals:write', 'reports:read']
+    && !in_array('invoices:draft', COREONE_V1_DEFAULT_SCOPES, true));
+$check('invoice draft scope needs an administrator with Billing draft permission',
+    str_contains($management, "'billing.invoice.draft'")
+    && str_contains($management, "in_array('invoices:draft', \$scopes, true)")
+    && str_contains($management, "in_array('journals:write', \$scopes, true)")
+    && str_contains($management, "in_array('reports:read', \$scopes, true)"));
 $check('credential management uses existing human auth and accounting RBAC',
     str_contains($management, 'api_require_auth()')
     && str_contains($management, "'accounting.manage_integrations'")

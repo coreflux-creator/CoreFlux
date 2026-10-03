@@ -5,6 +5,7 @@ declare(strict_types=1);
 $source = (string) file_get_contents(__DIR__ . '/../api/coreone/v1/reports.php');
 $checks = [
     'bearer credential required' => str_contains($source, 'coreoneV1Authenticate(')
+        && str_contains($source, "coreoneV1HasScope(\$credential, 'reports:read')")
         && !str_contains($source, 'api_require_auth('),
     'credential fixes both scopes' => str_contains($source, "\$credential['tenant_id']")
         && str_contains($source, "\$credential['entity_id']"),

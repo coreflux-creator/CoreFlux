@@ -9,32 +9,48 @@ const COREONE_V1_PROTECTED_ACCOUNTS = [
     '1010', '1100', '1150', '1310', '1500', '2000', '2050', '2100',
     '2150', '2200', '2210', '2220', '2300', '2500',
 ];
+const COREONE_V1_DEFAULT_SCOPES = ['journals:write', 'reports:read'];
+const COREONE_V1_ALLOWED_SCOPES = ['journals:write', 'reports:read', 'invoices:draft'];
 
 function coreoneV1IssueCredential(int $tenantId, int $entityId, string $label,
-    int $days, ?int $actorUserId): array
+    int $days, ?int $actorUserId, ?array $scopes = null): array
 {
     $label = trim($label);
     if ($tenantId <= 0 || $entityId <= 0 || $label === '' || strlen($label) > 120
         || $days < 1 || $days > 90) {
         throw new InvalidArgumentException('Choose an active entity, label and expiry of 1 to 90 days.');
     }
+    $scopes ??= COREONE_V1_DEFAULT_SCOPES;
+    if (!$scopes || !array_is_list($scopes) || count($scopes) > count(COREONE_V1_ALLOWED_SCOPES)) {
+        throw new InvalidArgumentException('Choose one or more supported service scopes.');
+    }
+    foreach ($scopes as $scope) {
+        if (!is_string($scope) || !in_array($scope, COREONE_V1_ALLOWED_SCOPES, true)) {
+            throw new InvalidArgumentException('Choose one or more supported service scopes.');
+        }
+    }
+    if (count($scopes) !== count(array_unique($scopes))) {
+        throw new InvalidArgumentException('Service scopes must be unique.');
+    }
     accountingValidateActiveEntityId($tenantId, $entityId);
     $token = 'cfca_v1_' . bin2hex(random_bytes(32));
     $pdo = getDB();
     $stmt = $pdo->prepare(
         'INSERT INTO coreone_accounting_credentials
-            (tenant_id, entity_id, label, token_hash, token_last4, expires_at, created_by_user_id)
-         VALUES (:tenant_id, :entity_id, :label, :token_hash, :last4,
+            (tenant_id, entity_id, label, scopes_json, token_hash, token_last4, expires_at, created_by_user_id)
+         VALUES (:tenant_id, :entity_id, :label, :scopes_json, :token_hash, :last4,
                  DATE_ADD(NOW(), INTERVAL ' . $days . ' DAY), :actor)'
     );
     $stmt->execute(['tenant_id' => $tenantId, 'entity_id' => $entityId,
-        'label' => $label, 'token_hash' => hash('sha256', $token),
+        'label' => $label, 'scopes_json' => json_encode($scopes),
+        'token_hash' => hash('sha256', $token),
         'last4' => substr($token, -4), 'actor' => $actorUserId]);
     $id = (int) $pdo->lastInsertId();
     $expiry = $pdo->prepare('SELECT expires_at FROM coreone_accounting_credentials WHERE tenant_id = :t AND id = :id');
     $expiry->execute(['t' => $tenantId, 'id' => $id]);
     return ['id' => $id, 'tenant_id' => $tenantId, 'entity_id' => $entityId,
-        'label' => $label, 'expires_at' => $expiry->fetchColumn(), 'token' => $token];
+        'label' => $label, 'scopes' => $scopes,
+        'expires_at' => $expiry->fetchColumn(), 'token' => $token];
 }
 
 function coreoneV1Authenticate(?string $authorization): ?array
@@ -44,7 +60,7 @@ function coreoneV1Authenticate(?string $authorization): ?array
     }
     $pdo = getDB();
     $stmt = $pdo->prepare(
-        'SELECT c.id, c.tenant_id, c.entity_id, c.label, e.base_currency
+        'SELECT c.id, c.tenant_id, c.entity_id, c.label, c.scopes_json, e.base_currency
            FROM coreone_accounting_credentials c
            JOIN accounting_entities e ON e.tenant_id = c.tenant_id AND e.id = c.entity_id AND e.active = 1
           WHERE c.token_hash = :hash AND c.revoked_at IS NULL AND c.expires_at > NOW() LIMIT 1'
@@ -55,11 +71,23 @@ function coreoneV1Authenticate(?string $authorization): ?array
     $credential['id'] = (int) $credential['id'];
     $credential['tenant_id'] = (int) $credential['tenant_id'];
     $credential['entity_id'] = (int) $credential['entity_id'];
+    $credential['scopes'] = json_decode((string) $credential['scopes_json'], true);
+    if (!is_array($credential['scopes']) || !array_is_list($credential['scopes'])
+        || !$credential['scopes']) return null;
+    foreach ($credential['scopes'] as $scope) {
+        if (!is_string($scope) || !in_array($scope, COREONE_V1_ALLOWED_SCOPES, true)) return null;
+    }
+    unset($credential['scopes_json']);
     $pdo->prepare(
         'UPDATE coreone_accounting_credentials SET last_used_at = NOW()
           WHERE tenant_id = :t AND id = :id AND revoked_at IS NULL AND expires_at > NOW()'
     )->execute(['t' => $credential['tenant_id'], 'id' => $credential['id']]);
     return $credential;
+}
+
+function coreoneV1HasScope(array $credential, string $scope): bool
+{
+    return in_array($scope, (array) ($credential['scopes'] ?? []), true);
 }
 
 function coreoneV1NormalizeJournal(array $credential, array $body): array

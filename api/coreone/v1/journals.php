@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../../core/accounting/coreone_v1.php';
 
 $credential = coreoneV1Authenticate($_SERVER['HTTP_AUTHORIZATION'] ?? null);
 if (!$credential) api_error('Invalid or expired service credential', 401);
+if (!coreoneV1HasScope($credential, 'journals:write')) api_error('Service credential lacks journal scope', 403);
 setRequestTenantId((int) $credential['tenant_id']);
 setRequestModuleScope('accounting');
 

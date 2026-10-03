@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../../modules/ap/lib/ap.php';
 
 $credential = coreoneV1Authenticate($_SERVER['HTTP_AUTHORIZATION'] ?? null);
 if (!$credential) api_error('Invalid or expired service credential', 401);
+if (!coreoneV1HasScope($credential, 'reports:read')) api_error('Service credential lacks report scope', 403);
 setRequestTenantId((int) $credential['tenant_id']);
 setRequestModuleScope('accounting');
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
