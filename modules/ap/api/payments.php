@@ -798,9 +798,9 @@ function apPaymentReleaseIssue(int $tenantId, array $payment, ?int $userId): ?ar
     $checkStmt = $pdo->prepare(
         'SELECT b.status, b.internal_ref
          FROM ap_payment_allocations a
-         JOIN ap_bills b ON b.id = a.bill_id AND b.tenant_id = a.tenant_id
-         WHERE a.tenant_id = :t
-           AND a.payment_id = :id AND b.status IN ("disputed","void")'
+         JOIN ap_payments p ON p.id = a.payment_id AND p.tenant_id = :t
+         JOIN ap_bills b ON b.id = a.bill_id AND b.tenant_id = p.tenant_id
+         WHERE a.payment_id = :id AND b.status IN ("disputed","void")'
     );
     $checkStmt->execute(['t' => $tenantId, 'id' => $paymentId]);
     $bad = $checkStmt->fetchAll(\PDO::FETCH_ASSOC);
