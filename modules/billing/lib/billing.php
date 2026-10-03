@@ -1133,19 +1133,41 @@ function billingComputeAging(int $tenantId, string $asOf, ?int $entityId = null)
                 SELECT i.id, i.client_name, i.due_date,
                        GREATEST(0, ROUND(i.total - COALESCE(SUM(
                            CASE WHEN p.received_at <= :payment_as_of
-                                 AND (alloc.reversed_at IS NULL OR DATE(alloc.reversed_at) > :reversal_as_of)
+                                 AND (alloc.application_je_id IS NULL
+                                      OR (application_je.status IN ("posted", "reversed")
+                                          AND application_je.posting_date <= :application_as_of
+                                          AND (application_je.status = "posted"
+                                               OR application_reversal.posting_date > :application_reversed_as_of)))
+                                 AND (alloc.reversed_at IS NULL
+                                      OR (alloc.reversal_je_id IS NOT NULL
+                                          AND allocation_reversal.posting_date > :reversal_as_of)
+                                      OR (alloc.reversal_je_id IS NULL
+                                          AND DATE(alloc.reversed_at) > :legacy_reversal_as_of))
                                 THEN alloc.amount_applied ELSE 0 END
                        ), 0), 2)) AS amount_due
                   FROM billing_invoices i
                   JOIN accounting_journal_entries je
                     ON je.id = i.journal_entry_id
                    AND je.tenant_id = i.tenant_id
-                   AND je.status = "posted"
+                   AND je.status IN ("posted", "reversed")
                    AND je.posting_date <= :posted_as_of
+             LEFT JOIN accounting_journal_entries invoice_reversal
+                    ON invoice_reversal.id = je.reversed_by_je_id
+                   AND invoice_reversal.tenant_id = i.tenant_id
              LEFT JOIN billing_payment_allocations alloc ON alloc.invoice_id = i.id
              LEFT JOIN billing_payments p ON p.id = alloc.payment_id AND p.tenant_id = i.tenant_id
+             LEFT JOIN accounting_journal_entries application_je
+                    ON application_je.id = alloc.application_je_id
+                   AND application_je.tenant_id = i.tenant_id
+             LEFT JOIN accounting_journal_entries application_reversal
+                    ON application_reversal.id = application_je.reversed_by_je_id
+                   AND application_reversal.tenant_id = i.tenant_id
+             LEFT JOIN accounting_journal_entries allocation_reversal
+                    ON allocation_reversal.id = alloc.reversal_je_id
+                   AND allocation_reversal.tenant_id = i.tenant_id
                  WHERE i.tenant_id = :tid' . $entityFilter . '
                    AND i.issue_date <= :document_as_of
+                   AND (je.status = "posted" OR invoice_reversal.posting_date > :invoice_reversed_as_of)
                    AND (i.status <> "void" OR i.voided_at IS NULL OR DATE(i.voided_at) > :void_as_of)
               GROUP BY i.id, i.client_name, i.due_date, i.total
                 HAVING amount_due > 0
@@ -1156,9 +1178,13 @@ function billingComputeAging(int $tenantId, string $asOf, ?int $entityId = null)
     $bind = [
         'tid' => $tenantId,
         'payment_as_of' => $asOf,
+        'application_as_of' => $asOf,
+        'application_reversed_as_of' => $asOf,
         'reversal_as_of' => $asOf,
+        'legacy_reversal_as_of' => $asOf,
         'posted_as_of' => $asOf,
         'document_as_of' => $asOf,
+        'invoice_reversed_as_of' => $asOf,
         'void_as_of' => $asOf,
     ];
     if ($entityId !== null) $bind['entity_id'] = $entityId;

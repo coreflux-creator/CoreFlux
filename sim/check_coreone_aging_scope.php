@@ -40,11 +40,13 @@ if (!$firstEntity) {
 $checks = [];
 $error = null;
 $secondEntityId = 0;
+$secondInvoiceId = 0;
 $tag = bin2hex(random_bytes(6));
 $asOf = date('Y-m-d');
 $documentDate = date('Y-m-d', strtotime('-40 days'));
 $dueDate = date('Y-m-d', strtotime('-15 days'));
 $client = ['CoreOne AR A ' . $tag, 'CoreOne AR B ' . $tag];
+$voidClient = 'CoreOne AR void ' . $tag;
 $vendor = ['CoreOne AP A ' . $tag, 'CoreOne AP B ' . $tag];
 $totalFor = static function (array $rows, string $name, string $key): ?float {
     foreach ($rows as $row) {
@@ -77,6 +79,7 @@ try {
             'issued' => $documentDate, 'due' => $dueDate,
             'amount' => $ar, 'total' => $ar, 'open' => $ar]);
         $invoiceId = (int) $pdo->lastInsertId();
+        if ($index === 1) $secondInvoiceId = $invoiceId;
         $invoiceJe = accountingPostJe($tenantId, [
             'entity_id' => $entityId, 'posting_date' => $documentDate,
             'currency' => $firstEntity['base_currency'], 'source_module' => 'billing',
@@ -161,6 +164,109 @@ try {
             $client[1], 'client_name') === null
         && $totalFor(apComputeAging($tenantId, $beforeDocuments, $entityIds[1]),
             $vendor[1], 'vendor_name') === null;
+
+    $depositDate = date('Y-m-d', strtotime('-20 days'));
+    $applicationDate = date('Y-m-d', strtotime('-5 days'));
+    $beforeApplication = date('Y-m-d', strtotime('-6 days'));
+    $depositJe = accountingPostJe($tenantId, [
+        'entity_id' => $entityIds[1], 'posting_date' => $depositDate,
+        'currency' => $firstEntity['base_currency'], 'source_module' => 'billing',
+        'source_ref_type' => 'customer_deposit',
+        'idempotency_key' => 'sim.aging.deposit.' . $tag,
+        'lines' => [
+            ['account_code' => '1000', 'debit' => '50.00', 'credit' => 0],
+            ['account_code' => '2300', 'debit' => 0, 'credit' => '50.00'],
+        ],
+    ]);
+    $applicationJe = accountingPostJe($tenantId, [
+        'entity_id' => $entityIds[1], 'posting_date' => $applicationDate,
+        'currency' => $firstEntity['base_currency'], 'source_module' => 'billing',
+        'source_ref_type' => 'customer_deposit_application',
+        'idempotency_key' => 'sim.aging.deposit.application.' . $tag,
+        'lines' => [
+            ['account_code' => '2300', 'debit' => '50.00', 'credit' => 0],
+            ['account_code' => '1100', 'debit' => 0, 'credit' => '50.00'],
+        ],
+    ]);
+    $pdo->prepare(
+        'INSERT INTO billing_payments
+            (tenant_id, client_name, received_at, amount, currency, unallocated_amount, journal_entry_id)
+         VALUES (:t, :name, :received, 50.00, :currency, 0.00, :je)'
+    )->execute(['t' => $tenantId, 'name' => $client[1], 'received' => $depositDate,
+        'currency' => $firstEntity['base_currency'], 'je' => $depositJe['je_id']]);
+    $paymentId = (int) $pdo->lastInsertId();
+    $pdo->prepare(
+        'INSERT INTO billing_payment_allocations
+            (payment_id, invoice_id, amount_applied, applied_at, application_je_id)
+         VALUES (:payment, :invoice, 50.00, :applied, :je)'
+    )->execute(['payment' => $paymentId, 'invoice' => $secondInvoiceId,
+        'applied' => $applicationDate . ' 00:00:00', 'je' => $applicationJe['je_id']]);
+    $allocationId = (int) $pdo->lastInsertId();
+    $pdo->prepare(
+        'UPDATE billing_invoices SET amount_paid = 50.00, amount_due = 150.00, status = "partially_paid"
+          WHERE tenant_id = :t AND id = :id'
+    )->execute(['t' => $tenantId, 'id' => $secondInvoiceId]);
+    $beforeAging = billingComputeAging($tenantId, $beforeApplication, $entityIds[1]);
+    $afterAging = billingComputeAging($tenantId, $asOf, $entityIds[1]);
+    $beforeTrial = accountingTrialBalance($tenantId, $beforeApplication, $entityIds[1]);
+    $afterTrial = accountingTrialBalance($tenantId, $asOf, $entityIds[1]);
+    $checks['deposit_application_reduces_ar_only_on_its_posting_date'] =
+        $totalFor($beforeAging, $client[1], 'client_name') === 200.0
+        && $accountBalance($beforeTrial, '1100') === 200.0
+        && $totalFor($afterAging, $client[1], 'client_name') === 150.0
+        && $accountBalance($afterTrial, '1100') === 150.0;
+
+    $applicationReversal = accountingReverseJe($tenantId,
+        (int) $applicationJe['je_id'], 'Rollback-only deposit application correction');
+    $pdo->prepare(
+        'UPDATE billing_payment_allocations SET reversed_at = NOW(), reversal_je_id = :je
+          WHERE id = :id AND payment_id = :payment'
+    )->execute(['je' => $applicationReversal['je_id'],
+        'id' => $allocationId, 'payment' => $paymentId]);
+    $pdo->prepare(
+        'UPDATE billing_invoices SET amount_paid = 0.00, amount_due = 200.00, status = "sent"
+          WHERE tenant_id = :t AND id = :id'
+    )->execute(['t' => $tenantId, 'id' => $secondInvoiceId]);
+    $yesterday = date('Y-m-d', strtotime('-1 day'));
+    $checks['deposit_application_reversal_restores_ar_from_reversal_date'] =
+        $totalFor(billingComputeAging($tenantId, $yesterday, $entityIds[1]),
+            $client[1], 'client_name') === 150.0
+        && $accountBalance(accountingTrialBalance($tenantId, $yesterday, $entityIds[1]), '1100') === 150.0
+        && $totalFor(billingComputeAging($tenantId, $asOf, $entityIds[1]),
+            $client[1], 'client_name') === 200.0
+        && $accountBalance(accountingTrialBalance($tenantId, $asOf, $entityIds[1]), '1100') === 200.0;
+
+    $pdo->prepare(
+        'INSERT INTO billing_invoices
+            (tenant_id, entity_id, invoice_number, client_name, currency,
+             issue_date, due_date, subtotal, total, amount_due, status)
+         VALUES (:t, :e, :number, :name, :currency, :issued, :due, 25.00, 25.00, 25.00, "sent")'
+    )->execute(['t' => $tenantId, 'e' => $entityIds[1],
+        'number' => 'SIM-AGING-VOID-' . $tag, 'name' => $voidClient,
+        'currency' => $firstEntity['base_currency'], 'issued' => $documentDate, 'due' => $dueDate]);
+    $voidInvoiceId = (int) $pdo->lastInsertId();
+    $voidInvoiceJe = accountingPostJe($tenantId, [
+        'entity_id' => $entityIds[1], 'posting_date' => $documentDate,
+        'currency' => $firstEntity['base_currency'], 'source_module' => 'billing',
+        'source_ref_type' => 'invoice', 'source_ref_id' => $voidInvoiceId,
+        'idempotency_key' => 'sim.aging.void.invoice.' . $tag,
+        'lines' => [
+            ['account_code' => '1100', 'debit' => '25.00', 'credit' => 0],
+            ['account_code' => '4000', 'debit' => 0, 'credit' => '25.00'],
+        ],
+    ]);
+    $pdo->prepare('UPDATE billing_invoices SET journal_entry_id = :je WHERE tenant_id = :t AND id = :id')
+        ->execute(['je' => $voidInvoiceJe['je_id'], 't' => $tenantId, 'id' => $voidInvoiceId]);
+    accountingReverseJe($tenantId, (int) $voidInvoiceJe['je_id'], 'Rollback-only historical aging');
+    $pdo->prepare(
+        'UPDATE billing_invoices SET status = "void", voided_at = NOW()
+          WHERE tenant_id = :t AND id = :id'
+    )->execute(['t' => $tenantId, 'id' => $voidInvoiceId]);
+    $checks['later_invoice_void_preserves_earlier_aging'] =
+        $totalFor(billingComputeAging($tenantId, $yesterday, $entityIds[1]),
+            $voidClient, 'client_name') === 25.0
+        && $totalFor(billingComputeAging($tenantId, $asOf, $entityIds[1]),
+            $voidClient, 'client_name') === null;
 } catch (Throwable $e) {
     $error = $e->getMessage();
 } finally {
@@ -170,8 +276,8 @@ try {
 $entityCount = $pdo->prepare('SELECT COUNT(*) FROM accounting_entities WHERE tenant_id = :t AND id = :id');
 $entityCount->execute(['t' => $tenantId, 'id' => $secondEntityId]);
 $checks['fixture_left_no_second_entity'] = (int) $entityCount->fetchColumn() === 0;
-$invoiceCount = $pdo->prepare('SELECT COUNT(*) FROM billing_invoices WHERE tenant_id = :t AND client_name IN (:a, :b)');
-$invoiceCount->execute(['t' => $tenantId, 'a' => $client[0], 'b' => $client[1]]);
+$invoiceCount = $pdo->prepare('SELECT COUNT(*) FROM billing_invoices WHERE tenant_id = :t AND client_name IN (:a, :b, :c)');
+$invoiceCount->execute(['t' => $tenantId, 'a' => $client[0], 'b' => $client[1], 'c' => $voidClient]);
 $checks['fixture_left_no_invoices'] = (int) $invoiceCount->fetchColumn() === 0;
 $billCount = $pdo->prepare('SELECT COUNT(*) FROM ap_bills WHERE tenant_id = :t AND vendor_name IN (:a, :b)');
 $billCount->execute(['t' => $tenantId, 'a' => $vendor[0], 'b' => $vendor[1]]);
