@@ -56,6 +56,21 @@ $assert('returns totals envelope',
     && strpos($gl, "'ending_balance'") !== false
     && strpos($gl, "'net'") !== false);
 $assert('returns count',                         strpos($gl, "'count'           => count(\$out)") !== false);
+$assert('detail query is bounded by validated page size',
+    str_contains($gl, "['25', '50', '100', '200']")
+    && str_contains($gl, 'LIMIT :per_page OFFSET :offset')
+    && str_contains($gl, "bindValue(':per_page', \$perPage, \\PDO::PARAM_INT)"));
+$assert('full-period totals remain independent of the requested page',
+    str_contains($gl, 'COUNT(*) AS line_count')
+    && str_contains($gl, "'ending_balance'  => round(\$opening + \$net, 2)")
+    && str_contains($gl, "'total_rows' => \$totalRows"));
+$assert('paged opening, totals and lines share a repeatable-read snapshot',
+    str_contains($gl, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+    && str_contains($gl, '$pdo->beginTransaction()')
+    && str_contains($gl, '$pdo->commit()'));
+$assert('later pages compute a prior movement before their first line',
+    str_contains($gl, 'jl.id < :first_line_id')
+    && str_contains($gl, "'page_opening_balance' => \$pageOpening"));
 
 echo "\nModule alias — /api/accounting/gl-detail\n";
 $glAlias = "{$ROOT}/modules/accounting/api/gl_detail.php";
@@ -118,6 +133,18 @@ foreach (['opening','total-debit','total-credit','total-net','ending'] as $id) {
 }
 $assert('row testid template',
     strpos($glJsx, 'data-testid={`accounting-gl-detail-row-${l.je_id}-${idx}`}') !== false);
+$assert('GL page navigates bounded results and account picker replaces the old account id',
+    str_contains($glJsx, 'data-testid="accounting-gl-detail-pagination"')
+    && str_contains($glJsx, "p.delete('account_id')")
+    && str_contains($glJsx, "setParam('per_page', e.target.value)"));
+$assert('GL detail table scrolls within its mobile viewport',
+    str_contains($glJsx, 'className="data-table-wrap"')
+    && str_contains($glJsx, 'aria-label="GL detail entries"'));
+$drillJsx = (string) file_get_contents("{$ROOT}/dashboard/src/components/GlDetailDrilldown.jsx");
+$assert('report drill-down paginates without repeating its audit event',
+    str_contains($drillJsx, 'per_page: String(perPage)')
+    && str_contains($drillJsx, 'data.pagination.total_rows')
+    && str_contains($drillJsx, 'report_key:   reportKey'));
 
 echo "\nFrontend — TaxMappings.jsx\n";
 $txJsx = (string) file_get_contents("{$ROOT}/modules/accounting/ui/TaxMappings.jsx");

@@ -178,6 +178,13 @@ Staging must have its own PHP deployment, MySQL database, migrations, encryption
 - Source audit: `sql/setup.sql` is a legacy three-table prototype, and `sql/layer_sandbox_seed.sql` includes evaluation tenants and users. Neither is an acceptable blank production bootstrap. The canonical core migrations begin by altering `tenants`, while `core/migrate.php` runs core files before module files. Do not run either legacy SQL file against an operational tenant.
 - `deploy/bootstrap_coreaccounting.php` is a staging-CLI-only candidate for a fresh isolated database. It creates the minimal platform tenant table with no records, applies the identity and four base module schemas, then invokes the canonical `_migrations` runner. `--inspect` reports the connected database and table count without changing it. Apply requires both `--confirm-empty-staging` and an exact `--database=NAME`; it refuses a nonempty database. On the existing staging database, inspection found 321 tables and the apply attempt exited with a nonempty-database refusal before any DDL. The candidate has **not** yet passed a fresh-database run, so standalone installation remains a release gate. The staging app's database user cannot create another database; a separate disposable Cloudways app/database is needed for that test.
 
+## Ledger detail paging (October 2026)
+
+- The shared CoreFlux GL-detail endpoint now returns bounded pages of 25, 50, 100 or 200 journal lines. Full-period debit, credit and ending balances remain independent of the selected page; later pages start from the movement before their first line, in stable journal/line order. The report reads those values in one repeatable-read snapshot.
+- Both the Accounting GL Detail page and statement drill-down use the same endpoint and offer page-size and page navigation. Switching the selected account replaces an old account ID in the URL, so the picker actually changes the report.
+- On narrow screens, the dense GL table scrolls within its own region rather than widening the entire page.
+- An authenticated isolated-staging check on 37 synthetic cash-account lines returned 25 and 12 lines on successive pages. The second page opened at the first page's final running balance and ended at the full-period balance. A 50-line page had the same totals; invalid page size was rejected. The hosted staging browser rendered both pages on a 390-pixel viewport with no document overflow or script error. Its five cross-ledger snapshot checks remained green. This is a synthetic staging check, not a production-ledger audit or a walkthrough of the entire application.
+
 ## Decisions to revisit
 
 | Decision | Reason | Revisit when |

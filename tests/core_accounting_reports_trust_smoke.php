@@ -135,7 +135,8 @@ $assert('trial balance hides zero-only rows and reports accounts with activity',
     && str_contains($trialBalance, 'data-testid="rpt-tb-toggle-zero-rows"')
     && str_contains($trialBalance, 'label="Accounts with activity"'));
 $assert('GL detail scopes through the parent journal entry',
-    substr_count($glDetail, 'WHERE je.tenant_id = :t') === 2
+    str_contains($glDetail, '$rangeWhere = "je.tenant_id = :t AND jl.account_id = :aid')
+    && substr_count($glDetail, 'WHERE {$rangeWhere}') === 3
     && !str_contains($glDetail, 'WHERE jl.tenant_id = :t'));
 $assert('reversed originals remain in ledger-backed financial reports',
     str_contains($glDetail, "je.status IN ('posted','reversed')")
