@@ -36,10 +36,25 @@ $root = dirname(__DIR__);
 $prerequisites = [
     'deploy/tenants_base.sql',
     'core/migrations/013_user_tenants_baseline.sql',
+    'core/migrations/150_tenant_login_base_columns.sql',
     'modules/people/migrations/001_init.sql',
     'modules/placements/migrations/001_init.sql',
+    'modules/placements/migrations/002_cycle_config.sql',
+    'modules/people/migrations/003_spec_alignment.sql',
+    'modules/people/migrations/004_companies.sql',
     'modules/time/migrations/001_init.sql',
     'modules/staffing/migrations/001_timesheets.sql',
+    'modules/staffing/migrations/002_timesheet_id_on_entries.sql',
+    'modules/staffing/migrations/003_clients.sql',
+    'modules/staffing/migrations/005_company_bridge.sql',
+    'modules/accounting/migrations/001_init.sql',
+    'modules/accounting/migrations/002_phase2.sql',
+    'modules/accounting/migrations/015_accounting_events.sql',
+    'modules/ap/migrations/001_init.sql',
+    'modules/ap/migrations/014_purchase_orders.sql',
+    'modules/billing/migrations/001_init.sql',
+    'modules/payroll/migrations/001_init.sql',
+    'modules/payroll/migrations/002_gusto_sync.sql',
 ];
 $statementsByFile = [];
 foreach ($prerequisites as $relative) {
