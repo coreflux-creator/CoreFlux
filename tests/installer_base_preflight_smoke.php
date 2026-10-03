@@ -19,12 +19,16 @@ $check('missing base tables are reported in dependency order',
 
 $helper = file_get_contents(__DIR__ . '/../core/installer_helpers.php');
 $installer = file_get_contents(__DIR__ . '/../install.php');
+$runner = file_get_contents(__DIR__ . '/../deploy/run_migrations.php');
 $check('preflight precedes the installer migration ledger',
     strpos($helper, 'installerCheckBaseSchema($pdo);')
         < strpos($helper, 'CREATE TABLE IF NOT EXISTS coreflux_migrations'));
 $check('web installer rejects failed migration results',
     str_contains($installer, "['failed', 'unreadable']")
     && strpos($installer, "['failed', 'unreadable']") < strpos($installer, 'runSmokeInProcess($localCfg)'));
+$check('CLI runner rejects a missing base before creating its migration ledger',
+    strpos($runner, 'installerCheckBaseSchema($pdo)')
+        < strpos($runner, 'CREATE TABLE IF NOT EXISTS coreflux_migrations'));
 
-echo $failed === 0 ? "Passed: 5; Failed: 0\n" : "Failed: {$failed}\n";
+echo $failed === 0 ? "Passed: 6; Failed: 0\n" : "Failed: {$failed}\n";
 exit($failed ? 1 : 0);

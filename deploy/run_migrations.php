@@ -20,6 +20,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 require_once __DIR__ . '/../core/config.php';
+require_once __DIR__ . '/../core/installer_helpers.php';
 
 $argvs   = $argv;
 $status  = in_array('--status', $argvs, true);
@@ -30,6 +31,13 @@ $pdo = new PDO(
     DB_USER, DB_PASS,
     [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
 );
+
+$missing = installerCheckBaseSchema($pdo);
+if ($missing) {
+    fwrite(STDERR, 'Canonical CoreFlux base schema is missing: ' . implode(', ', $missing)
+        . ". Provision the platform base before running migrations.\n");
+    exit(3);
+}
 
 $pdo->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS coreflux_migrations (
