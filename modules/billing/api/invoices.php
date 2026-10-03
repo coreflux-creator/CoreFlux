@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../../core/mail_bootstrap.php';
 require_once __DIR__ . '/../../../core/tenant_mail.php';
 require_once __DIR__ . '/../../../core/active_entity.php';
 require_once __DIR__ . '/../lib/billing.php';
+require_once __DIR__ . '/../lib/invoice_drafts.php';
 require_once __DIR__ . '/../lib/invoice_pdf.php';
 require_once __DIR__ . '/../lib/workflow.php';
 require_once __DIR__ . '/../../ap/lib/ap.php';   // apNormalizeItemType() — shared item_type vocabulary
@@ -61,77 +62,6 @@ function billingInvoiceDefaultRecipient(int $tenantId, array $invoice): array
     }
 
     return ['email' => null, 'source' => null];
-}
-
-function billingPrepareDirectInvoiceLines(PDO $pdo, int $tenantId, array $lines, bool $activeOnly = true): array
-{
-    if (!$lines) api_error('lines must be a non-empty array', 422);
-    if (count($lines) > 500) api_error('Invoices are limited to 500 lines', 422);
-    foreach ($lines as $line) {
-        if (!is_array($line)) api_error('Each invoice line must be an object', 422);
-    }
-
-    $catalogIds = array_values(array_unique(array_filter(
-        array_map(static fn(array $line): int => (int) ($line['catalog_item_id'] ?? 0), $lines),
-        static fn(int $id): bool => $id > 0
-    )));
-    $catalogById = [];
-    if ($catalogIds) {
-        $marks = implode(',', array_fill(0, count($catalogIds), '?'));
-        $activeSql = $activeOnly ? ' AND active = 1' : '';
-        $stmt = $pdo->prepare(
-            "SELECT id, name, item_type, description, default_unit, default_unit_price,
-                    gl_revenue_account_code, taxable
-               FROM billing_items WHERE tenant_id = ?{$activeSql} AND id IN ({$marks})"
-        );
-        $stmt->execute(array_merge([$tenantId], $catalogIds));
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $item) $catalogById[(int) $item['id']] = $item;
-        if (count($catalogById) !== count($catalogIds)) api_error('One or more products or services are unavailable', 422);
-    }
-
-    foreach ($lines as &$line) {
-        $catalogId = (int) ($line['catalog_item_id'] ?? 0);
-        if ($catalogId <= 0) continue;
-        $item = $catalogById[$catalogId];
-        if (trim((string) ($line['description'] ?? '')) === '') $line['description'] = $item['description'] ?: $item['name'];
-        if (empty($line['item_type'])) $line['item_type'] = $item['item_type'];
-        if (empty($line['unit'])) $line['unit'] = $item['default_unit'];
-        if (!array_key_exists('unit_price', $line) || $line['unit_price'] === '') $line['unit_price'] = $item['default_unit_price'] ?? 0;
-        if (empty($line['gl_revenue_account_code'])) $line['gl_revenue_account_code'] = $item['gl_revenue_account_code'];
-        if (!array_key_exists('taxable', $line)) $line['taxable'] = (int) $item['taxable'] === 1;
-    }
-    unset($line);
-    return $lines;
-}
-
-function billingInsertDirectInvoiceLines(PDO $pdo, int $invoiceId, array $lines): void
-{
-    $stmt = $pdo->prepare(
-        'INSERT INTO billing_invoice_lines
-          (invoice_id, line_no, source_type, catalog_item_id, item_type, description, quantity, unit, unit_price,
-           subtotal, tax_rate_pct, tax_amount, total, gl_revenue_account_code)
-         VALUES
-          (:invoice_id, :line_no, "manual", :catalog_item_id, :item_type, :description, :quantity, :unit, :unit_price,
-           :subtotal, :tax_rate_pct, :tax_amount, :total, :gl_rev)'
-    );
-    $lineNo = 1;
-    foreach ($lines as $line) {
-        $stmt->execute([
-            'invoice_id' => $invoiceId,
-            'line_no' => $lineNo++,
-            'catalog_item_id' => !empty($line['catalog_item_id']) ? (int) $line['catalog_item_id'] : null,
-            'item_type' => apNormalizeItemType($line['item_type'] ?? null, 'manual'),
-            'description' => $line['description'] ?? '',
-            'quantity' => $line['quantity'] ?? 0,
-            'unit' => $line['unit'] ?? 'each',
-            'unit_price' => $line['unit_price'] ?? 0,
-            'subtotal' => $line['subtotal'],
-            'tax_rate_pct' => $line['tax_rate_pct'],
-            'tax_amount' => $line['tax_amount'],
-            'total' => $line['total'],
-            'gl_rev' => $line['gl_revenue_account_code'] ?? null,
-        ]);
-    }
 }
 
 if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
@@ -471,99 +401,13 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
 if ($method === 'POST' && $action === '') {
     rbac_legacy_require($user, 'billing.invoice.draft');
     $body = api_json_body();
-    api_require_fields($body, ['client_name', 'lines']);
-    if (empty($body['lines']) || !is_array($body['lines'])) api_error('lines must be a non-empty array', 422);
-
-    $pdo = getDB();
-    $body['lines'] = billingPrepareDirectInvoiceLines($pdo, $tid, $body['lines']);
-    $taxStmt = $pdo->prepare('SELECT billing_tax_rate_pct, billing_invoice_terms FROM tenants WHERE id = :id');
-    $taxStmt->execute(['id' => $tid]);
-    $cfg = $taxStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-    $taxPct = (float) ($cfg['billing_tax_rate_pct'] ?? 0);
-    if (array_key_exists('tax_rate_pct', $body) && $body['tax_rate_pct'] !== null && $body['tax_rate_pct'] !== '') {
-        if (!is_numeric($body['tax_rate_pct'])) api_error('Tax rate must be numeric', 422);
-        $taxPct = (float) $body['tax_rate_pct'];
-    }
-    if ($taxPct < 0 || $taxPct > 100) api_error('Tax rate must be between 0 and 100', 422);
-    $netDays = preg_match('/^NET(\d+)$/i', (string) ($cfg['billing_invoice_terms'] ?? 'NET30'), $m) ? (int) $m[1] : 30;
-
-    // Per-client override: if a staffing_clients row exists with a non-null
-    // payment_terms_days, use that instead of the tenant-wide default.
     try {
-        $clientTerms = $pdo->prepare(
-            "SELECT payment_terms_days FROM staffing_clients
-              WHERE tenant_id = :t AND name = :n AND payment_terms_days IS NOT NULL LIMIT 1"
-        );
-        $clientTerms->execute(['t' => $clientCatalogTenantId, 'n' => (string) ($body['client_name'] ?? '')]);
-        $perClient = $clientTerms->fetchColumn();
-        if ($perClient !== false && $perClient !== null && (int) $perClient >= 0) {
-            $netDays = (int) $perClient;
-        }
-    } catch (\Throwable $_) { /* staffing_clients may not exist yet — fall through */ }
-
-    $validDate = static function (string $value): bool {
-        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
-        return $date !== false && $date->format('Y-m-d') === $value;
-    };
-    $issueDate = trim((string) ($body['issue_date'] ?? date('Y-m-d')));
-    if (!$validDate($issueDate)) api_error('Issue date must use YYYY-MM-DD', 422);
-    $dueDate = trim((string) ($body['due_date'] ?? ''));
-    if ($dueDate === '') $dueDate = date('Y-m-d', strtotime("+{$netDays} days", strtotime($issueDate)));
-    if (!$validDate($dueDate)) api_error('Due date must use YYYY-MM-DD', 422);
-
-    $resolvedInvoiceTerms = $netDays === 0 ? 'DUE_ON_RECEIPT' : 'NET' . $netDays;
-    $computed = billingComputeTax($body['lines'], $taxPct);
-    try {
-        $issuingEntity = activeEntityResolveForTenant(
-            $tid,
-            !empty($body['entity_id']) ? (int) $body['entity_id'] : null
-        );
-    } catch (\Throwable $e) {
+        $created = billingCreateDirectInvoiceDraft($tid, $body, $user['id'] ?? null);
+    } catch (\InvalidArgumentException $e) {
         api_error($e->getMessage(), 422);
     }
-    if (!$issuingEntity) api_error('An active issuing entity is required', 422);
-
-    cf_begin_transaction();
-    try {
-        // Resolve/auto-create the unified companies.id for the billed client.
-        require_once __DIR__ . '/../../people/lib/companies.php';
-        $clientCompanyId = !empty($body['client_company_id']) ? (int) $body['client_company_id'] : null;
-        if (!$clientCompanyId) {
-            $clientCompanyId = companiesUpsertByName($clientCatalogTenantId, (string) $body['client_name'], [
-                'created_by_user_id' => $user['id'] ?? null,
-            ], ['client']);
-            companiesBumpUsage($clientCompanyId);
-        }
-        $invId = scopedInsert('billing_invoices', [
-            'tenant_id'         => $tid,
-            'invoice_number'    => billingNextInvoiceNumber($tid),
-            'client_name'       => (string) $body['client_name'],
-            'client_company_id' => $clientCompanyId,
-            'entity_id'         => (int) $issuingEntity['id'],
-            'bill_to_json'      => isset($body['bill_to']) ? json_encode($body['bill_to']) : null,
-            'currency'          => (string) ($body['currency'] ?? 'USD'),
-            'issue_date'        => $issueDate,
-            'due_date'          => $dueDate,
-            'payment_terms'     => $resolvedInvoiceTerms,
-            'po_number'         => $body['po_number'] ?? null,
-            'notes_internal'    => $body['notes_internal'] ?? null,
-            'notes_external'    => $body['notes_external'] ?? null,
-            'subtotal'          => $computed['subtotal'],
-            'tax_total'         => $computed['tax_total'],
-            'total'             => $computed['total'],
-            'amount_due'        => $computed['total'],
-            'aggregation'       => 'per_client',
-            'status'            => 'draft',
-            'created_by_user_id'=> $user['id'] ?? null,
-        ]);
-        billingInsertDirectInvoiceLines($pdo, $invId, $computed['lines']);
-        billingAudit('billing.invoice.created', ['invoice_id' => $invId, 'source' => 'manual'], $invId);
-        $pdo->commit();
-    } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        throw $e;
-    }
-    api_ok(['id' => $invId], 201);
+    billingAudit('billing.invoice.created', ['invoice_id' => $created['id'], 'source' => 'manual'], $created['id']);
+    api_ok(['id' => $created['id']], 201);
 }
 
 if ($method === 'PATCH') {
@@ -582,7 +426,11 @@ if ($method === 'PATCH') {
         $sourceCheck = $pdo->prepare('SELECT COUNT(*) FROM billing_invoice_lines WHERE invoice_id = :id AND source_type <> "manual"');
         $sourceCheck->execute(['id' => $id]);
         if ((int) $sourceCheck->fetchColumn() > 0) api_error('Time-based invoice lines must be rebuilt from their source', 409);
-        $body['lines'] = billingPrepareDirectInvoiceLines($pdo, $tid, $body['lines'], false);
+        try {
+            $body['lines'] = billingPrepareDirectInvoiceLines($pdo, $tid, $body['lines'], false);
+        } catch (\InvalidArgumentException $e) {
+            api_error($e->getMessage(), 422);
+        }
         $taxPct = $body['tax_rate_pct'] ?? null;
         if ($taxPct === null || $taxPct === '') {
             $taxStmt = $pdo->prepare('SELECT COALESCE(MAX(tax_rate_pct), 0) FROM billing_invoice_lines WHERE invoice_id = :id');
