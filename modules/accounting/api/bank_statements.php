@@ -814,6 +814,9 @@ if ($method === 'POST' && $action === 'split_match_invoices') {
             $paymentIds[] = $paymentId;
         }
         bankRecMarkLineMatched((int) $ctx['tenant_id'], $lid, (int) $receiptJe['je_id'], $user['id'] ?? null);
+        foreach ($paymentIds as $paymentId) {
+            billingLinkBankReceiptJournal((int) $ctx['tenant_id'], $paymentId, (int) $receiptJe['je_id']);
+        }
         try {
             $pdo->prepare(
                 'INSERT IGNORE INTO accounting_subledger_links
@@ -1024,6 +1027,7 @@ if ($method === 'POST' && $action === 'match_invoice') {
         }
 
         bankRecMarkLineMatched((int) $ctx['tenant_id'], $lid, (int) $receiptJe['je_id'], $user['id'] ?? null);
+        billingLinkBankReceiptJournal((int) $ctx['tenant_id'], $paymentId, (int) $receiptJe['je_id']);
         try {
             $pdo->prepare(
                 'INSERT IGNORE INTO accounting_subledger_links

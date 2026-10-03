@@ -977,6 +977,53 @@ function billingReleasePayWhenPaidForAllocations(int $tenantId, array $applied, 
     return $results;
 }
 
+function billingLinkBankReceiptJournal(int $tenantId, int $paymentId, int $journalId): void
+{
+    $pdo = getDB();
+    if (!$pdo->inTransaction()) {
+        throw new \RuntimeException('Link the bank receipt in the same transaction as its match.');
+    }
+    $paymentStmt = $pdo->prepare(
+        'SELECT journal_entry_id, external_id, source_system, voided_at
+           FROM billing_payments WHERE tenant_id = :t AND id = :id FOR UPDATE'
+    );
+    $paymentStmt->execute(['t' => $tenantId, 'id' => $paymentId]);
+    $payment = $paymentStmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$payment || $payment['voided_at'] !== null
+        || $payment['source_system'] !== 'manual'
+        || !preg_match('/^bank-line:([1-9][0-9]*)(?::|$)/',
+            (string) $payment['external_id'], $bankMatch)) {
+        throw new \RuntimeException('This payment is not an active bank-line receipt.');
+    }
+    $bankStmt = $pdo->prepare(
+        'SELECT match_status, matched_je_id FROM accounting_bank_statement_lines
+          WHERE tenant_id = :t AND id = :id FOR UPDATE'
+    );
+    $bankStmt->execute(['t' => $tenantId, 'id' => (int) $bankMatch[1]]);
+    $bankLine = $bankStmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$bankLine || $bankLine['match_status'] !== 'matched'
+        || (int) $bankLine['matched_je_id'] !== $journalId) {
+        throw new \RuntimeException('The payment does not match this bank journal.');
+    }
+    $journalStmt = $pdo->prepare(
+        'SELECT status FROM accounting_journal_entries
+          WHERE tenant_id = :t AND id = :id AND source_module = "billing"'
+    );
+    $journalStmt->execute(['t' => $tenantId, 'id' => $journalId]);
+    if ($journalStmt->fetchColumn() !== 'posted') {
+        throw new \RuntimeException('The bank receipt journal is not posted.');
+    }
+    if ($payment['journal_entry_id'] !== null) {
+        if ((int) $payment['journal_entry_id'] !== $journalId) {
+            throw new \RuntimeException('This payment is linked to a different journal.');
+        }
+        return;
+    }
+    $pdo->prepare(
+        'UPDATE billing_payments SET journal_entry_id = :je WHERE tenant_id = :t AND id = :id'
+    )->execute(['je' => $journalId, 't' => $tenantId, 'id' => $paymentId]);
+}
+
 function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserId = null): array
 {
     $allocationDate = $request['allocation_date'] ?? null;
