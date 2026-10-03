@@ -174,7 +174,7 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     $token = $tokStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     if ($token) {
         $base = defined('APP_URL') ? rtrim(APP_URL, '/') : (getenv('APP_URL') ?: '');
-        $token['url'] = "{$base}/billing/invoice.php?t={$token['token']}";
+        $token['url'] = $base !== '' ? "{$base}/billing/invoice.php?t={$token['token']}" : null;
         unset($token['token']); // never expose raw token in authed API beyond URL
     }
     api_ok([

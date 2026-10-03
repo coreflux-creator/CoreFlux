@@ -47,7 +47,27 @@ define('SMTP_FROM_NAME', 'CoreFlux Notifications');
 // Application Settings
 define('APP_NAME', 'CoreFlux');
 define('APP_VERSION', '1.0.0');
-define('APP_URL', 'https://www.corefluxapp.com');
+$appUrl = 'https://www.corefluxapp.com';
+if (COREFLUX_STAGING) {
+    $stagingOrigin = rtrim(trim((string) (getenv('COREFLUX_STAGING_PUBLIC_ORIGIN') ?: '')), '/');
+    if ($stagingOrigin !== '') {
+        $parts = parse_url($stagingOrigin);
+        $originHost = strtolower((string) ($parts['host'] ?? ''));
+        $validOrigin = is_array($parts)
+            && ($parts['scheme'] ?? '') === 'https'
+            && !array_intersect(['user', 'pass', 'port', 'path', 'query', 'fragment'], array_keys($parts))
+            && ((bool) preg_match('/^phpstack-\d+-\d+\.cloudwaysapps\.com$/', $originHost)
+                || in_array($originHost, ['stage.corefluxapp.com', 'staging.corefluxapp.com'], true));
+        if (!$validOrigin) throw new RuntimeException('The staging public origin must be a trusted HTTPS origin.');
+        $appUrl = $stagingOrigin;
+    } elseif ((bool) preg_match('/^phpstack-\d+-\d+\.cloudwaysapps\.com$/', $requestHost)
+        || in_array($requestHost, ['stage.corefluxapp.com', 'staging.corefluxapp.com'], true)) {
+        $appUrl = 'https://' . $requestHost;
+    } else {
+        $appUrl = '';
+    }
+}
+define('APP_URL', $appUrl);
 
 // Session Settings
 define('SESSION_LIFETIME', 3600); // 1 hour

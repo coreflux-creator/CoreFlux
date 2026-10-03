@@ -908,6 +908,8 @@ function billingTransitionAllowed(string $from, string $to): bool
  */
 function billingIssueViewToken(int $tenantId, int $invoiceId, ?int $expiresInDays = null): array
 {
+    $base = defined('APP_URL') ? rtrim(APP_URL, '/') : (getenv('APP_URL') ?: '');
+    if ($base === '') throw new RuntimeException('Public invoice links are not configured for this environment.');
     $raw  = bin2hex(random_bytes(32));
     $hash = hash('sha256', $raw, true);
     $exp  = $expiresInDays ? date('Y-m-d H:i:s', time() + $expiresInDays * 86400) : null;
@@ -925,7 +927,6 @@ function billingIssueViewToken(int $tenantId, int $invoiceId, ?int $expiresInDay
     $stmt->bindValue('e',  $exp);
     $stmt->execute();
 
-    $base = defined('APP_URL') ? rtrim(APP_URL, '/') : (getenv('APP_URL') ?: '');
     return [
         'token_id' => (int) $pdo->lastInsertId(),
         'token'    => $raw,
