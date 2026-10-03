@@ -32,11 +32,31 @@ if (!$bill) {
     exit(2);
 }
 $hasActivity = apBillHasLedgerOrPaymentActivity($pdo, $tenantId, $bill);
+$journal = null;
+$links = [];
+if (!empty($bill['journal_entry_id'])) {
+    $journalStmt = $pdo->prepare(
+        'SELECT id, entity_id, source_module, source_ref_type, source_ref_id, status, currency,
+                total_debit, total_credit, reversed_by_je_id
+           FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id'
+    );
+    $journalStmt->execute(['tenant_id' => $tenantId, 'id' => (int) $bill['journal_entry_id']]);
+    $journal = $journalStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    $linkStmt = $pdo->prepare(
+        'SELECT source_module, source_record_id, journal_entry_id, link_kind
+           FROM accounting_subledger_links
+          WHERE tenant_id = :tenant_id AND journal_entry_id = :journal_entry_id'
+    );
+    $linkStmt->execute(['tenant_id' => $tenantId, 'journal_entry_id' => (int) $bill['journal_entry_id']]);
+    $links = $linkStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 echo json_encode([
     'tenant_id' => $tenantId,
     'bill_id' => $billId,
     'status' => $bill['status'],
     'has_ledger_or_payment_activity' => $hasActivity,
+    'journal' => $journal,
+    'journal_links' => $links,
 ], JSON_PRETTY_PRINT) . "\n";
 $expected = $args['expect'] ?? null;
 exit($expected === null || $expected === ($hasActivity ? 'active' : 'clear') ? 0 : 1);

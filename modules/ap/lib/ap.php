@@ -755,6 +755,30 @@ function apBillHasLedgerOrPaymentActivity(\PDO $pdo, int $tenantId, array $bill)
     return (bool) $links->fetchColumn();
 }
 
+/** Attach a posted journal only while the bill is still payable and unlinked. */
+function apAttachPostedBillJournal(\PDO $pdo, int $tenantId, int $billId, int $journalId, ?string $intercompanyGroupId = null): bool
+{
+    $update = $pdo->prepare(
+        'UPDATE ap_bills SET journal_entry_id = :journal_id, intercompany_group_id = :group_id
+          WHERE tenant_id = :tenant_id AND id = :bill_id
+            AND status IN ("approved", "partially_paid", "paid") AND journal_entry_id IS NULL'
+    );
+    $update->execute([
+        'journal_id' => $journalId, 'group_id' => $intercompanyGroupId,
+        'tenant_id' => $tenantId, 'bill_id' => $billId,
+    ]);
+    if ($update->rowCount() === 1) return false;
+
+    $read = $pdo->prepare('SELECT status, journal_entry_id FROM ap_bills WHERE tenant_id = :tenant_id AND id = :bill_id');
+    $read->execute(['tenant_id' => $tenantId, 'bill_id' => $billId]);
+    $current = $read->fetch(\PDO::FETCH_ASSOC);
+    if ($current && in_array($current['status'], ['approved', 'partially_paid', 'paid'], true)
+        && (int) $current['journal_entry_id'] === $journalId) {
+        return true;
+    }
+    throw new \RuntimeException('Bill changed during posting; no accounting journal was committed');
+}
+
 /**
  * Payment state machine.
  *  - draft → queued | sent | void
@@ -1715,12 +1739,15 @@ function apComputeAging(int $tenantId, string $asOf): array
                   JOIN accounting_journal_entries je
                     ON je.id = b.journal_entry_id
                    AND je.tenant_id = b.tenant_id
-                   AND je.status = "posted"
+                   AND je.status IN ("posted", "reversed")
                    AND je.posting_date <= :posted_as_of
+             LEFT JOIN accounting_journal_entries reversal
+                    ON reversal.id = je.reversed_by_je_id AND reversal.tenant_id = b.tenant_id
              LEFT JOIN ap_payment_allocations alloc ON alloc.bill_id = b.id
              LEFT JOIN ap_payments p ON p.id = alloc.payment_id AND p.tenant_id = b.tenant_id
                  WHERE b.tenant_id = :tid
                    AND b.bill_date <= :document_as_of
+                   AND (je.status = "posted" OR reversal.posting_date > :reversed_as_of)
                    AND (b.status <> "void" OR b.voided_at IS NULL OR DATE(b.voided_at) > :void_as_of)
               GROUP BY b.id, b.vendor_name, b.due_date, b.total
                 HAVING amount_due > 0
@@ -1732,6 +1759,7 @@ function apComputeAging(int $tenantId, string $asOf): array
         'tid' => $tenantId,
         'payment_as_of' => $asOf,
         'posted_as_of' => $asOf,
+        'reversed_as_of' => $asOf,
         'document_as_of' => $asOf,
         'void_as_of' => $asOf,
     ];

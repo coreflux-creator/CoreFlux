@@ -10,6 +10,7 @@
  *   PATCH  /api/ap/bills?id=N                   → edit (only inbox/pending_review/pending_approval)
  *   POST   /api/ap/bills?action=approve&id=N    → two-eye gate
  *   POST   /api/ap/bills?action=void&id=N       → body: {reason}
+ *   POST   /api/ap/bills?action=correct_posted&id=N → reverse an unpaid manual bill with reason
  *   POST   /api/ap/bills?action=dispute&id=N    → body: {reason}
  *   POST   /api/ap/bills?action=post&id=N       → GL post (stub until Accounting v1.0)
  *
@@ -283,6 +284,31 @@ if ($method === 'GET' && !empty($_GET['id'])) {
     );
     $allocStmt->execute(['id' => $id]);
     $allocations = $allocStmt->fetchAll(\PDO::FETCH_ASSOC);
+    if (!empty($bill['journal_entry_id'])) {
+        $reversed = $pdo->prepare(
+            'SELECT reversed_by_je_id FROM accounting_journal_entries
+              WHERE tenant_id = :tenant_id AND id = :journal_entry_id'
+        );
+        $reversed->execute(['tenant_id' => $tid, 'journal_entry_id' => (int) $bill['journal_entry_id']]);
+        $bill['reversal_journal_entry_id'] = $reversed->fetchColumn() ?: null;
+    }
+    $bill['correction_available'] = false;
+    $bill['correction_permitted'] = rbac_legacy_can($user, 'ap.bill.void')
+        && rbac_legacy_can($user, 'accounting.je.reverse');
+    if ($bill['status'] === 'approved' && $bill['source'] === 'manual' && !empty($bill['journal_entry_id'])) {
+        require_once __DIR__ . '/../lib/bill_correction.php';
+        try {
+            apAssertPostedManualBillCorrectable($pdo, $tid, $bill);
+            $bill['correction_available'] = true;
+            if (!$bill['correction_permitted']) {
+                $bill['correction_unavailable_reason'] = 'An authorized AP and accounting reviewer must correct this posted bill';
+            }
+        } catch (\RuntimeException $e) {
+            $bill['correction_unavailable_reason'] = $e->getMessage();
+        } catch (\Throwable $_) {
+            $bill['correction_unavailable_reason'] = 'Correction needs an accounting review';
+        }
+    }
     api_ok(['bill' => $bill, 'lines' => $lines, 'allocations' => $allocations]);
 }
 
@@ -947,7 +973,7 @@ if ($method === 'POST' && $action === 'void') {
 
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
-            'UPDATE ap_bills SET status = "void", voided_at = NOW(),
+            'UPDATE ap_bills SET status = "void", amount_due = 0, voided_at = NOW(),
              voided_by_user_id = :u, void_reason = :r WHERE id = :id'
         )->execute(['u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id]);
 
@@ -971,6 +997,22 @@ if ($method === 'POST' && $action === 'void') {
         'reason' => $reason, 'had_payments' => false,
     ], $id);
     api_ok(['ok' => true, 'bundles_released' => true]);
+}
+
+if ($method === 'POST' && $action === 'correct_posted') {
+    rbac_legacy_require($user, 'ap.bill.void');
+    rbac_legacy_require($user, 'accounting.je.reverse');
+    $id = (int) ($_GET['id'] ?? 0);
+    $reason = trim((string) (api_json_body()['reason'] ?? ''));
+    if ($id <= 0 || $reason === '') api_error('Bill and correction reason are required', 422);
+    require_once __DIR__ . '/../lib/bill_correction.php';
+    try {
+        $result = apCorrectPostedManualBill($tid, $id, $reason, $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 409);
+    }
+    apAudit('ap.bill.corrected', $result + ['reason' => $reason], $id);
+    api_ok(['ok' => true] + $result);
 }
 
 if ($method === 'POST' && $action === 'dispute') {
@@ -1263,6 +1305,7 @@ if ($method === 'POST' && $action === 'post') {
     }
     $eventPostingLines = $reclassifyOnly ? $reclassLines : $payloadLines;
 
+    $pdo->beginTransaction();
     // Sprint 7e — preferred path: emit ap.bill.approved into the event
     // layer; the engine renders + posts via the seed-pack passthrough
     // template, writes the accounting_subledger_links row, and stamps
@@ -1293,21 +1336,27 @@ if ($method === 'POST' && $action === 'post') {
     }
 
     if ($eventResult && ($eventResult['status'] ?? null) === 'posted') {
-        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $pdo->prepare('UPDATE ap_bills SET journal_entry_id = :j WHERE id = :id')
-            ->execute(['j' => $eventResult['journal_entry_id'], 'id' => $id]);
+        try {
+            $alreadyLinked = apAttachPostedBillJournal(
+                $pdo, $tid, $id, (int) $eventResult['journal_entry_id']
+            );
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            api_error($e->getMessage(), 409);
+        }
         apAudit('ap.bill.posted', [
             'bill_id' => $id, 'internal_ref' => $row['internal_ref'],
             'journal_entry_id' => (int) $eventResult['journal_entry_id'],
             'accounting_event_id' => (int) ($eventResult['event_id'] ?? 0),
-            'idempotent_replay' => !empty($eventResult['idempotent_replay']),
+            'idempotent_replay' => !empty($eventResult['idempotent_replay']) || $alreadyLinked,
             'via' => 'event_layer',
         ], $id);
         api_ok([
             'ok' => true,
             'journal_entry_id' => (int) $eventResult['journal_entry_id'],
             'je_number' => $eventResult['je_number'] ?? null,
-            'idempotent_replay' => !empty($eventResult['idempotent_replay']),
+            'idempotent_replay' => !empty($eventResult['idempotent_replay']) || $alreadyLinked,
             'accounting_event_id' => (int) ($eventResult['event_id'] ?? 0),
             'via' => 'event_layer',
         ]);
@@ -1344,23 +1393,31 @@ if ($method === 'POST' && $action === 'post') {
                 'memo'            => "Reclassify AP Accrued → AP — Bill {$row['internal_ref']}",
                 'lines'           => $reclassLines,
             ], $user['id'] ?? null, true);
+            $pdo->prepare(
+                'INSERT IGNORE INTO accounting_subledger_links
+                    (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
+                 VALUES (:tenant_id, "ap", :source_record_id, :journal_entry_id, "primary")'
+            )->execute([
+                'tenant_id' => $tid, 'source_record_id' => 'ap_bill:' . $id,
+                'journal_entry_id' => (int) $resRc['je_id'],
+            ]);
+            $alreadyLinked = apAttachPostedBillJournal($pdo, $tid, $id, (int) $resRc['je_id']);
+            $pdo->commit();
         } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
             api_error('AP reclassification post failed: ' . $e->getMessage(), 422);
         }
-        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $pdo->prepare('UPDATE ap_bills SET journal_entry_id = :j WHERE id = :id')
-            ->execute(['j' => (int) $resRc['je_id'], 'id' => $id]);
         apAudit('ap.bill.posted', [
             'bill_id'           => $id,
             'journal_entry_id'  => (int) $resRc['je_id'],
-            'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false),
+            'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false) || $alreadyLinked,
             'via'               => 'ap_reclassification',
         ], $id);
         api_ok([
             'ok'                => true,
             'journal_entry_id'  => (int) $resRc['je_id'],
             'je_number'         => $resRc['je_number'] ?? null,
-            'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false),
+            'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false) || $alreadyLinked,
             'via'               => 'ap_reclassification',
         ]);
     }
@@ -1377,18 +1434,7 @@ if ($method === 'POST' && $action === 'post') {
             'memo'            => "AP Bill {$row['internal_ref']} / {$row['vendor_name']}",
             'lines'           => $jeLines,
         ], $user['id'] ?? null, true);
-    } catch (\Throwable $e) {
-        api_error('GL post failed: ' . $e->getMessage()
-                . ($eventError ? ' | event-layer error: ' . $eventError : ''), 422);
-    }
-
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    $pdo->prepare('UPDATE ap_bills SET journal_entry_id = :j WHERE id = :id')
-        ->execute(['j' => $res['je_id'], 'id' => $id]);
-
-    // Sprint 7e fallback also writes a subledger_links row + flips any
-    // 'ignored' event to 'posted' so the audit trail is intact.
-    try {
+        // Keep the source link and bill header in the posting transaction.
         $pdo->prepare(
             'INSERT IGNORE INTO accounting_subledger_links
                 (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
@@ -1404,15 +1450,25 @@ if ($method === 'POST' && $action === 'post') {
                 'UPDATE accounting_events
                     SET status = "posted", journal_entry_id = :je, posted_at = NOW(),
                         error_message = "fallback: legacy direct post (no rule matched)"
-                  WHERE id = :id AND status IN ("ignored","failed","received","mapped")'
-            )->execute(['je' => (int) $res['je_id'], 'id' => (int) $eventResult['event_id']]);
+                  WHERE tenant_id = :tenant_id AND id = :id
+                    AND status IN ("ignored","failed","received","mapped")'
+            )->execute([
+                'je' => (int) $res['je_id'], 'tenant_id' => $tid,
+                'id' => (int) $eventResult['event_id'],
+            ]);
         }
-    } catch (\Throwable $_) { /* tables absent in pre-7b tenants — non-fatal */ }
+        $alreadyLinked = apAttachPostedBillJournal($pdo, $tid, $id, (int) $res['je_id']);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error('GL post failed: ' . $e->getMessage()
+                . ($eventError ? ' | event-layer error: ' . $eventError : ''), 422);
+    }
 
     apAudit('ap.bill.posted', [
         'bill_id' => $id, 'internal_ref' => $row['internal_ref'],
         'journal_entry_id' => $res['je_id'], 'je_number' => $res['je_number'],
-        'idempotent_replay' => $res['idempotent_replay'],
+        'idempotent_replay' => $res['idempotent_replay'] || $alreadyLinked,
         'via' => 'legacy_direct',
         'event_layer_status' => $eventResult['status'] ?? null,
     ], $id);
@@ -1420,7 +1476,7 @@ if ($method === 'POST' && $action === 'post') {
         'ok' => true,
         'journal_entry_id' => $res['je_id'],
         'je_number' => $res['je_number'],
-        'idempotent_replay' => $res['idempotent_replay'],
+        'idempotent_replay' => $res['idempotent_replay'] || $alreadyLinked,
         'via' => 'legacy_direct',
     ]);
 }
@@ -1478,6 +1534,8 @@ if ($method === 'POST' && $action === 'post_with_ic_split') {
     $splits = $body['splits'] ?? [];
     if (!is_array($splits) || !$splits) api_error('splits[] required', 422);
 
+    $pdo = getDB();
+    $pdo->beginTransaction();
     try {
         $res = intercompanyPostSplit($tid, [
             'posting_date' => $row['bill_date'],
@@ -1501,30 +1559,31 @@ if ($method === 'POST' && $action === 'post_with_ic_split') {
                 'ic_override'  => $s['ic_override'] ?? null,
             ], $splits),
         ], $user['id'] ?? null);
+        $sourceLeg = null;
+        foreach ($res['jes'] as $leg) if ($leg['role'] === 'source') { $sourceLeg = $leg; break; }
+        if (!$sourceLeg) $sourceLeg = $res['jes'][0] ?? null;
+        if (!$sourceLeg) throw new \RuntimeException('Intercompany posting returned no source journal');
+        $alreadyLinked = apAttachPostedBillJournal(
+            $pdo, $tid, $id, (int) $sourceLeg['je_id'], (string) $res['group_id']
+        );
+        $pdo->commit();
     } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
         api_error('GL post failed: ' . $e->getMessage(), 422);
     }
-
-    $sourceLeg = null;
-    foreach ($res['jes'] as $leg) if ($leg['role'] === 'source') { $sourceLeg = $leg; break; }
-    if (!$sourceLeg) $sourceLeg = $res['jes'][0] ?? null;
-
-    getDB()->prepare(
-        'UPDATE ap_bills SET journal_entry_id = :j, intercompany_group_id = :g WHERE id = :id AND tenant_id = :t'
-    )->execute([
-        'j'  => $sourceLeg['je_id'], 'g' => $res['group_id'], 'id' => $id, 't' => $tid,
-    ]);
 
     apAudit('ap.bill.posted_ic', [
         'bill_id'               => $id, 'internal_ref' => $row['internal_ref'],
         'journal_entry_id'      => (int) $sourceLeg['je_id'],
         'intercompany_group_id' => $res['group_id'],
         'leg_count'             => count($res['jes']),
+        'idempotent_replay'      => $alreadyLinked,
     ], $id);
     api_ok([
         'ok' => true,
         'journal_entry_id'       => (int) $sourceLeg['je_id'],
         'intercompany_group_id'  => $res['group_id'],
+        'idempotent_replay'      => $alreadyLinked,
         'jes'                    => $res['jes'],
     ]);
 }

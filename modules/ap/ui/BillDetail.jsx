@@ -6,7 +6,7 @@ import IntercompanySplitDialog from '../../../dashboard/src/components/Intercomp
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 import ThreeWayMatchPanel from './ThreeWayMatchPanel';
 import BillApprovalThread from './BillApprovalThread';
-import { Pencil } from 'lucide-react';
+import { Pencil, RotateCcw } from 'lucide-react';
 
 const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 
@@ -18,6 +18,8 @@ export default function BillDetail({ session }) {
   const [icSplitOpen, setIcSplitOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [correctionReason, setCorrectionReason] = useState('');
 
   if (loading) return <p>Loading…</p>;
   if (error)   return <p className="error" data-testid="ap-bill-detail-error">Error: {error.message}</p>;
@@ -40,6 +42,7 @@ export default function BillDetail({ session }) {
   const canPost    = ['approved','partially_paid','paid'].includes(bill.status) && !bill.journal_entry_id;
   const canEdit    = ['inbox','pending_review','pending_approval'].includes(bill.status)
     && !hasAccountingActivity;
+  const canCorrect = Boolean(bill.correction_available && bill.correction_permitted);
 
   const run = async (label, fn) => {
     setBusy(label); setActionError(null);
@@ -59,6 +62,15 @@ export default function BillDetail({ session }) {
     run('dispute', () => api.post(`/modules/ap/api/bills.php?action=dispute&id=${id}`, { reason }));
   };
   const postGl  = () => run('post', () => api.post(`/modules/ap/api/bills.php?action=post&id=${id}`, {}));
+  const correctPosted = (event) => {
+    event.preventDefault();
+    if (!correctionReason.trim()) return;
+    run('correct', async () => {
+      await api.post(`/modules/ap/api/bills.php?action=correct_posted&id=${id}`, { reason: correctionReason.trim() });
+      setCorrectionOpen(false);
+      setCorrectionReason('');
+    });
+  };
   const startEdit = () => {
     setEditForm({
       bill_number: bill.bill_number || '',
@@ -96,6 +108,7 @@ export default function BillDetail({ session }) {
           {canApprove && <button className="btn btn--primary" onClick={approve} disabled={busy==='approve'} data-testid="ap-bill-approve">{busy==='approve' ? 'Approving…' : 'Approve'}</button>}
           {canPost    && <button className="btn btn--ghost" onClick={postGl} disabled={busy==='post'} data-testid="ap-bill-post">{busy==='post' ? 'Posting…' : 'Post to GL'}</button>}
           {canPost    && <button className="btn btn--ghost" onClick={() => setIcSplitOpen(true)} data-testid="ap-bill-post-ic-split">⊕ Post with IC split</button>}
+          {canCorrect && <button className="btn btn--ghost" type="button" onClick={() => setCorrectionOpen(true)} disabled={busy === 'correct'} aria-expanded={correctionOpen} data-testid="ap-bill-correct-posted"><RotateCcw size={15} aria-hidden="true" /> Correct posted bill</button>}
           {canDispute && <button className="btn btn--ghost" onClick={dispute} disabled={busy==='dispute'} data-testid="ap-bill-dispute">{busy==='dispute' ? 'Disputing…' : 'Dispute'}</button>}
           {canVoid    && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="ap-bill-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}
         </div>
@@ -105,7 +118,38 @@ export default function BillDetail({ session }) {
         <p className="operational-state" data-testid="ap-bill-two-eye-note">Another authorized user must approve this bill.</p>
       )}
       {hasAccountingActivity && bill.status !== 'void' && (
-        <p className="operational-state" data-testid="ap-bill-correction-note">Posted and paid bills need a linked accounting or payment correction; they cannot be voided here.</p>
+        <p className="operational-state" data-testid="ap-bill-correction-note">
+          {canCorrect ? 'This unpaid manual bill can be corrected with a linked journal reversal.' : (bill.correction_unavailable_reason || 'Posted and paid bills need a linked accounting or payment correction; they cannot be voided here.')}
+        </p>
+      )}
+      {bill.journal_entry_id && (
+        <p className="operational-state" data-testid="ap-bill-journal-links">
+          <Link to={`/modules/accounting/journal-entries/${bill.journal_entry_id}`}>Original journal</Link>
+          {bill.reversal_journal_entry_id && <> · <Link to={`/modules/accounting/journal-entries/${bill.reversal_journal_entry_id}`}>Reversal journal</Link></>}
+          {bill.status === 'void' && bill.void_reason && <> · Correction: {bill.void_reason}</>}
+        </p>
+      )}
+      {canCorrect && correctionOpen && (
+        <form onSubmit={correctPosted} className="operational-state" data-testid="ap-bill-correction-form" style={{ marginBottom: 'var(--cf-space-4)' }}>
+          <p style={{ margin: '0 0 8px' }}>
+            This will void the bill and post a linked reversal for its original journal. The bill and both journals remain in the audit trail.
+          </p>
+          <label htmlFor="ap-bill-correction-reason">Correction reason</label>
+          <textarea
+            id="ap-bill-correction-reason"
+            className="input"
+            required
+            value={correctionReason}
+            onChange={event => setCorrectionReason(event.target.value)}
+            style={{ display: 'block', width: '100%', maxWidth: 600, marginTop: 6 }}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button className="btn btn--primary" type="submit" disabled={busy === 'correct' || !correctionReason.trim()}>
+              {busy === 'correct' ? 'Correcting…' : 'Void bill and reverse journal'}
+            </button>
+            <button className="btn btn--ghost" type="button" onClick={() => { setCorrectionOpen(false); setCorrectionReason(''); }} disabled={busy === 'correct'}>Cancel</button>
+          </div>
+        </form>
       )}
       {editing && editForm && (
         <form onSubmit={saveDetails} data-testid="ap-bill-edit-form" style={{ marginBottom: 'var(--cf-space-4)' }}>
@@ -182,7 +226,7 @@ export default function BillDetail({ session }) {
 
       {/* P0 — Inline liquidity projection. Only shown when the bill still has
           a balance due so the panel is meaningful. */}
-      {Number(bill.amount_due) > 0 && (
+      {bill.status !== 'void' && Number(bill.amount_due) > 0 && (
         <LiquidityImpactPanel billId={id} amountDue={Number(bill.amount_due)} />
       )}
 
