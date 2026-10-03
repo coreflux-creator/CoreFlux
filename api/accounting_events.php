@@ -40,6 +40,7 @@ if (preg_match('#/events/(\d+)(?:/(\w+))?#', $path, $m)) {
     $pathAction = $m[2] ?? null;
 }
 $action = (string) (api_query('action') ?? $pathAction ?? '');
+$retryId = $pathId ?: (int) (api_query('id') ?? 0);
 
 // ──────────────────────────────────────────────────────────────────
 // GET /api/accounting/events
@@ -115,32 +116,43 @@ if ($method === 'POST' && ($action === 'sandbox' || $pathAction === 'sandbox')) 
 // ──────────────────────────────────────────────────────────────────
 // POST /api/accounting/events/:id/post   (re-process a failed event)
 // ──────────────────────────────────────────────────────────────────
-if ($method === 'POST' && $pathId && $pathAction === 'post') {
+if ($method === 'POST' && $retryId > 0 && $action === 'post') {
     rbac_legacy_require($user, 'accounting.create_entry');
     $pdo = getDB();
-    $sel = $pdo->prepare('SELECT * FROM accounting_events WHERE tenant_id = :t AND id = :id');
-    $sel->execute(['t' => $tid, 'id' => $pathId]);
-    $row = $sel->fetch(\PDO::FETCH_ASSOC);
-    if (!$row) api_error('Event not found', 404);
-    if ($row['status'] === 'posted') {
-        api_ok(['status' => 'posted', 'event_id' => $pathId, 'idempotent_replay' => true]);
+    $pdo->beginTransaction();
+    try {
+        $sel = $pdo->prepare('SELECT * FROM accounting_events WHERE tenant_id = :t AND id = :id FOR UPDATE');
+        $sel->execute(['t' => $tid, 'id' => $retryId]);
+        $row = $sel->fetch(\PDO::FETCH_ASSOC);
+        if (!$row) {
+            $pdo->rollBack();
+            api_error('Event not found', 404);
+        }
+        if ($row['status'] === 'posted') {
+            $pdo->commit();
+            api_ok(['status' => 'posted', 'event_id' => $retryId, 'idempotent_replay' => true]);
+        }
+        if (!in_array($row['status'], ['received', 'failed', 'ignored'], true)) {
+            $pdo->rollBack();
+            api_error("cannot reprocess event in status {$row['status']}", 409);
+        }
+        // The posting engine reuses this unique source identity and JE
+        // idempotency key; retaining the row preserves its audit lineage.
+        $event = [
+            'entity_id'        => (int) $row['entity_id'],
+            'event_type'       => (string) $row['event_type'],
+            'source_module'    => (string) $row['source_module'],
+            'source_record_id' => (string) $row['source_record_id'],
+            'event_date'       => (string) $row['event_date'],
+            'payload'          => $row['payload'] ? json_decode((string) $row['payload'], true) : [],
+        ];
+        $result = accountingProcessEvent($tid, $event, $user['id'] ?? null);
+        $pdo->commit();
+        api_ok($result);
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
     }
-    if (!in_array($row['status'], ['received', 'failed', 'ignored'], true)) {
-        api_error("cannot reprocess event in status {$row['status']}", 409);
-    }
-    // Delete the placeholder so accountingProcessEvent can re-insert. We
-    // hold the same source_record_id keys so subledger_links remain stable.
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    $pdo->prepare('DELETE FROM accounting_events WHERE id = :id')->execute(['id' => $pathId]);
-    $event = [
-        'entity_id'        => (int) $row['entity_id'],
-        'event_type'       => (string) $row['event_type'],
-        'source_module'    => (string) $row['source_module'],
-        'source_record_id' => (string) $row['source_record_id'],
-        'event_date'       => (string) $row['event_date'],
-        'payload'          => $row['payload'] ? json_decode((string) $row['payload'], true) : [],
-    ];
-    api_ok(accountingProcessEvent($tid, $event, $user['id'] ?? null));
 }
 
 // ──────────────────────────────────────────────────────────────────

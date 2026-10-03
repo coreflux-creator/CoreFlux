@@ -123,6 +123,12 @@ $assert('GET filters: status/event_type/entity_id/from/to',
 $assert('GET pagination clamped to [1,500]', strpos($api, 'min(500, (int)') !== false);
 $assert('parses /events/:id/post path',    strpos($api, '/events/(\\d+)(?:/(\\w+))?') !== false);
 $assert('post action whitelist guard',     strpos($api, "['received', 'failed', 'ignored']") !== false);
+$assert('retry preserves event identity and locks it through posting',
+    str_contains($api, "api_query('id')")
+    && str_contains($api, 'id = :id FOR UPDATE')
+    && str_contains($api, '$pdo->beginTransaction()')
+    && str_contains($api, '$pdo->commit()')
+    && !str_contains($api, 'DELETE FROM accounting_events'));
 $assert('dry_run honoured on create',      strpos($api, "api_query('dry_run')") !== false);
 $assert('sandbox returns failed-on-throwable, not 500',
     strpos($api, "'status' => 'failed'") !== false

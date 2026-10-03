@@ -191,6 +191,13 @@ Staging must have its own PHP deployment, MySQL database, migrations, encryption
 - A view-only sweep of 12 hosted-staging accounting, AP and Billing routes found six mobile document-overflow cases. The shared financial comparison table now scrolls inside reports; bank accounts, reconciliation lists, statement lines, rules and the invoice list use contained table regions. AP payments and GL detail were corrected in the preceding passes.
 - Repeating the signed-in 390-pixel sweep showed all 12 routes at exactly viewport width with no visible error or browser script exception. Trial balance, bank reconciliation and invoices also retained their 1440-pixel desktop width. This checks layout and read-only loading only; it does not validate every action or replace a full workflow acceptance pass.
 
+## CoreOne event retry boundary (October 2026)
+
+- CoreAccounting still posts through CoreFlux's canonical `accountingProcessEvent` and `accountingPostJe` path. CoreOne should supply a tenant-scoped legal entity, registered event type, stable source module/record ID, business date and event payload through the authenticated accounting API; it should not write journal tables directly or maintain a second ledger.
+- Retrying a received, failed or ignored event now locks and reprocesses its existing row inside one database transaction. The old retry route deleted that row first, which could lose its audit identity and leave subledger references behind. Both the path and documented `?id=N&action=post` form now resolve to the same handler. Posted-event replay returns the original event without a new journal.
+- On isolated staging tenant `999`, replaying an already-posted event preserved its ID and returned an idempotent result. A synthetic event with no matching posting rule remained ignored on replay under the same event ID, with no journal link. A nonexistent event returned HTTP 404. The event-layer smoke suite passed 60 checks, and the five cross-ledger staging snapshot checks remained green with 42 posted journals unchanged. These are retry checks, not proof of a complete CoreOne service contract.
+- Before CoreOne integration is operational, define scoped machine authentication, a versioned event contract and failure/replay semantics, then test concurrent submissions and partial-failure recovery on an isolated database. Direct event creation and legacy emitters still need a transaction-boundary review; a clean-database install and non-synthetic multi-entity acceptance remain release gates.
+
 ## Decisions to revisit
 
 | Decision | Reason | Revisit when |
