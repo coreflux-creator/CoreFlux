@@ -58,6 +58,9 @@ function reportCashFlowClassification(array $account): array
     }
 
     if ($type === 'liability') {
+        if ($code === '2300' && !empty($account['is_system_account'])) {
+            return ['tag' => 'operating_wc_other', 'source' => 'inferred'];
+        }
         if (in_array($name, ['ap', 'a/p'], true)
             || str_contains($text, 'accounts payable')
             || str_contains($text, 'trade payable')) {
@@ -254,7 +257,7 @@ function reportCashFlowIndirect(int $tenantId, string $from, string $to, ?int $e
     // accounts receive a transparent inferred classification so the report
     // works before an administrator customizes the COA.
     $tagStmt = $pdo->prepare(
-        'SELECT a.code, a.name, a.account_type, a.cash_flow_tag,
+        'SELECT a.code, a.name, a.account_type, a.cash_flow_tag, a.is_system_account,
                 CASE WHEN EXISTS (
                     SELECT 1 FROM accounting_bank_accounts ba
                      WHERE ba.tenant_id = a.tenant_id

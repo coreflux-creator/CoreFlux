@@ -978,6 +978,15 @@ function billingReleasePayWhenPaidForAllocations(int $tenantId, array $applied, 
 
 function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserId = null): array
 {
+    $allocationDate = $request['allocation_date'] ?? null;
+    if ($allocationDate !== null) {
+        $allocationDate = (string) $allocationDate;
+        $parsedDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $allocationDate);
+        if (!$parsedDate || $parsedDate->format('Y-m-d') !== $allocationDate) {
+            throw new \InvalidArgumentException('Enter a valid allocation date.');
+        }
+        $allocationDate .= ' 00:00:00';
+    }
     $pdo = getDB();
     // Nested-safe — billingAllocatePayment is also invoked from inbound
     // payment-import flows (CSV / QBO / Plaid webhooks) which may
@@ -1053,11 +1062,13 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
 
             $pdo->prepare(
                 'INSERT INTO billing_payment_allocations
-                   (payment_id, invoice_id, amount_applied, applied_by_user_id)
-                 VALUES (:p, :i, :a, :u)'
+                   (payment_id, invoice_id, amount_applied, applied_at, applied_by_user_id)
+                 VALUES (:p, :i, :a, COALESCE(:applied_at, CURRENT_TIMESTAMP), :u)'
             )->execute([
-                'p' => $paymentId, 'i' => $invRow['id'], 'a' => $apply, 'u' => $actorUserId,
+                'p' => $paymentId, 'i' => $invRow['id'], 'a' => $apply,
+                'applied_at' => $allocationDate, 'u' => $actorUserId,
             ]);
+            $allocationId = (int) $pdo->lastInsertId();
 
             $newPaid = round((float) $invRow['amount_paid'] + $apply, 2);
             $newDue  = round((float) $invRow['total'] - $newPaid, 2);
@@ -1073,6 +1084,7 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
             )->execute(['paid' => $newPaid, 'due' => $newDue, 's' => $newStatus, 'id' => $invRow['id']]);
 
             $applied[] = [
+                'allocation_id' => $allocationId,
                 'invoice_id' => (int) $invRow['id'],
                 'invoice_number' => $invRow['invoice_number'],
                 'amount_applied' => $apply,

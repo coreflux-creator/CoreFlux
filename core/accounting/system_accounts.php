@@ -32,6 +32,7 @@ const ACCOUNTING_SYSTEM_ACCOUNTS = [
     ['code' => '2200', 'name' => 'Payroll Payable',            'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 300],
     ['code' => '2210', 'name' => 'Payroll Tax Payable',        'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 310],
     ['code' => '2220', 'name' => 'Payroll Deduction Payable',  'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 320],
+    ['code' => '2300', 'name' => 'Customer Deposits',          'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 400],
     ['code' => '2500', 'name' => 'Intercompany Payable',       'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 500],
     // Equity
     ['code' => '3000', 'name' => 'Opening Balance Equity',     'type' => 'equity',    'side' => 'credit', 'subtype' => 'equity',            'section' => 'equity',             'sort' => 100],

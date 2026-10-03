@@ -7,6 +7,10 @@ $service = file_get_contents($root . '/modules/billing/lib/posted_receipts.php')
 $billing = file_get_contents($root . '/modules/billing/lib/billing.php');
 $ui = file_get_contents($root . '/modules/billing/ui/PaymentsList.jsx');
 $migration = file_get_contents($root . '/modules/billing/migrations/016_posted_customer_receipts.sql');
+$depositMigration = file_get_contents($root . '/modules/accounting/migrations/032_customer_deposits.sql');
+$refundMigration = file_get_contents($root . '/modules/accounting/migrations/033_customer_deposit_refunds.sql');
+$correctionMigration = file_get_contents($root . '/modules/accounting/migrations/034_customer_deposit_corrections.sql');
+$fingerprintMigration = file_get_contents($root . '/modules/accounting/migrations/035_receipt_request_fingerprint.sql');
 $movement = file_get_contents($root . '/modules/billing/lib/money_movement.php');
 $export = file_get_contents($root . '/modules/billing/api/payments_csv_export.php');
 $import = file_get_contents($root . '/modules/billing/api/payments_csv_import.php');
@@ -26,10 +30,39 @@ $check('failed posting rolls back receipt and invoice allocation',
     str_contains($service, 'cf_begin_transaction()')
     && str_contains($service, '$pdo->commit()')
     && str_contains($service, '$pdo->rollBack()'));
-$check('posting requires full allocation to posted same-client invoices',
-    str_contains($service, 'The receipt must be fully applied')
+$check('exact receipt replay requires the original posting intent',
+    str_contains($fingerprintMigration, 'receipt_request_hash')
+    && str_contains($service, 'billingReceiptRequestHash(')
+    && str_contains($service, 'hash_equals((string) $existing[')
+    && str_contains($service, "'receipt_request_hash' => \$requestHash"));
+$check('posting requires full allocation or an explicit customer deposit',
+    str_contains($service, 'hold_unapplied')
+    && str_contains($service, "'account_code' => '2300'")
     && str_contains($service, "\$invoice['je_status'] !== 'posted'")
     && str_contains($service, "\$invoice['client_name']"));
+$check('deposit applications move liability to AR with one journal link',
+    str_contains($service, 'billingApplyCustomerDeposit(')
+    && str_contains($service, "'account_code' => '2300'")
+    && str_contains($service, 'application_je_id = :je')
+    && str_contains($depositMigration, 'billing_deposit_applications'));
+$check('manual and deposit allocations carry their historical business date',
+    str_contains($service, "'allocation_date' => (string) \$payment['received_at']")
+    && str_contains($service, "'allocation_date' => \$appliedAt")
+    && str_contains($billing, 'COALESCE(:applied_at, CURRENT_TIMESTAMP)'));
+$check('deposit refunds post a separate bank outflow with a durable source record',
+    str_contains($service, 'billingRecordCustomerDepositRefund(')
+    && str_contains($service, "'source_ref_type' => 'billing_deposit_refund'")
+    && str_contains($refundMigration, 'billing_deposit_refunds'));
+$check('refund action is permission-gated and clearly records rather than sends money',
+    str_contains($api, "\$action === 'refund_deposit'")
+    && str_contains($api, "'billing.payments.record'")
+    && str_contains($ui, 'it does not send money'));
+$check('source-level deposit corrections reverse application or refund with provenance',
+    str_contains($service, 'billingCorrectCustomerDepositApplication(')
+    && str_contains($service, 'billingCorrectCustomerDepositRefund(')
+    && str_contains($correctionMigration, 'billing_deposit_refunds ADD COLUMN reversal_je_id')
+    && str_contains($api, "\$action === 'deposit_activity'")
+    && str_contains($ui, 'billing-deposit-activity-modal'));
 $check('automatic allocation skips unposted and wrong-currency invoices',
     str_contains($billing, "\$request['require_posted']")
     && str_contains($billing, 'je.status = "posted"')
@@ -47,9 +80,10 @@ $check('source correction reverses JE, allocations and any bank match',
     && str_contains($service, 'match_status = "unmatched"'));
 $check('correction refuses closed reconciliation and released PWP',
     str_contains($service, 'status = "closed"') && str_contains($service, 'partial_triggered'));
-$check('UI selects a bank account and shows pending, posted and corrected states',
+$check('UI selects a bank account and shows deposit, posted and corrected states',
     str_contains($ui, 'billing-rp-bank')
     && str_contains($ui, 'Pending ledger')
+    && str_contains($ui, 'billing-deposit-apply-')
     && str_contains($ui, 'billing-correct-payment-confirm'));
 $check('weekly cash excludes pending and corrected receipts',
     str_contains($movement, 'p.voided_at IS NULL')
@@ -65,5 +99,5 @@ $check('CSV preview and commit reject reserved internal receipt IDs',
     && str_contains($import, 'CsvImportService::dryRun')
     && str_contains($import, 'CsvImportService::commit'));
 
-echo ($failures ? "Failed: {$failures}" : 'Passed: 13') . PHP_EOL;
+echo ($failures ? "Failed: {$failures}" : 'Passed: 19') . PHP_EOL;
 exit($failures ? 1 : 0);
