@@ -13,6 +13,7 @@ $list = $read('modules/billing/ui/InvoicesList.jsx');
 $create = $read('modules/billing/ui/InvoiceCreate.jsx');
 $detail = $read('modules/billing/ui/InvoiceDetail.jsx');
 $invoiceApi = $read('modules/billing/api/invoices.php');
+$invoiceDrafts = $read('modules/billing/lib/invoice_drafts.php');
 $bankLib = $read('modules/accounting/lib/bank_rec.php');
 $bankApi = $read('modules/accounting/api/bank_statements.php');
 $bankAi = $read('modules/accounting/api/bank_ai.php');
@@ -29,7 +30,10 @@ $check('accounting opens the native billing invoice workflow',
 $check('invoice list is tenant-wide', !str_contains($list, "qs.set('entity_id'"));
 $check('new invoice defaults from active entity', str_contains($create, 'activeEntityId') && str_contains($create, 'setEntityId(activeEntityId'));
 $check('issuing entity is required in UI', str_contains($create, 'allowNone={false}') && str_contains($create, 'required'));
-$check('API resolves a valid default entity', str_contains($invoiceApi, 'activeEntityResolveForTenant(') && str_contains($invoiceApi, "'entity_id'         => (int) \$issuingEntity['id']"));
+$check('draft service resolves a valid issuing entity',
+    str_contains($invoiceApi, 'billingCreateDirectInvoiceDraft(')
+    && str_contains($invoiceDrafts, 'activeEntityResolveForTenant(')
+    && str_contains($invoiceDrafts, "'entity_id' => (int) \$issuingEntity['id']"));
 
 echo "\nBank matching rules\n";
 $check('journal candidates use bank GL account', str_contains($bankLib, 'ba.gl_account_code = a.code'));
@@ -134,8 +138,10 @@ $check('invoice void is restricted to unposted, unpaid drafts',
     && str_contains($detail, "const canVoid = inv.status === 'draft'"));
 $check('post permission maps to billing admin', str_contains($rbac, "'billing.invoice.post'               => ['billing', 'admin']"));
 $check('invoice detail exposes post action', str_contains($detail, 'data-testid="billing-invoice-post"'));
-$check('approval posts before send and retry reuses the posted journal',
-    str_contains($detail, "if (!result.approved) return;")
+$check('approval, posting and sending remain separate; post retry reuses the journal',
+    str_contains($detail, "action=approve&id=")
+    && str_contains($detail, "action=post&id=")
+    && str_contains($detail, "inv.journal_status === 'posted'")
     && str_contains($invoiceApi, "'idempotent_replay' => true"));
 $check('sending requires a posted journal in API and UI',
     str_contains($invoiceApi, 'Post the invoice to the ledger before sending it')

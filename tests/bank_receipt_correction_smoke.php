@@ -28,7 +28,10 @@ $check('correction records durable lineage', str_contains($migration, 'billing_r
     && str_contains($migration, 'uq_brc_original') && str_contains($lib, '"reversal"'));
 $check('new matches use a distinct attempt', substr_count($api, 'billingBankReceiptAttempt(') === 2);
 $check('current invoice aging excludes reversed allocations',
-    str_contains($billing, 'alloc.reversed_at IS NULL OR DATE(alloc.reversed_at) > :reversal_as_of'));
+    str_contains($billing, 'alloc.reversed_at IS NULL')
+    && str_contains($billing, 'alloc.reversal_je_id IS NOT NULL')
+    && str_contains($billing, 'allocation_reversal.posting_date > :reversal_as_of')
+    && str_contains($billing, 'DATE(alloc.reversed_at) > :legacy_reversal_as_of'));
 $check('corrected payments cannot be reallocated',
     str_contains($billing, "if (\$pay['voided_at'] !== null)"));
 $check('bank screen offers correction with an explicit reason',
