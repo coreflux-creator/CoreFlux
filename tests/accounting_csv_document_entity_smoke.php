@@ -20,6 +20,12 @@ $expectError = static function (callable $action, string $fragment) use ($assert
 $one = ['MAIN' => ['id' => 7, 'code' => 'MAIN', 'base_currency' => 'USD']];
 $two = $one + ['WEST' => ['id' => 9, 'code' => 'WEST', 'base_currency' => 'USD']];
 $assert(accountingCsvDocumentEntity($one, '', '')['id'] === 7, 'single entity defaults safely');
+$assert(accountingCsvDocumentLineAmounts(['line_quantity' => '2', 'line_unit_price' => '3'])['total'] === 6.0,
+    'blank totals are computed from quantity and price');
+$expectError(static fn() => accountingCsvDocumentLineAmounts([
+    'line_quantity' => '2', 'line_unit_price' => '3', 'line_total' => '7',
+]), 'subtotal plus tax');
+$expectError(static fn() => accountingCsvDocumentLineAmounts(['line_unit_price' => '1e999']), 'finite value');
 $assert(accountingCsvDocumentEntity($two, 'west', 'USD')['id'] === 9, 'explicit code is case-insensitive');
 $expectError(static fn() => accountingCsvDocumentEntity($two, '', 'USD'), 'required');
 $expectError(static fn() => accountingCsvDocumentEntity($two, 'OTHER', 'USD'), 'active legal entity');
@@ -37,6 +43,8 @@ $review = accountingCsvReviewDocumentGroups([
 ], $two, 'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date']);
 $assert($review['result']['groups'] === 2, 'groups counted');
 $assert($review['entities']['INV-1']['id'] === 7 && $review['entities']['INV-2']['id'] === 9, 'entity per document');
+$assert($review['result']['rows'][3]['entity_code'] === 'MAIN', 'preview shows inherited entity on continuation row');
+$assert($review['result']['rows'][2]['line_total'] === '0.00', 'preview shows computed line total');
 $assert(isset($review['result']['errors'][3]) && isset($review['result']['errors'][5]), 'bad line and conflicting entity visible');
 $assert($review['result']['error_count'] === 2, 'error count includes group checks');
 

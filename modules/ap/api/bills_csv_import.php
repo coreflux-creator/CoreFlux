@@ -167,7 +167,10 @@ if ($method === 'POST' && $action === 'commit') {
     $dry = $review['result'];
     if (!$skipInvalid && $dry['error_count'] > 0) {
         api_ok([
-            'imported_count' => 0, 'skipped_count' => count($dry['rows']),
+            'imported_count' => 0, 'skipped_count' => $dry['groups'],
+            'group_count' => $dry['groups'],
+            'row_count' => count($dry['rows']), 'imported_row_count' => 0,
+            'skipped_row_count' => count($dry['rows']),
             'errors' => $dry['errors'],
             'message' => 'Validation errors present; pass skip_invalid=1 to import valid documents only.',
         ]);
@@ -179,21 +182,9 @@ if ($method === 'POST' && $action === 'commit') {
     $imported = 0;
     $created  = 0;
     $updated  = 0;
+    $importedRows = 0;
     $errors   = $dry['errors'];
     $ids      = [];
-
-    $amountsForLine = static function (array $row): array {
-        $quantity = ($row['line_quantity'] ?? '') === '' ? 1.0 : (float) $row['line_quantity'];
-        $unitPrice = ($row['line_unit_price'] ?? '') === '' ? 0.0 : (float) $row['line_unit_price'];
-        $subtotal = ($row['line_subtotal'] ?? '') === ''
-            ? round($quantity * $unitPrice, 2)
-            : round((float) $row['line_subtotal'], 2);
-        $tax = ($row['line_tax_amount'] ?? '') === '' ? 0.0 : round((float) $row['line_tax_amount'], 2);
-        $total = ($row['line_total'] ?? '') === ''
-            ? round($subtotal + $tax, 2)
-            : round((float) $row['line_total'], 2);
-        return compact('quantity', 'unitPrice', 'subtotal', 'tax', 'total');
-    };
 
     foreach ($groups as $bn => $numberedRows) {
         if (count(array_intersect(array_keys($numberedRows), array_keys($dry['errors']))) > 0) continue;
@@ -264,7 +255,7 @@ if ($method === 'POST' && $action === 'commit') {
 
         $subtotal = 0; $tax = 0; $total = 0;
         foreach ($rows as $r) {
-            $amounts = $amountsForLine($r);
+            $amounts = accountingCsvDocumentLineAmounts($r);
             $subtotal += $amounts['subtotal'];
             $tax      += $amounts['tax'];
             $total    += $amounts['total'];
@@ -312,7 +303,7 @@ if ($method === 'POST' && $action === 'commit') {
             $lineNo = 0;
             foreach ($rows as $r) {
                 $lineNo++;
-                $amounts = $amountsForLine($r);
+                $amounts = accountingCsvDocumentLineAmounts($r);
                 $pdo->prepare(
                     'INSERT INTO ap_bill_lines
                        (bill_id, line_no, source_type, description, quantity, unit, unit_price,
@@ -336,6 +327,7 @@ if ($method === 'POST' && $action === 'commit') {
             $pdo->commit();
             $ids[$bn] = $billId;
             $imported++;
+            $importedRows += count($rows);
             if ($wasUpdate) $updated++;
             else $created++;
         } catch (\Throwable $e) {
@@ -358,6 +350,9 @@ if ($method === 'POST' && $action === 'commit') {
         'updated_count'  => $updated,
         'skipped_count'  => count($groups) - $imported,
         'group_count'    => count($groups),
+        'row_count'      => count($dry['rows']),
+        'imported_row_count' => $importedRows,
+        'skipped_row_count' => count($dry['rows']) - $importedRows,
         'errors'         => $errors,
         'ids'            => $ids,
         'update_existing'=> $updateExisting,

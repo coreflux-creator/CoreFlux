@@ -36,6 +36,7 @@ export default function CsvImportPage({
   backLabel = '← Back',
   testidPrefix = 'csv-import',
   description = null,
+  groupLabel = null,
   templateNote = null,
   extraDownloads = [],
   defaultUpdateExisting = false,
@@ -245,9 +246,9 @@ export default function CsvImportPage({
             entity:          presetEntity,
             file_name:       fileName || null,
             bytes_processed: csvText.length,
-            rows_total:      (res?.imported_count || 0) + (res?.skipped_count || 0),
-            rows_imported:   res?.imported_count || 0,
-            rows_skipped:    res?.skipped_count  || 0,
+            rows_total:      res?.row_count ?? ((res?.imported_count || 0) + (res?.skipped_count || 0)),
+            rows_imported:   res?.imported_row_count ?? (res?.imported_count || 0),
+            rows_skipped:    res?.skipped_row_count ?? (res?.skipped_count || 0),
             errors:          res?.errors        || {},
             skip_invalid:    skipInvalid,
             update_existing: updateExisting,
@@ -532,7 +533,9 @@ export default function CsvImportPage({
           <>
             <div style={{ display: 'flex', gap: 'var(--cf-space-4)', marginBottom: 'var(--cf-space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
               <strong data-testid={`${testidPrefix}-preview-summary`}>
-                {preview.row_count} rows · {preview.error_count} with errors · {preview.row_count - preview.error_count} valid
+                {groupLabel && preview.groups !== undefined
+                  ? `${preview.groups} ${groupLabel}${preview.groups === 1 ? '' : 's'} · ${preview.row_count} lines · ${preview.error_count} lines with errors`
+                  : `${preview.row_count} rows · ${preview.error_count} with errors · ${preview.row_count - preview.error_count} valid`}
               </strong>
               {preview.error_count > 0 && (
                 <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-2)' }}>
@@ -542,7 +545,7 @@ export default function CsvImportPage({
                     onChange={e => setSkipInvalid(e.target.checked)}
                     data-testid={`${testidPrefix}-skip-invalid`}
                   />
-                  Skip invalid rows and import the rest
+                  {groupLabel ? 'Skip invalid documents and import the rest' : 'Skip invalid rows and import the rest'}
                 </label>
               )}
               <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-2)' }}>
@@ -571,7 +574,7 @@ export default function CsvImportPage({
                 disabled={running || (preview.error_count > 0 && !skipInvalid)}
                 data-testid={`${testidPrefix}-commit`}
               >
-                {running ? 'Importing…' : 'Import rows'}
+                {running ? 'Importing…' : groupLabel ? `Import ${groupLabel}s` : 'Import rows'}
               </button>
             </div>
 
@@ -612,8 +615,8 @@ export default function CsvImportPage({
           <div data-testid={`${testidPrefix}-result`} style={{ marginTop: 'var(--cf-space-4)' }}>
             <h3>{Number(committed.imported_count || 0) > 0 ? 'Import complete' : 'Nothing was imported'}</h3>
             <p>
-              <strong data-testid={`${testidPrefix}-result-imported`}>{committed.imported_count}</strong> imported,{' '}
-              <strong data-testid={`${testidPrefix}-result-skipped`}>{committed.skipped_count}</strong> skipped.
+              <strong data-testid={`${testidPrefix}-result-imported`}>{committed.imported_count}</strong> {groupLabel ? `${groupLabel}s ` : ''}imported,{' '}
+              <strong data-testid={`${testidPrefix}-result-skipped`}>{committed.skipped_count}</strong> {groupLabel ? `${groupLabel}s ` : ''}skipped.
             </p>
             {committedErrors.length > 0 && (
               <div
@@ -627,11 +630,13 @@ export default function CsvImportPage({
                   borderRadius: 6,
                 }}
               >
-                <strong>Rows needing attention</strong>
+                <strong>{groupLabel ? 'Documents and lines needing attention' : 'Rows needing attention'}</strong>
                 <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>
                   {committedErrors.map(([rowNumber, messages]) => (
                     <li key={rowNumber}>
-                      Row {rowNumber}: {(Array.isArray(messages) ? messages : [messages]).join('; ')}
+                      {groupLabel && String(rowNumber).startsWith('__')
+                        ? `${groupLabel[0].toUpperCase()}${groupLabel.slice(1)} ${String(rowNumber).split('_').slice(2).join('_')}`
+                        : `Row ${rowNumber}`}: {(Array.isArray(messages) ? messages : [messages]).join('; ')}
                     </li>
                   ))}
                 </ul>

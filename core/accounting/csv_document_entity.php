@@ -42,6 +42,29 @@ function accountingCsvDocumentEntity(array $entities, string $code, string $curr
     return $entity;
 }
 
+/** @return array{quantity:float,unitPrice:float,subtotal:float,tax:float,total:float} */
+function accountingCsvDocumentLineAmounts(array $row): array
+{
+    $quantity = ($row['line_quantity'] ?? '') === '' ? 1.0 : (float) $row['line_quantity'];
+    $unitPrice = ($row['line_unit_price'] ?? '') === '' ? 0.0 : (float) $row['line_unit_price'];
+    $subtotal = ($row['line_subtotal'] ?? '') === ''
+        ? round($quantity * $unitPrice, 2)
+        : round((float) $row['line_subtotal'], 2);
+    $tax = ($row['line_tax_amount'] ?? '') === '' ? 0.0 : round((float) $row['line_tax_amount'], 2);
+    $total = ($row['line_total'] ?? '') === ''
+        ? round($subtotal + $tax, 2)
+        : round((float) $row['line_total'], 2);
+    foreach ([$quantity, $unitPrice, $subtotal, $tax, $total] as $value) {
+        if (!is_finite($value) || abs($value) >= 1_000_000_000_000) {
+            throw new InvalidArgumentException('Line amount must be a finite value below one trillion.');
+        }
+    }
+    if ((int) round($total * 100) !== (int) round(($subtotal + $tax) * 100)) {
+        throw new InvalidArgumentException('Line total must equal subtotal plus tax.');
+    }
+    return compact('quantity', 'unitPrice', 'subtotal', 'tax', 'total');
+}
+
 /**
  * Validate whole multi-line documents so a rejected row cannot silently
  * become a shorter invoice or bill when skip_invalid is requested.
@@ -82,14 +105,27 @@ function accountingCsvReviewDocumentGroups(
             continue;
         }
         foreach ($rows as $rowNumber => $row) {
-            if ($rowNumber === $firstRowNumber) continue;
-            $code = trim((string) ($row['entity_code'] ?? ''));
-            if ($code !== '' && strcasecmp($code, $entity['code']) !== 0) {
-                $result['errors'][$rowNumber][] = "Entity code conflicts with first row of {$documentLabel} #{$number}";
+            if (trim((string) ($row['entity_code'] ?? '')) === '') {
+                $result['rows'][$rowNumber]['entity_code'] = $entity['code'];
             }
-            $currency = trim((string) ($row['currency'] ?? ''));
-            if ($currency !== '' && strcasecmp($currency, $entity['base_currency']) !== 0) {
-                $result['errors'][$rowNumber][] = "Currency conflicts with legal entity for {$documentLabel} #{$number}";
+            if ($rowNumber !== $firstRowNumber) {
+                $code = trim((string) ($row['entity_code'] ?? ''));
+                if ($code !== '' && strcasecmp($code, $entity['code']) !== 0) {
+                    $result['errors'][$rowNumber][] = "Entity code conflicts with first row of {$documentLabel} #{$number}";
+                }
+                $currency = trim((string) ($row['currency'] ?? ''));
+                if ($currency !== '' && strcasecmp($currency, $entity['base_currency']) !== 0) {
+                    $result['errors'][$rowNumber][] = "Currency conflicts with legal entity for {$documentLabel} #{$number}";
+                }
+            }
+            if (isset($result['errors'][$rowNumber])) continue;
+            try {
+                $amounts = accountingCsvDocumentLineAmounts($row);
+                if (($row['line_total'] ?? '') === '') {
+                    $result['rows'][$rowNumber]['line_total'] = number_format($amounts['total'], 2, '.', '');
+                }
+            } catch (InvalidArgumentException $error) {
+                $result['errors'][$rowNumber][] = $error->getMessage();
             }
         }
     }

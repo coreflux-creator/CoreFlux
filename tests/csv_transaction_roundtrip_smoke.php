@@ -12,6 +12,9 @@ $arPaymentsImport = (string) file_get_contents($root . '/modules/billing/api/pay
 $arPaymentsExport = (string) file_get_contents($root . '/modules/billing/api/payments_csv_export.php');
 $exportDatasets = (string) file_get_contents($root . '/core/export_datasets.php');
 $bulk = (string) file_get_contents($root . '/dashboard/src/pages/CsvBulkImport.jsx');
+$invoiceUi = (string) file_get_contents($root . '/modules/billing/ui/InvoicesCsvImport.jsx');
+$billUi = (string) file_get_contents($root . '/modules/ap/ui/BillsCsvImport.jsx');
+$groupHelper = (string) file_get_contents($root . '/core/accounting/csv_document_entity.php');
 
 $passed = 0;
 $failed = 0;
@@ -66,6 +69,17 @@ $check('bill CSV preserves legal entity and validates whole groups on commit',
     str_contains($billsImport, "'entity_id'      => \$entity['id']")
     && substr_count($billsImport, 'accountingCsvReviewDocumentGroups(') === 2
     && str_contains($billsExport, 'e.code AS entity_code'));
+$check('invoice and bill previews show resolved legal entity',
+    str_contains($invoiceUi, "key: 'entity_code'")
+    && str_contains($billUi, "key: 'entity_code'"));
+$check('document import controls describe whole-document behavior',
+    str_contains($invoiceUi, 'groupLabel="invoice"')
+    && str_contains($billUi, 'groupLabel="bill"')
+    && str_contains((string) file_get_contents($root . '/dashboard/src/components/CsvImportPage.jsx'), 'Skip invalid documents'));
+$check('document and line counts stay separate in import history',
+    str_contains($billingImport, "'imported_row_count' => \$importedRows")
+    && str_contains($billsImport, "'imported_row_count' => \$importedRows")
+    && str_contains((string) file_get_contents($root . '/dashboard/src/components/CsvImportPage.jsx'), 'res?.imported_row_count'));
 
 $check('AP payment export carries round-trip identity',
     str_contains($apPaymentsExport, "'payment_id'         => 'Payment ID'")
@@ -102,8 +116,10 @@ $check('shared payment datasets expose external identity',
     && str_contains($exportDatasets, 'p.external_id')
     && str_contains($exportDatasets, 'p.source_system'));
 
-$check('blank computed amounts use quantity times unit price',
-    substr_count($billingImport . $billsImport, "round(\$quantity * \$unitPrice, 2)") === 2);
+$check('preview and commit share validated document arithmetic',
+    str_contains($groupHelper, 'round($quantity * $unitPrice, 2)')
+    && str_contains($groupHelper, 'Line total must equal subtotal plus tax')
+    && substr_count($billingImport . $billsImport, 'accountingCsvDocumentLineAmounts($r)') === 4);
 $check('bulk importer uses a quote-aware CSV row parser',
     str_contains($bulk, 'function parseCsvRow(')
     && str_contains($bulk, 'function firstCsvRecord(')

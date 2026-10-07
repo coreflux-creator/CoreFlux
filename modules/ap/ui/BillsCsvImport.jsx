@@ -13,6 +13,8 @@ export default function BillsCsvImport() {
     <CsvImportPage
       endpoint="/modules/ap/api/bills_csv_import.php"
       entityLabel="AP Bills"
+      groupLabel="bill"
+      description="Create or update bills in bulk. Every file is validated before import."
       backTo="../bills"
       backLabel="← Bills"
       testidPrefix="ap-bills-csv-import"
@@ -20,6 +22,7 @@ export default function BillsCsvImport() {
       previewColumns={[
         { key: 'bill_number',      label: 'Bill #' },
         { key: 'vendor_name',      label: 'Vendor' },
+        { key: 'entity_code',      label: 'Entity' },
         { key: 'bill_date',        label: 'Bill date' },
         { key: 'due_date',         label: 'Due' },
         { key: 'line_description', label: 'Line' },

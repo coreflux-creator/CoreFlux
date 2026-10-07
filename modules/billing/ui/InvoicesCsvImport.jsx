@@ -13,6 +13,8 @@ export default function InvoicesCsvImport() {
     <CsvImportPage
       endpoint="/modules/billing/api/csv_import.php"
       entityLabel="AR Invoices"
+      groupLabel="invoice"
+      description="Create or update invoices in bulk. Every file is validated before import."
       backTo="../invoices"
       backLabel="← Invoices"
       testidPrefix="billing-invoices-csv-import"
@@ -20,6 +22,7 @@ export default function InvoicesCsvImport() {
       previewColumns={[
         { key: 'invoice_number',   label: 'Invoice #' },
         { key: 'client_name',      label: 'Client' },
+        { key: 'entity_code',      label: 'Entity' },
         { key: 'issue_date',       label: 'Issue' },
         { key: 'due_date',         label: 'Due' },
         { key: 'line_description', label: 'Line' },
