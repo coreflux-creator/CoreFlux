@@ -76,7 +76,7 @@ class CsvExportService
 
     private function writeHeader($fp): void
     {
-        fputcsv($fp, array_values($this->columns));
+        fputcsv($fp, array_values($this->columns), ',', '"', '');
     }
 
     private function writeRow($fp, array $row): void
@@ -89,6 +89,6 @@ class CsvExportService
             elseif ($v === null)      $v = '';
             $cells[] = $v;
         }
-        fputcsv($fp, $cells);
+        fputcsv($fp, $cells, ',', '"', '');
     }
 }

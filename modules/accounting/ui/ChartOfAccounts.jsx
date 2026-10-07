@@ -8,8 +8,17 @@ import {
   Database, Download, Landmark, MoveRight, Network, Plus, Search, Upload, X,
 } from 'lucide-react';
 
-const TYPES = ['asset','liability','equity','revenue','expense'];
-const NORMAL = { asset: 'debit', expense: 'debit', liability: 'credit', equity: 'credit', revenue: 'credit' };
+const TYPE_META = {
+  asset: { label: 'Asset', normal: 'debit' },
+  liability: { label: 'Liability', normal: 'credit' },
+  equity: { label: 'Equity', normal: 'credit' },
+  revenue: { label: 'Revenue', normal: 'credit' },
+  contra_revenue: { label: 'Contra revenue', normal: 'debit' },
+  expense: { label: 'Expense', normal: 'debit' },
+  cost_of_goods_sold: { label: 'Cost of goods sold', normal: 'debit' },
+  other_income: { label: 'Other income', normal: 'credit' },
+  other_expense: { label: 'Other expense', normal: 'debit' },
+};
 
 const DEFAULT_COA = [
   { code: '1000', name: 'Cash', account_type: 'asset' },
@@ -89,6 +98,7 @@ function descendantSet(rows, accountId) {
 export default function ChartOfAccounts() {
   const { data, loading, error, reload } = useApi('/modules/accounting/api/accounts.php');
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
+  const accountTypes = data?.types ?? Object.keys(TYPE_META);
   const [form, setForm]       = useState({ code: '', name: '', account_type: 'expense' });
   const [busy, setBusy]       = useState(false);
   const [seedBusy, setSeedBusy] = useState(false);
@@ -345,7 +355,7 @@ export default function ChartOfAccounts() {
             style={{ width: 180 }}
           >
             <option value="">All account types</option>
-            {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            {accountTypes.map((t) => <option key={t} value={t}>{TYPE_META[t]?.label ?? t}</option>)}
           </select>
           <select
             className="input"
@@ -372,7 +382,9 @@ export default function ChartOfAccounts() {
           <input className="input" placeholder="Number" aria-label="Account number" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} data-testid="accounting-accounts-code" required />
           <input className="input" placeholder="Account name" aria-label="Account name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-accounts-name" required />
           <select className="input" aria-label="Account type" value={form.account_type} onChange={(e) => setForm({ ...form, account_type: e.target.value })} data-testid="accounting-accounts-type">
-            {TYPES.map((t) => <option key={t} value={t}>{t} ({NORMAL[t]})</option>)}
+            {accountTypes.map((t) => <option key={t} value={t}>
+              {TYPE_META[t]?.label ?? t}{TYPE_META[t]?.normal ? ` (${TYPE_META[t].normal})` : ''}
+            </option>)}
           </select>
           <button className="btn btn--primary" data-testid="accounting-accounts-add" disabled={busy}>{busy ? 'Adding…' : 'Add account'}</button>
           <button type="button" className="btn btn--ghost" onClick={() => setShowAdd(false)}>Cancel</button>
@@ -436,7 +448,7 @@ export default function ChartOfAccounts() {
                   <span className="badge" style={{ marginLeft: 6, fontSize: 10 }}>interest terms</span>
                 )}
               </td>
-              <td>{r.account_type}</td>
+              <td>{TYPE_META[r.account_type]?.label ?? r.account_type}</td>
               <td>{r.normal_side}</td>
               <td>{r.is_postable ? 'Posting' : 'Header'}</td>
               <td><span className={`account-status${r.active ? ' account-status--active' : ''}`}>{r.active ? 'Active' : 'Inactive'}</span></td>

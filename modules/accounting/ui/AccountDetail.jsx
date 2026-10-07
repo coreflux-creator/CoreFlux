@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ExternalLink, RefreshCw } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Pencil, RefreshCw } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 
@@ -49,6 +49,9 @@ export default function AccountDetail() {
   const [form, setForm] = useState(emptyTerms(null, null));
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [accountEditOpen, setAccountEditOpen] = useState(false);
+  const [accountEdit, setAccountEdit] = useState({ name: '', description: '', active: '1' });
+  const [accountEditBusy, setAccountEditBusy] = useState(false);
 
   const entities = useMemo(() => workspace.data?.entities || [], [workspace.data?.entities]);
   const terms = useMemo(() => workspace.data?.terms || [], [workspace.data?.terms]);
@@ -87,6 +90,34 @@ export default function AccountDetail() {
   };
 
   const setField = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+  const startAccountEdit = () => {
+    setAccountEdit({
+      name: account.name || '',
+      description: account.description || '',
+      active: String(Number(account.active)),
+    });
+    setNotice(null);
+    setAccountEditOpen(true);
+  };
+  const saveAccountEdit = async (event) => {
+    event.preventDefault();
+    if (Number(account.active) === 1 && accountEdit.active === '0'
+        && !window.confirm('Deactivate this account? Existing journal history will remain available.')) return;
+    setAccountEditBusy(true);
+    setNotice(null);
+    try {
+      await api.patch(`/modules/accounting/api/accounts.php?id=${account.id}`, {
+        name: accountEdit.name.trim(),
+        description: accountEdit.description.trim(),
+        active: Number(accountEdit.active),
+      });
+      setAccountEditOpen(false);
+      setNotice({ type: 'ok', text: 'Account updated.' });
+      accountApi.reload();
+    } catch (error) {
+      setNotice({ type: 'err', text: error.message });
+    } finally { setAccountEditBusy(false); }
+  };
   const save = async (event) => {
     event.preventDefault();
     setBusy(true); setNotice(null);
@@ -128,6 +159,9 @@ export default function AccountDetail() {
   if (accountApi.error) return <p className="error">{accountApi.error.message}</p>;
   if (!account) return null;
 
+  const accountEditChanged = accountEdit.name.trim() !== account.name
+    || accountEdit.description.trim() !== (account.description || '')
+    || Number(accountEdit.active) !== Number(account.active);
   const canBearInterest = ['asset', 'liability'].includes(account.account_type);
   const incomeAccounts = (workspace.data?.offset_accounts || []).filter((row) => row.account_type === 'revenue');
   const expenseAccounts = (workspace.data?.offset_accounts || []).filter((row) => row.account_type === 'expense');
@@ -146,13 +180,45 @@ export default function AccountDetail() {
             {account.account_type} account, normal {account.normal_side}{account.description ? ` · ${account.description}` : ''}
           </p>
         </div>
-        <button className="btn btn--ghost" onClick={() => { accountApi.reload(); workspace.reload(); }}>
-          <RefreshCw size={14} style={{ marginRight: 5, verticalAlign: 'middle' }} /> Refresh
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" className="btn btn--ghost" onClick={() => accountEditOpen ? setAccountEditOpen(false) : startAccountEdit()} data-testid="accounting-account-edit-trigger">
+            <Pencil size={14} aria-hidden="true" /> {accountEditOpen ? 'Cancel edit' : 'Edit account'}
+          </button>
+          <button type="button" className="btn btn--ghost" onClick={() => { accountApi.reload(); workspace.reload(); }}>
+            <RefreshCw size={14} aria-hidden="true" /> Refresh
+          </button>
+        </div>
       </header>
 
       {notice && <p data-testid="accounting-account-detail-notice" style={noticeStyle(notice.type)}>{notice.text}</p>}
       {workspace.error && <p className="error">{workspace.error.message}</p>}
+
+      {accountEditOpen && (
+        <form onSubmit={saveAccountEdit} style={bandStyle} data-testid="accounting-account-edit-form">
+          <h3 style={headingStyle}>Edit account</h3>
+          <div style={gridStyle}>
+            <label style={labelStyle}>Account name
+              <input className="input" required maxLength={255} value={accountEdit.name}
+                onChange={(event) => setAccountEdit((current) => ({ ...current, name: event.target.value }))} />
+            </label>
+            <label style={labelStyle}>Status
+              <select className="input" value={accountEdit.active}
+                onChange={(event) => setAccountEdit((current) => ({ ...current, active: event.target.value }))}>
+                <option value="1">Active</option>
+                <option value="0">Inactive</option>
+              </select>
+            </label>
+          </div>
+          <label style={{ ...labelStyle, marginTop: 12 }}>Description
+            <textarea className="input" rows={2} maxLength={500} value={accountEdit.description}
+              onChange={(event) => setAccountEdit((current) => ({ ...current, description: event.target.value }))} />
+          </label>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button className="btn btn--primary" disabled={accountEditBusy || !accountEditChanged}>{accountEditBusy ? 'Saving...' : 'Save account'}</button>
+            <button type="button" className="btn btn--ghost" onClick={() => setAccountEditOpen(false)}>Cancel</button>
+          </div>
+        </form>
+      )}
 
       <section style={bandStyle} data-testid="accounting-account-overview">
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 18, flexWrap: 'wrap' }}>
