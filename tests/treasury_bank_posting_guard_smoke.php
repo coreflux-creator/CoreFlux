@@ -19,7 +19,10 @@ $rejects = static function (callable $action): bool {
     }
 };
 
-$account = ['code' => '6100', 'is_postable' => 1, 'currency' => 'USD', 'linked_bank_id' => null];
+$account = [
+    'code' => '6100', 'account_type' => 'expense', 'is_postable' => 1,
+    'currency' => 'USD', 'linked_bank_id' => null,
+];
 $check('ordinary expense is eligible', !$rejects(static fn() => treasuryAssertCategoryCounterpart($account)));
 $check('ordinary balance-sheet account is eligible', !$rejects(static fn() => treasuryAssertCategoryCounterpart(
     ['code' => '1600', 'is_postable' => 1, 'currency' => null, 'linked_bank_id' => null]
@@ -27,6 +30,7 @@ $check('ordinary balance-sheet account is eligible', !$rejects(static fn() => tr
 foreach ([
     'source-owned AR' => ['code' => '1100'],
     'source-owned AP' => ['code' => '2000'],
+    'equity account' => ['code' => '3900', 'account_type' => 'equity'],
     'bank-linked cash' => ['linked_bank_id' => 18],
     'summary account' => ['is_postable' => 0],
     'non-USD account' => ['currency' => 'EUR'],

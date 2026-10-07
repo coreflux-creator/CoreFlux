@@ -12,6 +12,9 @@ function accountingDirectCategoryIssue(array $account): ?string
     if ((int) ($account['is_postable'] ?? 0) !== 1) {
         return 'Choose a postable account';
     }
+    if (($account['account_type'] ?? null) === 'equity') {
+        return 'Use a reviewed journal or opening-balance workflow for equity accounts';
+    }
     if (in_array((string) ($account['code'] ?? ''), ACCOUNTING_SOURCE_OWNED_CONTROL_CODES, true)) {
         return 'This account is managed by its source workflow. Match the invoice, bill, payment, or transfer instead.';
     }

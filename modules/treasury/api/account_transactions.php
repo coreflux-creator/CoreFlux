@@ -308,7 +308,8 @@ if (api_method() === 'POST') {
                 throw new \RuntimeException('This posting path supports USD entities only');
             }
             $counterCheck = $pdo->prepare(
-                'SELECT aa.code, aa.is_postable, aa.currency, aa.active, ba.id AS linked_bank_id
+                'SELECT aa.code, aa.account_type, aa.is_postable, aa.currency, aa.active,
+                        ba.id AS linked_bank_id
                    FROM accounting_accounts aa
               LEFT JOIN accounting_bank_accounts ba
                      ON ba.tenant_id = aa.tenant_id AND ba.gl_account_code = aa.code
