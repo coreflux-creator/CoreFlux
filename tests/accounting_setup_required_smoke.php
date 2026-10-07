@@ -1,6 +1,7 @@
 <?php
 /** The shared API reports missing legal-entity setup as a recoverable conflict. */
 declare(strict_types=1);
+if (PHP_SAPI !== 'cli') exit(1);
 
 if (in_array('--probe', $argv, true)) {
     putenv('COREFLUX_DISABLE_DATABASE=1');
