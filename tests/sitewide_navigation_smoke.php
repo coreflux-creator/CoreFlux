@@ -71,6 +71,9 @@ $assert('old bookkeeping links reach the accounting overview', str_contains($acc
     '<Route path="bookkeeping" element={<Navigate to="/modules/accounting/overview" replace />} />'));
 $assert('unknown accounting paths do not render a blank page', str_contains($accounting,
     '<Route path="*" element={<Navigate to="/modules/accounting/overview" replace />} />'));
+$assert('legal-entity setup is reachable from Accounting tools', str_contains($accounting,
+    "{ to: 'entities', label: 'Legal entities'")
+    && str_contains($accounting, '<Route path="entities" element={<LegalEntities />} />'));
 $assert('unknown authenticated paths return to the workspace', str_contains($fallbackModules, '<Route path="*" element={<Navigate to="/" replace />} />'));
 $assert('unknown module paths do not expose unfinished placeholder screens', str_contains($fallbackModules, '<Route path="/modules/:moduleId/*" element={<Navigate to="/" replace />} />'));
 $assert('Mail Settings does not advertise an unavailable sending-domain control', !str_contains($mailSettings, 'coming soon'));

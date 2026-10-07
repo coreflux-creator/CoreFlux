@@ -24,6 +24,7 @@ import XTenantIntercompany from './XTenantIntercompany';
 import EliminationWorksheet from './EliminationWorksheet';
 import Consolidation from './Consolidation';
 import Periods from './Periods';
+import LegalEntities from './LegalEntities';
 import DimensionsAdmin from './DimensionsAdmin';
 import PeriodCloseWorkflow from './PeriodCloseWorkflow';
 import BookkeepingOverview from '../../../dashboard/src/pages/BookkeepingOverview';
@@ -86,6 +87,7 @@ const MORE_NAV = [
   {
     label: 'Configuration',
     items: [
+      { to: 'entities', label: 'Legal entities', Icon: Building2 },
       { to: 'tax-mappings', label: 'Tax mappings', Icon: Settings },
       { to: 'tax-export', label: 'Tax export', Icon: FileText },
     ],
@@ -157,6 +159,7 @@ export default function AccountingModule({ session }) {
         <Route path="elimination"  element={<EliminationWorksheet session={session} />} />
         <Route path="consolidation" element={<Consolidation session={session} />} />
         <Route path="periods"  element={<Periods         session={session} />} />
+        <Route path="entities" element={<LegalEntities />} />
         <Route path="dimensions" element={<DimensionsAdmin session={session} />} />
         <Route path="close"      element={<PeriodCloseWorkflow session={session} />} />
         {LAYER_SANDBOX_ENABLED && (

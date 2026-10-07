@@ -10,6 +10,7 @@ if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging'
 
 require_once __DIR__ . '/../core/memberships.php';
 require_once __DIR__ . '/../core/installer_helpers.php';
+require_once __DIR__ . '/../core/accounting/entity_setup.php';
 require_once __DIR__ . '/../core/accounting/system_accounts.php';
 require_once __DIR__ . '/../core/posting_engine/seed_defaults.php';
 require_once __DIR__ . '/../core/seeds/event_registry_seed.php';
@@ -40,6 +41,16 @@ if ($tenantName === '' || strlen($tenantName) > 190 || $slug === '' || strlen($s
     || strlen($adminPassword) < 16) {
     throw new RuntimeException('Initial tenant name, admin name/email, and a 16+ character password are required in the environment.');
 }
+$entityProfile = accountingNewEntityProfile([
+    'code' => 'MAIN',
+    'legal_name' => (string) getenv('COREFLUX_INITIAL_ENTITY_LEGAL_NAME'),
+    'country' => (string) getenv('COREFLUX_INITIAL_ENTITY_COUNTRY'),
+    'base_currency' => (string) getenv('COREFLUX_INITIAL_ENTITY_BASE_CURRENCY'),
+    'entity_type' => (string) getenv('COREFLUX_INITIAL_ENTITY_TYPE'),
+    'accounting_basis' => (string) getenv('COREFLUX_INITIAL_ACCOUNTING_BASIS'),
+    'fiscal_year_start_month' => (string) getenv('COREFLUX_INITIAL_FISCAL_YEAR_START_MONTH'),
+]);
+$year = accountingFirstFiscalYear((string) getenv('COREFLUX_INITIAL_FISCAL_YEAR'));
 
 $missing = installerCheckBaseSchema($pdo);
 if ($missing) throw new RuntimeException('Base schema is incomplete: ' . implode(', ', $missing));
@@ -127,43 +138,8 @@ try {
     ]);
     $approvalPolicyId = (int) $pdo->lastInsertId();
 
-    $entity = $pdo->prepare(
-        'INSERT INTO accounting_entities (tenant_id, code, legal_name, country, base_currency, active)
-         VALUES (:tenant_id, "MAIN", :legal_name, "US", "USD", 1)'
-    );
-    $entity->execute(['tenant_id' => $tenantId, 'legal_name' => $tenantName]);
-    $entityId = (int) $pdo->lastInsertId();
-
-    $year = (int) date('Y');
-    $calendar = $pdo->prepare(
-        'INSERT INTO accounting_fiscal_calendars
-            (tenant_id, entity_id, name, calendar_type, start_date, end_date, period_count, is_default, active)
-         VALUES (:tenant_id, :entity_id, :name, "calendar_year", :start_date, :end_date, 12, 1, 1)'
-    );
-    $calendar->execute([
-        'tenant_id' => $tenantId,
-        'entity_id' => $entityId,
-        'name' => $year . ' calendar year',
-        'start_date' => $year . '-01-01',
-        'end_date' => $year . '-12-31',
-    ]);
-    $calendarId = (int) $pdo->lastInsertId();
-    $period = $pdo->prepare(
-        'INSERT INTO accounting_periods
-            (tenant_id, entity_id, calendar_id, period_number, start_date, end_date, status)
-         VALUES (:tenant_id, :entity_id, :calendar_id, :period_number, :start_date, :end_date, "open")'
-    );
-    for ($month = 1; $month <= 12; $month++) {
-        $start = sprintf('%04d-%02d-01', $year, $month);
-        $period->execute([
-            'tenant_id' => $tenantId,
-            'entity_id' => $entityId,
-            'calendar_id' => $calendarId,
-            'period_number' => $month,
-            'start_date' => $start,
-            'end_date' => date('Y-m-t', strtotime($start)),
-        ]);
-    }
+    $createdEntity = accountingCreateEntityWithCalendar($pdo, $tenantId, $entityProfile, $year);
+    $entityId = $createdEntity['entity_id'];
 
     $accounts = accountingSeedSystemAccounts($tenantId);
     $rules = postingRulesSeedDefaults($tenantId);
@@ -180,7 +156,17 @@ try {
         'admin_user_id' => $userId,
         'ap_approval_policy_id' => $approvalPolicyId,
         'entity_id' => $entityId,
-        'periods_created' => 12,
+        'entity_profile' => [
+            'legal_name' => $entityProfile['legal_name'],
+            'country' => $entityProfile['country'],
+            'base_currency' => $entityProfile['base_currency'],
+            'entity_type' => $entityProfile['entity_type'],
+            'accounting_basis' => $entityProfile['accounting_basis'],
+            'fiscal_year_start_month' => $entityProfile['fiscal_year_start_month'],
+            'fiscal_year' => $year,
+        ],
+        'calendar_id' => $createdEntity['calendar_id'],
+        'periods_created' => $createdEntity['periods_created'],
         'accounts' => $accounts,
         'rules' => $rules,
         'staffing_rules' => $staffingRules,

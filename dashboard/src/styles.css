@@ -1679,6 +1679,128 @@ input[type="radio"] {
     overflow-x: auto;
 }
 
+.entity-settings {
+    max-width: 1680px;
+    margin: 0 auto;
+    min-width: 0;
+}
+
+.entity-settings__header,
+.entity-settings__form-actions,
+.entity-settings__row-actions,
+.entity-settings__links {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.entity-settings__header {
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+
+.entity-settings__header h2 {
+    margin: 0;
+    font-size: 20px;
+}
+
+.entity-settings__header p {
+    margin: 4px 0 0;
+    color: var(--cf-text-secondary);
+    font-size: 13px;
+}
+
+.entity-settings__form {
+    display: grid;
+    grid-template-columns: minmax(100px, 140px) minmax(180px, 1fr) minmax(150px, 200px) minmax(130px, 170px);
+    gap: 12px;
+    padding: 16px 0;
+    border-top: 1px solid var(--cf-border);
+    border-bottom: 1px solid var(--cf-border);
+    margin-bottom: 14px;
+}
+
+.entity-settings__form label {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.entity-settings__form input,
+.entity-settings__form select,
+.entity-settings__table input,
+.entity-settings__table select {
+    width: 100%;
+    min-width: 0;
+    min-height: 36px;
+    padding: 6px 8px;
+    border: 1px solid var(--cf-border);
+    border-radius: 4px;
+    background: var(--cf-surface);
+    color: var(--cf-text);
+    font: inherit;
+}
+
+.entity-settings__fixed {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    color: var(--cf-text-secondary);
+    font-size: 12px;
+}
+
+.entity-settings__fixed strong {
+    color: var(--cf-text);
+    margin-left: 4px;
+}
+
+.entity-settings__form-actions {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+}
+
+.entity-settings__notice {
+    color: #08765f;
+    font-weight: 600;
+}
+
+.entity-settings__table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.entity-settings__table {
+    width: 100%;
+    min-width: 850px;
+}
+
+.entity-settings__table th:last-child,
+.entity-settings__table td:last-child {
+    width: 92px;
+}
+
+.entity-settings__row-actions .btn {
+    min-width: 32px;
+    padding: 6px;
+}
+
+.entity-settings__links {
+    flex-wrap: wrap;
+    padding-top: 16px;
+    font-size: 13px;
+}
+
+@media (max-width: 760px) {
+    .entity-settings__form {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 @media (max-width: 760px) {
     .bookkeeping-overview-grid {
         grid-template-columns: minmax(0, 1fr);
