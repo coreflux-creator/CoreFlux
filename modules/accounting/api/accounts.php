@@ -10,6 +10,7 @@
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/accounting/account_mutation.php';
 require_once __DIR__ . '/../lib/accounting.php';
 
 $ctx    = api_require_auth();
@@ -17,9 +18,6 @@ $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
-
-const ACCT_TYPES = ['asset','liability','equity','revenue','expense'];
-const NORMAL_DEFAULT = ['asset' => 'debit','expense' => 'debit','liability' => 'credit','equity' => 'credit','revenue' => 'credit'];
 
 if ($method === 'POST' && $action === 'auto_group_plaid') {
     rbac_legacy_require($user, 'accounting.coa.manage');
@@ -77,7 +75,7 @@ if ($method === 'GET' && $action === 'tree') {
     $type = $_GET['type'] ?? null;
     $where  = ['tenant_id = :tenant_id', 'active = 1'];
     $params = [];
-    if ($type && in_array($type, ACCT_TYPES, true)) {
+    if ($type && in_array($type, ACCOUNTING_ACCOUNT_TYPES, true)) {
         $where[] = 'account_type = :t';
         $params['t'] = $type;
     }
@@ -87,7 +85,7 @@ if ($method === 'GET' && $action === 'tree') {
           ORDER BY code ASC LIMIT 1000',
         $params
     );
-    api_ok(['rows' => $flat, 'types' => ACCT_TYPES]);
+    api_ok(['rows' => $flat, 'types' => ACCOUNTING_ACCOUNT_TYPES]);
 }
 
 if ($method === 'GET' && (!empty($_GET['id']) || !empty($_GET['code']))) {
@@ -126,7 +124,7 @@ if ($method === 'GET') {
          FROM accounting_accounts WHERE ' . implode(' AND ', $where) . ' ORDER BY code ASC LIMIT 500',
         $params
     );
-    api_ok(['rows' => $rows, 'types' => ACCT_TYPES]);
+    api_ok(['rows' => $rows, 'types' => ACCOUNTING_ACCOUNT_TYPES]);
 }
 
 if ($method === 'POST' && $action === 'bulk_update') {
@@ -146,10 +144,11 @@ if ($method === 'POST' && $action === 'bulk_update') {
     $updated = 0;
     $skipped = 0;
     $failed = 0;
+    $errors = [];
     foreach ($ids as $id) {
         try {
             $account = scopedFind(
-                'SELECT id, code, active, is_postable FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id',
+                'SELECT * FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id',
                 ['id' => $id]
             );
             if (!$account) {
@@ -160,7 +159,8 @@ if ($method === 'POST' && $action === 'bulk_update') {
                 $skipped++;
                 continue;
             }
-            scopedUpdate('accounting_accounts', $id, [$field => (int) $value]);
+            $change = accountingReviewAccountChange($tid, $account, [$field => $value]);
+            scopedUpdate('accounting_accounts', $id, $change);
             accountingAudit('accounting.account.updated', [
                 'id' => $id,
                 'source' => 'bulk_update',
@@ -171,33 +171,26 @@ if ($method === 'POST' && $action === 'bulk_update') {
             $updated++;
         } catch (\Throwable $e) {
             $failed++;
+            $errors[$id] = $e->getMessage();
         }
     }
-    api_ok(['ok' => $failed === 0, 'updated' => $updated, 'skipped' => $skipped, 'failed' => $failed]);
+    api_ok(['ok' => $failed === 0, 'updated' => $updated, 'skipped' => $skipped,
+        'failed' => $failed, 'errors' => $errors]);
 }
 
 if ($method === 'POST') {
     rbac_legacy_require($user, 'accounting.coa.manage');
     $body = api_json_body();
     api_require_fields($body, ['code','name','account_type']);
-    if (!in_array($body['account_type'], ACCT_TYPES, true)) {
-        api_error('Invalid account_type', 422, ['allowed' => ACCT_TYPES]);
+    try {
+        $fields = accountingReviewAccountChange($tid, null, array_intersect_key($body, array_flip([
+            'code', 'name', 'account_type', 'normal_side', 'parent_account_id',
+            'is_postable', 'currency', 'cash_flow_tag', 'description', 'active',
+        ])));
+    } catch (InvalidArgumentException $error) {
+        api_error($error->getMessage(), 422);
     }
-    $normal = $body['normal_side'] ?? NORMAL_DEFAULT[$body['account_type']];
-    if (!in_array($normal, ['debit','credit'], true)) api_error('normal_side must be debit|credit', 422);
-
-    $id = scopedInsert('accounting_accounts', [
-        'tenant_id'         => $tid,
-        'code'              => (string) $body['code'],
-        'name'              => (string) $body['name'],
-        'account_type'      => $body['account_type'],
-        'normal_side'       => $normal,
-        'parent_account_id' => !empty($body['parent_account_id']) ? (int) $body['parent_account_id'] : null,
-        'is_postable'       => array_key_exists('is_postable', $body) ? (int) !!$body['is_postable'] : 1,
-        'currency'          => $body['currency'] ?? null,
-        'description'       => $body['description'] ?? null,
-        'active'            => 1,
-    ]);
+    $id = scopedInsert('accounting_accounts', array_merge(['tenant_id' => $tid], $fields));
     accountingAudit('accounting.account.created', ['id' => $id, 'code' => $body['code']], $id);
     api_ok(['id' => $id], 201);
 }
@@ -207,50 +200,20 @@ if ($method === 'PATCH') {
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $current = scopedFind(
-        'SELECT id, account_type, parent_account_id FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id',
+        'SELECT * FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id',
         ['id' => $id]
     );
     if (!$current) api_error('Not found', 404);
     $body = api_json_body();
     $body = array_intersect_key($body, array_flip([
         'code', 'name', 'account_type', 'normal_side', 'parent_account_id',
-        'is_postable', 'currency', 'description', 'active',
+        'is_postable', 'currency', 'cash_flow_tag', 'description', 'active',
     ]));
-    if (isset($body['account_type']) && !in_array($body['account_type'], ACCT_TYPES, true)) {
-        api_error('Invalid account_type', 422);
+    try {
+        $body = accountingReviewAccountChange($tid, $current, $body);
+    } catch (InvalidArgumentException $error) {
+        api_error($error->getMessage(), 422);
     }
-    if (isset($body['normal_side']) && !in_array($body['normal_side'], ['debit', 'credit'], true)) {
-        api_error('normal_side must be debit|credit', 422);
-    }
-    foreach (['is_postable', 'active'] as $booleanField) {
-        if (array_key_exists($booleanField, $body)) $body[$booleanField] = (int) !!$body[$booleanField];
-    }
-    if (array_key_exists('parent_account_id', $body)) {
-        $parentId = (int) ($body['parent_account_id'] ?? 0);
-        $body['parent_account_id'] = $parentId > 0 ? $parentId : null;
-        if ($parentId > 0) {
-            if ($parentId === $id) api_error('An account cannot be its own parent', 422);
-            $parent = scopedFind(
-                'SELECT id, account_type, parent_account_id FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id',
-                ['id' => $parentId]
-            );
-            if (!$parent) api_error('Parent account not found', 404);
-            $resultType = (string) ($body['account_type'] ?? $current['account_type']);
-            if ((string) $parent['account_type'] !== $resultType) api_error('Parent account must have the same type', 422);
-            $cursor = $parent;
-            $guard = 0;
-            while (!empty($cursor['parent_account_id']) && $guard < 500) {
-                if ((int) $cursor['parent_account_id'] === $id) api_error('Parent selection would create a cycle', 422);
-                $cursor = scopedFind(
-                    'SELECT id, parent_account_id FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id',
-                    ['id' => (int) $cursor['parent_account_id']]
-                );
-                if (!$cursor) break;
-                $guard++;
-            }
-        }
-    }
-    if (!$body) api_error('No fields to update', 422);
     $rows = scopedUpdate('accounting_accounts', $id, $body);
     if ($rows === 0) api_error('Not found or no change', 404);
     accountingAudit('accounting.account.updated', ['id' => $id, 'fields' => array_keys($body)], $id);
@@ -261,6 +224,16 @@ if ($method === 'DELETE') {
     rbac_legacy_require($user, 'accounting.coa.manage');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
+    $current = scopedFind(
+        'SELECT * FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $id]
+    );
+    if (!$current) api_error('Not found', 404);
+    try {
+        accountingReviewAccountChange($tid, $current, ['active' => 0]);
+    } catch (InvalidArgumentException $error) {
+        api_error($error->getMessage(), 422);
+    }
     $rows = scopedUpdate('accounting_accounts', $id, ['active' => 0]);
     if ($rows === 0) api_error('Not found', 404);
     accountingAudit('accounting.account.deactivated', ['id' => $id], $id);

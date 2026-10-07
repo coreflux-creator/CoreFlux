@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $import = (string) file_get_contents($root . '/modules/accounting/api/accounts_csv_import.php');
+$rules = (string) file_get_contents($root . '/core/accounting/account_mutation.php');
 $export = (string) file_get_contents($root . '/modules/accounting/api/export.php');
 $datasets = (string) file_get_contents($root . '/core/export_datasets.php');
 $bulk = (string) file_get_contents($root . '/dashboard/src/pages/CsvBulkImport.jsx');
@@ -23,17 +24,21 @@ $check('updates are explicit and stable-ID first',
     str_contains($import, "_GET['update_existing']")
     && str_contains($import, "if (!empty(\$row['account_id']))"));
 $check('posted account classification is protected',
-    str_contains($import, 'posted accounts cannot change accounting classification')
-    && str_contains($import, 'must remain postable'));
+    str_contains($import, 'accountingReviewAccountChange')
+    && str_contains($rules, 'Accounts with journal activity cannot change classification, currency, or postability.'));
 $check('custom validation errors are skipped before persistence',
     str_contains($import, "if (isset(\$errors[\$rowNumber]))")
-    && str_contains($import, 'no custom-invalid row can leak into the ledger'));
+    && str_contains($import, 'if (!$skipInvalid && $errors)')
+    && str_contains($import, '$pdo->rollBack()'));
 $check('granular cash-flow classifications survive a round trip',
     str_contains($import, 'supports granular prefix-based classifications')
     && !preg_match("/'cash_flow_tag'.*?'enum'/s", $import));
 $check('parent integrity and cycle protection are enforced',
-    str_contains($import, 'Parent and child must have the same account type')
-    && str_contains($import, 'Parent selection would create a cycle'));
+    str_contains($rules, 'Parent account must have the same account type.')
+    && str_contains($rules, 'Parent selection would create a cycle.'));
+$check('both account CSV routes use the shared mutation rules',
+    str_contains($import, 'accountingAccountCsvChanges')
+    && str_contains((string) file_get_contents($root . '/modules/accounting/api/import.php'), 'accountingReviewCoaImport'));
 $check('export carries stable and portable parent identity',
     str_contains($export, "'account_id'")
     && str_contains($export, "'parent_account_code'")

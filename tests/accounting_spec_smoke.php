@@ -64,11 +64,14 @@ $a('accountingTrialBalance signed balance',    strpos($lib, "\$r['normal_side'] 
 
 echo "\naccounts API\n";
 $aapi = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/accounts.php');
+$accountRules = (string) file_get_contents(__DIR__ . '/../core/accounting/account_mutation.php');
 $a('GET list perm',                            strpos($aapi, "'accounting.coa.view'") !== false);
 $a('POST requires account_type',               strpos($aapi, "api_require_fields(\$body, ['code','name','account_type'])") !== false);
-$a('rejects invalid type',                     strpos($aapi, "'Invalid account_type'") !== false);
+$a('rejects invalid type',                     strpos($aapi, 'accountingReviewAccountChange') !== false
+    && strpos($accountRules, 'Invalid account type.') !== false);
 $a('DELETE is soft (active=0)',                strpos($aapi, "['active' => 0]") !== false);
-$a('PATCH with non-empty body guard',          strpos($aapi, "'No fields to update'") !== false);
+$a('PATCH with non-empty body guard',          strpos($aapi, 'accountingReviewAccountChange') !== false
+    && strpos($accountRules, 'No account changes were provided.') !== false);
 
 echo "\njournal_entries API\n";
 $japi = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/journal_entries.php');

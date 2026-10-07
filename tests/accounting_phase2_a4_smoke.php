@@ -66,7 +66,9 @@ $a('gates imports by type and action',
 $a('registers accounting_coa schema',           $contains($im, "'accounting_coa'"));
 $a('registers accounting_je schema',            $contains($im, "'accounting_je'"));
 $a('registers accounting_periods schema',       $contains($im, "'accounting_periods'"));
-$a('coa schema includes account_type enum',     $contains($im, "'asset','liability','equity','revenue','expense'"));
+$a('coa schema uses the database account-type set',
+    $contains($im, "'enum' => ACCOUNTING_ACCOUNT_TYPES")
+    && $contains((string) file_get_contents(__DIR__ . '/../core/accounting/account_mutation.php'), "'other_income', 'other_expense'"));
 $a('action=template returns CSV',               $contains($im, "\$action === 'template'") && $contains($im, 'buildTemplate'));
 $a('action=dry_run + commit handlers',          $contains($im, "'dry_run'") && $contains($im, "'commit'") && $contains($im, "in_array(\$action, ['dry_run','commit']"));
 $a('coa commit UPSERTS by code',                $contains($im, 'UPDATE accounting_accounts SET'));
@@ -82,7 +84,7 @@ $a('JE preview and commit share assignment-dimension hydration',
     && substr_count($im, 'accountingReviewJeImport($tid,') >= 2
     && $contains($im, 'staffingAssignmentDimensionContext('));
 $a('period import creates or exactly replays; never changes status',
-    $contains($im, 'accountingImportPeriodError($tid, $row)')
+    $contains($im, 'accountingImportPeriodError($tid, $row, true)')
     && !$contains($im, 'UPDATE accounting_periods'));
 $a('emits accounting.ledger.imported audit',    $contains($im, "'accounting.ledger.imported'"));
 

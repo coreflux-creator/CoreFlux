@@ -18,7 +18,7 @@ export default function AccountsCsvImport() {
       <CsvImportPage
         endpoint="/modules/accounting/api/accounts_csv_import.php"
         entityLabel="Chart of accounts"
-        description="Export the current chart, complete or correct it in a spreadsheet, then upload it here. Account ID is the safest update key; account code is used when the ID is blank. Posted accounts keep their accounting type and normal balance protected."
+        description="Export the current chart, complete or correct it in a spreadsheet, then upload it here. Account ID is the safest update key; account code is used when the ID is blank. System accounts and accounts with journal activity keep protected accounting fields."
         previewColumns={[
           { key: 'account_id', label: 'ID' },
           { key: 'code', label: 'Code' },
@@ -27,7 +27,7 @@ export default function AccountsCsvImport() {
           { key: 'parent_account_code', label: 'Parent' },
           { key: 'active', label: 'Active' },
         ]}
-        backTo=".."
+        backTo="/modules/accounting/accounts"
         backLabel="Back to chart of accounts"
         testidPrefix="accounting-accounts-csv-import"
         presetEntity="accounting_accounts"

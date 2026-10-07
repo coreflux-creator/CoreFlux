@@ -342,7 +342,6 @@ export default function CsvImportPage({
             data-testid={`${testidPrefix}-file-input`}
             style={{ alignSelf: 'center' }}
           />
-          {fileName && <span data-testid={`${testidPrefix}-filename`} style={{ alignSelf: 'center', color: 'var(--cf-text-secondary)' }}>{fileName}</span>}
           <button
             className="btn btn--primary"
             onClick={dryRun}

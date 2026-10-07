@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
+require_once __DIR__ . '/../../../core/accounting/account_mutation.php';
 require_once __DIR__ . '/../lib/accounting.php';
 
 use Core\CsvImportService;
@@ -15,7 +16,7 @@ CsvImportService::registerSchema('accounting_accounts', [
         'code'                => ['label' => 'Code', 'required' => true],
         'name'                => ['label' => 'Name', 'required' => true],
         'account_type'        => ['label' => 'Account type', 'required' => true,
-                                  'enum' => ['asset', 'liability', 'equity', 'revenue', 'expense']],
+                                  'enum' => ACCOUNTING_ACCOUNT_TYPES],
         'normal_side'         => ['label' => 'Normal side', 'required' => true, 'enum' => ['debit', 'credit']],
         'parent_account_id'   => ['label' => 'Parent account ID', 'type' => 'integer'],
         'parent_account_code' => ['label' => 'Parent account code'],
@@ -132,50 +133,22 @@ $resolveParent = static function (PDO $pdo, array $row) use ($tenantId): ?array 
 
 $validateRows = static function (array &$result) use ($tenantId, $findAccount, $resolveParent): void {
     $pdo = getDB();
-    $postingCount = $pdo->prepare(
-        'SELECT COUNT(*) FROM accounting_journal_entry_lines l
-          JOIN accounting_journal_entries je ON je.id = l.je_id
-         WHERE je.tenant_id = :tenant_id AND l.account_id = :account_id'
-    );
-    $codeOwner = $pdo->prepare('SELECT id FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :code LIMIT 1');
-
     foreach ($result['rows'] as $rowNumber => $row) {
+        if (isset($result['errors'][$rowNumber])) continue;
         $existing = $findAccount($pdo, $row);
         if (!empty($row['account_id']) && !$existing) {
             $result['errors'][$rowNumber][] = "account_id: account {$row['account_id']} was not found in this workspace";
             continue;
         }
-
-        $codeOwner->execute(['tenant_id' => $tenantId, 'code' => trim((string) $row['code'])]);
-        $ownerId = (int) ($codeOwner->fetchColumn() ?: 0);
-        if ($ownerId > 0 && $existing && $ownerId !== (int) $existing['id']) {
-            $result['errors'][$rowNumber][] = "code: {$row['code']} belongs to a different account";
-        }
-
         try {
-            $parent = $resolveParent($pdo, $row);
-            $parentRequested = !empty($row['parent_account_id']) || trim((string) ($row['parent_account_code'] ?? '')) !== '';
-            if ($parentRequested && !$parent) {
-                $result['errors'][$rowNumber][] = 'parent: account was not found in this workspace; import parent rows first';
-            } elseif ($parent && (string) $parent['account_type'] !== (string) $row['account_type']) {
-                $result['errors'][$rowNumber][] = 'parent: parent and child must have the same account type';
-            } elseif ($parent && $existing && (int) $parent['id'] === (int) $existing['id']) {
-                $result['errors'][$rowNumber][] = 'parent: an account cannot be its own parent';
+            $changes = accountingAccountCsvChanges($row);
+            if (!empty($row['parent_account_id']) || trim((string) ($row['parent_account_code'] ?? '')) !== '') {
+                $parent = $resolveParent($pdo, $row);
+                $changes['parent_account_id'] = (int) $parent['id'];
             }
+            accountingReviewAccountChange($tenantId, $existing, $changes);
         } catch (Throwable $e) {
-            $result['errors'][$rowNumber][] = 'parent: ' . $e->getMessage();
-        }
-
-        if ($existing) {
-            $postingCount->execute(['tenant_id' => $tenantId, 'account_id' => (int) $existing['id']]);
-            $hasPostings = (int) $postingCount->fetchColumn() > 0;
-            if ($hasPostings && ((string) $existing['account_type'] !== (string) $row['account_type']
-                || (string) $existing['normal_side'] !== (string) $row['normal_side'])) {
-                $result['errors'][$rowNumber][] = 'account_type/normal_side: posted accounts cannot change accounting classification';
-            }
-            if ($hasPostings && array_key_exists('is_postable', $row) && !(int) $row['is_postable']) {
-                $result['errors'][$rowNumber][] = 'is_postable: an account with journal activity must remain postable';
-            }
+            $result['errors'][$rowNumber][] = $e->getMessage();
         }
     }
     $result['error_count'] = count($result['errors']);
@@ -231,41 +204,12 @@ if ($method === 'POST' && $action === 'commit') {
         $duplicate->execute($params);
         if ($duplicate->fetchColumn()) throw new RuntimeException("Code {$row['code']} belongs to another account");
 
-        $parent = $resolveParent($pdo, $row);
-        $parentId = $parent ? (int) $parent['id'] : null;
-        if ($parent && (string) $parent['account_type'] !== (string) $row['account_type']) {
-            throw new RuntimeException('Parent and child must have the same account type');
+        $changes = accountingAccountCsvChanges($row);
+        if (!empty($row['parent_account_id']) || trim((string) ($row['parent_account_code'] ?? '')) !== '') {
+            $parent = $resolveParent($pdo, $row);
+            $changes['parent_account_id'] = (int) $parent['id'];
         }
-        if ($existing && $parentId === (int) $existing['id']) {
-            throw new RuntimeException('An account cannot be its own parent');
-        }
-
-        if ($existing && $parentId) {
-            $cursor = $parent;
-            $guard = 0;
-            while ($cursor && !empty($cursor['parent_account_id']) && $guard < 500) {
-                if ((int) $cursor['parent_account_id'] === (int) $existing['id']) {
-                    throw new RuntimeException('Parent selection would create a cycle');
-                }
-                $next = $pdo->prepare('SELECT id, parent_account_id FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id');
-                $next->execute(['tenant_id' => $tenantId, 'id' => (int) $cursor['parent_account_id']]);
-                $cursor = $next->fetch(PDO::FETCH_ASSOC) ?: null;
-                $guard++;
-            }
-        }
-
-        $payload = [
-            'code' => trim((string) $row['code']),
-            'name' => trim((string) $row['name']),
-            'account_type' => (string) $row['account_type'],
-            'normal_side' => (string) $row['normal_side'],
-            'parent_account_id' => $parentId,
-            'is_postable' => array_key_exists('is_postable', $row) ? (int) $row['is_postable'] : (int) ($existing['is_postable'] ?? 1),
-            'currency' => trim((string) ($row['currency'] ?? '')) ?: null,
-            'cash_flow_tag' => trim((string) ($row['cash_flow_tag'] ?? '')) ?: null,
-            'description' => trim((string) ($row['description'] ?? '')) ?: null,
-            'active' => array_key_exists('active', $row) ? (int) $row['active'] : (int) ($existing['active'] ?? 1),
-        ];
+        $payload = accountingReviewAccountChange($tenantId, $existing, $changes);
 
         if ($existing) {
             scopedUpdate('accounting_accounts', (int) $existing['id'], $payload);
@@ -287,14 +231,15 @@ if ($method === 'POST' && $action === 'commit') {
         return $id;
     };
 
-    // Persist the exact custom-validated preview. CsvImportService::commit()
-    // re-runs schema validation, but it cannot see tenant references, posting
-    // locks, or hierarchy errors added above. Iterating the preview here makes
-    // skip_invalid honest: no custom-invalid row can leak into the ledger.
+    // Revalidate each row during persistence; the default path rolls back the
+    // whole file if any row fails after preview. Partial import is opt-in.
     $imported = 0;
     $skipped = 0;
     $errors = $preview['errors'];
     $ids = [];
+    $pdo = getDB();
+    $ownsTxn = !$skipInvalid && !$pdo->inTransaction();
+    if ($ownsTxn) $pdo->beginTransaction();
     foreach ($preview['rows'] as $rowNumber => $row) {
         if (isset($errors[$rowNumber])) {
             $skipped++;
@@ -308,6 +253,15 @@ if ($method === 'POST' && $action === 'commit') {
             $skipped++;
         }
     }
+    if (!$skipInvalid && $errors) {
+        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
+        api_ok([
+            'imported_count' => 0, 'skipped_count' => $preview['row_count'],
+            'errors' => $errors, 'ids' => [], 'aborted' => true,
+            'message' => 'No accounts were imported. Fix all errors and retry.',
+        ]);
+    }
+    if ($ownsTxn && $pdo->inTransaction()) $pdo->commit();
     $result = [
         'imported_count' => $imported,
         'skipped_count' => $skipped,

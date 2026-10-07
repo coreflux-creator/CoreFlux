@@ -19,6 +19,7 @@ require_once __DIR__ . '/../lib/accounting.php';
 require_once __DIR__ . '/../lib/dimensions.php';
 require_once __DIR__ . '/../lib/ledger_import.php';
 require_once __DIR__ . '/../../staffing/lib/dimensions.php';
+require_once __DIR__ . '/../../../core/accounting/account_mutation.php';
 
 use Core\CsvImportService;
 
@@ -35,13 +36,12 @@ CsvImportService::registerSchema('accounting_coa', [
         'code'              => ['label' => 'Code',              'required' => true],
         'name'              => ['label' => 'Name',              'required' => true],
         'account_type'      => ['label' => 'Account type',      'required' => true,
-                                 'enum' => ['asset','liability','equity','revenue','expense']],
+                                 'enum' => ACCOUNTING_ACCOUNT_TYPES],
         'normal_side'       => ['label' => 'Normal side',       'required' => true, 'enum' => ['debit','credit']],
         'parent_account_id' => ['label' => 'Parent account id', 'type' => 'number'],
         'is_postable'       => ['label' => 'Is postable',       'type' => 'boolean'],
         'currency'          => ['label' => 'Currency'],
-        'cash_flow_tag'     => ['label' => 'Cash flow tag',
-                                 'enum' => ['operating','investing','financing','cash_and_equivalents','']],
+        'cash_flow_tag'     => ['label' => 'Cash flow tag'],
         'description'       => ['label' => 'Description'],
         'active'            => ['label' => 'Active',            'type' => 'boolean'],
     ],
@@ -258,9 +258,30 @@ function accountingReviewJeImport(int $tenantId, array $dry): array
     return $prepared;
 }
 
+function accountingReviewCoaImport(int $tenantId, array $dry): array
+{
+    $lookup = getDB()->prepare(
+        'SELECT * FROM accounting_accounts WHERE tenant_id = :t AND code = :code LIMIT 1'
+    );
+    foreach ($dry['rows'] as $rowNumber => $row) {
+        if (isset($dry['errors'][$rowNumber])) continue;
+        $lookup->execute(['t' => $tenantId, 'code' => trim((string) $row['code'])]);
+        $current = $lookup->fetch(PDO::FETCH_ASSOC) ?: null;
+        try {
+            accountingReviewAccountChange($tenantId, $current, accountingAccountCsvChanges($row));
+        } catch (InvalidArgumentException $error) {
+            $dry['errors'][$rowNumber][] = $error->getMessage();
+        }
+    }
+    $dry['error_count'] = count($dry['errors']);
+    return $dry;
+}
+
 if ($action === 'dry_run') {
     $res = CsvImportService::dryRun($schemaKey, $raw, null, $defaults);
-    if ($type === 'je') {
+    if ($type === 'coa') {
+        $res = accountingReviewCoaImport($tid, $res);
+    } elseif ($type === 'je') {
         $prepared = accountingReviewJeImport($tid, $res);
         foreach ($prepared['batch_errors'] as $batch => $messages) {
             $res['errors']['batch:' . $batch] = $messages;
@@ -281,21 +302,17 @@ if ($skipInvalid && $type !== 'coa') {
 
 if ($type === 'coa') {
     $db = getDB();
+    $preview = accountingReviewCoaImport($tid, CsvImportService::dryRun($schemaKey, $raw));
+    if (!$skipInvalid && ($preview['error_count'] > 0 || $preview['row_count'] === 0)) {
+        api_ok(['imported_count' => 0, 'skipped_count' => $preview['row_count'],
+            'errors' => $preview['errors'], 'ids' => [], 'aborted' => true,
+            'message' => 'No accounts were imported. Fix all preview errors and retry.']);
+    }
     $writer = function (array $row) use ($db, $tid): int {
-        $stmt = $db->prepare('SELECT id FROM accounting_accounts WHERE tenant_id = :t AND code = :c LIMIT 1');
+        $stmt = $db->prepare('SELECT * FROM accounting_accounts WHERE tenant_id = :t AND code = :c LIMIT 1');
         $stmt->execute(['t' => $tid, 'c' => $row['code']]);
         $existing = $stmt->fetch(\PDO::FETCH_ASSOC);
-        $fields = [
-            'name'         => $row['name'],
-            'account_type' => $row['account_type'],
-            'normal_side'  => $row['normal_side'],
-            'parent_account_id' => !empty($row['parent_account_id']) ? (int) $row['parent_account_id'] : null,
-            'is_postable'  => isset($row['is_postable']) ? (int) $row['is_postable'] : 1,
-            'currency'     => $row['currency']     ?? null,
-            'cash_flow_tag'=> $row['cash_flow_tag']?? null,
-            'description'  => $row['description'] ?? null,
-            'active'       => isset($row['active']) ? (int) $row['active'] : 1,
-        ];
+        $fields = accountingReviewAccountChange($tid, $existing ?: null, accountingAccountCsvChanges($row));
         if ($existing) {
             $sets = []; $params = ['id' => $existing['id'], 't' => $tid];
             foreach ($fields as $k => $v) { $sets[] = "`$k` = :$k"; $params[$k] = $v; }
@@ -303,9 +320,9 @@ if ($type === 'coa') {
                          " WHERE id = :id AND tenant_id = :t")->execute($params);
             return (int) $existing['id'];
         }
-        $cols = array_merge(['tenant_id','code'], array_keys($fields));
+        $cols = array_merge(['tenant_id'], array_keys($fields));
         $ph   = array_map(fn($c) => ':' . $c, $cols);
-        $vals = array_merge(['tenant_id' => $tid, 'code' => $row['code']], $fields);
+        $vals = array_merge(['tenant_id' => $tid], $fields);
         $db->prepare('INSERT INTO accounting_accounts (`' . implode('`,`', $cols) . '`) VALUES (' . implode(',', $ph) . ')')
             ->execute($vals);
         return (int) $db->lastInsertId();
