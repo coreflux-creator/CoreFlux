@@ -69,7 +69,7 @@ $assert('POST ?action=categorize_and_post handler',
                                              strpos($at, "categorize_and_post") !== false);
 $assert('uses accountingPostJe with idempotency key',
                                              strpos($at, "accountingPostJe(") !== false
-                                             && strpos($at, "treasury_feed:{") !== false);
+                                             && strpos($at, 'treasuryStatementPostingKey($type, $lineId, false, $postingAttempt)') !== false);
 $assert('charge: DR counterpart, CR side',   strpos($at, "\$debitId  = \$counterId") !== false);
 $assert('payment: DR side, CR counterpart',  strpos($at, "\$debitId  = \$sideAccountId") !== false);
 $assert('rejects same-account counterpart',  strpos($at, 'Counterpart cannot be the same') !== false);

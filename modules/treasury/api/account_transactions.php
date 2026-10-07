@@ -85,9 +85,9 @@ function _treasuryStatementEntityId(\PDO $pdo, int $tenantId, string $type, int 
 
 if (api_method() === 'POST') {
     $action = (string) ($_GET['action'] ?? '');
-    if (!in_array($action, ['ignore', 'unmatch', 'categorize_and_post', 'match', 'split_categorize', 'bulk_update'], true)) {
+    if (!in_array($action, ['ignore', 'unmatch', 'correct_categorization', 'categorize_and_post', 'match', 'split_categorize', 'bulk_update'], true)) {
         api_error(
-            "POST requires action=ignore|unmatch|categorize_and_post|match|split_categorize|bulk_update. "
+            "POST requires action=ignore|unmatch|correct_categorization|categorize_and_post|match|split_categorize|bulk_update. "
             . "To pull from Plaid, call /api/plaid_sync_transactions.php directly.",
             422
         );
@@ -191,7 +191,24 @@ if (api_method() === 'POST') {
     $line = $line->fetch(PDO::FETCH_ASSOC);
     if (!$line) api_error('Statement line not found', 404);
     if ($action === 'categorize_and_post' && ($line['match_status'] ?? '') !== 'unmatched') {
-        api_error('This transaction is already resolved. Unmatch it before posting a different category.', 409);
+        api_error('This transaction is already resolved. Correct its source posting or restore it before recategorizing.', 409);
+    }
+
+    if ($action === 'correct_categorization') {
+        try {
+            api_ok(treasuryCorrectCategorization(
+                $pdo,
+                $tenantId,
+                $type,
+                $lineId,
+                (string) ($body['reason'] ?? ''),
+                (int) ($ctx['user']['id'] ?? 0) ?: null
+            ));
+        } catch (InvalidArgumentException $e) {
+            api_error($e->getMessage(), 422);
+        } catch (Throwable $e) {
+            api_error($e->getMessage(), 409);
+        }
     }
 
     if ($action === 'ignore') {
@@ -256,7 +273,9 @@ if (api_method() === 'POST') {
         require_once __DIR__ . '/../../../core/module_emission_discipline.php';
         require_once __DIR__ . '/../../../core/posting_engine/process.php';
 
-        if (($line['match_status'] ?? '') !== 'unmatched') api_error('Already matched', 422);
+        if (($line['match_status'] ?? '') !== 'unmatched') {
+            api_error('This transaction is already resolved. Correct its source posting or restore it before splitting.', 409);
+        }
         try {
             $postingEntityId = _treasuryStatementEntityId(
                 $pdo,
@@ -308,6 +327,8 @@ if (api_method() === 'POST') {
                 throw new \RuntimeException('This statement line changed. Refresh before posting.');
             }
             $line = $lockedLine;
+            $postingAttempt = treasuryStatementNextAttempt($pdo, $tenantId, $type, $lineId);
+            $sourceRecordId = treasuryStatementSourceId($type, $lineId, true, $postingAttempt);
             $entityCheck = $pdo->prepare(
                 'SELECT base_currency FROM accounting_entities WHERE tenant_id = :t AND id = :id AND active = 1'
             );
@@ -405,7 +426,7 @@ if (api_method() === 'POST') {
                 'entity_id'        => $postingEntityId,
                 'event_type'       => 'treasury.bank_transaction.categorized',
                 'source_module'    => 'treasury_feed',
-                'source_record_id' => ($type === 'deposit' ? 'bank_line:split:' : 'liab_line:split:') . $lineId,
+                'source_record_id' => $sourceRecordId,
                 'event_date'       => (string) $line['posted_date'],
                 'payload'          => [
                     'bank_txn_id' => (int) $lineId,
@@ -440,7 +461,7 @@ if (api_method() === 'POST') {
                     'source_module'  => 'treasury_feed',
                     'source_ref_type'=> $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line',
                     'source_ref_id'  => $lineId,
-                    'idempotency_key'=> "treasury_feed_split:{$type}:{$lineId}",
+                    'idempotency_key'=> treasuryStatementPostingKey($type, $lineId, true, $postingAttempt),
                     'lines'          => $jeLines,
                 ], (int) ($ctx['user']['id'] ?? 0), true);
             } catch (\Throwable $e) {
@@ -499,9 +520,17 @@ if (api_method() === 'POST') {
             )->execute([
                 't'  => $tenantId,
                 'sm' => 'treasury_feed',
-                'sr' => ($type === 'deposit' ? 'bank_line:split:' : 'liab_line:split:') . $lineId,
+                'sr' => $sourceRecordId,
                 'je' => (int) $res['je_id'],
             ]);
+            if ($postingAttempt > 1) {
+                $pdo->prepare(
+                    'INSERT IGNORE INTO accounting_subledger_links
+                        (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
+                     VALUES (:t, "treasury_feed", :sr, :je, "statement_line")'
+                )->execute(['t' => $tenantId, 'sr' => treasuryStatementSourceId($type, $lineId, true, 1),
+                    'je' => (int) $res['je_id']]);
+            }
         } catch (\Throwable $_) { /* table absent in pre-7b tenants - non-fatal */ }
 
         cf_tx_commit($pdo, $ownsTransaction);
@@ -638,6 +667,8 @@ if (api_method() === 'POST') {
             throw new \RuntimeException('This statement line changed. Refresh before posting.');
         }
         $line = $lockedLine;
+        $postingAttempt = treasuryStatementNextAttempt($pdo, $tenantId, $type, $lineId);
+        $sourceRecordId = treasuryStatementSourceId($type, $lineId, false, $postingAttempt);
         if ($type === 'deposit') {
             $bankLock = $pdo->prepare(
                 'SELECT status, currency FROM accounting_bank_accounts
@@ -675,7 +706,7 @@ if (api_method() === 'POST') {
             'entity_id'        => $postingEntityId,
             'event_type'       => 'treasury.bank_transaction.categorized',
             'source_module'    => 'treasury_feed',
-            'source_record_id' => ($type === 'deposit' ? 'bank_line:' : 'liab_line:') . $lineId,
+            'source_record_id' => $sourceRecordId,
             'event_date'       => (string) $line['posted_date'],
             'payload'          => [
                 'bank_txn_id'             => (int) $lineId,
@@ -720,7 +751,7 @@ if (api_method() === 'POST') {
                 'source_module'  => 'treasury_feed',
                 'source_ref_type'=> $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line',
                 'source_ref_id'  => $lineId,
-                'idempotency_key'=> "treasury_feed:{$type}:{$lineId}",
+                'idempotency_key'=> treasuryStatementPostingKey($type, $lineId, false, $postingAttempt),
                 'lines'          => [
                     ['account_id' => $debitId,  'debit'  => $abs, 'credit' => 0,    'memo' => $memo, 'dims' => $postingDimensions],
                     ['account_id' => $creditId, 'debit'  => 0,    'credit' => $abs, 'memo' => $memo, 'dims' => $postingDimensions],
@@ -782,9 +813,17 @@ if (api_method() === 'POST') {
         )->execute([
             't'  => $tenantId,
             'sm' => 'treasury_feed',
-            'sr' => ($type === 'deposit' ? 'bank_line:' : 'liab_line:') . $lineId,
+            'sr' => $sourceRecordId,
             'je' => (int) $res['je_id'],
         ]);
+        if ($postingAttempt > 1) {
+            $pdo->prepare(
+                'INSERT IGNORE INTO accounting_subledger_links
+                    (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
+                 VALUES (:t, "treasury_feed", :sr, :je, "statement_line")'
+            )->execute(['t' => $tenantId, 'sr' => treasuryStatementSourceId($type, $lineId, false, 1),
+                'je' => (int) $res['je_id']]);
+        }
     } catch (\Throwable $_) { /* table absent in pre-7b tenants — non-fatal */ }
 
 
@@ -1263,6 +1302,12 @@ foreach ($rows as $i => $r) {
         $prefix = $type === 'deposit' ? 'bank_line:' : 'liab_line:';
         $hasOwnLink = isset($treasuryLinksByJournal[$jeId][$prefix . $r['id']])
             || isset($treasuryLinksByJournal[$jeId][$prefix . 'split:' . $r['id']]);
+        $directRef = (string) ($journal['source_ref_type'] ?? '')
+            === ($type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line')
+            && (int) ($journal['source_ref_id'] ?? 0) === (int) $r['id'];
+        $rows[$i]['can_correct_categorization'] = ($journal['status'] ?? '') === 'posted'
+            && ($journal['source_module'] ?? '') === 'treasury_feed'
+            && ($hasOwnLink || $directRef);
         $rows[$i]['unmatch_blocker'] = !$journal
             ? 'The matched journal is missing. Review this line before changing its status.'
             : ($type === 'deposit'
@@ -1276,6 +1321,35 @@ foreach ($rows as $i => $r) {
         $journalById[$jeId]['lines'],
         static fn(array $line): bool => (int) $line['account_id'] !== $sideAccountId
     ));
+}
+
+if ($rows) {
+    $correctionParams = ['t' => $tenantId, 'line_type' => $type];
+    $correctionIds = [];
+    foreach ($rows as $i => $row) {
+        $key = 'line' . $i;
+        $correctionIds[] = ':' . $key;
+        $correctionParams[$key] = (int) $row['id'];
+    }
+    try {
+        $correctionStmt = $pdo->prepare(
+            'SELECT line_id, COUNT(*) AS correction_count, MAX(reversal_je_id) AS last_reversal_je_id
+               FROM treasury_statement_corrections
+              WHERE tenant_id = :t AND line_type = :line_type
+                AND line_id IN (' . implode(',', $correctionIds) . ') GROUP BY line_id'
+        );
+        $correctionStmt->execute($correctionParams);
+        $history = [];
+        foreach ($correctionStmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
+            $history[(int) $item['line_id']] = $item;
+        }
+        foreach ($rows as $i => $row) {
+            $rows[$i]['correction_count'] = (int) ($history[(int) $row['id']]['correction_count'] ?? 0);
+            $rows[$i]['last_reversal_je_id'] = (int) ($history[(int) $row['id']]['last_reversal_je_id'] ?? 0);
+        }
+    } catch (Throwable $_) {
+        // Keep older tenants readable until the correction migration runs.
+    }
 }
 
 $subjectType = $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line';

@@ -12,7 +12,7 @@ function treasuryAssertCategoryCounterpart(array $account): void
 
 function treasuryLiabilityUnmatchBlocker(int $lineId, array $journal, bool $hasTreasuryLineage): ?string
 {
-    if ($hasTreasuryLineage || (
+    if (($journal['source_module'] ?? '') === 'treasury_feed' || $hasTreasuryLineage || (
         ($journal['source_ref_type'] ?? '') === 'liability_statement_line'
         && (int) ($journal['source_ref_id'] ?? 0) === $lineId
     )) {

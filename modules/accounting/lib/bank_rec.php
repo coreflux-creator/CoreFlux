@@ -326,8 +326,9 @@ function bankRecMatchLine(int $tenantId, int $lineId, int $jeId, ?int $userId): 
 function bankRecUnmatchBlocker(array $line, bool $hasTreasuryLineage): ?string
 {
     $lineId = (int) ($line['id'] ?? 0);
-    $createdFromLine = ((string) ($line['source_ref_type'] ?? '') === 'bank_statement_line'
-        && (int) ($line['source_ref_id'] ?? 0) === $lineId) || $hasTreasuryLineage;
+    $createdFromLine = ($line['source_module'] ?? '') === 'treasury_feed'
+        || ((string) ($line['source_ref_type'] ?? '') === 'bank_statement_line'
+            && (int) ($line['source_ref_id'] ?? 0) === $lineId) || $hasTreasuryLineage;
     if ($createdFromLine) {
         return 'This bank line created a posted ledger entry. Correct the source transaction to keep the books in sync.';
     }

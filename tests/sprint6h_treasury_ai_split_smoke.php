@@ -51,7 +51,7 @@ $assert('posts entity as counterparty_entity_id',       stripos($at, "'counterpa
 $assert('GET returns active entity options',            stripos($at, "'entities'              => \$entities") !== false);
 $assert('posts ONE balanced JE via accountingPostJe',   stripos($at, 'accountingPostJe(') !== false);
 $assert('idempotency_key uses treasury_feed_split prefix',
-                                                        stripos($at, 'treasury_feed_split:') !== false);
+                                                        str_contains($at, 'treasuryStatementPostingKey($type, $lineId, true, $postingAttempt)'));
 $assert('marks line matched after post',                preg_match("#UPDATE.*SET match_status\\s*=\\s*'matched'#s", $at) === 1);
 
 echo "\nTreasury UI — AI cat + Split/IC affordances\n";

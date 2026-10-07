@@ -3,6 +3,8 @@ This file is rewritten on every Emergent commit. update.php compares its
 contents against the latest entry in coreflux_migrations + the existence
 of recent files to prove the server is on HEAD (not 10 commits behind).
 sentinels:
+- modules/treasury/migrations/008_statement_corrections.sql
+- modules/treasury/lib/statement_state.php
 - modules/accounting/api/opening_balances.php
 - modules/accounting/lib/opening_balances.php
 - core/migrations/139_c2c_source_no_waiver.sql
@@ -317,9 +319,9 @@ sentinels:
 - tests/staffing_dimensions_smoke.php
 - tests/treasury_dimension_integrity_smoke.php
 expected_bundle:
-- spa-assets/index-D7GpEn2Y.js
+- spa-assets/index-BIfFdW--.js
 - spa-assets/index-B_N4jd7q.css
-- spa-assets/index-BOkc6gxm.js
+- spa-assets/index-DJgiBT4S.js
 - spa-assets/index-SRkxIh9x.css
 last_known_features:
 - placements.economics.one_time_items

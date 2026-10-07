@@ -1,8 +1,9 @@
 import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   ArrowDown, ArrowUp, ArrowUpDown, CheckSquare, ChevronLeft, ChevronRight,
-  ListFilter, RefreshCw, Save, Search, SlidersHorizontal, WandSparkles, X,
+  ListFilter, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, WandSparkles, X,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate } from '../../../dashboard/src/lib/format';
 import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
@@ -130,6 +131,9 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const [syncMsg, setSyncMsg] = useState(null);
   const [syncErr, setSyncErr] = useState(null);
   const [categorizingId, setCategorizingId] = useState(null);
+  const [correctionId, setCorrectionId] = useState(null);
+  const [correctionReason, setCorrectionReason] = useState('');
+  const [correctionBusy, setCorrectionBusy] = useState(false);
   const [rowError, setRowError] = useState(null);
   // Sprint 6h — AI cat. + Split/IC affordances now mirror Bank Rec.
   const [aiBusyId, setAiBusyId] = useState(null);
@@ -202,6 +206,19 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
 
   const ignoreLine  = (lineId) => lineAction(lineId, 'ignore');
   const unmatchLine = (lineId) => lineAction(lineId, 'unmatch');
+  const correctPosting = async (event, lineId) => {
+    event.preventDefault();
+    if (!correctionReason.trim()) return;
+    setCorrectionBusy(true); setRowError(null);
+    try {
+      await api.post('/modules/treasury/api/account_transactions.php?action=correct_categorization', {
+        line_id: lineId, type, reason: correctionReason.trim(),
+      });
+      setCorrectionId(null); setCorrectionReason(''); reload();
+    } catch (e) {
+      setRowError(`Correction failed: ${e.message}`);
+    } finally { setCorrectionBusy(false); }
+  };
 
   const toggleRow = (lineId) => setSelectedIds((current) => (
     current.includes(lineId) ? current.filter((id) => id !== lineId) : [...current, lineId]
@@ -514,6 +531,14 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                     {r.bank_reference && (
                       <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>Reference {r.bank_reference}</div>
                     )}
+                    {Number(r.correction_count) > 0 && (
+                      <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>
+                        Corrected {r.correction_count} time{Number(r.correction_count) === 1 ? '' : 's'}
+                        {r.last_reversal_je_id > 0 && <>
+                          {' · '}<Link to={`/modules/accounting/journal-entries/${r.last_reversal_je_id}`}>View reversal</Link>
+                        </>}
+                      </div>
+                    )}
                     {Array.isArray(r.categorization) && r.categorization.length > 0 && (
                       <div
                         data-testid={`treasury-txn-category-${r.id}`}
@@ -638,10 +663,27 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         Unmatch
                       </button>
                     )}
-                    {r.match_status === 'matched' && r.unmatch_blocker && (
-                      <span className="muted" style={{ fontSize: 11 }} title={r.unmatch_blocker}>
-                        Source-managed
-                      </span>
+                    {r.can_correct_categorization && (
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={() => { setCorrectionId(correctionId === r.id ? null : r.id); setCorrectionReason(''); setRowError(null); }}
+                        data-testid={`treasury-txn-correct-${r.id}`}
+                        aria-expanded={correctionId === r.id}
+                        title="Reverse this Treasury posting and reopen the statement line"
+                        style={{ padding: '2px 8px', fontSize: 11 }}
+                      >
+                        <RotateCcw size={13} aria-hidden="true" /> Correct posting
+                      </button>
+                    )}
+                    {r.match_status === 'matched' && r.unmatch_blocker && !r.can_correct_categorization && (
+                      type === 'deposit' && r.journal_entry?.source_module === 'billing'
+                        ? <Link className="btn btn--ghost" to={`/modules/accounting/bank-rec/${accountId}`}
+                            title="Review the source receipt or processor payout before correcting it"
+                            style={{ padding: '2px 8px', fontSize: 11 }}>Review source</Link>
+                        : <span className="muted" style={{ fontSize: 11 }} title={r.unmatch_blocker}>
+                            Source-managed
+                          </span>
                     )}
                     {r.match_status === 'ignored' && (
                       <button
@@ -656,6 +698,32 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                     )}
                   </td>
                 </tr>
+                {correctionId === r.id && r.can_correct_categorization && (
+                  <tr data-testid={`treasury-txn-correction-row-${r.id}`}>
+                    <td colSpan={type === 'liability' ? 7 : 6}
+                        style={{ background: '#fff7ed', padding: 12, borderLeft: '3px solid #ea580c' }}>
+                      <form onSubmit={(event) => correctPosting(event, r.id)}>
+                        <strong>Correct Treasury posting</strong>
+                        <p style={{ margin: '5px 0 10px', fontSize: 12 }}>
+                          Reverse the matched journal and reopen this line. The original and reversal remain in the audit trail; no money is moved.
+                        </p>
+                        <label htmlFor={`treasury-correction-reason-${r.id}`}>Reason</label>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                          <input id={`treasury-correction-reason-${r.id}`} className="input"
+                            value={correctionReason} maxLength={500} required
+                            onChange={(event) => setCorrectionReason(event.target.value)}
+                            placeholder="What needs to be corrected?"
+                            style={{ flex: '1 1 260px' }} />
+                          <button type="submit" className="btn btn--primary" disabled={correctionBusy || !correctionReason.trim()}>
+                            {correctionBusy ? 'Correcting…' : 'Reverse and reopen'}
+                          </button>
+                          <button type="button" className="btn btn--ghost" disabled={correctionBusy}
+                            onClick={() => { setCorrectionId(null); setCorrectionReason(''); }}>Cancel</button>
+                        </div>
+                      </form>
+                    </td>
+                  </tr>
+                )}
                 {categorizingId === r.id && (
                   <CategorizeRow
                     line={r}

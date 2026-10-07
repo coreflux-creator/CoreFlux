@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../modules/treasury/lib/bank_posting.php';
+require_once __DIR__ . '/../modules/treasury/lib/statement_state.php';
 require_once __DIR__ . '/../modules/accounting/lib/bank_rec.php';
 
 $passed = 0;
@@ -106,6 +107,9 @@ $check('bank-line journal cannot be unlinked', bankRecUnmatchBlocker([
 $check('event-linked bank-line journal cannot be unlinked', bankRecUnmatchBlocker([
     'id' => 12, 'source_module' => 'treasury_feed', 'source_ref_type' => null, 'source_ref_id' => null,
 ], true) !== null);
+$check('Treasury journal without optional source link still cannot be unlinked', bankRecUnmatchBlocker([
+    'id' => 12, 'source_module' => 'treasury_feed', 'source_ref_type' => null, 'source_ref_id' => null,
+], false) !== null);
 $check('processor payout cannot be unlinked', bankRecUnmatchBlocker([
     'id' => 12, 'source_module' => 'billing', 'source_ref_type' => 'processor_payout', 'source_ref_id' => 2,
 ], false) !== null);
@@ -113,9 +117,21 @@ $check('liability journal created from line cannot be unlinked', treasuryLiabili
     'source_ref_type' => 'liability_statement_line', 'source_ref_id' => 12,
 ], false) !== null);
 $check('event-linked liability journal cannot be unlinked', treasuryLiabilityUnmatchBlocker(12, [], true) !== null);
+$check('Treasury liability journal without optional source link still cannot be unlinked',
+    treasuryLiabilityUnmatchBlocker(12, ['source_module' => 'treasury_feed'], false) !== null);
 $check('unrelated liability journal may be unlinked', treasuryLiabilityUnmatchBlocker(12, [
     'source_ref_type' => 'liability_statement_line', 'source_ref_id' => 13,
 ], false) === null);
+$check('first posting preserves existing event and journal identities',
+    treasuryStatementSourceId('deposit', 12, false, 1) === 'bank_line:12'
+    && treasuryStatementPostingKey('deposit', 12, false, 1) === 'treasury_feed:deposit:12');
+$check('corrected split uses fresh source and journal identities',
+    treasuryStatementSourceId('deposit', 12, true, 2) === 'bank_line:split:attempt:2:12'
+    && treasuryStatementPostingKey('deposit', 12, true, 2) === 'treasury_feed_split:deposit:12:attempt:2');
+$check('attempt source is scoped to one line and account type',
+    treasuryStatementSourceBelongsToLine('liab_line:attempt:3:12', 'liability', 12)
+    && !treasuryStatementSourceBelongsToLine('liab_line:attempt:3:12', 'deposit', 12)
+    && !treasuryStatementSourceBelongsToLine('liab_line:attempt:3:12', 'liability', 13));
 
 $api = (string) file_get_contents(__DIR__ . '/../modules/treasury/api/account_transactions.php');
 $check('endpoint locks line before posting', str_contains($api, 'SELECT * FROM {$table} WHERE tenant_id = :t AND id = :id FOR UPDATE'));
@@ -145,6 +161,18 @@ $check('liability match validates posted entity currency and account movement',
     && str_contains($state, "\$journal['status'] !== 'posted'")
     && str_contains($state, "\$journal['entity_id']")
     && str_contains($state, 'SUM(debit - credit)'));
+$migration = (string) file_get_contents(__DIR__ . '/../modules/treasury/migrations/008_statement_corrections.sql');
+$check('correction audit has unique line attempts and original journals',
+    str_contains($migration, 'uq_tsc_attempt') && str_contains($migration, 'uq_tsc_original_je'));
+$check('Treasury correction atomically reverses event journal and statement match',
+    str_contains($state, 'function treasuryCorrectCategorization(')
+    && str_contains($state, 'accountingReverseJe(')
+    && str_contains($state, 'UPDATE accounting_events SET status = "reversed"')
+    && str_contains($state, 'INSERT INTO treasury_statement_corrections'));
+$check('Treasury API uses attempt identity for both posting modes',
+    str_contains($api, 'treasuryStatementPostingKey($type, $lineId, true, $postingAttempt)')
+    && str_contains($api, 'treasuryStatementPostingKey($type, $lineId, false, $postingAttempt)')
+    && str_contains($api, 'if ($action === \'correct_categorization\')'));
 
 $coa = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/accounts.php');
 $ai = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/bank_ai.php');
@@ -155,6 +183,10 @@ $check('AI is limited to direct-post-safe categories', str_contains($ai, 'accoun
 $check('Treasury picker uses eligibility flag', str_contains($ui, 'a.direct_category_eligible'));
 $check('Treasury hides invalid unmatch actions', str_contains($ui, 'r.match_status === \'matched\' && !r.unmatch_blocker')
     && str_contains($ui, 'Source-managed'));
+$check('Treasury correction requires a reason and exposes the reversal history',
+    str_contains($ui, 'treasury-txn-correction-row-')
+    && str_contains($ui, 'correctionReason.trim()')
+    && str_contains($ui, 'View reversal'));
 
 echo "Passed: {$passed}; Failed: {$failed}" . PHP_EOL;
 exit($failed ? 1 : 0);
