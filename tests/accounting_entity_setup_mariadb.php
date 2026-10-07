@@ -92,6 +92,16 @@ try {
     }
     $assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_entities WHERE tenant_id = 1')->fetchColumn() === $before + 1,
         'failed creates left no extra entity');
+    $pdo->exec('UPDATE accounting_entities SET active = 0 WHERE tenant_id = 1');
+    try {
+        accountingDefaultEntity($tenantId);
+        throw new RuntimeException('Missing default entity was silently created');
+    } catch (AccountingSetupRequired $error) {
+        $assert(str_contains($error->getMessage(), 'Set up an active legal entity'),
+            'missing entity asks for explicit setup');
+    }
+    $assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_entities WHERE tenant_id = 1')->fetchColumn() === $before + 1,
+        'missing default did not insert a generic entity');
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();
 }

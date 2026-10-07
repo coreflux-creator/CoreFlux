@@ -155,11 +155,9 @@ function accountingResolvePeriod(int $tenantId, int $entityId, string $postingDa
     }
 }
 
-/**
- * Default entity for a tenant — first active entity, or auto-create
- * a "MAIN" entity on first use. Keeps subledger posting simple until
- * the tenant configures multi-entity.
- */
+class AccountingSetupRequired extends \RuntimeException {}
+
+/** Default to an existing active legal entity; setup owns entity creation. */
 function accountingDefaultEntity(int $tenantId): array
 {
     $pdo = getDB();
@@ -167,13 +165,7 @@ function accountingDefaultEntity(int $tenantId): array
     $stmt->execute(['t' => $tenantId]);
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);
     if ($row) return $row;
-
-    $pdo->prepare(
-        'INSERT INTO accounting_entities (tenant_id, code, legal_name, base_currency, active)
-         VALUES (:t, "MAIN", "Main Entity", "USD", 1)'
-    )->execute(['t' => $tenantId]);
-    $stmt->execute(['t' => $tenantId]);
-    return $stmt->fetch(\PDO::FETCH_ASSOC);
+    throw new AccountingSetupRequired('Set up an active legal entity before recording accounting activity.');
 }
 
 /**

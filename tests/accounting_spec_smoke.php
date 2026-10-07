@@ -39,7 +39,8 @@ $a('JE number format prefix-YYYY-NNNNNN',      strpos($lib, "sprintf('%s-%s-%06d
 $a('resolvePeriod auto-creates non-overlapping monthly periods',
     strpos($lib, "format('Y-m-01')") !== false
     && strpos($lib, 'automatic monthly creation would overlap it') !== false);
-$a('defaultEntity auto-creates MAIN',          strpos($lib, "VALUES (:t, \"MAIN\", \"Main Entity\"") !== false);
+$a('defaultEntity requires configured entity', str_contains($lib, 'throw new AccountingSetupRequired(')
+    && !str_contains($lib, '"Main Entity"'));
 $a('accountingPostJe(): idempotency replay',   strpos($lib, 'idempotent_replay') !== false);
 $a('accountingPostJe(): validates active entity ownership',
     strpos($lib, "accountingValidateActiveEntityId(\$tenantId, \$je['entity_id'] ?? null)") !== false);

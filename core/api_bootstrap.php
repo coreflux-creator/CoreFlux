@@ -452,6 +452,13 @@ function api_require_cfo(): array {
 set_exception_handler(function (Throwable $e) {
     error_log('[api] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
 
+    if ($e instanceof AccountingSetupRequired) {
+        api_error($e->getMessage(), 409, [
+            'kind' => 'accounting_setup_required',
+            'setup_path' => '/modules/accounting/entities',
+        ]);
+    }
+
     // Recognise "table doesn't exist" — happens when a module's migration
     // hasn't been run yet on the target database. Helps the operator spot
     // it instantly instead of a generic 500.
