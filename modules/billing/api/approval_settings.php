@@ -10,6 +10,9 @@ $ctx = api_require_auth();
 $user = $ctx['user'];
 $tenantId = (int) $ctx['tenant_id'];
 rbac_legacy_require($user, 'billing.approvals.manage');
+if (!RBACResolver::can($user, $tenantId, 'billing', 'admin')) {
+    api_error('Billing approval administration access is required.', 403);
+}
 
 $method = api_method();
 try {

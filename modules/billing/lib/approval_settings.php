@@ -60,6 +60,7 @@ function billingInvoiceApprovalSettingsRead(int $tenantId): array
     );
     $stmt->execute(['tenant_id' => $tenantId, 'policy_key' => BILLING_INVOICE_APPROVAL_POLICY_KEY]);
     $policy = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    $metadata = $policy ? (json_decode((string) ($policy['metadata_json'] ?? '{}'), true) ?: []) : [];
     $configured = [];
     if ($policy && $policy['status'] === 'active') {
         $rules = $pdo->prepare(
@@ -83,11 +84,27 @@ function billingInvoiceApprovalSettingsRead(int $tenantId): array
     $other->execute(['tenant_id' => $tenantId, 'policy_key' => BILLING_INVOICE_APPROVAL_POLICY_KEY]);
     return [
         'configured' => $policy !== null && $policy['status'] === 'active' && $configured !== [],
+        'managed_default_policy' => ($metadata['managed_by'] ?? null) === 'billing_approval_settings',
         'reviewer_user_ids' => $configured,
         'eligible_reviewers' => $eligible,
         'unavailable_reviewer_user_ids' => array_values(array_diff($configured, $eligibleIds)),
         'other_active_policies' => (int) $other->fetchColumn(),
     ];
+}
+
+/** Capture the simple managed policy for an invoice without overriding custom graph policies. */
+function billingInvoiceManagedReviewerSnapshot(int $tenantId, array $blockedUserIds = []): ?array
+{
+    $settings = billingInvoiceApprovalSettingsRead($tenantId);
+    if (!$settings['configured'] || !$settings['managed_default_policy']
+        || $settings['other_active_policies'] > 0) return null;
+
+    $eligibleIds = array_column($settings['eligible_reviewers'], 'id');
+    $blocked = array_values(array_unique(array_map('intval', $blockedUserIds)));
+    return array_values(array_diff(
+        array_intersect($settings['reviewer_user_ids'], $eligibleIds),
+        $blocked
+    ));
 }
 
 function billingInvoiceApprovalSettingsSave(int $tenantId, array $reviewerIds, int $actorUserId): array

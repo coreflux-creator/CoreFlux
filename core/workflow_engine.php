@@ -234,6 +234,12 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
         && !in_array($action, ['approve', 'reject', 'comment'], true)) {
         throw new \InvalidArgumentException('Billing invoice review requires an approve or reject decision');
     }
+    if ($instance['subject_type'] === 'billing_invoice') {
+        require_once __DIR__ . '/../modules/billing/lib/approval_settings.php';
+        if ($userId === null || !billingInvoiceReviewerIsEligible($tenantId, $userId)) {
+            throw new \RuntimeException('Billing invoice approval access is required');
+        }
+    }
 
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $defStmt = $pdo->prepare("SELECT * FROM workflow_definitions WHERE id = :id");
@@ -243,7 +249,9 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     $payload = json_decode((string) ($instance['payload_json'] ?? '{}'), true) ?: [];
     $currentStepDef = $steps[(int) $instance['current_step'] - 1] ?? null;
 
-    if (in_array($action, ['approve', 'reject', 'skip', 'delegate', 'escalate'], true) && is_array($currentStepDef)) {
+    if ((in_array($action, ['approve', 'reject', 'skip', 'delegate', 'escalate'], true)
+        || ($action === 'comment' && $instance['subject_type'] === 'billing_invoice'))
+        && is_array($currentStepDef)) {
         _workflowAssertCurrentApprover($tenantId, $instance, $currentStepDef, $payload, $userId);
     }
     if (in_array($action, ['approve', 'reject', 'skip'], true) && is_array($currentStepDef)) {
@@ -671,7 +679,15 @@ function workflowGetPendingForUser(int $tenantId, int $userId, ?string $subjectT
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     $out = [];
+    $billingEligible = null;
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        if ($r['subject_type'] === 'billing_invoice') {
+            if ($billingEligible === null) {
+                require_once __DIR__ . '/../modules/billing/lib/approval_settings.php';
+                $billingEligible = billingInvoiceReviewerIsEligible($tenantId, $userId);
+            }
+            if (!$billingEligible) continue;
+        }
         $steps = json_decode((string) $r['steps_json'], true) ?: [];
         $stepDef = $steps[(int) $r['current_step'] - 1] ?? null;
         $payload = json_decode((string) ($r['payload_json'] ?? '{}'), true) ?: [];
@@ -949,6 +965,12 @@ function _workflowResolveStepApproverUserIds(
     array $stepDef,
     array $payload
 ): array {
+    if ($subjectType === 'billing_invoice' && (int) ($stepDef['step'] ?? 0) === 1
+        && array_key_exists('billing_reviewer_user_ids_snapshot', $payload)) {
+        return array_values(array_unique(array_filter(array_map(
+            'intval', (array) $payload['billing_reviewer_user_ids_snapshot']
+        ))));
+    }
     $explicit = array_values(array_unique(array_filter(array_map('intval', (array) ($stepDef['approver_user_ids'] ?? [])))));
     $resolution = $stepDef['approver_resolution']
         ?? $stepDef['assignee_resolution']

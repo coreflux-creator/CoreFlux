@@ -196,6 +196,20 @@ function billingInvoiceApprovalRouting(int $tenantId, array $invoice): array
     }
 }
 
+/** A routed approval needs at least one active, independent Billing reviewer. */
+function billingInvoiceHasIndependentApprover(int $tenantId, array $requirements, array $blockedUserIds): bool
+{
+    $userIds = [];
+    foreach ($requirements as $requirement) {
+        foreach (($requirement['approvers'] ?? []) as $actor) {
+            $userIds = array_merge($userIds, _workflowPeopleGraphActorToUserIds($tenantId, $actor));
+        }
+    }
+    $eligible = array_column(billingInvoiceEligibleReviewers($tenantId), 'id');
+    return array_diff(array_intersect(array_unique(array_map('intval', $userIds)), $eligible),
+        array_map('intval', $blockedUserIds)) !== [];
+}
+
 /** @internal */
 function billingInvoiceApproveDirect(int $tenantId, int $invoiceId, int $userId, array $invoice): array
 {
@@ -239,7 +253,22 @@ function billingInvoiceWorkflowStart(int $tenantId, int $invoiceId, ?int $starte
     $invoice = billingInvoiceWorkflowRow($tenantId, $invoiceId);
     if (!$invoice || !billingTransitionAllowed((string) ($invoice['status'] ?? ''), 'approved')) return null;
 
+    $pendingId = billingInvoiceWorkflowPendingInstanceId($tenantId, $invoiceId,
+        isset($invoice['workflow_instance_id']) ? (int) $invoice['workflow_instance_id'] : null);
+    if ($pendingId > 0) return $pendingId;
+
     try {
+        $routing = billingInvoiceApprovalRouting($tenantId, $invoice);
+        if (empty($routing['infrastructure_available']) || empty($routing['workflow_required'])
+            || !billingInvoiceHasIndependentApprover($tenantId, (array) $routing['requirements'],
+                billingInvoiceWorkflowSodBlockedUserIds($invoice, $starterUserId))) {
+            throw new \DomainException('Configure an active, independent invoice reviewer before requesting approval.');
+        }
+        $snapshot = billingInvoiceManagedReviewerSnapshot($tenantId,
+            billingInvoiceWorkflowSodBlockedUserIds($invoice, $starterUserId));
+        if ($snapshot === []) {
+            throw new \DomainException('Assign an independent invoice reviewer before requesting approval.');
+        }
         $defKey = 'billing_invoice_approval';
         workflowEnsureDefinition(
             $tenantId,
@@ -249,6 +278,7 @@ function billingInvoiceWorkflowStart(int $tenantId, int $invoiceId, ?int $starte
             billingInvoiceWorkflowSteps($invoiceId)
         );
         $payload = billingInvoiceWorkflowPayload($invoice, $starterUserId);
+        if ($snapshot !== null) $payload['billing_reviewer_user_ids_snapshot'] = $snapshot;
         $instance = workflowStart($tenantId, $defKey, 'billing_invoice', $invoiceId, $payload, $starterUserId);
         $instanceId = (int) ($instance['id'] ?? 0);
         if ($instanceId <= 0) return null;
@@ -263,7 +293,8 @@ function billingInvoiceWorkflowStart(int $tenantId, int $invoiceId, ?int $starte
         } catch (\Throwable $_) { /* schema drift: workflow instance still exists */ }
 
         $latest = billingInvoiceWorkflowRow($tenantId, $invoiceId) ?? $invoice;
-        $payload = billingInvoiceWorkflowPayload($latest, $starterUserId);
+        $payload = array_replace((array) ($instance['payload'] ?? []),
+            billingInvoiceWorkflowPayload($latest, $starterUserId));
         $pdo->prepare(
             'UPDATE workflow_instances
                 SET payload_json = :payload, last_activity_at = NOW()
@@ -337,26 +368,44 @@ function billingInvoiceWorkflowAct(
         throw new \RuntimeException("Cannot approve from status {$invoice['status']}");
     }
 
+    $instanceId = billingInvoiceWorkflowPendingInstanceId(
+        $tenantId,
+        $invoiceId,
+        isset($invoice['workflow_instance_id']) ? (int) $invoice['workflow_instance_id'] : null
+    );
+    if ($instanceId <= 0) {
+        $prior = getDB()->prepare('SELECT status FROM workflow_instances
+            WHERE tenant_id = :tenant_id AND subject_type = "billing_invoice"
+              AND subject_id = :invoice_id ORDER BY id DESC LIMIT 1');
+        $prior->execute(['tenant_id' => $tenantId, 'invoice_id' => $invoiceId]);
+        if ($prior->fetchColumn() !== false) {
+            throw new \RuntimeException('A previous approval ended. Review the invoice before approving it again.');
+        }
+    }
     $routing = billingInvoiceApprovalRouting($tenantId, $invoice);
-    if (empty($routing['workflow_required'])) {
+    if ($instanceId <= 0 && empty($routing['workflow_required'])) {
         return billingInvoiceApproveDirect($tenantId, $invoiceId, $userId, $invoice);
     }
 
     try {
         $starter = !empty($invoice['created_by_user_id']) ? (int) $invoice['created_by_user_id'] : null;
-        $instanceId = billingInvoiceWorkflowPendingInstanceId(
-            $tenantId,
-            $invoiceId,
-            isset($invoice['workflow_instance_id']) ? (int) $invoice['workflow_instance_id'] : null
-        );
         if ($instanceId <= 0) {
+            if (billingInvoiceManagedReviewerSnapshot($tenantId,
+                billingInvoiceWorkflowSodBlockedUserIds($invoice, $starter)) === []) {
+                throw new \RuntimeException('Assign an independent invoice reviewer before requesting approval.');
+            }
             $instanceId = (int) (billingInvoiceWorkflowStart($tenantId, $invoiceId, $starter) ?? 0);
         }
         if ($instanceId <= 0) {
             throw new \RuntimeException('Could not start billing invoice approval workflow');
         }
 
-        $payload = billingInvoiceWorkflowPayload($invoice, $starter);
+        $existing = getDB()->prepare(
+            'SELECT payload_json FROM workflow_instances WHERE tenant_id = :t AND id = :id'
+        );
+        $existing->execute(['t' => $tenantId, 'id' => $instanceId]);
+        $storedPayload = json_decode((string) ($existing->fetchColumn() ?: '{}'), true) ?: [];
+        $payload = array_replace($storedPayload, billingInvoiceWorkflowPayload($invoice, $starter));
         getDB()->prepare(
             'UPDATE workflow_instances
                 SET payload_json = :payload, last_activity_at = NOW()

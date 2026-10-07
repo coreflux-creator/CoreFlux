@@ -63,7 +63,7 @@ $assert('paid → sent (NO)',                    !billingTransitionAllowed('paid
 $assert('void terminal',                       !billingTransitionAllowed('void', 'draft') && !billingTransitionAllowed('void', 'approved'));
 
 echo "\nAPI files parse\n";
-foreach (['invoices.php','payments.php','aging.php'] as $f) {
+foreach (['invoices.php','approval_assignment.php','payments.php','aging.php'] as $f) {
     $p = __DIR__ . "/../modules/billing/api/{$f}";
     $assert("api/{$f} exists",                  is_file($p));
     $o = []; $rc = 0; @exec('php -l ' . escapeshellarg($p) . ' 2>&1', $o, $rc);
@@ -81,11 +81,13 @@ $assert('public page has print button',        strpos($pubSrc, 'window.print()')
 
 echo "\nAPI endpoint actions wired\n";
 $inv = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');
-foreach (['from-time-bundle','approve','send','void'] as $a) {
+foreach (['from-time-bundle','request_approval','approve','send','void'] as $a) {
     $assert("invoices has action={$a}",         strpos($inv, "action === '{$a}'") !== false);
 }
 $assert('approve supports optional policy routing',
     strpos($inv, 'Without one, an authorized billing user can approve the draft directly') !== false);
+$assert('pending approval locks draft edits and void',
+    substr_count($inv, 'billingInvoiceWorkflowPendingInstanceId($tid, $id) > 0') >= 2);
 $assert('void releases bundles when no pmts',  strpos($inv, 'consumed_by_module = NULL') !== false);
 $assert('approve checks transition allowed',   strpos($inv, "billingTransitionAllowed(\$row['status'], 'approved')") !== false);
 $assert('send issues token + emails',          strpos($inv, 'billingIssueViewToken') !== false && strpos($inv, "cf_mail_bootstrap") !== false);
@@ -123,6 +125,10 @@ $il = (string) file_get_contents(__DIR__ . '/../modules/billing/ui/InvoicesList.
 $assert('list has new-from-time-bundle btn',   strpos($il, 'billing-new-from-time-bundle') !== false);
 $id = (string) file_get_contents(__DIR__ . '/../modules/billing/ui/InvoiceDetail.jsx');
 $assert('detail has approve button testid',    strpos($id, 'billing-invoice-approve') !== false);
+$assert('detail separates request and posting', strpos($id, 'billing-invoice-request-approval') !== false
+    && strpos($id, 'billing-invoice-post') !== false
+    && strpos($id, 'Approve & post') === false);
+$assert('detail exposes pending assignment', strpos($id, 'billing-invoice-reassign-modal') !== false);
 $assert('detail has send button testid',       strpos($id, 'billing-invoice-send-open') !== false);
 $assert('detail has void button testid',       strpos($id, 'billing-invoice-void') !== false);
 $ifm = (string) file_get_contents(__DIR__ . '/../modules/billing/ui/InvoiceFromTimeBundleModal.jsx');

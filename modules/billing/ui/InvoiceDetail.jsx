@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowRight, BookOpenCheck, Landmark } from 'lucide-react';
+import { ArrowRight, BookOpenCheck, Check, Landmark, Send, UserRoundCog, X } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 
@@ -13,6 +13,12 @@ export default function InvoiceDetail() {
   const [actionError, setActionError] = useState(null);
   const [sendTo, setSendTo] = useState('');
   const [showSend, setShowSend] = useState(false);
+  const [showReassign, setShowReassign] = useState(false);
+  const [selectedReviewers, setSelectedReviewers] = useState([]);
+  const approval = useApi(
+    data?.invoice?.status === 'draft' ? `/modules/billing/api/approval_assignment.php?invoice_id=${id}` : null,
+    { enabled: data?.invoice?.status === 'draft' }
+  );
   const canFindReceipts = ['approved', 'sent', 'partially_paid'].includes(data?.invoice?.status)
     && data?.invoice?.journal_status === 'posted'
     && Number(data?.invoice?.amount_due) > 0;
@@ -35,11 +41,13 @@ export default function InvoiceDetail() {
   const allocations = data.allocations || [];
   const token = data.token;
 
-  const canEdit = inv.status === 'draft' && lines.every((line) => line.source_type === 'manual');
-  const canApprove = inv.status === 'draft';
+  const approvalState = Number(approval.data?.invoice_id) === Number(id) ? approval.data : null;
+  const canEdit = inv.status === 'draft' && approvalState && !approvalState.pending && lines.every((line) => line.source_type === 'manual');
+  const canApprove = inv.status === 'draft' && approvalState?.viewer_can_approve;
+  const canRequest = inv.status === 'draft' && approvalState?.viewer_can_request;
   const canSend = inv.status === 'approved' && inv.journal_status === 'posted';
   const canPost = ['approved', 'sent', 'partially_paid', 'paid'].includes(inv.status) && !inv.journal_entry_id;
-  const canVoid = inv.status === 'draft'
+  const canVoid = inv.status === 'draft' && approvalState && !approvalState.pending
     && !inv.journal_entry_id
     && Number(inv.amount_paid || 0) === 0
     && allocations.length === 0;
@@ -47,17 +55,27 @@ export default function InvoiceDetail() {
   const run = async (label, fn) => {
     setBusy(label); setActionError(null);
     try { await fn(); } catch (e) { setActionError(e); }
-    finally { await reload(); setBusy(null); }
+    finally { await reload(); await approval.reload(); setBusy(null); }
   };
 
-  const approve = () => run('approve', async () => {
-    const result = await api.post(`/api/v1/billing/invoices?action=approve&id=${id}`, {});
-    if (!result.approved) return;
-    try {
-      await api.post(`/api/v1/billing/invoices?action=post&id=${id}`, {});
-    } catch (e) {
-      throw new Error(`Invoice approved, but ledger posting failed: ${e.message}`);
-    }
+  const requestApproval = () => run('request', () => api.post(`/api/v1/billing/invoices?action=request_approval&id=${id}`, {}));
+  const approve = () => run('approve', () => api.post(`/api/v1/billing/invoices?action=approve&id=${id}`, {}));
+  const reject = () => {
+    const reason = prompt('Reason for rejecting this invoice:');
+    if (!reason?.trim()) return;
+    run('reject', () => api.post(`/api/workflow.php?action=act&id=${approvalState.workflow_instance_id}`,
+      { action: 'reject', comment: reason.trim() }));
+  };
+  const openReassign = () => {
+    const eligible = new Set((approvalState?.eligible_reviewers || []).map((person) => Number(person.id)));
+    setSelectedReviewers((approvalState?.assigned_reviewer_user_ids || []).filter((value) => eligible.has(Number(value))));
+    setShowReassign(true);
+  };
+  const reassign = () => run('reassign', async () => {
+    await api.post('/modules/billing/api/approval_assignment.php', {
+      invoice_id: Number(id), reviewer_user_ids: selectedReviewers,
+    });
+    setShowReassign(false);
   });
   const post = () => run('post', () => api.post(`/api/v1/billing/invoices?action=post&id=${id}`, {}));
   const send    = () => run('send',    async () => {
@@ -111,7 +129,9 @@ export default function InvoiceDetail() {
           {canEdit && <Link className="btn btn--ghost" to={`/modules/billing/invoices/${id}/edit`} data-testid="billing-invoice-edit">Edit draft</Link>}
           <button className="btn btn--ghost" onClick={previewPdf} data-testid="billing-invoice-preview-pdf" title="Open PDF preview in a new tab">Preview PDF</button>
           <button className="btn btn--ghost" onClick={downloadPdf} data-testid="billing-invoice-download-pdf" title="Download PDF">Download</button>
-          {canApprove && <button className="btn btn--primary" onClick={approve} disabled={Boolean(busy)} data-testid="billing-invoice-approve">{busy==='approve' ? 'Approving…' : 'Approve & post'}</button>}
+          {canRequest && <button className="btn btn--primary" onClick={requestApproval} disabled={Boolean(busy)} data-testid="billing-invoice-request-approval"><Send size={15} aria-hidden="true" /> {busy==='request' ? 'Requesting…' : 'Request approval'}</button>}
+          {canApprove && <button className="btn btn--primary" onClick={approve} disabled={Boolean(busy)} data-testid="billing-invoice-approve"><Check size={15} aria-hidden="true" /> {busy==='approve' ? 'Approving…' : 'Approve'}</button>}
+          {canApprove && approvalState?.pending && <button className="btn btn--ghost" onClick={reject} disabled={Boolean(busy)} data-testid="billing-invoice-reject"><X size={15} aria-hidden="true" /> {busy==='reject' ? 'Rejecting…' : 'Reject'}</button>}
           {canSend && <button className="btn btn--primary" onClick={() => setShowSend(true)} data-testid="billing-invoice-send-open">Send</button>}
           {canPost && <button className="btn btn--ghost" onClick={post} disabled={busy==='post'} data-testid="billing-invoice-post">{busy==='post' ? 'Posting…' : 'Post to ledger'}</button>}
           {canVoid && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="billing-invoice-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}
@@ -119,6 +139,29 @@ export default function InvoiceDetail() {
       </div>
 
       {actionError && <p className="error" data-testid="billing-invoice-action-error">Error: {actionError.message}</p>}
+      {inv.status === 'draft' && approval.error && (
+        <p className="error" role="alert" data-testid="billing-invoice-approval-error">Approval status could not load: {approval.error.message} <button className="btn btn--ghost" onClick={approval.reload}>Retry</button></p>
+      )}
+      {inv.status === 'draft' && approvalState?.pending && (
+        <div data-testid="billing-invoice-approval-pending" style={{ borderTop: '1px solid var(--cf-border)', borderBottom: '1px solid var(--cf-border)', padding: '12px 0', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ fontSize: 13 }}>
+            <strong style={{ color: 'var(--cf-primary, #0877f9)' }}>Awaiting approval</strong>
+            <span style={{ color: 'var(--cf-text-secondary)', marginLeft: 8 }}>
+              {approvalState.assigned_reviewers?.map((person) => person.name).join(', ') || 'No reviewer assigned'}
+            </span>
+            {!approvalState.approval_available && <div className="error" style={{ marginTop: 4 }}>Assigned reviewers no longer have access. Reassign this approval.</div>}
+          </div>
+          {approvalState.viewer_can_reassign && <button className="btn btn--ghost" onClick={openReassign} disabled={Boolean(busy)} data-testid="billing-invoice-reassign"><UserRoundCog size={15} aria-hidden="true" /> Reassign</button>}
+        </div>
+      )}
+      {inv.status === 'draft' && approvalState?.approval_required && !approvalState?.pending && !approvalState?.approval_available && (
+        <p className="error" role="alert" data-testid="billing-invoice-no-reviewer">This invoice needs an independent reviewer before approval can be requested.</p>
+      )}
+      {inv.status === 'draft' && approvalState?.prior_review_status && !approvalState?.pending && (
+        <p className="error" role="alert" data-testid="billing-invoice-prior-review">
+          The previous approval {approvalState.prior_review_status.replaceAll('_', ' ')}. This draft cannot be submitted again yet; void it and create a new draft to restart review.
+        </p>
+      )}
       {inv.journal_entry_id && inv.journal_status !== 'posted' && (
         <p className="error" data-testid="billing-invoice-ledger-error">This invoice points to a journal entry that is not posted. Review the ledger link before sending or applying a receipt.</p>
       )}
@@ -261,6 +304,29 @@ export default function InvoiceDetail() {
               <button className="btn btn--primary" onClick={send} disabled={busy==='send' || !sendTo} data-testid="billing-invoice-send-confirm">
                 {busy==='send' ? 'Sending…' : 'Send'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showReassign && approvalState?.viewer_can_reassign && (
+        <div role="dialog" aria-modal="true" aria-label="Reassign invoice approval" data-testid="billing-invoice-reassign-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={(event) => event.target === event.currentTarget && setShowReassign(false)}>
+          <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 8, width: 'min(440px, 100%)', maxHeight: '80vh', overflowY: 'auto', padding: 24 }}>
+            <h3 style={{ margin: '0 0 8px' }}>Reassign approval</h3>
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--cf-text-secondary)' }}>Choose the people who may review this invoice. The change is recorded in its audit history.</p>
+            <div style={{ display: 'grid', gap: 2 }}>
+              {(approvalState.eligible_reviewers || []).map((person) => {
+                const blocked = (approvalState.blocked_reviewer_user_ids || []).includes(Number(person.id));
+                return <label key={person.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '9px 0', borderBottom: '1px solid var(--cf-border)', opacity: blocked ? 0.5 : 1 }}>
+                  <input type="checkbox" checked={selectedReviewers.includes(Number(person.id))} disabled={blocked} onChange={() => setSelectedReviewers((current) => current.includes(Number(person.id)) ? current.filter((value) => value !== Number(person.id)) : [...current, Number(person.id)])} />
+                  <span><strong>{person.name}</strong><small style={{ display: 'block', color: 'var(--cf-text-secondary)' }}>{person.email}{blocked ? ' · invoice preparer or requester' : ''}</small></span>
+                </label>;
+              })}
+            </div>
+            {actionError && <p className="error" role="alert">{actionError.message}</p>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button className="btn btn--ghost" onClick={() => setShowReassign(false)} disabled={Boolean(busy)}>Cancel</button>
+              <button className="btn btn--primary" onClick={reassign} disabled={Boolean(busy) || selectedReviewers.length === 0} data-testid="billing-invoice-reassign-save">{busy === 'reassign' ? 'Saving…' : 'Save reviewers'}</button>
             </div>
           </div>
         </div>

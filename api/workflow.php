@@ -64,7 +64,8 @@ if ($method === 'POST' && $action === 'act') {
         $message = $e->getMessage();
         $denied = str_contains($message, 'Separation of duties')
             || str_contains($message, 'not an approver')
-            || str_contains($message, 'no current approvers');
+            || str_contains($message, 'no current approvers')
+            || str_contains($message, 'approval access is required');
         api_error($message, $denied ? 403 : 409);
     }
     api_ok(['instance' => $row]);

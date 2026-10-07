@@ -198,17 +198,7 @@ function coreoneV1NormalizeInvoiceApprovalRequest(array $body): string
 /** A configured policy must resolve to at least one active human in this workspace. */
 function coreoneV1InvoiceHasActiveApprover(int $tenantId, array $requirements): bool
 {
-    $userIds = [];
-    foreach ($requirements as $requirement) {
-        foreach (($requirement['approvers'] ?? []) as $actor) {
-            $userIds = array_merge($userIds, _workflowPeopleGraphActorToUserIds($tenantId, $actor));
-        }
-    }
-    $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
-    if (!$userIds) return false;
-
-    $eligibleIds = array_column(billingInvoiceEligibleReviewers($tenantId), 'id');
-    return array_intersect($userIds, $eligibleIds) !== [];
+    return billingInvoiceHasIndependentApprover($tenantId, $requirements, []);
 }
 
 function coreoneV1RequestInvoiceApproval(array $credential, array $body): array
@@ -266,9 +256,16 @@ function coreoneV1RequestInvoiceApproval(array $credential, array $body): array
                     'Configure a Billing invoice approval policy before requesting machine approval.'
                 );
             }
-            if (!coreoneV1InvoiceHasActiveApprover($tenantId, (array) $routing['requirements'])) {
+            if (!billingInvoiceHasIndependentApprover($tenantId, (array) $routing['requirements'],
+                billingInvoiceWorkflowSodBlockedUserIds($invoice))) {
                 throw new CoreOneDocumentConflictException(
-                    'The Billing invoice approval policy has no active human approver in this workspace.'
+                    'The Billing invoice approval policy has no active, independent human approver in this workspace.'
+                );
+            }
+            if (billingInvoiceManagedReviewerSnapshot($tenantId,
+                billingInvoiceWorkflowSodBlockedUserIds($invoice)) === []) {
+                throw new CoreOneDocumentConflictException(
+                    'The Billing invoice approval policy has no independent reviewer for this invoice.'
                 );
             }
             $pendingId = (int) (billingInvoiceWorkflowStart($tenantId, $invoiceId, null) ?? 0);

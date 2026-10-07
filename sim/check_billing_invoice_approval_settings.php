@@ -8,6 +8,8 @@ if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging') {
 }
 require_once __DIR__ . '/../modules/billing/lib/approval_settings.php';
 require_once __DIR__ . '/../modules/billing/lib/workflow.php';
+require_once __DIR__ . '/../modules/billing/lib/invoice_drafts.php';
+require_once __DIR__ . '/../modules/billing/lib/approval_assignment.php';
 
 $tenantId = 0;
 foreach (array_slice($argv, 1) as $arg) {
@@ -104,6 +106,123 @@ try {
     $clean = billingInvoiceApprovalSettingsSave($tenantId, [$reviewerId], $reviewerId);
     $checks['stale_reviewer_can_be_replaced'] = $clean['reviewer_user_ids'] === [$reviewerId]
         && $clean['unavailable_reviewer_user_ids'] === [];
+
+    $pdo->prepare('UPDATE users SET is_active = 1 WHERE id = :id')->execute(['id' => $secondId]);
+    $pdo->prepare('INSERT INTO users (name, email, role, is_active)
+        VALUES ("Rollback-only New Reviewer", :email, "tenant_admin", 1)')
+        ->execute(['email' => 'reviewer-' . bin2hex(random_bytes(8)) . '@coreflux.test']);
+    $newId = (int) $pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO user_tenants (user_id, tenant_id, role, status)
+        VALUES (:user_id, :tenant_id, "tenant_admin", "active")')
+        ->execute(['user_id' => $newId, 'tenant_id' => $tenantId]);
+    $entity = $pdo->prepare('SELECT id, base_currency FROM accounting_entities
+        WHERE tenant_id = :tenant_id AND active = 1 ORDER BY id LIMIT 1');
+    $entity->execute(['tenant_id' => $tenantId]);
+    $entity = $entity->fetch(PDO::FETCH_ASSOC);
+    if (!$entity) throw new RuntimeException('Fixture needs an active synthetic entity.');
+    $invoiceBody = [
+        'client_name' => 'Rollback-only reviewer client ' . bin2hex(random_bytes(4)),
+        'entity_id' => (int) $entity['id'],
+        'issue_date' => date('Y-m-d'),
+        'due_date' => date('Y-m-d', strtotime('+30 days')),
+        'currency' => (string) $entity['base_currency'],
+        'tax_rate_pct' => '0',
+        'lines' => [[
+            'description' => 'Reviewer snapshot fixture', 'quantity' => '1',
+            'unit' => 'each', 'unit_price' => '1.00', 'taxable' => false,
+        ]],
+    ];
+
+    billingInvoiceApprovalSettingsSave($tenantId, [$reviewerId, $secondId], $reviewerId);
+    $invoice = billingCreateDirectInvoiceDraft($tenantId, $invoiceBody, $reviewerId);
+    $invoiceId = (int) $invoice['id'];
+    $instanceId = billingInvoiceWorkflowStart($tenantId, $invoiceId, $reviewerId);
+    $payloadStmt = $pdo->prepare('SELECT payload_json FROM workflow_instances
+        WHERE tenant_id = :tenant_id AND id = :instance_id');
+    $payloadStmt->execute(['tenant_id' => $tenantId, 'instance_id' => $instanceId]);
+    $payload = json_decode((string) $payloadStmt->fetchColumn(), true) ?: [];
+    $checks['pending_assignment_snapshots_independent_reviewer'] = $instanceId > 0
+        && ($payload['billing_reviewer_user_ids_snapshot'] ?? null) === [$secondId];
+    $checks['maker_cannot_approve_own_draft'] = $rejects(
+        static fn() => billingInvoiceWorkflowAct($tenantId, $invoiceId, $reviewerId),
+        RuntimeException::class
+    ) && billingInvoiceWorkflowRow($tenantId, $invoiceId)['status'] === 'draft';
+
+    billingInvoiceApprovalSettingsSave($tenantId, [$reviewerId, $newId], $reviewerId);
+    $oldInbox = workflowGetPendingForUser($tenantId, $secondId, 'billing_invoice');
+    $newInbox = workflowGetPendingForUser($tenantId, $newId, 'billing_invoice');
+    $checks['pending_inbox_keeps_original_reviewer'] = in_array($instanceId,
+        array_column($oldInbox, 'id'), true)
+        && !in_array($instanceId, array_column($newInbox, 'id'), true);
+    $checks['new_reviewer_cannot_take_pending_assignment'] = $rejects(
+        static fn() => billingInvoiceWorkflowAct($tenantId, $invoiceId, $newId),
+        RuntimeException::class
+    ) && billingInvoiceWorkflowRow($tenantId, $invoiceId)['status'] === 'draft';
+    $decision = billingInvoiceWorkflowAct($tenantId, $invoiceId, $secondId);
+    $checks['original_reviewer_can_approve_after_policy_change'] = !empty($decision['approved'])
+        && billingInvoiceWorkflowRow($tenantId, $invoiceId)['status'] === 'approved';
+
+    billingInvoiceApprovalSettingsSave($tenantId, [$reviewerId, $secondId], $reviewerId);
+    $reassignInvoice = billingCreateDirectInvoiceDraft($tenantId, $invoiceBody, $reviewerId);
+    $reassignInvoiceId = (int) $reassignInvoice['id'];
+    $initialAssignment = billingInvoiceApprovalAssignmentRead($tenantId, $reassignInvoiceId, $reviewerId);
+    $checks['maker_can_request_independent_review'] = $initialAssignment['viewer_can_request']
+        && !$initialAssignment['viewer_can_approve'];
+    $reassignInstanceId = billingInvoiceWorkflowStart($tenantId, $reassignInvoiceId, $reviewerId);
+    billingInvoiceApprovalSettingsSave($tenantId, [$reviewerId, $newId], $reviewerId);
+    $repeatId = billingInvoiceWorkflowStart($tenantId, $reassignInvoiceId, $reviewerId);
+    $beforeReassign = billingInvoiceApprovalAssignmentRead($tenantId, $reassignInvoiceId, $newId);
+    $checks['repeated_start_preserves_pending_assignment'] = $repeatId === $reassignInstanceId
+        && $beforeReassign['assigned_reviewer_user_ids'] === [$secondId]
+        && !$beforeReassign['viewer_can_approve'];
+    $checks['cannot_reassign_to_invoice_maker'] = $rejects(
+        static fn() => billingInvoiceApprovalReassign($tenantId, $reassignInvoiceId, [$reviewerId], $reviewerId),
+        InvalidArgumentException::class
+    ) && billingInvoiceApprovalAssignmentRead($tenantId, $reassignInvoiceId)['assigned_reviewer_user_ids'] === [$secondId];
+    $reassigned = billingInvoiceApprovalReassign($tenantId, $reassignInvoiceId, [$newId], $reviewerId);
+    $checks['explicit_reassignment_changes_pending_reviewer'] = $reassigned['assigned_reviewer_user_ids'] === [$newId]
+        && $reassigned['managed_assignment'];
+    $checks['old_reviewer_cannot_approve_after_reassignment'] = $rejects(
+        static fn() => billingInvoiceWorkflowAct($tenantId, $reassignInvoiceId, $secondId),
+        RuntimeException::class
+    );
+    $pdo->prepare('UPDATE users SET is_active = 0 WHERE id = :id')->execute(['id' => $newId]);
+    $checks['revoked_reviewer_cannot_approve_or_see_inbox'] = $rejects(
+        static fn() => billingInvoiceWorkflowAct($tenantId, $reassignInvoiceId, $newId),
+        RuntimeException::class
+    ) && !in_array($reassignInstanceId,
+        array_column(workflowGetPendingForUser($tenantId, $newId, 'billing_invoice'), 'id'), true);
+    $pdo->prepare('UPDATE users SET is_active = 1 WHERE id = :id')->execute(['id' => $newId]);
+    $newDecision = billingInvoiceWorkflowAct($tenantId, $reassignInvoiceId, $newId);
+    $checks['reassigned_reviewer_can_approve'] = !empty($newDecision['approved'])
+        && billingInvoiceWorkflowRow($tenantId, $reassignInvoiceId)['status'] === 'approved';
+
+    billingInvoiceApprovalSettingsSave($tenantId, [$reviewerId, $secondId], $reviewerId);
+    $rejectedInvoice = billingCreateDirectInvoiceDraft($tenantId, $invoiceBody, $reviewerId);
+    $rejectedInvoiceId = (int) $rejectedInvoice['id'];
+    billingInvoiceWorkflowStart($tenantId, $rejectedInvoiceId, $reviewerId);
+    billingInvoiceWorkflowAct($tenantId, $rejectedInvoiceId, $secondId, 'reject', 'Rollback-only review rejection');
+    $rejectedAssignment = billingInvoiceApprovalAssignmentRead($tenantId, $rejectedInvoiceId, $reviewerId);
+    $checks['rejected_invoice_exposes_terminal_review'] = $rejectedAssignment['prior_review_status'] === 'rejected'
+        && !$rejectedAssignment['viewer_can_request'];
+    $pdo->prepare('UPDATE people_graph_approval_policies SET status = "inactive"
+        WHERE tenant_id = :tenant_id AND policy_key = :policy_key')
+        ->execute(['tenant_id' => $tenantId, 'policy_key' => BILLING_INVOICE_APPROVAL_POLICY_KEY]);
+    $checks['removed_policy_cannot_bypass_rejected_review'] = $rejects(
+        static fn() => billingInvoiceWorkflowAct($tenantId, $rejectedInvoiceId, $secondId),
+        RuntimeException::class
+    ) && billingInvoiceWorkflowRow($tenantId, $rejectedInvoiceId)['status'] === 'draft';
+    $pdo->prepare('UPDATE people_graph_approval_policies SET status = "active"
+        WHERE tenant_id = :tenant_id AND policy_key = :policy_key')
+        ->execute(['tenant_id' => $tenantId, 'policy_key' => BILLING_INVOICE_APPROVAL_POLICY_KEY]);
+
+    billingInvoiceApprovalSettingsSave($tenantId, [$reviewerId], $reviewerId);
+    $selfOnly = billingCreateDirectInvoiceDraft($tenantId, $invoiceBody, $reviewerId);
+    $selfOnlyId = (int) $selfOnly['id'];
+    $checks['self_only_policy_cannot_start_dead_end_workflow'] = $rejects(
+        static fn() => billingInvoiceWorkflowAct($tenantId, $selfOnlyId, $reviewerId),
+        RuntimeException::class
+    ) && billingInvoiceWorkflowPendingInstanceId($tenantId, $selfOnlyId) === 0;
 } catch (Throwable $e) {
     fwrite(STDERR, get_class($e) . ': ' . $e->getMessage() . PHP_EOL);
     $checks['fixture_completed_without_exception'] = false;

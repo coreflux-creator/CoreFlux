@@ -8,6 +8,7 @@
  *   POST   /api/billing/invoices?action=from-time-bundle
  *          body: {period_id, placement_ids[], aggregation: 'per_placement'|'per_client'}
  *   PATCH  /api/billing/invoices?id=N          → edit draft (status='draft' only)
+ *   POST   /api/billing/invoices?action=request_approval&id=N → request human review
  *   POST   /api/billing/invoices?action=approve&id=N    → direct or policy-routed approval
  *   POST   /api/billing/invoices?action=send&id=N       → issue token + email
  *   POST   /api/billing/invoices?action=void&id=N       → body: {reason}
@@ -467,6 +468,9 @@ if ($method === 'PATCH') {
         if (!$locked || $locked['status'] !== 'draft') {
             throw new DomainException('Only draft invoices can be edited');
         }
+        if (billingInvoiceWorkflowPendingInstanceId($tid, $id) > 0) {
+            throw new DomainException('This invoice is awaiting approval. Ask a reviewer to reject it before editing.');
+        }
         if (array_key_exists('entity_id', $body) || array_key_exists('currency', $body)) {
             $requestedEntityId = array_key_exists('entity_id', $body)
                 ? $body['entity_id'] : $locked['entity_id'];
@@ -540,6 +544,68 @@ if ($method === 'PATCH') {
     if ($computed) $changedFields[] = 'lines';
     billingAudit('billing.invoice.updated', ['invoice_id' => $id, 'fields' => $changedFields], $id);
     api_ok(['ok' => true]);
+}
+
+if ($method === 'POST' && $action === 'request_approval') {
+    rbac_legacy_require($user, 'billing.invoice.draft');
+    if (!RBACResolver::can($user, $tid, 'billing', 'write')) {
+        api_error('Billing invoice draft access is required.', 403);
+    }
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('Choose a valid invoice.', 422);
+    $pdo = getDB();
+    $owns = !$pdo->inTransaction();
+    $savepoint = $owns ? null : 'billing_request_' . bin2hex(random_bytes(4));
+    if ($owns) $pdo->beginTransaction();
+    else $pdo->exec('SAVEPOINT ' . $savepoint);
+    try {
+        $rowStmt = $pdo->prepare('SELECT * FROM billing_invoices
+            WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE');
+        $rowStmt->execute(['tenant_id' => $tid, 'id' => $id]);
+        $invoice = $rowStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$invoice) throw new OutOfBoundsException('Invoice not found.');
+        if ($invoice['status'] !== 'draft') {
+            throw new DomainException('Only a draft invoice can request approval.');
+        }
+        $instanceId = billingInvoiceWorkflowPendingInstanceId($tid, $id);
+        $requested = false;
+        if ($instanceId <= 0) {
+            $prior = $pdo->prepare('SELECT id FROM workflow_instances
+                WHERE tenant_id = :tenant_id AND subject_type = "billing_invoice"
+                  AND subject_id = :invoice_id ORDER BY id DESC LIMIT 1');
+            $prior->execute(['tenant_id' => $tid, 'invoice_id' => $id]);
+            if ($prior->fetchColumn() !== false) {
+                throw new DomainException('A previous approval ended. Review the invoice before requesting it again.');
+            }
+            $routing = billingInvoiceApprovalRouting($tid, $invoice);
+            $blocked = billingInvoiceWorkflowSodBlockedUserIds($invoice, (int) $user['id']);
+            if (empty($routing['infrastructure_available']) || empty($routing['workflow_required'])
+                || !billingInvoiceHasIndependentApprover($tid, (array) $routing['requirements'], $blocked)
+                || billingInvoiceManagedReviewerSnapshot($tid, $blocked) === []) {
+                throw new DomainException('Configure an active, independent invoice reviewer before requesting approval.');
+            }
+            $instanceId = (int) (billingInvoiceWorkflowStart($tid, $id, (int) $user['id']) ?? 0);
+            if ($instanceId <= 0) throw new RuntimeException('Invoice approval could not start.');
+            billingWorkflowAudit($tid, (int) $user['id'], 'billing.invoice.approval_requested', [
+                'invoice_id' => $id, 'workflow_instance_id' => $instanceId, 'source' => 'billing',
+            ], $id);
+            $requested = true;
+        }
+        if ($owns) $pdo->commit();
+        else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        api_ok(['ok' => true, 'approval_requested' => $requested,
+            'workflow_instance_id' => $instanceId], 202);
+    } catch (Throwable $e) {
+        if ($owns && $pdo->inTransaction()) $pdo->rollBack();
+        elseif (!$owns && $pdo->inTransaction()) {
+            $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+            $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        }
+        if ($e instanceof OutOfBoundsException) api_error($e->getMessage(), 404);
+        if ($e instanceof DomainException) api_error($e->getMessage(), 409);
+        error_log('[billing.invoice.request_approval] ' . $e->getMessage());
+        api_error('Invoice approval could not start. Try again or contact an administrator.', 503);
+    }
 }
 
 if ($method === 'POST' && $action === 'approve') {
@@ -759,6 +825,9 @@ if ($method === 'POST' && $action === 'void') {
         $row = $locked->fetch(PDO::FETCH_ASSOC);
         if (!$row || $row['status'] !== 'draft') {
             throw new \DomainException('Only draft invoices can be voided here. Posted or approved invoices need a coordinated reversal.');
+        }
+        if (billingInvoiceWorkflowPendingInstanceId($tid, $id) > 0) {
+            throw new \DomainException('This invoice is awaiting approval. Ask a reviewer to reject it before voiding.');
         }
 
         $allocCount = $pdo->prepare('SELECT COUNT(*) FROM billing_payment_allocations WHERE invoice_id = :id');

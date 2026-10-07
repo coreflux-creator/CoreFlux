@@ -107,7 +107,7 @@ export default function BillingApprovalSettings() {
           )}
           <p style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>
             Any selected reviewer may approve. The person who prepared or requested an invoice cannot approve their own work.
-            Changes to this list also affect approvals already waiting in the inbox.
+            Changes to this default list apply to new requests. Pending approvals keep their assigned reviewers, provided they still have access.
           </p>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <button className="btn btn--primary" type="submit" disabled={!dirty || saving || selected.length === 0}
