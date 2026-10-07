@@ -62,6 +62,7 @@ function apEvaluateApprovalPolicy(int $tenantId, array $bill): array {
     $bRisk      = $risk['level'];
     $creatorId  = (int) ($bill['created_by_user_id'] ?? 0);
     $tenantAdminIds = null;
+    $activeMemberIds = null;
 
     foreach ($policies as $p) {
         if (!_apPolicyMatches($p, $entityId, $amount, $vendorType, $glCode, $bRisk)) continue;
@@ -74,14 +75,16 @@ function apEvaluateApprovalPolicy(int $tenantId, array $bill): array {
                 $tenantAdminIds ??= apActiveTenantAdminIds($tenantId);
                 $approverIds = array_merge($approverIds, $tenantAdminIds);
             }
-            $approverIds = array_values(array_unique(array_filter($approverIds,
-                static fn(int $id): bool => $id > 0 && $id !== $creatorId
+            $activeMemberIds ??= apActiveTenantMemberIds($tenantId);
+            $approverIds = array_values(array_unique(array_intersect(
+                array_filter($approverIds, static fn(int $id): bool => $id > 0 && $id !== $creatorId),
+                $activeMemberIds
             )));
             $quorum = max(1, (int) ($step['quorum'] ?? 1));
             if (count($approverIds) < $quorum) {
                 $reason = !empty($step['include_active_tenant_admins'])
                     ? 'Add another active tenant administrator to approve this bill; its creator cannot approve it.'
-                    : 'The approval policy has too few eligible approvers for this bill; its creator cannot approve it.';
+                    : 'The approval policy has too few active tenant approvers for this bill; its creator cannot approve it.';
                 return [
                     'policy_id' => (int) $p['id'], 'policy_name' => $p['name'],
                     'chain' => [], 'risk' => $risk, 'matched' => true,
@@ -114,6 +117,18 @@ function apActiveTenantAdminIds(int $tenantId): array {
            JOIN users u ON u.id = m.user_id AND u.is_active = 1
           WHERE m.tenant_id = :tenant_id
             AND m.persona_type = 'tenant_admin' AND m.status = 'active'
+          ORDER BY u.id"
+    );
+    $stmt->execute(['tenant_id' => $tenantId]);
+    return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+}
+
+function apActiveTenantMemberIds(int $tenantId): array {
+    $stmt = getDB()->prepare(
+        "SELECT DISTINCT u.id
+           FROM tenant_memberships m
+           JOIN users u ON u.id = m.user_id AND u.is_active = 1
+          WHERE m.tenant_id = :tenant_id AND m.status = 'active'
           ORDER BY u.id"
     );
     $stmt->execute(['tenant_id' => $tenantId]);

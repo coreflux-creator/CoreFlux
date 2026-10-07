@@ -13,6 +13,12 @@ $pdo->exec('CREATE TABLE ap_approval_policies (
     entity_id INTEGER, vendor_type TEXT, min_amount REAL, max_amount REAL,
     min_risk_level TEXT, gl_account_code TEXT, chain_json TEXT, name TEXT
 )');
+$pdo->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, is_active INTEGER)');
+$pdo->exec('CREATE TABLE tenant_memberships (
+    tenant_id INTEGER, user_id INTEGER, persona_type TEXT, status TEXT
+)');
+$pdo->exec('INSERT INTO users VALUES (5,1)');
+$pdo->exec("INSERT INTO tenant_memberships VALUES (1,5,'tenant_admin','active')");
 $chain = json_encode([['step' => 1, 'approver_user_ids' => [5], 'quorum' => 1]], JSON_THROW_ON_ERROR);
 $insert = $pdo->prepare(
     'INSERT INTO ap_approval_policies

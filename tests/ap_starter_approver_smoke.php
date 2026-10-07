@@ -77,18 +77,25 @@ try {
 }
 
 $pdo->exec('UPDATE users SET is_active = 1 WHERE id = 2');
-$explicit = json_encode([['step' => 1, 'approver_user_ids' => [1, 2],
+$explicit = json_encode([['step' => 1, 'approver_user_ids' => [1, 2, 3, 4, 6],
     'quorum' => 1, 'label' => 'Finance approval']], JSON_THROW_ON_ERROR);
 $setChain->execute(['chain' => $explicit]);
 $route = apEvaluateApprovalPolicy(1, $bill);
 $assert($route['chain'][0]['approver_user_ids'] === [2],
-    'Explicit policies must also exclude the bill creator');
+    'Explicit policies must exclude the creator, inactive users and other-tenant members');
+
+$foreign = json_encode([['step' => 1, 'approver_user_ids' => [4],
+    'quorum' => 1, 'label' => 'Foreign reviewer']], JSON_THROW_ON_ERROR);
+$setChain->execute(['chain' => $foreign]);
+$route = apEvaluateApprovalPolicy(1, $bill);
+$assert($route['chain'] === [] && str_contains((string) ($route['routing_error'] ?? ''), 'active tenant approvers'),
+    'A reviewer from another tenant cannot receive this bill');
 
 $quorum = json_encode([['step' => 1, 'approver_user_ids' => [1, 2],
     'quorum' => 2, 'label' => 'Two reviewers']], JSON_THROW_ON_ERROR);
 $setChain->execute(['chain' => $quorum]);
 $route = apEvaluateApprovalPolicy(1, $bill);
-$assert(str_contains((string) ($route['routing_error'] ?? ''), 'too few eligible'),
+$assert(str_contains((string) ($route['routing_error'] ?? ''), 'too few active tenant approvers'),
     'A quorum above the eligible reviewer count must be refused');
 
 echo "AP starter approvers: {$checks} checks passed.\n";
