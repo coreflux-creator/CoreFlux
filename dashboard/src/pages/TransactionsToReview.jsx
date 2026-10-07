@@ -113,6 +113,7 @@ export default function TransactionsToReview() {
       } else {
         setOpenId(null);
       }
+      await reload();
     } catch (e) {
       setErrMsg(e.message);
     } finally {
@@ -132,6 +133,7 @@ export default function TransactionsToReview() {
       } else {
         setOpenId(null);
       }
+      await reload();
     } catch (e) {
       setErrMsg(e.message);
     } finally {
@@ -174,7 +176,7 @@ export default function TransactionsToReview() {
           <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 13 }} data-testid="transactions-to-review-subtitle">
             {loading
               ? 'Loading queue…'
-              : `${totalRemaining} of ${totalServer} uncategorized · accept the AI suggestion or pick from your chart of accounts.`}
+              : `${totalServer} unmatched bank line${totalServer === 1 ? '' : 's'} need review · match receipts and payments before categorizing.`}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -213,11 +215,11 @@ export default function TransactionsToReview() {
         </div>
       )}
 
-      {(!loading && totalRemaining === 0) && (
+      {(!loading && totalServer === 0 && totalRemaining === 0) && (
         <div data-testid="transactions-to-review-empty" style={{ padding: 36, background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 12, textAlign: 'center' }}>
           <CheckCircle2 size={28} color="#059669" style={{ marginBottom: 8 }} />
           <strong style={{ display: 'block', color: '#065f46', fontSize: 15 }}>You're all caught up</strong>
-          <p style={{ color: '#047857', margin: '6px 0 0', fontSize: 13 }}>No bank-statement lines need attention right now.</p>
+          <p style={{ color: '#047857', margin: '6px 0 0', fontSize: 13 }}>No unmatched statement lines on active bank accounts.</p>
           <Link to="/modules/accounting/bookkeeping" className="btn btn--ghost" style={{ marginTop: 12, fontSize: 12 }} data-testid="transactions-to-review-back-overview">
             Back to bookkeeping overview <ArrowRight size={12} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
           </Link>
@@ -275,6 +277,19 @@ export default function TransactionsToReview() {
                 {isOpen && (
                   <div data-testid={`transactions-to-review-row-detail-${r.id}`}
                        style={{ padding: '0 16px 14px 16px', borderTop: '1px dashed #ddd6fe' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginTop: 12, padding: '8px 10px', background: '#eff6ff', borderRadius: 6 }}>
+                      <span style={{ fontSize: 12, color: '#334155' }}>
+                        {Number(r.amount) >= 0 ? 'Customer receipt? Apply it to an invoice before categorizing.' : 'Vendor payment? Match it to a bill before categorizing.'}
+                      </span>
+                      <Link
+                        to={`/modules/accounting/bank-rec/${r.bank_account_id}`}
+                        className="btn btn--primary"
+                        style={{ fontSize: 12 }}
+                        data-testid={`transactions-to-review-open-bank-${r.id}`}
+                      >
+                        Match or split <ArrowUpRight size={12} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
+                      </Link>
+                    </div>
                     {/* AI suggestion block */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, marginBottom: 8 }}>
                       <Sparkles size={14} color="#7c3aed" />
@@ -375,7 +390,7 @@ export default function TransactionsToReview() {
                         style={{ fontSize: 12 }}
                       >
                         <CheckCircle2 size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                        {acceptBusy[r.id] ? 'Saving…' : 'Accept & next'}
+                        {acceptBusy[r.id] ? 'Saving…' : 'Categorize & next'}
                       </button>
                       <button
                         data-testid={`transactions-to-review-skip-${r.id}`}
@@ -385,16 +400,8 @@ export default function TransactionsToReview() {
                         style={{ fontSize: 12 }}
                       >
                         <SkipForward size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                        Skip
+                        Ignore line
                       </button>
-                      <Link
-                        to={`/modules/accounting/bank-rec/${r.bank_account_id}`}
-                        className="btn btn--ghost"
-                        style={{ fontSize: 12, marginLeft: 'auto' }}
-                        data-testid={`transactions-to-review-open-bank-${r.id}`}
-                      >
-                        Open in Bank Rec <ArrowUpRight size={12} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
-                      </Link>
                     </div>
                   </div>
                 )}

@@ -30,6 +30,10 @@ $assert('RBAC accounting.coa.view',              strpos($api, "rbac_legacy_requi
 $assert('returns bank_connections envelope',     strpos($api, "'bank_connections'") !== false);
 $assert('returns reconciliation envelope',       strpos($api, "'reconciliation'") !== false);
 $assert('returns uncategorized envelope',        strpos($api, "'uncategorized'") !== false);
+$assert('review count follows active unmatched bank lines and entity',
+    strpos($api, "bsl.match_status = 'unmatched'") !== false
+    && strpos($api, "ba.status = 'active'") !== false
+    && strpos($api, 'ba.entity_id = :e') !== false);
 $assert('returns tasks envelope',                strpos($api, "'tasks'") !== false);
 $assert('returns 6-month pl_monthly array',      strpos($api, "'pl_monthly'") !== false
                                                && strpos($api, "for (\$i = 5; \$i >= 0; \$i--)") !== false);

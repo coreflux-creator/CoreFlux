@@ -92,16 +92,18 @@ $recon = [
 ];
 
 // ──────────────────────────────────────────────────────────────────
-// Uncategorized bank txs
+// Bank statement lines still awaiting a match or categorization.
 // ──────────────────────────────────────────────────────────────────
 $uncatStmt = $pdo->prepare(
     "SELECT COUNT(*) AS cnt,
-            MIN(posted_date) AS oldest
-       FROM accounting_bank_statement_lines
-      WHERE tenant_id = :t
-        AND (match_status IS NULL OR match_status = 'pending')"
+            MIN(bsl.posted_date) AS oldest
+       FROM accounting_bank_statement_lines bsl
+       JOIN accounting_bank_accounts ba ON ba.id = bsl.bank_account_id AND ba.tenant_id = bsl.tenant_id
+      WHERE bsl.tenant_id = :t
+        AND bsl.match_status = 'unmatched'
+        AND ba.status = 'active'" . ($entityId ? ' AND ba.entity_id = :e' : '')
 );
-$uncatStmt->execute(['t' => $tid]);
+$uncatStmt->execute($entityId ? ['t' => $tid, 'e' => $entityId] : ['t' => $tid]);
 $un = $uncatStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
 $oldestDays = (!empty($un['oldest']))
     ? (int) ((strtotime($asOf) - strtotime((string) $un['oldest'])) / 86400)

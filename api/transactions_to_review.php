@@ -2,7 +2,7 @@
 /**
  * Transactions to Review queue (Sprint 7e.2, Layer-parity).
  *
- * Unified bookkeeping inbox of every uncategorized bank-statement line
+ * Unified bookkeeping inbox of every unmatched bank-statement line
  * across every active bank account in the tenant. Closes the most common
  * bookkeeping workflow loop:
  *
@@ -77,13 +77,15 @@ $bankAccounts = $baStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 // ──────────────────────────────────────────────────────────────────
 // Queue rows
 // ──────────────────────────────────────────────────────────────────
-$where  = ['bsl.tenant_id = :t', '(bsl.match_status IS NULL OR bsl.match_status = \'pending\')'];
+$where  = ['bsl.tenant_id = :t', "bsl.match_status = 'unmatched'", "ba.status = 'active'"];
 $params = ['t' => $tid];
 if ($bid > 0) { $where[] = 'bsl.bank_account_id = :b'; $params['b'] = $bid; }
 $whereSql = implode(' AND ', $where);
 
 $totalStmt = $pdo->prepare(
-    "SELECT COUNT(*) FROM accounting_bank_statement_lines bsl WHERE {$whereSql}"
+    "SELECT COUNT(*) FROM accounting_bank_statement_lines bsl
+       JOIN accounting_bank_accounts ba ON ba.id = bsl.bank_account_id AND ba.tenant_id = bsl.tenant_id
+      WHERE {$whereSql}"
 );
 $totalStmt->execute($params);
 $total = (int) $totalStmt->fetchColumn();

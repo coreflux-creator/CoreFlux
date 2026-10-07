@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 
 /**
@@ -20,6 +20,7 @@ import { api } from '../lib/api';
  *   onError?:               (err: Error) => void
  *   label?:                 string  default 'Connect bank'
  *   testIdSuffix?:          string  appended to data-testid
+ *   deferUntilClick?:       boolean  request Plaid only after the user clicks
  */
 
 const PLAID_LINK_SRC = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
@@ -49,16 +50,19 @@ export default function PlaidLinkButton({
   onError,
   label = 'Connect bank',
   testIdSuffix = '',
+  deferUntilClick = false,
 }) {
   const [status, setStatus] = useState('idle'); // idle | loading | ready | linking | exchanging | done | error
   const [error, setError] = useState(null);
   const [linkToken, setLinkToken] = useState(null);
   const [retry, setRetry] = useState(0);
+  const openAfterLoad = useRef(false);
 
-  // Pre-fetch the link_token + Plaid SDK on mount so click is instant.
+  // Pre-fetch by default; manual bank screens can wait for an explicit click.
   // products: explicit prop wins; else server picks per-purpose defaults
   // (vendor/employee/funding → ['auth']; bank_feed → ['transactions','auth']).
   useEffect(() => {
+    if (deferUntilClick && retry === 0) return undefined;
     let cancelled = false;
     setStatus('loading');
     const reqBody = { purpose };
@@ -71,6 +75,10 @@ export default function PlaidLinkButton({
         if (cancelled) return;
         setLinkToken(tokenResp.link_token);
         setStatus('ready');
+        if (openAfterLoad.current) {
+          openAfterLoad.current = false;
+          openPlaid(tokenResp.link_token);
+        }
       })
       .catch(err => {
         if (cancelled) return;
@@ -79,13 +87,13 @@ export default function PlaidLinkButton({
         onError && onError(err);
       });
     return () => { cancelled = true; };
-  }, [purpose, JSON.stringify(products), retry]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [purpose, JSON.stringify(products), retry, deferUntilClick]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleClick = useCallback(() => {
-    if (!window.Plaid || !linkToken) return;
+  function openPlaid(token) {
+    if (!window.Plaid || !token) return;
     setStatus('linking');
     const handler = window.Plaid.create({
-      token: linkToken,
+      token,
       onSuccess: async (publicToken, metadata) => {
         setStatus('exchanging');
         try {
@@ -117,21 +125,32 @@ export default function PlaidLinkButton({
       },
     });
     handler.open();
-  }, [linkToken, purpose, vendorId, employeeId, accountingBankAccountId, onLinked, onError]);
+  }
 
-  const disabled = !['ready','done','error'].includes(status);
+  function handleClick() {
+    if (status === 'idle' || status === 'error') {
+      setError(null);
+      openAfterLoad.current = deferUntilClick;
+      setRetry(value => value + 1);
+      return;
+    }
+    openPlaid(linkToken);
+  }
+
+  const disabled = !['ready','done','error'].includes(status) && !(deferUntilClick && status === 'idle');
   const tid = `plaid-link-btn${testIdSuffix ? '-' + testIdSuffix : ''}`;
 
   return (
     <div className="plaid-link" data-testid={`plaid-link-${purpose}`} style={{ minWidth: 0, maxWidth: 220 }}>
       <button
         type="button"
-        onClick={status === 'error' ? () => { setError(null); setRetry(value => value + 1); } : handleClick}
+        onClick={handleClick}
         disabled={disabled}
         title={error || undefined}
         data-testid={tid}
         className="btn btn-secondary"
       >
+        {status === 'idle'        && label}
         {status === 'loading'     && 'Loading…'}
         {status === 'ready'       && label}
         {status === 'linking'     && 'Choose your bank…'}

@@ -38,8 +38,10 @@ $assert('offset >= 0',                        strpos($api, "max(0,") !== false);
 $assert('order match: oldest_first',          strpos($api, 'oldest_first') !== false);
 $assert('order match: newest_first',          strpos($api, 'newest_first') !== false);
 $assert('order match: amount_desc',           strpos($api, 'amount_desc')  !== false);
-$assert('queue filter: pending/null match_status',
-    strpos($api, "(bsl.match_status IS NULL OR bsl.match_status = \\'pending\\')") !== false);
+$assert('queue filters unresolved lines from active bank accounts',
+    strpos($api, "bsl.match_status = 'unmatched'") !== false
+    && strpos($api, "ba.status = 'active'") !== false
+    && strpos($api, 'JOIN accounting_bank_accounts ba ON ba.id = bsl.bank_account_id') !== false);
 $assert('joins bank account for display',
     strpos($api, 'JOIN accounting_bank_accounts ba') !== false);
 $assert('returns total count',                strpos($api, "'total'") !== false);
@@ -77,6 +79,11 @@ $assert('Skip endpoint flips match_status=ignored',
     strpos($jsx, '/modules/accounting/api/bank_statements.php?action=ignore&line_id=') !== false);
 $assert('advance focus to next row after accept',
     strpos($jsx, 'const nextRow = visibleRows.find') !== false);
+$assert('queue refills after resolving a line', substr_count($jsx, 'await reload();') >= 2);
+$assert('matching is offered before categorization',
+    strpos($jsx, 'Match or split') !== false
+    && strpos($jsx, 'match receipts and payments before categorizing') !== false);
+$assert('ignore action is labeled accurately', strpos($jsx, 'Ignore line') !== false);
 
 $ids = [
     'page', 'subtitle', 'order', 'bank-filter', 'refresh',
@@ -133,12 +140,13 @@ $assert('live AccountingModule (V1) imports BookkeepingOverview',
     strpos($liveMod, "import BookkeepingOverview from '../../../dashboard/src/pages/BookkeepingOverview'") !== false);
 $assert('live AccountingModule mounts /transactions-to-review route',
     strpos($liveMod, 'path="transactions-to-review" element={<TransactionsToReview />}') !== false);
-$assert('live AccountingModule mounts /bookkeeping route',
-    strpos($liveMod, 'path="bookkeeping" element={<BookkeepingOverview />}') !== false);
+$assert('live AccountingModule mounts overview and redirects legacy bookkeeping',
+    strpos($liveMod, 'path="overview" element={<BookkeepingOverview />}') !== false
+    && strpos($liveMod, 'path="bookkeeping" element={<Navigate to="/modules/accounting/overview" replace />}') !== false);
 $assert('live AccountingModule primary nav has Bank feed',
     strpos($liveMod, "to: 'transactions-to-review', label: 'Bank feed'") !== false);
-$assert('live AccountingModule Tools menu has Accounting overview',
-    strpos($liveMod, "to: 'bookkeeping', label: 'Accounting overview'") !== false);
+$assert('live AccountingModule primary nav has Overview',
+    strpos($liveMod, "to: 'overview', label: 'Overview'") !== false);
 
 $app = (string) file_get_contents("{$ROOT}/dashboard/src/App.jsx");
 $assert("App sidebar carries 'Transactions to Review' nav action",

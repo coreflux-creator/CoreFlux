@@ -341,6 +341,7 @@ function AccountDetail() {
             purpose="bank_feed"
             accountingBankAccountId={Number(id)}
             label="Connect bank (Plaid)"
+            deferUntilClick
             testIdSuffix="bank-feed"
             onLinked={async (r) => {
               try {
