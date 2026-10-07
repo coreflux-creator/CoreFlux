@@ -80,9 +80,21 @@ function accountingCsvReviewDocumentGroups(
 ): array {
     $groups = [];
     $resolved = [];
+    $unassignedRows = [];
     foreach ($result['rows'] as $rowNumber => $row) {
         $number = trim((string) ($row[$groupField] ?? ''));
-        if ($number !== '') $groups[$number][$rowNumber] = $row;
+        if ($number === '') {
+            $unassignedRows[] = $rowNumber;
+            $result['errors'][$rowNumber] ??= ["{$groupField}: required"];
+            continue;
+        }
+        $groups[$number][$rowNumber] = $row;
+    }
+
+    if ($unassignedRows) {
+        $result['blocking_error'] = "Every line needs a {$documentLabel} number. A line without one cannot be assigned to a document, so fix the file before importing any documents.";
+    } elseif (!$groups) {
+        $result['blocking_error'] = "No {$documentLabel} lines were found in this file.";
     }
 
     foreach ($groups as $number => $rows) {

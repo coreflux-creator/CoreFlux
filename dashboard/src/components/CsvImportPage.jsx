@@ -531,13 +531,16 @@ export default function CsvImportPage({
 
         {preview && !committed && (
           <>
+            {preview.blocking_error && (
+              <p className="error" data-testid={`${testidPrefix}-blocking-error`}>{preview.blocking_error}</p>
+            )}
             <div style={{ display: 'flex', gap: 'var(--cf-space-4)', marginBottom: 'var(--cf-space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
               <strong data-testid={`${testidPrefix}-preview-summary`}>
                 {groupLabel && preview.groups !== undefined
                   ? `${preview.groups} ${groupLabel}${preview.groups === 1 ? '' : 's'} · ${preview.row_count} lines · ${preview.error_count} lines with errors`
                   : `${preview.row_count} rows · ${preview.error_count} with errors · ${preview.row_count - preview.error_count} valid`}
               </strong>
-              {preview.error_count > 0 && (
+              {preview.error_count > 0 && !preview.blocking_error && (
                 <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-2)' }}>
                   <input
                     type="checkbox"
@@ -571,7 +574,7 @@ export default function CsvImportPage({
               <button
                 className="btn btn--primary"
                 onClick={commit}
-                disabled={running || (preview.error_count > 0 && !skipInvalid)}
+                disabled={running || !!preview.blocking_error || (preview.error_count > 0 && !skipInvalid)}
                 data-testid={`${testidPrefix}-commit`}
               >
                 {running ? 'Importing…' : groupLabel ? `Import ${groupLabel}s` : 'Import rows'}

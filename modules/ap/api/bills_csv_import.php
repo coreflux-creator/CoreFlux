@@ -165,14 +165,14 @@ if ($method === 'POST' && $action === 'commit') {
         'bill_number', 'bill', ['vendor_name', 'bill_date', 'due_date']
     );
     $dry = $review['result'];
-    if (!$skipInvalid && $dry['error_count'] > 0) {
+    if (!empty($dry['blocking_error']) || (!$skipInvalid && $dry['error_count'] > 0)) {
         api_ok([
             'imported_count' => 0, 'skipped_count' => $dry['groups'],
             'group_count' => $dry['groups'],
             'row_count' => count($dry['rows']), 'imported_row_count' => 0,
             'skipped_row_count' => count($dry['rows']),
             'errors' => $dry['errors'],
-            'message' => 'Validation errors present; pass skip_invalid=1 to import valid documents only.',
+            'message' => $dry['blocking_error'] ?? 'Validation errors present; pass skip_invalid=1 to import valid documents only.',
         ]);
     }
 

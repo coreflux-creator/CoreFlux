@@ -53,4 +53,19 @@ $missing = accountingCsvReviewDocumentGroups([
     'errors' => [],
 ], $one, 'bill_number', 'bill', ['vendor_name', 'bill_date', 'due_date']);
 $assert(count($missing['result']['errors'][2]) === 3, 'missing bill header is rejected');
+$unassigned = accountingCsvReviewDocumentGroups([
+    'rows' => [
+        2 => ['invoice_number' => 'INV-1', 'client_name' => 'Acme', 'issue_date' => '2026-10-01', 'due_date' => '2026-10-31'],
+        3 => ['invoice_number' => '', 'line_description' => 'Orphaned service'],
+    ],
+    'errors' => [],
+], $one, 'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date']);
+$assert($unassigned['result']['groups'] === 1 && $unassigned['result']['error_count'] === 1,
+    'unassigned line is not counted as a document');
+$assert(isset($unassigned['result']['blocking_error']) && isset($unassigned['result']['errors'][3]),
+    'unassigned line blocks partial import');
+$empty = accountingCsvReviewDocumentGroups(['rows' => [], 'errors' => []], $one,
+    'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date']);
+$assert($empty['result']['groups'] === 0 && isset($empty['result']['blocking_error']),
+    'header-only file cannot import an empty document');
 echo "Accounting CSV document entity: {$checks} checks passed.\n";
