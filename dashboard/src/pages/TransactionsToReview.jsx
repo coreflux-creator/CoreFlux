@@ -1,7 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../lib/api';
-import TransactionRecommendationCard from '../components/TransactionRecommendationCard';
 import AccountLink from '../components/AccountLink';
 import {
   AlertCircle, ArrowRight, ArrowUpRight, CheckCircle2, ChevronDown,
@@ -9,20 +8,20 @@ import {
 } from 'lucide-react';
 
 /**
- * TransactionsToReview — Layer-style "5 to review → first one ready in 2 clicks".
+ * TransactionsToReview — unresolved bank activity across active accounts.
  *
  * Reads `?prefilter=oldest_first&autoload=1`:
  *   - prefilter=oldest_first|newest_first|amount_desc → server order
  *   - autoload=1 → automatically opens the first row + fetches its AI suggestion
  *
- * Per-row UX:
- *   - Click to expand · Sparkle "AI suggest" button · COA dropdown ·
- *     Accept · Skip / Ignore
- *
- * All mutations go through the existing endpoints from Sprint 6h/7e.1, so
- * accepting an AI suggestion both stamps the bank line AND feeds the
- * categorization-history moat.
+ * Income/expense categories post a balanced journal and match the bank line.
+ * Source-document payments and splits use the bank reconciliation workflow.
  */
+const DIRECT_CATEGORY_TYPES = new Set([
+  'revenue', 'contra_revenue', 'expense', 'cost_of_goods_sold',
+  'other_income', 'other_expense',
+]);
+
 export default function TransactionsToReview() {
   const [params, setParams] = useSearchParams();
   const order   = params.get('prefilter') || params.get('order') || 'oldest_first';
@@ -31,22 +30,22 @@ export default function TransactionsToReview() {
 
   const queueUrl = `/api/transactions_to_review.php?order=${encodeURIComponent(order)}${bankId ? `&bank_account_id=${bankId}` : ''}`;
   const { data, error, loading, reload } = useApi(queueUrl);
-  const accountsApi = useApi('/modules/accounting/api/accounts.php?active=1');
+  const accountsApi = useApi('/modules/accounting/api/accounts.php?active=1&postable=1');
 
   const [openId, setOpenId]       = useState(null);
   const [aiByLine, setAiByLine]   = useState({});      // line_id → suggestion payload
-  const [aliasByLine, setAliasByLine] = useState({});  // line_id → resolve_vendor_alias envelope
   const [aiBusy, setAiBusy]       = useState({});      // line_id → bool
   const [acceptBusy, setAcceptBusy] = useState({});    // line_id → bool
   const [pickByLine, setPickByLine] = useState({});    // line_id → account_code
-  const [accepted, setAccepted]   = useState(new Set());
-  const [skipped, setSkipped]     = useState(new Set());
+  const [postedCount, setPostedCount] = useState(0);
+  const [ignoredCount, setIgnoredCount] = useState(0);
   const [errMsg, setErrMsg]       = useState(null);
   const autoloadFiredRef = useRef(false);
 
-  const visibleRows = useMemo(() => {
-    return (data?.rows || []).filter(r => !accepted.has(r.id) && !skipped.has(r.id));
-  }, [data?.rows, accepted, skipped]);
+  const visibleRows = data?.rows || [];
+  const accounts = (accountsApi.data?.rows || []).filter(
+    a => Number(a.is_postable) === 1 && DIRECT_CATEGORY_TYPES.has(a.account_type)
+  );
 
   // ── Autoload: open first row + fetch AI suggestion ───────────────
   useEffect(() => {
@@ -67,26 +66,9 @@ export default function TransactionsToReview() {
       const res = await api.post(`/modules/accounting/api/bank_ai.php?action=suggest_categorize&line_id=${lineId}`);
       setAiByLine(m => ({ ...m, [lineId]: res?.suggestion || null }));
       // pre-populate the picker with the AI suggestion
-      const code = res?.suggestion?.account_code;
-      if (code) setPickByLine(m => ({ ...m, [lineId]: code }));
-      // Fire vendor-alias resolution in parallel — Slice B / Spec §11.
-      // Lets us stack a TransactionRecommendationCard with canonical
-      // vendor identity so re-classification of the same payee stays
-      // stable across imports.
-      const row  = (data?.rows || []).find(r => r.id === lineId);
-      const payee = row?.description || row?.merchant_name || '';
-      if (payee) {
-        api.post('/api/ai/tools.php?action=invoke', {
-          tool: 'coreflux.resolve_vendor_alias',
-          args: { payee },
-        }).then(envelope => {
-          // Tool-gateway envelope shape: {ok, status, result: {alias, matched, normalized}}
-          const result = envelope?.result || envelope;
-          setAliasByLine(m => ({ ...m, [lineId]: result || null }));
-        }).catch(e => {
-          // Don't surface — vendor alias is an enrichment, not core.
-          setAliasByLine(m => ({ ...m, [lineId]: { _error: e.message } }));
-        });
+      const suggestion = res?.suggestion;
+      if (suggestion?.account_code && DIRECT_CATEGORY_TYPES.has(suggestion.account_type)) {
+        setPickByLine(m => ({ ...m, [lineId]: suggestion.account_code }));
       }
     } catch (e) {
       setAiByLine(m => ({ ...m, [lineId]: { _error: e.message } }));
@@ -95,18 +77,21 @@ export default function TransactionsToReview() {
     }
   }
 
-  async function acceptCategorize(lineId, accountCode, suggestionId) {
-    if (!accountCode) { setErrMsg('Pick an account before accepting.'); return; }
+  async function postCategory(lineId, accountCode, suggestionId) {
+    const account = accounts.find(a => a.code === accountCode);
+    if (!account) { setErrMsg('Choose an income or expense account to post this line.'); return; }
     setAcceptBusy(b => ({ ...b, [lineId]: true }));
     setErrMsg(null);
     try {
-      await api.post(
-        `/modules/accounting/api/bank_statements.php?action=accept_ai_categorize&line_id=${lineId}`,
-        { account_code: accountCode, ai_suggestion_id: suggestionId || null }
-      );
-      setAccepted(s => { const n = new Set(s); n.add(lineId); return n; });
-      // advance focus to next row
-      const nextRow = visibleRows.find(r => r.id !== lineId && !accepted.has(r.id) && !skipped.has(r.id));
+      const result = await api.post('/modules/accounting/api/account_transactions.php?action=categorize_and_post', {
+        line_id: lineId,
+        counterpart_account_id: Number(account.id),
+        type: 'deposit',
+        ai_suggestion_id: suggestionId || null,
+      });
+      if (!result?.matched_je_id) throw new Error('The bank line was not matched. Refresh before trying again.');
+      setPostedCount(n => n + 1);
+      const nextRow = visibleRows.find(r => r.id !== lineId);
       if (nextRow) {
         setOpenId(nextRow.id);
         if (!aiByLine[nextRow.id]) fetchAiSuggestion(nextRow.id);
@@ -125,7 +110,7 @@ export default function TransactionsToReview() {
     setAcceptBusy(b => ({ ...b, [lineId]: true }));
     try {
       await api.post(`/modules/accounting/api/bank_statements.php?action=ignore&line_id=${lineId}`);
-      setSkipped(s => { const n = new Set(s); n.add(lineId); return n; });
+      setIgnoredCount(n => n + 1);
       const nextRow = visibleRows.find(r => r.id !== lineId);
       if (nextRow) {
         setOpenId(nextRow.id);
@@ -162,7 +147,6 @@ export default function TransactionsToReview() {
     );
   }
 
-  const accounts = accountsApi.data?.rows || [];
   const totalRemaining = visibleRows.length;
   const totalServer    = data?.total ?? 0;
 
@@ -176,7 +160,7 @@ export default function TransactionsToReview() {
           <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 13 }} data-testid="transactions-to-review-subtitle">
             {loading
               ? 'Loading queue…'
-              : `${totalServer} unmatched bank line${totalServer === 1 ? '' : 's'} need review · match receipts and payments before categorizing.`}
+              : `${totalServer} unmatched bank line${totalServer === 1 ? '' : 's'} need review · match customer and vendor payments first; post ordinary income and expenses here.`}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -231,7 +215,9 @@ export default function TransactionsToReview() {
           {visibleRows.map((r) => {
             const isOpen   = openId === r.id;
             const ai       = aiByLine[r.id];
-            const aiPick   = pickByLine[r.id] || ai?.account_code || '';
+            const requestedPick = pickByLine[r.id] || '';
+            const aiPick = accounts.some(a => a.code === requestedPick) ? requestedPick : '';
+            const hasAiAccount = Boolean(ai?.suggested_account_id && ai?.account_code);
             const overdue  = (r.age_days ?? 0) >= 14;
             const tone     = (r.amount ?? 0) >= 0 ? '#059669' : '#dc2626';
             return (
@@ -303,11 +289,11 @@ export default function TransactionsToReview() {
                       )}
                       {aiBusy[r.id] && <span data-testid={`transactions-to-review-ai-loading-${r.id}`} style={{ fontSize: 11, color: '#7c3aed' }}>Thinking…</span>}
                     </div>
-                    {ai && !ai._error && (
+                    {hasAiAccount && (
                       <div data-testid={`transactions-to-review-ai-result-${r.id}`}
                            style={{ background: '#fff', border: '1px solid #ddd6fe', borderRadius: 8, padding: 10, fontSize: 12, marginBottom: 10 }}>
                         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                          <AccountLink accountId={ai.account_id} accountCode={ai.account_code}>
+                          <AccountLink accountId={ai.suggested_account_id} accountCode={ai.account_code}>
                             <code style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 600 }}>
                               {ai.account_code || '—'}
                             </code>
@@ -323,7 +309,15 @@ export default function TransactionsToReview() {
                         {ai.reasoning && (
                           <p style={{ margin: '6px 0 0', color: '#475569', lineHeight: 1.45 }}>{ai.reasoning}</p>
                         )}
+                        {!DIRECT_CATEGORY_TYPES.has(ai.account_type) && (
+                          <p style={{ margin: '6px 0 0', color: '#92400e' }}>Use bank reconciliation for transfers and balance-sheet accounts.</p>
+                        )}
                       </div>
+                    )}
+                    {ai && !ai._error && !hasAiAccount && (
+                      <p data-testid={`transactions-to-review-ai-empty-${r.id}`} style={{ fontSize: 12, color: '#64748b' }}>
+                        No account suggestion. Match this line or choose an income or expense account below.
+                      </p>
                     )}
                     {ai?._error && (
                       <p data-testid={`transactions-to-review-ai-err-${r.id}`} className="error" style={{ fontSize: 12 }}>
@@ -331,42 +325,13 @@ export default function TransactionsToReview() {
                       </p>
                     )}
 
-                    {/* Slice B / Spec §11: rich recommendation card with
-                        canonical vendor + pin-alias affordance. */}
-                    {ai && !ai._error && (
-                      <TransactionRecommendationCard
-                        transactionId={r.id}
-                        recommendation={{
-                          payee_normalized:    aliasByLine[r.id]?.normalized || r.description,
-                          canonical_vendor:    aliasByLine[r.id]?.alias
-                            ? {
-                                id:     aliasByLine[r.id].alias.canonical_vendor_id,
-                                label:  aliasByLine[r.id].alias.canonical_label
-                                          || aliasByLine[r.id].alias.alias_raw,
-                                source: aliasByLine[r.id].alias.pinned ? 'manual' : aliasByLine[r.id].alias.source,
-                              }
-                            : null,
-                          proposed_account_id: ai.account_id || null,
-                          proposed_account:    {
-                            code: ai.account_code,
-                            name: ai.account_name,
-                            type: ai.account_type || null,
-                          },
-                          confidence:          ai.confidence ?? 0,
-                          reasoning:           ai.reasoning,
-                          ai_run_id:           ai.ai_run_id || ai.suggestion_id || null,
-                        }}
-                        onAccept={async () => {
-                          await acceptCategorize(r.id, ai.account_code, ai.suggestion_id || ai.id);
-                        }}
-                        onReject={async () => { await skipLine(r.id); }}
-                      />
+                    {/* Only ordinary income/expense lines can be posted directly. */}
+                    {accountsApi.error && (
+                      <p className="error" style={{ fontSize: 12 }}>Accounts could not load: {accountsApi.error.message}</p>
                     )}
-
-                    {/* Manual COA picker + accept */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
                       <label style={{ fontSize: 12, color: '#475569' }}>
-                        Account
+                        Income or expense account
                         <select
                           data-testid={`transactions-to-review-coa-${r.id}`}
                           className="input"
@@ -385,12 +350,12 @@ export default function TransactionsToReview() {
                       <button
                         data-testid={`transactions-to-review-accept-${r.id}`}
                         className="btn btn--primary"
-                        onClick={() => acceptCategorize(r.id, aiPick, ai?.suggestion_id || ai?.id)}
+                        onClick={() => postCategory(r.id, aiPick, ai?.suggestion_id)}
                         disabled={acceptBusy[r.id] || !aiPick}
                         style={{ fontSize: 12 }}
                       >
                         <CheckCircle2 size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                        {acceptBusy[r.id] ? 'Saving…' : 'Categorize & next'}
+                        {acceptBusy[r.id] ? 'Posting…' : 'Post & match'}
                       </button>
                       <button
                         data-testid={`transactions-to-review-skip-${r.id}`}
@@ -403,6 +368,9 @@ export default function TransactionsToReview() {
                         Ignore line
                       </button>
                     </div>
+                    <p style={{ fontSize: 11, color: '#64748b', margin: '8px 0 0' }}>
+                      Posting creates a journal and clears this bank line. For an invoice, bill, transfer, or split, use Match or split.
+                    </p>
                   </div>
                 )}
               </div>
@@ -413,7 +381,7 @@ export default function TransactionsToReview() {
 
       <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#94a3b8', fontSize: 11, paddingTop: 8 }}>
         <span data-testid="transactions-to-review-progress">
-          Reviewed this session: {accepted.size} accepted · {skipped.size} skipped
+          This session: {postedCount} posted and matched · {ignoredCount} ignored
         </span>
         <Link to="/modules/accounting/bookkeeping" style={{ color: '#0284c7' }} data-testid="transactions-to-review-overview-link">
           <Wallet size={11} style={{ marginRight: 3, verticalAlign: 'middle' }} />Bookkeeping overview

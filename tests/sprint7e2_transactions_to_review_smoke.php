@@ -73,17 +73,31 @@ $assert('autoload triggers AI suggest on first row',
     && strpos($jsx, 'fetchAiSuggestion(first.id)') !== false);
 $assert('AI suggest endpoint',
     strpos($jsx, '/modules/accounting/api/bank_ai.php?action=suggest_categorize&line_id=') !== false);
-$assert('Accept endpoint stamps history moat',
-    strpos($jsx, '/modules/accounting/api/bank_statements.php?action=accept_ai_categorize&line_id=') !== false);
+$assert('post action uses canonical journal and bank-match endpoint',
+    strpos($jsx, '/modules/accounting/api/account_transactions.php?action=categorize_and_post') !== false
+    && strpos($jsx, "type: 'deposit'") !== false
+    && strpos($jsx, 'matched_je_id') !== false);
 $assert('Skip endpoint flips match_status=ignored',
     strpos($jsx, '/modules/accounting/api/bank_statements.php?action=ignore&line_id=') !== false);
-$assert('advance focus to next row after accept',
+$assert('advance focus to next row after posting',
     strpos($jsx, 'const nextRow = visibleRows.find') !== false);
 $assert('queue refills after resolving a line', substr_count($jsx, 'await reload();') >= 2);
 $assert('matching is offered before categorization',
     strpos($jsx, 'Match or split') !== false
-    && strpos($jsx, 'match receipts and payments before categorizing') !== false);
+    && strpos($jsx, 'match customer and vendor payments first') !== false);
 $assert('ignore action is labeled accurately', strpos($jsx, 'Ignore line') !== false);
+$assert('direct posting picker excludes control and balance-sheet accounts',
+    strpos($jsx, 'DIRECT_CATEGORY_TYPES.has(a.account_type)') !== false
+    && strpos($jsx, 'a.is_postable') !== false);
+$assert('no-suggestion state offers no AI accept/reject buttons',
+    strpos($jsx, 'transactions-to-review-ai-empty-${r.id}') !== false
+    && strpos($jsx, 'TransactionRecommendationCard') === false);
+$assert('suggestion service resolves account identity for display',
+    strpos((string) file_get_contents("{$ROOT}/modules/accounting/api/bank_ai.php"), "\$sug['account_code']") !== false
+    && strpos($jsx, 'ai.suggested_account_id') !== false);
+$assert('posting history uses bank description when merchant is absent',
+    strpos((string) file_get_contents("{$ROOT}/modules/treasury/api/account_transactions.php"),
+        "\$line['merchant_name'] = (string) (\$line['description'] ?? '')") !== false);
 
 $ids = [
     'page', 'subtitle', 'order', 'bank-filter', 'refresh',
@@ -101,6 +115,7 @@ $rowIds = [
     'transactions-to-review-suggest-${r.id}',
     'transactions-to-review-ai-loading-${r.id}',
     'transactions-to-review-ai-result-${r.id}',
+    'transactions-to-review-ai-empty-${r.id}',
     'transactions-to-review-ai-err-${r.id}',
     'transactions-to-review-coa-${r.id}',
     'transactions-to-review-accept-${r.id}',

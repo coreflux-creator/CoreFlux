@@ -139,6 +139,14 @@ if ($action === 'suggest_categorize') {
             $sideAccountId,
             $accounts
         );
+        $suggestedAccountId = (int) ($sug['suggested_account_id'] ?? 0);
+        foreach ($accounts as $account) {
+            if ((int) $account['id'] !== $suggestedAccountId) continue;
+            $sug['account_code'] = (string) $account['code'];
+            $sug['account_name'] = (string) $account['name'];
+            $sug['account_type'] = (string) $account['account_type'];
+            break;
+        }
         api_ok([
             'suggestion'      => $sug,
             'review_required' => !$sug['auto_accept'],

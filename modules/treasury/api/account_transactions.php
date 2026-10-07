@@ -610,6 +610,9 @@ if (api_method() === 'POST') {
     // Record AI suggestion outcome (accept-as-is vs override) for moat training.
     require_once __DIR__ . '/../../../core/ai_categorization.php';
     $aiSuggestionId = (int) ($body['ai_suggestion_id'] ?? 0) ?: null;
+    if (trim((string) ($line['merchant_name'] ?? '')) === '') {
+        $line['merchant_name'] = (string) ($line['description'] ?? '');
+    }
     aiRecordCategorizationOutcome(
         $tenantId,
         $aiSuggestionId,
