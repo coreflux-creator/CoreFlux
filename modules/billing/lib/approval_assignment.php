@@ -12,12 +12,17 @@ function billingInvoiceApprovalAssignmentRead(int $tenantId, int $invoiceId, ?in
     $instanceId = billingInvoiceWorkflowPendingInstanceId($tenantId, $invoiceId,
         isset($invoice['workflow_instance_id']) ? (int) $invoice['workflow_instance_id'] : null);
     $priorStatus = null;
+    $priorNote = null;
     if ($instanceId <= 0) {
-        $prior = getDB()->prepare('SELECT status FROM workflow_instances
-            WHERE tenant_id = :tenant_id AND subject_type = "billing_invoice"
-              AND subject_id = :invoice_id ORDER BY id DESC LIMIT 1');
-        $prior->execute(['tenant_id' => $tenantId, 'invoice_id' => $invoiceId]);
-        $priorStatus = $prior->fetchColumn() ?: null;
+        $prior = billingInvoiceWorkflowLatestAttempt($tenantId, $invoiceId);
+        $priorStatus = $prior['status'] ?? null;
+        if ($priorStatus === WORKFLOW_STATUS_REJECTED) {
+            $note = getDB()->prepare('SELECT comment FROM workflow_step_actions
+                WHERE tenant_id = :tenant_id AND instance_id = :instance_id
+                  AND action = "reject" ORDER BY id DESC LIMIT 1');
+            $note->execute(['tenant_id' => $tenantId, 'instance_id' => (int) $prior['id']]);
+            $priorNote = $note->fetchColumn() ?: null;
+        }
     }
     $eligible = billingInvoiceEligibleReviewers($tenantId);
     $routing = $instanceId > 0 ? null : billingInvoiceApprovalRouting($tenantId, $invoice);
@@ -57,7 +62,8 @@ function billingInvoiceApprovalAssignmentRead(int $tenantId, int $invoiceId, ?in
             && billingInvoiceHasIndependentApprover($tenantId, (array) $routing['requirements'], $blocked)
             && billingInvoiceManagedReviewerSnapshot($tenantId, $blocked) !== [];
     $requestBlocked = $viewerUserId ? array_values(array_unique([...$blocked, $viewerUserId])) : $blocked;
-    $viewerCanRequest = $instanceId <= 0 && $priorStatus === null && $required
+    $viewerCanRequest = $instanceId <= 0
+        && ($priorStatus === null || $priorStatus === WORKFLOW_STATUS_REJECTED) && $required
         && !empty($routing['infrastructure_available'])
         && billingInvoiceHasIndependentApprover($tenantId, (array) $routing['requirements'], $requestBlocked)
         && billingInvoiceManagedReviewerSnapshot($tenantId, $requestBlocked) !== [];
@@ -70,6 +76,7 @@ function billingInvoiceApprovalAssignmentRead(int $tenantId, int $invoiceId, ?in
         'pending' => $instanceId > 0,
         'workflow_instance_id' => $instanceId ?: null,
         'prior_review_status' => $priorStatus,
+        'prior_review_note' => $priorNote,
         'managed_assignment' => $snapshot !== null,
         'approval_required' => (bool) $required,
         'assigned_reviewer_user_ids' => $assignedIds,

@@ -570,12 +570,9 @@ if ($method === 'POST' && $action === 'request_approval') {
         $instanceId = billingInvoiceWorkflowPendingInstanceId($tid, $id);
         $requested = false;
         if ($instanceId <= 0) {
-            $prior = $pdo->prepare('SELECT id FROM workflow_instances
-                WHERE tenant_id = :tenant_id AND subject_type = "billing_invoice"
-                  AND subject_id = :invoice_id ORDER BY id DESC LIMIT 1');
-            $prior->execute(['tenant_id' => $tid, 'invoice_id' => $id]);
-            if ($prior->fetchColumn() !== false) {
-                throw new DomainException('A previous approval ended. Review the invoice before requesting it again.');
+            $prior = billingInvoiceWorkflowLatestAttempt($tid, $id);
+            if ($prior && $prior['status'] !== WORKFLOW_STATUS_REJECTED) {
+                throw new DomainException('This invoice already has a completed approval.');
             }
             $routing = billingInvoiceApprovalRouting($tid, $invoice);
             $blocked = billingInvoiceWorkflowSodBlockedUserIds($invoice, (int) $user['id']);

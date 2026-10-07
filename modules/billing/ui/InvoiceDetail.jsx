@@ -159,7 +159,10 @@ export default function InvoiceDetail() {
       )}
       {inv.status === 'draft' && approvalState?.prior_review_status && !approvalState?.pending && (
         <p className="error" role="alert" data-testid="billing-invoice-prior-review">
-          The previous approval {approvalState.prior_review_status.replaceAll('_', ' ')}. This draft cannot be submitted again yet; void it and create a new draft to restart review.
+          {approvalState.prior_review_status === 'rejected'
+            ? 'The previous review was rejected. Review the draft and request approval again.'
+            : `The previous approval ${approvalState.prior_review_status.replaceAll('_', ' ')}. This draft cannot request another review.`}
+          {approvalState.prior_review_note && <span style={{ display: 'block', marginTop: 4 }}>Reviewer note: {approvalState.prior_review_note}</span>}
         </p>
       )}
       {inv.journal_entry_id && inv.journal_status !== 'posted' && (

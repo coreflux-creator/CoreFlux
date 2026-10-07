@@ -44,6 +44,15 @@ function billingInvoiceWorkflowRow(int $tenantId, int $invoiceId): ?array
     return $row ?: null;
 }
 
+function billingInvoiceWorkflowLatestAttempt(int $tenantId, int $invoiceId): ?array
+{
+    $stmt = getDB()->prepare('SELECT id, status, completed_at FROM workflow_instances
+        WHERE tenant_id = :tenant_id AND subject_type = "billing_invoice"
+          AND subject_id = :invoice_id ORDER BY id DESC LIMIT 1');
+    $stmt->execute(['tenant_id' => $tenantId, 'invoice_id' => $invoiceId]);
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
 /** @internal */
 function billingInvoiceWorkflowSteps(int $invoiceId): array
 {
@@ -258,6 +267,10 @@ function billingInvoiceWorkflowStart(int $tenantId, int $invoiceId, ?int $starte
     if ($pendingId > 0) return $pendingId;
 
     try {
+        $prior = billingInvoiceWorkflowLatestAttempt($tenantId, $invoiceId);
+        if ($prior && $prior['status'] !== WORKFLOW_STATUS_REJECTED) {
+            throw new \DomainException('This invoice has a completed approval that cannot be restarted.');
+        }
         $routing = billingInvoiceApprovalRouting($tenantId, $invoice);
         if (empty($routing['infrastructure_available']) || empty($routing['workflow_required'])
             || !billingInvoiceHasIndependentApprover($tenantId, (array) $routing['requirements'],
@@ -374,12 +387,11 @@ function billingInvoiceWorkflowAct(
         isset($invoice['workflow_instance_id']) ? (int) $invoice['workflow_instance_id'] : null
     );
     if ($instanceId <= 0) {
-        $prior = getDB()->prepare('SELECT status FROM workflow_instances
-            WHERE tenant_id = :tenant_id AND subject_type = "billing_invoice"
-              AND subject_id = :invoice_id ORDER BY id DESC LIMIT 1');
-        $prior->execute(['tenant_id' => $tenantId, 'invoice_id' => $invoiceId]);
-        if ($prior->fetchColumn() !== false) {
-            throw new \RuntimeException('A previous approval ended. Review the invoice before approving it again.');
+        $prior = billingInvoiceWorkflowLatestAttempt($tenantId, $invoiceId);
+        if ($prior) {
+            throw new \RuntimeException($prior['status'] === WORKFLOW_STATUS_REJECTED
+                ? 'Request a new approval before deciding on this rejected invoice.'
+                : 'A previous approval ended. Review the invoice before approving it again.');
         }
     }
     $routing = billingInvoiceApprovalRouting($tenantId, $invoice);

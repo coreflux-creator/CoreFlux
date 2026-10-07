@@ -200,11 +200,16 @@ try {
     billingInvoiceApprovalSettingsSave($tenantId, [$reviewerId, $secondId], $reviewerId);
     $rejectedInvoice = billingCreateDirectInvoiceDraft($tenantId, $invoiceBody, $reviewerId);
     $rejectedInvoiceId = (int) $rejectedInvoice['id'];
-    billingInvoiceWorkflowStart($tenantId, $rejectedInvoiceId, $reviewerId);
+    $rejectedInstanceId = billingInvoiceWorkflowStart($tenantId, $rejectedInvoiceId, $reviewerId);
     billingInvoiceWorkflowAct($tenantId, $rejectedInvoiceId, $secondId, 'reject', 'Rollback-only review rejection');
     $rejectedAssignment = billingInvoiceApprovalAssignmentRead($tenantId, $rejectedInvoiceId, $reviewerId);
     $checks['rejected_invoice_exposes_terminal_review'] = $rejectedAssignment['prior_review_status'] === 'rejected'
-        && !$rejectedAssignment['viewer_can_request'];
+        && $rejectedAssignment['prior_review_note'] === 'Rollback-only review rejection'
+        && $rejectedAssignment['viewer_can_request'];
+    $checks['rejected_invoice_requires_explicit_resubmission'] = $rejects(
+        static fn() => billingInvoiceWorkflowAct($tenantId, $rejectedInvoiceId, $secondId),
+        RuntimeException::class
+    ) && billingInvoiceWorkflowRow($tenantId, $rejectedInvoiceId)['status'] === 'draft';
     $pdo->prepare('UPDATE people_graph_approval_policies SET status = "inactive"
         WHERE tenant_id = :tenant_id AND policy_key = :policy_key')
         ->execute(['tenant_id' => $tenantId, 'policy_key' => BILLING_INVOICE_APPROVAL_POLICY_KEY]);
@@ -215,6 +220,60 @@ try {
     $pdo->prepare('UPDATE people_graph_approval_policies SET status = "active"
         WHERE tenant_id = :tenant_id AND policy_key = :policy_key')
         ->execute(['tenant_id' => $tenantId, 'policy_key' => BILLING_INVOICE_APPROVAL_POLICY_KEY]);
+    $secondAttemptId = billingInvoiceWorkflowStart($tenantId, $rejectedInvoiceId, $reviewerId);
+    $checks['rejected_invoice_starts_distinct_pending_attempt'] = $secondAttemptId > 0
+        && $secondAttemptId !== $rejectedInstanceId
+        && billingInvoiceWorkflowPendingInstanceId($tenantId, $rejectedInvoiceId) === $secondAttemptId
+        && billingInvoiceWorkflowStart($tenantId, $rejectedInvoiceId, $reviewerId) === $secondAttemptId;
+    $history = $pdo->prepare('SELECT id, status, unique_subject_id FROM workflow_instances
+        WHERE tenant_id = :tenant_id AND subject_type = "billing_invoice"
+          AND subject_id = :invoice_id ORDER BY id');
+    $history->execute(['tenant_id' => $tenantId, 'invoice_id' => $rejectedInvoiceId]);
+    $attempts = $history->fetchAll(PDO::FETCH_ASSOC);
+    $checks['old_decision_retained_with_one_live_attempt'] = count($attempts) === 2
+        && (int) $attempts[0]['id'] === $rejectedInstanceId
+        && $attempts[0]['status'] === 'rejected' && $attempts[0]['unique_subject_id'] === null
+        && (int) $attempts[1]['id'] === $secondAttemptId
+        && $attempts[1]['status'] === 'pending'
+        && (int) $attempts[1]['unique_subject_id'] === $rejectedInvoiceId;
+    $duplicatePending = $pdo->prepare('INSERT INTO workflow_instances
+        (tenant_id, definition_id, subject_type, subject_id, status, current_step)
+        SELECT tenant_id, definition_id, subject_type, subject_id, status, current_step
+          FROM workflow_instances WHERE tenant_id = :tenant_id AND id = :instance_id');
+    $checks['database_rejects_second_pending_attempt'] = $rejects(
+        static fn() => $duplicatePending->execute([
+            'tenant_id' => $tenantId, 'instance_id' => $secondAttemptId,
+        ]), PDOException::class
+    );
+    $pdo->prepare('INSERT INTO workflow_instances
+        (tenant_id, definition_id, subject_type, subject_id, status, current_step)
+        SELECT tenant_id, definition_id, "rollback_unique_subject", subject_id, "rejected", current_step
+          FROM workflow_instances WHERE tenant_id = :tenant_id AND id = :instance_id')
+        ->execute(['tenant_id' => $tenantId, 'instance_id' => $rejectedInstanceId]);
+    $duplicateOtherSubject = $pdo->prepare('INSERT INTO workflow_instances
+        (tenant_id, definition_id, subject_type, subject_id, status, current_step)
+        SELECT tenant_id, definition_id, subject_type, subject_id, status, current_step
+          FROM workflow_instances WHERE tenant_id = :tenant_id
+            AND subject_type = "rollback_unique_subject" AND subject_id = :subject_id LIMIT 1');
+    $checks['other_workflow_subjects_stay_unique'] = $rejects(
+        static fn() => $duplicateOtherSubject->execute([
+            'tenant_id' => $tenantId, 'subject_id' => $rejectedInvoiceId,
+        ]), PDOException::class
+    );
+    $secondDecision = billingInvoiceWorkflowAct($tenantId, $rejectedInvoiceId, $secondId);
+    $checks['second_attempt_approves_without_erasing_rejection'] = !empty($secondDecision['approved'])
+        && billingInvoiceWorkflowRow($tenantId, $rejectedInvoiceId)['status'] === 'approved'
+        && workflowGetInstance($tenantId, $rejectedInstanceId)['status'] === 'rejected'
+        && workflowGetInstance($tenantId, $secondAttemptId)['status'] === 'approved';
+    $duplicateApproved = $pdo->prepare('INSERT INTO workflow_instances
+        (tenant_id, definition_id, subject_type, subject_id, status, current_step)
+        SELECT tenant_id, definition_id, subject_type, subject_id, status, current_step
+          FROM workflow_instances WHERE tenant_id = :tenant_id AND id = :instance_id');
+    $checks['database_rejects_second_approved_attempt'] = $rejects(
+        static fn() => $duplicateApproved->execute([
+            'tenant_id' => $tenantId, 'instance_id' => $secondAttemptId,
+        ]), PDOException::class
+    );
 
     billingInvoiceApprovalSettingsSave($tenantId, [$reviewerId], $reviewerId);
     $selfOnly = billingCreateDirectInvoiceDraft($tenantId, $invoiceBody, $reviewerId);
