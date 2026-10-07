@@ -7,7 +7,7 @@ require_once __DIR__ . '/../../modules/billing/lib/invoice_drafts.php';
 
 function coreoneV1NormalizeInvoiceDraft(array $credential, array $body): array
 {
-    $allowed = ['schema_version', 'source_record_id', 'client_name', 'issue_date',
+    $allowed = ['schema_version', 'source_record_id', 'client_name', 'client_company_id', 'issue_date',
         'due_date', 'currency', 'tax_rate_pct', 'po_number', 'notes_external', 'lines'];
     if (array_diff(array_keys($body), $allowed)) {
         throw new InvalidArgumentException('The v1 invoice draft request has unsupported fields.');
@@ -23,6 +23,10 @@ function coreoneV1NormalizeInvoiceDraft(array $credential, array $body): array
     $clientName = $body['client_name'] ?? null;
     if (!is_string($clientName) || trim($clientName) === '' || strlen(trim($clientName)) > 255) {
         throw new InvalidArgumentException('client_name is required and must be at most 255 characters.');
+    }
+    if (array_key_exists('client_company_id', $body)
+        && (!is_int($body['client_company_id']) || $body['client_company_id'] <= 0)) {
+        throw new InvalidArgumentException('client_company_id must be a positive integer.');
     }
     $dates = [];
     foreach (['issue_date', 'due_date'] as $field) {
@@ -95,7 +99,7 @@ function coreoneV1NormalizeInvoiceDraft(array $credential, array $body): array
     }
     if ($gross <= 0) throw new InvalidArgumentException('Invoice total must be greater than zero.');
 
-    return [
+    $normalized = [
         'schema_version' => 1,
         'source_record_id' => $sourceId,
         'client_name' => trim($clientName),
@@ -107,12 +111,17 @@ function coreoneV1NormalizeInvoiceDraft(array $credential, array $body): array
         'notes_external' => $notesExternal,
         'lines' => $lines,
     ];
+    // Keep the old intent hash stable when a caller omits the new dimension.
+    if (array_key_exists('client_company_id', $body)) {
+        $normalized['client_company_id'] = $body['client_company_id'];
+    }
+    return $normalized;
 }
 
 function coreoneV1GetInvoiceDraft(array $credential, string $sourceId): ?array
 {
     $stmt = getDB()->prepare(
-        'SELECT d.source_record_id, i.id, i.invoice_number, i.client_name, i.entity_id,
+        'SELECT d.source_record_id, i.id, i.invoice_number, i.client_name, i.client_company_id, i.entity_id,
                 i.currency, i.issue_date, i.due_date, i.status, i.subtotal, i.tax_total,
                 i.total, i.amount_paid, i.amount_due, i.journal_entry_id
            FROM coreone_document_requests d
@@ -128,6 +137,7 @@ function coreoneV1GetInvoiceDraft(array $credential, string $sourceId): ?array
     if (!$row) return null;
     $row['id'] = (int) $row['id'];
     $row['entity_id'] = (int) $row['entity_id'];
+    $row['client_company_id'] = $row['client_company_id'] === null ? null : (int) $row['client_company_id'];
     $row['journal_entry_id'] = $row['journal_entry_id'] === null ? null : (int) $row['journal_entry_id'];
     $lines = getDB()->prepare(
         'SELECT line_no, catalog_item_id, description, quantity, unit, unit_price,

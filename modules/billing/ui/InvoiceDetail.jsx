@@ -144,7 +144,7 @@ export default function InvoiceDetail() {
         <SummaryBox label="Tax"        value={`${Number(inv.tax_total).toFixed(2)}`} />
         <SummaryBox label="Total"      value={`${Number(inv.total).toFixed(2)} ${inv.currency}`} highlight />
         <SummaryBox label="Paid"       value={`${Number(inv.amount_paid).toFixed(2)}`} />
-        <SummaryBox label="Due"        value={`${Number(inv.amount_due).toFixed(2)}`} highlight />
+        <SummaryBox label="Due"        value={inv.status === 'void' ? '—' : Number(inv.amount_due).toFixed(2)} highlight={inv.status !== 'void'} />
       </div>
 
       {token && (

@@ -17,6 +17,7 @@ Pass the token as `Authorization: Bearer <token>`. Browser cookies, caller-suppl
   "schema_version": 1,
   "source_record_id": "coreone:invoice:2026-0001",
   "client_name": "Example Client",
+  "client_company_id": 42,
   "issue_date": "2026-10-03",
   "due_date": "2026-11-02",
   "currency": "USD",
@@ -36,9 +37,9 @@ Pass the token as `Authorization: Bearer <token>`. Browser cookies, caller-suppl
 }
 ```
 
-`po_number`, `notes_external` and `catalog_item_id` may be omitted. All other fields are required. Custom lines need no product or placement. When a catalog item is supplied, it must be active in the credential's workspace. Prices, descriptions and taxability are explicit snapshots rather than mutable catalog defaults. Dates use `YYYY-MM-DD`; due date cannot precede issue date. Monetary quantities/prices allow at most four decimal places. The request must have a positive rounded total.
+`po_number`, `notes_external`, `client_company_id` and `catalog_item_id` may be omitted. All other fields are required. A supplied client company ID must be a live company in the workspace's client catalog and match `client_name`; otherwise the draft is rejected without creating a document. Without an ID, Billing resolves or creates the client by name. Custom lines need no product or placement. When a catalog item is supplied, it must be active in the credential's workspace. Prices, descriptions and taxability are explicit snapshots rather than mutable catalog defaults. Dates use `YYYY-MM-DD`; due date cannot precede issue date. Monetary quantities/prices allow at most four decimal places. The request must have a positive rounded total.
 
-A new draft returns HTTP 201 with `{invoice, idempotent_replay: false}`. The `invoice` contains the canonical Billing ID and number, current status/balances, legal entity, journal ID (null for a draft), and saved lines. `GET /api/coreone/v1/invoices.php?source_record_id=...` returns the current document state for that source ID and entity. An exact `POST` retry returns HTTP 200 with the same invoice and `idempotent_replay: true`. Reusing a source ID with changed intent or from another entity returns HTTP 409; invalid input returns 422; missing/revoked credentials return 401; a valid token without `invoices:draft` returns 403.
+A new draft returns HTTP 201 with `{invoice, idempotent_replay: false}`. The `invoice` contains the canonical Billing ID and number, client company ID, current status/balances, legal entity, journal ID (null for a draft), and saved lines. `GET /api/coreone/v1/invoices.php?source_record_id=...` returns the current document state for that source ID and entity. An exact `POST` retry returns HTTP 200 with the same invoice and `idempotent_replay: true`. Reusing a source ID with changed intent or from another entity returns HTTP 409; invalid input returns 422; missing/revoked credentials return 401; a valid token without `invoices:draft` returns 403.
 
 The source ID and intent hash are mapped to the Billing invoice in the same transaction as draft creation. That mapping is provenance/idempotency, not a second receivable or ledger. A voided or edited draft retains its original source ID; a retry returns the current document instead of creating a replacement. Consumers must use a new source ID for a new business invoice.
 

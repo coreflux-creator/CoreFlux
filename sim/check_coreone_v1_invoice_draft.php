@@ -13,7 +13,7 @@ foreach (array_slice($argv, 1) as $arg) {
     if (str_starts_with($arg, '--tenant=')) $tenantId = (int) substr($arg, 9);
 }
 if ($tenantId <= 0) {
-    fwrite(STDERR, "Use --tenant=ID with a CoreFlux CI Simulation tenant.\n");
+    fwrite(STDERR, "Use --tenant=ID with a disposable test tenant.\n");
     exit(2);
 }
 setRequestTenantId($tenantId);
@@ -21,8 +21,15 @@ setRequestModuleScope('billing');
 $pdo = getDB();
 $tenant = $pdo->prepare('SELECT name FROM tenants WHERE id = :id');
 $tenant->execute(['id' => $tenantId]);
-if (!in_array($tenant->fetchColumn(), ['CoreFlux CI Simulation', "CoreFlux CI Simulation {$tenantId}"], true)) {
-    fwrite(STDERR, "This check can only run against a disposable CI Simulation tenant.\n");
+$tenantName = (string) $tenant->fetchColumn();
+$databaseName = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
+$localQa = in_array('--local-qa', $argv, true)
+    && getenv('COREFLUX_ENV') === 'staging'
+    && preg_match('/^coreaccounting_blank_test[0-9]+$/D', $databaseName)
+    && str_starts_with($tenantName, 'CoreAccounting ');
+if (!in_array($tenantName, ['CoreFlux CI Simulation', "CoreFlux CI Simulation {$tenantId}"], true)
+    && !$localQa) {
+    fwrite(STDERR, "This check can only run against a disposable CI Simulation tenant or an explicit local QA database.\n");
     exit(2);
 }
 $entityStmt = $pdo->prepare(
@@ -76,6 +83,13 @@ try {
         && $invoice['status'] === 'draft' && (int) $invoice['entity_id'] === (int) $entity['id']
         && (float) $invoice['total'] === 25.0 && count($invoice['lines']) === 1
         && $invoice['journal_entry_id'] === null;
+    $clientCompanyId = (int) ($invoice['client_company_id'] ?? 0);
+    $clientStmt = $pdo->prepare('SELECT tenant_id, name FROM companies WHERE id = :id');
+    $clientStmt->execute(['id' => $clientCompanyId]);
+    $clientRow = $clientStmt->fetch(PDO::FETCH_ASSOC);
+    $checks['draft_client_is_a_canonical_company'] = $clientCompanyId > 0
+        && (int) ($clientRow['tenant_id'] ?? 0) === $tenantId
+        && ($clientRow['name'] ?? null) === $body['client_name'];
     $mapping = $pdo->prepare(
         'SELECT target_id FROM coreone_document_requests
           WHERE tenant_id = :t AND entity_id = :e AND source_type = "billing.invoice"
@@ -87,6 +101,51 @@ try {
     $replayed = coreoneV1CreateInvoiceDraft($credential, $body);
     $checks['exact_retry_reuses_same_invoice'] = $replayed['idempotent_replay']
         && (int) $replayed['invoice']['id'] === (int) $invoice['id'];
+    $selectedBody = $body;
+    $selectedBody['source_record_id'] = 'stage-invoice:client:' . bin2hex(random_bytes(8));
+    $selectedBody['client_company_id'] = $clientCompanyId;
+    $selected = coreoneV1CreateInvoiceDraft($credential, $selectedBody);
+    $checks['explicit_client_uses_same_company_dimension'] =
+        (int) ($selected['invoice']['client_company_id'] ?? 0) === $clientCompanyId
+        && (int) coreoneV1CreateInvoiceDraft($credential, $selectedBody)['invoice']['id']
+            === (int) $selected['invoice']['id'];
+    $mismatch = $selectedBody;
+    $mismatch['source_record_id'] = 'stage-invoice:mismatch:' . bin2hex(random_bytes(8));
+    $mismatch['client_name'] = 'Wrong customer';
+    $checks['mismatched_client_name_has_no_draft_or_mapping'] = $rejects(
+        static fn() => coreoneV1CreateInvoiceDraft($credential, $mismatch),
+        InvalidArgumentException::class
+    ) && coreoneV1GetInvoiceDraft($credential, $mismatch['source_record_id']) === null;
+    $invalidId = $selectedBody;
+    $invalidId['client_company_id'] = 'not-an-id';
+    $checks['machine_client_id_requires_positive_integer'] = $rejects(
+        static fn() => coreoneV1CreateInvoiceDraft($credential, $invalidId),
+        InvalidArgumentException::class
+    );
+    $pdo->prepare('INSERT INTO companies (tenant_id, name, deleted_at) VALUES (:t, :name, NOW())')
+        ->execute(['t' => $tenantId, 'name' => 'Deleted test client']);
+    $deletedId = (int) $pdo->lastInsertId();
+    $deletedBody = $selectedBody;
+    $deletedBody['source_record_id'] = 'stage-invoice:deleted:' . bin2hex(random_bytes(8));
+    $deletedBody['client_name'] = 'Deleted test client';
+    $deletedBody['client_company_id'] = $deletedId;
+    $checks['deleted_client_has_no_draft_or_mapping'] = $rejects(
+        static fn() => coreoneV1CreateInvoiceDraft($credential, $deletedBody),
+        InvalidArgumentException::class
+    ) && coreoneV1GetInvoiceDraft($credential, $deletedBody['source_record_id']) === null;
+    $pdo->prepare('INSERT INTO tenants (name) VALUES (:name)')
+        ->execute(['name' => 'Rollback-only foreign client tenant']);
+    $foreignTenantId = (int) $pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO companies (tenant_id, name) VALUES (:t, :name)')
+        ->execute(['t' => $foreignTenantId, 'name' => 'Foreign test client']);
+    $foreignBody = $selectedBody;
+    $foreignBody['source_record_id'] = 'stage-invoice:foreign:' . bin2hex(random_bytes(8));
+    $foreignBody['client_name'] = 'Foreign test client';
+    $foreignBody['client_company_id'] = (int) $pdo->lastInsertId();
+    $checks['foreign_tenant_client_has_no_draft_or_mapping'] = $rejects(
+        static fn() => coreoneV1CreateInvoiceDraft($credential, $foreignBody),
+        InvalidArgumentException::class
+    ) && coreoneV1GetInvoiceDraft($credential, $foreignBody['source_record_id']) === null;
     $changed = $body;
     $changed['lines'][0]['unit_price'] = '13.00';
     $checks['changed_intent_conflicts_without_editing_invoice'] = $rejects(
@@ -116,6 +175,24 @@ try {
     $checks['second_entity_creates_only_its_own_draft'] =
         (int) $secondDraft['invoice']['entity_id'] === $secondId
         && coreoneV1GetInvoiceDraft($credential, $secondBody['source_record_id']) === null;
+    $pdo->prepare(
+        'INSERT INTO accounting_entities (tenant_id, code, legal_name, base_currency, active)
+         VALUES (:t, :code, "Rollback-only EUR invoice entity", "EUR", 1)'
+    )->execute(['t' => $tenantId, 'code' => 'SIM-EUR-' . bin2hex(random_bytes(4))]);
+    $euroEntityId = (int) $pdo->lastInsertId();
+    $euroDraft = $body;
+    unset($euroDraft['currency'], $euroDraft['schema_version'], $euroDraft['source_record_id']);
+    $euroDraft['entity_id'] = $euroEntityId;
+    $euroDraft['client_name'] = 'Rollback-only EUR client ' . bin2hex(random_bytes(4));
+    $euroCreated = billingCreateDirectInvoiceDraft($tenantId, $euroDraft);
+    $euroStmt = $pdo->prepare('SELECT currency FROM billing_invoices WHERE tenant_id = :t AND id = :id');
+    $euroStmt->execute(['t' => $tenantId, 'id' => (int) $euroCreated['id']]);
+    $checks['manual_draft_defaults_to_issuing_entity_currency'] = $euroStmt->fetchColumn() === 'EUR';
+    $euroDraft['currency'] = (string) $entity['base_currency'];
+    $checks['manual_draft_rejects_currency_mismatch'] = $rejects(
+        static fn() => billingCreateDirectInvoiceDraft($tenantId, $euroDraft),
+        InvalidArgumentException::class
+    );
 } catch (Throwable $e) {
     fwrite(STDERR, get_class($e) . ': ' . $e->getMessage() . PHP_EOL);
     $checks['fixture_completed_without_exception'] = false;

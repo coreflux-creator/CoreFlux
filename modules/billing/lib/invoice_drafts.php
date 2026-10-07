@@ -81,6 +81,41 @@ function billingInsertDirectInvoiceLines(PDO $pdo, int $invoiceId, array $lines)
     }
 }
 
+function billingResolveDirectInvoiceClientCompanyId(
+    PDO $pdo,
+    int $catalogTenantId,
+    string $clientName,
+    mixed $suppliedCompanyId,
+    ?int $actorUserId = null
+): int {
+    $clientName = trim($clientName);
+    if ($clientName === '' || strlen($clientName) > 255) {
+        throw new InvalidArgumentException('Enter a client name of at most 255 characters');
+    }
+    if ($suppliedCompanyId !== null && $suppliedCompanyId !== '') {
+        if ((!is_int($suppliedCompanyId) && !is_string($suppliedCompanyId))
+            || !ctype_digit((string) $suppliedCompanyId) || (int) $suppliedCompanyId <= 0) {
+            throw new InvalidArgumentException('Choose a valid client company');
+        }
+        $clientStmt = $pdo->prepare(
+            'SELECT id, name FROM companies
+              WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL'
+        );
+        $clientStmt->execute(['tenant_id' => $catalogTenantId, 'id' => (int) $suppliedCompanyId]);
+        $client = $clientStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$client) throw new InvalidArgumentException('Client company is not available in this workspace');
+        if (strcasecmp(trim((string) $client['name']), $clientName) !== 0) {
+            throw new InvalidArgumentException('Client name does not match the selected company');
+        }
+        $clientCompanyId = (int) $client['id'];
+    } else {
+        $clientCompanyId = companiesUpsertByName($catalogTenantId, $clientName,
+            ['created_by_user_id' => $actorUserId], ['client']);
+    }
+    companiesBumpUsage($clientCompanyId);
+    return $clientCompanyId;
+}
+
 function billingCreateDirectInvoiceDraft(int $tenantId, array $body, ?int $actorUserId = null): array
 {
     $clientName = trim((string) ($body['client_name'] ?? ''));
@@ -126,6 +161,7 @@ function billingCreateDirectInvoiceDraft(int $tenantId, array $body, ?int $actor
     $dueDate = trim((string) ($body['due_date'] ?? ''));
     if ($dueDate === '') $dueDate = date('Y-m-d', strtotime("+{$netDays} days", strtotime($issueDate)));
     if (!$validDate($dueDate)) throw new InvalidArgumentException('Due date must use YYYY-MM-DD');
+    if ($dueDate < $issueDate) throw new InvalidArgumentException('Due date cannot precede issue date');
     $resolvedInvoiceTerms = $netDays === 0 ? 'DUE_ON_RECEIPT' : 'NET' . $netDays;
     $computed = billingComputeTax($body['lines'], $taxPct);
     try {
@@ -136,16 +172,17 @@ function billingCreateDirectInvoiceDraft(int $tenantId, array $body, ?int $actor
         throw new InvalidArgumentException($e->getMessage(), 0, $e);
     }
     if (!$issuingEntity) throw new InvalidArgumentException('An active issuing entity is required');
+    $currency = $body['currency'] ?? $issuingEntity['base_currency'];
+    if (!is_string($currency) || $currency !== (string) $issuingEntity['base_currency']) {
+        throw new InvalidArgumentException('Invoice currency must match the issuing entity');
+    }
 
     $ownsTransaction = !$pdo->inTransaction();
     if ($ownsTransaction) $pdo->beginTransaction();
     try {
-        $clientCompanyId = !empty($body['client_company_id']) ? (int) $body['client_company_id'] : null;
-        if (!$clientCompanyId) {
-            $clientCompanyId = companiesUpsertByName($clientCatalogTenantId, $clientName,
-                ['created_by_user_id' => $actorUserId], ['client']);
-            companiesBumpUsage($clientCompanyId);
-        }
+        $clientCompanyId = billingResolveDirectInvoiceClientCompanyId(
+            $pdo, $clientCatalogTenantId, $clientName, $body['client_company_id'] ?? null, $actorUserId
+        );
         $invoiceNumber = billingNextInvoiceNumber($tenantId);
         $invoiceId = scopedInsert('billing_invoices', [
             'tenant_id' => $tenantId,
@@ -154,7 +191,7 @@ function billingCreateDirectInvoiceDraft(int $tenantId, array $body, ?int $actor
             'client_company_id' => $clientCompanyId,
             'entity_id' => (int) $issuingEntity['id'],
             'bill_to_json' => isset($body['bill_to']) ? json_encode($body['bill_to']) : null,
-            'currency' => (string) ($body['currency'] ?? 'USD'),
+            'currency' => $currency,
             'issue_date' => $issueDate,
             'due_date' => $dueDate,
             'payment_terms' => $resolvedInvoiceTerms,

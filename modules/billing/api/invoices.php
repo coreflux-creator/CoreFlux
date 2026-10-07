@@ -461,7 +461,70 @@ if ($method === 'PATCH') {
 
     cf_begin_transaction();
     try {
-        $pdo->prepare('UPDATE billing_invoices SET ' . implode(',', $sets) . ' WHERE tenant_id = :tenant_scope AND id = :id')->execute($binds);
+        $lockedStmt = $pdo->prepare('SELECT * FROM billing_invoices WHERE tenant_id = :t AND id = :id FOR UPDATE');
+        $lockedStmt->execute(['t' => $tid, 'id' => $id]);
+        $locked = $lockedStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$locked || $locked['status'] !== 'draft') {
+            throw new DomainException('Only draft invoices can be edited');
+        }
+        if (array_key_exists('entity_id', $body) || array_key_exists('currency', $body)) {
+            $requestedEntityId = array_key_exists('entity_id', $body)
+                ? $body['entity_id'] : $locked['entity_id'];
+            if ((!is_int($requestedEntityId) && !is_string($requestedEntityId))
+                || !ctype_digit((string) $requestedEntityId) || (int) $requestedEntityId <= 0) {
+                throw new InvalidArgumentException('Choose a valid issuing entity');
+            }
+            $entityStmt = $pdo->prepare(
+                'SELECT base_currency FROM accounting_entities
+                  WHERE tenant_id = :tenant_id AND id = :id AND active = 1'
+            );
+            $entityStmt->execute(['tenant_id' => $tid, 'id' => (int) $requestedEntityId]);
+            $baseCurrency = $entityStmt->fetchColumn();
+            if ($baseCurrency === false) throw new InvalidArgumentException('Issuing entity is not available in this workspace');
+            $requestedCurrency = array_key_exists('currency', $body)
+                ? $body['currency'] : $locked['currency'];
+            if (!is_string($requestedCurrency) || $requestedCurrency !== (string) $baseCurrency) {
+                throw new InvalidArgumentException('Invoice currency must match the issuing entity');
+            }
+        }
+        if (array_key_exists('issue_date', $body) || array_key_exists('due_date', $body)) {
+            $issueDate = array_key_exists('issue_date', $body)
+                ? $body['issue_date'] : $locked['issue_date'];
+            $dueDate = array_key_exists('due_date', $body)
+                ? $body['due_date'] : $locked['due_date'];
+            if (array_key_exists('due_date', $body) && ($dueDate === null || $dueDate === '')) {
+                $terms = (string) ($locked['payment_terms'] ?? 'NET30');
+                $netDays = $terms === 'DUE_ON_RECEIPT'
+                    ? 0 : (preg_match('/^NET([0-9]+)$/D', $terms, $matches) ? (int) $matches[1] : 30);
+                $parsedIssue = is_string($issueDate) ? DateTimeImmutable::createFromFormat('!Y-m-d', $issueDate) : false;
+                if (!$parsedIssue || $parsedIssue->format('Y-m-d') !== $issueDate) {
+                    throw new InvalidArgumentException('Issue date must use YYYY-MM-DD');
+                }
+                $dueDate = $parsedIssue->modify("+{$netDays} days")->format('Y-m-d');
+                $binds['due_date'] = $dueDate;
+            }
+            foreach (['issue_date' => $issueDate, 'due_date' => $dueDate] as $field => $value) {
+                $parsed = is_string($value) ? DateTimeImmutable::createFromFormat('!Y-m-d', $value) : false;
+                if (!$parsed || $parsed->format('Y-m-d') !== $value) {
+                    throw new InvalidArgumentException(ucfirst(str_replace('_', ' ', $field)) . ' must use YYYY-MM-DD');
+                }
+            }
+            if ($dueDate < $issueDate) throw new InvalidArgumentException('Due date cannot precede issue date');
+        }
+        if (array_key_exists('client_name', $body) || array_key_exists('client_company_id', $body)) {
+            $clientName = trim((string) ($body['client_name'] ?? $locked['client_name']));
+            $clientCompanyId = billingResolveDirectInvoiceClientCompanyId(
+                $pdo, $clientCatalogTenantId, $clientName,
+                $body['client_company_id'] ?? null, (int) ($user['id'] ?? 0) ?: null
+            );
+            if (!in_array('client_company_id = :client_company_id', $sets, true)) {
+                $sets[] = 'client_company_id = :client_company_id';
+            }
+            $binds['client_company_id'] = $clientCompanyId;
+            if (array_key_exists('client_name', $body)) $binds['client_name'] = $clientName;
+        }
+        $pdo->prepare('UPDATE billing_invoices SET ' . implode(',', $sets) . ' WHERE tenant_id = :tenant_scope AND id = :id')
+            ->execute($binds);
         if ($computed) {
             $pdo->prepare('DELETE FROM billing_invoice_lines WHERE invoice_id = :id')->execute(['id' => $id]);
             billingInsertDirectInvoiceLines($pdo, $id, $computed['lines']);
@@ -469,6 +532,8 @@ if ($method === 'PATCH') {
         $pdo->commit();
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e instanceof InvalidArgumentException) api_error($e->getMessage(), 422);
+        if ($e instanceof DomainException) api_error($e->getMessage(), 409);
         throw $e;
     }
     $changedFields = array_keys(array_intersect_key($body, array_flip($editable)));
@@ -723,7 +788,7 @@ if ($method === 'POST' && $action === 'void') {
 
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
-            'UPDATE billing_invoices SET status = "void", voided_at = NOW(),
+            'UPDATE billing_invoices SET status = "void", amount_due = 0, voided_at = NOW(),
              voided_by_user_id = :u, void_reason = :r WHERE id = :id'
         )->execute(['u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id]);
 

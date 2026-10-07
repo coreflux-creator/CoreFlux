@@ -388,7 +388,7 @@ export default function InvoicesList({ session }) {
               <td>{fmtDate(r.issue_date)}</td>
               <td>{fmtDate(r.due_date)}</td>
               <td style={{ textAlign: 'right' }}>{Number(r.total).toFixed(2)} {r.currency}</td>
-              <td style={{ textAlign: 'right' }}>{Number(r.amount_due).toFixed(2)}</td>
+              <td style={{ textAlign: 'right' }}>{r.status === 'void' ? '—' : Number(r.amount_due).toFixed(2)}</td>
               <td><span className={`badge badge--${r.status}`}>{STATUS_LABELS[r.status] || r.status}</span><QboDriftBadge entry={qboDrift[r.id]} /></td>
               <td style={{ textAlign: 'right' }}>
                 {collectable && (
