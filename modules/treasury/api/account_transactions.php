@@ -23,6 +23,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/treasury/bank_transaction_identity.php';
 require_once __DIR__ . '/../lib/bank_posting.php';
+require_once __DIR__ . '/../lib/statement_state.php';
 require_once __DIR__ . '/../../accounting/lib/bank_rec.php';
 require_once __DIR__ . '/../../accounting/lib/accounting.php';
 
@@ -128,15 +129,7 @@ if (api_method() === 'POST') {
             'restore' => " AND match_status = 'ignored'",
             'unmatch' => " AND match_status = 'matched'",
         };
-        $set = match ($bulkAction) {
-            'ignore'  => "match_status = 'ignored'",
-            'restore' => "match_status = 'unmatched'",
-            'unmatch' => $type === 'deposit'
-                ? "match_status = 'unmatched', matched_je_id = NULL, matched_at = NULL, matched_by_user_id = NULL"
-                : "match_status = 'unmatched', matched_je_id = NULL",
-        };
-
-        if ($bulkAction === 'unmatch' && $type === 'deposit') {
+        if ($bulkAction === 'unmatch') {
             $eligible = $pdo->prepare(
                 "SELECT id FROM {$table}
                   WHERE tenant_id = :t AND {$col} = :a
@@ -148,7 +141,10 @@ if (api_method() === 'POST') {
             $eligibleIds = array_map('intval', $eligible->fetchAll(PDO::FETCH_COLUMN));
             $pdo->beginTransaction();
             try {
-                foreach ($eligibleIds as $eligibleId) bankRecUnmatchLine($tenantId, $eligibleId);
+                foreach ($eligibleIds as $eligibleId) {
+                    if ($type === 'deposit') bankRecUnmatchLine($tenantId, $eligibleId);
+                    else treasuryUnmatchLiabilityLine($pdo, $tenantId, $eligibleId);
+                }
                 $pdo->commit();
             } catch (\Throwable $e) {
                 if ($pdo->inTransaction()) $pdo->rollBack();
@@ -161,6 +157,8 @@ if (api_method() === 'POST') {
                 'updated' => count($eligibleIds),
             ]);
         }
+
+        $set = $bulkAction === 'ignore' ? "match_status = 'ignored'" : "match_status = 'unmatched'";
 
         $stmt = $pdo->prepare(
             "UPDATE {$table} SET {$set}
@@ -197,9 +195,16 @@ if (api_method() === 'POST') {
     }
 
     if ($action === 'ignore') {
-        $pdo->prepare("UPDATE {$table} SET match_status = 'ignored'
-                       WHERE tenant_id = :t AND id = :id")
-            ->execute(['t' => $tenantId, 'id' => $lineId]);
+        if ($line['match_status'] === 'matched') {
+            api_error('A matched line cannot be ignored. Correct its source transaction first.', 409);
+        }
+        if ($line['match_status'] === 'ignored') {
+            api_ok(['ok' => true, 'line_id' => $lineId, 'match_status' => 'ignored', 'idempotent_replay' => true]);
+        }
+        $ignored = $pdo->prepare("UPDATE {$table} SET match_status = 'ignored'
+                                  WHERE tenant_id = :t AND id = :id AND match_status = 'unmatched'");
+        $ignored->execute(['t' => $tenantId, 'id' => $lineId]);
+        if ($ignored->rowCount() !== 1) api_error('This line changed. Refresh and try again.', 409);
         api_ok(['ok' => true, 'line_id' => $lineId, 'match_status' => 'ignored']);
     }
 
@@ -211,10 +216,14 @@ if (api_method() === 'POST') {
                 api_error($e->getMessage(), 409);
             }
         } else {
-            $pdo->prepare("UPDATE {$table}
-                              SET match_status = 'unmatched', matched_je_id = NULL
-                            WHERE tenant_id = :t AND id = :id")
-                ->execute(['t' => $tenantId, 'id' => $lineId]);
+            $pdo->beginTransaction();
+            try {
+                treasuryUnmatchLiabilityLine($pdo, $tenantId, $lineId);
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                api_error($e->getMessage(), 409);
+            }
         }
         api_ok(['ok' => true, 'line_id' => $lineId, 'match_status' => 'unmatched']);
     }
@@ -222,12 +231,6 @@ if (api_method() === 'POST') {
     if ($action === 'match') {
         $jeId = (int) ($body['je_id'] ?? 0);
         if ($jeId <= 0) api_error('je_id required', 422);
-        $jeOk = $pdo->prepare(
-            'SELECT 1 FROM accounting_journal_entries
-              WHERE tenant_id = :t AND id = :id LIMIT 1'
-        );
-        $jeOk->execute(['t' => $tenantId, 'id' => $jeId]);
-        if (!$jeOk->fetchColumn()) api_error('Journal entry not found', 404);
 
         if ($type === 'deposit') {
             try {
@@ -236,10 +239,15 @@ if (api_method() === 'POST') {
                 api_error($e->getMessage(), 409);
             }
         } else {
-            $pdo->prepare("UPDATE {$table}
-                              SET match_status = 'matched', matched_je_id = :je
-                            WHERE tenant_id = :t AND id = :id")
-                ->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $jeId]);
+            $pdo->beginTransaction();
+            try {
+                $entityId = _treasuryStatementEntityId($pdo, $tenantId, 'liability', (int) $line[$col]);
+                treasuryMatchLiabilityLine($pdo, $tenantId, $lineId, $jeId, $entityId);
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                api_error($e->getMessage(), 409);
+            }
         }
         api_ok(['ok' => true, 'line_id' => $lineId, 'matched_je_id' => $jeId]);
     }
@@ -1178,6 +1186,7 @@ foreach ($rows as $r) {
 }
 
 $journalById = [];
+$treasuryLinksByJournal = [];
 if ($matchedJeIds) {
     $jeParams = ['t' => $tenantId];
     $jePlaceholders = [];
@@ -1189,6 +1198,7 @@ if ($matchedJeIds) {
 
     $jeStmt = $pdo->prepare(
         'SELECT je.id, je.je_number, je.posting_date, je.status,
+                je.source_module, je.source_ref_type, je.source_ref_id,
                 je.memo AS je_memo, je.total_debit, je.total_credit,
                 jel.line_no, jel.account_id, jel.debit, jel.credit,
                 jel.memo AS line_memo, aa.code AS account_code,
@@ -1211,6 +1221,9 @@ if ($matchedJeIds) {
                 'je_number'    => (string) $detail['je_number'],
                 'posting_date' => (string) $detail['posting_date'],
                 'status'       => (string) $detail['status'],
+                'source_module' => $detail['source_module'],
+                'source_ref_type' => $detail['source_ref_type'],
+                'source_ref_id' => $detail['source_ref_id'],
                 'memo'         => $detail['je_memo'],
                 'total_debit'  => (float) $detail['total_debit'],
                 'total_credit' => (float) $detail['total_credit'],
@@ -1227,10 +1240,35 @@ if ($matchedJeIds) {
             'memo'         => $detail['line_memo'],
         ];
     }
+
+    try {
+        $linkStmt = $pdo->prepare(
+            'SELECT journal_entry_id, source_record_id FROM accounting_subledger_links
+              WHERE tenant_id = :t AND source_module = "treasury_feed"
+                AND journal_entry_id IN (' . implode(',', $jePlaceholders) . ')'
+        );
+        $linkStmt->execute($jeParams);
+        foreach ($linkStmt->fetchAll(PDO::FETCH_ASSOC) as $link) {
+            $treasuryLinksByJournal[(int) $link['journal_entry_id']][(string) $link['source_record_id']] = true;
+        }
+    } catch (Throwable $_) {
+        // Older tenants may not have the lineage table.
+    }
 }
 
 foreach ($rows as $i => $r) {
     $jeId = (int) ($r['matched_je_id'] ?? 0);
+    if ($r['match_status'] === 'matched') {
+        $journal = $journalById[$jeId] ?? [];
+        $prefix = $type === 'deposit' ? 'bank_line:' : 'liab_line:';
+        $hasOwnLink = isset($treasuryLinksByJournal[$jeId][$prefix . $r['id']])
+            || isset($treasuryLinksByJournal[$jeId][$prefix . 'split:' . $r['id']]);
+        $rows[$i]['unmatch_blocker'] = !$journal
+            ? 'The matched journal is missing. Review this line before changing its status.'
+            : ($type === 'deposit'
+                ? bankRecUnmatchBlocker(['id' => $r['id']] + $journal, $hasOwnLink)
+                : treasuryLiabilityUnmatchBlocker((int) $r['id'], $journal, $hasOwnLink));
+    }
     if ($jeId <= 0 || !isset($journalById[$jeId])) continue;
 
     $rows[$i]['journal_entry'] = $journalById[$jeId];

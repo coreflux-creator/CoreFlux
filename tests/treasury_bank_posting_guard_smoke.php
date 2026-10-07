@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../modules/treasury/lib/bank_posting.php';
+require_once __DIR__ . '/../modules/accounting/lib/bank_rec.php';
 
 $passed = 0;
 $failed = 0;
@@ -96,6 +97,26 @@ $check('extra split journal line rejected', $rejects(static fn() => $assertSplit
     ...$splitLines, ['account_id' => 42, 'debit' => 0, 'credit' => 0, 'counterparty_entity_id' => null],
 ], $splits)));
 
+$check('ordinary reconciled bank journal may be unlinked', bankRecUnmatchBlocker([
+    'id' => 12, 'source_module' => 'manual', 'source_ref_type' => 'journal_entry', 'source_ref_id' => 8,
+], false) === null);
+$check('bank-line journal cannot be unlinked', bankRecUnmatchBlocker([
+    'id' => 12, 'source_module' => 'treasury_feed', 'source_ref_type' => 'bank_statement_line', 'source_ref_id' => 12,
+], false) !== null);
+$check('event-linked bank-line journal cannot be unlinked', bankRecUnmatchBlocker([
+    'id' => 12, 'source_module' => 'treasury_feed', 'source_ref_type' => null, 'source_ref_id' => null,
+], true) !== null);
+$check('processor payout cannot be unlinked', bankRecUnmatchBlocker([
+    'id' => 12, 'source_module' => 'billing', 'source_ref_type' => 'processor_payout', 'source_ref_id' => 2,
+], false) !== null);
+$check('liability journal created from line cannot be unlinked', treasuryLiabilityUnmatchBlocker(12, [
+    'source_ref_type' => 'liability_statement_line', 'source_ref_id' => 12,
+], false) !== null);
+$check('event-linked liability journal cannot be unlinked', treasuryLiabilityUnmatchBlocker(12, [], true) !== null);
+$check('unrelated liability journal may be unlinked', treasuryLiabilityUnmatchBlocker(12, [
+    'source_ref_type' => 'liability_statement_line', 'source_ref_id' => 13,
+], false) === null);
+
 $api = (string) file_get_contents(__DIR__ . '/../modules/treasury/api/account_transactions.php');
 $check('endpoint locks line before posting', str_contains($api, 'SELECT * FROM {$table} WHERE tenant_id = :t AND id = :id FOR UPDATE'));
 $check('event failure rolls back to savepoint', str_contains($api, 'ROLLBACK TO SAVEPOINT treasury_categorize_event'));
@@ -112,6 +133,18 @@ $check('split posting locks and validates allocations', str_contains($api, 'SAVE
     && str_contains($api, 'treasuryAssertSplitCategorizationJournal('));
 $check('split post and match share transaction', str_contains($api, 'bankRecMatchLine($tenantId, $lineId, (int) $res[\'je_id\']')
     && substr_count($api, 'cf_tx_commit($pdo, $ownsTransaction)') >= 2);
+$check('single-row ignore refuses matched lines and uses a conditional update',
+    str_contains($api, "if (\$line['match_status'] === 'matched')")
+    && str_contains($api, "AND id = :id AND match_status = 'unmatched'"));
+$state = (string) file_get_contents(__DIR__ . '/../modules/treasury/lib/statement_state.php');
+$check('liability unmatch locks and protects source-owned journals',
+    str_contains($state, 'function treasuryUnmatchLiabilityLine(')
+    && str_contains($state, 'treasuryLiabilityUnmatchBlocker($lineId, $journal, $hasTreasuryLineage)'));
+$check('liability match validates posted entity currency and account movement',
+    str_contains($state, 'function treasuryMatchLiabilityLine(')
+    && str_contains($state, "\$journal['status'] !== 'posted'")
+    && str_contains($state, "\$journal['entity_id']")
+    && str_contains($state, 'SUM(debit - credit)'));
 
 $coa = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/accounts.php');
 $ai = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/bank_ai.php');
@@ -120,6 +153,8 @@ $check('chart marks direct-post-safe categories', str_contains($coa, 'direct_cat
     && str_contains($coa, 'accountingDirectCategoryIssue($account)'));
 $check('AI is limited to direct-post-safe categories', str_contains($ai, 'accountingDirectCategoryIssue($account)'));
 $check('Treasury picker uses eligibility flag', str_contains($ui, 'a.direct_category_eligible'));
+$check('Treasury hides invalid unmatch actions', str_contains($ui, 'r.match_status === \'matched\' && !r.unmatch_blocker')
+    && str_contains($ui, 'Source-managed'));
 
 echo "Passed: {$passed}; Failed: {$failed}" . PHP_EOL;
 exit($failed ? 1 : 0);

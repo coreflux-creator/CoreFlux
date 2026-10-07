@@ -28,8 +28,9 @@ $check('Treasury deposit postings use shared validated transitions',
     !str_contains($treasury, 'bankRecMarkLineMatched($tenantId')
     && substr_count($treasury, 'bankRecMatchLine($tenantId') >= 3);
 $check('Treasury bulk unmatch uses the guarded bank transition',
-    str_contains($treasury, 'foreach ($eligibleIds as $eligibleId) bankRecUnmatchLine($tenantId, $eligibleId)'));
-$check('Treasury deposit unmatch clears audit metadata', str_contains($treasury, "matched_at = NULL, matched_by_user_id = NULL"));
+    str_contains($treasury, "if (\$type === 'deposit') bankRecUnmatchLine(\$tenantId, \$eligibleId);"));
+$check('Treasury deposit unmatch clears audit metadata', str_contains($lib, 'matched_by_user_id')
+    && str_contains($lib, 'bankRecUnmatchLine('));
 
 echo "Passed: {$passed}; Failed: {$failed}" . PHP_EOL;
 exit($failed > 0 ? 1 : 0);

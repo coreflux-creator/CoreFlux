@@ -92,8 +92,8 @@ $check('line match uses a conditional write to prevent double resolution',
     str_contains($bankLib, 'AND match_status = "unmatched"')
     && str_contains($bankLib, 'changed while it was being matched'));
 $check('line-created journals cannot be silently detached',
-    str_contains($bankLib, 'Unmatching it would leave the books out of sync')
-    && str_contains($bankLib, 'source-level receipt reversal is required'));
+    str_contains($bankLib, 'function bankRecUnmatchBlocker(')
+    && str_contains($bankLib, 'Correct the source transaction to keep the books in sync.'));
 $check('Treasury bulk unmatch routes through the same guard',
     str_contains($treasuryApi, 'bankRecUnmatchLine($tenantId, $eligibleId)')
     && str_contains($treasuryUi, 'Transactions created from a bank line must be reversed instead.'));

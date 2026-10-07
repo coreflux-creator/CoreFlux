@@ -323,6 +323,21 @@ function bankRecMatchLine(int $tenantId, int $lineId, int $jeId, ?int $userId): 
     }
 }
 
+function bankRecUnmatchBlocker(array $line, bool $hasTreasuryLineage): ?string
+{
+    $lineId = (int) ($line['id'] ?? 0);
+    $createdFromLine = ((string) ($line['source_ref_type'] ?? '') === 'bank_statement_line'
+        && (int) ($line['source_ref_id'] ?? 0) === $lineId) || $hasTreasuryLineage;
+    if ($createdFromLine) {
+        return 'This bank line created a posted ledger entry. Correct the source transaction to keep the books in sync.';
+    }
+    if (($line['source_module'] ?? '') === 'billing'
+        && ($line['source_ref_type'] ?? '') === 'processor_payout') {
+        return 'This bank line settled captured processor payments. Correct the processor payout first.';
+    }
+    return null;
+}
+
 function bankRecUnmatchLine(int $tenantId, int $lineId): array
 {
     $line = scopedFind(
@@ -339,9 +354,8 @@ function bankRecUnmatchLine(int $tenantId, int $lineId): array
         return ['ok' => true, 'line_id' => $lineId, 'idempotent_replay' => true];
     }
 
-    $journalWasCreatedFromLine = (string) ($line['source_ref_type'] ?? '') === 'bank_statement_line'
-        && (int) ($line['source_ref_id'] ?? 0) === $lineId;
-    if (!$journalWasCreatedFromLine && !empty($line['matched_je_id'])) {
+    $hasTreasuryLineage = false;
+    if (!empty($line['matched_je_id'])) {
         try {
             $lineage = scopedFind(
                 'SELECT id FROM accounting_subledger_links
@@ -355,22 +369,13 @@ function bankRecUnmatchLine(int $tenantId, int $lineId): array
                     'bank_split' => 'bank_line:split:' . $lineId,
                 ]
             );
-            $journalWasCreatedFromLine = (bool) $lineage;
+            $hasTreasuryLineage = (bool) $lineage;
         } catch (Throwable $_) {
             // Older tenants may not have the optional lineage table.
         }
     }
-    if ($journalWasCreatedFromLine) {
-        throw new RuntimeException(
-            'This bank line created a posted ledger entry. Unmatching it would leave the books out of sync. '
-            . 'A source-level receipt reversal is required before its allocation can change.'
-        );
-    }
-    if ($line['source_module'] === 'billing' && $line['source_ref_type'] === 'processor_payout') {
-        throw new RuntimeException(
-            'This bank line settled captured processor payments. Correct the processor payout to reverse its journal and reopen the line.'
-        );
-    }
+    $blocker = bankRecUnmatchBlocker($line, $hasTreasuryLineage);
+    if ($blocker !== null) throw new RuntimeException($blocker);
 
     scopedUpdate('accounting_bank_statement_lines', $lineId, [
         'match_status'      => 'unmatched',

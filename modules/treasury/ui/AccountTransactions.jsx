@@ -210,15 +210,22 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
 
   const runBulkState = async (bulkAction) => {
     if (!selectedRows.length) return;
+    const actionableRows = selectedRows.filter((row) => (
+      bulkAction === 'unmatch' ? row.match_status === 'matched' && !row.unmatch_blocker
+        : bulkAction === 'ignore' ? row.match_status === 'unmatched'
+          : row.match_status === 'ignored'
+    ));
+    if (!actionableRows.length) return;
     const labels = { ignore: 'ignore', restore: 'restore', unmatch: 'unmatch' };
     if (bulkAction === 'unmatch'
       && !window.confirm('Remove the selected reconciliation links? Links to existing journal entries can be removed. Transactions created from a bank line must be reversed instead.')) return;
     setBulkBusy(true); setRowError(null); setBulkNotice(null);
     try {
       const result = await api.post('/modules/treasury/api/account_transactions.php?action=bulk_update', {
-        account_id: accountId, type, line_ids: selectedRows.map((row) => row.id), bulk_action: bulkAction,
+        account_id: accountId, type, line_ids: actionableRows.map((row) => row.id), bulk_action: bulkAction,
       });
-      setBulkNotice(`${result.updated || 0} transaction${result.updated === 1 ? '' : 's'} ${labels[bulkAction]}d.`);
+      const skipped = selectedRows.length - actionableRows.length;
+      setBulkNotice(`${result.updated || 0} transaction${result.updated === 1 ? '' : 's'} ${labels[bulkAction]}d.${skipped ? ` ${skipped} selected line${skipped === 1 ? '' : 's'} needed a different action.` : ''}`);
       setSelectedIds([]);
       reload();
     } catch (e) {
@@ -470,7 +477,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
           <button type="button" className="btn btn--ghost" onClick={() => runBulkState('restore')}
             disabled={bulkBusy || !selectedRows.some((row) => row.match_status === 'ignored')}>Restore</button>
           <button type="button" className="btn btn--ghost" onClick={() => runBulkState('unmatch')}
-            disabled={bulkBusy || !selectedRows.some((row) => row.match_status === 'matched')}>Unmatch</button>
+            disabled={bulkBusy || !selectedRows.some((row) => row.match_status === 'matched' && !row.unmatch_blocker)}>Unmatch</button>
           <button type="button" className="btn btn--ghost" onClick={() => setSelectedIds([])} disabled={bulkBusy} title="Clear selection"><X size={14} /></button>
         </div>
       )}
@@ -620,7 +627,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         </button>
                       </>
                     )}
-                    {r.match_status === 'matched' && (
+                    {r.match_status === 'matched' && !r.unmatch_blocker && (
                       <button
                         type="button"
                         className="btn btn--ghost"
@@ -630,6 +637,11 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                       >
                         Unmatch
                       </button>
+                    )}
+                    {r.match_status === 'matched' && r.unmatch_blocker && (
+                      <span className="muted" style={{ fontSize: 11 }} title={r.unmatch_blocker}>
+                        Source-managed
+                      </span>
                     )}
                     {r.match_status === 'ignored' && (
                       <button

@@ -10,6 +10,17 @@ function treasuryAssertCategoryCounterpart(array $account): void
     if ($issue !== null) throw new InvalidArgumentException($issue);
 }
 
+function treasuryLiabilityUnmatchBlocker(int $lineId, array $journal, bool $hasTreasuryLineage): ?string
+{
+    if ($hasTreasuryLineage || (
+        ($journal['source_ref_type'] ?? '') === 'liability_statement_line'
+        && (int) ($journal['source_ref_id'] ?? 0) === $lineId
+    )) {
+        return 'This statement line created a posted ledger entry. Correct the source transaction to keep the books in sync.';
+    }
+    return null;
+}
+
 function treasuryAssertCategorizationJournal(
     array $journal,
     array $lines,
