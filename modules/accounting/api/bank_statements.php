@@ -33,6 +33,7 @@ require_once __DIR__ . '/../../../core/tx_helpers.php';
 require_once __DIR__ . '/../lib/accounting.php';
 require_once __DIR__ . '/../lib/bank_rec.php';
 require_once __DIR__ . '/../../billing/lib/bank_receipt_correction.php';
+require_once __DIR__ . '/../../billing/lib/bank_receipt_replay.php';
 require_once __DIR__ . '/../../billing/lib/processor_payouts.php';
 
 $ctx    = api_require_auth();
@@ -577,7 +578,21 @@ if ($method === 'POST' && $action === 'split_match_invoices') {
     $lineStmt->execute(['tenant_id' => (int) $ctx['tenant_id'], 'id' => $lid]);
     $line = $lineStmt->fetch(PDO::FETCH_ASSOC);
     if (!$line) api_error('Line not found', 404);
-    if (($line['match_status'] ?? '') !== 'unmatched') api_error('This bank line is already resolved', 409);
+    try {
+        $requestHash = billingBankReceiptRequestHash('split_match_invoices', $line, $body);
+    } catch (InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    }
+    if (($line['match_status'] ?? '') !== 'unmatched') {
+        try {
+            $replay = billingBankReceiptReplay($pdo, (int) $ctx['tenant_id'], $line,
+                'split_match_invoices', $requestHash);
+        } catch (RuntimeException $e) {
+            api_error($e->getMessage(), 409);
+        }
+        if ($replay !== null) api_ok($replay);
+        api_error('This bank line is already resolved', 409);
+    }
     $lineAmount = round((float) ($line['amount'] ?? 0), 2);
     if ($lineAmount <= 0) api_error('Only incoming bank receipts can be applied to customer invoices', 422);
 
@@ -713,11 +728,20 @@ if ($method === 'POST' && $action === 'split_match_invoices') {
     cf_begin_transaction();
     try {
         $lock = $pdo->prepare(
-            'SELECT match_status FROM accounting_bank_statement_lines
+            'SELECT match_status, matched_je_id FROM accounting_bank_statement_lines
               WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE'
         );
         $lock->execute(['tenant_id' => (int) $ctx['tenant_id'], 'id' => $lid]);
-        if ($lock->fetchColumn() !== 'unmatched') {
+        $lockedLine = $lock->fetch(PDO::FETCH_ASSOC);
+        if (($lockedLine['match_status'] ?? '') !== 'unmatched') {
+            $line['match_status'] = $lockedLine['match_status'] ?? null;
+            $line['matched_je_id'] = $lockedLine['matched_je_id'] ?? null;
+            $replay = billingBankReceiptReplay($pdo, (int) $ctx['tenant_id'], $line,
+                'split_match_invoices', $requestHash);
+            if ($replay !== null) {
+                $pdo->commit();
+                api_ok($replay);
+            }
             throw new RuntimeException('This bank line was already resolved. Refresh and try again.');
         }
         $receiptAttempt = billingBankReceiptAttempt((int) $ctx['tenant_id'], $lid);
@@ -829,6 +853,17 @@ if ($method === 'POST' && $action === 'split_match_invoices') {
             ]);
         } catch (\Throwable $_) { /* optional on older tenants */ }
 
+        $receiptResponse = [
+            'ok' => true,
+            'line_id' => $lid,
+            'payment_ids' => $paymentIds,
+            'matched_je_id' => (int) $receiptJe['je_id'],
+            'invoice_total' => round($invoiceTotal, 2),
+            'account_total' => round($accountTotal, 2),
+        ];
+        billingRecordBankReceiptRequest($pdo, (int) $ctx['tenant_id'], $lid,
+            $receiptAttempt, 'split_match_invoices', $requestHash, $receiptResponse);
+
         $pdo->commit();
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -849,14 +884,7 @@ if ($method === 'POST' && $action === 'split_match_invoices') {
         'account_split_count' => count($validatedAccountSplits),
         'je_id' => (int) $receiptJe['je_id'],
     ], $lid);
-    api_ok([
-        'ok' => true,
-        'line_id' => $lid,
-        'payment_ids' => $paymentIds,
-        'matched_je_id' => (int) $receiptJe['je_id'],
-        'invoice_total' => round($invoiceTotal, 2),
-        'account_total' => round($accountTotal, 2),
-    ]);
+    api_ok($receiptResponse);
 }
 
 if ($method === 'POST' && $action === 'match_invoice') {
@@ -880,7 +908,17 @@ if ($method === 'POST' && $action === 'match_invoice') {
     $lineStmt->execute(['tenant_id' => (int) $ctx['tenant_id'], 'id' => $lid]);
     $line = $lineStmt->fetch(PDO::FETCH_ASSOC);
     if (!$line) api_error('Line not found', 404);
-    if (($line['match_status'] ?? '') !== 'unmatched') api_error('This bank line is already resolved', 409);
+    $requestHash = billingBankReceiptRequestHash('match_invoice', $line, $body);
+    if (($line['match_status'] ?? '') !== 'unmatched') {
+        try {
+            $replay = billingBankReceiptReplay($pdo, (int) $ctx['tenant_id'], $line,
+                'match_invoice', $requestHash);
+        } catch (RuntimeException $e) {
+            api_error($e->getMessage(), 409);
+        }
+        if ($replay !== null) api_ok($replay);
+        api_error('This bank line is already resolved', 409);
+    }
     $amount = round((float) ($line['amount'] ?? 0), 2);
     if ($amount <= 0) api_error('Only incoming bank receipts can be matched to customer invoices', 422);
 
@@ -932,11 +970,20 @@ if ($method === 'POST' && $action === 'match_invoice') {
     cf_begin_transaction();
     try {
         $lineLock = $pdo->prepare(
-            'SELECT match_status FROM accounting_bank_statement_lines
+            'SELECT match_status, matched_je_id FROM accounting_bank_statement_lines
               WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE'
         );
         $lineLock->execute(['tenant_id' => (int) $ctx['tenant_id'], 'id' => $lid]);
-        if ($lineLock->fetchColumn() !== 'unmatched') {
+        $lockedLine = $lineLock->fetch(PDO::FETCH_ASSOC);
+        if (($lockedLine['match_status'] ?? '') !== 'unmatched') {
+            $line['match_status'] = $lockedLine['match_status'] ?? null;
+            $line['matched_je_id'] = $lockedLine['matched_je_id'] ?? null;
+            $replay = billingBankReceiptReplay($pdo, (int) $ctx['tenant_id'], $line,
+                'match_invoice', $requestHash);
+            if ($replay !== null) {
+                $pdo->commit();
+                api_ok($replay);
+            }
             throw new RuntimeException('This bank line was already resolved. Refresh and try again.');
         }
         $receiptAttempt = billingBankReceiptAttempt((int) $ctx['tenant_id'], $lid);
@@ -1039,6 +1086,18 @@ if ($method === 'POST' && $action === 'match_invoice') {
                 'journal_entry_id' => (int) $receiptJe['je_id'],
             ]);
         } catch (\Throwable $_) { /* optional on older tenants */ }
+
+        $receiptResponse = [
+            'ok' => true,
+            'line_id' => $lid,
+            'invoice_id' => $invoiceId,
+            'payment_id' => $paymentId,
+            'matched_je_id' => (int) $receiptJe['je_id'],
+            'invoice_status' => abs($amount - (float) $invoice['amount_due']) <= 0.005
+                ? 'paid' : 'partially_paid',
+        ];
+        billingRecordBankReceiptRequest($pdo, (int) $ctx['tenant_id'], $lid,
+            $receiptAttempt, 'match_invoice', $requestHash, $receiptResponse);
         $pdo->commit();
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -1058,14 +1117,7 @@ if ($method === 'POST' && $action === 'match_invoice') {
         'payment_id' => $paymentId,
         'je_id' => (int) $receiptJe['je_id'],
     ], $lid);
-    api_ok([
-        'ok' => true,
-        'line_id' => $lid,
-        'invoice_id' => $invoiceId,
-        'payment_id' => $paymentId,
-        'matched_je_id' => (int) $receiptJe['je_id'],
-        'invoice_status' => abs($amount - (float) $invoice['amount_due']) <= 0.005 ? 'paid' : 'partially_paid',
-    ]);
+    api_ok($receiptResponse);
 }
 
 if ($method === 'POST' && $action === 'reverse_receipt') {

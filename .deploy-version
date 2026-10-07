@@ -3,6 +3,8 @@ This file is rewritten on every Emergent commit. update.php compares its
 contents against the latest entry in coreflux_migrations + the existence
 of recent files to prove the server is on HEAD (not 10 commits behind).
 sentinels:
+- modules/billing/migrations/018_bank_receipt_requests.sql
+- modules/billing/lib/bank_receipt_replay.php
 - modules/treasury/migrations/008_statement_corrections.sql
 - modules/treasury/lib/statement_state.php
 - modules/accounting/api/opening_balances.php
