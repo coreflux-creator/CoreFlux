@@ -12,6 +12,8 @@
  *     { "step": 1, "approver_user_ids": [12, 17], "quorum": 1, "label": "Manager" },
  *     { "step": 2, "approver_user_ids": [3],      "quorum": 1, "label": "CFO" }
  *   ]
+ * A step may also include "include_active_tenant_admins": true. The bill
+ * creator is excluded from each resolved step to preserve two-eye review.
  * quorum = number of approvers that must approve at this step before moving on.
  *
  * The router is *vertical-agnostic*: vendor_type is just a string the
@@ -26,7 +28,7 @@ require_once __DIR__ . '/vendor_risk.php';
  * Evaluate $bill against active policies. Returns the matched policy +
  * resolved approver chain, or null if no policy matches.
  *
- * @param array $bill { id, entity_id?, total_amount, vendor_id?, vendor_type?, gl_account_code? }
+ * @param array $bill { id, entity_id?, total?, total_amount?, created_by_user_id?, vendor_id?, vendor_type?, gl_account_code? }
  * @return array{
  *   policy_id: ?int,
  *   policy_name: ?string,
@@ -58,6 +60,8 @@ function apEvaluateApprovalPolicy(int $tenantId, array $bill): array {
     $vendorType = $bill['vendor_type'] ?? null;
     $glCode     = $bill['gl_account_code'] ?? null;
     $bRisk      = $risk['level'];
+    $creatorId  = (int) ($bill['created_by_user_id'] ?? 0);
+    $tenantAdminIds = null;
 
     foreach ($policies as $p) {
         if (!_apPolicyMatches($p, $entityId, $amount, $vendorType, $glCode, $bRisk)) continue;
@@ -65,10 +69,29 @@ function apEvaluateApprovalPolicy(int $tenantId, array $bill): array {
         if (!is_array($chain) || !$chain) continue;
         $resolved = [];
         foreach ($chain as $i => $step) {
+            $approverIds = array_map('intval', (array) ($step['approver_user_ids'] ?? []));
+            if (!empty($step['include_active_tenant_admins'])) {
+                $tenantAdminIds ??= apActiveTenantAdminIds($tenantId);
+                $approverIds = array_merge($approverIds, $tenantAdminIds);
+            }
+            $approverIds = array_values(array_unique(array_filter($approverIds,
+                static fn(int $id): bool => $id > 0 && $id !== $creatorId
+            )));
+            $quorum = max(1, (int) ($step['quorum'] ?? 1));
+            if (count($approverIds) < $quorum) {
+                $reason = !empty($step['include_active_tenant_admins'])
+                    ? 'Add another active tenant administrator to approve this bill; its creator cannot approve it.'
+                    : 'The approval policy has too few eligible approvers for this bill; its creator cannot approve it.';
+                return [
+                    'policy_id' => (int) $p['id'], 'policy_name' => $p['name'],
+                    'chain' => [], 'risk' => $risk, 'matched' => true,
+                    'routing_error' => $reason,
+                ];
+            }
             $resolved[] = [
                 'step'              => (int) ($step['step'] ?? ($i + 1)),
-                'approver_user_ids' => array_map('intval', (array) ($step['approver_user_ids'] ?? [])),
-                'quorum'            => (int) ($step['quorum'] ?? 1),
+                'approver_user_ids' => $approverIds,
+                'quorum'            => $quorum,
                 'label'             => (string) ($step['label'] ?? ('Step ' . ($i + 1))),
             ];
         }
@@ -84,6 +107,19 @@ function apEvaluateApprovalPolicy(int $tenantId, array $bill): array {
     return ['policy_id' => null, 'policy_name' => null, 'chain' => [], 'risk' => $risk, 'matched' => false];
 }
 
+function apActiveTenantAdminIds(int $tenantId): array {
+    $stmt = getDB()->prepare(
+        "SELECT DISTINCT u.id
+           FROM tenant_memberships m
+           JOIN users u ON u.id = m.user_id AND u.is_active = 1
+          WHERE m.tenant_id = :tenant_id
+            AND m.persona_type = 'tenant_admin' AND m.status = 'active'
+          ORDER BY u.id"
+    );
+    $stmt->execute(['tenant_id' => $tenantId]);
+    return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+}
+
 /**
  * Persist the evaluation outcome to the audit log + create approval rows
  * for the first step of the chain. Sends a push to each step-1 approver
@@ -94,8 +130,12 @@ function apEvaluateApprovalPolicy(int $tenantId, array $bill): array {
 function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = null): array {
     $pdo = getDB();
     if (!$pdo) throw new \RuntimeException('No DB');
+    if (!array_key_exists('created_by_user_id', $bill)) {
+        throw new \RuntimeException('AP bill creator is required to route approval safely');
+    }
 
     $eval = apEvaluateApprovalPolicy($tenantId, $bill);
+    if (!empty($eval['routing_error'])) throw new \RuntimeException($eval['routing_error']);
     $billId = (int) $bill['id'];
     $billAmount = (float) ($bill['total_amount'] ?? $bill['total'] ?? 0);
 

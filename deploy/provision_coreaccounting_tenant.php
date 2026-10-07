@@ -117,10 +117,10 @@ try {
     $approvalPolicy->execute([
         'tenant_id' => $tenantId,
         'name' => 'Initial finance approval',
-        'description' => 'Route AP bills to the initial finance administrator until a reviewed policy replaces this one.',
+        'description' => 'Route AP bills to another active tenant administrator until a reviewed policy replaces this one.',
         'chain_json' => json_encode([[
             'step' => 1,
-            'approver_user_ids' => [$userId],
+            'include_active_tenant_admins' => true,
             'quorum' => 1,
             'label' => 'Finance approval',
         ]], JSON_THROW_ON_ERROR),

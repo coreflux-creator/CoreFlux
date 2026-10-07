@@ -48,7 +48,10 @@ function liquidityBaselineDatasets(int $tenantId, string $today, string $endDate
            FROM accounting_bank_accounts ba
            JOIN accounting_accounts a ON a.tenant_id = ba.tenant_id AND a.code = ba.gl_account_code
            JOIN accounting_journal_entry_lines jl ON jl.account_id = a.id AND jl.tenant_id = a.tenant_id
-           JOIN accounting_journal_entries je ON je.id = jl.je_id AND je.status IN ('posted','reversed')
+           JOIN accounting_journal_entries je ON je.id = jl.je_id
+                 AND je.tenant_id = ba.tenant_id
+                 AND (ba.entity_id IS NULL OR je.entity_id = ba.entity_id)
+                 AND je.status IN ('posted','reversed')
           WHERE ba.tenant_id = :t AND ba.status = 'active' AND je.posting_date <= :d"
        . ($entityId ? ' AND ba.entity_id = :e' : '')
     );
@@ -57,10 +60,15 @@ function liquidityBaselineDatasets(int $tenantId, string $today, string $endDate
     $cashStmt->execute($bind);
     $startingCash = (float) $cashStmt->fetchColumn();
 
-    $bankCount = (int) $pdo->query(
+    $bankStmt = $pdo->prepare(
         "SELECT COUNT(*) FROM accounting_bank_accounts
-          WHERE tenant_id = " . (int) $tenantId . " AND status = 'active'"
-    )->fetchColumn();
+          WHERE tenant_id = :t AND status = 'active'"
+       . ($entityId ? ' AND entity_id = :e' : '')
+    );
+    $bankBind = ['t' => $tenantId];
+    if ($entityId) $bankBind['e'] = $entityId;
+    $bankStmt->execute($bankBind);
+    $bankCount = (int) $bankStmt->fetchColumn();
 
     $arStmt = $pdo->prepare(
         "SELECT due_date, COALESCE(amount_due, total - amount_paid) AS due
@@ -68,8 +76,11 @@ function liquidityBaselineDatasets(int $tenantId, string $today, string $endDate
           WHERE tenant_id = :t AND status IN ('approved','sent','partially_paid')
             AND due_date BETWEEN :s AND :e
             AND COALESCE(amount_due, total - amount_paid) > 0"
+       . ($entityId ? ' AND entity_id = :ent' : '')
     );
-    $arStmt->execute(['t' => $tenantId, 's' => $today, 'e' => $endDate]);
+    $bind = ['t' => $tenantId, 's' => $today, 'e' => $endDate];
+    if ($entityId) $bind['ent'] = $entityId;
+    $arStmt->execute($bind);
     $arRows = $arStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
     $tpStmt = $pdo->prepare(
@@ -95,8 +106,11 @@ function liquidityBaselineDatasets(int $tenantId, string $today, string $endDate
            FROM ap_bills
           WHERE tenant_id = :t AND status IN ('approved','partially_paid','pending_approval')
             AND due_date BETWEEN :s AND :e AND amount_due > 0"
+       . ($entityId ? ' AND entity_id = :ent' : '')
     );
-    $apStmt->execute(['t' => $tenantId, 's' => $today, 'e' => $endDate]);
+    $bind = ['t' => $tenantId, 's' => $today, 'e' => $endDate];
+    if ($entityId) $bind['ent'] = $entityId;
+    $apStmt->execute($bind);
     $apRows = [];
     while ($r = $apStmt->fetch(\PDO::FETCH_ASSOC)) {
         if ($excludeBillId !== null && (int) $r['id'] === $excludeBillId) continue;
