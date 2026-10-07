@@ -11,6 +11,7 @@ if (getenv('COREFLUX_ENV') !== 'staging'
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/accounting/entity_setup.php';
 require_once __DIR__ . '/../modules/accounting/lib/accounting.php';
+require_once __DIR__ . '/../modules/accounting/lib/standard_reports.php';
 
 $pdo = getDB();
 if (!$pdo || (string) $pdo->query('SELECT DATABASE()')->fetchColumn() !== $database) {
@@ -76,6 +77,42 @@ try {
     $assert((int) $journalRow['entity_id'] === $created['entity_id']
         && (int) $journalRow['period_id'] === (int) $resolved['id']
         && $journalRow['currency'] === 'USD', 'journal retains entity, period and currency');
+    $atYearEnd = reportBalanceSheet($tenantId, '2024-12-31', $created['entity_id']);
+    $yearEndEquity = array_column($atYearEnd['equity'], 'amount', 'code');
+    $assert($atYearEnd['balanced'] && ($yearEndEquity['3999'] ?? null) === -1.0
+        && !isset($yearEndEquity['3998']), 'year-end loss is current fiscal-year earnings');
+    accountingPostJe($tenantId, [
+        'entity_id' => $created['entity_id'], 'posting_date' => '2025-02-01',
+        'currency' => 'USD', 'memo' => 'Rollback-only next-year revenue',
+        'idempotency_key' => 'entity-rollover-' . bin2hex(random_bytes(8)),
+        'lines' => [
+            ['account_code' => '1000', 'debit' => '2.00', 'credit' => '0.00'],
+            ['account_code' => '4000', 'debit' => '0.00', 'credit' => '2.00'],
+        ],
+    ], null, true);
+    $nextYear = reportBalanceSheet($tenantId, '2025-02-28', $created['entity_id']);
+    $nextEquity = array_column($nextYear['equity'], 'amount', 'code');
+    $assert($nextYear['balanced'] && ($nextEquity['3998'] ?? null) === -1.0
+        && ($nextEquity['3999'] ?? null) === 2.0,
+        'prior loss and current profit are separate without changing total equity');
+    $cashFlow = reportCashFlowIndirect($tenantId, '2025-01-01', '2025-02-28', $created['entity_id']);
+    $assert($cashFlow['balanced'] && (float) $cashFlow['cash_change_from_gl'] === 2.0,
+        'fiscal rollover retains cash-flow reconciliation');
+    $pdo->prepare('UPDATE accounting_entities SET fiscal_year_start_month = 4 WHERE id = :id')
+        ->execute(['id' => $created['entity_id']]);
+    $aprilYear = reportBalanceSheet($tenantId, '2025-04-30', $created['entity_id']);
+    $aprilEquity = array_column($aprilYear['equity'], 'amount', 'code');
+    $assert($aprilYear['balanced'] && ($aprilEquity['3998'] ?? null) === 1.0
+        && !isset($aprilEquity['3999']), 'non-January fiscal rollover uses the entity start month');
+    $allEntityIds = array_map('intval', $pdo->query(
+        'SELECT id FROM accounting_entities WHERE tenant_id = 1'
+    )->fetchAll(PDO::FETCH_COLUMN));
+    $sumEntityEarnings = 0.0;
+    foreach ($allEntityIds as $id) {
+        $sumEntityEarnings += reportCurrentFiscalUnclosedEarnings($tenantId, '2025-04-30', $id);
+    }
+    $assert(abs($sumEntityEarnings - reportCurrentFiscalUnclosedEarnings($tenantId, '2025-04-30', null)) < 0.005,
+        'tenant-wide current earnings respect each entity fiscal start');
     try {
         accountingCreateEntityWithCalendar($pdo, $tenantId, $profile, 2024);
         throw new RuntimeException('Duplicate entity code was accepted');

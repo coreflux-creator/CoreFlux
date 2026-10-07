@@ -134,11 +134,57 @@ function reportIncomeStatement(int $tenantId, string $from, string $to, ?int $en
     ];
 }
 
+/** Fiscal-year profit still in P&L accounts, before the close journal moves it to equity. */
+function reportCurrentFiscalUnclosedEarnings(int $tenantId, string $asOf, ?int $entityId): float
+{
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $asOf);
+    if (!$date || $date->format('Y-m-d') !== $asOf) {
+        throw new InvalidArgumentException('as_of must be a real YYYY-MM-DD date');
+    }
+    $asOfYear = (int) $date->format('Y');
+    $asOfMonth = (int) $date->format('n');
+    $whereEntity = $entityId ? ' AND je.entity_id = :e' : '';
+    $params = [
+        't' => $tenantId, 'floor' => sprintf('%04d-01-01', $asOfYear - 1), 'as_of' => $asOf,
+    ];
+    if ($entityId) $params['e'] = $entityId;
+    $stmt = getDB()->prepare(
+        'SELECT je.entity_id, e.fiscal_year_start_month,
+                YEAR(je.posting_date) AS posting_year, MONTH(je.posting_date) AS posting_month,
+                a.account_type, a.normal_side,
+                SUM(l.debit) AS debit, SUM(l.credit) AS credit
+           FROM accounting_journal_entries je
+           JOIN accounting_entities e ON e.id = je.entity_id AND e.tenant_id = je.tenant_id
+           JOIN accounting_journal_entry_lines l ON l.je_id = je.id AND l.tenant_id = je.tenant_id
+           JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = je.tenant_id
+          WHERE je.tenant_id = :t AND je.status IN ("posted", "reversed")
+            AND je.posting_date >= :floor AND je.posting_date <= :as_of
+            AND a.account_type IN ("revenue", "expense")' . $whereEntity . '
+       GROUP BY je.entity_id, e.fiscal_year_start_month, posting_year, posting_month,
+                a.account_type, a.normal_side'
+    );
+    $stmt->execute($params);
+    $net = 0.0;
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $startMonth = (int) ($row['fiscal_year_start_month'] ?? 1);
+        if ($startMonth < 1 || $startMonth > 12) {
+            throw new RuntimeException('Legal entity has an invalid fiscal-year start month');
+        }
+        $startYear = $asOfMonth >= $startMonth ? $asOfYear : $asOfYear - 1;
+        if ((int) $row['posting_year'] * 12 + (int) $row['posting_month']
+            < $startYear * 12 + $startMonth) continue;
+        $balance = $row['normal_side'] === 'debit'
+            ? (float) $row['debit'] - (float) $row['credit']
+            : (float) $row['credit'] - (float) $row['debit'];
+        $net += $row['account_type'] === 'revenue' ? $balance : -$balance;
+    }
+    return round($net, 2);
+}
+
 /**
- * Balance Sheet — assets / liabilities / equity (+ implied YTD net income).
- * Same posted-ledger-history rule. Equity bucket gets a synthetic "Current period
- * net income" line so the sheet balances when retained earnings haven't
- * been swept yet.
+ * Balance Sheet — assets / liabilities / equity (+ unclosed earnings).
+ * Equity shows prior and current fiscal-year earnings separately until a
+ * close journal moves those balances into retained earnings.
  */
 function reportBalanceSheet(int $tenantId, string $asOf, ?int $entityId): array
 {
@@ -178,16 +224,25 @@ function reportBalanceSheet(int $tenantId, string $asOf, ?int $entityId): array
         }
     }
     $netIncome = round($revAcc - $expAcc, 2);
-    if (abs($netIncome) > 0.005) {
-        // Synthetic line so the sheet balances when retained earnings haven't
-        // been closed yet. Front-end can call this out as "current period".
+    $currentEarnings = reportCurrentFiscalUnclosedEarnings($tenantId, $asOf, $entityId);
+    $priorEarnings = round($netIncome - $currentEarnings, 2);
+    if (abs($priorEarnings) > 0.005) {
         $equity[] = [
-            'code' => '3999', 'name' => 'Current period net income (to be closed)',
+            'code' => '3998', 'name' => 'Prior-year earnings (not closed)',
             'account_type' => 'equity', 'normal_side' => 'credit',
-            'debit' => 0, 'credit' => $netIncome, 'amount' => $netIncome,
+            'debit' => 0, 'credit' => $priorEarnings, 'amount' => $priorEarnings,
             'synthetic' => true,
         ];
-        $eTot += $netIncome;
+        $eTot += $priorEarnings;
+    }
+    if (abs($currentEarnings) > 0.005) {
+        $equity[] = [
+            'code' => '3999', 'name' => 'Current fiscal-year earnings (not closed)',
+            'account_type' => 'equity', 'normal_side' => 'credit',
+            'debit' => 0, 'credit' => $currentEarnings, 'amount' => $currentEarnings,
+            'synthetic' => true,
+        ];
+        $eTot += $currentEarnings;
     }
     return [
         'as_of'              => $asOf,
