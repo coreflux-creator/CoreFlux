@@ -1663,6 +1663,32 @@ input[type="radio"] {
     white-space: normal;
 }
 
+.bookkeeping-overview-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 280px);
+    gap: 16px;
+    align-items: start;
+}
+
+.bookkeeping-overview-main,
+.bookkeeping-overview-side {
+    min-width: 0;
+}
+
+.bookkeeping-overview-events {
+    overflow-x: auto;
+}
+
+@media (max-width: 760px) {
+    .bookkeeping-overview-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .bookkeeping-overview-connect-bank > a {
+        margin-left: 32px;
+    }
+}
+
 /* ─── Dense ledger workspaces ──────────────────────────────── */
 .ledger-page,
 .report-page,

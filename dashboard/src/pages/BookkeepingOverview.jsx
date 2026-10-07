@@ -47,11 +47,11 @@ export default function BookkeepingOverview() {
     <div data-testid="bookkeeping-overview-page" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 22, fontWeight: 700, margin: 0 }}>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 22, fontWeight: 700, margin: 0 }}>
             <BookOpen size={22} color="#0284c7" /> Bookkeeping overview
-          </h1>
+          </h2>
           <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 13 }}>
-            One-screen snapshot of your books — last refreshed {new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.
+            Updated {new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
           </p>
         </div>
         <button data-testid="bookkeeping-overview-refresh" onClick={refetch} className="btn btn--ghost" style={{ fontSize: 12 }}>
@@ -61,9 +61,9 @@ export default function BookkeepingOverview() {
 
       {/* Connect-a-bank CTA */}
       {data.bank_connections?.active === 0 && (
-        <div data-testid="bookkeeping-overview-connect-bank" style={ctaBox}>
+        <div className="bookkeeping-overview-connect-bank" data-testid="bookkeeping-overview-connect-bank" style={ctaBox}>
           <Wallet size={20} color="#7c3aed" />
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: '1 1 220px', minWidth: 0 }}>
             <strong style={{ fontSize: 14, color: '#5b21b6' }}>Connect your first bank to start auto-bookkeeping</strong>
             <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6d28d9' }}>
               Without a live bank feed the engine has no transactions to categorize.
@@ -75,9 +75,9 @@ export default function BookkeepingOverview() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 16, alignItems: 'start' }}>
+      <div className="bookkeeping-overview-grid">
         {/* Left column — main content */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="bookkeeping-overview-main" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Score hero */}
           <div data-testid="bookkeeping-overview-health-card"
                style={{ padding: 20, background: scoreBg, border: `1px solid ${scoreColor}33`, borderRadius: 12 }}>
@@ -196,7 +196,7 @@ export default function BookkeepingOverview() {
           </div>
 
           {/* Recent engine activity */}
-          <div data-testid="bookkeeping-overview-recent-events"
+          <div className="bookkeeping-overview-events" data-testid="bookkeeping-overview-recent-events"
                style={{ padding: 18, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <Activity size={16} color="#7c3aed" />
@@ -233,7 +233,7 @@ export default function BookkeepingOverview() {
         </div>
 
         {/* Right column — tasks + connections */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="bookkeeping-overview-side" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Tasks */}
           <div data-testid="bookkeeping-overview-tasks-card"
                style={{ padding: 18, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
@@ -391,7 +391,7 @@ const TaskRow = ({ icon: Icon, label, count, to, testId }) => {
 };
 
 const errBox = { display: 'flex', alignItems: 'center', gap: 8, padding: 14, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#7f1d1d', fontSize: 13 };
-const ctaBox = { display: 'flex', alignItems: 'center', gap: 12, padding: 14, background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 10 };
+const ctaBox = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, padding: 14, background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 10 };
 const chipStyle = (color) => ({
   display: 'inline-block', padding: '2px 8px', background: '#fff',
   border: `1px solid ${color}33`, borderRadius: 12, fontSize: 11, color, textTransform: 'capitalize',

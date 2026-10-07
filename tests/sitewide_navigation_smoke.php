@@ -56,6 +56,7 @@ $timeModule = $read('modules/time/ui/TimeModule.jsx');
 $coreModules = $read('core/modules.php');
 $fallbackModules = $read('dashboard/src/App.jsx');
 $treasury = $read('modules/treasury/ui/TreasuryOverview.jsx');
+$accounting = $read('modules/accounting/ui/AccountingModule.jsx');
 $mailSettings = $read('dashboard/src/pages/MailSettingsPage.jsx');
 $assert('legacy Time inbox deep link reaches the working intake queue', str_contains($timeModule, 'to="/modules/time/intake"'));
 $assert('primary Time navigation names Intake Queue', str_contains($coreModules, "['name' => 'Intake Queue'"));
@@ -64,6 +65,12 @@ $assert('fallback Time navigation names Intake Queue', str_contains($fallbackMod
 $assert('Treasury overview links to the shipped forecast', str_contains($treasury, 'to="../forecast"'));
 $assert('Treasury overview links to cash scenarios', str_contains($treasury, 'to="../scenario"'));
 $assert('Treasury overview no longer calls its forecast coming soon', !str_contains($treasury, '13-week forecast coming soon'));
+$assert('Accounting overview is a visible primary route', str_contains($accounting, "{ to: 'overview', label: 'Overview'")
+    && str_contains($accounting, '<Route path="overview" element={<BookkeepingOverview />} />'));
+$assert('old bookkeeping links reach the accounting overview', str_contains($accounting,
+    '<Route path="bookkeeping" element={<Navigate to="/modules/accounting/overview" replace />} />'));
+$assert('unknown accounting paths do not render a blank page', str_contains($accounting,
+    '<Route path="*" element={<Navigate to="/modules/accounting/overview" replace />} />'));
 $assert('unknown authenticated paths return to the workspace', str_contains($fallbackModules, '<Route path="*" element={<Navigate to="/" replace />} />'));
 $assert('unknown module paths do not expose unfinished placeholder screens', str_contains($fallbackModules, '<Route path="/modules/:moduleId/*" element={<Navigate to="/" replace />} />'));
 $assert('Mail Settings does not advertise an unavailable sending-domain control', !str_contains($mailSettings, 'coming soon'));

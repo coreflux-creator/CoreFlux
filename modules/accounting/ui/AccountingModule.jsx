@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, NavLink, Link, useLocation } from 'react-route
 import {
   AlertTriangle, BarChart3, BookOpen, Building2, Calendar, CheckSquare,
   ChevronDown, FileText, GitBranch, Landmark, Layers, ListChecks, Network,
-  Plus, Receipt, Repeat, Scale, Settings, Sparkles, TrendingUp, Upload, Wallet, Wrench,
+  LayoutGrid, Plus, Receipt, Repeat, Scale, Settings, Sparkles, TrendingUp, Upload, Wallet, Wrench,
 } from 'lucide-react';
 import ChartOfAccounts from './ChartOfAccounts';
 import AccountDetail from './AccountDetail';
@@ -45,6 +45,7 @@ const LAYER_SANDBOX_ENABLED =
   String(import.meta.env?.VITE_ENABLE_LAYER_SANDBOX) === 'true';
 
 const PRIMARY_NAV = [
+  { to: 'overview', label: 'Overview', Icon: LayoutGrid },
   { to: 'journal-entries', label: 'Entries', Icon: FileText },
   { to: '/modules/billing/invoices', label: 'Invoices', Icon: Receipt },
   { to: 'transactions-to-review', label: 'Bank feed', Icon: ListChecks },
@@ -58,7 +59,6 @@ const MORE_NAV = [
   {
     label: 'Workspace',
     items: [
-      { to: 'bookkeeping', label: 'Accounting overview', Icon: BookOpen },
       { to: 'import', label: 'Import journal entries', Icon: Upload },
       { to: 'periods', label: 'Accounting periods', Icon: Calendar },
       { to: 'dimensions', label: 'Dimensions', Icon: Settings },
@@ -121,9 +121,10 @@ export default function AccountingModule({ session }) {
         <AccountingNav />
       </header>
       <Routes>
-        <Route index           element={<Navigate to="journal-entries" replace />} />
-        <Route path="bookkeeping" element={<BookkeepingOverview />} />
-        <Route path="books-health" element={<Navigate to="../bookkeeping" replace />} />
+        <Route index element={<Navigate to="overview" replace />} />
+        <Route path="overview" element={<BookkeepingOverview />} />
+        <Route path="bookkeeping" element={<Navigate to="/modules/accounting/overview" replace />} />
+        <Route path="books-health" element={<Navigate to="/modules/accounting/overview" replace />} />
         <Route path="transactions-to-review" element={<TransactionsToReview />} />
         <Route path="transactions_to_review" element={<Navigate to="../transactions-to-review" replace />} />
         <Route path="missing-dimensions" element={<MissingDimensions />} />
@@ -164,6 +165,7 @@ export default function AccountingModule({ session }) {
         {LAYER_SANDBOX_ENABLED && (
           <Route path="layer-integration" element={<LayerSandboxModule session={session} view="settings" />} />
         )}
+        <Route path="*" element={<Navigate to="/modules/accounting/overview" replace />} />
       </Routes>
     </div>
   );
