@@ -45,7 +45,7 @@ export default function InvoiceDetail() {
   const canEdit = inv.status === 'draft' && approvalState && !approvalState.pending && lines.every((line) => line.source_type === 'manual');
   const canApprove = inv.status === 'draft' && approvalState?.viewer_can_approve;
   const canRequest = inv.status === 'draft' && approvalState?.viewer_can_request;
-  const canSend = inv.status === 'approved' && inv.journal_status === 'posted';
+  const canSend = !inv.opening_cutover_id && inv.status === 'approved' && inv.journal_status === 'posted';
   const canPost = ['approved', 'sent', 'partially_paid', 'paid'].includes(inv.status) && !inv.journal_entry_id;
   const canVoid = inv.status === 'draft' && approvalState && !approvalState.pending
     && !inv.journal_entry_id
@@ -124,11 +124,14 @@ export default function InvoiceDetail() {
           <h2 style={{ margin: 0 }} data-testid="billing-invoice-detail-number">{inv.invoice_number}</h2>
           <p style={{ margin: '4px 0', color: 'var(--cf-text-secondary)', fontSize: 14 }}>{inv.client_name} · issued {inv.issue_date} · due {inv.due_date}</p>
           <span className={`badge badge--${inv.status}`}>{statusLabel(inv.status)}</span>
+          {inv.opening_cutover_id && <p style={{ margin: '8px 0 0', color: 'var(--cf-text-secondary)', fontSize: 13 }}>
+            Opening receivable. This is the unpaid balance brought forward; the original invoice and payment history were not imported.
+          </p>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {canEdit && <Link className="btn btn--ghost" to={`/modules/billing/invoices/${id}/edit`} data-testid="billing-invoice-edit">Edit draft</Link>}
-          <button className="btn btn--ghost" onClick={previewPdf} data-testid="billing-invoice-preview-pdf" title="Open PDF preview in a new tab">Preview PDF</button>
-          <button className="btn btn--ghost" onClick={downloadPdf} data-testid="billing-invoice-download-pdf" title="Download PDF">Download</button>
+          {!inv.opening_cutover_id && <button className="btn btn--ghost" onClick={previewPdf} data-testid="billing-invoice-preview-pdf" title="Open PDF preview in a new tab">Preview PDF</button>}
+          {!inv.opening_cutover_id && <button className="btn btn--ghost" onClick={downloadPdf} data-testid="billing-invoice-download-pdf" title="Download PDF">Download</button>}
           {canRequest && <button className="btn btn--primary" onClick={requestApproval} disabled={Boolean(busy)} data-testid="billing-invoice-request-approval"><Send size={15} aria-hidden="true" /> {busy==='request' ? 'Requesting…' : 'Request approval'}</button>}
           {canApprove && <button className="btn btn--primary" onClick={approve} disabled={Boolean(busy)} data-testid="billing-invoice-approve"><Check size={15} aria-hidden="true" /> {busy==='approve' ? 'Approving…' : 'Approve'}</button>}
           {canApprove && approvalState?.pending && <button className="btn btn--ghost" onClick={reject} disabled={Boolean(busy)} data-testid="billing-invoice-reject"><X size={15} aria-hidden="true" /> {busy==='reject' ? 'Rejecting…' : 'Reject'}</button>}

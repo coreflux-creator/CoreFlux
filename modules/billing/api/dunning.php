@@ -79,6 +79,7 @@ if ($method === 'POST' && $action === 'send_now') {
     $id  = (int) ($_GET['id'] ?? 0);
     $inv = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$inv) api_error('Not found', 404);
+    if (!empty($inv['opening_cutover_id'])) api_error('Opening receivables are excluded from invoice reminders.', 409);
     if ((float) $inv['amount_due'] < 0.005) api_error('Invoice is paid', 409);
 
     $policy = billingDunningGetPolicy($tid);

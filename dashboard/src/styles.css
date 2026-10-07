@@ -1823,12 +1823,13 @@ input[type="radio"] {
 }
 
 .opening-balances__header h2 { margin: 0; font-size: 20px; }
+.opening-balances__templates { display: flex; flex-wrap: wrap; gap: 8px; }
 .opening-balances__header p,
 .opening-balances__note { margin: 4px 0 0; color: var(--cf-text-secondary); font-size: 13px; }
 
 .opening-balances__inputs {
     display: grid;
-    grid-template-columns: minmax(220px, 2fr) minmax(180px, 1.4fr) auto;
+    grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
     align-items: end;
     gap: 12px;
     padding: 16px 0;
@@ -1871,6 +1872,10 @@ input[type="radio"] {
 .opening-balances__table th:not(:first-child),
 .opening-balances__table td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
 .opening-balances__table tfoot { border-top: 2px solid var(--cf-border); }
+.opening-balances__documents { margin-top: 20px; }
+.opening-balances__documents h3 { margin: 0 0 8px; font-size: 15px; }
+.opening-balances__documents .opening-balances__table th:nth-child(2),
+.opening-balances__documents .opening-balances__table td:nth-child(2) { text-align: left; }
 .opening-balances__equity { background: #eff8f8; }
 .opening-balances__commit { justify-content: space-between; margin-top: 18px; }
 .opening-balances__commit label { display: flex; align-items: flex-start; gap: 8px; max-width: 560px; font-size: 13px; }

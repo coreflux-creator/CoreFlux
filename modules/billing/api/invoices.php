@@ -654,6 +654,7 @@ if ($method === 'POST' && $action === 'send') {
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
+    if (!empty($row['opening_cutover_id'])) api_error('This is an opening receivable, not a new invoice to send.', 409);
     if (!billingTransitionAllowed($row['status'], 'sent')) api_error("Cannot send from status {$row['status']}", 409);
     $postedEntry = !empty($row['journal_entry_id']) ? scopedFind(
         'SELECT id FROM accounting_journal_entries
@@ -779,8 +780,9 @@ if ($method === 'POST' && $action === 'send') {
 if ($method === 'GET' && $action === 'pdf' && !empty($_GET['id'])) {
     rbac_legacy_require($user, 'billing.view');
     $id  = (int) $_GET['id'];
-    $row = scopedFind('SELECT id, invoice_number FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    $row = scopedFind('SELECT id, invoice_number, opening_cutover_id FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
+    if (!empty($row['opening_cutover_id'])) api_error('The original invoice PDF was not imported with this opening balance.', 409);
 
     try {
         $pdfPath = invoiceRenderPdf($id);

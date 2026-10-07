@@ -1,0 +1,123 @@
+<?php
+/** Rollback-only open AR/AP cutover check on an isolated local MariaDB schema. */
+declare(strict_types=1);
+
+$database = (string) getenv('DB_NAME');
+if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging'
+    || !preg_match('/^coreaccounting_blank_test\d+$/D', $database)) {
+    fwrite(STDERR, "This test requires an isolated local staging schema.\n");
+    exit(2);
+}
+require_once __DIR__ . '/../core/db.php';
+require_once __DIR__ . '/../modules/accounting/lib/opening_cutover.php';
+require_once __DIR__ . '/../modules/accounting/lib/standard_reports.php';
+
+$pdo = getDB();
+if (!$pdo || (string) $pdo->query('SELECT DATABASE()')->fetchColumn() !== $database) {
+    throw new RuntimeException('Connected database does not match the isolated test schema.');
+}
+$checks = 0;
+$assert = static function (bool $condition, string $message) use (&$checks): void {
+    if (!$condition) throw new RuntimeException($message);
+    $checks++;
+};
+$entityId = (int) $pdo->query('SELECT id FROM accounting_entities WHERE tenant_id = 1 AND code = "MAIN"')->fetchColumn();
+$assert($entityId > 0, 'fresh tenant has an explicit entity');
+$baseline = [
+    'journals' => (int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = 1')->fetchColumn(),
+    'invoices' => (int) $pdo->query('SELECT COUNT(*) FROM billing_invoices WHERE tenant_id = 1')->fetchColumn(),
+    'bills' => (int) $pdo->query('SELECT COUNT(*) FROM ap_bills WHERE tenant_id = 1')->fetchColumn(),
+    'batches' => (int) $pdo->query('SELECT COUNT(*) FROM accounting_opening_document_cutovers WHERE tenant_id = 1')->fetchColumn(),
+];
+$assert($baseline['journals'] === 0 && $baseline['batches'] === 0, 'entity has no prior cutover');
+$balances = "Account code,Balance\n1000,1000.00\n3900,200.00\n";
+$ar = "Invoice number,Client name,Issue date,Due date,Open amount\n"
+    . "LEG-AR-100,Example Customer,2024-11-30,2025-01-15,150.00\n";
+$ap = "Bill number,Vendor name,Bill date,Due date,Open amount\n"
+    . "LEG-AP-200,Example Vendor,2024-12-01,2025-01-10,80.00\n";
+
+$pdo->beginTransaction();
+try {
+    $preview = accountingOpeningCutoverReview($pdo, 1, $entityId, $balances, $ar, $ap);
+    $assert($preview['error_count'] === 0 && $preview['preview_token'] !== null,
+        'combined preview is valid and read-only');
+    $assert($preview['ar_total'] === '150.00' && $preview['ap_total'] === '80.00',
+        'source totals are exact cents');
+    $assert((int) $pdo->query('SELECT COUNT(*) FROM billing_invoices WHERE tenant_id = 1')->fetchColumn()
+        === $baseline['invoices'], 'preview creates no invoice');
+    $badAr = "Invoice number,Client name,Issue date,Due date,Open amount\n"
+        . "BAD,Example Customer,2024-99-99,2025-01-15,150.001\n";
+    $invalid = accountingOpeningCutoverReview($pdo, 1, $entityId, $balances, $badAr, $ap);
+    $assert($invalid['error_count'] > 0 && $invalid['preview_token'] === null,
+        'bad date and sub-cent amount are blocked before posting');
+    $pdo->prepare(
+        'INSERT INTO billing_invoices
+           (tenant_id, entity_id, invoice_number, client_name, issue_date, due_date)
+         VALUES (1, :e, "PREEXISTING-DRAFT", "Example Customer", "2024-12-01", "2025-01-01")'
+    )->execute(['e' => $entityId]);
+    $draftId = (int) $pdo->lastInsertId();
+    $occupied = accountingOpeningCutoverReview($pdo, 1, $entityId, $balances, $ar, $ap);
+    $assert($occupied['error_count'] > 0 && $occupied['preview_token'] === null,
+        'an existing unposted source document blocks first-run cutover');
+    $pdo->prepare('DELETE FROM billing_invoices WHERE id = :id')->execute(['id' => $draftId]);
+    try {
+        accountingOpeningCutoverCommit($pdo, 1, $entityId, $balances, $ar, $ap, str_repeat('0', 64), null);
+        throw new RuntimeException('Stale token accepted');
+    } catch (AccountingOpeningConflict $error) {
+        $assert(str_contains($error->getMessage(), 'changed since preview'), 'stale token is rejected');
+    }
+    $assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = 1')->fetchColumn()
+        === $baseline['journals'], 'failed commit left no journal');
+
+    $posted = accountingOpeningCutoverCommit($pdo, 1, $entityId,
+        $balances, $ar, $ap, $preview['preview_token'], null);
+    $assert(!$posted['idempotent_replay'] && $posted['ar_count'] === 1 && $posted['ap_count'] === 1,
+        'one transaction posted one invoice and one bill');
+    $assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = 1')->fetchColumn()
+        === $baseline['journals'] + 3, 'base, AR, and AP each have a canonical journal');
+    $assert((int) $pdo->query(
+        'SELECT COUNT(*) FROM accounting_subledger_links
+          WHERE tenant_id = 1 AND link_kind = "primary" AND source_module IN ("billing", "ap")'
+    )->fetchColumn() === 2, 'each opening source document links to its posted journal');
+    $invoice = $pdo->query('SELECT * FROM billing_invoices WHERE tenant_id = 1 AND invoice_number = "LEG-AR-100"')->fetch(PDO::FETCH_ASSOC);
+    $bill = $pdo->query('SELECT * FROM ap_bills WHERE tenant_id = 1 AND bill_number = "LEG-AP-200"')->fetch(PDO::FETCH_ASSOC);
+    $assert($invoice && $invoice['status'] === 'approved' && (int) $invoice['opening_cutover_id'] === $posted['cutover_id']
+        && (float) $invoice['amount_due'] === 150.0 && !empty($invoice['journal_entry_id']),
+        'opening invoice is collectible but not marked sent');
+    $assert($bill && $bill['status'] === 'approved' && (int) $bill['opening_cutover_id'] === $posted['cutover_id']
+        && (float) $bill['amount_due'] === 80.0 && !empty($bill['journal_entry_id']),
+        'opening bill is payable and linked to its journal');
+    $agingAr = billingComputeAging(1, '2024-12-31', $entityId);
+    $agingAp = apComputeAging(1, '2024-12-31', $entityId);
+    $assert(count($agingAr) === 1 && (float) $agingAr[0]['total_due'] === 150.0,
+        'AR aging agrees with opening receivable');
+    $assert(count($agingAp) === 1 && (float) $agingAp[0]['total_due'] === 80.0,
+        'AP aging agrees with opening payable');
+    $balance = reportBalanceSheet(1, '2024-12-31', $entityId);
+    $assert($balance['balanced'] && (float) $balance['total_assets'] === 1150.0
+        && (float) $balance['total_liabilities'] === 80.0
+        && (float) $balance['total_equity'] === 1070.0,
+        'balance sheet includes source-owned controls and balances');
+    $income = reportIncomeStatement(1, '2024-12-31', '2024-12-31', $entityId);
+    $assert((float) $income['total_revenue'] === 0.0 && (float) $income['total_expense'] === 0.0,
+        'cutover does not manufacture revenue or expense');
+    $replay = accountingOpeningCutoverCommit($pdo, 1, $entityId,
+        $balances, $ar, $ap, $preview['preview_token'], null);
+    $assert($replay['idempotent_replay'] && $replay['cutover_id'] === $posted['cutover_id'],
+        'exact retry returns the original batch');
+    $changed = accountingOpeningCutoverReview($pdo, 1, $entityId,
+        $balances, str_replace('150.00', '151.00', $ar), $ap);
+    $assert($changed['error_count'] > 0 && $changed['preview_token'] === null,
+        'changed source amount cannot replace posted cutover');
+} finally {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+}
+$assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = 1')->fetchColumn()
+    === $baseline['journals'], 'rollback removed all cutover journals');
+$assert((int) $pdo->query('SELECT COUNT(*) FROM billing_invoices WHERE tenant_id = 1')->fetchColumn()
+    === $baseline['invoices'], 'rollback removed opening invoice');
+$assert((int) $pdo->query('SELECT COUNT(*) FROM ap_bills WHERE tenant_id = 1')->fetchColumn()
+    === $baseline['bills'], 'rollback removed opening bill');
+$assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_opening_document_cutovers WHERE tenant_id = 1')->fetchColumn()
+    === $baseline['batches'], 'rollback removed cutover batch');
+echo "Accounting opening documents MariaDB: {$checks} checks passed.\n";
