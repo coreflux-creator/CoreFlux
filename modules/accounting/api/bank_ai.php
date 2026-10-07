@@ -22,6 +22,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/ai_service.php';
 require_once __DIR__ . '/../lib/accounting.php';
 require_once __DIR__ . '/../lib/bank_rec.php';
+require_once __DIR__ . '/../../../core/accounting/control_accounts.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -112,11 +113,18 @@ if ($action === 'suggest_categorize') {
     // ai_suggestions row keyed on (subject_type='bank_statement_line', subject_id).
     require_once __DIR__ . '/../../../core/ai_categorization.php';
     $accounts = scopedQuery(
-        'SELECT id, code, name, account_type, is_postable
+        'SELECT id, code, name, account_type, is_postable, currency,
+                EXISTS (SELECT 1 FROM accounting_bank_accounts linked
+                         WHERE linked.tenant_id = accounting_accounts.tenant_id
+                           AND linked.gl_account_code = accounting_accounts.code) AS is_bank_linked
            FROM accounting_accounts
           WHERE tenant_id = :tenant_id AND active = 1
           ORDER BY code ASC LIMIT 1000'
     );
+    $accounts = array_values(array_filter(
+        $accounts,
+        static fn(array $account): bool => accountingDirectCategoryIssue($account) === null
+    ));
     $bankAcct = scopedFind(
         'SELECT aa.id FROM accounting_bank_accounts ba
            JOIN accounting_accounts aa ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code

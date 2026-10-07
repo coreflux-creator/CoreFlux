@@ -80,11 +80,18 @@ if ($method === 'GET' && $action === 'tree') {
         $params['t'] = $type;
     }
     $flat = scopedQuery(
-        'SELECT id, code, name, account_type, normal_side, parent_account_id, is_postable
+        'SELECT id, code, name, account_type, normal_side, parent_account_id, is_postable, currency,
+                EXISTS (SELECT 1 FROM accounting_bank_accounts linked
+                         WHERE linked.tenant_id = accounting_accounts.tenant_id
+                           AND linked.gl_account_code = accounting_accounts.code) AS is_bank_linked
            FROM accounting_accounts WHERE ' . implode(' AND ', $where) . '
           ORDER BY code ASC LIMIT 1000',
         $params
     );
+    foreach ($flat as &$account) {
+        $account['direct_category_eligible'] = accountingDirectCategoryIssue($account) === null;
+    }
+    unset($account);
     api_ok(['rows' => $flat, 'types' => ACCOUNTING_ACCOUNT_TYPES]);
 }
 

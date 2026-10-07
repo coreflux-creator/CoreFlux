@@ -123,8 +123,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
     return `/modules/treasury/api/account_transactions.php?${params.toString()}`;
   }, [accountId, type, page, perPage, sort, filters, deferredQuery]);
   const { data, loading, error: loadError, reload } = useApi(requestUrl);
-  // Postable expense / revenue accounts for the categorize dropdown. Filtered
-  // to is_postable=1 (no header rows) when the API supplies it.
+  // The shared chart marks accounts that are safe for direct bank posting.
   const { data: coa } = useApi(`${ACCOUNTING_ACCOUNTS_API}?action=tree`);
 
   const [syncing, setSyncing] = useState(false);
@@ -168,9 +167,10 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const plaidItemPk         = data?.plaid_item_pk;
   const plaidItemExternalId = data?.plaid_item_external_id;
 
-  const eligibleAccounts = (coa?.rows || [])
-    .filter((a) => a.is_postable !== 0 && a.id !== accountId);
-  const accountsById = new Map(eligibleAccounts.map((a) => [a.id, a]));
+  const allAccounts = coa?.rows || [];
+  const eligibleAccounts = allAccounts.filter((a) => a.direct_category_eligible
+    && (type !== 'liability' || Number(a.id) !== Number(accountId)));
+  const accountsById = new Map(eligibleAccounts.map((a) => [Number(a.id), a]));
   const selectedRows = rows.filter((row) => selectedIds.includes(row.id));
   const allPageSelected = rows.length > 0 && rows.every((row) => selectedIds.includes(row.id));
   const hasFilters = Object.values(filters).some((value) => value !== '');
@@ -371,7 +371,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
           <label style={filterLabelStyle}>To<input type="date" className="input" value={filters.dateTo} onChange={(e) => setFilter('dateTo', e.target.value)} /></label>
           <label style={filterLabelStyle}>Amount from<input type="number" step="0.01" className="input" value={filters.amountMin} onChange={(e) => setFilter('amountMin', e.target.value)} placeholder="-500.00" /></label>
           <label style={filterLabelStyle}>Amount to<input type="number" step="0.01" className="input" value={filters.amountMax} onChange={(e) => setFilter('amountMax', e.target.value)} placeholder="500.00" /></label>
-          <label style={{ ...filterLabelStyle, minWidth: 240 }}>Posted category<select className="input" value={filters.categoryAccountId} onChange={(e) => setFilter('categoryAccountId', e.target.value)}><option value="">All categories</option>{eligibleAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label>
+          <label style={{ ...filterLabelStyle, minWidth: 240 }}>Posted category<select className="input" value={filters.categoryAccountId} onChange={(e) => setFilter('categoryAccountId', e.target.value)}><option value="">All categories</option>{allAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label>
         </div>
       )}
 
@@ -563,7 +563,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                     )}
                   </td>
                   <td>
-                    {r.match_status === 'unmatched' && r.ai_suggestion?.suggested_account_id && (
+                    {r.match_status === 'unmatched' && accountsById.has(Number(r.ai_suggestion?.suggested_account_id)) && (
                       <AiSuggestionPill
                         suggestion={r.ai_suggestion}
                         suggestedAccount={accountsById.get(r.ai_suggestion.suggested_account_id)}
@@ -663,6 +663,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                       <TreasuryAiResultPanel
                         line={r}
                         ai={aiPanelByLine[r.id]}
+                        canPost={accountsById.has(Number(aiPanelByLine[r.id]?.suggestion?.suggested_account_id))}
                         onDismiss={() => dismissAi(r.id)}
                         onAccept={(accountId) => {
                           const sug = aiPanelByLine[r.id]?.suggestion || {};
@@ -983,9 +984,8 @@ function CategorizeRow({ line, type, accounts, aiSuggestion, onSave, onCancel })
 
   const suggestedAccount = accounts.find((a) => Number(a.id) === Number(aiSuggestion?.suggested_account_id));
   const [counterpartId, setCounterpartId] = useState(
-    aiSuggestion?.suggested_account_id && !(isCustomerReceipt && String(suggestedAccount?.code) === '1100')
-      ? String(aiSuggestion.suggested_account_id)
-      : ''
+    suggestedAccount && !(isCustomerReceipt && String(suggestedAccount.code) === '1100')
+      ? String(suggestedAccount.id) : ''
   );
   const [memo, setMemo]                   = useState('');
   const [busy, setBusy]                   = useState(false);
@@ -1082,7 +1082,7 @@ function CategorizeRow({ line, type, accounts, aiSuggestion, onSave, onCancel })
  * version). Renders the structured `bank_ai.php?action=suggest_categorize`
  * response as confidence + reasoning + Accept button instead of raw JSON.
  */
-function TreasuryAiResultPanel({ line, ai, onDismiss, onAccept }) {
+function TreasuryAiResultPanel({ line, ai, canPost, onDismiss, onAccept }) {
   // bank_ai.php returns { suggestion: {...}, review_required }.
   const sug = ai.suggestion || {};
   const conf = Math.round(((sug.confidence ?? 0)) * 100);
@@ -1119,7 +1119,7 @@ function TreasuryAiResultPanel({ line, ai, onDismiss, onAccept }) {
         </>
       )}
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        {!noSuggest && (
+        {!noSuggest && canPost && (
           <button type="button" className="btn btn--primary"
                   onClick={() => onAccept(suggestedAccountId)}
                   data-testid={`treasury-ai-result-accept-${line.id}`}
@@ -1127,6 +1127,7 @@ function TreasuryAiResultPanel({ line, ai, onDismiss, onAccept }) {
             Accept &amp; post
           </button>
         )}
+        {!noSuggest && !canPost && <span className="muted" style={{ fontSize: 12 }}>Use the source workflow or choose another category.</span>}
         <button type="button" className="btn btn--ghost"
                 onClick={onDismiss}
                 data-testid={`treasury-ai-result-dismiss-${line.id}`}
