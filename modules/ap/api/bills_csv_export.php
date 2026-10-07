@@ -73,13 +73,14 @@ if ($datasetOptions['vendor_name'] !== '') {
 $stmt = getDB()->prepare(
     'SELECT b.id AS bill_id, b.bill_number, b.external_id, b.source_system,
             b.status AS record_status, b.amount_paid,
-            b.vendor_name, b.vendor_type, b.bill_date, b.due_date, b.received_at,
+            b.vendor_name, e.code AS entity_code, b.vendor_type, b.bill_date, b.due_date, b.received_at,
             b.period_start, b.period_end, b.currency, b.po_number, b.notes_internal,
             l.id AS line_id, l.line_no, l.description AS line_description,
             l.quantity AS line_quantity, l.unit AS line_unit,
             l.unit_price AS line_unit_price, l.subtotal AS line_subtotal,
             l.tax_amount AS line_tax_amount, l.total AS line_total
        FROM ap_bills b
+  LEFT JOIN accounting_entities e ON e.id = b.entity_id AND e.tenant_id = b.tenant_id
   LEFT JOIN ap_bill_lines l ON l.bill_id = b.id
       WHERE ' . implode(' AND ', $where) . '
       ORDER BY b.bill_date DESC, b.id DESC, l.line_no ASC, l.id ASC
@@ -103,6 +104,7 @@ exportDatasetAudit($tenantId, $userId ?: null, 'ap.bills.exported', null, export
     'record_status'  => 'Record status (read only)',
     'amount_paid'    => 'Amount paid (read only)',
     'vendor_name'    => 'Vendor name',
+    'entity_code'    => 'Entity code',
     'vendor_type'    => 'Vendor type',
     'bill_date'      => 'Bill date',
     'due_date'       => 'Due date',

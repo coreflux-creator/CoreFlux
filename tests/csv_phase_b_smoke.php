@@ -21,6 +21,7 @@ $a = function (string $name, bool $ok) use (&$pass, &$fail): void {
     else     { $fail++; echo "  FAIL  $name\n"; }
 };
 $read = fn (string $p) => (string) file_get_contents($p);
+$groups = $read(__DIR__ . '/../core/accounting/csv_document_entity.php');
 
 echo "AP bills multi-line CSV import\n";
 $bi = $read(__DIR__ . '/../modules/ap/api/bills_csv_import.php');
@@ -30,9 +31,9 @@ foreach (['bill_number','vendor_name','bill_date','due_date','line_no','line_des
     $a("bill schema field: {$f}",            str_contains($bi, "'{$f}'"));
 }
 $a('bills template action',                  str_contains($bi, "action === 'template'") && str_contains($bi, 'bills_template.csv'));
-$a('bills dry_run groups by bill_number',    str_contains($bi, '$groups[$bn]'));
-$a('bills first-row header validation',      str_contains($bi, 'required on first row of bill'));
-$a('bills commit groups by bill_number',     str_contains($bi, '$groups[$bn][] = $row'));
+$a('bills dry_run groups by bill_number',    str_contains($bi, "'bill_number', 'bill'") && str_contains($groups, '$groups[$number][$rowNumber]'));
+$a('bills first-row header validation',      str_contains($bi, "['vendor_name', 'bill_date', 'due_date']") && str_contains($groups, 'required on first row of'));
+$a('bills commit reuses document review',   substr_count($bi, 'accountingCsvReviewDocumentGroups(') === 2 && str_contains($bi, 'array_intersect(array_keys($numberedRows)'));
 $a('bills inserts ap_bill_lines',            str_contains($bi, 'INSERT INTO ap_bill_lines'));
 $a('bills skips existing bill_number',       str_contains($bi, 'already exists'));
 $a('bills wraps lines in transaction',       str_contains($bi, 'beginTransaction'));
@@ -48,8 +49,8 @@ foreach (['invoice_number','client_name','issue_date','due_date','line_descripti
     $a("invoice schema field: {$f}",         str_contains($ii, "'{$f}'"));
 }
 $a('invoices template action',               str_contains($ii, "action === 'template'") && str_contains($ii, 'invoices_template.csv'));
-$a('invoices dry_run groups by number',      str_contains($ii, '$groups[$inv]'));
-$a('invoices first-row header validation',   str_contains($ii, 'required on first row of invoice'));
+$a('invoices dry_run groups by number',      str_contains($ii, "'invoice_number', 'invoice'") && str_contains($groups, '$groups[$number][$rowNumber]'));
+$a('invoices first-row header validation',   str_contains($ii, "['client_name', 'issue_date', 'due_date']") && str_contains($groups, 'required on first row of'));
 $a('invoices inserts invoice_lines',         str_contains($ii, 'INSERT INTO billing_invoice_lines'));
 $a('invoices skips existing invoice number', str_contains($ii, 'already exists'));
 $a('invoices wraps lines in transaction',    str_contains($ii, 'beginTransaction'));

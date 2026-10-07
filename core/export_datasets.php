@@ -120,6 +120,7 @@ function exportDatasetRegistry(): array {
             'fields'                => [
                 'bill_id'          => ['label' => 'Bill ID',          'sample' => '412'],
                 'bill_number'      => ['label' => 'Bill #',           'sample' => 'INV-00412'],
+                'entity_code'      => ['label' => 'Entity code',      'sample' => 'MAIN'],
                 'internal_ref'     => ['label' => 'Internal ref',     'sample' => 'AP-2026-00412'],
                 'vendor_name'      => ['label' => 'Vendor name',      'sample' => 'Acme Corp'],
                 'vendor_type'      => ['label' => 'Vendor type',      'sample' => 'w9_business'],
@@ -358,6 +359,7 @@ function exportDatasetRegistry(): array {
             'fields'                => [
                 'invoice_id'      => ['label' => 'Invoice ID',       'sample' => '1204'],
                 'invoice_number'  => ['label' => 'Invoice #',        'sample' => 'INV-1204'],
+                'entity_code'     => ['label' => 'Entity code',      'sample' => 'MAIN'],
                 'client_name'     => ['label' => 'Client name',      'sample' => 'Acme Corp'],
                 'currency'        => ['label' => 'Currency',         'sample' => 'USD'],
                 'issue_date'      => ['label' => 'Issue date',       'sample' => '2026-02-14'],
@@ -827,6 +829,8 @@ function exportDatasetFetchApBills(int $tenantId, array $opts): array {
 
     $stmt = $pdo->prepare(
         'SELECT id AS bill_id, bill_number, internal_ref, vendor_name, vendor_type,
+                (SELECT e.code FROM accounting_entities e
+                  WHERE e.id = ap_bills.entity_id AND e.tenant_id = ap_bills.tenant_id) AS entity_code,
                 received_at, bill_date, due_date, period_start, period_end, currency,
                 subtotal, tax_total, total, amount_paid, amount_due, status, source,
                 po_number, placement_id, journal_entry_id, notes_internal
@@ -1212,6 +1216,8 @@ function exportDatasetFetchBillingInvoices(int $tenantId, array $opts): array {
 
     $stmt = $pdo->prepare(
         'SELECT id AS invoice_id, invoice_number, client_name, currency, issue_date, due_date,
+                (SELECT e.code FROM accounting_entities e
+                  WHERE e.id = billing_invoices.entity_id AND e.tenant_id = billing_invoices.tenant_id) AS entity_code,
                 period_start, period_end, subtotal, tax_total, total, amount_paid, amount_due,
                 status, po_number, aggregation, notes_external
            FROM billing_invoices

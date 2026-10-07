@@ -73,13 +73,14 @@ if ($datasetOptions['client_name'] !== '') {
 $stmt = getDB()->prepare(
     'SELECT i.id AS invoice_id, i.invoice_number, i.external_id, i.source_system,
             i.status AS record_status, i.amount_paid,
-            i.client_name, i.issue_date, i.due_date, i.period_start, i.period_end,
+            i.client_name, e.code AS entity_code, i.issue_date, i.due_date, i.period_start, i.period_end,
             i.currency, i.po_number, i.aggregation, i.notes_external,
             l.id AS line_id, l.line_no, l.description AS line_description,
             l.quantity AS line_quantity, l.unit AS line_unit,
             l.unit_price AS line_unit_price, l.subtotal AS line_subtotal,
             l.tax_amount AS line_tax_amount, l.total AS line_total
        FROM billing_invoices i
+  LEFT JOIN accounting_entities e ON e.id = i.entity_id AND e.tenant_id = i.tenant_id
   LEFT JOIN billing_invoice_lines l ON l.invoice_id = i.id
       WHERE ' . implode(' AND ', $where) . '
       ORDER BY i.issue_date DESC, i.id DESC, l.line_no ASC, l.id ASC
@@ -103,6 +104,7 @@ exportDatasetAudit($tenantId, $userId ?: null, 'billing.invoice.exported', null,
     'record_status'  => 'Record status (read only)',
     'amount_paid'    => 'Amount paid (read only)',
     'client_name'    => 'Client name',
+    'entity_code'    => 'Entity code',
     'issue_date'     => 'Issue date',
     'due_date'       => 'Due date',
     'period_start'   => 'Period start',

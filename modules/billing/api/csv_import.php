@@ -18,6 +18,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
+require_once __DIR__ . '/../../../core/accounting/csv_document_entity.php';
 require_once __DIR__ . '/../lib/billing.php';
 
 use Core\CsvImportService;
@@ -39,6 +40,7 @@ CsvImportService::registerSchema('billing_invoices', [
         'record_status'    => ['label' => 'Record status (read only)'],
         'amount_paid'      => ['label' => 'Amount paid (read only)', 'type' => 'number'],
         'client_name'      => ['label' => 'Client name'],
+        'entity_code'      => ['label' => 'Entity code'],
         'issue_date'       => ['label' => 'Issue date',      'type' => 'date'],
         'due_date'         => ['label' => 'Due date',        'type' => 'date'],
         'period_start'     => ['label' => 'Period start',    'type' => 'date'],
@@ -137,27 +139,12 @@ if ($method === 'POST' && $action === 'dry_run') {
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap = CsvImportService::readRequestColumnMap();
-    $result = CsvImportService::dryRun('billing_invoices', $csv, $columnMap);
-
-    $groups = [];
-    foreach ($result['rows'] as $rn => $row) {
-        $inv = (string) ($row['invoice_number'] ?? '');
-        if ($inv === '') continue;
-        $groups[$inv][] = ['rn' => $rn, 'row' => $row];
-    }
-    foreach ($groups as $inv => $g) {
-        $first = $g[0]['row'];
-        foreach (['client_name','issue_date','due_date'] as $req) {
-            if (empty($first[$req])) {
-                $rn = $g[0]['rn'];
-                $result['errors'][$rn] = $result['errors'][$rn] ?? [];
-                $result['errors'][$rn][] = "{$req}: required on first row of invoice #{$inv}";
-            }
-        }
-    }
-    $result['error_count'] = count($result['errors']);
-    $result['groups']      = count($groups);
-    api_ok($result);
+    $review = accountingCsvReviewDocumentGroups(
+        CsvImportService::dryRun('billing_invoices', $csv, $columnMap),
+        accountingCsvDocumentEntities(getDB(), $tid),
+        'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date']
+    );
+    api_ok($review['result']);
 }
 
 if ($method === 'POST' && $action === 'commit') {
@@ -168,22 +155,21 @@ if ($method === 'POST' && $action === 'commit') {
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
 
-    $dry = CsvImportService::dryRun('billing_invoices', $csv, $columnMap);
+    $review = accountingCsvReviewDocumentGroups(
+        CsvImportService::dryRun('billing_invoices', $csv, $columnMap),
+        accountingCsvDocumentEntities(getDB(), $tid),
+        'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date']
+    );
+    $dry = $review['result'];
     if (!$skipInvalid && $dry['error_count'] > 0) {
         api_ok([
             'imported_count' => 0, 'skipped_count' => count($dry['rows']),
             'errors' => $dry['errors'],
-            'message' => 'Validation errors present; pass skip_invalid=1 to import valid rows only.',
+            'message' => 'Validation errors present; pass skip_invalid=1 to import valid documents only.',
         ]);
     }
 
-    $groups = [];
-    foreach ($dry['rows'] as $rn => $row) {
-        if ($skipInvalid && isset($dry['errors'][$rn])) continue;
-        $inv = (string) ($row['invoice_number'] ?? '');
-        if ($inv === '') continue;
-        $groups[$inv][] = $row;
-    }
+    $groups = $review['groups'];
 
     $pdo = getDB();
     $imported = 0;
@@ -205,8 +191,11 @@ if ($method === 'POST' && $action === 'commit') {
         return compact('quantity', 'unitPrice', 'subtotal', 'tax', 'total');
     };
 
-    foreach ($groups as $inv => $rows) {
+    foreach ($groups as $inv => $numberedRows) {
+        if (count(array_intersect(array_keys($numberedRows), array_keys($dry['errors']))) > 0) continue;
+        $rows = array_values($numberedRows);
         $header = $rows[0];
+        $entity = $review['entities'][$inv];
         $externalId   = isset($header['external_id'])   && $header['external_id']   !== '' ? (string) $header['external_id']   : null;
         $sourceSystem = isset($header['source_system']) && $header['source_system'] !== '' ? (string) $header['source_system'] : 'manual';
 
@@ -217,7 +206,7 @@ if ($method === 'POST' && $action === 'commit') {
         $invoiceId = isset($header['invoice_id']) && $header['invoice_id'] !== '' ? (int) $header['invoice_id'] : 0;
         if ($invoiceId > 0) {
             $existing = scopedFind(
-                'SELECT id, status, journal_entry_id, amount_paid
+                'SELECT id, entity_id, status, journal_entry_id, amount_paid
                    FROM billing_invoices
                   WHERE tenant_id = :tenant_id AND id = :id',
                 ['id' => $invoiceId]
@@ -228,7 +217,7 @@ if ($method === 'POST' && $action === 'commit') {
             }
         } elseif ($externalId !== null) {
             $existing = scopedFind(
-                'SELECT id, status, journal_entry_id, amount_paid
+                'SELECT id, entity_id, status, journal_entry_id, amount_paid
                    FROM billing_invoices
                   WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
                 ['s' => $sourceSystem, 'e' => $externalId]
@@ -236,13 +225,17 @@ if ($method === 'POST' && $action === 'commit') {
         }
         if (!$existing) {
             $existing = scopedFind(
-                'SELECT id, status, journal_entry_id, amount_paid
+                'SELECT id, entity_id, status, journal_entry_id, amount_paid
                    FROM billing_invoices
                   WHERE tenant_id = :tenant_id AND invoice_number = :n',
                 ['n' => $inv]
             );
         }
         if ($existing) {
+            if (!empty($existing['entity_id']) && (int) $existing['entity_id'] !== $entity['id']) {
+                $errors['__invoice_' . $inv] = ['CSV cannot move an invoice to another legal entity'];
+                continue;
+            }
             if (!$updateExisting) {
                 $errors['__invoice_' . $inv] = ['Invoice # ' . $inv . ' already exists; enable Update matching editable records to change its draft'];
                 continue;
@@ -283,7 +276,8 @@ if ($method === 'POST' && $action === 'commit') {
                 'external_id'    => $externalId,
                 'source_system'  => $sourceSystem,
                 'client_name'    => (string) $header['client_name'],
-                'currency'       => $header['currency']  ?? 'USD',
+                'entity_id'      => $entity['id'],
+                'currency'       => $entity['base_currency'],
                 'issue_date'     => $header['issue_date'],
                 'due_date'       => $header['due_date'],
                 'period_start'   => $header['period_start'] ?? null,

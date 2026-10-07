@@ -41,6 +41,10 @@ $check('invoice CSV updates only unpaid unposted drafts',
 $check('time-sourced invoice lines remain source-controlled',
     str_contains($billingImport, 'source_type <> "manual"')
     && str_contains($billingImport, 'must be rebuilt from Time settlement'));
+$check('invoice CSV preserves legal entity and validates whole groups on commit',
+    str_contains($billingImport, "'entity_id'      => \$entity['id']")
+    && substr_count($billingImport, 'accountingCsvReviewDocumentGroups(') === 2
+    && str_contains($billingExport, 'e.code AS entity_code'));
 
 $check('bill export is line-level',
     str_contains($billsExport, 'LEFT JOIN ap_bill_lines')
@@ -58,6 +62,10 @@ $check('bill CSV updates only editable manual records',
 $check('source-generated bill lines remain source-controlled',
     str_contains($billsImport, 'source_type <> "manual"')
     && str_contains($billsImport, 'must be rebuilt from their source'));
+$check('bill CSV preserves legal entity and validates whole groups on commit',
+    str_contains($billsImport, "'entity_id'      => \$entity['id']")
+    && substr_count($billsImport, 'accountingCsvReviewDocumentGroups(') === 2
+    && str_contains($billsExport, 'e.code AS entity_code'));
 
 $check('AP payment export carries round-trip identity',
     str_contains($apPaymentsExport, "'payment_id'         => 'Payment ID'")
