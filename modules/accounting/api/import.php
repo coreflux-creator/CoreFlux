@@ -8,15 +8,16 @@
  *
  * Row writers:
  *   - coa     → INSERT or UPDATE accounting_accounts by (tenant_id, code)
- *   - je      → accountingPostJe() with idempotency_key 'csv:<batch>:<row>'
- *               (prevents double-post on retry)
- *   - periods → UPDATE accounting_periods status by (tenant_id, entity_id, start_date)
+ *   - je      → reviewed, atomic accountingPostJe() batches with exact-replay checks
+ *   - periods → create open/future periods or exactly replay existing rows;
+ *               close and reopen remain in the audited Periods workflow
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../lib/accounting.php';
 require_once __DIR__ . '/../lib/dimensions.php';
+require_once __DIR__ . '/../lib/ledger_import.php';
 require_once __DIR__ . '/../../staffing/lib/dimensions.php';
 
 use Core\CsvImportService;
@@ -27,8 +28,6 @@ $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 $type   = (string) ($_GET['type']   ?? '');
-
-rbac_legacy_require($user, 'accounting.coa.manage');
 
 // ── Register accounting import schemas (one per type) ────────────────────
 CsvImportService::registerSchema('accounting_coa', [
@@ -52,13 +51,13 @@ CsvImportService::registerSchema('accounting_coa', [
 CsvImportService::registerSchema('accounting_je', [
     'fields' => [
         'batch_ref'    => ['label' => 'Batch ref',    'required' => true],
-        'posting_date' => ['label' => 'Posting date', 'required' => true, 'type' => 'date'],
+        'posting_date' => ['label' => 'Posting date', 'required' => true],
         'memo'         => ['label' => 'Memo'],
         'account_code' => ['label' => 'Account code', 'required' => true],
         'debit'        => ['label' => 'Debit',        'type' => 'number'],
         'credit'       => ['label' => 'Credit',       'type' => 'number'],
         'line_memo'    => ['label' => 'Line memo'],
-        'entity_id'    => ['label' => 'Entity id',    'required' => true, 'type' => 'number'],
+        'entity_id'    => ['label' => 'Entity id',    'required' => true],
         'client'       => ['label' => 'Client dimension'],
         'placement'    => ['label' => 'Assignment dimension'],
         'worker'       => ['label' => 'Worker dimension'],
@@ -79,12 +78,12 @@ CsvImportService::registerSchema('accounting_je', [
 
 CsvImportService::registerSchema('accounting_periods', [
     'fields' => [
-        'entity_id'     => ['label' => 'Entity id',     'required' => true, 'type' => 'number'],
-        'period_number' => ['label' => 'Period number', 'required' => true, 'type' => 'number'],
-        'start_date'    => ['label' => 'Start date',    'required' => true, 'type' => 'date'],
-        'end_date'      => ['label' => 'End date',      'required' => true, 'type' => 'date'],
+        'entity_id'     => ['label' => 'Entity id',     'required' => true],
+        'period_number' => ['label' => 'Period number', 'required' => true],
+        'start_date'    => ['label' => 'Start date',    'required' => true],
+        'end_date'      => ['label' => 'End date',      'required' => true],
         'status'        => ['label' => 'Status',        'required' => true,
-                             'enum' => ['future','open','soft_closed','closed','reopened']],
+                             'enum' => ['future','open']],
     ],
 ]);
 
@@ -95,6 +94,12 @@ $schemaByType = [
 ];
 $schemaKey = $schemaByType[$type] ?? null;
 if (!$schemaKey) api_error('Unknown import type. Use coa|je|periods.', 422);
+rbac_legacy_require($user, 'accounting.ledger.import');
+rbac_legacy_require($user, [
+    'coa' => 'accounting.coa.manage',
+    'je' => 'accounting.je.post',
+    'periods' => 'accounting.period.close',
+][$type]);
 
 // ── action=template ──────────────────────────────────────────────────────
 if ($method === 'GET' && $action === 'template') {
@@ -147,7 +152,12 @@ function accountingPrepareJeImport(int $tenantId, array $dry): array
     foreach ($dry['rows'] as $rowNum => $row) {
         if (isset($dry['errors'][$rowNum])) continue;
         $batch = (string) $row['batch_ref'];
-        $rowEntityId = !empty($row['entity_id']) ? (int) $row['entity_id'] : null;
+        $rawEntityId = trim((string) ($row['entity_id'] ?? ''));
+        if (!ctype_digit($rawEntityId) || (int) $rawEntityId <= 0) {
+            $batchErrors[$batch][] = "row {$rowNum}: entity id must be a positive whole number";
+        }
+        $rowEntityId = ctype_digit($rawEntityId) && (int) $rawEntityId > 0
+            ? (int) $rawEntityId : null;
         if (!isset($grouped[$batch])) {
             $grouped[$batch] = [
                 'posting_date' => $row['posting_date'],
@@ -161,6 +171,10 @@ function accountingPrepareJeImport(int $tenantId, array $dry): array
             }
             if ($rowEntityId !== null && (int) $grouped[$batch]['entity_id'] !== $rowEntityId) {
                 $batchErrors[$batch][] = 'all rows must use the same entity id';
+            }
+            if (trim((string) ($row['memo'] ?? '')) !== ''
+                && trim((string) ($row['memo'] ?? '')) !== trim((string) ($grouped[$batch]['memo'] ?? ''))) {
+                $batchErrors[$batch][] = 'all rows must use the same journal memo';
             }
         }
 
@@ -217,8 +231,8 @@ function accountingPrepareJeImport(int $tenantId, array $dry): array
         }
         $grouped[$batch]['lines'][] = [
             'account_code' => $row['account_code'],
-            'debit' => (float) ($row['debit'] ?? 0),
-            'credit' => (float) ($row['credit'] ?? 0),
+            'debit' => $row['debit'] ?? '',
+            'credit' => $row['credit'] ?? '',
             'memo' => $row['line_memo'] ?? null,
             'dims' => $dims,
         ];
@@ -232,13 +246,28 @@ function accountingPrepareJeImport(int $tenantId, array $dry): array
     return ['grouped' => $grouped, 'batch_errors' => $batchErrors];
 }
 
+function accountingReviewJeImport(int $tenantId, array $dry): array
+{
+    $prepared = accountingPrepareJeImport($tenantId, $dry);
+    foreach ($prepared['grouped'] as $batch => $journal) {
+        if (!empty($prepared['batch_errors'][$batch])) continue;
+        $review = accountingImportReviewJe($tenantId, (string) $batch, $journal);
+        $prepared['grouped'][$batch] = $review['journal'];
+        if ($review['errors']) $prepared['batch_errors'][$batch] = $review['errors'];
+    }
+    return $prepared;
+}
+
 if ($action === 'dry_run') {
     $res = CsvImportService::dryRun($schemaKey, $raw, null, $defaults);
     if ($type === 'je') {
-        $prepared = accountingPrepareJeImport($tid, $res);
+        $prepared = accountingReviewJeImport($tid, $res);
         foreach ($prepared['batch_errors'] as $batch => $messages) {
             $res['errors']['batch:' . $batch] = $messages;
         }
+        $res['error_count'] = count($res['errors']);
+    } elseif ($type === 'periods') {
+        $res['errors'] = accountingImportPeriodErrors($tid, $res['rows'], $res['errors']);
         $res['error_count'] = count($res['errors']);
     }
     api_ok($res);
@@ -246,6 +275,9 @@ if ($action === 'dry_run') {
 
 // ── Commit — per-type writers ────────────────────────────────────────────
 $skipInvalid = !empty($_GET['skip_invalid']) || !empty($requestBody['skip_invalid'] ?? null);
+if ($skipInvalid && $type !== 'coa') {
+    api_error('Journal and period imports are all-or-nothing. Fix the preview errors and retry.', 422);
+}
 
 if ($type === 'coa') {
     $db = getDB();
@@ -278,74 +310,88 @@ if ($type === 'coa') {
             ->execute($vals);
         return (int) $db->lastInsertId();
     };
-    $res = CsvImportService::commit($schemaKey, $raw, $writer, ['skip_invalid' => $skipInvalid]);
+    $res = CsvImportService::commit($schemaKey, $raw, $writer,
+        ['skip_invalid' => $skipInvalid, 'atomic' => true]);
     accountingAudit('accounting.ledger.imported', ['type' => 'coa', 'imported' => $res['imported_count'], 'skipped' => $res['skipped_count']]);
     api_ok($res);
 }
 
 if ($type === 'je') {
-    // Group rows into JEs by batch_ref; post each batch via accountingPostJe
-    // with idempotency key 'csv:<sha256(batch_ref)>'.
     $dry = CsvImportService::dryRun($schemaKey, $raw, null, $defaults);
-    $prepared = accountingPrepareJeImport($tid, $dry);
+    $prepared = accountingReviewJeImport($tid, $dry);
     foreach ($prepared['batch_errors'] as $batch => $messages) {
         $dry['errors']['batch:' . $batch] = $messages;
     }
     $dry['error_count'] = count($dry['errors']);
-    if (!$skipInvalid && $dry['error_count'] > 0) {
+    if ($dry['error_count'] > 0 || $dry['row_count'] === 0) {
         api_ok([
             'imported_count' => 0,
             'skipped_count'  => $dry['row_count'],
             'errors'         => $dry['errors'],
             'ids'            => [],
-            'message'        => 'Validation errors present; commit aborted. Pass skip_invalid=1 to import valid rows only.',
+            'aborted'        => true,
+            'message'        => 'No journals were posted. Fix all preview errors and retry.',
         ]);
     }
     $grouped = $prepared['grouped'];
-    $batchErrors = $prepared['batch_errors'];
-    $imported = 0; $skipped = 0; $errors = $dry['errors']; $ids = [];
-    foreach ($grouped as $batch => $je) {
-        if (!empty($batchErrors[$batch])) {
-            $skipped++;
-            $errors['batch:' . $batch] = array_values(array_unique($batchErrors[$batch]));
-            continue;
+    $imported = $replayed = 0; $ids = [];
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        foreach ($grouped as $batch => $je) {
+            accountingImportAssertJeReplay($tid, $je);
+            $posted = accountingPostJe($tid, $je, $user['id'] ?? null, true);
+            accountingImportAssertJeReplay($tid, $je);
+            $ids[$batch] = (int) $posted['je_id'];
+            if ($posted['idempotent_replay']) $replayed++;
+            else $imported++;
         }
-        try {
-            $res = accountingPostJe($tid, $je + [
-                'source_module'   => 'manual',
-                'idempotency_key' => 'csv:' . hash('sha256', (string) $tid . ':' . $batch),
-            ], $user['id'] ?? null, true);
-            $ids[$batch] = (int) $res['je_id'];
-            $imported++;
-        } catch (\Throwable $e) {
-            $skipped++;
-            $errors['batch:' . $batch] = ['post failed: ' . $e->getMessage()];
-        }
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_ok([
+            'imported_count' => 0, 'replayed_count' => 0,
+            'skipped_count' => $dry['row_count'],
+            'errors' => ['import' => [$e->getMessage()]], 'ids' => [],
+            'aborted' => true,
+            'message' => 'No journals were posted. Review the error and check the data again.',
+        ]);
     }
-    accountingAudit('accounting.ledger.imported', ['type' => 'je', 'imported' => $imported, 'skipped' => $skipped]);
-    api_ok(['imported_count' => $imported, 'skipped_count' => $skipped, 'errors' => $errors, 'ids' => $ids]);
+    accountingAudit('accounting.ledger.imported', [
+        'type' => 'je', 'imported' => $imported, 'replayed' => $replayed, 'skipped' => 0,
+    ]);
+    api_ok(['imported_count' => $imported, 'replayed_count' => $replayed,
+        'skipped_count' => 0, 'errors' => [], 'ids' => $ids]);
 }
 
 if ($type === 'periods') {
+    $dry = CsvImportService::dryRun($schemaKey, $raw);
+    $dry['errors'] = accountingImportPeriodErrors($tid, $dry['rows'], $dry['errors']);
+    if ($dry['errors'] || $dry['row_count'] === 0) {
+        api_ok(['imported_count' => 0, 'skipped_count' => $dry['row_count'],
+            'errors' => $dry['errors'], 'ids' => [], 'aborted' => true,
+            'message' => 'No periods were imported. Fix all preview errors and retry.']);
+    }
     $db = getDB();
     $writer = function (array $row) use ($db, $tid): int {
+        $entity = $db->prepare(
+            'SELECT id FROM accounting_entities
+             WHERE tenant_id = :t AND id = :e AND active = 1 FOR UPDATE'
+        );
+        $entity->execute(['t' => $tid, 'e' => (int) $row['entity_id']]);
+        if (!$entity->fetchColumn()) throw new RuntimeException('Choose an active legal entity in this workspace.');
+        $error = accountingImportPeriodError($tid, $row, true);
+        if ($error !== null) throw new RuntimeException($error);
         $stmt = $db->prepare(
             'SELECT id FROM accounting_periods
-             WHERE tenant_id = :t AND entity_id = :e AND start_date = :sd LIMIT 1'
+             WHERE tenant_id = :t AND entity_id = :e AND period_number = :pn
+               AND start_date = :sd AND end_date = :ed AND status = :st LIMIT 1'
         );
-        $stmt->execute(['t' => $tid, 'e' => (int) $row['entity_id'], 'sd' => $row['start_date']]);
+        $stmt->execute(['t' => $tid, 'e' => (int) $row['entity_id'],
+            'pn' => (int) $row['period_number'], 'sd' => $row['start_date'],
+            'ed' => $row['end_date'], 'st' => $row['status']]);
         $existing = $stmt->fetch(\PDO::FETCH_ASSOC);
-        if ($existing) {
-            $db->prepare(
-                'UPDATE accounting_periods
-                 SET period_number = :pn, end_date = :ed, status = :st
-                 WHERE id = :id AND tenant_id = :t'
-            )->execute([
-                'pn' => (int) $row['period_number'], 'ed' => $row['end_date'],
-                'st' => $row['status'], 'id' => $existing['id'], 't' => $tid,
-            ]);
-            return (int) $existing['id'];
-        }
+        if ($existing) return (int) $existing['id'];
         $db->prepare(
             'INSERT INTO accounting_periods
                 (tenant_id, entity_id, period_number, start_date, end_date, status)
@@ -357,7 +403,7 @@ if ($type === 'periods') {
         ]);
         return (int) $db->lastInsertId();
     };
-    $res = CsvImportService::commit($schemaKey, $raw, $writer, ['skip_invalid' => $skipInvalid]);
+    $res = CsvImportService::commit($schemaKey, $raw, $writer, ['atomic' => true]);
     accountingAudit('accounting.ledger.imported', ['type' => 'periods', 'imported' => $res['imported_count'], 'skipped' => $res['skipped_count']]);
     api_ok($res);
 }

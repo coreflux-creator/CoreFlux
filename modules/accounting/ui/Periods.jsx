@@ -119,8 +119,7 @@ export default function Periods() {
               style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 4 }}
             >
               <option value="open">open</option>
-              <option value="soft_closed">soft_closed</option>
-              <option value="closed">closed</option>
+              <option value="future">future</option>
             </select>
           </label>
           <button type="submit" className="btn btn--primary" disabled={busy === 'create'} data-testid="accounting-periods-define-submit">

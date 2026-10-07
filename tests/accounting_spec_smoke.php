@@ -36,7 +36,9 @@ echo "\naccounting.lib posting engine\n";
 $lib = (string) file_get_contents(__DIR__ . '/../modules/accounting/lib/accounting.php');
 $a('accountingNextJeNumber atomic seq',        strpos($lib, 'FOR UPDATE') !== false);
 $a('JE number format prefix-YYYY-NNNNNN',      strpos($lib, "sprintf('%s-%s-%06d', \$prefix") !== false);
-$a('resolvePeriod auto-creates monthly',       strpos($lib, 'Auto-create a monthly period') !== false);
+$a('resolvePeriod auto-creates non-overlapping monthly periods',
+    strpos($lib, "format('Y-m-01')") !== false
+    && strpos($lib, 'automatic monthly creation would overlap it') !== false);
 $a('defaultEntity auto-creates MAIN',          strpos($lib, "VALUES (:t, \"MAIN\", \"Main Entity\"") !== false);
 $a('accountingPostJe(): idempotency replay',   strpos($lib, 'idempotent_replay') !== false);
 $a('accountingPostJe(): validates active entity ownership',
@@ -83,7 +85,10 @@ $a('requires accounting lib',                  strpos($apbills, "require_once __
 $a('idempotency key ap:bill:<id>:post',        strpos($apbills, "sprintf('ap:bill:%d:post', \$id)") !== false);
 $a('Dr expense per bill line',                 strpos($apbills, "'account_code' => \$acct") !== false);
 $a('Cr AP 2000',                               strpos($apbills, "'account_code' => '2000'") !== false);
-$a('updates ap_bills.journal_entry_id',        strpos($apbills, 'UPDATE ap_bills SET journal_entry_id = :j') !== false);
+$apLib = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/ap.php');
+$a('updates ap_bills.journal_entry_id',
+    strpos($apbills, 'apAttachPostedBillJournal(') !== false
+    && strpos($apLib, 'UPDATE ap_bills SET journal_entry_id = :journal_id') !== false);
 $a('audit includes je_number',                 strpos($apbills, "'je_number' => \$res['je_number']") !== false);
 
 echo "\nBilling invoice → GL post\n";

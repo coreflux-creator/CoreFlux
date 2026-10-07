@@ -43,50 +43,56 @@ if ($method === 'GET') {
 if ($method === 'POST' && $action === 'create') {
     // Explicit period creation — operators wanted "Define a period" UI
     // alongside the auto-create-on-post path that `accountingResolvePeriod`
-    // uses. Tenant-scoped, audit-logged, idempotent on overlap.
+    // uses. Closing and reopening must use their audited actions below.
     rbac_legacy_require($user, 'accounting.period.close'); // same gate as close — admin-ish
     $body = api_json_body();
-    $entityId  = (int) ($body['entity_id'] ?? 0);
+    $entityRaw = trim((string) ($body['entity_id'] ?? ''));
     $startDate = trim((string) ($body['start_date'] ?? ''));
     $endDate   = trim((string) ($body['end_date']   ?? ''));
     $statusIn  = trim((string) ($body['status']     ?? 'open'));
-    $pnumIn    = (int) ($body['period_number'] ?? 0);
-    if ($entityId <= 0)                                api_error('entity_id required', 422);
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate)) api_error('start_date must be YYYY-MM-DD', 422);
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDate))   api_error('end_date must be YYYY-MM-DD',   422);
+    $pnumRaw   = trim((string) ($body['period_number'] ?? ''));
+    if (!ctype_digit($entityRaw) || (int) $entityRaw <= 0) {
+        api_error('entity_id must be a positive whole number', 422);
+    }
+    if ($pnumRaw !== '' && (!ctype_digit($pnumRaw) || (int) $pnumRaw < 1 || (int) $pnumRaw > 53)) {
+        api_error('period_number must be 1 to 53', 422);
+    }
+    $entityId = (int) $entityRaw;
+    $start = DateTimeImmutable::createFromFormat('!Y-m-d', $startDate);
+    $end = DateTimeImmutable::createFromFormat('!Y-m-d', $endDate);
+    if (!$start || $start->format('Y-m-d') !== $startDate) api_error('start_date must be a real YYYY-MM-DD date', 422);
+    if (!$end || $end->format('Y-m-d') !== $endDate) api_error('end_date must be a real YYYY-MM-DD date', 422);
     if ($startDate > $endDate)                          api_error('start_date must be <= end_date', 422);
-    $allowed = ['open','soft_closed','closed','locked','reopened'];
-    if (!in_array($statusIn, $allowed, true)) api_error('Invalid status', 422, ['allowed' => $allowed]);
+    if (!in_array($statusIn, ['open', 'future'], true)) {
+        api_error('New periods must be open or future; use the close workflow to change status', 422);
+    }
+    $periodNumber = $pnumRaw !== '' ? (int) $pnumRaw : (int) $end->format('n');
 
     $pdo = getDB();
-
-    // Reject overlap on the same entity (overlap = any date intersection).
-    $overlap = $pdo->prepare(
-        'SELECT id, period_number, start_date, end_date, status
-           FROM accounting_periods
-          WHERE tenant_id = :t AND entity_id = :e
-            AND start_date <= :ed AND end_date >= :sd
-          LIMIT 1'
-    );
-    $overlap->execute(['t' => $tid, 'e' => $entityId, 'sd' => $startDate, 'ed' => $endDate]);
-    if ($existing = $overlap->fetch(\PDO::FETCH_ASSOC)) {
-        api_error('Overlapping period already defined', 409, ['existing' => $existing]);
-    }
-
-    // Auto-compute period_number from end_date.month if not supplied.
-    $periodNumber = $pnumIn > 0 ? $pnumIn : (int) date('n', strtotime($endDate));
-
+    $pdo->beginTransaction();
     try {
-        $pdo->prepare(
-            'INSERT INTO accounting_periods
-               (tenant_id, entity_id, period_number, start_date, end_date, status, created_at)
-             VALUES (:t, :e, :n, :s, :x, :st, NOW())'
-        )->execute([
-            't'  => $tid, 'e' => $entityId, 'n' => $periodNumber,
-            's'  => $startDate, 'x' => $endDate, 'st' => $statusIn,
-        ]);
-    } catch (\Throwable $e) {
-        // Older schemas may not have a created_at column — retry without it.
+        // The entity row is the serialization point for period creation by API and CSV.
+        $entity = $pdo->prepare(
+            'SELECT id FROM accounting_entities
+             WHERE tenant_id = :t AND id = :e AND active = 1 FOR UPDATE'
+        );
+        $entity->execute(['t' => $tid, 'e' => $entityId]);
+        if (!$entity->fetchColumn()) {
+            $pdo->rollBack();
+            api_error('Choose an active legal entity in this workspace', 422);
+        }
+        $overlap = $pdo->prepare(
+            'SELECT id, period_number, start_date, end_date, status
+               FROM accounting_periods
+              WHERE tenant_id = :t AND entity_id = :e
+                AND start_date <= :ed AND end_date >= :sd
+              LIMIT 1 FOR UPDATE'
+        );
+        $overlap->execute(['t' => $tid, 'e' => $entityId, 'sd' => $startDate, 'ed' => $endDate]);
+        if ($existing = $overlap->fetch(\PDO::FETCH_ASSOC)) {
+            $pdo->rollBack();
+            api_error('Overlapping period already defined', 409, ['existing' => $existing]);
+        }
         $pdo->prepare(
             'INSERT INTO accounting_periods
                (tenant_id, entity_id, period_number, start_date, end_date, status)
@@ -95,12 +101,17 @@ if ($method === 'POST' && $action === 'create') {
             't'  => $tid, 'e' => $entityId, 'n' => $periodNumber,
             's'  => $startDate, 'x' => $endDate, 'st' => $statusIn,
         ]);
+        $newId = (int) $pdo->lastInsertId();
+        accountingAudit('accounting.period.created', [
+            'period_id' => $newId, 'entity_id' => $entityId,
+            'start_date' => $startDate, 'end_date' => $endDate, 'status' => $statusIn,
+        ], $newId);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('[accounting.period.create] ' . $e->getMessage());
+        api_error('Could not create the period. Check its dates and try again.', 500);
     }
-    $newId = (int) $pdo->lastInsertId();
-    accountingAudit('accounting.period.created', [
-        'period_id' => $newId, 'entity_id' => $entityId,
-        'start_date' => $startDate, 'end_date' => $endDate, 'status' => $statusIn,
-    ], $newId);
     api_ok(['id' => $newId, 'period_number' => $periodNumber, 'status' => $statusIn], 201);
 }
 

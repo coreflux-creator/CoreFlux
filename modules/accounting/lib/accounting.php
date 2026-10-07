@@ -78,35 +78,81 @@ function accountingNextJeNumber(int $tenantId): string
  *
  * @return array the period row with id, status, start_date, end_date
  */
-function accountingResolvePeriod(int $tenantId, int $entityId, string $postingDate): array
+function accountingResolvePeriod(int $tenantId, int $entityId, string $postingDate, bool $createIfMissing = true): array
 {
+    $parsedDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $postingDate);
+    if (!$parsedDate || $parsedDate->format('Y-m-d') !== $postingDate) {
+        throw new \InvalidArgumentException('posting_date must be a real YYYY-MM-DD date');
+    }
     $pdo = getDB();
     $stmt = $pdo->prepare(
         'SELECT * FROM accounting_periods
          WHERE tenant_id = :t AND entity_id = :e
            AND start_date <= :d_lo AND end_date >= :d_hi
-         LIMIT 1'
+         LIMIT 1' . ($createIfMissing && $pdo->inTransaction() ? ' FOR UPDATE' : '')
     );
     $stmt->execute(['t' => $tenantId, 'e' => $entityId, 'd_lo' => $postingDate, 'd_hi' => $postingDate]);
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);
     if ($row) return $row;
 
-    // Auto-create a monthly period.
-    $first = date('Y-m-01', strtotime($postingDate));
-    $last  = date('Y-m-t',  strtotime($postingDate));
-    $pnum  = (int) date('n', strtotime($postingDate));
-    $pdo->prepare(
-        'INSERT INTO accounting_periods
-           (tenant_id, entity_id, period_number, start_date, end_date, status)
-         VALUES
-           (:t, :e, :n, :s, :x, "open")
-         ON DUPLICATE KEY UPDATE id = id'
-    )->execute(['t' => $tenantId, 'e' => $entityId, 'n' => $pnum, 's' => $first, 'x' => $last]);
+    $first = $parsedDate->format('Y-m-01');
+    $last = $parsedDate->format('Y-m-t');
+    $overlapSql = 'SELECT id FROM accounting_periods
+         WHERE tenant_id = :t AND entity_id = :e
+           AND start_date <= :last_date AND end_date >= :first_date LIMIT 1';
+    $ensureNoOverlap = static function (bool $lockCurrent = false) use ($pdo, $overlapSql, $tenantId, $entityId, $first, $last): void {
+        $overlap = $pdo->prepare($overlapSql . ($lockCurrent ? ' FOR UPDATE' : ''));
+        $overlap->execute(['t' => $tenantId, 'e' => $entityId,
+            'last_date' => $last, 'first_date' => $first]);
+        if ($overlap->fetchColumn()) {
+            throw new \RuntimeException('Posting date is outside a defined period; automatic monthly creation would overlap it');
+        }
+    };
+    if (!$createIfMissing) {
+        $ensureNoOverlap();
+        return [
+            'id' => null, 'entity_id' => $entityId,
+            'period_number' => (int) $parsedDate->format('n'),
+            'start_date' => $first, 'end_date' => $last, 'status' => 'open',
+        ];
+    }
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) $pdo->beginTransaction();
+    try {
+        // The entity row serializes all three period creation paths.
+        $entity = $pdo->prepare(
+            'SELECT id FROM accounting_entities
+             WHERE tenant_id = :t AND id = :e AND active = 1 FOR UPDATE'
+        );
+        $entity->execute(['t' => $tenantId, 'e' => $entityId]);
+        if (!$entity->fetchColumn()) throw new \RuntimeException('Choose an active legal entity in this workspace');
 
-    $stmt->execute(['t' => $tenantId, 'e' => $entityId, 'd_lo' => $postingDate, 'd_hi' => $postingDate]);
-    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-    if (!$row) throw new \RuntimeException('Failed to resolve/create accounting period');
-    return $row;
+        $lockedPeriod = $pdo->prepare(
+            'SELECT * FROM accounting_periods
+             WHERE tenant_id = :t AND entity_id = :e
+               AND start_date <= :d_lo AND end_date >= :d_hi
+             LIMIT 1 FOR UPDATE'
+        );
+        $lockedPeriod->execute(['t' => $tenantId, 'e' => $entityId, 'd_lo' => $postingDate, 'd_hi' => $postingDate]);
+        $row = $lockedPeriod->fetch(\PDO::FETCH_ASSOC);
+        if (!$row) {
+            $ensureNoOverlap(true);
+            $pdo->prepare(
+                'INSERT INTO accounting_periods
+                   (tenant_id, entity_id, period_number, start_date, end_date, status)
+                 VALUES (:t, :e, :n, :s, :x, "open")'
+            )->execute(['t' => $tenantId, 'e' => $entityId,
+                'n' => (int) $parsedDate->format('n'), 's' => $first, 'x' => $last]);
+            $lockedPeriod->execute(['t' => $tenantId, 'e' => $entityId, 'd_lo' => $postingDate, 'd_hi' => $postingDate]);
+            $row = $lockedPeriod->fetch(\PDO::FETCH_ASSOC);
+            if (!$row) throw new \RuntimeException('Failed to resolve/create accounting period');
+        }
+        if ($ownsTransaction) $pdo->commit();
+        return $row;
+    } catch (\Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
 }
 
 /**
@@ -267,8 +313,8 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
 
     $lines = accountingStampLegalEntityDimension($lines, $entityId);
 
-    $period = accountingResolvePeriod($tenantId, $entityId, $postingDate);
-    if (in_array($period['status'], ['closed','soft_closed'], true)) {
+    $period = accountingResolvePeriod($tenantId, $entityId, $postingDate, false);
+    if (!in_array($period['status'], ['open', 'reopened'], true)) {
         throw new \RuntimeException("Period {$period['period_number']} ({$period['start_date']}..{$period['end_date']}) is {$period['status']}; cannot post");
     }
 
@@ -340,6 +386,10 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
     // back work owned by the caller merely because a transaction is active.
     $ownsTransaction = cf_tx_begin($pdo);
     try {
+        $period = accountingResolvePeriod($tenantId, $entityId, $postingDate);
+        if (!in_array($period['status'], ['open', 'reopened'], true)) {
+            throw new \RuntimeException("Period {$period['period_number']} ({$period['start_date']}..{$period['end_date']}) is {$period['status']}; cannot post");
+        }
         $jeNumber = accountingNextJeNumber($tenantId);
         $jeId = scopedInsert('accounting_journal_entries', [
             'tenant_id'         => $tenantId,
@@ -1279,7 +1329,8 @@ function accountingValidateJe(int $tenantId, array $je): array
 
     try {
         $requestedEntityId = accountingValidateActiveEntityId($tenantId, $je['entity_id'] ?? null);
-        $entityId = $requestedEntityId ?? (int) accountingDefaultEntity($tenantId)['id'];
+        $entityId = $requestedEntityId ?? (int) (accountingListActiveEntities($tenantId)[0]['id'] ?? 0);
+        if ($entityId <= 0) throw new \RuntimeException('No active legal entity is configured');
         if (is_array($lines)) {
             $lines = accountingStampLegalEntityDimension($lines, $entityId);
         }
@@ -1289,8 +1340,8 @@ function accountingValidateJe(int $tenantId, array $je): array
 
     if ($entityId > 0 && $postingDate !== '') {
         try {
-            $period = accountingResolvePeriod($tenantId, $entityId, $postingDate);
-            if (in_array($period['status'], ['closed', 'soft_closed'], true)) {
+            $period = accountingResolvePeriod($tenantId, $entityId, $postingDate, false);
+            if (!in_array($period['status'], ['open', 'reopened'], true)) {
                 $errors[] = "Period {$period['period_number']} ({$period['start_date']}..{$period['end_date']}) is {$period['status']}; cannot post";
             }
         } catch (\Throwable $e) {

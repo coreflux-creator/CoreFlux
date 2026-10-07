@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../posting_engine/process.php';
+require_once __DIR__ . '/control_accounts.php';
 
-const COREONE_V1_PROTECTED_ACCOUNTS = [
-    '1010', '1100', '1150', '1310', '1500', '2000', '2050', '2100',
-    '2150', '2200', '2210', '2220', '2300', '2500',
-];
+const COREONE_V1_PROTECTED_ACCOUNTS = ACCOUNTING_SOURCE_OWNED_CONTROL_CODES;
 const COREONE_V1_DEFAULT_SCOPES = ['journals:write', 'reports:read'];
 const COREONE_V1_ALLOWED_SCOPES = ['journals:write', 'reports:read', 'invoices:draft', 'bills:prepare'];
 

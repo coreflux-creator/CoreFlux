@@ -58,7 +58,11 @@ $a('emits accounting.ledger.exported audit',    $contains($ex, "'accounting.ledg
 echo "\napi/import.php — CSV imports\n";
 $im = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/import.php');
 $a('uses CsvImportService',                     $contains($im, 'use Core\\CsvImportService'));
-$a('gates on accounting.coa.manage',            $contains($im, "'accounting.coa.manage'"));
+$a('gates imports by type and action',
+    $contains($im, "'accounting.ledger.import'")
+    && $contains($im, "'coa' => 'accounting.coa.manage'")
+    && $contains($im, "'je' => 'accounting.je.post'")
+    && $contains($im, "'periods' => 'accounting.period.close'"));
 $a('registers accounting_coa schema',           $contains($im, "'accounting_coa'"));
 $a('registers accounting_je schema',            $contains($im, "'accounting_je'"));
 $a('registers accounting_periods schema',       $contains($im, "'accounting_periods'"));
@@ -66,14 +70,20 @@ $a('coa schema includes account_type enum',     $contains($im, "'asset','liabili
 $a('action=template returns CSV',               $contains($im, "\$action === 'template'") && $contains($im, 'buildTemplate'));
 $a('action=dry_run + commit handlers',          $contains($im, "'dry_run'") && $contains($im, "'commit'") && $contains($im, "in_array(\$action, ['dry_run','commit']"));
 $a('coa commit UPSERTS by code',                $contains($im, 'UPDATE accounting_accounts SET'));
-$a('je commit uses accountingPostJe',           $contains($im, 'accountingPostJe(') && $contains($im, "'idempotency_key' => 'csv:'"));
-$a('je idempotency keyed by SHA-256(batch_ref)',$contains($im, "hash('sha256'"));
+$a('je commit uses accountingPostJe atomically',
+    $contains($im, 'accountingPostJe(') && $contains($im, '$pdo->beginTransaction()')
+    && $contains($im, 'accountingImportAssertJeReplay('));
+$importHelper = (string) file_get_contents(__DIR__ . '/../modules/accounting/lib/ledger_import.php');
+$a('je idempotency keyed by SHA-256(batch_ref)',
+    $contains($importHelper, "hash('sha256'") && $contains($importHelper, "'csv:'"));
 $a('JE paste accepts an explicit default batch ref', $contains($im, 'default_batch_ref') && $contains($im, "['batch_ref' => \$defaultBatchRef]"));
 $a('JE preview and commit share assignment-dimension hydration',
     $contains($im, 'function accountingPrepareJeImport')
-    && substr_count($im, 'accountingPrepareJeImport($tid,') >= 2
+    && substr_count($im, 'accountingReviewJeImport($tid,') >= 2
     && $contains($im, 'staffingAssignmentDimensionContext('));
-$a('periods commit UPSERTS by (entity_id, start_date)', $contains($im, 'entity_id = :e AND start_date = :sd'));
+$a('period import creates or exactly replays; never changes status',
+    $contains($im, 'accountingImportPeriodError($tid, $row)')
+    && !$contains($im, 'UPDATE accounting_periods'));
 $a('emits accounting.ledger.imported audit',    $contains($im, "'accounting.ledger.imported'"));
 
 echo "\napi/standard_reports.php\n";
