@@ -57,7 +57,7 @@ A missing policy or actionable approver, a void invoice, or a previously ended w
 
 ## Next gates
 
-- Verify the approval-request route on isolated hosted staging, including a signed-in second human approver and an operator-friendly way to configure the policy. Do not provision a production service credential before this review.
+- Isolated hosted staging has accepted a machine-created synthetic draft, HTTP 202 approval request, and a separate signed-in human Billing decision using the new reviewer-settings API. Complete a two-human maker/checker walkthrough and hosted visual review before production use. Do not provision a production service credential yet.
 - Review sending, posting and payment/receipt machine contracts separately. Never create these effects through general journals.
 - Verify the clean-database installer on a disposable isolated database.
-- Complete second-user approval, non-synthetic multi-entity acceptance and historical financial audits before production credentials or operational reliance.
+- Complete two-human approval, non-synthetic multi-entity acceptance and historical financial audits before production credentials or operational reliance.
