@@ -158,6 +158,7 @@ export default function LegalEntities() {
       <form id="entity-settings-edit" onSubmit={save} />
       <nav className="entity-settings__links" aria-label="Related accounting setup">
         <Link to="/modules/accounting/accounts">Chart of accounts</Link>
+        <Link to="/modules/accounting/opening-balances">Opening balances</Link>
         <Link to="/modules/accounting/periods">Accounting periods</Link>
       </nav>
     </section>

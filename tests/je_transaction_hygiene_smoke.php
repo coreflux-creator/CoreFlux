@@ -32,7 +32,8 @@ echo "==============================\n\n";
 
 // ─── accountingPostJe nested-safe boundary ───
 echo "── lib/accounting.php (accountingPostJe) ──\n";
-$src = (string) file_get_contents('/app/modules/accounting/lib/accounting.php');
+$root = dirname(__DIR__);
+$src = (string) file_get_contents($root . '/modules/accounting/lib/accounting.php');
 check('accountingPostJe acquires nested-safe transaction ownership',
     preg_match('/function\s+accountingPostJe\b.*?\$ownsTransaction\s*=\s*cf_tx_begin\(\$pdo\)/s', $src) === 1);
 check('success commits only when the function owns the transaction',
@@ -44,7 +45,7 @@ check('accountingPostJe never clears an inherited transaction',
 
 // ─── recurring_journal_entries guards ───
 echo "\n── api/recurring_journal_entries.php ──\n";
-$recur = (string) file_get_contents('/app/modules/accounting/api/recurring_journal_entries.php');
+$recur = (string) file_get_contents($root . '/modules/accounting/api/recurring_journal_entries.php');
 $beginCalls = substr_count($recur, '$pdo->beginTransaction();');
 $guardCalls = substr_count($recur, 'rolling back stale active transaction before begin');
 check('every beginTransaction has a matching guard',
@@ -56,7 +57,7 @@ check('"replace_lines" handler has the replace-label guard',
 
 // ─── api_bootstrap helper + shutdown ───
 echo "\n── core/api_bootstrap.php ──\n";
-$bs = (string) file_get_contents('/app/core/api_bootstrap.php');
+$bs = (string) file_get_contents($root . '/core/api_bootstrap.php');
 check('cf_begin_transaction() helper still exists',
     str_contains($bs, 'function cf_begin_transaction'));
 check('helper rolls back stale txns before begin',
@@ -69,11 +70,11 @@ check('shutdown handler also rolls back stale txns',
 // ─── Static audit — no remaining unguarded callers in JE-adjacent code ───
 echo "\n── unguarded beginTransaction sweep (JE-adjacent) ──\n";
 $jeAdjacent = [
-    '/app/modules/accounting/lib/accounting.php',
-    '/app/modules/accounting/api/journal_entries.php',
-    '/app/modules/accounting/api/recurring_journal_entries.php',
-    '/app/modules/accounting/api/import.php',
-    '/app/modules/accounting/api/csv_export.php',
+    $root . '/modules/accounting/lib/accounting.php',
+    $root . '/modules/accounting/api/journal_entries.php',
+    $root . '/modules/accounting/api/recurring_journal_entries.php',
+    $root . '/modules/accounting/api/import.php',
+    $root . '/modules/accounting/api/csv_export.php',
 ];
 $unguarded = [];
 foreach ($jeAdjacent as $p) {

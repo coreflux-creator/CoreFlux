@@ -1801,6 +1801,88 @@ input[type="radio"] {
     }
 }
 
+.opening-balances {
+    max-width: 1680px;
+    margin: 0 auto;
+    min-width: 0;
+}
+
+.opening-balances__header,
+.opening-balances__commit,
+.opening-balances__success {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.opening-balances__header {
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 18px;
+}
+
+.opening-balances__header h2 { margin: 0; font-size: 20px; }
+.opening-balances__header p,
+.opening-balances__note { margin: 4px 0 0; color: var(--cf-text-secondary); font-size: 13px; }
+
+.opening-balances__inputs {
+    display: grid;
+    grid-template-columns: minmax(220px, 2fr) minmax(180px, 1.4fr) auto;
+    align-items: end;
+    gap: 12px;
+    padding: 16px 0;
+    border-top: 1px solid var(--cf-border);
+    border-bottom: 1px solid var(--cf-border);
+}
+
+.opening-balances__inputs label,
+.opening-balances__label {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.opening-balances__inputs select {
+    width: 100%;
+    min-width: 0;
+    min-height: 36px;
+    padding: 6px 8px;
+    border: 1px solid var(--cf-border);
+    border-radius: 4px;
+    background: var(--cf-surface);
+    color: var(--cf-text);
+    font: inherit;
+}
+
+.opening-balances__inputs .btn { max-width: 100%; }
+.opening-balances__note { margin: 10px 0 22px; }
+.opening-balances__review { border-top: 2px solid #1675d1; padding-top: 14px; }
+.opening-balances__summary { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-bottom: 16px; }
+.opening-balances__summary > div { display: grid; gap: 3px; border-left: 2px solid #22b7b0; padding-left: 10px; min-width: 120px; }
+.opening-balances__summary span { color: var(--cf-text-secondary); font-size: 11px; }
+.opening-balances__summary strong { font-size: 14px; }
+.opening-balances__errors { border-left: 3px solid #c92738; padding: 10px 14px; background: #fff3f3; margin-bottom: 16px; }
+.opening-balances__errors p { margin: 5px 0 0; font-size: 12px; }
+.opening-balances__table-wrap { max-width: 100%; overflow-x: auto; }
+.opening-balances__table { width: 100%; min-width: 570px; }
+.opening-balances__table th:not(:first-child),
+.opening-balances__table td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.opening-balances__table tfoot { border-top: 2px solid var(--cf-border); }
+.opening-balances__equity { background: #eff8f8; }
+.opening-balances__commit { justify-content: space-between; margin-top: 18px; }
+.opening-balances__commit label { display: flex; align-items: flex-start; gap: 8px; max-width: 560px; font-size: 13px; }
+.opening-balances__commit input { margin-top: 2px; accent-color: #1675d1; }
+.opening-balances__success { margin-top: 16px; color: #08765f; font-weight: 600; }
+.opening-balances__success a { color: #086bc2; }
+
+@media (max-width: 760px) {
+    .opening-balances__inputs { grid-template-columns: minmax(0, 1fr); }
+    .opening-balances__inputs .btn { justify-self: start; }
+}
+
 @media (max-width: 760px) {
     .bookkeeping-overview-grid {
         grid-template-columns: minmax(0, 1fr);

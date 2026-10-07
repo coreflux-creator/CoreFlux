@@ -18,6 +18,7 @@ import BankReconciliation from './BankReconciliation';
 import RecurringJournalEntries from './RecurringJournalEntries';
 import StandardReports from './StandardReports';
 import AccountingImport from './AccountingImport';
+import OpeningBalances from './OpeningBalances';
 import AccountsCsvImport from './AccountsCsvImport';
 import IntercompanyMappings from './IntercompanyMappings';
 import XTenantIntercompany from './XTenantIntercompany';
@@ -61,6 +62,7 @@ const MORE_NAV = [
     label: 'Workspace',
     items: [
       { to: 'import', label: 'Import journal entries', Icon: Upload },
+      { to: 'opening-balances', label: 'Opening balances', Icon: Wallet },
       { to: 'periods', label: 'Accounting periods', Icon: Calendar },
       { to: 'dimensions', label: 'Dimensions', Icon: Settings },
     ],
@@ -154,6 +156,7 @@ export default function AccountingModule({ session }) {
         <Route path="tax-mappings" element={<TaxMappings />} />
         <Route path="tax-export" element={<TaxExport />} />
         <Route path="import"   element={<AccountingImport session={session} />} />
+        <Route path="opening-balances" element={<OpeningBalances />} />
         <Route path="intercompany" element={<IntercompanyMappings session={session} />} />
         <Route path="xtenant-ic"   element={<XTenantIntercompany session={session} />} />
         <Route path="elimination"  element={<EliminationWorksheet session={session} />} />

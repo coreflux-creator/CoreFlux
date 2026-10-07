@@ -378,6 +378,16 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
     // back work owned by the caller merely because a transaction is active.
     $ownsTransaction = cf_tx_begin($pdo);
     try {
+        // Serialize posts with first-run cutover and entity setup. A preview
+        // above may be stale by the time this transaction reaches the ledger.
+        $entityLock = $pdo->prepare(
+            'SELECT id FROM accounting_entities
+              WHERE tenant_id = :t AND id = :e AND active = 1 FOR UPDATE'
+        );
+        $entityLock->execute(['t' => $tenantId, 'e' => $entityId]);
+        if (!$entityLock->fetchColumn()) {
+            throw new \RuntimeException('Choose an active legal entity in this workspace');
+        }
         $period = accountingResolvePeriod($tenantId, $entityId, $postingDate);
         if (!in_array($period['status'], ['open', 'reopened'], true)) {
             throw new \RuntimeException("Period {$period['period_number']} ({$period['start_date']}..{$period['end_date']}) is {$period['status']}; cannot post");
