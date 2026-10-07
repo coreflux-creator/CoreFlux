@@ -554,7 +554,9 @@ if ($method === 'POST' && $action === 'approve') {
         $workflow = billingInvoiceWorkflowAct($tid, $id, (int) ($user['id'] ?? 0), 'approve');
     } catch (\Throwable $e) {
         $msg = $e->getMessage();
-        $code = str_contains($msg, 'Separation of duties') || str_contains($msg, 'not an approver') ? 403 : 409;
+        $code = str_contains($msg, 'Separation of duties')
+            || str_contains($msg, 'not an approver')
+            || str_contains($msg, 'approval access is required') ? 403 : 409;
         api_error($msg, $code);
     }
     if (empty($workflow['applied'])) {

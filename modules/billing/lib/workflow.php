@@ -12,6 +12,7 @@ require_once __DIR__ . '/../../../core/audit.php';
 require_once __DIR__ . '/../../../core/domain_people_graph.php';
 require_once __DIR__ . '/../../../core/workflow_engine.php';
 require_once __DIR__ . '/billing.php';
+require_once __DIR__ . '/approval_settings.php';
 
 /** @internal */
 function billingWorkflowAudit(
@@ -327,6 +328,9 @@ function billingInvoiceWorkflowAct(
     ?string $note = null,
     string $via = 'app'
 ): array {
+    if (!billingInvoiceReviewerIsEligible($tenantId, $userId)) {
+        throw new \RuntimeException('Billing invoice approval access is required');
+    }
     $invoice = billingInvoiceWorkflowRow($tenantId, $invoiceId);
     if (!$invoice) throw new \RuntimeException("Invoice {$invoiceId} not found");
     if (!billingTransitionAllowed((string) ($invoice['status'] ?? ''), 'approved')) {

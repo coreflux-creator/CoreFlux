@@ -33,15 +33,40 @@ if ($method === 'POST' && $action === 'act') {
     api_require_fields($body, ['action']);
     $allowed = ['approve','reject','skip','delegate','comment','escalate'];
     if (!in_array($body['action'], $allowed, true)) api_error('invalid action', 422, ['allowed' => $allowed]);
-    $row = workflowAct(
-        $tenantId,
-        $instanceId,
-        (int) ($user['id'] ?? 0),
-        (string) $body['action'],
-        $body['comment'] ?? null,
-        (string) ($body['via'] ?? 'app'),
-        isset($body['delegated_to_user_id']) ? (int) $body['delegated_to_user_id'] : null
-    );
+    $instance = workflowGetInstance($tenantId, $instanceId);
+    if (!$instance) api_error('Instance not found', 404);
+    if (($instance['subject_type'] ?? '') === 'billing_invoice') {
+        if (!in_array($body['action'], ['approve', 'reject', 'comment'], true)) {
+            api_error('Billing invoice review requires an approve or reject decision', 422);
+        }
+        require_once __DIR__ . '/../core/RBAC.php';
+        require_once __DIR__ . '/../modules/billing/lib/approval_settings.php';
+        rbac_legacy_require($user, 'billing.invoice.approve');
+        if (!billingInvoiceReviewerIsEligible($tenantId, (int) ($user['id'] ?? 0))) {
+            api_error('Billing invoice approval access is required', 403);
+        }
+    }
+    try {
+        $row = workflowAct(
+            $tenantId,
+            $instanceId,
+            (int) ($user['id'] ?? 0),
+            (string) $body['action'],
+            $body['comment'] ?? null,
+            (string) ($body['via'] ?? 'app'),
+            isset($body['delegated_to_user_id']) ? (int) $body['delegated_to_user_id'] : null
+        );
+    } catch (\InvalidArgumentException $e) {
+        if (($instance['subject_type'] ?? '') !== 'billing_invoice') throw $e;
+        api_error($e->getMessage(), 422);
+    } catch (\RuntimeException $e) {
+        if (($instance['subject_type'] ?? '') !== 'billing_invoice') throw $e;
+        $message = $e->getMessage();
+        $denied = str_contains($message, 'Separation of duties')
+            || str_contains($message, 'not an approver')
+            || str_contains($message, 'no current approvers');
+        api_error($message, $denied ? 403 : 409);
+    }
     api_ok(['instance' => $row]);
 }
 

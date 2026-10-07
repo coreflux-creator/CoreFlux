@@ -36,7 +36,7 @@ function billingSyncInvoiceFromWorkflow(
             return;
         }
 
-        if (!in_array($action, ['approve', 'skip'], true) || $instanceStatus !== WORKFLOW_STATUS_APPROVED) {
+        if ($action !== 'approve' || $instanceStatus !== WORKFLOW_STATUS_APPROVED) {
             return;
         }
         if ((string) ($invoice['status'] ?? '') === 'approved') return;

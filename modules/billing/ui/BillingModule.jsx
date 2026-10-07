@@ -15,6 +15,7 @@ import MoneyMovementPreview from './MoneyMovementPreview';
 import MoneyMovementArchive from './MoneyMovementArchive';
 import ItemsCatalog from './ItemsCatalog';
 import ItemsCsvImport from './ItemsCsvImport';
+import BillingApprovalSettings from './BillingApprovalSettings';
 
 const navItems = [
   { to: '/modules/billing/invoices',  label: 'Invoices' },
@@ -26,16 +27,20 @@ const navItems = [
   { to: '/modules/billing/clients',   label: 'Client contacts' },
   { to: '/modules/billing/money-movement',         label: 'Money movement' },
   { to: '/modules/billing/money-movement/archive', label: 'Archive' },
+  { to: '/modules/billing/approvals', label: 'Approval settings', adminOnly: true },
 ];
 
 export default function BillingModule({ session }) {
+  const user = session?.user || {};
+  const canManageApprovals = ['admin', 'tenant_admin', 'master_admin'].includes(user.role)
+    || user.global_role === 'master_admin';
   return (
     <div className="people-directory" data-testid="billing-module">
       <header className="module-workspace-header">
         <span className="workspace-eyebrow">Money in</span>
         <h1>Billing</h1>
         <p>Invoice clients, collect cash, and manage receivables.</p>
-        <ModuleTabs items={navItems.map(n => ({ ...n, testId: `billing-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Billing sections" testId="billing-section-nav" />
+        <ModuleTabs items={navItems.filter(n => !n.adminOnly || canManageApprovals).map(n => ({ ...n, testId: `billing-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Billing sections" testId="billing-section-nav" />
       </header>
 
       <Routes>
@@ -55,6 +60,7 @@ export default function BillingModule({ session }) {
         <Route path="clients" element={<ClientContacts />} />
         <Route path="money-movement" element={<MoneyMovementPreview />} />
         <Route path="money-movement/archive" element={<MoneyMovementArchive />} />
+        <Route path="approvals" element={<BillingApprovalSettings />} />
       </Routes>
     </div>
   );

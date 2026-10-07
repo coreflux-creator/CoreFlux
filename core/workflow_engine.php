@@ -230,6 +230,10 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     if ($instance['status'] !== WORKFLOW_STATUS_PENDING) {
         throw new \RuntimeException("Instance already {$instance['status']}");
     }
+    if ($instance['subject_type'] === 'billing_invoice'
+        && !in_array($action, ['approve', 'reject', 'comment'], true)) {
+        throw new \InvalidArgumentException('Billing invoice review requires an approve or reject decision');
+    }
 
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $defStmt = $pdo->prepare("SELECT * FROM workflow_definitions WHERE id = :id");

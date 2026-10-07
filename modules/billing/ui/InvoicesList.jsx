@@ -12,6 +12,7 @@ import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
 import {
   BookOpenCheck, CheckCheck, ChevronDown, ChevronLeft, ChevronRight,
   Clock3, Download, Plus, Send, Upload,
+  Settings2,
 } from 'lucide-react';
 
 const STATUS_FILTERS = ['all','draft','approved','sent','partially_paid','paid','void'];
@@ -48,6 +49,8 @@ export default function InvoicesList({ session }) {
   const user = session?.user || {};
   const canCollectViaQbo = ['master_admin', 'tenant_admin'].includes(user.global_role)
     || ['master_admin', 'tenant_admin'].includes(user.role);
+  const canManageApprovals = ['admin', 'tenant_admin', 'master_admin'].includes(user.role)
+    || user.global_role === 'master_admin';
   const qboStatus = useApiCached('/api/qbo/status.php?action=status', {
     enabled: canCollectViaQbo,
     cacheKey: 'qbo-status:invoice-collections',
@@ -245,6 +248,10 @@ export default function InvoicesList({ session }) {
           </details>
           <Link to="csv_import" className="btn btn--ghost" data-testid="billing-invoices-import-csv"><Upload size={15} /> Import</Link>
           <a className="btn btn--ghost" href={`/modules/billing/api/csv_export.php${status !== 'all' ? `?status=${status}` : ''}`} data-testid="billing-invoices-export-csv"><Download size={15} /> Export</a>
+          {canManageApprovals && (
+            <Link to="/modules/billing/approvals" className="btn btn--ghost" title="Invoice approval settings"
+              aria-label="Invoice approval settings" data-testid="billing-invoices-approval-settings"><Settings2 size={16} /></Link>
+          )}
         </div>
       </div>
 

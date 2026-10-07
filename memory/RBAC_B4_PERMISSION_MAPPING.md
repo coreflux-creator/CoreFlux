@@ -127,6 +127,7 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 | Legacy permission | New tuple |
 |---|---|
 | `billing.invoice.approve` | `(billing, admin)` |
+| `billing.approvals.manage` | `(billing, admin)` |
 | `billing.invoice.create` | `(billing, write)` |
 | `billing.invoice.draft` | `(billing, write)` |
 | `billing.invoice.send` | `(billing, admin)` |

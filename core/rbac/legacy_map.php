@@ -106,6 +106,7 @@ final class RbacLegacyMap
 
             // ── billing ───────────────────────────────────────────────────
             'billing.invoice.approve'            => ['billing', 'admin'],
+            'billing.approvals.manage'            => ['billing', 'admin'],
             'billing.invoice.create'             => ['billing', 'write'],
             'billing.invoice.draft'              => ['billing', 'write'],
             'billing.invoice.post'               => ['billing', 'admin'],

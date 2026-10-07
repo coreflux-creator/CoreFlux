@@ -84,13 +84,13 @@ try {
     }
 
     $pdo->prepare('INSERT INTO users (name, email, role, is_active)
-        VALUES (:name, :email, "admin", 1)')->execute([
+        VALUES (:name, :email, "tenant_admin", 1)')->execute([
         'name' => 'Rollback-only Invoice Approver',
         'email' => 'approval-' . bin2hex(random_bytes(8)) . '@coreflux.test',
     ]);
     $approverId = (int) $pdo->lastInsertId();
     $pdo->prepare('INSERT INTO user_tenants (user_id, tenant_id, role, status)
-        VALUES (:user_id, :tenant_id, "admin", "active")')->execute([
+        VALUES (:user_id, :tenant_id, "tenant_admin", "active")')->execute([
         'user_id' => $approverId, 'tenant_id' => $tenantId,
     ]);
     $policy = peopleGraphCreateApprovalPolicy($tenantId, [
@@ -132,6 +132,15 @@ try {
             OutOfBoundsException::class)
         && coreoneV1GetInvoiceDraft($otherCredential, $sourceId) === null;
 
+    $checks['invoice_workflow_skip_is_not_approval'] = $rejects(
+        static fn() => workflowAct($tenantId, $pendingId, $approverId, 'skip'),
+        InvalidArgumentException::class
+    ) && billingInvoiceWorkflowRow($tenantId, $invoiceId)['status'] === 'draft';
+    $checks['nonmember_cannot_act_as_invoice_reviewer'] = $rejects(
+        static fn() => billingInvoiceWorkflowAct($tenantId, $invoiceId, PHP_INT_MAX, 'approve'),
+        RuntimeException::class
+    ) && billingInvoiceWorkflowRow($tenantId, $invoiceId)['status'] === 'draft';
+
     $acted = billingInvoiceWorkflowAct($tenantId, $invoiceId, $approverId, 'approve');
     $approved = coreoneV1GetInvoiceDraft($requestCredential, $sourceId);
     $checks['human_action_approves_same_billing_invoice'] = !empty($acted['approved'])
@@ -167,7 +176,7 @@ try {
         static fn() => coreoneV1RequestInvoiceApproval($requestCredential, $reviewRequest),
         CoreOneDocumentConflictException::class
     ) && coreoneV1GetInvoiceDraft($requestCredential, $reviewSource)['workflow_instance_id'] === null;
-    $pdo->prepare('UPDATE user_tenants SET role = "admin" WHERE tenant_id = :tenant_id AND user_id = :user_id')
+    $pdo->prepare('UPDATE user_tenants SET role = "tenant_admin" WHERE tenant_id = :tenant_id AND user_id = :user_id')
         ->execute(['tenant_id' => $tenantId, 'user_id' => $approverId]);
     coreoneV1RequestInvoiceApproval($requestCredential, $reviewRequest);
     $rejected = billingInvoiceWorkflowAct($tenantId, (int) $review['id'], $approverId,

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../memberships.php';
 require_once __DIR__ . '/../RBAC.php';
 require_once __DIR__ . '/../../modules/billing/lib/invoice_drafts.php';
 require_once __DIR__ . '/../../modules/billing/lib/workflow.php';
+require_once __DIR__ . '/../../modules/billing/lib/approval_settings.php';
 
 function coreoneV1NormalizeInvoiceDraft(array $credential, array $body): array
 {
@@ -206,26 +207,8 @@ function coreoneV1InvoiceHasActiveApprover(int $tenantId, array $requirements): 
     $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
     if (!$userIds) return false;
 
-    $params = ['tenant_id' => $tenantId];
-    $slots = [];
-    foreach ($userIds as $index => $userId) {
-        $slot = 'user_' . $index;
-        $slots[] = ':' . $slot;
-        $params[$slot] = $userId;
-    }
-    $stmt = getDB()->prepare(
-        'SELECT m.persona_type, u.role AS global_role FROM ' . membershipReadSourceSql() . ' m
-          JOIN users u ON u.id = m.user_id AND u.is_active = 1
-         WHERE m.tenant_id = :tenant_id AND m.user_id IN (' . implode(',', $slots) . ')'
-    );
-    $stmt->execute($params);
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $member) {
-        if (RBAC::hasPermission([
-            'tenant_role' => (string) $member['persona_type'],
-            'global_role' => (string) $member['global_role'],
-        ], 'billing.invoice.approve')) return true;
-    }
-    return false;
+    $eligibleIds = array_column(billingInvoiceEligibleReviewers($tenantId), 'id');
+    return array_intersect($userIds, $eligibleIds) !== [];
 }
 
 function coreoneV1RequestInvoiceApproval(array $credential, array $body): array
