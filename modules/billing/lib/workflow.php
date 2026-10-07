@@ -302,9 +302,10 @@ function billingInvoiceWorkflowPendingInstanceId(int $tenantId, int $invoiceId, 
     if ($instanceId > 0) {
         $check = $pdo->prepare(
             "SELECT id FROM workflow_instances
-              WHERE tenant_id = :t AND id = :id AND subject_type = 'billing_invoice' AND status = 'pending'"
+              WHERE tenant_id = :t AND id = :id AND subject_type = 'billing_invoice'
+                AND subject_id = :s AND status = 'pending'"
         );
-        $check->execute(['t' => $tenantId, 'id' => $instanceId]);
+        $check->execute(['t' => $tenantId, 'id' => $instanceId, 's' => $invoiceId]);
         $instanceId = (int) ($check->fetchColumn() ?: 0);
     }
     if ($instanceId > 0) return $instanceId;

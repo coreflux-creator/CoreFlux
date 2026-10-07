@@ -3,7 +3,10 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/coreone_documents_v1.php';
+require_once __DIR__ . '/../memberships.php';
+require_once __DIR__ . '/../RBAC.php';
 require_once __DIR__ . '/../../modules/billing/lib/invoice_drafts.php';
+require_once __DIR__ . '/../../modules/billing/lib/workflow.php';
 
 function coreoneV1NormalizeInvoiceDraft(array $credential, array $body): array
 {
@@ -123,10 +126,18 @@ function coreoneV1GetInvoiceDraft(array $credential, string $sourceId): ?array
     $stmt = getDB()->prepare(
         'SELECT d.source_record_id, i.id, i.invoice_number, i.client_name, i.client_company_id, i.entity_id,
                 i.currency, i.issue_date, i.due_date, i.status, i.subtotal, i.tax_total,
-                i.total, i.amount_paid, i.amount_due, i.journal_entry_id
+                i.total, i.amount_paid, i.amount_due, i.journal_entry_id,
+                wi.id AS workflow_instance_id, wi.status AS workflow_status
            FROM coreone_document_requests d
            JOIN billing_invoices i ON i.tenant_id = d.tenant_id
             AND i.entity_id = d.entity_id AND i.id = d.target_id
+           LEFT JOIN workflow_instances wi ON wi.tenant_id = i.tenant_id
+            AND wi.id = (
+                SELECT MAX(wi_latest.id) FROM workflow_instances wi_latest
+                 WHERE wi_latest.tenant_id = i.tenant_id
+                   AND wi_latest.subject_type = "billing_invoice"
+                   AND wi_latest.subject_id = i.id
+            )
           WHERE d.tenant_id = :t AND d.entity_id = :e
             AND d.source_type = "billing.invoice" AND d.source_record_id = :source_id
           LIMIT 1'
@@ -139,6 +150,7 @@ function coreoneV1GetInvoiceDraft(array $credential, string $sourceId): ?array
     $row['entity_id'] = (int) $row['entity_id'];
     $row['client_company_id'] = $row['client_company_id'] === null ? null : (int) $row['client_company_id'];
     $row['journal_entry_id'] = $row['journal_entry_id'] === null ? null : (int) $row['journal_entry_id'];
+    $row['workflow_instance_id'] = $row['workflow_instance_id'] === null ? null : (int) $row['workflow_instance_id'];
     $lines = getDB()->prepare(
         'SELECT line_no, catalog_item_id, description, quantity, unit, unit_price,
                 subtotal, tax_rate_pct, tax_amount, total
@@ -166,4 +178,140 @@ function coreoneV1CreateInvoiceDraft(array $credential, array $body): array
         },
         static fn(string $id): ?array => coreoneV1GetInvoiceDraft($credential, $id));
     return ['invoice' => $result['record'], 'idempotent_replay' => $result['idempotent_replay']];
+}
+
+function coreoneV1NormalizeInvoiceApprovalRequest(array $body): string
+{
+    if (array_diff(array_keys($body), ['schema_version', 'source_record_id'])
+        || ($body['schema_version'] ?? null) !== 1) {
+        throw new InvalidArgumentException('Approval request needs schema_version 1 and source_record_id only.');
+    }
+    $sourceId = $body['source_record_id'] ?? null;
+    if (!is_string($sourceId)
+        || !preg_match('#^[A-Za-z0-9][A-Za-z0-9:_./-]{0,119}$#D', $sourceId)) {
+        throw new InvalidArgumentException('source_record_id must be a stable ID of at most 120 characters.');
+    }
+    return $sourceId;
+}
+
+/** A configured policy must resolve to at least one active human in this workspace. */
+function coreoneV1InvoiceHasActiveApprover(int $tenantId, array $requirements): bool
+{
+    $userIds = [];
+    foreach ($requirements as $requirement) {
+        foreach (($requirement['approvers'] ?? []) as $actor) {
+            $userIds = array_merge($userIds, _workflowPeopleGraphActorToUserIds($tenantId, $actor));
+        }
+    }
+    $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+    if (!$userIds) return false;
+
+    $params = ['tenant_id' => $tenantId];
+    $slots = [];
+    foreach ($userIds as $index => $userId) {
+        $slot = 'user_' . $index;
+        $slots[] = ':' . $slot;
+        $params[$slot] = $userId;
+    }
+    $stmt = getDB()->prepare(
+        'SELECT m.persona_type, u.role AS global_role FROM ' . membershipReadSourceSql() . ' m
+          JOIN users u ON u.id = m.user_id AND u.is_active = 1
+         WHERE m.tenant_id = :tenant_id AND m.user_id IN (' . implode(',', $slots) . ')'
+    );
+    $stmt->execute($params);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $member) {
+        if (RBAC::hasPermission([
+            'tenant_role' => (string) $member['persona_type'],
+            'global_role' => (string) $member['global_role'],
+        ], 'billing.invoice.approve')) return true;
+    }
+    return false;
+}
+
+function coreoneV1RequestInvoiceApproval(array $credential, array $body): array
+{
+    $sourceId = coreoneV1NormalizeInvoiceApprovalRequest($body);
+    $tenantId = (int) $credential['tenant_id'];
+    $entityId = (int) $credential['entity_id'];
+    $pdo = getDB();
+    $owns = !$pdo->inTransaction();
+    $savepoint = $owns ? null : 'coreone_approval_' . bin2hex(random_bytes(4));
+    if ($owns) $pdo->beginTransaction();
+    else $pdo->exec('SAVEPOINT ' . $savepoint);
+    try {
+        $mapping = $pdo->prepare(
+            'SELECT target_id FROM coreone_document_requests
+              WHERE tenant_id = :tenant_id AND entity_id = :entity_id
+                AND source_type = "billing.invoice" AND source_record_id = :source_id
+              FOR UPDATE'
+        );
+        $mapping->execute(['tenant_id' => $tenantId, 'entity_id' => $entityId,
+            'source_id' => $sourceId]);
+        $invoiceId = (int) ($mapping->fetchColumn() ?: 0);
+        if ($invoiceId <= 0) throw new OutOfBoundsException('Invoice not found for this entity.');
+
+        $row = $pdo->prepare(
+            'SELECT * FROM billing_invoices
+              WHERE tenant_id = :tenant_id AND entity_id = :entity_id AND id = :id
+              FOR UPDATE'
+        );
+        $row->execute(['tenant_id' => $tenantId, 'entity_id' => $entityId, 'id' => $invoiceId]);
+        $invoice = $row->fetch(PDO::FETCH_ASSOC);
+        if (!$invoice) throw new OutOfBoundsException('Invoice not found for this entity.');
+
+        $pendingId = billingInvoiceWorkflowPendingInstanceId($tenantId, $invoiceId);
+        $status = (string) $invoice['status'];
+        if ($status === 'void') {
+            throw new CoreOneDocumentConflictException('A void invoice cannot request approval.');
+        }
+        $replay = true;
+        if ($status === 'draft' && $pendingId <= 0) {
+            $priorWorkflow = $pdo->prepare(
+                'SELECT status FROM workflow_instances
+                  WHERE tenant_id = :tenant_id AND subject_type = "billing_invoice"
+                    AND subject_id = :invoice_id ORDER BY id DESC LIMIT 1'
+            );
+            $priorWorkflow->execute(['tenant_id' => $tenantId, 'invoice_id' => $invoiceId]);
+            if ($priorWorkflow->fetchColumn() !== false) {
+                throw new CoreOneDocumentConflictException(
+                    'A previous approval workflow ended; review the invoice in Billing before requesting approval again.'
+                );
+            }
+            $routing = billingInvoiceApprovalRouting($tenantId, $invoice);
+            if (empty($routing['infrastructure_available']) || empty($routing['workflow_required'])) {
+                throw new CoreOneDocumentConflictException(
+                    'Configure a Billing invoice approval policy before requesting machine approval.'
+                );
+            }
+            if (!coreoneV1InvoiceHasActiveApprover($tenantId, (array) $routing['requirements'])) {
+                throw new CoreOneDocumentConflictException(
+                    'The Billing invoice approval policy has no active human approver in this workspace.'
+                );
+            }
+            $pendingId = (int) (billingInvoiceWorkflowStart($tenantId, $invoiceId, null) ?? 0);
+            if ($pendingId <= 0) throw new RuntimeException('Billing invoice approval workflow could not start.');
+            billingWorkflowAudit($tenantId, null, 'billing.invoice.approval_requested', [
+                'invoice_id' => $invoiceId,
+                'workflow_instance_id' => $pendingId,
+                'credential_id' => (int) $credential['id'],
+                'source_record_id' => $sourceId,
+                'source' => 'coreone',
+            ], $invoiceId);
+            $replay = false;
+        }
+
+        $current = coreoneV1GetInvoiceDraft($credential, $sourceId);
+        if (!$current) throw new RuntimeException('Invoice disappeared during approval request.');
+        if ($owns) $pdo->commit();
+        else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        return ['invoice' => $current, 'approval_requested' => !$replay,
+            'idempotent_replay' => $replay];
+    } catch (Throwable $e) {
+        if ($owns && $pdo->inTransaction()) $pdo->rollBack();
+        elseif (!$owns && $pdo->inTransaction()) {
+            $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+            $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        }
+        throw $e;
+    }
 }

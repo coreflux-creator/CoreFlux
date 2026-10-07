@@ -38,6 +38,7 @@ if (api_method() === 'POST') {
         if (in_array('journals:write', $scopes, true)) rbac_legacy_require($user, 'accounting.je.post');
         if (in_array('reports:read', $scopes, true)) rbac_legacy_require($user, 'accounting.reports.view');
         if (in_array('invoices:draft', $scopes, true)) rbac_legacy_require($user, 'billing.invoice.draft');
+        if (in_array('invoices:request_approval', $scopes, true)) rbac_legacy_require($user, 'billing.invoice.draft');
         if (in_array('bills:prepare', $scopes, true)) rbac_legacy_require($user, 'ap.bill.create');
         $result = coreoneV1IssueCredential($tenantId, (int) ($body['entity_id'] ?? 0),
             (string) ($body['label'] ?? ''), (int) ($body['days'] ?? 30),

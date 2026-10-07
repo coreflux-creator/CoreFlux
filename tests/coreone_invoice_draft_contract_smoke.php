@@ -32,6 +32,7 @@ $check('canonical quantity and price preserve four-place precision',
     && $normalized['lines'][0]['unit_price'] === '12.5000');
 $check('old service credentials do not gain invoice drafting by default',
     !in_array('invoices:draft', COREONE_V1_DEFAULT_SCOPES, true)
+    && !in_array('invoices:request_approval', COREONE_V1_DEFAULT_SCOPES, true)
     && coreoneV1HasScope(['scopes' => COREONE_V1_DEFAULT_SCOPES], 'journals:write')
     && !coreoneV1HasScope(['scopes' => COREONE_V1_DEFAULT_SCOPES], 'invoices:draft'));
 $check('machine route requires bearer and explicit invoice scope',
@@ -64,8 +65,21 @@ $check('fractional-cent parser is bounded to four places',
 $check('route cannot approve, send or post invoices',
     !str_contains($route, 'billing.invoice.sent')
     && !str_contains($route, 'accountingPostJe(')
-    && str_contains($route, "if (\$_GET) api_error('Unsupported query field', 422)")
+    && str_contains($route, "if (\$action !== '') api_error('Unsupported invoice action', 422)")
     && !str_contains($route, 'action=approve'));
+$check('request approval has a separate scope and uses canonical Billing workflow',
+    in_array('invoices:request_approval', COREONE_V1_ALLOWED_SCOPES, true)
+    && str_contains($route, "coreoneV1HasScope(\$credential, 'invoices:request_approval')")
+    && str_contains($service, 'billingInvoiceApprovalRouting(')
+    && str_contains($service, 'billingInvoiceWorkflowStart(')
+    && !str_contains($service, 'billingInvoiceWorkflowAct('));
+$check('approval request accepts only its source key and schema',
+    coreoneV1NormalizeInvoiceApprovalRequest(['schema_version' => 1,
+        'source_record_id' => 'test:invoice:1']) === 'test:invoice:1'
+    && $rejects(static fn() => coreoneV1NormalizeInvoiceApprovalRequest([
+        'schema_version' => 1, 'source_record_id' => 'test:invoice:1', 'approve' => true]))
+    && $rejects(static fn() => coreoneV1NormalizeInvoiceApprovalRequest([
+        'schema_version' => 1, 'source_record_id' => 'bad id'])));
 
 $failed = count(array_filter($checks, static fn(bool $ok): bool => !$ok));
 echo $failed ? "Failed: {$failed}\n" : 'Passed: ' . count($checks) . "\n";
