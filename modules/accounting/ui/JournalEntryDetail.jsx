@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
 import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
@@ -16,14 +16,23 @@ import {
 export default function JournalEntryDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error, reload } = useApi(`/modules/accounting/api/journal_entries.php?id=${id}`);
-  const scopedPath = path => addEntityScope(path, data?.entry?.entity_id);
+  const entryEntityId = String(data?.entry?.id) === String(id) ? data.entry.entity_id : null;
+  const scopedPath = path => addEntityScope(path, entryEntityId);
   const [busy, setBusy] = useState(false);
   const [actionErr, setErr] = useState(null);
   const [reverseOpen, setReverseOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [deleteReason, setDeleteReason] = useState('');
+
+  useEffect(() => {
+    if (!entryEntityId || searchParams.get('entity_id') === String(entryEntityId)) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('entity_id', String(entryEntityId));
+    setSearchParams(next, { replace: true });
+  }, [entryEntityId, searchParams, setSearchParams]);
 
   const reverse = async () => {
     if (!reason.trim()) return;

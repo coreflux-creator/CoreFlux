@@ -37,12 +37,17 @@ $check('Accounting navigation and entry actions retain legal entity scope',
     && str_contains($journalList, "if (scope.entityId) qs.set('entity_id'")
     && str_contains($journalCreate, "searchParams.get('entity_id')")
     && str_contains($journalCreate, 'navigate(scopedPath(')
-    && str_contains($journalDetail, 'data?.entry?.entity_id')
+    && str_contains($journalDetail, 'const entryEntityId =')
     && str_contains($journalDetail, "navigate(scopedPath('/modules/accounting/journal-entries')"));
 $check('Changing accounting entity resets prior page without losing journal filters',
     str_contains($entityScope, "next.delete('page')")
     && str_contains($journalList, 'setSearchParams(next)')
     && str_contains($journalList, "next.set('entity_id', String(scope.entityId))"));
+$check('Direct journal links resolve their source legal entity before navigation',
+    str_contains($journalDetail, "String(data?.entry?.id) === String(id)")
+    && str_contains($journalDetail, "next.set('entity_id', String(entryEntityId))")
+    && str_contains($journalCreate, "next.set('entity_id', String(sourceEntry.entity_id))")
+    && str_contains($journalCreate, 'scopedSourceId.current === String(sourceId)'));
 $check('AP aging and its report link retain validated legal-entity scope',
     str_contains($apAging, 'booksHealthResolveEntity')
     && str_contains($apAging, 'apComputeAging($tid, $asOf, $entityId)')

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
@@ -38,6 +38,7 @@ export default function JournalEntryCreate() {
   const requestedEntityId = searchParams.get('entity_id');
   const copyFrom = searchParams.get('copy_from');
   const replaceId = searchParams.get('replace_id');
+  const sourceId = id || replaceId || copyFrom;
   const isEdit = Boolean(id);
   const isCorrection = Boolean(replaceId);
   const [accounts, setAccounts] = useState([]);
@@ -55,6 +56,7 @@ export default function JournalEntryCreate() {
   const [icSeed, setIcSeed] = useState(null);
   const [expandedLine, setExpandedLine] = useState(null);
   const [assignmentStatus, setAssignmentStatus] = useState({});
+  const scopedSourceId = useRef(null);
   const scopedPath = path => addEntityScope(path,
     entityId || (requestedEntityId && /^[1-9][0-9]*$/.test(requestedEntityId) ? requestedEntityId : null),
     !entityId && requestedEntityId === 'all');
@@ -89,7 +91,16 @@ export default function JournalEntryCreate() {
   };
 
   useEffect(() => {
-    const sourceId = id || replaceId || copyFrom;
+    if (!sourceEntry?.entity_id || String(sourceEntry.id) !== String(sourceId)
+      || scopedSourceId.current === String(sourceId)) return;
+    scopedSourceId.current = String(sourceId);
+    if (searchParams.get('entity_id') === String(sourceEntry.entity_id)) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('entity_id', String(sourceEntry.entity_id));
+    setSearchParams(next, { replace: true });
+  }, [sourceId, sourceEntry, searchParams, setSearchParams]);
+
+  useEffect(() => {
     if (!sourceId) return;
     let cancelled = false;
     setLoadingExisting(true);
@@ -137,7 +148,7 @@ export default function JournalEntryCreate() {
       .catch((e) => { if (!cancelled) setError(e.message || String(e)); })
       .finally(() => { if (!cancelled) setLoadingExisting(false); });
     return () => { cancelled = true; };
-  }, [id, copyFrom, replaceId, isEdit, isCorrection]);
+  }, [sourceId, isEdit, isCorrection]);
 
   const updateLine = (i, field, val) => {
     const next = [...lines];
