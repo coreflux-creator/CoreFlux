@@ -36,7 +36,10 @@ export default function JournalEntryDetail() {
   const postDraft = async () => {
     setBusy(true); setErr(null);
     try {
-      await api.post(`/modules/accounting/api/journal_entries.php?action=post_draft&id=${id}`, {});
+      const endpoint = data?.entry?.source_module === 'recurring_je'
+        ? '/modules/accounting/api/recurring_journal_entries.php'
+        : '/modules/accounting/api/journal_entries.php';
+      await api.post(`${endpoint}?action=post_draft&id=${id}`, {});
       setDeleteOpen(false);
       await reload();
     } catch (e) { setErr(e.message || String(e)); }
@@ -63,6 +66,7 @@ export default function JournalEntryDetail() {
   const isPosted = entry.status === 'posted';
   const isReversed = entry.status === 'reversed';
   const isManual = entry.source_module === 'manual';
+  const isRecurring = entry.source_module === 'recurring_je';
   const approvalControlled = entry.source_module === 'system'
     || ['ai_workflow', 'workflow_run'].includes(entry.source_ref_type);
   const canManageDraft = isDraft && isManual;
@@ -94,6 +98,11 @@ export default function JournalEntryDetail() {
               </button>
             </>
           )}
+          {isDraft && isRecurring && (
+            <button type="button" className="btn btn--primary" onClick={postDraft} disabled={busy} data-testid="accounting-je-post-recurring-draft">
+              <FileCheck2 size={15} aria-hidden="true" />{busy ? 'Posting…' : 'Post draft'}
+            </button>
+          )}
           {canCorrect && (
             <>
               <Link className="btn btn--primary" to={`/modules/accounting/journal-entries/new?replace_id=${id}`} data-testid="accounting-je-correct">
@@ -112,7 +121,7 @@ export default function JournalEntryDetail() {
         </div>
       </header>
 
-      <EntryStatusNote status={entry.status} approvalControlled={approvalControlled} managedBySource={!isManual} />
+      <EntryStatusNote status={entry.status} approvalControlled={approvalControlled} managedBySource={!isManual} recurring={isRecurring} />
 
       {isDraft && approvalControlled && (
         <div className="entry-related" data-testid="accounting-je-approval-workflow-note">
@@ -233,11 +242,25 @@ export default function JournalEntryDetail() {
   );
 }
 
-function EntryStatusNote({ status, approvalControlled = false, managedBySource = false }) {
+function EntryStatusNote({ status, approvalControlled = false, managedBySource = false, recurring = false }) {
   if (status === 'draft' && approvalControlled) {
     return (
       <div className="entry-status-note entry-status-note--draft" data-testid="accounting-je-status-note">
         <strong>Awaiting approval</strong><span>This system-generated draft stays off the ledger until it completes its review workflow.</span>
+      </div>
+    );
+  }
+  if (recurring && status === 'draft') {
+    return (
+      <div className="entry-status-note entry-status-note--draft" data-testid="accounting-je-status-note">
+        <strong>Ready for review</strong><span>This recurring entry does not affect balances or reports until posted.</span>
+      </div>
+    );
+  }
+  if (recurring && status === 'posted') {
+    return (
+      <div className="entry-status-note entry-status-note--posted" data-testid="accounting-je-status-note">
+        <strong>Posted</strong><span>Template changes affect future runs only; this posting remains in the audit trail.</span>
       </div>
     );
   }
@@ -277,6 +300,7 @@ function renderSource(entry) {
   const source = entry.source_module;
   const sourceId = entry.source_ref_id;
   const links = {
+    recurring_je: sourceId ? `/modules/accounting/recurring/${sourceId}` : null,
     ap_bills: sourceId ? `/modules/ap/bills/${sourceId}` : null,
     ap_payments: sourceId ? `/modules/ap/payments/${sourceId}` : null,
     billing_invoice: sourceId ? `/modules/billing/invoices/${sourceId}` : null,

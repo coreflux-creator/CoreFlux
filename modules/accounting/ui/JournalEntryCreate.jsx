@@ -404,7 +404,9 @@ export default function JournalEntryCreate() {
                 >
                   <option value="">— select —</option>
                   {accounts.map((a) => (
-                    <option key={a.id} value={a.code}>{a.code} — {a.name}</option>
+                    <option key={a.id} value={a.code} disabled={!a.general_journal_eligible}>
+                      {a.code} — {a.name}{!a.general_journal_eligible ? ' (managed by source or unavailable)' : ''}
+                    </option>
                   ))}
                 </select>
               </td>

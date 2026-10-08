@@ -49,14 +49,9 @@ function List() {
           <Link className="btn btn--primary" to="new" data-testid="accounting-recurring-new">+ New template</Link>
         </div>
       </header>
-      <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
-        Templates with <code>next_run_date ≤ today</code> are posted automatically by the daily cron.
-        <code>auto_post=1</code> goes straight to posted; <code>auto_post=0</code> stages a draft for review.
-        Idempotent on (template, run_date) — re-running the cron in the same day is safe.
-      </p>
       {runRes && (
         <div data-testid="accounting-recurring-run-result" style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>
-          Cron ran: <strong>{runRes.ran}</strong> posted, <strong>{runRes.skipped}</strong> skipped (past end-date), <strong>{runRes.errors}</strong> error(s).
+          <strong>{runRes.ran}</strong> processed, <strong>{runRes.skipped}</strong> skipped, <strong>{runRes.errors}</strong> errors.
         </div>
       )}
       {err && <p className="error" data-testid="accounting-recurring-error">{err}</p>}
@@ -83,7 +78,11 @@ function List() {
               <td>
                 <span data-testid={`accounting-recurring-status-${r.status}`} style={{ background: pillBg(r.status), color: pillFg(r.status), padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>{r.status}</span>
               </td>
-              <td>{r.last_run_at ? <Link to={`/modules/accounting/journal-entries/${r.last_run_je_id}`}>{r.last_run_at}</Link> : '—'}</td>
+              <td>{r.last_run_je_id ? (
+                <Link to={`/modules/accounting/journal-entries/${r.last_run_je_id}`} data-testid={`accounting-recurring-last-run-${r.id}`}>
+                  {r.last_run_je_status === 'draft' ? 'Review draft' : `${r.last_run_at || 'Last run'}${r.last_run_je_status ? ` · ${r.last_run_je_status}` : ''}`}
+                </Link>
+              ) : '—'}</td>
               <td>
                 <div style={{ display: 'flex', gap: 4 }}>
                   {r.status === 'active' && (
@@ -353,7 +352,11 @@ function Editor({ edit }) {
               <td>
                 <select className="input" value={l.account_code} onChange={(e) => upd(i, 'account_code', e.target.value)} data-testid={`accounting-recurring-line-account-${i}`}>
                   <option value="">— select —</option>
-                  {accounts.map(a => <option key={a.id} value={a.code}>{a.code} — {a.name}</option>)}
+                  {accounts.map(a => (
+                    <option key={a.id} value={a.code} disabled={!a.general_journal_eligible}>
+                      {a.code} — {a.name}{!a.general_journal_eligible ? ' (managed by source or unavailable)' : ''}
+                    </option>
+                  ))}
                 </select>
               </td>
               <td><input className="input" value={l.description || ''} onChange={(e) => upd(i, 'description', e.target.value)} data-testid={`accounting-recurring-line-desc-${i}`} /></td>

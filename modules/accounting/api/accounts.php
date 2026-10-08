@@ -132,6 +132,13 @@ if ($method === 'GET') {
          FROM accounting_accounts WHERE ' . implode(' AND ', $where) . ' ORDER BY code ASC LIMIT 500',
         $params
     );
+    $protectedCodes = array_fill_keys(accountingSourceOwnedControlCodes($tid, getDB()), true);
+    foreach ($rows as &$account) {
+        $account['general_journal_eligible'] = (int) $account['active'] === 1
+            && (int) $account['is_postable'] === 1
+            && !isset($protectedCodes[(string) $account['code']]);
+    }
+    unset($account);
     api_ok(['rows' => $rows, 'types' => ACCOUNTING_ACCOUNT_TYPES]);
 }
 

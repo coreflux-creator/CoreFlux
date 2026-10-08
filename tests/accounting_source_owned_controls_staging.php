@@ -10,6 +10,7 @@ if (PHP_SAPI !== 'cli' || ($argv[1] ?? '') !== '--execute') {
 define('QA_LIFECYCLE_LIBRARY_MODE', true);
 require_once __DIR__ . '/accounting_staging_lifecycle.php';
 require_once __DIR__ . '/../modules/accounting/lib/accounting.php';
+require_once __DIR__ . '/../modules/accounting/lib/recurring_je.php';
 require_once __DIR__ . '/../modules/accounting/lib/ledger_import.php';
 require_once __DIR__ . '/../core/accounting/coreone_v1.php';
 require_once __DIR__ . '/../core/accounting/account_mutation.php';
@@ -41,6 +42,8 @@ if ($entityId <= 0 || $otherEntityId <= 0) {
 
 $controlCode = 'QA-CTL-' . strtoupper(bin2hex(random_bytes(4)));
 $ordinaryCode = 'QA-REV-' . strtoupper(bin2hex(random_bytes(4)));
+$ordinaryDebitCode = 'QA-EXP-' . strtoupper(bin2hex(random_bytes(4)));
+setRequestTenantId(QA_TENANT);
 $pdo->beginTransaction();
 try {
     $insert = $pdo->prepare('INSERT INTO accounting_accounts
@@ -51,6 +54,8 @@ try {
     $controlId = (int) $pdo->lastInsertId();
     $insert->execute(['t' => QA_TENANT, 'code' => $ordinaryCode,
         'name' => 'Temporary ordinary fixture', 'type' => 'revenue', 'side' => 'credit']);
+    $insert->execute(['t' => QA_TENANT, 'code' => $ordinaryDebitCode,
+        'name' => 'Temporary expense fixture', 'type' => 'expense', 'side' => 'debit']);
 
     $journal = [
         'entity_id' => $entityId, 'posting_date' => date('Y-m-d'),
@@ -62,6 +67,26 @@ try {
     ];
     $draft = accountingPostJe(QA_TENANT, $journal, null, false);
     qaExpect(($draft['status'] ?? '') === 'draft', 'ordinary account creates a draft before mapping');
+
+    $newTemplate = static function (string $name, string $debitCode) use ($ordinaryCode, $entityId): int {
+        $templateId = scopedInsert('accounting_recurring_journal_entries', [
+            'entity_id' => $entityId,
+            'name' => $name, 'cadence' => 'monthly',
+            'next_run_date' => date('Y-m-d'), 'auto_post' => 0,
+        ]);
+        foreach ([[$debitCode, 1, 0], [$ordinaryCode, 0, 1]] as $index => $line) {
+            scopedInsert('accounting_recurring_je_lines', [
+                'recurring_je_id' => $templateId, 'line_no' => $index + 1,
+                'account_code' => $line[0], 'debit' => $line[1], 'credit' => $line[2],
+                'dim_json' => '{}',
+            ]);
+        }
+        return $templateId;
+    };
+    $olderTemplateId = $newTemplate('Rollback-only older control template', $controlCode);
+    $olderRun = recurringJeRunOnce(QA_TENANT, $olderTemplateId);
+    qaExpect(($olderRun['auto_posted'] ?? true) === false,
+        'recurring template can stage a draft before account ownership changes');
 
     $pdo->prepare('INSERT INTO accounting_intercompany_mappings
         (tenant_id, from_entity_id, to_entity_id, due_from_account_code, due_to_account_code, active)
@@ -85,11 +110,39 @@ try {
         'Treasury direct categorization rejects configured control');
     qaExpect(controlRejected(static fn() => accountingPostJe(QA_TENANT, $journal, null, false)),
         'manual journal rejects configured control by account ID');
+    qaExpect(controlRejected(static fn() => accountingPostJe(QA_TENANT,
+        $journal + ['source_module' => 'recurring_je'], null, true)),
+        'recurring journal posting rejects configured control by account ID');
     qaExpect(controlRejected(static fn() => accountingPostDraftJe(QA_TENANT, (int) $draft['je_id'])),
         'draft created earlier cannot post after the mapping changes');
     qaExpect(controlRejected(static fn() => accountingUpdateDraftJe(
         QA_TENANT, (int) $draft['je_id'], $journal
     )), 'draft edit rejects configured control');
+    qaExpect(controlRejected(static fn() => recurringJePostDraft(QA_TENANT, (int) $olderRun['je_id'])),
+        'older recurring draft cannot post after account ownership changes');
+    qaExpect(controlRejected(static fn() => recurringJePrepareLines(
+        QA_TENANT, $entityId, date('Y-m-d'), [['account_code' => $controlCode]]
+    )), 'recurring template edit rejects a source-owned account');
+    qaExpect(controlRejected(static fn() => recurringJeRunOnce(QA_TENANT, $olderTemplateId)),
+        'recurring schedule cannot run again with a source-owned account');
+
+    $validTemplateId = $newTemplate('Rollback-only review template', $ordinaryDebitCode);
+    $validRun = recurringJeRunOnce(QA_TENANT, $validTemplateId);
+    qaExpect(($validRun['auto_posted'] ?? true) === false
+        && (int) ($validRun['je_id'] ?? 0) > 0,
+        'ordinary recurring template stages a reviewable draft');
+    $posted = recurringJePostDraft(QA_TENANT, (int) $validRun['je_id']);
+    qaExpect(($posted['status'] ?? '') === 'posted',
+        'reviewer can post a recurring draft through its source workflow');
+    qaExpect(!empty(recurringJePostDraft(QA_TENANT, (int) $validRun['je_id'])['idempotent_replay']),
+        'recurring draft posting is idempotent');
+    try {
+        recurringJePostDraft(1002, (int) $validRun['je_id']);
+        $otherTenantRejected = false;
+    } catch (RuntimeException $e) {
+        $otherTenantRejected = str_contains($e->getMessage(), 'not found');
+    }
+    qaExpect($otherTenantRejected, 'another tenant cannot post the recurring draft');
 
     $coreone = [
         'schema_version' => 1, 'source_record_id' => 'control-fixture',
@@ -120,9 +173,11 @@ try {
     )), 'chart edit cannot disable a configured control');
 
     $pdo->rollBack();
+    setRequestTenantId(null);
     qaExpect(!qaOne($pdo, 'SELECT id FROM accounting_accounts WHERE tenant_id = :t AND code = :code',
         ['t' => QA_TENANT, 'code' => $controlCode]), 'all fixture records were rolled back');
 } catch (Throwable $error) {
     if ($pdo->inTransaction()) $pdo->rollBack();
+    setRequestTenantId(null);
     throw $error;
 }

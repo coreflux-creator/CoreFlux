@@ -11,6 +11,7 @@
  *   POST /api/accounting/recurring_journal_entries?action=resume&id=N
  *   POST /api/accounting/recurring_journal_entries?action=end&id=N
  *   POST /api/accounting/recurring_journal_entries?action=run_now&id=N
+ *   POST /api/accounting/recurring_journal_entries?action=post_draft&id=N (journal ID)
  *   POST /api/accounting/recurring_journal_entries?action=run_due → cron entrypoint
  */
 declare(strict_types=1);
@@ -58,13 +59,15 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 
 if ($method === 'GET') {
     rbac_legacy_require($user, 'accounting.je.create');
-    $where = ['tenant_id = :tenant_id']; $params = [];
-    if (!empty($_GET['status'])) { $where[] = 'status = :s'; $params['s'] = (string) $_GET['status']; }
+    $where = ['r.tenant_id = :tenant_id']; $params = [];
+    if (!empty($_GET['status'])) { $where[] = 'r.status = :s'; $params['s'] = (string) $_GET['status']; }
     $rows = scopedQuery(
         'SELECT id, name, cadence, next_run_date, end_date, auto_post, status,
-                last_run_at, last_run_je_id, entity_id, created_at
-         FROM accounting_recurring_journal_entries
-         WHERE ' . implode(' AND ', $where) . ' ORDER BY status, next_run_date, id',
+                last_run_at, last_run_je_id, entity_id, created_at,
+                (SELECT je.status FROM accounting_journal_entries je
+                  WHERE je.tenant_id = r.tenant_id AND je.id = r.last_run_je_id) AS last_run_je_status
+         FROM accounting_recurring_journal_entries r
+         WHERE ' . implode(' AND ', $where) . ' ORDER BY r.status, r.next_run_date, r.id',
         $params
     );
     api_ok(['rows' => $rows]);
@@ -207,6 +210,13 @@ if ($method === 'POST' && $action === 'run_now') {
     rbac_legacy_require($user, 'accounting.je.create');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
+    $template = scopedFind(
+        'SELECT auto_post FROM accounting_recurring_journal_entries
+          WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $id]
+    );
+    if (!$template) api_error('Not found', 404);
+    if ((int) $template['auto_post'] === 1) rbac_legacy_require($user, 'accounting.je.post');
     $body = api_json_body();
     try {
         $r = recurringJeRunOnce($tid, $id, $user['id'] ?? null, $body['run_date'] ?? null);
@@ -216,10 +226,21 @@ if ($method === 'POST' && $action === 'run_now') {
     }
 }
 
+if ($method === 'POST' && $action === 'post_draft') {
+    rbac_legacy_require($user, 'accounting.je.post');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('journal id required', 422);
+    try {
+        api_ok(recurringJePostDraft($tid, $id, $user['id'] ?? null));
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), $e->getMessage() === 'Journal entry not found' ? 404 : 409);
+    }
+}
+
 if ($method === 'POST' && $action === 'run_due') {
-    // Cron entrypoint. Master-admin or scoped tenant-admin can hit it
-    // (use accounting.coa.edit as a coarse "settings-level" perm).
+    // A due batch may post an auto-post template, so it needs posting rights.
     rbac_legacy_require($user, 'accounting.coa.edit');
+    rbac_legacy_require($user, 'accounting.je.post');
     $r = recurringJeRunDueForTenant($tid, $user['id'] ?? null);
     api_ok($r);
 }

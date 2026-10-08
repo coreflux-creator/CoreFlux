@@ -266,7 +266,7 @@ function accountingStampLegalEntityDimension(array $lines, int $entityId): array
  * @throws \RuntimeException on unbalanced, unknown account, closed period, etc.
  */
 function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null,
-    bool $post = true, ?array $manualProtectedCodes = null): array
+    bool $post = true, ?array $generalJournalProtectedCodes = null): array
 {
     $lines = $je['lines'] ?? [];
     if (!is_array($lines) || count($lines) < 2) {
@@ -303,8 +303,8 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null,
         }
     }
 
-    $manualControlCodes = $sourceModule === 'manual'
-        ? array_fill_keys($manualProtectedCodes ?? accountingSourceOwnedControlCodes($tenantId, $pdo), true)
+    $generalJournalControlCodes = in_array($sourceModule, ['manual', 'recurring_je'], true)
+        ? array_fill_keys($generalJournalProtectedCodes ?? accountingSourceOwnedControlCodes($tenantId, $pdo), true)
         : [];
 
     $requestedEntityId = accountingValidateActiveEntityId($tenantId, $je['entity_id'] ?? null);
@@ -345,7 +345,7 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null,
         if (!$a)                throw new \RuntimeException("Line {$i}: account not found");
         if (!$a['active'])      throw new \RuntimeException("Line {$i}: account {$a['code']} is inactive");
         if (!$a['is_postable']) throw new \RuntimeException("Line {$i}: account {$a['code']} is not postable (summary)");
-        if (isset($manualControlCodes[(string) $a['code']])) {
+        if (isset($generalJournalControlCodes[(string) $a['code']])) {
             throw new \InvalidArgumentException("Line " . ($i + 1) . ": this account is managed by its source workflow");
         }
 
@@ -1519,10 +1519,10 @@ function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = 
     );
     $lstmt->execute(['je' => $jeId]);
     $lineRows = $lstmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-    if (($row['source_module'] ?? '') === 'manual') {
-        $manualControlCodes = array_fill_keys(accountingSourceOwnedControlCodes($tenantId, $pdo), true);
+    if (in_array((string) ($row['source_module'] ?? ''), ['manual', 'recurring_je'], true)) {
+        $generalJournalControlCodes = array_fill_keys(accountingSourceOwnedControlCodes($tenantId, $pdo), true);
         foreach ($lineRows as $index => $line) {
-            if (isset($manualControlCodes[(string) $line['account_code']])) {
+            if (isset($generalJournalControlCodes[(string) $line['account_code']])) {
                 throw new \RuntimeException('promotion refused: line ' . ($index + 1)
                     . ' uses an account managed by its source workflow');
             }

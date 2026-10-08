@@ -50,6 +50,7 @@ function recurringJePrepareLines(
         throw new \InvalidArgumentException('Recurring journal run date must be YYYY-MM-DD');
     }
     $pdo = getDB();
+    $protectedCodes = array_fill_keys(accountingSourceOwnedControlCodes($tenantId, $pdo), true);
     $accountLookup = $pdo->prepare(
         'SELECT id FROM accounting_accounts
           WHERE tenant_id = :tenant_id AND code = :code AND active = 1
@@ -62,6 +63,11 @@ function recurringJePrepareLines(
     ];
 
     foreach ($lines as $index => &$line) {
+        if (isset($protectedCodes[(string) ($line['account_code'] ?? '')])) {
+            throw new \InvalidArgumentException(
+                'Recurring line ' . ($index + 1) . ': this account is managed by its source workflow'
+            );
+        }
         $dims = recurringJeDecodeDimensions($line['dims'] ?? $line['dim_json'] ?? null);
         unset($dims['legal_entity']);
         $placementRaw = trim((string) ($dims['placement'] ?? ''));
@@ -120,6 +126,47 @@ function recurringJePrepareLines(
     }
     unset($line);
     return $lines;
+}
+
+/** Post only a draft produced by a recurring template in this tenant and entity. */
+function recurringJePostDraft(int $tenantId, int $jeId, ?int $actorUserId = null): array
+{
+    $entry = scopedFind(
+        'SELECT id, entity_id, source_module, source_ref_type, source_ref_id, status
+           FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $jeId]
+    );
+    if (!$entry) throw new \RuntimeException('Journal entry not found');
+    if (($entry['source_module'] ?? '') !== 'recurring_je'
+        || ($entry['source_ref_type'] ?? '') !== 'recurring_je'
+        || (int) ($entry['source_ref_id'] ?? 0) <= 0) {
+        throw new \RuntimeException('Only recurring journal drafts can be posted here');
+    }
+    $template = scopedFind(
+        'SELECT id, entity_id FROM accounting_recurring_journal_entries
+          WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => (int) $entry['source_ref_id']]
+    );
+    if (!$template) {
+        throw new \RuntimeException('Recurring template not found');
+    }
+    $templateEntityId = accountingValidateActiveEntityId($tenantId, $template['entity_id'] ?? null)
+        ?? (int) accountingDefaultEntity($tenantId)['id'];
+    if ($templateEntityId !== (int) $entry['entity_id']) {
+        throw new \RuntimeException('Recurring template and journal entity do not match');
+    }
+    if (!in_array((string) $entry['status'], ['draft', 'posted'], true)) {
+        throw new \RuntimeException('Only draft recurring journals can be posted');
+    }
+    $result = accountingPostDraftJe($tenantId, $jeId, $actorUserId);
+    if (empty($result['idempotent_replay'])) {
+        accountingAudit('accounting.recurring_je.draft_posted', [
+            'template_id' => (int) $template['id'],
+            'je_id' => $jeId,
+            'total' => (float) $result['total_debit'],
+        ], (int) $template['id']);
+    }
+    return $result;
 }
 
 function recurringJeListDue(int $tenantId): array
