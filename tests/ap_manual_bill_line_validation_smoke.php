@@ -47,6 +47,8 @@ $check('bill form omits unsupported discount choice but preserves extracted disc
 $check('bill form rejects incomplete entered lines instead of silently dropping them',
     str_contains($billForm, 'activeLines.forEach((line, index) => {')
     && str_contains($billForm, 'lines: activeLines.map((l) => ({')
+    && str_contains($billForm, "line.item_type !== 'other'")
+    && str_contains($billForm, 'enter a unit price')
     && !str_contains($billForm, '.filter((l) => l.description &&'));
 
 $failed = count(array_filter($checks, static fn(bool $ok): bool => !$ok));

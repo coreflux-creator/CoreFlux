@@ -66,6 +66,8 @@ $check('create and edit enforce the same positive document total',
 $check('form refuses partially filled rows instead of dropping them',
     str_contains($formCode, 'activeLines.forEach((line, index) => {')
     && str_contains($formCode, 'lines: activeLines.map((l) => ({')
+    && str_contains($formCode, "line.item_type !== 'other'")
+    && str_contains($formCode, 'enter a unit price')
     && !str_contains($formCode, '.filter((l) => l.description &&'));
 
 $failed = count(array_filter($checks, static fn(bool $ok): bool => !$ok));

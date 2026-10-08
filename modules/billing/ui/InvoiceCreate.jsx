@@ -99,6 +99,8 @@ export default function InvoiceCreate() {
         || String(line.unit_price ?? '').trim() !== ''
         || String(line.gl_account_code || '').trim() !== ''
         || line.catalog_item_id
+        || line.item_type !== 'other'
+        || String(line.unit || '').trim() !== 'each'
         || Number(line.quantity) !== 1
       );
       if (activeLines.length === 0) throw new Error('Add at least one line item');
@@ -108,8 +110,8 @@ export default function InvoiceCreate() {
           throw new Error(`Line ${index + 1}: quantity must be positive.`);
         }
         const price = Number(line.unit_price);
-        if (line.unit_price === '' || !Number.isFinite(price)
-          || (line.item_type === 'discount' ? price >= 0 : price < 0)) {
+        if (line.unit_price === '' || line.unit_price == null) throw new Error(`Line ${index + 1}: enter a unit price.`);
+        if (!Number.isFinite(price) || (line.item_type === 'discount' ? price >= 0 : price < 0)) {
           throw new Error(`Line ${index + 1}: ${line.item_type === 'discount' ? 'discount price must be negative' : 'unit price cannot be negative'}.`);
         }
       });

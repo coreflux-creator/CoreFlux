@@ -107,6 +107,8 @@ export default function BillCreate() {
         String(line.description || '').trim() !== ''
         || String(line.unit_price ?? '').trim() !== ''
         || String(line.gl_account_code || '').trim() !== ''
+        || line.item_type !== 'other'
+        || String(line.unit || '').trim() !== 'each'
         || Number(line.quantity) !== 1
       );
       if (activeLines.length === 0) throw new Error('Add at least one line item');
@@ -118,7 +120,8 @@ export default function BillCreate() {
         if (!Number.isFinite(Number(line.quantity)) || Number(line.quantity) <= 0) {
           throw new Error(`Line ${index + 1}: quantity must be positive.`);
         }
-        if (line.unit_price === '' || !Number.isFinite(Number(line.unit_price)) || Number(line.unit_price) <= 0) {
+        if (line.unit_price === '' || line.unit_price == null) throw new Error(`Line ${index + 1}: enter a unit price.`);
+        if (!Number.isFinite(Number(line.unit_price)) || Number(line.unit_price) <= 0) {
           throw new Error(`Line ${index + 1}: unit price must be positive.`);
         }
       });
