@@ -76,6 +76,10 @@ $check('invoice page finds tenant-scoped, unbooked receipt candidates',
     && str_contains($bankApi, 'bankRecRepairPostedMatches(')
     && str_contains($bankApi, 'bl.matched_je_id IS NULL')
     && str_contains($detail, 'billing-invoice-receipt-candidates'));
+$check('older invoice references and exact amounts are considered before recent deposits are capped',
+    str_contains($bankApi, 'WHERE reference_match = 1 OR exact_match = 1')
+    && str_contains($bankApi, 'ORDER BY reference_match DESC, exact_match DESC, posted_date DESC, id DESC')
+    && str_contains($bankApi, 'array_merge($priorityRows, $recentRows)'));
 $check('invoice page separates likely receipts from unrelated bank deposits',
     str_contains($detail, 'const likelyReceipts = receiptRows.filter(')
     && str_contains($detail, 'billing-invoice-other-receipts-toggle')

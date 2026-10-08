@@ -161,10 +161,9 @@ if ($method === 'GET' && $action === 'receipt_candidates') {
     foreach ($bankAccounts as $bankAccount) {
         bankRecRepairPostedMatches((int) $ctx['tenant_id'], (int) $bankAccount['id']);
     }
-    $rows = scopedQuery(
-        'SELECT bl.id, bl.bank_account_id, ba.name AS bank_account_name,
-                bl.posted_date, bl.description, bl.bank_reference, bl.amount
-           FROM accounting_bank_statement_lines bl
+    $candidateColumns = 'bl.id, bl.bank_account_id, ba.name AS bank_account_name,
+                bl.posted_date, bl.description, bl.bank_reference, bl.amount';
+    $candidateFromSql = ' FROM accounting_bank_statement_lines bl
            JOIN accounting_bank_accounts ba
              ON ba.tenant_id = bl.tenant_id AND ba.id = bl.bank_account_id
           WHERE bl.tenant_id = :tenant_id
@@ -172,14 +171,37 @@ if ($method === 'GET' && $action === 'receipt_candidates') {
             AND bl.matched_je_id IS NULL
             AND bl.amount > 0
             AND bl.posted_date >= :issue_date
-            AND COALESCE(NULLIF(ba.currency, ""), "USD") = :currency' . $entitySql . '
-          ORDER BY bl.posted_date DESC, bl.id DESC
-          LIMIT 100',
-        $params
-    );
+            AND COALESCE(NULLIF(ba.currency, ""), "USD") = :currency' . $entitySql;
     $due = round((float) $invoice['amount_due'], 2);
     $invoiceNumber = strtolower(trim((string) $invoice['invoice_number']));
     $clientName = strtolower(trim((string) $invoice['client_name']));
+    $descriptionSql = 'LOWER(CONCAT(COALESCE(bl.description, ""), " ", COALESCE(bl.bank_reference, "")))';
+    $referenceParts = [];
+    $priorityParams = $params + ['amount_due' => $due];
+    if ($invoiceNumber !== '') {
+        $referenceParts[] = 'INSTR(' . $descriptionSql . ', :invoice_number) > 0';
+        $priorityParams['invoice_number'] = $invoiceNumber;
+    }
+    if ($clientName !== '') {
+        $referenceParts[] = 'INSTR(' . $descriptionSql . ', :client_name) > 0';
+        $priorityParams['client_name'] = $clientName;
+    }
+    $referenceSql = $referenceParts ? '(' . implode(' OR ', $referenceParts) . ')' : '0';
+    $prioritySql = 'SELECT ' . $referenceSql . ' AS reference_match,
+                ABS(bl.amount - :amount_due) < 0.005 AS exact_match, '
+        . $candidateColumns . $candidateFromSql;
+    $priorityRows = scopedQuery(
+        'SELECT * FROM (' . $prioritySql . ') AS candidates
+          WHERE reference_match = 1 OR exact_match = 1
+          ORDER BY reference_match DESC, exact_match DESC, posted_date DESC, id DESC
+          LIMIT 25',
+        $priorityParams
+    );
+    $recentRows = scopedQuery('SELECT ' . $candidateColumns . $candidateFromSql
+        . ' ORDER BY bl.posted_date DESC, bl.id DESC LIMIT 100', $params);
+    $rowsById = [];
+    foreach (array_merge($priorityRows, $recentRows) as $row) $rowsById[(int) $row['id']] = $row;
+    $rows = array_values($rowsById);
     foreach ($rows as &$row) {
         $amount = round((float) $row['amount'], 2);
         $description = strtolower((string) ($row['description'] ?? '') . ' ' . (string) ($row['bank_reference'] ?? ''));
@@ -194,7 +216,8 @@ if ($method === 'GET' && $action === 'receipt_candidates') {
         $bExact = abs($b['amount'] - $due) < 0.005;
         return ((int) $b['reference_match'] <=> (int) $a['reference_match'])
             ?: ((int) $bExact <=> (int) $aExact)
-            ?: strcmp((string) $b['posted_date'], (string) $a['posted_date']);
+            ?: strcmp((string) $b['posted_date'], (string) $a['posted_date'])
+            ?: ((int) $b['id'] <=> (int) $a['id']);
     });
     api_ok(['rows' => array_slice($rows, 0, 25), 'amount_due' => $due]);
     exit;
