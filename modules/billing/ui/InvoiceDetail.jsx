@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { ArrowRight, BookOpenCheck, Check, Copy, Landmark, Link2, Link2Off, Send, UserRoundCog, X } from 'lucide-react';
 import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
@@ -22,6 +22,11 @@ export default function InvoiceDetail() {
   const [issuedLink, setIssuedLink] = useState(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showSend, setShowSend] = useState(false);
+  const sendRequestId = useRef(null);
+  const [showResolve, setShowResolve] = useState(false);
+  const [resolutionOutcome, setResolutionOutcome] = useState('');
+  const [resolutionReason, setResolutionReason] = useState('');
+  const [resolutionProviderId, setResolutionProviderId] = useState('');
   const [showReassign, setShowReassign] = useState(false);
   const [showOtherReceipts, setShowOtherReceipts] = useState(false);
   const [selectedReviewers, setSelectedReviewers] = useState([]);
@@ -52,6 +57,10 @@ export default function InvoiceDetail() {
   const lines = data.lines || [];
   const allocations = data.allocations || [];
   const token = data.token;
+  const delivery = data.delivery;
+  const deliveryBlocked = ['pending', 'uncertain'].includes(delivery?.delivery_status);
+  const canResolveDelivery = deliveryBlocked && data.capabilities?.can_send
+    && (delivery.delivery_status === 'uncertain' || Number(delivery.age_seconds) >= 120);
   const receiptRows = receipts.data?.rows || [];
   const likelyReceipts = receiptRows.filter(line => line.reference_match
     || Math.abs(Number(line.amount) - Number(inv.amount_due)) < 0.005);
@@ -65,9 +74,9 @@ export default function InvoiceDetail() {
   const canSend = !inv.opening_cutover_id
     && ['approved', 'sent', 'partially_paid', 'paid'].includes(inv.status)
     && inv.journal_status === 'posted'
-    && data.capabilities?.can_send;
+    && data.capabilities?.can_send && !deliveryBlocked;
   const linkActive = Number(token?.is_active) === 1;
-  const canRevokeLink = linkActive && data.capabilities?.can_send;
+  const canRevokeLink = linkActive && canSend;
   const visibleIssuedLink = issuedLink && Number(token?.id) === issuedLink.tokenId ? issuedLink : null;
   const canPost = ['approved', 'sent', 'partially_paid', 'paid'].includes(inv.status) && !inv.journal_entry_id;
   const canVoid = inv.status === 'draft' && approvalState && !approvalState.pending
@@ -107,12 +116,28 @@ export default function InvoiceDetail() {
   });
   const post = () => run('post', () => api.post(`/api/v1/billing/invoices?action=post&id=${id}`, {}));
   const send = async () => {
-    const res = await run('send', () => api.post(`/api/v1/billing/invoices?action=send&id=${id}`, { to: sendTo.trim() }));
+    if (!sendRequestId.current) sendRequestId.current = crypto.randomUUID();
+    const res = await run('send', () => api.post(`/api/v1/billing/invoices?action=send&id=${id}`, {
+      to: sendTo.trim(), request_id: sendRequestId.current, resend: inv.status !== 'approved',
+    }));
     if (!res) return;
-    setIssuedLink({ tokenId: Number(res.token_id), url: res.url });
+    if (res.url) setIssuedLink({ tokenId: Number(res.token_id), url: res.url });
+    sendRequestId.current = null;
     setShowSend(false);
     if (res.email_status !== 'sent') alert(`Token created but email status: ${res.email_status} (${res.email_error || 'no detail'})`);
     if (res.pdf_attached === false && res.pdf_error) alert(`PDF could not be generated: ${res.pdf_error}\nEmail sent without attachment.`);
+  };
+  const resolveDelivery = async () => {
+    const res = await run('resolve-send', () => api.post(`/api/v1/billing/invoices?action=resolve_send&id=${id}`, {
+      token_id: Number(delivery.id), outcome: resolutionOutcome,
+      reason: resolutionReason.trim(), provider_message_id: resolutionProviderId.trim(),
+    }));
+    if (res) {
+      setShowResolve(false);
+      setResolutionOutcome('');
+      setResolutionReason('');
+      setResolutionProviderId('');
+    }
   };
   const replaceLink = async () => {
     if (linkActive && !confirm('Create a new customer link? Existing links to this invoice will stop working.')) return;
@@ -187,13 +212,24 @@ export default function InvoiceDetail() {
           {canRequest && <button className="btn btn--primary" onClick={requestApproval} disabled={Boolean(busy)} data-testid="billing-invoice-request-approval"><Send size={15} aria-hidden="true" /> {busy==='request' ? 'Requesting…' : 'Request approval'}</button>}
           {canApprove && <button className="btn btn--primary" onClick={approve} disabled={Boolean(busy)} data-testid="billing-invoice-approve"><Check size={15} aria-hidden="true" /> {busy==='approve' ? 'Approving…' : 'Approve'}</button>}
           {canApprove && approvalState?.pending && <button className="btn btn--ghost" onClick={reject} disabled={Boolean(busy)} data-testid="billing-invoice-reject"><X size={15} aria-hidden="true" /> {busy==='reject' ? 'Rejecting…' : 'Reject'}</button>}
-          {canSend && <button className="btn btn--primary" onClick={() => setShowSend(true)} data-testid="billing-invoice-send-open"><Send size={15} aria-hidden="true" /> {inv.status === 'approved' ? 'Send' : 'Resend'}</button>}
+          {canSend && <button className="btn btn--primary" onClick={() => { sendRequestId.current = crypto.randomUUID(); setShowSend(true); }} data-testid="billing-invoice-send-open"><Send size={15} aria-hidden="true" /> {inv.status === 'approved' ? 'Send' : 'Resend'}</button>}
           {canPost && <button className="btn btn--ghost" onClick={post} disabled={busy==='post'} data-testid="billing-invoice-post">{busy==='post' ? 'Posting…' : 'Post to ledger'}</button>}
           {canVoid && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="billing-invoice-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}
         </div>
       </div>
 
       {actionError && <p className="error" data-testid="billing-invoice-action-error">Error: {actionError.message}</p>}
+      {deliveryBlocked && <div role="alert" data-testid="billing-invoice-delivery-review" style={{ padding: 12, marginBottom: 16, border: '1px solid var(--cf-border)', borderLeft: '3px solid #c7821e', background: 'var(--cf-surface, #fff)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13 }}>
+          <strong>{delivery.delivery_status === 'pending' ? 'Invoice email is processing' : 'Invoice email needs review'}</strong>
+          <div style={{ color: 'var(--cf-text-secondary)', marginTop: 3 }}>
+            {delivery.delivery_status === 'pending' && !canResolveDelivery
+              ? 'Refresh shortly. Sending and link changes are paused until this attempt finishes.'
+              : `Check the mail provider for ${delivery.delivery_recipient || 'this recipient'} before another send.`}
+          </div>
+        </div>
+        {canResolveDelivery && <button className="btn btn--ghost" type="button" onClick={() => setShowResolve(true)} data-testid="billing-invoice-delivery-resolve">Review delivery</button>}
+      </div>}
       {inv.status === 'draft' && approval.error && (
         <p className="error" role="alert" data-testid="billing-invoice-approval-error">Approval status could not load: {approval.error.message} <button className="btn btn--ghost" onClick={approval.reload}>Retry</button></p>
       )}
@@ -376,11 +412,38 @@ export default function InvoiceDetail() {
               data-testid="billing-invoice-send-to"
               style={{ width: '100%', marginTop: 12 }}
             />
+            {actionError && <p className="error" role="alert" style={{ marginTop: 10 }}>{actionError.message}</p>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               <button className="btn btn--ghost" onClick={() => setShowSend(false)} data-testid="billing-invoice-send-cancel">Cancel</button>
-              <button className="btn btn--primary" onClick={send} disabled={busy==='send' || !sendTo || !data.delivery_sender?.ready} data-testid="billing-invoice-send-confirm">
+              <button className="btn btn--primary" onClick={send} disabled={busy==='send' || deliveryBlocked || !sendTo || !data.delivery_sender?.ready} data-testid="billing-invoice-send-confirm">
                 {busy==='send' ? 'Sending…' : inv.status === 'approved' ? 'Send' : 'Resend'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showResolve && deliveryBlocked && (
+        <div role="dialog" aria-modal="true" aria-label="Review invoice email delivery" data-testid="billing-invoice-delivery-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={(e) => e.target === e.currentTarget && setShowResolve(false)}>
+          <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 8, width: 'min(440px, 100%)', padding: 24 }}>
+            <h3 style={{ margin: '0 0 12px' }}>Review invoice email</h3>
+            <p style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>Verify this attempt in the mail provider before releasing another send. Your decision is recorded in the audit history.</p>
+            <label htmlFor="invoice-delivery-outcome" style={{ display: 'block', marginTop: 12, fontSize: 13 }}>Provider result</label>
+            <select id="invoice-delivery-outcome" className="input" value={resolutionOutcome} onChange={(e) => setResolutionOutcome(e.target.value)} style={{ width: '100%', marginTop: 4 }} data-testid="billing-invoice-delivery-outcome">
+              <option value="">Select result</option>
+              <option value="accepted">Email accepted by provider</option>
+              <option value="not_accepted">Email not accepted</option>
+            </select>
+            {resolutionOutcome === 'accepted' && <>
+              <label htmlFor="invoice-delivery-provider-id" style={{ display: 'block', marginTop: 12, fontSize: 13 }}>Provider message ID (optional)</label>
+              <input id="invoice-delivery-provider-id" className="input" value={resolutionProviderId} onChange={(e) => setResolutionProviderId(e.target.value)} maxLength={255} style={{ width: '100%', marginTop: 4 }} />
+            </>}
+            <label htmlFor="invoice-delivery-reason" style={{ display: 'block', marginTop: 12, fontSize: 13 }}>What did you verify?</label>
+            <textarea id="invoice-delivery-reason" className="input" value={resolutionReason} onChange={(e) => setResolutionReason(e.target.value)} maxLength={500} rows={3} style={{ width: '100%', marginTop: 4 }} data-testid="billing-invoice-delivery-reason" />
+            {actionError && <p className="error" role="alert">{actionError.message}</p>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button className="btn btn--ghost" type="button" onClick={() => setShowResolve(false)}>Cancel</button>
+              <button className="btn btn--primary" type="button" onClick={resolveDelivery} disabled={Boolean(busy) || !resolutionOutcome || resolutionReason.trim().length < 10} data-testid="billing-invoice-delivery-save">Record result</button>
             </div>
           </div>
         </div>

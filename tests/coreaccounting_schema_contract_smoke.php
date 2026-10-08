@@ -33,6 +33,12 @@ $withoutTokenRevocation['billing_invoice_tokens'] = array_values(array_diff(
 $check('missing invoice-link revocation column is reported', in_array(
     'billing_invoice_tokens.revoked_at',
     coreAccountingMissingSchema($withoutTokenRevocation), true));
+$withoutDeliveryStatus = $required;
+$withoutDeliveryStatus['billing_invoice_tokens'] = array_values(array_diff(
+    $withoutDeliveryStatus['billing_invoice_tokens'], ['delivery_status']));
+$check('missing invoice delivery state is reported', in_array(
+    'billing_invoice_tokens.delivery_status',
+    coreAccountingMissingSchema($withoutDeliveryStatus), true));
 $requiredKeys = coreAccountingRequiredUniqueKeys();
 $check('required unique-key signatures have no gaps',
     coreAccountingMissingUniqueKeys($requiredKeys) === []);
@@ -51,11 +57,21 @@ unset($withoutTokenKey['billing_invoice_tokens']);
 $check('missing invoice-link hash uniqueness is reported', in_array(
     'billing_invoice_tokens UNIQUE (token_hash)',
     coreAccountingMissingUniqueKeys($withoutTokenKey), true));
+$withoutDeliveryKey = $requiredKeys;
+$withoutDeliveryKey['billing_invoice_tokens'] = [['token_hash']];
+$check('missing delivery request uniqueness is reported', in_array(
+    'billing_invoice_tokens UNIQUE (tenant_id, invoice_id, delivery_request_id)',
+    coreAccountingMissingUniqueKeys($withoutDeliveryKey), true));
+$migration = (string) file_get_contents(__DIR__ . '/../modules/billing/migrations/023_invoice_delivery_attempts.sql');
+$check('delivery migration adds the state and request key idempotently',
+    str_contains($migration, "COLUMN_NAME = 'delivery_status'")
+    && str_contains($migration, 'ADD COLUMN delivery_status')
+    && str_contains($migration, 'ADD UNIQUE KEY uq_bit_delivery_request'));
 $provisioner = (string) file_get_contents(__DIR__ . '/../deploy/provision_coreaccounting_tenant.php');
 $check('first-tenant provisioning checks the accounting schema before creating records',
     strpos($provisioner, 'coreAccountingInspectSchema($pdo)') !== false
     && strpos($provisioner, 'coreAccountingInspectSchema($pdo)')
         < strpos($provisioner, '$pdo->beginTransaction()'));
 
-echo $failures ? "Failed: {$failures}\n" : "Passed: 10\n";
+echo $failures ? "Failed: {$failures}\n" : "Passed: 13\n";
 exit($failures ? 1 : 0);

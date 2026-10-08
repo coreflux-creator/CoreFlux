@@ -26,6 +26,7 @@ require_once __DIR__ . '/../lib/billing.php';
 require_once __DIR__ . '/../lib/invoice_drafts.php';
 require_once __DIR__ . '/../lib/invoice_pdf.php';
 require_once __DIR__ . '/../lib/entity_delivery.php';
+require_once __DIR__ . '/../lib/invoice_delivery.php';
 require_once __DIR__ . '/../lib/entity_scope.php';
 require_once __DIR__ . '/../lib/workflow.php';
 require_once __DIR__ . '/../../ap/lib/ap.php';   // apNormalizeItemType() — shared item_type vocabulary
@@ -108,12 +109,23 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     );
     $tokStmt->execute(['id' => $id, 't' => $tid]);
     $token = $tokStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    $deliveryStmt = $pdo->prepare(
+        'SELECT id, delivery_status, delivery_recipient, delivery_started_at,
+                delivery_finished_at, delivery_provider_id,
+                TIMESTAMPDIFF(SECOND, delivery_started_at, NOW()) AS age_seconds
+           FROM billing_invoice_tokens
+          WHERE invoice_id = :id AND tenant_id = :t AND delivery_request_id IS NOT NULL
+          ORDER BY id DESC LIMIT 1'
+    );
+    $deliveryStmt->execute(['id' => $id, 't' => $tid]);
+    $delivery = $deliveryStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     $deliveryEntityId = billingInvoiceDeliveryEntityId($tid, $inv);
     api_ok([
         'invoice' => $inv,
         'lines' => $lines,
         'allocations' => $allocations,
         'token' => $token,
+        'delivery' => $delivery,
         'capabilities' => ['can_send' => RBAC::hasPermission($user, 'billing.invoice.send')],
         'default_recipient' => billingInvoiceDefaultRecipient($tid, $inv),
         'delivery_sender' => $deliveryEntityId ? billingEntityMailSender($tid, $deliveryEntityId) : null,
@@ -685,6 +697,9 @@ if ($method === 'POST' && $action === 'replace_link') {
             || !in_array($locked['status'], ['approved', 'sent', 'partially_paid', 'paid'], true)) {
             throw new DomainException('Only a posted, approved invoice can have a customer link.');
         }
+        if (billingDeliveryBlockingAttempt($pdo, $tid, $id)) {
+            throw new DomainException('Review the pending invoice email before replacing its customer link.');
+        }
         $journalStmt = $pdo->prepare('SELECT entity_id FROM accounting_journal_entries
                                        WHERE tenant_id = :t AND id = :id AND status = "posted"');
         $journalStmt->execute(['t' => $tid, 'id' => (int) $locked['journal_entry_id']]);
@@ -719,12 +734,61 @@ if ($method === 'POST' && $action === 'revoke_link') {
     if (!$row) api_error('Not found', 404);
     $reason = trim((string) (api_json_body()['reason'] ?? ''));
     if (strlen($reason) < 3 || strlen($reason) > 500) api_error('Give a short reason (3–500 characters) for disabling the link.', 422);
-    $revoked = billingRevokeInvoiceViewTokens($tid, $id, (int) ($user['id'] ?? 0) ?: null);
+    $pdo = getDB();
+    try {
+        $pdo->beginTransaction();
+        billingDeliveryLockInvoice($pdo, $tid, $id);
+        if (billingDeliveryBlockingAttempt($pdo, $tid, $id)) {
+            throw new DomainException('Review the pending invoice email before disabling its customer link.');
+        }
+        $revoked = billingRevokeInvoiceViewTokens($tid, $id, (int) ($user['id'] ?? 0) ?: null);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e instanceof DomainException) api_error($e->getMessage(), 409);
+        error_log('[billing invoice link] Revocation failed: ' . $e->getMessage());
+        api_error('Could not disable the invoice link.', 500);
+    }
     billingAudit('billing.invoice.links_revoked', [
         'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
         'token_count' => $revoked, 'reason' => $reason,
     ], $id);
     api_ok(['ok' => true, 'revoked_count' => $revoked]);
+}
+
+if ($method === 'POST' && $action === 'resolve_send') {
+    rbac_legacy_require($user, 'billing.invoice.send');
+    $id = (int) ($_GET['id'] ?? 0);
+    $row = scopedFind('SELECT id, invoice_number FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    $body = api_json_body();
+    $tokenId = (int) ($body['token_id'] ?? 0);
+    $outcome = (string) ($body['outcome'] ?? '');
+    $reason = trim((string) ($body['reason'] ?? ''));
+    $providerId = trim((string) ($body['provider_message_id'] ?? ''));
+    if ($tokenId <= 0 || !in_array($outcome, ['accepted', 'not_accepted'], true)) {
+        api_error('Select a delivery attempt and confirm whether the mail provider accepted it.', 422);
+    }
+    if (strlen($reason) < 10 || strlen($reason) > 500 || strlen($providerId) > 255) {
+        api_error('Record a review reason of 10-500 characters and a provider reference under 256 characters.', 422);
+    }
+    try {
+        $revoked = billingDeliveryResolve($tid, $id, $tokenId, $outcome,
+            $providerId !== '' ? $providerId : null, (int) ($user['id'] ?? 0) ?: null);
+    } catch (\Throwable $e) {
+        if ($e instanceof DomainException || $e instanceof InvalidArgumentException) {
+            api_error($e->getMessage(), 409);
+        }
+        error_log('[billing invoice delivery] Resolution failed: ' . $e->getMessage());
+        api_error('Could not resolve the invoice delivery. Contact an administrator.', 500);
+    }
+    billingAudit('billing.invoice.send_resolved', [
+        'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
+        'token_id' => $tokenId, 'outcome' => $outcome, 'reason' => $reason,
+        'provider_message_id' => $providerId !== '' ? $providerId : null,
+        'prior_links_revoked' => $revoked,
+    ], $id);
+    api_ok(['ok' => true, 'outcome' => $outcome, 'prior_links_revoked' => $revoked]);
 }
 
 if ($method === 'POST' && $action === 'send') {
@@ -775,10 +839,32 @@ if ($method === 'POST' && $action === 'send') {
     if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
         api_error('No valid invoice recipient. Add a bill-to email or an AR contact for this legal entity.', 422);
     }
+    try {
+        $svc = cf_mail_bootstrap();
+    } catch (\Throwable $e) {
+        error_log('[billing invoice delivery] Mail setup failed: ' . $e->getMessage());
+        api_error('Invoice email is not configured. No delivery attempt was started.', 503);
+    }
 
-    $tok = billingIssueViewToken($tid, $id);
-    $svc = cf_mail_bootstrap();
-
+    if (!is_bool($body['resend'] ?? false)) api_error('Resend confirmation must be true or false.', 422);
+    try {
+        $requestId = billingDeliveryRequestId((string) ($body['request_id'] ?? ''));
+        $tok = billingDeliveryReserve($tid, $id, $requestId, $to, $body['resend'] ?? false);
+    } catch (\Throwable $e) {
+        if ($e instanceof InvalidArgumentException) api_error($e->getMessage(), 422);
+        if ($e instanceof OutOfBoundsException) api_error('Not found', 404);
+        if ($e instanceof DomainException) api_error($e->getMessage(), 409);
+        error_log('[billing invoice delivery] Reservation failed: ' . $e->getMessage());
+        api_error('Invoice delivery tracking is unavailable. No email was sent.', 503);
+    }
+    if (!empty($tok['replayed'])) {
+        if ($tok['delivery_status'] === 'sent') {
+            api_ok(['ok' => true, 'already_sent' => true, 'token_id' => $tok['token_id'],
+                'email_status' => 'sent', 'url' => null]);
+        }
+        api_error('This delivery request is ' . $tok['delivery_status']
+            . '. Review the latest attempt before trying to send again.', 409);
+    }
     // Generate the invoice PDF and attach it. If the renderer is missing on
     // this host we still send the email (with the view-online link) and log
     // the failure rather than block the customer notification.
@@ -820,7 +906,7 @@ if ($method === 'POST' && $action === 'send') {
     try {
         $sendRes = $svc->send($tid, 'billing', 'invoice_sent', [$to], $subject, $textBody, $htmlBody, $attachments, [
             'from' => $sender['from'], 'from_name' => $sender['from_name'], 'reply_to' => $sender['reply_to'],
-            'idempotency_key' => 'billing-invoice-' . $id . '-token-' . $tok['token_id'],
+            'idempotency_key' => 'billing-invoice-' . $id . '-request-' . $requestId,
             'outbox_redactions' => [$tok['url'], $tok['token']],
         ]);
     } catch (\Throwable $e) {
@@ -828,52 +914,41 @@ if ($method === 'POST' && $action === 'send') {
     }
 
     if (($sendRes['status'] ?? 'failed') !== 'sent') {
-        billingRevokeInvoiceViewToken($tid, $id, $tok['token_id'], (int) ($user['id'] ?? 0) ?: null);
-        $mailError = trim((string) ($sendRes['error'] ?? '')) ?: 'The configured mail provider did not accept the message.';
-        billingAudit('billing.invoice.send_failed', [
+        $mailError = trim((string) ($sendRes['error'] ?? '')) ?: 'The mail provider did not confirm acceptance.';
+        try {
+            billingDeliveryMarkUncertain($tid, $id, $tok['token_id'], $requestId, $mailError);
+        } catch (\Throwable $e) {
+            error_log('[billing invoice delivery] Could not mark uncertain attempt: ' . $e->getMessage());
+        }
+        billingAudit('billing.invoice.send_uncertain', [
             'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
-            'to' => $to, 'token_id' => $tok['token_id'],
+            'to' => $to, 'token_id' => $tok['token_id'], 'request_id' => $requestId,
             'email_status' => $sendRes['status'] ?? 'failed',
             'email_error' => $mailError,
             'pdf_attached' => !empty($attachments),
             'pdf_error' => $pdfError,
         ], $id);
-        api_error('Invoice email was not sent: ' . $mailError . ' The invoice remains approved so you can retry.', 502, [
+        api_error('Invoice delivery could not be confirmed. Check the mail provider before another send.', 502, [
             'email_status' => $sendRes['status'] ?? 'failed',
             'invoice_status' => $row['status'],
-            'retryable' => true,
+            'delivery_status' => 'uncertain', 'retryable' => false,
         ]);
     }
 
-    $pdo = getDB();
     try {
-        $pdo->beginTransaction();
-        $invoiceCheck = $pdo->prepare('SELECT status FROM billing_invoices
-                                        WHERE tenant_id = :t AND id = :i FOR UPDATE');
-        $invoiceCheck->execute(['t' => $tid, 'i' => $id]);
-        $currentStatus = (string) $invoiceCheck->fetchColumn();
-        if (!in_array($currentStatus, ['approved', 'sent', 'partially_paid', 'paid'], true)) {
-            throw new RuntimeException('Invoice status changed while it was being sent.');
-        }
-        $tokenCheck = $pdo->prepare('SELECT id FROM billing_invoice_tokens
-                                      WHERE tenant_id = :t AND invoice_id = :i AND id = :token_id
-                                        AND revoked_at IS NULL FOR UPDATE');
-        $tokenCheck->execute(['t' => $tid, 'i' => $id, 'token_id' => $tok['token_id']]);
-        if (!$tokenCheck->fetchColumn()) throw new RuntimeException('The new public link was revoked while the invoice was being sent.');
-        $pdo->prepare('UPDATE billing_invoices
-                          SET status = CASE WHEN status = "approved" THEN "sent" ELSE status END,
-                              sent_at = COALESCE(sent_at, NOW())
-                        WHERE tenant_id = :t AND id = :i')
-            ->execute(['t' => $tid, 'i' => $id]);
-        $priorLinksRevoked = billingRevokeInvoiceViewTokens(
-            $tid, $id, (int) ($user['id'] ?? 0) ?: null, $tok['token_id']
-        );
-        $pdo->commit();
+        $priorLinksRevoked = billingDeliveryFinalize($tid, $id, $tok['token_id'], $requestId,
+            isset($sendRes['provider_message_id']) ? (string) $sendRes['provider_message_id'] : null,
+            (int) ($user['id'] ?? 0) ?: null);
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        billingRevokeInvoiceViewToken($tid, $id, $tok['token_id'], (int) ($user['id'] ?? 0) ?: null);
+        try {
+            billingDeliveryMarkUncertain($tid, $id, $tok['token_id'], $requestId, $e->getMessage());
+        } catch (\Throwable $markError) {
+            error_log('[billing invoice delivery] Could not mark accepted attempt uncertain: ' . $markError->getMessage());
+        }
         error_log('[billing invoice delivery] Finalization failed after provider accepted email: ' . $e->getMessage());
-        api_error('The email provider accepted this message, but delivery could not be finalized. The new link was disabled; review the invoice before retrying.', 500);
+        api_error('The mail provider accepted the invoice, but the ledger did not finish recording delivery. Review this attempt before another send.', 503, [
+            'delivery_status' => 'uncertain', 'retryable' => false,
+        ]);
     }
     billingAudit($row['status'] === 'approved' ? 'billing.invoice.sent' : 'billing.invoice.resent', [
         'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],

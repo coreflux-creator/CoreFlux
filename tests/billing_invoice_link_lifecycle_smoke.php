@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 putenv('COREFLUX_DISABLE_DATABASE=1');
 require_once __DIR__ . '/../modules/billing/lib/billing.php';
+require_once __DIR__ . '/../modules/billing/lib/invoice_delivery.php';
 
 final class InvoiceLinkFakePDO extends PDO
 {
@@ -98,7 +99,7 @@ $check('revocation records the actor',
 
 billingRevokeInvoiceViewToken(17, 31, 42, 7);
 $single = $db->calls[count($db->calls) - 1];
-$check('failed-send token revocation is tenant/invoice/token scoped',
+$check('targeted token revocation remains tenant/invoice/token scoped',
     (int) ($single['params']['tenant_id'] ?? 0) === 17
     && (int) ($single['params']['invoice_id'] ?? 0) === 31
     && (int) ($single['params']['token_id'] ?? 0) === 42);
@@ -107,6 +108,8 @@ $api = file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');
 $ui = file_get_contents(__DIR__ . '/../modules/billing/ui/InvoiceDetail.jsx');
 $migration = file_get_contents(__DIR__ . '/../modules/billing/migrations/021_invoice_token_revocation.sql');
 $hashOnlyMigration = file_get_contents(__DIR__ . '/../modules/billing/migrations/022_invoice_token_hash_only.sql');
+$deliveryMigration = file_get_contents(__DIR__ . '/../modules/billing/migrations/023_invoice_delivery_attempts.sql');
+$deliveryLib = file_get_contents(__DIR__ . '/../modules/billing/lib/invoice_delivery.php');
 $check('migration adds revocation time and actor idempotently',
     str_contains($migration, "COLUMN_NAME = 'revoked_at'")
     && str_contains($migration, 'ADD COLUMN revoked_at')
@@ -128,14 +131,35 @@ $check('send and revoke controls follow server permission',
     str_contains($api, "'can_send' => RBAC::hasPermission(\$user, 'billing.invoice.send')")
     && str_contains($ui, 'data.capabilities?.can_send'));
 $check('resend preserves partial and paid states',
-    str_contains($api, "['approved', 'sent', 'partially_paid', 'paid']")
-    && str_contains($api, 'CASE WHEN status = "approved" THEN "sent" ELSE status END'));
-$check('failed delivery disables its new link and successful delivery rotates old links',
-    str_contains($api, "billingRevokeInvoiceViewToken(\$tid, \$id, \$tok['token_id']")
-    && str_contains($api, 'billingRevokeInvoiceViewTokens(')
-    && str_contains($api, "'-token-' . \$tok['token_id']"));
+    str_contains($deliveryLib, "['approved', 'sent', 'partially_paid', 'paid']")
+    && str_contains($deliveryLib, 'CASE WHEN status = "approved" THEN "sent" ELSE status END'));
+$check('send reserves a durable attempt before provider dispatch',
+    strpos($api, 'billingDeliveryReserve($tid, $id, $requestId')
+        < strpos($api, '$svc->send($tid')
+    && str_contains($deliveryLib, 'FOR UPDATE')
+    && str_contains($deliveryMigration, 'UNIQUE KEY uq_bit_delivery_request'));
+$check('ambiguous delivery blocks repeats without disabling a possibly delivered link',
+    str_contains($api, 'billingDeliveryMarkUncertain($tid, $id, $tok[')
+    && str_contains($deliveryLib, 'delivery_status IN ("pending", "uncertain")')
+    && str_contains($deliveryLib, 'billingRevokeInvoiceViewTokens($tenantId, $invoiceId, $actorUserId, $tokenId)'));
+$check('a repeated request returns its recorded outcome without mailing again',
+    str_contains($deliveryLib, 'delivery_request_id = :r LIMIT 1 FOR UPDATE')
+    && str_contains($deliveryLib, "'replayed' => true")
+    && str_contains($api, "'already_sent' => true"));
+$check('human review resolves only pending or uncertain delivery',
+    str_contains($api, "\$action === 'resolve_send'")
+    && str_contains($deliveryLib, "['pending', 'uncertain']")
+    && str_contains($deliveryLib, 'delivery_started_at, NOW()) AS age_seconds'));
 $check('invoice delivery redacts its link from stored mail',
     str_contains($api, "'outbox_redactions' => [\$tok['url'], \$tok['token']]"));
+$check('delivery request IDs must be UUIDs',
+    billingDeliveryRequestId('A223E456-E89B-42D3-A456-426614174000') === 'a223e456-e89b-42d3-a456-426614174000');
+try {
+    billingDeliveryRequestId('repeat');
+    $check('invalid delivery request IDs are rejected', false);
+} catch (InvalidArgumentException $e) {
+    $check('invalid delivery request IDs are rejected', true);
+}
 $check('screen offers one-time copy, replacement, disable, and resend',
     str_contains($ui, 'billing-invoice-token-copy')
     && str_contains($ui, 'billing-invoice-token-replace')

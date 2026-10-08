@@ -80,6 +80,7 @@ $a('attachments persisted to outbox JSON',     str_contains($mailSrc, "'attachme
 echo "\nmodules/billing/api/invoices.php (wiring)\n";
 $apiPath = __DIR__ . '/../modules/billing/api/invoices.php';
 $apiSrc  = (string) file_get_contents($apiPath);
+$deliverySrc = (string) file_get_contents(__DIR__ . '/../modules/billing/lib/invoice_delivery.php');
 $a('invoices.php parses',                      (int) shell_exec('php -l ' . escapeshellarg($apiPath) . ' >/dev/null 2>&1; echo $?') === 0);
 $a('requires invoice_pdf library',             str_contains($apiSrc, "require_once __DIR__ . '/../lib/invoice_pdf.php'"));
 
@@ -91,10 +92,11 @@ $a('send passes $attachments to MailService',  preg_match('/\$svc->send\([^;]*?\
 $a('send tolerates renderer-missing host',     str_contains($apiSrc, '$pdfError') && str_contains($apiSrc, '} catch (\Throwable $e)'));
 $a('send audit logs pdf_attached + pdf_error', str_contains($apiSrc, "'pdf_attached'") && str_contains($apiSrc, "'pdf_error'"));
 $a('send response exposes pdf_attached',       str_contains($apiSrc, "'pdf_attached' =>"));
-$a('send still issues view token',             str_contains($apiSrc, 'billingIssueViewToken($tid, $id)'));
+$a('send reserves a customer view token',      str_contains($apiSrc, 'billingDeliveryReserve($tid, $id, $requestId')
+    && str_contains($deliverySrc, 'billingIssueViewToken($tenantId, $invoiceId)'));
 $a('first send marks approved invoice sent without regressing later states',
-   str_contains($apiSrc, 'CASE WHEN status = "approved" THEN "sent" ELSE status END')
-   && str_contains($apiSrc, 'sent_at = COALESCE(sent_at, NOW())'));
+   str_contains($deliverySrc, 'CASE WHEN status = "approved" THEN "sent" ELSE status END')
+   && str_contains($deliverySrc, 'sent_at = COALESCE(sent_at, NOW())'));
 
 // --- GET ?action=pdf must stream a PDF file -----------------------------
 $a("GET has action='pdf' branch",              str_contains($apiSrc, "\$method === 'GET' && \$action === 'pdf'"));

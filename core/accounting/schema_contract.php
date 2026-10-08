@@ -30,7 +30,9 @@ function coreAccountingRequiredSchema(): array
         'billing_invoice_lines' => ['id', 'invoice_id', 'description', 'quantity',
             'unit_price', 'total'],
         'billing_invoice_tokens' => ['id', 'tenant_id', 'invoice_id', 'token_hash',
-            'expires_at', 'revoked_at', 'revoked_by_user_id'],
+            'expires_at', 'revoked_at', 'revoked_by_user_id', 'delivery_request_id',
+            'delivery_status', 'delivery_recipient', 'delivery_provider_id',
+            'delivery_error', 'delivery_started_at', 'delivery_finished_at'],
         'billing_payments' => ['id', 'tenant_id', 'bank_account_id', 'journal_entry_id',
             'amount', 'voided_at'],
         'billing_payment_allocations' => ['id', 'payment_id', 'invoice_id',
@@ -66,7 +68,10 @@ function coreAccountingRequiredUniqueKeys(): array
             ['tenant_id', 'invoice_number'],
             ['tenant_id', 'source_system', 'external_id'],
         ],
-        'billing_invoice_tokens' => [['token_hash']],
+        'billing_invoice_tokens' => [
+            ['token_hash'],
+            ['tenant_id', 'invoice_id', 'delivery_request_id'],
+        ],
         'billing_payments' => [['tenant_id', 'source_system', 'external_id']],
         'ap_bills' => [
             ['tenant_id', 'internal_ref'],
