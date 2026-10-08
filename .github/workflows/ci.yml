@@ -145,7 +145,7 @@ jobs:
 
     env:
       COREFLUX_ENV: staging
-      COREFLUX_ACCOUNTING_DB_CONFIG_PATH: ${{ runner.temp }}/coreaccounting-ci-db.php
+      COREFLUX_ACCOUNTING_DB_CONFIG_PATH: /tmp/coreaccounting-ci-db.php
       COREFLUX_STAGING_PUBLIC_ORIGIN: https://staging.corefluxapp.com
       DB_HOST: 127.0.0.1
       DB_NAME: coreaccounting_ci
