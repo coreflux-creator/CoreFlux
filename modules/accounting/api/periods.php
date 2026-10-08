@@ -151,6 +151,7 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
             "SELECT id, task_key, title, status, assignee_user_id, due_date
                FROM accounting_close_tasks
               WHERE tenant_id = :t AND period_id = :p
+                AND task_key NOT IN ('lock_period','build_packet')
                 AND status IN ('pending','in_progress','blocked')
               ORDER BY due_date IS NULL, due_date ASC, sort_order ASC"
         );
@@ -189,6 +190,7 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
             "SELECT id, task_key, title, status, assignee_user_id, due_date
                FROM accounting_close_tasks
               WHERE tenant_id = :t AND period_id = :p
+                AND task_key NOT IN ('lock_period','build_packet')
                 AND status IN ('pending','in_progress','blocked')
               ORDER BY due_date IS NULL, due_date ASC, sort_order ASC"
         );
@@ -229,6 +231,11 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
              SET status = "locked", locked_at = :ts, locked_by_user_id = :u
              WHERE id = :id'
         )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'id' => $id]);
+        $pdo->prepare('UPDATE accounting_close_tasks
+            SET status = "done", completed_at = :ts, completed_by_user_id = :u
+            WHERE tenant_id = :t AND period_id = :p AND task_key = "lock_period"
+                AND status <> "done"')
+            ->execute(['ts' => $now, 'u' => $user['id'] ?? null, 't' => $tid, 'p' => $id]);
         accountingAudit('accounting.period.locked', [
             'period_id' => $id, 'period_number' => (int) $row['period_number'], 'reason' => $reason,
         ], $id);

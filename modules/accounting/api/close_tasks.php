@@ -23,6 +23,8 @@ if ($method === 'GET') {
     rbac_legacy_require($user, 'accounting.period.view');
     $periodId = (int) (api_query('period_id') ?? 0);
     if (!$periodId) api_error('period_id required', 422);
+    if (!scopedFind('SELECT id FROM accounting_periods WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $periodId])) api_error('Period not found', 404);
     $rows = scopedQuery(
         "SELECT t.*,
                 u.name AS assignee_name,
@@ -48,7 +50,10 @@ if ($method === 'POST' && $action === 'seed') {
     rbac_legacy_require($user, 'accounting.close_workflow.manage');
     $body = api_json_body();
     api_require_fields($body, ['period_id']);
-    $added = accountingSeedCloseChecklist($tenantId, (int) $body['period_id'], (int) ($user['id'] ?? 0));
+    $periodId = (int) $body['period_id'];
+    if (!scopedFind('SELECT id FROM accounting_periods WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $periodId])) api_error('Period not found', 404);
+    $added = accountingSeedCloseChecklist($tenantId, $periodId, (int) ($user['id'] ?? 0));
     api_ok(['period_id' => (int) $body['period_id'], 'added' => $added]);
 }
 

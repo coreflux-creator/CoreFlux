@@ -40,10 +40,13 @@ function accountingDefaultCloseChecklist(): array {
 function accountingSeedCloseChecklist(int $tenantId, int $periodId, ?int $actorUserId = null): int {
     $pdo = getDB();
     if (!$pdo) return 0;
+    $periodStmt = $pdo->prepare('SELECT id FROM accounting_periods WHERE tenant_id = :t AND id = :p');
+    $periodStmt->execute(['t' => $tenantId, 'p' => $periodId]);
+    if (!$periodStmt->fetchColumn()) throw new \RuntimeException('Period not found');
     $template = accountingDefaultCloseChecklist();
-    // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
-    $existing = $pdo->prepare("SELECT task_key FROM accounting_close_tasks WHERE period_id = :p");
-    $existing->execute(['p' => $periodId]);
+    $existing = $pdo->prepare('SELECT task_key FROM accounting_close_tasks
+        WHERE tenant_id = :t AND period_id = :p');
+    $existing->execute(['t' => $tenantId, 'p' => $periodId]);
     $have = array_flip(array_column($existing->fetchAll(PDO::FETCH_ASSOC), 'task_key'));
 
     $ins = $pdo->prepare(
@@ -203,6 +206,12 @@ function accountingRecordClosePacket(int $tenantId, int $periodId, ?int $actorUs
         if (!in_array($period['status'], ['closed', 'locked'], true)) {
             throw new \DomainException('Close the period before saving a packet');
         }
+
+        $pdo->prepare('UPDATE accounting_close_tasks
+            SET status = "done", completed_at = NOW(), completed_by_user_id = :u
+            WHERE tenant_id = :t AND period_id = :p AND task_key = "build_packet"
+                AND status <> "done"')
+            ->execute(['u' => $actorUserId, 't' => $tenantId, 'p' => $periodId]);
 
         $html = accountingBuildClosePacketHtml($tenantId, $periodId);
         $hash = hash('sha256', $html);

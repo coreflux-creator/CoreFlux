@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
-import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 
 /**
  * PeriodCloseWorkflow — runs the 9-step accounting close checklist
@@ -19,10 +20,14 @@ import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
  * checklist with completion stamps, a live preview and saved packet versions.
  */
 export default function PeriodCloseWorkflow() {
-  const { activeEntityId, activeEntity, entityQuery } = useActiveEntity();
-  const periodsApi = useApi('/modules/accounting/api/periods.php' + entityQuery('?'));
-  const periods = periodsApi.data?.rows ?? [];
+  const scope = useAccountingEntityScope();
+  const periodsApi = useApi(scope.entityId
+    ? `/modules/accounting/api/periods.php?entity_id=${scope.entityId}` : null,
+  { enabled: scope.ready && !!scope.entityId });
+  const periods = scope.ready && periodsApi.data?.entity_id === scope.entityId
+    ? periodsApi.data.rows ?? [] : [];
   const [periodId, setPeriodId] = useState(null);
+  useEffect(() => { setPeriodId(null); }, [scope.scopeKey]);
 
   const tasksApi = useApi(periodId ? `/modules/accounting/api/close_tasks.php?period_id=${periodId}` : null,
                           { enabled: !!periodId });
@@ -34,12 +39,17 @@ export default function PeriodCloseWorkflow() {
   const packets = packetsApi.data?.period_id === periodId ? packetsApi.data.rows ?? [] : [];
   const selectedPeriod = periods.find(p => Number(p.id) === periodId);
   const canSavePacket = ['closed', 'locked'].includes(selectedPeriod?.status);
+  const canClosePeriod = ['open', 'soft_closed', 'reopened'].includes(selectedPeriod?.status);
+  const reviewTasks = tasks.filter(t => !['lock_period', 'build_packet'].includes(t.task_key));
+  const reviewComplete = reviewTasks.length > 0
+    && reviewTasks.every(t => ['done', 'skipped'].includes(t.status));
 
   const [busy, setBusy] = useState(null);
   const [err, setErr]   = useState(null);
   const [readiness, setReadiness] = useState(null);
   const [readinessBusy, setReadinessBusy] = useState(false);
   const [packetNotice, setPacketNotice] = useState(null);
+  const [lockReason, setLockReason] = useState('');
 
   const askReadiness = async () => {
     if (!periodId) return;
@@ -116,6 +126,31 @@ export default function PeriodCloseWorkflow() {
         `/modules/accounting/api/close_packet.php?period_id=${periodId}&action=record`, {});
       setPacketNotice(`Saved version ${recorded.id}`);
       await packetsApi.reload();
+      await tasksApi.reload();
+    } catch (e) { setErr(e); } finally { setBusy(null); }
+  };
+
+  const closePeriod = async () => {
+    if (!periodId || !reviewComplete || !canClosePeriod) return;
+    if (!confirm('Close this accounting period? New postings dated in it will be blocked.')) return;
+    setBusy('period-close'); setErr(null);
+    try {
+      await api.post(`/modules/accounting/api/periods.php?action=close&id=${periodId}`, {});
+      await periodsApi.reload();
+      await tasksApi.reload();
+    } catch (e) { setErr(e); } finally { setBusy(null); }
+  };
+
+  const lockPeriod = async () => {
+    if (!periodId || selectedPeriod?.status !== 'closed' || packets.length === 0) return;
+    if (!lockReason.trim()) return;
+    setBusy('period-lock'); setErr(null);
+    try {
+      await api.post(`/modules/accounting/api/periods.php?action=lock&id=${periodId}`,
+        { reason: lockReason.trim() });
+      setLockReason('');
+      await periodsApi.reload();
+      await tasksApi.reload();
     } catch (e) { setErr(e); } finally { setBusy(null); }
   };
 
@@ -126,17 +161,19 @@ export default function PeriodCloseWorkflow() {
         <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>
           Pick a period, seed the 9-step checklist, walk it task-by-task, and build the printable close packet.
         </p>
-        {activeEntity && (
+        {scope.entity && (
           <p style={{ margin: '4px 0 0', fontSize: 12, color: '#1e40af' }} data-testid="close-entity-scope">
-            Scoped to entity <code>{activeEntity.code}</code>.
+            {scope.label}
           </p>
         )}
       </header>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+        <AccountingEntitySelector scope={scope} testId="close-entity-select" allowAll={false} />
         <label style={{ fontSize: 13, color: '#475569' }}>Period:</label>
         <select className="input" data-testid="close-period-select"
                 value={periodId ?? ''}
+                disabled={!scope.ready || !scope.entityId}
                 onChange={e => setPeriodId(e.target.value ? Number(e.target.value) : null)}>
           <option value="">— choose —</option>
           {periods.map(p => (
@@ -144,7 +181,7 @@ export default function PeriodCloseWorkflow() {
           ))}
         </select>
 
-        {!!periodId && tasks.length === 0 && (
+        {!!periodId && tasks.length === 0 && canClosePeriod && (
           <button className="btn btn--primary" data-testid="close-seed" disabled={busy === 'seed'} onClick={seed}>
             {busy === 'seed' ? 'Seeding…' : 'Seed default 9-step checklist'}
           </button>
@@ -155,20 +192,39 @@ export default function PeriodCloseWorkflow() {
           onClick={() => showPacket()}>
           Preview packet
         </button>}
+        {!!periodId && canClosePeriod && tasks.length > 0 && <button
+          className="btn btn--primary" type="button" data-testid="close-period-action"
+          disabled={!reviewComplete || busy === 'period-close'} onClick={closePeriod}>
+          {busy === 'period-close' ? 'Closing…' : 'Close period'}
+        </button>}
         {!!periodId && canSavePacket && <button className="btn btn--primary" type="button"
           data-testid="close-build-packet" disabled={busy === 'packet-save'}
           onClick={buildPacket}>
-          {busy === 'packet-save' ? 'Saving…' : 'Save close packet'}
+          {busy === 'packet-save' ? 'Saving…'
+            : selectedPeriod?.status === 'locked' ? 'Save locked packet' : 'Save close packet'}
         </button>}
+        {!!periodId && selectedPeriod?.status === 'closed' && packets.length > 0 &&
+          <>
+            <label htmlFor="close-lock-reason" style={{ fontSize: 13 }}>Lock reason</label>
+            <input id="close-lock-reason" className="input" type="text" value={lockReason}
+              data-testid="close-lock-reason" onChange={e => setLockReason(e.target.value)}
+              maxLength={500} />
+            <button className="btn btn--ghost" type="button" data-testid="close-lock-period"
+              disabled={!lockReason.trim() || busy === 'period-lock'} onClick={lockPeriod}>
+              {busy === 'period-lock' ? 'Locking…' : 'Lock period'}
+            </button>
+          </>}
       </div>
 
       {err && <p className="error" data-testid="close-error">Error: {err.message}</p>}
       {tasksApi.error && <p className="error">Error: {tasksApi.error.message}</p>}
       {periodsApi.error && <p className="error">Periods load error: {periodsApi.error.message}</p>}
+      {scope.error && <p className="error">{scope.error}</p>}
       {packetsApi.error && <p className="error">Saved packets load error: {packetsApi.error.message}</p>}
       {packetNotice && <p role="status" data-testid="close-packet-saved">{packetNotice}</p>}
       {!!periodId && !canSavePacket && <p style={{ color: '#64748b', fontSize: 13 }}>
-        Close the period to save a version. Preview reflects the current books.
+        {reviewComplete ? 'Ready to close. Preview reflects the current books.'
+          : 'Complete the review tasks to close. Preview reflects the current books.'}
       </p>}
 
       {!periodId && (
@@ -250,19 +306,21 @@ export default function PeriodCloseWorkflow() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  {t.status !== 'done' && t.status !== 'in_progress' && (
+                  {!['lock_period', 'build_packet'].includes(t.task_key)
+                    && t.status !== 'done' && t.status !== 'in_progress' && (
                     <button className="btn btn--ghost" style={{ fontSize: 12 }}
                             data-testid={`close-task-start-${t.id}`}
                             disabled={busy === `status-${t.id}`}
                             onClick={() => setStatus(t.id, 'in_progress')}>Start</button>
                   )}
-                  {t.status !== 'done' && (
+                  {!['lock_period', 'build_packet'].includes(t.task_key) && t.status !== 'done' && (
                     <button className="btn btn--primary" style={{ fontSize: 12 }}
                             data-testid={`close-task-complete-${t.id}`}
                             disabled={busy === `complete-${t.id}`}
                             onClick={() => complete(t.id)}>Complete</button>
                   )}
-                  {t.status !== 'blocked' && t.status !== 'done' && (
+                  {!['lock_period', 'build_packet'].includes(t.task_key)
+                    && t.status !== 'blocked' && t.status !== 'done' && (
                     <button className="btn btn--ghost" style={{ fontSize: 12, color: '#dc2626' }}
                             data-testid={`close-task-block-${t.id}`}
                             disabled={busy === `status-${t.id}`}

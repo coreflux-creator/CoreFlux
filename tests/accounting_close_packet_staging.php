@@ -10,7 +10,7 @@ if (PHP_SAPI !== 'cli' || ($argv[1] ?? '') !== '--execute') {
 define('QA_LIFECYCLE_LIBRARY_MODE', true);
 require_once __DIR__ . '/accounting_staging_lifecycle.php';
 
-function qaClosePacketStatus(string $path, string $method, string $cookie): int
+function qaClosePacketStatus(string $path, string $method, string $cookie, array $body = []): int
 {
     $curl = curl_init(QA_BASE_URL . $path);
     curl_setopt_array($curl, [
@@ -23,7 +23,7 @@ function qaClosePacketStatus(string $path, string $method, string $cookie): int
         CURLOPT_HTTPHEADER => ['Accept: application/json', 'Content-Type: application/json',
             'X-CoreFlux-Tenant-Id: ' . QA_TENANT],
     ]);
-    if ($method === 'POST') curl_setopt($curl, CURLOPT_POSTFIELDS, '{}');
+    if ($method === 'POST') curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($body, JSON_THROW_ON_ERROR));
     $raw = curl_exec($curl);
     $status = curl_getinfo($curl, CURLINFO_HTTP_CODE);
     $error = curl_error($curl);
@@ -35,6 +35,7 @@ function qaClosePacketStatus(string $path, string $method, string $cookie): int
 $actor = null;
 $cookie = null;
 $testTaskId = null;
+$flowPeriodId = null;
 try {
     $cutover = qaOne($pdo, 'SELECT c.entity_id, c.posting_date FROM accounting_opening_document_cutovers c
         JOIN accounting_entities e ON e.id = c.entity_id AND e.tenant_id = c.tenant_id
@@ -85,6 +86,60 @@ try {
         WHERE tenant_id = :t AND period_id = :p',
         ['t' => QA_TENANT, 'p' => $unavailableId])['n'];
     qaExpect($before === $after, 'rejected packet record had no database effect');
+    qaExpect(qaClosePacketStatus('/modules/accounting/api/close_tasks.php?period_id=' . $unavailableId,
+        'GET', $cookie) === 404, 'foreign or missing close checklist is not readable');
+    qaExpect(qaClosePacketStatus('/modules/accounting/api/close_tasks.php?action=seed',
+        'POST', $cookie, ['period_id' => $unavailableId]) === 404,
+        'foreign or missing period cannot receive a seeded checklist');
+
+    $flowDate = '2016-12-31';
+    if (qaOne($pdo, 'SELECT id FROM accounting_periods WHERE tenant_id = :t AND entity_id = :e
+        AND start_date <= :d AND end_date >= :d',
+        ['t' => QA_TENANT, 'e' => $entityId, 'd' => $flowDate])) {
+        throw new RuntimeException('Disposable synthetic close-period date is already in use.');
+    }
+    $pdo->prepare('INSERT INTO accounting_periods
+        (tenant_id, entity_id, period_number, start_date, end_date, status)
+        VALUES (:t, :e, 12, :d1, :d2, "open")')
+        ->execute(['t' => QA_TENANT, 'e' => $entityId, 'd1' => $flowDate, 'd2' => $flowDate]);
+    $flowPeriodId = (int) $pdo->lastInsertId();
+    $flowPath = '/modules/accounting/api/periods.php?action=close&id=' . $flowPeriodId;
+    qaRequest('/modules/accounting/api/close_tasks.php?action=seed', 'POST',
+        ['period_id' => $flowPeriodId], $cookie);
+    qaExpect(qaClosePacketStatus($flowPath, 'POST', $cookie) === 409,
+        'open review tasks block close');
+    $reviewTasks = $pdo->prepare('SELECT id FROM accounting_close_tasks
+        WHERE tenant_id = :t AND period_id = :p AND task_key NOT IN ("lock_period", "build_packet")');
+    $reviewTasks->execute(['t' => QA_TENANT, 'p' => $flowPeriodId]);
+    $taskIds = $reviewTasks->fetchAll(PDO::FETCH_COLUMN);
+    qaExpect(count($taskIds) === 7, 'close checklist has seven pre-close review tasks');
+    foreach ($taskIds as $taskId) {
+        qaRequest('/modules/accounting/api/close_tasks.php?action=complete&id=' . (int) $taskId,
+            'POST', [], $cookie);
+    }
+    qaRequest($flowPath, 'POST', [], $cookie);
+    $flowState = qaOne($pdo, 'SELECT status FROM accounting_periods WHERE tenant_id = :t AND id = :p',
+        ['t' => QA_TENANT, 'p' => $flowPeriodId]);
+    qaExpect($flowState['status'] === 'closed',
+        'period closes with review complete and the two action tasks still pending');
+    $closedPacket = qaRequest('/modules/accounting/api/close_packet.php?period_id=' . $flowPeriodId
+        . '&action=record', 'POST', [], $cookie);
+    $packetTask = qaOne($pdo, 'SELECT status FROM accounting_close_tasks
+        WHERE tenant_id = :t AND period_id = :p AND task_key = "build_packet"',
+        ['t' => QA_TENANT, 'p' => $flowPeriodId]);
+    qaExpect((int) $closedPacket['id'] > 0 && $packetTask['status'] === 'done',
+        'saving the closed packet completes the packet action task');
+    qaRequest('/modules/accounting/api/periods.php?action=lock&id=' . $flowPeriodId,
+        'POST', ['reason' => 'Synthetic QA close flow'], $cookie);
+    $lockTask = qaOne($pdo, 'SELECT status FROM accounting_close_tasks
+        WHERE tenant_id = :t AND period_id = :p AND task_key = "lock_period"',
+        ['t' => QA_TENANT, 'p' => $flowPeriodId]);
+    qaExpect($lockTask['status'] === 'done', 'reasoned lock completes the lock action task');
+    $lockedPacket = qaRequest('/modules/accounting/api/close_packet.php?period_id=' . $flowPeriodId
+        . '&action=record', 'POST', [], $cookie);
+    qaExpect((int) $lockedPacket['id'] > (int) $closedPacket['id']
+        && $lockedPacket['period_status'] === 'locked',
+        'locked period can retain a final version without replacing the closed version');
 
     if (!in_array($period['status'], ['closed', 'locked'], true)) {
         qaExpect(qaClosePacketStatus($path . '&action=record', 'POST', $cookie) === 409,
@@ -135,6 +190,22 @@ try {
         'the version list returns both saved packets newest first');
     echo "Synthetic close-packet period {$periodId}, packet {$packetId}.\n";
 } finally {
+    if ($flowPeriodId) {
+        $check = qaOne($pdo, 'SELECT id FROM accounting_periods WHERE tenant_id = :t
+            AND entity_id = :e AND id = :p AND start_date = "2016-12-31"',
+            ['t' => QA_TENANT, 'e' => $entityId, 'p' => $flowPeriodId]);
+        if ($check) {
+            $pdo->prepare('DELETE FROM accounting_close_packet_snapshots
+                WHERE tenant_id = :t AND period_id = :p')->execute(['t' => QA_TENANT, 'p' => $flowPeriodId]);
+            $pdo->prepare('DELETE FROM accounting_close_packets
+                WHERE tenant_id = :t AND period_id = :p')->execute(['t' => QA_TENANT, 'p' => $flowPeriodId]);
+            $pdo->prepare('DELETE FROM accounting_close_tasks
+                WHERE tenant_id = :t AND period_id = :p')->execute(['t' => QA_TENANT, 'p' => $flowPeriodId]);
+            $pdo->prepare('DELETE FROM accounting_periods
+                WHERE tenant_id = :t AND entity_id = :e AND id = :p')
+                ->execute(['t' => QA_TENANT, 'e' => $entityId, 'p' => $flowPeriodId]);
+        }
+    }
     if ($testTaskId) {
         $pdo->prepare('DELETE FROM accounting_close_tasks WHERE id = :id AND tenant_id = :t
             AND task_key = "qa_packet_snapshot"')

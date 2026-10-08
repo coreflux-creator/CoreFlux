@@ -81,6 +81,10 @@ $assert('PATCH task status',                         preg_match("#api\\.patch\\(
 $assert('POST record close packet',                  stripos($pc, "/modules/accounting/api/close_packet.php?period_id=") !== false && stripos($pc, "&action=record") !== false);
 $assert('opens close packet preview in new tab',    stripos($pc, "window.open('', '_blank')") !== false
     && stripos($pc, 'result.html') !== false && stripos($pc, 'packet_id=') !== false);
+$assert('close workflow uses page-scoped legal entity', stripos($pc, 'useAccountingEntityScope') !== false
+    && stripos($pc, 'close-entity-select') !== false);
+$assert('close workflow offers ordered actions', stripos($pc, 'close-period-action') !== false
+    && stripos($pc, 'close-build-packet') !== false && stripos($pc, 'close-lock-period') !== false);
 foreach (['accounting-period-close-workflow','close-period-select','close-seed','close-build-packet','close-error','close-empty','close-stats','close-task-list'] as $tid) {
     $assert("testid: {$tid}", stripos($pc, "data-testid=\"{$tid}\"") !== false);
 }
