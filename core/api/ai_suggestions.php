@@ -33,6 +33,12 @@ if (!in_array($action, ['approve', 'reject'], true)) {
 }
 
 $module = explode('.', $body['feature_key'])[0] ?: 'unknown';
+if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+    require_once __DIR__ . '/../accounting/standalone_boundary.php';
+    if (!coreAccountingAllowsModule($module, 'coreaccounting')) {
+        api_error('Not found', 404);
+    }
+}
 
 $id = scopedInsert('ai_suggestions', [
     'user_id'        => $ctx['user']['id'] ?? null,

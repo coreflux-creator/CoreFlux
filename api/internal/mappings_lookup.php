@@ -28,6 +28,9 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../core/accounting/standalone_api_boundary.php';
+coreAccountingEnforcePublicApiScript(__FILE__, dirname(__DIR__, 2));
+
 require_once __DIR__ . '/../../core/db.php';
 require_once __DIR__ . '/../../core/integrations/entity_mappings.php';
 

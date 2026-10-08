@@ -13,11 +13,13 @@ $put = static function (string $relative) use ($webroot): void {
     file_put_contents($path, 'fixture');
 };
 foreach ([
-    '.htaccess', 'spa.php', 'index.html', 'dashboard/dist/index.html',
+    '.htaccess', 'spa.php', 'login.php', 'session.php', 'index.html', 'dashboard/dist/index.html',
     'vendor/autoload.php', 'spa-assets/index-current.js', 'spa-assets/index-current.css',
     'modules/accounting/api/reports.php', '_deploy_ok.txt', 'robots.txt',
-    'README.md', 'ssh note.txt', 'composer.lock', 'dashboard/package.json',
+    'README.md', 'ssh note.txt', 'install.php', 'bootstrap_debug.php',
+    'composer.lock', 'dashboard/package.json',
     'dashboard/src/lib/api.js', 'graphql/router/index.ts',
+    'deploy/example.php', 'scripts/example.php', '.github/workflows/example.yml',
     'modules/accounting/ui/journalDimensions.js',
 ] as $file) $put($file);
 
@@ -35,12 +37,15 @@ try {
     $result = json_decode((string) ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
 
     $moved = [
-        'README.md', 'ssh note.txt', 'composer.lock', 'dashboard/package.json',
+        'README.md', 'ssh note.txt', 'install.php', 'bootstrap_debug.php',
+        'composer.lock', 'dashboard/package.json',
         'dashboard/src/lib/api.js', 'graphql/router/index.ts',
+        '.github/workflows/example.yml',
         'modules/accounting/ui/journalDimensions.js',
     ];
     $retained = [
-        '.htaccess', 'spa.php', 'index.html', 'dashboard/dist/index.html',
+        '.htaccess', 'spa.php', 'login.php', 'session.php', 'index.html', 'dashboard/dist/index.html',
+        'deploy/example.php', 'scripts/example.php',
         'vendor/autoload.php', 'spa-assets/index-current.js', 'spa-assets/index-current.css',
         'modules/accounting/api/reports.php', '_deploy_ok.txt', 'robots.txt',
     ];
@@ -52,7 +57,7 @@ try {
     foreach ($retained as $relative) {
         if (!is_file($webroot . '/' . $relative)) throw new RuntimeException("Runtime file moved: $relative");
     }
-    if (($result['moved_entries'] ?? null) !== 7) throw new RuntimeException('Unexpected move count');
+    if (($result['moved_entries'] ?? null) !== 10) throw new RuntimeException('Unexpected move count');
     require_once __DIR__ . '/../core/installer_helpers.php';
     $bundleChecks = spaBundleStatus($webroot);
     if (($bundleChecks[1]['detail'] ?? '') !== 'runtime-only package; compare installed bundle hashes with the release manifest') {

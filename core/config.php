@@ -4,6 +4,16 @@
  * Central configuration for the platform core
  */
 
+// A dedicated CoreAccounting host rejects unknown flat APIs before loading
+// secrets, opening a session, or running startup migrations.
+if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+    require_once __DIR__ . '/accounting/standalone_boundary.php';
+    require_once __DIR__ . '/accounting/standalone_api_boundary.php';
+    if (PHP_SAPI !== 'cli') {
+        coreAccountingEnforcePublicApiScript($_SERVER['SCRIPT_FILENAME'] ?? null, dirname(__DIR__));
+    }
+}
+
 // Cloudways default domains and explicit staging runs must never use the
 // legacy production database fallback. Each staging app needs its own file.
 $dbLocalConfig = __DIR__ . '/db.local.php';
@@ -22,16 +32,17 @@ if (!defined('COREFLUX_STAGING')) {
 if ($requiresExplicitDb || $standaloneAccounting) {
     foreach (['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASS'] as $setting) {
         if (!defined($setting) || trim((string) constant($setting)) === '') {
-            throw new RuntimeException($standaloneAccounting
-                ? 'CoreAccounting database configuration is incomplete.'
-                : 'Staging database configuration is incomplete.');
+            if ($standaloneAccounting) {
+                coreAccountingConfigurationFailure('CoreAccounting database configuration is incomplete.');
+            }
+            throw new RuntimeException('Staging database configuration is incomplete.');
         }
     }
 }
 if ($standaloneAccounting) {
     $expectedDatabase = trim((string) (getenv('COREFLUX_STANDALONE_DATABASE') ?: ''));
     if ($expectedDatabase === '' || !hash_equals($expectedDatabase, (string) DB_NAME)) {
-        throw new RuntimeException('CoreAccounting database identity is missing or does not match.');
+        coreAccountingConfigurationFailure('CoreAccounting database identity is missing or does not match.');
     }
 }
 
@@ -48,7 +59,7 @@ define('DB_PASS', getenv('DB_PASS') !== false ? (string) getenv('DB_PASS') : '7D
 if ($standaloneAccounting) {
     foreach (['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_SECURE', 'SMTP_FROM_EMAIL', 'SMTP_FROM_NAME'] as $setting) {
         if (defined($setting)) {
-            throw new RuntimeException('CoreAccounting SMTP settings must use dedicated environment variables.');
+            coreAccountingConfigurationFailure('CoreAccounting SMTP settings must use dedicated environment variables.');
         }
     }
     define('SMTP_HOST', trim((string) (getenv('COREFLUX_ACCOUNTING_SMTP_HOST') ?: '')));
@@ -96,7 +107,7 @@ if (COREFLUX_STAGING) {
     if (!is_array($parts) || ($parts['scheme'] ?? '') !== 'https'
         || empty($parts['host'])
         || array_intersect(['user', 'pass', 'port', 'path', 'query', 'fragment'], array_keys($parts))) {
-        throw new RuntimeException('CoreAccounting requires an explicit HTTPS public origin.');
+        coreAccountingConfigurationFailure('CoreAccounting requires an explicit HTTPS public origin.');
     }
     $appUrl = $standaloneOrigin;
 }

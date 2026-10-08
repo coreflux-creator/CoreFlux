@@ -37,6 +37,8 @@ foreach (['spa.php', 'index.html', '.htaccess', 'dashboard/dist/index.html', 've
 }
 if (!mkdir($private, 0700)) throw new RuntimeException('Could not create private source directory.');
 
+require_once __DIR__ . '/../core/accounting/standalone_api_boundary.php';
+
 $moved = 0;
 $move = static function (string $relative) use ($webroot, $private, &$moved): void {
     $source = $webroot . '/' . $relative;
@@ -56,12 +58,18 @@ foreach (glob($webroot . '/*.md') ?: [] as $source) $move(basename($source));
 foreach (glob($webroot . '/*.txt') ?: [] as $source) {
     if (!in_array(basename($source), ['_deploy_ok.txt', 'robots.txt'], true)) $move(basename($source));
 }
+foreach (glob($webroot . '/*.php') ?: [] as $source) {
+    if (!coreAccountingAllowsPublicApiScript($source, $webroot, 'coreaccounting')) {
+        $move(basename($source));
+    }
+}
 foreach ([
     'composer.json', 'composer.lock', 'dashboard (1).css', 'eslint.config.js', 'mock-server.js',
     'dashboard/package.json', 'dashboard/package-lock.json', 'dashboard/vite.config.js',
     'dashboard/main.js', 'dashboard/style.css', 'dashboard/index.html', 'dashboard/vite.svg',
     'dashboard/.env.local', 'dashboard/src', 'dashboard/node_modules', 'dashboard/tests',
-    'src', 'graphql', '_debug', 'docs', 'legacy', 'memory', 'spec', 'tests',
+    'src', 'graphql', '_debug', '.github', 'docs', 'legacy',
+    'memory', 'spec', 'tests',
 ] as $relative) $move($relative);
 foreach (glob($webroot . '/modules/*/ui', GLOB_ONLYDIR) ?: [] as $source) {
     $move('modules/' . basename(dirname($source)) . '/ui');

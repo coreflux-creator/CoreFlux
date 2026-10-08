@@ -21,3 +21,16 @@ function coreAccountingAllowsModule(?string $moduleKey, string $environment): bo
 
     return in_array($moduleKey, ['accounting', 'billing', 'ap', 'treasury'], true);
 }
+
+/** Keep incomplete standalone configuration out of public responses. */
+function coreAccountingConfigurationFailure(string $reason): never
+{
+    if (PHP_SAPI === 'cli') {
+        throw new RuntimeException($reason);
+    }
+    error_log($reason);
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(503);
+    echo '{"error":"CoreAccounting is not configured","status":503}';
+    exit;
+}

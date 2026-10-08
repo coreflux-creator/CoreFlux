@@ -42,6 +42,9 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../core/accounting/standalone_api_boundary.php';
+coreAccountingEnforcePublicApiScript(__FILE__, dirname(__DIR__, 2));
+
 require_once __DIR__ . '/../../core/jobdiva/client.php';
 
 header('Content-Type: application/json');
