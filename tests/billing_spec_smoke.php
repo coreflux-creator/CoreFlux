@@ -130,6 +130,10 @@ $assert('detail separates request and posting', strpos($id, 'billing-invoice-req
     && strpos($id, 'Approve & post') === false);
 $assert('detail exposes pending assignment', strpos($id, 'billing-invoice-reassign-modal') !== false);
 $assert('detail has send button testid',       strpos($id, 'billing-invoice-send-open') !== false);
+$assert('paid but unsent invoice keeps a first-send label',
+    strpos($id, 'const hasBeenSent = Boolean(inv.sent_at)') !== false
+    && strpos($id, "const sendActionLabel = hasBeenSent ? 'Resend' : 'Send'") !== false
+    && substr_count($id, 'sendActionLabel') >= 4);
 $assert('detail has void button testid',       strpos($id, 'billing-invoice-void') !== false);
 $ifm = (string) file_get_contents(__DIR__ . '/../modules/billing/ui/InvoiceFromTimeBundleModal.jsx');
 $assert('modal hits feed.php for ar bundles',  strpos($ifm, 'bundle_type=ar') !== false);

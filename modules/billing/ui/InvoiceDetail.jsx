@@ -58,6 +58,9 @@ export default function InvoiceDetail() {
   const allocations = data.allocations || [];
   const token = data.token;
   const delivery = data.delivery;
+  const hasBeenSent = Boolean(inv.sent_at) || inv.status === 'sent'
+    || delivery?.delivery_status === 'sent';
+  const sendActionLabel = hasBeenSent ? 'Resend' : 'Send';
   const deliveryBlocked = ['pending', 'uncertain'].includes(delivery?.delivery_status);
   const canResolveDelivery = deliveryBlocked && data.capabilities?.can_send
     && (delivery.delivery_status === 'uncertain' || Number(delivery.age_seconds) >= 120);
@@ -212,7 +215,7 @@ export default function InvoiceDetail() {
           {canRequest && <button className="btn btn--primary" onClick={requestApproval} disabled={Boolean(busy)} data-testid="billing-invoice-request-approval"><Send size={15} aria-hidden="true" /> {busy==='request' ? 'Requesting…' : 'Request approval'}</button>}
           {canApprove && <button className="btn btn--primary" onClick={approve} disabled={Boolean(busy)} data-testid="billing-invoice-approve"><Check size={15} aria-hidden="true" /> {busy==='approve' ? 'Approving…' : 'Approve'}</button>}
           {canApprove && approvalState?.pending && <button className="btn btn--ghost" onClick={reject} disabled={Boolean(busy)} data-testid="billing-invoice-reject"><X size={15} aria-hidden="true" /> {busy==='reject' ? 'Rejecting…' : 'Reject'}</button>}
-          {canSend && <button className="btn btn--primary" onClick={() => { sendRequestId.current = crypto.randomUUID(); setShowSend(true); }} data-testid="billing-invoice-send-open"><Send size={15} aria-hidden="true" /> {inv.status === 'approved' ? 'Send' : 'Resend'}</button>}
+          {canSend && <button className="btn btn--primary" onClick={() => { sendRequestId.current = crypto.randomUUID(); setShowSend(true); }} data-testid="billing-invoice-send-open"><Send size={15} aria-hidden="true" /> {sendActionLabel}</button>}
           {canPost && <button className="btn btn--ghost" onClick={post} disabled={busy==='post'} data-testid="billing-invoice-post">{busy==='post' ? 'Posting…' : 'Post to ledger'}</button>}
           {canVoid && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="billing-invoice-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}
         </div>
@@ -400,7 +403,7 @@ export default function InvoiceDetail() {
       {showSend && (
         <div data-testid="billing-invoice-send-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={(e) => e.target === e.currentTarget && setShowSend(false)}>
           <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 8, width: 'min(420px, 100%)', padding: 24 }}>
-            <h3 style={{ margin: '0 0 12px' }}>{inv.status === 'approved' ? 'Send invoice' : 'Resend invoice'}</h3>
+            <h3 style={{ margin: '0 0 12px' }}>{sendActionLabel} invoice</h3>
             <p style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>
               Sends the PDF and a new 90-day public link from this invoice's legal entity. Earlier links are disabled after a successful send.
               {data.default_recipient?.source ? ` Recipient loaded from ${data.default_recipient.source}.` : ' Save a default under Client contacts to avoid entering it again.'}
@@ -422,7 +425,7 @@ export default function InvoiceDetail() {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               <button className="btn btn--ghost" onClick={() => setShowSend(false)} data-testid="billing-invoice-send-cancel">Cancel</button>
               <button className="btn btn--primary" onClick={send} disabled={busy==='send' || deliveryBlocked || !sendTo || !data.delivery_sender?.ready} data-testid="billing-invoice-send-confirm">
-                {busy==='send' ? 'Sending…' : inv.status === 'approved' ? 'Send' : 'Resend'}
+                {busy==='send' ? 'Sending…' : sendActionLabel}
               </button>
             </div>
           </div>
