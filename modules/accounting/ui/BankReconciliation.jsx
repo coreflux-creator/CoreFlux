@@ -90,13 +90,28 @@ function ReconciliationsList() {
 
 function AccountsList() {
   const [showClosed, setShowClosed] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedEntity = searchParams.get('entity_id');
+  const entityId = requestedEntity && /^[1-9][0-9]*$/.test(requestedEntity) ? Number(requestedEntity) : null;
   const apiUrl = '/modules/accounting/api/bank_accounts.php' + (showClosed ? '?include_closed=1' : '');
   const { data, loading, error, reload } = useApi(apiUrl);
   const { data: entityData } = useApi('/modules/accounting/api/entities.php');
-  const entityNames = Object.fromEntries((entityData?.rows || []).map(entity => [entity.id, entity.code]));
+  const entities = entityData?.rows || [];
+  const entityNames = Object.fromEntries(entities.map(entity => [entity.id, entity.code]));
+  const availableEntity = !entityId || entities.some(entity => Number(entity.id) === entityId);
+  const displayedAccounts = (data?.rows || []).filter(account => !entityId || Number(account.entity_id) === entityId);
   const [showNew, setShow] = useState(false);
   const [busy, setBusy] = useState(null);
-  const counts = data?.counts || {};
+  const counts = entityId ? {
+    active: displayedAccounts.filter(account => account.status === 'active').length,
+    closed: displayedAccounts.filter(account => account.status === 'closed').length,
+  } : data?.counts || {};
+  const selectEntity = (value) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === 'all') next.delete('entity_id');
+    else next.set('entity_id', value);
+    setSearchParams(next, { replace: true });
+  };
   const close = async (id) => {
     if (!confirm('Close this bank account? It will be hidden from the active list (and from Treasury). You can reopen it later.')) return;
     setBusy(id);
@@ -121,6 +136,10 @@ function AccountsList() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <select className="input" aria-label="Legal entity" data-testid="accounting-bank-accounts-entity" value={entityId || 'all'} onChange={event => selectEntity(event.target.value)}>
+            <option value="all">All entities</option>
+            {entities.map(entity => <option key={entity.id} value={entity.id}>{entity.code} · {entity.legal_name || entity.name}</option>)}
+          </select>
           <label style={{ fontSize: 12, color: '#475569', display: 'flex', gap: 4, alignItems: 'center' }}>
             <input
               type="checkbox"
@@ -135,20 +154,21 @@ function AccountsList() {
       </header>
       {loading && <p>Loading…</p>}
       {error   && <p className="error">{error.message}</p>}
+      {entityData && !availableEntity && <p className="error" role="alert">That legal entity is not available in this workspace.</p>}
       {showNew && <NewAccountForm onDone={() => { setShow(false); reload(); }} onCancel={() => setShow(false)} />}
       <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Bank accounts" tabIndex={0}>
       <table className="data-table" data-testid="accounting-bank-accounts-table">
         <thead><tr><th>Name</th><th>Entity</th><th>GL code</th><th>Bank</th><th>Last4</th><th>Feed</th><th>Last sync</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          {(data?.rows || []).length === 0 && !loading && (
+          {displayedAccounts.length === 0 && !loading && (
             <tr><td colSpan={9} className="empty" data-testid="accounting-bank-accounts-empty">No bank accounts {showClosed ? '' : '(check "Show closed" to see archived ones)'}.</td></tr>
           )}
-          {(data?.rows || []).map(a => (
+          {displayedAccounts.map(a => (
             <tr key={a.id}
                 data-testid={`accounting-bank-account-row-${a.id}`}
                 style={{ opacity: a.status === 'closed' ? 0.55 : 1 }}>
               <td>
-                <Link to={`${a.id}`} data-testid={`accounting-bank-account-link-${a.id}`}>{a.name}</Link>
+                <Link to={`${a.id}${entityId ? `?entity_id=${entityId}` : ''}`} data-testid={`accounting-bank-account-link-${a.id}`}>{a.name}</Link>
               </td>
               <td>{entityNames[a.entity_id] || '—'}</td>
               <td><AccountLink accountId={a.gl_account_id} accountCode={a.gl_account_code} entityId={a.entity_id}><code>{a.gl_account_code}</code></AccountLink></td>
@@ -251,6 +271,8 @@ function NewAccountForm({ onDone, onCancel }) {
 function AccountDetail() {
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+  const requestedEntity = searchParams.get('entity_id');
+  const bankListPath = `/modules/accounting/bank-rec${requestedEntity && /^[1-9][0-9]*$/.test(requestedEntity) ? `?entity_id=${requestedEntity}` : ''}`;
   const requestedStatus = searchParams.get('match_status');
   const lineStatus = requestedStatus === 'all' ? ''
     : ['matched', 'ignored'].includes(requestedStatus) ? requestedStatus : 'unmatched';
@@ -333,7 +355,7 @@ function AccountDetail() {
 
   return (
     <section data-testid="accounting-bank-account-detail">
-      <Link to=".." style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Bank accounts</Link>
+      <Link to={bankListPath} style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Bank accounts</Link>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginTop: 8, marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Statement lines</h2>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', minWidth: 0 }}>

@@ -21,6 +21,7 @@ export default function InvoiceDetail() {
   const [sendTo, setSendTo] = useState('');
   const [showSend, setShowSend] = useState(false);
   const [showReassign, setShowReassign] = useState(false);
+  const [showOtherReceipts, setShowOtherReceipts] = useState(false);
   const [selectedReviewers, setSelectedReviewers] = useState([]);
   const approval = useApi(
     data?.invoice?.status === 'draft' ? `/modules/billing/api/approval_assignment.php?invoice_id=${id}` : null,
@@ -47,6 +48,11 @@ export default function InvoiceDetail() {
   const lines = data.lines || [];
   const allocations = data.allocations || [];
   const token = data.token;
+  const receiptRows = receipts.data?.rows || [];
+  const likelyReceipts = receiptRows.filter(line => line.reference_match
+    || Math.abs(Number(line.amount) - Number(inv.amount_due)) < 0.005);
+  const otherReceipts = receiptRows.filter(line => !likelyReceipts.includes(line));
+  const visibleReceipts = showOtherReceipts ? [...likelyReceipts, ...otherReceipts] : likelyReceipts;
 
   const approvalState = Number(approval.data?.invoice_id) === Number(id) ? approval.data : null;
   const canEdit = inv.status === 'draft' && approvalState && !approvalState.pending && lines.every((line) => line.source_type === 'manual');
@@ -97,7 +103,7 @@ export default function InvoiceDetail() {
   const applyReceipt = (line) => {
     const amount = Number(line.amount);
     const due = Number(inv.amount_due);
-    if (!confirm(`Apply the ${inv.currency} ${amount.toFixed(2)} deposit from ${line.bank_account_name} to invoice ${inv.invoice_number}?`)) return;
+    if (!confirm(`Apply the ${inv.currency} ${amount.toFixed(2)} deposit from ${line.bank_account_name} to invoice ${inv.invoice_number} for ${inv.client_name}?\n\nBank description: ${line.description || 'None provided'}${line.reference_match ? '' : '\nThe bank description does not identify this invoice or client.'}`)) return;
     run(`receipt-${line.id}`, async () => {
       if (Math.abs(amount - due) < 0.005) {
         await api.post(`/modules/accounting/api/bank_statements.php?action=match_invoice&line_id=${line.id}`, { invoice_id: Number(id) });
@@ -265,33 +271,40 @@ export default function InvoiceDetail() {
             <h3 style={{ margin: 0, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Landmark size={16} aria-hidden="true" /> Incoming bank receipts
             </h3>
-            <Link to="/modules/accounting/bank-rec" className="btn btn--ghost" data-testid="billing-invoice-open-bank-feed">Open bank feed <ArrowRight size={14} aria-hidden="true" /></Link>
+            <Link to={addEntityScope('/modules/accounting/bank-rec', inv.entity_id)} className="btn btn--ghost" data-testid="billing-invoice-open-bank-feed">Open bank feed <ArrowRight size={14} aria-hidden="true" /></Link>
           </div>
           <p className="muted" style={{ fontSize: 12, margin: '6px 0 12px' }}>Review the deposit before applying it. A larger deposit can be split across invoices in the bank feed.</p>
           {receipts.loading && <p className="muted">Looking for deposits…</p>}
           {receipts.error && <p className="error">Could not load bank receipts: {receipts.error.message}</p>}
-          {!receipts.loading && !receipts.error && (receipts.data?.rows || []).length === 0 && (
-            <p className="muted">No unmatched incoming deposits are available for this invoice.</p>
+          {!receipts.loading && !receipts.error && likelyReceipts.length === 0 && (
+            <p className="muted">No likely deposit matches were found. Check the bank feed for other incoming payments.</p>
           )}
-          {(receipts.data?.rows || []).length > 0 && (
+          {otherReceipts.length > 0 && <button className="btn btn--ghost" type="button" onClick={() => setShowOtherReceipts(value => !value)} data-testid="billing-invoice-other-receipts-toggle">
+            {showOtherReceipts ? 'Hide other deposits' : `Show ${otherReceipts.length} other recent deposit${otherReceipts.length === 1 ? '' : 's'}`}
+          </button>}
+          {visibleReceipts.length > 0 && (
             <div className="invoice-receipt-list" role="table" data-testid="billing-invoice-receipt-candidates">
               <div className="invoice-receipt-list__header" role="row">
                 <span role="columnheader">Date</span><span role="columnheader">Bank account</span>
                 <span role="columnheader">Description</span><span role="columnheader">Amount</span><span role="columnheader">Action</span>
               </div>
-              {receipts.data.rows.map(line => (
+              {visibleReceipts.map(line => (
                 <div className="invoice-receipt-list__row" role="row" key={line.id}>
                   <span className="invoice-receipt-list__date" role="cell">{line.posted_date}</span>
                   <span className="invoice-receipt-list__bank" role="cell">{line.bank_account_name}</span>
-                  <span className="invoice-receipt-list__description" role="cell">{line.description}{line.reference_match && <span className="badge" style={{ marginLeft: 6 }}>Reference match</span>}</span>
+                  <span className="invoice-receipt-list__description" role="cell">{line.description}{line.reference_match
+                    ? <span className="badge" style={{ marginLeft: 6 }}>Reference match</span>
+                    : Math.abs(Number(line.amount) - Number(inv.amount_due)) < 0.005
+                      ? <span className="badge" style={{ marginLeft: 6 }}>Amount only</span>
+                      : <span className="badge" style={{ marginLeft: 6 }}>No match</span>}</span>
                   <span className="invoice-receipt-list__amount" role="cell">{Number(line.amount).toFixed(2)} {inv.currency}</span>
                   <span className="invoice-receipt-list__action" role="cell">
-                    {line.can_apply_directly ? (
+                    {likelyReceipts.includes(line) && line.can_apply_directly ? (
                       <button className="btn btn--primary" type="button" disabled={Boolean(busy)} onClick={() => applyReceipt(line)} data-testid={`billing-invoice-apply-receipt-${line.id}`}>
                         {busy === `receipt-${line.id}` ? 'Applying…' : Number(line.amount) < Number(inv.amount_due) ? 'Apply partial receipt' : 'Apply receipt'}
                       </button>
                     ) : (
-                      <Link className="btn btn--ghost" to={`/modules/accounting/bank-rec/${line.bank_account_id}`}>Split in bank feed</Link>
+                      <Link className="btn btn--ghost" to={`/modules/accounting/bank-rec/${line.bank_account_id}`}>{likelyReceipts.includes(line) ? 'Split in bank feed' : 'Review in bank feed'}</Link>
                     )}
                   </span>
                 </div>

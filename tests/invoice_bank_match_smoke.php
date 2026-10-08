@@ -76,6 +76,19 @@ $check('invoice page finds tenant-scoped, unbooked receipt candidates',
     && str_contains($bankApi, 'bankRecRepairPostedMatches(')
     && str_contains($bankApi, 'bl.matched_je_id IS NULL')
     && str_contains($detail, 'billing-invoice-receipt-candidates'));
+$check('invoice page separates likely receipts from unrelated bank deposits',
+    str_contains($detail, 'const likelyReceipts = receiptRows.filter(')
+    && str_contains($detail, 'billing-invoice-other-receipts-toggle')
+    && str_contains($detail, 'likelyReceipts.includes(line) && line.can_apply_directly')
+    && str_contains($detail, 'Review in bank feed'));
+$check('invoice receipt confirmation names the client and bank description',
+    str_contains($detail, 'for ${inv.client_name}')
+    && str_contains($detail, 'Bank description: ${line.description'));
+$check('invoice bank feed handoff keeps the issuing entity',
+    str_contains($detail, "addEntityScope('/modules/accounting/bank-rec', inv.entity_id)")
+    && str_contains($bankUi, 'data-testid="accounting-bank-accounts-entity"')
+    && str_contains($bankUi, 'const displayedAccounts = (data?.rows || []).filter(')
+    && str_contains($bankUi, 'const bankListPath ='));
 
 echo "\nPartial invoice matching from Treasury\n";
 $check('manual invoice candidates include client and open balance',
