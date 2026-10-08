@@ -11,6 +11,7 @@
  *   POST   /api/billing/invoices?action=request_approval&id=N → request human review
  *   POST   /api/billing/invoices?action=approve&id=N    → direct or policy-routed approval
  *   POST   /api/billing/invoices?action=send&id=N       → issue token + email
+ *   POST   /api/billing/invoices?action=revoke_link&id=N → disable all invoice links
  *   POST   /api/billing/invoices?action=void&id=N       → body: {reason}
  *
  * SPEC: /app/modules/billing/SPEC.md §5.1, §9.
@@ -98,14 +99,18 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     $allocStmt->execute(['id' => $id, 'tenant_id' => $tid]);
     $allocations = $allocStmt->fetchAll(\PDO::FETCH_ASSOC);
     $tokStmt = $pdo->prepare(
-        'SELECT id, token, issued_at, expires_at, last_viewed_at, view_count
-         FROM billing_invoice_tokens WHERE invoice_id = :id AND tenant_id = :t ORDER BY id DESC LIMIT 1'
+        'SELECT id, token, issued_at, expires_at, revoked_at, last_viewed_at, view_count,
+                CASE WHEN revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())
+                     THEN 1 ELSE 0 END AS is_active
+         FROM billing_invoice_tokens WHERE invoice_id = :id AND tenant_id = :t
+         ORDER BY is_active DESC, id DESC LIMIT 1'
     );
     $tokStmt->execute(['id' => $id, 't' => $tid]);
     $token = $tokStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     if ($token) {
         $base = defined('APP_URL') ? rtrim(APP_URL, '/') : (getenv('APP_URL') ?: '');
-        $token['url'] = $base !== '' ? "{$base}/billing/invoice.php?t={$token['token']}" : null;
+        $token['url'] = $base !== '' && (int) $token['is_active'] === 1
+            ? "{$base}/billing/invoice.php?t={$token['token']}" : null;
         unset($token['token']); // never expose raw token in authed API beyond URL
     }
     $deliveryEntityId = billingInvoiceDeliveryEntityId($tid, $inv);
@@ -114,6 +119,7 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
         'lines' => $lines,
         'allocations' => $allocations,
         'token' => $token,
+        'capabilities' => ['can_send' => RBAC::hasPermission($user, 'billing.invoice.send')],
         'default_recipient' => billingInvoiceDefaultRecipient($tid, $inv),
         'delivery_sender' => $deliveryEntityId ? billingEntityMailSender($tid, $deliveryEntityId) : null,
     ]);
@@ -668,13 +674,30 @@ if ($method === 'POST' && $action === 'approve') {
     ]);
 }
 
+if ($method === 'POST' && $action === 'revoke_link') {
+    rbac_legacy_require($user, 'billing.invoice.send');
+    $id = (int) ($_GET['id'] ?? 0);
+    $row = scopedFind('SELECT id, invoice_number FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    $reason = trim((string) (api_json_body()['reason'] ?? ''));
+    if (strlen($reason) < 3 || strlen($reason) > 500) api_error('Give a short reason (3–500 characters) for disabling the link.', 422);
+    $revoked = billingRevokeInvoiceViewTokens($tid, $id, (int) ($user['id'] ?? 0) ?: null);
+    billingAudit('billing.invoice.links_revoked', [
+        'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
+        'token_count' => $revoked, 'reason' => $reason,
+    ], $id);
+    api_ok(['ok' => true, 'revoked_count' => $revoked]);
+}
+
 if ($method === 'POST' && $action === 'send') {
     rbac_legacy_require($user, 'billing.invoice.send');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if (!empty($row['opening_cutover_id'])) api_error('This is an opening receivable, not a new invoice to send.', 409);
-    if (!billingTransitionAllowed($row['status'], 'sent')) api_error("Cannot send from status {$row['status']}", 409);
+    if (!in_array($row['status'], ['approved', 'sent', 'partially_paid', 'paid'], true)) {
+        api_error("Cannot send from status {$row['status']}", 409);
+    }
     $postedEntry = !empty($row['journal_entry_id']) ? scopedFind(
         'SELECT id, entity_id FROM accounting_journal_entries
           WHERE tenant_id = :tenant_id AND id = :id AND status = "posted"',
@@ -759,13 +782,14 @@ if ($method === 'POST' && $action === 'send') {
     try {
         $sendRes = $svc->send($tid, 'billing', 'invoice_sent', [$to], $subject, $textBody, $htmlBody, $attachments, [
             'from' => $sender['from'], 'from_name' => $sender['from_name'], 'reply_to' => $sender['reply_to'],
-            'idempotency_key' => 'billing-invoice-' . $id,
+            'idempotency_key' => 'billing-invoice-' . $id . '-token-' . $tok['token_id'],
         ]);
     } catch (\Throwable $e) {
         $sendRes = ['status' => 'failed', 'error' => $e->getMessage()];
     }
 
     if (($sendRes['status'] ?? 'failed') !== 'sent') {
+        billingRevokeInvoiceViewToken($tid, $id, $tok['token_id'], (int) ($user['id'] ?? 0) ?: null);
         $mailError = trim((string) ($sendRes['error'] ?? '')) ?: 'The configured mail provider did not accept the message.';
         billingAudit('billing.invoice.send_failed', [
             'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
@@ -782,14 +806,43 @@ if ($method === 'POST' && $action === 'send') {
         ]);
     }
 
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    getDB()->prepare('UPDATE billing_invoices SET status = "sent", sent_at = NOW() WHERE id = :id')->execute(['id' => $id]);
-    billingAudit('billing.invoice.sent', [
+    $pdo = getDB();
+    try {
+        $pdo->beginTransaction();
+        $invoiceCheck = $pdo->prepare('SELECT status FROM billing_invoices
+                                        WHERE tenant_id = :t AND id = :i FOR UPDATE');
+        $invoiceCheck->execute(['t' => $tid, 'i' => $id]);
+        $currentStatus = (string) $invoiceCheck->fetchColumn();
+        if (!in_array($currentStatus, ['approved', 'sent', 'partially_paid', 'paid'], true)) {
+            throw new RuntimeException('Invoice status changed while it was being sent.');
+        }
+        $tokenCheck = $pdo->prepare('SELECT id FROM billing_invoice_tokens
+                                      WHERE tenant_id = :t AND invoice_id = :i AND id = :token_id
+                                        AND revoked_at IS NULL FOR UPDATE');
+        $tokenCheck->execute(['t' => $tid, 'i' => $id, 'token_id' => $tok['token_id']]);
+        if (!$tokenCheck->fetchColumn()) throw new RuntimeException('The new public link was revoked while the invoice was being sent.');
+        $pdo->prepare('UPDATE billing_invoices
+                          SET status = CASE WHEN status = "approved" THEN "sent" ELSE status END,
+                              sent_at = COALESCE(sent_at, NOW())
+                        WHERE tenant_id = :t AND id = :i')
+            ->execute(['t' => $tid, 'i' => $id]);
+        $priorLinksRevoked = billingRevokeInvoiceViewTokens(
+            $tid, $id, (int) ($user['id'] ?? 0) ?: null, $tok['token_id']
+        );
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        billingRevokeInvoiceViewToken($tid, $id, $tok['token_id'], (int) ($user['id'] ?? 0) ?: null);
+        error_log('[billing invoice delivery] Finalization failed after provider accepted email: ' . $e->getMessage());
+        api_error('The email provider accepted this message, but delivery could not be finalized. The new link was disabled; review the invoice before retrying.', 500);
+    }
+    billingAudit($row['status'] === 'approved' ? 'billing.invoice.sent' : 'billing.invoice.resent', [
         'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
         'to' => $to, 'token_id' => $tok['token_id'],
         'email_status' => $sendRes['status'] ?? 'unknown',
         'pdf_attached' => !empty($attachments),
         'pdf_error'    => $pdfError,
+        'prior_links_revoked' => $priorLinksRevoked,
     ], $id);
 
     api_ok([
@@ -798,6 +851,7 @@ if ($method === 'POST' && $action === 'send') {
         'email_error'  => $sendRes['error'] ?? null,
         'pdf_attached' => !empty($attachments),
         'pdf_error'    => $pdfError,
+        'prior_links_revoked' => $priorLinksRevoked,
     ]);
 }
 

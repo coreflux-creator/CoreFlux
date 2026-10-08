@@ -92,7 +92,9 @@ $a('send tolerates renderer-missing host',     str_contains($apiSrc, '$pdfError'
 $a('send audit logs pdf_attached + pdf_error', str_contains($apiSrc, "'pdf_attached'") && str_contains($apiSrc, "'pdf_error'"));
 $a('send response exposes pdf_attached',       str_contains($apiSrc, "'pdf_attached' =>"));
 $a('send still issues view token',             str_contains($apiSrc, 'billingIssueViewToken($tid, $id)'));
-$a('send transitions invoice to "sent"',       str_contains($apiSrc, 'status = "sent", sent_at = NOW()'));
+$a('first send marks approved invoice sent without regressing later states',
+   str_contains($apiSrc, 'CASE WHEN status = "approved" THEN "sent" ELSE status END')
+   && str_contains($apiSrc, 'sent_at = COALESCE(sent_at, NOW())'));
 
 // --- GET ?action=pdf must stream a PDF file -----------------------------
 $a("GET has action='pdf' branch",              str_contains($apiSrc, "\$method === 'GET' && \$action === 'pdf'"));

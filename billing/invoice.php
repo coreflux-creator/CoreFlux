@@ -19,13 +19,6 @@ $tok = billingTokenFindByRaw($raw);
 $inv = $lines = $tenantRow = null;
 
 if ($tok) {
-    $now = date('Y-m-d H:i:s');
-    if ($tok['expires_at'] && $tok['expires_at'] < $now) {
-        $tok = null; // expired — present same "not found" page to avoid disclosure
-    }
-}
-
-if ($tok) {
     $pdo = getDB();
     $iStmt = $pdo->prepare('SELECT * FROM billing_invoices WHERE id = :id AND tenant_id = :t');
     $iStmt->execute(['id' => $tok['invoice_id'], 't' => $tok['tenant_id']]);

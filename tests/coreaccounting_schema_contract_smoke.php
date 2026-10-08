@@ -27,6 +27,12 @@ $withoutCoreOneIntent['coreone_document_requests'] = array_values(array_diff(
 $check('missing source idempotency column is reported', in_array(
     'coreone_document_requests.intent_hash',
     coreAccountingMissingSchema($withoutCoreOneIntent), true));
+$withoutTokenRevocation = $required;
+$withoutTokenRevocation['billing_invoice_tokens'] = array_values(array_diff(
+    $withoutTokenRevocation['billing_invoice_tokens'], ['revoked_at']));
+$check('missing invoice-link revocation column is reported', in_array(
+    'billing_invoice_tokens.revoked_at',
+    coreAccountingMissingSchema($withoutTokenRevocation), true));
 $requiredKeys = coreAccountingRequiredUniqueKeys();
 $check('required unique-key signatures have no gaps',
     coreAccountingMissingUniqueKeys($requiredKeys) === []);
@@ -40,11 +46,16 @@ $wrongEventKey['accounting_events'] = [['tenant_id', 'source_module', 'event_typ
 $check('reordered event source key is not accepted', in_array(
     'accounting_events UNIQUE (tenant_id, source_module, source_record_id, event_type)',
     coreAccountingMissingUniqueKeys($wrongEventKey), true));
+$withoutTokenKey = $requiredKeys;
+unset($withoutTokenKey['billing_invoice_tokens']);
+$check('missing invoice-link uniqueness is reported', in_array(
+    'billing_invoice_tokens UNIQUE (token)',
+    coreAccountingMissingUniqueKeys($withoutTokenKey), true));
 $provisioner = (string) file_get_contents(__DIR__ . '/../deploy/provision_coreaccounting_tenant.php');
 $check('first-tenant provisioning checks the accounting schema before creating records',
     strpos($provisioner, 'coreAccountingInspectSchema($pdo)') !== false
     && strpos($provisioner, 'coreAccountingInspectSchema($pdo)')
         < strpos($provisioner, '$pdo->beginTransaction()'));
 
-echo $failures ? "Failed: {$failures}\n" : "Passed: 8\n";
+echo $failures ? "Failed: {$failures}\n" : "Passed: 10\n";
 exit($failures ? 1 : 0);

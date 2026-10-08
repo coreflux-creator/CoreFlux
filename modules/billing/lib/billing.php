@@ -1012,27 +1012,28 @@ function billingTransitionAllowed(string $from, string $to): bool
 
 /**
  * Issue a public view token for an invoice. Returns ['token' => raw, 'url' => string].
- * Tokens default to no expiry (NULL) — invoices can be viewed indefinitely.
+ * New links expire after 90 days unless a shorter or longer period is specified.
  */
 function billingIssueViewToken(int $tenantId, int $invoiceId, ?int $expiresInDays = null): array
 {
     $base = defined('APP_URL') ? rtrim(APP_URL, '/') : (getenv('APP_URL') ?: '');
     if ($base === '') throw new RuntimeException('Public invoice links are not configured for this environment.');
+    $ttlDays = $expiresInDays ?? 90;
+    if ($ttlDays < 1 || $ttlDays > 365) throw new InvalidArgumentException('Invoice link lifetime must be 1 to 365 days.');
     $raw  = bin2hex(random_bytes(32));
     $hash = hash('sha256', $raw, true);
-    $exp  = $expiresInDays ? date('Y-m-d H:i:s', time() + $expiresInDays * 86400) : null;
 
     $pdo = getDB();
     $stmt = $pdo->prepare(
         'INSERT INTO billing_invoice_tokens
           (tenant_id, invoice_id, token, token_hash, expires_at)
-         VALUES (:t, :i, :tk, :h, :e)'
+         VALUES (:t, :i, :tk, :h, DATE_ADD(NOW(), INTERVAL :days DAY))'
     );
     $stmt->bindValue('t',  $tenantId,  \PDO::PARAM_INT);
     $stmt->bindValue('i',  $invoiceId, \PDO::PARAM_INT);
     $stmt->bindValue('tk', $raw);
     $stmt->bindValue('h',  $hash, \PDO::PARAM_LOB);
-    $stmt->bindValue('e',  $exp);
+    $stmt->bindValue('days', $ttlDays, \PDO::PARAM_INT);
     $stmt->execute();
 
     return [
@@ -1047,10 +1048,39 @@ function billingTokenFindByRaw(string $raw): ?array
     if (!preg_match('/^[a-f0-9]{64}$/', $raw)) return null;
     $pdo = getDB();
     // tenant-leak-allow: token_hash is a 256-bit random secret; row carries tenant_id
-    $stmt = $pdo->prepare('SELECT * FROM billing_invoice_tokens WHERE token_hash = :h LIMIT 1');
+    $stmt = $pdo->prepare('SELECT * FROM billing_invoice_tokens
+                            WHERE token_hash = :h AND revoked_at IS NULL
+                              AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1');
     $stmt->bindValue('h', hash('sha256', $raw, true), \PDO::PARAM_LOB);
     $stmt->execute();
     return $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+}
+
+function billingRevokeInvoiceViewTokens(int $tenantId, int $invoiceId, ?int $actorUserId, ?int $keepTokenId = null): int
+{
+    $sql = 'UPDATE billing_invoice_tokens
+               SET revoked_at = NOW(), revoked_by_user_id = :actor
+             WHERE tenant_id = :tenant_id AND invoice_id = :invoice_id AND revoked_at IS NULL';
+    $params = ['actor' => $actorUserId, 'tenant_id' => $tenantId, 'invoice_id' => $invoiceId];
+    if ($keepTokenId !== null) {
+        $sql .= ' AND id <> :keep_token_id';
+        $params['keep_token_id'] = $keepTokenId;
+    }
+    $stmt = getDB()->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->rowCount();
+}
+
+function billingRevokeInvoiceViewToken(int $tenantId, int $invoiceId, int $tokenId, ?int $actorUserId): void
+{
+    getDB()->prepare('UPDATE billing_invoice_tokens
+                        SET revoked_at = NOW(), revoked_by_user_id = :actor
+                      WHERE tenant_id = :tenant_id AND invoice_id = :invoice_id
+                        AND id = :token_id AND revoked_at IS NULL')
+        ->execute([
+            'actor' => $actorUserId, 'tenant_id' => $tenantId,
+            'invoice_id' => $invoiceId, 'token_id' => $tokenId,
+        ]);
 }
 
 /**

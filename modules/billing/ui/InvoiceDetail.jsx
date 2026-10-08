@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { ArrowRight, BookOpenCheck, Check, Landmark, Send, UserRoundCog, X } from 'lucide-react';
+import { ArrowRight, BookOpenCheck, Check, Copy, Landmark, Link2Off, Send, UserRoundCog, X } from 'lucide-react';
 import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
@@ -19,6 +19,7 @@ export default function InvoiceDetail() {
   const [busy, setBusy] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [sendTo, setSendTo] = useState('');
+  const [copiedLink, setCopiedLink] = useState(false);
   const [showSend, setShowSend] = useState(false);
   const [showReassign, setShowReassign] = useState(false);
   const [showOtherReceipts, setShowOtherReceipts] = useState(false);
@@ -40,6 +41,8 @@ export default function InvoiceDetail() {
     if (saved) setSendTo((current) => current || saved);
   }, [data?.default_recipient?.email]);
 
+  useEffect(() => setCopiedLink(false), [data?.token?.url]);
+
   if (loading) return <p>Loading…</p>;
   if (error)   return <p className="error" data-testid="billing-invoice-detail-error">Error: {error.message}</p>;
   if (!data?.invoice) return <p>Not found.</p>;
@@ -58,7 +61,12 @@ export default function InvoiceDetail() {
   const canEdit = inv.status === 'draft' && approvalState && !approvalState.pending && lines.every((line) => line.source_type === 'manual');
   const canApprove = inv.status === 'draft' && approvalState?.viewer_can_approve;
   const canRequest = inv.status === 'draft' && approvalState?.viewer_can_request;
-  const canSend = !inv.opening_cutover_id && inv.status === 'approved' && inv.journal_status === 'posted';
+  const canSend = !inv.opening_cutover_id
+    && ['approved', 'sent', 'partially_paid', 'paid'].includes(inv.status)
+    && inv.journal_status === 'posted'
+    && data.capabilities?.can_send;
+  const linkActive = Number(token?.is_active) === 1;
+  const canRevokeLink = linkActive && data.capabilities?.can_send;
   const canPost = ['approved', 'sent', 'partially_paid', 'paid'].includes(inv.status) && !inv.journal_entry_id;
   const canVoid = inv.status === 'draft' && approvalState && !approvalState.pending
     && !inv.journal_entry_id
@@ -100,6 +108,19 @@ export default function InvoiceDetail() {
     if (res.email_status !== 'sent') alert(`Token created but email status: ${res.email_status} (${res.email_error || 'no detail'})`);
     if (res.pdf_attached === false && res.pdf_error) alert(`PDF could not be generated: ${res.pdf_error}\nEmail sent without attachment.`);
   });
+  const revokeLink = () => {
+    const reason = prompt('Why are you disabling this invoice link?');
+    if (!reason?.trim()) return;
+    run('revoke-link', () => api.post(`/api/v1/billing/invoices?action=revoke_link&id=${id}`, { reason: reason.trim() }));
+  };
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(token.url);
+      setCopiedLink(true);
+    } catch (_) {
+      setActionError(new Error('Could not copy the link. Open it and copy its address instead.'));
+    }
+  };
   const applyReceipt = (line) => {
     const amount = Number(line.amount);
     const due = Number(inv.amount_due);
@@ -154,7 +175,7 @@ export default function InvoiceDetail() {
           {canRequest && <button className="btn btn--primary" onClick={requestApproval} disabled={Boolean(busy)} data-testid="billing-invoice-request-approval"><Send size={15} aria-hidden="true" /> {busy==='request' ? 'Requesting…' : 'Request approval'}</button>}
           {canApprove && <button className="btn btn--primary" onClick={approve} disabled={Boolean(busy)} data-testid="billing-invoice-approve"><Check size={15} aria-hidden="true" /> {busy==='approve' ? 'Approving…' : 'Approve'}</button>}
           {canApprove && approvalState?.pending && <button className="btn btn--ghost" onClick={reject} disabled={Boolean(busy)} data-testid="billing-invoice-reject"><X size={15} aria-hidden="true" /> {busy==='reject' ? 'Rejecting…' : 'Reject'}</button>}
-          {canSend && <button className="btn btn--primary" onClick={() => setShowSend(true)} data-testid="billing-invoice-send-open">Send</button>}
+          {canSend && <button className="btn btn--primary" onClick={() => setShowSend(true)} data-testid="billing-invoice-send-open"><Send size={15} aria-hidden="true" /> {inv.status === 'approved' ? 'Send' : 'Resend'}</button>}
           {canPost && <button className="btn btn--ghost" onClick={post} disabled={busy==='post'} data-testid="billing-invoice-post">{busy==='post' ? 'Posting…' : 'Post to ledger'}</button>}
           {canVoid && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="billing-invoice-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}
         </div>
@@ -217,8 +238,16 @@ export default function InvoiceDetail() {
 
       {token && (
         <div data-testid="billing-invoice-token-info" style={{ padding: 12, background: 'var(--cf-surface-alt, #f9fafb)', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
-          Public link issued {token.issued_at}. Viewed {token.view_count}× {token.last_viewed_at && `(last: ${token.last_viewed_at})`}.
-          <a href={token.url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8 }} data-testid="billing-invoice-token-link">Open</a>
+          <span>Public link issued {token.issued_at}. Viewed {token.view_count}× {token.last_viewed_at && `(last: ${token.last_viewed_at})`}.</span>
+          {linkActive ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginLeft: 8 }}>
+              {token.url ? <>
+                <a href={token.url} target="_blank" rel="noopener noreferrer" data-testid="billing-invoice-token-link">Open</a>
+                <button className="btn btn--ghost" type="button" onClick={copyLink} title="Copy public invoice link" data-testid="billing-invoice-token-copy"><Copy size={14} aria-hidden="true" /> {copiedLink ? 'Copied' : 'Copy link'}</button>
+              </> : <span>Public link address unavailable.</span>}
+              {canRevokeLink && <button className="btn btn--ghost" type="button" onClick={revokeLink} disabled={Boolean(busy)} title="Disable every public link to this invoice" data-testid="billing-invoice-token-revoke"><Link2Off size={14} aria-hidden="true" /> {busy === 'revoke-link' ? 'Disabling…' : 'Disable links'}</button>}
+            </span>
+          ) : <span style={{ marginLeft: 8 }}>Link {token.revoked_at ? 'disabled' : 'expired'}. Resend the invoice to issue a new link.</span>}
         </div>
       )}
 
@@ -316,10 +345,10 @@ export default function InvoiceDetail() {
 
       {showSend && (
         <div data-testid="billing-invoice-send-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={(e) => e.target === e.currentTarget && setShowSend(false)}>
-          <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 12, width: 'min(420px, 100%)', padding: 24 }}>
-            <h3 style={{ margin: '0 0 12px' }}>Send invoice</h3>
+          <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 8, width: 'min(420px, 100%)', padding: 24 }}>
+            <h3 style={{ margin: '0 0 12px' }}>{inv.status === 'approved' ? 'Send invoice' : 'Resend invoice'}</h3>
             <p style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>
-              Sends the PDF and public link from this invoice's legal entity.
+              Sends the PDF and a new 90-day public link from this invoice's legal entity. Earlier links are disabled after a successful send.
               {data.default_recipient?.source ? ` Recipient loaded from ${data.default_recipient.source}.` : ' Save a default under Client contacts to avoid entering it again.'}
             </p>
             {!data.delivery_sender?.ready && <p className="error" role="alert">
@@ -338,7 +367,7 @@ export default function InvoiceDetail() {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               <button className="btn btn--ghost" onClick={() => setShowSend(false)} data-testid="billing-invoice-send-cancel">Cancel</button>
               <button className="btn btn--primary" onClick={send} disabled={busy==='send' || !sendTo || !data.delivery_sender?.ready} data-testid="billing-invoice-send-confirm">
-                {busy==='send' ? 'Sending…' : 'Send'}
+                {busy==='send' ? 'Sending…' : inv.status === 'approved' ? 'Send' : 'Resend'}
               </button>
             </div>
           </div>
