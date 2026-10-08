@@ -6,6 +6,14 @@ if (PHP_SAPI !== 'cli' || ($argv[1] ?? '') !== '--execute') {
     fwrite(STDERR, "Run only on isolated CoreFlux staging with --execute.\n");
     exit(2);
 }
+$rowCount = 1001;
+if (isset($argv[2])) {
+    if (!preg_match('/^--rows=(1001|10025)$/', $argv[2], $matches)) {
+        fwrite(STDERR, "Supported row counts: --rows=1001 or --rows=10025.\n");
+        exit(2);
+    }
+    $rowCount = (int) $matches[1];
+}
 
 define('QA_LIFECYCLE_LIBRARY_MODE', true);
 require_once __DIR__ . '/accounting_staging_lifecycle.php';
@@ -22,7 +30,7 @@ function pagingDownload(string $path, string $cookie): array
     curl_setopt_array($curl, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => false,
-        CURLOPT_TIMEOUT => 90,
+        CURLOPT_TIMEOUT => 180,
         CURLOPT_COOKIEFILE => $cookie,
         CURLOPT_COOKIEJAR => $cookie,
         CURLOPT_HTTPHEADER => ['X-CoreFlux-Tenant-Id: ' . QA_TENANT],
@@ -87,7 +95,7 @@ try {
         VALUES (:t, :b, "2026-10-08", "Synthetic export paging QA", 0.01, :r, :f, "unmatched")');
     $pdo->beginTransaction();
     try {
-        for ($i = 1; $i <= 1001; $i++) {
+        for ($i = 1; $i <= $rowCount; $i++) {
             $insert->execute(['t' => QA_TENANT, 'b' => $bankId, 'r' => $reference,
                 'f' => $reference . '-' . $i]);
             $insertedIds[] = (int) $pdo->lastInsertId();
@@ -106,16 +114,16 @@ try {
     $raw = array_values(array_filter(pagingCsv($body),
         static fn (array $row): bool => str_starts_with((string) ($row['fitid'] ?? ''), $reference . '-')));
     $rawIds = array_map('intval', array_column($raw, 'id'));
-    qaExpect(count($rawIds) === 1001 && count(array_unique($rawIds)) === 1001
+    qaExpect(count($rawIds) === $rowCount && count(array_unique($rawIds)) === $rowCount
         && $rawIds === array_reverse($insertedIds)
         && count(array_filter($raw, static fn (array $row): bool => (int) $row['entity_id'] !== $entityId)) === 0,
-        'raw CSV includes every synthetic line once across the 1,000-row boundary');
+        "raw CSV includes all {$rowCount} synthetic lines once in order");
 
     [$status, $body] = pagingDownload($base . '&template_id=' . $templateId, $cookie);
     qaExpect($status === 200, 'mapped bank statement download succeeds: ' . substr($body, 0, 120));
     $mapped = array_values(array_filter(pagingCsv($body),
         static fn (array $row): bool => str_starts_with((string) ($row['FITID'] ?? ''), $reference . '-')));
-    qaExpect(count($mapped) === 1001
+    qaExpect(count($mapped) === $rowCount
         && array_map('intval', array_column($mapped, 'Statement ID')) === $rawIds
         && count(array_filter($mapped, static fn (array $row): bool => (int) $row['Entity'] !== $entityId)) === 0,
         'mapped CSV has the same complete bank-line IDs and entity as raw CSV');
@@ -129,6 +137,7 @@ try {
             ['entity_id' => $entityId, 'bank_account_id' => $bankId]],
     ];
     foreach ($datasets as $dataset => [$key, $filters]) {
+        if ($rowCount > 1001 && $dataset === 'accounting_bank_statement_lines') continue;
         $expected = exportDatasetFetchRows(QA_TENANT, $dataset,
             array_merge($filters, ['limit' => 10000]));
         $paged = iterator_to_array(exportPagedRows(
@@ -161,7 +170,7 @@ try {
                     throw new RuntimeException('Synthetic bank-line cleanup was incomplete.');
                 }
             }
-            qaExpect(true, 'all 1,001 synthetic bank lines were removed');
+            qaExpect(true, "all {$rowCount} synthetic bank lines were removed");
         }
     } finally {
         try {
