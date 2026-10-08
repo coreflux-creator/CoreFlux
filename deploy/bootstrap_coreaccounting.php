@@ -3,14 +3,16 @@
 declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging'
-    || (!in_array('--inspect', $argv, true) && !in_array('--confirm-empty-staging', $argv, true))) {
-    fwrite(STDERR, "Staging CLI only. Use --inspect or --confirm-empty-staging --database=NAME.\n");
+    || (!in_array('--inspect', $argv, true) && !in_array('--verify-schema', $argv, true)
+        && !in_array('--confirm-empty-staging', $argv, true))) {
+    fwrite(STDERR, "Staging CLI only. Use --inspect, --verify-schema, or --confirm-empty-staging --database=NAME.\n");
     exit(2);
 }
 
 require_once __DIR__ . '/../core/config.php';
 require_once __DIR__ . '/../core/migrate.php';
 require_once __DIR__ . '/../core/installer_helpers.php';
+require_once __DIR__ . '/../core/accounting/schema_contract.php';
 
 $pdo = getDB();
 if (!$pdo) throw new RuntimeException('The isolated staging database is unavailable.');
@@ -22,6 +24,13 @@ if (in_array('--inspect', $argv, true)) {
     echo json_encode(['database' => $connectedDatabase, 'existing_tables' => $existing,
         'empty' => $existing === 0], JSON_PRETTY_PRINT) . "\n";
     exit(0);
+}
+if (in_array('--verify-schema', $argv, true)) {
+    $schema = coreAccountingInspectSchema($pdo);
+    echo json_encode(['database' => $connectedDatabase] + $schema + [
+        'status' => $schema['missing'] ? 'incomplete' : 'schema_ready',
+    ], JSON_PRETTY_PRINT) . "\n";
+    exit($schema['missing'] ? 1 : 0);
 }
 $databaseArg = array_values(array_filter($argv, static fn(string $arg): bool => str_starts_with($arg, '--database=')));
 $expectedDatabase = count($databaseArg) === 1 ? substr($databaseArg[0], strlen('--database=')) : '';
@@ -83,19 +92,13 @@ if ($migration['errors']) {
 $missing = installerCheckBaseSchema($pdo);
 if ($missing) throw new RuntimeException('Base tables still missing: ' . implode(', ', $missing));
 
-$required = [
-    'accounting_accounts', 'accounting_journal_entries', 'accounting_journal_entry_lines',
-    'billing_invoices', 'billing_payments', 'ap_bills', 'accounting_bank_statement_lines',
-];
-$placeholders = implode(',', array_fill(0, count($required), '?'));
-$stmt = $pdo->prepare(
-    "SELECT table_name FROM information_schema.tables
-      WHERE table_schema = DATABASE() AND table_name IN ($placeholders)"
-);
-$stmt->execute($required);
-$missing = array_values(array_diff($required, $stmt->fetchAll(PDO::FETCH_COLUMN)));
-if ($missing) throw new RuntimeException('Accounting module tables missing: ' . implode(', ', $missing));
+$schema = coreAccountingInspectSchema($pdo);
+if ($schema['missing']) {
+    throw new RuntimeException('Accounting schema incomplete: ' . implode(', ', $schema['missing']));
+}
 
 echo json_encode(['database' => $connectedDatabase, 'baseline_applied' => count($prerequisites),
     'canonical_migrations_applied' => count($migration['applied_files']),
-    'required_tables_verified' => count($required), 'status' => 'schema_ready'], JSON_PRETTY_PRINT) . "\n";
+    'required_tables_verified' => $schema['required_tables'],
+    'required_columns_verified' => $schema['required_columns'],
+    'status' => 'schema_ready'], JSON_PRETTY_PRINT) . "\n";

@@ -1,0 +1,91 @@
+<?php
+/** Tables and columns needed by the CoreAccounting invoice, bill and bank lifecycle. */
+declare(strict_types=1);
+
+function coreAccountingRequiredSchema(): array
+{
+    return [
+        'accounting_entities' => ['id', 'tenant_id', 'code', 'base_currency', 'active'],
+        'accounting_periods' => ['id', 'tenant_id', 'entity_id', 'start_date', 'end_date', 'status'],
+        'accounting_accounts' => ['id', 'tenant_id', 'code', 'account_type', 'normal_side',
+            'is_postable', 'statement_section', 'active'],
+        'accounting_journal_entries' => ['id', 'tenant_id', 'entity_id', 'period_id',
+            'posting_date', 'status', 'posted_at'],
+        'accounting_journal_entry_lines' => ['id', 'tenant_id', 'je_id', 'account_id',
+            'debit', 'credit'],
+        'accounting_posting_idempotency' => ['tenant_id', 'idempotency_key', 'je_id'],
+        'accounting_events' => ['id', 'tenant_id', 'entity_id', 'source_module',
+            'source_record_id', 'status', 'journal_entry_id'],
+        'accounting_subledger_links' => ['id', 'tenant_id', 'source_module',
+            'source_record_id', 'journal_entry_id', 'link_kind'],
+        'accounting_bank_accounts' => ['id', 'tenant_id', 'entity_id', 'gl_account_code',
+            'currency', 'status'],
+        'accounting_bank_statement_imports' => ['id', 'tenant_id', 'bank_account_id',
+            'updated_at'],
+        'accounting_bank_statement_lines' => ['id', 'tenant_id', 'bank_account_id',
+            'match_status', 'matched_je_id', 'updated_at'],
+        'accounting_reconciliations' => ['id', 'tenant_id', 'bank_account_id', 'status'],
+        'billing_invoices' => ['id', 'tenant_id', 'entity_id', 'status', 'total',
+            'amount_due', 'journal_entry_id', 'created_by_user_id'],
+        'billing_invoice_lines' => ['id', 'invoice_id', 'description', 'quantity',
+            'unit_price', 'total'],
+        'billing_payments' => ['id', 'tenant_id', 'bank_account_id', 'journal_entry_id',
+            'amount', 'voided_at'],
+        'billing_payment_allocations' => ['id', 'payment_id', 'invoice_id',
+            'amount_applied', 'reversed_at'],
+        'ap_bills' => ['id', 'tenant_id', 'entity_id', 'status', 'total', 'amount_due',
+            'journal_entry_id', 'created_by_user_id'],
+        'ap_bill_lines' => ['id', 'bill_id', 'description', 'total',
+            'gl_expense_account_code'],
+        'ap_approval_policies' => ['id', 'tenant_id', 'entity_id', 'chain_json', 'active'],
+        'ap_bill_approvals' => ['id', 'tenant_id', 'bill_id', 'approver_user_id',
+            'step_no', 'state'],
+        'ap_payments' => ['id', 'tenant_id', 'entity_id', 'bank_account_id',
+            'status', 'journal_entry_id'],
+        'ap_payment_allocations' => ['id', 'payment_id', 'bill_id', 'amount_applied'],
+        'workflow_definitions' => ['id', 'tenant_id', 'def_key', 'steps_json', 'active'],
+        'workflow_instances' => ['id', 'tenant_id', 'subject_type', 'subject_id',
+            'status', 'started_by_user_id'],
+        'coreone_accounting_credentials' => ['id', 'tenant_id', 'entity_id',
+            'token_hash', 'scopes_json', 'created_by_user_id', 'revoked_at'],
+        'coreone_document_requests' => ['id', 'tenant_id', 'entity_id', 'source_type',
+            'source_record_id', 'intent_hash', 'target_id'],
+    ];
+}
+
+function coreAccountingMissingSchema(array $present): array
+{
+    $missing = [];
+    foreach (coreAccountingRequiredSchema() as $table => $columns) {
+        if (!array_key_exists($table, $present)) {
+            $missing[] = $table;
+            continue;
+        }
+        $available = array_fill_keys($present[$table], true);
+        foreach ($columns as $column) {
+            if (!isset($available[$column])) $missing[] = $table . '.' . $column;
+        }
+    }
+    return $missing;
+}
+
+function coreAccountingInspectSchema(PDO $pdo): array
+{
+    $required = coreAccountingRequiredSchema();
+    $tables = array_keys($required);
+    $placeholders = implode(',', array_fill(0, count($tables), '?'));
+    $stmt = $pdo->prepare(
+        "SELECT table_name, column_name FROM information_schema.columns
+          WHERE table_schema = DATABASE() AND table_name IN ($placeholders)"
+    );
+    $stmt->execute($tables);
+    $present = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $present[$row['table_name']][] = $row['column_name'];
+    }
+    return [
+        'required_tables' => count($required),
+        'required_columns' => array_sum(array_map('count', $required)),
+        'missing' => coreAccountingMissingSchema($present),
+    ];
+}
