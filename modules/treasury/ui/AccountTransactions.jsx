@@ -27,14 +27,11 @@ function DuplicateActivityRepair({ accountId, onRepaired }) {
   }
 
   const duplicateRows = Number(data?.duplicate_rows || 0);
-  const generatedEntries = Number(data?.reversible_rows || 0);
+  const safeRows = Number(data?.safe_rows || 0);
   const conflictRows = Number(data?.conflict_rows || 0);
 
   const repair = async () => {
-    const accountingNote = generatedEntries > 0
-      ? ` CoreFlux will create ${generatedEntries} formal reversal entr${generatedEntries === 1 ? 'y' : 'ies'} for duplicate postings.`
-      : '';
-    if (!window.confirm(`Repair ${duplicateRows} duplicate bank-feed row${duplicateRows === 1 ? '' : 's'}? Original feed rows remain in the audit trail.${accountingNote}`)) return;
+    if (!window.confirm(`Have you verified that ${safeRows} shared-journal bank line${safeRows === 1 ? '' : 's'} represent the same bank event? This will hide the extra feed row from the working register. It will not reverse a journal or delete bank history.`)) return;
 
     setRepairing(true); setError(null); setResult(null);
     try {
@@ -43,7 +40,7 @@ function DuplicateActivityRepair({ accountId, onRepaired }) {
       await reload();
       onRepaired();
     } catch (e) {
-      setError(e.message || 'Duplicate repair failed');
+      setError(e.message || 'Could not mark reviewed copies');
     } finally {
       setRepairing(false);
     }
@@ -61,23 +58,46 @@ function DuplicateActivityRepair({ accountId, onRepaired }) {
       <div>
         {duplicateRows > 0 && (
           <>
-            <strong>{duplicateRows} duplicate bank transaction{duplicateRows === 1 ? '' : 's'} detected</strong>
+            <strong>{duplicateRows} similar bank line{duplicateRows === 1 ? '' : 's'} to review</strong>
             <div style={{ fontSize: 12, marginTop: 3 }}>
-              Same bank events were replayed by a prior connection.
-              {generatedEntries > 0 ? ` ${generatedEntries} duplicate CoreFlux posting${generatedEntries === 1 ? '' : 's'} will be reversed.` : ''}
-              {conflictRows > 0 ? ` ${conflictRows} manually linked row${conflictRows === 1 ? '' : 's'} will be left for review.` : ''}
+              Matching dates, amounts and descriptions do not prove these are the same transaction.
+              {conflictRows > 0 ? ` ${conflictRows} line${conflictRows === 1 ? ' needs' : 's need'} source review.` : ''}
+              {safeRows > 0 ? ` ${safeRows} share a journal; check their bank IDs before marking them as copies.` : ''}
             </div>
+            <details style={{ fontSize: 12, marginTop: 6 }}>
+              <summary style={{ cursor: 'pointer' }}>Review candidate lines</summary>
+              {(data?.clusters || []).map((cluster) => (
+                <div key={cluster.canonical_line_id} style={{ marginTop: 7 }}>
+                  {fmtDate(cluster.posted_date)} · {fmtMoney(cluster.amount)} · {cluster.description}
+                  <div>Bank line #{cluster.canonical_line_id} · Source ID {cluster.canonical_external_id || cluster.canonical_fitid || 'not supplied'}
+                    {cluster.canonical_source_system && <> · {cluster.canonical_source_system}</>}
+                    {cluster.canonical_bank_reference && <> · Ref {cluster.canonical_bank_reference}</>}
+                    {cluster.canonical_je_id && <> · <Link to={`/modules/accounting/journal-entries/${cluster.canonical_je_id}`}>JE #{cluster.canonical_je_id}</Link></>}
+                  </div>
+                  {(cluster.duplicates || []).map((line) => (
+                    <div key={line.line_id}>
+                      Compare line #{line.line_id} · Source ID {line.external_id || line.fitid || 'not supplied'}
+                      {line.source_system && <> · {line.source_system}</>}
+                      {line.bank_reference && <> · Ref {line.bank_reference}</>}
+                      {' · '}{line.description}
+                      {line.matched_je_id && <> · <Link to={`/modules/accounting/journal-entries/${line.matched_je_id}`}>JE #{line.matched_je_id}</Link></>}
+                      {' · '}{line.reason}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </details>
           </>
         )}
         {result && (
           <div style={{ fontSize: 12, marginTop: 3 }}>
-            Repaired {result.rows_marked || 0} rows and reversed {result.journal_entries_reversed || 0} duplicate postings.
-            {result.conflicts?.length ? ` ${result.conflicts.length} manual conflict${result.conflicts.length === 1 ? '' : 's'} remain.` : ''}
+            Marked {result.rows_marked || 0} reviewed shared-journal row{result.rows_marked === 1 ? '' : 's'} as copies. No journals were reversed.
+            {result.conflicts?.length ? ` ${result.conflicts.length} candidate${result.conflicts.length === 1 ? '' : 's'} still need review.` : ''}
           </div>
         )}
         {error && <div className="error" style={{ fontSize: 12, marginTop: 3 }}>{error}</div>}
       </div>
-      {duplicateRows > 0 && (
+      {safeRows > 0 && (
         <button
           type="button"
           className="btn btn--primary"
@@ -85,7 +105,7 @@ function DuplicateActivityRepair({ accountId, onRepaired }) {
           disabled={repairing}
           data-testid="treasury-duplicate-activity-repair"
         >
-          {repairing ? 'Repairing...' : 'Repair duplicate activity'}
+          {repairing ? 'Marking...' : 'Mark reviewed copies'}
         </button>
       )}
     </div>

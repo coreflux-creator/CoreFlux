@@ -99,6 +99,7 @@ $results = [
     'modified'      => 0,
     'removed'       => 0,
     'reused'        => 0,
+    'possible_replays' => 0,
     'unmapped'      => 0,
     'per_account'   => [],   // keyed by plaid_account_id
 ];
@@ -113,7 +114,7 @@ while (true) {
             $cursor  = $item['transactions_cursor'];
             $fullHistoryReplay = ($cursor === null || $cursor === '');
             $claimedDepositLines = [];
-            $results = ['pages' => 0, 'added' => 0, 'modified' => 0, 'removed' => 0, 'reused' => 0, 'unmapped' => 0, 'per_account' => []];
+            $results = ['pages' => 0, 'added' => 0, 'modified' => 0, 'removed' => 0, 'reused' => 0, 'possible_replays' => 0, 'unmapped' => 0, 'per_account' => []];
             continue;
         }
         plaidAudit('core.plaid.transactions_sync_failed', [
@@ -268,23 +269,10 @@ function _plaidRouteTxn(
                 $claimedDepositLines
             );
             if ($candidate) {
-                $lineId = (int) $candidate['id'];
-                $pdo->prepare(
-                    'UPDATE accounting_bank_statement_lines
-                        SET posted_date = :d, description = :desc, amount = :amt, bank_reference = :ref
-                      WHERE tenant_id = :t AND bank_account_id = :acc AND id = :id'
-                )->execute([
-                    'd' => $postedDate, 'desc' => $description, 'amt' => $signed, 'ref' => $reference,
-                    't' => $tenantId, 'acc' => $dest['id'], 'id' => $lineId,
-                ]);
-                bankTxnRecordAlias(
-                    $pdo, $tenantId, (int) $dest['id'], $lineId,
-                    'plaid', $txnId, $providerItemId
-                );
-                $claimedDepositLines[$lineId] = true;
-                $results['reused'] = ($results['reused'] ?? 0) + 1;
-                $results['per_account'][$accId] = ($results['per_account'][$accId] ?? 0) + 1;
-                return true;
+                // Similar facts are a review hint, not a stable bank ID.
+                // Insert the new Plaid event as unmatched below so a second
+                // real transaction cannot disappear during a reconnect.
+                $results['possible_replays'] = ($results['possible_replays'] ?? 0) + 1;
             }
         }
 

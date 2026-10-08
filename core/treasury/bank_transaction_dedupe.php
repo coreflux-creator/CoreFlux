@@ -41,9 +41,13 @@ function bankTxnDuplicateClusters(PDO $pdo, int $tenantId, int $bankAccountId): 
 {
     if (!bankTxnHasColumn($pdo, 'accounting_bank_statement_lines', 'duplicate_of_line_id')) return [];
 
+    $identityColumns = [];
+    foreach (['external_id', 'source_system', 'bank_reference'] as $column) {
+        if (bankTxnHasColumn($pdo, 'accounting_bank_statement_lines', $column)) $identityColumns[] = $column;
+    }
     $stmt = $pdo->prepare(
         'SELECT id, posted_date, description, amount, fitid, match_status,
-                matched_je_id, created_at
+                matched_je_id, created_at' . ($identityColumns ? ', ' . implode(', ', $identityColumns) : '') . '
            FROM accounting_bank_statement_lines
           WHERE tenant_id = :t AND bank_account_id = :a
             AND duplicate_of_line_id IS NULL
@@ -83,6 +87,11 @@ function bankTxnDescribeDuplicateCluster(PDO $pdo, int $tenantId, array $rows): 
         else $conflicts++;
         $details[] = [
             'line_id' => (int) $row['id'],
+            'description' => (string) $row['description'],
+            'fitid' => (string) ($row['fitid'] ?? ''),
+            'external_id' => (string) ($row['external_id'] ?? ''),
+            'source_system' => (string) ($row['source_system'] ?? ''),
+            'bank_reference' => (string) ($row['bank_reference'] ?? ''),
             'matched_je_id' => (int) ($row['matched_je_id'] ?? 0) ?: null,
             'action' => $classification['action'],
             'reason' => $classification['reason'],
@@ -94,6 +103,10 @@ function bankTxnDescribeDuplicateCluster(PDO $pdo, int $tenantId, array $rows): 
         'description' => (string) $canonical['description'],
         'amount' => (float) $canonical['amount'],
         'canonical_line_id' => (int) $canonical['id'],
+        'canonical_fitid' => (string) ($canonical['fitid'] ?? ''),
+        'canonical_external_id' => (string) ($canonical['external_id'] ?? ''),
+        'canonical_source_system' => (string) ($canonical['source_system'] ?? ''),
+        'canonical_bank_reference' => (string) ($canonical['bank_reference'] ?? ''),
         'canonical_je_id' => (int) ($canonical['matched_je_id'] ?? 0) ?: null,
         'row_count' => count($rows),
         'excess_rows' => count($rows) - 1,
@@ -109,69 +122,22 @@ function bankTxnClassifyDuplicateRow(PDO $pdo, int $tenantId, array $row, array 
 {
     $jeId = (int) ($row['matched_je_id'] ?? 0);
     $canonicalJeId = (int) ($canonical['matched_je_id'] ?? 0);
-    if (($row['match_status'] ?? '') !== 'matched' || $jeId <= 0) {
-        return ['action' => 'mark_duplicate', 'reason' => 'unposted duplicate feed row'];
-    }
-    if ($canonicalJeId > 0 && $canonicalJeId === $jeId) {
+    if (($row['match_status'] ?? '') === 'matched'
+        && $canonicalJeId > 0 && $canonicalJeId === $jeId) {
         return ['action' => 'mark_duplicate', 'reason' => 'duplicate row points to canonical journal entry'];
     }
-
-    $stmt = $pdo->prepare(
-        'SELECT id, status, source_module, source_ref_type, source_ref_id,
-                entity_id, currency, intercompany_group_id
-           FROM accounting_journal_entries
-          WHERE tenant_id = :t AND id = :id LIMIT 1'
-    );
-    $stmt->execute(['t' => $tenantId, 'id' => $jeId]);
-    $je = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$je || in_array((string) ($je['status'] ?? ''), ['reversed', 'void'], true)) {
-        return ['action' => 'mark_duplicate', 'reason' => 'linked journal entry is already inactive'];
-    }
-    if (($je['status'] ?? '') === 'posted' && ($je['source_module'] ?? '') === 'treasury_feed') {
-        $lineId = (int) $row['id'];
-        $directSource = ($je['source_ref_type'] ?? '') === 'bank_statement_line'
-            && (int) ($je['source_ref_id'] ?? 0) === $lineId;
-        $linkedSource = false;
-        if (!$directSource) {
-            try {
-                $link = $pdo->prepare(
-                    'SELECT 1 FROM accounting_subledger_links
-                      WHERE tenant_id = :t AND journal_entry_id = :je
-                        AND source_module = "treasury_feed"
-                        AND source_record_id IN (:single, :split)
-                      LIMIT 1'
-                );
-                $link->execute([
-                    't' => $tenantId, 'je' => $jeId,
-                    'single' => 'bank_line:' . $lineId,
-                    'split' => 'bank_line:split:' . $lineId,
-                ]);
-                $linkedSource = (bool) $link->fetchColumn();
-            } catch (Throwable $_) {}
-        }
-        if ($directSource || $linkedSource) {
-            return ['action' => 'reverse_and_mark', 'reason' => 'duplicate CoreFlux-generated journal entry'];
-        }
-    }
-
-    if (($je['status'] ?? '') === 'posted'
-        && ($je['source_module'] ?? '') === 'manual'
-        && $canonicalJeId > 0
-        && bankTxnIsSingleLegExactJournalDuplicate($pdo, $tenantId, $jeId, $canonicalJeId, $je)
-    ) {
-        return [
-            'action' => 'reverse_and_mark',
-            'reason' => 'single-leg manual journal exactly duplicates the canonical accounting entry',
-        ];
-    }
-    return ['action' => 'conflict', 'reason' => 'manually matched or unrelated journal entry'];
+    // Date, amount and similar narration identify a review candidate, not
+    // proof that the bank recorded one event. Different source journals may
+    // represent two real receipts even when their ledger legs are identical.
+    return ['action' => 'conflict', 'reason' => $jeId > 0
+        ? 'different linked journal entry; verify both source documents'
+        : 'no shared journal entry; verify the bank transaction identities'];
 }
 
 /**
- * Allow an otherwise-manual duplicate to be repaired only when its economic
- * accounting is equivalent and its IC group contains no second entity leg.
- * Free-form line memo wording is intentionally excluded; dimensions and all
- * counterparty assignments remain part of the signature.
+ * Compare manual journal economics for diagnostic tests only. Matching ledger
+ * legs do not prove that two bank lines describe the same bank event, so this
+ * comparison must not authorize automatic bank-line merging or JE reversal.
  */
 function bankTxnIsSingleLegExactJournalDuplicate(
     PDO $pdo,
@@ -275,8 +241,6 @@ function bankTxnRepairDuplicates(
     int $bankAccountId,
     ?int $actorUserId = null
 ): array {
-    require_once __DIR__ . '/../../modules/accounting/lib/accounting.php';
-
     $result = ['clusters' => 0, 'rows_marked' => 0, 'journal_entries_reversed' => 0, 'conflicts' => []];
     foreach (bankTxnDuplicateClusters($pdo, $tenantId, $bankAccountId) as $cluster) {
         $rows = $cluster['_rows'];
@@ -292,16 +256,6 @@ function bankTxnRepairDuplicates(
                 ];
                 continue;
             }
-            if ($classification['action'] === 'reverse_and_mark') {
-                accountingReverseJe(
-                    $tenantId,
-                    (int) $row['matched_je_id'],
-                    'Duplicate bank-feed transaction from provider history replay',
-                    $actorUserId
-                );
-                $result['journal_entries_reversed']++;
-            }
-
             try {
                 $pdo->prepare(
                     'UPDATE accounting_bank_transaction_aliases
@@ -317,13 +271,14 @@ function bankTxnRepairDuplicates(
                 'UPDATE accounting_bank_statement_lines
                     SET duplicate_of_line_id = :canonical,
                         dedupe_reason = :reason,
-                        deduplicated_at = NOW()
+                        deduplicated_at = :marked_at
                   WHERE tenant_id = :t AND bank_account_id = :a AND id = :id
                     AND duplicate_of_line_id IS NULL'
             );
             $mark->execute([
                 'canonical' => (int) $canonical['id'],
                 'reason' => 'provider_history_replay',
+                'marked_at' => gmdate('Y-m-d H:i:s'),
                 't' => $tenantId, 'a' => $bankAccountId, 'id' => (int) $row['id'],
             ]);
             $result['rows_marked'] += $mark->rowCount();

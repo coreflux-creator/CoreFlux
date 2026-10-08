@@ -32,7 +32,12 @@ $ui = (string) file_get_contents(__DIR__ . '/../modules/treasury/ui/AccountTrans
 $assert('Plaid full-history sync uses replay candidate matching', str_contains($sync, 'bankTxnFindReplayCandidate'));
 $assert('Plaid modifications resolve historical aliases', str_contains($sync, 'bankTxnAliasLineId'));
 $assert('Treasury list excludes audit-only duplicate rows', str_contains($api, 'duplicate_of_line_id IS NULL'));
-$assert('account UI exposes duplicate repair', str_contains($ui, 'treasury-duplicate-activity-repair'));
+$assert('account UI offers reviewed copy marking only', str_contains($ui, 'treasury-duplicate-activity-repair')
+    && str_contains($ui, 'safeRows > 0')
+    && str_contains($ui, 'similar bank line'));
+$assert('Plaid candidate resemblance does not silently reuse a bank line',
+    str_contains($sync, "\$results['possible_replays']")
+    && !str_contains($sync, "\$results['reused'] = (\$results['reused'] ?? 0) + 1"));
 
 if (!in_array('sqlite', PDO::getAvailableDrivers(), true)) {
     echo "[SKIP] sqlite driver unavailable" . PHP_EOL;
@@ -49,6 +54,9 @@ $pdo->exec('CREATE TABLE accounting_bank_statement_lines (
     description TEXT,
     amount NUMERIC NOT NULL,
     fitid TEXT,
+    external_id TEXT,
+    source_system TEXT,
+    bank_reference TEXT,
     match_status TEXT NOT NULL DEFAULT "unmatched",
     matched_je_id INTEGER,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -119,6 +127,7 @@ $pdo->exec("INSERT INTO accounting_journal_entries
     (12, 1, 'posted', 'manual', 'intercompany_group', NULL, 1, 'USD', 'single-leg'),
     (13, 1, 'posted', 'manual', 'intercompany_group', NULL, 1, 'USD', 'two-leg'),
     (14, 1, 'posted', 'manual', 'intercompany_group', NULL, 2, 'USD', 'two-leg')");
+$pdo->exec("UPDATE accounting_bank_statement_lines SET external_id='bank-event-b', source_system='mercury', bank_reference='wire-b' WHERE fitid='old-b'");
 $pdo->exec("INSERT INTO accounting_journal_entry_lines (je_id, account_id, debit, credit, memo) VALUES
     (10, 100, 1036, 0, NULL), (10, 200, 0, 1036, NULL),
     (12, 100, 1036, 0, 'manual debit memo'), (12, 200, 0, 1036, 'manual credit memo'),
@@ -138,7 +147,11 @@ $assert('refuses to auto-reverse a multi-leg intercompany group',
 $preview = bankTxnDuplicatePreview($pdo, 1, 63);
 $assert('finds exact replay and compact-description replay clusters', $preview['cluster_count'] === 2);
 $assert('counts three excess replay rows', $preview['duplicate_rows'] === 3);
-$assert('identifies one duplicate generated posting for reversal', $preview['reversible_rows'] === 1);
+$assert('does not authorize reversals from matching bank facts', $preview['reversible_rows'] === 0);
+$assert('keeps different journals and unmatched lines for source review', $preview['conflict_rows'] === 3 && $preview['safe_rows'] === 0);
+$assert('preview exposes source identity for review',
+    $preview['clusters'][0]['duplicates'][0]['external_id'] === 'bank-event-b'
+    && $preview['clusters'][0]['duplicates'][0]['bank_reference'] === 'wire-b');
 $assert('keeps differently directed transfers separate',
     count(array_filter($preview['clusters'], static fn(array $c): bool => $c['posted_date'] === '2026-08-11')) === 0);
 
@@ -147,6 +160,18 @@ $assert('full replay finds canonical existing occurrence', (int) ($candidate['id
 $claimed = [1 => true];
 $candidate2 = bankTxnFindReplayCandidate($pdo, 1, 63, '2026-09-02', -1036, 'FCB FUNDS TRANSFER TO X1348', $claimed);
 $assert('occurrence claim advances to the next identical real row', (int) ($candidate2['id'] ?? 0) === 2);
+
+$insert->execute(['d' => '2026-09-03', 'n' => 'Provider replay', 'a' => 50, 'f' => 'replay-a', 's' => 'matched', 'j' => 20]);
+$insert->execute(['d' => '2026-09-03', 'n' => 'Provider replay', 'a' => 50, 'f' => 'replay-b', 's' => 'matched', 'j' => 20]);
+$reviewedPreview = bankTxnDuplicatePreview($pdo, 1, 63);
+$assert('only shared-journal candidates are eligible for reviewed marking',
+    $reviewedPreview['safe_rows'] === 1 && $reviewedPreview['conflict_rows'] === 3);
+$repair = bankTxnRepairDuplicates($pdo, 1, 63);
+$assert('reviewed marking hides only the shared-journal copy',
+    $repair['rows_marked'] === 1 && $repair['journal_entries_reversed'] === 0
+    && (int) $pdo->query("SELECT COUNT(*) FROM accounting_bank_statement_lines WHERE duplicate_of_line_id IS NOT NULL")->fetchColumn() === 1);
+$assert('unrelated posted and unmatched lines remain untouched',
+    (int) $pdo->query("SELECT COUNT(*) FROM accounting_bank_statement_lines WHERE id <= 7 AND duplicate_of_line_id IS NOT NULL")->fetchColumn() === 0);
 
 bankTxnRecordAlias($pdo, 1, 63, 1, 'plaid', 'new-plaid-id', 'new-item');
 $assert('provider alias resolves to canonical row', bankTxnAliasLineId($pdo, 1, 63, 'plaid', 'new-plaid-id') === 1);

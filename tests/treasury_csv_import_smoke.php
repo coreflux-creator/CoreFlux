@@ -141,6 +141,20 @@ $a('second run sees the same rows', $res2['rows_seen'] === $res['rows_seen']);
 $a('second run inserts zero new rows', $res2['rows_inserted'] === 0);
 $a('second run rows_duplicate equals first-run rows_inserted', $res2['rows_duplicate'] === 4);
 
+$tmpIdentity = tempnam(sys_get_temp_dir(), 'cf_treas_ids_');
+file_put_contents($tmpIdentity,
+    "Date,Description,Amount,External ID,Source system\n" .
+    "2026-02-07,Client receipt,400.00,receipt-a,mercury\n" .
+    "2026-02-07,Client receipt,400.00,receipt-b,mercury\n"
+);
+$firstIdentity = treasuryImportBankCsv($pdo, 7, 101, $tmpIdentity);
+$secondIdentity = treasuryImportBankCsv($pdo, 7, 101, $tmpIdentity);
+$a('distinct source IDs preserve two identical-looking bank events',
+    $firstIdentity['rows_inserted'] === 2
+    && (int) $pdo->query("SELECT COUNT(*) FROM accounting_bank_statement_lines WHERE posted_date='2026-02-07'")->fetchColumn() === 2);
+$a('re-upload of source IDs is idempotent',
+    $secondIdentity['rows_inserted'] === 0 && $secondIdentity['rows_duplicate'] === 2);
+
 // 4) Foreign-key gate.
 echo "\n4. bank_account_id gating\n";
 $res3 = treasuryImportBankCsv($pdo, 7, 999, $tmp);
@@ -165,7 +179,7 @@ $a('Debit-only row stored as negative', (float) $st->fetchColumn() === -250.0);
 $st = $pdo->query("SELECT amount FROM accounting_bank_statement_lines WHERE description='Deposit'");
 $a('Credit-only row stored as positive', (float) $st->fetchColumn() === 1000.0);
 
-unlink($tmp); unlink($tmp2);
+unlink($tmp); unlink($tmp2); unlink($tmpIdentity);
 
 endpoint_checks:
 // 6) Endpoint structural checks.
@@ -190,9 +204,9 @@ $a('importer tolerates pre-audit schemas by discovering live columns',
     str_contains($libSrc, 'treasuryCsvStatementColumnInfo($pdo)')
     && str_contains($libSrc, "isset(\$columnInfo['external_id'])")
     && str_contains($libSrc, "isset(\$columnInfo['source_system'])"));
-$a('importer de-dupes matching Plaid rows by date, amount, and normalised description',
-    str_contains($libSrc, 'treasuryCsvNormaliseDescription')
-    && str_contains($libSrc, 'posted_date = :dt AND amount = :amt'));
+$a('importer suppresses exact FITID replay without collapsing similar transactions',
+    str_contains($libSrc, 'fitid = :fitid')
+    && !str_contains($libSrc, 'posted_date = :dt AND amount = :amt'));
 $a('importer does not require mbstring',
     str_contains($libSrc, "function_exists('mb_substr')"));
 

@@ -33,6 +33,11 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'run') {
     );
     if (!$account) api_error('Bank account not found', 404);
 
+    $preview = bankTxnDuplicatePreview($pdo, $tenantId, $accountId);
+    if ((int) ($preview['safe_rows'] ?? 0) === 0) {
+        api_error('No confirmed replay copies to repair. Review the similar bank lines and their source documents.', 409);
+    }
+
     $result = bankTxnRepairDuplicates(
         $pdo,
         $tenantId,
