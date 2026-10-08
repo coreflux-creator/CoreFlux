@@ -40,7 +40,7 @@ function accountingSourceControlTieOut(int $tenantId, int $entityId, string $asO
         $pdo->beginTransaction();
     }
     try {
-        $entityStmt = $pdo->prepare('SELECT code, name, base_currency FROM accounting_entities
+        $entityStmt = $pdo->prepare('SELECT code, legal_name AS name, base_currency FROM accounting_entities
             WHERE tenant_id = :tenant_id AND id = :entity_id AND active = 1');
         $entityStmt->execute(['tenant_id' => $tenantId, 'entity_id' => $entityId]);
         $entity = $entityStmt->fetch(\PDO::FETCH_ASSOC);
