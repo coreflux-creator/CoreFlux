@@ -22,6 +22,8 @@ foreach ([
     'deploy/example.php', 'scripts/example.php', '.github/workflows/example.yml',
     'modules/accounting/ui/journalDimensions.js',
 ] as $file) $put($file);
+$sharedApacheConfig = (string) file_get_contents(__DIR__ . '/../.htaccess');
+file_put_contents($webroot . '/.htaccess', $sharedApacheConfig);
 
 $originalEnvironment = getenv('COREFLUX_ENV');
 try {
@@ -35,6 +37,38 @@ try {
     ob_start();
     require __DIR__ . '/../deploy/finalize_coreaccounting_qa_webroot.php';
     $result = json_decode((string) ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
+
+    require_once __DIR__ . '/../deploy/coreaccounting_apache_boundary.php';
+    $installedApacheConfig = (string) file_get_contents($webroot . '/.htaccess');
+    if (($result['standalone_apache_rules_installed'] ?? null) !== true
+        || coreAccountingStandaloneApacheConfig($sharedApacheConfig) !== $installedApacheConfig
+        || coreAccountingStandaloneApacheConfig($installedApacheConfig) !== $installedApacheConfig
+        || (string) file_get_contents($private . '/htaccess-before-standalone-module-boundary') !== $sharedApacheConfig
+        || (string) file_get_contents(__DIR__ . '/../.htaccess') !== $sharedApacheConfig) {
+        throw new RuntimeException('Standalone Apache rules were not installed safely and idempotently.');
+    }
+    $lfConfig = str_replace("\r\n", "\n", $sharedApacheConfig);
+    $lfInstalled = coreAccountingStandaloneApacheConfig($lfConfig);
+    if (coreAccountingStandaloneApacheConfig($lfInstalled) !== $lfInstalled
+        || !str_contains($lfInstalled, "# Sensible defaults\n")
+        || str_contains($lfInstalled, "\r\n")) {
+        throw new RuntimeException('Standalone Apache rules failed on LF line endings.');
+    }
+    try {
+        coreAccountingStandaloneApacheConfig(str_replace(
+            'RedirectMatch 404 ^/modules/[^/]+/(?!api/).*\.php$', '', $installedApacheConfig
+        ));
+        throw new RuntimeException('Partial standalone Apache rules were accepted.');
+    } catch (RuntimeException $error) {
+        if ($error->getMessage() === 'Partial standalone Apache rules were accepted.') throw $error;
+    }
+    try {
+        coreAccountingStandaloneApacheConfig($installedApacheConfig
+            . 'RedirectMatch 404 ^/modules/[^/]+/(?!api/).*\.php$');
+        throw new RuntimeException('Duplicate standalone Apache rule was accepted.');
+    } catch (RuntimeException $error) {
+        if ($error->getMessage() === 'Duplicate standalone Apache rule was accepted.') throw $error;
+    }
 
     $moved = [
         'README.md', 'ssh note.txt', 'install.php', 'bootstrap_debug.php',
@@ -79,7 +113,7 @@ try {
             if ($error->getMessage() === 'Unsafe target was accepted') throw $error;
         }
     }
-    echo 'Passed: staged source moves, runtime preservation, and two unsafe-target refusals' . PHP_EOL;
+    echo 'Passed: staged source moves, standalone Apache rules, runtime preservation, and unsafe-target refusals' . PHP_EOL;
 } finally {
     if ($originalEnvironment === false) putenv('COREFLUX_ENV');
     else putenv('COREFLUX_ENV=' . $originalEnvironment);

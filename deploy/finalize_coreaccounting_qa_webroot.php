@@ -35,7 +35,29 @@ foreach (['spa.php', 'index.html', '.htaccess', 'dashboard/dist/index.html', 've
         throw new RuntimeException("Runtime release is incomplete: $required");
     }
 }
+require_once __DIR__ . '/coreaccounting_apache_boundary.php';
+$apacheConfig = file_get_contents($webroot . '/.htaccess');
+if ($apacheConfig === false) throw new RuntimeException('Could not read Apache config.');
+$standaloneApacheConfig = coreAccountingStandaloneApacheConfig($apacheConfig);
 if (!mkdir($private, 0700)) throw new RuntimeException('Could not create private source directory.');
+
+if ($standaloneApacheConfig !== $apacheConfig) {
+    $backup = $private . '/htaccess-before-standalone-module-boundary';
+    if (file_put_contents($backup, $apacheConfig, LOCK_EX) !== strlen($apacheConfig)) {
+        throw new RuntimeException('Could not back up Apache config.');
+    }
+    $temporary = tempnam($webroot, '.coreaccounting-htaccess-');
+    if ($temporary === false) throw new RuntimeException('Could not stage Apache config.');
+    try {
+        if (file_put_contents($temporary, $standaloneApacheConfig, LOCK_EX) !== strlen($standaloneApacheConfig)
+            || !chmod($temporary, fileperms($webroot . '/.htaccess') & 0777)
+            || !rename($temporary, $webroot . '/.htaccess')) {
+            throw new RuntimeException('Could not install standalone Apache rules.');
+        }
+    } finally {
+        if (is_file($temporary)) unlink($temporary);
+    }
+}
 
 require_once __DIR__ . '/../core/accounting/standalone_api_boundary.php';
 
@@ -75,4 +97,8 @@ foreach (glob($webroot . '/modules/*/ui', GLOB_ONLYDIR) ?: [] as $source) {
     $move('modules/' . basename(dirname($source)) . '/ui');
 }
 
-echo json_encode(['private_source_dir' => $private, 'moved_entries' => $moved], JSON_UNESCAPED_SLASHES) . "\n";
+echo json_encode([
+    'private_source_dir' => $private,
+    'moved_entries' => $moved,
+    'standalone_apache_rules_installed' => $standaloneApacheConfig !== $apacheConfig,
+], JSON_UNESCAPED_SLASHES) . "\n";
