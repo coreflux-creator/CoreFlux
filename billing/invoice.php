@@ -6,6 +6,10 @@
  * Unauthenticated — the token in the URL is the credential. Print-friendly
  * HTML; customer can Cmd/Ctrl+P to save as PDF.
  */
+header('Cache-Control: private, no-store, max-age=0');
+header('Pragma: no-cache');
+header('X-Robots-Tag: noindex, nofollow');
+header('Referrer-Policy: no-referrer');
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/config.php';
 require_once __DIR__ . '/../modules/billing/lib/billing.php';
@@ -49,6 +53,7 @@ function bv_esc($s): string { return htmlspecialchars((string) $s, ENT_QUOTES, '
 function bv_money($n, $cur = 'USD'): string {
     return number_format((float) $n, 2) . ' ' . bv_esc($cur);
 }
+if (!$inv) http_response_code(404);
 ?>
 <!DOCTYPE html>
 <html lang="en">
