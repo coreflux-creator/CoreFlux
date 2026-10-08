@@ -89,14 +89,14 @@ jobs:
     name: Live business graph simulation
 
     services:
-      mysql:
-        image: mysql:8.0
+      mariadb:
+        image: mariadb:10.11
         env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: coreflux_sim
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: coreflux_sim
         ports: ['3306:3306']
         options: >-
-          --health-cmd="mysqladmin ping --silent"
+          --health-cmd="mariadb-admin ping --silent"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
@@ -131,14 +131,14 @@ jobs:
     name: CoreAccounting empty-database install
 
     services:
-      mysql:
-        image: mysql:8.0
+      mariadb:
+        image: mariadb:10.11
         env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: coreaccounting_ci
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: coreaccounting_ci
         ports: ['3306:3306']
         options: >-
-          --health-cmd="mysqladmin ping --silent"
+          --health-cmd="mariadb-admin ping --silent"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
