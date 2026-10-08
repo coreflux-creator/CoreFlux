@@ -42,7 +42,7 @@ try {
 $entityId = (int) $entity['id'];
 
 $aging = billingComputeAging($tid, $asOf, $entityId);
-$report = ['as_of' => $asOf, 'entity_id' => $entityId, 'entity_name' => $entity['legal_name'],
+$report = ['as_of' => $asOf, 'entity_id' => $entityId, 'entity_name' => $entity['legal_name'], 'preview' => $dryRun,
     'attempted' => 0, 'sent' => 0, 'skipped' => 0, 'failed' => 0, 'rows' => []];
 
 $sender = $dryRun ? null : cf_tenant_mail_sender($tid, 'billing');

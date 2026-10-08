@@ -263,7 +263,7 @@ function AgingSummary({ label, value, tone }) {
 }
 
 function BatchReportModal({ report, busy, onClose, onSend, alreadySent, actionError }) {
-  const isPreview = report.rows?.some((r) => r.status === 'would_send');
+  const isPreview = report.preview === true;
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}

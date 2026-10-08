@@ -200,6 +200,8 @@ $a('batch statement rows are entity-scoped',             str_contains($api, 'bil
     && str_contains($api, 'billingStatementOpenInvoices($tid, $client, $asOf, $entityId)'));
 $a('batch preview checks statement and aging agree',     str_contains($api, 'Statement balance differs from AR aging'));
 $a('dry-run returns would_send rows',                    str_contains($api, "'status' => 'would_send'"));
+$a('dry-run report is identified even with no recipients', str_contains($api, "'preview' => \$dryRun")
+    && str_contains($read(__DIR__ . '/../modules/billing/ui/AgingTable.jsx'), 'report.preview === true'));
 $a('write audited as batch_sent',                        str_contains($api, "'billing.statement.batch_sent'"));
 
 $ui = $read(__DIR__ . '/../modules/billing/ui/AgingTable.jsx');
