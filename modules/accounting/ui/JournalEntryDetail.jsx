@@ -32,7 +32,12 @@ export default function JournalEntryDetail() {
         : '/modules/accounting/api/journal_entries.php';
       const action = data?.entry?.source_module === 'recurring_je' ? 'reverse_run' : 'reverse';
       const res = await api.post(`${endpoint}?action=${action}&id=${id}`, { reason: reason.trim() });
-      navigate(`/modules/accounting/journal-entries/${res.je_id}`);
+      if (data?.entry?.source_module === 'recurring_je') {
+        setReverseOpen(false);
+        await reload();
+      } else {
+        navigate(`/modules/accounting/journal-entries/${res.je_id}`);
+      }
     } catch (e) { setErr(e.message || String(e)); }
     finally { setBusy(false); }
   };
@@ -103,9 +108,21 @@ export default function JournalEntryDetail() {
             </>
           )}
           {isDraft && isRecurring && (
-            <button type="button" className="btn btn--primary" onClick={postDraft} disabled={busy} data-testid="accounting-je-post-recurring-draft">
-              <FileCheck2 size={15} aria-hidden="true" />{busy ? 'Posting…' : 'Post draft'}
-            </button>
+            <>
+              {entry.source_ref_type === 'replaces_je' && (
+                <Link className="btn btn--ghost" to={`/modules/accounting/recurring/replace/${entry.source_ref_id}`} data-testid="accounting-je-edit-recurring-replacement">
+                  <Pencil size={15} aria-hidden="true" />Edit replacement
+                </Link>
+              )}
+              <button type="button" className="btn btn--primary" onClick={postDraft} disabled={busy} data-testid="accounting-je-post-recurring-draft">
+                <FileCheck2 size={15} aria-hidden="true" />{busy ? 'Posting…' : 'Post draft'}
+              </button>
+            </>
+          )}
+          {isReversed && isRecurring && (!entry.corrected_by_je_id || entry.corrected_by_je_status === 'draft') && (
+            <Link className="btn btn--primary" to={`/modules/accounting/recurring/replace/${id}`} data-testid="accounting-je-prepare-recurring-replacement">
+              <Pencil size={15} aria-hidden="true" />{entry.corrected_by_je_id ? 'Edit replacement draft' : 'Prepare replacement'}
+            </Link>
           )}
           {isPosted && isRecurring && (
             <button type="button" className="btn btn--ghost" onClick={() => setReverseOpen(true)} disabled={busy} data-testid="accounting-je-reverse-recurring-run">

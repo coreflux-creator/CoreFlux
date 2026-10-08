@@ -140,6 +140,86 @@ try {
         && (int) $repeatReversal['je_id'] === $reversalId,
         'repeat reversal returns the existing correction');
 
+    $beforeReplacement = qaOne($pdo, 'SELECT next_run_date, last_run_je_id
+        FROM accounting_recurring_journal_entries WHERE tenant_id = :t AND id = :id',
+        ['t' => QA_TENANT, 'id' => $templateId]);
+    $replacementPreview = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=replacement&id='
+        . $jeId, 'GET', null, $cookie);
+    qaExpect((int) ($replacementPreview['original']['id'] ?? 0) === $jeId
+        && ($replacementPreview['replacement'] ?? null) === null
+        && count($replacementPreview['lines'] ?? []) === 2,
+        'reversed run opens as an editable replacement with original lines');
+    $replacementPayload = [
+        'entity_id' => $entityId,
+        'posting_date' => date('Y-m-d'),
+        'memo' => 'Edited synthetic recurring replacement',
+        'reason' => 'Correct the amount in the reviewed run',
+        'lines' => [
+            ['account_code' => $expenseCode, 'debit' => 14.56, 'credit' => 0],
+            ['account_code' => $revenueCode, 'debit' => 0, 'credit' => 14.56],
+        ],
+    ];
+    $prepared = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=prepare_replacement&id='
+        . $jeId, 'POST', $replacementPayload, $cookie);
+    $replacementId = (int) ($prepared['je_id'] ?? 0);
+    qaExpect($replacementId > 0 && ($prepared['status'] ?? '') === 'draft'
+        && empty($prepared['updated']), 'replacement is staged off-ledger for review');
+    $replacementPayload['lines'][0]['debit'] = 15.67;
+    $replacementPayload['lines'][1]['credit'] = 15.67;
+    $revised = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=prepare_replacement&id='
+        . $jeId, 'POST', $replacementPayload, $cookie);
+    qaExpect((int) ($revised['je_id'] ?? 0) === $replacementId
+        && !empty($revised['updated']) && abs((float) $revised['total_debit'] - 15.67) < 0.005,
+        'editing the replacement updates the same draft instead of duplicating it');
+    $replacementDetail = qaRequest('/modules/accounting/api/journal_entries.php?id=' . $replacementId,
+        'GET', null, $cookie);
+    qaExpect(($replacementDetail['entry']['source_module'] ?? '') === 'recurring_je'
+        && ($replacementDetail['entry']['source_ref_type'] ?? '') === 'replaces_je'
+        && (int) ($replacementDetail['entry']['source_ref_id'] ?? 0) === $jeId,
+        'replacement retains its original-run link and recurring source ownership');
+    $postedReplacement = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=post_draft&id='
+        . $replacementId, 'POST', [], $cookie);
+    qaExpect(($postedReplacement['status'] ?? '') === 'posted'
+        && abs((float) ($postedReplacement['total_debit'] ?? 0) - 15.67) < 0.005,
+        'review posts the edited replacement to the canonical ledger');
+    $repeatPost = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=post_draft&id='
+        . $replacementId, 'POST', [], $cookie);
+    qaExpect(!empty($repeatPost['idempotent_replay'])
+        && (int) $repeatPost['je_id'] === $replacementId,
+        'repeat replacement review does not post twice');
+    $replacementNet = $pdo->prepare('SELECT a.code, ROUND(SUM(l.debit - l.credit), 2) AS amount
+        FROM accounting_journal_entry_lines l
+        JOIN accounting_journal_entries je ON je.id = l.je_id AND je.tenant_id = l.tenant_id
+        JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = l.tenant_id
+        WHERE je.tenant_id = :t AND je.entity_id = :e
+          AND je.id IN (:original, :reversal, :replacement)
+          AND je.status IN ("posted", "reversed") GROUP BY a.code');
+    $replacementNet->execute(['t' => QA_TENANT, 'e' => $entityId,
+        'original' => $jeId, 'reversal' => $reversalId, 'replacement' => $replacementId]);
+    $replacementBalances = array_column($replacementNet->fetchAll(PDO::FETCH_ASSOC), 'amount', 'code');
+    qaExpect(abs((float) ($replacementBalances[$expenseCode] ?? 0) - 15.67) < 0.005
+        && abs((float) ($replacementBalances[$revenueCode] ?? 0) + 15.67) < 0.005,
+        'original, reversal, and replacement net to only the corrected amount');
+    $afterReplacement = qaOne($pdo, 'SELECT next_run_date, last_run_je_id
+        FROM accounting_recurring_journal_entries WHERE tenant_id = :t AND id = :id',
+        ['t' => QA_TENANT, 'id' => $templateId]);
+    qaExpect($afterReplacement === $beforeReplacement,
+        'replacement never rewinds or advances the recurring schedule');
+    $duplicateError = null;
+    try {
+        qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=prepare_replacement&id='
+            . $jeId, 'POST', $replacementPayload, $cookie);
+    } catch (RuntimeException $e) { $duplicateError = $e->getMessage(); }
+    qaExpect($duplicateError !== null && str_contains($duplicateError, 'HTTP 409'),
+        'posted replacement cannot be silently overwritten or duplicated');
+    $manualError = null;
+    try {
+        qaRequest('/modules/accounting/api/journal_entries.php?action=replace&id=' . $jeId,
+            'POST', $replacementPayload, $cookie);
+    } catch (RuntimeException $e) { $manualError = $e->getMessage(); }
+    qaExpect($manualError !== null && str_contains($manualError, 'HTTP 409'),
+        'generic manual correction still refuses source-owned recurring journals');
+
     $ended = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=end&id='
         . $templateId, 'POST', [], $cookie);
     qaExpect(($ended['status'] ?? '') === 'ended',
@@ -159,7 +239,7 @@ try {
     qaExpect($resumeError !== null && str_contains($resumeError, 'HTTP 409')
         && ($endedRow['status'] ?? '') === 'ended',
         'ended schedule cannot be reactivated through the API');
-    echo "Staging recurring template {$templateId}, journal {$jeId}, reversal {$reversalId}, entity {$entityId}.\n";
+    echo "Staging recurring template {$templateId}, journal {$jeId}, reversal {$reversalId}, replacement {$replacementId}, entity {$entityId}.\n";
 } finally {
     if ($templateId > 0) {
         $pdo->prepare('UPDATE accounting_recurring_journal_entries SET status = "ended"

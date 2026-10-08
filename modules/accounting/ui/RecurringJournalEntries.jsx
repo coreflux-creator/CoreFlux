@@ -10,12 +10,14 @@ import { Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
  *  - /modules/accounting/recurring                → list + Run-due button
  *  - /modules/accounting/recurring/new            → create form
  *  - /modules/accounting/recurring/:id            → edit form (header + lines)
+ *  - /modules/accounting/recurring/replace/:journalId → reviewed replacement draft
  */
 export default function RecurringJournalEntries() {
   return (
     <Routes>
       <Route index           element={<List />} />
       <Route path="new"      element={<Editor />} />
+      <Route path="replace/:journalId" element={<Editor replacement />} />
       <Route path=":id"      element={<Editor edit />} />
     </Routes>
   );
@@ -121,17 +123,17 @@ const newLine = () => ({
   assignment_entity_id: null,
 });
 
-function Editor({ edit }) {
+function Editor({ edit = false, replacement = false }) {
   const navigate = useNavigate();
-  const { id } = useParams();
+  const { id, journalId } = useParams();
   const { activeEntityId, entities, loaded: entitiesLoaded } = useActiveEntity();
   const [accounts, setAccounts] = useState([]);
   const [dimensions, setDimensions] = useState([]);
-  const [form, setForm] = useState({ entity_id: '', name: '', cadence: 'monthly', next_run_date: new Date().toISOString().slice(0,10), end_date: '', auto_post: 1, memo: '' });
+  const [form, setForm] = useState({ entity_id: '', name: '', cadence: 'monthly', next_run_date: new Date().toISOString().slice(0,10), posting_date: new Date().toISOString().slice(0,10), end_date: '', auto_post: 1, memo: '', reason: '' });
   const [lines, setLines] = useState([newLine(), newLine()]);
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
-  const [templateMeta, setTemplateMeta] = useState({ loading: !!edit, error: null, status: null, lastRunJeId: null });
+  const [templateMeta, setTemplateMeta] = useState({ loading: edit || replacement, error: null, status: null, lastRunJeId: null, replacementJeId: null, replacementStatus: null });
   const [expandedLine, setExpandedLine] = useState(null);
   const [assignmentStatus, setAssignmentStatus] = useState({});
 
@@ -140,7 +142,23 @@ function Editor({ edit }) {
     api.get('/modules/accounting/api/dimensions.php').then(d => {
       setDimensions((d?.dimensions || []).filter(dimension => Number(dimension.active) === 1 && dimension.dim_key !== 'legal_entity'));
     }).catch(() => setDimensions([]));
-    if (edit && id) {
+    if (replacement && journalId) {
+      api.get(`/modules/accounting/api/recurring_journal_entries.php?action=replacement&id=${journalId}`).then(d => {
+        setTemplateMeta({ loading: false, error: null, status: d.template.status,
+          lastRunJeId: Number(journalId), replacementJeId: d.replacement?.id || null,
+          replacementStatus: d.replacement?.status || null });
+        setForm(current => ({ ...current, entity_id: String(d.original.entity_id),
+          name: d.template.name || '', posting_date: d.replacement?.posting_date || current.posting_date,
+          memo: d.replacement?.memo || d.original.memo || '' }));
+        setLines((d.lines || []).map(l => {
+          const dims = parseDims(l.dims || l.dim_json);
+          delete dims.legal_entity;
+          return { ...l, debit: Number(l.debit) > 0 ? String(l.debit) : '',
+            credit: Number(l.credit) > 0 ? String(l.credit) : '', dims,
+            assignment_entity_id: dims.placement ? d.original.entity_id : null };
+        }));
+      }).catch(e => setTemplateMeta(current => ({ ...current, loading: false, error: e.message })));
+    } else if (edit && id) {
       api.get(`/modules/accounting/api/recurring_journal_entries.php?id=${id}`).then(d => {
         if (!d?.template) throw new Error('Recurring template not found.');
         setTemplateMeta({
@@ -172,7 +190,7 @@ function Editor({ edit }) {
         }));
       }).catch(e => setTemplateMeta({ loading: false, error: e.message, status: null, lastRunJeId: null }));
     }
-  }, [edit, id]);
+  }, [edit, id, replacement, journalId]);
 
   useEffect(() => {
     if (!entitiesLoaded || form.entity_id) return;
@@ -214,7 +232,7 @@ function Editor({ edit }) {
     try {
       const params = new URLSearchParams({
         placement_id: String(placement.id),
-        as_of: form.next_run_date,
+        as_of: replacement ? form.posting_date : form.next_run_date,
         entity_id: String(form.entity_id),
       });
       const data = await api.get(`/modules/staffing/api/assignment_dimensions.php?${params.toString()}`);
@@ -257,7 +275,7 @@ function Editor({ edit }) {
     if (!placementId) return line;
     const params = new URLSearchParams({
       placement_id: String(placementId),
-      as_of: form.next_run_date,
+      as_of: replacement ? form.posting_date : form.next_run_date,
       entity_id: String(form.entity_id),
     });
     const data = await api.get(`/modules/staffing/api/assignment_dimensions.php?${params.toString()}`);
@@ -301,7 +319,14 @@ function Editor({ edit }) {
           dims: l.dims || {},
         })),
       };
-      if (edit && id) {
+      if (replacement && journalId) {
+        if (!form.reason.trim()) throw new Error('Enter a reason for the correction.');
+        const result = await api.post(`/modules/accounting/api/recurring_journal_entries.php?action=prepare_replacement&id=${journalId}`, {
+          entity_id: Number(form.entity_id), posting_date: form.posting_date,
+          memo: form.memo, reason: form.reason.trim(), lines: payload.lines,
+        });
+        navigate(`/modules/accounting/journal-entries/${result.je_id}`);
+      } else if (edit && id) {
         await api.put(`/modules/accounting/api/recurring_journal_entries.php?id=${id}`, payload);
         navigate('/modules/accounting/recurring');
       } else {
@@ -312,25 +337,34 @@ function Editor({ edit }) {
     finally { setBusy(false); }
   };
 
-  if (edit && templateMeta.loading) {
+  if ((edit || replacement) && templateMeta.loading) {
     return <section data-testid="accounting-recurring-editor"><p>Loading recurring template…</p></section>;
   }
-  if (edit && templateMeta.error) {
+  if ((edit || replacement) && templateMeta.error) {
     return <section data-testid="accounting-recurring-editor"><Link to="/modules/accounting/recurring">← Recurring entries</Link><p className="error">{templateMeta.error}</p></section>;
+  }
+  if (replacement && templateMeta.replacementStatus === 'posted') {
+    return <section data-testid="accounting-recurring-replacement-posted">
+      <Link to={`/modules/accounting/journal-entries/${journalId}`}>← Original journal</Link>
+      <h2>Replacement already posted</h2>
+      <p>To correct it again, reverse that replacement first. The recurring schedule is unchanged.</p>
+      <Link className="btn btn--primary" to={`/modules/accounting/journal-entries/${templateMeta.replacementJeId}`}>View replacement</Link>
+    </section>;
   }
 
   return (
     <section data-testid="accounting-recurring-editor">
       <Link to="/modules/accounting/recurring" style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Recurring entries</Link>
-      <h2 style={{ marginTop: 8 }}>{edit ? 'Edit' : 'New'} recurring template</h2>
-      {edit && templateMeta.status !== 'active' && (
+      <h2 style={{ marginTop: 8 }}>{replacement ? 'Replace reversed journal' : `${edit ? 'Edit' : 'New'} recurring template`}</h2>
+      {replacement && <p style={{ fontSize: 13 }}>This creates a review draft linked to the reversed entry. It does not change the template or its next run. <Link to={`/modules/accounting/journal-entries/${journalId}`}>View original</Link></p>}
+      {edit && !replacement && templateMeta.status !== 'active' && (
         <p data-testid="accounting-recurring-inactive-notice" style={{ background: '#f5f8fc', borderLeft: '3px solid #1683ff', padding: '10px 12px', fontSize: 13 }}>
           {templateMeta.status === 'ended'
             ? 'This template has ended. Saving changes will not restart it or alter past journal entries. Create a new template for future runs.'
             : 'This template is paused. Saving changes will not resume it; use Resume on the recurring entries list.'}
         </p>
       )}
-      {edit && templateMeta.lastRunJeId && (
+      {edit && !replacement && templateMeta.lastRunJeId && (
         <p style={{ marginTop: 0, fontSize: 13 }}><Link to={`/modules/accounting/journal-entries/${templateMeta.lastRunJeId}`} data-testid="accounting-recurring-last-journal">View last run journal</Link></p>
       )}
 
@@ -340,6 +374,7 @@ function Editor({ edit }) {
             className="input"
             value={form.entity_id}
             onChange={(e) => setForm({ ...form, entity_id: e.target.value })}
+            disabled={replacement}
             data-testid="accounting-recurring-entity"
             style={{ display: 'block', width: '100%', marginTop: 4 }}
             required
@@ -350,7 +385,8 @@ function Editor({ edit }) {
             ))}
           </select>
         </label>
-        <label style={{ fontSize: 13 }}>Name<input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-recurring-name" required style={{ display: 'block', width: '100%', marginTop: 4 }} /></label>
+        {!replacement && <label style={{ fontSize: 13 }}>Name<input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-recurring-name" required style={{ display: 'block', width: '100%', marginTop: 4 }} /></label>}
+        {replacement ? <label style={{ fontSize: 13 }}>Replacement date<input type="date" className="input" value={form.posting_date} onChange={(e) => setForm({ ...form, posting_date: e.target.value })} data-testid="accounting-recurring-replacement-date" required style={{ display: 'block', width: '100%', marginTop: 4 }} /></label> : <>
         <label style={{ fontSize: 13 }}>Cadence
           <select className="input" value={form.cadence} onChange={(e) => setForm({ ...form, cadence: e.target.value })} data-testid="accounting-recurring-cadence" style={{ display: 'block', width: '100%', marginTop: 4 }}>
             <option value="weekly">weekly</option><option value="biweekly">biweekly</option>
@@ -360,11 +396,13 @@ function Editor({ edit }) {
         </label>
         <label style={{ fontSize: 13 }}>Next run date<input type="date" className="input" value={form.next_run_date} onChange={(e) => setForm({ ...form, next_run_date: e.target.value })} data-testid="accounting-recurring-next-run" style={{ display: 'block', width: '100%', marginTop: 4 }} /></label>
         <label style={{ fontSize: 13 }}>End date (optional)<input type="date" className="input" value={form.end_date || ''} onChange={(e) => setForm({ ...form, end_date: e.target.value })} data-testid="accounting-recurring-end-date" style={{ display: 'block', width: '100%', marginTop: 4 }} /></label>
+        </>}
         <label style={{ fontSize: 13, gridColumn: 'span 2' }}>Memo<input className="input" value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} data-testid="accounting-recurring-memo" style={{ display: 'block', width: '100%', marginTop: 4 }} /></label>
+        {replacement ? <label style={{ fontSize: 13, gridColumn: 'span 2' }}>Correction reason<input className="input" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} data-testid="accounting-recurring-replacement-reason" required style={{ display: 'block', width: '100%', marginTop: 4 }} /></label> :
         <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
           <input type="checkbox" checked={!!form.auto_post} onChange={(e) => setForm({ ...form, auto_post: e.target.checked ? 1 : 0 })} data-testid="accounting-recurring-auto-post" />
           Auto-post on run (uncheck to stage as draft for review)
-        </label>
+        </label>}
       </div>
 
       <h3 style={{ marginTop: 24 }}>Lines</h3>
@@ -409,7 +447,7 @@ function Editor({ edit }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                     <SlidersHorizontal size={15} aria-hidden="true" />
                     <strong style={{ fontSize: 13 }}>Line {i + 1} dimensions</strong>
-                    <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>Assignment context refreshes on each run date.</span>
+                    <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>Assignment context refreshes for the posting date.</span>
                   </div>
                   {dimensions.length === 0 ? (
                     <p style={{ margin: 0, fontSize: 13, color: 'var(--cf-text-secondary)' }}>No additional dimensions are configured.</p>
@@ -484,7 +522,7 @@ function Editor({ edit }) {
       </p>
       {err && <p className="error" data-testid="accounting-recurring-editor-error">{err}</p>}
       <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-        <button className="btn btn--primary" onClick={submit} disabled={busy || !balanced || !form.name || !form.entity_id} data-testid="accounting-recurring-save">{busy ? 'Saving…' : 'Save template'}</button>
+        <button className="btn btn--primary" onClick={submit} disabled={busy || !balanced || !form.name || !form.entity_id || (replacement && !form.reason.trim())} data-testid="accounting-recurring-save">{busy ? 'Saving…' : replacement ? 'Save replacement draft' : 'Save template'}</button>
       </div>
     </section>
   );

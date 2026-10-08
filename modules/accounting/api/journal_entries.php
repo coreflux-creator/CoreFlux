@@ -63,14 +63,16 @@ if ($method === 'GET' && !empty($_GET['id'])) {
     );
     $stmt->execute(['id' => $id]);
     $correctedBy = $pdo->prepare(
-        'SELECT id, je_number FROM accounting_journal_entries
+        'SELECT id, je_number, status FROM accounting_journal_entries
           WHERE tenant_id = :t AND source_ref_type = "replaces_je" AND source_ref_id = :id
+            AND status <> "void"
           ORDER BY id DESC LIMIT 1'
     );
     $correctedBy->execute(['t' => $tid, 'id' => $id]);
     $correction = $correctedBy->fetch(\PDO::FETCH_ASSOC) ?: null;
     $je['corrected_by_je_id'] = $correction ? (int) $correction['id'] : null;
     $je['corrected_by_je_number'] = $correction['je_number'] ?? null;
+    $je['corrected_by_je_status'] = $correction['status'] ?? null;
     if ($je['source_module'] === 'billing') {
         $invoice = scopedFind(
             'SELECT id, invoice_number FROM billing_invoices

@@ -13,6 +13,8 @@
  *   POST /api/accounting/recurring_journal_entries?action=run_now&id=N
  *   POST /api/accounting/recurring_journal_entries?action=post_draft&id=N (journal ID)
  *   POST /api/accounting/recurring_journal_entries?action=reverse_run&id=N (journal ID)
+ *   GET  /api/accounting/recurring_journal_entries?action=replacement&id=N (reversed journal ID)
+ *   POST /api/accounting/recurring_journal_entries?action=prepare_replacement&id=N
  *   POST /api/accounting/recurring_journal_entries?action=run_due → cron entrypoint
  */
 declare(strict_types=1);
@@ -39,6 +41,17 @@ function recurringJeValidationMessage(array $validation): string
     }
     $messages = array_values(array_unique(array_filter(array_map('strval', $messages))));
     return implode('; ', $messages) ?: 'Journal validation failed';
+}
+
+if ($method === 'GET' && $action === 'replacement') {
+    rbac_legacy_require($user, 'accounting.je.create');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('journal id required', 422);
+    try {
+        api_ok(recurringJeReplacementDetail($tid, $id));
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), $e->getMessage() === 'Journal entry not found' ? 404 : 409);
+    }
 }
 
 if ($method === 'GET' && !empty($_GET['id'])) {
@@ -267,6 +280,20 @@ if ($method === 'POST' && $action === 'reverse_run') {
     if ($reason === '') api_error('Reason for reversal required', 422);
     try {
         api_ok(recurringJeReverseRun($tid, $id, $reason, $user['id'] ?? null));
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), $e->getMessage() === 'Journal entry not found' ? 404 : 409);
+    }
+}
+
+if ($method === 'POST' && $action === 'prepare_replacement') {
+    rbac_legacy_require($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.edit_draft');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('journal id required', 422);
+    $body = api_json_body();
+    api_require_fields($body, ['posting_date', 'lines', 'reason']);
+    try {
+        api_ok(recurringJePrepareReplacement($tid, $id, $body, $user['id'] ?? null));
     } catch (\Throwable $e) {
         api_error($e->getMessage(), $e->getMessage() === 'Journal entry not found' ? 404 : 409);
     }

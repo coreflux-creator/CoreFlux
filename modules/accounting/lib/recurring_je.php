@@ -129,11 +129,13 @@ function recurringJePrepareLines(
 }
 
 /** Resolve a recurring run by explicit tenant and its historical template link. */
-function recurringJeLinkedJournal(int $tenantId, int $jeId, bool $lock = false): array
+function recurringJeLinkedJournal(int $tenantId, int $jeId, bool $lock = false, int $depth = 0): array
 {
+    if ($depth > 20) throw new \RuntimeException('Recurring correction chain is too deep');
     $pdo = getDB();
     $entryStatement = $pdo->prepare(
-        'SELECT id, entity_id, source_module, source_ref_type, source_ref_id, status
+        'SELECT id, entity_id, source_module, source_ref_type, source_ref_id, status,
+                posting_date, currency, memo, je_number, reversed_by_je_id
            FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id'
         . ($lock ? ' FOR UPDATE' : '')
     );
@@ -141,9 +143,21 @@ function recurringJeLinkedJournal(int $tenantId, int $jeId, bool $lock = false):
     $entry = $entryStatement->fetch(\PDO::FETCH_ASSOC) ?: null;
     if (!$entry) throw new \RuntimeException('Journal entry not found');
     if (($entry['source_module'] ?? '') !== 'recurring_je'
-        || ($entry['source_ref_type'] ?? '') !== 'recurring_je'
+        || !in_array((string) ($entry['source_ref_type'] ?? ''), ['recurring_je', 'replaces_je'], true)
         || (int) ($entry['source_ref_id'] ?? 0) <= 0) {
         throw new \RuntimeException('Journal entry is not a recurring template run');
+    }
+    if ($entry['source_ref_type'] === 'replaces_je') {
+        if ((int) $entry['source_ref_id'] === $jeId) {
+            throw new \RuntimeException('Recurring correction cannot replace itself');
+        }
+        $original = recurringJeLinkedJournal(
+            $tenantId, (int) $entry['source_ref_id'], $lock, $depth + 1
+        );
+        if ((int) $entry['entity_id'] !== (int) $original['entry']['entity_id']) {
+            throw new \RuntimeException('Recurring correction and original entity do not match');
+        }
+        return ['entry' => $entry, 'template' => $original['template']];
     }
     $templateStatement = $pdo->prepare(
         'SELECT id, entity_id FROM accounting_recurring_journal_entries
@@ -157,6 +171,130 @@ function recurringJeLinkedJournal(int $tenantId, int $jeId, bool $lock = false):
     return ['entry' => $entry, 'template' => $template];
 }
 
+/** Original run plus its one editable or posted replacement, if any. */
+function recurringJeReplacementDetail(int $tenantId, int $jeId): array
+{
+    ['entry' => $entry, 'template' => $template] = recurringJeLinkedJournal($tenantId, $jeId);
+    if ($entry['status'] !== 'reversed') {
+        throw new \RuntimeException('Reverse this recurring journal before preparing a replacement');
+    }
+    $pdo = getDB();
+    $replacement = $pdo->prepare(
+        'SELECT id, je_number, status, posting_date, memo, total_debit
+           FROM accounting_journal_entries
+          WHERE tenant_id = :tenant_id AND source_module = "recurring_je"
+            AND source_ref_type = "replaces_je" AND source_ref_id = :id
+            AND status <> "void" ORDER BY id DESC LIMIT 1'
+    );
+    $replacement->execute(['tenant_id' => $tenantId, 'id' => $jeId]);
+    $existing = $replacement->fetch(\PDO::FETCH_ASSOC) ?: null;
+    $lineJournalId = $existing && $existing['status'] === 'draft' ? (int) $existing['id'] : $jeId;
+    $lines = $pdo->prepare(
+        'SELECT l.line_no, a.code AS account_code, l.debit, l.credit,
+                l.description, l.dim_json
+           FROM accounting_journal_entry_lines l
+           JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = l.tenant_id
+          WHERE l.tenant_id = :tenant_id AND l.je_id = :je_id ORDER BY l.line_no'
+    );
+    $lines->execute(['tenant_id' => $tenantId, 'je_id' => $lineJournalId]);
+    $rows = $lines->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as &$line) $line['dims'] = recurringJeDecodeDimensions($line['dim_json'] ?? null);
+    unset($line);
+    return ['original' => $entry, 'template' => $template,
+        'replacement' => $existing, 'lines' => $rows];
+}
+
+function recurringJeReplacementValidationMessage(array $validation): string
+{
+    $messages = array_values((array) ($validation['errors'] ?? []));
+    foreach ((array) ($validation['line_validations'] ?? []) as $line) {
+        foreach ((array) ($line['errors'] ?? []) as $message) {
+            $messages[] = 'Line ' . (int) ($line['line_no'] ?? 0) . ': ' . $message;
+        }
+    }
+    return implode('; ', array_values(array_unique(array_filter($messages)))) ?: 'Journal validation failed';
+}
+
+/** Stage or revise one source-linked draft; neither action changes the schedule. */
+function recurringJePrepareReplacement(
+    int $tenantId, int $jeId, array $payload, ?int $actorUserId = null
+): array {
+    $reason = trim((string) ($payload['reason'] ?? ''));
+    if ($reason === '') throw new \InvalidArgumentException('Correction reason required');
+    $postingDate = (string) ($payload['posting_date'] ?? '');
+    $lines = $payload['lines'] ?? null;
+    if (!is_array($lines) || count($lines) < 2) {
+        throw new \InvalidArgumentException('Need at least two replacement lines');
+    }
+    $pdo = getDB();
+    $ownsTransaction = cf_tx_begin($pdo);
+    try {
+        ['entry' => $original, 'template' => $template] = recurringJeLinkedJournal($tenantId, $jeId, true);
+        if ($original['status'] !== 'reversed' || (int) $original['reversed_by_je_id'] <= 0) {
+            throw new \RuntimeException('Reverse this recurring journal before preparing a replacement');
+        }
+        $entityId = (int) $original['entity_id'];
+        $templateEntityId = accountingValidateActiveEntityId($tenantId, $template['entity_id'] ?? null)
+            ?? (int) accountingDefaultEntity($tenantId)['id'];
+        if ($templateEntityId !== $entityId) {
+            throw new \RuntimeException('Recurring template and original journal entity do not match');
+        }
+        if (isset($payload['entity_id']) && (int) $payload['entity_id'] !== $entityId) {
+            throw new \RuntimeException('A replacement must stay in the original legal entity');
+        }
+        $lines = recurringJePrepareLines($tenantId, $entityId, $postingDate, $lines);
+        $validation = accountingValidateJe($tenantId, [
+            'entity_id' => $entityId, 'posting_date' => $postingDate,
+            'currency' => (string) $original['currency'], 'lines' => $lines,
+        ]);
+        if (!$validation['ok']) {
+            throw new \InvalidArgumentException(recurringJeReplacementValidationMessage($validation));
+        }
+        $find = $pdo->prepare(
+            'SELECT id, status FROM accounting_journal_entries
+              WHERE tenant_id = :tenant_id AND source_module = "recurring_je"
+                AND source_ref_type = "replaces_je" AND source_ref_id = :id
+                AND status <> "void" ORDER BY id DESC LIMIT 1 FOR UPDATE'
+        );
+        $find->execute(['tenant_id' => $tenantId, 'id' => $jeId]);
+        $existing = $find->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if ($existing && $existing['status'] !== 'draft') {
+            throw new \RuntimeException('This replacement is already posted; reverse it to correct it again');
+        }
+        $candidate = [
+            'entity_id' => $entityId,
+            'posting_date' => $postingDate,
+            'currency' => (string) $original['currency'],
+            'memo' => (string) ($payload['memo'] ?? ''),
+            'lines' => $lines,
+        ];
+        if ($existing) {
+            $result = accountingUpdateDraftJe($tenantId, (int) $existing['id'], $candidate, $actorUserId);
+            $result['updated'] = true;
+        } else {
+            $result = accountingPostJe($tenantId, $candidate + [
+                'source_module' => 'recurring_je',
+                'source_ref_type' => 'replaces_je',
+                'source_ref_id' => $jeId,
+                'idempotency_key' => "recurring:replacement:{$tenantId}:{$jeId}",
+            ], $actorUserId, false);
+            $result['updated'] = false;
+        }
+        cf_tx_commit($pdo, $ownsTransaction);
+    } catch (\Throwable $error) {
+        cf_tx_rollback($pdo, $ownsTransaction);
+        throw $error;
+    }
+    accountingAudit('accounting.recurring_je.replacement_prepared', [
+        'template_id' => (int) $template['id'],
+        'original_je_id' => $jeId,
+        'replacement_je_id' => (int) $result['je_id'],
+        'updated' => $result['updated'],
+        'reason' => $reason,
+    ], (int) $template['id']);
+    return $result + ['original_je_id' => $jeId];
+}
+
 /** Post only a draft produced by a recurring template in this tenant and entity. */
 function recurringJePostDraft(int $tenantId, int $jeId, ?int $actorUserId = null): array
 {
@@ -168,6 +306,12 @@ function recurringJePostDraft(int $tenantId, int $jeId, ?int $actorUserId = null
     }
     if (!in_array((string) $entry['status'], ['draft', 'posted'], true)) {
         throw new \RuntimeException('Only draft recurring journals can be posted');
+    }
+    if ($entry['source_ref_type'] === 'replaces_je') {
+        $original = recurringJeLinkedJournal($tenantId, (int) $entry['source_ref_id']);
+        if ($original['entry']['status'] !== 'reversed') {
+            throw new \RuntimeException('The original recurring journal must remain reversed');
+        }
     }
     $result = accountingPostDraftJe($tenantId, $jeId, $actorUserId);
     if (empty($result['idempotent_replay'])) {
