@@ -7,14 +7,14 @@ import LineItemEditor, { blankLine, ITEM_TYPES } from '../../../dashboard/src/co
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import VendorTypeahead from './VendorTypeahead';
 import VendorQuickCreate from './VendorQuickCreate';
+import { calculateDocumentTotals } from '../../../dashboard/src/lib/documentTotals';
 
 const ITEM_TYPE_FALLBACK = ITEM_TYPES.map((t) => t.value);
+const AP_ITEM_TYPES = ITEM_TYPES.filter((t) => t.value !== 'discount');
 
 /**
- * Manual AP bill creator — supports any item_type (labor, expense, materials,
- * fixed-fee, milestone, discount, subscription, mileage, per-diem,
- * reimbursement, other). Time-bundle-driven bills go through
- * BillFromTimeBundleModal instead.
+ * Manual AP bill creator. Vendor credits and discounts need their own
+ * posting treatment and are not accepted as bill lines.
  */
 export default function BillCreate() {
   const nav = useNavigate();
@@ -97,14 +97,31 @@ export default function BillCreate() {
     finally     { setExtracting(false); }
   };
 
-  const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
-  const taxTotal = subtotal * ((Number(taxPct) || 0) / 100);
-  const total    = subtotal + taxTotal;
+  const { subtotal, taxTotal, total } = calculateDocumentTotals(lines, taxPct);
 
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr(null);
     try {
       if (!vendor) throw new Error('Pick a vendor');
+      const activeLines = lines.filter((line) =>
+        String(line.description || '').trim() !== ''
+        || String(line.unit_price ?? '').trim() !== ''
+        || String(line.gl_account_code || '').trim() !== ''
+        || Number(line.quantity) !== 1
+      );
+      if (activeLines.length === 0) throw new Error('Add at least one line item');
+      activeLines.forEach((line, index) => {
+        if (line.item_type === 'discount' || Number(line.unit_price) < 0) {
+          throw new Error(`Line ${index + 1}: vendor discounts and credits require a separate vendor-credit workflow.`);
+        }
+        if (!String(line.description || '').trim()) throw new Error(`Line ${index + 1}: add a description.`);
+        if (!Number.isFinite(Number(line.quantity)) || Number(line.quantity) <= 0) {
+          throw new Error(`Line ${index + 1}: quantity must be positive.`);
+        }
+        if (line.unit_price === '' || !Number.isFinite(Number(line.unit_price)) || Number(line.unit_price) <= 0) {
+          throw new Error(`Line ${index + 1}: unit price must be positive.`);
+        }
+      });
       const payload = {
         entity_id: entityId,
         vendor_name: vendor.name,
@@ -119,9 +136,7 @@ export default function BillCreate() {
         po_number: poNumber || null,
         notes_internal: notes || null,
         tax_rate_pct: Number(taxPct) || 0,
-        lines: lines
-          .filter((l) => l.description && (Number(l.quantity) || 0) !== 0 && l.unit_price !== '')
-          .map((l) => ({
+        lines: activeLines.map((l) => ({
             item_type: l.item_type,
             description: l.description,
             quantity: Number(l.quantity) || 0,
@@ -131,7 +146,6 @@ export default function BillCreate() {
             is_1099_eligible: vendorType === '1099_individual',
           })),
       };
-      if (payload.lines.length === 0) throw new Error('Add at least one line item');
       const res = await api.post('/modules/ap/api/bills.php', payload);
 
       // If the user staged a vendor-invoice PDF, upload it and attach it
@@ -163,9 +177,7 @@ export default function BillCreate() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
         <div>
           <h2 style={{ margin: 0 }}>New AP bill</h2>
-          <p style={{ margin: '4px 0 0', color: '#666', fontSize: 13 }}>
-            Manual bill — supports any item type. For time-tracked labor across multiple placements, use <strong>+ New from time bundle</strong> on the bills list.
-          </p>
+          <p style={{ margin: '4px 0 0', color: '#666', fontSize: 13 }}>Enter vendor charges directly. Discounts and credits require a separate vendor-credit workflow.</p>
         </div>
         <Link to={returnPath} className="btn btn--ghost" data-testid="ap-bill-create-back">← Back</Link>
       </header>
@@ -258,6 +270,7 @@ export default function BillCreate() {
           accounts={expenseAccounts}
           aiSuggestKind="ap_bill"
           counterpartyName={vendor?.name || ''}
+          itemTypes={AP_ITEM_TYPES}
         />
 
         <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>

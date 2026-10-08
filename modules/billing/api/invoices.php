@@ -454,6 +454,11 @@ if ($method === 'PATCH') {
         }
         if (!is_numeric($taxPct) || (float) $taxPct < 0 || (float) $taxPct > 100) api_error('Tax rate must be between 0 and 100', 422);
         $computed = billingComputeTax($body['lines'], (float) $taxPct);
+        try {
+            billingValidateDirectInvoiceTotal($computed);
+        } catch (\InvalidArgumentException $e) {
+            api_error($e->getMessage(), 422);
+        }
     }
 
     $editable = ['client_name','client_company_id','entity_id','bill_to_json','currency','issue_date','due_date','po_number','notes_internal','notes_external'];

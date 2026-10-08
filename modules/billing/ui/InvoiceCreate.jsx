@@ -6,6 +6,7 @@ import LineItemEditor, { blankLine } from '../../../dashboard/src/components/Lin
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import { calculateDocumentTotals } from '../../../dashboard/src/lib/documentTotals';
 
 /**
  * Manual Billing invoice creator — supports any item_type. Time-bundle-driven
@@ -87,19 +88,32 @@ export default function InvoiceCreate() {
     setEntityInitialized(true);
   }, [activeEntityId, activeEntityLoaded, entityId, entityInitialized, hydrated, invalidScope, isEdit, requestedEntityId]);
 
-  const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
-  const taxableSubtotal = lines.reduce((sum, line) => (
-    Object.prototype.hasOwnProperty.call(line, 'taxable') && line.taxable === false
-      ? sum
-      : sum + (Number(line.quantity) || 0) * (Number(line.unit_price) || 0)
-  ), 0);
-  const taxTotal = taxableSubtotal * ((Number(taxPct) || 0) / 100);
-  const total    = subtotal + taxTotal;
+  const { subtotal, taxTotal, total } = calculateDocumentTotals(lines, taxPct, { discountsUntaxed: true });
 
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr(null);
     try {
       if (!client) throw new Error('Pick a client');
+      const activeLines = lines.filter((line) =>
+        String(line.description || '').trim() !== ''
+        || String(line.unit_price ?? '').trim() !== ''
+        || String(line.gl_account_code || '').trim() !== ''
+        || line.catalog_item_id
+        || Number(line.quantity) !== 1
+      );
+      if (activeLines.length === 0) throw new Error('Add at least one line item');
+      activeLines.forEach((line, index) => {
+        if (!String(line.description || '').trim()) throw new Error(`Line ${index + 1}: add a description.`);
+        if (!Number.isFinite(Number(line.quantity)) || Number(line.quantity) <= 0) {
+          throw new Error(`Line ${index + 1}: quantity must be positive.`);
+        }
+        const price = Number(line.unit_price);
+        if (line.unit_price === '' || !Number.isFinite(price)
+          || (line.item_type === 'discount' ? price >= 0 : price < 0)) {
+          throw new Error(`Line ${index + 1}: ${line.item_type === 'discount' ? 'discount price must be negative' : 'unit price cannot be negative'}.`);
+        }
+      });
+      if (Math.round(total * 100) <= 0) throw new Error('Invoice total must be positive.');
       const payload = {
         entity_id: entityId,
         client_name: client.name,
@@ -110,9 +124,7 @@ export default function InvoiceCreate() {
         notes_internal: notesInt || null,
         notes_external: notesExt || null,
         tax_rate_pct: Number(taxPct) || 0,
-        lines: lines
-          .filter((l) => l.description && (Number(l.quantity) || 0) !== 0 && l.unit_price !== '')
-          .map((l) => ({
+        lines: activeLines.map((l) => ({
             catalog_item_id: l.catalog_item_id || null,
             item_type: l.item_type,
             description: l.description,
@@ -123,7 +135,6 @@ export default function InvoiceCreate() {
             ...(Object.prototype.hasOwnProperty.call(l, 'taxable') ? { taxable: l.taxable } : {}),
           })),
       };
-      if (payload.lines.length === 0) throw new Error('Add at least one line item');
       if (isEdit) {
         await api.patch(`/api/v1/billing/invoices?id=${id}`, payload);
         bustApiCachePrefix('billing-invoices-list:');

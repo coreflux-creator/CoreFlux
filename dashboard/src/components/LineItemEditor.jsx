@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api } from '../lib/api';
 import { Sparkles } from 'lucide-react';
+import { roundMoney } from '../lib/documentTotals';
 
 /**
  * Shared line-item editor for AP bills and Billing invoices.
@@ -25,6 +26,7 @@ import { Sparkles } from 'lucide-react';
  *                        "Suggest" button appears next to the GL picker
  *                        and routes to /api/line_ai_suggest.php.
  *   counterpartyName     vendor or client name for the AI context
+ *   itemTypes            optional item-type choices for this document
  */
 export const ITEM_TYPES = [
   { value: 'labor',         label: 'Labor (hours)',         defaultUnit: 'hour' },
@@ -45,7 +47,7 @@ export function blankLine(itemType = 'other') {
   return { catalog_item_id: null, item_type: itemType, description: '', quantity: 1, unit: meta.defaultUnit, unit_price: '', gl_account_code: '' };
 }
 
-export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel, glField, accounts = [], catalogItems = null, aiSuggestKind = null, counterpartyName = '' }) {
+export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel, glField, accounts = [], catalogItems = null, aiSuggestKind = null, counterpartyName = '', itemTypes = ITEM_TYPES }) {
   const [aiBusy, setAiBusy] = useState({});       // line index → bool
   const [aiResult, setAiResult] = useState({});   // line index → suggestion / error
 
@@ -58,7 +60,7 @@ export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel,
   const setItemType = (i, value) => {
     const meta = ITEM_TYPES.find((t) => t.value === value) || ITEM_TYPES[ITEM_TYPES.length - 1];
     // When changing type, reset unit to that type's default but preserve qty/desc/price.
-    setLine(i, { catalog_item_id: null, item_type: value, unit: meta.defaultUnit, taxable: undefined });
+    setLine(i, { catalog_item_id: null, item_type: value, unit: meta.defaultUnit, taxable: value === 'discount' ? false : undefined });
   };
 
   const setCatalogItem = (i, value) => {
@@ -86,7 +88,7 @@ export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel,
 
   const addLine = () => onChange([...lines, blankLine()]);
 
-  const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
+  const subtotal = lines.reduce((s, l) => s + roundMoney((Number(l.quantity) || 0) * (Number(l.unit_price) || 0)), 0);
 
   const aiSuggest = async (i) => {
     const l = lines[i];
@@ -136,7 +138,7 @@ export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel,
         </thead>
         <tbody>
           {lines.map((l, i) => {
-            const lineSub = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0);
+            const lineSub = roundMoney((Number(l.quantity) || 0) * (Number(l.unit_price) || 0));
             const selectedCatalogMissing = l.catalog_item_id
               && !(catalogItems || []).some((item) => Number(item.id) === Number(l.catalog_item_id));
             return (
@@ -157,7 +159,10 @@ export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel,
                     onChange={(e) => setItemType(i, e.target.value)}
                     data-testid={`${testIdPrefix}-line-${i}-item-type`}
                   >
-                    {ITEM_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    {!itemTypes.some((t) => t.value === l.item_type) && (
+                      <option value={l.item_type} disabled>{ITEM_TYPES.find((t) => t.value === l.item_type)?.label || l.item_type} (not supported here)</option>
+                    )}
+                    {itemTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </td>
                 <td>
@@ -167,7 +172,6 @@ export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel,
                     onChange={(e) => setLine(i, { description: e.target.value })}
                     data-testid={`${testIdPrefix}-line-${i}-description`}
                     placeholder={l.item_type === 'labor' ? 'e.g. Senior Engineer — Acme — Jul 1-7' : 'Describe the line item'}
-                    required
                   />
                 </td>
                 <td>

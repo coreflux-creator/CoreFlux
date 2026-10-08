@@ -12,6 +12,7 @@ function billingPrepareDirectInvoiceLines(PDO $pdo, int $tenantId, array $lines,
 {
     if (!$lines) throw new InvalidArgumentException('lines must be a non-empty array');
     if (count($lines) > 500) throw new InvalidArgumentException('Invoices are limited to 500 lines');
+    if (!array_is_list($lines)) throw new InvalidArgumentException('Invoice lines must be an ordered list');
     foreach ($lines as $line) {
         if (!is_array($line)) throw new InvalidArgumentException('Each invoice line must be an object');
     }
@@ -48,7 +49,78 @@ function billingPrepareDirectInvoiceLines(PDO $pdo, int $tenantId, array $lines,
         if (!array_key_exists('taxable', $line)) $line['taxable'] = (int) $item['taxable'] === 1;
     }
     unset($line);
+    return billingValidateDirectInvoiceLines($lines);
+}
+
+/** Apply the same amount and discount rules to manual and CoreOne drafts. */
+function billingValidateDirectInvoiceLines(array $lines): array
+{
+    if (!$lines || count($lines) > 500) {
+        throw new InvalidArgumentException('Invoices require 1 to 500 lines');
+    }
+    if (!array_is_list($lines)) throw new InvalidArgumentException('Invoice lines must be an ordered list');
+    foreach ($lines as $index => &$line) {
+        if (!is_array($line)) throw new InvalidArgumentException('Each invoice line must be an object');
+        $number = $index + 1;
+        $description = trim((string) ($line['description'] ?? ''));
+        if ($description === '' || strlen($description) > 500) {
+            throw new InvalidArgumentException("Invoice line {$number} needs a description of at most 500 characters");
+        }
+        $unit = trim((string) ($line['unit'] ?? 'each'));
+        if ($unit === '' || strlen($unit) > 40) {
+            throw new InvalidArgumentException("Invoice line {$number} needs a unit of at most 40 characters");
+        }
+        $quantity = (string) ($line['quantity'] ?? '');
+        $price = (string) ($line['unit_price'] ?? '');
+        if (!preg_match('/^[0-9]+(?:\.[0-9]{1,4})?$/D', $quantity)
+            || (float) $quantity <= 0 || (float) $quantity > 99999999.9999) {
+            throw new InvalidArgumentException("Invoice line {$number} quantity must be positive with at most four decimals");
+        }
+        if (!preg_match('/^-?[0-9]+(?:\.[0-9]{1,4})?$/D', $price)
+            || abs((float) $price) > 99999999.9999) {
+            throw new InvalidArgumentException("Invoice line {$number} unit price is required with at most four decimals");
+        }
+        $subtotal = round((float) $quantity * (float) $price, 2);
+        if (abs($subtotal) > 9999999999.99) {
+            throw new InvalidArgumentException("Invoice line {$number} exceeds the supported amount");
+        }
+        $type = strtolower(trim((string) ($line['item_type'] ?? '')));
+        if ($type !== '' && !in_array($type, AP_LINE_ITEM_TYPES, true)) {
+            throw new InvalidArgumentException("Invoice line {$number} item type is not supported");
+        }
+        $negative = (float) $price < 0;
+        if ($negative && $type !== '' && $type !== 'discount') {
+            throw new InvalidArgumentException("Invoice line {$number} with a negative amount must be a discount");
+        }
+        if ($type === 'discount' && $subtotal >= 0) {
+            throw new InvalidArgumentException("Invoice line {$number} discount must have a negative amount");
+        }
+        $line['item_type'] = $type !== '' ? $type : ($negative ? 'discount' : 'other');
+        if (array_key_exists('taxable', $line)) {
+            if (!is_bool($line['taxable']) && !in_array($line['taxable'], [0, 1], true)) {
+                throw new InvalidArgumentException("Invoice line {$number} taxable must be true or false");
+            }
+            $line['taxable'] = (bool) $line['taxable'];
+        }
+        if ($line['item_type'] === 'discount') {
+            if ($line['taxable'] ?? false) {
+                throw new InvalidArgumentException("Invoice line {$number} discounts cannot carry tax");
+            }
+            $line['taxable'] = false;
+        }
+        $line['description'] = $description;
+        $line['unit'] = $unit;
+    }
+    unset($line);
     return $lines;
+}
+
+function billingValidateDirectInvoiceTotal(array $computed): void
+{
+    $cents = (int) round((float) $computed['total'] * 100);
+    if ($cents <= 0 || $cents > 999999999999) {
+        throw new InvalidArgumentException('Invoice total must be positive and within the supported amount');
+    }
 }
 
 function billingInsertDirectInvoiceLines(PDO $pdo, int $invoiceId, array $lines): void
@@ -175,6 +247,7 @@ function billingCreateDirectInvoiceDraft(int $tenantId, array $body, ?int $actor
     if ($dueDate < $issueDate) throw new InvalidArgumentException('Due date cannot precede issue date');
     $resolvedInvoiceTerms = $netDays === 0 ? 'DUE_ON_RECEIPT' : 'NET' . $netDays;
     $computed = billingComputeTax($body['lines'], $taxPct);
+    billingValidateDirectInvoiceTotal($computed);
     try {
         $issuingEntity = activeEntityResolveForTenant(
             $tenantId, !empty($body['entity_id']) ? (int) $body['entity_id'] : null

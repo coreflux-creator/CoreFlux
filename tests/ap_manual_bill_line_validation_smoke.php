@@ -38,6 +38,16 @@ $check('misleading positive discount line is refused',
     $rejects([array_replace($line, ['item_type' => 'discount'])], 'discounts are not supported'));
 $check('one invalid line rejects an otherwise valid bill',
     $rejects([$line, array_replace($line, ['unit_price' => '0'])], 'Bill line 2'));
+$billForm = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/BillCreate.jsx');
+$lineEditor = (string) file_get_contents(__DIR__ . '/../dashboard/src/components/LineItemEditor.jsx');
+$check('bill form omits unsupported discount choice but preserves extracted discounts for review',
+    str_contains($billForm, "ITEM_TYPES.filter((t) => t.value !== 'discount')")
+    && str_contains($billForm, 'itemTypes={AP_ITEM_TYPES}')
+    && str_contains($lineEditor, 'not supported here'));
+$check('bill form rejects incomplete entered lines instead of silently dropping them',
+    str_contains($billForm, 'activeLines.forEach((line, index) => {')
+    && str_contains($billForm, 'lines: activeLines.map((l) => ({')
+    && !str_contains($billForm, '.filter((l) => l.description &&'));
 
 $failed = count(array_filter($checks, static fn(bool $ok): bool => !$ok));
 echo $failed ? "Failed: {$failed}\n" : 'Passed: ' . count($checks) . "\n";
