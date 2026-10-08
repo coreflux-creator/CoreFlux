@@ -1159,25 +1159,12 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
     }
 }
 
-/**
- * Compute aging buckets on-read for a given tenant + as_of date.
- * An entity filter follows the posted invoice journal, which owns the AR balance.
- * Returns array per client_name.
- */
-function billingComputeAging(int $tenantId, string $asOf, ?int $entityId = null): array
+/** The same posted, as-of invoice balances feed aging and customer statements. */
+function billingOpenInvoiceAsOfSource(int $tenantId, string $asOf, ?int $entityId = null, ?string $clientName = null): array
 {
-    $pdo = getDB();
     $entityFilter = $entityId === null ? '' : ' AND je.entity_id = :entity_id';
-    $q = $pdo->prepare(
-        'SELECT aged.client_name,
-                SUM(CASE WHEN aged.due_date >= :a1 THEN aged.amount_due ELSE 0 END) AS bucket_current,
-                SUM(CASE WHEN aged.due_date <  :a2 AND DATEDIFF(:a3, aged.due_date) BETWEEN 1 AND 30 THEN aged.amount_due ELSE 0 END) AS bucket_1_30,
-                SUM(CASE WHEN aged.due_date <  :a4 AND DATEDIFF(:a5, aged.due_date) BETWEEN 31 AND 60 THEN aged.amount_due ELSE 0 END) AS bucket_31_60,
-                SUM(CASE WHEN aged.due_date <  :a6 AND DATEDIFF(:a7, aged.due_date) BETWEEN 61 AND 90 THEN aged.amount_due ELSE 0 END) AS bucket_61_90,
-                SUM(CASE WHEN aged.due_date <  :a8 AND DATEDIFF(:a9, aged.due_date) > 90 THEN aged.amount_due ELSE 0 END) AS bucket_91_plus,
-                SUM(aged.amount_due) AS total_due
-           FROM (
-                SELECT i.id, i.client_name, i.due_date,
+    $clientFilter = $clientName === null ? '' : ' AND i.client_name = :client_name';
+    $sql = 'SELECT i.id, i.invoice_number, i.client_name, i.issue_date, i.due_date, i.total, i.currency,
                        GREATEST(0, ROUND(i.total - COALESCE(SUM(
                            CASE WHEN p.received_at <= :payment_as_of
                                  AND (alloc.application_je_id IS NULL
@@ -1212,16 +1199,12 @@ function billingComputeAging(int $tenantId, string $asOf, ?int $entityId = null)
              LEFT JOIN accounting_journal_entries allocation_reversal
                     ON allocation_reversal.id = alloc.reversal_je_id
                    AND allocation_reversal.tenant_id = i.tenant_id
-                 WHERE i.tenant_id = :tid' . $entityFilter . '
+                 WHERE i.tenant_id = :tid' . $entityFilter . $clientFilter . '
                    AND i.issue_date <= :document_as_of
                    AND (je.status = "posted" OR invoice_reversal.posting_date > :invoice_reversed_as_of)
                    AND (i.status <> "void" OR i.voided_at IS NULL OR DATE(i.voided_at) > :void_as_of)
-              GROUP BY i.id, i.client_name, i.due_date, i.total
-                HAVING amount_due > 0
-           ) aged
-       GROUP BY aged.client_name
-         ORDER BY total_due DESC'
-    );
+              GROUP BY i.id, i.invoice_number, i.client_name, i.issue_date, i.due_date, i.total, i.currency
+                HAVING amount_due > 0';
     $bind = [
         'tid' => $tenantId,
         'payment_as_of' => $asOf,
@@ -1235,6 +1218,26 @@ function billingComputeAging(int $tenantId, string $asOf, ?int $entityId = null)
         'void_as_of' => $asOf,
     ];
     if ($entityId !== null) $bind['entity_id'] = $entityId;
+    if ($clientName !== null) $bind['client_name'] = $clientName;
+    return [$sql, $bind];
+}
+
+/** Compute aging buckets from the same invoice rows shown on customer statements. */
+function billingComputeAging(int $tenantId, string $asOf, ?int $entityId = null): array
+{
+    [$sourceSql, $bind] = billingOpenInvoiceAsOfSource($tenantId, $asOf, $entityId);
+    $q = getDB()->prepare(
+        'SELECT aged.client_name,
+                SUM(CASE WHEN aged.due_date >= :a1 THEN aged.amount_due ELSE 0 END) AS bucket_current,
+                SUM(CASE WHEN aged.due_date <  :a2 AND DATEDIFF(:a3, aged.due_date) BETWEEN 1 AND 30 THEN aged.amount_due ELSE 0 END) AS bucket_1_30,
+                SUM(CASE WHEN aged.due_date <  :a4 AND DATEDIFF(:a5, aged.due_date) BETWEEN 31 AND 60 THEN aged.amount_due ELSE 0 END) AS bucket_31_60,
+                SUM(CASE WHEN aged.due_date <  :a6 AND DATEDIFF(:a7, aged.due_date) BETWEEN 61 AND 90 THEN aged.amount_due ELSE 0 END) AS bucket_61_90,
+                SUM(CASE WHEN aged.due_date <  :a8 AND DATEDIFF(:a9, aged.due_date) > 90 THEN aged.amount_due ELSE 0 END) AS bucket_91_plus,
+                SUM(aged.amount_due) AS total_due
+           FROM (' . $sourceSql . ') aged
+       GROUP BY aged.client_name
+         ORDER BY total_due DESC'
+    );
     foreach (['a1','a2','a3','a4','a5','a6','a7','a8','a9'] as $k) $bind[$k] = $asOf;
     $q->execute($bind);
     return $q->fetchAll(\PDO::FETCH_ASSOC);

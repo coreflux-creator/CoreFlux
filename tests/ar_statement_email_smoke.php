@@ -21,12 +21,16 @@ echo "Library: modules/billing/lib/statement.php\n";
 $libPath = __DIR__ . '/../modules/billing/lib/statement.php';
 $a('parses', $parses($libPath));
 require_once $libPath;
-foreach (['billingStatementOpenInvoices','billingStatementBucket','billingStatementResolveRecipients','billingStatementRenderEmail'] as $fn) {
+foreach (['billingStatementEntity','billingStatementIdempotencyKey','billingStatementOpenInvoices','billingStatementBucket','billingStatementResolveRecipients','billingStatementRenderEmail'] as $fn) {
     $a("fn: {$fn}", function_exists($fn));
 }
+$today = '2026-02-10';
+$a('idempotency separates entities', billingStatementIdempotencyKey(1, 10, 'Globex', $today)
+    !== billingStatementIdempotencyKey(1, 11, 'Globex', $today));
+$a('idempotency separates clients whose slugs collide', billingStatementIdempotencyKey(1, 10, 'A&B', $today)
+    !== billingStatementIdempotencyKey(1, 10, 'A B', $today));
 
 echo "\nbillingStatementBucket() — aging bucket math matches AR Aging page\n";
-$today = '2026-02-10';
 $inv = [
     ['amount_due' => 100, 'days_overdue' => 0],   // current
     ['amount_due' => 200, 'days_overdue' => 1],   // 1-30
@@ -79,8 +83,8 @@ $a('uses cf_mail_bootstrap',                          str_contains($api, '$svc  
 $a('uses cf_tenant_mail_sender(tid, billing)',        str_contains($api, "cf_tenant_mail_sender(\$tid, 'billing')"));
 $a('CC line includes escalation_email',               str_contains($api, "'cc'        => \$recipients['cc']"));
 $a("template_key = 'ar_statement'",                   str_contains($api, "'ar_statement'"));
-$a('idempotency keyed by tenant+client+date',         str_contains($api, "\"statement-{\$tid}-{\$slug}-\" . date('Y-m-d')"));
-$a('slug sanitises non-alnum to dashes',              str_contains($api, "preg_replace('/[^a-z0-9]+/', '-', strtolower(\$clientName))"));
+$a('idempotency includes legal entity',              str_contains($api, 'billingStatementIdempotencyKey($tid, $entityId, $clientName'));
+$a('requires validated legal entity',                str_contains($api, 'billingStatementEntity($tid,') && str_contains($api, 'billingStatementOpenInvoices($tid, $clientName, $asOf, $entityId)'));
 $a('writes audit event on success',                   str_contains($api, "billingAudit('billing.statement.sent'"));
 $a('send returns sent_to + cc + count + total_due',   str_contains($api, "'sent_to'") && str_contains($api, "'cc'") && str_contains($api, "'count'") && str_contains($api, "'total_due'"));
 $a('preview returns email + buckets + recipients',    str_contains($api, "'preview'    => true") && str_contains($api, "'email'      => \$email"));
@@ -91,8 +95,12 @@ foreach (['billing-aging','billing-aging-email-statement-${i}','billing-aging-st
     $a("testid: {$tid}",                              str_contains($ui, $tid));
 }
 $a('testid: billing-aging-statement-sent/error (dynamic)', str_contains($ui, "`billing-aging-statement-\${toast.kind === 'ok' ? 'sent' : 'error'}`"));
-$a('preview calls GET ?client_name=',                 str_contains($ui, 'api.get(`/api/v1/billing/send-statement?client_name=${encodeURIComponent(clientName)}&as_of=${asOf}`)'));
+$a('preview includes legal entity',                   str_contains($ui, '&entity_id=${scope.entityId}`)'));
 $a('send calls POST send-statement',                  str_contains($ui, "api.post('/api/v1/billing/send-statement',"));
+$a('send keeps preview entity and date',             str_contains($ui, 'as_of: statement.as_of, entity_id: statement.entity_id'));
+$a('PDF keeps preview entity and tab tenant',        str_contains($ui, 'entity_id: String(statement.entity_id)')
+    && str_contains($ui, "'X-CoreFlux-Tenant-Id': tenantId"));
+$a('all-entities view cannot send',                  str_contains($ui, 'disabled={!scope.entityId || sending === r.client_name}'));
 $a('disables Send button when no AR contact',         str_contains($ui, 'disabled={busy || !to}'));
 $a('shows no-contact warning state',                  str_contains($ui, 'billing-aging-statement-no-contact'));
 $a('shows preview email body',                        str_contains($ui, 'dangerouslySetInnerHTML={{ __html: preview?.email?.html || \'\' }}'));

@@ -195,7 +195,10 @@ $a('batch API parses',                                   $parses($apiPath));
 $a('iterates aging rows past-due > 0.005',               str_contains($api, '$past <= 0.005'));
 $a('skips when no AR contact',                           str_contains($api, "'reason' => 'no AR contact on file'"));
 $a('skips when no open invoices',                        str_contains($api, "'reason' => 'no open invoices at as_of'"));
-$a('uses same idempotency key as singular send',         str_contains($api, "\"statement-{\$tid}-{\$slug}-\" . date('Y-m-d')"));
+$a('uses same entity-aware idempotency key as singular send', str_contains($api, 'billingStatementIdempotencyKey($tid, $entityId, $client, date('));
+$a('batch statement rows are entity-scoped',             str_contains($api, 'billingComputeAging($tid, $asOf, $entityId)')
+    && str_contains($api, 'billingStatementOpenInvoices($tid, $client, $asOf, $entityId)'));
+$a('batch preview checks statement and aging agree',     str_contains($api, 'Statement balance differs from AR aging'));
 $a('dry-run returns would_send rows',                    str_contains($api, "'status' => 'would_send'"));
 $a('write audited as batch_sent',                        str_contains($api, "'billing.statement.batch_sent'"));
 

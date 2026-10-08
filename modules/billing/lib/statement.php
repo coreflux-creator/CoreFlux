@@ -14,6 +14,26 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/billing.php';
 require_once __DIR__ . '/../../../core/tenant_branding.php';
+require_once __DIR__ . '/../../../core/accounting/books_health_metrics.php';
+
+function billingStatementEntity(int $tenantId, mixed $requested): array
+{
+    if ($requested === null || $requested === '' || $requested === 'all') {
+        throw new InvalidArgumentException('Select one legal entity before preparing a customer statement.');
+    }
+    $entityId = booksHealthResolveEntity(getDB(), $tenantId, $requested);
+    $query = getDB()->prepare('SELECT id, legal_name FROM accounting_entities WHERE tenant_id = :t AND id = :e');
+    $query->execute(['t' => $tenantId, 'e' => $entityId]);
+    $entity = $query->fetch(\PDO::FETCH_ASSOC);
+    if (!$entity) throw new OutOfBoundsException('Legal entity not found.');
+    return $entity;
+}
+
+function billingStatementIdempotencyKey(int $tenantId, int $entityId, string $clientName, string $sentDate): string
+{
+    $slug = substr(trim(preg_replace('/[^a-z0-9]+/', '-', strtolower($clientName)) ?? '', '-'), 0, 48) ?: 'client';
+    return "statement-{$tenantId}-{$entityId}-{$slug}-" . substr(hash('sha256', $clientName), 0, 12) . "-{$sentDate}";
+}
 
 /**
  * Pull every open invoice for $clientName, oldest first, with the
@@ -21,20 +41,15 @@ require_once __DIR__ . '/../../../core/tenant_branding.php';
  *
  * @return array<int,array<string,mixed>>
  */
-function billingStatementOpenInvoices(int $tenantId, string $clientName, string $asOf): array
+function billingStatementOpenInvoices(int $tenantId, string $clientName, string $asOf, ?int $entityId = null): array
 {
-    $pdo = getDB();
-    $st  = $pdo->prepare(
-        'SELECT id, invoice_number, issue_date, due_date, amount_due, total, currency,
-                GREATEST(0, DATEDIFF(:asof, due_date)) AS days_overdue
-           FROM billing_invoices
-          WHERE tenant_id   = :tid
-            AND client_name = :cn
-            AND status IN ("sent","partially_paid","approved","overdue")
-            AND amount_due  > 0
-          ORDER BY due_date ASC, id ASC'
+    [$sourceSql, $params] = billingOpenInvoiceAsOfSource($tenantId, $asOf, $entityId, $clientName);
+    $st = getDB()->prepare(
+        'SELECT aged.*, GREATEST(0, DATEDIFF(:asof, aged.due_date)) AS days_overdue
+           FROM (' . $sourceSql . ') aged
+          ORDER BY aged.due_date ASC, aged.id ASC'
     );
-    $st->execute(['tid' => $tenantId, 'cn' => $clientName, 'asof' => $asOf]);
+    $st->execute($params + ['asof' => $asOf]);
     return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 }
 

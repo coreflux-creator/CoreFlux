@@ -8,8 +8,7 @@
  * Preview returns the rendered subject/html/text + resolved recipients
  * without sending. POST actually sends via the tenant Resend pipeline.
  *
- * Idempotency: keyed `statement-{tenant}-{client_slug}-{Y-m-d}` so two
- * clicks within the same day do not result in two emails to the client.
+ * A legal entity is mandatory so a statement cannot mix separate companies.
  */
 declare(strict_types=1);
 
@@ -38,21 +37,30 @@ if ($clientName === '') api_error('client_name required', 422);
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOf)) api_error('as_of must be YYYY-MM-DD', 422);
 
 rbac_legacy_require($user, $dryRun ? $RBAC_PREVIEW : $RBAC_SEND);
+try {
+    $entity = billingStatementEntity($tid, $body['entity_id'] ?? $_GET['entity_id'] ?? null);
+} catch (InvalidArgumentException $e) {
+    api_error($e->getMessage(), 422);
+} catch (OutOfBoundsException $e) {
+    api_error($e->getMessage(), 404);
+}
+$entityId = (int) $entity['id'];
 
-$invoices = billingStatementOpenInvoices($tid, $clientName, $asOf);
+$invoices = billingStatementOpenInvoices($tid, $clientName, $asOf, $entityId);
 if (empty($invoices)) {
     api_error("Nothing outstanding for \"{$clientName}\" as of {$asOf}.", 409);
 }
 $buckets    = billingStatementBucket($invoices);
 $recipients = billingStatementResolveRecipients($tid, $clientName);
-$tenant     = scopedFind('SELECT name FROM tenants WHERE id = :tenant_id', []) ?: ['name' => 'CoreFlux'];
-$email      = billingStatementRenderEmail((string) $tenant['name'], $clientName, $invoices, $buckets, $asOf);
+$email      = billingStatementRenderEmail((string) $entity['legal_name'], $clientName, $invoices, $buckets, $asOf, null, $tid);
 
 if ($dryRun) {
     api_ok([
         'preview'    => true,
         'client'     => $clientName,
         'as_of'      => $asOf,
+        'entity_id'  => $entityId,
+        'entity_name'=> $entity['legal_name'],
         'buckets'    => $buckets,
         'invoices'   => $invoices,
         'email'      => $email,
@@ -66,7 +74,6 @@ if (!$recipients['to']) {
 
 $sender = cf_tenant_mail_sender($tid, 'billing');
 $svc    = cf_mail_bootstrap();
-$slug   = preg_replace('/[^a-z0-9]+/', '-', strtolower($clientName)) ?? 'client';
 try {
     $svc->send($tid, 'billing', 'ar_statement', [$recipients['to']],
         $email['subject'], $email['text'], $email['html'], [], [
@@ -74,7 +81,7 @@ try {
             'from_name' => $sender['from_name'] ?? null,
             'reply_to'  => $sender['reply_to']  ?? null,
             'cc'        => $recipients['cc'],
-            'idempotency_key' => "statement-{$tid}-{$slug}-" . date('Y-m-d'),
+            'idempotency_key' => billingStatementIdempotencyKey($tid, $entityId, $clientName, date('Y-m-d')),
         ]
     );
 } catch (\Throwable $e) {
@@ -83,6 +90,7 @@ try {
 
 billingAudit('billing.statement.sent', [
     'client_name'    => $clientName,
+    'entity_id'      => $entityId,
     'as_of'          => $asOf,
     'invoice_count'  => count($invoices),
     'total_due'      => $buckets['total'],
@@ -92,6 +100,7 @@ billingAudit('billing.statement.sent', [
 
 api_ok([
     'ok'         => true,
+    'entity_id'  => $entityId,
     'sent_to'    => $recipients['to'],
     'cc'         => $recipients['cc'],
     'count'      => count($invoices),

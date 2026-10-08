@@ -1,60 +1,120 @@
-import React, { useState } from 'react';
-import { useApi, api } from '../../../dashboard/src/lib/api';
+import React, { useEffect, useRef, useState } from 'react';
+import { useApi, api, getPinnedTenantId } from '../../../dashboard/src/lib/api';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 
 export default function AgingTable() {
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
-  const { data, loading, error } = useApi(`/api/v1/billing/aging?as_of=${asOf}`);
-  const rows = data?.rows ?? [];
+  const scope = useAccountingEntityScope();
+  const url = scope.ready
+    ? `/api/v1/billing/aging?as_of=${asOf}${scope.apiQuery ? `&${scope.apiQuery}` : ''}`
+    : null;
+  const { data, loading, error } = useApi(url, { enabled: scope.ready });
+  const current = data?.as_of === asOf && Number(data?.entity_id || 0) === Number(scope.entityId || 0);
+  const rows = current ? (data.rows ?? []) : [];
+  const busy = !scope.loaded || (scope.ready && (loading || (!current && !error)));
   const [preview, setPreview] = useState(null);  // {client_name, ...} after a GET preview
   const [sending, setSending] = useState(null);  // client_name currently being sent
   const [toast,   setToast]   = useState(null);  // {kind:'ok'|'err', text}
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchReport, setBatchReport] = useState(null);
+  const [downloading, setDownloading] = useState(false);
+  const requestSequence = useRef(0);
+
+  useEffect(() => {
+    requestSequence.current += 1;
+    setPreview(null);
+    setBatchReport(null);
+    setToast(null);
+    setSending(null);
+    setBatchBusy(false);
+  }, [asOf, scope.scopeKey]);
 
   const batchPreview = async () => {
+    if (!scope.entityId) return;
+    const sequence = ++requestSequence.current;
     setBatchBusy(true); setToast(null);
     try {
-      const r = await api.post('/api/v1/billing/send-statements-batch', { as_of: asOf, dry_run: true });
-      setBatchReport(r);
-    } catch (e) { setToast({ kind: 'err', text: e.message }); }
-    finally { setBatchBusy(false); }
+      const r = await api.post('/api/v1/billing/send-statements-batch', { as_of: asOf, entity_id: scope.entityId, dry_run: true });
+      if (sequence === requestSequence.current) setBatchReport(r);
+    } catch (e) { if (sequence === requestSequence.current) setToast({ kind: 'err', text: e.message }); }
+    finally { if (sequence === requestSequence.current) setBatchBusy(false); }
   };
 
   const batchSend = async () => {
+    if (!batchReport?.entity_id) return;
     const proceed = confirm(`Send statements to ${batchReport?.sent || 0} client${batchReport?.sent === 1 ? '' : 's'} now?`);
     if (!proceed) return;
+    const sequence = ++requestSequence.current;
     setBatchBusy(true); setToast(null);
     try {
-      const r = await api.post('/api/v1/billing/send-statements-batch', { as_of: asOf });
-      setBatchReport(r);
-      setToast({ kind: 'ok', text: `Batch complete — sent ${r.sent}, skipped ${r.skipped}, failed ${r.failed}.` });
-    } catch (e) { setToast({ kind: 'err', text: e.message }); }
-    finally { setBatchBusy(false); }
+      const r = await api.post('/api/v1/billing/send-statements-batch', { as_of: batchReport.as_of, entity_id: batchReport.entity_id });
+      if (sequence === requestSequence.current) {
+        setBatchReport(r);
+        setToast({ kind: 'ok', text: `Batch complete — sent ${r.sent}, skipped ${r.skipped}, failed ${r.failed}.` });
+      }
+    } catch (e) { if (sequence === requestSequence.current) setToast({ kind: 'err', text: e.message }); }
+    finally { if (sequence === requestSequence.current) setBatchBusy(false); }
   };
 
   const previewStatement = async (clientName) => {
+    if (!scope.entityId) return;
+    const sequence = ++requestSequence.current;
     setSending(clientName); setToast(null);
     try {
-      const data = await api.get(`/api/v1/billing/send-statement?client_name=${encodeURIComponent(clientName)}&as_of=${asOf}`);
-      setPreview({ ...data, client_name: clientName });
+      const data = await api.get(`/api/v1/billing/send-statement?client_name=${encodeURIComponent(clientName)}&as_of=${asOf}&entity_id=${scope.entityId}`);
+      if (sequence === requestSequence.current) setPreview({ ...data, client_name: clientName });
     } catch (e) {
-      setToast({ kind: 'err', text: e.message });
+      if (sequence === requestSequence.current) setToast({ kind: 'err', text: e.message });
     } finally {
-      setSending(null);
+      if (sequence === requestSequence.current) setSending(null);
     }
   };
 
-  const sendStatement = async (clientName) => {
+  const sendStatement = async (statement) => {
+    const clientName = statement.client_name;
+    const sequence = ++requestSequence.current;
     setSending(clientName); setToast(null);
     try {
-      const res = await api.post('/api/v1/billing/send-statement', { client_name: clientName, as_of: asOf });
-      setPreview(null);
-      setToast({ kind: 'ok', text: `Statement emailed to ${res.sent_to}${res.cc?.length ? ` (cc ${res.cc.join(', ')})` : ''} — ${res.count} invoice${res.count === 1 ? '' : 's'}.` });
+      const res = await api.post('/api/v1/billing/send-statement', { client_name: clientName, as_of: statement.as_of, entity_id: statement.entity_id });
+      if (sequence === requestSequence.current) {
+        setPreview(null);
+        setToast({ kind: 'ok', text: `Statement emailed to ${res.sent_to}${res.cc?.length ? ` (cc ${res.cc.join(', ')})` : ''} — ${res.count} invoice${res.count === 1 ? '' : 's'}.` });
+      }
+    } catch (e) {
+      if (sequence === requestSequence.current) setToast({ kind: 'err', text: e.message });
+    } finally {
+      if (sequence === requestSequence.current) setSending(null);
+    }
+  };
+
+  const downloadStatement = async (statement) => {
+    setDownloading(true); setToast(null);
+    try {
+      const params = new URLSearchParams({ client_name: statement.client_name,
+        as_of: statement.as_of, entity_id: String(statement.entity_id), disposition: 'attachment' });
+      const tenantId = getPinnedTenantId();
+      const response = await fetch(`/api/v1/billing/statement-pdf?${params}`, {
+        credentials: 'include',
+        headers: tenantId ? { 'X-CoreFlux-Tenant-Id': tenantId } : {},
+      });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null);
+        throw new Error(detail?.error || 'Could not download the statement.');
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `statement-${statement.entity_id}-${statement.as_of}.pdf`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) {
       setToast({ kind: 'err', text: e.message });
     } finally {
-      setSending(null);
+      setDownloading(false);
     }
   };
 
@@ -75,23 +135,26 @@ export default function AgingTable() {
           <h3 style={{ margin: 0 }}>Accounts receivable aging</h3>
           <p className="report-page__meta">Posted customer balances as of {asOf}</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'end', gap: 12, flexWrap: 'wrap' }}>
           <button
             className="btn btn--ghost" style={{ fontSize: 12 }}
-            onClick={batchPreview} disabled={batchBusy || loading || pastDueTotal <= 0}
-            title={pastDueTotal > 0 ? 'Preview recipients before sending statements' : 'No past-due balances to email'}
+            onClick={batchPreview} disabled={!scope.entityId || batchBusy || busy || pastDueTotal <= 0}
+            title={!scope.entityId ? 'Select one legal entity to email statements' : pastDueTotal > 0 ? 'Preview recipients before sending statements' : 'No past-due balances to email'}
             data-testid="billing-aging-batch-preview"
           >
             {batchBusy && !batchReport ? 'Loading…' : 'Email all past-due'}
           </button>
+          <AccountingEntitySelector scope={scope} />
           <label style={{ fontSize: 13 }}>
             As of <input type="date" className="input" value={asOf} onChange={(e) => setAsOf(e.target.value)} data-testid="billing-aging-asof" style={{ marginLeft: 8 }} />
           </label>
         </div>
       </div>
 
-      {loading && <p>Loading…</p>}
-      {error && <p className="error" data-testid="billing-aging-error">Error: {error.message}</p>}
+      {scope.label && <p className="report-page__meta">{scope.label}</p>}
+      {scope.allEntities && <p className="report-page__meta">Select one legal entity to preview, download or email customer statements.</p>}
+      {busy && <p>Loading…</p>}
+      {(scope.error || error) && <p className="error" data-testid="billing-aging-error">Error: {scope.error || error.message}</p>}
       {toast && (
         <p className={toast.kind === 'ok' ? 'success' : 'error'}
            data-testid={`billing-aging-statement-${toast.kind === 'ok' ? 'sent' : 'error'}`}
@@ -100,7 +163,7 @@ export default function AgingTable() {
         </p>
       )}
 
-      {!loading && !error && (
+      {!busy && !scope.error && !error && (
         <div className="aging-summary" data-testid="billing-aging-summary">
           <AgingSummary label="Total receivables" value={totals.tot} tone="blue" />
           <AgingSummary label="Current" value={totals.cur} tone="teal" />
@@ -124,7 +187,7 @@ export default function AgingTable() {
           </tr>
         </thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={8} className="empty" data-testid="billing-aging-empty">Nothing outstanding as of {asOf}.</td></tr>}
+          {rows.length === 0 && !busy && !scope.error && !error && <tr><td colSpan={8} className="empty" data-testid="billing-aging-empty">Nothing outstanding as of {asOf}.</td></tr>}
           {rows.map((r, i) => (
             <tr key={i} data-testid={`billing-aging-row-${i}`}>
               <td>{r.client_name}</td>
@@ -138,7 +201,8 @@ export default function AgingTable() {
                 <button
                   className="btn btn--ghost" style={{ fontSize: 11 }}
                   onClick={() => previewStatement(r.client_name)}
-                  disabled={sending === r.client_name}
+                  disabled={!scope.entityId || sending === r.client_name}
+                  title={!scope.entityId ? 'Select one legal entity to prepare a statement' : 'Preview statement and recipients'}
                   data-testid={`billing-aging-email-statement-${i}`}
                 >
                   {sending === r.client_name ? 'Loading…' : 'Email statement'}
@@ -165,10 +229,13 @@ export default function AgingTable() {
       {preview && (
         <StatementPreviewModal
           preview={preview}
-          asOf={asOf}
+          asOf={preview.as_of}
           busy={sending === preview.client_name}
+          downloading={downloading}
           onClose={() => setPreview(null)}
-          onSend={() => sendStatement(preview.client_name)}
+          onSend={() => sendStatement(preview)}
+          onDownload={() => downloadStatement(preview)}
+          actionError={toast?.kind === 'err' ? toast.text : null}
         />
       )}
 
@@ -179,6 +246,7 @@ export default function AgingTable() {
           onClose={() => setBatchReport(null)}
           onSend={batchSend}
           alreadySent={!!toast && toast.kind === 'ok'}
+          actionError={toast?.kind === 'err' ? toast.text : null}
         />
       )}
     </section>
@@ -194,7 +262,7 @@ function AgingSummary({ label, value, tone }) {
   );
 }
 
-function BatchReportModal({ report, busy, onClose, onSend, alreadySent }) {
+function BatchReportModal({ report, busy, onClose, onSend, alreadySent, actionError }) {
   const isPreview = report.rows?.some((r) => r.status === 'would_send');
   return (
     <div
@@ -206,6 +274,7 @@ function BatchReportModal({ report, busy, onClose, onSend, alreadySent }) {
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 16 }}>
           <div>
             <h3 style={{ margin: 0 }}>{isPreview ? 'Batch statement preview' : 'Batch statement results'} ({report.as_of})</h3>
+            <p style={{ margin: '4px 0 0', fontSize: 12 }}>{report.entity_name}</p>
             <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
               {isPreview
                 ? <>Will send <strong>{report.sent}</strong> · skip <strong>{report.skipped}</strong> (no contact).</>
@@ -214,6 +283,7 @@ function BatchReportModal({ report, busy, onClose, onSend, alreadySent }) {
           </div>
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>×</button>
         </header>
+        {actionError && <p className="error" role="alert">{actionError}</p>}
 
         <table className="data-table" data-testid="billing-aging-batch-rows" style={{ fontSize: 12 }}>
           <thead><tr><th>Client</th><th>Status</th><th>Reason / recipient</th></tr></thead>
@@ -241,7 +311,7 @@ function BatchReportModal({ report, busy, onClose, onSend, alreadySent }) {
   );
 }
 
-function StatementPreviewModal({ preview, asOf, busy, onClose, onSend }) {
+function StatementPreviewModal({ preview, asOf, busy, downloading, onClose, onSend, onDownload, actionError }) {
   const to  = preview?.recipients?.to;
   const cc  = preview?.recipients?.cc || [];
   const inv = preview?.invoices    || [];
@@ -256,10 +326,12 @@ function StatementPreviewModal({ preview, asOf, busy, onClose, onSend }) {
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 16 }}>
           <div>
             <h3 style={{ margin: 0 }}>Statement preview — {preview.client_name}</h3>
+            <p style={{ margin: '4px 0 0', fontSize: 12 }}>{preview.entity_name}</p>
             <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>As of {asOf} · {inv.length} open invoice{inv.length === 1 ? '' : 's'} · total ${Number(buckets.total || 0).toFixed(2)}</p>
           </div>
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>×</button>
         </header>
+        {actionError && <p className="error" role="alert">{actionError}</p>}
 
         <div style={{ background: '#f8fafc', borderRadius: 6, padding: 12, marginBottom: 12, fontSize: 13 }}>
           {to ? (
@@ -279,14 +351,13 @@ function StatementPreviewModal({ preview, asOf, busy, onClose, onSend }) {
              dangerouslySetInnerHTML={{ __html: preview?.email?.html || '' }} />
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-          <a
-            className="btn btn--ghost" style={{ fontSize: 12, textDecoration: 'none' }}
-            href={`/api/v1/billing/statement-pdf?client_name=${encodeURIComponent(preview.client_name)}&as_of=${encodeURIComponent(asOf)}&disposition=attachment`}
-            target="_blank" rel="noopener noreferrer"
+          <button type="button"
+            className="btn btn--ghost" style={{ fontSize: 12 }}
+            onClick={onDownload} disabled={downloading || busy}
             data-testid="billing-aging-statement-pdf"
           >
-            Download PDF
-          </a>
+            {downloading ? 'Downloading…' : 'Download PDF'}
+          </button>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn--ghost" onClick={onClose} disabled={busy} data-testid="billing-aging-statement-cancel">Cancel</button>
             <button
