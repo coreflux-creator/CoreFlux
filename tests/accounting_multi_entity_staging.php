@@ -78,6 +78,44 @@ try {
                 'e' => $entityId, 'chain' => $chain]);
     }
 
+    $bankCode = 'SIM-CROSS-CASH';
+    $account = qaOne($pdo, 'SELECT account_type, normal_side, is_postable, active, currency
+        FROM accounting_accounts WHERE tenant_id = :t AND code = :c',
+        ['t' => QA_TENANT, 'c' => $bankCode]);
+    if (!$account) {
+        qaRequest('/modules/accounting/api/accounts.php', 'POST', [
+            'code' => $bankCode, 'name' => 'Synthetic Cross-Entity Cash',
+            'account_type' => 'asset', 'normal_side' => 'debit',
+            'currency' => 'USD', 'cash_flow_tag' => 'cash_and_equivalents',
+        ], $makerCookie);
+    } elseif ($account['account_type'] !== 'asset' || $account['normal_side'] !== 'debit'
+        || (int) $account['is_postable'] !== 1 || (int) $account['active'] !== 1
+        || !in_array($account['currency'], [null, 'USD'], true)) {
+        throw new RuntimeException('Synthetic cross-entity cash account has unexpected settings.');
+    }
+    $bank = qaOne($pdo, 'SELECT id, entity_id, status FROM accounting_bank_accounts
+        WHERE tenant_id = :t AND gl_account_code = :c',
+        ['t' => QA_TENANT, 'c' => $bankCode]);
+    if (!$bank) {
+        $createdBank = qaRequest('/modules/accounting/api/bank_accounts.php', 'POST', [
+            'entity_id' => $entityId, 'name' => 'Synthetic Cross-Entity Bank',
+            'gl_account_code' => $bankCode, 'currency' => 'USD',
+        ], $makerCookie);
+        $bankId = (int) ($createdBank['id'] ?? 0);
+    } else {
+        if ((int) $bank['entity_id'] !== $entityId || $bank['status'] !== 'active') {
+            throw new RuntimeException('Synthetic cross-entity bank has unexpected ownership or status.');
+        }
+        $bankId = (int) $bank['id'];
+    }
+    $otherBank = qaOne($pdo, 'SELECT id FROM accounting_bank_accounts
+        WHERE tenant_id = :t AND entity_id = :e AND gl_account_code = :c AND status = "active"',
+        ['t' => QA_TENANT, 'e' => $otherEntityId, 'c' => QA_BANK_CODE]);
+    if ($bankId <= 0 || !$otherBank) {
+        throw new RuntimeException('Synthetic entity-specific bank accounts are required.');
+    }
+    $otherBankId = (int) $otherBank['id'];
+
     $before = qaBalances($pdo, $entityId);
     $otherBefore = qaBalances($pdo, $otherEntityId);
     $reportsBefore = qaReports($entityId, $reviewerCookie);
@@ -194,8 +232,117 @@ try {
         && !in_array($invoiceId, array_map('intval', array_column($otherList['rows'], 'id')), true),
         'new invoice appears only in the correct company worklist');
 
+    $client = 'Synthetic Cross Client ' . $run;
+    $vendor = 'Synthetic Cross Vendor ' . $run;
+    $receipt = [
+        'client_name' => $client, 'received_at' => $date, 'amount' => 17,
+        'currency' => 'USD', 'method' => 'other',
+        'reference' => 'SIM-CROSS-RECEIPT-' . $run,
+        'request_key' => 'sim_cross_receipt_' . $run,
+        'allocations' => [['invoice_id' => $invoiceId, 'amount' => 17]],
+    ];
+    $wrongReceipt = $receipt + ['bank_account_id' => $otherBankId];
+    $wrongReceipt['request_key'] = 'sim_cross_wrong_' . $run;
+    qaExpect(multiEntityPostStatus('/modules/billing/api/payments.php', $wrongReceipt,
+        $makerCookie) === 409, 'other-company bank cannot collect this invoice');
+    qaExpect(!qaOne($pdo, 'SELECT id FROM billing_payments WHERE tenant_id = :t
+        AND external_id = :external', ['t' => QA_TENANT,
+            'external' => 'manual-receipt:' . $wrongReceipt['request_key']])
+        && abs((float) qaOne($pdo, 'SELECT amount_due FROM billing_invoices
+            WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT,
+                'id' => $invoiceId])['amount_due'] - 101) < 0.005,
+        'rejected cross-company receipt leaves no payment or allocation');
+
+    $receipt['bank_account_id'] = $bankId;
+    $postedReceipt = qaRequest('/modules/billing/api/payments.php', 'POST', $receipt,
+        $makerCookie);
+    $receiptReplay = qaRequest('/modules/billing/api/payments.php', 'POST', $receipt,
+        $makerCookie);
+    qaExpect((int) ($postedReceipt['journal_entry_id'] ?? 0) > 0
+        && !empty($receiptReplay['idempotent_replay'])
+        && (int) $receiptReplay['journal_entry_id'] === (int) $postedReceipt['journal_entry_id'],
+        'partial receipt posts once to this company');
+
+    $payment = qaRequest('/modules/ap/api/payments.php', 'POST', [
+        'entity_id' => $entityId, 'bank_account_id' => $bankId,
+        'vendor_name' => $vendor, 'pay_date' => $date, 'method' => 'check',
+        'reference' => 'SIM-CROSS-PAYMENT-' . $run,
+        'amount' => 13, 'currency' => 'USD',
+    ], $makerCookie);
+    $paymentId = (int) ($payment['id'] ?? 0);
+    qaExpect($paymentId > 0, 'partial bill payment drafted');
+    $allocation = qaRequest('/modules/ap/api/payments.php?action=allocate&id=' . $paymentId,
+        'POST', ['allocations' => [['bill_id' => $billId, 'amount' => 13]]], $makerCookie);
+    qaExpect(abs((float) ($allocation['unallocated_remaining'] ?? -1)) < 0.005,
+        'partial bill payment allocated');
+    qaRequest('/modules/ap/api/payments.php?action=send&id=' . $paymentId,
+        'POST', [], $reviewerCookie);
+    qaExpect(multiEntityPostStatus('/modules/ap/api/payments.php?action=clear&id=' . $paymentId,
+        ['bank_account_id' => $otherBankId, 'cleared_date' => $date],
+        $reviewerCookie) === 422, 'other-company bank cannot clear this bill payment');
+    $uncleared = qaOne($pdo, 'SELECT status, journal_entry_id FROM ap_payments
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $paymentId]);
+    qaExpect($uncleared['status'] === 'sent' && $uncleared['journal_entry_id'] === null,
+        'rejected cross-company clearing leaves payment unposted');
+    $cleared = qaRequest('/modules/ap/api/payments.php?action=clear&id=' . $paymentId,
+        'POST', ['bank_account_id' => $bankId, 'cleared_date' => $date], $reviewerCookie);
+    $clearReplay = qaRequest('/modules/ap/api/payments.php?action=clear&id=' . $paymentId,
+        'POST', ['bank_account_id' => $bankId, 'cleared_date' => $date], $reviewerCookie);
+    qaExpect((int) ($cleared['journal_entry_id'] ?? 0) > 0
+        && !empty($clearReplay['idempotent_replay'])
+        && (int) $clearReplay['journal_entry_id'] === (int) $cleared['journal_entry_id'],
+        'partial bill payment clears once through this company bank');
+
+    $settledInvoice = qaOne($pdo, 'SELECT amount_paid, amount_due FROM billing_invoices
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $invoiceId]);
+    $settledBill = qaOne($pdo, 'SELECT amount_paid, amount_due FROM ap_bills
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $billId]);
+    qaExpect(abs((float) $settledInvoice['amount_paid'] - 17) < 0.005
+        && abs((float) $settledInvoice['amount_due'] - 84) < 0.005
+        && abs((float) $settledBill['amount_paid'] - 13) < 0.005
+        && abs((float) $settledBill['amount_due'] - 28) < 0.005,
+        'partial settlements leave correct invoice and bill balances');
+    $settledBalances = qaBalances($pdo, $entityId);
+    qaExpect(qaDelta($before, $settledBalances, $bankCode, 4)
+        && qaDelta($before, $settledBalances, '1100', 84)
+        && qaDelta($before, $settledBalances, '2000', -28)
+        && qaDelta($before, $settledBalances, '4000', -101)
+        && qaDelta($before, $settledBalances, '5000', 41)
+        && abs(array_sum($settledBalances)) < 0.005,
+        'entity GL agrees with both partial settlements');
+    qaExpect(qaBalances($pdo, $otherEntityId) === $otherBefore,
+        'other company has no movement after rejected bank selections');
+    $settledReports = qaReports($entityId, $reviewerCookie);
+    qaExpect(qaDelta($reportsBefore['balance_sheet'], $settledReports['balance_sheet'],
+        'total_assets', 88)
+        && qaDelta($reportsBefore['balance_sheet'], $settledReports['balance_sheet'],
+            'total_liabilities', 28)
+        && qaDelta($reportsBefore['balance_sheet'], $settledReports['balance_sheet'],
+            'total_equity', 60)
+        && !empty($settledReports['balance_sheet']['balanced']),
+        'entity balance sheet agrees with remaining AR, AP and cash');
+    qaExpect(qaDelta($reportsBefore['cash_flow_indirect'], $settledReports['cash_flow_indirect'],
+        'net_change_in_cash', 4)
+        && !empty($settledReports['cash_flow_indirect']['balanced'])
+        && abs((float) $settledReports['cash_flow_indirect']['reconciliation_diff']) < 0.005,
+        'cash-flow report reconciles the net receipt less payment');
+    $settlementLinks = qaOne($pdo, 'SELECT r.entity_id AS receipt_entity,
+        p.entity_id AS payment_entity, pay.disbursement_rail, pay.rail_external_ref
+        FROM accounting_journal_entries r
+        JOIN accounting_journal_entries p ON p.tenant_id = r.tenant_id AND p.id = :payment_journal
+        JOIN ap_payments pay ON pay.tenant_id = p.tenant_id AND pay.id = :payment_id
+        WHERE r.tenant_id = :t AND r.id = :receipt_journal',
+        ['payment_journal' => $cleared['journal_entry_id'], 'payment_id' => $paymentId,
+            't' => QA_TENANT, 'receipt_journal' => $postedReceipt['journal_entry_id']]);
+    qaExpect($settlementLinks && (int) $settlementLinks['receipt_entity'] === $entityId
+        && (int) $settlementLinks['payment_entity'] === $entityId
+        && $settlementLinks['disbursement_rail'] === null
+        && $settlementLinks['rail_external_ref'] === null,
+        'cash journals remain entity-scoped and no external rail was used');
+
     echo json_encode(['run' => $run, 'entity_id' => $entityId,
         'invoice_id' => $invoiceId, 'bill_id' => $billId,
+        'receipt_id' => (int) $postedReceipt['id'], 'payment_id' => $paymentId,
         'invoice_journal_id' => (int) $invoicePost['journal_entry_id'],
         'bill_journal_id' => (int) $billPost['journal_entry_id']], JSON_PRETTY_PRINT), "\n";
 } finally {
