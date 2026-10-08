@@ -14,6 +14,8 @@ require_once __DIR__ . '/../modules/accounting/lib/standard_reports.php';
 const QA_OPEN_BANK_CODE = '1096';
 $actor = null;
 $cookie = null;
+$reviewer = null;
+$reviewerCookie = null;
 try {
     $run = gmdate('ymdHis') . bin2hex(random_bytes(2));
     $entity = accountingCreateEntityWithCalendar($pdo, QA_TENANT, [
@@ -44,6 +46,19 @@ try {
     $actor = qaEnsureActor($pdo, 'opening-cutover');
     $cookie = tempnam(sys_get_temp_dir(), 'cf-open-');
     qaLogin($actor, $cookie);
+    $reviewer = qaEnsureActor($pdo, 'opening-cutover-reviewer');
+    $reviewerCookie = tempnam(sys_get_temp_dir(), 'cf-open-review-');
+    qaLogin($reviewer, $reviewerCookie);
+    $abandoned = $pdo->prepare('SELECT p.id FROM ap_payments p
+        JOIN accounting_entities e ON e.id = p.entity_id AND e.tenant_id = p.tenant_id
+        WHERE p.tenant_id = :t AND p.created_by_user_id = :u AND p.status = "draft"
+          AND p.reference LIKE "SIM-OPEN-PAYMENT-%" AND e.code LIKE "SIM-OPEN-%"
+          AND p.journal_entry_id IS NULL');
+    $abandoned->execute(['t' => QA_TENANT, 'u' => $actor['id']]);
+    foreach ($abandoned->fetchAll(PDO::FETCH_COLUMN) as $draftId) {
+        qaRequest('/modules/ap/api/payments.php?action=void&id=' . (int) $draftId,
+            'POST', ['reason' => 'Unfinished synthetic cutover acceptance attempt'], $cookie);
+    }
 
     $invoiceNumber = 'SIM-OPEN-AR-' . $run;
     $billNumber = 'SIM-OPEN-AP-' . $run;
@@ -145,9 +160,9 @@ try {
     qaExpect(abs((float) ($allocation['unallocated_remaining'] ?? -1)) < 0.005,
         'manual payment allocated to opening bill');
     qaRequest('/modules/ap/api/payments.php?action=send&id=' . $paymentId,
-        'POST', [], $cookie);
+        'POST', [], $reviewerCookie);
     $cleared = qaRequest('/modules/ap/api/payments.php?action=clear&id=' . $paymentId,
-        'POST', ['bank_account_id' => $bankId, 'cleared_date' => $date], $cookie);
+        'POST', ['bank_account_id' => $bankId, 'cleared_date' => $date], $reviewerCookie);
     qaExpect((int) ($cleared['journal_entry_id'] ?? 0) > 0,
         'manual opening-bill payment cleared without a payment rail');
     $paymentRow = qaOne($pdo, 'SELECT disbursement_rail, rail_external_ref FROM ap_payments
@@ -195,5 +210,10 @@ try {
         $pdo->prepare('UPDATE users SET is_active = 0 WHERE tenant_id = :t AND id = :id')
             ->execute(['t' => QA_TENANT, 'id' => $actor['id']]);
     }
+    if ($reviewer) {
+        $pdo->prepare('UPDATE users SET is_active = 0 WHERE tenant_id = :t AND id = :id')
+            ->execute(['t' => QA_TENANT, 'id' => $reviewer['id']]);
+    }
     if ($cookie && is_file($cookie)) unlink($cookie);
+    if ($reviewerCookie && is_file($reviewerCookie)) unlink($reviewerCookie);
 }
