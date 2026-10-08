@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../../../core/accounting/csv_document_entity.php';
 require_once __DIR__ . '/../lib/billing.php';
+require_once __DIR__ . '/../../ap/lib/ap.php';
 
 use Core\CsvImportService;
 
@@ -53,6 +54,7 @@ CsvImportService::registerSchema('billing_invoices', [
         'line_id'          => ['label' => 'Line ID (read only)', 'type' => 'integer'],
         'line_no'          => ['label' => 'Line #',           'type' => 'number'],
         'line_description' => ['label' => 'Line description'],
+        'line_item_type'   => ['label' => 'Line item type', 'enum' => AP_LINE_ITEM_TYPES],
         'line_quantity'    => ['label' => 'Line quantity',    'type' => 'number'],
         'line_unit'        => ['label' => 'Line unit'],
         'line_unit_price'  => ['label' => 'Line unit price',  'type' => 'number'],
@@ -143,7 +145,10 @@ if ($method === 'POST' && $action === 'dry_run') {
         CsvImportService::dryRun('billing_invoices', $csv, $columnMap),
         accountingCsvDocumentEntities(getDB(), $tid),
         'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date'],
-        'billingValidateImportedInvoiceLineAmounts', 'billingValidateImportedInvoiceGroupAmounts'
+        static function (array $row, array $amounts): void {
+            billingValidateImportedInvoiceLineAmounts($row, $amounts);
+            billingImportedInvoiceItemType($row, $amounts);
+        }, 'billingValidateImportedInvoiceGroupAmounts'
     );
     api_ok($review['result']);
 }
@@ -160,7 +165,10 @@ if ($method === 'POST' && $action === 'commit') {
         CsvImportService::dryRun('billing_invoices', $csv, $columnMap),
         accountingCsvDocumentEntities(getDB(), $tid),
         'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date'],
-        'billingValidateImportedInvoiceLineAmounts', 'billingValidateImportedInvoiceGroupAmounts'
+        static function (array $row, array $amounts): void {
+            billingValidateImportedInvoiceLineAmounts($row, $amounts);
+            billingImportedInvoiceItemType($row, $amounts);
+        }, 'billingValidateImportedInvoiceGroupAmounts'
     );
     $dry = $review['result'];
     if (!empty($dry['blocking_error']) || (!$skipInvalid && $dry['error_count'] > 0)) {
@@ -300,15 +308,16 @@ if ($method === 'POST' && $action === 'commit') {
                 $amounts = accountingCsvDocumentLineAmounts($r);
                 $pdo->prepare(
                     'INSERT INTO billing_invoice_lines
-                       (invoice_id, line_no, source_type, description, quantity, unit, unit_price,
+                       (invoice_id, line_no, source_type, item_type, description, quantity, unit, unit_price,
                         subtotal, tax_rate_pct, tax_amount, total)
                      VALUES
-                       (:invoice_id, :line_no, :stype, :desc, :qty, :unit, :unit_price,
+                       (:invoice_id, :line_no, :stype, :item_type, :desc, :qty, :unit, :unit_price,
                         :subtotal, 0, :tax_amount, :total)'
                 )->execute([
                     'invoice_id' => $invId,
                     'line_no'    => isset($r['line_no']) && (int) $r['line_no'] > 0 ? (int) $r['line_no'] : $lineNo,
                     'stype'      => 'manual',
+                    'item_type'  => billingImportedInvoiceItemType($r, $amounts),
                     'desc'       => (string) ($r['line_description'] ?? ''),
                     'qty'        => $amounts['quantity'],
                     'unit'       => (string) ($r['line_unit'] ?? 'hour'),

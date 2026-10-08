@@ -34,6 +34,11 @@ $check('invoice export is line-level',
 $check('invoice export carries stable record and line ids',
     str_contains($billingExport, 'i.id AS invoice_id')
     && str_contains($billingExport, 'l.id AS line_id'));
+$check('invoice CSV round trip retains line item types',
+    str_contains($billingImport, "'line_item_type'   => ['label' => 'Line item type'")
+    && str_contains($billingImport, 'billingImportedInvoiceItemType($r, $amounts)')
+    && str_contains($billingExport, 'l.item_type AS line_item_type')
+    && str_contains($billingExport, "'line_item_type'   => 'Line item type'"));
 $check('invoice import exposes update mode',
     str_contains($billingImport, "_GET['update_existing']")
     && str_contains($billingImport, "scopedUpdate('billing_invoices'"));

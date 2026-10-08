@@ -25,6 +25,26 @@ $discount = ['line_quantity' => '1', 'line_unit_price' => '-2',
 billingValidateImportedInvoiceLineAmounts($service, accountingCsvDocumentLineAmounts($service));
 billingValidateImportedInvoiceLineAmounts($discount, accountingCsvDocumentLineAmounts($discount));
 $check('positive service and untaxed discount lines are accepted', true);
+$check('CSV infers other for service and discount for negative line',
+    billingImportedInvoiceItemType($service, accountingCsvDocumentLineAmounts($service)) === 'other'
+    && billingImportedInvoiceItemType($discount, accountingCsvDocumentLineAmounts($discount)) === 'discount');
+$check('CSV accepts an explicit service type',
+    billingImportedInvoiceItemType($service + ['line_item_type' => 'fixed_fee'],
+        accountingCsvDocumentLineAmounts($service)) === 'fixed_fee');
+$typeRejects = static function (array $row, string $fragment): bool {
+    try {
+        billingImportedInvoiceItemType($row, accountingCsvDocumentLineAmounts($row));
+        return false;
+    } catch (InvalidArgumentException $e) {
+        return str_contains($e->getMessage(), $fragment);
+    }
+};
+$check('negative service type is rejected', $typeRejects($discount + ['line_item_type' => 'labor'],
+    'negative invoice line'));
+$check('positive discount type is rejected', $typeRejects($service + ['line_item_type' => 'discount'],
+    'discount invoice line'));
+$check('unknown item type is rejected', $typeRejects($service + ['line_item_type' => 'unknown'],
+    'not supported'));
 $check('subtotal mismatch is rejected', $rejects(array_replace($service,
     ['line_subtotal' => '26', 'line_total' => '28']), 'subtotal must equal'));
 $check('missing unit price is rejected', $rejects(array_replace($service,
@@ -59,9 +79,10 @@ $badGroup = accountingCsvReviewDocumentGroups([
 $check('discount-only invoice is rejected as a whole',
     $badGroup['result']['error_count'] === 1
     && str_contains(implode(' ', $badGroup['result']['errors'][2] ?? []), 'Invoice total must be positive'));
-$check('invoice CSV importer applies both guards in preview and commit',
-    substr_count((string) file_get_contents(__DIR__ . '/../modules/billing/api/csv_import.php'),
-        "'billingValidateImportedInvoiceLineAmounts', 'billingValidateImportedInvoiceGroupAmounts'") === 2);
+$importer = (string) file_get_contents(__DIR__ . '/../modules/billing/api/csv_import.php');
+$check('invoice CSV importer validates amount and item type in preview and commit',
+    substr_count($importer, 'billingImportedInvoiceItemType($row, $amounts)') === 2
+    && substr_count($importer, "'billingValidateImportedInvoiceGroupAmounts'") === 2);
 
 $failed = count(array_filter($checks, static fn(bool $ok): bool => !$ok));
 echo $failed ? "Failed: {$failed}\n" : 'Passed: ' . count($checks) . "\n";

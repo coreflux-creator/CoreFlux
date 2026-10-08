@@ -12,7 +12,7 @@ require_once __DIR__ . '/accounting_staging_lifecycle.php';
 function qaDiscountInvoiceCsv(string $number): string
 {
     $headers = ['invoice_number', 'client_name', 'entity_code', 'issue_date', 'due_date',
-        'currency', 'line_description', 'line_quantity', 'line_unit_price',
+        'currency', 'line_description', 'line_item_type', 'line_quantity', 'line_unit_price',
         'line_subtotal', 'line_tax_amount', 'line_total'];
     $base = [
         'invoice_number' => $number,
@@ -23,7 +23,8 @@ function qaDiscountInvoiceCsv(string $number): string
         'currency' => 'USD',
     ];
     $rows = [
-        $base + ['line_description' => 'Invented service', 'line_quantity' => '2',
+        $base + ['line_description' => 'Invented service', 'line_item_type' => 'fixed_fee',
+            'line_quantity' => '2',
             'line_unit_price' => '12.50', 'line_subtotal' => '25.00',
             'line_tax_amount' => '0', 'line_total' => '25.00'],
         ['invoice_number' => $number, 'line_description' => 'Untaxed discount',
@@ -41,6 +42,44 @@ function qaDiscountInvoiceCsv(string $number): string
         }
         rewind($stream);
         return (string) stream_get_contents($stream);
+    } finally {
+        fclose($stream);
+    }
+}
+
+function qaDiscountExportRows(string $number, string $cookie): array
+{
+    $curl = curl_init(QA_BASE_URL . '/modules/billing/api/csv_export.php?q=' . rawurlencode($number));
+    if ($curl === false) throw new RuntimeException('Could not start invoice CSV export');
+    curl_setopt_array($curl, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_TIMEOUT => 40,
+        CURLOPT_COOKIEFILE => $cookie,
+        CURLOPT_COOKIEJAR => $cookie,
+        CURLOPT_HTTPHEADER => ['Accept: text/csv', 'X-CoreFlux-Tenant-Id: ' . QA_TENANT],
+    ]);
+    $csv = curl_exec($curl);
+    $status = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    curl_close($curl);
+    if (!is_string($csv) || $status !== 200) {
+        throw new RuntimeException("Invoice CSV export returned HTTP {$status}");
+    }
+    $stream = fopen('php://temp', 'w+');
+    if (!$stream) throw new RuntimeException('Could not parse invoice CSV export');
+    try {
+        fwrite($stream, $csv);
+        rewind($stream);
+        $headers = fgetcsv($stream);
+        if (!$headers || !in_array('Line item type', $headers, true)) {
+            throw new RuntimeException('Invoice CSV export omitted line item type');
+        }
+        $rows = [];
+        while (($values = fgetcsv($stream)) !== false) {
+            if (count($values) !== count($headers)) throw new RuntimeException('Malformed invoice CSV export');
+            $rows[] = array_combine($headers, $values);
+        }
+        return $rows;
     } finally {
         fclose($stream);
     }
@@ -84,6 +123,17 @@ try {
         && $draft['journal_entry_id'] === null
         && qaBalances($pdo, $entityId) === $before,
         'CSV created one $23 draft without GL movement');
+    $types = $pdo->prepare('SELECT line_no, item_type FROM billing_invoice_lines
+        WHERE invoice_id = :id ORDER BY line_no');
+    $types->execute(['id' => $invoiceId]);
+    $storedTypes = array_column($types->fetchAll(PDO::FETCH_ASSOC), 'item_type', 'line_no');
+    qaExpect(($storedTypes[1] ?? null) === 'fixed_fee' && ($storedTypes[2] ?? null) === 'discount',
+        'CSV retains the service type and classifies the negative line as a discount');
+    $exported = qaDiscountExportRows($number, $makerCookie);
+    qaExpect(count($exported) === 2
+        && ($exported[0]['Line item type'] ?? null) === 'fixed_fee'
+        && ($exported[1]['Line item type'] ?? null) === 'discount',
+        'ordinary invoice CSV export preserves both line item types');
 
     qaRequest('/modules/billing/api/invoices.php?action=request_approval&id=' . $invoiceId,
         'POST', [], $makerCookie);

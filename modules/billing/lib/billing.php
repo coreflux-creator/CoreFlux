@@ -775,6 +775,23 @@ function billingValidateImportedInvoiceGroupAmounts(array $rows, array $lineAmou
     }
 }
 
+function billingImportedInvoiceItemType(array $row, array $amounts): string
+{
+    require_once __DIR__ . '/../../ap/lib/ap.php';
+    $requested = strtolower(trim((string) ($row['line_item_type'] ?? '')));
+    if ($requested !== '' && !in_array($requested, AP_LINE_ITEM_TYPES, true)) {
+        throw new InvalidArgumentException('Invoice line item type is not supported');
+    }
+    $isDiscount = (float) $amounts['subtotal'] < 0;
+    if ($isDiscount && $requested !== '' && $requested !== 'discount') {
+        throw new InvalidArgumentException('A negative invoice line must use the discount item type');
+    }
+    if (!$isDiscount && $requested === 'discount') {
+        throw new InvalidArgumentException('A discount invoice line must have a negative subtotal');
+    }
+    return $requested !== '' ? $requested : ($isDiscount ? 'discount' : 'other');
+}
+
 /**
  * Return one internally consistent invoice line. Generated staffing lines use
  * their stored full-precision rate; manual/imported lines preserve the entered

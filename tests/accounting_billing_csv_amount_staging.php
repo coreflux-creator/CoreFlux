@@ -12,7 +12,7 @@ require_once __DIR__ . '/accounting_staging_lifecycle.php';
 function qaBillingCsv(array $rows): string
 {
     $headers = ['invoice_number', 'client_name', 'entity_code', 'issue_date', 'due_date',
-        'currency', 'line_description', 'line_quantity', 'line_unit_price',
+        'currency', 'line_description', 'line_item_type', 'line_quantity', 'line_unit_price',
         'line_subtotal', 'line_tax_amount', 'line_total'];
     $stream = fopen('php://temp', 'w+');
     if (!$stream) throw new RuntimeException('Could not assemble synthetic invoice CSV');
@@ -97,6 +97,13 @@ try {
     qaExpect(($taxPreview['error_count'] ?? 0) === 1
         && str_contains(implode(' ', $taxPreview['errors'][3] ?? []), 'discounts cannot carry tax'),
         'preview rejects tax on a negative discount line');
+    $wrongType = qaBillingCsv([$base, array_replace($discount, ['line_item_type' => 'labor'])]);
+    $wrongTypePreview = qaRequest('/modules/billing/api/csv_import.php?action=dry_run',
+        'POST', ['csv' => $wrongType], $cookie);
+    qaExpect(($wrongTypePreview['error_count'] ?? 0) === 1
+        && str_contains(implode(' ', $wrongTypePreview['errors'][3] ?? []),
+            'negative invoice line must use the discount item type'),
+        'preview refuses to misclassify a negative line as labor');
     $subcentCsv = qaBillingCsv([array_replace($base, [
         'line_tax_amount' => '0.001', 'line_total' => '25.00',
     ])]);
