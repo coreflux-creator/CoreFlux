@@ -15,10 +15,19 @@ import ComparisonTable from '../../../dashboard/src/components/ComparisonTable';
 import GlDetailDrilldown from '../../../dashboard/src/components/GlDetailDrilldown';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import { useReportPeriod } from '../../../dashboard/src/lib/useReportPeriod';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 import { Eye, EyeOff } from 'lucide-react';
 
 export default function TrialBalance() {
   const period = useReportPeriod();
+  const scope = useAccountingEntityScope();
+  if (scope.error) return <div><p className="error">{scope.error}</p><AccountingEntitySelector scope={scope} testId="rpt-tb-entity" /></div>;
+  if (!scope.ready) return <p>Loading legal entities…</p>;
+  return <TrialBalanceForScope key={scope.scopeKey} period={period} scope={scope} />;
+}
+
+function TrialBalanceForScope({ period, scope }) {
 
   const [current,     setCurrent]     = useState(null);
   const [priorPeriod, setPriorPeriod] = useState(null);
@@ -32,7 +41,7 @@ export default function TrialBalance() {
     let cancelled = false;
     setLoading(true); setError(null);
 
-    const fetchAt = (asOf) => api.get(url(asOf));
+    const fetchAt = (asOf) => api.get(url(asOf, scope.entityId));
     const reqs = [fetchAt(period.to).then(r => ({ slot: 'current', r }))];
     if (period.showPriorPeriod) {
       reqs.push(fetchAt(period.priorTo).then(r => ({ slot: 'prior_period', r })).catch(() => ({ slot: 'prior_period', r: null })));
@@ -53,7 +62,7 @@ export default function TrialBalance() {
     .catch(e => { if (!cancelled) setError(e.message || 'Failed to load'); })
     .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [period.to, period.compareMode, period.priorTo, period.priorYearTo, period.showPriorPeriod, period.showPriorYear]);
+  }, [period.to, period.compareMode, period.priorTo, period.priorYearTo, period.showPriorPeriod, period.showPriorYear, scope.entityId]);
 
   const currentRows = useMemo(() => current?.rows ?? [], [current?.rows]);
 
@@ -116,12 +125,13 @@ export default function TrialBalance() {
   return (
     <ReportShell
       title="Trial Balance"
-      subtitle={`Posted journal entries aggregated by account · As of ${period.to}`}
+      subtitle={`${scope.label} · Posted journal entries aggregated by account · As of ${period.to}`}
       testIdPrefix="rpt-tb"
       period={period}
+      customControls={<AccountingEntitySelector scope={scope} testId="rpt-tb-entity" />}
       singleDate
       snapshotEnvelope={current ? {
-        params:   { as_of: period.to, compareMode: period.compareMode },
+        params:   { as_of: period.to, compareMode: period.compareMode, entity_id: scope.entityId },
         envelope: { current, priorPeriod, priorYear },
       } : null}
       onReplayDrill={(d) => setDrill({
@@ -185,7 +195,7 @@ export default function TrialBalance() {
       />
 
       {drill && (
-        <GlDetailDrilldown {...drill} reportKey="rpt-tb" onClose={() => setDrill(null)} />
+        <GlDetailDrilldown {...drill} entityId={scope.entityId} reportKey="rpt-tb" onClose={() => setDrill(null)} />
       )}
     </ReportShell>
   );
@@ -195,6 +205,6 @@ function hasMaterialBalance(row) {
   return Object.values(row.values || {}).some((value) => Math.abs(Number(value) || 0) >= 0.005);
 }
 
-function url(asOf) {
-  return `/modules/accounting/api/journal_entries.php?action=trial_balance&as_of=${asOf}`;
+function url(asOf, entityId) {
+  return `/modules/accounting/api/journal_entries.php?action=trial_balance&as_of=${asOf}${entityId ? `&entity_id=${entityId}` : ''}`;
 }

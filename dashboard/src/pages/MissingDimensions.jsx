@@ -1,6 +1,8 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
+import { useAccountingEntityScope } from '../lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../components/AccountingEntitySelector';
 import { AlertTriangle, ArrowLeft } from 'lucide-react';
 import AccountLink from '../components/AccountLink';
 
@@ -10,10 +12,13 @@ import AccountLink from '../components/AccountLink';
  * is missing. Each row deep-links to the parent JE detail.
  */
 export default function MissingDimensions() {
-  const { data, loading, error } = useApi('/api/missing_dimensions.php?days=90&limit=200');
+  const scope = useAccountingEntityScope();
+  const path = `/api/missing_dimensions.php?days=90&limit=200${scope.apiQuery ? `&${scope.apiQuery}` : ''}`;
+  const { data: response, loading, error } = useApi(path, { enabled: scope.ready });
+  const data = scope.ready && response?.entity_id === scope.entityId ? response : null;
 
-  if (loading) return <p data-testid="missing-dims-loading">Loading…</p>;
-  if (error)   return <p className="error" data-testid="missing-dims-error">{error.message}</p>;
+  if (scope.error || error) return <div><p className="error" data-testid="missing-dims-error">{scope.error || error.message}</p><AccountingEntitySelector scope={scope} testId="missing-dims-entity" /></div>;
+  if (loading || !data) return <p data-testid="missing-dims-loading">Loading…</p>;
 
   const count = data?.count ?? 0;
   const rows  = data?.rows  ?? [];
@@ -21,16 +26,19 @@ export default function MissingDimensions() {
 
   return (
     <section data-testid="missing-dims-page" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <header>
-        <Link to="/modules/accounting/bookkeeping" style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+        <Link to={scope.withScope('/modules/accounting/overview')} style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>
           <ArrowLeft size={14} style={{ verticalAlign: 'middle' }} /> Back to Bookkeeping Overview
         </Link>
         <h2 style={{ margin: '8px 0 0', display: 'flex', alignItems: 'center', gap: 8 }}>
           <AlertTriangle size={20} color="#d97706" /> Missing dimension values
         </h2>
         <p style={{ color: '#64748b', fontSize: 13, margin: '4px 0 0' }}>
-          Posted journal lines in the last {data?.window_days ?? 90} days where the account requires a dimension that wasn't filled in. Open the JE to fix.
+          {scope.label} · Posted journal lines in the last {data?.window_days ?? 90} days where the account requires a dimension that wasn't filled in. Open the JE to fix.
         </p>
+        </div>
+        <AccountingEntitySelector scope={scope} testId="missing-dims-entity" />
       </header>
 
       {count === 0 && (

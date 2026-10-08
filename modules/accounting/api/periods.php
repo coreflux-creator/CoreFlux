@@ -29,6 +29,10 @@ if ($method === 'GET') {
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['entity_id'])) { $where[] = 'entity_id = :e'; $params['e'] = (int) $_GET['entity_id']; }
+    $statusFilter = (string) ($_GET['status'] ?? '');
+    if ($statusFilter === 'ready_to_close') {
+        $where[] = "status = 'open' AND end_date < CURRENT_DATE";
+    }
     if (!empty($_GET['from']))      { $where[] = 'end_date   >= :f'; $params['f'] = $_GET['from']; }
     if (!empty($_GET['to']))        { $where[] = 'start_date <= :t'; $params['t'] = $_GET['to']; }
     $rows = scopedQuery(
@@ -37,7 +41,8 @@ if ($method === 'GET') {
          ORDER BY start_date DESC LIMIT 200',
         $params
     );
-    api_ok(['rows' => $rows]);
+    api_ok(['entity_id' => !empty($_GET['entity_id']) ? (int) $_GET['entity_id'] : null,
+        'status_filter' => $statusFilter, 'rows' => $rows]);
 }
 
 if ($method === 'POST' && $action === 'create') {

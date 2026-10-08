@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApiCached, bustApiCachePrefix, prefetchApi } from '../../../dashboard/src/lib/api';
 import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
-import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { fmtDate } from '../../../dashboard/src/lib/formatDate';
 import BillFromTimeBundleModal from './BillFromTimeBundleModal';
@@ -19,6 +20,7 @@ import {
 
 const STATUS_FILTERS = [
   { id: 'all', label: 'All bills', countKey: 'total_count' },
+  { id: 'needs_action', label: 'Needs action', countKey: 'action_count' },
   { id: 'ready_to_pay', label: 'Ready to pay', countKey: 'ready_count' },
   { id: 'pending_approval', label: 'Awaiting approval', countKey: 'pending_count' },
   { id: 'needs_review', label: 'Needs review', countKey: 'review_count' },
@@ -29,7 +31,15 @@ const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').repla
 
 export default function BillsList({ session }) {
   const navigate = useNavigate();
-  const [status, setStatus] = useState('all');
+  const [urlParams, setUrlParams] = useSearchParams();
+  const requestedStatus = urlParams.get('status') || 'all';
+  const status = STATUS_FILTERS.some(item => item.id === requestedStatus) ? requestedStatus : 'all';
+  const changeStatus = value => {
+    const next = new URLSearchParams(urlParams);
+    if (value === 'all') next.delete('status'); else next.set('status', value);
+    setUrlParams(next, { replace: true });
+    setPage(1);
+  };
   const [showFromBundle, setShowFromBundle] = useState(false);
   const [showFromEntries, setShowFromEntries] = useState(false);
   const [showSuggestRun, setShowSuggestRun] = useState(false);
@@ -39,15 +49,17 @@ export default function BillsList({ session }) {
   const [perPage, setPerPage] = useState(50);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
-  const { activeEntityId, activeEntity } = useActiveEntity();
+  const [createdBills, setCreatedBills] = useState([]);
+  const scope = useAccountingEntityScope();
   const qs = new URLSearchParams();
   if (status !== 'all') qs.set('status', status);
-  if (activeEntityId) qs.set('entity_id', String(activeEntityId));
+  if (scope.entityId) qs.set('entity_id', String(scope.entityId));
   if (query) qs.set('q', query);
   qs.set('page', String(page));
   qs.set('per_page', String(perPage));
   const path = '/modules/ap/api/bills.php' + (qs.toString() ? `?${qs}` : '');
-  const { data, loading, error, reload } = useApiCached(path, { cacheKey: `ap-bills-list:${path}` });
+  const { data: response, loading, error, reload } = useApiCached(path, { cacheKey: `ap-bills-list:${path}`, enabled: scope.ready });
+  const data = scope.ready && response?.entity_id === scope.entityId ? response : null;
   const rows = data?.rows ?? [];
   const total = Number(data?.total ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -67,7 +79,7 @@ export default function BillsList({ session }) {
   useEffect(() => {
     clearSelection();
     setBulkResult(null);
-  }, [status, query, page, perPage, activeEntityId, clearSelection]);
+  }, [status, query, page, perPage, scope.scopeKey, clearSelection]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -164,8 +176,13 @@ export default function BillsList({ session }) {
   const buildTemplateExportHref = (templateId) => {
     const params = new URLSearchParams({ template_id: String(templateId) });
     if (status !== 'all') params.set('status', status);
+    if (scope.entityId) params.set('entity_id', String(scope.entityId));
     return `/api/v1/ap/bills-csv-export?${params.toString()}`;
   };
+  const rawExportParams = new URLSearchParams();
+  if (status !== 'all') rawExportParams.set('status', status);
+  if (scope.entityId) rawExportParams.set('entity_id', String(scope.entityId));
+  const billPath = id => scope.withScope(`/modules/ap/bills/${id}${status === 'all' ? '' : `?status=${encodeURIComponent(status)}`}`);
 
   return (
     <section className="module-list-page ap-bills-page" data-testid="ap-bills-list">
@@ -176,13 +193,22 @@ export default function BillsList({ session }) {
         <SummaryStat label="Needs review" value={number(summary.review_count)} sub="Matching or document exceptions" tone="red" />
       </div>
 
-      {activeEntity && (
-        <div className="entity-scope-note" data-testid="ap-bills-entity-scope">
-          Showing <strong>{activeEntity.code}</strong>. Use the header to change entities.
+      <div className="entity-scope-note" data-testid="ap-bills-entity-scope" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <AccountingEntitySelector scope={scope} testId="ap-bills-entity" />
+        <span>{scope.label}</span>
+      </div>
+
+      <ApprovedHoursReadyTile variant="ap" scopeLabel="workspace-wide" onPick={() => setShowFromEntries(true)} />
+
+      {createdBills.length > 0 && (
+        <div className="success" role="status" data-testid="ap-bills-created-links">
+          Created {createdBills.length} bill{createdBills.length === 1 ? '' : 's'}: {' '}
+          {createdBills.map((bill, index) => <React.Fragment key={bill.id}>
+            {index > 0 && ', '}
+            <Link to={billPath(bill.id)}>{bill.internal_ref || `Bill ${bill.id}`}</Link>
+          </React.Fragment>)}
         </div>
       )}
-
-      <ApprovedHoursReadyTile variant="ap" onPick={() => setShowFromEntries(true)} />
 
       <div className="operational-surface ap-bills-surface">
         <div className="record-view-tabs record-view-tabs--with-actions">
@@ -192,7 +218,7 @@ export default function BillsList({ session }) {
                 key={item.id}
                 type="button"
                 data-testid={`ap-bills-filter-${item.id}`}
-                onClick={() => { setStatus(item.id); setPage(1); }}
+                onClick={() => changeStatus(item.id)}
                 className={status === item.id ? 'is-active' : ''}
               >
                 {item.label}
@@ -205,7 +231,7 @@ export default function BillsList({ session }) {
             <button className="btn" onClick={() => setShowSuggestRun(true)} data-testid="ap-bills-suggest-payment-run">
               <CreditCard size={15} aria-hidden="true" /> Payment run
             </button>
-            <Link to="new" className="btn btn--primary" data-testid="ap-new-bill"><Plus size={16} aria-hidden="true" /> New bill</Link>
+            <Link to={scope.withScope(`new${status === 'all' ? '' : `?status=${encodeURIComponent(status)}`}`)} className="btn btn--primary" data-testid="ap-new-bill"><Plus size={16} aria-hidden="true" /> New bill</Link>
           </div>
         </div>
 
@@ -227,7 +253,7 @@ export default function BillsList({ session }) {
             <div className="action-overflow__menu">
               <button className="action-overflow__item" onClick={() => setShowFromBundle(true)} data-testid="ap-new-from-time-bundle">New from time bundle</button>
               <button className="action-overflow__item" onClick={() => setShowFromEntries(true)} data-testid="ap-bills-new-from-time-entries">New from approved hours</button>
-              <a className="action-overflow__item" href={`/api/v1/ap/bills-csv-export${status !== 'all' ? `?status=${status}` : ''}`} data-testid="ap-bills-export-all-csv"><Download size={15} aria-hidden="true" /> Export all</a>
+              <a className="action-overflow__item" href={`/api/v1/ap/bills-csv-export${rawExportParams.size ? `?${rawExportParams}` : ''}`} data-testid="ap-bills-export-all-csv"><Download size={15} aria-hidden="true" /> Export all</a>
               <ExportTemplatePicker
                 dataset="ap_bills"
                 buildHref={buildTemplateExportHref}
@@ -263,8 +289,8 @@ export default function BillsList({ session }) {
           </div>
         )}
 
-        {loading && <p className="operational-state">Loading...</p>}
-        {error && <p className="error operational-state" data-testid="ap-bills-error">Error: {error.message}</p>}
+        {(loading || !data) && !scope.error && !error && <p className="operational-state">Loading...</p>}
+        {(scope.error || error) && <p className="error operational-state" data-testid="ap-bills-error">Error: {scope.error || error.message}</p>}
 
         <div className="data-table-wrap operational-table-wrap">
           <table className="data-table operational-table" data-testid="ap-bills-table">
@@ -292,7 +318,7 @@ export default function BillsList({ session }) {
               </tr>
             </thead>
             <tbody>
-              {items.length === 0 && !loading && <tr><td colSpan={10} className="empty" data-testid="ap-bills-empty">No bills match this view.</td></tr>}
+              {data && items.length === 0 && !loading && <tr><td colSpan={10} className="empty" data-testid="ap-bills-empty">No bills match this view.</td></tr>}
               {items.map(r => (
                 <tr key={r.id} data-testid={`ap-bill-row-${r.id}`} className={sel.has(r.id) ? 'is-selected' : ''}>
                   <td><input type="checkbox" checked={sel.has(r.id)} onChange={() => sel.toggle(r.id)} data-testid={`ap-bill-select-${r.id}`} /></td>
@@ -303,7 +329,7 @@ export default function BillsList({ session }) {
                       <span>
                         <Link
                           className="entity-primary"
-                          to={`/modules/ap/bills/${r.id}`}
+                          to={billPath(r.id)}
                           data-testid={`ap-bill-link-${r.id}`}
                           onMouseEnter={() => prefetchApi(`/modules/ap/api/bill_detail.php?id=${r.id}`, `ap-bill-detail:${r.id}`)}
                         >
@@ -328,7 +354,7 @@ export default function BillsList({ session }) {
                   </td>
                   <td><span className={`badge badge--${r.status}`}>{statusLabel(r.status)}</span><QboDriftBadge entry={qboDrift[r.id]} /></td>
                   <td><span className="source-label">{statusLabel(r.source || r.vendor_type || 'manual')}</span></td>
-                  <td><Link to={`/modules/ap/bills/${r.id}`} className="row-open-link" aria-label={`Open bill ${r.internal_ref || r.id}`}><ChevronRight size={17} aria-hidden="true" /></Link></td>
+                  <td><Link to={billPath(r.id)} className="row-open-link" aria-label={`Open bill ${r.internal_ref || r.id}`}><ChevronRight size={17} aria-hidden="true" /></Link></td>
                 </tr>
               ))}
             </tbody>
@@ -361,14 +387,14 @@ export default function BillsList({ session }) {
       </div>
 
       {showFromBundle && (
-        <BillFromTimeBundleModal onClose={() => setShowFromBundle(false)} onCreated={() => { setShowFromBundle(false); bustApiCachePrefix('ap-bills-list:'); reload(); }} />
+        <BillFromTimeBundleModal onClose={() => setShowFromBundle(false)} onCreated={(result) => { setShowFromBundle(false); setCreatedBills(result?.bills_created || []); bustApiCachePrefix('ap-bills-list:'); reload(); }} />
       )}
       {showFromEntries && (
-        <BillFromTimeEntriesModal onClose={() => setShowFromEntries(false)} onCreated={() => { setShowFromEntries(false); bustApiCachePrefix('ap-bills-list:'); reload(); }} />
+        <BillFromTimeEntriesModal onClose={() => setShowFromEntries(false)} onCreated={(result) => { setShowFromEntries(false); setCreatedBills(result?.bills_created || []); bustApiCachePrefix('ap-bills-list:'); reload(); }} />
       )}
       {showSuggestRun && (
         <SuggestPaymentRunModal
-          entityId={activeEntityId}
+          entityId={scope.entityId}
           onClose={() => setShowSuggestRun(false)}
           onCreated={(result) => {
             setShowSuggestRun(false);

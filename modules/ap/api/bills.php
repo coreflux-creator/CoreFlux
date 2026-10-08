@@ -320,7 +320,9 @@ if ($method === 'GET') {
     if (!empty($_GET['vendor_name'])) { $where[] = 'vendor_name = :vn';  $params['vn'] = $_GET['vendor_name']; }
     if (!empty($_GET['status'])) {
         $statusFilter = (string) $_GET['status'];
-        if ($statusFilter === 'ready_to_pay') {
+        if ($statusFilter === 'needs_action') {
+            $where[] = "status IN ('inbox', 'pending_review', 'pending_approval', 'approved', 'partially_paid', 'disputed')";
+        } elseif ($statusFilter === 'ready_to_pay') {
             $where[] = "status IN ('approved', 'partially_paid')";
             $where[] = '(amount_due - COALESCE((
                 SELECT SUM(ready_alloc.amount_applied)
@@ -389,6 +391,7 @@ if ($method === 'GET') {
     $summary = scopedFind(
         'SELECT
             COUNT(*) AS total_count,
+            SUM(CASE WHEN status IN (\'inbox\', \'pending_review\', \'pending_approval\', \'approved\', \'partially_paid\', \'disputed\') THEN 1 ELSE 0 END) AS action_count,
             SUM(CASE WHEN status NOT IN (\'paid\', \'void\') THEN 1 ELSE 0 END) AS open_count,
             COALESCE(SUM(CASE WHEN status NOT IN (\'paid\', \'void\') THEN amount_due ELSE 0 END), 0) AS open_amount,
             COALESCE(SUM(CASE WHEN status IN (\'approved\', \'partially_paid\') THEN GREATEST(amount_due - payment_reserved, 0) ELSE 0 END), 0) AS ready_amount,
@@ -416,6 +419,7 @@ if ($method === 'GET') {
     ) ?: [];
 
     api_ok([
+        'entity_id' => !empty($_GET['entity_id']) ? (int) $_GET['entity_id'] : null,
         'rows' => $rows,
         'total' => (int) ($cnt[0]['c'] ?? 0),
         'page' => $page,

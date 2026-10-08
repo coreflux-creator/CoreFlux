@@ -22,16 +22,18 @@ export function useActiveEntity() {
   const [activeEntityId, setActiveEntityId] = useState(null);
   const [entities, setEntities] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(null);
 
   const load = useCallback(async () => {
     try {
       const r = await api.get('/api/active_entity.php');
       setActiveEntityId(r?.active_entity_id ?? null);
       setEntities(r?.entities ?? []);
-    } catch {
-      // API unavailable / tenant has no entities — silently no-scope.
+      setError(null);
+    } catch (e) {
       setActiveEntityId(null);
       setEntities([]);
+      setError(e);
     } finally {
       setLoaded(true);
     }
@@ -51,7 +53,7 @@ export function useActiveEntity() {
 
   const activeEntity = entities.find(e => e.id === activeEntityId) || null;
 
-  return { activeEntityId, activeEntity, entities, entityQuery, loaded, reload: load };
+  return { activeEntityId, activeEntity, entities, entityQuery, loaded, error, reload: load };
 }
 
 export default useActiveEntity;

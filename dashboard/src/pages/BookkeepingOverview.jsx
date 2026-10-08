@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
+import { useAccountingEntityScope } from '../lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../components/AccountingEntitySelector';
 import {
   Activity, AlertCircle, AlertTriangle, ArrowRight, BookOpen, Building2,
   CheckCircle2, FileText, FlaskConical, Receipt, Sparkles, TrendingUp, Wallet,
@@ -18,7 +20,10 @@ import {
  *  - Connect-a-bank CTA when no active connections
  */
 export default function BookkeepingOverview() {
-  const { data, error, refetch } = useApi('/api/books_health.php');
+  const scope = useAccountingEntityScope();
+  const healthUrl = '/api/books_health.php' + (scope.apiQuery ? `?${scope.apiQuery}` : '');
+  const { data: response, error, refetch } = useApi(healthUrl, { enabled: scope.ready });
+  const data = scope.ready && response?.entity_id === scope.entityId ? response : null;
 
   const monthlyMax = useMemo(() => {
     const rows = data?.pl_monthly || [];
@@ -26,11 +31,12 @@ export default function BookkeepingOverview() {
     return maxV || 1; // avoid div by 0
   }, [data?.pl_monthly]);
 
-  if (error) {
+  if (scope.error || error) {
     return (
       <div data-testid="bookkeeping-overview-error" style={errBox}>
-        <AlertCircle size={18} /> Couldn't load books health: {error.message}
-        <button onClick={refetch} className="btn btn--ghost" style={{ marginLeft: 'auto' }}>Retry</button>
+        <AlertCircle size={18} /> Couldn't load books health: {scope.error || error.message}
+        {scope.entities.length > 0 && <AccountingEntitySelector scope={scope} testId="bookkeeping-overview-entity" />}
+        <button onClick={scope.error ? scope.reloadEntities : refetch} className="btn btn--ghost" style={{ marginLeft: 'auto' }}>Retry</button>
       </div>
     );
   }
@@ -54,9 +60,12 @@ export default function BookkeepingOverview() {
             Updated {new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
           </p>
         </div>
-        <button data-testid="bookkeeping-overview-refresh" onClick={refetch} className="btn btn--ghost" style={{ fontSize: 12 }}>
-          Refresh
-        </button>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+          <AccountingEntitySelector scope={scope} testId="bookkeeping-overview-entity" />
+          <button data-testid="bookkeeping-overview-refresh" onClick={refetch} className="btn btn--ghost" style={{ fontSize: 12 }}>
+            Refresh
+          </button>
+        </div>
       </header>
 
       {/* Connect-a-bank CTA */}
@@ -69,7 +78,7 @@ export default function BookkeepingOverview() {
               Without a live bank feed the engine has no transactions to categorize.
             </p>
           </div>
-          <Link to="/modules/treasury/deposits" className="btn btn--primary" data-testid="bookkeeping-overview-connect-bank-cta">
+          <Link to={scope.withScope('/modules/treasury/deposits')} className="btn btn--primary" data-testid="bookkeeping-overview-connect-bank-cta">
             Connect bank <ArrowRight size={14} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
           </Link>
         </div>
@@ -127,7 +136,7 @@ export default function BookkeepingOverview() {
                   </div>
                 )}
               </div>
-              <Link to="/modules/accounting/missing-dimensions" className="btn"
+              <Link to={scope.withScope('/modules/accounting/missing-dimensions')} className="btn"
                     data-testid="bookkeeping-overview-missing-dims-cta"
                     style={{ fontSize: 12, background: '#f59e0b', color: '#fff', borderRadius: 8, padding: '6px 12px', whiteSpace: 'nowrap' }}>
                 Review now <ArrowRight size={12} style={{ marginLeft: 3, verticalAlign: 'middle' }} />
@@ -150,7 +159,7 @@ export default function BookkeepingOverview() {
                           style={{ fontSize: 24, fontWeight: 800, color: '#5b21b6', fontFamily: 'ui-monospace, monospace' }}>
                     {Number(data.ai_assist.hours_saved ?? 0).toFixed(1)} hrs
                   </strong>
-                  <span style={{ fontSize: 13, color: '#7c3aed', fontWeight: 600 }}>saved this week</span>
+                  <span style={{ fontSize: 13, color: '#7c3aed', fontWeight: 600 }}>saved this week · workspace-wide</span>
                 </div>
                 <div data-testid="bookkeeping-overview-saved-hours-detail" style={{ fontSize: 12, color: '#6d28d9', marginTop: 2 }}>
                   {data.ai_assist.count_7d} AI suggestions accepted · {data.ai_assist.cumulative_count} all-time
@@ -239,15 +248,15 @@ export default function BookkeepingOverview() {
                style={{ padding: 18, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
             <strong style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>Things to do</strong>
             <TaskRow icon={Receipt} label="Transactions to review" count={data.tasks?.transactions_to_review ?? 0}
-                     to="/modules/accounting/transactions-to-review?prefilter=oldest_first&autoload=1" testId="task-tx-review" />
+                     to={scope.withScope('/modules/accounting/transactions-to-review?prefilter=oldest_first&autoload=1')} testId="task-tx-review" />
             <TaskRow icon={FileText} label="Bills awaiting action" count={data.tasks?.bills_pending ?? 0}
-                     to="/modules/ap/bills" testId="task-bills" />
+                     to={scope.withScope('/modules/ap/bills?status=needs_action')} testId="task-bills" />
             <TaskRow icon={Wallet}  label="Payments pending" count={data.tasks?.payments_pending ?? 0}
-                     to="/modules/treasury/payments" testId="task-payments" />
+                     to={scope.withScope('/modules/treasury/payments?queue=pending')} testId="task-payments" />
             <TaskRow icon={ArrowRight} label="Transfers pending" count={data.tasks?.transfers_pending ?? 0}
-                     to="/modules/treasury/transfers" testId="task-transfers" />
+                     to={scope.withScope('/modules/treasury/transfers?queue=pending')} testId="task-transfers" />
             <TaskRow icon={CheckCircle2} label="Periods ready to close" count={data.tasks?.period_ready_to_close ?? 0}
-                     to="/modules/accounting/periods" testId="task-period-close" />
+                     to={scope.withScope('/modules/accounting/periods?status=ready_to_close')} testId="task-period-close" />
           </div>
 
           {/* Integration freshness — Sprint 8a follow-on. Trust-at-a-glance:
@@ -256,7 +265,7 @@ export default function BookkeepingOverview() {
           {(data.integrations?.length ?? 0) > 0 && (
             <div data-testid="bookkeeping-overview-integrations-card"
                  style={{ padding: 18, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
-              <strong style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>Integrations</strong>
+              <strong style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>Integrations · workspace-wide</strong>
               {data.integrations.map(integ => {
                 const stale  = integ.hours_since != null && integ.hours_since > 168; // 7 days
                 const aging  = integ.hours_since != null && integ.hours_since > 24;
@@ -336,31 +345,31 @@ export default function BookkeepingOverview() {
           <div data-testid="bookkeeping-overview-quick-links-card"
                style={{ padding: 18, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
             <strong style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>Financial reports</strong>
-            <Link to="/modules/accounting/pnl" data-testid="bookkeeping-overview-income-statement-link"
+            <Link to={scope.withScope('/modules/accounting/pnl')} data-testid="bookkeeping-overview-income-statement-link"
                   style={quickLinkStyle}>
               <TrendingUp size={14} color="#0b7ff5" />
               <span style={{ flex: 1, fontSize: 13 }}>Income statement</span>
               <ArrowRight size={12} color="#94a3b8" />
             </Link>
-            <Link to="/modules/accounting/balance" data-testid="bookkeeping-overview-balance-sheet-link"
+            <Link to={scope.withScope('/modules/accounting/balance')} data-testid="bookkeeping-overview-balance-sheet-link"
                   style={quickLinkStyle}>
               <BookOpen size={14} color="#174a7c" />
               <span style={{ flex: 1, fontSize: 13 }}>Balance sheet</span>
               <ArrowRight size={12} color="#94a3b8" />
             </Link>
-            <Link to="/modules/accounting/cash-flow" data-testid="bookkeeping-overview-cash-flow-link"
+            <Link to={scope.withScope('/modules/accounting/cash-flow')} data-testid="bookkeeping-overview-cash-flow-link"
                   style={quickLinkStyle}>
               <Wallet size={14} color="#0f9f9a" />
               <span style={{ flex: 1, fontSize: 13 }}>Cash flow</span>
               <ArrowRight size={12} color="#94a3b8" />
             </Link>
-            <Link to="/modules/accounting/gl-detail" data-testid="bookkeeping-overview-gl-detail-link"
+            <Link to={scope.withScope('/modules/accounting/gl-detail')} data-testid="bookkeeping-overview-gl-detail-link"
                   style={quickLinkStyle}>
               <FileText size={14} color="#0284c7" />
               <span style={{ flex: 1, fontSize: 13 }}>GL Detail</span>
               <ArrowRight size={12} color="#94a3b8" />
             </Link>
-            <Link to="/modules/accounting/reports" className="btn btn--ghost" style={{ marginTop: 10, justifyContent: 'center', width: '100%' }}>
+            <Link to={scope.withScope('/modules/accounting/reports')} className="btn btn--ghost" style={{ marginTop: 10, justifyContent: 'center', width: '100%' }}>
               All accounting reports <ArrowRight size={13} aria-hidden="true" />
             </Link>
           </div>

@@ -23,6 +23,7 @@ $ROOT = realpath(__DIR__ . '/..');
 
 echo "Backend — api/books_health.php\n";
 $api = (string) file_get_contents("{$ROOT}/api/books_health.php");
+$metrics = (string) file_get_contents("{$ROOT}/core/accounting/books_health_metrics.php");
 $assert('endpoint exists',                       strlen($api) > 0);
 $assert('parses',                                $lint("{$ROOT}/api/books_health.php"));
 $assert('GET-only',                              strpos($api, "if (api_method() !== 'GET')") !== false);
@@ -36,7 +37,7 @@ $assert('review count follows active unmatched bank lines and entity',
     && strpos($api, 'ba.entity_id = :e') !== false);
 $assert('returns tasks envelope',                strpos($api, "'tasks'") !== false);
 $assert('returns 6-month pl_monthly array',      strpos($api, "'pl_monthly'") !== false
-                                               && strpos($api, "for (\$i = 5; \$i >= 0; \$i--)") !== false);
+                                               && strpos($metrics, "for (\$i = 5; \$i >= 0; \$i--)") !== false);
 $assert('returns recent_events',                 strpos($api, "'recent_events'") !== false);
 $assert('returns ai_assist envelope',            strpos($api, "'ai_assist'") !== false);
 $assert('ai_assist counts last 7d outcomes accepted',
@@ -47,12 +48,12 @@ $assert('ai_assist hours_saved math (n × 30s)',
 $assert('ai_assist graceful when ai_interactions absent',
     strpos($api, "/* table absent on pre-AI tenants — fine */") !== false);
 $assert('graceful when accounting_events absent',
-    strpos($api, "SHOW TABLES LIKE 'accounting_events'") !== false);
+    strpos($metrics, "SHOW TABLES LIKE 'accounting_events'") !== false);
 $assert('graceful when accounting_reconciliations absent',
-    strpos($api, "SHOW TABLES LIKE 'accounting_reconciliations'") !== false);
-$assert('graceful when ap_bills absent',         strpos($api, "SHOW TABLES LIKE 'ap_bills'") !== false);
-$assert('graceful when treasury_payments absent',strpos($api, "SHOW TABLES LIKE 'treasury_payments'") !== false);
-$assert('graceful when treasury_transfers absent',strpos($api, "SHOW TABLES LIKE 'treasury_transfers'") !== false);
+    strpos($metrics, "SHOW TABLES LIKE 'accounting_reconciliations'") !== false);
+$assert('graceful when ap_bills absent',         strpos($metrics, "SHOW TABLES LIKE 'ap_bills'") !== false);
+$assert('graceful when treasury_payments absent',strpos($metrics, "SHOW TABLES LIKE 'treasury_payments'") !== false);
+$assert('graceful when treasury_transfers absent',strpos($metrics, "SHOW TABLES LIKE 'treasury_transfers'") !== false);
 $assert('health_score floored at 0',             strpos($api, '$score = max(0, $score)') !== false);
 $assert('label thresholds 90/75/50',
     strpos($api, "\$score >= 90") !== false
@@ -64,9 +65,10 @@ $assert('health_reasons enumerable',
     && strpos($api, "'many_uncategorized'") !== false
     && strpos($api, "'period_overdue_close'") !== false);
 $assert('PL pulls posted and reversed JEs',      strpos($api, "je.status IN ('posted','reversed')") !== false);
-$assert('PL groups by month + account_type',     strpos($api, "GROUP BY month, a.account_type") !== false);
+$assert('PL groups by month + account_type',     strpos($metrics, "GROUP BY month, a.account_type") !== false);
 $assert('PL covers full account-type spread',
-    strpos($api, "'revenue','expense','contra_revenue','cost_of_goods_sold','other_income','other_expense'") !== false);
+    strpos($metrics, 'contra_revenue') !== false && strpos($metrics, 'cost_of_goods_sold') !== false
+    && strpos($metrics, 'other_income') !== false && strpos($metrics, 'other_expense') !== false);
 
 echo "\nModule alias — /api/accounting/books-health\n";
 $alias = "{$ROOT}/modules/accounting/api/books_health.php";
@@ -78,7 +80,11 @@ $assert('alias delegates to root handler',
 echo "\nFrontend — BookkeepingOverview.jsx\n";
 $jsx = (string) file_get_contents("{$ROOT}/dashboard/src/pages/BookkeepingOverview.jsx");
 $assert('page file exists',                      strlen($jsx) > 0);
-$assert('hits books_health endpoint',            strpos($jsx, "useApi('/api/books_health.php')") !== false);
+$assert('hits books_health endpoint with selected scope',
+    strpos($jsx, "'/api/books_health.php'") !== false && strpos($jsx, 'scope.apiQuery') !== false);
+$assert('tasks preserve legal-entity scope',
+    strpos($jsx, "scope.withScope('/modules/ap/bills?status=needs_action')") !== false
+    && strpos($jsx, "scope.withScope('/modules/treasury/payments?queue=pending')") !== false);
 $assert('top-level testid',                      strpos($jsx, 'data-testid="bookkeeping-overview-page"') !== false);
 $assert('error testid',                          strpos($jsx, 'data-testid="bookkeeping-overview-error"') !== false);
 $assert('loading testid',                        strpos($jsx, 'data-testid="bookkeeping-overview-loading"') !== false);

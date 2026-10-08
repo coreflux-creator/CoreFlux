@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
-import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
+import { useSearchParams } from 'react-router-dom';
 
 /**
  * Periods — list with status badges + close / reopen actions.
@@ -10,9 +12,15 @@ import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
  *                      → reopened (audit-required reason)
  */
 export default function Periods() {
-  const { activeEntityId, activeEntity, entityQuery } = useActiveEntity();
-  const apiUrl = '/modules/accounting/api/periods.php' + entityQuery('?');
-  const { data, loading, error, reload } = useApi(apiUrl);
+  const scope = useAccountingEntityScope();
+  const [urlParams, setUrlParams] = useSearchParams();
+  const statusFilter = urlParams.get('status') === 'ready_to_close' ? 'ready_to_close' : '';
+  const query = new URLSearchParams();
+  if (scope.entityId) query.set('entity_id', String(scope.entityId));
+  if (statusFilter) query.set('status', statusFilter);
+  const apiUrl = '/modules/accounting/api/periods.php' + (query.size ? `?${query}` : '');
+  const { data: response, loading, error, reload } = useApi(apiUrl, { enabled: scope.ready });
+  const data = scope.ready && response?.entity_id === scope.entityId && response?.status_filter === statusFilter ? response : null;
   const rows = data?.rows ?? [];
   const [busy, setBusy] = useState(null);
   const [err2, setErr2] = useState(null);
@@ -38,7 +46,7 @@ export default function Periods() {
 
   const createPeriod = async (e) => {
     e?.preventDefault?.();
-    if (!activeEntityId) { setErr2(new Error('Select an entity in the header first.')); return; }
+    if (!scope.entityId) { setErr2(new Error('Select a legal entity before defining a period.')); return; }
     if (!createForm.start_date || !createForm.end_date) {
       setErr2(new Error('Start and end dates required.'));
       return;
@@ -46,7 +54,7 @@ export default function Periods() {
     setBusy('create'); setErr2(null);
     try {
       await api.post('/modules/accounting/api/periods.php?action=create', {
-        entity_id: activeEntityId,
+        entity_id: scope.entityId,
         start_date: createForm.start_date,
         end_date:   createForm.end_date,
         status:     createForm.status,
@@ -66,17 +74,15 @@ export default function Periods() {
           <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>
             Auto-created on first post per month, or define one explicitly with the button on the right. Close monthly to lock the books; reopens are audit-logged with a required reason.
           </p>
-          {activeEntity && (
-            <p style={{ margin: '4px 0 0', fontSize: 12, color: '#1e40af' }} data-testid="accounting-periods-entity-scope">
-              Scoped to entity <code>{activeEntity.code}</code> — switch entity in the header to see another set.
-            </p>
-          )}
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#1e40af' }} data-testid="accounting-periods-entity-scope">{scope.label}</p>
         </div>
+        <AccountingEntitySelector scope={scope} testId="accounting-periods-entity" />
         <button
           className="btn btn--primary"
           onClick={() => setShowCreate(s => !s)}
           data-testid="accounting-periods-define-btn"
           style={{ fontSize: 13, whiteSpace: 'nowrap' }}
+          disabled={!scope.entityId}
         >
           {showCreate ? 'Cancel' : 'Define period'}
         </button>
@@ -128,15 +134,25 @@ export default function Periods() {
         </form>
       )}
 
-      {loading && <p>Loading…</p>}
-      {error   && <p className="error">Error: {error.message}</p>}
+      <div className="segmented-control" aria-label="Period filter" style={{ display: 'inline-flex', marginBottom: 12 }}>
+        <button type="button" className={statusFilter === 'ready_to_close' ? 'is-active' : ''} onClick={() => {
+          const next = new URLSearchParams(urlParams); next.set('status', 'ready_to_close'); setUrlParams(next, { replace: true });
+        }}>Ready to close</button>
+        <button type="button" className={!statusFilter ? 'is-active' : ''} onClick={() => {
+          const next = new URLSearchParams(urlParams); next.delete('status'); setUrlParams(next, { replace: true });
+        }}>All periods</button>
+      </div>
+
+      {(loading || !data) && !scope.error && !error && <p>Loading…</p>}
+      {(scope.error || error) && <p className="error">Error: {scope.error || error.message}</p>}
       {err2    && <p className="error" data-testid="accounting-periods-action-error">Error: {err2.message}</p>}
       <table className="data-table" style={{ width: '100%' }}>
-        <thead><tr><th>Period</th><th>Range</th><th>Status</th><th>Closed</th><th>Reopened</th><th>Reason</th><th></th></tr></thead>
+        <thead><tr>{scope.allEntities && <th>Entity</th>}<th>Period</th><th>Range</th><th>Status</th><th>Closed</th><th>Reopened</th><th>Reason</th><th></th></tr></thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={7} className="empty" data-testid="accounting-periods-empty">No periods yet — they'll be created when you post your first JE.</td></tr>}
+          {data && rows.length === 0 && <tr><td colSpan={scope.allEntities ? 8 : 7} className="empty" data-testid="accounting-periods-empty">{statusFilter ? 'No open periods are ready to close.' : "No periods yet — they'll be created when you post your first JE."}</td></tr>}
           {rows.map((p) => (
             <tr key={p.id} data-testid={`accounting-periods-row-${p.id}`}>
+              {scope.allEntities && <td>{scope.entities.find(e => Number(e.id) === Number(p.entity_id))?.code || p.entity_id}</td>}
               <td>P{p.period_number}</td>
               <td>{p.start_date} → {p.end_date}</td>
               <td><StatusPill status={p.status} /></td>

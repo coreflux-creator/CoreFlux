@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import EntityPicker from '../../../dashboard/src/components/EntityPicker';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import LineItemEditor, { blankLine, ITEM_TYPES } from '../../../dashboard/src/components/LineItemEditor';
@@ -18,6 +18,13 @@ const ITEM_TYPE_FALLBACK = ITEM_TYPES.map((t) => t.value);
  */
 export default function BillCreate() {
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  const requestedEntityId = params.get('entity_id');
+  const contextParams = new URLSearchParams();
+  if (requestedEntityId) contextParams.set('entity_id', requestedEntityId);
+  if (params.get('status')) contextParams.set('status', params.get('status'));
+  const contextQuery = contextParams.size ? `?${contextParams}` : '';
+  const returnPath = `../bills${contextQuery}`;
   const accountsApi = useApi('/modules/accounting/api/accounts.php?type=expense&active=1');
   const expenseAccounts = accountsApi.data?.rows ?? [];
 
@@ -30,7 +37,7 @@ export default function BillCreate() {
   const [dueDate, setDueDate]     = useState('');
   const [poNumber, setPoNumber]   = useState('');
   const [taxPct, setTaxPct]       = useState(0);
-  const [entityId, setEntityId]   = useState(null);
+  const [entityId, setEntityId]   = useState(() => requestedEntityId && /^[1-9][0-9]*$/.test(requestedEntityId) ? Number(requestedEntityId) : null);
   const [notes, setNotes]         = useState('');
   const [lines, setLines]         = useState([blankLine('expense')]);
 
@@ -140,11 +147,13 @@ export default function BillCreate() {
         } catch (uploadErr) {
           // Bill is still saved — surface a soft warning by routing with
           // an error param. The detail page can read it and show a banner.
-          nav(`../bills/${res.id}?attach_error=${encodeURIComponent(uploadErr.message)}`);
+          const detailParams = new URLSearchParams(contextParams);
+          detailParams.set('attach_error', uploadErr.message);
+          nav(`../bills/${res.id}?${detailParams}`);
           return;
         }
       }
-      nav(`../bills/${res.id}`);
+      nav(`../bills/${res.id}${contextQuery}`);
     } catch (e2) { setErr(e2); }
     finally     { setBusy(false); }
   };
@@ -158,7 +167,7 @@ export default function BillCreate() {
             Manual bill — supports any item type. For time-tracked labor across multiple placements, use <strong>+ New from time bundle</strong> on the bills list.
           </p>
         </div>
-        <Link to="../bills" className="btn btn--ghost" data-testid="ap-bill-create-back">← Back</Link>
+        <Link to={returnPath} className="btn btn--ghost" data-testid="ap-bill-create-back">← Back</Link>
       </header>
 
       <form onSubmit={submit}>
@@ -267,7 +276,7 @@ export default function BillCreate() {
         {err && <p className="error" data-testid="ap-bill-create-error">Error: {err.message}</p>}
 
         <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Link to="../bills" className="btn btn--ghost" data-testid="ap-bill-create-cancel">Cancel</Link>
+          <Link to={returnPath} className="btn btn--ghost" data-testid="ap-bill-create-cancel">Cancel</Link>
           <button type="submit" className="btn btn--primary" data-testid="ap-bill-create-submit" disabled={busy}>
             {busy ? 'Creating…' : 'Create bill'}
           </button>

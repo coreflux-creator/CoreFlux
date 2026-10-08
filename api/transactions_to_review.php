@@ -38,6 +38,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
+require_once __DIR__ . '/../core/accounting/books_health_metrics.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -61,6 +62,14 @@ if (!in_array($order, ['oldest_first', 'newest_first', 'amount_desc'], true)) {
 }
 
 $pdo = getDB();
+$requestedEntity = api_query('entity_id');
+try {
+    $entityId = booksHealthResolveEntity($pdo, $tid, $requestedEntity);
+} catch (InvalidArgumentException $e) {
+    api_error($e->getMessage(), 422);
+} catch (OutOfBoundsException $e) {
+    api_error($e->getMessage(), 404);
+}
 
 // ──────────────────────────────────────────────────────────────────
 // Available bank accounts (for filter dropdown)
@@ -68,17 +77,22 @@ $pdo = getDB();
 $baStmt = $pdo->prepare(
     "SELECT id, name, gl_account_code AS code
        FROM accounting_bank_accounts
-      WHERE tenant_id = :t AND status = 'active'
+      WHERE tenant_id = :t AND status = 'active'"
+      . ($entityId === null ? '' : ' AND entity_id = :e') . "
       ORDER BY name ASC"
 );
-$baStmt->execute(['t' => $tid]);
+$baStmt->execute($entityId === null ? ['t' => $tid] : ['t' => $tid, 'e' => $entityId]);
 $bankAccounts = $baStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+if ($bid > 0 && !in_array($bid, array_map('intval', array_column($bankAccounts, 'id')), true)) {
+    api_error('Bank account is not available in the selected legal entity.', 422);
+}
 
 // ──────────────────────────────────────────────────────────────────
 // Queue rows
 // ──────────────────────────────────────────────────────────────────
 $where  = ['bsl.tenant_id = :t', "bsl.match_status = 'unmatched'", "ba.status = 'active'"];
 $params = ['t' => $tid];
+if ($entityId !== null) { $where[] = 'ba.entity_id = :e'; $params['e'] = $entityId; }
 if ($bid > 0) { $where[] = 'bsl.bank_account_id = :b'; $params['b'] = $bid; }
 $whereSql = implode(' AND ', $where);
 
@@ -125,6 +139,7 @@ api_ok([
     'limit'         => $limit,
     'offset'        => $offset,
     'total'         => $total,
+    'entity_id'     => $entityId,
     'bank_account_id' => $bid > 0 ? $bid : null,
     'bank_accounts' => array_map(static fn($b) => [
         'id'   => (int) $b['id'],

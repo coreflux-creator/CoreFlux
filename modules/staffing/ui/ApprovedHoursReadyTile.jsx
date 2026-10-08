@@ -57,7 +57,7 @@ const VARIANTS = {
   },
 };
 
-export default function ApprovedHoursReadyTile({ variant = 'billing', onPick, to }) {
+export default function ApprovedHoursReadyTile({ variant = 'billing', onPick, to, scopeLabel = '' }) {
   const { data, loading } = useApi('/modules/staffing/api/timesheets.php?action=approved_hours_ready');
   const v = VARIANTS[variant] || VARIANTS.billing;
   const bucket = data?.[variant] || {};
@@ -76,7 +76,7 @@ export default function ApprovedHoursReadyTile({ variant = 'billing', onPick, to
           <div>
             <div className="workspace-eyebrow">Approved hours</div>
             <h3
-                data-testid={`approved-hours-ready-${variant}-title`}>{v.title}</h3>
+                data-testid={`approved-hours-ready-${variant}-title`}>{v.title}{scopeLabel && <small style={{ marginLeft: 6, color: '#64748b', fontWeight: 500 }}>· {scopeLabel}</small>}</h3>
           </div>
           {!isEmpty && (
             <CtaButton {...ctaProps} data-testid={`approved-hours-ready-${variant}-cta`}>

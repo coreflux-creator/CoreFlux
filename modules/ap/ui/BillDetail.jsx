@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
@@ -12,6 +12,11 @@ const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').repla
 
 export default function BillDetail({ session }) {
   const { id } = useParams();
+  const [params] = useSearchParams();
+  const requestedEntityId = params.get('entity_id');
+  const returnParams = new URLSearchParams();
+  if (requestedEntityId) returnParams.set('entity_id', requestedEntityId);
+  if (params.get('status')) returnParams.set('status', params.get('status'));
   const { data, loading, error, reload } = useApi(`/modules/ap/api/bills.php?id=${id}`);
   const [busy, setBusy] = useState(null);
   const [actionError, setActionError] = useState(null);
@@ -92,7 +97,7 @@ export default function BillDetail({ session }) {
 
   return (
     <section data-testid="ap-bill-detail">
-      <Link to="/modules/ap/bills" style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← All bills</Link>
+      <Link to={`/modules/ap/bills${returnParams.size ? `?${returnParams}` : ''}`} style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Bills</Link>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 8, marginBottom: 'var(--cf-space-4)', flexWrap: 'wrap', gap: 8 }}>
         <div>

@@ -42,8 +42,8 @@ export default function StandardReports({ session }) {
       <FinancialReportLibrary session={session} />
 
       <div className="report-library__section-label">
-        <strong>Ledger operations</strong>
-        <span>Review postings, approvals and audit history.</span>
+        <strong>Ledger operations · workspace-wide</strong>
+        <span>Review postings, approvals and audit history across the workspace.</span>
       </div>
       <nav className="report-tabs" aria-label="Standard reports">
         {REPORT_TABS.map(([k, label, tid, Icon]) => (

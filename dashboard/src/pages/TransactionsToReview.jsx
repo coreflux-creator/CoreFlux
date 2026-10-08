@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../lib/api';
+import { useAccountingEntityScope } from '../lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../components/AccountingEntitySelector';
 import AccountLink from '../components/AccountLink';
 import {
   AlertCircle, ArrowRight, ArrowUpRight, CheckCircle2, ChevronDown,
@@ -23,13 +25,15 @@ const DIRECT_CATEGORY_TYPES = new Set([
 ]);
 
 export default function TransactionsToReview() {
+  const scope = useAccountingEntityScope();
   const [params, setParams] = useSearchParams();
   const order   = params.get('prefilter') || params.get('order') || 'oldest_first';
   const autoload = params.get('autoload') === '1';
   const bankId   = parseInt(params.get('bank_account_id') || '0', 10) || 0;
 
-  const queueUrl = `/api/transactions_to_review.php?order=${encodeURIComponent(order)}${bankId ? `&bank_account_id=${bankId}` : ''}`;
-  const { data, error, loading, reload } = useApi(queueUrl);
+  const queueUrl = `/api/transactions_to_review.php?order=${encodeURIComponent(order)}${bankId ? `&bank_account_id=${bankId}` : ''}${scope.apiQuery ? `&${scope.apiQuery}` : ''}`;
+  const { data: response, error, loading, reload } = useApi(queueUrl, { enabled: scope.ready });
+  const data = scope.ready && response?.entity_id === scope.entityId ? response : null;
   const accountsApi = useApi('/modules/accounting/api/accounts.php?active=1&postable=1');
 
   const [openId, setOpenId]       = useState(null);
@@ -41,6 +45,13 @@ export default function TransactionsToReview() {
   const [ignoredCount, setIgnoredCount] = useState(0);
   const [errMsg, setErrMsg]       = useState(null);
   const autoloadFiredRef = useRef(false);
+
+  useEffect(() => {
+    autoloadFiredRef.current = false;
+    setOpenId(null);
+    setAiByLine({});
+    setPickByLine({});
+  }, [scope.scopeKey]);
 
   const visibleRows = data?.rows || [];
   const accounts = (accountsApi.data?.rows || []).filter(
@@ -138,11 +149,12 @@ export default function TransactionsToReview() {
     setParams(p, { replace: true });
   }
 
-  if (error) {
+  if (scope.error || error) {
     return (
       <div data-testid="transactions-to-review-error" style={errBox}>
-        <AlertCircle size={18} /> Couldn't load queue: {error.message}
-        <button onClick={reload} className="btn btn--ghost" style={{ marginLeft: 'auto' }} data-testid="transactions-to-review-retry">Retry</button>
+        <AlertCircle size={18} /> Couldn't load queue: {scope.error || error.message}
+        {scope.entities.length > 0 && <AccountingEntitySelector scope={scope} testId="transactions-to-review-entity" />}
+        <button onClick={scope.error ? scope.reloadEntities : reload} className="btn btn--ghost" style={{ marginLeft: 'auto' }} data-testid="transactions-to-review-retry">Retry</button>
       </div>
     );
   }
@@ -158,12 +170,13 @@ export default function TransactionsToReview() {
             <Receipt size={22} color="#0284c7" /> Transactions to review
           </h1>
           <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 13 }} data-testid="transactions-to-review-subtitle">
-            {loading
+            {loading || !data
               ? 'Loading queue…'
               : `${totalServer} unmatched bank line${totalServer === 1 ? '' : 's'} need review · match customer and vendor payments first; post ordinary income and expenses here.`}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <AccountingEntitySelector scope={scope} testId="transactions-to-review-entity" />
           <select
             data-testid="transactions-to-review-order"
             className="input"
@@ -199,12 +212,12 @@ export default function TransactionsToReview() {
         </div>
       )}
 
-      {(!loading && totalServer === 0 && totalRemaining === 0) && (
+      {(!loading && data && totalServer === 0 && totalRemaining === 0) && (
         <div data-testid="transactions-to-review-empty" style={{ padding: 36, background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 12, textAlign: 'center' }}>
           <CheckCircle2 size={28} color="#059669" style={{ marginBottom: 8 }} />
           <strong style={{ display: 'block', color: '#065f46', fontSize: 15 }}>You're all caught up</strong>
           <p style={{ color: '#047857', margin: '6px 0 0', fontSize: 13 }}>No unmatched statement lines on active bank accounts.</p>
-          <Link to="/modules/accounting/bookkeeping" className="btn btn--ghost" style={{ marginTop: 12, fontSize: 12 }} data-testid="transactions-to-review-back-overview">
+          <Link to={scope.withScope('/modules/accounting/overview')} className="btn btn--ghost" style={{ marginTop: 12, fontSize: 12 }} data-testid="transactions-to-review-back-overview">
             Back to bookkeeping overview <ArrowRight size={12} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
           </Link>
         </div>
@@ -268,7 +281,7 @@ export default function TransactionsToReview() {
                         {Number(r.amount) >= 0 ? 'Customer receipt? Apply it to an invoice before categorizing.' : 'Vendor payment? Match it to a bill before categorizing.'}
                       </span>
                       <Link
-                        to={`/modules/accounting/bank-rec/${r.bank_account_id}`}
+                        to={scope.withScope(`/modules/accounting/bank-rec/${r.bank_account_id}`)}
                         className="btn btn--primary"
                         style={{ fontSize: 12 }}
                         data-testid={`transactions-to-review-open-bank-${r.id}`}
@@ -383,7 +396,7 @@ export default function TransactionsToReview() {
         <span data-testid="transactions-to-review-progress">
           This session: {postedCount} posted and matched · {ignoredCount} ignored
         </span>
-        <Link to="/modules/accounting/bookkeeping" style={{ color: '#0284c7' }} data-testid="transactions-to-review-overview-link">
+        <Link to={scope.withScope('/modules/accounting/overview')} style={{ color: '#0284c7' }} data-testid="transactions-to-review-overview-link">
           <Wallet size={11} style={{ marginRight: 3, verticalAlign: 'middle' }} />Bookkeeping overview
         </Link>
       </footer>

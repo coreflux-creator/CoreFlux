@@ -1,5 +1,6 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+import { addEntityScope } from '../lib/useAccountingEntityScope';
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, BookOpen,
   Scale, TrendingUp, Wallet,
@@ -15,6 +16,12 @@ export const FINANCIAL_REPORTS = [
 ];
 
 export default function FinancialReportLibrary({ session, prominent = false }) {
+  const location = useLocation();
+  const requestedScope = new URLSearchParams(location.search).get('entity_id');
+  const scopedLink = (to, moduleId) => {
+    if (moduleId !== 'accounting' || !requestedScope) return to;
+    return addEntityScope(to, requestedScope === 'all' ? null : Number(requestedScope), requestedScope === 'all');
+  };
   const scopedModules = Array.isArray(session?.modules)
     ? new Set(session.modules.map(module => module.id))
     : null;
@@ -38,23 +45,23 @@ export default function FinancialReportLibrary({ session, prominent = false }) {
           <p>Statement-ready views that reconcile to the posted ledger.</p>
         </div>
         {prominent && scopedModules?.has('accounting') && (
-          <Link to="/modules/accounting/reports" className="report-library__all-link">
+          <Link to={scopedLink('/modules/accounting/reports', 'accounting')} className="report-library__all-link">
             Accounting reports <ArrowRight size={14} aria-hidden="true" />
           </Link>
         )}
       </div>
       <div className="report-library__grid">
-        {reports.map(({ to, label, meta, Icon, tone }) => (
+        {reports.map(({ to, label, meta, Icon, tone, moduleId }) => (
           <Link
             key={to}
-            to={to}
+            to={scopedLink(to, moduleId)}
             className={`report-library__item report-library__item--${tone}`}
             data-testid={`financial-report-${to.split('/').pop()}`}
           >
             <span className="report-library__item-icon" aria-hidden="true"><Icon size={18} /></span>
             <span className="report-library__item-copy">
               <strong>{label}</strong>
-              <small>{meta}</small>
+              <small>{requestedScope && moduleId !== 'accounting' ? `${meta} · workspace-wide` : meta}</small>
             </span>
             <ArrowRight className="report-library__item-arrow" size={16} aria-hidden="true" />
           </Link>

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 import DataWarning from '../../../dashboard/src/components/DataWarning';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
 import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
@@ -17,12 +19,13 @@ import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
  * climb on debits, credit accounts climb on credits).
  */
 export default function GLDetail() {
+  const scope = useAccountingEntityScope();
   const [params, setParams] = useSearchParams();
   const accountId   = params.get('account_id') || '';
   const accountCode = params.get('account_code') || '';
   const start       = params.get('start') || isoMonthStart();
   const end         = params.get('end')   || isoToday();
-  const entityId    = params.get('entity_id') || '';
+  const entityId    = scope.entityId;
   const includeUnposted = params.get('include_unposted') === '1';
   const page = Math.max(1, Number.parseInt(params.get('page') || '1', 10) || 1);
   const perPage = [25, 50, 100, 200].includes(Number(params.get('per_page')))
@@ -36,14 +39,19 @@ export default function GLDetail() {
   const accounts = accountsApi.data?.rows || [];
 
   const queryReady = !!(accountId || accountCode);
-  const url = queryReady
+  const url = queryReady && scope.ready
     ? '/api/gl_detail.php?'
       + (accountId ? `account_id=${accountId}` : `account_code=${encodeURIComponent(accountCode)}`)
       + `&start=${start}&end=${end}&page=${page}&per_page=${perPage}`
       + (entityId ? `&entity_id=${entityId}` : '')
       + (includeUnposted ? '&include_unposted=1' : '')
     : null;
-  const { data, error, loading, reload } = useApi(url);
+  const { data: response, error, loading, reload } = useApi(url, { enabled: Boolean(url) });
+  const data = queryReady && scope.ready && response?.entity_id === entityId
+    && response?.start === start && response?.end === end
+    && (!accountId || Number(response?.account?.id) === Number(accountId))
+    && (!accountCode || response?.account?.code === accountCode)
+    ? response : null;
   const pagination = data?.pagination;
   useEffect(() => {
     if (!accountCode && data?.account?.code) setDraftCode(data.account.code);
@@ -65,12 +73,15 @@ export default function GLDetail() {
         <div>
           <h2 style={{ margin: 0 }}>GL Detail</h2>
           <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 13 }}>
-            Every posted journal-entry line that touched this account, with running balance.
+            {scope.label} · Every posted journal-entry line that touched this account, with running balance.
           </p>
         </div>
-        <button data-testid="accounting-gl-detail-refresh" onClick={reload} className="btn btn--ghost" style={{ fontSize: 12 }}>
-          <RefreshCw size={14} aria-hidden="true" />Refresh
-        </button>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+          <AccountingEntitySelector scope={scope} testId="accounting-gl-detail-entity" />
+          <button data-testid="accounting-gl-detail-refresh" onClick={reload} className="btn btn--ghost" style={{ fontSize: 12 }}>
+            <RefreshCw size={14} aria-hidden="true" />Refresh
+          </button>
+        </div>
       </header>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 14 }}>
@@ -106,8 +117,8 @@ export default function GLDetail() {
           Select an account to load its GL detail.
         </div>
       )}
-      {loading && <p data-testid="accounting-gl-detail-loading">Loading…</p>}
-      {error && <p data-testid="accounting-gl-detail-error" className="error">Error: {error.message}</p>}
+      {(loading || (queryReady && !data && !error && !scope.error)) && <p data-testid="accounting-gl-detail-loading">Loading…</p>}
+      {(scope.error || error) && <p data-testid="accounting-gl-detail-error" className="error">Error: {scope.error || error.message}</p>}
       {data?.data_warning && <DataWarning text={data.data_warning} />}
 
       {data?.account && (

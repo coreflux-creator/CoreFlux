@@ -50,6 +50,7 @@ $dimStmt->execute(['t' => $tid]);
 $dims = $dimStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 if (!$dims) {
     api_ok([
+        'entity_id'  => $entityId ?: null,
         'window_days' => $days, 'count' => 0,
         'by_account'  => [], 'rows' => [],
         'note'        => 'No active dimensions defined for this tenant.',
@@ -131,6 +132,7 @@ while ($r = $stmt->fetch(\PDO::FETCH_ASSOC)) {
 usort($byAccount, static fn($a, $b) => $b['missing_count'] <=> $a['missing_count']);
 
 api_ok([
+    'entity_id'   => $entityId ?: null,
     'window_days' => $days,
     'count'       => $count,
     'by_account'  => array_values($byAccount),

@@ -810,7 +810,24 @@ function exportDatasetFetchApBills(int $tenantId, array $opts): array {
         }
         $where[] = 'id IN (' . implode(',', $placeholders) . ')';
     }
-    if (!empty($opts['status'])) {
+    if (!empty($opts['entity_id'])) {
+        $where[] = 'entity_id = :entity_id';
+        $params['entity_id'] = (int) $opts['entity_id'];
+    }
+    if (($opts['status'] ?? '') === 'needs_action') {
+        $where[] = "status IN ('inbox', 'pending_review', 'pending_approval', 'approved', 'partially_paid', 'disputed')";
+    } elseif (($opts['status'] ?? '') === 'ready_to_pay') {
+        $where[] = "status IN ('approved', 'partially_paid')";
+        $where[] = '(amount_due - COALESCE((
+            SELECT SUM(ready_alloc.amount_applied)
+              FROM ap_payment_allocations ready_alloc
+              JOIN ap_payments ready_payment ON ready_payment.id = ready_alloc.payment_id
+             WHERE ready_alloc.bill_id = ap_bills.id
+               AND ready_payment.status IN ("draft", "queued", "sent")
+        ), 0)) > 0.005';
+    } elseif (($opts['status'] ?? '') === 'needs_review') {
+        $where[] = "status IN ('inbox', 'pending_review', 'disputed')";
+    } elseif (!empty($opts['status'])) {
         $where[] = 'status = :status';
         $params['status'] = (string) $opts['status'];
     }
