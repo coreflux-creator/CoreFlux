@@ -293,7 +293,7 @@ export default function PaymentsList() {
         <div style={{ display: 'flex', gap: 8 }}>
           <Link to="csv_import" className="btn" data-testid="ap-payments-import-csv">Import CSV</Link>
           <a className="btn" href={`/api/v1/ap/payments-csv-export${activeEntityId ? `?entity_id=${activeEntityId}` : ''}`} data-testid="ap-payments-export-all-csv">Export all (CSV)</a>
-          <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="ap-record-payment">Record payment</button>
+          <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="ap-record-payment">Prepare payment</button>
         </div>
       </div>
 
@@ -591,7 +591,7 @@ function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled, 
   return (
     <div data-testid="ap-record-payment-modal" style={modalOverlay} onClick={(e) => e.target === e.currentTarget && !busy && onClose?.()}>
       <div style={modalBox}>
-        <header style={modalHeader}><h3 style={{ margin: 0 }}>Record payment</h3></header>
+        <header style={modalHeader}><h3 style={{ margin: 0 }}>Prepare payment</h3></header>
         <div style={{ padding: 20, display: 'grid', gap: 12 }}>
           <Field label="Vendor">
             <VendorTypeahead
@@ -637,7 +637,7 @@ function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled, 
         </div>
         <footer style={modalFooter}>
           <button className="btn btn--ghost" onClick={onClose} data-testid="ap-pay-cancel">Cancel</button>
-          <button className="btn btn--primary" onClick={submit} disabled={busy || !vendor?.id || !form.amount} data-testid="ap-pay-save">{busy ? 'Saving…' : 'Record payment'}</button>
+          <button className="btn btn--primary" onClick={submit} disabled={busy || !vendor?.id || !form.amount} data-testid="ap-pay-save">{busy ? 'Saving…' : 'Save draft'}</button>
         </footer>
       </div>
     </div>

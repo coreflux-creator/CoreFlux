@@ -362,6 +362,16 @@ try {
         && $settlementLinks['rail_external_ref'] === null,
         'cash journals remain entity-scoped and no external rail was used');
 
+    $overpayReference = 'SIM-CROSS-OVERPAY-' . $run;
+    qaExpect(multiEntityPostStatus('/modules/ap/api/payments.php', [
+        'bank_account_id' => $bankId, 'vendor_name' => $vendor,
+        'pay_date' => $date, 'method' => 'check',
+        'reference' => $overpayReference,
+        'amount' => 29, 'currency' => 'USD', 'auto_allocate' => true,
+    ], $makerCookie) === 422
+        && !qaOne($pdo, 'SELECT id FROM ap_payments WHERE tenant_id = :t AND reference = :reference',
+            ['t' => QA_TENANT, 'reference' => $overpayReference]),
+        'partial automatic allocation rolls back its draft and bill reservation');
     $autoPayment = qaRequest('/modules/ap/api/payments.php', 'POST', [
         'bank_account_id' => $bankId, 'vendor_name' => $vendor,
         'pay_date' => $date, 'method' => 'check',

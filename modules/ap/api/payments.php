@@ -256,6 +256,9 @@ if ($method === 'POST' && $action === '') {
             'after' => apPaymentAuditRow($tid, $id),
         ]);
         $alloc = $autoAllocate ? apAllocatePayment($id, ['auto' => 'fifo'], $user['id'] ?? null) : null;
+        if ($autoAllocate && (float) ($alloc['unallocated_remaining'] ?? $amount) > 0.005) {
+            throw new \RuntimeException('Eligible approved bills do not cover the full payment. Reduce the amount or turn off auto-allocation to save an unallocated draft.');
+        }
         if ($autoAllocate) $pdo->commit();
     } catch (\Throwable $e) {
         if ($autoAllocate && $pdo->inTransaction()) $pdo->rollBack();
