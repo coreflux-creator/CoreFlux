@@ -22,7 +22,7 @@ $src = $read(__DIR__ . '/../core/migrate.php');
 $a('records FAIL: sentinel hash for non-safe errors',     str_contains($src, "'FAIL:' . substr(hash('sha256'"));
 $a('only adds to applied_files when errBlob is null',     str_contains($src, "if (\$errBlob !== null)") && str_contains($src, "applied_files'][] = \$name"));
 $a('records retry-pending row instead of skipping save',  str_contains($src, "marked retry (not applied)"));
-$a('skip cache uses content hash equality (re-runs on hash change)', str_contains($src, '$prev === $hash'));
+$a('skip cache compares content across deployment line endings', str_contains($src, 'corefluxMigrationHashMatches($prev === false ? null : (string) $prev, $sql)'));
 $a('safe pattern list still tolerates Duplicate column',  str_contains($src, "'Duplicate column name'"));
 $a('safe pattern list still tolerates already exists',    str_contains($src, "'already exists'"));
 

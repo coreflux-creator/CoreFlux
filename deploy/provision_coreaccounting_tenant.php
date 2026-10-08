@@ -10,6 +10,7 @@ if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging'
 
 require_once __DIR__ . '/../core/memberships.php';
 require_once __DIR__ . '/../core/installer_helpers.php';
+require_once __DIR__ . '/../core/migration_hash.php';
 require_once __DIR__ . '/../core/accounting/schema_contract.php';
 require_once __DIR__ . '/../core/accounting/entity_setup.php';
 require_once __DIR__ . '/../core/accounting/system_accounts.php';
@@ -77,9 +78,10 @@ foreach ($migrationFiles as $file) {
     if (preg_match('#/modules/_[^/]+/#', $file)) continue;
     $name = str_starts_with($file, $root . '/modules/')
         ? ltrim(substr($file, strlen($root)), '/') : basename($file);
-    $hash = hash_file('sha256', $file);
+    $sql = file_get_contents($file);
     $recorded = $recordedMigrations[$name] ?? null;
-    if ($hash === false || $recorded === null || $recorded['sha256'] !== $hash
+    if ($sql === false || $recorded === null
+        || !corefluxMigrationHashMatches((string) $recorded['sha256'], $sql)
         || $recorded['last_error'] !== null) {
         $missingOrChanged[] = $name;
     }
