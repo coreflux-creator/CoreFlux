@@ -81,6 +81,7 @@ $a('close action refuses with same 409 + code',
 $a('reopen resets review stamps and supersedes active close runs',
     str_contains($periods, 'SET status = "pending", completed_at = NULL, completed_by_user_id = NULL, notes = NULL')
     && str_contains($periods, 'UPDATE accounting_close_runs')
+    && str_contains($periods, 'updated_at = :updated_ts')
     && str_contains($periods, "'prior_tasks' => \$priorReviews"));
 $a('close override is audit-logged separately',
     str_contains($periods, "accountingAudit('accounting.period.close_open_tasks_override'"));

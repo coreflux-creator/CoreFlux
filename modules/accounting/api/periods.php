@@ -316,9 +316,10 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
             ->execute(['t' => $tid, 'p' => $id]);
         $pdo->prepare('UPDATE accounting_close_runs
             SET status = "reopened", reopened_at = :ts,
-                reopened_by_user_id = :u, reopen_reason = :r, updated_at = :ts
+                reopened_by_user_id = :u, reopen_reason = :r, updated_at = :updated_ts
             WHERE tenant_id = :t AND period_id = :p AND status <> "reopened"')
-            ->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'r' => mb_substr($reason, 0, 500),
+            ->execute(['ts' => $now, 'updated_ts' => $now,
+                'u' => $user['id'] ?? null, 'r' => mb_substr($reason, 0, 500),
                 't' => $tid, 'p' => $id]);
         accountingAudit('accounting.period.reopened', [
             'period_id' => $id, 'period_number' => (int) $row['period_number'],
