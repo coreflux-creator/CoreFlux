@@ -94,7 +94,7 @@ function billingReceiptRequestHash(array $request, int $bankAccountId, string $c
     return hash('sha256', json_encode($intent, JSON_THROW_ON_ERROR));
 }
 
-/** Record or finish a manual receipt; invoice balances and the cash JE commit together. */
+/** Record a manual receipt or post a pending import; allocations and cash commit together. */
 function billingPostReceivedPayment(int $tenantId, array $request, ?int $actorUserId, ?int $paymentId = null): array
 {
     $bankAccountId = (int) ($request['bank_account_id'] ?? 0);
@@ -173,7 +173,7 @@ function billingPostReceivedPayment(int $tenantId, array $request, ?int $actorUs
         $payment = $paymentStmt->fetch(PDO::FETCH_ASSOC);
         if (!$payment) throw new RuntimeException('Payment not found.');
         if ($payment['voided_at'] !== null) throw new RuntimeException('A corrected payment cannot be posted.');
-        if ($payment['source_system'] !== 'manual') throw new RuntimeException('Only manual receipts can be posted here.');
+        // Imported receipts are still operator-posted through this same journal path.
         if (str_starts_with((string) ($payment['external_id'] ?? ''), 'bank-line:')) {
             throw new RuntimeException('This receipt was recorded from bank reconciliation and cannot be posted again.');
         }
@@ -343,7 +343,8 @@ function billingApplyCustomerDeposit(int $tenantId, int $paymentId, array $reque
     cf_begin_transaction();
     try {
         $paymentStmt = $pdo->prepare(
-            'SELECT p.*, je.status AS je_status, je.entity_id AS je_entity_id
+            'SELECT p.*, je.status AS je_status, je.entity_id AS je_entity_id,
+                    je.source_module, je.source_ref_type, je.source_ref_id
                FROM billing_payments p
                JOIN accounting_journal_entries je ON je.tenant_id = p.tenant_id AND je.id = p.journal_entry_id
               WHERE p.tenant_id = :t AND p.id = :id FOR UPDATE'
@@ -351,8 +352,11 @@ function billingApplyCustomerDeposit(int $tenantId, int $paymentId, array $reque
         $paymentStmt->execute(['t' => $tenantId, 'id' => $paymentId]);
         $payment = $paymentStmt->fetch(PDO::FETCH_ASSOC);
         if (!$payment || $payment['voided_at'] !== null || $payment['je_status'] !== 'posted'
-            || $payment['source_system'] !== 'manual' || !$payment['bank_account_id']
-            || str_starts_with((string) ($payment['external_id'] ?? ''), 'bank-line:')) {
+            || !$payment['bank_account_id']
+            || str_starts_with((string) ($payment['external_id'] ?? ''), 'bank-line:')
+            || $payment['source_module'] !== 'billing'
+            || $payment['source_ref_type'] !== 'billing_payment'
+            || (int) $payment['source_ref_id'] !== $paymentId) {
             throw new RuntimeException('Choose an active, posted customer deposit.');
         }
         $priorStmt = $pdo->prepare(
@@ -521,12 +525,11 @@ function billingRecordCustomerDepositRefund(int $tenantId, int $paymentId, array
         $paymentStmt->execute(['t' => $tenantId, 'p' => $paymentId]);
         $payment = $paymentStmt->fetch(PDO::FETCH_ASSOC);
         if (!$payment || $payment['voided_at'] !== null || $payment['je_status'] !== 'posted'
-            || $payment['source_system'] !== 'manual'
             || str_starts_with((string) ($payment['external_id'] ?? ''), 'bank-line:')
             || $payment['source_module'] !== 'billing'
             || $payment['source_ref_type'] !== 'billing_payment'
             || (int) $payment['source_ref_id'] !== $paymentId) {
-            throw new RuntimeException('Choose an active, manually posted customer deposit.');
+            throw new RuntimeException('Choose an active customer deposit posted from Billing.');
         }
         $priorStmt = $pdo->prepare(
             'SELECT r.*, je.status AS je_status FROM billing_deposit_refunds r

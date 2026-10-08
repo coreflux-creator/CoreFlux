@@ -113,6 +113,14 @@ $check('CSV preview and commit reject reserved internal receipt IDs',
     && str_contains($import, "'bank-line:'")
     && str_contains($import, 'CsvImportService::dryRun')
     && str_contains($import, 'CsvImportService::commit'));
+$check('CSV receipts require positive cents and protect posted deposits from edits',
+    str_contains($import, 'enter a positive amount in cents')
+    && str_contains($import, "\$existing['journal_entry_id'] !== null")
+    && str_contains($import, 'Posted or bank-linked receipts cannot be updated by CSV'));
+$check('external-source pending receipts use Billing posting and deposit controls',
+    str_contains($service, 'Imported receipts are still operator-posted')
+    && str_contains($service, "\$payment['source_module'] !== 'billing'")
+    && str_contains($service, "\$payment['source_ref_type'] !== 'billing_payment'"));
 
-echo ($failures ? "Failed: {$failures}" : 'Passed: 20') . PHP_EOL;
+echo ($failures ? "Failed: {$failures}" : 'Passed: 22') . PHP_EOL;
 exit($failures ? 1 : 0);

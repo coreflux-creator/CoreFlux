@@ -46,7 +46,16 @@ CsvImportService::registerSchema('billing_payments', [
         ],
         'source_system'=> ['label' => 'Source system',
                           'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
-        'amount'      => ['label' => 'Amount',      'required' => true, 'type' => 'number'],
+        'amount'      => ['label' => 'Amount',      'required' => true, 'type' => 'number',
+                          'validate' => static function (string $value): ?string {
+                              if (!preg_match('/^\d+(?:\.\d{1,2})?$/D', $value)
+                                  || !is_finite((float) $value)
+                                  || (float) $value < 0.01
+                                  || (float) $value > 999999999999.99) {
+                                  return 'enter a positive amount in cents';
+                              }
+                              return null;
+                          }],
         'currency'    => ['label' => 'Currency'],
         'notes'       => ['label' => 'Notes'],
     ],
@@ -148,7 +157,8 @@ if ($method === 'POST' && $action === 'commit') {
             $existing = null;
             if ($paymentId > 0) {
                 $existing = scopedFind(
-                    'SELECT id, amount, unallocated_amount, external_id, source_system, voided_at
+                    'SELECT id, amount, unallocated_amount, external_id, source_system,
+                            voided_at, journal_entry_id, posted_at, bank_account_id
                        FROM billing_payments
                       WHERE tenant_id = :tenant_id AND id = :id
                       FOR UPDATE',
@@ -159,7 +169,8 @@ if ($method === 'POST' && $action === 'commit') {
                 }
             } elseif ($externalId !== null) {
                 $existing = scopedFind(
-                    'SELECT id, amount, unallocated_amount, external_id, source_system, voided_at
+                    'SELECT id, amount, unallocated_amount, external_id, source_system,
+                            voided_at, journal_entry_id, posted_at, bank_account_id
                        FROM billing_payments
                       WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e
                       FOR UPDATE',
@@ -170,6 +181,10 @@ if ($method === 'POST' && $action === 'commit') {
             if ($existing) {
                 if ($existing['voided_at'] !== null) {
                     throw new RuntimeException('Corrected receipts cannot be updated by CSV');
+                }
+                if ($existing['journal_entry_id'] !== null || $existing['posted_at'] !== null
+                    || $existing['bank_account_id'] !== null) {
+                    throw new RuntimeException('Posted or bank-linked receipts cannot be updated by CSV');
                 }
                 if (!$updateExisting) {
                     throw new RuntimeException('Receipt #' . $existing['id'] . ' already exists; enable Update matching editable records to change it');
