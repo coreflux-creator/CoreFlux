@@ -109,6 +109,11 @@ $assert("logged subject matches",                   ($logged['subject'] ?? null)
 $assert("logged has_html=true",                     ($logged['has_html'] ?? null) === true);
 $assert("logged attach_n=2",                        ($logged['attach_n'] ?? null) === 2);
 $assert("logged cc is preserved",                    ($logged['cc'] ?? null) === ['controller@acmestaffing.com']);
+$failedLog = new LogDriver(sys_get_temp_dir());
+$failedWrite = $failedLog->send(['tenant_id' => 7, 'module' => 'billing', 'purpose' => 'invoice_sent',
+    'to' => ['test@example.test'], 'subject' => 'QA invoice', 'attachments' => []]);
+$assert('unwritable test mail log cannot claim delivery',
+    ($failedWrite['status'] ?? null) === 'failed' && empty($failedWrite['provider_message_id']));
 
 echo "\nDuplicate recipients deduped\n";
 $res2 = $svc->send(7, 'time', 'x', ['a@b.co', 'a@b.co', 'c@d.co'], 'subj', 'body');

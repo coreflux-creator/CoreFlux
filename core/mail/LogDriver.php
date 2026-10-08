@@ -5,9 +5,9 @@
  * want to integrate against MailService before any real OAuth provider
  * is wired.
  *
- * Outbound: writes the envelope to a JSONL log on disk and (when MailService
- * persists it) to mail_outbox with status='sent'. NOTHING actually leaves
- * the box.
+ * Outbound: writes metadata to a JSONL log on disk and (when MailService
+ * persists it) to mail_outbox with status='sent'. A failed log write is a
+ * failed send. NOTHING actually leaves the box.
  *
  * Inbound: poll() always returns an empty result.
  *
@@ -49,7 +49,14 @@ class LogDriver implements MailDriver
             'attach_n'  => count($envelope['attachments'] ?? []),
         ], JSON_UNESCAPED_SLASHES);
 
-        @file_put_contents($this->logPath, $line . "\n", FILE_APPEND | LOCK_EX);
+        if ($line === false || @file_put_contents($this->logPath, $line . "\n", FILE_APPEND | LOCK_EX) !== strlen($line) + 1) {
+            return [
+                'provider_message_id' => null,
+                'sent_at'             => null,
+                'status'              => 'failed',
+                'error'               => 'Mail log is not writable',
+            ];
+        }
 
         return [
             'provider_message_id' => 'log-' . bin2hex(random_bytes(8)),
