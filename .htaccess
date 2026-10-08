@@ -22,6 +22,9 @@
     RewriteCond %{REQUEST_FILENAME} -f
     RewriteRule ^ - [L]
 
+    # A missing PHP entrypoint is not a React route.
+    RewriteRule \.php$ - [R=404,L]
+
     # Known SPA paths must be resolved before the directory pass-through.
     # Several route namespaces (notably /admin and /modules) also exist as
     # physical directories, but their extensionless UI URLs belong to React.

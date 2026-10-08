@@ -28,6 +28,11 @@ foreach ([
     'billing/invoice.php',
 ] as $file) $put($file);
 $sharedApacheConfig = (string) file_get_contents(__DIR__ . '/../.htaccess');
+$phpFallback = strpos($sharedApacheConfig, 'RewriteRule \.php$ - [R=404,L]');
+$spaFallback = strpos($sharedApacheConfig, 'RewriteRule ^(admin|');
+if ($phpFallback === false || $spaFallback === false || $phpFallback >= $spaFallback) {
+    throw new RuntimeException('Missing PHP entrypoints must not fall through to SPA routing');
+}
 file_put_contents($webroot . '/.htaccess', $sharedApacheConfig);
 
 $originalEnvironment = getenv('COREFLUX_ENV');
