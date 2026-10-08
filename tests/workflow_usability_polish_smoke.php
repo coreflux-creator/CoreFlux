@@ -107,7 +107,7 @@ $assert('review queue explains separation of duties in plain language',
     && !str_contains($timeReview, 'Two-eye control:'));
 $assert('CSV imports use check and import language instead of transaction jargon',
     str_contains($csvImport, "'Checking…' : 'Check file'")
-    && str_contains($csvImport, "'Importing…' : 'Import rows'")
+    && str_contains($csvImport, "'Importing…' : groupLabel ? `Import \${groupLabel}s` : 'Import rows'")
     && !str_contains($csvImport, 'Validate (dry run)')
     && !str_contains($csvImport, 'Commit import'));
 $assert('multi-file imports use the same plain-language actions',

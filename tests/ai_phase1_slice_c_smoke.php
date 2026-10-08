@@ -35,8 +35,9 @@ $a('accountingPromoteDraftToPosted defined',
     $c($acc, 'function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = []): array'));
 $a('validator runs balance check',
     $c($acc, 'round(abs($totalDebit - $totalCredit), 2)'));
-$a('validator surfaces period closed/soft_closed',
-    $c($acc, "['closed', 'soft_closed']"));
+$a('validator refuses periods other than open or reopened',
+    $c($acc, "!in_array(\$period['status'], ['open', 'reopened'], true)")
+    && $c($acc, 'cannot post'));
 $a('validator surfaces per-line errors',
     $c($acc, "'line_validations'"));
 $a('validator returns ok bool',
