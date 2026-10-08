@@ -28,3 +28,9 @@ This is a staging-only acceptance sequence for a **new, disposable Cloudways app
 6. Sign in through the normal CoreFlux login as the first staging administrator. A second human reviewer must be added before claiming maker/checker acceptance: the first-tenant AP policy is intentionally not a self-approval bypass. Exercise draft, review, posting, partial collection, bank matching, bill payment, reversal, aging and statements through the installed UI. Re-run the financial snapshot after those actions.
 
 This gate passes only with the command outputs, a balanced snapshot, a served-release hash, and the signed-in source-to-report walkthrough from the **new** database. Static schema tests and a populated staging installation do not substitute for it.
+
+## Standalone runtime after staging acceptance
+
+The staging sequence above continues to use `COREFLUX_ENV=staging` and log-only delivery. A later standalone CoreAccounting app must explicitly set `COREFLUX_ENV=coreaccounting`, provide its own server-local `core/db.local.php`, set `COREFLUX_STANDALONE_DATABASE` to that app's exact database name, and set `COREFLUX_PUBLIC_ORIGIN` to a bare HTTPS origin. Startup refuses a missing or mismatched database identity or an absent/insecure origin, even on a Cloudways default hostname. This mode is not a second ledger: it runs the existing CoreFlux/CoreOne source documents and accounting tables in the standalone app's database.
+
+Standalone mode does not inherit the ERP's SMTP credentials or sender; those settings must be supplied separately if that delivery path is used. The Resend/outbox path has its own provider and sender configuration and still requires a controlled recipient test. This guard does **not** remove the legacy credentials from the existing ERP release, rotate them, prove a clean install, or authorize live customer mail or production deployment. Coordinate secret externalization and rotation before switching a real tenant to standalone mode.
