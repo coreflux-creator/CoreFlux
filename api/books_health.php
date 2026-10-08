@@ -36,6 +36,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
+require_once __DIR__ . '/../core/accounting/books_health_metrics.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -44,8 +45,14 @@ $tid = (int) $ctx['tenant_id'];
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
 rbac_legacy_require($user, 'accounting.coa.view');
 
-$entityId = api_query('entity_id') ? (int) api_query('entity_id') : null;
 $pdo = getDB();
+try {
+    $entityId = booksHealthResolveEntity($pdo, $tid, api_query('entity_id'));
+} catch (InvalidArgumentException $error) {
+    api_error($error->getMessage(), 422);
+} catch (OutOfBoundsException $error) {
+    api_error($error->getMessage(), 404);
+}
 $asOf = date('Y-m-d');
 
 // ──────────────────────────────────────────────────────────────────
@@ -71,19 +78,10 @@ $bankConn = [
 // ──────────────────────────────────────────────────────────────────
 // Last reconciliation
 // ──────────────────────────────────────────────────────────────────
-$lastRecon = null; $daysSince = null;
-if ($pdo->query("SHOW TABLES LIKE 'accounting_reconciliations'")->fetchColumn()) {
-    $rStmt = $pdo->prepare(
-        "SELECT MAX(statement_end_date) AS d
-           FROM accounting_reconciliations
-          WHERE tenant_id = :t AND status = 'closed'"
-    );
-    $rStmt->execute(['t' => $tid]);
-    $lastRecon = $rStmt->fetchColumn() ?: null;
-    if ($lastRecon) {
-        $daysSince = (int) ((strtotime($asOf) - strtotime((string) $lastRecon)) / 86400);
-    }
-}
+$lastRecon = booksHealthLastReconciledDate($pdo, $tid, $entityId);
+$daysSince = $lastRecon
+    ? (int) ((strtotime($asOf) - strtotime($lastRecon)) / 86400)
+    : null;
 $recon = [
     'last_reconciled_date' => $lastRecon,
     'days_since'           => $daysSince,
@@ -124,33 +122,7 @@ $tasks = [
     'transfers_pending'      => 0,
     'period_ready_to_close'  => 0,
 ];
-$bills = $pdo->query("SHOW TABLES LIKE 'ap_bills'")->fetchColumn();
-if ($bills) {
-    $bStmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM ap_bills
-          WHERE tenant_id = :t AND status IN ('open','pending_approval','approved','partial')"
-    );
-    $bStmt->execute(['t' => $tid]);
-    $tasks['bills_pending'] = (int) $bStmt->fetchColumn();
-}
-$tp = $pdo->query("SHOW TABLES LIKE 'treasury_payments'")->fetchColumn();
-if ($tp) {
-    $tStmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM treasury_payments
-          WHERE tenant_id = :t AND status IN ('draft','pending_approval','approved','scheduled')"
-    );
-    $tStmt->execute(['t' => $tid]);
-    $tasks['payments_pending'] = (int) $tStmt->fetchColumn();
-}
-$tt = $pdo->query("SHOW TABLES LIKE 'treasury_transfers'")->fetchColumn();
-if ($tt) {
-    $tStmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM treasury_transfers
-          WHERE tenant_id = :t AND status IN ('draft','pending_approval','approved','scheduled')"
-    );
-    $tStmt->execute(['t' => $tid]);
-    $tasks['transfers_pending'] = (int) $tStmt->fetchColumn();
-}
+$tasks = array_replace($tasks, booksHealthFinancialTasks($pdo, $tid, $entityId));
 
 // Period readiness — open period whose end_date is past
 $periodStmt = $pdo->prepare(
@@ -276,61 +248,12 @@ if ($hasDimsTbl && $hasJlDimsCol) {
 // ──────────────────────────────────────────────────────────────────
 // 6-month P&L (revenue / expense / net per month)
 // ──────────────────────────────────────────────────────────────────
-$plStart = date('Y-m-01', strtotime('-5 months'));
-$plStmt = $pdo->prepare(
-    "SELECT DATE_FORMAT(je.posting_date, '%Y-%m') AS month,
-            a.account_type,
-            SUM(jl.credit - jl.debit) AS net
-       FROM accounting_journal_entry_lines jl
-       JOIN accounting_journal_entries je ON je.id = jl.je_id
-       JOIN accounting_accounts a ON a.id = jl.account_id
-      WHERE je.tenant_id = :t
-        AND je.status IN ('posted','reversed')
-        AND je.posting_date >= :s
-        AND a.account_type IN ('revenue','expense','contra_revenue','cost_of_goods_sold','other_income','other_expense')
-      GROUP BY month, a.account_type
-      ORDER BY month ASC"
-);
-$plStmt->execute(['t' => $tid, 's' => $plStart]);
-$plRows = $plStmt->fetchAll(\PDO::FETCH_ASSOC);
-$plByMonth = [];
-for ($i = 5; $i >= 0; $i--) {
-    $m = date('Y-m', strtotime("-{$i} months"));
-    $plByMonth[$m] = ['month' => $m, 'revenue' => 0.0, 'expense' => 0.0, 'net' => 0.0];
-}
-foreach ($plRows as $r) {
-    $m = $r['month'];
-    if (!isset($plByMonth[$m])) continue;
-    $net = (float) $r['net'];
-    if (in_array($r['account_type'], ['revenue', 'other_income'], true)) {
-        $plByMonth[$m]['revenue'] += $net;
-    } else {
-        // expense / cogs / contra_revenue / other_expense
-        $plByMonth[$m]['expense'] += -$net;  // expense is debit-natural
-    }
-}
-foreach ($plByMonth as &$row) {
-    $row['revenue'] = round($row['revenue'], 2);
-    $row['expense'] = round($row['expense'], 2);
-    $row['net']     = round($row['revenue'] - $row['expense'], 2);
-}
-unset($row);
+$plByMonth = booksHealthMonthlyPl($pdo, $tid, $entityId, $asOf);
 
 // ──────────────────────────────────────────────────────────────────
 // Recent engine activity (10 most recent posted events) — only if 7b table exists
 // ──────────────────────────────────────────────────────────────────
-$recent = [];
-if ($pdo->query("SHOW TABLES LIKE 'accounting_events'")->fetchColumn()) {
-    $rStmt = $pdo->prepare(
-        "SELECT id, event_type, journal_entry_id, source_module, source_record_id, posted_at
-           FROM accounting_events
-          WHERE tenant_id = :t AND status = 'posted'
-          ORDER BY posted_at DESC, id DESC
-          LIMIT 10"
-    );
-    $rStmt->execute(['t' => $tid]);
-    $recent = $rStmt->fetchAll(\PDO::FETCH_ASSOC);
-}
+$recent = booksHealthRecentEvents($pdo, $tid, $entityId);
 
 // ──────────────────────────────────────────────────────────────────
 // Saved hours moat — count AI assists accepted in the last 7 days.
@@ -401,7 +324,7 @@ api_ok([
     'integrations'     => $integrations,
     'missing_dims'     => $missingDims,
     'ai_assist'        => $assist,
-    'pl_monthly'       => array_values($plByMonth),
+    'pl_monthly'       => $plByMonth,
     'recent_events'    => $recent,
     'health_score'     => $score,
     'health_label'     => $label,
