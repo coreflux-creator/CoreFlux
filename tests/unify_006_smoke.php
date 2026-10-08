@@ -64,14 +64,18 @@ $assert('vendors POST skips 1099 individual', strpos($vapi, "'c2c_corp','w9_busi
 $assert('vendors UPSERT persists company_id', strpos($vapi, 'company_id              = COALESCE(VALUES(company_id), company_id)') !== false);
 
 $bapi = (string) file_get_contents(__DIR__ . '/../modules/ap/api/bills.php');
-$assert('bills manual POST sets vendor_company_id', strpos($bapi, "'vendor_company_id' => \$vendorCompanyId") !== false);
+$billDrafts = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/bill_drafts.php');
+$assert('bills manual POST sets vendor_company_id', strpos($bapi, 'apCreateManualBill(') !== false
+    && strpos($billDrafts, "'vendor_company_id' => \$vendorCompanyId") !== false);
 $assert('bills time-bundle sets vendor_company_id', strpos($bapi, "UPDATE ap_bills SET vendor_company_id") !== false);
 $assert('bills PATCH allows vendor_company_id',     strpos($bapi, "'vendor_name','vendor_company_id'") !== false);
 
 echo "\nBilling API unification wiring\n";
 $iapi = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');
-$assert('invoice manual POST resolves client_company_id', strpos($iapi, '$clientCompanyId = !empty') !== false);
-$assert('invoice manual POST upserts company',            strpos($iapi, 'companiesUpsertByName') !== false);
+$invoiceDrafts = (string) file_get_contents(__DIR__ . '/../modules/billing/lib/invoice_drafts.php');
+$assert('invoice manual POST resolves client_company_id', strpos($iapi, 'billingCreateDirectInvoiceDraft(') !== false
+    && strpos($invoiceDrafts, 'billingResolveDirectInvoiceClientCompanyId(') !== false);
+$assert('invoice manual POST upserts company',            strpos($invoiceDrafts, 'companiesUpsertByName') !== false);
 $assert('invoice time-bundle resolves client_company_id', strpos($iapi, 'companiesBumpUsage($clientCid)') !== false);
 $assert('invoice PATCH allows client_company_id',         strpos($iapi, "'client_name','client_company_id'") !== false);
 

@@ -137,7 +137,7 @@ foreach ([
 $cp = $read(__DIR__ . '/../modules/accounting/api/close_packet.php');
 $a('close_packet adds ?format=pdf branch',               str_contains($cp, "\$format === 'pdf'")
     && str_contains($cp, 'accountingLoadRecordedClosePacket'));
-$a('close_packet PDF uses cf_render_html_to_pdf',        str_contains($cp, 'cf_render_html_to_pdf($page'));
+$a('close_packet PDF uses cf_render_html_to_pdf',        str_contains($cp, 'cf_render_html_to_pdf($html, $outPath'));
 
 /* ──────────────────────  C1: Unified digest scheduler  ────────────────────── */
 echo "\nC1) unified digest scheduler\n";

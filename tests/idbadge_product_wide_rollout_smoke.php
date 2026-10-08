@@ -126,8 +126,8 @@ $colSpanFiles = [
     $root . '/modules/people/ui/Directory.jsx'       => 'colSpan={8}',
     $root . '/modules/ap/ui/VendorsList.jsx'         => 'colSpan={9}',
     $root . '/modules/ap/ui/BillsList.jsx'           => 'colSpan={10}',
-    $root . '/modules/billing/ui/InvoicesList.jsx'   => 'colSpan={10}',
-    $root . '/modules/billing/ui/PaymentsList.jsx'   => 'colSpan={8}',
+    $root . '/modules/billing/ui/InvoicesList.jsx'   => 'colSpan={showEntityColumn ? 11 : 10}',
+    $root . '/modules/billing/ui/PaymentsList.jsx'   => 'colSpan={9}',
     $root . '/modules/people/ui/DirectoryModule.jsx' => 'colSpan={10}',
 ];
 foreach ($colSpanFiles as $path => $needle) {

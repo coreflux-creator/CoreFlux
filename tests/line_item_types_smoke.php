@@ -34,18 +34,21 @@ $a('billing time-bundle line stamps item_type=labor', strpos($bl, "'item_type'  
 
 echo "\nAPI persistence\n";
 $bills = (string) file_get_contents(__DIR__ . '/../modules/ap/api/bills.php');
-$a('AP manual POST inserts item_type column',   strpos($bills, 'INSERT INTO ap_bill_lines') !== false
-                                                 && strpos($bills, 'item_type') !== false);
-$a('AP manual POST normalises item_type',       strpos($bills, "apNormalizeItemType(\$l['item_type'] ?? null, 'manual')") !== false);
+$billDrafts = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/bill_drafts.php');
+$a('AP manual POST inserts item_type column',   strpos($bills, 'apCreateManualBill(') !== false
+                                                 && strpos($billDrafts, 'INSERT INTO ap_bill_lines') !== false
+                                                 && strpos($billDrafts, 'item_type') !== false);
+$a('AP manual POST normalises item_type',       strpos($billDrafts, "apNormalizeItemType(\$line['item_type'] ?? null, 'manual')") !== false);
 $a('AP time-bundle path threads item_type',     strpos($bills, "\$l['item_type'] = apNormalizeItemType") !== false);
 
 $inv = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');
+$invoiceDrafts = (string) file_get_contents(__DIR__ . '/../modules/billing/lib/invoice_drafts.php');
 $a('Billing requires AP lib for normalisation', strpos($inv, "require_once __DIR__ . '/../../ap/lib/ap.php'") !== false);
-$a('Billing manual POST inserts item_type',     strpos($inv, 'item_type, description, quantity') !== false);
-$a('Billing manual POST inserts gl_revenue_account_code', strpos($inv, 'gl_revenue_account_code') !== false);
+$a('Billing manual POST inserts item_type',     strpos($inv, 'billingCreateDirectInvoiceDraft(') !== false
+    && strpos($invoiceDrafts, 'item_type, description, quantity') !== false);
+$a('Billing manual POST inserts gl_revenue_account_code', strpos($invoiceDrafts, 'gl_revenue_account_code') !== false);
 $a('Billing manual POST normalises item_type',
-   strpos($inv, "apNormalizeItemType(\$line['item_type'] ?? null, 'manual')") !== false
-   || strpos($inv, "apNormalizeItemType(\$l['item_type'] ?? null, 'manual')") !== false);
+   strpos($invoiceDrafts, "apNormalizeItemType(\$line['item_type'] ?? null, 'manual')") !== false);
 $a('Billing time-bundle path threads item_type', strpos($inv, "\$l['item_type']  = apNormalizeItemType") !== false);
 
 echo "\nGL post groups by revenue account\n";

@@ -52,7 +52,7 @@ foreach ($pages as $name => $cfg) {
     check("{$name} uses scoped cacheKey prefix '" . $cfg['prefix'] . "'",
         str_contains($src, "cacheKey: `" . $cfg['prefix']));
     check("{$name} still surfaces { data, loading, error, reload }",
-        preg_match('/\{\s*data\s*,\s*loading\s*,\s*error\s*(?:,\s*elapsedMs\s*)?,\s*reload\s*\}\s*=\s*useApiCached/', $src) === 1);
+        preg_match('/\{\s*data(?:\s*:\s*\w+)?\s*,\s*loading\s*,\s*error\s*(?:,\s*elapsedMs\s*)?,\s*reload\s*\}\s*=\s*useApiCached/', $src) === 1);
     echo "\n";
 }
 

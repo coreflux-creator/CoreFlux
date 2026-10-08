@@ -107,7 +107,8 @@ $assert('bulk selection is a focused workflow bar',
     && str_contains($bulk, 'bulk-edit-bar__selection')
     && str_contains($bulk, 'bulk-edit-bar__controls'));
 $assert('accounting keeps the daily workflows in primary navigation',
-    str_contains($accounting, "label: 'Entries'")
+    str_contains($accounting, "label: 'Overview'")
+    && str_contains($accounting, "label: 'Entries'")
     && str_contains($accounting, "label: 'Bank feed'")
     && str_contains($accounting, "label: 'Accounts'")
     && str_contains($accounting, "label: 'Reconcile'")
@@ -115,7 +116,6 @@ $assert('accounting keeps the daily workflows in primary navigation',
     && str_contains($accounting, "label: 'Month-end'"));
 $assert('less frequent accounting tools are grouped in the Tools menu',
     str_contains($accounting, "label: 'Workspace'")
-    && str_contains($accounting, "label: 'Accounting overview'")
     && str_contains($accounting, "label: 'More reports'")
     && str_contains($accounting, "label: 'Automation and review'")
     && str_contains($accounting, "label: 'Configuration'")
