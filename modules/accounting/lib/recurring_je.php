@@ -131,22 +131,25 @@ function recurringJePrepareLines(
 /** Post only a draft produced by a recurring template in this tenant and entity. */
 function recurringJePostDraft(int $tenantId, int $jeId, ?int $actorUserId = null): array
 {
-    $entry = scopedFind(
+    $pdo = getDB();
+    $entryStatement = $pdo->prepare(
         'SELECT id, entity_id, source_module, source_ref_type, source_ref_id, status
-           FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id',
-        ['id' => $jeId]
+           FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id'
     );
+    $entryStatement->execute(['tenant_id' => $tenantId, 'id' => $jeId]);
+    $entry = $entryStatement->fetch(\PDO::FETCH_ASSOC) ?: null;
     if (!$entry) throw new \RuntimeException('Journal entry not found');
     if (($entry['source_module'] ?? '') !== 'recurring_je'
         || ($entry['source_ref_type'] ?? '') !== 'recurring_je'
         || (int) ($entry['source_ref_id'] ?? 0) <= 0) {
         throw new \RuntimeException('Only recurring journal drafts can be posted here');
     }
-    $template = scopedFind(
+    $templateStatement = $pdo->prepare(
         'SELECT id, entity_id FROM accounting_recurring_journal_entries
-          WHERE tenant_id = :tenant_id AND id = :id',
-        ['id' => (int) $entry['source_ref_id']]
+          WHERE tenant_id = :tenant_id AND id = :id'
     );
+    $templateStatement->execute(['tenant_id' => $tenantId, 'id' => (int) $entry['source_ref_id']]);
+    $template = $templateStatement->fetch(\PDO::FETCH_ASSOC) ?: null;
     if (!$template) {
         throw new \RuntimeException('Recurring template not found');
     }
