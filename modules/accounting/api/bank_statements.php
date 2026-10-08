@@ -222,6 +222,13 @@ if ($method === 'GET') {
         $params['ms'] = $matchStatus;
     }
 
+    $focusedLine = trim((string) ($_GET['line_id'] ?? ''));
+    if ($focusedLine !== '') {
+        if (!ctype_digit($focusedLine) || (int) $focusedLine <= 0) api_error('Invalid line_id', 422);
+        $where[] = 'id = :line_id';
+        $params['line_id'] = (int) $focusedLine;
+    }
+
     $q = trim((string) ($_GET['q'] ?? ''));
     if (strlen($q) > 120) api_error('Search is too long (max 120 characters)', 422);
     if ($q !== '') {

@@ -273,6 +273,7 @@ function AccountDetail() {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedEntity = searchParams.get('entity_id');
   const bankListPath = `/modules/accounting/bank-rec${requestedEntity && /^[1-9][0-9]*$/.test(requestedEntity) ? `?entity_id=${requestedEntity}` : ''}`;
+  const focusedLineId = searchParams.get('line_id');
   const requestedStatus = searchParams.get('match_status');
   const lineStatus = requestedStatus === 'all' ? ''
     : ['matched', 'ignored'].includes(requestedStatus) ? requestedStatus : 'unmatched';
@@ -296,11 +297,12 @@ function AccountDetail() {
       per_page: String(perPage),
     });
     if (lineStatus) params.set('match_status', lineStatus);
+    if (focusedLineId) params.set('line_id', focusedLineId);
     Object.entries(appliedFilters).forEach(([key, value]) => {
       if (String(value || '').trim()) params.set(key, String(value).trim());
     });
     return `/modules/accounting/api/bank_statements.php?${params.toString()}`;
-  }, [id, lineStatus, page, perPage, appliedFilters]);
+  }, [id, lineStatus, focusedLineId, page, perPage, appliedFilters]);
   const { data, loading, error, reload } = useApi(statementUrl);
   const [csv, setCsv]       = useState('');
   const [csvSource, setCsvSource] = useState('');
@@ -356,6 +358,14 @@ function AccountDetail() {
   return (
     <section data-testid="accounting-bank-account-detail">
       <Link to={bankListPath} style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Bank accounts</Link>
+      {focusedLineId && <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, fontSize: 13 }} data-testid="accounting-bank-focused-line">
+        Reviewing bank line #{focusedLineId}
+        <button className="btn btn--ghost" type="button" onClick={() => {
+          const next = new URLSearchParams(searchParams);
+          next.delete('line_id');
+          setSearchParams(next, { replace: true });
+        }}>Show all lines</button>
+      </div>}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginTop: 8, marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Statement lines</h2>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', minWidth: 0 }}>

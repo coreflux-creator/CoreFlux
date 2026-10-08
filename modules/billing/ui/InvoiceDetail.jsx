@@ -271,7 +271,7 @@ export default function InvoiceDetail() {
             <h3 style={{ margin: 0, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Landmark size={16} aria-hidden="true" /> Incoming bank receipts
             </h3>
-            <Link to={addEntityScope('/modules/accounting/bank-rec', inv.entity_id)} className="btn btn--ghost" data-testid="billing-invoice-open-bank-feed">Open bank feed <ArrowRight size={14} aria-hidden="true" /></Link>
+            <Link to={addEntityScope('/modules/accounting/transactions-to-review', inv.entity_id)} className="btn btn--ghost" data-testid="billing-invoice-open-bank-feed">Open bank feed <ArrowRight size={14} aria-hidden="true" /></Link>
           </div>
           <p className="muted" style={{ fontSize: 12, margin: '6px 0 12px' }}>Review the deposit before applying it. A larger deposit can be split across invoices in the bank feed.</p>
           {receipts.loading && <p className="muted">Looking for deposits…</p>}
@@ -304,7 +304,7 @@ export default function InvoiceDetail() {
                         {busy === `receipt-${line.id}` ? 'Applying…' : Number(line.amount) < Number(inv.amount_due) ? 'Apply partial receipt' : 'Apply receipt'}
                       </button>
                     ) : (
-                      <Link className="btn btn--ghost" to={`/modules/accounting/bank-rec/${line.bank_account_id}`}>{likelyReceipts.includes(line) ? 'Split in bank feed' : 'Review in bank feed'}</Link>
+                      <Link className="btn btn--ghost" to={addEntityScope(`/modules/accounting/bank-rec/${line.bank_account_id}?line_id=${line.id}`, inv.entity_id)}>{likelyReceipts.includes(line) ? 'Split in reconciliation' : 'Review bank line'}</Link>
                     )}
                   </span>
                 </div>

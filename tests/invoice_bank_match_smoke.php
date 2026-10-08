@@ -80,15 +80,20 @@ $check('invoice page separates likely receipts from unrelated bank deposits',
     str_contains($detail, 'const likelyReceipts = receiptRows.filter(')
     && str_contains($detail, 'billing-invoice-other-receipts-toggle')
     && str_contains($detail, 'likelyReceipts.includes(line) && line.can_apply_directly')
-    && str_contains($detail, 'Review in bank feed'));
+    && str_contains($detail, 'Review bank line'));
 $check('invoice receipt confirmation names the client and bank description',
     str_contains($detail, 'for ${inv.client_name}')
     && str_contains($detail, 'Bank description: ${line.description'));
 $check('invoice bank feed handoff keeps the issuing entity',
-    str_contains($detail, "addEntityScope('/modules/accounting/bank-rec', inv.entity_id)")
+    str_contains($detail, "addEntityScope('/modules/accounting/transactions-to-review', inv.entity_id)")
     && str_contains($bankUi, 'data-testid="accounting-bank-accounts-entity"')
     && str_contains($bankUi, 'const displayedAccounts = (data?.rows || []).filter(')
     && str_contains($bankUi, 'const bankListPath ='));
+$check('invoice review link opens the exact scoped bank line',
+    str_contains($detail, '?line_id=${line.id}')
+    && str_contains($bankUi, 'data-testid="accounting-bank-focused-line"')
+    && str_contains($bankUi, "params.set('line_id', focusedLineId)")
+    && str_contains($bankApi, "\$where[] = 'id = :line_id'"));
 
 echo "\nPartial invoice matching from Treasury\n";
 $check('manual invoice candidates include client and open balance',
