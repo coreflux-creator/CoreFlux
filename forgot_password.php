@@ -17,15 +17,17 @@
  *   6. Always render a generic success message (no enumeration)
  */
 
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-if (function_exists('opcache_reset')) { @opcache_reset(); }
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 
-require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/mailer.php';
 require_once __DIR__ . '/core/memberships.php';
+$pdo = getDB();
+if (!$pdo) {
+    http_response_code(503);
+    exit('Password reset is temporarily unavailable.');
+}
 
 $APP_NAME      = 'CoreFlux';
 $TOKEN_TTL_MIN = 60;
@@ -88,8 +90,6 @@ function forgotPasswordEnsureSchema(PDO $pdo): array
     return $columns;
 }
 
-$passwordResetColumns = forgotPasswordEnsureSchema($pdo);
-
 $successMsg = '';
 $errorMsg   = '';
 
@@ -99,6 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $errorMsg = 'Please enter a valid email address.';
     } else {
+        $passwordResetColumns = forgotPasswordEnsureSchema($pdo);
         $resetStage = 'user_lookup';
         try {
             $stmt = $pdo->prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(:e) LIMIT 1');
@@ -180,8 +181,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     . ' VALUES (' . implode(', ', $insertValues) . ')'
                 )->execute($insertParams);
 
-                $host     = $_SERVER['HTTP_HOST'] ?? 'www.corefluxapp.com';
-                $resetUrl = 'https://' . $host . $RESET_PATH . '?' . http_build_query([
+                $resetUrl = rtrim(APP_URL, '/') . $RESET_PATH . '?' . http_build_query([
                     'token' => $rawToken,
                     'email' => $email,
                 ]);

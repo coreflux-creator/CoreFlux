@@ -32,6 +32,7 @@ This gate passes only with the command outputs, a balanced snapshot, a served-re
 
 Before any live standalone release, repeat direct-URL tests with `COREFLUX_ENV=coreaccounting`: unrelated module and flat API routes should return 404, the four CoreOne finance contract entrypoints should remain available to their bearer authentication, and missing private configuration should return a controlled 503. These local checks do not prove Cloudways routing or deny direct PHP files that never load common config. Verify the installed webroot contents and hosted responses separately.
 Confirm an absent `.php` endpoint returns 404 rather than falling through to `spa.php`; a real finance module API should still reach authentication or the controlled setup refusal. The QA route sweep retired two stale Treasury wrappers whose required flat endpoints never existed. Keep missing wrappers absent in any later package and run `tests/api_router_smoke.php` to check literal module API dependencies.
+The shared login should not link to the retired public signup. Verify `/signup.php` and `/signup.html` return 404 even if an older release leaves those files on disk. `/forgot_password.php` and `/reset_password.php` must reach the standalone configuration refusal while the private database file is absent, without first opening the old direct database connection. After bootstrap, separately test request, email delivery to an approved synthetic address, token expiry, redemption, and login on the isolated QA tenant.
 
 ## Standalone runtime after staging acceptance
 

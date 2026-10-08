@@ -17,6 +17,7 @@ foreach ([
     'vendor/autoload.php', 'spa-assets/index-current.js', 'spa-assets/index-current.css',
     'modules/accounting/api/reports.php', '_deploy_ok.txt', 'robots.txt',
     'README.md', 'ssh note.txt', 'install.php', 'bootstrap_debug.php',
+    'signup.php', 'signup.html',
     'composer.lock', 'dashboard/package.json',
     'dashboard/src/lib/api.js', 'graphql/router/index.ts',
     'deploy/example.php', 'scripts/example.php', '.github/workflows/example.yml',
@@ -82,6 +83,7 @@ try {
 
     $moved = [
         'README.md', 'ssh note.txt', 'install.php', 'bootstrap_debug.php',
+        'signup.php', 'signup.html',
         'composer.lock', 'dashboard/package.json',
         'dashboard/src/lib/api.js', 'graphql/router/index.ts',
         '.github/workflows/example.yml',
@@ -106,7 +108,7 @@ try {
     foreach ($retained as $relative) {
         if (!is_file($webroot . '/' . $relative)) throw new RuntimeException("Runtime file moved: $relative");
     }
-    if (($result['moved_entries'] ?? null) !== 20) throw new RuntimeException('Unexpected move count');
+    if (($result['moved_entries'] ?? null) !== 22) throw new RuntimeException('Unexpected move count');
     require_once __DIR__ . '/../core/installer_helpers.php';
     $bundleChecks = spaBundleStatus($webroot);
     if (($bundleChecks[1]['detail'] ?? '') !== 'runtime-only package; compare installed bundle hashes with the release manifest') {

@@ -14,6 +14,15 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 
 echo "\n1. forgot_password.php routes via mailerSend\n";
 $fp = (string) file_get_contents($ROOT . '/forgot_password.php');
+$a('uses canonical guarded database connection',
+    str_contains($fp, "require_once __DIR__ . '/core/db.php';")
+    && !str_contains($fp, "require_once __DIR__ . '/config/db.php';")
+    && str_contains($fp, '$pdo = getDB();'));
+$a('reset link uses configured origin, not the request Host header',
+    str_contains($fp, "rtrim(APP_URL, '/') . \$RESET_PATH")
+    && !str_contains($fp, "\$_SERVER['HTTP_HOST']"));
+$a('read-only reset form does not run schema repair',
+    strpos($fp, 'forgotPasswordEnsureSchema($pdo);') > strpos($fp, "if (\$_SERVER['REQUEST_METHOD'] === 'POST')"));
 $a('requires core/mailer.php',                   str_contains($fp, "require_once __DIR__ . '/core/mailer.php';"));
 $a('requires memberships for unified tenant lookup', str_contains($fp, "require_once __DIR__ . '/core/memberships.php';"));
 $a('does NOT use sendPasswordResetEmail',        !str_contains($fp, 'sendPasswordResetEmail('));
@@ -52,6 +61,10 @@ $a('exposes data-testids for the form',
 
 echo "\n2. reset_password.php updates usable login credentials\n";
 $rp = (string) file_get_contents($ROOT . '/reset_password.php');
+$a('reset also uses canonical guarded database connection',
+    str_contains($rp, "require_once __DIR__ . '/core/db.php';")
+    && !str_contains($rp, "require_once __DIR__ . '/config/db.php';")
+    && str_contains($rp, '$pdo = getDB();'));
 $a('does NOT require legacy smtp_yahoo.php',      !str_contains($rp, "smtp_yahoo.php"));
 $a('uses auth schema helpers',                    str_contains($rp, "require_once __DIR__ . '/core/auth.php';"));
 $a('updates password when column exists',         str_contains($rp, "in_array('password', \$userCols, true)") && str_contains($rp, 'password = :password'));
@@ -75,6 +88,8 @@ echo "\n4. login.html still links to forgot_password.php\n";
 $loginHtml = (string) file_get_contents($ROOT . '/login.html');
 $a('login.html -> forgot_password.php link present',
     str_contains($loginHtml, 'href="forgot_password.php"'));
+$a('login no longer advertises broken public sign-up',
+    !str_contains($loginHtml, 'href="signup.html"'));
 
 echo "\n5. PHP syntax\n";
 foreach (['forgot_password.php', 'reset_password.php', 'core/mailer.php'] as $rel) {

@@ -1,12 +1,13 @@
 <?php
-// Enable while setting up; disable in production.
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
-require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/auth.php';
 require_once __DIR__ . '/core/mailer.php';
 require_once __DIR__ . '/core/memberships.php';
+$pdo = getDB();
+if (!$pdo) {
+    http_response_code(503);
+    exit('Password reset is temporarily unavailable.');
+}
 
 // Accept both styles (?token=&email=) and legacy (?t=&e=)
 $email = trim($_GET['email'] ?? $_GET['e'] ?? $_POST['email'] ?? '');

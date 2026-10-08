@@ -69,6 +69,13 @@ foreach ($denied as $relative) {
 if (coreAccountingAllowsPublicApiScript($root . '/api/no_such_route.php', $root, 'coreaccounting')) {
     $failures[] = 'unknown route allowed';
 }
+if (is_file($root . '/signup.php') || is_file($root . '/signup.html')) {
+    $failures[] = 'legacy public signup still ships in the release';
+}
+$apacheConfig = (string) file_get_contents($root . '/.htaccess');
+if (!str_contains($apacheConfig, 'RedirectMatch 404 ^/signup(\.php|\.html)$')) {
+    $failures[] = 'legacy signup URLs are not denied at the webserver';
+}
 
 $config = (string) file_get_contents($root . '/core/config.php');
 if (strpos($config, 'coreAccountingEnforcePublicApiScript(') === false

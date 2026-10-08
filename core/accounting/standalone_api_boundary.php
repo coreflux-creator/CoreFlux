@@ -28,7 +28,7 @@ function coreAccountingAllowsPublicApiScript(?string $scriptFilename, string $ro
         return in_array($relative, [
             'auditor.php', 'dashboard.php', 'forgot_password.php', 'login.php',
             'logout.php', 'qbo-connect.php', 'qbo-oauth-callback.php',
-            'reset_password.php', 'session.php', 'signup.php', 'spa.php',
+            'reset_password.php', 'session.php', 'spa.php',
             'switch_tenant.php',
         ], true);
     }

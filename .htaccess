@@ -50,6 +50,7 @@ RedirectMatch 404 ^/modules/[^/]+/ui(/|$)
 RedirectMatch 404 ^/core/(?!api/).*\.php$
 RedirectMatch 404 ^/core/(migrations|seeds|storage)(/|$)
 RedirectMatch 404 ^/core/(db\.local|config(\.local)?)\.php$
+RedirectMatch 404 ^/signup(\.php|\.html)$
 RedirectMatch 404 ^/vendor/(?!portal(/|$))
 RedirectMatch 404 (^|/)(composer\.json|package(-lock)?\.json)$
 RedirectMatch 404 \.(md|sql|lock|log|sh|bat|ps1|env|ini|yaml|yml|toml|sqlite|db|bak|pem|key)$
