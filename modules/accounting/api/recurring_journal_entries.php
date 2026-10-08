@@ -12,6 +12,7 @@
  *   POST /api/accounting/recurring_journal_entries?action=end&id=N
  *   POST /api/accounting/recurring_journal_entries?action=run_now&id=N
  *   POST /api/accounting/recurring_journal_entries?action=post_draft&id=N (journal ID)
+ *   POST /api/accounting/recurring_journal_entries?action=reverse_run&id=N (journal ID)
  *   POST /api/accounting/recurring_journal_entries?action=run_due → cron entrypoint
  */
 declare(strict_types=1);
@@ -232,6 +233,20 @@ if ($method === 'POST' && $action === 'post_draft') {
     if ($id <= 0) api_error('journal id required', 422);
     try {
         api_ok(recurringJePostDraft($tid, $id, $user['id'] ?? null));
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), $e->getMessage() === 'Journal entry not found' ? 404 : 409);
+    }
+}
+
+if ($method === 'POST' && $action === 'reverse_run') {
+    rbac_legacy_require($user, 'accounting.je.reverse');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('journal id required', 422);
+    $body = api_json_body();
+    $reason = trim((string) ($body['reason'] ?? ''));
+    if ($reason === '') api_error('Reason for reversal required', 422);
+    try {
+        api_ok(recurringJeReverseRun($tid, $id, $reason, $user['id'] ?? null));
     } catch (\Throwable $e) {
         api_error($e->getMessage(), $e->getMessage() === 'Journal entry not found' ? 404 : 409);
     }

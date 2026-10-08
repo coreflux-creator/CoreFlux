@@ -128,13 +128,14 @@ function recurringJePrepareLines(
     return $lines;
 }
 
-/** Post only a draft produced by a recurring template in this tenant and entity. */
-function recurringJePostDraft(int $tenantId, int $jeId, ?int $actorUserId = null): array
+/** Resolve a recurring run by explicit tenant and its historical template link. */
+function recurringJeLinkedJournal(int $tenantId, int $jeId, bool $lock = false): array
 {
     $pdo = getDB();
     $entryStatement = $pdo->prepare(
         'SELECT id, entity_id, source_module, source_ref_type, source_ref_id, status
            FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id'
+        . ($lock ? ' FOR UPDATE' : '')
     );
     $entryStatement->execute(['tenant_id' => $tenantId, 'id' => $jeId]);
     $entry = $entryStatement->fetch(\PDO::FETCH_ASSOC) ?: null;
@@ -142,7 +143,7 @@ function recurringJePostDraft(int $tenantId, int $jeId, ?int $actorUserId = null
     if (($entry['source_module'] ?? '') !== 'recurring_je'
         || ($entry['source_ref_type'] ?? '') !== 'recurring_je'
         || (int) ($entry['source_ref_id'] ?? 0) <= 0) {
-        throw new \RuntimeException('Only recurring journal drafts can be posted here');
+        throw new \RuntimeException('Journal entry is not a recurring template run');
     }
     $templateStatement = $pdo->prepare(
         'SELECT id, entity_id FROM accounting_recurring_journal_entries
@@ -153,6 +154,13 @@ function recurringJePostDraft(int $tenantId, int $jeId, ?int $actorUserId = null
     if (!$template) {
         throw new \RuntimeException('Recurring template not found');
     }
+    return ['entry' => $entry, 'template' => $template];
+}
+
+/** Post only a draft produced by a recurring template in this tenant and entity. */
+function recurringJePostDraft(int $tenantId, int $jeId, ?int $actorUserId = null): array
+{
+    ['entry' => $entry, 'template' => $template] = recurringJeLinkedJournal($tenantId, $jeId);
     $templateEntityId = accountingValidateActiveEntityId($tenantId, $template['entity_id'] ?? null)
         ?? (int) accountingDefaultEntity($tenantId)['id'];
     if ($templateEntityId !== (int) $entry['entity_id']) {
@@ -167,6 +175,44 @@ function recurringJePostDraft(int $tenantId, int $jeId, ?int $actorUserId = null
             'template_id' => (int) $template['id'],
             'je_id' => $jeId,
             'total' => (float) $result['total_debit'],
+        ], (int) $template['id']);
+    }
+    return $result;
+}
+
+/** Reverse one posted run without changing the template's future schedule. */
+function recurringJeReverseRun(int $tenantId, int $jeId, string $reason, ?int $actorUserId = null): array
+{
+    $reason = trim($reason);
+    if ($reason === '') throw new \InvalidArgumentException('Reason for reversal required');
+    $pdo = getDB();
+    $ownsTransaction = cf_tx_begin($pdo);
+    try {
+        ['entry' => $entry, 'template' => $template] = recurringJeLinkedJournal($tenantId, $jeId, true);
+        if (!in_array((string) $entry['status'], ['posted', 'reversed'], true)) {
+            throw new \RuntimeException('Only posted recurring journals can be reversed');
+        }
+        if ($entry['status'] === 'posted') {
+            $matched = $pdo->prepare('SELECT id FROM accounting_bank_statement_lines
+                WHERE tenant_id = :tenant_id AND matched_je_id = :je_id
+                  AND match_status = "matched" LIMIT 1');
+            $matched->execute(['tenant_id' => $tenantId, 'je_id' => $jeId]);
+            if ($matched->fetchColumn()) {
+                throw new \RuntimeException('Unmatch the linked bank transaction before reversing this run');
+            }
+        }
+        $result = accountingReverseJe($tenantId, $jeId, $reason, $actorUserId);
+        cf_tx_commit($pdo, $ownsTransaction);
+    } catch (\Throwable $error) {
+        cf_tx_rollback($pdo, $ownsTransaction);
+        throw $error;
+    }
+    if (empty($result['idempotent_replay'])) {
+        accountingAudit('accounting.recurring_je.run_reversed', [
+            'template_id' => (int) $template['id'],
+            'original_je_id' => $jeId,
+            'reversal_je_id' => (int) $result['je_id'],
+            'reason' => $reason,
         ], (int) $template['id']);
     }
     return $result;

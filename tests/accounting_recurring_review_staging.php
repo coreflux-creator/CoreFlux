@@ -109,10 +109,41 @@ try {
     qaExpect(($listed['last_run_je_status'] ?? '') === 'posted',
         'recurring list updates from review draft to posted');
 
+    $reversal = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=reverse_run&id='
+        . $jeId, 'POST', ['reason' => 'Synthetic staging correction'], $cookie);
+    $reversalId = (int) ($reversal['je_id'] ?? 0);
+    qaExpect($reversalId > 0 && $reversalId !== $jeId
+        && ($reversal['status'] ?? '') === 'posted',
+        'recurring run reverses through its source workflow');
+    $original = qaOne($pdo, 'SELECT status, reversed_by_je_id
+        FROM accounting_journal_entries WHERE tenant_id = :t AND id = :id',
+        ['t' => QA_TENANT, 'id' => $jeId]);
+    qaExpect($original && $original['status'] === 'reversed'
+        && (int) $original['reversed_by_je_id'] === $reversalId,
+        'original run links to its posted reversal');
+    $netStatement = $pdo->prepare('SELECT a.code, ROUND(SUM(l.debit - l.credit), 2) AS amount
+        FROM accounting_journal_entry_lines l
+        JOIN accounting_journal_entries je ON je.id = l.je_id AND je.tenant_id = l.tenant_id
+        JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = l.tenant_id
+        WHERE je.tenant_id = :t AND je.entity_id = :e AND je.id IN (:original, :reversal)
+          AND je.status IN ("posted", "reversed") GROUP BY a.code');
+    $netStatement->execute(['t' => QA_TENANT, 'e' => $entityId,
+        'original' => $jeId, 'reversal' => $reversalId]);
+    $nets = array_column($netStatement->fetchAll(PDO::FETCH_ASSOC), 'amount', 'code');
+    qaExpect(count($nets) === 2
+        && array_key_exists($expenseCode, $nets) && abs((float) $nets[$expenseCode]) < 0.005
+        && array_key_exists($revenueCode, $nets) && abs((float) $nets[$revenueCode]) < 0.005,
+        'both affected accounts net to zero in the canonical ledger');
+    $repeatReversal = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=reverse_run&id='
+        . $jeId, 'POST', ['reason' => 'Synthetic staging correction'], $cookie);
+    qaExpect(!empty($repeatReversal['idempotent_replay'])
+        && (int) $repeatReversal['je_id'] === $reversalId,
+        'repeat reversal returns the existing correction');
+
     qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=end&id='
         . $templateId, 'POST', [], $cookie);
-    qaExpect(true, 'synthetic schedule ended; posted journal remains for audit');
-    echo "Staging recurring template {$templateId}, journal {$jeId}, entity {$entityId}.\n";
+    qaExpect(true, 'synthetic schedule ended; linked journals remain for audit');
+    echo "Staging recurring template {$templateId}, journal {$jeId}, reversal {$reversalId}, entity {$entityId}.\n";
 } finally {
     if ($templateId > 0) {
         $pdo->prepare('UPDATE accounting_recurring_journal_entries SET status = "ended"

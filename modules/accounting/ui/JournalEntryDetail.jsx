@@ -27,7 +27,11 @@ export default function JournalEntryDetail() {
     if (!reason.trim()) return;
     setBusy(true); setErr(null);
     try {
-      const res = await api.post(`/modules/accounting/api/journal_entries.php?action=reverse&id=${id}`, { reason: reason.trim() });
+      const endpoint = data?.entry?.source_module === 'recurring_je'
+        ? '/modules/accounting/api/recurring_journal_entries.php'
+        : '/modules/accounting/api/journal_entries.php';
+      const action = data?.entry?.source_module === 'recurring_je' ? 'reverse_run' : 'reverse';
+      const res = await api.post(`${endpoint}?action=${action}&id=${id}`, { reason: reason.trim() });
       navigate(`/modules/accounting/journal-entries/${res.je_id}`);
     } catch (e) { setErr(e.message || String(e)); }
     finally { setBusy(false); }
@@ -103,6 +107,11 @@ export default function JournalEntryDetail() {
               <FileCheck2 size={15} aria-hidden="true" />{busy ? 'Posting…' : 'Post draft'}
             </button>
           )}
+          {isPosted && isRecurring && (
+            <button type="button" className="btn btn--ghost" onClick={() => setReverseOpen(true)} disabled={busy} data-testid="accounting-je-reverse-recurring-run">
+              <RotateCcw size={15} aria-hidden="true" />Reverse run
+            </button>
+          )}
           {canCorrect && (
             <>
               <Link className="btn btn--primary" to={`/modules/accounting/journal-entries/new?replace_id=${id}`} data-testid="accounting-je-correct">
@@ -174,12 +183,14 @@ export default function JournalEntryDetail() {
         </table>
       </div>
 
-      {reverseOpen && canCorrect && isPosted && (
+      {reverseOpen && (canCorrect || isRecurring) && isPosted && (
         <div className="entry-action-modal-backdrop" onClick={() => setReverseOpen(false)}>
         <section className="entry-action-panel entry-action-panel--warning entry-action-panel--modal" role="dialog" aria-modal="true" aria-labelledby="reverse-entry-heading" data-testid="accounting-je-reverse-panel" onClick={(event) => event.stopPropagation()}>
           <button type="button" className="btn btn--ghost btn--icon entry-action-panel__close" onClick={() => setReverseOpen(false)} aria-label="Close reversal form" title="Close"><X size={15} /></button>
-          <h3 id="reverse-entry-heading">Reverse this posted entry</h3>
-          <p>The original remains in the audit trail and a new entry posts the opposite debits and credits. Use Correct entry when you need to replace it with edited lines.</p>
+          <h3 id="reverse-entry-heading">{isRecurring ? 'Reverse this recurring run' : 'Reverse this posted entry'}</h3>
+          <p>{isRecurring
+            ? 'The original and reversal remain linked in the audit trail. Future scheduled runs are unchanged.'
+            : 'The original remains in the audit trail and a new entry posts the opposite debits and credits. Use Correct entry when you need to replace it with edited lines.'}</p>
           <label htmlFor="accounting-je-reversal-reason">Reason for reversal</label>
           <textarea
             id="accounting-je-reversal-reason"
@@ -261,6 +272,13 @@ function EntryStatusNote({ status, approvalControlled = false, managedBySource =
     return (
       <div className="entry-status-note entry-status-note--posted" data-testid="accounting-je-status-note">
         <strong>Posted</strong><span>Template changes affect future runs only; this posting remains in the audit trail.</span>
+      </div>
+    );
+  }
+  if (recurring && status === 'reversed') {
+    return (
+      <div className="entry-status-note entry-status-note--reversed" data-testid="accounting-je-status-note">
+        <strong>Reversed</strong><span>This run and its reversal remain linked for audit. The template's future schedule is unchanged.</span>
       </div>
     );
   }
