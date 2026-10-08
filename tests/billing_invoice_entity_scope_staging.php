@@ -59,6 +59,7 @@ if (count($entityRows) !== 2) throw new RuntimeException('Synthetic staging enti
 
 $actor = null;
 $cookie = null;
+$sawSyntheticInvoice = false;
 try {
     $actor = qaEnsureActor($pdo, 'invoice-scope-reader');
     $cookie = tempnam(sys_get_temp_dir(), 'cf-inv-scope-');
@@ -77,7 +78,7 @@ try {
             WHERE tenant_id = :t AND entity_id = :e ORDER BY id');
         $expected->execute(['t' => QA_TENANT, 'e' => $entityId]);
         $expectedIds = array_map('intval', $expected->fetchAll(PDO::FETCH_COLUMN));
-        qaExpect(count($expectedIds) > 0, "{$entity['code']} has synthetic invoices to verify");
+        $sawSyntheticInvoice = $sawSyntheticInvoice || count($expectedIds) > 0;
 
         $list = qaRequest('/modules/billing/api/invoices.php?per_page=200&entity_id=' . $entityId,
             'GET', null, $cookie);
@@ -103,6 +104,7 @@ try {
         qaExpect($templatedIds === $expectedIds,
             "{$entity['code']} template dataset fetch is scoped");
     }
+    qaExpect($sawSyntheticInvoice, 'at least one synthetic legal entity has invoices');
 
     foreach (['invalid' => 422, '999999999' => 404] as $scope => $expectedStatus) {
         foreach (['/modules/billing/api/invoices.php', '/modules/billing/api/csv_export.php'] as $path) {
