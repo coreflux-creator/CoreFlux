@@ -46,7 +46,7 @@ require_once __DIR__ . '/rbac/legacy_map.php';
 // Direct module endpoints must be rejected before session and auto-migration work.
 // The central /api router sets its module scope later and is checked by api_require_auth().
 $directModule = coreAccountingRequestModule($_SERVER['SCRIPT_FILENAME'] ?? null, null);
-if (!coreAccountingAllowsModule($directModule, (string) getenv('COREFLUX_ENV'))) {
+if (!coreAccountingAllowsModuleRequest($_SERVER['SCRIPT_FILENAME'] ?? null, $directModule, (string) getenv('COREFLUX_ENV'))) {
     header('Content-Type: application/json; charset=utf-8');
     http_response_code(404);
     echo '{"error":"Not found","status":404}';
@@ -151,7 +151,7 @@ function api_require_fields(array $data, array $required): void {
  */
 function api_require_auth(bool $requireTenant = true): array {
     $moduleKey = coreAccountingRequestModule($_SERVER['SCRIPT_FILENAME'] ?? null, currentModuleKey());
-    if (!coreAccountingAllowsModule($moduleKey, (string) getenv('COREFLUX_ENV'))) {
+    if (!coreAccountingAllowsModuleRequest($_SERVER['SCRIPT_FILENAME'] ?? null, $moduleKey, (string) getenv('COREFLUX_ENV'))) {
         api_error('Not found', 404);
     }
 

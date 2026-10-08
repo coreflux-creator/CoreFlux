@@ -11,11 +11,10 @@
  * primarily rely on this SW for offline shell + faster repeat loads.
  */
 
-const CACHE_VERSION = 'coreflux-B7ulp5IM';
+const CACHE_VERSION = 'coreflux-HGAiKHRW';
 const APP_SHELL = [
   '/',
   '/spa.php',
-  '/manifest.webmanifest',
 ];
 
 self.addEventListener('install', (event) => {

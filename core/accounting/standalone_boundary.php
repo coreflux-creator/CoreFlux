@@ -22,6 +22,16 @@ function coreAccountingAllowsModule(?string $moduleKey, string $environment): bo
     return in_array($moduleKey, ['accounting', 'billing', 'ap', 'treasury'], true);
 }
 
+/** Billing and AP share the company directory without exposing the People module. */
+function coreAccountingAllowsModuleRequest(?string $scriptFilename, ?string $moduleKey, string $environment): bool
+{
+    if (coreAccountingAllowsModule($moduleKey, $environment)) return true;
+    return $environment === 'coreaccounting'
+        && $moduleKey === 'people'
+        && $scriptFilename !== null
+        && str_ends_with(str_replace('\\', '/', $scriptFilename), '/modules/people/api/companies.php');
+}
+
 /** Keep incomplete standalone configuration out of public responses. */
 function coreAccountingConfigurationFailure(string $reason): never
 {

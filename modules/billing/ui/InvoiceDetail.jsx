@@ -248,6 +248,12 @@ export default function InvoiceDetail() {
       {inv.status === 'draft' && approvalState?.approval_required && !approvalState?.pending && !approvalState?.approval_available && (
         <p className="error" role="alert" data-testid="billing-invoice-no-reviewer">This invoice needs an independent reviewer before approval can be requested.</p>
       )}
+      {inv.status === 'draft' && approvalState && !approvalState.pending && !approvalState.approval_required
+        && !approvalState.prior_review_status && !canApprove && !canRequest && (
+          <p role="status" data-testid="billing-invoice-approval-guidance" style={{ borderLeft: '3px solid var(--cf-primary)', padding: '8px 12px', margin: '0 0 16px', color: 'var(--cf-text-secondary)' }}>
+            This draft needs approval from a different authorized user. <Link to="/modules/billing/approvals">Review approval settings</Link>.
+          </p>
+        )}
       {inv.status === 'draft' && approvalState?.prior_review_status && !approvalState?.pending && (
         <p className="error" role="alert" data-testid="billing-invoice-prior-review">
           {approvalState.prior_review_status === 'rejected'

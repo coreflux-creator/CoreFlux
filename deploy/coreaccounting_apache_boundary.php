@@ -4,13 +4,18 @@ declare(strict_types=1);
 /** Add standalone-only direct-module denials without changing the shared ERP rules. */
 function coreAccountingStandaloneApacheConfig(string $config): string
 {
+    $oldApiRule = 'RedirectMatch 404 ^/modules/(?!accounting/|billing/|ap/|treasury/)[^/]+/api/.*\.php$';
     $rules = [
         'RedirectMatch 404 ^/modules/[^/]+/(?!api/).*\.php$',
-        'RedirectMatch 404 ^/modules/(?!accounting/|billing/|ap/|treasury/)[^/]+/api/.*\.php$',
+        'RedirectMatch 404 ^/modules/(?!accounting/|billing/|ap/|treasury/|people/api/companies\.php$)[^/]+/api/.*\.php$',
     ];
     $counts = array_map(static fn(string $rule): int => substr_count($config, $rule), $rules);
-    if ($counts === [1, 1]) return $config;
-    if ($counts !== [0, 0]) {
+    $oldCount = substr_count($config, $oldApiRule);
+    if ($counts === [1, 1] && $oldCount === 0) return $config;
+    if ($counts === [1, 0] && $oldCount === 1) {
+        return str_replace($oldApiRule, $rules[1], $config);
+    }
+    if ($counts !== [0, 0] || $oldCount !== 0) {
         throw new RuntimeException('Standalone Apache module rules are incomplete or duplicated.');
     }
 

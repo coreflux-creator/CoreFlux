@@ -58,6 +58,28 @@ try {
         || (string) file_get_contents(__DIR__ . '/../.htaccess') !== $sharedApacheConfig) {
         throw new RuntimeException('Standalone Apache rules were not installed safely and idempotently.');
     }
+    $upgradedConfig = str_replace(
+        'RedirectMatch 404 ^/modules/(?!accounting/|billing/|ap/|treasury/|people/api/companies\.php$)[^/]+/api/.*\.php$',
+        'RedirectMatch 404 ^/modules/(?!accounting/|billing/|ap/|treasury/)[^/]+/api/.*\.php$',
+        $installedApacheConfig
+    );
+    if ($upgradedConfig === $installedApacheConfig
+        || coreAccountingStandaloneApacheConfig($upgradedConfig) !== $installedApacheConfig) {
+        throw new RuntimeException('Existing standalone Apache rules did not upgrade cleanly.');
+    }
+    $denies = static function (string $path) use ($installedApacheConfig): bool {
+        foreach (explode("\n", $installedApacheConfig) as $line) {
+            if (preg_match('/^RedirectMatch 404 (.+)$/', trim($line), $match)
+                && preg_match('~' . $match[1] . '~', $path)) return true;
+        }
+        return false;
+    };
+    foreach (['/modules/people/api/companies.php', '/modules/billing/api/items.php'] as $path) {
+        if ($denies($path)) throw new RuntimeException("Required standalone API was blocked: $path");
+    }
+    foreach (['/modules/people/api/persons.php', '/modules/people/index.php'] as $path) {
+        if (!$denies($path)) throw new RuntimeException("Unrelated People route was exposed: $path");
+    }
     $lfConfig = str_replace("\r\n", "\n", $sharedApacheConfig);
     $lfInstalled = coreAccountingStandaloneApacheConfig($lfConfig);
     if (coreAccountingStandaloneApacheConfig($lfInstalled) !== $lfInstalled

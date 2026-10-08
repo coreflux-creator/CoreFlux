@@ -15,6 +15,7 @@ function coreAccountingAllowsPublicApiScript(?string $scriptFilename, string $ro
     if (!str_starts_with($script, $base . '/')) return false;
     $relative = substr($script, strlen($base) + 1);
 
+    if ($relative === 'modules/people/api/companies.php') return true;
     if (preg_match('~^modules/([a-z][a-z0-9_-]*)/api/[^/]+\.php$~', $relative, $match)) {
         return coreAccountingAllowsModule($match[1], $environment);
     }

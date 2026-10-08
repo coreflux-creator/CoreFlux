@@ -23,16 +23,20 @@ $check('router retains its parsed module scope',
     coreAccountingRequestModule('/srv/app/api/index.php', 'time') === 'time');
 $check('Windows module paths are recognized',
     coreAccountingRequestModule('C:\\app\\modules\\staffing\\api\\timesheets.php', null) === 'staffing');
+$check('standalone permits only the shared company-directory script from People',
+    coreAccountingAllowsModuleRequest('/srv/app/modules/people/api/companies.php', 'people', 'coreaccounting')
+    && !coreAccountingAllowsModuleRequest('/srv/app/modules/people/api/people.php', 'people', 'coreaccounting')
+    && !coreAccountingAllowsModuleRequest('/srv/app/api/index.php', 'people', 'coreaccounting'));
 
 $bootstrap = (string) file_get_contents(__DIR__ . '/../core/api_bootstrap.php');
 $router = (string) file_get_contents(__DIR__ . '/../api/index.php');
 $check('common API auth applies standalone module policy',
     str_contains($bootstrap, "coreAccountingRequestModule(\$_SERVER['SCRIPT_FILENAME'] ?? null, currentModuleKey())")
-    && str_contains($bootstrap, "coreAccountingAllowsModule(\$moduleKey, (string) getenv('COREFLUX_ENV'))"));
+    && str_contains($bootstrap, "coreAccountingAllowsModuleRequest(\$_SERVER['SCRIPT_FILENAME'] ?? null, \$moduleKey, (string) getenv('COREFLUX_ENV'))"));
 $check('direct module request is rejected before auto-migration',
     strpos($bootstrap, "coreAccountingRequestModule(\$_SERVER['SCRIPT_FILENAME'] ?? null, null)")
         < strpos($bootstrap, 'coreflux_run_migrations()')
-    && strpos($bootstrap, 'if (!coreAccountingAllowsModule($directModule')
+    && strpos($bootstrap, 'if (!coreAccountingAllowsModuleRequest($_SERVER[\'SCRIPT_FILENAME\'] ?? null, $directModule')
         < strpos($bootstrap, 'coreflux_run_migrations()'));
 $check('router pins module before common auth',
     strpos($router, "setRequestModuleScope(\$parsed['module_id'])")

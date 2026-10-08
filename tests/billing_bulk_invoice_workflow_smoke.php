@@ -35,6 +35,10 @@ $check('invoice list exposes journal posting state',
     str_contains($api, 'bi.journal_entry_id, bi.sent_at')
     && str_contains($api, 'AS journal_status')
     && str_contains($list, "row.journal_status === 'posted'"));
+$check('unapprovable drafts explain the independent reviewer requirement',
+    str_contains($detail, 'billing-invoice-approval-guidance')
+    && str_contains($detail, 'This draft needs approval from a different authorized user.')
+    && str_contains($detail, 'to="/modules/billing/approvals"'));
 $check('server search uses separate placeholders to avoid native-prepare HY093 errors',
     str_contains($api, 'invoice_number LIKE :q_invoice')
     && str_contains($api, 'client_name LIKE :q_client')
