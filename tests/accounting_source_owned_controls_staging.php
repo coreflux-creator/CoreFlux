@@ -136,6 +136,32 @@ try {
         'reviewer can post a recurring draft through its source workflow');
     qaExpect(!empty(recurringJePostDraft(QA_TENANT, (int) $validRun['je_id'])['idempotent_replay']),
         'recurring draft posting is idempotent');
+    $qaBank = qaOne($pdo, 'SELECT id FROM accounting_bank_accounts
+        WHERE tenant_id = :t AND entity_id = :e AND gl_account_code = :code',
+        ['t' => QA_TENANT, 'e' => $entityId, 'code' => QA_BANK_CODE]);
+    if (!$qaBank) throw new RuntimeException('Synthetic staging bank is missing');
+    $pdo->prepare('INSERT INTO accounting_bank_statement_lines
+        (tenant_id, bank_account_id, posted_date, description, amount, match_status, matched_je_id)
+        VALUES (:t, :bank_id, :posted_date, "Rollback-only match guard", 1, "matched", :je_id)')
+        ->execute(['t' => QA_TENANT, 'bank_id' => (int) $qaBank['id'],
+            'posted_date' => date('Y-m-d'), 'je_id' => (int) $validRun['je_id']]);
+    $matchedLineId = (int) $pdo->lastInsertId();
+    try {
+        recurringJeReverseRun(QA_TENANT, (int) $validRun['je_id'], 'Rollback-only correction');
+        $matchedReversalRejected = false;
+    } catch (RuntimeException $e) {
+        $matchedReversalRejected = str_contains($e->getMessage(), 'Unmatch the linked bank transaction');
+    }
+    qaExpect($matchedReversalRejected, 'matched bank line blocks recurring-run reversal');
+    $pdo->prepare('DELETE FROM accounting_bank_statement_lines WHERE tenant_id = :t AND id = :id')
+        ->execute(['t' => QA_TENANT, 'id' => $matchedLineId]);
+    $reversal = recurringJeReverseRun(QA_TENANT, (int) $validRun['je_id'], 'Rollback-only correction');
+    qaExpect(($reversal['status'] ?? '') === 'posted'
+        && (int) ($reversal['je_id'] ?? 0) !== (int) $validRun['je_id'],
+        'recurring run reverses only after bank match is cleared');
+    qaExpect(!empty(recurringJeReverseRun(
+        QA_TENANT, (int) $validRun['je_id'], 'Rollback-only correction'
+    )['idempotent_replay']), 'recurring-run reversal is idempotent');
     try {
         recurringJePostDraft(1002, (int) $validRun['je_id']);
         $otherTenantRejected = false;
