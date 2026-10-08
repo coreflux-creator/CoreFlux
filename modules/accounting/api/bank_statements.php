@@ -415,7 +415,9 @@ if ($method === 'POST' && $action === 'match') {
     } catch (\Throwable $e) {
         api_error($e->getMessage(), 409);
     }
-    accountingAudit('accounting.bank.line_matched', ['line_id' => $lid, 'je_id' => $jeId], $lid);
+    if (empty($res['idempotent_replay'])) {
+        accountingAudit('accounting.bank.line_matched', ['line_id' => $lid, 'je_id' => $jeId], $lid);
+    }
     api_ok($res);
 }
 
@@ -471,7 +473,7 @@ if ($method === 'POST' && $action === 'match_ap_payment') {
     if ($paymentId <= 0) api_error('payment_id required', 422);
 
     $line = scopedFind(
-        'SELECT bl.id, bl.amount, bl.posted_date, bl.match_status,
+        'SELECT bl.id, bl.amount, bl.posted_date, bl.match_status, bl.matched_je_id,
                 ba.id AS bank_account_id, ba.entity_id AS bank_entity_id,
                 COALESCE(NULLIF(ba.currency, ""), "USD") AS bank_currency
            FROM accounting_bank_statement_lines bl
@@ -481,7 +483,6 @@ if ($method === 'POST' && $action === 'match_ap_payment') {
         ['id' => $lid]
     );
     if (!$line) api_error('Line not found', 404);
-    if (($line['match_status'] ?? '') !== 'unmatched') api_error('This bank line is already resolved', 409);
     if ((float) $line['amount'] >= 0) api_error('Only outgoing bank lines can clear AP payments', 422);
 
     $payment = scopedFind(
@@ -508,6 +509,13 @@ if ($method === 'POST' && $action === 'match_ap_payment') {
     if (!empty($payment['bank_account_id'])
         && (int) $payment['bank_account_id'] !== (int) $line['bank_account_id']) {
         api_error('The AP payment was released from a different bank account', 409);
+    }
+    $sameMatch = ($line['match_status'] ?? '') === 'matched'
+        && ($payment['status'] ?? '') === 'cleared'
+        && (int) ($payment['journal_entry_id'] ?? 0) > 0
+        && (int) ($line['matched_je_id'] ?? 0) === (int) $payment['journal_entry_id'];
+    if (($line['match_status'] ?? '') !== 'unmatched' && !$sameMatch) {
+        api_error('This bank line is already resolved', 409);
     }
 
     require_once __DIR__ . '/../../ap/lib/ap.php';
@@ -541,18 +549,20 @@ if ($method === 'POST' && $action === 'match_ap_payment') {
             'bank_account_id' => (int) $line['bank_account_id'],
         ], $paymentId);
     }
-    accountingAudit('accounting.bank.ap_payment_matched', [
-        'line_id' => $lid,
-        'payment_id' => $paymentId,
-        'je_id' => (int) $cleared['journal_entry_id'],
-    ], $lid);
+    if (empty($match['idempotent_replay'])) {
+        accountingAudit('accounting.bank.ap_payment_matched', [
+            'line_id' => $lid,
+            'payment_id' => $paymentId,
+            'je_id' => (int) $cleared['journal_entry_id'],
+        ], $lid);
+    }
     api_ok([
         'ok' => true,
         'line_id' => $lid,
         'payment_id' => $paymentId,
         'matched_je_id' => (int) $cleared['journal_entry_id'],
         'payment_status' => 'cleared',
-        'idempotent_replay' => !empty($cleared['idempotent_replay']) || !empty($match['idempotent_replay']),
+        'idempotent_replay' => !empty($match['idempotent_replay']),
     ]);
 }
 

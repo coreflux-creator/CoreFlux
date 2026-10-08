@@ -194,6 +194,16 @@ function currentTenantId(): ?int {
     return null;
 }
 
+/** Request-scoped tenant and actor for module audit events. */
+function currentTenantContext(): array {
+    $tenantId = currentTenantId();
+    $user = $_SESSION['user'] ?? null;
+    return [
+        'tenant_id' => $tenantId,
+        'user' => is_array($user) ? $user : null,
+    ];
+}
+
 /**
  * Run a SELECT that MUST reference :tenant_id. Tenant binding is auto-injected.
  * Returns an array of rows (possibly empty).

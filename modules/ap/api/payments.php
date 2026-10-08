@@ -662,18 +662,19 @@ if ($method === 'POST' && $action === 'clear') {
         api_error($e->getMessage(), 422, ['retryable' => true]);
     }
 
-    $cleared = $result['after'] ?? (apPaymentAuditRow($tid, $id) ?? $row);
-    apAudit('ap.payment.cleared', [
-        'payment_id' => $id,
-        'journal_entry_id' => $result['journal_entry_id'],
-        'bank_account_id' => $result['posting']['bank_account_id'] ?? null,
-        'event_layer_status' => $result['event_layer_status'] ?? null,
-        'event_layer_error' => $result['event_layer_error'] ?? null,
-        'idempotent_replay' => !empty($result['idempotent_replay']),
-    ], $id, [
-        'before' => $row,
-        'after' => $cleared,
-    ]);
+    if (empty($result['idempotent_replay'])) {
+        $cleared = $result['after'] ?? (apPaymentAuditRow($tid, $id) ?? $row);
+        apAudit('ap.payment.cleared', [
+            'payment_id' => $id,
+            'journal_entry_id' => $result['journal_entry_id'],
+            'bank_account_id' => $result['posting']['bank_account_id'] ?? null,
+            'event_layer_status' => $result['event_layer_status'] ?? null,
+            'event_layer_error' => $result['event_layer_error'] ?? null,
+        ], $id, [
+            'before' => $row,
+            'after' => $cleared,
+        ]);
+    }
     api_ok([
         'ok' => true,
         'journal_entry_id' => (int) $result['journal_entry_id'],

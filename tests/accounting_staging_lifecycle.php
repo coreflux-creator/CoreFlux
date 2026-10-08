@@ -2,7 +2,8 @@
 /** Hosted, synthetic-only CoreAccounting financial lifecycle acceptance. */
 declare(strict_types=1);
 
-if (PHP_SAPI !== 'cli' || ($argv[1] ?? '') !== '--execute') {
+if (PHP_SAPI !== 'cli' || (($argv[1] ?? '') !== '--execute'
+    && !defined('QA_LIFECYCLE_LIBRARY_MODE'))) {
     fwrite(STDERR, "Run from CLI with --execute on the isolated CoreFlux staging host only.\n");
     exit(2);
 }
@@ -141,17 +142,20 @@ function qaBalances(PDO $pdo, int $entityId): array
         FROM accounting_journal_entry_lines l
         JOIN accounting_journal_entries j ON j.id = l.je_id AND j.tenant_id = l.tenant_id
         JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = j.tenant_id
-        WHERE j.tenant_id = :t AND j.entity_id = :e AND j.status = "posted"
+        WHERE j.tenant_id = :t AND j.entity_id = :e AND j.status IN ("posted", "reversed")
         GROUP BY a.code');
     $stmt->execute(['t' => QA_TENANT, 'e' => $entityId]);
-    return array_map('floatval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'net', 'code'));
+    $balances = array_map('floatval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'net', 'code'));
+    ksort($balances, SORT_STRING);
+    return $balances;
 }
 
 function qaReports(int $entityId, string $cookie): array
 {
     $reports = [];
+    $asOf = max('2026-10-07', date('Y-m-d'));
     foreach (['income_statement', 'balance_sheet', 'cash_flow_indirect'] as $type) {
-        $query = $type === 'balance_sheet' ? 'as_of=2026-10-07' : 'from=2026-01-01&to=2026-10-07';
+        $query = $type === 'balance_sheet' ? 'as_of=' . $asOf : 'from=2026-01-01&to=' . $asOf;
         $reports[$type] = qaRequest('/modules/accounting/api/reports.php?type=' . $type .
             '&entity_id=' . $entityId . '&' . $query, 'GET', null, $cookie);
     }
@@ -161,6 +165,34 @@ function qaReports(int $entityId, string $cookie): array
 function qaDelta(array $before, array $after, string $key, float $expected): bool
 {
     return abs(((float) ($after[$key] ?? 0) - (float) ($before[$key] ?? 0)) - $expected) < 0.005;
+}
+
+function qaCsv(array $rows): string
+{
+    $stream = fopen('php://temp', 'w+');
+    if (!$stream) throw new RuntimeException('Could not prepare synthetic bank CSV');
+    try {
+        foreach ($rows as $row) {
+            if (fputcsv($stream, $row, ',', '"', '') === false) {
+                throw new RuntimeException('Could not write synthetic bank CSV');
+            }
+        }
+        rewind($stream);
+        return (string) stream_get_contents($stream);
+    } finally {
+        fclose($stream);
+    }
+}
+
+function qaAuditCount(PDO $pdo, string $event, int $targetId): int
+{
+    return (int) qaOne($pdo, 'SELECT COUNT(*) AS n FROM audit_log
+        WHERE tenant_id = :t AND event = :event AND target_id = :target',
+        ['t' => QA_TENANT, 'event' => $event, 'target' => $targetId])['n'];
+}
+
+if (defined('QA_LIFECYCLE_LIBRARY_MODE')) {
+    return;
 }
 
 $maker = null;
@@ -360,6 +392,8 @@ try {
     qaExpect(!empty($clearReplay['idempotent_replay'])
         && (int) $clearReplay['journal_entry_id'] === (int) $cleared['journal_entry_id'],
         'payment repeat clear reused its journal');
+    qaExpect(qaAuditCount($pdo, 'ap.payment.cleared', $paymentId) === 1,
+        'payment repeat clear did not duplicate the business audit event');
 
     $invoiceRow = qaOne($pdo, 'SELECT status, amount_paid, amount_due, journal_entry_id, sent_at FROM billing_invoices
         WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $invoiceId]);
@@ -408,9 +442,151 @@ try {
         && qaDelta($cashBefore, $cashAfter, 'cash_change_from_gl', 150)
         && abs((float) ($cashAfter['reconciliation_diff'] ?? 1)) < 0.005
         && !empty($cashAfter['balanced']), 'cash flow reconciles to bank GL');
+
+    $fitids = [
+        'receipt' => 'SIM-BANK-RECEIPT-' . $run,
+        'payment' => 'SIM-BANK-PAYMENT-' . $run,
+        'treasury' => 'SIM-BANK-CHARGE-' . $run,
+    ];
+    $csv = qaCsv([
+        ['Date', 'Description', 'Amount', 'Transaction ID'],
+        [$date, 'Synthetic QA receipt ' . $run, '400.00', $fitids['receipt']],
+        [$date, 'Synthetic QA payment ' . $run, '-250.00', $fitids['payment']],
+        [$date, 'Synthetic QA charge ' . $run, '-40.00', $fitids['treasury']],
+    ]);
+    $importPath = '/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=' . $bankId;
+    $import = qaRequest($importPath, 'POST', ['csv' => $csv], $makerCookie);
+    qaExpect((int) ($import['inserted'] ?? -1) === 3 && (int) ($import['duplicates'] ?? -1) === 0,
+        'three synthetic bank statement lines imported');
+    $importReplay = qaRequest($importPath, 'POST', ['csv' => $csv], $makerCookie);
+    qaExpect((int) ($importReplay['inserted'] ?? -1) === 0
+        && (int) ($importReplay['duplicates'] ?? -1) === 3,
+        'bank CSV replay does not create duplicate lines');
+    $bankLines = [];
+    foreach ($fitids as $key => $fitid) {
+        $bankLines[$key] = qaOne($pdo, 'SELECT id, match_status, matched_je_id
+            FROM accounting_bank_statement_lines
+            WHERE tenant_id = :t AND bank_account_id = :b AND fitid = :fitid',
+            ['t' => QA_TENANT, 'b' => $bankId, 'fitid' => $fitid]);
+    }
+    qaExpect(count(array_filter($bankLines, static fn($line) => $line
+        && $line['match_status'] === 'unmatched')) === 3,
+        'imported lines start unresolved without posting again');
+
+    $receiptLineId = (int) $bankLines['receipt']['id'];
+    $paymentLineId = (int) $bankLines['payment']['id'];
+    $treasuryLineId = (int) $bankLines['treasury']['id'];
+    $bankJournalCount = (int) qaOne($pdo, 'SELECT COUNT(*) AS n FROM accounting_journal_entries
+        WHERE tenant_id = :t AND entity_id = :e AND status = "posted"',
+        ['t' => QA_TENANT, 'e' => $entityId])['n'];
+
+    $suggestion = qaRequest('/modules/accounting/api/bank_ai.php?action=suggest_match&line_id=' .
+        $receiptLineId, 'POST', [], $reviewerCookie);
+    qaExpect(in_array((int) $receipt['journal_entry_id'], array_map('intval',
+        array_column($suggestion['candidates'] ?? [], 'je_id')), true),
+        'incoming bank line offers the existing posted receipt journal');
+    $unmatched = qaRequest('/modules/accounting/api/bank_statements.php?bank_account_id=' . $bankId .
+        '&match_status=unmatched&per_page=200', 'GET', null, $reviewerCookie);
+    $apCandidate = false;
+    foreach ($unmatched['rows'] ?? [] as $row) {
+        if ((int) $row['id'] !== $paymentLineId) continue;
+        foreach ($row['ap_payment_matches'] ?? [] as $candidate) {
+            if ((int) $candidate['payment_id'] === $paymentId
+                && !empty($candidate['can_clear_and_match'])) $apCandidate = true;
+        }
+    }
+    qaExpect($apCandidate, 'outgoing bank line offers the already-cleared AP payment');
+
+    $receiptMatchPath = '/modules/accounting/api/bank_statements.php?action=match&line_id=' . $receiptLineId;
+    $receiptMatch = qaRequest($receiptMatchPath, 'POST',
+        ['je_id' => (int) $receipt['journal_entry_id']], $reviewerCookie);
+    qaExpect(empty($receiptMatch['idempotent_replay'])
+        && (int) ($receiptMatch['je_id'] ?? 0) === (int) $receipt['journal_entry_id'],
+        'existing customer receipt matched without another posting');
+    $receiptMatchReplay = qaRequest($receiptMatchPath, 'POST',
+        ['je_id' => (int) $receipt['journal_entry_id']], $reviewerCookie);
+    qaExpect(!empty($receiptMatchReplay['idempotent_replay'])
+        && qaAuditCount($pdo, 'accounting.bank.line_matched', $receiptLineId) === 1,
+        'receipt match retry reuses the match without duplicate audit');
+
+    $paymentMatchPath = '/modules/accounting/api/bank_statements.php?action=match_ap_payment&line_id=' . $paymentLineId;
+    $paymentMatch = qaRequest($paymentMatchPath, 'POST', ['payment_id' => $paymentId], $reviewerCookie);
+    qaExpect(empty($paymentMatch['idempotent_replay'])
+        && (int) ($paymentMatch['matched_je_id'] ?? 0) === (int) $cleared['journal_entry_id'],
+        'first bank match of an already-cleared AP payment is not labeled a replay');
+    $paymentMatchReplay = qaRequest($paymentMatchPath, 'POST', ['payment_id' => $paymentId], $reviewerCookie);
+    qaExpect(!empty($paymentMatchReplay['idempotent_replay'])
+        && qaAuditCount($pdo, 'accounting.bank.ap_payment_matched', $paymentLineId) === 1,
+        'exact AP bank-match retry is idempotent without duplicate audit');
+
+    $receiptLine = qaOne($pdo, 'SELECT match_status, matched_je_id FROM accounting_bank_statement_lines
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $receiptLineId]);
+    $paymentLine = qaOne($pdo, 'SELECT match_status, matched_je_id FROM accounting_bank_statement_lines
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $paymentLineId]);
+    $afterBankJournalCount = (int) qaOne($pdo, 'SELECT COUNT(*) AS n FROM accounting_journal_entries
+        WHERE tenant_id = :t AND entity_id = :e AND status = "posted"',
+        ['t' => QA_TENANT, 'e' => $entityId])['n'];
+    qaExpect($receiptLine['match_status'] === 'matched'
+        && (int) $receiptLine['matched_je_id'] === (int) $receipt['journal_entry_id']
+        && $paymentLine['match_status'] === 'matched'
+        && (int) $paymentLine['matched_je_id'] === (int) $cleared['journal_entry_id']
+        && $afterBankJournalCount === $bankJournalCount
+        && qaBalances($pdo, $entityId) === $balances,
+        'bank reconciliation reused both source journals without moving the GL');
+
+    $expense = qaOne($pdo, 'SELECT id FROM accounting_accounts
+        WHERE tenant_id = :t AND code = "5000" AND active = 1 AND is_postable = 1',
+        ['t' => QA_TENANT]);
+    qaExpect((int) ($expense['id'] ?? 0) > 0, 'synthetic expense counterpart is available');
+    $treasuryPath = '/modules/treasury/api/account_transactions.php?action=categorize_and_post';
+    $treasuryBody = ['type' => 'deposit', 'line_id' => $treasuryLineId,
+        'counterpart_account_id' => (int) $expense['id'], 'memo' => 'Synthetic bank fee ' . $run];
+    $treasuryPost = qaRequest($treasuryPath, 'POST', $treasuryBody, $reviewerCookie);
+    $treasuryJournalId = (int) ($treasuryPost['matched_je_id'] ?? 0);
+    $treasuryLine = qaOne($pdo, 'SELECT match_status, matched_je_id FROM accounting_bank_statement_lines
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $treasuryLineId]);
+    qaExpect($treasuryJournalId > 0 && $treasuryLine['match_status'] === 'matched'
+        && (int) $treasuryLine['matched_je_id'] === $treasuryJournalId
+        && qaDelta($balances, qaBalances($pdo, $entityId), QA_BANK_CODE, -40)
+        && qaDelta($balances, qaBalances($pdo, $entityId), '5000', 40),
+        'Treasury classification posts and reconciles the bank line atomically');
+
+    $correction = qaRequest('/modules/treasury/api/account_transactions.php?action=correct_categorization',
+        'POST', ['type' => 'deposit', 'line_id' => $treasuryLineId,
+            'reason' => 'Synthetic staging correction proof'], $reviewerCookie);
+    $reopened = qaOne($pdo, 'SELECT match_status, matched_je_id FROM accounting_bank_statement_lines
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $treasuryLineId]);
+    qaExpect((int) ($correction['reversal_je_id'] ?? 0) > 0
+        && $reopened['match_status'] === 'unmatched' && $reopened['matched_je_id'] === null
+        && qaBalances($pdo, $entityId) === $balances,
+        'Treasury correction reverses the journal and reopens only its source line');
+    $treasuryRebook = qaRequest($treasuryPath, 'POST', $treasuryBody, $reviewerCookie);
+    $rebookedLine = qaOne($pdo, 'SELECT match_status, matched_je_id FROM accounting_bank_statement_lines
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $treasuryLineId]);
+    qaExpect((int) ($treasuryRebook['matched_je_id'] ?? 0) > 0
+        && (int) $treasuryRebook['matched_je_id'] !== $treasuryJournalId
+        && $rebookedLine['match_status'] === 'matched'
+        && qaDelta($balances, qaBalances($pdo, $entityId), QA_BANK_CODE, -40)
+        && qaDelta($balances, qaBalances($pdo, $entityId), '5000', 40),
+        'rebooked Treasury line has a fresh journal and remains reconciled');
+
+    $finalReports = qaReports($entityId, $reviewerCookie);
+    qaExpect(qaDelta($afterReports['income_statement'], $finalReports['income_statement'], 'net_income', -40)
+        && qaDelta($afterReports['cash_flow_indirect'], $finalReports['cash_flow_indirect'], 'net_change_in_cash', -40)
+        && abs((float) ($finalReports['cash_flow_indirect']['reconciliation_diff'] ?? 1)) < 0.005
+        && !empty($finalReports['balance_sheet']['balanced']),
+        'corrected and rebooked bank expense reaches balanced reports exactly once');
+    $remaining = qaRequest('/modules/accounting/api/bank_statements.php?bank_account_id=' . $bankId .
+        '&match_status=unmatched&per_page=200', 'GET', null, $reviewerCookie);
+    $remainingIds = array_map('intval', array_column($remaining['rows'] ?? [], 'id'));
+    qaExpect(!in_array($receiptLineId, $remainingIds, true)
+        && !in_array($paymentLineId, $remainingIds, true)
+        && !in_array($treasuryLineId, $remainingIds, true),
+        'matched synthetic lines no longer appear in the bank review queue');
     echo json_encode(['run' => $run, 'entity_id' => $entityId, 'bank_account_id' => $bankId,
         'invoice_id' => $invoiceId, 'bill_id' => $billId, 'receipt_id' => $receipt['id'],
-        'payment_id' => $paymentId, 'balances' => $balances], JSON_PRETTY_PRINT), "\n";
+        'payment_id' => $paymentId, 'bank_line_ids' => array_map('intval', array_column($bankLines, 'id')),
+        'balances' => qaBalances($pdo, $entityId)], JSON_PRETTY_PRINT), "\n";
 } finally {
     foreach ($cookies as $cookie) if (is_string($cookie) && file_exists($cookie)) unlink($cookie);
     foreach ([$maker, $reviewer] as $actor) {

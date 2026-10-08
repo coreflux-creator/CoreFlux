@@ -64,6 +64,16 @@ $check('endpoint clears once and then reconciles the resulting journal',
     str_contains($bankApi, 'apClearPayment(')
     && str_contains($bankApi, 'bankRecMatchLine(')
     && str_contains($bankApi, 'accounting.bank.ap_payment_matched'));
+$check('exact AP match retry is allowed only for its cleared payment journal',
+    str_contains($bankApi, "\$sameMatch = (\$line['match_status'] ?? '') === 'matched'")
+    && str_contains($bankApi, "(\$payment['status'] ?? '') === 'cleared'")
+    && str_contains($bankApi, "(int) (\$line['matched_je_id'] ?? 0) === (int) \$payment['journal_entry_id']"));
+$check('bank-match replay reflects the line transition, not a prior AP clear',
+    str_contains($bankApi, "'idempotent_replay' => !empty(\$match['idempotent_replay'])")
+    && str_contains($bankApi, "if (empty(\$match['idempotent_replay'])) {"));
+$check('AP clear retry does not duplicate its business audit event',
+    str_contains($apApi, "if (empty(\$result['idempotent_replay'])) {")
+    && str_contains($apApi, "apAudit('ap.payment.cleared'"));
 $matchAction = substr($bankApi, (int) strpos($bankApi, "if (\$method === 'POST' && \$action === 'match_ap_payment')"), 6000);
 $check('AP clear and bank match commit or roll back together',
     str_contains($matchAction, 'cf_tx_begin($pdo)')
