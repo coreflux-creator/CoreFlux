@@ -46,6 +46,10 @@ $asOf = $_GET['as_of']  ?? null;
 $eid  = !empty($_GET['entity_id']) ? (int) $_GET['entity_id'] : null;
 $code = $_GET['account_code'] ?? $_GET['code'] ?? null;
 $tplId = (int) ($_GET['template_id'] ?? 0);
+if (in_array($type, ['je', 'unposted_jes', 'unposted', 'approval_queue'], true)
+    && array_key_exists('approval_state', $_GET)) {
+    api_error('Journal entries do not have an approval-state field; filter by posting status.', 422);
+}
 if (in_array($type, ['gl_detail', 'unposted_jes', 'unposted', 'approval_queue', 'account_activity'], true)) {
     try {
         $eid = accountingValidateActiveEntityId($tid, $_GET['entity_id'] ?? null);
@@ -260,7 +264,6 @@ $datasetOptionsForType = function (string $exportType, array $cfg) use ($from, $
     if (!empty($_GET['status']) && empty($cfg['forced_options']['status'])) {
         $opts['status'] = (string) $_GET['status'];
     }
-    if (!empty($_GET['approval_state'])) $opts['approval_state'] = (string) $_GET['approval_state'];
     if (!empty($_GET['source_module'])) $opts['source_module'] = (string) $_GET['source_module'];
     if (!empty($_GET['period_id'])) $opts['period_id'] = (int) $_GET['period_id'];
     if ($code && in_array($exportType, ['coa', 'je', 'je_lines', 'gl_detail'], true)) {

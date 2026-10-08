@@ -248,7 +248,6 @@ function exportDatasetRegistry(): array {
                 'source_ref_type'     => ['label' => 'Source ref type',   'sample' => 'bill'],
                 'source_ref_id'       => ['label' => 'Source ref ID',     'sample' => '412'],
                 'status'              => ['label' => 'Posting status',    'sample' => 'posted'],
-                'approval_state'      => ['label' => 'Approval state',    'sample' => 'approved'],
                 'currency'            => ['label' => 'Currency',          'sample' => 'USD'],
                 'total_debit'         => ['label' => 'Total debit',       'sample' => '1080.00', 'field_type' => 'currency'],
                 'total_credit'        => ['label' => 'Total credit',      'sample' => '1080.00', 'field_type' => 'currency'],
@@ -1029,10 +1028,6 @@ function exportDatasetFetchAccountingJournalEntries(int $tenantId, array $opts):
         $where[] = 'je.status <> :exclude_status';
         $params['exclude_status'] = (string) $opts['exclude_status'];
     }
-    if (!empty($opts['approval_state'])) {
-        $where[] = 'je.approval_state = :approval_state';
-        $params['approval_state'] = (string) $opts['approval_state'];
-    }
     if (!empty($opts['from'])) {
         $where[] = 'je.posting_date >= :from_date';
         $params['from_date'] = (string) $opts['from'];
@@ -1063,7 +1058,7 @@ function exportDatasetFetchAccountingJournalEntries(int $tenantId, array $opts):
     $stmt = $pdo->prepare(
         'SELECT DISTINCT je.id AS journal_entry_id, je.je_number, je.posting_date,
                 je.entity_id, je.period_id, je.source_module, je.source_ref_type,
-                je.source_ref_id, je.status, je.approval_state, je.currency,
+                je.source_ref_id, je.status, je.currency,
                 je.total_debit, je.total_credit, je.memo, je.posted_at,
                 je.posted_by_user_id, je.created_by_user_id, je.created_at, je.updated_at
            FROM accounting_journal_entries je ' . $joinLine . '

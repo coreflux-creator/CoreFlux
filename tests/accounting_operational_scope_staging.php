@@ -99,6 +99,13 @@ try {
             [$csvStatus, $csv] = operationalGet('/modules/accounting/api/export.php?' . $params,
                 $cookie);
             $rows = operationalCsvRows($csv);
+            if ((int) $list['count'] !== $expectedDrafts || count($rows) !== $expectedDrafts
+                || $csvStatus !== 200) {
+                fwrite(STDERR, json_encode(['entity' => $entity['code'], 'type' => $type,
+                    'expected' => $expectedDrafts, 'api' => $list['count'],
+                    'csv' => count($rows), 'http' => $csvStatus,
+                    'csv_header' => substr($csv, 0, 180)], JSON_THROW_ON_ERROR) . "\n");
+            }
             qaExpect((int) $list['entity_id'] === $id && (int) $list['count'] === $expectedDrafts
                 && count($rows) === $expectedDrafts && $csvStatus === 200
                 && count(array_filter(array_merge($list['rows'], $rows), static fn ($row) =>
@@ -128,6 +135,9 @@ try {
             qaExpect($status === 422, "{$endpoint} rejects {$invalid} entity");
         }
     }
+    [$invalidApprovalStatus] = operationalGet('/modules/accounting/api/export.php'
+        . '?type=unposted_jes&approval_state=approved', $cookie);
+    qaExpect($invalidApprovalStatus === 422, 'journal export rejects nonexistent approval-state filter');
 } finally {
     if ($actor && isset($actor['id'])) {
         $pdo->prepare('UPDATE users SET is_active = 0, password_hash = NULL
