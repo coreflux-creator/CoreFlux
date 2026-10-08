@@ -284,7 +284,8 @@ $accountingExport = file_get_contents(__DIR__ . '/../modules/accounting/api/expo
 $assert('accounting export honors template_id', strpos($accountingExport, "(int) (\$_GET['template_id'] ?? 0)") !== false);
 $assert('accounting export uses governed datasets',
                                               strpos($accountingExport, 'exportDatasetFetchRows') !== false
-                                              && strpos($accountingExport, 'exportTemplateStreamDatasetCsv') !== false
+                                              && strpos($accountingExport, 'exportTemplateRenderDatasetToStream') !== false
+                                              && strpos($accountingExport, 'exportPagedRows') !== false
                                               && strpos($accountingExport, 'accounting_chart_of_accounts') !== false
                                               && strpos($accountingExport, 'accounting_journal_entries') !== false
                                               && strpos($accountingExport, 'accounting_gl_detail') !== false

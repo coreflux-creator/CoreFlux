@@ -244,7 +244,9 @@ function exportTemplateRenderToStream(int $tplId, iterable $rows, $fh, int $tena
     if (strlen($quote) !== 1)     $quote     = '"';
 
     if ((int) ($tpl['has_header_row'] ?? 1) === 1) {
-        fputcsv($fh, array_map(fn ($m) => (string) ($m['output_header'] ?? ''), $mappings), $delimiter, $quote);
+        if (fputcsv($fh, array_map(fn ($m) => (string) ($m['output_header'] ?? ''), $mappings), $delimiter, $quote, '\\') === false) {
+            throw new ExportTemplateException('Could not write export template header');
+        }
     }
 
     foreach ($rows as $row) {
@@ -259,7 +261,9 @@ function exportTemplateRenderToStream(int $tplId, iterable $rows, $fh, int $tena
                     ? (string) $row[$src] : '';
             }
         }
-        fputcsv($fh, $line, $delimiter, $quote);
+        if (fputcsv($fh, $line, $delimiter, $quote, '\\') === false) {
+            throw new ExportTemplateException('Could not write export template row');
+        }
     }
 }
 

@@ -958,6 +958,7 @@ function exportDatasetFetchExpenses(int $tenantId, array $opts): array {
 function exportDatasetFetchAccountingChartOfAccounts(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $offset = max(0, (int) ($opts['offset'] ?? 0));
     $where = ['tenant_id = :tenant_id'];
     $params = ['tenant_id' => $tenantId];
     if (array_key_exists('active', $opts) && $opts['active'] !== '' && $opts['active'] !== null) {
@@ -982,8 +983,8 @@ function exportDatasetFetchAccountingChartOfAccounts(int $tenantId, array $opts)
            LEFT JOIN accounting_accounts parent
              ON parent.tenant_id = a.tenant_id AND parent.id = a.parent_account_id
           WHERE ' . implode(' AND ', $where) . '
-          ORDER BY a.code
-          LIMIT ' . $limit
+          ORDER BY a.code, a.id
+          LIMIT ' . $limit . ' OFFSET ' . $offset
     );
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -992,6 +993,7 @@ function exportDatasetFetchAccountingChartOfAccounts(int $tenantId, array $opts)
 function exportDatasetFetchAccountingJournalEntries(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $offset = max(0, (int) ($opts['offset'] ?? 0));
     $where = ['je.tenant_id = :tenant_id'];
     $params = ['tenant_id' => $tenantId];
     $joinLine = '';
@@ -1064,7 +1066,7 @@ function exportDatasetFetchAccountingJournalEntries(int $tenantId, array $opts):
            FROM accounting_journal_entries je ' . $joinLine . '
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY je.posting_date DESC, je.id DESC
-          LIMIT ' . $limit
+          LIMIT ' . $limit . ' OFFSET ' . $offset
     );
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -1073,6 +1075,7 @@ function exportDatasetFetchAccountingJournalEntries(int $tenantId, array $opts):
 function exportDatasetFetchAccountingGlDetail(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $offset = max(0, (int) ($opts['offset'] ?? 0));
     $where = ['je.tenant_id = :tenant_id'];
     $params = ['tenant_id' => $tenantId];
     if (!empty($opts['statuses'])) {
@@ -1129,8 +1132,8 @@ function exportDatasetFetchAccountingGlDetail(int $tenantId, array $opts): array
            JOIN accounting_journal_entries je ON je.id = l.je_id
            JOIN accounting_accounts a ON a.id = l.account_id
           WHERE ' . implode(' AND ', $where) . '
-          ORDER BY je.posting_date DESC, je.id DESC, l.line_no
-          LIMIT ' . $limit
+          ORDER BY je.posting_date DESC, je.id DESC, l.line_no, l.id
+          LIMIT ' . $limit . ' OFFSET ' . $offset
     );
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -1139,6 +1142,7 @@ function exportDatasetFetchAccountingGlDetail(int $tenantId, array $opts): array
 function exportDatasetFetchAccountingPeriods(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $offset = max(0, (int) ($opts['offset'] ?? 0));
     $where = ['tenant_id = :tenant_id'];
     $params = ['tenant_id' => $tenantId];
     if (!empty($opts['entity_id'])) {
@@ -1164,8 +1168,8 @@ function exportDatasetFetchAccountingPeriods(int $tenantId, array $opts): array 
                 reopened_by_user_id, reopen_reason
            FROM accounting_periods
           WHERE ' . implode(' AND ', $where) . '
-          ORDER BY start_date DESC, period_number DESC
-          LIMIT ' . $limit
+          ORDER BY start_date DESC, period_number DESC, id DESC
+          LIMIT ' . $limit . ' OFFSET ' . $offset
     );
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -1174,6 +1178,7 @@ function exportDatasetFetchAccountingPeriods(int $tenantId, array $opts): array 
 function exportDatasetFetchAccountingBankStatementLines(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $offset = max(0, (int) ($opts['offset'] ?? 0));
     $where = ['bsl.tenant_id = :tenant_id'];
     $params = ['tenant_id' => $tenantId];
     if (!empty($opts['bank_account_id'])) {
@@ -1208,7 +1213,7 @@ function exportDatasetFetchAccountingBankStatementLines(int $tenantId, array $op
              ON ba.id = bsl.bank_account_id AND ba.tenant_id = bsl.tenant_id
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY bsl.posted_date DESC, bsl.id DESC
-          LIMIT ' . $limit
+          LIMIT ' . $limit . ' OFFSET ' . $offset
     );
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];

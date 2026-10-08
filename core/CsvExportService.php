@@ -48,8 +48,7 @@ class CsvExportService
     {
         $svc = new self($columns);
         $fp  = fopen('php://temp', 'w+');
-        $svc->writeHeader($fp);
-        foreach ($rows as $r) $svc->writeRow($fp, $r);
+        $svc->writeToStream($fp, $rows);
         rewind($fp);
         $csv = stream_get_contents($fp);
         fclose($fp);
@@ -68,15 +67,29 @@ class CsvExportService
         header("Content-Disposition: attachment; filename=\"{$safe}\"");
         header('Cache-Control: no-store');
         $fp = fopen('php://output', 'w');
-        $this->writeHeader($fp);
-        foreach ($rows as $r) $this->writeRow($fp, $r);
+        $this->writeToStream($fp, $rows);
         fclose($fp);
         exit;
     }
 
+    /** Write once to a caller-owned stream, without sending headers or exiting. */
+    public function writeToStream($fp, iterable $rows): int
+    {
+        if (!is_resource($fp)) throw new \InvalidArgumentException('CSV output stream required');
+        $this->writeHeader($fp);
+        $count = 0;
+        foreach ($rows as $row) {
+            $this->writeRow($fp, $row);
+            $count++;
+        }
+        return $count;
+    }
+
     private function writeHeader($fp): void
     {
-        fputcsv($fp, array_values($this->columns), ',', '"', '');
+        if (fputcsv($fp, array_values($this->columns), ',', '"', '') === false) {
+            throw new \RuntimeException('Could not write CSV header');
+        }
     }
 
     private function writeRow($fp, array $row): void
@@ -89,6 +102,8 @@ class CsvExportService
             elseif ($v === null)      $v = '';
             $cells[] = $v;
         }
-        fputcsv($fp, $cells, ',', '"', '');
+        if (fputcsv($fp, $cells, ',', '"', '') === false) {
+            throw new \RuntimeException('Could not write CSV row');
+        }
     }
 }

@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
 require_once __DIR__ . '/../../../core/export_service.php';
+require_once __DIR__ . '/../../../core/export_paging.php';
 require_once __DIR__ . '/../lib/accounting.php';
 
 use Core\CsvExportService;
@@ -68,23 +69,42 @@ if ($eid === null && in_array($type, ['gl_detail', 'unposted_jes', 'unposted', '
     api_error('Choose a legal entity from this workspace.', 422);
 }
 
-$emit = function (string $filename, array $headers, iterable $rows) use ($tid, $type): void {
-    if (!headers_sent()) {
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Cache-Control: no-store');
+$emit = function (string $filename, array $headers, iterable $rows, bool $snapshot = false) use ($tid, $type): void {
+    $db = getDB();
+    $out = fopen('php://temp/maxmemory:2097152', 'w+');
+    if ($out === false) throw new \RuntimeException('Could not prepare accounting CSV.');
+    $started = false;
+    try {
+        if ($snapshot) {
+            $db->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+            $db->beginTransaction();
+            $started = true;
+        }
+        if (fputcsv($out, $headers, ',', '"', '') === false) {
+            throw new \RuntimeException('Could not write accounting CSV header.');
+        }
+        $count = 0;
+        foreach ($rows as $r) {
+            $line = [];
+            foreach ($headers as $h) $line[] = $r[$h] ?? '';
+            if (fputcsv($out, $line, ',', '"', '') === false) {
+                throw new \RuntimeException('Could not write accounting CSV row.');
+            }
+            $count++;
+        }
+        accountingAudit('accounting.ledger.exported', ['type' => $type, 'rows' => $count], null);
+        if ($started) $db->commit();
+    } catch (\Throwable $e) {
+        if ($started && $db->inTransaction()) $db->rollBack();
+        fclose($out);
+        throw $e;
     }
-    $out = fopen('php://output', 'w');
-    fputcsv($out, $headers);
-    $count = 0;
-    foreach ($rows as $r) {
-        $line = [];
-        foreach ($headers as $h) $line[] = $r[$h] ?? '';
-        fputcsv($out, $line);
-        $count++;
-    }
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: no-store');
+    rewind($out);
+    fpassthru($out);
     fclose($out);
-    accountingAudit('accounting.ledger.exported', ['type' => $type, 'rows' => $count], null);
     exit;
 };
 
@@ -264,7 +284,7 @@ $governedExports = [
 ];
 
 $datasetOptionsForType = function (string $exportType, array $cfg) use ($from, $to, $eid, $code): array {
-    $opts = ['limit' => 10000];
+    $opts = [];
     foreach (($cfg['forced_options'] ?? []) as $key => $value) {
         $opts[$key] = $value;
     }
@@ -299,40 +319,51 @@ if (isset($governedExports[$type])) {
     $cfg = $governedExports[$type];
     $dataset = (string) $cfg['dataset'];
     $options = $datasetOptionsForType($type, $cfg);
-    if ($tplId > 0) {
-        try {
-            exportTemplateStreamDatasetCsv(
-                $tid,
-                $dataset,
-                $tplId,
-                $options,
-                (string) $cfg['prefix'],
-                $uid ?: null,
-                null,
-                [
-                    'type' => $type,
-                    'filename_parts' => [date('Y-m-d')],
-                ]
-            );
-            exit;
-        } catch (ExportServiceException $e) {
-            api_error($e->getMessage(), 422);
-        }
-    }
-
+    $out = fopen('php://temp/maxmemory:2097152', 'w+');
+    if ($out === false) throw new \RuntimeException('Could not prepare accounting CSV.');
     try {
-        $rows = exportDatasetFetchRows($tid, $dataset, $options);
-    } catch (ExportServiceException $e) {
+        $db->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        $db->beginTransaction();
+        $rows = exportPagedRows(
+            static fn (int $size, int $offset): array => exportDatasetFetchRows(
+                $tid, $dataset, array_merge($options, ['limit' => $size, 'offset' => $offset])
+            )
+        );
+        if ($tplId > 0) {
+            $template = exportTemplateGetForDataset($tplId, $tid, $dataset);
+            $filename = exportTemplateCsvFilename((string) $cfg['prefix'],
+                (string) ($template['name'] ?? 'template'), [date('Y-m-d')]);
+            exportTemplateRenderDatasetToStream($tid, $dataset, $tplId, $options, $out,
+                $uid ?: null, null, ['type' => $type, 'filename_parts' => [date('Y-m-d')]],
+                $template, $rows);
+        } else {
+            $filename = (string) $cfg['filename'];
+            $count = (new CsvExportService($cfg['columns']))->writeToStream($out, $rows);
+            exportDatasetAudit($tid, $uid ?: null, 'accounting.ledger.exported', null, exportDatasetAuditMeta([
+                'dataset' => $dataset,
+                'format' => 'csv',
+                'mode' => 'raw',
+                'type' => $type,
+                'rows' => $count,
+            ], $options));
+        }
+        $db->commit();
+    } catch (ExportServiceException|ExportTemplateException $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        fclose($out);
         api_error($e->getMessage(), 422);
+    } catch (\Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        fclose($out);
+        throw $e;
     }
-    exportDatasetAudit($tid, $uid ?: null, 'accounting.ledger.exported', null, exportDatasetAuditMeta([
-        'dataset' => $dataset,
-        'format' => 'csv',
-        'mode' => 'raw',
-        'type' => $type,
-        'rows' => count($rows),
-    ], $options));
-    (new CsvExportService($cfg['columns']))->stream($rows, (string) $cfg['filename']);
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . preg_replace('/[^A-Za-z0-9_\-.]/', '_', $filename) . '"');
+    header('Cache-Control: no-store');
+    rewind($out);
+    fpassthru($out);
+    fclose($out);
+    exit;
 }
 
 // Trial balance is computed, so it remains outside the tabular dataset dispatcher.
@@ -355,15 +386,18 @@ if ($type === 'audit_log') {
         $where[] = 'event LIKE :el';
         $params['el'] = 'accounting.' . rtrim((string) $_GET['event_like'], '%') . '%';
     }
-    $stmt = $db->prepare(
-        'SELECT id, event, actor_user_id, target_id, meta_json, ip_address, created_at
-         FROM audit_log WHERE ' . implode(' AND ', $where) . '
-         ORDER BY created_at DESC LIMIT 5000'
-    );
-    $stmt->execute($params);
+    $rows = exportPagedRows(static function (int $size, int $offset) use ($db, $where, $params): array {
+        $stmt = $db->prepare(
+            'SELECT id, event, actor_user_id, target_id, meta_json, ip_address, created_at
+             FROM audit_log WHERE ' . implode(' AND ', $where) . '
+             ORDER BY created_at DESC, id DESC LIMIT ' . $size . ' OFFSET ' . $offset
+        );
+        $stmt->execute($params);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    });
     $emit("accounting-audit-log-{$tid}-{$today}.csv",
         ['id','event','actor_user_id','target_id','meta_json','ip_address','created_at'],
-        $stmt);
+        $rows, true);
 }
 
 // Account activity adds a computed running balance.
