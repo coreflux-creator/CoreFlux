@@ -53,12 +53,15 @@ function apPwpAutoLinkForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorU
 
     // Load the AR invoice + its placement_ids.
     $inv = $pdo->prepare(
-        'SELECT id, tenant_id, period_start, period_end, status
+        'SELECT id, tenant_id, entity_id, period_start, period_end, status
            FROM billing_invoices WHERE id = :id AND tenant_id = :t'
     );
     $inv->execute(['id' => $arInvoiceId, 't' => $tenantId]);
     $invRow = $inv->fetch(\PDO::FETCH_ASSOC);
     if (!$invRow) throw new \RuntimeException("AR invoice {$arInvoiceId} not found");
+    if ($invRow['status'] === 'void') return ['linked' => [], 'reason' => 'AR invoice is void'];
+    $entityId = (int) ($invRow['entity_id'] ?? 0);
+    if ($entityId <= 0) return ['linked' => [], 'reason' => 'Assign the AR invoice to a legal entity before linking PWP bills'];
 
     $pq = $pdo->prepare(
         'SELECT DISTINCT placement_id FROM billing_invoice_lines
@@ -73,7 +76,8 @@ function apPwpAutoLinkForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorU
     // Find AP bills from same period + placements that are either explicitly
     // PWP-termed or belong to a vendor whose default_pwp flag is on.
     $placeholders = [];
-    $params = ['t' => $tenantId, 'ps' => $invRow['period_start'], 'pe' => $invRow['period_end']];
+    $params = ['t' => $tenantId, 'e' => $entityId,
+        'ps' => $invRow['period_start'], 'pe' => $invRow['period_end']];
     foreach ($placementIds as $i => $pid) {
         $k = 'p' . $i;
         $placeholders[] = ':' . $k;
@@ -87,6 +91,7 @@ function apPwpAutoLinkForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorU
               JOIN ap_bill_lines bl ON bl.bill_id = b.id
               LEFT JOIN ap_vendors_index v ON v.tenant_id = b.tenant_id AND v.vendor_name = b.vendor_name
              WHERE b.tenant_id = :t
+               AND b.entity_id = :e
                AND b.status NOT IN ("paid","void")
                AND b.period_start = :ps AND b.period_end = :pe
                AND bl.placement_id IN (' . implode(',', $placeholders) . ')';
@@ -105,8 +110,8 @@ function apPwpAutoLinkForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorU
             if (!$isPwp) continue;
             // Don't clobber an existing link to a different invoice.
             if (!empty($b['linked_ar_invoice_id']) && (int) $b['linked_ar_invoice_id'] !== $arInvoiceId) continue;
-            // Already triggered? Leave alone.
-            if (($b['pwp_status'] ?? '') === 'triggered') continue;
+            // A released bill cannot be silently returned to the collection hold.
+            if (in_array($b['pwp_status'] ?? '', ['triggered', 'partial_triggered'], true)) continue;
 
             $newTerms = $parsed['is_pwp'] ? $b['payment_terms'] : 'PWP';
             $pdo->prepare(
@@ -144,7 +149,7 @@ function apPwpAutoLinkForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorU
 function apPwpAutoLinkForApBill(int $tenantId, int $billId, ?int $actorUserId = null): array {
     $pdo = getDB();
     $st = $pdo->prepare(
-        'SELECT b.id, b.period_start, b.period_end, b.payment_terms, b.pwp_status,
+        'SELECT b.id, b.entity_id, b.status, b.period_start, b.period_end, b.payment_terms, b.pwp_status,
                 b.linked_ar_invoice_id, v.default_pwp
            FROM ap_bills b
       LEFT JOIN ap_vendors_index v
@@ -154,6 +159,11 @@ function apPwpAutoLinkForApBill(int $tenantId, int $billId, ?int $actorUserId = 
     $st->execute(['t' => $tenantId, 'id' => $billId]);
     $bill = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
     if (!$bill) throw new \RuntimeException("AP bill {$billId} not found");
+    if (in_array($bill['status'], ['paid', 'void'], true)) {
+        return ['linked' => [], 'reason' => 'bill is paid or void'];
+    }
+    $entityId = (int) ($bill['entity_id'] ?? 0);
+    if ($entityId <= 0) return ['linked' => [], 'reason' => 'Assign the AP bill to a legal entity before linking'];
     $parsed = apPwpParseTerms($bill['payment_terms']);
     if (!$parsed['is_pwp'] && empty($bill['default_pwp']) && ($bill['pwp_status'] ?? '') !== 'awaiting_ar') {
         return ['linked' => [], 'reason' => 'bill is not paid-when-paid'];
@@ -173,7 +183,8 @@ function apPwpAutoLinkForApBill(int $tenantId, int $billId, ?int $actorUserId = 
     $placementIds = array_map('intval', array_column($placements->fetchAll(\PDO::FETCH_ASSOC), 'placement_id'));
     if (!$placementIds) return ['linked' => [], 'reason' => 'bill has no placement lines'];
 
-    $params = ['t' => $tenantId, 'ps' => $bill['period_start'], 'pe' => $bill['period_end']];
+    $params = ['t' => $tenantId, 'e' => $entityId,
+        'ps' => $bill['period_start'], 'pe' => $bill['period_end']];
     $ph = [];
     foreach ($placementIds as $i => $placementId) {
         $key = 'p' . $i;
@@ -185,6 +196,7 @@ function apPwpAutoLinkForApBill(int $tenantId, int $billId, ?int $actorUserId = 
            FROM billing_invoices i
            JOIN billing_invoice_lines il ON il.invoice_id = i.id
           WHERE i.tenant_id = :t AND i.status <> "void"
+            AND i.entity_id = :e
             AND i.period_start = :ps AND i.period_end = :pe
             AND il.placement_id IN (' . implode(',', $ph) . ')
           ORDER BY i.id'
@@ -207,41 +219,82 @@ function apPwpAutoLinkForApBill(int $tenantId, int $billId, ?int $actorUserId = 
  */
 function apPwpSetLink(int $tenantId, int $billId, int $arInvoiceId, ?string $paymentTerms = null, ?int $actorUserId = null): array {
     $pdo = getDB();
-    $b = $pdo->prepare('SELECT id, tenant_id, status, payment_terms FROM ap_bills WHERE id = :id AND tenant_id = :t');
-    $b->execute(['id' => $billId, 't' => $tenantId]);
-    $row = $b->fetch(\PDO::FETCH_ASSOC);
-    if (!$row) throw new \RuntimeException("AP bill {$billId} not found");
-    if (in_array($row['status'], ['paid', 'void'], true)) {
-        throw new \RuntimeException("AP bill is {$row['status']}; cannot link");
+    $ownsTxn = !$pdo->inTransaction();
+    if ($ownsTxn) $pdo->beginTransaction();
+    try {
+        $inv = $pdo->prepare('SELECT entity_id, status FROM billing_invoices
+            WHERE id = :id AND tenant_id = :t FOR UPDATE');
+        $inv->execute(['id' => $arInvoiceId, 't' => $tenantId]);
+        $invoice = $inv->fetch(\PDO::FETCH_ASSOC);
+        if (!$invoice || $invoice['status'] === 'void') {
+            throw new \RuntimeException('Choose an active AR invoice in this workspace');
+        }
+        $b = $pdo->prepare('SELECT id, entity_id, status, payment_terms, pwp_status FROM ap_bills
+            WHERE id = :id AND tenant_id = :t FOR UPDATE');
+        $b->execute(['id' => $billId, 't' => $tenantId]);
+        $row = $b->fetch(\PDO::FETCH_ASSOC);
+        if (!$row) throw new \RuntimeException("AP bill {$billId} not found");
+        if (in_array($row['status'], ['paid', 'void'], true)) {
+            throw new \RuntimeException("AP bill is {$row['status']}; cannot link");
+        }
+        if (in_array($row['pwp_status'], ['triggered', 'partial_triggered'], true)) {
+            throw new \RuntimeException('This bill was already released by a client payment; review its AP history before changing the link');
+        }
+        if ((int) ($row['entity_id'] ?? 0) <= 0
+            || (int) $row['entity_id'] !== (int) ($invoice['entity_id'] ?? 0)) {
+            throw new \RuntimeException('PWP bill and invoice must belong to the same legal entity');
+        }
+        $terms = $paymentTerms !== null ? strtoupper(trim($paymentTerms)) : ($row['payment_terms'] ?: 'PWP');
+        $parsed = apPwpParseTerms($terms);
+        if (!$parsed['is_pwp']) throw new \RuntimeException("payment_terms '{$terms}' is not a PWP variant");
+
+        $pdo->prepare(
+            'UPDATE ap_bills
+                SET linked_ar_invoice_id = :ar, payment_terms = :pt, pwp_status = "awaiting_ar"
+              WHERE id = :id AND tenant_id = :t'
+        )->execute(['ar' => $arInvoiceId, 'pt' => $terms, 'id' => $billId, 't' => $tenantId]);
+
+        apAudit('ap.bill.pwp.linked', [
+            'bill_id' => $billId, 'ar_invoice_id' => $arInvoiceId,
+            'payment_terms' => $terms, 'auto' => false,
+        ], $billId);
+        if ($ownsTxn) $pdo->commit();
+        return ['bill_id' => $billId, 'ar_invoice_id' => $arInvoiceId, 'payment_terms' => $terms];
+    } catch (\Throwable $e) {
+        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
     }
-    $terms = $paymentTerms !== null ? strtoupper(trim($paymentTerms)) : ($row['payment_terms'] ?: 'PWP');
-    $parsed = apPwpParseTerms($terms);
-    if (!$parsed['is_pwp']) throw new \RuntimeException("payment_terms '{$terms}' is not a PWP variant");
-
-    $pdo->prepare(
-        'UPDATE ap_bills
-            SET linked_ar_invoice_id = :ar, payment_terms = :pt, pwp_status = "awaiting_ar"
-          WHERE id = :id AND tenant_id = :t'
-    )->execute(['ar' => $arInvoiceId, 'pt' => $terms, 'id' => $billId, 't' => $tenantId]);
-
-    apAudit('ap.bill.pwp.linked', [
-        'bill_id' => $billId, 'ar_invoice_id' => $arInvoiceId,
-        'payment_terms' => $terms, 'auto' => false,
-    ], $billId);
-
-    return ['bill_id' => $billId, 'ar_invoice_id' => $arInvoiceId, 'payment_terms' => $terms];
 }
 
 function apPwpClearLink(int $tenantId, int $billId, ?int $actorUserId = null): array {
     $pdo = getDB();
-    $pdo->prepare(
-        'UPDATE ap_bills
-            SET linked_ar_invoice_id = NULL, pwp_status = "not_pwp"
-          WHERE id = :id AND tenant_id = :t AND pwp_status IN ("awaiting_ar","partial_triggered")'
-    )->execute(['id' => $billId, 't' => $tenantId]);
-
-    apAudit('ap.bill.pwp.cleared', ['bill_id' => $billId], $billId);
-    return ['bill_id' => $billId];
+    $ownsTxn = !$pdo->inTransaction();
+    if ($ownsTxn) $pdo->beginTransaction();
+    try {
+        $st = $pdo->prepare('SELECT status, pwp_status, linked_ar_invoice_id FROM ap_bills
+            WHERE id = :id AND tenant_id = :t FOR UPDATE');
+        $st->execute(['id' => $billId, 't' => $tenantId]);
+        $bill = $st->fetch(\PDO::FETCH_ASSOC);
+        if (!$bill) throw new \RuntimeException("AP bill {$billId} not found");
+        if ($bill['pwp_status'] !== 'awaiting_ar' || in_array($bill['status'], ['paid', 'void'], true)) {
+            throw new \RuntimeException('Only an unreleased PWP bill can be unlinked');
+        }
+        $previousInvoiceId = (int) ($bill['linked_ar_invoice_id'] ?? 0);
+        if ($previousInvoiceId > 0) {
+            $pdo->prepare('UPDATE ap_bills SET linked_ar_invoice_id = NULL
+                WHERE id = :id AND tenant_id = :t')
+                ->execute(['id' => $billId, 't' => $tenantId]);
+            apAudit('ap.bill.pwp.cleared', [
+                'bill_id' => $billId, 'ar_invoice_id' => $previousInvoiceId,
+            ], $billId);
+        }
+        if ($ownsTxn) $pdo->commit();
+        return ['bill_id' => $billId, 'cleared' => $previousInvoiceId > 0,
+            'pwp_status' => 'awaiting_ar'];
+    } catch (\Throwable $e) {
+        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
 }
 
 /**
@@ -254,7 +307,7 @@ function apPwpClearLink(int $tenantId, int $billId, ?int $actorUserId = null): a
  * Returns ['released' => [['bill_id','new_due_date','prev_status','new_status'], ...]].
  *
  * NOTE: caller decides when to invoke (full vs partial). We only trigger if
- * the AR invoice's amount_due rounds to 0.
+ * the AR invoice is paid and its amount_due rounds to 0.
  */
 /**
  * Return any allocated bills on the given payment that are still
@@ -284,18 +337,19 @@ function apPwpReleaseForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorUs
     $ownsTxn = !$pdo->inTransaction();
     if ($ownsTxn) $pdo->beginTransaction();
     try {
-        $inv = $pdo->prepare('SELECT id, amount_due, status FROM billing_invoices
+        $inv = $pdo->prepare('SELECT id, entity_id, amount_due, status FROM billing_invoices
             WHERE id = :id AND tenant_id = :t FOR UPDATE');
         $inv->execute(['id' => $arInvoiceId, 't' => $tenantId]);
         $invRow = $inv->fetch(\PDO::FETCH_ASSOC);
-        if (!$invRow || round((float) $invRow['amount_due'], 2) > 0.005) {
+        if (!$invRow || $invRow['status'] !== 'paid'
+            || round((float) $invRow['amount_due'], 2) > 0.005) {
             if ($ownsTxn) $pdo->commit();
             return ['released' => [], 'reason' => $invRow
                 ? 'AR invoice not fully paid yet' : 'AR invoice not found'];
         }
 
         $st = $pdo->prepare(
-            'SELECT id, status, payment_terms, due_date
+            'SELECT id, entity_id, status, payment_terms, due_date
                FROM ap_bills
               WHERE tenant_id = :t AND linked_ar_invoice_id = :ar AND pwp_status = "awaiting_ar"
               FOR UPDATE'
@@ -303,6 +357,12 @@ function apPwpReleaseForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorUs
         $released = [];
         $st->execute(['t' => $tenantId, 'ar' => $arInvoiceId]);
         $bills = $st->fetchAll(\PDO::FETCH_ASSOC);
+        foreach ($bills as $bill) {
+            if ((int) ($bill['entity_id'] ?? 0) <= 0
+                || (int) $bill['entity_id'] !== (int) ($invRow['entity_id'] ?? 0)) {
+                throw new \RuntimeException('Linked PWP bill and AR invoice have different legal entities; review the link');
+            }
+        }
 
         foreach ($bills as $b) {
             $parsed = apPwpParseTerms($b['payment_terms']);

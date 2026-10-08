@@ -15,14 +15,14 @@
  *
  *   POST  /api/ap/pwp?action=unlink
  *         body: {bill_id}
- *         → clear linked_ar_invoice_id and reset pwp_status to 'not_pwp'
+ *         → remove an unreleased invoice association; keep the PWP payment hold
  *
  *   POST  /api/ap/pwp?action=release_for_invoice
  *         body: {ar_invoice_id}
  *         → manual release fallback (e.g. operator marks AR paid out-of-band)
  *
  * Permissions: link/unlink requires ap.bill.create. release_for_invoice
- * requires ap.bill.approve since it transitions bills to 'approved'.
+ * requires ap.bill.approve; releasing the collection hold never approves a bill.
  *
  * SPEC: /app/modules/ap/lib/pwp.php
  */
@@ -44,8 +44,10 @@ if ($method === 'GET' && $action === 'preview') {
 
     // Same query as auto-link but read-only (no UPDATE).
     $pdo = getDB();
-    $inv = scopedFind('SELECT id, period_start, period_end FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $arId]);
+    $inv = scopedFind('SELECT id, entity_id, period_start, period_end FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id AND status <> "void"', ['id' => $arId]);
     if (!$inv) api_error('AR invoice not found', 404);
+    $entityId = (int) ($inv['entity_id'] ?? 0);
+    if ($entityId <= 0) api_ok(['candidates' => [], 'reason' => 'Assign the AR invoice to a legal entity before linking']);
 
     $pq = $pdo->prepare(
         'SELECT DISTINCT placement_id FROM billing_invoice_lines
@@ -59,7 +61,8 @@ if ($method === 'GET' && $action === 'preview') {
     }
 
     $placeholders = [];
-    $params = ['t' => $tid, 'ps' => $inv['period_start'], 'pe' => $inv['period_end']];
+    $params = ['t' => $tid, 'e' => $entityId,
+        'ps' => $inv['period_start'], 'pe' => $inv['period_end']];
     foreach ($placementIds as $i => $pid) {
         $k = 'p' . $i;
         $placeholders[] = ':' . $k;
@@ -72,6 +75,7 @@ if ($method === 'GET' && $action === 'preview') {
               JOIN ap_bill_lines bl ON bl.bill_id = b.id
               LEFT JOIN ap_vendors_index v ON v.tenant_id = b.tenant_id AND v.vendor_name = b.vendor_name
              WHERE b.tenant_id = :t
+               AND b.entity_id = :e
                AND b.status NOT IN ("paid","void")
                AND b.period_start = :ps AND b.period_end = :pe
                AND bl.placement_id IN (' . implode(',', $placeholders) . ')';

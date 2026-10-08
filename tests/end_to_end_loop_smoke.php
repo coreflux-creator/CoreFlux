@@ -73,17 +73,20 @@ $a('bill lines reference source_ref_id (bundle id)',  str_contains($apLib, "sour
 $a('bill stamps PWP when vendor has default_pwp',     str_contains($apLib, "'pwp_status'    => \$isPwp ? 'awaiting_ar' : 'not_pwp'"));
 $a('PWP bills get +90 day due_date carry',            str_contains($apLib, '$pwpNetDays = 90'));
 
-// ── stage 6: AR Cash Application → PWP release → AP transition ───────
-echo "\n6. AR cash → PWP release → AP bill 'approved'\n";
+// ── stage 6: AR Cash Application → PWP hold release ──────────────────
+echo "\n6. AR cash → PWP hold release; AP approval stays independent\n";
 $billingLib = $has(__DIR__ . '/../modules/billing/lib/billing.php');
 $pwpLib     = $has(__DIR__ . '/../modules/ap/lib/pwp.php');
 $a('billingAllocatePayment defined',                  str_contains($billingLib, 'function billingAllocatePayment'));
 $a('allocate transitions invoice to "paid"',          str_contains($billingLib, "if (\$newDue < 0.005) { \$newDue = 0; \$newStatus = 'paid'; }"));
-$a('allocate calls apPwpReleaseForArInvoice',         str_contains($billingLib, 'apPwpReleaseForArInvoice($tenantId, (int) $a[\'invoice_id\']'));
+$a('allocate calls apPwpReleaseForArInvoice',         str_contains($billingLib, 'apPwpReleaseForArInvoice($tenantId, (int) $allocation[\'invoice_id\']'));
 $a('allocate exposes pwp array in response',          str_contains($billingLib, "'pwp' => \$pwpResults"));
-$a('PWP release sets bill status to approved',        str_contains($pwpLib, "in_array(\$prevStatus, ['inbox', 'pending_review', 'pending_approval']"));
-$a('PWP release stamps approved_at + approver',       str_contains($pwpLib, 'approved_by_user_id = COALESCE') && str_contains($pwpLib, 'approved_at = COALESCE(approved_at, NOW())'));
-$a('PWP release only when amount_due ≈ 0',            str_contains($pwpLib, 'round((float) $invRow[\'amount_due\'], 2) > 0.005'));
+$a('PWP release preserves the bill approval status',  str_contains($pwpLib, "'new_status'   => \$prevStatus")
+                                                       && !str_contains($pwpLib, 'approved_by_user_id = COALESCE'));
+$a('PWP release changes the hold and due date',       str_contains($pwpLib, 'SET pwp_status = "triggered"')
+                                                       && str_contains($pwpLib, 'due_date = :due'));
+$a('PWP release requires paid AR with no amount due', str_contains($pwpLib, "\$invRow['status'] !== 'paid'")
+                                                       && str_contains($pwpLib, 'round((float) $invRow[\'amount_due\'], 2) > 0.005'));
 
 // ── stage 7: AR cash application UI → PWP toast ──────────────────────
 echo "\n7. Payments UI surfaces PWP results\n";
@@ -94,8 +97,8 @@ $a('Toast lists each released bill',                  str_contains($paymentsJsx,
 $a('AllocateModal threads result through onSaved',    str_contains($paymentsJsx, 'onSaved?.(res)'));
 $a('RecordPaymentModal threads result through',       substr_count($paymentsJsx, 'onSaved?.(res)') >= 2);
 
-// ── stage 8: AP bill 'approved' → AP payment ─────────────────────────
-echo "\n8. AP bill approved → AP payment\n";
+// ── stage 8: Independently approved AP bill → AP payment ────────────
+echo "\n8. Independently approved AP bill → AP payment\n";
 $apPayApi = $has(__DIR__ . '/../modules/ap/api/payments.php');
 $a('AP payments API exists',                          $apPayApi !== '');
 $a('AP payment requires bill_id',                     str_contains($apPayApi, 'bill_id'));

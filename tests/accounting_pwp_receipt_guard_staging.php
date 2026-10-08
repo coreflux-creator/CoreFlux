@@ -73,6 +73,27 @@ try {
     ], $makerCookie);
     $billId = (int) ($bill['id'] ?? 0);
     qaExpect($billId > 0, 'synthetic vendor bill created');
+    $otherInvoice = qaOne($pdo, 'SELECT i.id FROM billing_invoices i
+        JOIN accounting_entities e ON e.id = i.entity_id AND e.tenant_id = i.tenant_id
+        WHERE i.tenant_id = :t AND i.entity_id <> :entity_id
+            AND i.status <> "void" AND e.code LIKE "SIM-%"
+        ORDER BY i.id DESC LIMIT 1', ['t' => QA_TENANT, 'entity_id' => $entityId]);
+    qaExpect((int) ($otherInvoice['id'] ?? 0) > 0, 'another synthetic legal entity has an invoice');
+    try {
+        qaRequest('/modules/ap/api/pwp.php?action=link', 'POST', [
+            'bill_id' => $billId, 'ar_invoice_id' => (int) $otherInvoice['id'],
+            'payment_terms' => 'PWP',
+        ], $makerCookie);
+        $crossEntityBlocked = false;
+    } catch (RuntimeException $error) {
+        $crossEntityBlocked = str_contains($error->getMessage(), 'HTTP 422')
+            && str_contains($error->getMessage(), 'same legal entity');
+    }
+    $unlinkedBill = qaOne($pdo, 'SELECT pwp_status, linked_ar_invoice_id FROM ap_bills
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $billId]);
+    qaExpect($crossEntityBlocked && $unlinkedBill['pwp_status'] === 'not_pwp'
+        && $unlinkedBill['linked_ar_invoice_id'] === null,
+        'cross-entity invoice link is refused without changing the bill');
     $link = qaRequest('/modules/ap/api/pwp.php?action=link', 'POST', [
         'bill_id' => $billId, 'ar_invoice_id' => $invoiceId, 'payment_terms' => 'PWP',
     ], $makerCookie);
@@ -82,6 +103,42 @@ try {
         && $linkedBill['status'] === 'pending_approval'
         && $linkedBill['pwp_status'] === 'awaiting_ar',
         'PWP link holds payment without approving the bill');
+    $unlinked = qaRequest('/modules/ap/api/pwp.php?action=unlink', 'POST', [
+        'bill_id' => $billId,
+    ], $makerCookie);
+    $heldBill = qaOne($pdo, 'SELECT pwp_status, linked_ar_invoice_id FROM ap_bills
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $billId]);
+    qaExpect(!empty($unlinked['cleared']) && $heldBill['linked_ar_invoice_id'] === null
+        && $heldBill['pwp_status'] === 'awaiting_ar',
+        'unlinking an invoice leaves the vendor payment on hold');
+    $relink = qaRequest('/modules/ap/api/pwp.php?action=link', 'POST', [
+        'bill_id' => $billId, 'ar_invoice_id' => $invoiceId, 'payment_terms' => 'PWP',
+    ], $makerCookie);
+    qaExpect((int) ($relink['ar_invoice_id'] ?? 0) === $invoiceId,
+        'an unreleased PWP bill can be relinked to the reviewed invoice');
+    $earlyRelease = qaRequest('/modules/ap/api/pwp.php?action=release_for_invoice', 'POST', [
+        'ar_invoice_id' => $invoiceId,
+    ], $reviewerCookie);
+    qaExpect(empty($earlyRelease['released'])
+        && qaOne($pdo, 'SELECT pwp_status FROM ap_bills WHERE tenant_id = :t AND id = :id',
+            ['t' => QA_TENANT, 'id' => $billId])['pwp_status'] === 'awaiting_ar',
+        'PWP hold stays in place before the invoice is paid');
+    require_once __DIR__ . '/../modules/ap/lib/pwp.php';
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare('UPDATE billing_invoices SET status = "void", amount_due = 0
+            WHERE tenant_id = :t AND id = :id')
+            ->execute(['t' => QA_TENANT, 'id' => $invoiceId]);
+        $voidRelease = apPwpReleaseForArInvoice(QA_TENANT, $invoiceId);
+        qaExpect(empty($voidRelease['released'])
+            && qaOne($pdo, 'SELECT pwp_status FROM ap_bills WHERE tenant_id = :t AND id = :id',
+                ['t' => QA_TENANT, 'id' => $billId])['pwp_status'] === 'awaiting_ar',
+            'a zero-due void invoice cannot release the vendor bill');
+        $pdo->rollBack();
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $error;
+    }
 
     $fitid = 'SIM-PWP-RECEIPT-' . $run;
     $csv = qaCsv([
@@ -111,6 +168,27 @@ try {
         && $releasedBill['approved_by_user_id'] === null
         && $releasedBill['approved_at'] === null,
         'customer collection lifts PWP hold but does not approve AP');
+    try {
+        qaRequest('/modules/ap/api/pwp.php?action=link', 'POST', [
+            'bill_id' => $billId, 'ar_invoice_id' => $invoiceId,
+            'payment_terms' => 'PWP',
+        ], $makerCookie);
+        $relinkBlocked = false;
+    } catch (RuntimeException $error) {
+        $relinkBlocked = str_contains($error->getMessage(), 'HTTP 422')
+            && str_contains($error->getMessage(), 'already released');
+    }
+    qaExpect($relinkBlocked, 'released PWP bill cannot be silently put back on hold');
+    try {
+        qaRequest('/modules/ap/api/pwp.php?action=unlink', 'POST', [
+            'bill_id' => $billId,
+        ], $makerCookie);
+        $unlinkBlocked = false;
+    } catch (RuntimeException $error) {
+        $unlinkBlocked = str_contains($error->getMessage(), 'HTTP 422')
+            && str_contains($error->getMessage(), 'unreleased PWP bill');
+    }
+    qaExpect($unlinkBlocked, 'released PWP bill cannot have its invoice link cleared');
 
     $approvedBill = qaRequest('/modules/ap/api/bills.php?action=approve&id=' . $billId,
         'POST', [], $reviewerCookie);

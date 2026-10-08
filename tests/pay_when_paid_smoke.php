@@ -71,7 +71,17 @@ $a('response includes pwp results',             str_contains($billingLib, "'pwp'
 $a('PWP release does not approve vendor bills',
     !str_contains((string) file_get_contents($libPath), 'approved_by_user_id = COALESCE(approved_by_user_id, :u)'));
 $a('PWP release locks its AR invoice before checking the paid balance',
-    str_contains((string) file_get_contents($libPath), 'WHERE id = :id AND tenant_id = :t FOR UPDATE'));
+    str_contains((string) file_get_contents($libPath), 'WHERE id = :id AND tenant_id = :t FOR UPDATE')
+    && str_contains((string) file_get_contents($libPath), "\$invRow['status'] !== 'paid'"));
+$a('manual and automatic PWP links preserve legal entity and released status',
+    str_contains((string) file_get_contents($libPath), 'PWP bill and invoice must belong to the same legal entity')
+    && str_contains((string) file_get_contents($libPath), 'AND b.entity_id = :e')
+    && str_contains((string) file_get_contents($libPath), 'AND i.entity_id = :e')
+    && str_contains((string) file_get_contents($libPath), "['triggered', 'partial_triggered']"));
+$a('unlink keeps an unreleased PWP bill on collection hold',
+    str_contains((string) file_get_contents($libPath), "\$bill['pwp_status'] !== 'awaiting_ar'")
+    && str_contains((string) file_get_contents($libPath), 'SET linked_ar_invoice_id = NULL')
+    && !str_contains((string) file_get_contents($libPath), 'SET linked_ar_invoice_id = NULL, pwp_status = "not_pwp"'));
 
 echo "\nfrom-time-bundle auto-link\n";
 $invSrc = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');
