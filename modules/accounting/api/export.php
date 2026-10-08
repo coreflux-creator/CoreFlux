@@ -406,31 +406,26 @@ if ($type === 'account_activity') {
     if ($eid) { $where[] = 'je.entity_id = :entity_id'; $params['entity_id'] = $eid; }
     if ($from) { $where[] = 'je.posting_date >= :f';   $params['f']   = $from; }
     if ($to)   { $where[] = 'je.posting_date <= :to2'; $params['to2'] = $to;   }
-    $stmt = $db->prepare(
-        'SELECT je.je_number, je.posting_date, je.entity_id,
-                a.code AS account_code, a.name AS account_name,
-                a.normal_side, l.debit, l.credit, l.memo, je.source_module
-         FROM accounting_journal_entry_lines l
-         JOIN accounting_journal_entries je ON je.id = l.je_id
-         JOIN accounting_accounts a ON a.id = l.account_id
-         WHERE ' . implode(' AND ', $where) . '
-         ORDER BY je.posting_date, je.id, l.line_no'
-    );
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-    // Running balance (signed by normal_side).
-    $run = 0.0;
-    foreach ($rows as &$r) {
-        $delta = ($r['normal_side'] === 'debit')
-            ? ((float) $r['debit'] - (float) $r['credit'])
-            : ((float) $r['credit'] - (float) $r['debit']);
-        $run += $delta;
-        $r['running_balance'] = number_format($run, 2, '.', '');
-    }
-    unset($r);
+    $rows = exportAccountActivityRunningBalances(exportPagedRows(
+        static function (int $size, int $offset) use ($db, $where, $params): array {
+            $stmt = $db->prepare(
+                'SELECT je.je_number, je.posting_date, je.entity_id,
+                        a.code AS account_code, a.name AS account_name,
+                        a.normal_side, l.debit, l.credit, l.memo, je.source_module
+                 FROM accounting_journal_entry_lines l
+                 JOIN accounting_journal_entries je ON je.id = l.je_id
+                 JOIN accounting_accounts a ON a.id = l.account_id
+                 WHERE ' . implode(' AND ', $where) . '
+                 ORDER BY je.posting_date, je.id, l.line_no, l.id
+                 LIMIT ' . $size . ' OFFSET ' . $offset
+            );
+            $stmt->execute($params);
+            return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        }
+    ));
     $emit("accounting-account-activity-{$tid}-{$code}-{$today}.csv",
         ['je_number','posting_date','entity_id','account_code','account_name','debit','credit','memo','source_module','running_balance'],
-        $rows);
+        $rows, true);
 }
 
 api_error('Unknown export type: ' . $type, 422);

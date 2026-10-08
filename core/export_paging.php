@@ -18,6 +18,21 @@ function exportPagedRows(callable $fetchPage, int $pageSize = 1000): Generator
     } while ($count === $pageSize);
 }
 
+/** Compute account activity balances without retaining earlier ledger lines. */
+function exportAccountActivityRunningBalances(iterable $rows): Generator
+{
+    $balanceCents = 0;
+    foreach ($rows as $row) {
+        $debitCents = (int) round((float) $row['debit'] * 100);
+        $creditCents = (int) round((float) $row['credit'] * 100);
+        $balanceCents += ($row['normal_side'] === 'debit')
+            ? $debitCents - $creditCents
+            : $creditCents - $debitCents;
+        $row['running_balance'] = number_format($balanceCents / 100, 2, '.', '');
+        yield $row;
+    }
+}
+
 /** Send an already-complete CSV without loading it back into PHP memory. */
 function exportCopyPreparedStream($stream): void
 {

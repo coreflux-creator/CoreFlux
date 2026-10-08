@@ -46,4 +46,33 @@ if ($download !== str_repeat("CSV-row\n", 10000)) {
     fwrite(STDERR, "FAIL: prepared export copy lost bytes.\n");
     exit(1);
 }
+$activity = exportAccountActivityRunningBalances(exportPagedRows(
+    static function (int $size, int $offset): array {
+        $end = min($offset + $size, 10025);
+        $page = [];
+        for ($i = $offset; $i < $end; $i++) {
+            $page[] = ['normal_side' => 'debit', 'debit' => '0.01', 'credit' => '0.00'];
+        }
+        return $page;
+    }
+));
+$activityCount = 0;
+$lastBalance = null;
+foreach ($activity as $row) {
+    $activityCount++;
+    $lastBalance = $row['running_balance'];
+}
+if ($activityCount !== 10025 || $lastBalance !== '100.25') {
+    fwrite(STDERR, "FAIL: account-activity balance drifted or omitted ledger lines.\n");
+    exit(1);
+}
+$creditBalances = array_column(iterator_to_array(exportAccountActivityRunningBalances([
+    ['normal_side' => 'credit', 'debit' => '0.00', 'credit' => '10.01'],
+    ['normal_side' => 'credit', 'debit' => '0.02', 'credit' => '0.00'],
+]), false), 'running_balance');
+if ($creditBalances !== ['10.01', '9.99']) {
+    fwrite(STDERR, "FAIL: credit-normal account balance used the wrong direction.\n");
+    exit(1);
+}
 echo "PASS: 10,025 rows survived bounded CSV paging without a cutoff.\n";
+echo "PASS: 10,025 account-activity lines retained a cent-exact running balance.\n";
