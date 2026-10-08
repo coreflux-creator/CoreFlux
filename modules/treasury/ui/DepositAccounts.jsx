@@ -92,7 +92,10 @@ function DepositList() {
       )}
 
       {rows.length > 0 && (
-        <table className="data-table" data-testid="treasury-deposits-table">
+        <div role="region" aria-label="Deposit accounts table" tabIndex={0}
+          style={{ maxWidth: '100%', overflowX: 'auto' }}>
+        <table className="data-table" data-testid="treasury-deposits-table"
+          style={{ minWidth: 1100 }}>
           <thead>
             <tr>
               <th>Name</th><th>GL code</th><th>Bank</th><th>Last 4</th>
@@ -110,6 +113,7 @@ function DepositList() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </section>
   );
