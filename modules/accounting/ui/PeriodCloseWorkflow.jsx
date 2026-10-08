@@ -41,7 +41,11 @@ export default function PeriodCloseWorkflow() {
   const hasCurrentPacket = packets.some(packet =>
     Number(packet.close_cycle) === Number(selectedPeriod?.close_cycle));
   const canSavePacket = ['closed', 'locked'].includes(selectedPeriod?.status);
-  const canClosePeriod = ['open', 'soft_closed', 'reopened'].includes(selectedPeriod?.status);
+  const canPreparePeriod = ['open', 'soft_closed', 'reopened'].includes(selectedPeriod?.status);
+  const periodHasEnded = Number(selectedPeriod?.has_ended) === 1;
+  const earlierOpenPeriod = selectedPeriod && periods
+    .filter(p => p.end_date < selectedPeriod.start_date && !['closed', 'locked'].includes(p.status))
+    .sort((a, b) => a.end_date.localeCompare(b.end_date))[0];
   const reviewTasks = tasks.filter(t => !['lock_period', 'build_packet'].includes(t.task_key));
   const reviewComplete = reviewTasks.length > 0
     && reviewTasks.every(t => ['done', 'skipped'].includes(t.status));
@@ -133,7 +137,7 @@ export default function PeriodCloseWorkflow() {
   };
 
   const closePeriod = async () => {
-    if (!periodId || !reviewComplete || !canClosePeriod) return;
+    if (!periodId || !reviewComplete || !canPreparePeriod || !periodHasEnded || earlierOpenPeriod) return;
     if (!confirm('Close this accounting period? New postings dated in it will be blocked.')) return;
     setBusy('period-close'); setErr(null);
     try {
@@ -183,7 +187,7 @@ export default function PeriodCloseWorkflow() {
           ))}
         </select>
 
-        {!!periodId && tasks.length === 0 && canClosePeriod && (
+        {!!periodId && tasks.length === 0 && canPreparePeriod && (
           <button className="btn btn--primary" data-testid="close-seed" disabled={busy === 'seed'} onClick={seed}>
             {busy === 'seed' ? 'Seeding…' : 'Seed default 9-step checklist'}
           </button>
@@ -194,9 +198,9 @@ export default function PeriodCloseWorkflow() {
           onClick={() => showPacket()}>
           Preview packet
         </button>}
-        {!!periodId && canClosePeriod && tasks.length > 0 && <button
+        {!!periodId && canPreparePeriod && tasks.length > 0 && <button
           className="btn btn--primary" type="button" data-testid="close-period-action"
-          disabled={!reviewComplete || busy === 'period-close'} onClick={closePeriod}>
+          disabled={!reviewComplete || !periodHasEnded || !!earlierOpenPeriod || busy === 'period-close'} onClick={closePeriod}>
           {busy === 'period-close' ? 'Closing…' : 'Close period'}
         </button>}
         {!!periodId && canSavePacket && <button className="btn btn--primary" type="button"
@@ -225,7 +229,9 @@ export default function PeriodCloseWorkflow() {
       {packetsApi.error && <p className="error">Saved packets load error: {packetsApi.error.message}</p>}
       {packetNotice && <p role="status" data-testid="close-packet-saved">{packetNotice}</p>}
       {!!periodId && !canSavePacket && <p style={{ color: '#64748b', fontSize: 13 }}>
-        {reviewComplete ? 'Ready to close. Preview reflects the current books.'
+        {!periodHasEnded ? `This period ends ${selectedPeriod?.end_date}. Prepare the checklist now; closing is available after the period ends.`
+          : earlierOpenPeriod ? `Close the earlier period ending ${earlierOpenPeriod.end_date} first. You can prepare this checklist now.`
+          : reviewComplete ? 'Ready to close. Preview reflects the current books.'
           : 'Complete the review tasks to close. Preview reflects the current books.'}
       </p>}
 

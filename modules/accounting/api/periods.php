@@ -37,7 +37,8 @@ if ($method === 'GET') {
     if (!empty($_GET['from']))      { $where[] = 'end_date   >= :f'; $params['f'] = $_GET['from']; }
     if (!empty($_GET['to']))        { $where[] = 'start_date <= :t'; $params['t'] = $_GET['to']; }
     $rows = scopedQuery(
-        'SELECT id, entity_id, period_number, start_date, end_date, status, close_cycle, closed_at, closed_by_user_id, reopened_at, reopen_reason
+        'SELECT id, entity_id, period_number, start_date, end_date, status, close_cycle, closed_at, closed_by_user_id, reopened_at, reopen_reason,
+                (end_date < CURRENT_DATE) AS has_ended
          FROM accounting_periods WHERE ' . implode(' AND ', $where) . '
          ORDER BY start_date DESC LIMIT 200',
         $params
@@ -217,6 +218,20 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
     if ($action === 'close') {
         if (!in_array($row['status'], ['open','soft_closed','reopened'], true)) {
             $reject("Cannot close from status {$row['status']}", 409);
+        }
+        $today = (string) $pdo->query('SELECT CURRENT_DATE')->fetchColumn();
+        if ((string) $row['end_date'] >= $today) {
+            $reject('This accounting period has not ended. Prepare the checklist now and close it after the end date.',
+                409, ['code' => 'period_not_ended', 'end_date' => $row['end_date']]);
+        }
+        $prior = $pdo->prepare('SELECT id, end_date FROM accounting_periods
+            WHERE tenant_id = :t AND entity_id = :e AND end_date < :start
+                AND status NOT IN ("closed", "locked")
+            ORDER BY end_date ASC LIMIT 1 FOR UPDATE');
+        $prior->execute(['t' => $tid, 'e' => (int) $row['entity_id'], 'start' => $row['start_date']]);
+        if ($earlierOpen = $prior->fetch(\PDO::FETCH_ASSOC)) {
+            $reject('Close the earlier accounting period ending ' . $earlierOpen['end_date'] . ' first.',
+                409, ['code' => 'earlier_period_open', 'period_id' => (int) $earlierOpen['id']]);
         }
         // P1.8 — same blocking gate on hard close.
         $blockers = $pdo->prepare(

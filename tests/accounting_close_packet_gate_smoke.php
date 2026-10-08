@@ -69,6 +69,24 @@ $a('lock requires a packet from the current generation',
     && str_contains($periods, "'code' => 'close_packet_missing'"));
 $a('period list exposes the current close generation',
     str_contains($periods, 'status, close_cycle, closed_at'));
+$a('period list reports whether the end date has passed',
+    str_contains($periods, '(end_date < CURRENT_DATE) AS has_ended'));
+$a('hard close rejects a period that has not ended before changing status',
+    str_contains($periods, "if ((string) \$row['end_date'] >= \$today)")
+    && str_contains($periods, "'code' => 'period_not_ended'")
+    && strpos($periods, "'code' => 'period_not_ended'") < strpos($periods, 'SET status = "closed"'));
+$a('hard close requires earlier periods for the same entity to be closed',
+    str_contains($periods, 'AND end_date < :start')
+    && str_contains($periods, 'status NOT IN ("closed", "locked")')
+    && str_contains($periods, "'code' => 'earlier_period_open'")
+    && strpos($periods, "'code' => 'earlier_period_open'") < strpos($periods, 'SET status = "closed"'));
+$a('month-end UI permits preparation but disables early close',
+    str_contains($workflow, 'tasks.length === 0 && canPreparePeriod')
+    && str_contains($workflow, 'disabled={!reviewComplete || !periodHasEnded')
+    && str_contains($workflow, 'Prepare the checklist now; closing is available after the period ends.'));
+$a('month-end UI names the earlier open period',
+    str_contains($workflow, '!!earlierOpenPeriod || busy')
+    && str_contains($workflow, 'Close the earlier period ending ${earlierOpenPeriod.end_date} first.'));
 $a('month-end lock uses only the current generation',
     str_contains($workflow, 'hasCurrentPacket')
     && str_contains($workflow, 'Number(packet.close_cycle) === Number(selectedPeriod?.close_cycle)'));
