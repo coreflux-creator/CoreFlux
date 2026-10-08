@@ -80,6 +80,12 @@ try {
     qaExpect($before === qaBalances($pdo, $entityId),
         'candidate read leaves the synthetic ledger unchanged');
 } finally {
+    if ($actor && isset($actor['id'])) {
+        $pdo->prepare('UPDATE users SET is_active = 0, password_hash = NULL, password = NULL
+            WHERE tenant_id = :tenant_id AND id = :id')
+            ->execute(['tenant_id' => QA_TENANT, 'id' => (int) $actor['id']]);
+    }
+    if (is_string($cookie) && is_file($cookie)) unlink($cookie);
     $delete = $pdo->prepare('DELETE FROM accounting_bank_statement_lines
         WHERE tenant_id = :tenant_id AND bank_account_id = :bank_account_id
           AND fitid LIKE :prefix AND match_status = "unmatched" AND matched_je_id IS NULL');
@@ -87,11 +93,5 @@ try {
         $delete->execute(['tenant_id' => QA_TENANT, 'bank_account_id' => $bankId,
             'prefix' => $prefix . '%']);
         echo 'CLEANUP invented bank lines: ' . $delete->rowCount() . '/' . $inserted . PHP_EOL;
-    }
-    if (is_string($cookie) && is_file($cookie)) unlink($cookie);
-    if ($actor && isset($actor['id'])) {
-        $pdo->prepare('UPDATE users SET is_active = 0, password_hash = NULL, password = NULL
-            WHERE tenant_id = :tenant_id AND id = :id')
-            ->execute(['tenant_id' => QA_TENANT, 'id' => (int) $actor['id']]);
     }
 }
