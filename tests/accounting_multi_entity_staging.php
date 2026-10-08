@@ -263,14 +263,36 @@ try {
         && (int) $receiptReplay['journal_entry_id'] === (int) $postedReceipt['journal_entry_id'],
         'partial receipt posts once to this company');
 
+    $missingBillReference = 'SIM-CROSS-NO-BILL-' . $run;
+    qaExpect(multiEntityPostStatus('/modules/ap/api/payments.php', [
+        'entity_id' => $entityId, 'vendor_name' => 'Synthetic No Bills ' . $run,
+        'pay_date' => $date, 'method' => 'check', 'reference' => $missingBillReference,
+        'amount' => 13, 'currency' => 'USD', 'auto_allocate' => true,
+    ], $makerCookie) === 422
+        && !qaOne($pdo, 'SELECT id FROM ap_payments WHERE tenant_id = :t AND reference = :reference',
+            ['t' => QA_TENANT, 'reference' => $missingBillReference]),
+        'failed auto-allocation does not leave a payment draft');
+    $wrongPaymentReference = 'SIM-CROSS-WRONG-BANK-' . $run;
+    qaExpect(multiEntityPostStatus('/modules/ap/api/payments.php', [
+        'entity_id' => $entityId, 'bank_account_id' => $otherBankId,
+        'vendor_name' => $vendor, 'pay_date' => $date, 'method' => 'check',
+        'reference' => $wrongPaymentReference,
+        'amount' => 13, 'currency' => 'USD',
+    ], $makerCookie) === 422
+        && !qaOne($pdo, 'SELECT id FROM ap_payments WHERE tenant_id = :t AND reference = :reference',
+            ['t' => QA_TENANT, 'reference' => $wrongPaymentReference]),
+        'other-company bank is rejected before creating a payment draft');
     $payment = qaRequest('/modules/ap/api/payments.php', 'POST', [
-        'entity_id' => $entityId, 'bank_account_id' => $bankId,
+        'bank_account_id' => $bankId,
         'vendor_name' => $vendor, 'pay_date' => $date, 'method' => 'check',
         'reference' => 'SIM-CROSS-PAYMENT-' . $run,
         'amount' => 13, 'currency' => 'USD',
     ], $makerCookie);
     $paymentId = (int) ($payment['id'] ?? 0);
-    qaExpect($paymentId > 0, 'partial bill payment drafted');
+    $draftPayment = $paymentId > 0 ? qaOne($pdo, 'SELECT entity_id FROM ap_payments
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $paymentId]) : null;
+    qaExpect($paymentId > 0 && (int) ($draftPayment['entity_id'] ?? 0) === $entityId,
+        'partial bill payment drafted in the funding bank entity');
     $allocation = qaRequest('/modules/ap/api/payments.php?action=allocate&id=' . $paymentId,
         'POST', ['allocations' => [['bill_id' => $billId, 'amount' => 13]]], $makerCookie);
     qaExpect(abs((float) ($allocation['unallocated_remaining'] ?? -1)) < 0.005,
@@ -339,6 +361,31 @@ try {
         && $settlementLinks['disbursement_rail'] === null
         && $settlementLinks['rail_external_ref'] === null,
         'cash journals remain entity-scoped and no external rail was used');
+
+    $autoPayment = qaRequest('/modules/ap/api/payments.php', 'POST', [
+        'bank_account_id' => $bankId, 'vendor_name' => $vendor,
+        'pay_date' => $date, 'method' => 'check',
+        'reference' => 'SIM-CROSS-AUTO-' . $run,
+        'amount' => 28, 'currency' => 'USD', 'auto_allocate' => true,
+    ], $makerCookie);
+    $autoPaymentId = (int) ($autoPayment['id'] ?? 0);
+    $autoRow = $autoPaymentId > 0 ? qaOne($pdo, 'SELECT entity_id, unallocated_amount
+        FROM ap_payments WHERE tenant_id = :t AND id = :id',
+        ['t' => QA_TENANT, 'id' => $autoPaymentId]) : null;
+    qaExpect($autoPaymentId > 0 && (int) ($autoRow['entity_id'] ?? 0) === $entityId
+        && abs((float) ($autoRow['unallocated_amount'] ?? -1)) < 0.005
+        && (int) ($autoPayment['auto_allocation']['applied'][0]['bill_id'] ?? 0) === $billId,
+        'eligible automatic allocation commits an entity-scoped draft');
+    qaRequest('/modules/ap/api/payments.php?action=void&id=' . $autoPaymentId,
+        'POST', ['reason' => 'Synthetic reservation cleanup'], $reviewerCookie);
+    $voidedAuto = qaOne($pdo, 'SELECT status FROM ap_payments
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $autoPaymentId]);
+    $billAfterVoid = qaOne($pdo, 'SELECT amount_due FROM ap_bills
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $billId]);
+    qaExpect(($voidedAuto['status'] ?? '') === 'void'
+        && abs((float) $billAfterVoid['amount_due'] - 28) < 0.005
+        && qaBalances($pdo, $entityId) === $settledBalances,
+        'voiding the unposted allocation releases its reservation without GL movement');
 
     echo json_encode(['run' => $run, 'entity_id' => $entityId,
         'invoice_id' => $invoiceId, 'bill_id' => $billId,

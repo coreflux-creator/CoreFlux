@@ -204,35 +204,70 @@ if ($method === 'POST' && $action === '') {
     $amount = round((float) $body['amount'], 2);
     if ($amount <= 0) api_error('amount must be > 0', 422);
 
-    $id = scopedInsert('ap_payments', [
-        'tenant_id'          => $tid,
-        'entity_id'          => !empty($body['entity_id']) ? (int) $body['entity_id'] : null,
-        'vendor_name'        => (string) $body['vendor_name'],
-        'pay_date'           => (string) $body['pay_date'],
-        'method'             => (string) $body['method'],
-        'reference'          => $body['reference'] ?? null,
-        'amount'             => $amount,
-        'currency'           => (string) ($body['currency'] ?? 'USD'),
-        'unallocated_amount' => $amount,
-        'bank_account_id'    => !empty($body['bank_account_id']) ? (int) $body['bank_account_id'] : null,
-        'status'             => 'draft',
-        'notes'              => $body['notes'] ?? null,
-        'created_by_user_id' => $user['id'] ?? null,
-    ]);
-    apAudit('ap.payment.drafted', [
-        'payment_id' => $id, 'vendor_name' => $body['vendor_name'], 'amount' => $amount, 'method' => $body['method'],
-    ], $id, [
-        'after' => apPaymentAuditRow($tid, $id),
-    ]);
-
-    if (!empty($body['auto_allocate'])) {
-        try {
-            $alloc = apAllocatePayment($id, ['auto' => 'fifo'], $user['id'] ?? null);
-            return api_ok(['id' => $id, 'auto_allocation' => $alloc], 201);
-        } catch (\Throwable $e) {
-            return api_ok(['id' => $id, 'auto_allocation_error' => $e->getMessage()], 201);
+    $entityId = !empty($body['entity_id']) ? (int) $body['entity_id'] : null;
+    $bankAccountId = !empty($body['bank_account_id']) ? (int) $body['bank_account_id'] : null;
+    $currency = strtoupper(trim((string) ($body['currency'] ?? 'USD')));
+    if (!preg_match('/^[A-Z]{3}$/', $currency)) api_error('Choose a valid payment currency', 422);
+    if ($bankAccountId !== null) {
+        $bank = scopedFind('SELECT id, entity_id, currency FROM accounting_bank_accounts
+            WHERE tenant_id = :tenant_id AND id = :id AND status = "active"',
+            ['id' => $bankAccountId]);
+        if (!$bank) api_error('Choose an active funding bank account', 422);
+        if (strcasecmp((string) ($bank['currency'] ?: 'USD'), $currency) !== 0) {
+            api_error('Payment and funding bank account currencies differ', 422);
+        }
+        $bankEntityId = !empty($bank['entity_id']) ? (int) $bank['entity_id'] : null;
+        if ($entityId !== null && $bankEntityId !== null && $entityId !== $bankEntityId) {
+            api_error('The funding bank account belongs to a different entity', 422);
+        }
+        $entityId ??= $bankEntityId;
+    }
+    if ($entityId !== null) {
+        $entity = scopedFind('SELECT id, base_currency FROM accounting_entities
+            WHERE tenant_id = :tenant_id AND id = :id AND active = 1', ['id' => $entityId]);
+        if (!$entity) api_error('Choose an active legal entity', 422);
+        if (strcasecmp((string) $entity['base_currency'], $currency) !== 0) {
+            api_error('Payment and legal entity currencies differ', 422);
         }
     }
+
+    $autoAllocate = !empty($body['auto_allocate']);
+    $pdo = getDB();
+    if ($autoAllocate) $pdo->beginTransaction();
+    try {
+        $id = scopedInsert('ap_payments', [
+            'tenant_id'          => $tid,
+            'entity_id'          => $entityId,
+            'vendor_name'        => (string) $body['vendor_name'],
+            'pay_date'           => (string) $body['pay_date'],
+            'method'             => (string) $body['method'],
+            'reference'          => $body['reference'] ?? null,
+            'amount'             => $amount,
+            'currency'           => $currency,
+            'unallocated_amount' => $amount,
+            'bank_account_id'    => $bankAccountId,
+            'status'             => 'draft',
+            'notes'              => $body['notes'] ?? null,
+            'created_by_user_id' => $user['id'] ?? null,
+        ]);
+        apAudit('ap.payment.drafted', [
+            'payment_id' => $id, 'vendor_name' => $body['vendor_name'], 'amount' => $amount, 'method' => $body['method'],
+        ], $id, [
+            'after' => apPaymentAuditRow($tid, $id),
+        ]);
+        $alloc = $autoAllocate ? apAllocatePayment($id, ['auto' => 'fifo'], $user['id'] ?? null) : null;
+        if ($autoAllocate) $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($autoAllocate && $pdo->inTransaction()) $pdo->rollBack();
+        if ($autoAllocate && ($e instanceof \RuntimeException || $e instanceof \InvalidArgumentException)) {
+            $message = $e->getMessage() === 'no allocations specified'
+                ? 'No approved, unpaid bills are available for this vendor and company. Turn off auto-allocation to save an unallocated draft.'
+                : 'Automatic allocation failed: ' . $e->getMessage();
+            api_error($message, 422);
+        }
+        throw $e;
+    }
+    if ($autoAllocate) api_ok(['id' => $id, 'auto_allocation' => $alloc], 201);
     api_ok(['id' => $id], 201);
 }
 
