@@ -142,7 +142,8 @@ if ($method === 'POST' && $action === 'dry_run') {
     $review = accountingCsvReviewDocumentGroups(
         CsvImportService::dryRun('billing_invoices', $csv, $columnMap),
         accountingCsvDocumentEntities(getDB(), $tid),
-        'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date']
+        'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date'],
+        'billingValidateImportedInvoiceLineAmounts', 'billingValidateImportedInvoiceGroupAmounts'
     );
     api_ok($review['result']);
 }
@@ -158,7 +159,8 @@ if ($method === 'POST' && $action === 'commit') {
     $review = accountingCsvReviewDocumentGroups(
         CsvImportService::dryRun('billing_invoices', $csv, $columnMap),
         accountingCsvDocumentEntities(getDB(), $tid),
-        'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date']
+        'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date'],
+        'billingValidateImportedInvoiceLineAmounts', 'billingValidateImportedInvoiceGroupAmounts'
     );
     $dry = $review['result'];
     if (!empty($dry['blocking_error']) || (!$skipInvalid && $dry['error_count'] > 0)) {

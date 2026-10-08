@@ -77,7 +77,8 @@ function accountingCsvReviewDocumentGroups(
     string $groupField,
     string $documentLabel,
     array $requiredHeaderFields,
-    ?callable $validateLine = null
+    ?callable $validateLine = null,
+    ?callable $validateGroup = null
 ): array {
     $groups = [];
     $resolved = [];
@@ -117,6 +118,7 @@ function accountingCsvReviewDocumentGroups(
             $result['errors'][$firstRowNumber][] = $error->getMessage();
             continue;
         }
+        $lineAmounts = [];
         foreach ($rows as $rowNumber => $row) {
             if (trim((string) ($row['entity_code'] ?? '')) === '') {
                 $result['rows'][$rowNumber]['entity_code'] = $entity['code'];
@@ -135,11 +137,19 @@ function accountingCsvReviewDocumentGroups(
             try {
                 $amounts = accountingCsvDocumentLineAmounts($row);
                 if ($validateLine !== null) $validateLine($row, $amounts);
+                $lineAmounts[$rowNumber] = $amounts;
                 if (($row['line_total'] ?? '') === '') {
                     $result['rows'][$rowNumber]['line_total'] = number_format($amounts['total'], 2, '.', '');
                 }
             } catch (InvalidArgumentException $error) {
                 $result['errors'][$rowNumber][] = $error->getMessage();
+            }
+        }
+        if ($validateGroup !== null && count($lineAmounts) === count($rows)) {
+            try {
+                $validateGroup($rows, $lineAmounts);
+            } catch (InvalidArgumentException $error) {
+                $result['errors'][$firstRowNumber][] = $error->getMessage();
             }
         }
     }

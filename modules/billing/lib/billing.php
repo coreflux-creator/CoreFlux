@@ -730,6 +730,51 @@ function billingComputeTax(array $lines, float $taxPct): array
     return ['lines' => $lines, 'subtotal' => round($sub, 2), 'tax_total' => round($tax, 2), 'total' => round($sub + $tax, 2)];
 }
 
+/** Keep imported invoice amounts consistent with the displayed quantity and rate. */
+function billingValidateImportedInvoiceLineAmounts(array $row, array $amounts): void
+{
+    $rawQuantity = ($row['line_quantity'] ?? '') === '' ? '1' : (string) $row['line_quantity'];
+    $rawPrice = (string) ($row['line_unit_price'] ?? '');
+    if (!preg_match('/^[0-9]+(?:\.[0-9]{1,4})?$/D', $rawQuantity)
+        || (float) $rawQuantity <= 0 || (float) $rawQuantity > 99999999.9999) {
+        throw new InvalidArgumentException('Invoice line quantity must be positive with at most four decimals');
+    }
+    if (!preg_match('/^-?[0-9]+(?:\.[0-9]{1,4})?$/D', $rawPrice)
+        || abs((float) $rawPrice) > 99999999.9999) {
+        throw new InvalidArgumentException('Invoice line unit price is required with at most four decimals');
+    }
+    foreach (['line_subtotal', 'line_tax_amount', 'line_total'] as $moneyField) {
+        $rawMoney = (string) ($row[$moneyField] ?? '');
+        if ($rawMoney !== '' && !preg_match('/^-?[0-9]+(?:\.[0-9]{1,2})?$/D', $rawMoney)) {
+            throw new InvalidArgumentException('Invoice ' . str_replace('_', ' ', $moneyField)
+                . ' must use at most two decimals');
+        }
+    }
+    $subtotal = (float) $amounts['subtotal'];
+    $tax = (float) $amounts['tax'];
+    $total = (float) $amounts['total'];
+    if ($tax < 0 || ($subtotal < 0 && $tax > 0)) {
+        throw new InvalidArgumentException('Invoice CSV discounts cannot carry tax; tax cannot be negative');
+    }
+    if (abs($total) > 9999999999.99) {
+        throw new InvalidArgumentException('Invoice line total exceeds the supported amount');
+    }
+    if ((int) round($subtotal * 100) !== (int) round(
+        (float) $amounts['quantity'] * (float) $amounts['unitPrice'] * 100
+    )) {
+        throw new InvalidArgumentException('Invoice line subtotal must equal quantity times unit price');
+    }
+}
+
+function billingValidateImportedInvoiceGroupAmounts(array $rows, array $lineAmounts): void
+{
+    $cents = 0;
+    foreach ($lineAmounts as $amounts) $cents += (int) round((float) $amounts['total'] * 100);
+    if ($cents <= 0 || $cents > 999999999999) {
+        throw new InvalidArgumentException('Invoice total must be positive and within the supported amount');
+    }
+}
+
 /**
  * Return one internally consistent invoice line. Generated staffing lines use
  * their stored full-precision rate; manual/imported lines preserve the entered
