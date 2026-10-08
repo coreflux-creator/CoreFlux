@@ -120,4 +120,89 @@ $assert((int) $pdo->query('SELECT COUNT(*) FROM ap_bills WHERE tenant_id = 1')->
     === $baseline['bills'], 'rollback removed opening bill');
 $assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_opening_document_cutovers WHERE tenant_id = 1')->fetchColumn()
     === $baseline['batches'], 'rollback removed cutover batch');
+
+$pdo->beginTransaction();
+try {
+    $preview = accountingOpeningCutoverReview($pdo, 1, $entityId, '', $ar, $ap);
+    $assert($preview['error_count'] === 0 && $preview['preview_token'] !== null
+        && $preview['balances']['journal_lines'] === [],
+        'document-only preview needs no ordinary opening journal');
+    $assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = 1')->fetchColumn()
+        === $baseline['journals'], 'document-only preview creates no journal');
+    $posted = accountingOpeningCutoverCommit($pdo, 1, $entityId, '', $ar, $ap,
+        $preview['preview_token'], null);
+    $assert(!$posted['idempotent_replay'] && $posted['ar_count'] === 1 && $posted['ap_count'] === 1,
+        'document-only cutover posts both source types');
+    $batch = $pdo->query('SELECT balance_je_id FROM accounting_opening_document_cutovers WHERE tenant_id = 1')
+        ->fetch(PDO::FETCH_ASSOC);
+    $assert($batch && $batch['balance_je_id'] === null,
+        'document-only cutover has no fabricated balance journal');
+    $assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = 1')->fetchColumn()
+        === $baseline['journals'] + 2, 'only AR and AP source journals were posted');
+    $assert((int) $pdo->query(
+        'SELECT COUNT(*) FROM accounting_subledger_links
+          WHERE tenant_id = 1 AND link_kind = "primary" AND source_module IN ("billing", "ap")'
+    )->fetchColumn() === 2, 'both source documents link to canonical journals');
+    $assert($posted['journal_entry_id'] === $posted['invoices'][0]['journal_entry_id'],
+        'document-only result links to a real source journal');
+    $agingAr = billingComputeAging(1, '2024-12-31', $entityId);
+    $agingAp = apComputeAging(1, '2024-12-31', $entityId);
+    $assert(count($agingAr) === 1 && (float) $agingAr[0]['total_due'] === 150.0
+        && count($agingAp) === 1 && (float) $agingAp[0]['total_due'] === 80.0,
+        'document-only AR and AP both appear in aging');
+    $balance = reportBalanceSheet(1, '2024-12-31', $entityId);
+    $assert($balance['balanced'] && (float) $balance['total_assets'] === 150.0
+        && (float) $balance['total_liabilities'] === 80.0
+        && (float) $balance['total_equity'] === 70.0,
+        'document-only source journals balance the sheet');
+    $income = reportIncomeStatement(1, '2024-12-31', '2024-12-31', $entityId);
+    $assert((float) $income['total_revenue'] === 0.0 && (float) $income['total_expense'] === 0.0,
+        'document-only cutover creates no current-period income');
+    $replay = accountingOpeningCutoverCommit($pdo, 1, $entityId, '', $ar, $ap,
+        $preview['preview_token'], null);
+    $assert($replay['idempotent_replay'] && $replay['cutover_id'] === $posted['cutover_id']
+        && $replay['journal_entry_id'] === $posted['journal_entry_id'],
+        'document-only retry returns the original batch and journal');
+    $assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = 1')->fetchColumn()
+        === $baseline['journals'] + 2, 'document-only retry does not duplicate journals');
+    $changed = accountingOpeningCutoverReview($pdo, 1, $entityId, '',
+        str_replace('150.00', '151.00', $ar), $ap);
+    $assert($changed['error_count'] > 0 && $changed['preview_token'] === null,
+        'changed source amount cannot replace document-only cutover');
+    $lateBalances = accountingOpeningReview($pdo, 1, $entityId, $balances);
+    $assert($lateBalances['error_count'] > 0 && $lateBalances['preview_token'] === null,
+        'ordinary balances cannot be added after document-only cutover');
+} finally {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+}
+$assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = 1')->fetchColumn()
+    === $baseline['journals'], 'rollback removed document-only journals');
+$assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_opening_document_cutovers WHERE tenant_id = 1')->fetchColumn()
+    === $baseline['batches'], 'rollback removed document-only batch');
+
+$pdo->beginTransaction();
+try {
+    $preview = accountingOpeningCutoverReview($pdo, 1, $entityId, '', '', $ap);
+    $assert($preview['error_count'] === 0 && $preview['ar_count'] === 0 && $preview['ap_count'] === 1,
+        'AP-only source file is valid without balances or AR');
+    $posted = accountingOpeningCutoverCommit($pdo, 1, $entityId, '', '', $ap,
+        $preview['preview_token'], null);
+    $assert($posted['journal_entry_id'] === $posted['bills'][0]['journal_entry_id'],
+        'AP-only result links to the payable journal');
+    $assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = 1')->fetchColumn()
+        === $baseline['journals'] + 1, 'AP-only cutover creates just one journal');
+    $balance = reportBalanceSheet(1, '2024-12-31', $entityId);
+    $assert($balance['balanced'] && (float) $balance['total_assets'] === 0.0
+        && (float) $balance['total_liabilities'] === 80.0
+        && (float) $balance['total_equity'] === -80.0,
+        'AP-only source journal balances with opening equity');
+    $replay = accountingOpeningCutoverCommit($pdo, 1, $entityId, '', '', $ap,
+        $preview['preview_token'], null);
+    $assert($replay['idempotent_replay'] && $replay['journal_entry_id'] === $posted['journal_entry_id'],
+        'AP-only retry is idempotent');
+} finally {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+}
+$assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = 1')->fetchColumn()
+    === $baseline['journals'], 'rollback removed AP-only journal');
 echo "Accounting opening documents MariaDB: {$checks} checks passed.\n";

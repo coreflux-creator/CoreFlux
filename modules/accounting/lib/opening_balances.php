@@ -72,12 +72,10 @@ function accountingOpeningStoredLines(PDO $pdo, int $tenantId, int $jeId): array
     return $lines;
 }
 
-/** Preview is read-only; commit calls it again after locking the legal entity. */
-function accountingOpeningReview(PDO $pdo, int $tenantId, int $entityId, string $csv): array
+/** The cutover date is always the day before the entity's first fiscal year. */
+function accountingOpeningContext(PDO $pdo, int $tenantId, int $entityId): array
 {
     if ($tenantId <= 0 || $entityId <= 0) throw new InvalidArgumentException('Choose a legal entity.');
-    if (strlen($csv) > 1048576) throw new InvalidArgumentException('Opening balances CSV is limited to 1 MB.');
-    accountingOpeningRegisterSchema();
     $entityStmt = $pdo->prepare(
         'SELECT id, code, legal_name, country, base_currency, accounting_basis, active
            FROM accounting_entities WHERE tenant_id = :t AND id = :e'
@@ -97,6 +95,21 @@ function accountingOpeningReview(PDO $pdo, int $tenantId, int $entityId, string 
     $firstDay = $calendar->fetchColumn();
     if (!$firstDay) throw new InvalidArgumentException('Set up the first fiscal calendar before importing opening balances.');
     $cutoverDate = (new DateTimeImmutable((string) $firstDay))->modify('-1 day')->format('Y-m-d');
+    return [
+        'entity_name' => (string) $entity['legal_name'],
+        'first_fiscal_day' => (string) $firstDay,
+        'posting_date' => $cutoverDate,
+    ];
+}
+
+/** Preview is read-only; commit calls it again after locking the legal entity. */
+function accountingOpeningReview(PDO $pdo, int $tenantId, int $entityId, string $csv): array
+{
+    if (strlen($csv) > 1048576) throw new InvalidArgumentException('Opening balances CSV is limited to 1 MB.');
+    accountingOpeningRegisterSchema();
+    $context = accountingOpeningContext($pdo, $tenantId, $entityId);
+    $firstDay = $context['first_fiscal_day'];
+    $cutoverDate = $context['posting_date'];
 
     $dry = CsvImportService::dryRun('accounting_opening_balances', $csv);
     $errors = $dry['errors'];
@@ -220,7 +233,7 @@ function accountingOpeningReview(PDO $pdo, int $tenantId, int $entityId, string 
         $errors[0][] = 'The cutover period is closed; reopen it before importing opening balances.';
     }
     return [
-        'entity_id' => $entityId, 'entity_name' => $entity['legal_name'],
+        'entity_id' => $entityId, 'entity_name' => $context['entity_name'],
         'first_fiscal_day' => $firstDay, 'posting_date' => $cutoverDate,
         'rows' => $previewRows, 'row_count' => $dry['row_count'],
         'balancing_equity' => [
@@ -236,6 +249,24 @@ function accountingOpeningReview(PDO $pdo, int $tenantId, int $entityId, string 
         'journal_entry_id' => $posted && !$errors ? (int) $posted['id'] : null,
         'journal_lines' => $lines,
     ];
+}
+
+function accountingOpeningEnsurePeriod(PDO $pdo, int $tenantId, int $entityId, string $postingDate): void
+{
+    $period = $pdo->prepare(
+        'SELECT id FROM accounting_periods WHERE tenant_id = :t AND entity_id = :e
+            AND start_date <= :d1 AND end_date >= :d2 LIMIT 1 FOR UPDATE'
+    );
+    $period->execute(['t' => $tenantId, 'e' => $entityId,
+        'd1' => $postingDate, 'd2' => $postingDate]);
+    if (!$period->fetchColumn()) {
+        $pdo->prepare(
+            'INSERT INTO accounting_periods
+               (tenant_id, entity_id, period_number, start_date, end_date, status)
+             VALUES (:t, :e, 0, :start_date, :end_date, "open")'
+        )->execute(['t' => $tenantId, 'e' => $entityId,
+            'start_date' => $postingDate, 'end_date' => $postingDate]);
+    }
 }
 
 function accountingOpeningCommit(PDO $pdo, int $tenantId, int $entityId, string $csv,
@@ -263,20 +294,7 @@ function accountingOpeningCommit(PDO $pdo, int $tenantId, int $entityId, string 
             cf_tx_commit($pdo, $ownsTransaction);
             return ['journal_entry_id' => $review['journal_entry_id'], 'idempotent_replay' => true];
         }
-        $period = $pdo->prepare(
-            'SELECT id FROM accounting_periods WHERE tenant_id = :t AND entity_id = :e
-                AND start_date <= :d1 AND end_date >= :d2 LIMIT 1 FOR UPDATE'
-        );
-        $period->execute(['t' => $tenantId, 'e' => $entityId,
-            'd1' => $review['posting_date'], 'd2' => $review['posting_date']]);
-        if (!$period->fetchColumn()) {
-            $pdo->prepare(
-                'INSERT INTO accounting_periods
-                   (tenant_id, entity_id, period_number, start_date, end_date, status)
-                 VALUES (:t, :e, 0, :start_date, :end_date, "open")'
-            )->execute(['t' => $tenantId, 'e' => $entityId,
-                'start_date' => $review['posting_date'], 'end_date' => $review['posting_date']]);
-        }
+        accountingOpeningEnsurePeriod($pdo, $tenantId, $entityId, $review['posting_date']);
         $posted = accountingPostJe($tenantId, [
             'entity_id' => $entityId, 'posting_date' => $review['posting_date'],
             'currency' => 'USD', 'source_module' => 'system',

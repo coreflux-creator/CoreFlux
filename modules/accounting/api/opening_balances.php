@@ -38,7 +38,9 @@ $entityId = (int) ($body['entity_id'] ?? 0);
 $csv = (string) ($body['csv'] ?? '');
 $arCsv = (string) ($body['ar_csv'] ?? '');
 $apCsv = (string) ($body['ap_csv'] ?? '');
-if ($entityId <= 0 || trim($csv) === '') api_error('Choose a legal entity and provide a CSV.', 422);
+if ($entityId <= 0 || (trim($csv) === '' && trim($arCsv) === '' && trim($apCsv) === '')) {
+    api_error('Choose a legal entity and provide balances, open invoices, or open bills.', 422);
+}
 try {
     if ($action === 'preview') {
         api_ok(trim($arCsv) !== '' || trim($apCsv) !== ''

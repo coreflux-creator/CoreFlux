@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Download, FileUp, Upload } from 'lucide-react';
+import { Check, Download, FileUp, Upload, X } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
 const ENDPOINT = '/modules/accounting/api/opening_balances.php';
@@ -59,6 +59,13 @@ export default function OpeningBalances() {
     }
   };
 
+  const removeFile = kind => {
+    if (kind === 'balances') { setCsv(''); setFileName(''); }
+    else if (kind === 'ar') { setArCsv(''); setArFileName(''); }
+    else { setApCsv(''); setApFileName(''); }
+    resetReview();
+  };
+
   const review = async () => {
     setBusy('preview'); setError(''); setPosted(null); setConfirmed(false);
     try {
@@ -93,6 +100,7 @@ export default function OpeningBalances() {
 
   const balancePreview = preview?.balances || preview;
   const hasDocuments = Boolean(preview?.balances);
+  const postedJournalId = preview?.journal_entry_id || balancePreview?.journal_entry_id;
   const reviewErrors = preview?.error_count > 0
     ? hasDocuments
       ? Object.entries(preview.errors).flatMap(([group, rows]) => Object.entries(rows).map(([row, messages]) => ({
@@ -131,38 +139,53 @@ export default function OpeningBalances() {
           </select>
         </label>
         <button className="btn btn--primary opening-balances__action" type="button" onClick={review}
-          disabled={!entityId || !csv.trim() || busy !== ''} data-testid="opening-preview">
+          disabled={!entityId || (!csv.trim() && !arCsv.trim() && !apCsv.trim()) || busy !== ''} data-testid="opening-preview">
           {busy === 'preview' ? 'Reviewing' : 'Preview cutover'}
         </button>
         <div className="opening-balances__file opening-balances__file--balances">
           <span className="opening-balances__label">Balances CSV</span>
           <input ref={fileRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"
             onChange={chooseFile} hidden data-testid="opening-file" />
-          <button className="btn btn--ghost" type="button" onClick={() => fileRef.current?.click()}
-            disabled={busy !== ''} title={fileName || 'Choose balances CSV'}>
-            <FileUp size={15} aria-hidden="true" /> <span>{fileName || 'Choose file'}</span>
-          </button>
+          <div className="opening-balances__file-select">
+            <button className="btn btn--ghost" type="button" onClick={() => fileRef.current?.click()}
+              disabled={busy !== ''} title={fileName || 'Choose balances CSV'}>
+              <FileUp size={15} aria-hidden="true" /> <span>{fileName || 'Choose file'}</span>
+            </button>
+            {fileName && <button className="btn btn--ghost opening-balances__remove" type="button"
+              onClick={() => removeFile('balances')} disabled={busy !== ''} title="Remove balances CSV"
+              aria-label="Remove balances CSV"><X size={15} aria-hidden="true" /></button>}
+          </div>
         </div>
         <div className="opening-balances__file opening-balances__file--ar">
           <span className="opening-balances__label">Open invoices CSV</span>
           <input ref={arFileRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"
             onChange={event => chooseDocuments(event, 'ar')} hidden data-testid="opening-ar-file" />
-          <button className="btn btn--ghost" type="button" onClick={() => arFileRef.current?.click()}
-            disabled={busy !== ''} title={arFileName || 'Choose open invoices CSV'}>
-            <FileUp size={15} aria-hidden="true" /> <span>{arFileName || 'Choose file'}</span>
-          </button>
+          <div className="opening-balances__file-select">
+            <button className="btn btn--ghost" type="button" onClick={() => arFileRef.current?.click()}
+              disabled={busy !== ''} title={arFileName || 'Choose open invoices CSV'}>
+              <FileUp size={15} aria-hidden="true" /> <span>{arFileName || 'Choose file'}</span>
+            </button>
+            {arFileName && <button className="btn btn--ghost opening-balances__remove" type="button"
+              onClick={() => removeFile('ar')} disabled={busy !== ''} title="Remove open invoices CSV"
+              aria-label="Remove open invoices CSV"><X size={15} aria-hidden="true" /></button>}
+          </div>
         </div>
         <div className="opening-balances__file opening-balances__file--ap">
           <span className="opening-balances__label">Open bills CSV</span>
           <input ref={apFileRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"
             onChange={event => chooseDocuments(event, 'ap')} hidden data-testid="opening-ap-file" />
-          <button className="btn btn--ghost" type="button" onClick={() => apFileRef.current?.click()}
-            disabled={busy !== ''} title={apFileName || 'Choose open bills CSV'}>
-            <FileUp size={15} aria-hidden="true" /> <span>{apFileName || 'Choose file'}</span>
-          </button>
+          <div className="opening-balances__file-select">
+            <button className="btn btn--ghost" type="button" onClick={() => apFileRef.current?.click()}
+              disabled={busy !== ''} title={apFileName || 'Choose open bills CSV'}>
+              <FileUp size={15} aria-hidden="true" /> <span>{apFileName || 'Choose file'}</span>
+            </button>
+            {apFileName && <button className="btn btn--ghost opening-balances__remove" type="button"
+              onClick={() => removeFile('ap')} disabled={busy !== ''} title="Remove open bills CSV"
+              aria-label="Remove open bills CSV"><X size={15} aria-hidden="true" /></button>}
+          </div>
         </div>
       </div>
-      <p className="opening-balances__note">Open amounts are unpaid balances at cutover, not original gross totals. AR/AP control accounts are generated from source documents. Payroll and tax controls require separate sources. Cutover is available only before first activity.</p>
+      <p className="opening-balances__note">Balances CSV is optional when open invoices or bills are supplied. Open amounts are unpaid balances at cutover, not original gross totals. AR/AP control accounts are generated from source documents. Payroll and tax controls require separate sources. Cutover is available only before first activity.</p>
       {!loadingEntities && !entitiesError && activeEntities.length === 0 && (
         <p className="opening-balances__note">No legal entity is set up yet. <Link to="/modules/accounting/entities">Create one</Link> before importing balances.</p>
       )}
@@ -186,7 +209,7 @@ export default function OpeningBalances() {
               ))}
             </div>
           )}
-          <div className="opening-balances__table-wrap">
+          {balancePreview.rows.length > 0 ? <div className="opening-balances__table-wrap">
             <table className="data-table opening-balances__table">
               <thead><tr><th>Account</th><th>Balance</th><th>Debit</th><th>Credit</th></tr></thead>
               <tbody>
@@ -204,7 +227,7 @@ export default function OpeningBalances() {
               </tbody>
               <tfoot><tr><th colSpan="2">Journal total</th><th>{balancePreview.total_debit}</th><th>{balancePreview.total_credit}</th></tr></tfoot>
             </table>
-          </div>
+          </div> : <p className="opening-balances__note">No other opening account balances.</p>}
           {hasDocuments && preview.ar_rows.length > 0 && (
             <div className="opening-balances__documents">
               <h3>Open invoices</h3>
@@ -229,18 +252,18 @@ export default function OpeningBalances() {
           )}
           {preview.already_posted ? (
             <p className="opening-balances__success" role="status"><Check size={16} aria-hidden="true" /> Already posted.
-              <Link to={`/modules/accounting/journal-entries/${balancePreview.journal_entry_id}`}>View journal</Link></p>
+              {postedJournalId && <Link to={`/modules/accounting/journal-entries/${postedJournalId}`}>View journal</Link>}</p>
           ) : preview.preview_token && !posted ? (
             <div className="opening-balances__commit">
               <label><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
-                I verified the cutover date, balances, open documents, and calculated equity.</label>
+                I verified the cutover date, amounts, parties, and calculated equity.</label>
               <button className="btn btn--primary" type="button" onClick={commit} disabled={!confirmed || busy !== ''}
                 data-testid="opening-post"><Upload size={15} aria-hidden="true" /> {busy === 'commit' ? 'Posting' : 'Post cutover'}</button>
             </div>
           ) : null}
           {posted && <p className="opening-balances__success" role="status" data-testid="opening-posted">
-            <Check size={16} aria-hidden="true" /> Opening balances posted.
-            <Link to={`/modules/accounting/journal-entries/${posted.journal_entry_id}`}>View journal</Link>
+            <Check size={16} aria-hidden="true" /> Opening cutover posted.
+            {posted.journal_entry_id && <Link to={`/modules/accounting/journal-entries/${posted.journal_entry_id}`}>View journal</Link>}
           </p>}
         </div>
       )}

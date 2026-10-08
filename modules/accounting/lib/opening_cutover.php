@@ -98,6 +98,72 @@ function accountingOpeningDocumentRows(PDO $pdo, int $tenantId, int $entityId,
     return ['rows' => $rows, 'errors' => $errors, 'total_cents' => $totalCents];
 }
 
+/** Source documents can establish opening AR/AP without an unrelated balance journal. */
+function accountingOpeningDocumentOnlyReview(PDO $pdo, int $tenantId, int $entityId, ?array $prior): array
+{
+    $context = accountingOpeningContext($pdo, $tenantId, $entityId);
+    $date = $context['posting_date'];
+    $errors = [];
+    if ($prior) {
+        if ($prior['balance_je_id'] !== null) {
+            $errors[0][] = 'This cutover already includes ordinary opening balances.';
+        }
+    } else {
+        $journals = $pdo->prepare(
+            'SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = :t AND entity_id = :e'
+        );
+        $journals->execute(['t' => $tenantId, 'e' => $entityId]);
+        if ((int) $journals->fetchColumn() > 0) {
+            $errors[0][] = 'Opening documents must be imported before other journals for this legal entity.';
+        }
+        $bankLines = $pdo->prepare(
+            'SELECT COUNT(*) FROM accounting_bank_statement_lines l
+               JOIN accounting_bank_accounts b ON b.id = l.bank_account_id AND b.tenant_id = l.tenant_id
+              WHERE l.tenant_id = :t AND b.entity_id = :e'
+        );
+        $bankLines->execute(['t' => $tenantId, 'e' => $entityId]);
+        if ((int) $bankLines->fetchColumn() > 0) {
+            $errors[0][] = 'Import opening documents before bank statement lines for this legal entity.';
+        }
+    }
+    $period = $pdo->prepare(
+        'SELECT status FROM accounting_periods WHERE tenant_id = :t AND entity_id = :e
+            AND start_date <= :d1 AND end_date >= :d2 LIMIT 1'
+    );
+    $period->execute(['t' => $tenantId, 'e' => $entityId, 'd1' => $date, 'd2' => $date]);
+    $status = $period->fetchColumn();
+    if ($status && !in_array($status, ['open', 'reopened'], true)) {
+        $errors[0][] = 'The cutover period is closed; reopen it before importing opening documents.';
+    }
+    $token = hash('sha256', json_encode([$tenantId, $entityId, $date, []], JSON_THROW_ON_ERROR));
+    return [
+        'entity_id' => $entityId, 'entity_name' => $context['entity_name'],
+        'first_fiscal_day' => $context['first_fiscal_day'], 'posting_date' => $date,
+        'rows' => [], 'row_count' => 0,
+        'balancing_equity' => ['account_code' => '3000', 'debit' => '0.00', 'credit' => '0.00'],
+        'total_debit' => '0.00', 'total_credit' => '0.00',
+        'errors' => $errors, 'error_count' => count($errors),
+        'preview_token' => $errors ? null : $token,
+        'already_posted' => $prior !== null && !$errors,
+        'journal_entry_id' => null, 'journal_lines' => [],
+    ];
+}
+
+function accountingOpeningCutoverFirstJournal(PDO $pdo, int $tenantId, int $batchId): ?int
+{
+    foreach (['billing_invoices', 'ap_bills'] as $table) {
+        $stmt = $pdo->prepare(
+            "SELECT journal_entry_id FROM {$table}
+              WHERE tenant_id = :t AND opening_cutover_id = :batch
+              ORDER BY id LIMIT 1"
+        );
+        $stmt->execute(['t' => $tenantId, 'batch' => $batchId]);
+        $id = (int) ($stmt->fetchColumn() ?: 0);
+        if ($id > 0) return $id;
+    }
+    return null;
+}
+
 function accountingOpeningCutoverReview(PDO $pdo, int $tenantId, int $entityId,
     string $balancesCsv, string $arCsv, string $apCsv): array
 {
@@ -105,12 +171,14 @@ function accountingOpeningCutoverReview(PDO $pdo, int $tenantId, int $entityId,
         throw new InvalidArgumentException('Add an open invoices or open bills CSV, or use the balances-only import.');
     }
     accountingOpeningDocumentRegisterSchemas();
-    $base = accountingOpeningReview($pdo, $tenantId, $entityId, $balancesCsv);
     $priorStmt = $pdo->prepare(
         'SELECT * FROM accounting_opening_document_cutovers WHERE tenant_id = :t AND entity_id = :e LIMIT 1'
     );
     $priorStmt->execute(['t' => $tenantId, 'e' => $entityId]);
     $prior = $priorStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    $base = trim($balancesCsv) === ''
+        ? accountingOpeningDocumentOnlyReview($pdo, $tenantId, $entityId, $prior)
+        : accountingOpeningReview($pdo, $tenantId, $entityId, $balancesCsv);
     $ar = trim($arCsv) === '' ? ['rows' => [], 'errors' => [], 'total_cents' => 0]
         : accountingOpeningDocumentRows($pdo, $tenantId, $entityId, $arCsv, 'ar', $base['posting_date'], !$prior);
     $ap = trim($apCsv) === '' ? ['rows' => [], 'errors' => [], 'total_cents' => 0]
@@ -188,6 +256,9 @@ function accountingOpeningCutoverReview(PDO $pdo, int $tenantId, int $entityId,
         'preview_token' => $errorCount === 0 ? $token : null,
         'already_posted' => $prior !== null && $errorCount === 0,
         'cutover_id' => $prior && $errorCount === 0 ? (int) $prior['id'] : null,
+        'journal_entry_id' => $prior && $errorCount === 0
+            ? ($base['journal_entry_id'] ?? accountingOpeningCutoverFirstJournal($pdo, $tenantId, (int) $prior['id']))
+            : null,
     ];
 }
 
@@ -321,12 +392,17 @@ function accountingOpeningCutoverCommit(PDO $pdo, int $tenantId, int $entityId,
             if ($owns) $pdo->commit();
             else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
             return ['cutover_id' => $review['cutover_id'],
-                'journal_entry_id' => $review['balances']['journal_entry_id'],
+                'journal_entry_id' => $review['journal_entry_id'],
                 'ar_count' => $review['ar_count'], 'ap_count' => $review['ap_count'],
                 'idempotent_replay' => true];
         }
-        $base = accountingOpeningCommit($pdo, $tenantId, $entityId, $balancesCsv,
-            (string) $review['balances']['preview_token'], $actorUserId);
+        if (trim($balancesCsv) === '') {
+            accountingOpeningEnsurePeriod($pdo, $tenantId, $entityId, $review['balances']['posting_date']);
+            $base = ['journal_entry_id' => null];
+        } else {
+            $base = accountingOpeningCommit($pdo, $tenantId, $entityId, $balancesCsv,
+                (string) $review['balances']['preview_token'], $actorUserId);
+        }
         $pdo->prepare(
             'INSERT INTO accounting_opening_document_cutovers
                (tenant_id, entity_id, posting_date, preview_hash, balance_je_id,
@@ -367,7 +443,9 @@ function accountingOpeningCutoverCommit(PDO $pdo, int $tenantId, int $entityId,
         }
         if ($owns) $pdo->commit();
         else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
-        return ['cutover_id' => $batchId, 'journal_entry_id' => $base['journal_entry_id'],
+        $firstSourceJournal = $invoices[0]['journal_entry_id'] ?? $bills[0]['journal_entry_id'] ?? null;
+        return ['cutover_id' => $batchId,
+            'journal_entry_id' => $base['journal_entry_id'] ?? $firstSourceJournal,
             'ar_count' => count($invoices), 'ap_count' => count($bills),
             'invoices' => $invoices, 'bills' => $bills, 'idempotent_replay' => false];
     } catch (Throwable $error) {

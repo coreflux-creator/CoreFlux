@@ -1844,7 +1844,14 @@ input[type="radio"] {
 .opening-balances__file--ar { grid-area: ar; }
 .opening-balances__file--ap { grid-area: ap; }
 .opening-balances__file { min-width: 0; }
-.opening-balances__file .btn { width: 100%; min-width: 0; text-align: left; }
+.opening-balances__file-select { display: flex; gap: 6px; min-width: 0; }
+.opening-balances__file-select > .btn:first-child { flex: 1; min-width: 0; text-align: left; }
+.opening-balances__file-select > .opening-balances__remove {
+    flex: none;
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+}
 .opening-balances__file .btn svg { flex: none; }
 .opening-balances__file .btn span { min-width: 0; overflow-wrap: anywhere; }
 
