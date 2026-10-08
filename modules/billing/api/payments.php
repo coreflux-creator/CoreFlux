@@ -87,14 +87,32 @@ if ($method === 'GET') {
     if (!empty($_GET['client_name'])) { $where[] = 'p.client_name = :cn';   $params['cn'] = $_GET['client_name']; }
     if (!empty($_GET['from']))        { $where[] = 'p.received_at >= :df'; $params['df'] = $_GET['from']; }
     if (!empty($_GET['to']))          { $where[] = 'p.received_at <= :dt'; $params['dt'] = $_GET['to']; }
+    $search = trim((string) ($_GET['q'] ?? ''));
+    if (strlen($search) > 120) api_error('Payment search is too long', 422);
+    if ($search !== '') {
+        $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search) . '%';
+        $where[] = '(p.client_name LIKE :client_search ESCAPE "!"
+                 OR p.reference LIKE :reference_search ESCAPE "!"
+                 OR p.external_id LIKE :source_search ESCAPE "!")';
+        $params['client_search'] = $like;
+        $params['reference_search'] = $like;
+        $params['source_search'] = $like;
+    }
+    $whereSql = implode(' AND ', $where);
+    $totalRow = scopedFind('SELECT COUNT(*) AS total FROM billing_payments p WHERE ' . $whereSql, $params);
+    $total = (int) ($totalRow['total'] ?? 0);
+    $perPage = min(200, max(1, (int) ($_GET['per_page'] ?? 50)));
+    $pages = max(1, (int) ceil($total / $perPage));
+    $page = min($pages, max(1, (int) ($_GET['page'] ?? 1)));
+    $offset = ($page - 1) * $perPage;
     $rows = scopedQuery(
         'SELECT p.*, je.status AS journal_status, je.source_module AS journal_source_module,
                 je.source_ref_type AS journal_source_ref_type, je.source_ref_id AS journal_source_ref_id
            FROM billing_payments p
            LEFT JOIN accounting_journal_entries je
              ON je.tenant_id = p.tenant_id AND je.id = p.journal_entry_id
-          WHERE ' . implode(' AND ', $where) . '
-          ORDER BY p.received_at DESC, p.id DESC LIMIT 200',
+          WHERE ' . $whereSql . '
+          ORDER BY p.received_at DESC, p.id DESC LIMIT ' . $perPage . ' OFFSET ' . $offset,
         $params
     );
     $applicationStmt = getDB()->prepare(
@@ -140,7 +158,8 @@ if ($method === 'GET') {
             || !empty($hasAnyRefunds[$row['id']]);
     }
     unset($row);
-    api_ok(['rows' => $rows]);
+    api_ok(['rows' => $rows, 'total' => $total, 'page' => $page,
+        'per_page' => $perPage, 'pages' => $pages]);
 }
 
 if ($method === 'POST' && $action === '') {

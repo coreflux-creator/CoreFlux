@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useDeferredValue, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
@@ -10,8 +11,20 @@ const localDate = () => {
 };
 
 export default function PaymentsList() {
-  const { data, loading, error, reload } = useApi('/api/v1/billing/payments');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(50);
+  const deferredQuery = useDeferredValue(query);
+  const requestUrl = useMemo(() => {
+    const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+    if (deferredQuery.trim()) params.set('q', deferredQuery.trim());
+    return `/api/v1/billing/payments?${params.toString()}`;
+  }, [page, perPage, deferredQuery]);
+  const { data, loading, error, reload } = useApi(requestUrl);
   const rows = data?.rows ?? [];
+  const total = Number(data?.total ?? rows.length);
+  const currentPage = Number(data?.page ?? page);
+  const pages = Number(data?.pages ?? 1);
   const [showRecord, setShowRecord] = useState(false);
   const [allocFor, setAllocFor] = useState(null);
   const [applyFor, setApplyFor] = useState(null);
@@ -75,6 +88,23 @@ export default function PaymentsList() {
       {loading && <p>Loading…</p>}
       {error && <p className="error" data-testid="billing-payments-error">Error: {error.message}</p>}
 
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ position: 'relative', flex: '1 1 260px', maxWidth: 440 }}>
+          <Search size={16} aria-hidden="true" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--cf-text-secondary)' }} />
+          <input className="input" type="search" aria-label="Search payments" placeholder="Search client, reference or source ID"
+            value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }}
+            data-testid="billing-payments-search" style={{ width: '100%', paddingLeft: 34 }} />
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+          Rows
+          <select className="input" aria-label="Payments per page" value={perPage}
+            onChange={(event) => { setPerPage(Number(event.target.value)); setPage(1); }}
+            data-testid="billing-payments-per-page">
+            {[25, 50, 100, 200].map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+      </div>
+
       <div style={{ overflowX: 'auto' }}>
       <table className="data-table" style={{ minWidth: 1220 }} data-testid="billing-payments-table">
         <thead><tr><th>ID</th><th>Received</th><th>Client</th><th>Method</th><th>Reference</th><th style={{textAlign:'right'}}>Amount</th><th style={{textAlign:'right'}}>Unallocated</th><th>Status</th><th></th></tr></thead>
@@ -107,6 +137,21 @@ export default function PaymentsList() {
           ))}
         </tbody>
       </table>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 12, fontSize: 13 }}>
+        <span data-testid="billing-payments-count">
+          {total ? `${(currentPage - 1) * perPage + 1}–${(currentPage - 1) * perPage + rows.length} of ${total}` : '0 payments'}
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button type="button" className="btn btn--ghost" aria-label="Previous payments page" title="Previous page"
+            disabled={currentPage <= 1 || loading} onClick={() => setPage(currentPage - 1)}
+            data-testid="billing-payments-prev"><ChevronLeft size={16} aria-hidden="true" /></button>
+          <span data-testid="billing-payments-page">{currentPage} / {pages}</span>
+          <button type="button" className="btn btn--ghost" aria-label="Next payments page" title="Next page"
+            disabled={currentPage >= pages || loading} onClick={() => setPage(currentPage + 1)}
+            data-testid="billing-payments-next"><ChevronRight size={16} aria-hidden="true" /></button>
+        </div>
       </div>
 
       {showRecord && <RecordPaymentModal onClose={() => setShowRecord(false)} onSaved={handleAllocResult} />}

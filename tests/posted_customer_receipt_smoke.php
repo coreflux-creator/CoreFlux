@@ -126,6 +126,11 @@ $check('payment list exposes actions from posted Billing journal ownership, not 
     && str_contains($api, "\$row['journal_source_ref_type'] === 'billing_payment'")
     && str_contains($api, "\$row['can_apply_deposit'] = \$billingPosted")
     && str_contains($api, "\$row['can_correct'] = \$billingPosted"));
+$check('payment list exposes server search and page controls',
+    str_contains($api, 'COUNT(*) AS total FROM billing_payments p')
+    && str_contains($api, 'p.external_id LIKE :source_search')
+    && str_contains($ui, 'billing-payments-search')
+    && str_contains($ui, 'billing-payments-next'));
 
-echo ($failures ? "Failed: {$failures}" : 'Passed: 23') . PHP_EOL;
+echo ($failures ? "Failed: {$failures}" : 'Passed: 24') . PHP_EOL;
 exit($failures ? 1 : 0);

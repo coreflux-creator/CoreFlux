@@ -194,6 +194,25 @@ try {
         && empty($refundedRow['can_correct'])
         && !empty($refundedRow['has_deposit_activity']),
         'refunded imported deposit retains activity without an available balance');
+    $pagePath = '/modules/billing/api/payments.php?client_name=' . rawurlencode($client)
+        . '&per_page=1&page=';
+    $firstPage = qaRequest($pagePath . '1', 'GET', null, $makerCookie);
+    $secondPage = qaRequest($pagePath . '2', 'GET', null, $makerCookie);
+    $foundIds = [(int) ($firstPage['rows'][0]['id'] ?? 0),
+        (int) ($secondPage['rows'][0]['id'] ?? 0)];
+    sort($foundIds);
+    $expectedIds = [$paymentId, $refundPaymentId];
+    sort($expectedIds);
+    qaExpect((int) ($firstPage['total'] ?? 0) === 2
+        && (int) ($firstPage['pages'] ?? 0) === 2
+        && (int) ($secondPage['page'] ?? 0) === 2
+        && $foundIds === $expectedIds,
+        'payment list pages through both imported receipts instead of truncating them');
+    $searched = qaRequest('/modules/billing/api/payments.php?q=' . rawurlencode($refundExternalId)
+        . '&per_page=1', 'GET', null, $makerCookie);
+    qaExpect((int) ($searched['total'] ?? 0) === 1
+        && (int) ($searched['rows'][0]['id'] ?? 0) === $refundPaymentId,
+        'payment source-ID search finds the imported refund receipt directly');
 
     $fitid = 'SYN-QBO-BANK-' . $run;
     qaRequest('/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=' . $bankId,
