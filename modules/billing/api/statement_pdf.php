@@ -43,16 +43,12 @@ $page  = '<!doctype html><html><head><meta charset="utf-8"><title>Statement — 
        . '<style>body{margin:0;background:#fff}</style></head><body>'
        . $email['html'] . '</body></html>';
 
-$tmpDir = sys_get_temp_dir() . '/cf-pdf-stmt';
-if (!is_dir($tmpDir)) @mkdir($tmpDir, 0755, true);
 $slug   = preg_replace('/[^a-z0-9]+/', '-', strtolower($clientName)) ?: 'client';
-$outPath= "{$tmpDir}/stmt-{$tid}-{$slug}-{$asOf}-" . bin2hex(random_bytes(4)) . '.pdf';
-try { cf_render_html_to_pdf($page, $outPath, ['orientation' => 'portrait']); }
-catch (\Throwable $e) { api_error('PDF renderer unavailable: ' . $e->getMessage(), 503); }
-
-header('Content-Type: application/pdf');
-header('Content-Length: ' . (string) filesize($outPath));
-header('Content-Disposition: ' . $disposition . '; filename="statement-' . $entityId . '-' . $slug . '-' . $asOf . '.pdf"');
-readfile($outPath);
-@unlink($outPath);
+try {
+    cf_stream_html_pdf($page, 'statement-' . $entityId . '-' . $slug . '-' . $asOf . '.pdf',
+        ['orientation' => 'portrait'], $disposition);
+} catch (\Throwable $e) {
+    error_log('[billing.statement_pdf] PDF render failed: ' . $e->getMessage());
+    api_error('PDF renderer unavailable', 503);
+}
 exit;

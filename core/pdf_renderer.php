@@ -41,10 +41,13 @@ function cf_render_html_to_pdf(string $html, string $outPath, array $opts = []):
     if ($bin === null) return _cf_pdf_render_dompdf($html, $outPath, $opts);
 
     $timeout = (int) ($opts['timeout_sec'] ?? 30);
-    $tmpHtml = tempnam(sys_get_temp_dir(), 'cf-pdf-') . '.html';
-    file_put_contents($tmpHtml, $html);
+    $htmlDir = cf_pdf_private_temp_dir();
+    $tmpHtml = $htmlDir . '/source.html';
 
     try {
+        if (file_put_contents($tmpHtml, $html) !== strlen($html)) {
+            throw new RuntimeException('Could not stage PDF source HTML');
+        }
         if (str_contains($bin, 'wkhtmltopdf')) {
             $cmd = _cf_pdf_wkhtmltopdf_cmd($bin, $tmpHtml, $outPath, $opts);
         } else {
@@ -92,6 +95,42 @@ function cf_render_html_to_pdf(string $html, string $outPath, array $opts = []):
         return true;
     } finally {
         @unlink($tmpHtml);
+        @rmdir($htmlDir);
+    }
+}
+
+function cf_pdf_private_temp_dir(): string {
+    $tmpDir = sys_get_temp_dir() . '/cf-pdf-' . bin2hex(random_bytes(16));
+    if (!@mkdir($tmpDir, 0700) || !is_writable($tmpDir)) {
+        if (is_dir($tmpDir)) @rmdir($tmpDir);
+        throw new RuntimeException('Could not create a private PDF output directory');
+    }
+    return $tmpDir;
+}
+
+/** Render and serve a PDF from a private, per-request temporary directory. */
+function cf_stream_html_pdf(string $html, string $filename, array $opts = [], string $disposition = 'inline'): void {
+    if (!preg_match('/^[A-Za-z0-9_.-]+\.pdf$/', $filename)
+        || !in_array($disposition, ['inline', 'attachment'], true)) {
+        throw new InvalidArgumentException('Invalid PDF response filename or disposition');
+    }
+
+    $tmpDir = cf_pdf_private_temp_dir();
+    $outPath = $tmpDir . '/document.pdf';
+    try {
+        cf_render_html_to_pdf($html, $outPath, $opts);
+        $size = filesize($outPath);
+        if ($size === false || $size < 5) throw new RuntimeException('Rendered PDF is empty');
+
+        header_remove('Content-Type');
+        header('Cache-Control: private, no-store');
+        header('Content-Type: application/pdf');
+        header('Content-Length: ' . $size);
+        header('Content-Disposition: ' . $disposition . '; filename="' . $filename . '"');
+        if (readfile($outPath) === false) error_log('[pdf_renderer] Could not stream rendered PDF');
+    } finally {
+        if (is_file($outPath)) @unlink($outPath);
+        @rmdir($tmpDir);
     }
 }
 

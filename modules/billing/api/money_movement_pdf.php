@@ -43,18 +43,10 @@ $page  = '<!doctype html><html><head><meta charset="utf-8"><title>Money movement
        . $email['html']
        . '</body></html>';
 
-$tmpDir = sys_get_temp_dir() . '/cf-pdf-mm';
-if (!is_dir($tmpDir)) @mkdir($tmpDir, 0755, true);
-$outPath = $tmpDir . "/mm-{$tid}-{$asOf}-" . bin2hex(random_bytes(4)) . '.pdf';
 try {
-    cf_render_html_to_pdf($page, $outPath, ['orientation' => 'portrait']);
+    cf_stream_html_pdf($page, 'money-movement-' . $asOf . '.pdf', ['orientation' => 'portrait'], $disposition);
 } catch (\Throwable $e) {
-    api_error('PDF renderer unavailable: ' . $e->getMessage(), 503);
+    error_log('[billing.money_movement_pdf] PDF render failed: ' . $e->getMessage());
+    api_error('PDF renderer unavailable', 503);
 }
-
-header('Content-Type: application/pdf');
-header('Content-Length: ' . (string) filesize($outPath));
-header('Content-Disposition: ' . $disposition . '; filename="money-movement-' . $asOf . '.pdf"');
-readfile($outPath);
-@unlink($outPath);
 exit;

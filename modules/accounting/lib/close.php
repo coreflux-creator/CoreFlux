@@ -140,20 +140,22 @@ function accountingBuildClosePacketHtml(int $tenantId, int $periodId): string {
 
     $h = function ($v) { return htmlspecialchars((string) ($v ?? ''), ENT_QUOTES); };
 
-    $html  = '<!doctype html><html><head><meta charset="utf-8"><title>Close packet — ';
+    $html  = '<!doctype html><html><head><meta charset="utf-8"><title>Close packet - ';
     $html .= $h($period['entity_code']) . ' P' . $h($period['period_number']);
     $html .= '</title><style>body{font-family:-apple-system,Segoe UI,sans-serif;color:#111;max-width:760px;margin:24px auto;padding:0 16px}h1,h2{margin:0 0 8px}h2{margin-top:24px;font-size:16px;text-transform:uppercase;letter-spacing:.5px;color:#374151}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{padding:6px 10px;border-bottom:1px solid #e5e7eb;text-align:left;font-size:13px}th{background:#f9fafb;font-weight:600}.r{text-align:right}.muted{color:#6b7280;font-size:12px}.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}.b-done{background:#d1fae5;color:#065f46}.b-pending{background:#fef3c7;color:#92400e}@media print{body{margin:0}}</style></head><body>';
     $html .= '<h1>Close packet</h1>';
-    $html .= '<div class="muted">' . $h($period['entity_code']) . ' — ' . $h($period['entity_name'])
+    $html .= '<div class="muted">' . $h($period['entity_code']) . ' - ' . $h($period['entity_name'])
           .  ' &nbsp;•&nbsp; Period ' . $h($period['period_number'])
-          .  ' &nbsp;•&nbsp; ' . $h($period['start_date']) . ' → ' . $h($period['end_date'])
+          .  ' &nbsp;•&nbsp; ' . $h($period['start_date']) . ' to ' . $h($period['end_date'])
           .  ' &nbsp;•&nbsp; Status: ' . $h($period['status']) . '</div>';
 
     if (!empty($period['closed_at'])) {
         $html .= '<div class="muted">Closed at ' . $h($period['closed_at']) . '</div>';
     }
     if (!empty($period['reopen_reason'])) {
-        $html .= '<div class="muted">Reopen reason: ' . $h($period['reopen_reason']) . '</div>';
+        $html .= '<div class="muted">Most recent reopen'
+              .  (!empty($period['reopened_at']) ? ' at ' . $h($period['reopened_at']) : '')
+              .  ' - reason: ' . $h($period['reopen_reason']) . '</div>';
     }
 
     $html .= '<h2>Journal activity</h2>';
@@ -174,7 +176,7 @@ function accountingBuildClosePacketHtml(int $tenantId, int $periodId): string {
     }
     $html .= '</tbody></table>';
 
-    $html .= '<h2>Trial balance — as of ' . $h($period['end_date']) . '</h2>';
+    $html .= '<h2>Trial balance - as of ' . $h($period['end_date']) . '</h2>';
     $html .= '<table><thead><tr><th>Code</th><th>Account</th><th class="r">Debit</th><th class="r">Credit</th></tr></thead><tbody>';
     foreach ($tbRows as $r) {
         if ((float) $r['debit'] === 0.0 && (float) $r['credit'] === 0.0) continue;

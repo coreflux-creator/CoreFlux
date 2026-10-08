@@ -61,17 +61,12 @@ if ($method === 'GET') {
     }
 
     if ($format === 'pdf') {
-        $tmpDir = sys_get_temp_dir() . '/cf-pdf-close';
-        if (!is_dir($tmpDir)) @mkdir($tmpDir, 0755, true);
-        $outPath = "{$tmpDir}/close-packet-{$tenantId}-{$periodId}-" . bin2hex(random_bytes(4)) . '.pdf';
-        try { cf_render_html_to_pdf($html, $outPath, ['paper' => 'letter']); }
-        catch (\Throwable $e) { api_error('PDF renderer unavailable: ' . $e->getMessage(), 503); }
-        header_remove('Content-Type');
-        header('Content-Type: application/pdf');
-        header('Content-Length: ' . (string) filesize($outPath));
-        header('Content-Disposition: inline; filename="' . $filename . '.pdf"');
-        readfile($outPath);
-        @unlink($outPath);
+        try {
+            cf_stream_html_pdf($html, $filename . '.pdf', ['paper' => 'letter']);
+        } catch (\Throwable $e) {
+            error_log('[accounting.close_packet] PDF render failed: ' . $e->getMessage());
+            api_error('PDF renderer unavailable', 503);
+        }
         exit;
     }
 
