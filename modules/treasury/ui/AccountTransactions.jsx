@@ -1267,16 +1267,25 @@ function TreasuryAiResultPanel({ line, ai, canPost, onDismiss, onAccept }) {
 export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, onCancel }) {
   const total = Math.abs(Number(line.amount));
   const allowInvoiceTargets = type === 'deposit' && Number(line.amount) > 0;
+  const [invoiceSearch, setInvoiceSearch] = useState('');
+  const [settledSearch, setSettledSearch] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setSettledSearch(invoiceSearch.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [invoiceSearch]);
   const { data: invoiceData, loading: invoicesLoading, error: invoicesError } = useApi(
-    `/modules/accounting/api/bank_statements.php?action=invoice_candidates&line_id=${line.id}`,
+    `/modules/accounting/api/bank_statements.php?action=invoice_candidates&line_id=${line.id}&q=${encodeURIComponent(settledSearch)}`,
     { enabled: allowInvoiceTargets }
   );
   const invoices = invoiceData?.rows || [];
   const blankRow = (amount = '0.00') => ({
     target_type: allowInvoiceTargets ? 'invoice' : 'account',
-    invoice_id: '', account_id: '', amount, entity_id: '', memo: '',
+    invoice_id: '', invoice_label: '', invoice_due: null, account_id: '', amount, entity_id: '', memo: '',
   });
   const [rows, setRows] = useState([blankRow(total.toFixed(2))]);
+  const selectedInvoices = [...new Map(rows
+    .filter(r => r.invoice_id && r.invoice_label && !invoices.some(inv => String(inv.id) === String(r.invoice_id)))
+    .map(r => [String(r.invoice_id), { id: r.invoice_id, label: r.invoice_label, amount_due: r.invoice_due }])).values()];
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
 
@@ -1289,12 +1298,14 @@ export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, on
   const selectInvoice = (i, invoiceId) => {
     const invoice = invoices.find(inv => Number(inv.id) === Number(invoiceId));
     setRows(rs => {
-      if (!invoice) return rs.map((r, idx) => idx === i ? { ...r, invoice_id: invoiceId } : r);
+      if (!invoice) return rs.map((r, idx) => idx === i
+        ? { ...r, invoice_id: invoiceId, invoice_label: '', invoice_due: null } : r);
       const assignedElsewhere = rs.reduce((sum, r, idx) => idx === i ? sum : sum + (Number(r.amount) || 0), 0);
       const available = Math.max(total - assignedElsewhere, 0);
       const applyAmount = Math.min(Number(invoice.amount_due), available);
       const next = rs.map((r, idx) => idx === i
-        ? { ...r, invoice_id: invoiceId, amount: applyAmount.toFixed(2) }
+        ? { ...r, invoice_id: invoiceId, invoice_label: invoice.label,
+            invoice_due: Number(invoice.amount_due), amount: applyAmount.toFixed(2) }
         : r);
       const remainder = total - assignedElsewhere - applyAmount;
       if (rs.length === 1 && remainder > 0.005) next.push(blankRow(remainder.toFixed(2)));
@@ -1310,7 +1321,8 @@ export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, on
     const overApplied = rows.find(r => {
       if (r.target_type !== 'invoice' || !r.invoice_id) return false;
       const invoice = invoices.find(inv => Number(inv.id) === Number(r.invoice_id));
-      return invoice && Number(r.amount) - Number(invoice.amount_due) > 0.005;
+      const due = invoice ? Number(invoice.amount_due) : r.invoice_due;
+      return due !== null && Number(r.amount) - Number(due) > 0.005;
     });
     if (overApplied) { setErr('An invoice allocation cannot exceed its open balance.'); return; }
     if (!balanced) { setErr('Splits must sum to the line amount.'); return; }
@@ -1347,6 +1359,16 @@ export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, on
       </div>
       {invoicesLoading && <p className="muted" style={{ fontSize: 12, margin: '6px 0' }}>Loading open invoices…</p>}
       {invoicesError && <p className="error" style={{ fontSize: 12, margin: '6px 0' }}>Invoices unavailable: {invoicesError.message}</p>}
+      {allowInvoiceTargets && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0' }}>
+          <Search size={15} aria-hidden="true" />
+          <input type="search" value={invoiceSearch} onChange={e => setInvoiceSearch(e.target.value)}
+                 aria-label="Find customer or invoice" placeholder="Find customer or invoice number"
+                 data-testid={`treasury-txn-split-invoice-search-${line.id}`}
+                 style={{ flex: 1, minWidth: 0 }} />
+          {invoiceData?.has_more && <span className="muted" style={{ fontSize: 11 }}>More results available; narrow the search</span>}
+        </div>
+      )}
       <table style={{ width: '100%', fontSize: 12 }}>
         <thead>
           <tr style={{ textAlign: 'left' }}>
@@ -1374,9 +1396,9 @@ export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, on
                           data-testid={`treasury-txn-split-invoice-${line.id}-${i}`}
                           style={{ width: '100%' }} disabled={invoicesLoading}>
                     <option value="">— select client and invoice —</option>
-                    {invoices.map(inv => (
+                    {[...invoices, ...selectedInvoices].map(inv => (
                       <option key={inv.id} value={inv.id}>
-                        {inv.client_name} · {inv.invoice_number} · {fmtMoney(Number(inv.amount_due))} due
+                        {inv.label || `${inv.client_name} · ${inv.invoice_number}`} · {fmtMoney(Number(inv.amount_due))} due
                       </option>
                     ))}
                   </select>

@@ -215,14 +215,20 @@ try {
         && ($bankLine['match_status'] ?? '') === 'unmatched',
         'invented deposit enters bank reconciliation as unmatched');
 
-    $candidates = qaRequest('/modules/accounting/api/bank_statements.php?action=invoice_candidates&line_id='
-        . $bankLineId, 'GET', null, $reviewerCookie);
+    $candidatePath = '/modules/accounting/api/bank_statements.php?action=invoice_candidates&line_id='
+        . $bankLineId;
+    $candidates = qaRequest($candidatePath . '&q=' . rawurlencode($number),
+        'GET', null, $reviewerCookie);
     $matches = array_values(array_filter($candidates['rows'] ?? [],
         static fn(array $candidate): bool => (int) ($candidate['id'] ?? 0) === $invoiceId));
-    qaExpect(count($matches) === 1
+    qaExpect(count($candidates['rows'] ?? []) === 1 && count($matches) === 1
         && (int) ($matches[0]['client_company_id'] ?? 0) === $companyId
         && abs((float) ($matches[0]['amount_due'] ?? 0) - 23.0) < 0.005,
-        'CSV invoice appears as an exact bank receipt candidate with customer identity');
+        'invoice-number search finds the CSV receipt candidate with customer identity');
+    $missingCandidates = qaRequest($candidatePath . '&q=' . rawurlencode('no-such-invoice-' . $run),
+        'GET', null, $reviewerCookie);
+    qaExpect(($missingCandidates['rows'] ?? []) === [],
+        'invoice search excludes unrelated open invoices');
 
     $matchPath = '/modules/accounting/api/bank_statements.php?action=match_invoice&line_id=' . $bankLineId;
     $receipt = qaRequest($matchPath, 'POST', ['invoice_id' => $invoiceId], $reviewerCookie);

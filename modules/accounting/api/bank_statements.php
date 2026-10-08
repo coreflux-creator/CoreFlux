@@ -77,10 +77,20 @@ if ($method === 'GET' && $action === 'invoice_candidates') {
         'bank_currency' => (string) ($line['bank_currency'] ?: 'USD'),
         'posted_date' => (string) $line['posted_date'],
     ];
+    $search = trim((string) ($_GET['q'] ?? ''));
+    if (strlen($search) > 120) api_error('Invoice search is too long', 422);
     $entitySql = '';
     if (!empty($line['bank_entity_id'])) {
         $entitySql = ' AND (bi.entity_id = :bank_entity_id OR bi.entity_id IS NULL)';
         $params['bank_entity_id'] = (int) $line['bank_entity_id'];
+    }
+    $searchSql = '';
+    if ($search !== '') {
+        $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search) . '%';
+        $searchSql = " AND (bi.client_name LIKE :client_search ESCAPE '!'
+                         OR bi.invoice_number LIKE :number_search ESCAPE '!')";
+        $params['client_search'] = $like;
+        $params['number_search'] = $like;
     }
     $rows = scopedQuery(
         'SELECT bi.id, bi.invoice_number, bi.client_name, bi.client_company_id,
@@ -93,17 +103,20 @@ if ($method === 'GET' && $action === 'invoice_candidates') {
             AND bi.status IN ("approved", "sent", "partially_paid")
             AND bi.amount_due > 0
             AND bi.currency = :bank_currency
-            AND bi.issue_date <= :posted_date' . $entitySql . '
+            AND bi.issue_date <= :posted_date' . $entitySql . $searchSql . '
           ORDER BY bi.client_name ASC, bi.due_date ASC, bi.id ASC
-          LIMIT 300',
+          LIMIT 101',
         $params
     );
+    $hasMore = count($rows) > 100;
+    if ($hasMore) $rows = array_slice($rows, 0, 100);
     foreach ($rows as &$row) {
         $row['amount_due'] = round((float) $row['amount_due'], 2);
         $row['label'] = (string) $row['client_name'] . ' - ' . (string) $row['invoice_number'];
     }
     unset($row);
-    api_ok(['rows' => $rows, 'line_amount' => round((float) $line['amount'], 2)]);
+    api_ok(['rows' => $rows, 'has_more' => $hasMore,
+        'line_amount' => round((float) $line['amount'], 2)]);
     exit;
 }
 
