@@ -146,6 +146,8 @@ $check('a repeated request returns its recorded outcome without mailing again',
     str_contains($deliveryLib, 'delivery_request_id = :r LIMIT 1 FOR UPDATE')
     && str_contains($deliveryLib, "'replayed' => true")
     && str_contains($api, "'already_sent' => true"));
+$check('provider retry keys include tenant, invoice and request identity',
+    str_contains($api, "'billing-tenant-' . \$tid . '-invoice-' . \$id . '-request-' . \$requestId"));
 $check('human review resolves only pending or uncertain delivery',
     str_contains($api, "\$action === 'resolve_send'")
     && str_contains($deliveryLib, "['pending', 'uncertain']")

@@ -906,7 +906,7 @@ if ($method === 'POST' && $action === 'send') {
     try {
         $sendRes = $svc->send($tid, 'billing', 'invoice_sent', [$to], $subject, $textBody, $htmlBody, $attachments, [
             'from' => $sender['from'], 'from_name' => $sender['from_name'], 'reply_to' => $sender['reply_to'],
-            'idempotency_key' => 'billing-invoice-' . $id . '-request-' . $requestId,
+            'idempotency_key' => 'billing-tenant-' . $tid . '-invoice-' . $id . '-request-' . $requestId,
             'outbox_redactions' => [$tok['url'], $tok['token']],
         ]);
     } catch (\Throwable $e) {
