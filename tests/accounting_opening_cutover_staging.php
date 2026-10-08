@@ -10,6 +10,8 @@ if (PHP_SAPI !== 'cli' || ($argv[1] ?? '') !== '--execute') {
 define('QA_LIFECYCLE_LIBRARY_MODE', true);
 require_once __DIR__ . '/accounting_staging_lifecycle.php';
 require_once __DIR__ . '/../modules/accounting/lib/standard_reports.php';
+require_once __DIR__ . '/../modules/billing/lib/billing.php';
+require_once __DIR__ . '/../modules/ap/lib/ap.php';
 
 $actor = null;
 $cookie = null;
