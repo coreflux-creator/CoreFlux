@@ -36,4 +36,14 @@ if ($empty !== []) {
     fwrite(STDERR, "FAIL: empty export generated a row.\n");
     exit(1);
 }
+$prepared = fopen('php://temp', 'w+');
+fwrite($prepared, str_repeat("CSV-row\n", 10000));
+ob_start();
+exportCopyPreparedStream($prepared);
+$download = ob_get_clean();
+fclose($prepared);
+if ($download !== str_repeat("CSV-row\n", 10000)) {
+    fwrite(STDERR, "FAIL: prepared export copy lost bytes.\n");
+    exit(1);
+}
 echo "PASS: 10,025 rows survived bounded CSV paging without a cutoff.\n";

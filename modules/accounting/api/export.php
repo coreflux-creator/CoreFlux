@@ -102,8 +102,7 @@ $emit = function (string $filename, array $headers, iterable $rows, bool $snapsh
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     header('Cache-Control: no-store');
-    rewind($out);
-    fpassthru($out);
+    exportCopyPreparedStream($out);
     fclose($out);
     exit;
 };
@@ -360,8 +359,7 @@ if (isset($governedExports[$type])) {
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . preg_replace('/[^A-Za-z0-9_\-.]/', '_', $filename) . '"');
     header('Cache-Control: no-store');
-    rewind($out);
-    fpassthru($out);
+    exportCopyPreparedStream($out);
     fclose($out);
     exit;
 }
