@@ -121,7 +121,7 @@ export default function OpeningBalances() {
       </header>
 
       <div className="opening-balances__inputs">
-        <label>Legal entity
+        <label className="opening-balances__entity">Legal entity
           <select value={entityId} onChange={event => { setEntityId(event.target.value); resetReview(); }}
             disabled={loadingEntities || busy !== ''} data-testid="opening-entity">
             <option value="">Select entity</option>
@@ -130,36 +130,39 @@ export default function OpeningBalances() {
             ))}
           </select>
         </label>
-        <div>
+        <button className="btn btn--primary opening-balances__action" type="button" onClick={review}
+          disabled={!entityId || !csv.trim() || busy !== ''} data-testid="opening-preview">
+          {busy === 'preview' ? 'Reviewing' : 'Preview cutover'}
+        </button>
+        <div className="opening-balances__file opening-balances__file--balances">
           <span className="opening-balances__label">Balances CSV</span>
           <input ref={fileRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"
             onChange={chooseFile} hidden data-testid="opening-file" />
-          <button className="btn btn--ghost" type="button" onClick={() => fileRef.current?.click()} disabled={busy !== ''}>
-            <FileUp size={15} aria-hidden="true" /> {fileName || 'Choose file'}
+          <button className="btn btn--ghost" type="button" onClick={() => fileRef.current?.click()}
+            disabled={busy !== ''} title={fileName || 'Choose balances CSV'}>
+            <FileUp size={15} aria-hidden="true" /> <span>{fileName || 'Choose file'}</span>
           </button>
         </div>
-        <div>
+        <div className="opening-balances__file opening-balances__file--ar">
           <span className="opening-balances__label">Open invoices CSV</span>
           <input ref={arFileRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"
             onChange={event => chooseDocuments(event, 'ar')} hidden data-testid="opening-ar-file" />
-          <button className="btn btn--ghost" type="button" onClick={() => arFileRef.current?.click()} disabled={busy !== ''}>
-            <FileUp size={15} aria-hidden="true" /> {arFileName || 'Choose file'}
+          <button className="btn btn--ghost" type="button" onClick={() => arFileRef.current?.click()}
+            disabled={busy !== ''} title={arFileName || 'Choose open invoices CSV'}>
+            <FileUp size={15} aria-hidden="true" /> <span>{arFileName || 'Choose file'}</span>
           </button>
         </div>
-        <div>
+        <div className="opening-balances__file opening-balances__file--ap">
           <span className="opening-balances__label">Open bills CSV</span>
           <input ref={apFileRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"
             onChange={event => chooseDocuments(event, 'ap')} hidden data-testid="opening-ap-file" />
-          <button className="btn btn--ghost" type="button" onClick={() => apFileRef.current?.click()} disabled={busy !== ''}>
-            <FileUp size={15} aria-hidden="true" /> {apFileName || 'Choose file'}
+          <button className="btn btn--ghost" type="button" onClick={() => apFileRef.current?.click()}
+            disabled={busy !== ''} title={apFileName || 'Choose open bills CSV'}>
+            <FileUp size={15} aria-hidden="true" /> <span>{apFileName || 'Choose file'}</span>
           </button>
         </div>
-        <button className="btn btn--primary" type="button" onClick={review}
-          disabled={!entityId || !csv.trim() || busy !== ''} data-testid="opening-preview">
-          {busy === 'preview' ? 'Reviewing' : 'Preview balances'}
-        </button>
       </div>
-      <p className="opening-balances__note">Upload balances first; open invoices and bills are optional. Their amounts are the unpaid balances at cutover, not original gross totals. Keep AR/AP control accounts out of the balances CSV. Payroll and tax controls still require separate source records. Only unused entities can receive a cutover.</p>
+      <p className="opening-balances__note">Open amounts are unpaid balances at cutover, not original gross totals. AR/AP control accounts are generated from source documents. Payroll and tax controls require separate sources. Cutover is available only before first activity.</p>
       {!loadingEntities && !entitiesError && activeEntities.length === 0 && (
         <p className="opening-balances__note">No legal entity is set up yet. <Link to="/modules/accounting/entities">Create one</Link> before importing balances.</p>
       )}

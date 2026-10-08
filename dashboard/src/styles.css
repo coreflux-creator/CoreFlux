@@ -1829,13 +1829,24 @@ input[type="radio"] {
 
 .opening-balances__inputs {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas: "entity entity action" "balances ar ap";
     align-items: end;
     gap: 12px;
     padding: 16px 0;
     border-top: 1px solid var(--cf-border);
     border-bottom: 1px solid var(--cf-border);
 }
+
+.opening-balances__entity { grid-area: entity; }
+.opening-balances__action { grid-area: action; width: 100%; justify-content: center; }
+.opening-balances__file--balances { grid-area: balances; }
+.opening-balances__file--ar { grid-area: ar; }
+.opening-balances__file--ap { grid-area: ap; }
+.opening-balances__file { min-width: 0; }
+.opening-balances__file .btn { width: 100%; min-width: 0; text-align: left; }
+.opening-balances__file .btn svg { flex: none; }
+.opening-balances__file .btn span { min-width: 0; overflow-wrap: anywhere; }
 
 .opening-balances__inputs label,
 .opening-balances__label {
@@ -1884,8 +1895,10 @@ input[type="radio"] {
 .opening-balances__success a { color: #086bc2; }
 
 @media (max-width: 760px) {
-    .opening-balances__inputs { grid-template-columns: minmax(0, 1fr); }
-    .opening-balances__inputs .btn { justify-self: start; }
+    .opening-balances__inputs {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas: "entity" "balances" "ar" "ap" "action";
+    }
 }
 
 @media (max-width: 760px) {
