@@ -105,6 +105,39 @@ function ReportSummary({ items, testId }) {
   );
 }
 
+function useReportPaging(resetKey) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  useEffect(() => setPage(1), [resetKey]);
+  return { page, pageSize, setPage, setPageSize };
+}
+
+function ReportPager({ data, page, pageSize, setPage, setPageSize, loading, testId }) {
+  return (
+    <div data-testid={testId}
+      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 0' }}>
+      <span style={{ fontSize: 12, color: '#64748b' }}>
+        {data.rows.length ? `${(page - 1) * pageSize + 1}–${(page - 1) * pageSize + data.rows.length}` : '0'} of {data.count} rows
+      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>Rows
+          <select className="input" value={pageSize} aria-label="Report rows per page"
+            onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }}>
+            {[25, 50, 100, 200].map(size => <option key={size} value={size}>{size}</option>)}
+          </select>
+        </label>
+        <button type="button" className="btn btn--ghost btn--sm" aria-label="Previous report page"
+          title="Previous page" disabled={loading || page <= 1}
+          onClick={() => setPage(value => value - 1)}><ChevronLeft size={16} /></button>
+        <span style={{ fontSize: 12, minWidth: 66, textAlign: 'center' }}>Page {page} of {Math.max(1, Math.ceil(data.count / pageSize))}</span>
+        <button type="button" className="btn btn--ghost btn--sm" aria-label="Next report page"
+          title="Next page" disabled={loading || !data.has_more}
+          onClick={() => setPage(value => value + 1)}><ChevronRight size={16} /></button>
+      </div>
+    </div>
+  );
+}
+
 function downloadCsv(url, filename) {
   const base = (typeof window !== 'undefined' && window.__cfApiBase) || '';
   const full = base + url;
@@ -123,18 +156,22 @@ function GlDetail({ scope }) {
   const [from, setFrom] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10));
   const [to, setTo]     = useState(new Date().toISOString().slice(0,10));
   const [code, setCode] = useState('');
-  const qs  = new URLSearchParams({ type: 'gl_detail', from, to, entity_id: String(scope.entityId), ...(code ? { account_code: code } : {}) }).toString();
+  const { page, pageSize, setPage, setPageSize } = useReportPaging(scope.entityId);
+  const exportQs = new URLSearchParams({ type: 'gl_detail', from, to, entity_id: String(scope.entityId), ...(code ? { account_code: code } : {}) }).toString();
+  const qs = `${exportQs}&page=${page}&page_size=${pageSize}`;
   const { data: response, loading, error } = useApi(`/modules/accounting/api/standard_reports.php?${qs}`);
-  const data = response?.entity_id === scope.entityId ? response : null;
+  const data = !loading && response?.entity_id === scope.entityId
+    && response?.from === from && response?.to === to && response?.account_code === code
+    && response?.page === page && response?.page_size === pageSize ? response : null;
   return (
     <div>
       <FilterBar
-        onExport={() => downloadCsv(`/modules/accounting/api/export.php?${qs}`, `gl-detail-${from}-${to}.csv`)}
+        onExport={() => downloadCsv(`/modules/accounting/api/export.php?${exportQs}`, `gl-detail-${from}-${to}.csv`)}
         exportTestId="accounting-report-gl-detail-export"
       >
-        <label>From <input type="date" className="input" value={from} onChange={e => setFrom(e.target.value)} data-testid="accounting-report-gl-from" /></label>
-        <label>To <input type="date" className="input" value={to} onChange={e => setTo(e.target.value)} data-testid="accounting-report-gl-to" /></label>
-        <label>Account code <input className="input" value={code} onChange={e => setCode(e.target.value)} placeholder="(all)" data-testid="accounting-report-gl-code" /></label>
+        <label>From <input type="date" className="input" value={from} onChange={e => { setFrom(e.target.value); setPage(1); }} data-testid="accounting-report-gl-from" /></label>
+        <label>To <input type="date" className="input" value={to} onChange={e => { setTo(e.target.value); setPage(1); }} data-testid="accounting-report-gl-to" /></label>
+        <label>Account code <input className="input" value={code} onChange={e => { setCode(e.target.value); setPage(1); }} placeholder="(all)" data-testid="accounting-report-gl-code" /></label>
       </FilterBar>
       {loading && <p>Loading…</p>}
       {error && <p className="error">{error.message}</p>}
@@ -152,6 +189,7 @@ function GlDetail({ scope }) {
           <table className="data-table" data-testid="accounting-report-gl-detail-table">
             <thead><tr><th>JE</th><th>Date</th><th>Account</th><th>Memo</th><th style={{textAlign:'right'}}>Debit</th><th style={{textAlign:'right'}}>Credit</th><th>Source</th></tr></thead>
             <tbody>
+              {data.rows.length === 0 && <tr><td colSpan={7} className="empty">No ledger lines in this period.</td></tr>}
               {(data.rows || []).map((r, i) => (
                 <tr key={i}>
                   <td><Link to={`/modules/accounting/journal-entries/${r.je_id}`}>{r.je_number}</Link></td>
@@ -166,6 +204,8 @@ function GlDetail({ scope }) {
             </tbody>
           </table>
           </div>
+          <ReportPager data={data} page={page} pageSize={pageSize} setPage={setPage} setPageSize={setPageSize}
+            loading={loading} testId="accounting-report-gl-pagination" />
         </>
       )}
     </div>
@@ -174,13 +214,16 @@ function GlDetail({ scope }) {
 
 // ── Unposted JEs ────────────────────────────────────────────────────────
 function Unposted({ scope }) {
-  const qs = new URLSearchParams({ type: 'unposted_jes', entity_id: String(scope.entityId) }).toString();
+  const { page, pageSize, setPage, setPageSize } = useReportPaging(scope.entityId);
+  const exportQs = new URLSearchParams({ type: 'unposted_jes', entity_id: String(scope.entityId) }).toString();
+  const qs = `${exportQs}&page=${page}&page_size=${pageSize}`;
   const { data: response, loading, error } = useApi(`/modules/accounting/api/standard_reports.php?${qs}`);
-  const data = response?.entity_id === scope.entityId ? response : null;
+  const data = !loading && response?.entity_id === scope.entityId
+    && response?.page === page && response?.page_size === pageSize ? response : null;
   return (
     <div>
       <FilterBar
-        onExport={() => downloadCsv(`/modules/accounting/api/export.php?${qs}`, 'unposted-jes.csv')}
+        onExport={() => downloadCsv(`/modules/accounting/api/export.php?${exportQs}`, 'unposted-jes.csv')}
         exportTestId="accounting-report-unposted-export"
       />
       {loading && <p>Loading…</p>}
@@ -192,6 +235,7 @@ function Unposted({ scope }) {
           <table className="data-table" data-testid="accounting-report-unposted-table">
             <thead><tr><th>JE</th><th>Date</th><th>Status</th><th>Source</th><th>Memo</th><th style={{textAlign:'right'}}>Debit</th><th style={{textAlign:'right'}}>Credit</th></tr></thead>
             <tbody>
+              {data.rows.length === 0 && <tr><td colSpan={7} className="empty">No unposted entries.</td></tr>}
               {(data.rows || []).map(r => (
                 <tr key={r.id}>
                   <td>{r.je_number}</td>
@@ -206,6 +250,8 @@ function Unposted({ scope }) {
             </tbody>
           </table>
           </div>
+          <ReportPager data={data} page={page} pageSize={pageSize} setPage={setPage} setPageSize={setPageSize}
+            loading={loading} testId="accounting-report-unposted-pagination" />
         </>
       )}
     </div>
@@ -214,13 +260,16 @@ function Unposted({ scope }) {
 
 // ── Approval Queue ──────────────────────────────────────────────────────
 function ApprovalQueue({ scope }) {
-  const qs = new URLSearchParams({ type: 'approval_queue', entity_id: String(scope.entityId) }).toString();
+  const { page, pageSize, setPage, setPageSize } = useReportPaging(scope.entityId);
+  const exportQs = new URLSearchParams({ type: 'approval_queue', entity_id: String(scope.entityId) }).toString();
+  const qs = `${exportQs}&page=${page}&page_size=${pageSize}`;
   const { data: response, loading, error } = useApi(`/modules/accounting/api/standard_reports.php?${qs}`);
-  const data = response?.entity_id === scope.entityId ? response : null;
+  const data = !loading && response?.entity_id === scope.entityId
+    && response?.page === page && response?.page_size === pageSize ? response : null;
   return (
     <div>
       <FilterBar
-        onExport={() => downloadCsv(`/modules/accounting/api/export.php?${qs}`, 'approval-queue.csv')}
+        onExport={() => downloadCsv(`/modules/accounting/api/export.php?${exportQs}`, 'approval-queue.csv')}
         exportTestId="accounting-report-approval-export"
       />
       {loading && <p>Loading…</p>}
@@ -232,6 +281,7 @@ function ApprovalQueue({ scope }) {
           <table className="data-table" data-testid="accounting-report-approval-table">
             <thead><tr><th>JE</th><th>Date</th><th>Source</th><th>Memo</th><th style={{textAlign:'right'}}>Amount</th><th>Created</th></tr></thead>
             <tbody>
+              {data.rows.length === 0 && <tr><td colSpan={6} className="empty">No entries awaiting approval.</td></tr>}
               {(data.rows || []).map(r => (
                 <tr key={r.id}>
                   <td><Link to={`/modules/accounting/journal-entries/${r.id}`}>{r.je_number}</Link></td>
@@ -245,6 +295,8 @@ function ApprovalQueue({ scope }) {
             </tbody>
           </table>
           </div>
+          <ReportPager data={data} page={page} pageSize={pageSize} setPage={setPage} setPageSize={setPageSize}
+            loading={loading} testId="accounting-report-approval-pagination" />
         </>
       )}
     </div>
@@ -256,22 +308,27 @@ function AuditLog() {
   const [from, setFrom] = useState('');
   const [to, setTo]     = useState('');
   const [eventLike, setEvent] = useState('');
-  const qs = new URLSearchParams({
+  const { page, pageSize, setPage, setPageSize } = useReportPaging('audit');
+  const exportQs = new URLSearchParams({
     type: 'audit_log',
     ...(from ? { from } : {}),
     ...(to   ? { to   } : {}),
     ...(eventLike ? { event_like: eventLike } : {}),
   }).toString();
-  const { data, loading, error } = useApi(`/modules/accounting/api/standard_reports.php?${qs}`);
+  const qs = `${exportQs}&page=${page}&page_size=${pageSize}`;
+  const { data: response, loading, error } = useApi(`/modules/accounting/api/standard_reports.php?${qs}`);
+  const data = !loading && response?.from === from && response?.to === to
+    && response?.event_like === eventLike && response?.page === page
+    && response?.page_size === pageSize ? response : null;
   return (
     <div>
       <FilterBar
-        onExport={() => downloadCsv(`/modules/accounting/api/export.php?${qs}`, 'audit-log.csv')}
+        onExport={() => downloadCsv(`/modules/accounting/api/export.php?${exportQs}`, 'audit-log.csv')}
         exportTestId="accounting-report-audit-export"
       >
-        <label>From <input type="date" className="input" value={from} onChange={e => setFrom(e.target.value)} data-testid="accounting-report-audit-from" /></label>
-        <label>To <input type="date" className="input" value={to} onChange={e => setTo(e.target.value)} data-testid="accounting-report-audit-to" /></label>
-        <label>Event <input className="input" value={eventLike} onChange={e => setEvent(e.target.value)} placeholder="e.g. je.posted" data-testid="accounting-report-audit-event" /></label>
+        <label>From <input type="date" className="input" value={from} onChange={e => { setFrom(e.target.value); setPage(1); }} data-testid="accounting-report-audit-from" /></label>
+        <label>To <input type="date" className="input" value={to} onChange={e => { setTo(e.target.value); setPage(1); }} data-testid="accounting-report-audit-to" /></label>
+        <label>Event <input className="input" value={eventLike} onChange={e => { setEvent(e.target.value); setPage(1); }} placeholder="e.g. je.posted" data-testid="accounting-report-audit-event" /></label>
       </FilterBar>
       {loading && <p>Loading…</p>}
       {error && <p className="error">{error.message}</p>}
@@ -282,6 +339,7 @@ function AuditLog() {
           <table className="data-table" data-testid="accounting-report-audit-table">
             <thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Target</th><th>Meta</th></tr></thead>
             <tbody>
+              {data.rows.length === 0 && <tr><td colSpan={5} className="empty">No accounting events in this period.</td></tr>}
               {(data.rows || []).map(r => (
                 <tr key={r.id}>
                   <td style={{whiteSpace:'nowrap'}}>{r.created_at}</td>
@@ -296,6 +354,8 @@ function AuditLog() {
             </tbody>
           </table>
           </div>
+          <ReportPager data={data} page={page} pageSize={pageSize} setPage={setPage} setPageSize={setPageSize}
+            loading={loading} testId="accounting-report-audit-pagination" />
         </>
       )}
     </div>
@@ -307,9 +367,7 @@ function AccountActivity({ scope }) {
   const [code, setCode] = useState('');
   const [from, setFrom] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10));
   const [to, setTo]     = useState(new Date().toISOString().slice(0,10));
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-  useEffect(() => setPage(1), [scope.entityId]);
+  const { page, pageSize, setPage, setPageSize } = useReportPaging(scope.entityId);
   const exportQs = code ? new URLSearchParams({ type: 'account_activity', code, from, to, entity_id: String(scope.entityId) }).toString() : '';
   const qs = code ? `${exportQs}&page=${page}&page_size=${pageSize}` : '';
   const { data: response, loading, error } = useApi(code ? `/modules/accounting/api/standard_reports.php?${qs}` : null);
@@ -358,25 +416,8 @@ function AccountActivity({ scope }) {
             </tbody>
           </table>
           </div>
-          <div data-testid="accounting-report-account-pagination"
-            style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 0' }}>
-            <span style={{ fontSize: 12, color: '#64748b' }}>
-              {data.rows.length ? `${(page - 1) * pageSize + 1}–${(page - 1) * pageSize + data.rows.length}` : '0'} of {data.count} lines
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>Rows
-                <select className="input" value={pageSize} aria-label="Account activity rows per page"
-                  onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}>
-                  {[25, 50, 100, 200].map(size => <option key={size} value={size}>{size}</option>)}
-                </select>
-              </label>
-              <button type="button" className="btn btn--ghost btn--sm" aria-label="Previous account activity page"
-                title="Previous page" disabled={page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={16} /></button>
-              <span style={{ fontSize: 12, minWidth: 66, textAlign: 'center' }}>Page {page} of {Math.max(1, Math.ceil(data.count / pageSize))}</span>
-              <button type="button" className="btn btn--ghost btn--sm" aria-label="Next account activity page"
-                title="Next page" disabled={!data.has_more} onClick={() => setPage(value => value + 1)}><ChevronRight size={16} /></button>
-            </div>
-          </div>
+          <ReportPager data={data} page={page} pageSize={pageSize} setPage={setPage} setPageSize={setPageSize}
+            loading={loading} testId="accounting-report-account-pagination" />
         </>
       )}
     </div>

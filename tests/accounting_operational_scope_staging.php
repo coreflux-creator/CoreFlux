@@ -1,5 +1,5 @@
 <?php
-/** Read-only operational-report parity on isolated synthetic staging entities. */
+/** Guarded operational-report parity on isolated synthetic staging entities. */
 declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli' || ($argv[1] ?? '') !== '--execute') {
@@ -49,6 +49,32 @@ function operationalCsvRows(string $body): array
     return $rows;
 }
 
+function operationalPagedRows(string $params, string $cookie, int $pageSize): array
+{
+    $first = null;
+    $rows = [];
+    for ($page = 1; $page <= 1000; $page++) {
+        $result = qaRequest('/modules/accounting/api/standard_reports.php?'
+            . $params . '&page_size=' . $pageSize . '&page=' . $page,
+            'GET', null, $cookie);
+        if ($first === null) $first = $result;
+        if ((int) $result['page'] !== $page || (int) $result['page_size'] !== $pageSize
+            || (int) $result['count'] !== (int) $first['count']
+            || count($result['rows']) > $pageSize
+            || (bool) $result['has_more'] !== ($page * $pageSize < (int) $result['count'])) {
+            throw new RuntimeException('Operational report pagination metadata is inconsistent.');
+        }
+        $rows = array_merge($rows, $result['rows']);
+        if (!$result['has_more']) {
+            if (count($rows) !== (int) $first['count']) {
+                throw new RuntimeException('Operational report pages omitted or duplicated rows.');
+            }
+            return [$first, $rows, $page];
+        }
+    }
+    throw new RuntimeException('Operational report exceeded the guarded page limit.');
+}
+
 $entities = $pdo->query('SELECT id, code FROM accounting_entities WHERE tenant_id = '
     . QA_TENANT . ' AND code IN ("SIM-LIFECYCLE-QA", "SIM-CUTOVER-QA") ORDER BY code')
     ->fetchAll(PDO::FETCH_ASSOC);
@@ -56,7 +82,7 @@ if (count($entities) !== 2) throw new RuntimeException('Synthetic staging entiti
 
 $actor = null;
 $cookie = null;
-$draftId = null;
+$draftIds = [];
 try {
     $actor = qaEnsureActor($pdo, 'operational-report-reader');
     $cookie = tempnam(sys_get_temp_dir(), 'cf-op-report-');
@@ -64,26 +90,29 @@ try {
     qaLogin($actor, $cookie);
     $lifecycleId = (int) array_values(array_filter($entities, static fn ($row) =>
         $row['code'] === 'SIM-LIFECYCLE-QA'))[0]['id'];
-    $draft = qaRequest('/modules/accounting/api/journal_entries.php?action=draft', 'POST', [
-        'entity_id' => $lifecycleId,
-        'posting_date' => date('Y-m-d'),
-        'currency' => 'USD',
-        'memo' => 'Synthetic operational report scope check',
-        'source_module' => 'manual',
-        'lines' => [
-            ['account_code' => '1097', 'debit' => 1, 'credit' => 0],
-            ['account_code' => '3000', 'debit' => 0, 'credit' => 1],
-        ],
-    ], $cookie);
-    $draftId = (int) ($draft['je_id'] ?? 0);
-    qaExpect($draftId > 0 && $draft['status'] === 'draft',
-        'temporary balanced journal stays unposted');
+    for ($i = 1; $i <= 3; $i++) {
+        $draft = qaRequest('/modules/accounting/api/journal_entries.php?action=draft', 'POST', [
+            'entity_id' => $lifecycleId,
+            'posting_date' => date('Y-m-d'),
+            'currency' => 'USD',
+            'memo' => 'Synthetic operational report scope check ' . $i,
+            'source_module' => 'manual',
+            'lines' => [
+                ['account_code' => '1097', 'debit' => 1, 'credit' => 0],
+                ['account_code' => '3000', 'debit' => 0, 'credit' => 1],
+            ],
+        ], $cookie);
+        $draftId = (int) ($draft['je_id'] ?? 0);
+        if ($draftId > 0) $draftIds[] = $draftId;
+        qaExpect($draftId > 0 && $draft['status'] === 'draft',
+            'temporary balanced journal stays unposted');
+    }
 
     foreach ($entities as $entity) {
         $id = (int) $entity['id'];
         $scope = '&entity_id=' . $id;
         $glParams = 'type=gl_detail&from=2026-01-01&to=2026-12-31' . $scope;
-        $gl = qaRequest('/modules/accounting/api/standard_reports.php?' . $glParams, 'GET', null, $cookie);
+        [$gl, $visibleGl, $glPages] = operationalPagedRows($glParams, $cookie, 25);
         $expectedGl = (int) qaOne($pdo, 'SELECT COUNT(*) AS n
             FROM accounting_journal_entry_lines l
             JOIN accounting_journal_entries je ON je.id = l.je_id
@@ -92,19 +121,34 @@ try {
               AND je.posting_date BETWEEN "2026-01-01" AND "2026-12-31"',
             ['t' => QA_TENANT, 'e' => $id])['n'];
         qaExpect((int) $gl['entity_id'] === $id && (int) $gl['count'] === $expectedGl
-            && count(array_filter($gl['rows'], static fn ($row) =>
+            && count(array_filter($visibleGl, static fn ($row) =>
                 (int) $row['entity_id'] !== $id || (int) $row['account_id'] <= 0)) === 0,
-            "{$entity['code']} GL detail has only owned, linked account lines");
+            "{$entity['code']} GL detail has {$expectedGl} owned lines across {$glPages} pages");
 
         [$glStatus, $glCsv] = operationalGet('/modules/accounting/api/export.php?' . $glParams, $cookie);
         $glRows = operationalCsvRows($glCsv);
+        $glOrderMatches = count($visibleGl) === count($glRows);
+        if ($glOrderMatches) {
+            foreach ($glRows as $index => $row) {
+                $visible = $visibleGl[$index];
+                if ($row['je_number'] !== $visible['je_number']
+                    || $row['posting_date'] !== $visible['posting_date']
+                    || $row['account_code'] !== $visible['account_code']
+                    || abs((float) $row['debit'] - (float) $visible['debit']) >= 0.01
+                    || abs((float) $row['credit'] - (float) $visible['credit']) >= 0.01) {
+                    $glOrderMatches = false;
+                    break;
+                }
+            }
+        }
         qaExpect($glStatus === 200 && count($glRows) === $expectedGl
+            && $glOrderMatches
             && count(array_filter($glRows, static fn ($row) => (int) $row['entity_id'] !== $id)) === 0
             && abs(array_sum(array_map('floatval', array_column($glRows, 'debit')))
                 - (float) $gl['total_debit']) < 0.01
             && abs(array_sum(array_map('floatval', array_column($glRows, 'credit')))
                 - (float) $gl['total_credit']) < 0.01,
-            "{$entity['code']} GL CSV matches on-screen totals and rows");
+            "{$entity['code']} GL CSV matches all paged rows and full-range totals");
 
         $expectedDrafts = (int) qaOne($pdo, 'SELECT COUNT(*) AS n FROM accounting_journal_entries
             WHERE tenant_id = :t AND entity_id = :e AND status = "draft"',
@@ -112,11 +156,14 @@ try {
         if ($id === $lifecycleId) qaExpect($expectedDrafts > 0, 'lifecycle entity has a draft to inspect');
         foreach (['unposted_jes', 'approval_queue'] as $type) {
             $params = 'type=' . $type . $scope;
-            $list = qaRequest('/modules/accounting/api/standard_reports.php?' . $params,
-                'GET', null, $cookie);
+            [$list, $visibleDrafts, $draftPages] = operationalPagedRows($params, $cookie, 2);
             [$csvStatus, $csv] = operationalGet('/modules/accounting/api/export.php?' . $params,
                 $cookie);
             $rows = operationalCsvRows($csv);
+            $apiIds = array_map('intval', array_column($visibleDrafts, 'id'));
+            $csvIds = array_map('intval', array_column($rows, 'id'));
+            sort($apiIds);
+            sort($csvIds);
             if ((int) $list['count'] !== $expectedDrafts || count($rows) !== $expectedDrafts
                 || $csvStatus !== 200) {
                 fwrite(STDERR, json_encode(['entity' => $entity['code'], 'type' => $type,
@@ -125,10 +172,10 @@ try {
                     'csv_header' => substr($csv, 0, 180)], JSON_THROW_ON_ERROR) . "\n");
             }
             qaExpect((int) $list['entity_id'] === $id && (int) $list['count'] === $expectedDrafts
-                && count($rows) === $expectedDrafts && $csvStatus === 200
-                && count(array_filter(array_merge($list['rows'], $rows), static fn ($row) =>
+                && count($rows) === $expectedDrafts && $csvStatus === 200 && $apiIds === $csvIds
+                && count(array_filter(array_merge($visibleDrafts, $rows), static fn ($row) =>
                     (int) $row['entity_id'] !== $id)) === 0,
-                "{$entity['code']} {$type} API and CSV match its drafts");
+                "{$entity['code']} {$type} pages and CSV match {$expectedDrafts} drafts across {$draftPages} pages");
         }
 
         $activityParams = 'type=account_activity&code=4000&from=2026-01-01&to=2026-12-31' . $scope;
@@ -176,6 +223,16 @@ try {
             "{$entity['code']} account activity pages match complete CSV and balances");
     }
 
+    $auditParams = 'type=audit_log&event_like=je.';
+    [$auditStatus, $auditCsv] = operationalGet(
+        '/modules/accounting/api/export.php?' . $auditParams, $cookie);
+    $auditCsvRows = operationalCsvRows($auditCsv);
+    [$audit, $auditRows, $auditPages] = operationalPagedRows($auditParams, $cookie, 100);
+    qaExpect($auditStatus === 200 && count($auditCsvRows) === (int) $audit['count']
+        && array_map('intval', array_column($auditRows, 'id'))
+            === array_map('intval', array_column($auditCsvRows, 'id')),
+        "accounting audit pages match the complete CSV across {$auditPages} pages");
+
     foreach (['invalid', '999999999'] as $invalid) {
         foreach (['standard_reports.php', 'export.php'] as $endpoint) {
             [$status] = operationalGet('/modules/accounting/api/' . $endpoint
@@ -186,23 +243,31 @@ try {
     [$invalidApprovalStatus] = operationalGet('/modules/accounting/api/export.php'
         . '?type=unposted_jes&approval_state=approved', $cookie);
     qaExpect($invalidApprovalStatus === 422, 'journal export rejects nonexistent approval-state filter');
-    foreach (['page=0', 'page=invalid', 'page_size=201'] as $invalidPage) {
-        [$status] = operationalGet('/modules/accounting/api/standard_reports.php?'
-            . 'type=account_activity&code=4000&entity_id=' . $lifecycleId . '&' . $invalidPage, $cookie);
-        qaExpect($status === 422, "account activity rejects {$invalidPage}");
+    foreach (['account_activity&code=4000&entity_id=' . $lifecycleId,
+        'gl_detail&entity_id=' . $lifecycleId,
+        'unposted_jes&entity_id=' . $lifecycleId,
+        'approval_queue&entity_id=' . $lifecycleId,
+        'audit_log'] as $reportParams) {
+        foreach (['page=0', 'page=invalid', 'page_size=201'] as $invalidPage) {
+            [$status] = operationalGet('/modules/accounting/api/standard_reports.php?'
+                . 'type=' . $reportParams . '&' . $invalidPage, $cookie);
+            qaExpect($status === 422, "{$reportParams} rejects {$invalidPage}");
+        }
     }
 } finally {
     $cleanupFailure = null;
-    if ($draftId && is_string($cookie)) {
-        try {
-            qaRequest('/modules/accounting/api/journal_entries.php?action=delete&id=' . $draftId,
-                'POST', ['reason' => 'Remove temporary synthetic report-check draft'], $cookie);
-            $cleared = qaOne($pdo, 'SELECT status FROM accounting_journal_entries
-                WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $draftId]);
-            qaExpect($cleared && $cleared['status'] === 'void',
-                'temporary journal was voided through the accounting API');
-        } catch (\Throwable $cleanupError) {
-            $cleanupFailure = $cleanupError;
+    if ($draftIds && is_string($cookie)) {
+        foreach ($draftIds as $draftId) {
+            try {
+                qaRequest('/modules/accounting/api/journal_entries.php?action=delete&id=' . $draftId,
+                    'POST', ['reason' => 'Remove temporary synthetic report-check draft'], $cookie);
+                $cleared = qaOne($pdo, 'SELECT status FROM accounting_journal_entries
+                    WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $draftId]);
+                qaExpect($cleared && $cleared['status'] === 'void',
+                    'temporary journal was voided through the accounting API');
+            } catch (\Throwable $cleanupError) {
+                $cleanupFailure = $cleanupError;
+            }
         }
     }
     if ($actor && isset($actor['id'])) {
