@@ -60,6 +60,7 @@ export default function JournalEntryCreate() {
   const scopedPath = path => addEntityScope(path,
     entityId || (requestedEntityId && /^[1-9][0-9]*$/.test(requestedEntityId) ? requestedEntityId : null),
     !entityId && requestedEntityId === 'all');
+  const sourcePath = path => addEntityScope(path, sourceEntry?.entity_id);
 
   useEffect(() => {
     api.get('/modules/accounting/api/accounts.php').then((d) => {
@@ -351,7 +352,9 @@ export default function JournalEntryCreate() {
   return (
     <section className="ledger-page" data-testid="accounting-je-create">
       <Link
-        to={scopedPath((isEdit || isCorrection) ? `/modules/accounting/journal-entries/${id || replaceId}` : '/modules/accounting/journal-entries')}
+        to={(isEdit || isCorrection) && sourceEntry
+          ? sourcePath(`/modules/accounting/journal-entries/${id || replaceId}`)
+          : scopedPath('/modules/accounting/journal-entries')}
         className="entry-detail__back-link"
       ><ArrowLeft size={14} aria-hidden="true" />{(isEdit || isCorrection) ? 'Journal entry' : 'Journal entries'}</Link>
       <header className="entry-editor__header">
@@ -364,14 +367,14 @@ export default function JournalEntryCreate() {
       {isCorrection && sourceEntry && (
         <div className="entry-status-note entry-status-note--warning" data-testid="accounting-je-correction-notice">
           <Pencil size={16} aria-hidden="true" />
-          <span>The original <Link to={scopedPath(`/modules/accounting/journal-entries/${sourceEntry.id}`)}>{sourceEntry.je_number}</Link> stays unchanged until this correction posts. CoreFlux then removes the original from active books and preserves both entries in the audit trail.</span>
+          <span>The original <Link to={sourcePath(`/modules/accounting/journal-entries/${sourceEntry.id}`)}>{sourceEntry.je_number}</Link> stays unchanged until this correction posts. CoreFlux then removes the original from active books and preserves both entries in the audit trail.</span>
         </div>
       )}
 
       {!isEdit && !isCorrection && sourceEntry && (
         <div className="entry-status-note entry-status-note--info" data-testid="accounting-je-copy-notice">
           <Copy size={16} aria-hidden="true" />
-          <span>Copied from <Link to={scopedPath(`/modules/accounting/journal-entries/${sourceEntry.id}`)}>{sourceEntry.je_number}</Link>. Review every line before posting; the original entry is unchanged.</span>
+          <span>Copied from <Link to={sourcePath(`/modules/accounting/journal-entries/${sourceEntry.id}`)}>{sourceEntry.je_number}</Link>. Review every line before posting; the original entry is unchanged.</span>
         </div>
       )}
 

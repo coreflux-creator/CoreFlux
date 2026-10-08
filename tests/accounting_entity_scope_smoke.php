@@ -47,7 +47,9 @@ $check('Direct journal links resolve their source legal entity before navigation
     str_contains($journalDetail, "String(data?.entry?.id) === String(id)")
     && str_contains($journalDetail, "next.set('entity_id', String(entryEntityId))")
     && str_contains($journalCreate, "next.set('entity_id', String(sourceEntry.entity_id))")
-    && str_contains($journalCreate, 'scopedSourceId.current === String(sourceId)'));
+    && str_contains($journalCreate, 'scopedSourceId.current === String(sourceId)')
+    && str_contains($journalCreate, 'const sourcePath = path => addEntityScope(path, sourceEntry?.entity_id)')
+    && str_contains($journalCreate, 'to={sourcePath(`/modules/accounting/journal-entries/${sourceEntry.id}`)}'));
 $check('AP aging and its report link retain validated legal-entity scope',
     str_contains($apAging, 'booksHealthResolveEntity')
     && str_contains($apAging, 'apComputeAging($tid, $asOf, $entityId)')
