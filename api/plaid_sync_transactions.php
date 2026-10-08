@@ -13,8 +13,8 @@
  *     by /api/plaid_bank_link.php for the card/loan)
  *
  * One Plaid Item ⇒ one cursor; the cursor advances at the item level
- * regardless of how many accounts are inside.  Removed transactions flip
- * match_status='ignored' on whichever table the row originally landed in.
+ * regardless of how many accounts are inside. Removed unmatched transactions
+ * become ignored; matched lines remain intact and are reported for review.
  *
  * Mutation-during-pagination handling: if Plaid returns
  * TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION, we restart from the saved
@@ -32,6 +32,7 @@ require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/plaid_service.php';
 require_once __DIR__ . '/../core/treasury/bank_transaction_identity.php';
+require_once __DIR__ . '/../core/treasury/provider_statement_sync.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -100,6 +101,8 @@ $results = [
     'removed'       => 0,
     'reused'        => 0,
     'possible_replays' => 0,
+    'review_required' => 0,
+    'review_lines' => [],
     'unmapped'      => 0,
     'per_account'   => [],   // keyed by plaid_account_id
 ];
@@ -114,7 +117,7 @@ while (true) {
             $cursor  = $item['transactions_cursor'];
             $fullHistoryReplay = ($cursor === null || $cursor === '');
             $claimedDepositLines = [];
-            $results = ['pages' => 0, 'added' => 0, 'modified' => 0, 'removed' => 0, 'reused' => 0, 'possible_replays' => 0, 'unmapped' => 0, 'per_account' => []];
+            $results = ['pages' => 0, 'added' => 0, 'modified' => 0, 'removed' => 0, 'reused' => 0, 'possible_replays' => 0, 'review_required' => 0, 'review_lines' => [], 'unmapped' => 0, 'per_account' => []];
             continue;
         }
         plaidAudit('core.plaid.transactions_sync_failed', [
@@ -136,7 +139,13 @@ while (true) {
         $accId = (string) ($r['account_id'] ?? '');
         $txnId = (string) ($r['transaction_id'] ?? '');
         if ($accId === '' || $txnId === '' || !isset($accountMap[$accId])) { $results['unmapped']++; continue; }
-        _plaidMarkRemovedRouted($accountMap[$accId], $txnId);
+        $removed = _plaidMarkRemovedRouted($accountMap[$accId], $txnId);
+        if ($removed['review_required']) {
+            _plaidNoteProtectedChange(
+                $results, $accountMap[$accId]['kind'], (int) $accountMap[$accId]['id'],
+                (int) $removed['line_id'], $txnId
+            );
+        }
         $results['removed']++;
     }
 
@@ -241,24 +250,28 @@ function _plaidRouteTxn(
         $postedDate = (string) ($t['date'] ?? date('Y-m-d'));
         $description = substr((string) ($t['merchant_name'] ?? $t['name'] ?? ''), 0, 255);
         $reference = substr((string) ($t['payment_meta']['reference_number'] ?? ''), 0, 120) ?: null;
+        $facts = [
+            'posted_date' => $postedDate, 'description' => $description,
+            'amount' => $signed, 'bank_reference' => $reference,
+        ];
         $lineId = bankTxnAliasLineId($pdo, $tenantId, (int) $dest['id'], 'plaid', $txnId);
-
+        if ($lineId === null) $lineId = bankTxnLineIdByFitid($pdo, $tenantId, (int) $dest['id'], $txnId);
         if ($lineId !== null) {
-            $pdo->prepare(
-                'UPDATE accounting_bank_statement_lines
-                    SET posted_date = :d, description = :desc, amount = :amt, bank_reference = :ref
-                  WHERE tenant_id = :t AND bank_account_id = :acc AND id = :id'
-            )->execute([
-                'd' => $postedDate, 'desc' => $description, 'amt' => $signed, 'ref' => $reference,
-                't' => $tenantId, 'acc' => $dest['id'], 'id' => $lineId,
-            ]);
-            $claimedDepositLines[$lineId] = true;
-            $results['per_account'][$accId] = ($results['per_account'][$accId] ?? 0) + 1;
-            return true;
+            $existing = treasuryProviderSyncExistingLine(
+                $pdo, $tenantId, 'deposit', (int) $dest['id'], $lineId, $txnId, $facts
+            );
+            if ($existing['found']) {
+                bankTxnRecordAlias($pdo, $tenantId, (int) $dest['id'], $lineId, 'plaid', $txnId, $providerItemId);
+                if ($existing['review_required']) {
+                    _plaidNoteProtectedChange($results, 'deposit', (int) $dest['id'], $lineId, $txnId);
+                }
+                $claimedDepositLines[$lineId] = true;
+                $results['per_account'][$accId] = ($results['per_account'][$accId] ?? 0) + 1;
+                return true;
+            }
         }
 
-        $lineId = bankTxnLineIdByFitid($pdo, $tenantId, (int) $dest['id'], $txnId);
-        if ($lineId === null && $allowReplayMatch && !$isModification) {
+        if ($allowReplayMatch && !$isModification) {
             $candidate = bankTxnFindReplayCandidate(
                 $pdo,
                 $tenantId,
@@ -282,10 +295,10 @@ function _plaidRouteTxn(
              VALUES
                 (:t, :acc, :d, :desc, :amt, :ref, :fitid, "unmatched")
              ON DUPLICATE KEY UPDATE
-                posted_date    = VALUES(posted_date),
-                description    = VALUES(description),
-                amount         = VALUES(amount),
-                bank_reference = VALUES(bank_reference)'
+                posted_date    = IF(match_status = "unmatched", VALUES(posted_date), posted_date),
+                description    = IF(match_status = "unmatched", VALUES(description), description),
+                amount         = IF(match_status = "unmatched", VALUES(amount), amount),
+                bank_reference = IF(match_status = "unmatched", VALUES(bank_reference), bank_reference)'
         )->execute([
             't'     => $tenantId,
             'acc'   => $dest['id'],
@@ -297,6 +310,12 @@ function _plaidRouteTxn(
         ]);
         $lineId = bankTxnLineIdByFitid($pdo, $tenantId, (int) $dest['id'], $txnId);
         if ($lineId !== null) {
+            $saved = treasuryProviderSyncExistingLine(
+                $pdo, $tenantId, 'deposit', (int) $dest['id'], $lineId, $txnId, $facts
+            );
+            if ($saved['review_required']) {
+                _plaidNoteProtectedChange($results, 'deposit', (int) $dest['id'], $lineId, $txnId);
+            }
             bankTxnRecordAlias(
                 $pdo, $tenantId, (int) $dest['id'], $lineId,
                 'plaid', $txnId, $providerItemId
@@ -313,6 +332,24 @@ function _plaidRouteTxn(
     } else {
         $pcat = $t['personal_finance_category']['primary']
               ?? (is_array($t['category'] ?? null) ? implode(' / ', $t['category']) : null);
+        $facts = [
+            'posted_date' => (string) ($t['date'] ?? date('Y-m-d')),
+            'description' => substr((string) ($t['name'] ?? $t['merchant_name'] ?? ''), 0, 255),
+            'amount' => $signed,
+            'merchant_name' => substr((string) ($t['merchant_name'] ?? ''), 0, 255) ?: null,
+            'category' => $pcat ? substr((string) $pcat, 0, 120) : null,
+            'bank_reference' => substr((string) ($t['payment_meta']['reference_number'] ?? ''), 0, 120) ?: null,
+        ];
+        $existing = treasuryProviderSyncExistingLine(
+            $pdo, $tenantId, 'liability', (int) $dest['id'], null, $txnId, $facts
+        );
+        if ($existing['found']) {
+            if ($existing['review_required']) {
+                _plaidNoteProtectedChange($results, 'liability', (int) $dest['id'], (int) $existing['line_id'], $txnId);
+            }
+            $results['per_account'][$accId] = ($results['per_account'][$accId] ?? 0) + 1;
+            return true;
+        }
         $pdo->prepare(
             'INSERT INTO treasury_liability_statement_lines
                 (tenant_id, liability_account_id, posted_date, description, amount,
@@ -320,50 +357,59 @@ function _plaidRouteTxn(
              VALUES
                 (:t, :acc, :d, :desc, :amt, :mn, :cat, :ref, :fitid, "unmatched")
              ON DUPLICATE KEY UPDATE
-                posted_date    = VALUES(posted_date),
-                description    = VALUES(description),
-                amount         = VALUES(amount),
-                merchant_name  = VALUES(merchant_name),
-                category       = VALUES(category),
-                bank_reference = VALUES(bank_reference)'
+                posted_date    = IF(match_status = "unmatched", VALUES(posted_date), posted_date),
+                description    = IF(match_status = "unmatched", VALUES(description), description),
+                amount         = IF(match_status = "unmatched", VALUES(amount), amount),
+                merchant_name  = IF(match_status = "unmatched", VALUES(merchant_name), merchant_name),
+                category       = IF(match_status = "unmatched", VALUES(category), category),
+                bank_reference = IF(match_status = "unmatched", VALUES(bank_reference), bank_reference)'
         )->execute([
             't'     => $tenantId,
             'acc'   => $dest['id'],
-            'd'     => (string) ($t['date'] ?? date('Y-m-d')),
-            'desc'  => substr((string) ($t['name'] ?? $t['merchant_name'] ?? ''), 0, 255),
-            'amt'   => $signed,
-            'mn'    => substr((string) ($t['merchant_name'] ?? ''), 0, 255) ?: null,
-            'cat'   => $pcat ? substr((string) $pcat, 0, 120) : null,
-            'ref'   => substr((string) ($t['payment_meta']['reference_number'] ?? ''), 0, 120) ?: null,
+            'd'     => $facts['posted_date'],
+            'desc'  => $facts['description'],
+            'amt'   => $facts['amount'],
+            'mn'    => $facts['merchant_name'],
+            'cat'   => $facts['category'],
+            'ref'   => $facts['bank_reference'],
             'fitid' => $txnId,
         ]);
+        $saved = treasuryProviderSyncExistingLine(
+            $pdo, $tenantId, 'liability', (int) $dest['id'], null, $txnId, $facts
+        );
+        if ($saved['review_required']) {
+            _plaidNoteProtectedChange($results, 'liability', (int) $dest['id'], (int) $saved['line_id'], $txnId);
+        }
     }
 
     $results['per_account'][$accId] = ($results['per_account'][$accId] ?? 0) + 1;
     return true;
 }
 
-function _plaidMarkRemovedRouted(array $dest, string $txnId): void {
+function _plaidNoteProtectedChange(array &$results, string $kind, int $accountId, int $lineId, string $txnId): void {
+    $results['review_required'] = ($results['review_required'] ?? 0) + 1;
+    if (count($results['review_lines'] ?? []) < 50) {
+        $results['review_lines'][] = [
+            'kind' => $kind, 'account_id' => $accountId,
+            'line_id' => $lineId, 'provider_transaction_id' => $txnId,
+        ];
+    }
+}
+
+function _plaidMarkRemovedRouted(array $dest, string $txnId): array {
     $pdo = getDB();
     $tenantId = currentTenantId();
-    $table = $dest['kind'] === 'deposit'
-        ? 'accounting_bank_statement_lines'
-        : 'treasury_liability_statement_lines';
-    $col   = $dest['kind'] === 'deposit' ? 'bank_account_id' : 'liability_account_id';
+    $lineId = null;
     if ($dest['kind'] === 'deposit') {
         $lineId = bankTxnAliasLineId($pdo, $tenantId, (int) $dest['id'], 'plaid', $txnId);
-        if ($lineId !== null) {
-            $pdo->prepare(
-                "UPDATE {$table} SET match_status = 'ignored'
-                  WHERE tenant_id = :t AND {$col} = :acc AND id = :id
-                    AND match_status = 'unmatched'"
-            )->execute(['t' => $tenantId, 'acc' => $dest['id'], 'id' => $lineId]);
-            return;
-        }
     }
-    $pdo->prepare(
-        "UPDATE {$table} SET match_status = 'ignored'
-          WHERE tenant_id = :t AND {$col} = :acc AND fitid = :f
-            AND match_status = 'unmatched'"
-    )->execute(['t' => $tenantId, 'acc' => $dest['id'], 'f' => $txnId]);
+    $result = treasuryProviderIgnoreRemovedLine(
+        $pdo, $tenantId, (string) $dest['kind'], (int) $dest['id'], $lineId, $txnId
+    );
+    if ($result['line_id'] === null && $lineId !== null) {
+        return treasuryProviderIgnoreRemovedLine(
+            $pdo, $tenantId, (string) $dest['kind'], (int) $dest['id'], null, $txnId
+        );
+    }
+    return $result;
 }

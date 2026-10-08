@@ -38,7 +38,11 @@ $assert('flips amount sign (Plaid + outflow → ledger - debit)',
                                              strpos($src, '* -1') !== false);
 $assert('handles MUTATION_DURING_PAGINATION',strpos($src, 'MUTATION_DURING_PAGINATION') !== false);
 $assert('refuses sync when no destinations', strpos($src, 'No mirrored deposit or liability accounts') !== false);
-$assert('removed → match_status=ignored',    strpos($src, "match_status = 'ignored'") !== false);
+$providerSync = (string) file_get_contents(__DIR__ . '/../core/treasury/provider_statement_sync.php');
+$assert('removed unmatched lines become ignored without changing matched lines',
+    strpos($src, 'treasuryProviderIgnoreRemovedLine(') !== false
+    && strpos($providerSync, "SET match_status = 'ignored'") !== false
+    && strpos($providerSync, "AND match_status = 'unmatched'") !== false);
 $assert('updates plaid_items.transactions_cursor',
                                              strpos($src, "'transactions_cursor'") !== false);
 $assert('per-account counter in result',     strpos($src, "'per_account'") !== false);

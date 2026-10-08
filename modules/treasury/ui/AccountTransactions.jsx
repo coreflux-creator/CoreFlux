@@ -321,15 +321,19 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
       const modified = res.modified || 0;
       const removed  = res.removed  || 0;
       const unmapped = res.unmapped || 0;
+      const reviewRequired = res.review_required || 0;
+      const possibleReplays = res.possible_replays || 0;
       const total = added + modified + removed;
       const summary = total === 0
         ? `Up to date — no new transactions from Plaid (${res.pages || 0} page${res.pages === 1 ? '' : 's'} checked).`
             + (unmapped ? ` ${unmapped} txn${unmapped === 1 ? '' : 's'} skipped (account not mirrored).` : '')
-        : `Pulled ${added} new + ${modified} updated`
+        : `Pulled ${added} new + ${modified} provider changes`
             + (removed  ? ` − ${removed} removed`            : '')
             + (unmapped ? ` (skipped ${unmapped} unmapped)`  : '')
             + ` across ${res.pages || 0} page${res.pages === 1 ? '' : 's'}.`;
-      setSyncMsg(summary);
+      setSyncMsg(summary
+        + (reviewRequired ? ` ${reviewRequired} matched or ignored line${reviewRequired === 1 ? ' was' : 's were'} left unchanged for review.` : '')
+        + (possibleReplays ? ` ${possibleReplays} similar-looking new line${possibleReplays === 1 ? ' was' : 's were'} kept separate.` : ''));
       reload();
     } catch (e) {
       setSyncErr(e.message || 'Sync failed');
