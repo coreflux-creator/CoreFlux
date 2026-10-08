@@ -44,6 +44,7 @@ RedirectMatch 404 ^/(_debug|bin|config|cron|db|deploy|docs|emails|graphql|helper
 RedirectMatch 404 ^/sim/.+\.[A-Za-z0-9]+$
 RedirectMatch 404 ^/dashboard/(src|node_modules)(/|$)
 RedirectMatch 404 ^/modules/[^/]+/ui(/|$)
+RedirectMatch 404 ^/core/(?!api/).*\.php$
 RedirectMatch 404 ^/core/(migrations|seeds|storage)(/|$)
 RedirectMatch 404 ^/core/(db\.local|config(\.local)?)\.php$
 RedirectMatch 404 ^/vendor/(?!portal(/|$))

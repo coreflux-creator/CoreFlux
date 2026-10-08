@@ -28,6 +28,8 @@ $private = [
     '/deploy/bootstrap_coreaccounting.php',
     '/core/config.php',
     '/core/db.local.php',
+    '/core/installer_helpers.php',
+    '/core/auth.php',
     '/core/migrations/013_user_tenants_baseline.sql',
     '/modules/accounting/ui/AccountingModule.jsx',
     '/sim/runner.php',
