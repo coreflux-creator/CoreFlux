@@ -11,13 +11,13 @@ define('QA_LIFECYCLE_LIBRARY_MODE', true);
 require_once __DIR__ . '/accounting_staging_lifecycle.php';
 require_once __DIR__ . '/../modules/accounting/lib/standard_reports.php';
 
-const QA_OPEN_BANK_CODE = '1096';
 $actor = null;
 $cookie = null;
 $reviewer = null;
 $reviewerCookie = null;
 try {
     $run = gmdate('ymdHis') . bin2hex(random_bytes(2));
+    $bankCode = 'SIMC' . $run;
     $entity = accountingCreateEntityWithCalendar($pdo, QA_TENANT, [
         'code' => 'SIM-OPEN-' . $run,
         'legal_name' => 'Synthetic Opening Cutover ' . $run,
@@ -27,20 +27,17 @@ try {
     $entityId = (int) $entity['entity_id'];
     qaExpect($entityId > 0, 'fresh synthetic legal entity created');
 
-    if (!qaOne($pdo, 'SELECT id FROM accounting_accounts WHERE tenant_id = :t AND code = :c',
-        ['t' => QA_TENANT, 'c' => QA_OPEN_BANK_CODE])) {
-        $pdo->prepare('INSERT INTO accounting_accounts
-            (tenant_id, code, name, account_type, subtype, statement_section, normal_side,
-             is_postable, is_system_account, currency, active)
-            VALUES (:t, :c, "Synthetic Opening Cash", "asset", "current_asset", "current_assets",
-                "debit", 1, 0, "USD", 1)')
-            ->execute(['t' => QA_TENANT, 'c' => QA_OPEN_BANK_CODE]);
-    }
+    $pdo->prepare('INSERT INTO accounting_accounts
+        (tenant_id, code, name, account_type, subtype, statement_section, normal_side,
+         is_postable, is_system_account, currency, active)
+        VALUES (:t, :c, "Synthetic Opening Cash", "asset", "current_asset", "current_assets",
+            "debit", 1, 0, "USD", 1)')
+        ->execute(['t' => QA_TENANT, 'c' => $bankCode]);
     $pdo->prepare('INSERT INTO accounting_bank_accounts
         (tenant_id, entity_id, name, gl_account_code, bank_name, currency, status)
         VALUES (:t, :e, :name, :code, "Synthetic Bank", "USD", "active")')
         ->execute(['t' => QA_TENANT, 'e' => $entityId,
-            'name' => 'Synthetic Opening Bank ' . $run, 'code' => QA_OPEN_BANK_CODE]);
+            'name' => 'Synthetic Opening Bank ' . $run, 'code' => $bankCode]);
     $bankId = (int) $pdo->lastInsertId();
 
     $actor = qaEnsureActor($pdo, 'opening-cutover');
@@ -64,7 +61,7 @@ try {
     $billNumber = 'SIM-OPEN-AP-' . $run;
     $client = 'Synthetic Opening Client ' . $run;
     $vendor = 'Synthetic Opening Vendor ' . $run;
-    $balancesCsv = qaCsv([['Account code', 'Balance'], [QA_OPEN_BANK_CODE, '1000.00']]);
+    $balancesCsv = qaCsv([['Account code', 'Balance'], [$bankCode, '1000.00']]);
     $arCsv = qaCsv([['Invoice number', 'Client name', 'Issue date', 'Due date', 'Open amount'],
         [$invoiceNumber, $client, '2025-11-30', '2026-01-15', '150.00']]);
     $apCsv = qaCsv([['Bill number', 'Vendor name', 'Bill date', 'Due date', 'Open amount'],
@@ -118,7 +115,7 @@ try {
         && (int) $openingBill['journal_entry_id'] > 0,
         'opening documents are collectible/payable but not sent to a customer');
     $openingBalances = qaBalances($pdo, $entityId);
-    foreach ([QA_OPEN_BANK_CODE => 1000, '1100' => 150, '2000' => -80, '3000' => -1070] as $code => $value) {
+    foreach ([$bankCode => 1000, '1100' => 150, '2000' => -80, '3000' => -1070] as $code => $value) {
         qaExpect(abs((float) ($openingBalances[$code] ?? 0) - $value) < 0.005,
             "opening GL {$code} = {$value}");
     }
@@ -185,7 +182,7 @@ try {
         && count($agingAp) === 1 && abs((float) $agingAp[0]['total_due'] - 50) < 0.005,
         'AR and AP aging agree with partially settled source documents');
     $balances = qaBalances($pdo, $entityId);
-    foreach ([QA_OPEN_BANK_CODE => 1010, '1100' => 110, '2000' => -50, '3000' => -1070] as $code => $value) {
+    foreach ([$bankCode => 1010, '1100' => 110, '2000' => -50, '3000' => -1070] as $code => $value) {
         qaExpect(abs((float) ($balances[$code] ?? 0) - $value) < 0.005,
             "settled GL {$code} = {$value}");
     }
