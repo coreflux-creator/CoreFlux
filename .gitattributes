@@ -13,6 +13,9 @@ modules/accounting/** linguist-vendored
 *.md text eol=lf
 *.json text eol=lf
 *.sh text eol=lf
+modules/billing/migrations/021_invoice_token_revocation.sql text eol=lf
+modules/billing/migrations/022_invoice_token_hash_only.sql text eol=lf
+modules/billing/migrations/023_invoice_delivery_attempts.sql text eol=lf
 
 # Binary files
 *.png binary
