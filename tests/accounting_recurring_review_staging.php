@@ -9,6 +9,7 @@ if (PHP_SAPI !== 'cli' || ($argv[1] ?? '') !== '--execute') {
 
 define('QA_LIFECYCLE_LIBRARY_MODE', true);
 require_once __DIR__ . '/accounting_staging_lifecycle.php';
+require_once __DIR__ . '/../modules/accounting/lib/recurring_je.php';
 
 $actor = null;
 $cookie = null;
@@ -160,6 +161,11 @@ try {
     $replacementId = (int) ($prepared['je_id'] ?? 0);
     qaExpect($replacementId > 0 && ($prepared['status'] ?? '') === 'draft'
         && empty($prepared['updated']), 'replacement is staged off-ledger for review');
+    $foreignTenantError = null;
+    try { recurringJeLinkedJournal(1002, $replacementId); }
+    catch (RuntimeException $e) { $foreignTenantError = $e->getMessage(); }
+    qaExpect($foreignTenantError === 'Journal entry not found',
+        'replacement chain cannot be resolved from another tenant');
     $replacementPayload['lines'][0]['debit'] = 15.67;
     $replacementPayload['lines'][1]['credit'] = 15.67;
     $revised = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=prepare_replacement&id='
@@ -216,6 +222,30 @@ try {
     qaExpect($manualError !== null && str_contains($manualError, 'HTTP 409'),
         'generic manual correction still refuses source-owned recurring journals');
 
+    $secondReversal = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=reverse_run&id='
+        . $replacementId, 'POST', ['reason' => 'Synthetic second correction'], $cookie);
+    $secondReversalId = (int) ($secondReversal['je_id'] ?? 0);
+    qaExpect($secondReversalId > 0 && $secondReversalId !== $replacementId,
+        'a posted replacement can itself be reversed through the recurring source');
+    $replacementPayload['lines'][0]['debit'] = 16.78;
+    $replacementPayload['lines'][1]['credit'] = 16.78;
+    $secondPrepared = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=prepare_replacement&id='
+        . $replacementId, 'POST', $replacementPayload, $cookie);
+    $secondReplacementId = (int) ($secondPrepared['je_id'] ?? 0);
+    qaExpect($secondReplacementId > 0 && $secondReplacementId !== $replacementId
+        && ($secondPrepared['status'] ?? '') === 'draft',
+        'a second correction is staged as a separately linked draft');
+    $secondPosted = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=post_draft&id='
+        . $secondReplacementId, 'POST', [], $cookie);
+    qaExpect(($secondPosted['status'] ?? '') === 'posted'
+        && abs((float) ($secondPosted['total_debit'] ?? 0) - 16.78) < 0.005,
+        'review posts the second correction without changing the template');
+    $latestSchedule = qaOne($pdo, 'SELECT next_run_date, last_run_je_id
+        FROM accounting_recurring_journal_entries WHERE tenant_id = :t AND id = :id',
+        ['t' => QA_TENANT, 'id' => $templateId]);
+    qaExpect($latestSchedule === $beforeReplacement,
+        'successive corrections still leave the template schedule untouched');
+
     $ended = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=end&id='
         . $templateId, 'POST', [], $cookie);
     qaExpect(($ended['status'] ?? '') === 'ended',
@@ -235,7 +265,7 @@ try {
     qaExpect($resumeError !== null && str_contains($resumeError, 'HTTP 409')
         && ($endedRow['status'] ?? '') === 'ended',
         'ended schedule cannot be reactivated through the API');
-    echo "Staging recurring template {$templateId}, journal {$jeId}, reversal {$reversalId}, replacement {$replacementId}, entity {$entityId}.\n";
+    echo "Staging recurring template {$templateId}, journal {$jeId}, reversal {$reversalId}, replacement {$replacementId}, second replacement {$secondReplacementId}, entity {$entityId}.\n";
 } finally {
     if ($templateId > 0) {
         $pdo->prepare('UPDATE accounting_recurring_journal_entries SET status = "ended"
