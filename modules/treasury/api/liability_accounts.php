@@ -93,7 +93,9 @@ switch (api_method()) {
              LEFT JOIN plaid_accounts pa
                ON pa.tenant_id = aa.tenant_id AND pa.account_id = tla.plaid_account_id
              LEFT JOIN accounting_journal_entries je
-               ON je.tenant_id = aa.tenant_id AND je.status = 'posted'
+               ON je.tenant_id = aa.tenant_id
+              AND (tla.entity_id IS NULL OR je.entity_id = tla.entity_id)
+              AND je.status IN ('posted', 'reversed')
              LEFT JOIN accounting_journal_entry_lines jel
                ON jel.je_id = je.id AND jel.account_id = aa.id
              WHERE aa.tenant_id = :tenant_id
@@ -204,11 +206,12 @@ switch (api_method()) {
                 "SELECT COUNT(*) AS c
                    FROM accounting_journal_entry_lines jel
                    JOIN accounting_journal_entries je ON je.id = jel.je_id
-                  WHERE je.tenant_id = :tenant_id AND jel.account_id = :id AND je.status = 'posted'",
+                  WHERE je.tenant_id = :tenant_id AND jel.account_id = :id
+                    AND je.status IN ('posted', 'reversed')",
                 ['id' => $id]
             );
             if ((int) ($usage['c'] ?? 0) > 0) {
-                api_error('Cannot hard-delete: posted journal entries reference this liability. Use mode=hide instead.', 409, [
+                api_error('Cannot hard-delete: ledger journal entries reference this liability. Use mode=hide instead.', 409, [
                     'posted_lines' => (int) $usage['c'],
                 ]);
             }

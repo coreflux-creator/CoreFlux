@@ -1451,7 +1451,7 @@ if ($type === 'deposit') {
     $balanceStmt = $pdo->prepare(
         "SELECT ba.currency, ba.last_feed_synced_at,
                 pa.current_balance_cents, pa.available_balance_cents, pa.balance_as_of,
-                COALESCE(SUM(CASE WHEN je.status = 'posted' THEN jel.debit - jel.credit ELSE 0 END), 0) AS ledger_balance
+                COALESCE(SUM(CASE WHEN je.status IN ('posted', 'reversed') THEN jel.debit - jel.credit ELSE 0 END), 0) AS ledger_balance
            FROM accounting_bank_accounts ba
            LEFT JOIN plaid_accounts pa
              ON pa.tenant_id = ba.tenant_id AND pa.account_id = ba.plaid_account_id
@@ -1460,6 +1460,7 @@ if ($type === 'deposit') {
            LEFT JOIN accounting_journal_entry_lines jel ON jel.account_id = aa.id
            LEFT JOIN accounting_journal_entries je
              ON je.tenant_id = ba.tenant_id AND je.id = jel.je_id
+            AND (ba.entity_id IS NULL OR je.entity_id = ba.entity_id)
           WHERE ba.tenant_id = :t AND ba.id = :a
           GROUP BY ba.id"
     );
@@ -1467,7 +1468,7 @@ if ($type === 'deposit') {
     $balanceStmt = $pdo->prepare(
         "SELECT COALESCE(aa.currency, pa.iso_currency_code, 'USD') AS currency,
                 pa.current_balance_cents, pa.available_balance_cents, pa.balance_as_of,
-                COALESCE(SUM(CASE WHEN je.status = 'posted' THEN jel.credit - jel.debit ELSE 0 END), 0) AS ledger_balance
+                COALESCE(SUM(CASE WHEN je.status IN ('posted', 'reversed') THEN jel.credit - jel.debit ELSE 0 END), 0) AS ledger_balance
            FROM accounting_accounts aa
            JOIN treasury_liability_accounts tla
              ON tla.tenant_id = aa.tenant_id AND tla.account_id = aa.id
@@ -1476,6 +1477,7 @@ if ($type === 'deposit') {
            LEFT JOIN accounting_journal_entry_lines jel ON jel.account_id = aa.id
            LEFT JOIN accounting_journal_entries je
              ON je.tenant_id = aa.tenant_id AND je.id = jel.je_id
+            AND (tla.entity_id IS NULL OR je.entity_id = tla.entity_id)
           WHERE aa.tenant_id = :t AND aa.id = :a
           GROUP BY aa.id"
     );

@@ -576,6 +576,19 @@ try {
         && abs((float) ($finalReports['cash_flow_indirect']['reconciliation_diff'] ?? 1)) < 0.005
         && !empty($finalReports['balance_sheet']['balanced']),
         'corrected and rebooked bank expense reaches balanced reports exactly once');
+    $treasuryAccounts = qaRequest('/modules/treasury/api/deposit_accounts.php?entity_id=' .
+        $entityId, 'GET', null, $reviewerCookie);
+    $treasuryAccount = null;
+    foreach ($treasuryAccounts['rows'] ?? [] as $account) {
+        if ((int) $account['id'] === $bankId) $treasuryAccount = $account;
+    }
+    $treasuryActivity = qaRequest('/modules/treasury/api/account_transactions.php?type=deposit&account_id=' .
+        $bankId, 'GET', null, $reviewerCookie);
+    $cashBalance = (float) (qaBalances($pdo, $entityId)[QA_BANK_CODE] ?? 0);
+    qaExpect($treasuryAccount !== null
+        && abs((float) $treasuryAccount['gl_balance'] - $cashBalance) < 0.005
+        && abs((float) ($treasuryActivity['balance']['ledger_balance'] ?? NAN) - $cashBalance) < 0.005,
+        'Treasury account list and register agree with cash GL after correction');
     $remaining = qaRequest('/modules/accounting/api/bank_statements.php?bank_account_id=' . $bankId .
         '&match_status=unmatched&per_page=200', 'GET', null, $reviewerCookie);
     $remainingIds = array_map('intval', array_column($remaining['rows'] ?? [], 'id'));

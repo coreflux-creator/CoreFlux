@@ -75,7 +75,9 @@ switch (api_method()) {
              LEFT JOIN accounting_accounts aa
                ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
              LEFT JOIN accounting_journal_entries je
-               ON je.tenant_id = aa.tenant_id AND je.status = 'posted'
+               ON je.tenant_id = aa.tenant_id
+              AND (ba.entity_id IS NULL OR je.entity_id = ba.entity_id)
+              AND je.status IN ('posted', 'reversed')
              LEFT JOIN accounting_journal_entry_lines jel
                ON jel.je_id = je.id AND jel.account_id = aa.id
              WHERE ba.tenant_id = :tenant_id AND ba.status = 'active'{$entityFilter}
@@ -151,7 +153,7 @@ switch (api_method()) {
 
         $pdo = getDB();
         if ($mode === 'delete') {
-            // Hard delete is only allowed when no posted journal entry references
+            // Hard delete is only allowed when no ledger journal references
             // the matching GL code — otherwise the ledger goes inconsistent.
             $usage = scopedFind(
                 "SELECT COUNT(*) AS c
@@ -159,11 +161,14 @@ switch (api_method()) {
                    JOIN accounting_journal_entries je ON je.id = jel.je_id
                    JOIN accounting_accounts aa ON aa.id = jel.account_id
                    JOIN accounting_bank_accounts ba ON ba.gl_account_code = aa.code AND ba.tenant_id = aa.tenant_id
-                  WHERE ba.tenant_id = :tenant_id AND ba.id = :id AND je.status = 'posted'",
+                  WHERE ba.tenant_id = :tenant_id AND ba.id = :id
+                    AND je.tenant_id = ba.tenant_id
+                    AND (ba.entity_id IS NULL OR je.entity_id = ba.entity_id)
+                    AND je.status IN ('posted', 'reversed')",
                 ['id' => $id]
             );
             if ((int) ($usage['c'] ?? 0) > 0) {
-                api_error('Cannot hard-delete: posted journal entries reference this account. Use mode=hide instead.', 409, [
+                api_error('Cannot hard-delete: ledger journal entries reference this account. Use mode=hide instead.', 409, [
                     'posted_lines' => (int) $usage['c'],
                 ]);
             }

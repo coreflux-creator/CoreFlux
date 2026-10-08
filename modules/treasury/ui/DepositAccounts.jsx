@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
+import { Routes, Route, Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
@@ -16,20 +16,23 @@ export default function DepositAccounts() {
 }
 
 function DepositList() {
-  const { activeEntityId, activeEntity, entityQuery } = useActiveEntity();
-  const { data, loading, reload } = useApi('/modules/treasury/api/deposit_accounts.php' + entityQuery('?'));
-  const rows = data?.rows || [];
+  const { activeEntityId, entities, loaded } = useActiveEntity();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedEntityId = Number(searchParams.get('entity_id'));
+  const selectedEntityId = entities.some((entity) => entity.id === requestedEntityId)
+    ? requestedEntityId : activeEntityId;
+  const selectedEntity = entities.find((entity) => entity.id === selectedEntityId);
+  const query = selectedEntityId ? `?entity_id=${selectedEntityId}` : '';
+  const { data, error, loading, reload } = useApi(
+    `/modules/treasury/api/deposit_accounts.php${query}`,
+    { enabled: loaded && Boolean(selectedEntityId) },
+  );
+  const rows = (data?.rows || []).filter((row) => Number(row.entity_id) === selectedEntityId);
   const [showNew, setShowNew] = useState(false);
   const navigate = useNavigate();
 
   return (
     <section className="treasury-deposits" data-testid="treasury-deposits">
-      {activeEntity && (
-        <div data-testid="treasury-deposits-entity-scope"
-             style={{ fontSize: 12, color: '#1e40af', marginBottom: 8 }}>
-          Scoped to entity <code>{activeEntity.code}</code> — switch in the header to see another.
-        </div>
-      )}
       <header className="treasury-overview__header">
         <div>
           <h2>Deposit accounts</h2>
@@ -41,16 +44,48 @@ function DepositList() {
         <button
           className="btn btn--primary"
           onClick={() => setShowNew((v) => !v)}
+          disabled={!selectedEntityId}
           data-testid="treasury-deposit-new-btn"
         >
           {showNew ? 'Cancel' : '+ New deposit account'}
         </button>
       </header>
 
-      {showNew && <NewDepositForm onDone={() => { setShowNew(false); reload(); }} />}
+      {loaded && entities.length > 0 && (
+        <div data-testid="treasury-deposits-entity-scope" style={{ marginBottom: 16 }}>
+          <label htmlFor="treasury-deposits-entity" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
+            Legal entity
+          </label>
+          <select
+            id="treasury-deposits-entity"
+            className="input"
+            value={selectedEntityId || ''}
+            onChange={(event) => {
+              const next = new URLSearchParams(searchParams);
+              next.set('entity_id', event.target.value);
+              setShowNew(false);
+              setSearchParams(next);
+            }}
+            style={{ maxWidth: 360 }}
+          >
+            {entities.map((entity) => (
+              <option key={entity.id} value={entity.id}>
+                {entity.code} - {entity.legal_name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
-      {loading && <p>Loading…</p>}
-      {!loading && rows.length === 0 && (
+      {showNew && selectedEntity && (
+        <NewDepositForm key={selectedEntity.id} entityId={selectedEntity.id}
+          onDone={() => { setShowNew(false); reload(); }} />
+      )}
+
+      {(!loaded || loading) && <p>Loading…</p>}
+      {loaded && entities.length === 0 && <p className="empty-state">Create a legal entity before adding a deposit account.</p>}
+      {error && <p className="error" role="alert">Could not load deposit accounts: {error.message} <button type="button" className="btn btn--ghost" onClick={reload}>Retry</button></p>}
+      {loaded && !loading && !error && selectedEntityId && rows.length === 0 && (
         <p className="empty-state" data-testid="treasury-deposits-empty">
           No deposit accounts yet. Click <em>+ New deposit account</em> to add one.
         </p>
@@ -85,7 +120,8 @@ function DepositRow({ row: r, onChanged, navigate }) {
   const [err, setErr]   = useState(null);
 
   // Absolute path so navigation works no matter where this list is mounted.
-  const open = () => navigate(`/modules/treasury/deposits/${r.id}`);
+  const detailPath = `/modules/treasury/deposits/${r.id}?entity_id=${r.entity_id}`;
+  const open = () => navigate(detailPath);
 
   const sync = async (e) => {
     e.stopPropagation();
@@ -162,7 +198,7 @@ function DepositRow({ row: r, onChanged, navigate }) {
       </td>
       <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
         <Link
-          to={`/modules/treasury/deposits/${r.id}`}
+          to={detailPath}
           className="btn btn--ghost"
           data-testid={`treasury-deposit-view-${r.id}`}
           style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
@@ -214,13 +250,13 @@ function DepositRow({ row: r, onChanged, navigate }) {
   );
 }
 
-function NewDepositForm({ onDone }) {
+function NewDepositForm({ entityId, onDone }) {
   const [f, setF] = useState({ name: '', gl_account_code: '', bank_name: '', last4: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
   const submit = async () => {
     setBusy(true); setErr(null);
-    try { await api.post('/modules/treasury/api/deposit_accounts.php', f); onDone(); }
+    try { await api.post('/modules/treasury/api/deposit_accounts.php', { ...f, entity_id: entityId }); onDone(); }
     catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   return (
@@ -262,9 +298,12 @@ function DepositDetail() {
   // No bouncing to other modules, no "open workspace" link. The bank-feed
   // table, sync button, and per-row Categorize/Ignore/Match all live below.
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const accountId = Number(id);
   const { data: listData } = useApi('/modules/treasury/api/deposit_accounts.php');
   const account = (listData?.rows || []).find((r) => r.id === accountId);
+  const entityId = account?.entity_id || Number(searchParams.get('entity_id')) || null;
+  const backPath = `/modules/treasury/deposits${entityId ? `?entity_id=${entityId}` : ''}`;
   const label = account
     ? `${account.name}${account.last4 ? ` · ····${account.last4}` : ''}`
     : `Deposit account #${accountId}`;
@@ -273,7 +312,7 @@ function DepositDetail() {
     <section data-testid="treasury-deposit-detail">
       <p style={{ marginBottom: 12 }}>
         <Link
-          to="/modules/treasury/deposits"
+          to={backPath}
           className="muted"
           style={{ fontSize: 13 }}
           data-testid="treasury-deposit-detail-back"

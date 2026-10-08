@@ -27,8 +27,11 @@ $assert('deposit_accounts.php selects ba.entity_id',    stripos($tApi, 'ba.entit
 
 $tUI = (string) file_get_contents("{$ROOT}/modules/treasury/ui/DepositAccounts.jsx");
 $assert('DepositList imports useActiveEntity',          stripos($tUI, 'useActiveEntity') !== false);
-$assert('DepositList appends entityQuery to URL',       stripos($tUI, "entityQuery('?')") !== false);
-$assert('DepositList shows scope notice testid',        stripos($tUI, 'data-testid="treasury-deposits-entity-scope"') !== false);
+$assert('DepositList loads only the selected entity',   stripos($tUI, 'deposit_accounts.php${query}') !== false
+    && stripos($tUI, 'entity_id=${selectedEntityId}') !== false);
+$assert('DepositList exposes the legal-entity picker',  stripos($tUI, 'data-testid="treasury-deposits-entity-scope"') !== false
+    && stripos($tUI, 'id="treasury-deposits-entity"') !== false);
+$assert('Deposit create uses selected entity explicitly', stripos($tUI, 'entity_id: entityId') !== false);
 
 echo "\nAP legacy → workflow_instances reverse mirror\n";
 $ba = (string) file_get_contents("{$ROOT}/modules/ap/api/bill_approvals.php");
