@@ -94,14 +94,14 @@ function SourceControlTieOut({ scope }) {
   const controls = data ? [data.controls.ar, data.controls.ap] : [];
   return (
     <div data-testid="accounting-source-control-tie-out">
-      <div className="report-filter-bar">
-        <div className="report-filter-bar__fields">
-          <label>As of <input type="date" className="input" value={asOf}
-            onChange={event => setAsOf(event.target.value)} data-testid="accounting-source-control-date" /></label>
-        </div>
+      <FilterBar onExport={data && !loading ? () => downloadCsv(`${url}&format=csv`,
+        `accounting-ar-ap-tie-out-${scope.entityId}-${asOf}.csv`) : null}
+        exportTestId="accounting-source-control-export">
+        <label>As of <input type="date" className="input" value={asOf}
+          onChange={event => setAsOf(event.target.value)} data-testid="accounting-source-control-date" /></label>
         <button type="button" className="btn" onClick={reload} disabled={loading || !url}
           data-testid="accounting-source-control-refresh"><RefreshCw size={15} aria-hidden="true" />Refresh</button>
-      </div>
+      </FilterBar>
       {!asOf && <p>Choose an as-of date.</p>}
       {loading && <p>Comparing subledgers with the posted ledger...</p>}
       {error && <p className="error" role="alert">{error.message}</p>}

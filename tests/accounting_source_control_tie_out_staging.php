@@ -48,6 +48,24 @@ try {
             "{$code} compares canonical control accounts");
     }
 
+    $curl = curl_init(QA_BASE_URL . $url . '&format=csv');
+    curl_setopt_array($curl, [CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_TIMEOUT => 40, CURLOPT_COOKIEFILE => $cookie, CURLOPT_COOKIEJAR => $cookie,
+        CURLOPT_HTTPHEADER => ['X-CoreFlux-Tenant-Id: ' . QA_TENANT]]);
+    $csv = curl_exec($curl);
+    $csvStatus = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    $csvType = curl_getinfo($curl, CURLINFO_CONTENT_TYPE);
+    curl_close($curl);
+    $csvRows = is_string($csv) ? array_map(static fn (string $line): array =>
+        str_getcsv($line, ',', '"', ''), preg_split('/\r?\n/', trim($csv))) : [];
+    $expect($csvStatus === 200 && str_contains((string) $csvType, 'text/csv')
+        && count($csvRows) === 3 && $csvRows[0][0] === 'entity_code'
+        && $csvRows[1][3] === '1100' && $csvRows[2][3] === '2000',
+        'authorized CSV contains exactly the two scoped controls');
+    $expect($csvRows[1][5] === number_format($http['controls']['ar']['source_due'], 2, '.', '')
+        && $csvRows[2][6] === number_format($http['controls']['ap']['gl_balance'], 2, '.', ''),
+        'CSV balances agree with the displayed JSON snapshot');
+
     foreach (['entity_id=all', 'entity_id=999999999',
         'entity_id=' . $entityId . '&as_of=2026-02-30'] as $query) {
         try {
