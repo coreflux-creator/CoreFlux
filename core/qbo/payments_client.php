@@ -689,8 +689,8 @@ function qboApplyCapturedPayment(
                 || (int) $priorJe['source_ref_id'] !== $paymentId) {
                 throw new \RuntimeException('Processor receipt has an invalid ledger link.');
             }
-            $pdo->prepare('UPDATE qbo_payment_charges SET coreflux_payment_id = :p WHERE id = :id')
-                ->execute(['p' => $paymentId, 'id' => (int) $shadow['id']]);
+            $pdo->prepare('UPDATE qbo_payment_charges SET coreflux_payment_id = :p WHERE tenant_id = :t AND id = :id')
+                ->execute(['p' => $paymentId, 't' => $tenantId, 'id' => (int) $shadow['id']]);
             $pdo->commit();
             return ['applied' => true, 'reused' => true, 'payment_id' => $paymentId,
                 'journal_entry_id' => (int) $payment['journal_entry_id'],
@@ -737,8 +737,9 @@ function qboApplyCapturedPayment(
         )->execute(['t' => $tenantId, 'ref' => 'payment:' . $paymentId, 'je' => (int) $journal['je_id']]);
         $pdo->prepare(
             'UPDATE qbo_payment_charges
-                SET coreflux_payment_id = :p, error_code = NULL, error_message = NULL WHERE id = :id'
-        )->execute(['p' => $paymentId, 'id' => (int) $shadow['id']]);
+                SET coreflux_payment_id = :p, error_code = NULL, error_message = NULL
+              WHERE tenant_id = :t AND id = :id'
+        )->execute(['p' => $paymentId, 't' => $tenantId, 'id' => (int) $shadow['id']]);
         $pdo->commit();
 
         $pwp = $allocation

@@ -59,7 +59,7 @@ ci_classify_lane() {
         sprint3_staffing_loop_*|sprint6c_*|sprint7c_treasury_*|\
         sprint8*|sprint9_*|p0_ap_bill_liquidity_*|p1_a4_time_direction_*|\
         p2_liquidity_and_auto_reverse_*|approval_reminders_daily_*|\
-        jaz_*|zoho_*|qbo_*|accounting_basics_*|rbac_cpa_*)
+        jaz_*|zoho_*|qbo_*|accounting_basics_*|coreaccounting_*|rbac_cpa_*)
             echo "modules"; return 0 ;;
 
         # ── core (~50 tests) — everything else (default lane) ──

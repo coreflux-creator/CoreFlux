@@ -87,8 +87,8 @@ try {
         && (int) $credential['tenant_id'] === $tenantId
         && (int) $credential['entity_id'] === (int) $entity['id'];
     if (!$credential) throw new RuntimeException('Disposable credential did not authenticate.');
-    $hashStmt = $pdo->prepare('SELECT token_hash FROM coreone_accounting_credentials WHERE id = :id');
-    $hashStmt->execute(['id' => (int) $issued['id']]);
+    $hashStmt = $pdo->prepare('SELECT token_hash FROM coreone_accounting_credentials WHERE tenant_id = :tenant_id AND id = :id');
+    $hashStmt->execute(['tenant_id' => $tenantId, 'id' => (int) $issued['id']]);
     $checks['database_stores_only_token_hash'] = hash_equals(
         hash('sha256', $issued['token']), (string) $hashStmt->fetchColumn()
     );
