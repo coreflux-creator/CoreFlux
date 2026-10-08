@@ -106,6 +106,28 @@ try {
     }
     qaExpect($sawSyntheticInvoice, 'at least one synthetic legal entity has invoices');
 
+    $searchEntity = (int) qaOne($pdo, 'SELECT id FROM accounting_entities
+        WHERE tenant_id = :t AND code = "SIM-LIFECYCLE-QA"', ['t' => QA_TENANT])['id'];
+    $searchInvoice = qaOne($pdo, 'SELECT id, invoice_number, client_name FROM billing_invoices
+        WHERE tenant_id = :t AND entity_id = :e ORDER BY id DESC LIMIT 1',
+        ['t' => QA_TENANT, 'e' => $searchEntity]);
+    if (!$searchInvoice) throw new RuntimeException('Synthetic search invoice is missing.');
+    foreach (['invoice number' => $searchInvoice['invoice_number'],
+        'client' => $searchInvoice['client_name']] as $label => $term) {
+        $params = 'entity_id=' . $searchEntity . '&q=' . rawurlencode((string) $term);
+        $found = qaRequest('/modules/billing/api/invoices.php?' . $params, 'GET', null, $cookie);
+        [$csvStatus, $csv] = invoiceScopeGet('/modules/billing/api/csv_export.php?' . $params,
+            $cookie);
+        $templateIds = array_map('intval', array_column(exportDatasetFetchBillingInvoices(
+            QA_TENANT, ['entity_id' => $searchEntity, 'q' => $term]), 'invoice_id'));
+        qaExpect((int) $found['total'] === 1
+            && (int) $found['rows'][0]['id'] === (int) $searchInvoice['id']
+            && $csvStatus === 200
+            && invoiceScopeCsvIds($csv) === [(int) $searchInvoice['id']]
+            && $templateIds === [(int) $searchInvoice['id']],
+            "{$label} search matches list, raw CSV and template dataset");
+    }
+
     foreach (['invalid' => 422, '999999999' => 404] as $scope => $expectedStatus) {
         foreach (['/modules/billing/api/invoices.php', '/modules/billing/api/csv_export.php'] as $path) {
             [$status] = invoiceScopeGet($path . '?entity_id=' . $scope, $cookie);

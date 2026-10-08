@@ -1230,6 +1230,12 @@ function exportDatasetFetchBillingInvoices(int $tenantId, array $opts): array {
         $where[] = 'client_name = :client_name';
         $params['client_name'] = (string) $opts['client_name'];
     }
+    if (!empty($opts['q'])) {
+        $where[] = '(invoice_number LIKE :q_invoice OR client_name LIKE :q_client)';
+        $needle = '%' . trim((string) $opts['q']) . '%';
+        $params['q_invoice'] = $needle;
+        $params['q_client'] = $needle;
+    }
     if (!empty($opts['entity_id'])) {
         $where[] = 'entity_id = :entity_id';
         $params['entity_id'] = (int) $opts['entity_id'];

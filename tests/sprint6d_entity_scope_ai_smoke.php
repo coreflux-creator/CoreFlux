@@ -37,6 +37,7 @@ $assert('InvoicesList defaults to all legal entities', stripos($iUI, 'useAccount
 $assert('InvoicesList can filter by legal entity',    stripos($iUI, "qs.set('entity_id'") !== false);
 $assert('InvoicesList shows entity selector and column',
     stripos($iUI, 'billing-invoices-entity') !== false && stripos($iUI, 'entity_code') !== false);
+$assert('InvoicesList carries search into CSV export', stripos($iUI, "exportParams.set('q', query)") !== false);
 $assert('Invoice create still assigns entity',       stripos((string) file_get_contents("{$ROOT}/modules/billing/ui/InvoiceCreate.jsx"), 'billing-invoice-create-entity') !== false);
 
 echo "\nSchema contract — entity_id columns exist in migrations\n";

@@ -53,6 +53,7 @@ export default function InvoicesList({ session }) {
   const exportParams = new URLSearchParams();
   if (status !== 'all') exportParams.set('status', status);
   if (scope.entityId) exportParams.set('entity_id', String(scope.entityId));
+  if (query) exportParams.set('q', query);
   const exportQuery = exportParams.toString();
   const exportHref = `/modules/billing/api/csv_export.php${exportQuery ? `?${exportQuery}` : ''}`;
   // The charge endpoint is tenant/master-admin gated and requires the

@@ -8,6 +8,7 @@
  *   ?status=draft|approved|sent|partially_paid|paid|void
  *   ?from=YYYY-MM-DD&to=YYYY-MM-DD       issue_date range
  *   ?client_name=Acme
+ *   ?q=Acme                         invoice number or client search
  *
  * Built on Core\CsvExportService primitive per HARD_RULES (2026-02-XX).
  */
@@ -38,6 +39,7 @@ $datasetOptions = [
     'from'        => (string) ($_GET['from'] ?? ''),
     'to'          => (string) ($_GET['to'] ?? ''),
     'client_name' => (string) ($_GET['client_name'] ?? ''),
+    'q'           => trim((string) ($_GET['q'] ?? '')),
     'entity_id'   => $entityId,
 ];
 
@@ -77,6 +79,12 @@ if ($datasetOptions['to'] !== '') {
 if ($datasetOptions['client_name'] !== '') {
     $where[] = 'i.client_name = :client_name';
     $params['client_name'] = $datasetOptions['client_name'];
+}
+if ($datasetOptions['q'] !== '') {
+    $where[] = '(i.invoice_number LIKE :q_invoice OR i.client_name LIKE :q_client)';
+    $needle = '%' . $datasetOptions['q'] . '%';
+    $params['q_invoice'] = $needle;
+    $params['q_client'] = $needle;
 }
 if ($entityId !== null) {
     $where[] = 'i.entity_id = :entity_id';
