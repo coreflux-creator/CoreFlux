@@ -67,13 +67,13 @@ if ($method === 'POST' && (api_query('action') ?? '') === 'record') {
     $period = scopedFind('SELECT id FROM accounting_periods WHERE tenant_id = :tenant_id AND id = :id',
         ['id' => $periodId]);
     if (!$period) api_error('Period not found', 404);
-    $id = scopedInsert('accounting_close_packets', [
-        'period_id'         => $periodId,
-        'storage_object_id' => null,
-        'file_format'       => 'html',
-        'summary_json'      => null,
-        'built_by_user_id'  => (int) ($user['id'] ?? 0),
-    ]);
+    $pdo = getDB();
+    $pdo->prepare('INSERT INTO accounting_close_packets
+        (tenant_id, period_id, file_format, built_by_user_id)
+        VALUES (:tenant_id, :period_id, "html", :user_id)')
+        ->execute(['tenant_id' => $tenantId, 'period_id' => $periodId,
+            'user_id' => (int) ($user['id'] ?? 0) ?: null]);
+    $id = (int) $pdo->lastInsertId();
     api_ok(['id' => $id]);
 }
 
