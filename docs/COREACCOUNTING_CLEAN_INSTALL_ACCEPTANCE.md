@@ -12,7 +12,7 @@ This is a staging-only acceptance sequence for a **new, disposable Cloudways app
    COREFLUX_ENV=staging php deploy/bootstrap_coreaccounting.php --verify-schema
    ```
 
-   Stop on any error. Schema changes are not transactional in MySQL; a partial install requires a **new** empty disposable database, not a retry against the partly populated one.
+   The schema check must report 26 tables, 152 columns, 11 financial unique keys and no missing requirements. Stop on any error. Schema changes are not transactional in MySQL; a partial install requires a **new** empty disposable database, not a retry against the partly populated one.
 4. Set the `COREFLUX_INITIAL_*` tenant, administrator, entity, fiscal-year and password environment values for invented staging identities, then run `COREFLUX_ENV=staging php deploy/provision_coreaccounting_tenant.php --confirm-first-tenant --database=NEW_DATABASE_NAME`. Verify one tenant, one active administrator, a legal entity, fiscal periods, system accounts, posting rules and a migration ledger with no failed hashes. Do not log the password.
 5. Seed an independent simulation tenant, then run invoice, bill, payment and bank scenarios once and again with the same seed. The second pass must create no duplicate posted financial event:
 

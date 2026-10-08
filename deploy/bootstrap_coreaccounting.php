@@ -101,4 +101,5 @@ echo json_encode(['database' => $connectedDatabase, 'baseline_applied' => count(
     'canonical_migrations_applied' => count($migration['applied_files']),
     'required_tables_verified' => $schema['required_tables'],
     'required_columns_verified' => $schema['required_columns'],
+    'required_unique_keys_verified' => $schema['required_unique_keys'],
     'status' => 'schema_ready'], JSON_PRETTY_PRINT) . "\n";

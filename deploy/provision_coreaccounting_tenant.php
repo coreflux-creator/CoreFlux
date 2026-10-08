@@ -10,6 +10,7 @@ if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging'
 
 require_once __DIR__ . '/../core/memberships.php';
 require_once __DIR__ . '/../core/installer_helpers.php';
+require_once __DIR__ . '/../core/accounting/schema_contract.php';
 require_once __DIR__ . '/../core/accounting/entity_setup.php';
 require_once __DIR__ . '/../core/accounting/system_accounts.php';
 require_once __DIR__ . '/../core/posting_engine/seed_defaults.php';
@@ -54,6 +55,11 @@ $year = accountingFirstFiscalYear((string) getenv('COREFLUX_INITIAL_FISCAL_YEAR'
 
 $missing = installerCheckBaseSchema($pdo);
 if ($missing) throw new RuntimeException('Base schema is incomplete: ' . implode(', ', $missing));
+$accountingSchema = coreAccountingInspectSchema($pdo);
+if ($accountingSchema['missing']) {
+    throw new RuntimeException('Accounting schema is incomplete: '
+        . implode(', ', array_slice($accountingSchema['missing'], 0, 5)));
+}
 $migrationRows = $pdo->query('SELECT filename, sha256, last_error FROM _migrations')
     ->fetchAll(PDO::FETCH_ASSOC);
 $recordedMigrations = [];

@@ -53,6 +53,41 @@ function coreAccountingRequiredSchema(): array
     ];
 }
 
+function coreAccountingRequiredUniqueKeys(): array
+{
+    return [
+        'accounting_posting_idempotency' => [['tenant_id', 'idempotency_key']],
+        'accounting_events' => [['tenant_id', 'source_module', 'source_record_id', 'event_type']],
+        'accounting_journal_entries' => [['tenant_id', 'je_number']],
+        'accounting_bank_statement_lines' => [['tenant_id', 'bank_account_id', 'fitid']],
+        'billing_invoices' => [
+            ['tenant_id', 'invoice_number'],
+            ['tenant_id', 'source_system', 'external_id'],
+        ],
+        'billing_payments' => [['tenant_id', 'source_system', 'external_id']],
+        'ap_bills' => [
+            ['tenant_id', 'internal_ref'],
+            ['tenant_id', 'source_system', 'external_id'],
+        ],
+        'ap_payments' => [['tenant_id', 'source_system', 'external_id']],
+        'coreone_document_requests' => [['tenant_id', 'source_type', 'source_record_id']],
+    ];
+}
+
+function coreAccountingMissingUniqueKeys(array $present): array
+{
+    $missing = [];
+    foreach (coreAccountingRequiredUniqueKeys() as $table => $requiredKeys) {
+        $available = $present[$table] ?? [];
+        foreach ($requiredKeys as $columns) {
+            if (!in_array($columns, $available, true)) {
+                $missing[] = $table . ' UNIQUE (' . implode(', ', $columns) . ')';
+            }
+        }
+    }
+    return $missing;
+}
+
 function coreAccountingMissingSchema(array $present): array
 {
     $missing = [];
@@ -83,9 +118,32 @@ function coreAccountingInspectSchema(PDO $pdo): array
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $present[$row['table_name']][] = $row['column_name'];
     }
+    $indexStmt = $pdo->prepare(
+        "SELECT table_name, index_name, seq_in_index, column_name, sub_part
+           FROM information_schema.statistics
+          WHERE table_schema = DATABASE() AND table_name IN ($placeholders)
+            AND non_unique = 0
+          ORDER BY table_name, index_name, seq_in_index"
+    );
+    $indexStmt->execute($tables);
+    $uniqueIndexes = [];
+    foreach ($indexStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $column = $row['column_name'];
+        if ($row['sub_part'] !== null) $column .= '(' . $row['sub_part'] . ')';
+        $uniqueIndexes[$row['table_name']][$row['index_name']][] = $column;
+    }
+    $uniqueKeys = [];
+    foreach ($uniqueIndexes as $table => $indexes) {
+        $uniqueKeys[$table] = array_values($indexes);
+    }
+    $requiredUniqueKeys = coreAccountingRequiredUniqueKeys();
     return [
         'required_tables' => count($required),
         'required_columns' => array_sum(array_map('count', $required)),
-        'missing' => coreAccountingMissingSchema($present),
+        'required_unique_keys' => array_sum(array_map('count', $requiredUniqueKeys)),
+        'missing' => array_merge(
+            coreAccountingMissingSchema($present),
+            coreAccountingMissingUniqueKeys($uniqueKeys)
+        ),
     ];
 }
