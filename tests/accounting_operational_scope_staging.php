@@ -56,11 +56,28 @@ if (count($entities) !== 2) throw new RuntimeException('Synthetic staging entiti
 
 $actor = null;
 $cookie = null;
+$draftId = null;
 try {
     $actor = qaEnsureActor($pdo, 'operational-report-reader');
     $cookie = tempnam(sys_get_temp_dir(), 'cf-op-report-');
     if ($cookie === false) throw new RuntimeException('Could not create test session.');
     qaLogin($actor, $cookie);
+    $lifecycleId = (int) array_values(array_filter($entities, static fn ($row) =>
+        $row['code'] === 'SIM-LIFECYCLE-QA'))[0]['id'];
+    $draft = qaRequest('/modules/accounting/api/journal_entries.php?action=draft', 'POST', [
+        'entity_id' => $lifecycleId,
+        'posting_date' => date('Y-m-d'),
+        'currency' => 'USD',
+        'memo' => 'Synthetic operational report scope check',
+        'source_module' => 'manual',
+        'lines' => [
+            ['account_code' => '1097', 'debit' => 1, 'credit' => 0],
+            ['account_code' => '3000', 'debit' => 0, 'credit' => 1],
+        ],
+    ], $cookie);
+    $draftId = (int) ($draft['je_id'] ?? 0);
+    qaExpect($draftId > 0 && $draft['status'] === 'draft',
+        'temporary balanced journal stays unposted');
 
     foreach ($entities as $entity) {
         $id = (int) $entity['id'];
@@ -92,6 +109,7 @@ try {
         $expectedDrafts = (int) qaOne($pdo, 'SELECT COUNT(*) AS n FROM accounting_journal_entries
             WHERE tenant_id = :t AND entity_id = :e AND status = "draft"',
             ['t' => QA_TENANT, 'e' => $id])['n'];
+        if ($id === $lifecycleId) qaExpect($expectedDrafts > 0, 'lifecycle entity has a draft to inspect');
         foreach (['unposted_jes', 'approval_queue'] as $type) {
             $params = 'type=' . $type . $scope;
             $list = qaRequest('/modules/accounting/api/standard_reports.php?' . $params,
@@ -139,10 +157,24 @@ try {
         . '?type=unposted_jes&approval_state=approved', $cookie);
     qaExpect($invalidApprovalStatus === 422, 'journal export rejects nonexistent approval-state filter');
 } finally {
+    $cleanupFailure = null;
+    if ($draftId && is_string($cookie)) {
+        try {
+            qaRequest('/modules/accounting/api/journal_entries.php?action=delete&id=' . $draftId,
+                'POST', ['reason' => 'Remove temporary synthetic report-check draft'], $cookie);
+            $cleared = qaOne($pdo, 'SELECT status FROM accounting_journal_entries
+                WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $draftId]);
+            qaExpect($cleared && $cleared['status'] === 'void',
+                'temporary journal was voided through the accounting API');
+        } catch (\Throwable $cleanupError) {
+            $cleanupFailure = $cleanupError;
+        }
+    }
     if ($actor && isset($actor['id'])) {
         $pdo->prepare('UPDATE users SET is_active = 0, password_hash = NULL
             WHERE id = :id AND tenant_id = :t')
             ->execute(['id' => $actor['id'], 't' => QA_TENANT]);
     }
     if (is_string($cookie) && is_file($cookie)) unlink($cookie);
+    if ($cleanupFailure) throw new RuntimeException('Draft cleanup failed', 0, $cleanupFailure);
 }
