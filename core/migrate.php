@@ -38,6 +38,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/migration_hash.php';
+require_once __DIR__ . '/migration_policy.php';
 
 const COREFLUX_MIGRATIONS_DIR = __DIR__ . '/migrations';
 
@@ -144,6 +145,9 @@ function coreflux_split_sql_statements(string $sql): array {
 }
 
 function coreflux_run_migrations(bool $force = false): array {
+    if (!corefluxMayApplySchemaChanges((string) getenv('COREFLUX_ENV'), PHP_SAPI)) {
+        throw new RuntimeException('CoreAccounting schema changes require the guarded CLI release path.');
+    }
     global $coreflux_migration_status;
     static $ranOnce        = false;
     static $lastFileSetSig = null;

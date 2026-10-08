@@ -26,6 +26,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/migration_policy.php';
 require_once __DIR__ . '/tenant_scope.php';
 require_once __DIR__ . '/accounting/standalone_boundary.php';
 require_once __DIR__ . '/auditor.php';
@@ -82,8 +83,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
 // non-fatal — they get surfaced via /api/migrate.php for admin review,
 // but never 500 the user-facing endpoint.
 // ---------------------------------------------------------------------------
-require_once __DIR__ . '/migrate.php';
-try { coreflux_run_migrations(); } catch (\Throwable $_) { /* non-fatal */ }
+if (corefluxMayApplySchemaChanges((string) getenv('COREFLUX_ENV'), PHP_SAPI)) {
+    require_once __DIR__ . '/migrate.php';
+    try { coreflux_run_migrations(); } catch (\Throwable $_) { /* non-fatal */ }
+}
 
 // ---------------------------------------------------------------------------
 // Response helpers
@@ -633,6 +636,9 @@ require_once __DIR__ . '/tx_helpers.php';
  * @param string $colRef A column reference like "te.person_id" or "person_id".
  */
 function cf_self_heal_known_column(string $colRef): bool {
+    if (!corefluxMayApplySchemaChanges((string) getenv('COREFLUX_ENV'), PHP_SAPI)) {
+        return false;
+    }
     // Recipes: [table => [column => DDL fragment]]
     // Audited list of known schema-drift columns. Each fragment is the
     // bare `ADD COLUMN ...` clause — `cf_self_heal_known_column` prepends
