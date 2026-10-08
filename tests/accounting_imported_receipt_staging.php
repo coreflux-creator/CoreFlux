@@ -153,6 +153,48 @@ try {
         && !empty($appliedRow['has_deposit_activity']),
         'applied imported deposit shows activity without stale action buttons');
 
+    $refundExternalId = $externalId . '-REFUND';
+    $refundImport = qaRequest('/modules/billing/api/payments_csv_import.php?action=commit',
+        'POST', ['csv' => qaImportedReceiptCsv($client, $refundExternalId, '7.00')], $makerCookie);
+    $refundPayment = qaOne($pdo, 'SELECT id, journal_entry_id FROM billing_payments
+        WHERE tenant_id = :t AND source_system = "qbo" AND external_id = :external_id',
+        ['t' => QA_TENANT, 'external_id' => $refundExternalId]);
+    $refundPaymentId = (int) ($refundPayment['id'] ?? 0);
+    qaExpect((int) ($refundImport['imported_count'] ?? 0) === 1
+        && $refundPaymentId > 0 && $refundPayment['journal_entry_id'] === null
+        && qaBalances($pdo, $entityId) === $afterApplication,
+        'separate imported refund test receipt starts pending without GL movement');
+    $refundDeposit = qaRequest('/modules/billing/api/payments.php?action=post&id=' . $refundPaymentId,
+        'POST', ['bank_account_id' => $bankId, 'hold_unapplied' => true], $makerCookie);
+    $refundReady = qaImportedReceiptListRow($refundPaymentId, $client, $makerCookie);
+    qaExpect((int) ($refundDeposit['journal_entry_id'] ?? 0) > 0
+        && !empty($refundReady['can_refund_deposit'])
+        && qaDelta($afterApplication, qaBalances($pdo, $entityId), QA_BANK_CODE, 7)
+        && qaDelta($afterApplication, qaBalances($pdo, $entityId), '2300', -7),
+        'operator-posted imported deposit is available for an accounting refund');
+    $refundPath = '/modules/billing/api/payments.php?action=refund_deposit&id=' . $refundPaymentId;
+    $refundBody = ['bank_account_id' => $bankId, 'amount' => 7,
+        'refunded_at' => '2026-10-08', 'reference' => 'Invented external refund ' . $run,
+        'request_key' => 'syn_refund_' . $run];
+    $refund = qaRequest($refundPath, 'POST', $refundBody, $makerCookie);
+    $refundReplay = qaRequest($refundPath, 'POST', $refundBody, $makerCookie);
+    $refundUsed = qaOne($pdo, 'SELECT amount, journal_entry_id, reversed_at
+        FROM billing_deposit_refunds WHERE tenant_id = :t AND payment_id = :p AND request_key = :k',
+        ['t' => QA_TENANT, 'p' => $refundPaymentId, 'k' => $refundBody['request_key']]);
+    qaExpect((int) ($refund['journal_entry_id'] ?? 0) > 0
+        && (int) ($refundReplay['journal_entry_id'] ?? 0) === (int) $refund['journal_entry_id']
+        && !empty($refundReplay['idempotent_replay'])
+        && abs((float) ($refundUsed['amount'] ?? 0) - 7) < 0.005
+        && $refundUsed['reversed_at'] === null
+        && qaBalances($pdo, $entityId) === $afterApplication,
+        'imported deposit refund records one reversing cash movement and replays safely');
+    $refundedRow = qaImportedReceiptListRow($refundPaymentId, $client, $makerCookie);
+    qaExpect(($refundedRow['receipt_state'] ?? '') === 'posted'
+        && empty($refundedRow['can_refund_deposit'])
+        && empty($refundedRow['can_correct'])
+        && !empty($refundedRow['has_deposit_activity']),
+        'refunded imported deposit retains activity without an available balance');
+
     $fitid = 'SYN-QBO-BANK-' . $run;
     qaRequest('/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=' . $bankId,
         'POST', ['csv' => qaCsv([
