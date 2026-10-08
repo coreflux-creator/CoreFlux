@@ -79,7 +79,8 @@ $assert('POST seed checklist',                       stripos($pc, "/modules/acco
 $assert('POST complete task',                        stripos($pc, "/modules/accounting/api/close_tasks.php?action=complete&id=") !== false);
 $assert('PATCH task status',                         preg_match("#api\\.patch\\(\\s*['\"]/modules/accounting/api/close_tasks\\.php['\"]#", $pc) === 1);
 $assert('POST record close packet',                  stripos($pc, "/modules/accounting/api/close_packet.php?period_id=") !== false && stripos($pc, "&action=record") !== false);
-$assert('opens close packet HTML in new tab',        stripos($pc, "format=html") !== false && stripos($pc, "window.open(") !== false);
+$assert('opens close packet preview in new tab',    stripos($pc, "window.open('', '_blank')") !== false
+    && stripos($pc, 'result.html') !== false && stripos($pc, 'packet_id=') !== false);
 foreach (['accounting-period-close-workflow','close-period-select','close-seed','close-build-packet','close-error','close-empty','close-stats','close-task-list'] as $tid) {
     $assert("testid: {$tid}", stripos($pc, "data-testid=\"{$tid}\"") !== false);
 }

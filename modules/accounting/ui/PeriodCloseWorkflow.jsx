@@ -12,12 +12,11 @@ import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
  *   POST  /modules/accounting/api/close_tasks.php?action=complete&id=N { notes? }
  *   PATCH /modules/accounting/api/close_tasks.php                     { id, status?, assignee_user_id?, due_date?, notes? }
  *   GET   /modules/accounting/api/close_packet.php?period_id=N
+ *   GET   /modules/accounting/api/close_packet.php?period_id=N&action=list
  *   POST  /modules/accounting/api/close_packet.php?period_id=N&action=record
  *
  * Picks period from the existing periods endpoint; surfaces the
- * checklist with completion stamps and a one-click "Build close packet"
- * action that opens the printable HTML in a new tab + records the
- * packet build event.
+ * checklist with completion stamps, a live preview and saved packet versions.
  */
 export default function PeriodCloseWorkflow() {
   const { activeEntityId, activeEntity, entityQuery } = useActiveEntity();
@@ -29,11 +28,18 @@ export default function PeriodCloseWorkflow() {
                           { enabled: !!periodId });
   const tasks = tasksApi.data?.tasks ?? [];
   const stats = tasksApi.data?.stats ?? null;
+  const packetsApi = useApi(periodId
+    ? `/modules/accounting/api/close_packet.php?period_id=${periodId}&action=list` : null,
+  { enabled: !!periodId });
+  const packets = packetsApi.data?.period_id === periodId ? packetsApi.data.rows ?? [] : [];
+  const selectedPeriod = periods.find(p => Number(p.id) === periodId);
+  const canSavePacket = ['closed', 'locked'].includes(selectedPeriod?.status);
 
   const [busy, setBusy] = useState(null);
   const [err, setErr]   = useState(null);
   const [readiness, setReadiness] = useState(null);
   const [readinessBusy, setReadinessBusy] = useState(false);
+  const [packetNotice, setPacketNotice] = useState(null);
 
   const askReadiness = async () => {
     if (!periodId) return;
@@ -74,17 +80,44 @@ export default function PeriodCloseWorkflow() {
     } catch (e) { setErr(e); } finally { setBusy(null); }
   };
 
-  const buildPacket = async () => {
+  const showPacket = async (packetId = null, download = false) => {
     if (!periodId) return;
-    setBusy('packet'); setErr(null);
+    const popup = download ? null : window.open('', '_blank');
+    setBusy('packet-view'); setErr(null);
     try {
-      // Record the build event then open the packet in a new tab.
-      await api.post(`/modules/accounting/api/close_packet.php?period_id=${periodId}&action=record`, {});
-      window.open(`/modules/accounting/api/close_packet.php?period_id=${periodId}&format=html`, '_blank', 'noopener');
-    } catch (e) { setErr(e); } finally { setBusy(null); }
+      const query = `/modules/accounting/api/close_packet.php?period_id=${periodId}`
+        + (packetId ? `&packet_id=${packetId}` : '');
+      const result = await api.get(query);
+      const url = URL.createObjectURL(new Blob([result.html], { type: 'text/html;charset=utf-8' }));
+      if (download) {
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `close-packet-period-${periodId}-${packetId ? `version-${packetId}` : 'preview'}.html`;
+        anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } else if (popup) {
+        popup.opener = null;
+        popup.location.href = url;
+      } else {
+        URL.revokeObjectURL(url);
+        setErr(new Error('Your browser blocked the preview. Use Download instead.'));
+      }
+    } catch (e) {
+      if (popup) popup.close();
+      setErr(e);
+    } finally { setBusy(null); }
   };
 
-  const allDone = stats && stats.total > 0 && stats.done === stats.total;
+  const buildPacket = async () => {
+    if (!periodId || !canSavePacket) return;
+    setBusy('packet-save'); setErr(null); setPacketNotice(null);
+    try {
+      const recorded = await api.post(
+        `/modules/accounting/api/close_packet.php?period_id=${periodId}&action=record`, {});
+      setPacketNotice(`Saved version ${recorded.id}`);
+      await packetsApi.reload();
+    } catch (e) { setErr(e); } finally { setBusy(null); }
+  };
 
   return (
     <section data-testid="accounting-period-close-workflow">
@@ -117,19 +150,26 @@ export default function PeriodCloseWorkflow() {
           </button>
         )}
 
-        {!!periodId && tasks.length > 0 && (
-          <button className="btn btn--primary"
-                  data-testid="close-build-packet"
-                  disabled={busy === 'packet'}
-                  onClick={buildPacket}>
-            {busy === 'packet' ? 'Building…' : (allDone ? 'Build close packet ✓' : 'Build close packet (preview)')}
-          </button>
-        )}
+        {!!periodId && <button className="btn btn--ghost" type="button"
+          data-testid="close-preview-packet" disabled={busy === 'packet-view'}
+          onClick={() => showPacket()}>
+          Preview packet
+        </button>}
+        {!!periodId && canSavePacket && <button className="btn btn--primary" type="button"
+          data-testid="close-build-packet" disabled={busy === 'packet-save'}
+          onClick={buildPacket}>
+          {busy === 'packet-save' ? 'Saving…' : 'Save close packet'}
+        </button>}
       </div>
 
       {err && <p className="error" data-testid="close-error">Error: {err.message}</p>}
       {tasksApi.error && <p className="error">Error: {tasksApi.error.message}</p>}
       {periodsApi.error && <p className="error">Periods load error: {periodsApi.error.message}</p>}
+      {packetsApi.error && <p className="error">Saved packets load error: {packetsApi.error.message}</p>}
+      {packetNotice && <p role="status" data-testid="close-packet-saved">{packetNotice}</p>}
+      {!!periodId && !canSavePacket && <p style={{ color: '#64748b', fontSize: 13 }}>
+        Close the period to save a version. Preview reflects the current books.
+      </p>}
 
       {!periodId && (
         <div data-testid="close-empty"
@@ -233,6 +273,27 @@ export default function PeriodCloseWorkflow() {
             </li>
           ))}
         </ol>
+      )}
+
+      {!!periodId && packets.length > 0 && (
+        <section data-testid="close-saved-packets" style={{ marginTop: 20 }}>
+          <h3 style={{ fontSize: 16, marginBottom: 8 }}>Saved packets</h3>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {packets.map(packet => (
+              <div key={packet.id} style={{ display: 'flex', alignItems: 'center', gap: 12,
+                flexWrap: 'wrap', borderBottom: '1px solid #e2e8f0', padding: '8px 0', fontSize: 13 }}>
+                <strong>Version {packet.id}</strong>
+                <span>{packet.built_at}</span>
+                <span>{packet.summary?.period_status ?? 'Status unknown'}</span>
+                <code title={packet.content_sha256}>SHA-256 {packet.content_sha256.slice(0, 12)}</code>
+                <button className="btn btn--ghost" type="button"
+                  onClick={() => showPacket(packet.id)}>View</button>
+                <button className="btn btn--ghost" type="button"
+                  onClick={() => showPacket(packet.id, true)}>Download</button>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
     </section>
   );

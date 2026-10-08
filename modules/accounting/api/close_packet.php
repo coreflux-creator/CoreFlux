@@ -2,8 +2,10 @@
 /**
  * Accounting API — close-packet HTML artifact.
  *
- *   GET /api/accounting/close_packet?period_id=N            → returns rendered HTML (printable)
- *   POST /api/accounting/close_packet?period_id=N&action=record  → records a packet build event
+ *   GET /api/accounting/close_packet?period_id=N            → live preview
+ *   GET /api/accounting/close_packet?period_id=N&action=list → saved versions
+ *   GET /api/accounting/close_packet?period_id=N&packet_id=N → saved version
+ *   POST /api/accounting/close_packet?period_id=N&action=record → saves a rendered version
  *
  * The HTML can be print-to-PDF in the browser or post-processed by dompdf
  * once that lib is wired in a later sprint. For now the HTML is the artifact.
@@ -22,26 +24,46 @@ $method   = api_method();
 
 $periodId = (int) (api_query('period_id') ?? 0);
 if (!$periodId) api_error('period_id required', 422);
+$period = scopedFind('SELECT id FROM accounting_periods WHERE tenant_id = :tenant_id AND id = :id',
+    ['id' => $periodId]);
+if (!$period) api_error('Period not found', 404);
 
 if ($method === 'GET') {
     rbac_legacy_require($user, 'accounting.period.view');
-    $period = scopedFind('SELECT id FROM accounting_periods WHERE tenant_id = :tenant_id AND id = :id',
-        ['id' => $periodId]);
-    if (!$period) api_error('Period not found', 404);
-    $html = accountingBuildClosePacketHtml($tenantId, $periodId);
+    if ((api_query('action') ?? '') === 'list') {
+        api_ok(['period_id' => $periodId,
+            'rows' => accountingListRecordedClosePackets($tenantId, $periodId)]);
+    }
+    $packetIdRaw = api_query('packet_id');
+    $packetId = $packetIdRaw !== null ? (int) $packetIdRaw : null;
+    if ($packetIdRaw !== null && $packetId <= 0) api_error('Invalid packet_id', 422);
+    try {
+        $saved = $packetId !== null
+            ? accountingLoadRecordedClosePacket($tenantId, $periodId, $packetId) : null;
+    } catch (\RuntimeException $e) {
+        error_log('[accounting.close_packet] ' . $e->getMessage());
+        api_error('Saved close packet failed its integrity check', 409);
+    }
+    if ($packetId !== null && !$saved) api_error('Saved close packet not found', 404);
+    $html = $saved ? (string) $saved['html_snapshot']
+        : accountingBuildClosePacketHtml($tenantId, $periodId);
+    header('Cache-Control: private, no-store');
+    $filename = 'close-packet-period-' . $periodId
+        . ($saved ? '-version-' . $packetId : '-preview');
 
-    // Allow ?format=html to download as a real HTML file.
-    if ((api_query('format') ?? '') === 'html') {
+    $format = api_query('format') ?? '';
+    if ($format === 'html' || $format === 'preview') {
         header_remove('Content-Type');
         header('Content-Type: text/html; charset=utf-8');
-        header('Content-Disposition: attachment; filename="close-packet-period-' . $periodId . '.html"');
+        header('Content-Disposition: ' . ($format === 'preview' ? 'inline' : 'attachment')
+            . '; filename="' . $filename . '.html"');
         echo $html;
         exit;
     }
 
     // ?format=pdf renders via cf_render_html_to_pdf so close packets can be
     // dropped straight into board decks / auditor portals.
-    if ((api_query('format') ?? '') === 'pdf') {
+    if ($format === 'pdf') {
         $page = '<!doctype html><html><head><meta charset="utf-8"><title>Close packet — period '
               . (int) $periodId . '</title><style>body{margin:0;background:#fff;font-family:system-ui}</style></head>'
               . '<body>' . $html . '</body></html>';
@@ -53,28 +75,30 @@ if ($method === 'GET') {
         header_remove('Content-Type');
         header('Content-Type: application/pdf');
         header('Content-Length: ' . (string) filesize($outPath));
-        header('Content-Disposition: inline; filename="close-packet-period-' . $periodId . '.pdf"');
+        header('Content-Disposition: inline; filename="' . $filename . '.pdf"');
         readfile($outPath);
         @unlink($outPath);
         exit;
     }
 
-    api_ok(['period_id' => $periodId, 'html' => $html, 'length' => strlen($html)]);
+    api_ok(['period_id' => $periodId, 'packet_id' => $packetId,
+        'recorded' => $saved !== null,
+        'content_sha256' => $saved['content_sha256'] ?? null,
+        'html' => $html, 'length' => strlen($html)]);
 }
 
 if ($method === 'POST' && (api_query('action') ?? '') === 'record') {
     rbac_legacy_require($user, 'accounting.close_workflow.manage');
-    $period = scopedFind('SELECT id FROM accounting_periods WHERE tenant_id = :tenant_id AND id = :id',
-        ['id' => $periodId]);
-    if (!$period) api_error('Period not found', 404);
-    $pdo = getDB();
-    $pdo->prepare('INSERT INTO accounting_close_packets
-        (tenant_id, period_id, file_format, built_by_user_id)
-        VALUES (:tenant_id, :period_id, "html", :user_id)')
-        ->execute(['tenant_id' => $tenantId, 'period_id' => $periodId,
-            'user_id' => (int) ($user['id'] ?? 0) ?: null]);
-    $id = (int) $pdo->lastInsertId();
-    api_ok(['id' => $id]);
+    try {
+        $record = accountingRecordClosePacket($tenantId, $periodId,
+            (int) ($user['id'] ?? 0) ?: null);
+    } catch (\DomainException $e) {
+        api_error($e->getMessage(), 409);
+    } catch (\Throwable $e) {
+        error_log('[accounting.close_packet] record failed: ' . $e->getMessage());
+        api_error('Could not save the close packet', 500);
+    }
+    api_ok($record);
 }
 
 api_error('Unknown method/action', 405);

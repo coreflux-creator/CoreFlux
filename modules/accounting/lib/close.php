@@ -90,7 +90,7 @@ function accountingCompleteCloseTask(int $tenantId, int $taskId, int $actorUserI
 }
 
 /**
- * Build a printable close-packet HTML for a closed period.
+ * Build a printable close-packet HTML for a period, including open previews.
  * Includes: period meta + close summary + JE counts + trial balance.
  */
 function accountingBuildClosePacketHtml(int $tenantId, int $periodId): string {
@@ -185,7 +185,85 @@ function accountingBuildClosePacketHtml(int $tenantId, int $periodId): string {
           .  '<th class="r">' . number_format($totalCredit, 2) . '</th></tr>';
     $html .= '</tbody></table>';
 
-    $html .= '<div class="muted" style="margin-top:32px">Generated ' . date('Y-m-d H:i:s') . ' UTC</div>';
+    $html .= '<div class="muted" style="margin-top:32px">Generated ' . gmdate('Y-m-d H:i:s') . ' UTC</div>';
     $html .= '</body></html>';
     return $html;
+}
+
+/** Save one rendered version; existing packet rows are never rewritten. */
+function accountingRecordClosePacket(int $tenantId, int $periodId, ?int $actorUserId = null, array $summary = []): array {
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare('SELECT id, entity_id, status FROM accounting_periods
+            WHERE tenant_id = :t AND id = :p FOR UPDATE');
+        $stmt->execute(['t' => $tenantId, 'p' => $periodId]);
+        $period = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$period) throw new \RuntimeException('Period not found');
+        if (!in_array($period['status'], ['closed', 'locked'], true)) {
+            throw new \DomainException('Close the period before saving a packet');
+        }
+
+        $html = accountingBuildClosePacketHtml($tenantId, $periodId);
+        $hash = hash('sha256', $html);
+        $metadata = array_merge($summary, [
+            'entity_id' => (int) $period['entity_id'],
+            'period_status' => (string) $period['status'],
+            'html_length' => strlen($html),
+            'content_sha256' => $hash,
+        ]);
+        $pdo->prepare('INSERT INTO accounting_close_packets
+            (tenant_id, period_id, file_format, summary_json, built_by_user_id)
+            VALUES (:t, :p, "html", :summary, :user_id)')
+            ->execute(['t' => $tenantId, 'p' => $periodId,
+                'summary' => json_encode($metadata, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+                'user_id' => $actorUserId]);
+        $packetId = (int) $pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO accounting_close_packet_snapshots
+            (packet_id, tenant_id, period_id, html_snapshot, content_sha256)
+            VALUES (:id, :t, :p, :html, :hash)')
+            ->execute(['id' => $packetId, 't' => $tenantId, 'p' => $periodId,
+                'html' => $html, 'hash' => $hash]);
+        $pdo->commit();
+        return ['id' => $packetId, 'period_id' => $periodId,
+            'entity_id' => (int) $period['entity_id'], 'period_status' => $period['status'],
+            'content_sha256' => $hash, 'length' => strlen($html)];
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/** Return a retained version only when its bytes still match the recorded hash. */
+function accountingLoadRecordedClosePacket(int $tenantId, int $periodId, int $packetId): ?array {
+    $stmt = getDB()->prepare('SELECT p.id, p.period_id, p.built_at, p.built_by_user_id,
+            s.html_snapshot, s.content_sha256
+        FROM accounting_close_packets p
+        JOIN accounting_close_packet_snapshots s ON s.packet_id = p.id
+            AND s.tenant_id = p.tenant_id AND s.period_id = p.period_id
+        WHERE p.tenant_id = :t AND p.period_id = :p AND p.id = :id');
+    $stmt->execute(['t' => $tenantId, 'p' => $periodId, 'id' => $packetId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    if ($row && !hash_equals((string) $row['content_sha256'], hash('sha256', (string) $row['html_snapshot']))) {
+        throw new \RuntimeException('Saved close packet failed its integrity check');
+    }
+    return $row;
+}
+
+function accountingListRecordedClosePackets(int $tenantId, int $periodId): array {
+    $stmt = getDB()->prepare('SELECT p.id, p.built_at, p.built_by_user_id,
+            p.summary_json, s.content_sha256
+        FROM accounting_close_packets p
+        JOIN accounting_close_packet_snapshots s ON s.packet_id = p.id
+            AND s.tenant_id = p.tenant_id AND s.period_id = p.period_id
+        WHERE p.tenant_id = :t AND p.period_id = :p
+        ORDER BY p.id DESC LIMIT 100');
+    $stmt->execute(['t' => $tenantId, 'p' => $periodId]);
+    return array_map(static function (array $row): array {
+        $summary = json_decode((string) ($row['summary_json'] ?? ''), true);
+        unset($row['summary_json']);
+        $row['id'] = (int) $row['id'];
+        $row['summary'] = is_array($summary) ? $summary : [];
+        return $row;
+    }, $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
 }

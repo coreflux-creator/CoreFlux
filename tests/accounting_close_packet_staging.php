@@ -1,5 +1,5 @@
 <?php
-/** Hosted synthetic-only acceptance for close-packet trial balance and period scope. */
+/** Hosted synthetic-only acceptance for retained close-packet versions and scope. */
 declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli' || ($argv[1] ?? '') !== '--execute') {
@@ -34,6 +34,7 @@ function qaClosePacketStatus(string $path, string $method, string $cookie): int
 
 $actor = null;
 $cookie = null;
+$testTaskId = null;
 try {
     $cutover = qaOne($pdo, 'SELECT c.entity_id, c.posting_date FROM accounting_opening_document_cutovers c
         JOIN accounting_entities e ON e.id = c.entity_id AND e.tenant_id = c.tenant_id
@@ -41,7 +42,7 @@ try {
         ORDER BY c.id DESC LIMIT 1', ['t' => QA_TENANT]);
     if (!$cutover) throw new RuntimeException('Synthetic opening cutover fixture is unavailable.');
     $entityId = (int) $cutover['entity_id'];
-    $period = qaOne($pdo, 'SELECT id FROM accounting_periods
+    $period = qaOne($pdo, 'SELECT id, status FROM accounting_periods
         WHERE tenant_id = :t AND entity_id = :e AND start_date = :d AND end_date = :d2',
         ['t' => QA_TENANT, 'e' => $entityId,
             'd' => $cutover['posting_date'], 'd2' => $cutover['posting_date']]);
@@ -85,15 +86,60 @@ try {
         ['t' => QA_TENANT, 'p' => $unavailableId])['n'];
     qaExpect($before === $after, 'rejected packet record had no database effect');
 
+    if (!in_array($period['status'], ['closed', 'locked'], true)) {
+        qaExpect(qaClosePacketStatus($path . '&action=record', 'POST', $cookie) === 409,
+            'open period can be previewed but cannot save a packet');
+        qaRequest('/modules/accounting/api/periods.php?action=close&id=' . $periodId,
+            'POST', [], $cookie);
+    }
+
     $record = qaRequest($path . '&action=record', 'POST', [], $cookie);
     $packetId = (int) ($record['id'] ?? 0);
-    $stored = qaOne($pdo, 'SELECT tenant_id, period_id, file_format FROM accounting_close_packets
-        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $packetId]);
+    $stored = qaOne($pdo, 'SELECT p.tenant_id, p.period_id, p.file_format,
+            s.html_snapshot, s.content_sha256
+        FROM accounting_close_packets p
+        JOIN accounting_close_packet_snapshots s ON s.packet_id = p.id
+        WHERE p.tenant_id = :t AND p.id = :id', ['t' => QA_TENANT, 'id' => $packetId]);
     qaExpect($packetId > 0 && $stored
         && (int) $stored['period_id'] === $periodId && $stored['file_format'] === 'html',
-        'valid packet record stays within its legal entity and tenant');
+        'valid packet saves a retained version within the intended period and tenant');
+    qaExpect(hash('sha256', (string) $stored['html_snapshot']) === $stored['content_sha256']
+        && $record['content_sha256'] === $stored['content_sha256'],
+        'saved content and returned checksum match');
+    $saved = qaRequest($path . '&packet_id=' . $packetId, 'GET', null, $cookie);
+    qaExpect($saved['recorded'] === true && $saved['html'] === $stored['html_snapshot'],
+        'saved packet endpoint returns the exact stored HTML');
+    qaExpect(qaClosePacketStatus($path . '&packet_id=2147483647', 'GET', $cookie) === 404,
+        'a packet outside this period is not available');
+
+    $taskKey = 'qa_packet_snapshot';
+    $pdo->prepare('INSERT INTO accounting_close_tasks
+        (tenant_id, period_id, task_key, title, description, sort_order, status)
+        VALUES (:t, :p, :k, "QA packet changed after save", "Synthetic test item", 999, "done")
+        ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), title = VALUES(title), status = VALUES(status)')
+        ->execute(['t' => QA_TENANT, 'p' => $periodId, 'k' => $taskKey]);
+    $testTaskId = (int) $pdo->lastInsertId();
+    $liveAfter = qaRequest($path, 'GET', null, $cookie);
+    $savedAfter = qaRequest($path . '&packet_id=' . $packetId, 'GET', null, $cookie);
+    qaExpect(str_contains($liveAfter['html'], 'QA packet changed after save')
+        && !str_contains($savedAfter['html'], 'QA packet changed after save')
+        && $savedAfter['html'] === $saved['html'],
+        'later checklist activity changes the preview, not the saved version');
+    $newer = qaRequest($path . '&action=record', 'POST', [], $cookie);
+    qaExpect((int) $newer['id'] > $packetId
+        && $newer['content_sha256'] !== $record['content_sha256'],
+        'another save appends a distinct version without overwriting the first');
+    $versions = qaRequest($path . '&action=list', 'GET', null, $cookie);
+    qaExpect((int) ($versions['rows'][0]['id'] ?? 0) === (int) $newer['id']
+        && (int) ($versions['rows'][1]['id'] ?? 0) === $packetId,
+        'the version list returns both saved packets newest first');
     echo "Synthetic close-packet period {$periodId}, packet {$packetId}.\n";
 } finally {
+    if ($testTaskId) {
+        $pdo->prepare('DELETE FROM accounting_close_tasks WHERE id = :id AND tenant_id = :t
+            AND task_key = "qa_packet_snapshot"')
+            ->execute(['id' => $testTaskId, 't' => QA_TENANT]);
+    }
     if ($actor) {
         $pdo->prepare('UPDATE users SET is_active = 0 WHERE tenant_id = :t AND id = :id')
             ->execute(['t' => QA_TENANT, 'id' => $actor['id']]);
