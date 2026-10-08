@@ -29,6 +29,11 @@ $router = (string) file_get_contents(__DIR__ . '/../api/index.php');
 $check('common API auth applies standalone module policy',
     str_contains($bootstrap, "coreAccountingRequestModule(\$_SERVER['SCRIPT_FILENAME'] ?? null, currentModuleKey())")
     && str_contains($bootstrap, "coreAccountingAllowsModule(\$moduleKey, (string) getenv('COREFLUX_ENV'))"));
+$check('direct module request is rejected before auto-migration',
+    strpos($bootstrap, "coreAccountingRequestModule(\$_SERVER['SCRIPT_FILENAME'] ?? null, null)")
+        < strpos($bootstrap, 'coreflux_run_migrations()')
+    && strpos($bootstrap, 'if (!coreAccountingAllowsModule($directModule')
+        < strpos($bootstrap, 'coreflux_run_migrations()'));
 $check('router pins module before common auth',
     strpos($router, "setRequestModuleScope(\$parsed['module_id'])")
         < strpos($router, '$authCtx = api_require_auth()'));

@@ -42,6 +42,16 @@ require_once __DIR__ . '/rbac/permissions.php';
 // Exposes rbac_legacy_can() / rbac_legacy_require() for the sweep.
 require_once __DIR__ . '/rbac/legacy_map.php';
 
+// Direct module endpoints must be rejected before session and auto-migration work.
+// The central /api router sets its module scope later and is checked by api_require_auth().
+$directModule = coreAccountingRequestModule($_SERVER['SCRIPT_FILENAME'] ?? null, null);
+if (!coreAccountingAllowsModule($directModule, (string) getenv('COREFLUX_ENV'))) {
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(404);
+    echo '{"error":"Not found","status":404}';
+    exit;
+}
+
 // ---------------------------------------------------------------------------
 // Session + headers
 // ---------------------------------------------------------------------------
