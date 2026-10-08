@@ -189,6 +189,11 @@ try {
     $created = qaRequest($path, 'POST', ['pay_period_id' => $periodId], $cookies['maker']);
     $runId = (int) ($created['id'] ?? 0);
     qaExpect($runId > 0, 'payroll API creates or reopens the existing run');
+    $runPreflight = qaRequest('/modules/payroll/api/preflight.php?period_id=' . $periodId
+        . '&run_id=' . $runId, 'GET', null, $cookies['maker']);
+    qaExpect(!empty($runPreflight['summary']['ready_to_run'])
+        && !empty($runPreflight['summary']['approval']['ready']),
+        'run-specific preflight resolves an independent reviewer');
     $run = qaOne($pdo, 'SELECT status FROM payroll_runs WHERE tenant_id = :t AND id = :id',
         ['t' => QA_TENANT, 'id' => $runId]);
     if ($run['status'] === 'draft' || $run['status'] === 'computed') {

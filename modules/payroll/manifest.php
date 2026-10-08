@@ -68,6 +68,7 @@ return [
         'payroll.run.workflow_started',
         'payroll.run.workflow_start_failed',
         'payroll.run.workflow_cancelled',
+        'payroll.run.reviewers_updated',
         'payroll.run.approval_blocked',
         'payroll.run.approval_rejected',
         'payroll.run.approved',

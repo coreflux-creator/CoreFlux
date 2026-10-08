@@ -41,6 +41,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/payroll.php';
+require_once __DIR__ . '/../lib/approval_settings.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
@@ -52,6 +53,7 @@ if (api_method() !== 'GET') api_error('Method not allowed', 405);
 
 $periodId = (int) ($_GET['period_id'] ?? 0);
 if ($periodId <= 0) api_error('period_id required', 400);
+$runId = (int) ($_GET['run_id'] ?? 0);
 
 $pdo = getDB();
 
@@ -67,6 +69,12 @@ $period = scopedFind(
     ['id' => $periodId]
 );
 if (!$period) api_error('Pay period not found', 404);
+if ($runId > 0) {
+    $runForPreflight = payrollRunWorkflowRow($runId);
+    if (!$runForPreflight || (int) $runForPreflight['pay_period_id'] !== $periodId) {
+        api_error('Payroll run does not belong to this pay period', 404);
+    }
+}
 $periodEnd = (string) $period['period_end'];
 
 // ── 2) Enrolled W2 employees for this cycle. Legacy unbound profiles
@@ -348,6 +356,9 @@ foreach ($emps as $e) {
     ];
 }
 
+$approval = payrollRunApprovalReadiness($tenantId, (int) ($ctx['user']['id'] ?? 0), $runId ?: null);
+$approvalBlockers = $approval['ready'] ? 0 : 1;
+
 api_ok([
     'period' => [
         'id'            => (int) $period['id'],
@@ -363,9 +374,11 @@ api_ok([
     ],
     'summary' => [
         'total_w2_employees' => count($emps),
-        'blockers'           => $totalBlockers,
+        'blockers'           => $totalBlockers + $approvalBlockers,
+        'employee_blockers'  => $totalBlockers,
         'warnings'           => $totalWarnings,
-        'ready_to_run'       => count($emps) > 0 && $totalBlockers === 0,
+        'ready_to_run'       => count($emps) > 0 && $totalBlockers === 0 && $approvalBlockers === 0,
+        'approval'           => $approval,
     ],
     'employees' => $report,
 ]);

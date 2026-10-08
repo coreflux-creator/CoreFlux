@@ -9,6 +9,8 @@ $files = [
     'modules/payroll/lib/payroll.php',
     'modules/payroll/lib/workflow.php',
     'modules/payroll/lib/workflow_sync.php',
+    'modules/payroll/lib/approval_settings.php',
+    'modules/payroll/api/approval_settings.php',
     'modules/payroll/manifest.php',
     'core/workflow_engine.php',
     'core/rbac/legacy_map.php',
@@ -28,6 +30,11 @@ $sync = file_get_contents("{$root}/modules/payroll/lib/workflow_sync.php");
 $migration = file_get_contents("{$root}/modules/payroll/migrations/006_run_enterprise_controls.sql");
 $reviewMigration = file_get_contents("{$root}/core/migrations/158_payroll_workflow_review_attempts.sql");
 $manifest = file_get_contents("{$root}/modules/payroll/manifest.php");
+$approvalSettings = file_get_contents("{$root}/modules/payroll/lib/approval_settings.php");
+$approvalApi = file_get_contents("{$root}/modules/payroll/api/approval_settings.php");
+$preflight = file_get_contents("{$root}/modules/payroll/api/preflight.php");
+$runDetailUi = file_get_contents("{$root}/modules/payroll/ui/PayrollRunDetail.jsx");
+$settingsUi = file_get_contents("{$root}/modules/payroll/ui/PayrollSettings.jsx");
 $legacyMap = file_get_contents("{$root}/core/rbac/legacy_map.php");
 $registry = ModuleRegistry::reset("{$root}/modules");
 $peopleGraphContract = $registry->getPeopleGraphContract('payroll');
@@ -43,6 +50,22 @@ $checks = [
     'payroll run is registered for People Graph approval' =>
         ($peopleGraphContract['object_types']['run']['approval_resource'] ?? null) === 'payroll.run'
         && in_array('approver', $peopleGraphContract['object_types']['run']['responsibilities'] ?? [], true),
+    'reviewer settings use the shared approval policy' =>
+        str_contains($approvalSettings, 'peopleGraphCreateApprovalPolicy(')
+        && str_contains($approvalSettings, 'peopleGraphCreateApprovalRule(')
+        && str_contains($approvalSettings, 'payroll.run.approve'),
+    'reviewer setup is admin gated and visible in Payroll Settings' =>
+        str_contains($approvalApi, "rbac_legacy_require(\$user, 'payroll.schedules.manage')")
+        && str_contains($approvalApi, "'payroll', 'admin'")
+        && str_contains($settingsUi, '<PayrollApprovalSettings />'),
+    'preflight and compute surface missing independent reviewers' =>
+        str_contains($preflight, 'payrollRunApprovalReadiness(')
+        && str_contains($runs, 'payrollRunApprovalReadiness(')
+        && str_contains($runDetailUi, 'payroll-preflight-approval')
+        && str_contains($runDetailUi, '/modules/payroll/settings'),
+    'computed approval is not blocked by draft preflight' =>
+        str_contains($runDetailUi, "run.status === 'draft' && run.pay_period_id")
+        && str_contains($runDetailUi, "onClick={approve} disabled={busy === 'approve' || lines.length === 0}"),
     'workflow sync updates payroll-owned records' => str_contains($sync, "UPDATE payroll_runs") && str_contains($sync, "UPDATE payroll_pay_periods"),
     'schema migration adds workflow evidence' => str_contains($migration, 'workflow_instance_id') && str_contains($migration, 'computed_by_user_id'),
     'cancelled payroll reviews release the unique workflow slot' =>
