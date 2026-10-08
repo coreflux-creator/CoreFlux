@@ -11,6 +11,8 @@ if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging'
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../modules/accounting/lib/opening_cutover.php';
 require_once __DIR__ . '/../modules/accounting/lib/standard_reports.php';
+require_once __DIR__ . '/../core/accounting/entity_setup.php';
+require_once __DIR__ . '/../sim/lib/accounting_snapshot.php';
 
 $pdo = getDB();
 if (!$pdo || (string) $pdo->query('SELECT DATABASE()')->fetchColumn() !== $database) {
@@ -103,6 +105,38 @@ try {
     $income = reportIncomeStatement(1, '2024-12-31', '2024-12-31', $entityId);
     $assert((float) $income['total_revenue'] === 0.0 && (float) $income['total_expense'] === 0.0,
         'cutover does not manufacture revenue or expense');
+    $other = accountingCreateEntityWithCalendar($pdo, 1, [
+        'code' => 'OTHER', 'legal_name' => 'Rollback-only other entity',
+        'country' => 'US', 'base_currency' => 'USD', 'entity_type' => 'llc',
+        'accounting_basis' => 'accrual', 'fiscal_year_start_month' => 1,
+    ], 2024);
+    $otherId = (int) $other['entity_id'];
+    $otherAr = "Invoice number,Client name,Issue date,Due date,Open amount\n"
+        . "OTHER-AR-1,Other Customer,2023-12-15,2024-01-15,240.00\n";
+    $otherAp = "Bill number,Vendor name,Bill date,Due date,Open amount\n"
+        . "OTHER-AP-1,Other Vendor,2023-12-15,2024-01-15,60.00\n";
+    $otherPreview = accountingOpeningCutoverReview($pdo, 1, $otherId, '', $otherAr, $otherAp);
+    $assert($otherPreview['error_count'] === 0,
+        'second entity can preview its own source documents: ' . json_encode($otherPreview['errors']));
+    accountingOpeningCutoverCommit($pdo, 1, $otherId, '', $otherAr, $otherAp,
+        $otherPreview['preview_token'], null);
+    $mainDue = simSnapshotDocumentDue(1, $entityId, '2024-12-31');
+    $otherDue = simSnapshotDocumentDue(1, $otherId, '2024-12-31');
+    $assert($mainDue === ['ar_due' => 150.0, 'ap_due' => 80.0]
+        && $otherDue === ['ar_due' => 240.0, 'ap_due' => 60.0],
+        'snapshot source balances stay inside their own entity, including approved opening documents');
+    $mainTrial = array_column(accountingTrialBalance(1, '2024-12-31', $entityId), 'balance_signed', 'code');
+    $otherTrial = array_column(accountingTrialBalance(1, '2024-12-31', $otherId), 'balance_signed', 'code');
+    $assert((float) ($mainTrial['1100'] ?? 0) === $mainDue['ar_due']
+        && (float) ($mainTrial['2000'] ?? 0) === $mainDue['ap_due']
+        && (float) ($otherTrial['1100'] ?? 0) === $otherDue['ar_due']
+        && (float) ($otherTrial['2000'] ?? 0) === $otherDue['ap_due'],
+        'each entity aging agrees with its own GL controls');
+    $otherBalance = reportBalanceSheet(1, '2024-12-31', $otherId);
+    $assert($otherBalance['balanced'] && (float) $otherBalance['total_assets'] === 240.0
+        && (float) $otherBalance['total_liabilities'] === 60.0
+        && (float) $otherBalance['total_equity'] === 180.0,
+        'other entity balance sheet excludes the first entity');
     $replay = accountingOpeningCutoverCommit($pdo, 1, $entityId,
         $balances, $ar, $ap, $preview['preview_token'], null);
     $assert($replay['idempotent_replay'] && $replay['cutover_id'] === $posted['cutover_id'],

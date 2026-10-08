@@ -7,11 +7,14 @@ require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/tenant_scope.php';
 require_once __DIR__ . '/../modules/accounting/lib/standard_reports.php';
 require_once __DIR__ . '/lib/invariants.php';
+require_once __DIR__ . '/lib/accounting_snapshot.php';
 
-$opts = getopt('', ['tenant:', 'expect-core-pack']);
+$opts = getopt('', ['tenant:', 'entity-code:', 'expect-core-pack']);
 $tenantId = (int) ($opts['tenant'] ?? 0);
-if ($tenantId <= 0) {
-    fwrite(STDERR, "Usage: php sim/check_accounting_snapshot.php --tenant=ID [--expect-core-pack]\n");
+$entityCode = strtoupper(trim((string) ($opts['entity-code'] ?? 'SIM')));
+$asOf = '2026-12-31';
+if ($tenantId <= 0 || $entityCode === '' || (isset($opts['expect-core-pack']) && $entityCode !== 'SIM')) {
+    fwrite(STDERR, "Usage: php sim/check_accounting_snapshot.php --tenant=ID [--entity-code=SIM] [--expect-core-pack (SIM only)]\n");
     exit(2);
 }
 
@@ -25,15 +28,15 @@ if ((int) $tenant->fetchColumn() !== 1) {
 }
 setRequestTenantId($tenantId);
 
-$entity = $pdo->prepare('SELECT id FROM accounting_entities WHERE tenant_id = :tenant_id AND code = "SIM"');
-$entity->execute(['tenant_id' => $tenantId]);
+$entity = $pdo->prepare('SELECT id FROM accounting_entities WHERE tenant_id = :tenant_id AND code = :code');
+$entity->execute(['tenant_id' => $tenantId, 'code' => $entityCode]);
 $entityId = (int) $entity->fetchColumn();
-if ($entityId <= 0) throw new RuntimeException('Simulation entity is missing');
+if ($entityId <= 0) throw new RuntimeException("Simulation entity {$entityCode} is missing");
 
-$income = reportIncomeStatement($tenantId, '2026-01-01', '2026-12-31', $entityId);
-$balance = reportBalanceSheet($tenantId, '2026-12-31', $entityId);
-$cashFlow = reportCashFlowIndirect($tenantId, '2026-01-01', '2026-12-31', $entityId);
-$trial = accountingTrialBalance($tenantId, '2026-12-31', $entityId);
+$income = reportIncomeStatement($tenantId, '2026-01-01', $asOf, $entityId);
+$balance = reportBalanceSheet($tenantId, $asOf, $entityId);
+$cashFlow = reportCashFlowIndirect($tenantId, '2026-01-01', $asOf, $entityId);
+$trial = accountingTrialBalance($tenantId, $asOf, $entityId);
 $accounts = [];
 foreach ($trial as $row) {
     if (in_array((string) $row['code'], ['1000', '1010', '1100', '2000', '4000', '6990'], true)) {
@@ -41,20 +44,12 @@ foreach ($trial as $row) {
     }
 }
 
-$ap = $pdo->prepare(
-    'SELECT COALESCE(SUM(amount_due), 0) FROM ap_bills
-      WHERE tenant_id = :tenant_id AND status IN ("approved", "partially_paid")'
-);
-$ap->execute(['tenant_id' => $tenantId]);
-$apDue = round((float) $ap->fetchColumn(), 2);
-$ar = $pdo->prepare(
-    'SELECT COALESCE(SUM(amount_due), 0) FROM billing_invoices
-      WHERE tenant_id = :tenant_id AND status IN ("sent", "partially_paid")'
-);
-$ar->execute(['tenant_id' => $tenantId]);
-$arDue = round((float) $ar->fetchColumn(), 2);
-$je = $pdo->prepare('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND status = "posted"');
-$je->execute(['tenant_id' => $tenantId]);
+$documentDue = simSnapshotDocumentDue($tenantId, $entityId, $asOf);
+$apDue = $documentDue['ap_due'];
+$arDue = $documentDue['ar_due'];
+$je = $pdo->prepare('SELECT COUNT(*) FROM accounting_journal_entries
+    WHERE tenant_id = :tenant_id AND entity_id = :entity_id AND status = "posted"');
+$je->execute(['tenant_id' => $tenantId, 'entity_id' => $entityId]);
 $jeCount = (int) $je->fetchColumn();
 
 $checks = [
@@ -71,9 +66,10 @@ if (isset($opts['expect-core-pack'])) {
            JOIN accounting_journal_entries j ON j.id = l.matched_je_id AND j.tenant_id = l.tenant_id
           WHERE l.tenant_id = :tenant_id AND l.fitid = "SIM-BANK-0001"
             AND l.amount = -850 AND l.match_status = "matched"
-            AND b.gl_account_code = "1000" AND b.entity_id = j.entity_id AND j.status = "posted"'
+            AND b.gl_account_code = "1000" AND b.entity_id = :entity_id
+            AND b.entity_id = j.entity_id AND j.status = "posted"'
     );
-    $bank->execute(['tenant_id' => $tenantId]);
+    $bank->execute(['tenant_id' => $tenantId, 'entity_id' => $entityId]);
     $matchedBankLines = (int) $bank->fetchColumn();
     $checks['expected_sources'] = $jeCount === 6 && $apDue === 2250.0 && $arDue === 2500.0;
     $checks['expected_income'] = (float) $income['total_revenue'] === 2500.0
@@ -89,6 +85,8 @@ if (isset($opts['expect-core-pack'])) {
 echo json_encode([
     'tenant_id' => $tenantId,
     'entity_id' => $entityId,
+    'entity_code' => $entityCode,
+    'as_of' => $asOf,
     'posted_journal_entries' => $jeCount,
     'ap_due' => $apDue,
     'ar_due' => $arDue,
