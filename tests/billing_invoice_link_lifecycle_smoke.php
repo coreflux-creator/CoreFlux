@@ -58,9 +58,10 @@ $check('default lifetime is 90 days on database clock',
     && str_contains($insert['sql'], 'DATE_ADD(NOW(), INTERVAL :days DAY)'));
 $check('insert binds tenant and invoice',
     (int) ($insert['params']['t'] ?? 0) === 17 && (int) ($insert['params']['i'] ?? 0) === 31);
-$check('only token hash and token are bound',
+$check('only token hash is stored',
     ($insert['params']['h'] ?? null) === hash('sha256', $issued['token'], true)
-    && ($insert['params']['tk'] ?? null) === $issued['token']);
+    && !array_key_exists('tk', $insert['params'])
+    && !str_contains($insert['sql'], ', token,'));
 $check('token row identity returned', $issued['token_id'] === 42);
 
 foreach ([0, 366] as $days) {
@@ -105,14 +106,24 @@ $check('failed-send token revocation is tenant/invoice/token scoped',
 $api = file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');
 $ui = file_get_contents(__DIR__ . '/../modules/billing/ui/InvoiceDetail.jsx');
 $migration = file_get_contents(__DIR__ . '/../modules/billing/migrations/021_invoice_token_revocation.sql');
+$hashOnlyMigration = file_get_contents(__DIR__ . '/../modules/billing/migrations/022_invoice_token_hash_only.sql');
 $check('migration adds revocation time and actor idempotently',
     str_contains($migration, "COLUMN_NAME = 'revoked_at'")
     && str_contains($migration, 'ADD COLUMN revoked_at')
     && str_contains($migration, "COLUMN_NAME = 'revoked_by_user_id'")
     && str_contains($migration, 'ADD COLUMN revoked_by_user_id'));
-$check('detail exposes only an active link',
+$check('old link secrets remain valid but are removed from storage',
+    str_contains($hashOnlyMigration, 'ADD UNIQUE KEY uq_bit_token_hash (token_hash)')
+    && str_contains($hashOnlyMigration, 'DROP COLUMN token')
+    && str_contains($lookup['sql'], 'token_hash = :h'));
+$check('detail reports link state without disclosing its secret',
     str_contains($api, 'ORDER BY is_active DESC, id DESC')
-    && str_contains($api, "(int) \$token['is_active'] === 1"));
+    && str_contains($api, 'SELECT id, issued_at, expires_at, revoked_at')
+    && !str_contains($api, "\$token['token']"));
+$check('manual replacement locks the invoice and rotates prior links',
+    str_contains($api, "\$action === 'replace_link'")
+    && str_contains($api, 'FOR UPDATE')
+    && str_contains($api, "'billing.invoice.link_replaced'"));
 $check('send and revoke controls follow server permission',
     str_contains($api, "'can_send' => RBAC::hasPermission(\$user, 'billing.invoice.send')")
     && str_contains($ui, 'data.capabilities?.can_send'));
@@ -123,9 +134,13 @@ $check('failed delivery disables its new link and successful delivery rotates ol
     str_contains($api, "billingRevokeInvoiceViewToken(\$tid, \$id, \$tok['token_id']")
     && str_contains($api, 'billingRevokeInvoiceViewTokens(')
     && str_contains($api, "'-token-' . \$tok['token_id']"));
-$check('screen offers copy, disable, and resend',
+$check('invoice delivery redacts its link from stored mail',
+    str_contains($api, "'outbox_redactions' => [\$tok['url'], \$tok['token']]"));
+$check('screen offers one-time copy, replacement, disable, and resend',
     str_contains($ui, 'billing-invoice-token-copy')
+    && str_contains($ui, 'billing-invoice-token-replace')
     && str_contains($ui, 'billing-invoice-token-revoke')
+    && str_contains($ui, 'visibleIssuedLink.url')
     && str_contains($ui, "'Resend'"));
 
 echo "Invoice link lifecycle: {$passed} passed, {$failed} failed" . PHP_EOL;

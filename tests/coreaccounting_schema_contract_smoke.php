@@ -48,8 +48,8 @@ $check('reordered event source key is not accepted', in_array(
     coreAccountingMissingUniqueKeys($wrongEventKey), true));
 $withoutTokenKey = $requiredKeys;
 unset($withoutTokenKey['billing_invoice_tokens']);
-$check('missing invoice-link uniqueness is reported', in_array(
-    'billing_invoice_tokens UNIQUE (token)',
+$check('missing invoice-link hash uniqueness is reported', in_array(
+    'billing_invoice_tokens UNIQUE (token_hash)',
     coreAccountingMissingUniqueKeys($withoutTokenKey), true));
 $provisioner = (string) file_get_contents(__DIR__ . '/../deploy/provision_coreaccounting_tenant.php');
 $check('first-tenant provisioning checks the accounting schema before creating records',

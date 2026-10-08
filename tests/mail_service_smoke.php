@@ -156,6 +156,22 @@ $res4 = $svc->send(7, 'time', 'x', ['a@b.co'], 'subj', 'body', null, [], ['drive
 $assert("custom driver invoked on send",            count($mock->sent) === 1);
 $assert("custom driver provider_message_id used",   ($res4['provider_message_id'] ?? null) === 'mock-id');
 
+$secret = 'https://billing.example.test/invoice.php?t=' . str_repeat('a', 64);
+$svc->send(7, 'billing', 'invoice_sent', ['client@acme.com'], 'Invoice',
+    'View: ' . $secret, '<a href="' . $secret . '">View invoice</a>', [],
+    ['driver' => 'mock', 'outbox_redactions' => [$secret]]);
+$providerEnvelope = end($mock->sent);
+$storedEnvelope = end($outbox);
+$assert('provider receives the actual customer link',
+    str_contains($providerEnvelope['body_text'], $secret)
+    && str_contains($providerEnvelope['body_html'], $secret));
+$assert('mail audit copy omits the customer link',
+    !str_contains($storedEnvelope['body_text'], $secret)
+    && !str_contains($storedEnvelope['body_html'], $secret));
+$assert('mail audit copy retains non-secret context',
+    str_contains($storedEnvelope['body_text'], 'View: [redacted]')
+    && str_contains($storedEnvelope['body_html'], '>View invoice</a>'));
+
 $poll2 = $svc->poll_folder(1, 'mock');
 $assert("custom driver poll returns messages",      count($poll2['messages']) === 1);
 $assert("custom driver poll returns cursor",        ($poll2['next_cursor'] ?? null) === 'c1');

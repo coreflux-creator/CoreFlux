@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { ArrowRight, BookOpenCheck, Check, Copy, Landmark, Link2Off, Send, UserRoundCog, X } from 'lucide-react';
+import { ArrowRight, BookOpenCheck, Check, Copy, Landmark, Link2, Link2Off, Send, UserRoundCog, X } from 'lucide-react';
 import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
@@ -19,6 +19,7 @@ export default function InvoiceDetail() {
   const [busy, setBusy] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [sendTo, setSendTo] = useState('');
+  const [issuedLink, setIssuedLink] = useState(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showSend, setShowSend] = useState(false);
   const [showReassign, setShowReassign] = useState(false);
@@ -41,7 +42,7 @@ export default function InvoiceDetail() {
     if (saved) setSendTo((current) => current || saved);
   }, [data?.default_recipient?.email]);
 
-  useEffect(() => setCopiedLink(false), [data?.token?.url]);
+  useEffect(() => setCopiedLink(false), [issuedLink?.url]);
 
   if (loading) return <p>Loading…</p>;
   if (error)   return <p className="error" data-testid="billing-invoice-detail-error">Error: {error.message}</p>;
@@ -67,6 +68,7 @@ export default function InvoiceDetail() {
     && data.capabilities?.can_send;
   const linkActive = Number(token?.is_active) === 1;
   const canRevokeLink = linkActive && data.capabilities?.can_send;
+  const visibleIssuedLink = issuedLink && Number(token?.id) === issuedLink.tokenId ? issuedLink : null;
   const canPost = ['approved', 'sent', 'partially_paid', 'paid'].includes(inv.status) && !inv.journal_entry_id;
   const canVoid = inv.status === 'draft' && approvalState && !approvalState.pending
     && !inv.journal_entry_id
@@ -75,11 +77,13 @@ export default function InvoiceDetail() {
 
   const run = async (label, fn) => {
     setBusy(label); setActionError(null);
+    let result;
     try {
-      await fn();
+      result = await fn();
       bustApiCachePrefix('billing-invoices-list:');
     } catch (e) { setActionError(e); }
     finally { await reload(); await approval.reload(); setBusy(null); }
+    return result;
   };
 
   const requestApproval = () => run('request', () => api.post(`/api/v1/billing/invoices?action=request_approval&id=${id}`, {}));
@@ -102,20 +106,28 @@ export default function InvoiceDetail() {
     setShowReassign(false);
   });
   const post = () => run('post', () => api.post(`/api/v1/billing/invoices?action=post&id=${id}`, {}));
-  const send    = () => run('send',    async () => {
-    const res = await api.post(`/api/v1/billing/invoices?action=send&id=${id}`, { to: sendTo.trim() });
+  const send = async () => {
+    const res = await run('send', () => api.post(`/api/v1/billing/invoices?action=send&id=${id}`, { to: sendTo.trim() }));
+    if (!res) return;
+    setIssuedLink({ tokenId: Number(res.token_id), url: res.url });
     setShowSend(false);
     if (res.email_status !== 'sent') alert(`Token created but email status: ${res.email_status} (${res.email_error || 'no detail'})`);
     if (res.pdf_attached === false && res.pdf_error) alert(`PDF could not be generated: ${res.pdf_error}\nEmail sent without attachment.`);
-  });
+  };
+  const replaceLink = async () => {
+    if (linkActive && !confirm('Create a new customer link? Existing links to this invoice will stop working.')) return;
+    const res = await run('replace-link', () => api.post(`/api/v1/billing/invoices?action=replace_link&id=${id}`, {}));
+    if (res) setIssuedLink({ tokenId: Number(res.token_id), url: res.url });
+  };
   const revokeLink = () => {
     const reason = prompt('Why are you disabling this invoice link?');
     if (!reason?.trim()) return;
-    run('revoke-link', () => api.post(`/api/v1/billing/invoices?action=revoke_link&id=${id}`, { reason: reason.trim() }));
+    run('revoke-link', () => api.post(`/api/v1/billing/invoices?action=revoke_link&id=${id}`, { reason: reason.trim() }))
+      .then((res) => { if (res) setIssuedLink(null); });
   };
   const copyLink = async () => {
     try {
-      await navigator.clipboard.writeText(token.url);
+      await navigator.clipboard.writeText(visibleIssuedLink.url);
       setCopiedLink(true);
     } catch (_) {
       setActionError(new Error('Could not copy the link. Open it and copy its address instead.'));
@@ -236,18 +248,18 @@ export default function InvoiceDetail() {
         <SummaryBox label="Due"        value={inv.status === 'void' ? '—' : Number(inv.amount_due).toFixed(2)} highlight={inv.status !== 'void'} />
       </div>
 
-      {token && (
+      {(token || canSend) && (
         <div data-testid="billing-invoice-token-info" style={{ padding: 12, background: 'var(--cf-surface-alt, #f9fafb)', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
-          <span>Public link issued {token.issued_at}. Viewed {token.view_count}× {token.last_viewed_at && `(last: ${token.last_viewed_at})`}.</span>
-          {linkActive ? (
-            <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginLeft: 8 }}>
-              {token.url ? <>
-                <a href={token.url} target="_blank" rel="noopener noreferrer" data-testid="billing-invoice-token-link">Open</a>
-                <button className="btn btn--ghost" type="button" onClick={copyLink} title="Copy public invoice link" data-testid="billing-invoice-token-copy"><Copy size={14} aria-hidden="true" /> {copiedLink ? 'Copied' : 'Copy link'}</button>
-              </> : <span>Public link address unavailable.</span>}
-              {canRevokeLink && <button className="btn btn--ghost" type="button" onClick={revokeLink} disabled={Boolean(busy)} title="Disable every public link to this invoice" data-testid="billing-invoice-token-revoke"><Link2Off size={14} aria-hidden="true" /> {busy === 'revoke-link' ? 'Disabling…' : 'Disable links'}</button>}
-            </span>
-          ) : <span style={{ marginLeft: 8 }}>Link {token.revoked_at ? 'disabled' : 'expired'}. Resend the invoice to issue a new link.</span>}
+          <span>{token ? `Public link ${linkActive ? 'active' : token.revoked_at ? 'disabled' : 'expired'}. Issued ${token.issued_at}. Viewed ${token.view_count}×.` : 'No public link issued.'}</span>
+          {canSend && <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginLeft: 8 }}>
+            <button className="btn btn--ghost" type="button" onClick={replaceLink} disabled={Boolean(busy)} title="Create a new customer link and disable earlier links" data-testid="billing-invoice-token-replace"><Link2 size={14} aria-hidden="true" /> {busy === 'replace-link' ? 'Creating…' : 'Create link'}</button>
+            {canRevokeLink && <button className="btn btn--ghost" type="button" onClick={revokeLink} disabled={Boolean(busy)} title="Disable every public link to this invoice" data-testid="billing-invoice-token-revoke"><Link2Off size={14} aria-hidden="true" /> {busy === 'revoke-link' ? 'Disabling…' : 'Disable links'}</button>}
+          </span>}
+          {visibleIssuedLink && <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 8 }} data-testid="billing-invoice-new-link">
+            <input className="input" type="text" readOnly aria-label="New invoice link" value={visibleIssuedLink.url} style={{ flex: '1 1 280px', minWidth: 0 }} />
+            <button className="btn btn--ghost" type="button" onClick={copyLink} title="Copy new invoice link" data-testid="billing-invoice-token-copy"><Copy size={14} aria-hidden="true" /> {copiedLink ? 'Copied' : 'Copy'}</button>
+            <a className="btn btn--ghost" href={visibleIssuedLink.url} target="_blank" rel="noopener noreferrer" data-testid="billing-invoice-token-link">Open</a>
+          </div>}
         </div>
       )}
 

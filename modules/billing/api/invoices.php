@@ -11,6 +11,7 @@
  *   POST   /api/billing/invoices?action=request_approval&id=N → request human review
  *   POST   /api/billing/invoices?action=approve&id=N    → direct or policy-routed approval
  *   POST   /api/billing/invoices?action=send&id=N       → issue token + email
+ *   POST   /api/billing/invoices?action=replace_link&id=N → issue a new manual-share link
  *   POST   /api/billing/invoices?action=revoke_link&id=N → disable all invoice links
  *   POST   /api/billing/invoices?action=void&id=N       → body: {reason}
  *
@@ -99,7 +100,7 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     $allocStmt->execute(['id' => $id, 'tenant_id' => $tid]);
     $allocations = $allocStmt->fetchAll(\PDO::FETCH_ASSOC);
     $tokStmt = $pdo->prepare(
-        'SELECT id, token, issued_at, expires_at, revoked_at, last_viewed_at, view_count,
+        'SELECT id, issued_at, expires_at, revoked_at, last_viewed_at, view_count,
                 CASE WHEN revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())
                      THEN 1 ELSE 0 END AS is_active
          FROM billing_invoice_tokens WHERE invoice_id = :id AND tenant_id = :t
@@ -107,12 +108,6 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     );
     $tokStmt->execute(['id' => $id, 't' => $tid]);
     $token = $tokStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-    if ($token) {
-        $base = defined('APP_URL') ? rtrim(APP_URL, '/') : (getenv('APP_URL') ?: '');
-        $token['url'] = $base !== '' && (int) $token['is_active'] === 1
-            ? "{$base}/billing/invoice.php?t={$token['token']}" : null;
-        unset($token['token']); // never expose raw token in authed API beyond URL
-    }
     $deliveryEntityId = billingInvoiceDeliveryEntityId($tid, $inv);
     api_ok([
         'invoice' => $inv,
@@ -674,6 +669,49 @@ if ($method === 'POST' && $action === 'approve') {
     ]);
 }
 
+if ($method === 'POST' && $action === 'replace_link') {
+    rbac_legacy_require($user, 'billing.invoice.send');
+    $id = (int) ($_GET['id'] ?? 0);
+    $row = scopedFind('SELECT id FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    $pdo = getDB();
+    try {
+        $pdo->beginTransaction();
+        $stmt = $pdo->prepare('SELECT * FROM billing_invoices
+                               WHERE tenant_id = :t AND id = :id FOR UPDATE');
+        $stmt->execute(['t' => $tid, 'id' => $id]);
+        $locked = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$locked || !empty($locked['opening_cutover_id'])
+            || !in_array($locked['status'], ['approved', 'sent', 'partially_paid', 'paid'], true)) {
+            throw new DomainException('Only a posted, approved invoice can have a customer link.');
+        }
+        $journalStmt = $pdo->prepare('SELECT entity_id FROM accounting_journal_entries
+                                       WHERE tenant_id = :t AND id = :id AND status = "posted"');
+        $journalStmt->execute(['t' => $tid, 'id' => (int) $locked['journal_entry_id']]);
+        $journalEntityId = $journalStmt->fetchColumn();
+        $entityId = billingInvoiceDeliveryEntityId($tid, $locked);
+        if (!$entityId || (int) $journalEntityId !== $entityId) {
+            throw new DomainException('Invoice legal entity does not match its posted journal.');
+        }
+        $tok = billingIssueViewToken($tid, $id);
+        $oldLinks = billingRevokeInvoiceViewTokens(
+            $tid, $id, (int) ($user['id'] ?? 0) ?: null, $tok['token_id']
+        );
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e instanceof DomainException) api_error($e->getMessage(), 409);
+        error_log('[billing invoice link] Replacement failed: ' . $e->getMessage());
+        api_error('Could not create a new invoice link.', 500);
+    }
+    billingAudit('billing.invoice.link_replaced', [
+        'invoice_id' => $id, 'invoice_number' => $locked['invoice_number'],
+        'token_id' => $tok['token_id'], 'prior_links_revoked' => $oldLinks,
+    ], $id);
+    api_ok(['ok' => true, 'token_id' => $tok['token_id'], 'url' => $tok['url'],
+        'expires_in_days' => 90, 'prior_links_revoked' => $oldLinks]);
+}
+
 if ($method === 'POST' && $action === 'revoke_link') {
     rbac_legacy_require($user, 'billing.invoice.send');
     $id = (int) ($_GET['id'] ?? 0);
@@ -783,6 +821,7 @@ if ($method === 'POST' && $action === 'send') {
         $sendRes = $svc->send($tid, 'billing', 'invoice_sent', [$to], $subject, $textBody, $htmlBody, $attachments, [
             'from' => $sender['from'], 'from_name' => $sender['from_name'], 'reply_to' => $sender['reply_to'],
             'idempotency_key' => 'billing-invoice-' . $id . '-token-' . $tok['token_id'],
+            'outbox_redactions' => [$tok['url'], $tok['token']],
         ]);
     } catch (\Throwable $e) {
         $sendRes = ['status' => 'failed', 'error' => $e->getMessage()];

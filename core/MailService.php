@@ -82,7 +82,8 @@ class MailService
      *    'provider_message_id' => string|null, 'error' => string|null].
      *
      * @param array $opts ['from' => string, 'reply_to' => string, 'cc' => string[], 'driver' => string,
-     *                     'connection_id' => int, 'attachments' => array<int>]
+     *                     'connection_id' => int, 'attachments' => array<int>,
+     *                     'outbox_redactions' => string[]]
      */
     public function send(
         int    $tenantId,
@@ -151,6 +152,13 @@ class MailService
 
         $outboxId = null;
         if (is_callable($this->outboxWriter)) {
+            $storedText = $bodyText;
+            $storedHtml = $bodyHtml;
+            foreach ((array) ($opts['outbox_redactions'] ?? []) as $secret) {
+                if (!is_string($secret) || $secret === '') continue;
+                $storedText = str_replace($secret, '[redacted]', $storedText);
+                if ($storedHtml !== null) $storedHtml = str_replace($secret, '[redacted]', $storedHtml);
+            }
             $outboxId = (int) call_user_func($this->outboxWriter, [
                 'tenant_id'           => $tenantId,
                 'module'              => $module,
@@ -161,8 +169,8 @@ class MailService
                 'from_address'        => $opts['from'] ?? null,
                 'reply_to'            => $opts['reply_to'] ?? null,
                 'subject'             => $subject,
-                'body_text'           => $bodyText,
-                'body_html'           => $bodyHtml,
+                'body_text'           => $storedText,
+                'body_html'           => $storedHtml,
                 'attachments_json'    => json_encode(array_values($attachments)),
                 'status'              => $result['status'] ?? 'failed',
                 'provider_message_id' => $result['provider_message_id'] ?? null,

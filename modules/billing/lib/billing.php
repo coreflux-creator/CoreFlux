@@ -1026,12 +1026,11 @@ function billingIssueViewToken(int $tenantId, int $invoiceId, ?int $expiresInDay
     $pdo = getDB();
     $stmt = $pdo->prepare(
         'INSERT INTO billing_invoice_tokens
-          (tenant_id, invoice_id, token, token_hash, expires_at)
-         VALUES (:t, :i, :tk, :h, DATE_ADD(NOW(), INTERVAL :days DAY))'
+          (tenant_id, invoice_id, token_hash, expires_at)
+         VALUES (:t, :i, :h, DATE_ADD(NOW(), INTERVAL :days DAY))'
     );
     $stmt->bindValue('t',  $tenantId,  \PDO::PARAM_INT);
     $stmt->bindValue('i',  $invoiceId, \PDO::PARAM_INT);
-    $stmt->bindValue('tk', $raw);
     $stmt->bindValue('h',  $hash, \PDO::PARAM_LOB);
     $stmt->bindValue('days', $ttlDays, \PDO::PARAM_INT);
     $stmt->execute();
