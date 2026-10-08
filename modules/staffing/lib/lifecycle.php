@@ -371,6 +371,7 @@ function _lifecycleApSide(\PDO $pdo, int $tenantId, array $entryIds): array
            JOIN ap_payments p ON p.id = a.payment_id
           WHERE p.tenant_id = :t
             AND a.bill_id IN (' . implode(',', $bp) . ')
+            AND p.voided_at IS NULL
           ORDER BY a.applied_at ASC, a.id ASC'
     );
     $allocStmt->execute($bparams);

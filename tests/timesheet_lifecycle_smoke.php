@@ -20,13 +20,14 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$libSrc = (string) @file_get_contents('/app/modules/staffing/lib/lifecycle.php');
-$apiSrc = (string) @file_get_contents('/app/modules/staffing/api/lifecycle.php');
-$uiPg   = (string) @file_get_contents('/app/modules/staffing/ui/TimesheetLifecycle.jsx');
-$uiTl   = (string) @file_get_contents('/app/dashboard/src/components/TimesheetLifecycleTimeline.jsx');
-$module = (string) @file_get_contents('/app/modules/staffing/ui/StaffingModule.jsx');
-$tsDet  = (string) @file_get_contents('/app/modules/staffing/ui/TimesheetDetail.jsx');
-$billDet= (string) @file_get_contents('/app/modules/ap/ui/BillDetail.jsx');
+$root = dirname(__DIR__);
+$libSrc = (string) @file_get_contents($root . '/modules/staffing/lib/lifecycle.php');
+$apiSrc = (string) @file_get_contents($root . '/modules/staffing/api/lifecycle.php');
+$uiPg   = (string) @file_get_contents($root . '/modules/staffing/ui/TimesheetLifecycle.jsx');
+$uiTl   = (string) @file_get_contents($root . '/dashboard/src/components/TimesheetLifecycleTimeline.jsx');
+$module = (string) @file_get_contents($root . '/modules/staffing/ui/StaffingModule.jsx');
+$tsDet  = (string) @file_get_contents($root . '/modules/staffing/ui/TimesheetDetail.jsx');
+$billDet= (string) @file_get_contents($root . '/modules/ap/ui/BillDetail.jsx');
 
 echo "\n1. lib/lifecycle.php exposes resolvers\n";
 $a('staffingTimesheetLifecycle declared',
@@ -158,14 +159,20 @@ $pdo->exec("INSERT INTO billing_invoice_lines(id,invoice_id,line_no,description,
 
 $pdo->exec("CREATE TABLE billing_payments (
     id INTEGER PRIMARY KEY, tenant_id INT, received_at TEXT, method TEXT,
-    amount REAL, source_system TEXT, external_id TEXT, client_name TEXT
+    amount REAL, source_system TEXT, external_id TEXT, client_name TEXT, voided_at TEXT
 )");
 $pdo->exec("INSERT INTO billing_payments(id,tenant_id,received_at,method,amount,source_system,external_id,client_name)
     VALUES (300,1,'2026-02-15','wire',1600,'mercury','wire-xyz','Acme Co')");
 $pdo->exec("CREATE TABLE billing_payment_allocations (
-    id INTEGER PRIMARY KEY, payment_id INT, invoice_id INT, amount_applied REAL, applied_at TEXT DEFAULT CURRENT_TIMESTAMP
+    id INTEGER PRIMARY KEY, payment_id INT, invoice_id INT, amount_applied REAL,
+    applied_at TEXT DEFAULT CURRENT_TIMESTAMP, reversed_at TEXT
 )");
 $pdo->exec("INSERT INTO billing_payment_allocations(payment_id,invoice_id,amount_applied) VALUES (300,900,1600)");
+$pdo->exec("INSERT INTO billing_payment_allocations(payment_id,invoice_id,amount_applied,reversed_at)
+    VALUES (300,900,100,'2026-02-16 00:00:00')");
+$pdo->exec("INSERT INTO billing_payments(id,tenant_id,received_at,method,amount,source_system,external_id,client_name,voided_at)
+    VALUES (301,1,'2026-02-16','wire',200,'mercury','wire-void','Acme Co','2026-02-17 00:00:00')");
+$pdo->exec("INSERT INTO billing_payment_allocations(payment_id,invoice_id,amount_applied) VALUES (301,900,200)");
 
 $pdo->exec("CREATE TABLE ap_bills (
     id INTEGER PRIMARY KEY, tenant_id INT, internal_ref TEXT, bill_number TEXT,
@@ -189,7 +196,7 @@ $pdo->exec("INSERT INTO ap_bill_lines(id,bill_id,line_no,description,quantity,un
 
 $pdo->exec("CREATE TABLE ap_payments (
     id INTEGER PRIMARY KEY, tenant_id INT, pay_date TEXT, method TEXT,
-    amount REAL, reference TEXT, status TEXT,
+    amount REAL, reference TEXT, status TEXT, voided_at TEXT,
     disbursement_rail TEXT, rail_external_ref TEXT, rail_status TEXT,
     rail_originated_at TEXT, sent_at TEXT, cleared_at TEXT
 )");
@@ -199,6 +206,9 @@ $pdo->exec("CREATE TABLE ap_payment_allocations (
     id INTEGER PRIMARY KEY, payment_id INT, bill_id INT, amount_applied REAL, applied_at TEXT DEFAULT CURRENT_TIMESTAMP
 )");
 $pdo->exec("INSERT INTO ap_payment_allocations(payment_id,bill_id,amount_applied) VALUES (450,800,1200)");
+$pdo->exec("INSERT INTO ap_payments(id,tenant_id,pay_date,method,amount,reference,status,voided_at)
+    VALUES (451,1,'2026-02-17','ach',100,'voided-payment','void','2026-02-18 00:00:00')");
+$pdo->exec("INSERT INTO ap_payment_allocations(payment_id,bill_id,amount_applied) VALUES (451,800,100)");
 
 $pdo->exec("CREATE TABLE accounting_journal_entries (
     id INTEGER PRIMARY KEY, tenant_id INT, je_number TEXT, posting_date TEXT,
@@ -269,7 +279,7 @@ if (!function_exists('scopedQuery')) {
 // our local stubs of getDB/scopedFind/scopedQuery/currentTenantId stay
 // authoritative (loading the real tenant_scope.php pulls core/db.php
 // which requires MySQL drivers absent in the sandbox).
-$libBody = (string) file_get_contents('/app/modules/staffing/lib/lifecycle.php');
+$libBody = (string) file_get_contents($root . '/modules/staffing/lib/lifecycle.php');
 $libBody = preg_replace("/require_once __DIR__ \\. '\\/\\.\\.\\/\\.\\.\\/\\.\\.\\/core\\/tenant_scope\\.php';/", '', $libBody);
 $libBody = preg_replace("/require_once __DIR__ \\. '\\/\\.\\.\\/\\.\\.\\/\\.\\.\\/core\\/sub_tenants\\.php';/", '', $libBody);
 $libBody = preg_replace('/^\s*<\?php/', '', $libBody);
@@ -334,13 +344,13 @@ $a('empty timesheet summary is zero',
     (float) $emptyCascade['summary']['vendor_paid'] === 0.0);
 
 echo "\n6. Vite bundle integration\n";
-$dv = trim((string) @file_get_contents('/app/.deploy-version'));
+$dv = trim((string) @file_get_contents($root . '/.deploy-version'));
 $a('.deploy-version present', $dv !== '');
 $bundleHashJs = '';
 if (preg_match('/index-([a-zA-Z0-9_-]+)\.js/', $dv, $m)) $bundleHashJs = $m[0];
-// The build output lives in /app/spa-assets/ (synced from dist via sync_bundle.sh).
+// The build output lives in spa-assets/ (synced from dist via sync_bundle.sh).
 $jsBundle = '';
-foreach (['/app/spa-assets/', '/app/dashboard/dist/spa-assets/'] as $dir) {
+foreach ([$root . '/spa-assets/', $root . '/dashboard/dist/spa-assets/'] as $dir) {
     if ($bundleHashJs && is_file($dir . $bundleHashJs)) {
         $jsBundle = (string) @file_get_contents($dir . $bundleHashJs);
         break;
