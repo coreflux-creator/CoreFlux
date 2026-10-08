@@ -33,6 +33,8 @@ $root = dirname(__DIR__);
 $periods = (string) file_get_contents($root . '/modules/accounting/api/periods.php');
 $tasks   = (string) file_get_contents($root . '/modules/accounting/api/close_tasks.php');
 $schema  = (string) file_get_contents($root . '/modules/accounting/migrations/009_dimensions_and_close.sql');
+$workflow = (string) file_get_contents($root . '/modules/accounting/ui/PeriodCloseWorkflow.jsx');
+$runs = (string) file_get_contents($root . '/core/accounting/close_runs.php');
 
 echo "\n1. Schema supports owners + due dates + status states\n";
 $a('assignee_user_id column',  str_contains($schema, 'assignee_user_id BIGINT UNSIGNED NULL'));
@@ -56,6 +58,24 @@ $a('close action also queries blockers',
     (bool) preg_match('/if \(\$action === \'close\'\).+SELECT id, task_key, title, status, assignee_user_id, due_date/s', $periods));
 $a('post-close packet and lock tasks do not block close',
     substr_count($periods, "AND task_key NOT IN ('lock_period','build_packet')") === 2);
+$a('close and posting lock the same legal entity row',
+    str_contains($periods, 'SELECT id FROM accounting_entities')
+    && str_contains($periods, 'WHERE tenant_id = :t AND id = :e FOR UPDATE')
+    && str_contains($periods, 'SELECT * FROM accounting_periods'));
+$a('hard close advances the packet generation',
+    str_contains($periods, 'close_cycle = close_cycle + 1'));
+$a('lock requires a packet from the current generation',
+    str_contains($periods, 'p.close_cycle = :cycle')
+    && str_contains($periods, "'code' => 'close_packet_missing'"));
+$a('period list exposes the current close generation',
+    str_contains($periods, 'status, close_cycle, closed_at'));
+$a('month-end lock uses only the current generation',
+    str_contains($workflow, 'hasCurrentPacket')
+    && str_contains($workflow, 'Number(packet.close_cycle) === Number(selectedPeriod?.close_cycle)'));
+$a('close run cannot reuse an older packet or lock an unlocked period',
+    str_contains($runs, "(int) \$existing['close_cycle'] === (int) \$period['close_cycle']")
+    && str_contains($runs, "\$period['status'] !== 'locked'")
+    && str_contains($runs, "(int) \$packet['close_cycle'] !== (int) \$period['close_cycle']"));
 $a('close action refuses with same 409 + code',
     substr_count($periods, "'code' => 'close_tasks_open', 'open_tasks' => \$openTasks") >= 2);
 $a('close override is audit-logged separately',
@@ -74,11 +94,19 @@ $a('blocker query precedes the UPDATE in close branch',
 echo "\n5. close_tasks.php exposes PATCH for assignee + due_date\n";
 $a('PATCH accepts assignee_user_id + due_date',
     str_contains($tasks, "foreach (['assignee_user_id','due_date','status','notes','title','description']"));
+$a('checklist mutations share the posting and close lock order',
+    str_contains($tasks, 'accountingLockEditableClosePeriod')
+    && str_contains($tasks, 'WHERE tenant_id = :t AND id = :e FOR UPDATE')
+    && str_contains($tasks, 'WHERE tenant_id = :t AND id = :p FOR UPDATE'));
+$a('review tasks freeze after close and action tasks cannot be completed by hand',
+    str_contains($tasks, "['open', 'reopened', 'soft_closed']")
+    && str_contains($tasks, "['lock_period', 'build_packet']"));
 
 echo "\n6. PHP syntax\n";
 foreach ([
     $root . '/modules/accounting/api/periods.php',
     $root . '/modules/accounting/api/close_tasks.php',
+    $root . '/core/accounting/close_runs.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);

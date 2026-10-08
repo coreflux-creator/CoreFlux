@@ -23,7 +23,9 @@ function qaClosePacketStatus(string $path, string $method, string $cookie, array
         CURLOPT_HTTPHEADER => ['Accept: application/json', 'Content-Type: application/json',
             'X-CoreFlux-Tenant-Id: ' . QA_TENANT],
     ]);
-    if ($method === 'POST') curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($body, JSON_THROW_ON_ERROR));
+    if (in_array($method, ['POST', 'PATCH'], true)) {
+        curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($body, JSON_THROW_ON_ERROR));
+    }
     $raw = curl_exec($curl);
     $status = curl_getinfo($curl, CURLINFO_HTTP_CODE);
     $error = curl_error($curl);
@@ -104,6 +106,8 @@ try {
         ->execute(['t' => QA_TENANT, 'e' => $entityId, 'd1' => $flowDate, 'd2' => $flowDate]);
     $flowPeriodId = (int) $pdo->lastInsertId();
     $flowPath = '/modules/accounting/api/periods.php?action=close&id=' . $flowPeriodId;
+    qaExpect(qaClosePacketStatus($flowPath, 'POST', $cookie) === 409,
+        'period cannot close without a seeded review checklist');
     qaRequest('/modules/accounting/api/close_tasks.php?action=seed', 'POST',
         ['period_id' => $flowPeriodId], $cookie);
     qaExpect(qaClosePacketStatus($flowPath, 'POST', $cookie) === 409,
@@ -113,23 +117,95 @@ try {
     $reviewTasks->execute(['t' => QA_TENANT, 'p' => $flowPeriodId]);
     $taskIds = $reviewTasks->fetchAll(PDO::FETCH_COLUMN);
     qaExpect(count($taskIds) === 7, 'close checklist has seven pre-close review tasks');
+    $packetAction = qaOne($pdo, 'SELECT id FROM accounting_close_tasks
+        WHERE tenant_id = :t AND period_id = :p AND task_key = "build_packet"',
+        ['t' => QA_TENANT, 'p' => $flowPeriodId]);
+    qaExpect(qaClosePacketStatus('/modules/accounting/api/close_tasks.php?action=complete&id='
+        . (int) $packetAction['id'], 'POST', $cookie) === 409,
+        'packet action cannot be marked complete by hand');
     foreach ($taskIds as $taskId) {
         qaRequest('/modules/accounting/api/close_tasks.php?action=complete&id=' . (int) $taskId,
             'POST', [], $cookie);
     }
-    qaRequest($flowPath, 'POST', [], $cookie);
-    $flowState = qaOne($pdo, 'SELECT status FROM accounting_periods WHERE tenant_id = :t AND id = :p',
+    $pdo->beginTransaction();
+    $lockStmt = $pdo->prepare('SELECT id FROM accounting_entities
+        WHERE tenant_id = :t AND id = :e FOR UPDATE');
+    $lockStmt->execute(['t' => QA_TENANT, 'e' => $entityId]);
+    if (!$lockStmt->fetchColumn()) throw new RuntimeException('Synthetic entity lock unavailable');
+    $curl = curl_init(QA_BASE_URL . $flowPath);
+    curl_setopt_array($curl, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_COOKIEFILE => $cookie,
+        CURLOPT_COOKIEJAR => $cookie,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => '{}',
+        CURLOPT_HTTPHEADER => ['Accept: application/json', 'Content-Type: application/json',
+            'X-CoreFlux-Tenant-Id: ' . QA_TENANT],
+    ]);
+    $multi = curl_multi_init();
+    curl_multi_add_handle($multi, $curl);
+    try {
+        $active = 1;
+        $until = microtime(true) + 1.5;
+        do {
+            curl_multi_exec($multi, $active);
+            if ($active > 0) curl_multi_select($multi, 0.1);
+        } while ($active > 0 && microtime(true) < $until);
+        qaExpect($active > 0, 'close request waits while journal posting entity lock is held');
+        $pdo->commit();
+        $until = microtime(true) + 20;
+        while ($active > 0 && microtime(true) < $until) {
+            curl_multi_exec($multi, $active);
+            if ($active > 0) curl_multi_select($multi, 0.1);
+        }
+        qaExpect($active === 0 && curl_getinfo($curl, CURLINFO_HTTP_CODE) === 200,
+            'close completes after the entity lock is released');
+    } finally {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        curl_multi_remove_handle($multi, $curl);
+        curl_multi_close($multi);
+        curl_close($curl);
+    }
+    $flowState = qaOne($pdo, 'SELECT status, close_cycle FROM accounting_periods
+        WHERE tenant_id = :t AND id = :p',
         ['t' => QA_TENANT, 'p' => $flowPeriodId]);
-    qaExpect($flowState['status'] === 'closed',
+    qaExpect($flowState['status'] === 'closed' && (int) $flowState['close_cycle'] === 1,
         'period closes with review complete and the two action tasks still pending');
+    qaExpect(qaClosePacketStatus('/modules/accounting/api/close_tasks.php?action=seed',
+        'POST', $cookie, ['period_id' => $flowPeriodId]) === 409,
+        'closed period cannot be reseeded');
+    qaExpect(qaClosePacketStatus('/modules/accounting/api/close_tasks.php', 'PATCH', $cookie,
+        ['id' => (int) $taskIds[0], 'status' => 'pending']) === 409,
+        'closed period review task cannot be reopened behind the close');
+    $lockPath = '/modules/accounting/api/periods.php?action=lock&id=' . $flowPeriodId;
+    qaExpect(qaClosePacketStatus($lockPath, 'POST', $cookie,
+        ['reason' => 'Synthetic QA lock']) === 409,
+        'period cannot lock before a retained packet is saved');
     $closedPacket = qaRequest('/modules/accounting/api/close_packet.php?period_id=' . $flowPeriodId
         . '&action=record', 'POST', [], $cookie);
     $packetTask = qaOne($pdo, 'SELECT status FROM accounting_close_tasks
         WHERE tenant_id = :t AND period_id = :p AND task_key = "build_packet"',
         ['t' => QA_TENANT, 'p' => $flowPeriodId]);
-    qaExpect((int) $closedPacket['id'] > 0 && $packetTask['status'] === 'done',
+    qaExpect((int) $closedPacket['id'] > 0 && (int) $closedPacket['close_cycle'] === 1
+        && $packetTask['status'] === 'done',
         'saving the closed packet completes the packet action task');
-    qaRequest('/modules/accounting/api/periods.php?action=lock&id=' . $flowPeriodId,
+    qaRequest('/modules/accounting/api/periods.php?action=reopen&id=' . $flowPeriodId,
+        'POST', ['reason' => 'Synthetic QA re-review'], $cookie);
+    qaRequest($flowPath, 'POST', [], $cookie);
+    $reclosed = qaOne($pdo, 'SELECT close_cycle FROM accounting_periods
+        WHERE tenant_id = :t AND id = :p', ['t' => QA_TENANT, 'p' => $flowPeriodId]);
+    qaExpect((int) $reclosed['close_cycle'] === 2
+        && qaClosePacketStatus($lockPath, 'POST', $cookie,
+            ['reason' => 'Synthetic QA stale packet']) === 409,
+        'reclosing increments the cycle and refuses an earlier packet');
+    $reclosedPacket = qaRequest('/modules/accounting/api/close_packet.php?period_id=' . $flowPeriodId
+        . '&action=record', 'POST', [], $cookie);
+    qaExpect((int) $reclosedPacket['close_cycle'] === 2
+        && (int) $reclosedPacket['id'] > (int) $closedPacket['id'],
+        'reclosed period records a fresh packet for its new cycle');
+    qaRequest($lockPath,
         'POST', ['reason' => 'Synthetic QA close flow'], $cookie);
     $lockTask = qaOne($pdo, 'SELECT status FROM accounting_close_tasks
         WHERE tenant_id = :t AND period_id = :p AND task_key = "lock_period"',
@@ -137,8 +213,9 @@ try {
     qaExpect($lockTask['status'] === 'done', 'reasoned lock completes the lock action task');
     $lockedPacket = qaRequest('/modules/accounting/api/close_packet.php?period_id=' . $flowPeriodId
         . '&action=record', 'POST', [], $cookie);
-    qaExpect((int) $lockedPacket['id'] > (int) $closedPacket['id']
-        && $lockedPacket['period_status'] === 'locked',
+    qaExpect((int) $lockedPacket['id'] > (int) $reclosedPacket['id']
+        && $lockedPacket['period_status'] === 'locked'
+        && (int) $lockedPacket['close_cycle'] === 2,
         'locked period can retain a final version without replacing the closed version');
 
     if (!in_array($period['status'], ['closed', 'locked'], true)) {

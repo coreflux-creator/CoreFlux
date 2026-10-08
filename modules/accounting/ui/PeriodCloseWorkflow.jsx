@@ -38,6 +38,8 @@ export default function PeriodCloseWorkflow() {
   { enabled: !!periodId });
   const packets = packetsApi.data?.period_id === periodId ? packetsApi.data.rows ?? [] : [];
   const selectedPeriod = periods.find(p => Number(p.id) === periodId);
+  const hasCurrentPacket = packets.some(packet =>
+    Number(packet.close_cycle) === Number(selectedPeriod?.close_cycle));
   const canSavePacket = ['closed', 'locked'].includes(selectedPeriod?.status);
   const canClosePeriod = ['open', 'soft_closed', 'reopened'].includes(selectedPeriod?.status);
   const reviewTasks = tasks.filter(t => !['lock_period', 'build_packet'].includes(t.task_key));
@@ -142,7 +144,7 @@ export default function PeriodCloseWorkflow() {
   };
 
   const lockPeriod = async () => {
-    if (!periodId || selectedPeriod?.status !== 'closed' || packets.length === 0) return;
+    if (!periodId || selectedPeriod?.status !== 'closed' || !hasCurrentPacket) return;
     if (!lockReason.trim()) return;
     setBusy('period-lock'); setErr(null);
     try {
@@ -203,7 +205,7 @@ export default function PeriodCloseWorkflow() {
           {busy === 'packet-save' ? 'Saving…'
             : selectedPeriod?.status === 'locked' ? 'Save locked packet' : 'Save close packet'}
         </button>}
-        {!!periodId && selectedPeriod?.status === 'closed' && packets.length > 0 &&
+        {!!periodId && selectedPeriod?.status === 'closed' && hasCurrentPacket &&
           <>
             <label htmlFor="close-lock-reason" style={{ fontSize: 13 }}>Lock reason</label>
             <input id="close-lock-reason" className="input" type="text" value={lockReason}
@@ -341,6 +343,8 @@ export default function PeriodCloseWorkflow() {
               <div key={packet.id} style={{ display: 'flex', alignItems: 'center', gap: 12,
                 flexWrap: 'wrap', borderBottom: '1px solid #e2e8f0', padding: '8px 0', fontSize: 13 }}>
                 <strong>Version {packet.id}</strong>
+                {Number(packet.close_cycle) !== Number(selectedPeriod?.close_cycle) &&
+                  <span>Previous close</span>}
                 <span>{packet.built_at}</span>
                 <span>{packet.summary?.period_status ?? 'Status unknown'}</span>
                 <code title={packet.content_sha256}>SHA-256 {packet.content_sha256.slice(0, 12)}</code>

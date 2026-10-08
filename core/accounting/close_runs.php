@@ -196,9 +196,16 @@ function closeRunBuildPacket(int $tenantId, int $runId, ?int $actorUserId = null
     }
 
     $periodId = (int) $run['period_id'];
+    $periodStmt = getDB()->prepare('SELECT status, close_cycle FROM accounting_periods
+        WHERE tenant_id = :t AND id = :p');
+    $periodStmt->execute(['t' => $tenantId, 'p' => $periodId]);
+    $period = $periodStmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$period || !in_array($period['status'], ['closed', 'locked'], true)) {
+        throw new \RuntimeException('Close the accounting period before building its packet');
+    }
     if (!empty($run['packet_id'])) {
         $existing = accountingLoadRecordedClosePacket($tenantId, $periodId, (int) $run['packet_id']);
-        if ($existing) {
+        if ($existing && (int) $existing['close_cycle'] === (int) $period['close_cycle']) {
             return ['run_id' => $runId, 'packet_id' => (int) $run['packet_id'],
                 'artifact_id' => $run['packet_artifact_id'], 'status' => $run['status'],
                 'content_sha256' => $existing['content_sha256']];
@@ -274,9 +281,16 @@ function closeRunLock(int $tenantId, int $runId, ?int $actorUserId = null): arra
     if ($run['status'] !== 'packet_built') {
         throw new \RuntimeException("cannot lock run {$runId} from status '{$run['status']}' — build the packet first");
     }
-    if (empty($run['packet_id'])
-        || !accountingLoadRecordedClosePacket($tenantId, (int) $run['period_id'], (int) $run['packet_id'])) {
-        throw new \RuntimeException("cannot lock run {$runId} without a retained close packet");
+    $periodStmt = getDB()->prepare('SELECT status, close_cycle FROM accounting_periods
+        WHERE tenant_id = :t AND id = :p');
+    $periodStmt->execute(['t' => $tenantId, 'p' => (int) $run['period_id']]);
+    $period = $periodStmt->fetch(\PDO::FETCH_ASSOC);
+    $packet = !empty($run['packet_id'])
+        ? accountingLoadRecordedClosePacket($tenantId, (int) $run['period_id'], (int) $run['packet_id'])
+        : null;
+    if (!$period || $period['status'] !== 'locked' || !$packet
+        || (int) $packet['close_cycle'] !== (int) $period['close_cycle']) {
+        throw new \RuntimeException("cannot lock run {$runId} until the period is locked with a current close packet");
     }
     getDB()->prepare(
         'UPDATE accounting_close_runs

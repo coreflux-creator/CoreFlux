@@ -17,6 +17,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/accounting.php';
+require_once __DIR__ . '/../lib/close.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -36,7 +37,7 @@ if ($method === 'GET') {
     if (!empty($_GET['from']))      { $where[] = 'end_date   >= :f'; $params['f'] = $_GET['from']; }
     if (!empty($_GET['to']))        { $where[] = 'start_date <= :t'; $params['t'] = $_GET['to']; }
     $rows = scopedQuery(
-        'SELECT id, entity_id, period_number, start_date, end_date, status, closed_at, closed_by_user_id, reopened_at, reopen_reason
+        'SELECT id, entity_id, period_number, start_date, end_date, status, close_cycle, closed_at, closed_by_user_id, reopened_at, reopen_reason
          FROM accounting_periods WHERE ' . implode(' AND ', $where) . '
          ORDER BY start_date DESC LIMIT 200',
         $params
@@ -135,10 +136,42 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
 
     $pdo = getDB();
     $now = date('Y-m-d H:i:s');
+    $reject = static function (string $message, int $status, array $extra = []) use ($pdo): void {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($message, $status, $extra);
+    };
+
+    try {
+        $pdo->beginTransaction();
+        // Journals lock the legal entity before resolving the period. Use the
+        // same order so close and posting cannot pass each other's status check.
+        $entityLock = $pdo->prepare('SELECT id FROM accounting_entities
+            WHERE tenant_id = :t AND id = :e FOR UPDATE');
+        $entityLock->execute(['t' => $tid, 'e' => (int) $row['entity_id']]);
+        if (!$entityLock->fetchColumn()) $reject('Legal entity not found', 404);
+        $periodLock = $pdo->prepare('SELECT * FROM accounting_periods
+            WHERE tenant_id = :t AND id = :id FOR UPDATE');
+        $periodLock->execute(['t' => $tid, 'id' => $id]);
+        $lockedRow = $periodLock->fetch(\PDO::FETCH_ASSOC);
+        if (!$lockedRow || (int) $lockedRow['entity_id'] !== (int) $row['entity_id']) {
+            $reject('Period changed while closing; refresh and retry', 409);
+        }
+        $row = $lockedRow;
+
+        if (in_array($action, ['soft_close', 'close'], true)) {
+            $reviewCount = $pdo->prepare('SELECT COUNT(*) FROM accounting_close_tasks
+                WHERE tenant_id = :t AND period_id = :p
+                    AND task_key NOT IN ("lock_period", "build_packet")');
+            $reviewCount->execute(['t' => $tid, 'p' => $id]);
+            if ((int) $reviewCount->fetchColumn() === 0) {
+                $reject('Start the month-end checklist before closing this period', 409,
+                    ['code' => 'close_checklist_missing']);
+            }
+        }
 
     if ($action === 'soft_close') {
         if (!in_array($row['status'], ['open','reopened'], true)) {
-            api_error("Cannot soft-close from status {$row['status']}", 409);
+            $reject("Cannot soft-close from status {$row['status']}", 409);
         }
         // P1.8 — close-packet blocking gate. Spec re-audit:
         // "Accounting close packets must be wired into the actual close
@@ -160,7 +193,7 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
         if ($openTasks) {
             $override = !empty($body['close_with_open_tasks']);
             if (!$override || $reason === '') {
-                api_error(
+                $reject(
                     'Soft-close blocked: ' . count($openTasks)
                     . ' close task(s) still open. Resolve them, mark them skipped,'
                     . ' OR re-submit with close_with_open_tasks=true + reason.',
@@ -177,13 +210,13 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
         $pdo->prepare(
             'UPDATE accounting_periods
              SET status = "soft_closed", closed_at = :ts, closed_by_user_id = :u
-             WHERE id = :id'
-        )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'id' => $id]);
+             WHERE id = :id AND tenant_id = :t'
+        )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'id' => $id, 't' => $tid]);
         accountingAudit('accounting.period.soft_closed', ['period_id' => $id, 'period_number' => (int) $row['period_number']], $id);
     }
     if ($action === 'close') {
         if (!in_array($row['status'], ['open','soft_closed','reopened'], true)) {
-            api_error("Cannot close from status {$row['status']}", 409);
+            $reject("Cannot close from status {$row['status']}", 409);
         }
         // P1.8 — same blocking gate on hard close.
         $blockers = $pdo->prepare(
@@ -199,7 +232,7 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
         if ($openTasks) {
             $override = !empty($body['close_with_open_tasks']);
             if (!$override || $reason === '') {
-                api_error(
+                $reject(
                     'Period close blocked: ' . count($openTasks)
                     . ' close task(s) still open. Resolve them, mark them skipped,'
                     . ' OR re-submit with close_with_open_tasks=true + reason.',
@@ -215,22 +248,40 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
             'UPDATE accounting_periods
-             SET status = "closed", closed_at = :ts, closed_by_user_id = :u
-             WHERE id = :id'
-        )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'id' => $id]);
+             SET status = "closed", closed_at = :ts, closed_by_user_id = :u,
+                 close_cycle = close_cycle + 1
+             WHERE id = :id AND tenant_id = :t'
+        )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'id' => $id, 't' => $tid]);
         accountingAudit('accounting.period.closed', ['period_id' => $id, 'period_number' => (int) $row['period_number']], $id);
     }
     if ($action === 'lock') {
-        if ($reason === '') api_error('reason required to lock a period', 422);
+        if ($reason === '') $reject('reason required to lock a period', 422);
         if ($row['status'] !== 'closed') {
-            api_error("Period must be 'closed' before lock; current: {$row['status']}", 409);
+            $reject("Period must be 'closed' before lock; current: {$row['status']}", 409);
+        }
+        $packet = $pdo->prepare('SELECT p.id FROM accounting_close_packets p
+            JOIN accounting_close_packet_snapshots s ON s.packet_id = p.id
+                AND s.tenant_id = p.tenant_id AND s.period_id = p.period_id
+            WHERE p.tenant_id = :t AND p.period_id = :p AND p.close_cycle = :cycle
+            ORDER BY p.id DESC LIMIT 1');
+        $packet->execute(['t' => $tid, 'p' => $id, 'cycle' => (int) $row['close_cycle']]);
+        $packetId = (int) $packet->fetchColumn();
+        if (!$packetId) {
+            $reject('Save a close packet before locking this period', 409,
+                ['code' => 'close_packet_missing']);
+        }
+        try {
+            accountingLoadRecordedClosePacket($tid, $id, $packetId);
+        } catch (\RuntimeException $e) {
+            $reject('Saved close packet failed its integrity check', 409,
+                ['code' => 'close_packet_integrity']);
         }
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
             'UPDATE accounting_periods
              SET status = "locked", locked_at = :ts, locked_by_user_id = :u
-             WHERE id = :id'
-        )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'id' => $id]);
+             WHERE id = :id AND tenant_id = :t'
+        )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'id' => $id, 't' => $tid]);
         $pdo->prepare('UPDATE accounting_close_tasks
             SET status = "done", completed_at = :ts, completed_by_user_id = :u
             WHERE tenant_id = :t AND period_id = :p AND task_key = "lock_period"
@@ -241,20 +292,20 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
         ], $id);
     }
     if ($action === 'reopen') {
-        if ($reason === '') api_error('reason required to reopen a closed period', 422);
+        if ($reason === '') $reject('reason required to reopen a closed period', 422);
         if (!in_array($row['status'], ['closed','soft_closed','locked'], true)) {
-            api_error("Cannot reopen from status {$row['status']}", 409);
+            $reject("Cannot reopen from status {$row['status']}", 409);
         }
         // Reopening a locked period requires master_admin per spec §6.
         if ($row['status'] === 'locked' && ($user['role'] ?? '') !== 'master_admin') {
-            api_error('Only master_admin can reopen a locked period', 403);
+            $reject('Only master_admin can reopen a locked period', 403);
         }
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
             'UPDATE accounting_periods
              SET status = "reopened", reopened_at = :ts, reopened_by_user_id = :u, reopen_reason = :r
-             WHERE id = :id'
-        )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id]);
+             WHERE id = :id AND tenant_id = :t'
+        )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id, 't' => $tid]);
         accountingAudit('accounting.period.reopened', ['period_id' => $id, 'period_number' => (int) $row['period_number'], 'reason' => $reason], $id);
 
         // Auto-reverse every locked consolidation run whose period_to
@@ -279,6 +330,12 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
                 'period_id' => $id, 'reversed_count' => $affected,
             ], $id);
         }
+    }
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('[accounting.period.transition] ' . $e->getMessage());
+        api_error('Could not change period status. Refresh and try again.', 500);
     }
     api_ok(['ok' => true]);
 }

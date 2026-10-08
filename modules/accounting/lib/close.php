@@ -198,7 +198,7 @@ function accountingRecordClosePacket(int $tenantId, int $periodId, ?int $actorUs
     $pdo = getDB();
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare('SELECT id, entity_id, status FROM accounting_periods
+        $stmt = $pdo->prepare('SELECT id, entity_id, status, close_cycle FROM accounting_periods
             WHERE tenant_id = :t AND id = :p FOR UPDATE');
         $stmt->execute(['t' => $tenantId, 'p' => $periodId]);
         $period = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -218,13 +218,15 @@ function accountingRecordClosePacket(int $tenantId, int $periodId, ?int $actorUs
         $metadata = array_merge($summary, [
             'entity_id' => (int) $period['entity_id'],
             'period_status' => (string) $period['status'],
+            'close_cycle' => (int) $period['close_cycle'],
             'html_length' => strlen($html),
             'content_sha256' => $hash,
         ]);
         $pdo->prepare('INSERT INTO accounting_close_packets
-            (tenant_id, period_id, file_format, summary_json, built_by_user_id)
-            VALUES (:t, :p, "html", :summary, :user_id)')
+            (tenant_id, period_id, close_cycle, file_format, summary_json, built_by_user_id)
+            VALUES (:t, :p, :cycle, "html", :summary, :user_id)')
             ->execute(['t' => $tenantId, 'p' => $periodId,
+                'cycle' => (int) $period['close_cycle'],
                 'summary' => json_encode($metadata, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
                 'user_id' => $actorUserId]);
         $packetId = (int) $pdo->lastInsertId();
@@ -236,6 +238,7 @@ function accountingRecordClosePacket(int $tenantId, int $periodId, ?int $actorUs
         $pdo->commit();
         return ['id' => $packetId, 'period_id' => $periodId,
             'entity_id' => (int) $period['entity_id'], 'period_status' => $period['status'],
+            'close_cycle' => (int) $period['close_cycle'],
             'content_sha256' => $hash, 'length' => strlen($html)];
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -245,7 +248,7 @@ function accountingRecordClosePacket(int $tenantId, int $periodId, ?int $actorUs
 
 /** Return a retained version only when its bytes still match the recorded hash. */
 function accountingLoadRecordedClosePacket(int $tenantId, int $periodId, int $packetId): ?array {
-    $stmt = getDB()->prepare('SELECT p.id, p.period_id, p.built_at, p.built_by_user_id,
+    $stmt = getDB()->prepare('SELECT p.id, p.period_id, p.close_cycle, p.built_at, p.built_by_user_id,
             s.html_snapshot, s.content_sha256
         FROM accounting_close_packets p
         JOIN accounting_close_packet_snapshots s ON s.packet_id = p.id
@@ -260,7 +263,7 @@ function accountingLoadRecordedClosePacket(int $tenantId, int $periodId, int $pa
 }
 
 function accountingListRecordedClosePackets(int $tenantId, int $periodId): array {
-    $stmt = getDB()->prepare('SELECT p.id, p.built_at, p.built_by_user_id,
+    $stmt = getDB()->prepare('SELECT p.id, p.close_cycle, p.built_at, p.built_by_user_id,
             p.summary_json, s.content_sha256
         FROM accounting_close_packets p
         JOIN accounting_close_packet_snapshots s ON s.packet_id = p.id
@@ -272,6 +275,7 @@ function accountingListRecordedClosePackets(int $tenantId, int $periodId): array
         $summary = json_decode((string) ($row['summary_json'] ?? ''), true);
         unset($row['summary_json']);
         $row['id'] = (int) $row['id'];
+        $row['close_cycle'] = (int) $row['close_cycle'];
         $row['summary'] = is_array($summary) ? $summary : [];
         return $row;
     }, $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
