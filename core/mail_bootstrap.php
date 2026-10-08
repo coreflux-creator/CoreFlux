@@ -8,6 +8,7 @@
  *
  * Wiring rules:
  *   - RESEND_API_KEY set  → ResendDriver registered, becomes default outbound.
+ *   - CoreAccounting mode → only COREFLUX_ACCOUNTING_RESEND_API_KEY and its sender are used.
  *   - key missing         → ResendDriver remains default and fails visibly.
  *   - MAIL_DRIVER=log     → LogDriver becomes default (explicit dev/test mode).
  *
@@ -39,13 +40,16 @@ if (!function_exists('cf_mail_bootstrap')) {
         static $booted = null;
         if ($booted instanceof MailService) return $booted;
 
-        // Resend key may live in env (Cloudways pattern) or as a define() in
-        // /app/core/config.local.php (matches existing OpenAI / Plaid secrets).
-        // Either path satisfies the "configured" check.
-        $resendKey = (string) getenv('RESEND_API_KEY');
-        if ($resendKey === '' && defined('RESEND_API_KEY')) {
-            $resendKey = (string) constant('RESEND_API_KEY');
-        }
+        // The standalone service must not inherit an ERP provider key or sender
+        // from a copied host-local config file.
+        $standaloneAccounting = getenv('COREFLUX_ENV') === 'coreaccounting';
+        $resendDriver = $standaloneAccounting
+            ? new ResendDriver(
+                (string) (getenv('COREFLUX_ACCOUNTING_RESEND_API_KEY') ?: ''),
+                (string) (getenv('COREFLUX_ACCOUNTING_FROM_EMAIL') ?: ''),
+                (string) (getenv('COREFLUX_ACCOUNTING_FROM_NAME') ?: '')
+            )
+            : new ResendDriver();
         // Log-only delivery must be explicit. A missing production key should
         // produce a failed send (from ResendDriver's configuration guard), not
         // a false `sent` result from LogDriver when nothing left the server.
@@ -54,7 +58,7 @@ if (!function_exists('cf_mail_bootstrap')) {
         $logOnly            = $staging || $mailDriverOverride === 'log';
         $default            = $logOnly
             ? new LogDriver()
-            : new ResendDriver();
+            : $resendDriver;
 
         $writer = function (array $row): int {
             try {
@@ -103,7 +107,7 @@ if (!function_exists('cf_mail_bootstrap')) {
         $booted = MailService::reset($default, $writer);
         // Keep both drivers addressable for diagnostics and explicit overrides.
         if ($default->driver_name() === 'resend') $booted->register_driver(new LogDriver());
-        elseif (!$staging)                        $booted->register_driver(new ResendDriver());
+        elseif (!$staging)                        $booted->register_driver($resendDriver);
         return $booted;
     }
 }

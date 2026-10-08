@@ -104,4 +104,33 @@ if ($exit !== 0 || json_decode(trim($output), true) !==
     throw new RuntimeException('Standalone mode did not isolate database, public origin and mail defaults.');
 }
 
+$mailProbe = $definitions . ' require ' . $mailBootstrap
+    . '; $result = cf_mail_bootstrap()->driver("resend")->send(["to" => []]);'
+    . ' echo $result["error"] ?? "";';
+$mailEnv = array_replace($standalone, [
+    'COREFLUX_DISABLE_DATABASE' => '1',
+    'RESEND_API_KEY' => 're_legacy_test',
+    'RESEND_FROM_EMAIL' => 'legacy@example.test',
+    'COREFLUX_ACCOUNTING_RESEND_API_KEY' => null,
+    'COREFLUX_ACCOUNTING_FROM_EMAIL' => null,
+]);
+[$exit, $output] = runConfigCheck($mailProbe, $mailEnv);
+if ($exit !== 0 || trim($output) !== 'RESEND_API_KEY not configured') {
+    throw new RuntimeException('Standalone mail inherited the ERP provider key.');
+}
+
+[$exit, $output] = runConfigCheck($mailProbe, array_replace($mailEnv, ['COREFLUX_ENV' => null]));
+if ($exit !== 0 || trim($output) !== 'No recipients') {
+    throw new RuntimeException('The existing ERP mail provider key stopped working.');
+}
+
+$mailEnv['COREFLUX_ACCOUNTING_RESEND_API_KEY'] = 're_accounting_test';
+$mailWithRecipient = $definitions . ' require ' . $mailBootstrap
+    . '; $result = cf_mail_bootstrap()->driver("resend")->send(["to" => ["test@example.test"]]);'
+    . ' echo $result["error"] ?? "";';
+[$exit, $output] = runConfigCheck($mailWithRecipient, $mailEnv);
+if ($exit !== 0 || trim($output) !== 'From address not configured (set RESEND_FROM_EMAIL)') {
+    throw new RuntimeException('Standalone mail inherited the ERP sender.');
+}
+
 echo "Staging database configuration checks passed.\n";
