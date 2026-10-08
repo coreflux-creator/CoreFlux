@@ -210,9 +210,6 @@ switch (api_method()) {
                 ['id' => (int) $body['pay_period_id']]
             );
             if (!$period) api_error('Pay period not found', 404);
-            if (in_array((string) ($period['status'] ?? ''), ['paid', 'closed'], true)) {
-                api_error('This pay period is already closed', 409);
-            }
             $runType = (string) ($body['run_type'] ?? 'regular');
             if (!in_array($runType, ['regular', 'off_cycle', 'correction', 'final'], true)) {
                 api_error('Invalid run_type', 422);
@@ -226,6 +223,9 @@ switch (api_method()) {
             );
             if ($existingRun) {
                 api_ok(['id' => (int) $existingRun['id'], 'status' => $existingRun['status'], 'existing' => true]);
+            }
+            if (in_array((string) ($period['status'] ?? ''), ['paid', 'closed'], true)) {
+                api_error('This pay period is already closed', 409);
             }
             $pdo = getDB();
             $ownsTx = cf_tx_begin($pdo);

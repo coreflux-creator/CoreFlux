@@ -116,6 +116,17 @@ return [
         'payroll.gusto.webhook_verification_received',
     ],
 
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'run' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator'],
+                'approval_resource' => 'payroll.run',
+            ],
+        ],
+    ],
+
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
 
     'depends_on' => ['people', 'placements', 'time', 'accounting'],

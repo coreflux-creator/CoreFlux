@@ -218,7 +218,7 @@ foreach ($emps as $e) {
     }
 
     // Compensation is the source the gross-to-net engine actually uses.
-    $compensation = peopleActiveCompensation($empId);
+    $compensation = peopleActiveCompensation($empId, $periodEnd);
     if (!$compensation || (int) ($compensation['pay_rate_cents'] ?? 0) <= 0) {
         $blockers[] = [
             'id' => 'compensation', 'label' => 'Active compensation with a positive pay rate',
@@ -274,7 +274,8 @@ foreach ($emps as $e) {
     $personIds = array_values(array_unique(array_filter($personIds, static fn($id) => $id > 0)));
     $ph = [];
     $placementParams = [
-        'placements_tid' => $placementsTenantId,
+        'placements_rate_tid' => $placementsTenantId,
+        'placements_record_tid' => $placementsTenantId,
         'pe' => $periodEnd,
         'ps' => (string) $period['period_start'],
     ];
@@ -291,11 +292,11 @@ foreach ($emps as $e) {
                 pr.effective_from, pr.effective_to
            FROM placements pl
            LEFT JOIN placement_rates pr ON pr.placement_id = pl.id
-                                       AND pr.tenant_id = :placements_tid
+                                       AND pr.tenant_id = :placements_rate_tid
                                        AND pr.approved_at IS NOT NULL
                                        AND pr.effective_from <= :pe
                                        AND (pr.effective_to IS NULL OR pr.effective_to >= :ps)
-          WHERE pl.tenant_id = :placements_tid
+          WHERE pl.tenant_id = :placements_record_tid
             AND pl.person_id IN (" . implode(',', $ph) . ")
             AND pl.status IN ('active','pending_start')
           ORDER BY pl.id DESC, pr.effective_from DESC
