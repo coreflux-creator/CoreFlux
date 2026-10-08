@@ -62,4 +62,46 @@ if ($exit !== 0 || !str_contains($output, 'log:none')) {
     throw new RuntimeException('Staging mail bootstrap did not enforce log-only delivery.');
 }
 
+[$exit, $output] = runConfigCheck("require $config;", ['COREFLUX_ENV' => 'coreaccounting']);
+if ($exit === 0 || !str_contains($output, 'CoreAccounting database configuration is incomplete.')) {
+    throw new RuntimeException('Standalone mode accepted implicit database settings.');
+}
+
+$standalone = ['COREFLUX_ENV' => 'coreaccounting', 'COREFLUX_STANDALONE_DATABASE' => null,
+    'COREFLUX_PUBLIC_ORIGIN' => null];
+[$exit, $output] = runConfigCheck($definitions . " require $config;", $standalone);
+if ($exit === 0 || !str_contains($output, 'CoreAccounting database identity is missing or does not match.')) {
+    throw new RuntimeException('Standalone mode accepted a database without an expected identity.');
+}
+
+[$exit, $output] = runConfigCheck($definitions . " require $config;",
+    array_replace($standalone, ['COREFLUX_STANDALONE_DATABASE' => 'another_database']));
+if ($exit === 0 || !str_contains($output, 'CoreAccounting database identity is missing or does not match.')) {
+    throw new RuntimeException('Standalone mode accepted the wrong database.');
+}
+
+$standalone['COREFLUX_STANDALONE_DATABASE'] = 'stage_test';
+[$exit, $output] = runConfigCheck($definitions . " require $config;", $standalone);
+if ($exit === 0 || !str_contains($output, 'CoreAccounting requires an explicit HTTPS public origin.')) {
+    throw new RuntimeException('Standalone mode accepted an implicit public origin.');
+}
+
+$standalone['COREFLUX_PUBLIC_ORIGIN'] = 'http://accounting.example.test';
+[$exit, $output] = runConfigCheck($definitions . " require $config;", $standalone);
+if ($exit === 0 || !str_contains($output, 'CoreAccounting requires an explicit HTTPS public origin.')) {
+    throw new RuntimeException('Standalone mode accepted a non-HTTPS public origin.');
+}
+
+$standalone['COREFLUX_PUBLIC_ORIGIN'] = 'https://accounting.example.test';
+$standalone['SMTP_USER'] = null;
+$standalone['SMTP_PASS'] = null;
+$standalone['SMTP_FROM_EMAIL'] = null;
+[$exit, $output] = runConfigCheck($definitions . " \$_SERVER['HTTP_HOST'] = 'phpstack-123.cloudwaysapps.com'; require $config;
+    echo json_encode([DB_NAME, APP_URL, COREFLUX_STAGING, SMTP_USER, SMTP_PASS, SMTP_FROM_EMAIL]);",
+    $standalone);
+if ($exit !== 0 || json_decode(trim($output), true) !==
+    ['stage_test', 'https://accounting.example.test', false, '', '', '']) {
+    throw new RuntimeException('Standalone mode did not isolate database, public origin and mail defaults.');
+}
+
 echo "Staging database configuration checks passed.\n";
