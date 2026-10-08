@@ -12,7 +12,8 @@ require_once __DIR__ . '/accounting_staging_lifecycle.php';
 function qaBillingCsv(array $rows): string
 {
     $headers = ['invoice_number', 'client_name', 'entity_code', 'issue_date', 'due_date',
-        'currency', 'line_description', 'line_item_type', 'line_quantity', 'line_unit_price',
+        'currency', 'line_description', 'line_catalog_item_id', 'line_item_type',
+        'line_gl_revenue_account_code', 'line_quantity', 'line_unit_price',
         'line_subtotal', 'line_tax_amount', 'line_total'];
     $stream = fopen('php://temp', 'w+');
     if (!$stream) throw new RuntimeException('Could not assemble synthetic invoice CSV');
@@ -104,6 +105,21 @@ try {
         && str_contains(implode(' ', $wrongTypePreview['errors'][3] ?? []),
             'negative invoice line must use the discount item type'),
         'preview refuses to misclassify a negative line as labor');
+    $badCatalog = qaBillingCsv([array_replace($base, ['line_catalog_item_id' => '999999999'])]);
+    $catalogPreview = qaRequest('/modules/billing/api/csv_import.php?action=dry_run',
+        'POST', ['csv' => $badCatalog], $cookie);
+    qaExpect(($catalogPreview['error_count'] ?? 0) === 1
+        && str_contains(implode(' ', $catalogPreview['errors'][2] ?? []),
+            'catalog item is not active in this workspace'),
+        'preview refuses an unavailable catalog item');
+    $badAccount = qaBillingCsv([array_replace($base,
+        ['line_gl_revenue_account_code' => 'NO-SUCH-REVENUE'])]);
+    $accountPreview = qaRequest('/modules/billing/api/csv_import.php?action=dry_run',
+        'POST', ['csv' => $badAccount], $cookie);
+    qaExpect(($accountPreview['error_count'] ?? 0) === 1
+        && str_contains(implode(' ', $accountPreview['errors'][2] ?? []),
+            'revenue account is not active and postable'),
+        'preview refuses an unavailable revenue account');
     $subcentCsv = qaBillingCsv([array_replace($base, [
         'line_tax_amount' => '0.001', 'line_total' => '25.00',
     ])]);

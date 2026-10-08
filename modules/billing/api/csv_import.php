@@ -54,7 +54,9 @@ CsvImportService::registerSchema('billing_invoices', [
         'line_id'          => ['label' => 'Line ID (read only)', 'type' => 'integer'],
         'line_no'          => ['label' => 'Line #',           'type' => 'number'],
         'line_description' => ['label' => 'Line description'],
+        'line_catalog_item_id' => ['label' => 'Line catalog item ID', 'type' => 'integer'],
         'line_item_type'   => ['label' => 'Line item type', 'enum' => AP_LINE_ITEM_TYPES],
+        'line_gl_revenue_account_code' => ['label' => 'Line revenue account'],
         'line_quantity'    => ['label' => 'Line quantity',    'type' => 'number'],
         'line_unit'        => ['label' => 'Line unit'],
         'line_unit_price'  => ['label' => 'Line unit price',  'type' => 'number'],
@@ -145,9 +147,9 @@ if ($method === 'POST' && $action === 'dry_run') {
         CsvImportService::dryRun('billing_invoices', $csv, $columnMap),
         accountingCsvDocumentEntities(getDB(), $tid),
         'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date'],
-        static function (array $row, array $amounts): void {
+        static function (array $row, array $amounts) use ($tid): void {
             billingValidateImportedInvoiceLineAmounts($row, $amounts);
-            billingImportedInvoiceItemType($row, $amounts);
+            billingImportedInvoiceLineMetadata(getDB(), $tid, $row, $amounts);
         }, 'billingValidateImportedInvoiceGroupAmounts'
     );
     api_ok($review['result']);
@@ -165,9 +167,9 @@ if ($method === 'POST' && $action === 'commit') {
         CsvImportService::dryRun('billing_invoices', $csv, $columnMap),
         accountingCsvDocumentEntities(getDB(), $tid),
         'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date'],
-        static function (array $row, array $amounts): void {
+        static function (array $row, array $amounts) use ($tid): void {
             billingValidateImportedInvoiceLineAmounts($row, $amounts);
-            billingImportedInvoiceItemType($row, $amounts);
+            billingImportedInvoiceLineMetadata(getDB(), $tid, $row, $amounts);
         }, 'billingValidateImportedInvoiceGroupAmounts'
     );
     $dry = $review['result'];
@@ -306,18 +308,21 @@ if ($method === 'POST' && $action === 'commit') {
             foreach ($rows as $r) {
                 $lineNo++;
                 $amounts = accountingCsvDocumentLineAmounts($r);
+                $metadata = billingImportedInvoiceLineMetadata($pdo, $tid, $r, $amounts);
                 $pdo->prepare(
                     'INSERT INTO billing_invoice_lines
-                       (invoice_id, line_no, source_type, item_type, description, quantity, unit, unit_price,
-                        subtotal, tax_rate_pct, tax_amount, total)
+                       (invoice_id, line_no, source_type, catalog_item_id, item_type, description,
+                        quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total,
+                        gl_revenue_account_code)
                      VALUES
-                       (:invoice_id, :line_no, :stype, :item_type, :desc, :qty, :unit, :unit_price,
-                        :subtotal, 0, :tax_amount, :total)'
+                       (:invoice_id, :line_no, :stype, :catalog_item_id, :item_type, :desc,
+                        :qty, :unit, :unit_price, :subtotal, 0, :tax_amount, :total, :gl_rev)'
                 )->execute([
                     'invoice_id' => $invId,
                     'line_no'    => isset($r['line_no']) && (int) $r['line_no'] > 0 ? (int) $r['line_no'] : $lineNo,
                     'stype'      => 'manual',
-                    'item_type'  => billingImportedInvoiceItemType($r, $amounts),
+                    'catalog_item_id' => $metadata['catalog_item_id'],
+                    'item_type'  => $metadata['item_type'],
                     'desc'       => (string) ($r['line_description'] ?? ''),
                     'qty'        => $amounts['quantity'],
                     'unit'       => (string) ($r['line_unit'] ?? 'hour'),
@@ -325,6 +330,7 @@ if ($method === 'POST' && $action === 'commit') {
                     'subtotal'   => $amounts['subtotal'],
                     'tax_amount' => $amounts['tax'],
                     'total'      => $amounts['total'],
+                    'gl_rev'     => $metadata['gl_revenue_account_code'],
                 ]);
             }
             $pdo->commit();

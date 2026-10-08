@@ -9,10 +9,11 @@ if (PHP_SAPI !== 'cli' || ($argv[1] ?? '') !== '--execute') {
 define('QA_LIFECYCLE_LIBRARY_MODE', true);
 require_once __DIR__ . '/accounting_staging_lifecycle.php';
 
-function qaDiscountInvoiceCsv(string $number): string
+function qaDiscountInvoiceCsv(string $number, int $catalogItemId): string
 {
     $headers = ['invoice_number', 'client_name', 'entity_code', 'issue_date', 'due_date',
-        'currency', 'line_description', 'line_item_type', 'line_quantity', 'line_unit_price',
+        'currency', 'line_description', 'line_catalog_item_id', 'line_item_type',
+        'line_gl_revenue_account_code', 'line_quantity', 'line_unit_price',
         'line_subtotal', 'line_tax_amount', 'line_total'];
     $base = [
         'invoice_number' => $number,
@@ -23,8 +24,8 @@ function qaDiscountInvoiceCsv(string $number): string
         'currency' => 'USD',
     ];
     $rows = [
-        $base + ['line_description' => 'Invented service', 'line_item_type' => 'fixed_fee',
-            'line_quantity' => '2',
+        $base + ['line_description' => 'Invented service',
+            'line_catalog_item_id' => (string) $catalogItemId, 'line_quantity' => '2',
             'line_unit_price' => '12.50', 'line_subtotal' => '25.00',
             'line_tax_amount' => '0', 'line_total' => '25.00'],
         ['invoice_number' => $number, 'line_description' => 'Untaxed discount',
@@ -108,9 +109,20 @@ try {
     $before = qaBalances($pdo, $entityId);
     $run = gmdate('YmdHis') . '-' . bin2hex(random_bytes(3));
     $number = 'SYN-AR-DISCOUNT-' . $run;
+    $createdItem = qaRequest('/modules/billing/api/items.php', 'POST', [
+        'code' => 'SYN-SERVICE-' . $run,
+        'name' => 'Invented CSV Service',
+        'item_type' => 'fixed_fee',
+        'default_unit' => 'each',
+        'default_unit_price' => 12.5,
+        'gl_revenue_account_code' => '4000',
+        'taxable' => false,
+    ], $makerCookie);
+    $catalogItemId = (int) ($createdItem['id'] ?? 0);
+    qaExpect($catalogItemId > 0, 'synthetic service catalog item was created');
 
     $import = qaRequest('/modules/billing/api/csv_import.php?action=commit', 'POST',
-        ['csv' => qaDiscountInvoiceCsv($number)], $makerCookie);
+        ['csv' => qaDiscountInvoiceCsv($number, $catalogItemId)], $makerCookie);
     $invoiceId = (int) ($import['ids'][$number] ?? 0);
     $draft = qaOne($pdo, 'SELECT status, entity_id, created_by_user_id, subtotal,
             tax_total, total, journal_entry_id FROM billing_invoices
@@ -123,17 +135,23 @@ try {
         && $draft['journal_entry_id'] === null
         && qaBalances($pdo, $entityId) === $before,
         'CSV created one $23 draft without GL movement');
-    $types = $pdo->prepare('SELECT line_no, item_type FROM billing_invoice_lines
+    $types = $pdo->prepare('SELECT line_no, item_type, catalog_item_id, gl_revenue_account_code
+        FROM billing_invoice_lines
         WHERE invoice_id = :id ORDER BY line_no');
     $types->execute(['id' => $invoiceId]);
-    $storedTypes = array_column($types->fetchAll(PDO::FETCH_ASSOC), 'item_type', 'line_no');
-    qaExpect(($storedTypes[1] ?? null) === 'fixed_fee' && ($storedTypes[2] ?? null) === 'discount',
-        'CSV retains the service type and classifies the negative line as a discount');
+    $stored = array_column($types->fetchAll(PDO::FETCH_ASSOC), null, 'line_no');
+    qaExpect(($stored[1]['item_type'] ?? null) === 'fixed_fee'
+        && (int) ($stored[1]['catalog_item_id'] ?? 0) === $catalogItemId
+        && ($stored[1]['gl_revenue_account_code'] ?? null) === '4000'
+        && ($stored[2]['item_type'] ?? null) === 'discount',
+        'CSV retains catalog, revenue account and discount classification');
     $exported = qaDiscountExportRows($number, $makerCookie);
     qaExpect(count($exported) === 2
         && ($exported[0]['Line item type'] ?? null) === 'fixed_fee'
+        && (int) ($exported[0]['Line catalog item ID'] ?? 0) === $catalogItemId
+        && ($exported[0]['Line revenue account'] ?? null) === '4000'
         && ($exported[1]['Line item type'] ?? null) === 'discount',
-        'ordinary invoice CSV export preserves both line item types');
+        'ordinary invoice CSV export preserves catalog, account and type');
 
     qaRequest('/modules/billing/api/invoices.php?action=request_approval&id=' . $invoiceId,
         'POST', [], $makerCookie);
@@ -171,8 +189,16 @@ try {
         && abs((float) ($lines['cr'] ?? 0) - 23.0) < 0.005,
         'canonical journal is balanced at the net invoice amount');
 
+    qaRequest('/modules/billing/api/items.php?id=' . $catalogItemId,
+        'PATCH', ['active' => false], $makerCookie);
+    $inactive = qaOne($pdo, 'SELECT active FROM billing_items
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $catalogItemId]);
+    qaExpect((int) ($inactive['active'] ?? 1) === 0,
+        'synthetic catalog item is inactive after the posted-invoice test');
+
     echo json_encode(['run' => $run, 'invoice_id' => $invoiceId,
-        'journal_entry_id' => $journalId], JSON_PRETTY_PRINT), "\n";
+        'journal_entry_id' => $journalId, 'inactive_catalog_item_id' => $catalogItemId],
+        JSON_PRETTY_PRINT), "\n";
 } finally {
     foreach ([$maker, $reviewer] as $actor) {
         if ($actor && isset($actor['id'])) {

@@ -775,10 +775,11 @@ function billingValidateImportedInvoiceGroupAmounts(array $rows, array $lineAmou
     }
 }
 
-function billingImportedInvoiceItemType(array $row, array $amounts): string
+function billingImportedInvoiceItemType(array $row, array $amounts, ?string $catalogType = null): string
 {
     require_once __DIR__ . '/../../ap/lib/ap.php';
     $requested = strtolower(trim((string) ($row['line_item_type'] ?? '')));
+    if ($requested === '' && $catalogType !== null) $requested = strtolower(trim($catalogType));
     if ($requested !== '' && !in_array($requested, AP_LINE_ITEM_TYPES, true)) {
         throw new InvalidArgumentException('Invoice line item type is not supported');
     }
@@ -790,6 +791,51 @@ function billingImportedInvoiceItemType(array $row, array $amounts): string
         throw new InvalidArgumentException('A discount invoice line must have a negative subtotal');
     }
     return $requested !== '' ? $requested : ($isDiscount ? 'discount' : 'other');
+}
+
+/** Resolve optional product and revenue-account identity before CSV preview or save. */
+function billingImportedInvoiceLineMetadata(PDO $pdo, int $tenantId, array $row, array $amounts): array
+{
+    static $catalogCache = [];
+    static $accountCache = [];
+    $rawItemId = trim((string) ($row['line_catalog_item_id'] ?? ''));
+    $itemId = null;
+    $item = null;
+    if ($rawItemId !== '') {
+        $parsed = filter_var($rawItemId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($parsed === false) throw new InvalidArgumentException('Invoice catalog item ID must be positive');
+        $itemId = (int) $parsed;
+        $key = $tenantId . ':' . $itemId;
+        if (!array_key_exists($key, $catalogCache)) {
+            $stmt = $pdo->prepare('SELECT id, item_type, gl_revenue_account_code
+                FROM billing_items WHERE tenant_id = :t AND id = :id AND active = 1');
+            $stmt->execute(['t' => $tenantId, 'id' => $itemId]);
+            $catalogCache[$key] = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+        $item = $catalogCache[$key];
+        if (!$item) throw new InvalidArgumentException('Invoice catalog item is not active in this workspace');
+    }
+    $type = billingImportedInvoiceItemType($row, $amounts, $item['item_type'] ?? null);
+    $accountCode = trim((string) ($row['line_gl_revenue_account_code'] ?? ''));
+    if ($accountCode === '') $accountCode = trim((string) ($item['gl_revenue_account_code'] ?? ''));
+    if ($accountCode !== '') {
+        if (strlen($accountCode) > 40) {
+            throw new InvalidArgumentException('Invoice revenue account code is too long');
+        }
+        $key = $tenantId . ':' . $accountCode;
+        if (!array_key_exists($key, $accountCache)) {
+            $stmt = $pdo->prepare('SELECT id FROM accounting_accounts
+                WHERE tenant_id = :t AND code = :code AND account_type = "revenue"
+                    AND active = 1 AND is_postable = 1');
+            $stmt->execute(['t' => $tenantId, 'code' => $accountCode]);
+            $accountCache[$key] = (bool) $stmt->fetchColumn();
+        }
+        if (!$accountCache[$key]) {
+            throw new InvalidArgumentException('Invoice revenue account is not active and postable in this workspace');
+        }
+    }
+    return ['catalog_item_id' => $itemId, 'item_type' => $type,
+        'gl_revenue_account_code' => $accountCode !== '' ? $accountCode : null];
 }
 
 /**

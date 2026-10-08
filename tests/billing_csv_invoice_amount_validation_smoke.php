@@ -80,8 +80,8 @@ $check('discount-only invoice is rejected as a whole',
     $badGroup['result']['error_count'] === 1
     && str_contains(implode(' ', $badGroup['result']['errors'][2] ?? []), 'Invoice total must be positive'));
 $importer = (string) file_get_contents(__DIR__ . '/../modules/billing/api/csv_import.php');
-$check('invoice CSV importer validates amount and item type in preview and commit',
-    substr_count($importer, 'billingImportedInvoiceItemType($row, $amounts)') === 2
+$check('invoice CSV importer validates amount and item identity in preview and commit',
+    substr_count($importer, 'billingImportedInvoiceLineMetadata(getDB(), $tid, $row, $amounts)') === 2
     && substr_count($importer, "'billingValidateImportedInvoiceGroupAmounts'") === 2);
 
 $failed = count(array_filter($checks, static fn(bool $ok): bool => !$ok));

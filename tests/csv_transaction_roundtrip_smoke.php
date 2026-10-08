@@ -36,9 +36,16 @@ $check('invoice export carries stable record and line ids',
     && str_contains($billingExport, 'l.id AS line_id'));
 $check('invoice CSV round trip retains line item types',
     str_contains($billingImport, "'line_item_type'   => ['label' => 'Line item type'")
-    && str_contains($billingImport, 'billingImportedInvoiceItemType($r, $amounts)')
+    && str_contains($billingImport, "'item_type'  => \$metadata['item_type']")
     && str_contains($billingExport, 'l.item_type AS line_item_type')
     && str_contains($billingExport, "'line_item_type'   => 'Line item type'"));
+$check('invoice CSV round trip retains catalog and revenue account identity',
+    str_contains($billingImport, "'line_catalog_item_id' => ['label' => 'Line catalog item ID'")
+    && str_contains($billingImport, "'line_gl_revenue_account_code' => ['label' => 'Line revenue account'")
+    && str_contains($billingImport, "'catalog_item_id' => \$metadata['catalog_item_id']")
+    && str_contains($billingImport, "'gl_rev'     => \$metadata['gl_revenue_account_code']")
+    && str_contains($billingExport, 'l.catalog_item_id AS line_catalog_item_id')
+    && str_contains($billingExport, 'l.gl_revenue_account_code AS line_gl_revenue_account_code'));
 $check('invoice import exposes update mode',
     str_contains($billingImport, "_GET['update_existing']")
     && str_contains($billingImport, "scopedUpdate('billing_invoices'"));
