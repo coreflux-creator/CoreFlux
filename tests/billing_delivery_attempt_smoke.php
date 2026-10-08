@@ -9,6 +9,7 @@ final class DeliveryFakePDO extends PDO
     public array $invoice = [
         'id' => 31, 'tenant_id' => 17, 'status' => 'approved',
         'journal_entry_id' => 9, 'entity_id' => 3, 'opening_cutover_id' => null,
+        'sent_at' => null,
     ];
     public array $tokens = [];
     public array $calls = [];
@@ -75,6 +76,7 @@ final class DeliveryFakePDO extends PDO
         }
         if (str_contains($sql, 'UPDATE billing_invoices')) {
             if ($this->invoice['status'] === 'approved') $this->invoice['status'] = 'sent';
+            $this->invoice['sent_at'] ??= 'now';
             return 1;
         }
         if (str_contains($sql, 'SET revoked_at = NOW(), revoked_by_user_id = :actor')) {
@@ -107,6 +109,12 @@ final class DeliveryFakePDO extends PDO
         if (str_contains($sql, 'delivery_status IN ("pending", "uncertain")')) {
             foreach (array_reverse($this->tokens) as $token) {
                 if (in_array($token['delivery_status'], ['pending', 'uncertain'], true)) return $token;
+            }
+            return false;
+        }
+        if (str_contains($sql, 'delivery_status = "sent"')) {
+            foreach (array_reverse($this->tokens) as $token) {
+                if ($token['delivery_status'] === 'sent') return ['id' => $token['id']];
             }
             return false;
         }
@@ -203,6 +211,38 @@ $revoked = billingDeliveryResolve(17, 31, $third['token_id'], 'accepted', 'provi
 $check('reviewed accepted resend keeps paid-state rules and rotates the old link',
     $revoked === 1 && $db->invoice['status'] === 'sent'
     && $db->tokens[43]['revoked_at'] !== null && $db->tokens[44]['delivery_status'] === 'sent');
+
+$paidDb = new DeliveryFakePDO();
+$paidDb->invoice['status'] = 'paid';
+$GLOBALS['pdo'] = $paidDb;
+$paidFirstId = 'd223e456-e89b-42d3-a456-426614174000';
+$paidResendId = 'e223e456-e89b-42d3-a456-426614174000';
+try {
+    billingDeliveryReserve(17, 31, $paidFirstId, 'billing@example.test', true);
+    $check('paid but never sent rejects resend confirmation', false);
+} catch (DomainException $e) {
+    $check('paid but never sent rejects resend confirmation', count($paidDb->tokens) === 0);
+}
+$paidFirst = billingDeliveryReserve(17, 31, $paidFirstId, 'billing@example.test', false);
+billingDeliveryFinalize(17, 31, $paidFirst['token_id'], $paidFirstId, 'provider-paid', 7);
+$check('paid but never sent permits first delivery without changing paid status',
+    $paidDb->invoice['status'] === 'paid' && $paidDb->invoice['sent_at'] !== null
+    && $paidDb->tokens[42]['delivery_status'] === 'sent');
+$paidReplay = billingDeliveryReserve(17, 31, $paidFirstId, 'billing@example.test', false);
+$check('paid first delivery replays without a duplicate token',
+    $paidReplay['replayed'] && count($paidDb->tokens) === 1);
+$paidDb->invoice['sent_at'] = null;
+$check('accepted delivery token retains send history without a timestamp',
+    billingDeliveryWasSent($paidDb, 17, 31, $paidDb->invoice));
+try {
+    billingDeliveryReserve(17, 31, $paidResendId, 'billing@example.test', false);
+    $check('paid delivered invoice requires resend confirmation', false);
+} catch (DomainException $e) {
+    $check('paid delivered invoice requires resend confirmation', count($paidDb->tokens) === 1);
+}
+$paidResend = billingDeliveryReserve(17, 31, $paidResendId, 'billing@example.test', true);
+$check('paid delivered invoice permits confirmed resend',
+    !$paidResend['replayed'] && $paidResend['token_id'] === 43);
 
 echo "Invoice delivery attempts: {$passed} passed, {$failed} failed" . PHP_EOL;
 exit($failed === 0 ? 0 : 1);

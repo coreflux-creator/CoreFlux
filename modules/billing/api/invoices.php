@@ -950,7 +950,7 @@ if ($method === 'POST' && $action === 'send') {
             'delivery_status' => 'uncertain', 'retryable' => false,
         ]);
     }
-    billingAudit($row['status'] === 'approved' ? 'billing.invoice.sent' : 'billing.invoice.resent', [
+    billingAudit(($body['resend'] ?? false) ? 'billing.invoice.resent' : 'billing.invoice.sent', [
         'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
         'to' => $to, 'token_id' => $tok['token_id'],
         'email_status' => $sendRes['status'] ?? 'unknown',

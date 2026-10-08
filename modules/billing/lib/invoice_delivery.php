@@ -50,6 +50,17 @@ function billingDeliveryBlockingAttempt(PDO $pdo, int $tenantId, int $invoiceId)
     return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 }
 
+function billingDeliveryWasSent(PDO $pdo, int $tenantId, int $invoiceId, array $invoice): bool
+{
+    if (!empty($invoice['sent_at']) || $invoice['status'] === 'sent') return true;
+    $stmt = $pdo->prepare('SELECT id FROM billing_invoice_tokens
+                            WHERE tenant_id = :t AND invoice_id = :i
+                              AND delivery_status = "sent"
+                            ORDER BY id DESC LIMIT 1 FOR UPDATE');
+    $stmt->execute(['t' => $tenantId, 'i' => $invoiceId]);
+    return (bool) $stmt->fetchColumn();
+}
+
 /** Reserve before calling any mail driver, so concurrent requests see pending state. */
 function billingDeliveryReserve(
     int $tenantId, int $invoiceId, string $requestId, string $recipient, bool $resend
@@ -83,10 +94,11 @@ function billingDeliveryReserve(
         if (billingDeliveryBlockingAttempt($pdo, $tenantId, $invoiceId)) {
             throw new DomainException('An earlier invoice email needs delivery review before another can be sent.');
         }
-        if ($invoice['status'] === 'approved' && $resend) {
+        $wasSent = billingDeliveryWasSent($pdo, $tenantId, $invoiceId, $invoice);
+        if (!$wasSent && $resend) {
             throw new DomainException('This invoice has not been sent yet. Send it normally.');
         }
-        if ($invoice['status'] !== 'approved' && !$resend) {
+        if ($wasSent && !$resend) {
             throw new DomainException('This invoice was already sent. Confirm that you want to resend it.');
         }
 

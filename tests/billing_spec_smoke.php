@@ -133,6 +133,7 @@ $assert('detail has send button testid',       strpos($id, 'billing-invoice-send
 $assert('paid but unsent invoice keeps a first-send label',
     strpos($id, 'const hasBeenSent = Boolean(inv.sent_at)') !== false
     && strpos($id, "const sendActionLabel = hasBeenSent ? 'Resend' : 'Send'") !== false
+    && strpos($id, 'resend: hasBeenSent') !== false
     && substr_count($id, 'sendActionLabel') >= 4);
 $assert('detail has void button testid',       strpos($id, 'billing-invoice-void') !== false);
 $ifm = (string) file_get_contents(__DIR__ . '/../modules/billing/ui/InvoiceFromTimeBundleModal.jsx');

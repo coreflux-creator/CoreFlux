@@ -121,7 +121,7 @@ export default function InvoiceDetail() {
   const send = async () => {
     if (!sendRequestId.current) sendRequestId.current = crypto.randomUUID();
     const res = await run('send', () => api.post(`/api/v1/billing/invoices?action=send&id=${id}`, {
-      to: sendTo.trim(), request_id: sendRequestId.current, resend: inv.status !== 'approved',
+      to: sendTo.trim(), request_id: sendRequestId.current, resend: hasBeenSent,
     }));
     if (!res) return;
     if (res.url) setIssuedLink({ tokenId: Number(res.token_id), url: res.url });
