@@ -24,6 +24,7 @@ require_once __DIR__ . '/../lib/billing.php';
 require_once __DIR__ . '/../lib/invoice_drafts.php';
 require_once __DIR__ . '/../lib/invoice_pdf.php';
 require_once __DIR__ . '/../lib/entity_delivery.php';
+require_once __DIR__ . '/../lib/entity_scope.php';
 require_once __DIR__ . '/../lib/workflow.php';
 require_once __DIR__ . '/../../ap/lib/ap.php';   // apNormalizeItemType() — shared item_type vocabulary
 require_once __DIR__ . '/../../ap/lib/pwp.php';  // apPwpAutoLinkForArInvoice() — pay-when-paid auto-link
@@ -65,10 +66,13 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     rbac_legacy_require($user, 'billing.view');
     $id = (int) $_GET['id'];
     $inv = scopedFind(
-        'SELECT bi.*, je.status AS journal_status
+        'SELECT bi.*, je.status AS journal_status,
+                e.code AS entity_code, e.legal_name AS entity_name
            FROM billing_invoices bi
            LEFT JOIN accounting_journal_entries je
              ON je.tenant_id = bi.tenant_id AND je.id = bi.journal_entry_id
+           LEFT JOIN accounting_entities e
+             ON e.tenant_id = bi.tenant_id AND e.id = bi.entity_id
           WHERE bi.tenant_id = :tenant_id AND bi.id = :id',
         ['id' => $id]
     );
@@ -117,34 +121,43 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
 
 if ($method === 'GET' && $action === '') {
     rbac_legacy_require($user, 'billing.view');
-    $where  = ['tenant_id = :tenant_id'];
+    try {
+        $listEntityId = billingEntityFilterId($tid, isset($_GET['entity_id']) ? (string) $_GET['entity_id'] : null);
+    } catch (InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    } catch (OutOfBoundsException $e) {
+        api_error($e->getMessage(), 404);
+    }
+    $where  = ['bi.tenant_id = :tenant_id'];
     $params = [];
-    if (!empty($_GET['client_name'])) { $where[] = 'client_name = :cn';   $params['cn'] = $_GET['client_name']; }
-    if (!empty($_GET['status']))      { $where[] = 'status = :st';        $params['st'] = $_GET['status']; }
-    if (!empty($_GET['from']))        { $where[] = 'issue_date >= :df';   $params['df'] = $_GET['from']; }
-    if (!empty($_GET['to']))          { $where[] = 'issue_date <= :dt';   $params['dt'] = $_GET['to']; }
-    if (!empty($_GET['due_before']))  { $where[] = 'due_date < :db';      $params['db'] = $_GET['due_before']; }
+    if (!empty($_GET['client_name'])) { $where[] = 'bi.client_name = :cn';   $params['cn'] = $_GET['client_name']; }
+    if (!empty($_GET['status']))      { $where[] = 'bi.status = :st';        $params['st'] = $_GET['status']; }
+    if (!empty($_GET['from']))        { $where[] = 'bi.issue_date >= :df';   $params['df'] = $_GET['from']; }
+    if (!empty($_GET['to']))          { $where[] = 'bi.issue_date <= :dt';   $params['dt'] = $_GET['to']; }
+    if (!empty($_GET['due_before']))  { $where[] = 'bi.due_date < :db';      $params['db'] = $_GET['due_before']; }
     if (trim((string) ($_GET['q'] ?? '')) !== '') {
         $needle = '%' . trim((string) $_GET['q']) . '%';
-        $where[] = '(invoice_number LIKE :q_invoice OR client_name LIKE :q_client)';
+        $where[] = '(bi.invoice_number LIKE :q_invoice OR bi.client_name LIKE :q_client)';
         $params['q_invoice'] = $needle;
         $params['q_client'] = $needle;
     }
-    // Sprint 6c — respect the header's multi-entity switcher.
-    if (!empty($_GET['entity_id']))   { $where[] = 'entity_id = :eid';    $params['eid'] = (int) $_GET['entity_id']; }
+    if ($listEntityId !== null) { $where[] = 'bi.entity_id = :eid'; $params['eid'] = $listEntityId; }
     $perPage = max(1, min(200, (int) ($_GET['per_page'] ?? 50)));
     $page    = max(1, (int) ($_GET['page'] ?? 1));
     $offset  = ($page - 1) * $perPage;
 
     $rows = scopedQuery(
-        'SELECT id, entity_id, invoice_number, client_name, issue_date, due_date, currency,
-                subtotal, tax_total, total, amount_paid, amount_due, status,
-                po_number, bill_to_json, journal_entry_id, sent_at, created_at,
+        'SELECT bi.id, bi.entity_id, e.code AS entity_code, e.legal_name AS entity_name,
+                bi.invoice_number, bi.client_name, bi.issue_date, bi.due_date, bi.currency,
+                bi.subtotal, bi.tax_total, bi.total, bi.amount_paid, bi.amount_due, bi.status,
+                bi.po_number, bi.bill_to_json, bi.journal_entry_id, bi.sent_at, bi.created_at,
                 (SELECT je.status FROM accounting_journal_entries je
-                  WHERE je.tenant_id = billing_invoices.tenant_id
-                    AND je.id = billing_invoices.journal_entry_id) AS journal_status
-         FROM billing_invoices WHERE ' . implode(' AND ', $where) . '
-         ORDER BY id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
+                  WHERE je.tenant_id = bi.tenant_id
+                    AND je.id = bi.journal_entry_id) AS journal_status
+         FROM billing_invoices bi
+         LEFT JOIN accounting_entities e ON e.tenant_id = bi.tenant_id AND e.id = bi.entity_id
+         WHERE ' . implode(' AND ', $where) . '
+         ORDER BY bi.id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
     $contactMap = [];
@@ -180,8 +193,9 @@ if ($method === 'GET' && $action === '') {
         unset($invoiceRow['bill_to_json']);
     }
     unset($invoiceRow);
-    $cnt  = scopedQuery('SELECT COUNT(*) AS c FROM billing_invoices WHERE ' . implode(' AND ', $where), $params);
-    api_ok(['rows' => $rows, 'total' => (int) ($cnt[0]['c'] ?? 0), 'page' => $page, 'per_page' => $perPage]);
+    $cnt  = scopedQuery('SELECT COUNT(*) AS c FROM billing_invoices bi WHERE ' . implode(' AND ', $where), $params);
+    api_ok(['rows' => $rows, 'total' => (int) ($cnt[0]['c'] ?? 0),
+        'entity_id' => $listEntityId, 'page' => $page, 'per_page' => $perPage]);
 }
 
 if ($method === 'POST' && $action === 'suggest-from-placement') {

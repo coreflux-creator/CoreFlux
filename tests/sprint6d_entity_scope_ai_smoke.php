@@ -23,7 +23,7 @@ $assert('bills.php accepts ?entity_id',              stripos($bApi, "\$_GET['ent
 $assert('bills.php filters by entity_id in WHERE',   preg_match("#entity_id\\s*=\\s*:eid#", $bApi) === 1);
 
 $bUI  = (string) file_get_contents("{$ROOT}/modules/ap/ui/BillsList.jsx");
-$assert('BillsList imports useActiveEntity',         stripos($bUI, 'useActiveEntity') !== false);
+$assert('BillsList imports shared entity scope',      stripos($bUI, 'useAccountingEntityScope') !== false);
 $assert('BillsList threads entity_id into qs',       stripos($bUI, "qs.set('entity_id'") !== false);
 $assert('BillsList shows scope notice testid',       stripos($bUI, 'data-testid="ap-bills-entity-scope"') !== false);
 
@@ -33,8 +33,10 @@ $assert('invoices.php accepts ?entity_id',           stripos($iApi, "\$_GET['ent
 $assert('invoices.php filters by entity_id',         preg_match("#entity_id\\s*=\\s*:eid#", $iApi) === 1);
 
 $iUI  = (string) file_get_contents("{$ROOT}/modules/billing/ui/InvoicesList.jsx");
-$assert('InvoicesList remains tenant-wide',          stripos($iUI, "qs.set('entity_id'") === false);
-$assert('InvoicesList does not hide unassigned rows',stripos($iUI, 'billing-invoices-entity-scope') === false);
+$assert('InvoicesList defaults to all legal entities', stripos($iUI, 'useAccountingEntityScope({ defaultAll: true })') !== false);
+$assert('InvoicesList can filter by legal entity',    stripos($iUI, "qs.set('entity_id'") !== false);
+$assert('InvoicesList shows entity selector and column',
+    stripos($iUI, 'billing-invoices-entity') !== false && stripos($iUI, 'entity_code') !== false);
 $assert('Invoice create still assigns entity',       stripos((string) file_get_contents("{$ROOT}/modules/billing/ui/InvoiceCreate.jsx"), 'billing-invoice-create-entity') !== false);
 
 echo "\nSchema contract — entity_id columns exist in migrations\n";

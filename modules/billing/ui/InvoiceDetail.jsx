@@ -1,13 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { ArrowRight, BookOpenCheck, Check, Landmark, Send, UserRoundCog, X } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
+import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 
 const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 
 export default function InvoiceDetail() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const requestedScope = searchParams.get('entity_id');
+  const requestedEntityId = requestedScope && /^[1-9][0-9]*$/.test(requestedScope)
+    ? Number(requestedScope) : null;
+  const listPath = addEntityScope('/modules/billing/invoices', requestedEntityId, requestedScope === 'all');
+  const editPath = addEntityScope(`/modules/billing/invoices/${id}/edit`, requestedEntityId, requestedScope === 'all');
   const { data, loading, error, reload } = useApi(`/api/v1/billing/invoices?id=${id}`);
   const [busy, setBusy] = useState(null);
   const [actionError, setActionError] = useState(null);
@@ -117,19 +124,22 @@ export default function InvoiceDetail() {
 
   return (
     <section data-testid="billing-invoice-detail">
-      <Link to="/modules/billing/invoices" style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← All invoices</Link>
+      <Link to={listPath} style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Invoices</Link>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginTop: 8, marginBottom: 'var(--cf-space-4)' }}>
         <div>
           <h2 style={{ margin: 0 }} data-testid="billing-invoice-detail-number">{inv.invoice_number}</h2>
           <p style={{ margin: '4px 0', color: 'var(--cf-text-secondary)', fontSize: 14 }}>{inv.client_name} · issued {inv.issue_date} · due {inv.due_date}</p>
+          <p style={{ margin: '4px 0', color: 'var(--cf-text-secondary)', fontSize: 13 }} data-testid="billing-invoice-detail-entity">
+            Issued by {inv.entity_name ? `${inv.entity_name} (${inv.entity_code})` : 'an unassigned legal entity'}
+          </p>
           <span className={`badge badge--${inv.status}`}>{statusLabel(inv.status)}</span>
           {inv.opening_cutover_id && <p style={{ margin: '8px 0 0', color: 'var(--cf-text-secondary)', fontSize: 13 }}>
             Opening receivable. This is the unpaid balance brought forward; the original invoice and payment history were not imported.
           </p>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {canEdit && <Link className="btn btn--ghost" to={`/modules/billing/invoices/${id}/edit`} data-testid="billing-invoice-edit">Edit draft</Link>}
+          {canEdit && <Link className="btn btn--ghost" to={editPath} data-testid="billing-invoice-edit">Edit draft</Link>}
           {!inv.opening_cutover_id && <button className="btn btn--ghost" onClick={previewPdf} data-testid="billing-invoice-preview-pdf" title="Open PDF preview in a new tab">Preview PDF</button>}
           {!inv.opening_cutover_id && <button className="btn btn--ghost" onClick={downloadPdf} data-testid="billing-invoice-download-pdf" title="Download PDF">Download</button>}
           {canRequest && <button className="btn btn--primary" onClick={requestApproval} disabled={Boolean(busy)} data-testid="billing-invoice-request-approval"><Send size={15} aria-hidden="true" /> {busy==='request' ? 'Requesting…' : 'Request approval'}</button>}

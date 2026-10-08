@@ -27,8 +27,11 @@ $lightWorkspaceDeployPath = $root . '/.github/workflows/deploy-light-workspace.y
 echo "Invoice visibility and issuing entity\n";
 $check('accounting opens the native billing invoice workflow',
     str_contains($accountingNav, "to: '/modules/billing/invoices', label: 'Invoices'"));
-$check('invoice list is tenant-wide', !str_contains($list, "qs.set('entity_id'"));
-$check('new invoice defaults from active entity', str_contains($create, 'activeEntityId') && str_contains($create, 'setEntityId(activeEntityId'));
+$check('invoice list defaults to all entities and allows filtering',
+    str_contains($list, 'useAccountingEntityScope({ defaultAll: true })')
+    && str_contains($list, "qs.set('entity_id'"));
+$check('new invoice defaults from the selected or active entity',
+    str_contains($create, 'requestedEntityId ?? activeEntityId'));
 $check('issuing entity is required in UI', str_contains($create, 'allowNone={false}') && str_contains($create, 'required'));
 $check('draft service resolves a valid issuing entity',
     str_contains($invoiceApi, 'billingCreateDirectInvoiceDraft(')

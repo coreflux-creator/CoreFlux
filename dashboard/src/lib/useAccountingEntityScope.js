@@ -13,11 +13,12 @@ export function addEntityScope(path, entityId, allEntities = false) {
   return pathname + (suffix ? `?${suffix}` : '') + (hash ? `#${hash}` : '');
 }
 
-export function useAccountingEntityScope() {
+export function useAccountingEntityScope({ defaultAll = false } = {}) {
   const [params, setParams] = useSearchParams();
   const { activeEntityId, entities, loaded, error: entityError, reload: reloadEntities } = useActiveEntity();
   const requested = params.get('entity_id');
-  const allEntities = requested === 'all' || (requested === null && loaded && entities.length === 0 && !entityError);
+  const allEntities = requested === 'all' || (requested === null && loaded && !entityError
+    && (entities.length === 0 || (defaultAll && entities.length > 1)));
   const requestedId = requested && /^[1-9][0-9]*$/.test(requested) ? Number(requested) : null;
   const entityId = allEntities ? null : requested === null ? activeEntityId : requestedId;
   const entity = entities.find(row => Number(row.id) === Number(entityId)) || null;

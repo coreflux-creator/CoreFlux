@@ -1230,6 +1230,10 @@ function exportDatasetFetchBillingInvoices(int $tenantId, array $opts): array {
         $where[] = 'client_name = :client_name';
         $params['client_name'] = (string) $opts['client_name'];
     }
+    if (!empty($opts['entity_id'])) {
+        $where[] = 'entity_id = :entity_id';
+        $params['entity_id'] = (int) $opts['entity_id'];
+    }
 
     $stmt = $pdo->prepare(
         'SELECT id AS invoice_id, invoice_number, client_name, currency, issue_date, due_date,

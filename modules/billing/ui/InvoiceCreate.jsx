@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import EntityPicker from '../../../dashboard/src/components/EntityPicker';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import LineItemEditor, { blankLine } from '../../../dashboard/src/components/LineItemEditor';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 
 /**
  * Manual Billing invoice creator — supports any item_type. Time-bundle-driven
@@ -13,8 +14,21 @@ import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 export default function InvoiceCreate() {
   const nav = useNavigate();
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const isEdit = Boolean(id);
-  const { activeEntityId, loaded: activeEntityLoaded } = useActiveEntity();
+  const requestedScope = searchParams.get('entity_id');
+  const requestedEntityId = requestedScope && /^[1-9][0-9]*$/.test(requestedScope)
+    ? Number(requestedScope) : null;
+  const { activeEntityId, entities, loaded: activeEntityLoaded } = useActiveEntity();
+  const requestedEntity = entities.find((row) => Number(row.id) === requestedEntityId);
+  const invalidScope = !isEdit && activeEntityLoaded && requestedScope !== null
+    && requestedScope !== 'all' && !requestedEntity;
+  const listPath = addEntityScope('/modules/billing/invoices', requestedEntityId, requestedScope === 'all');
+  const detailPath = (invoiceId, issuingEntityId) => addEntityScope(
+    `/modules/billing/invoices/${invoiceId}`,
+    requestedScope === 'all' ? null : issuingEntityId,
+    requestedScope === 'all',
+  );
   const accountsApi = useApi('/modules/accounting/api/accounts.php?type=revenue&active=1');
   const itemsApi = useApi('/modules/billing/api/items.php?active=1&per_page=500');
   const invoiceApi = useApi(isEdit ? `/api/v1/billing/invoices?id=${id}` : null, { enabled: isEdit });
@@ -68,9 +82,10 @@ export default function InvoiceCreate() {
       setEntityInitialized(true);
       return;
     }
-    setEntityId(activeEntityId ?? null);
+    if (invalidScope) return;
+    setEntityId(requestedEntityId ?? activeEntityId ?? null);
     setEntityInitialized(true);
-  }, [activeEntityId, activeEntityLoaded, entityId, entityInitialized, hydrated, isEdit]);
+  }, [activeEntityId, activeEntityLoaded, entityId, entityInitialized, hydrated, invalidScope, isEdit, requestedEntityId]);
 
   const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
   const taxableSubtotal = lines.reduce((sum, line) => (
@@ -111,10 +126,10 @@ export default function InvoiceCreate() {
       if (payload.lines.length === 0) throw new Error('Add at least one line item');
       if (isEdit) {
         await api.patch(`/api/v1/billing/invoices?id=${id}`, payload);
-        nav(`/modules/billing/invoices/${id}`);
+        nav(detailPath(id, entityId));
       } else {
         const res = await api.post('/api/v1/billing/invoices', payload);
-        nav(`/modules/billing/invoices/${res.id}`);
+        nav(detailPath(res.id, entityId));
       }
     } catch (e2) { setErr(e2); }
     finally     { setBusy(false); }
@@ -122,6 +137,9 @@ export default function InvoiceCreate() {
 
   if (isEdit && invoiceApi.loading && !hydrated) return <p>Loading...</p>;
   if (isEdit && invoiceApi.error) return <p className="error">Error: {invoiceApi.error.message}</p>;
+  if (invalidScope) return <section className="error" data-testid="billing-invoice-create-entity-error">
+    That legal entity is not available for a new invoice. <Link to="/modules/billing/invoices">Back to invoices</Link>
+  </section>;
 
   return (
     <section data-testid="billing-invoice-create">
@@ -129,7 +147,7 @@ export default function InvoiceCreate() {
         <div>
           <h2 style={{ margin: 0 }}>{isEdit ? 'Edit invoice' : 'New invoice'}</h2>
         </div>
-        <Link to="/modules/billing/invoices" className="btn btn--ghost" data-testid="billing-invoice-create-back">← Back</Link>
+        <Link to={listPath} className="btn btn--ghost" data-testid="billing-invoice-create-back">← Back</Link>
       </header>
 
       <form onSubmit={submit}>
@@ -165,6 +183,7 @@ export default function InvoiceCreate() {
               label="Issuing entity"
               required
               allowNone={false}
+              activeOnly={!isEdit}
             />
           </div>
         </div>
@@ -203,7 +222,7 @@ export default function InvoiceCreate() {
         {err && <p className="error" data-testid="billing-invoice-create-error">Error: {err.message}</p>}
 
         <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Link to="/modules/billing/invoices" className="btn btn--ghost" data-testid="billing-invoice-create-cancel">Cancel</Link>
+          <Link to={listPath} className="btn btn--ghost" data-testid="billing-invoice-create-cancel">Cancel</Link>
           <button type="submit" className="btn btn--primary" data-testid="billing-invoice-create-submit" disabled={busy}>
             {busy ? 'Saving...' : (isEdit ? 'Save draft' : 'Create draft invoice')}
           </button>

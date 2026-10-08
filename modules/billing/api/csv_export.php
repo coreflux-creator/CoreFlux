@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
 require_once __DIR__ . '/../../../core/export_service.php';
+require_once __DIR__ . '/../lib/entity_scope.php';
 
 use Core\CsvExportService;
 
@@ -24,12 +25,20 @@ $tenantId = (int) $ctx['tenant_id'];
 $userId = (int) ($user['id'] ?? 0);
 rbac_legacy_require($user, 'billing.view');
 // Delegated tenant scope sentinel for legacy CSV smokes: :tenant_id.
+try {
+    $entityId = billingEntityFilterId($tenantId, isset($_GET['entity_id']) ? (string) $_GET['entity_id'] : null);
+} catch (InvalidArgumentException $e) {
+    api_error($e->getMessage(), 422);
+} catch (OutOfBoundsException $e) {
+    api_error($e->getMessage(), 404);
+}
 
 $datasetOptions = [
     'status'      => (string) ($_GET['status'] ?? ''),
     'from'        => (string) ($_GET['from'] ?? ''),
     'to'          => (string) ($_GET['to'] ?? ''),
     'client_name' => (string) ($_GET['client_name'] ?? ''),
+    'entity_id'   => $entityId,
 ];
 
 $tplId = (int) ($_GET['template_id'] ?? 0);
@@ -68,6 +77,10 @@ if ($datasetOptions['to'] !== '') {
 if ($datasetOptions['client_name'] !== '') {
     $where[] = 'i.client_name = :client_name';
     $params['client_name'] = $datasetOptions['client_name'];
+}
+if ($entityId !== null) {
+    $where[] = 'i.entity_id = :entity_id';
+    $params['entity_id'] = $entityId;
 }
 
 $stmt = getDB()->prepare(
