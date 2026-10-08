@@ -82,6 +82,10 @@ $a('unlink keeps an unreleased PWP bill on collection hold',
     str_contains((string) file_get_contents($libPath), "\$bill['pwp_status'] !== 'awaiting_ar'")
     && str_contains((string) file_get_contents($libPath), 'SET linked_ar_invoice_id = NULL')
     && !str_contains((string) file_get_contents($libPath), 'SET linked_ar_invoice_id = NULL, pwp_status = "not_pwp"'));
+$a('late manual link releases a paid invoice without approving the bill',
+    str_contains((string) file_get_contents($libPath), "\$invoice['status'] === 'paid'")
+    && str_contains((string) file_get_contents($libPath), 'apPwpReleaseForArInvoice($tenantId, $arInvoiceId, $actorUserId)')
+    && !str_contains((string) file_get_contents($libPath), 'approved_at = COALESCE(approved_at, NOW())'));
 
 echo "\nfrom-time-bundle auto-link\n";
 $invSrc = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');

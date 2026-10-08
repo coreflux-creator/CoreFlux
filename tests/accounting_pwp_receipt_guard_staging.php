@@ -245,8 +245,36 @@ try {
         && abs(array_sum($balancesBefore)) < 0.005,
         'collected invoice and separately approved bill balance on the shared GL');
 
+    $lateBill = qaRequest('/modules/ap/api/bills.php', 'POST', [
+        'entity_id' => $entityId, 'vendor_name' => 'Synthetic PWP Vendor ' . $run,
+        'vendor_type' => 'other', 'bill_number' => 'PWP-LATE-' . $run,
+        'bill_date' => $date, 'received_at' => $date, 'due_date' => '2026-11-06',
+        'currency' => 'USD', 'tax_rate_pct' => 0,
+        'notes_internal' => 'Synthetic PWP late-link guard ' . $run,
+        'lines' => [['description' => 'Invented later subcontract service', 'quantity' => 1,
+            'unit' => 'each', 'unit_price' => 5.00, 'item_type' => 'expense',
+            'gl_expense_account_code' => '5000']],
+    ], $makerCookie);
+    $lateBillId = (int) ($lateBill['id'] ?? 0);
+    qaExpect($lateBillId > 0, 'a second synthetic bill arrives after customer collection');
+    $lateLink = qaRequest('/modules/ap/api/pwp.php?action=link', 'POST', [
+        'bill_id' => $lateBillId, 'ar_invoice_id' => $invoiceId, 'payment_terms' => 'PWP',
+    ], $makerCookie);
+    $lateState = qaOne($pdo, 'SELECT status, pwp_status, approved_at, pwp_released_at
+        FROM ap_bills WHERE tenant_id = :t AND id = :id',
+        ['t' => QA_TENANT, 'id' => $lateBillId]);
+    qaExpect(count($lateLink['released'] ?? []) === 1
+        && (int) ($lateLink['released'][0]['bill_id'] ?? 0) === $lateBillId
+        && $lateState['pwp_status'] === 'triggered'
+        && $lateState['pwp_released_at'] !== null
+        && $lateState['status'] === 'pending_approval'
+        && $lateState['approved_at'] === null
+        && qaBalances($pdo, $entityId) === $balancesBefore,
+        'late link releases the collection hold without approving or posting the bill');
+
     echo json_encode(['run' => $run, 'invoice_id' => $invoiceId, 'bill_id' => $billId,
-        'bank_line_id' => $lineId, 'receipt_je_id' => (int) $lineBefore['matched_je_id']],
+        'late_bill_id' => $lateBillId, 'bank_line_id' => $lineId,
+        'receipt_je_id' => (int) $lineBefore['matched_je_id']],
         JSON_PRETTY_PRINT), "\n";
 } finally {
     foreach ($cookies as $cookie) if (is_string($cookie) && file_exists($cookie)) unlink($cookie);

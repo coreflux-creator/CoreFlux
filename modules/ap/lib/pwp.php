@@ -258,8 +258,12 @@ function apPwpSetLink(int $tenantId, int $billId, int $arInvoiceId, ?string $pay
             'bill_id' => $billId, 'ar_invoice_id' => $arInvoiceId,
             'payment_terms' => $terms, 'auto' => false,
         ], $billId);
+        $release = $invoice['status'] === 'paid'
+            ? apPwpReleaseForArInvoice($tenantId, $arInvoiceId, $actorUserId)
+            : ['released' => []];
         if ($ownsTxn) $pdo->commit();
-        return ['bill_id' => $billId, 'ar_invoice_id' => $arInvoiceId, 'payment_terms' => $terms];
+        return ['bill_id' => $billId, 'ar_invoice_id' => $arInvoiceId,
+            'payment_terms' => $terms, 'released' => $release['released']];
     } catch (\Throwable $e) {
         if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
