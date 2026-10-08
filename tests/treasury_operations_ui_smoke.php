@@ -26,13 +26,13 @@ $assert('deep-linked items are supported', str_contains($ui, 'const { id: routeI
 $assert('modern treasury routes are mounted',
     str_contains($module, 'path="payments/:id"') && str_contains($module, 'path="transfers/:id"'));
 $assert('bookkeeping shortcuts use mounted module routes',
-    str_contains($overview, 'to="/modules/ap/bills"')
-    && str_contains($overview, 'to="/modules/treasury/payments"')
-    && str_contains($overview, 'to="/modules/treasury/transfers"')
-    && str_contains($overview, 'to="/modules/accounting/periods"'));
+    str_contains($overview, "scope.withScope('/modules/ap/bills?status=needs_action')")
+    && str_contains($overview, "scope.withScope('/modules/treasury/payments?queue=pending')")
+    && str_contains($overview, "scope.withScope('/modules/treasury/transfers?queue=pending')")
+    && str_contains($overview, "scope.withScope('/modules/accounting/periods?status=ready_to_close')"));
 $assert('bank and journal links use mounted module routes',
-    str_contains($overview, 'to="/modules/treasury/deposits"')
-    && str_contains($overview, '/modules/accounting/journal-entries/'));
+    str_contains($overview, "scope.withScope('/modules/treasury/deposits')")
+    && str_contains($overview, 'scope.withScope(`/modules/accounting/journal-entries/${e.journal_entry_id}`)'));
 $assert('failure reasons are returned to the queue',
     str_contains($paymentApi, 'failure_reason') && str_contains($transferApi, 'failure_reason'));
 

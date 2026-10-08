@@ -93,7 +93,7 @@ jobs:
         image: mariadb:10.11
         env:
           MARIADB_ROOT_PASSWORD: root
-          MARIADB_DATABASE: coreflux_sim
+          MARIADB_DATABASE: coreaccounting_ci
         ports: ['3306:3306']
         options: >-
           --health-cmd="mariadb-admin ping --silent"
@@ -102,13 +102,15 @@ jobs:
           --health-retries=10
 
     env:
+      COREFLUX_ENV: staging
+      COREFLUX_ACCOUNTING_DB_CONFIG_PATH: /tmp/coreaccounting-ci-db.php
       SIM_TENANT_ID: 999
       SIM_MODE: 1
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
       DB_USER: root
       DB_PASS: root
-      DB_NAME: coreflux_sim
+      DB_NAME: coreaccounting_ci
 
     steps:
       - uses: actions/checkout@v4
@@ -119,8 +121,14 @@ jobs:
           php-version: '8.2'
           extensions: mbstring, pdo_mysql, curl, json, openssl
 
-      - name: Build production business graph + seed sim tenant
-        run: php scripts/ci_seed_sim_tenant.php
+      - name: Install private CI database config
+        run: install -m 600 tests/fixtures/coreaccounting_ci_db.php "$COREFLUX_ACCOUNTING_DB_CONFIG_PATH"
+
+      - name: Bootstrap canonical business graph and seed sim tenant
+        run: |
+          php deploy/bootstrap_coreaccounting.php --confirm-empty-staging --database=coreaccounting_ci
+          php deploy/bootstrap_coreaccounting.php --verify-schema
+          php scripts/ci_seed_sim_tenant.php --tenant-only --require-new
 
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh

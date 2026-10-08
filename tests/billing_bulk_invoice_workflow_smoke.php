@@ -42,13 +42,14 @@ $check('server search uses separate placeholders to avoid native-prepare HY093 e
     && str_contains($api, "\$params['q_client']"));
 
 $failedGuard = strpos($api, "if ((\$sendRes['status'] ?? 'failed') !== 'sent')");
-$sentUpdate = strpos($api, 'UPDATE billing_invoices SET status = "sent"', $failedGuard === false ? 0 : $failedGuard);
-$check('failed email leaves invoice approved and retryable',
+$finalize = strpos($api, 'billingDeliveryFinalize(', $failedGuard === false ? 0 : $failedGuard);
+$check('unconfirmed email stays under review before delivery finalization',
     $failedGuard !== false
-    && $sentUpdate !== false
-    && $failedGuard < $sentUpdate
-    && str_contains($api, 'The invoice remains approved so you can retry.')
-    && str_contains($api, "'retryable' => true"));
+    && $finalize !== false
+    && $failedGuard < $finalize
+    && str_contains($api, 'billingDeliveryMarkUncertain($tid, $id,')
+    && str_contains($api, "'invoice_status' => \$row['status']")
+    && str_contains($api, "'delivery_status' => 'uncertain', 'retryable' => false"));
 
 $check('invoice work queue supports bulk approve, post, and send',
     str_contains($list, 'billing-invoices-approve-selected')

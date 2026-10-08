@@ -116,7 +116,8 @@ echo "\nReact: APModule.jsx + WeeklyQueue.jsx\n";
 $apMod = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/APModule.jsx');
 $a('imports WeeklyQueue',                           str_contains($apMod, "import WeeklyQueue from './WeeklyQueue'"));
 $a('nav contains Weekly Queue',                     str_contains($apMod, "label: 'Weekly Queue'"));
-$a('routes /weekly-queue',                          str_contains($apMod, '<Route path="weekly-queue" element={<WeeklyQueue />}'));
+$a('routes ERP weekly queue but keeps it outside standalone accounting',
+    str_contains($apMod, '<Route path="weekly-queue" element={standaloneAccounting ? <Navigate to="../bills" replace /> : <WeeklyQueue />} />'));
 
 $wqJsx = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/WeeklyQueue.jsx');
 $a('WeeklyQueue testid root',                       str_contains($wqJsx, 'data-testid="ap-weekly-queue"'));

@@ -135,6 +135,13 @@ $a('tenant-only seed skips schema and rejects non-simulation tenants',
     && str_contains($seedScript, 'if (!$tenantOnly)')
     && str_contains($seedScript, '(int) $existingTenant[\'is_simulation\'] !== 1')
     && !str_contains($seedScript, 'ON DUPLICATE KEY UPDATE tenant_id = VALUES(tenant_id)'));
+$workflow = $read(__DIR__ . '/../.github/workflows/ci.yml');
+$liveJob = explode('  coreaccounting-clean-install:', explode('  live-business-graph:', $workflow, 2)[1] ?? '', 2)[0];
+$a('live simulation runs on the canonical clean-install graph',
+    str_contains($liveJob, 'php deploy/bootstrap_coreaccounting.php --confirm-empty-staging --database=coreaccounting_ci')
+    && str_contains($liveJob, 'php deploy/bootstrap_coreaccounting.php --verify-schema')
+    && str_contains($liveJob, 'php scripts/ci_seed_sim_tenant.php --tenant-only --require-new')
+    && !str_contains($liveJob, "run: php scripts/ci_seed_sim_tenant.php\n"));
 $peopleBase = strpos($seedScript, "'modules/people/migrations/001_init.sql'");
 $sharedPersonBase = strpos($seedScript, "'modules/people/migrations/003_spec_alignment.sql'");
 $apBase = strpos($seedScript, "'modules/ap/migrations/001_init.sql'");

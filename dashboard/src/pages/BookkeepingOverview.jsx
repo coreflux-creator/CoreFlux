@@ -228,7 +228,7 @@ export default function BookkeepingOverview() {
                         <td style={{ padding: '6px 8px', color: '#64748b' }}>{e.source_record_id}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'right' }}>
                           {e.journal_entry_id
-                            ? <Link to={`/modules/accounting/journal-entries/${e.journal_entry_id}`} style={{ color: '#0284c7', fontSize: 11 }}>JE #{e.journal_entry_id}</Link>
+                            ? <Link to={scope.withScope(`/modules/accounting/journal-entries/${e.journal_entry_id}`)} style={{ color: '#0284c7', fontSize: 11 }}>JE #{e.journal_entry_id}</Link>
                             : <span style={{ color: '#94a3b8' }}>—</span>}
                         </td>
                         <td style={{ padding: '6px 8px', color: '#94a3b8', fontSize: 11, textAlign: 'right' }}>
