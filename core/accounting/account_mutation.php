@@ -175,6 +175,11 @@ function accountingReviewAccountChange(int $tenantId, ?array $current, array $ch
             && $changes['is_postable'] === 0 && (int) $current['is_postable'] === 1;
         $system = (int) ($current['is_system_account'] ?? 0) === 1
             || in_array((string) $current['code'], ACCOUNTING_SOURCE_OWNED_CONTROL_CODES, true);
+        if (!$system && ($classificationChanged || $disablePosting
+            || (array_key_exists('active', $changes) && $changes['active'] === 0))) {
+            $system = in_array((string) $current['code'],
+                accountingSourceOwnedControlCodes($tenantId, $pdo), true);
+        }
         if ($system && ($classificationChanged || $disablePosting
             || (array_key_exists('active', $changes) && $changes['active'] === 0))) {
             throw new InvalidArgumentException('System and control accounts must keep their accounting classification and remain active and postable.');

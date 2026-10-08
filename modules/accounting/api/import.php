@@ -249,9 +249,10 @@ function accountingPrepareJeImport(int $tenantId, array $dry): array
 function accountingReviewJeImport(int $tenantId, array $dry): array
 {
     $prepared = accountingPrepareJeImport($tenantId, $dry);
+    $protectedCodes = accountingSourceOwnedControlCodes($tenantId, getDB());
     foreach ($prepared['grouped'] as $batch => $journal) {
         if (!empty($prepared['batch_errors'][$batch])) continue;
-        $review = accountingImportReviewJe($tenantId, (string) $batch, $journal);
+        $review = accountingImportReviewJe($tenantId, (string) $batch, $journal, $protectedCodes);
         $prepared['grouped'][$batch] = $review['journal'];
         if ($review['errors']) $prepared['batch_errors'][$batch] = $review['errors'];
     }
@@ -355,9 +356,10 @@ if ($type === 'je') {
     $pdo = getDB();
     $pdo->beginTransaction();
     try {
+        $protectedCodes = accountingSourceOwnedControlCodes($tid, $pdo);
         foreach ($grouped as $batch => $je) {
             accountingImportAssertJeReplay($tid, $je);
-            $posted = accountingPostJe($tid, $je, $user['id'] ?? null, true);
+            $posted = accountingPostJe($tid, $je, $user['id'] ?? null, true, $protectedCodes);
             accountingImportAssertJeReplay($tid, $je);
             $ids[$batch] = (int) $posted['je_id'];
             if ($posted['idempotent_replay']) $replayed++;

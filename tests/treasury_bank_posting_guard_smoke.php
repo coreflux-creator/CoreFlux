@@ -178,8 +178,9 @@ $coa = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/accounts
 $ai = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/bank_ai.php');
 $ui = (string) file_get_contents(__DIR__ . '/../modules/treasury/ui/AccountTransactions.jsx');
 $check('chart marks direct-post-safe categories', str_contains($coa, 'direct_category_eligible')
-    && str_contains($coa, 'accountingDirectCategoryIssue($account)'));
-$check('AI is limited to direct-post-safe categories', str_contains($ai, 'accountingDirectCategoryIssue($account)'));
+    && str_contains($coa, 'accountingDirectCategoryIssue($account, $protectedCodes)'));
+$check('AI is limited to direct-post-safe categories',
+    str_contains($ai, 'accountingDirectCategoryIssue($account, $protectedCodes)'));
 $check('Treasury picker uses eligibility flag', str_contains($ui, 'a.direct_category_eligible'));
 $check('Treasury hides invalid unmatch actions', str_contains($ui, 'r.match_status === \'matched\' && !r.unmatch_blocker')
     && str_contains($ui, 'Source-managed'));

@@ -344,13 +344,14 @@ if (api_method() === 'POST') {
                      ON ba.tenant_id = aa.tenant_id AND ba.gl_account_code = aa.code
                   WHERE aa.tenant_id = :t AND aa.id = :id LIMIT 1'
             );
+            $protectedCodes = accountingSourceOwnedControlCodes($tenantId, $pdo);
             foreach ($splits as $split) {
                 $counterCheck->execute(['t' => $tenantId, 'id' => $split['account_id']]);
                 $counter = $counterCheck->fetch(PDO::FETCH_ASSOC);
                 if (!$counter || (int) $counter['active'] !== 1) {
                     throw new \RuntimeException('A split account is no longer active. Refresh before posting.');
                 }
-                treasuryAssertCategoryCounterpart($counter);
+                treasuryAssertCategoryCounterpart($counter, $protectedCodes);
             }
 
         if ($type === 'deposit') {
@@ -579,7 +580,7 @@ if (api_method() === 'POST') {
     $counter = $counterCheck->fetch(PDO::FETCH_ASSOC);
     if (!$counter) api_error('Counterpart account not found', 404);
     try {
-        treasuryAssertCategoryCounterpart($counter);
+        treasuryAssertCategoryCounterpart($counter, accountingSourceOwnedControlCodes($tenantId, $pdo));
     } catch (InvalidArgumentException $e) {
         api_error($e->getMessage(), 422);
     }

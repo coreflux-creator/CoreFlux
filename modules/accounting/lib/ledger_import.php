@@ -22,7 +22,8 @@ function accountingImportCents(mixed $value): int
 }
 
 /** @return array{errors:list<string>,journal:array<string,mixed>} */
-function accountingImportReviewJe(int $tenantId, string $batchRef, array $journal): array
+function accountingImportReviewJe(int $tenantId, string $batchRef, array $journal,
+    ?array $protectedCodes = null): array
 {
     $errors = [];
     $rawEntityId = trim((string) ($journal['entity_id'] ?? ''));
@@ -84,6 +85,9 @@ function accountingImportReviewJe(int $tenantId, string $batchRef, array $journa
              ON ba.tenant_id = a.tenant_id AND ba.gl_account_code = a.code
           WHERE a.tenant_id = :t AND a.code = :code LIMIT 1'
     );
+    $protectedCodes = array_fill_keys(
+        $protectedCodes ?? accountingSourceOwnedControlCodes($tenantId, $pdo), true
+    );
     $debitCents = $creditCents = 0;
     $dimensionLines = [];
     foreach ($lines as $index => $line) {
@@ -94,7 +98,7 @@ function accountingImportReviewJe(int $tenantId, string $batchRef, array $journa
             $errors[] = 'line ' . ($index + 1) . ': choose an active, postable account';
             continue;
         }
-        if (in_array($code, ACCOUNTING_SOURCE_OWNED_CONTROL_CODES, true)
+        if (isset($protectedCodes[$code])
             || $account['bank_account_id'] !== null) {
             $errors[] = 'line ' . ($index + 1)
                 . ': this account belongs to an invoice, bill, payroll, tax, or bank workflow';

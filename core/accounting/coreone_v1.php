@@ -122,6 +122,9 @@ function coreoneV1NormalizeJournal(array $credential, array $body): array
     }
 
     $pdo = getDB();
+    $protectedCodes = array_fill_keys(
+        accountingSourceOwnedControlCodes((int) $credential['tenant_id'], $pdo), true
+    );
     $accountStmt = $pdo->prepare(
         'SELECT a.id, ba.id AS bank_account_id
            FROM accounting_accounts a
@@ -141,7 +144,7 @@ function coreoneV1NormalizeJournal(array $credential, array $body): array
             throw new InvalidArgumentException("Line {$index} has unsupported fields.");
         }
         $code = trim($raw['account_code']);
-        if ($code === '' || strlen($code) > 40 || in_array($code, COREONE_V1_PROTECTED_ACCOUNTS, true)) {
+        if ($code === '' || strlen($code) > 40 || isset($protectedCodes[$code])) {
             throw new InvalidArgumentException("Line {$index} uses an unavailable control account.");
         }
         $accountStmt->execute(['tenant_id' => (int) $credential['tenant_id'], 'code' => $code]);

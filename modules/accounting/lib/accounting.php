@@ -21,6 +21,7 @@
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/financial_state_cache.php';
 require_once __DIR__ . '/../../../core/tx_helpers.php';
+require_once __DIR__ . '/../../../core/accounting/control_accounts.php';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Numbering — atomic JE number allocation
@@ -259,11 +260,13 @@ function accountingStampLegalEntityDimension(array $lines, int $entityId): array
  * }
  * @param int|null $actorUserId
  * @param bool     $post  when false, leaves JE in 'draft'
+ * @param array|null $manualProtectedCodes  trusted, request-local CSV snapshot
  *
  * @return array {je_id, je_number, status, total_debit, total_credit, idempotent_replay (bool)}
  * @throws \RuntimeException on unbalanced, unknown account, closed period, etc.
  */
-function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bool $post = true): array
+function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null,
+    bool $post = true, ?array $manualProtectedCodes = null): array
 {
     $lines = $je['lines'] ?? [];
     if (!is_array($lines) || count($lines) < 2) {
@@ -299,6 +302,10 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
             ];
         }
     }
+
+    $manualControlCodes = $sourceModule === 'manual'
+        ? array_fill_keys($manualProtectedCodes ?? accountingSourceOwnedControlCodes($tenantId, $pdo), true)
+        : [];
 
     $requestedEntityId = accountingValidateActiveEntityId($tenantId, $je['entity_id'] ?? null);
     $entityId = $requestedEntityId ?? (int) accountingDefaultEntity($tenantId)['id'];
@@ -338,6 +345,9 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
         if (!$a)                throw new \RuntimeException("Line {$i}: account not found");
         if (!$a['active'])      throw new \RuntimeException("Line {$i}: account {$a['code']} is inactive");
         if (!$a['is_postable']) throw new \RuntimeException("Line {$i}: account {$a['code']} is not postable (summary)");
+        if (isset($manualControlCodes[(string) $a['code']])) {
+            throw new \InvalidArgumentException("Line " . ($i + 1) . ": this account is managed by its source workflow");
+        }
 
         $totalDebit  += $debit;
         $totalCredit += $credit;
@@ -558,18 +568,24 @@ function accountingUpdateDraftJe(int $tenantId, int $jeId, array $je, ?int $acto
         'SELECT id, code FROM accounting_accounts WHERE tenant_id = :t AND active = 1 AND is_postable = 1'
     );
     $accountStmt->execute(['t' => $tenantId]);
-    $accountsByCode = [];
+    $accountsByCode = $accountsById = [];
     foreach ($accountStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $account) {
-        $accountsByCode[strtolower((string) $account['code'])] = (int) $account['id'];
+        $accountsByCode[strtolower((string) $account['code'])] = $account;
+        $accountsById[(int) $account['id']] = $account;
     }
 
+    $manualControlCodes = array_fill_keys(accountingSourceOwnedControlCodes($tenantId, $pdo), true);
     $resolved = [];
     foreach ($candidate['lines'] as $index => $line) {
         $code = strtolower(trim((string) ($line['account_code'] ?? '')));
-        $accountId = !empty($line['account_id'])
-            ? (int) $line['account_id']
-            : (int) ($accountsByCode[$code] ?? 0);
-        if ($accountId <= 0) throw new \RuntimeException('Line ' . ($index + 1) . ': account not found');
+        $account = !empty($line['account_id'])
+            ? ($accountsById[(int) $line['account_id']] ?? null)
+            : ($accountsByCode[$code] ?? null);
+        if (!$account) throw new \RuntimeException('Line ' . ($index + 1) . ': account not found');
+        if (isset($manualControlCodes[(string) $account['code']])) {
+            throw new \InvalidArgumentException('Line ' . ($index + 1) . ': this account is managed by its source workflow');
+        }
+        $accountId = (int) $account['id'];
         $resolved[] = [
             'line_no' => $index + 1,
             'account_id' => $accountId,
@@ -695,6 +711,13 @@ function accountingPostDraftJe(int $tenantId, int $jeId, ?int $actorUserId = nul
     );
     $lineStmt->execute(['t_account' => $tenantId, 't_line' => $tenantId, 'id' => $jeId]);
     $storedLines = $lineStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    $manualControlCodes = array_fill_keys(accountingSourceOwnedControlCodes($tenantId, $pdo), true);
+    foreach ($storedLines as $index => $line) {
+        if (isset($manualControlCodes[(string) $line['account_code']])) {
+            throw new \RuntimeException('Draft can no longer be posted: line ' . ($index + 1)
+                . ' uses an account managed by its source workflow');
+        }
+    }
     $lines = array_map(static fn (array $line): array => [
         'line_id' => (int) $line['id'],
         'account_id' => (int) $line['account_id'],
@@ -1460,7 +1483,7 @@ function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = 
 
     $pdo = getDB();
     $stmt = $pdo->prepare(
-        'SELECT id, tenant_id, entity_id, period_id, je_number,
+        'SELECT id, tenant_id, entity_id, period_id, je_number, source_module,
                 posting_date, currency, status, total_debit, total_credit, memo
            FROM accounting_journal_entries
           WHERE id = :id AND tenant_id = :t LIMIT 1'
@@ -1496,6 +1519,15 @@ function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = 
     );
     $lstmt->execute(['je' => $jeId]);
     $lineRows = $lstmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    if (($row['source_module'] ?? '') === 'manual') {
+        $manualControlCodes = array_fill_keys(accountingSourceOwnedControlCodes($tenantId, $pdo), true);
+        foreach ($lineRows as $index => $line) {
+            if (isset($manualControlCodes[(string) $line['account_code']])) {
+                throw new \RuntimeException('promotion refused: line ' . ($index + 1)
+                    . ' uses an account managed by its source workflow');
+            }
+        }
+    }
     $linesForValidate = array_map(fn ($r) => [
         'line_id'    => (int) $r['line_id'],
         'account_id' => (int) $r['account_id'],

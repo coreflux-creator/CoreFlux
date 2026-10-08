@@ -121,9 +121,10 @@ if ($action === 'suggest_categorize') {
           WHERE tenant_id = :tenant_id AND active = 1
           ORDER BY code ASC LIMIT 1000'
     );
+    $protectedCodes = accountingSourceOwnedControlCodes($tenantId, getDB());
     $accounts = array_values(array_filter(
         $accounts,
-        static fn(array $account): bool => accountingDirectCategoryIssue($account) === null
+        static fn(array $account): bool => accountingDirectCategoryIssue($account, $protectedCodes) === null
     ));
     $bankAcct = scopedFind(
         'SELECT aa.id FROM accounting_bank_accounts ba

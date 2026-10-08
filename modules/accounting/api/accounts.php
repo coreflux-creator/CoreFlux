@@ -88,8 +88,9 @@ if ($method === 'GET' && $action === 'tree') {
           ORDER BY code ASC LIMIT 1000',
         $params
     );
+    $protectedCodes = accountingSourceOwnedControlCodes($tid, getDB());
     foreach ($flat as &$account) {
-        $account['direct_category_eligible'] = accountingDirectCategoryIssue($account) === null;
+        $account['direct_category_eligible'] = accountingDirectCategoryIssue($account, $protectedCodes) === null;
     }
     unset($account);
     api_ok(['rows' => $flat, 'types' => ACCOUNTING_ACCOUNT_TYPES]);

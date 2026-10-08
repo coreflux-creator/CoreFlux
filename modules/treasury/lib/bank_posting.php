@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/accounting/control_accounts.php';
 
-function treasuryAssertCategoryCounterpart(array $account): void
+function treasuryAssertCategoryCounterpart(array $account, array $protectedCodes = ACCOUNTING_SOURCE_OWNED_CONTROL_CODES): void
 {
-    $issue = accountingDirectCategoryIssue($account);
+    $issue = accountingDirectCategoryIssue($account, $protectedCodes);
     if ($issue !== null) throw new InvalidArgumentException($issue);
 }
 
