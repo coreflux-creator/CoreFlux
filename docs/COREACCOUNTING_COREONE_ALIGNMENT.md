@@ -16,6 +16,8 @@ Hosted QA code-and-packaging checkpoint (2026-10-08): source commit `64ef97fd` w
 
 Direct core-PHP follow-up (2026-10-08): `/core/installer_helpers.php` returned 200 before the Apache rule and 404 after source commit `ab945d67` was installed on the disposable QA app. `/core/auth.php` also returned 404; the intentionally public `/core/api/payment_rails.php` still reached PHP (currently 500 because QA has no database settings), and the static app entry and JS remained 200. The installed `.htaccess` SHA-256 was `d9e5e4dce70634d45c8086ae752066f1c07cd2bb7b10102b6f11fa79e8156144`; the prior file is at `/home/master/.coreaccounting-cleanqa/htaccess-before-ab945d67-20261008`. This establishes the Apache PHP-path behavior on this QA app, not Nginx protection of static source. A full hosted route inventory remains open.
 
+Release-integrity follow-up: all 12 changed runtime files installed on the disposable QA app, including its updated `.htaccess`, matched the reviewed branch's SHA-256 bytes. Local CoreOne invoice, bill, journal and report contract suites passed `14/14`, `19/19`, `13/13` and `7/7`. Direct and CSV invoice amount validation passed `19/19` and `17/17`, and bank receipt replay passed `8/8`. The catalog smoke printed a missing local PDO driver while passing its pure checks, so it is not evidence of a database-backed catalog run. These checks are source and narrow-contract evidence only; the clean QA database and signed-in source-to-report acceptance remain unverified.
+
 | Concern | Canonical owner |
 | --- | --- |
 | Authentication, tenant and permissions | `core/api_bootstrap.php`, tenant context and module RBAC |
