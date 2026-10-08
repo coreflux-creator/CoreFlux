@@ -5,6 +5,7 @@ $config = var_export(dirname(__DIR__) . '/core/config.php', true);
 
 function runConfigCheck(string $code, array $env = []): array
 {
+    $env += ['COREFLUX_ACCOUNTING_DB_CONFIG_PATH' => null];
     $original = [];
     foreach ($env as $name => $value) {
         $original[$name] = getenv($name);
@@ -57,7 +58,9 @@ if ($privateFixture === false || !rename($privateFixture, $privateFixture . '.ph
 }
 $privateFixture .= '.php';
 register_shutdown_function(static fn() => @unlink($privateFixture));
-file_put_contents($privateFixture, '<?php if (!defined("DB_NAME")) { ' . $definitions . ' }');
+if (file_put_contents($privateFixture, '<?php if (!defined("DB_NAME")) { ' . $definitions . ' }') === false) {
+    throw new RuntimeException('Could not write the private database configuration fixture.');
+}
 
 [$exit, $output] = runConfigCheck("require $config; echo DB_NAME;", [
     'COREFLUX_ENV' => 'staging', 'COREFLUX_ACCOUNTING_DB_CONFIG_PATH' => $privateFixture,

@@ -23,7 +23,7 @@ CoreAccounting is an independent product surface on the **existing CoreFlux/Core
 
 ## Next acceptance sequence
 
-1. Create a separate disposable staging app/database and run the guarded empty-database bootstrap, schema contract and invoice-to-cash/bill-to-payment replay. Never clear or reuse the populated simulation database.
+1. Configure the already-created disposable QA app's private database file, then run the guarded empty-database bootstrap, schema contract and invoice-to-cash/bill-to-payment replay. Never clear or reuse the populated simulation database.
 2. Complete a signed-in, two-human browser walkthrough of the everyday invoice, bill, bank and report tasks. Capture concrete friction and fix it before sign-off.
 3. Reconcile non-synthetic opening balances, AR/AP source lists, bank statements, entity ownership and historical source links to an approved cutover date.
 4. Verify controlled provider delivery to approved test recipients; keep payment initiation and payroll compliance behind separate gates.
