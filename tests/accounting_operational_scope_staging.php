@@ -137,13 +137,25 @@ try {
         [$activityStatus, $activityCsv] = operationalGet(
             '/modules/accounting/api/export.php?' . $activityParams, $cookie);
         $activityRows = operationalCsvRows($activityCsv);
+        $activityMatches = (int) $activity['count'] === count($activityRows);
+        if ($activityMatches) {
+            foreach ($activityRows as $index => $row) {
+                $visible = $activity['rows'][$index] ?? null;
+                if (!$visible || $row['je_number'] !== $visible['je_number']
+                    || $row['posting_date'] !== $visible['posting_date']
+                    || abs((float) $row['running_balance'] - (float) $visible['running_balance']) >= 0.01) {
+                    $activityMatches = false;
+                    break;
+                }
+            }
+        }
         qaExpect((int) $activity['entity_id'] === $id && $activityStatus === 200
-            && (int) $activity['count'] === count($activityRows)
+            && $activityMatches
             && count(array_filter($activityRows, static fn ($row) =>
                 (int) $row['entity_id'] !== $id)) === 0
             && count(array_filter($activity['rows'], static fn ($row) =>
                 (int) $row['entity_id'] !== $id)) === 0,
-            "{$entity['code']} account activity API and CSV share one entity");
+            "{$entity['code']} account activity API and CSV match balances and entity");
     }
 
     foreach (['invalid', '999999999'] as $invalid) {
