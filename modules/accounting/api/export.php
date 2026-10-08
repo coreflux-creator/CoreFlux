@@ -43,19 +43,29 @@ rbac_legacy_require($user, 'accounting.reports.export');
 $from = $_GET['from']   ?? null;
 $to   = $_GET['to']     ?? null;
 $asOf = $_GET['as_of']  ?? null;
-$eid  = !empty($_GET['entity_id']) ? (int) $_GET['entity_id'] : null;
+$eid  = null;
 $code = $_GET['account_code'] ?? $_GET['code'] ?? null;
 $tplId = (int) ($_GET['template_id'] ?? 0);
 if (in_array($type, ['je', 'unposted_jes', 'unposted', 'approval_queue'], true)
     && array_key_exists('approval_state', $_GET)) {
     api_error('Journal entries do not have an approval-state field; filter by posting status.', 422);
 }
-if (in_array($type, ['gl_detail', 'unposted_jes', 'unposted', 'approval_queue', 'account_activity'], true)) {
+if (array_key_exists('entity_id', $_GET)) {
+    if (in_array($type, ['coa', 'audit_log'], true)) {
+        api_error('This export is workspace-wide and does not support a legal-entity filter.', 422);
+    }
+    $rawEntityId = $_GET['entity_id'];
+    if (!is_scalar($rawEntityId) || trim((string) $rawEntityId) === '') {
+        api_error('Choose a legal entity from this workspace.', 422);
+    }
     try {
-        $eid = accountingValidateActiveEntityId($tid, $_GET['entity_id'] ?? null);
+        $eid = accountingValidateActiveEntityId($tid, $rawEntityId);
     } catch (\InvalidArgumentException $e) {
         api_error($e->getMessage(), 422);
     }
+}
+if ($eid === null && in_array($type, ['gl_detail', 'unposted_jes', 'unposted', 'approval_queue', 'account_activity'], true)) {
+    api_error('Choose a legal entity from this workspace.', 422);
 }
 
 $emit = function (string $filename, array $headers, iterable $rows) use ($tid, $type): void {
@@ -182,6 +192,7 @@ $governedExports = [
         'filename' => "accounting-bank-stmts-{$tid}-" . (int) ($_GET['bank_account_id'] ?? 0) . "-{$today}.csv",
         'columns' => [
             'bank_statement_line_id' => 'id',
+            'entity_id'              => 'entity_id',
             'posted_date'            => 'posted_date',
             'description'            => 'description',
             'amount'                 => 'amount',
