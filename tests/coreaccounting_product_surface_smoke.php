@@ -6,6 +6,9 @@ $read = static fn(string $path): string => (string) file_get_contents($root . '/
 $session = $read('session.php');
 $app = $read('dashboard/src/App.jsx');
 $sidebar = $read('dashboard/src/layout/Sidebar.jsx');
+$paths = $read('dashboard/src/lib/coreAccountingPaths.js');
+$settings = $read('dashboard/src/pages/SettingsPage.jsx');
+$admin = $read('dashboard/src/pages/AdminModule.jsx');
 $bills = $read('modules/ap/ui/BillsList.jsx');
 $invoices = $read('modules/billing/ui/InvoicesList.jsx');
 $checks = [];
@@ -24,7 +27,9 @@ $check('standalone SPA does not restore staffing from demo modules',
     && str_contains($app, "session.product_mode !== 'coreaccounting' && moduleId"));
 $check('standalone deep links return to accounting overview',
     str_contains($app, "const accountingPath = '/modules/accounting/overview'")
-    && str_contains($app, 'if (!allowed) return <Navigate to={accountingPath} replace />;'));
+    && str_contains($app, 'if (!coreAccountingPathAllowed(location.pathname)) return <Navigate to={accountingPath} replace />;')
+    && str_contains($paths, "'/settings/mail'")
+    && !str_contains($paths, "'/settings/staffing-economics'"));
 $check('standalone sidebar leads with accounting tasks',
     str_contains($sidebar, 'ACCOUNTING_WORKSPACE_ITEMS')
     && str_contains($sidebar, "label: 'Invoices'")
@@ -33,6 +38,14 @@ $check('standalone sidebar leads with accounting tasks',
 $check('standalone invoice and bill worklists omit staffing time entry points',
     substr_count($invoices, "session?.product_mode !== 'coreaccounting'") >= 2
     && substr_count($bills, "session?.product_mode !== 'coreaccounting'") >= 3);
+$check('standalone settings omit ERP links and inactive controls',
+    str_contains($settings, "session?.product_mode === 'coreaccounting'")
+    && str_contains($settings, 'data-testid="coreaccounting-settings"')
+    && str_contains($settings, "to: '/settings/mail'"));
+$check('standalone administration restricts its route tree',
+    str_contains($admin, 'const standalone = session?.product_mode === \'coreaccounting\'')
+    && str_contains($admin, '<Route path="*" element={<Navigate to="/admin" replace />} />')
+    && str_contains($admin, 'STANDALONE_ADMIN_LINKS'));
 
 $failed = count(array_filter($checks, static fn(bool $passed): bool => !$passed));
 echo $failed ? "Failed: {$failed}" . PHP_EOL : 'Passed: ' . count($checks) . PHP_EOL;

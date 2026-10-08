@@ -13,6 +13,7 @@ import StaffingEconomicsSettings from './pages/StaffingEconomicsSettings';
 import MailSettingsPage from './pages/MailSettingsPage';
 import NotificationSendersPage from './pages/NotificationSendersPage';
 import AdminModule from './pages/AdminModule';
+import { coreAccountingPathAllowed } from './lib/coreAccountingPaths';
 import TenantPicker from './pages/TenantPicker';
 import PeopleModule from '../../modules/people/ui/PeopleModule';
 import PlacementsModule from '../../modules/placements/ui/PlacementsModule';
@@ -418,14 +419,7 @@ const AppContent = ({ session, usingDemo }) => {
 
   if (session.product_mode === 'coreaccounting') {
     const accountingPath = '/modules/accounting/overview';
-    const allowedPrefixes = [
-      '/modules/accounting', '/modules/billing', '/modules/ap', '/modules/treasury',
-      '/inbox', '/profile', '/settings', '/admin', '/select-tenant',
-    ];
-    const allowed = allowedPrefixes.some(prefix =>
-      location.pathname === prefix || location.pathname.startsWith(`${prefix}/`)
-    );
-    if (!allowed) return <Navigate to={accountingPath} replace />;
+    if (!coreAccountingPathAllowed(location.pathname)) return <Navigate to={accountingPath} replace />;
   }
 
   return (

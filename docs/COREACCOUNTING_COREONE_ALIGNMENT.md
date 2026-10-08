@@ -2,7 +2,9 @@
 
 ## Decision
 
-CoreAccounting is a workflow surface over the existing CoreFlux ERP accounting engine. It must not maintain a second ledger, invoice balance, bank reconciliation, or financial database. The local SQLite interaction prototype remains on a separate branch and is not part of this implementation or a production migration path.
+CoreAccounting is a workflow surface over the existing CoreFlux ERP accounting engine. It must not maintain a second ledger, invoice balance, bank reconciliation, or financial database for the same organization. The local SQLite interaction prototype remains on a separate branch and is not part of this implementation or a production migration path.
+
+The proposed additional Cloudways app and empty database are **disposable clean-install staging**, not a new home for existing customer books. Its records are invented acceptance data and must not be synchronized into production. For a live organization, there is one authoritative set of financial records: CoreAccounting and CoreOne use the same Billing, AP, Treasury and journal services for that organization. An independently hosted CoreAccounting service may own a database for a *new standalone organization*, but CoreOne would reach those records through scoped service APIs, not a parallel copy or direct cross-database writes. Existing CoreFlux/CoreOne organizations stay on their existing canonical database unless an explicitly designed, reconciled cutover is approved. The CoreOne service contracts are not complete enough to claim that every existing CoreOne workflow can already use an independently hosted accounting database.
 
 | Concern | Canonical owner |
 | --- | --- |
