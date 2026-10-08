@@ -1,8 +1,9 @@
 <?php
-/** Transaction-level bank feed duplicate preview and repair. */
+/** Transaction-level bank feed similarity preview. */
 declare(strict_types=1);
 
 require_once __DIR__ . '/bank_transaction_identity.php';
+require_once __DIR__ . '/bank_line_review.php';
 
 /** @return array<int,array<int,array<string,mixed>>> */
 function bankTxnPartitionRowsByIdentity(array $rows): array
@@ -216,12 +217,17 @@ function bankTxnJournalLineSignature(PDO $pdo, int $tenantId, int $jeId): array
 function bankTxnDuplicatePreview(PDO $pdo, int $tenantId, int $bankAccountId): array
 {
     $clusters = bankTxnDuplicateClusters($pdo, $tenantId, $bankAccountId);
+    $latestReviews = bankTxnLatestReviews($pdo, $tenantId, $bankAccountId);
     $preview = [
         'cluster_count' => count($clusters),
         'duplicate_rows' => 0,
         'safe_rows' => 0,
         'reversible_rows' => 0,
         'conflict_rows' => 0,
+        'review_available' => bankTxnReviewTableExists($pdo),
+        'unreviewed_pairs' => 0,
+        'reviewed_pairs' => 0,
+        'review_pairs' => [],
         'clusters' => [],
     ];
     foreach ($clusters as $cluster) {
@@ -229,63 +235,39 @@ function bankTxnDuplicatePreview(PDO $pdo, int $tenantId, int $bankAccountId): a
         $preview['safe_rows'] += (int) $cluster['safe_rows'];
         $preview['reversible_rows'] += (int) $cluster['reversible_rows'];
         $preview['conflict_rows'] += (int) $cluster['conflict_rows'];
+        $rows = $cluster['_rows'];
+        for ($i = 0; $i < count($rows); $i++) {
+            for ($j = $i + 1; $j < count($rows); $j++) {
+                if (!bankTxnDescriptionsEquivalent((string) $rows[$i]['description'], (string) $rows[$j]['description'])) continue;
+                $first = $rows[$i]; $second = $rows[$j];
+                if ((int) $first['id'] > (int) $second['id']) [$first, $second] = [$second, $first];
+                $key = (int) $first['id'] . ':' . (int) $second['id'];
+                $fingerprint = bankTxnReviewFingerprint($first, $second);
+                $review = $latestReviews[$key] ?? null;
+                $isReviewed = $review && $review['decision'] === 'distinct'
+                    && hash_equals((string) $review['fingerprint'], $fingerprint);
+                $preview[$isReviewed ? 'reviewed_pairs' : 'unreviewed_pairs']++;
+                $preview['review_pairs'][] = [
+                    'posted_date' => (string) $first['posted_date'],
+                    'amount' => (float) $first['amount'],
+                    'fingerprint' => $fingerprint,
+                    'status' => $isReviewed ? 'distinct' : 'needs_review',
+                    'shared_journal' => (int) ($first['matched_je_id'] ?? 0) > 0
+                        && (int) $first['matched_je_id'] === (int) ($second['matched_je_id'] ?? 0),
+                    'first' => bankTxnReviewLineSummary($first),
+                    'second' => bankTxnReviewLineSummary($second),
+                    'review' => $isReviewed ? [
+                        'id' => (int) $review['id'],
+                        'reason' => (string) $review['reason'],
+                        'evidence_ref' => (string) ($review['evidence_ref'] ?? ''),
+                        'decided_by_user_id' => (int) $review['decided_by_user_id'],
+                        'decided_at' => (string) $review['decided_at'],
+                    ] : null,
+                ];
+            }
+        }
         unset($cluster['_rows']);
         $preview['clusters'][] = $cluster;
     }
     return $preview;
-}
-
-function bankTxnRepairDuplicates(
-    PDO $pdo,
-    int $tenantId,
-    int $bankAccountId,
-    ?int $actorUserId = null
-): array {
-    $result = ['clusters' => 0, 'rows_marked' => 0, 'journal_entries_reversed' => 0, 'conflicts' => []];
-    foreach (bankTxnDuplicateClusters($pdo, $tenantId, $bankAccountId) as $cluster) {
-        $rows = $cluster['_rows'];
-        $canonical = $rows[0];
-        $clusterChanged = false;
-        foreach (array_slice($rows, 1) as $row) {
-            $classification = bankTxnClassifyDuplicateRow($pdo, $tenantId, $row, $canonical);
-            if ($classification['action'] === 'conflict') {
-                $result['conflicts'][] = [
-                    'line_id' => (int) $row['id'],
-                    'matched_je_id' => (int) ($row['matched_je_id'] ?? 0) ?: null,
-                    'reason' => $classification['reason'],
-                ];
-                continue;
-            }
-            try {
-                $pdo->prepare(
-                    'UPDATE accounting_bank_transaction_aliases
-                        SET statement_line_id = :canonical
-                      WHERE tenant_id = :t AND statement_line_id = :duplicate'
-                )->execute([
-                    'canonical' => (int) $canonical['id'], 't' => $tenantId,
-                    'duplicate' => (int) $row['id'],
-                ]);
-            } catch (Throwable $_) {}
-
-            $mark = $pdo->prepare(
-                'UPDATE accounting_bank_statement_lines
-                    SET duplicate_of_line_id = :canonical,
-                        dedupe_reason = :reason,
-                        deduplicated_at = :marked_at
-                  WHERE tenant_id = :t AND bank_account_id = :a AND id = :id
-                    AND duplicate_of_line_id IS NULL'
-            );
-            $mark->execute([
-                'canonical' => (int) $canonical['id'],
-                'reason' => 'provider_history_replay',
-                'marked_at' => gmdate('Y-m-d H:i:s'),
-                't' => $tenantId, 'a' => $bankAccountId, 'id' => (int) $row['id'],
-            ]);
-            $result['rows_marked'] += $mark->rowCount();
-            $clusterChanged = true;
-        }
-        if ($clusterChanged) $result['clusters']++;
-    }
-    $result['remaining'] = bankTxnDuplicatePreview($pdo, $tenantId, $bankAccountId);
-    return $result;
 }

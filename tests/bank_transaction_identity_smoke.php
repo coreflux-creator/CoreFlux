@@ -28,13 +28,17 @@ $assert('keeps different same-day transfers as separate events', count($partitio
 
 $sync = (string) file_get_contents(__DIR__ . '/../api/plaid_sync_transactions.php');
 $api = (string) file_get_contents(__DIR__ . '/../modules/treasury/api/account_transactions.php');
+$reviewApi = (string) file_get_contents(__DIR__ . '/../api/bank_transaction_dedupe.php');
 $ui = (string) file_get_contents(__DIR__ . '/../modules/treasury/ui/AccountTransactions.jsx');
 $assert('Plaid full-history sync uses replay candidate matching', str_contains($sync, 'bankTxnFindReplayCandidate'));
 $assert('Plaid modifications resolve historical aliases', str_contains($sync, 'bankTxnAliasLineId'));
 $assert('Treasury list excludes audit-only duplicate rows', str_contains($api, 'duplicate_of_line_id IS NULL'));
-$assert('account UI offers reviewed copy marking only', str_contains($ui, 'treasury-duplicate-activity-repair')
-    && str_contains($ui, 'safeRows > 0')
-    && str_contains($ui, 'similar bank line'));
+$assert('account UI records pair-specific distinct or reopened reviews',
+    str_contains($ui, 'Save distinct review') && str_contains($ui, 'Reopen review')
+    && str_contains($ui, 'treasury-duplicate-activity-banner'));
+$assert('bulk repair is disabled while pair decisions use the guarded endpoint',
+    str_contains($reviewApi, 'Bulk bank-line repair is unavailable')
+    && str_contains($reviewApi, "action'] ?? '') === 'review_pair'"));
 $assert('Plaid candidate resemblance does not silently reuse a bank line',
     str_contains($sync, "\$results['possible_replays']")
     && !str_contains($sync, "\$results['reused'] = (\$results['reused'] ?? 0) + 1"));
@@ -148,6 +152,8 @@ $preview = bankTxnDuplicatePreview($pdo, 1, 63);
 $assert('finds exact replay and compact-description replay clusters', $preview['cluster_count'] === 2);
 $assert('counts three excess replay rows', $preview['duplicate_rows'] === 3);
 $assert('does not authorize reversals from matching bank facts', $preview['reversible_rows'] === 0);
+$assert('pre-migration preview still exposes four unresolved pairs',
+    !$preview['review_available'] && $preview['unreviewed_pairs'] === 4);
 $assert('keeps different journals and unmatched lines for source review', $preview['conflict_rows'] === 3 && $preview['safe_rows'] === 0);
 $assert('preview exposes source identity for review',
     $preview['clusters'][0]['duplicates'][0]['external_id'] === 'bank-event-b'
@@ -164,18 +170,88 @@ $assert('occurrence claim advances to the next identical real row', (int) ($cand
 $insert->execute(['d' => '2026-09-03', 'n' => 'Provider replay', 'a' => 50, 'f' => 'replay-a', 's' => 'matched', 'j' => 20]);
 $insert->execute(['d' => '2026-09-03', 'n' => 'Provider replay', 'a' => 50, 'f' => 'replay-b', 's' => 'matched', 'j' => 20]);
 $reviewedPreview = bankTxnDuplicatePreview($pdo, 1, 63);
-$assert('only shared-journal candidates are eligible for reviewed marking',
-    $reviewedPreview['safe_rows'] === 1 && $reviewedPreview['conflict_rows'] === 3);
-$repair = bankTxnRepairDuplicates($pdo, 1, 63);
-$assert('reviewed marking hides only the shared-journal copy',
-    $repair['rows_marked'] === 1 && $repair['journal_entries_reversed'] === 0
-    && (int) $pdo->query("SELECT COUNT(*) FROM accounting_bank_statement_lines WHERE duplicate_of_line_id IS NOT NULL")->fetchColumn() === 1);
-$assert('unrelated posted and unmatched lines remain untouched',
-    (int) $pdo->query("SELECT COUNT(*) FROM accounting_bank_statement_lines WHERE id <= 7 AND duplicate_of_line_id IS NOT NULL")->fetchColumn() === 0);
+$assert('shared-journal pair still requires review and is not auto-hidden',
+    $reviewedPreview['unreviewed_pairs'] === 5
+    && (int) $pdo->query("SELECT COUNT(*) FROM accounting_bank_statement_lines WHERE duplicate_of_line_id IS NOT NULL")->fetchColumn() === 0);
+
+$pdo->exec('CREATE TABLE treasury_bank_line_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL, bank_account_id INTEGER NOT NULL,
+    first_line_id INTEGER NOT NULL, second_line_id INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL, decision TEXT NOT NULL, reason TEXT NOT NULL,
+    evidence_ref TEXT, decided_by_user_id INTEGER NOT NULL,
+    decided_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+)');
+$sharedPair = array_values(array_filter(
+    bankTxnDuplicatePreview($pdo, 1, 63)['review_pairs'],
+    static fn(array $p): bool => $p['first']['line_id'] === 8 && $p['second']['line_id'] === 9
+))[0];
+$sharedRejected = false;
+try {
+    bankTxnDecideReview($pdo, 1, 63, 8, 9, $sharedPair['fingerprint'], 'distinct',
+        'These are separate bank statement events', null, 42);
+} catch (DomainException $e) {
+    $sharedRejected = str_contains($e->getMessage(), 'share one journal');
+}
+$assert('a shared-journal pair cannot be cleared as distinct',
+    $sharedPair['shared_journal'] && $sharedRejected);
+$pair = array_values(array_filter(
+    bankTxnDuplicatePreview($pdo, 1, 63)['review_pairs'],
+    static fn(array $p): bool => $p['first']['line_id'] === 1 && $p['second']['line_id'] === 2
+))[0];
+$decision = bankTxnDecideReview(
+    $pdo, 1, 63, 1, 2, $pair['fingerprint'], 'distinct',
+    'Verified two distinct bank events and source journals', 'statement-2026-09', 42
+);
+$afterDecision = bankTxnDuplicatePreview($pdo, 1, 63);
+$assert('distinct review is audited and clears only its exact pair',
+    $decision['id'] > 0 && $afterDecision['review_available']
+    && $afterDecision['reviewed_pairs'] === 1 && $afterDecision['unreviewed_pairs'] === 4);
+$repeat = bankTxnDecideReview(
+    $pdo, 1, 63, 2, 1, $pair['fingerprint'], 'distinct',
+    'Verified two distinct bank events and source journals', null, 42
+);
+$assert('same decision is idempotent and does not append another event',
+    $repeat['idempotent_replay'] && $repeat['id'] === $decision['id']
+    && (int) $pdo->query('SELECT COUNT(*) FROM treasury_bank_line_reviews')->fetchColumn() === 1);
+$reopened = bankTxnDecideReview(
+    $pdo, 1, 63, 1, 2, $pair['fingerprint'], 'reopened',
+    'Source bank statement needs another review', null, 42
+);
+$assert('reopen appends an audit event and restores the review queue',
+    $reopened['id'] > $decision['id']
+    && bankTxnDuplicatePreview($pdo, 1, 63)['unreviewed_pairs'] === 5);
+bankTxnDecideReview(
+    $pdo, 1, 63, 1, 2, $pair['fingerprint'], 'distinct',
+    'Reconfirmed two separate source transactions', null, 42
+);
+$pdo->exec("UPDATE accounting_bank_statement_lines SET bank_reference='new-ref' WHERE id=2");
+$assert('changed source facts invalidate a prior distinct review',
+    bankTxnDuplicatePreview($pdo, 1, 63)['unreviewed_pairs'] === 5);
+$staleRejected = false;
+try {
+    bankTxnDecideReview($pdo, 1, 63, 1, 2, $pair['fingerprint'], 'distinct',
+        'Reviewing stale source facts must fail', null, 42);
+} catch (DomainException $e) {
+    $staleRejected = str_contains($e->getMessage(), 'facts changed');
+}
+$assert('stale review submissions are rejected', $staleRejected);
+$crossAccountRejected = false;
+try {
+    bankTxnDecideReview($pdo, 1, 64, 1, 2, $pair['fingerprint'], 'distinct',
+        'A different bank account cannot review these lines', null, 42);
+} catch (DomainException $e) {
+    $crossAccountRejected = str_contains($e->getMessage(), 'no longer available');
+}
+$assert('review cannot cross bank-account boundaries', $crossAccountRejected);
+$assert('rejected reviews leave no open database transaction', !$pdo->inTransaction());
+$assert('review decisions never alter bank-line matches or journals',
+    (int) $pdo->query("SELECT COUNT(*) FROM accounting_bank_statement_lines WHERE duplicate_of_line_id IS NOT NULL")->fetchColumn() === 0
+    && (int) $pdo->query("SELECT COUNT(*) FROM accounting_journal_entries WHERE status = 'posted'")->fetchColumn() === 5);
 
 bankTxnRecordAlias($pdo, 1, 63, 1, 'plaid', 'new-plaid-id', 'new-item');
 $assert('provider alias resolves to canonical row', bankTxnAliasLineId($pdo, 1, 63, 'plaid', 'new-plaid-id') === 1);
 bankTxnRecordAlias($pdo, 1, 63, 2, 'plaid', 'new-plaid-id', 'new-item');
-$assert('provider alias can be repointed during repair', bankTxnAliasLineId($pdo, 1, 63, 'plaid', 'new-plaid-id') === 2);
+$assert('provider alias can be repointed to a verified occurrence', bankTxnAliasLineId($pdo, 1, 63, 'plaid', 'new-plaid-id') === 2);
 
 exit($failures > 0 ? 1 : 0);

@@ -16,33 +16,57 @@ const fmtMoneyOriginal = (n) =>
 // Keep backwards compatibility for inline calls; prefer the imported fmtMoney
 // from ../../../dashboard/src/lib/format which handles null/empty/strings.
 
-function DuplicateActivityRepair({ accountId, onRepaired }) {
-  const { data, loading, reload } = useApi(`/api/bank_transaction_dedupe.php?account_id=${accountId}`);
-  const [repairing, setRepairing] = useState(false);
-  const [result, setResult] = useState(null);
+function ReviewBankLine({ line }) {
+  return (
+    <div>
+      Line #{line.line_id} · {line.description} · Source ID {line.external_id || line.fitid || 'not supplied'}
+      {line.source_system && <> · {line.source_system}</>}
+      {line.bank_reference && <> · Ref {line.bank_reference}</>}
+      {line.matched_je_id && <> · <Link to={`/modules/accounting/journal-entries/${line.matched_je_id}`}>JE #{line.matched_je_id}</Link></>}
+    </div>
+  );
+}
+
+function BankLineReview({ accountId }) {
+  const { data, error: loadError, loading, reload } = useApi(`/api/bank_transaction_dedupe.php?account_id=${accountId}`);
+  const [activePair, setActivePair] = useState(null);
+  const [reason, setReason] = useState('');
+  const [evidenceRef, setEvidenceRef] = useState('');
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
 
-  if (loading || !data || Number(data.duplicate_rows || 0) === 0) {
-    if (!result?.conflicts?.length) return null;
-  }
+  if (loading) return null;
+  if (loadError) return <div className="error" role="alert">Could not load bank-line reviews: {loadError.message}</div>;
+  if (!data || !(data.review_pairs || []).length) return null;
+  const pending = Number(data.unreviewed_pairs || 0);
+  const reviewed = Number(data.reviewed_pairs || 0);
+  const pairs = [...(data.review_pairs || [])].sort((a, b) =>
+    (a.status === 'needs_review' ? 0 : 1) - (b.status === 'needs_review' ? 0 : 1));
 
-  const duplicateRows = Number(data?.duplicate_rows || 0);
-  const safeRows = Number(data?.safe_rows || 0);
-  const conflictRows = Number(data?.conflict_rows || 0);
-
-  const repair = async () => {
-    if (!window.confirm(`Have you verified that ${safeRows} shared-journal bank line${safeRows === 1 ? '' : 's'} represent the same bank event? This will hide the extra feed row from the working register. It will not reverse a journal or delete bank history.`)) return;
-
-    setRepairing(true); setError(null); setResult(null);
+  const openDecision = (pair, decision) => {
+    setActivePair(`${pair.first.line_id}:${pair.second.line_id}:${decision}`);
+    setReason(''); setEvidenceRef(''); setError(null); setNotice(null);
+  };
+  const saveDecision = async (pair, decision) => {
+    setSaving(true); setError(null); setNotice(null);
     try {
-      const response = await api.post('/api/bank_transaction_dedupe.php?action=run', { account_id: accountId });
-      setResult(response);
+      await api.post('/api/bank_transaction_dedupe.php?action=review_pair', {
+        account_id: accountId,
+        first_line_id: pair.first.line_id,
+        second_line_id: pair.second.line_id,
+        fingerprint: pair.fingerprint,
+        decision,
+        reason: reason.trim(),
+        evidence_ref: evidenceRef.trim(),
+      });
       await reload();
-      onRepaired();
+      setActivePair(null);
+      setNotice(decision === 'distinct' ? 'Pair recorded as distinct. Both bank lines and journals remain unchanged.' : 'Pair reopened for review.');
     } catch (e) {
-      setError(e.message || 'Could not mark reviewed copies');
+      setError(e.message || 'Could not save bank-line review');
     } finally {
-      setRepairing(false);
+      setSaving(false);
     }
   };
 
@@ -50,64 +74,56 @@ function DuplicateActivityRepair({ accountId, onRepaired }) {
     <div
       data-testid="treasury-duplicate-activity-banner"
       style={{
-        border: '1px solid #f59e0b', background: '#fffbeb', color: '#78350f',
-        padding: 12, marginBottom: 14, display: 'flex', gap: 12,
-        alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap',
+        border: `1px solid ${pending ? '#f59e0b' : '#cbd5e1'}`,
+        background: pending ? '#fffbeb' : '#f8fafc', color: '#334155',
+        padding: 12, marginBottom: 14,
       }}
     >
-      <div>
-        {duplicateRows > 0 && (
-          <>
-            <strong>{duplicateRows} similar bank line{duplicateRows === 1 ? '' : 's'} to review</strong>
-            <div style={{ fontSize: 12, marginTop: 3 }}>
-              Matching dates, amounts and descriptions do not prove these are the same transaction.
-              {conflictRows > 0 ? ` ${conflictRows} line${conflictRows === 1 ? ' needs' : 's need'} source review.` : ''}
-              {safeRows > 0 ? ` ${safeRows} share a journal; check their bank IDs before marking them as copies.` : ''}
-            </div>
-            <details style={{ fontSize: 12, marginTop: 6 }}>
-              <summary style={{ cursor: 'pointer' }}>Review candidate lines</summary>
-              {(data?.clusters || []).map((cluster) => (
-                <div key={cluster.canonical_line_id} style={{ marginTop: 7 }}>
-                  {fmtDate(cluster.posted_date)} · {fmtMoney(cluster.amount)} · {cluster.description}
-                  <div>Bank line #{cluster.canonical_line_id} · Source ID {cluster.canonical_external_id || cluster.canonical_fitid || 'not supplied'}
-                    {cluster.canonical_source_system && <> · {cluster.canonical_source_system}</>}
-                    {cluster.canonical_bank_reference && <> · Ref {cluster.canonical_bank_reference}</>}
-                    {cluster.canonical_je_id && <> · <Link to={`/modules/accounting/journal-entries/${cluster.canonical_je_id}`}>JE #{cluster.canonical_je_id}</Link></>}
-                  </div>
-                  {(cluster.duplicates || []).map((line) => (
-                    <div key={line.line_id}>
-                      Compare line #{line.line_id} · Source ID {line.external_id || line.fitid || 'not supplied'}
-                      {line.source_system && <> · {line.source_system}</>}
-                      {line.bank_reference && <> · Ref {line.bank_reference}</>}
-                      {' · '}{line.description}
-                      {line.matched_je_id && <> · <Link to={`/modules/accounting/journal-entries/${line.matched_je_id}`}>JE #{line.matched_je_id}</Link></>}
-                      {' · '}{line.reason}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </details>
-          </>
-        )}
-        {result && (
-          <div style={{ fontSize: 12, marginTop: 3 }}>
-            Marked {result.rows_marked || 0} reviewed shared-journal row{result.rows_marked === 1 ? '' : 's'} as copies. No journals were reversed.
-            {result.conflicts?.length ? ` ${result.conflicts.length} candidate${result.conflicts.length === 1 ? '' : 's'} still need review.` : ''}
-          </div>
-        )}
-        {error && <div className="error" style={{ fontSize: 12, marginTop: 3 }}>{error}</div>}
+      <strong>{pending} bank-line pair{pending === 1 ? '' : 's'} to review</strong>
+      {reviewed > 0 && <span style={{ fontSize: 12, marginLeft: 10 }}>{reviewed} reviewed as distinct</span>}
+      <div style={{ fontSize: 12, marginTop: 3 }}>
+        Similar dates, amounts and descriptions do not establish a duplicate. Compare bank IDs and source documents before deciding.
       </div>
-      {safeRows > 0 && (
-        <button
-          type="button"
-          className="btn btn--primary"
-          onClick={repair}
-          disabled={repairing}
-          data-testid="treasury-duplicate-activity-repair"
-        >
-          {repairing ? 'Marking...' : 'Mark reviewed copies'}
-        </button>
-      )}
+      {!data.review_available && <div className="error" style={{ fontSize: 12 }}>Bank-line review is unavailable until its database update is installed.</div>}
+      {error && <div className="error" role="alert" style={{ fontSize: 12, marginTop: 5 }}>{error}</div>}
+      {notice && <div role="status" style={{ fontSize: 12, marginTop: 5 }}>{notice}</div>}
+      <details open={pairs.length <= 3} style={{ fontSize: 12, marginTop: 8 }}>
+        <summary style={{ cursor: 'pointer' }}>Review line pairs</summary>
+        {pairs.map((pair) => {
+          const decision = pair.status === 'distinct' ? 'reopened' : 'distinct';
+          const pairKey = `${pair.first.line_id}:${pair.second.line_id}:${decision}`;
+          return (
+            <div key={`${pair.first.line_id}:${pair.second.line_id}`} style={{ borderTop: '1px solid #d6dee8', padding: '9px 0' }}>
+              <div><strong>{fmtDate(pair.posted_date)} · {fmtMoney(pair.amount)}</strong> · {pair.status === 'distinct' ? 'Reviewed distinct' : 'Needs review'}</div>
+              <ReviewBankLine line={pair.first} />
+              <ReviewBankLine line={pair.second} />
+              {pair.shared_journal && pair.status !== 'distinct' && <div>Both lines share one journal. Correct the source match or posting before marking them distinct.</div>}
+              {pair.review && <div>Review: {pair.review.reason}{pair.review.evidence_ref && ` · Ref ${pair.review.evidence_ref}`} · {fmtDate(pair.review.decided_at)}</div>}
+              {data.review_available && !(pair.shared_journal && decision === 'distinct') && activePair !== pairKey && (
+                <button type="button" className="btn btn--ghost" onClick={() => openDecision(pair, decision)}>
+                  {decision === 'distinct' ? 'Mark distinct' : 'Reopen review'}
+                </button>
+              )}
+              {data.review_available && activePair === pairKey && (
+                <div style={{ display: 'grid', gap: 6, maxWidth: 520, marginTop: 6 }}>
+                  <label>Reason
+                    <textarea value={reason} maxLength={500} rows={2} onChange={(e) => setReason(e.target.value)} style={{ width: '100%' }} />
+                  </label>
+                  <label>Bank or document reference (optional)
+                    <input value={evidenceRef} maxLength={255} onChange={(e) => setEvidenceRef(e.target.value)} style={{ width: '100%' }} />
+                  </label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button type="button" className="btn btn--primary" disabled={saving || reason.trim().length < 10} onClick={() => saveDecision(pair, decision)}>
+                      {saving ? 'Saving...' : decision === 'distinct' ? 'Save distinct review' : 'Reopen pair'}
+                    </button>
+                    <button type="button" className="btn btn--ghost" disabled={saving} onClick={() => setActivePair(null)}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </details>
     </div>
   );
 }
@@ -465,7 +481,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
       )}
 
       {type === 'deposit' && (
-        <DuplicateActivityRepair accountId={accountId} onRepaired={reload} />
+        <BankLineReview accountId={accountId} />
       )}
 
       {loading && <p>Loading…</p>}

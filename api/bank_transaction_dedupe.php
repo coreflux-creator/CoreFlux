@@ -1,5 +1,5 @@
 <?php
-/** Preview or repair duplicate bank-feed transaction rows for one account. */
+/** Preview similar bank lines and record fact-bound review decisions. */
 declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
@@ -24,6 +24,10 @@ if (api_method() === 'GET') {
 }
 
 if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'run') {
+    api_error('Bulk bank-line repair is unavailable. Review each candidate against its bank and source records.', 409);
+}
+
+if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'review_pair') {
     $body = api_json_body();
     $accountId = (int) ($body['account_id'] ?? 0);
     if ($accountId <= 0) api_error('account_id required', 422);
@@ -33,22 +37,36 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'run') {
     );
     if (!$account) api_error('Bank account not found', 404);
 
-    $preview = bankTxnDuplicatePreview($pdo, $tenantId, $accountId);
-    if ((int) ($preview['safe_rows'] ?? 0) === 0) {
-        api_error('No confirmed replay copies to repair. Review the similar bank lines and their source documents.', 409);
+    try {
+        $result = bankTxnDecideReview(
+            $pdo,
+            $tenantId,
+            $accountId,
+            (int) ($body['first_line_id'] ?? 0),
+            (int) ($body['second_line_id'] ?? 0),
+            (string) ($body['fingerprint'] ?? ''),
+            (string) ($body['decision'] ?? ''),
+            (string) ($body['reason'] ?? ''),
+            isset($body['evidence_ref']) ? (string) $body['evidence_ref'] : null,
+            (int) ($ctx['user']['id'] ?? 0)
+        );
+    } catch (InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    } catch (DomainException $e) {
+        api_error($e->getMessage(), 409);
     }
 
-    $result = bankTxnRepairDuplicates(
-        $pdo,
-        $tenantId,
-        $accountId,
-        (int) ($ctx['user']['id'] ?? 0) ?: null
-    );
-    plaidAudit('treasury.bank_transactions.deduplicated', [
-        'bank_account_id' => $accountId,
-        'result' => $result,
-    ], null);
-    api_ok(['ok' => true, 'account_id' => $accountId] + $result);
+    if (!$result['idempotent_replay']) {
+        plaidAudit('treasury.bank_lines.reviewed', [
+            'bank_account_id' => $accountId,
+            'first_line_id' => (int) ($body['first_line_id'] ?? 0),
+            'second_line_id' => (int) ($body['second_line_id'] ?? 0),
+            'decision' => (string) ($body['decision'] ?? ''),
+            'review_id' => $result['id'],
+        ], null);
+    }
+    api_ok(['ok' => true, 'account_id' => $accountId, 'review' => $result]
+        + bankTxnDuplicatePreview($pdo, $tenantId, $accountId));
 }
 
 api_error('Method not allowed', 405);
