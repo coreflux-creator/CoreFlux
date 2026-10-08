@@ -78,6 +78,7 @@ $schemaFiles = [
     'modules/accounting/migrations/028_journal_line_tenant_scope.sql',
     'core/migrations/024_auto_reversing_accruals.sql',
     'modules/people/migrations/001_init.sql',
+    'modules/people/migrations/003_spec_alignment.sql',
     'modules/ap/migrations/001_init.sql',
     'modules/billing/migrations/001_init.sql',
     'modules/accounting/migrations/007_consolidation.sql',

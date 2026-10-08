@@ -162,8 +162,11 @@ $assert('subledger_links insert on categorize_and_post',
     strpos($tx, 'INSERT IGNORE INTO accounting_subledger_links') !== false);
 $assert("source_module = 'treasury_feed'",
     strpos($tx, "'sm' => 'treasury_feed'") !== false);
+$statementState = (string) file_get_contents("{$ROOT}/modules/treasury/lib/statement_state.php");
 $assert('source_record_id namespaced by line type',
-    strpos($tx, "(\$type === 'deposit' ? 'bank_line:' : 'liab_line:') . \$lineId") !== false);
+    strpos($tx, 'treasuryStatementSourceId($type, $lineId, false, $postingAttempt)') !== false
+    && strpos($tx, "'sr' => \$sourceRecordId") !== false
+    && strpos($statementState, "\$type === 'deposit' ? 'bank_line:' : 'liab_line:'") !== false);
 $assert("link_kind = 'primary'",
     strpos($tx, '"primary"') !== false || strpos($tx, "'primary'") !== false);
 $assert('non-fatal if 7b table missing',

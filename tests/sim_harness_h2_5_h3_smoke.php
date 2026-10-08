@@ -107,7 +107,8 @@ $a('uses shivammathur/setup-php',          str_contains($wf, 'shivammathur/setup
 $a('runs smoke suite',                     str_contains($wf, 'ci_smoke_all.sh'));
 $a('runs sim scenarios',                   str_contains($wf, 'ci_sim_scenarios.sh'));
 $a('nightly job runs full sim',            str_contains($wf, 'ci_sim_full.sh'));
-$a('nightly provisions MySQL service',     str_contains($wf, 'mysql:8.0'));
+$a('live simulation provisions the hosted MariaDB major version',
+    str_contains($wf, 'mariadb:10.11'));
 
 echo "\nDeterminism — same seed → identical normalized output\n";
 $cmd = 'bash ' . escapeshellarg(__DIR__ . '/../scripts/ci_sim_scenarios.sh') . ' 2>&1';
