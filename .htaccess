@@ -37,8 +37,18 @@
     Require all denied
 </FilesMatch>
 
-# Deny direct access to memory/ + legacy/ + tests/
-RedirectMatch 404 ^/(memory|legacy|tests)(/|$)
+# Source, deployment and dependency files belong to the server, not the web.
+# Keep /core/api/ available for the existing browser clients, and keep the
+# /vendor/portal SPA route while denying Composer's /vendor/ directory.
+RedirectMatch 404 ^/(_debug|bin|config|cron|db|deploy|docs|emails|graphql|helpers|includes|legacy|lib|memory|migrations|partials|scripts|spec|sql|src|tests|tools)(/|$)
+RedirectMatch 404 ^/sim/.+\.[A-Za-z0-9]+$
+RedirectMatch 404 ^/dashboard/(src|node_modules)(/|$)
+RedirectMatch 404 ^/modules/[^/]+/ui(/|$)
+RedirectMatch 404 ^/core/(migrations|seeds|storage)(/|$)
+RedirectMatch 404 ^/core/(db\.local|config(\.local)?)\.php$
+RedirectMatch 404 ^/vendor/(?!portal(/|$))
+RedirectMatch 404 (^|/)(composer\.json|package(-lock)?\.json)$
+RedirectMatch 404 \.(md|sql|lock|log|sh|bat|ps1|env|ini|yaml|yml|toml|sqlite|db|bak|pem|key)$
 
 # Sensible defaults
 Options -Indexes

@@ -117,6 +117,15 @@ function spaBundleStatus(string $root): array {
     $scan($root . '/dashboard/src');
     foreach (glob($root . '/modules/*/ui') ?: [] as $uiDir) $scan($uiDir);
 
+    if ($newest === 0) {
+        $rows[] = [
+            'check' => 'spa bundle freshness',
+            'ok' => true,
+            'detail' => 'runtime-only package; compare installed bundle hashes with the release manifest',
+        ];
+        return $rows;
+    }
+
     // Tolerance: 600 seconds (10 min). Git pull does NOT preserve commit
     // mtime — it stamps every pulled file with the current wall-clock time in
     // whatever order git happens to write them. With ~100+ modified files,
