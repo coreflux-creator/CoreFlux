@@ -58,7 +58,7 @@ The first successful request returns HTTP 202 with `{bill, approval_requested: t
 
 The isolated simulation-company acceptance in `tests/accounting_coreone_bill_lifecycle_staging.php` calls the actual bearer endpoints, verifies that the pending bill appears in ERP AP, checks exact-retry, scope and cross-entity boundaries, and confirms that no journal exists before human approval. A rollback-only policy change proves that no independent reviewer leaves no workflow or approval rows. The test then proves that the credential issuer cannot self-approve, a separate AP reviewer can approve and post, and CoreOne's source-ID lookup returns that same posted bill and canonical journal. The final ledger and income, balance-sheet and cash-flow reports balance without inventing a payment. All one-day test credentials are revoked afterward. This is a service/API rehearsal with synthetic data, not a signed-in two-human browser rehearsal or a production-history audit.
 
-The same hosted test also submits a zero-price machine bill, a positive `discount` machine line, and a zero-price ERP manual bill. All fail with 422 before a bill or source mapping is saved; a valid bill still completes the human review and post flow. These guards apply to manual preparation, not to every historical, imported, recurring or time-generated AP source.
+The same hosted test also submits a zero-price machine bill, a positive `discount` machine line, and a zero-price ERP manual bill. All fail with 422 before a bill or source mapping is saved; a valid bill still completes the human review and post flow. AP bill CSV import has its own preview/commit amount guard; historical, recurring and time-generated AP sources still require their own acceptance.
 
 ## Next gates
 

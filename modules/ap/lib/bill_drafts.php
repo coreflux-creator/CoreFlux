@@ -24,9 +24,10 @@ function apValidateManualBillLines(array $lines, float $taxPct): array
         }
         foreach (['quantity', 'unit_price'] as $field) {
             $value = $line[$field] ?? null;
-            if (!is_numeric($value) || !is_finite((float) $value)
-                || (float) $value <= 0 || (float) $value > 99999999.9999) {
-                throw new InvalidArgumentException("Bill line {$number}: {$field} must be a positive amount");
+            if (!apValidPositiveBillDecimal4($value)) {
+                throw new InvalidArgumentException(
+                    "Bill line {$number}: {$field} must be positive with at most four decimals"
+                );
             }
         }
     }

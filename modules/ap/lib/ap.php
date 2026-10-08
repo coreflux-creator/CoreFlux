@@ -700,6 +700,38 @@ function apComputeTotals(array $lines, float $taxPct = 0.0): array
     return ['lines' => $lines, 'subtotal' => round($sub, 2), 'tax_total' => round($tax, 2), 'total' => round($sub + $tax, 2)];
 }
 
+function apValidPositiveBillDecimal4(mixed $value): bool
+{
+    if (!is_int($value) && !is_float($value) && !is_string($value)) return false;
+    $raw = trim((string) $value);
+    return (bool) preg_match('/^[0-9]+(?:\.[0-9]{1,4})?$/D', $raw)
+        && is_finite((float) $raw)
+        && (float) $raw > 0
+        && (float) $raw <= 99999999.9999;
+}
+
+/** Imported payable lines must satisfy the same positive-line approval rule. */
+function apValidateImportedBillLineAmounts(array $row, array $amounts): void
+{
+    $quantity = (float) $amounts['quantity'];
+    $price = (float) $amounts['unitPrice'];
+    $subtotal = (float) $amounts['subtotal'];
+    $tax = (float) $amounts['tax'];
+    $total = (float) $amounts['total'];
+    if (!apValidPositiveBillDecimal4(($row['line_quantity'] ?? '') === '' ? '1' : $row['line_quantity'])) {
+        throw new InvalidArgumentException('Bill line quantity must be positive with at most four decimals');
+    }
+    if (!apValidPositiveBillDecimal4($row['line_unit_price'] ?? null)) {
+        throw new InvalidArgumentException('Bill line unit price must be positive with at most four decimals');
+    }
+    if ($subtotal <= 0 || $tax < 0 || $total <= 0 || $total > 9999999999.99) {
+        throw new InvalidArgumentException('Bill line subtotal and total must be positive; tax cannot be negative');
+    }
+    if ((int) round($subtotal * 100) !== (int) round($quantity * $price * 100)) {
+        throw new InvalidArgumentException('Bill line subtotal must equal quantity times unit price');
+    }
+}
+
 /**
  * Bill state machine per SPEC §9.
  *

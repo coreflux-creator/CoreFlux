@@ -76,7 +76,8 @@ function accountingCsvReviewDocumentGroups(
     array $entities,
     string $groupField,
     string $documentLabel,
-    array $requiredHeaderFields
+    array $requiredHeaderFields,
+    ?callable $validateLine = null
 ): array {
     $groups = [];
     $resolved = [];
@@ -133,6 +134,7 @@ function accountingCsvReviewDocumentGroups(
             if (isset($result['errors'][$rowNumber])) continue;
             try {
                 $amounts = accountingCsvDocumentLineAmounts($row);
+                if ($validateLine !== null) $validateLine($row, $amounts);
                 if (($row['line_total'] ?? '') === '') {
                     $result['rows'][$rowNumber]['line_total'] = number_format($amounts['total'], 2, '.', '');
                 }

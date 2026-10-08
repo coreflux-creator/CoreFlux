@@ -10,7 +10,7 @@ CoreAccounting is an independent product surface on the **existing CoreFlux/Core
 | AP and AR maker/checker | Synthetic independent reviewers approve source documents; issuer self-approval and machine-only decision/post authority are refused. | **Synthetic passed; two-human rehearsal open** |
 | Invoice delivery and collection | Isolated log-only invoice and statement outboxes verified with PDFs and entity sender settings. | **Real-provider and recipient-controlled test open** |
 | CoreOne machine contracts | Entity-bound invoice draft and AP bill preparation/review request use source IDs, exact-retry checks and canonical source modules. | **Staging passed for these scopes; broader contracts open** |
-| Manual bill amount integrity | Shared ERP/CoreOne preparation refuses unapprovable zero/negative/sub-cent lines and unsupported discounts before saving. | **Staging passed; full credit/discount treatment open** |
+| Payable line integrity | ERP/CoreOne manual preparation and AP bill CSV preview/commit refuse unapprovable zero/negative/sub-cent lines; CSV also checks stored precision and quantity-times-price. | **Staging passed for these paths; full credit/discount treatment and other AP sources open** |
 | Clean installation | Read-only schema verifier found 26 tables and 152 required columns on populated staging; installer refused that populated database before DDL. | **From-empty install and replay not yet run** |
 | Period close and opening cutover | Close/cutover controls exist but have not been accepted against real historical books. | **Open** |
 | Payroll compliance and bank rails | Synthetic payroll computation/accrual and cash-journal controls tested; no tax, filing or real payment-rail certification. | **Outside this basic accounting release; must remain gated** |
@@ -27,4 +27,5 @@ CoreAccounting is an independent product surface on the **existing CoreFlux/Core
 - One ledger and one set of source-owned financial documents; standalone does not mean a second accounting database.
 - An entity-bound service key may prepare documents and request review only under its explicit scopes; a human reviewer owns approval and posting.
 - Manual AP discounts are refused until a credit-side treatment, tax behavior, source correction and report tests are defined. A positive `discount` label must never silently debit expense.
+- An AP bill CSV line must carry positive quantity and unit price at no more than four decimal places. For an amount-only vendor charge, use quantity `1` and the charge as unit price; subtotal and total are derived or checked in preview. One invalid line blocks the entire bill, including when other bills are imported with `skip_invalid`.
 - Synthetic staging tests are useful engineering evidence but do not replace real-history reconciliation or human operational acceptance.

@@ -28,6 +28,10 @@ $check('zero price is refused at intake', $rejects([array_replace($line, ['unit_
 $check('negative quantity is refused at intake', $rejects([array_replace($line, ['quantity' => '-1'])], 'quantity'));
 $check('negative price is refused at intake', $rejects([array_replace($line, ['unit_price' => '-1'])], 'unit_price'));
 $check('nonnumeric quantity is refused at intake', $rejects([array_replace($line, ['quantity' => 'abc'])], 'quantity'));
+$check('quantity beyond stored precision is refused',
+    $rejects([array_replace($line, ['quantity' => '1.00001'])], 'four decimals'));
+$check('price beyond stored precision is refused',
+    $rejects([array_replace($line, ['unit_price' => '12.50001'])], 'four decimals'));
 $check('sub-cent rounded zero is refused at intake',
     $rejects([array_replace($line, ['quantity' => '0.0001', 'unit_price' => '0.0001'])], 'total'));
 $check('misleading positive discount line is refused',
