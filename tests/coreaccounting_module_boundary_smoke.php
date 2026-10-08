@@ -37,6 +37,9 @@ $check('direct module request is rejected before auto-migration',
 $check('router pins module before common auth',
     strpos($router, "setRequestModuleScope(\$parsed['module_id'])")
         < strpos($router, '$authCtx = api_require_auth()'));
+$check('router rejects non-finance scope before shared bootstrap',
+    strpos($router, 'coreAccountingAllowsModule($preflight[\'module_id\'], \'coreaccounting\')')
+        < strpos($router, "require_once __DIR__ . '/../core/api_bootstrap.php'"));
 
 $failed = count(array_filter($checks, static fn(bool $passed): bool => !$passed));
 echo $failed ? "Failed: {$failed}" . PHP_EOL : 'Passed: ' . count($checks) . PHP_EOL;

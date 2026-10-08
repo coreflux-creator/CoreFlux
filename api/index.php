@@ -15,10 +15,27 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../core/accounting/standalone_boundary.php';
+require_once __DIR__ . '/../core/api_router.php';
+
+// The router's module scope is known before the shared bootstrap. Reject a
+// non-finance module here so it cannot trigger startup auto-migrations.
+if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+    $preflight = apiRouterParse(
+        $_SERVER['PATH_INFO'] ?? '',
+        $_SERVER['REQUEST_URI'] ?? '/'
+    );
+    if ($preflight['ok'] && !coreAccountingAllowsModule($preflight['module_id'], 'coreaccounting')) {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code(404);
+        echo '{"error":"Not found","status":404}';
+        exit;
+    }
+}
+
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/ModuleRegistry.php';
 require_once __DIR__ . '/../core/RBAC.php';
-require_once __DIR__ . '/../core/api_router.php';
 
 // Tracing
 $requestId = bin2hex(random_bytes(8));
