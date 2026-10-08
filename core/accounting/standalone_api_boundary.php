@@ -105,6 +105,7 @@ function coreAccountingEnforcePublicApiScript(?string $scriptFilename, string $r
         return;
     }
     header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, max-age=0');
     http_response_code(404);
     echo '{"error":"Not found","status":404}';
     exit;

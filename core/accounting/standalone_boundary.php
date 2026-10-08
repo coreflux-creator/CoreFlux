@@ -30,6 +30,7 @@ function coreAccountingConfigurationFailure(string $reason): never
     }
     error_log($reason);
     header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, max-age=0');
     http_response_code(503);
     echo '{"error":"CoreAccounting is not configured","status":503}';
     exit;
