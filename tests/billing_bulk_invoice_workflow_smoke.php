@@ -32,7 +32,9 @@ $check('invoice detail and list expose saved recipient data',
     && str_contains($api, "\$invoiceRow['recipient_email']")
     && str_contains($detail, 'data?.default_recipient?.email'));
 $check('invoice list exposes journal posting state',
-    str_contains($api, 'journal_entry_id, sent_at'));
+    str_contains($api, 'bi.journal_entry_id, bi.sent_at')
+    && str_contains($api, 'AS journal_status')
+    && str_contains($list, "row.journal_status === 'posted'"));
 $check('server search uses separate placeholders to avoid native-prepare HY093 errors',
     str_contains($api, 'invoice_number LIKE :q_invoice')
     && str_contains($api, 'client_name LIKE :q_client')
