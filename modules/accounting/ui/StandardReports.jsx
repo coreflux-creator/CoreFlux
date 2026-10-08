@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
 import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 import FinancialReportLibrary from '../../../dashboard/src/components/FinancialReportLibrary';
 import {
-  Activity, BarChart3, ChevronLeft, ChevronRight, ClipboardCheck, Download, FileClock, ScrollText,
+  Activity, BarChart3, ChevronLeft, ChevronRight, ClipboardCheck, Download, FileClock, RefreshCw, Scale, ScrollText,
 } from 'lucide-react';
 
 const REPORT_TABS = [
+  ['source_control', 'AR/AP tie-out', 'accounting-report-tab-source_control', Scale],
   ['gl_detail', 'GL detail', 'accounting-report-tab-gl_detail', BarChart3],
   ['unposted_jes', 'Unposted entries', 'accounting-report-tab-unposted_jes', FileClock],
   ['approval_queue', 'Approval queue', 'accounting-report-tab-approval_queue', ClipboardCheck],
@@ -28,7 +29,12 @@ const REPORT_TABS = [
  * Each report is a filter bar → on-screen table → CSV export button.
  */
 export default function StandardReports({ session }) {
-  const [tab, setTab] = useState('gl_detail');
+  const location = useLocation();
+  const requestedTab = new URLSearchParams(location.search).get('tab');
+  const [tab, setTab] = useState(REPORT_TABS.some(([key]) => key === requestedTab) ? requestedTab : 'gl_detail');
+  useEffect(() => {
+    if (REPORT_TABS.some(([key]) => key === requestedTab)) setTab(requestedTab);
+  }, [requestedTab]);
   const scope = useAccountingEntityScope();
   const scopedTab = tab !== 'audit_log';
   return (
@@ -68,12 +74,82 @@ export default function StandardReports({ session }) {
         </p>
       )}
       {scopedTab && !scope.loaded && <p>Loading legal entities...</p>}
+      {tab === 'source_control'   && scope.ready && !scope.allEntities && <SourceControlTieOut scope={scope} />}
       {tab === 'gl_detail'        && scope.ready && !scope.allEntities && <GlDetail scope={scope} />}
       {tab === 'unposted_jes'     && scope.ready && !scope.allEntities && <Unposted scope={scope} />}
       {tab === 'approval_queue'   && scope.ready && !scope.allEntities && <ApprovalQueue scope={scope} />}
       {tab === 'audit_log'        && <AuditLog />}
       {tab === 'account_activity' && scope.ready && !scope.allEntities && <AccountActivity scope={scope} />}
     </section>
+  );
+}
+
+function SourceControlTieOut({ scope }) {
+  const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
+  const url = asOf ? `/modules/accounting/api/source_control_tie_out.php?${new URLSearchParams({
+    entity_id: String(scope.entityId), as_of: asOf,
+  })}` : null;
+  const { data: response, loading, error, reload } = useApi(url, { enabled: Boolean(url) });
+  const data = response?.entity_id === scope.entityId && response?.as_of === asOf ? response : null;
+  const controls = data ? [data.controls.ar, data.controls.ap] : [];
+  return (
+    <div data-testid="accounting-source-control-tie-out">
+      <div className="report-filter-bar">
+        <div className="report-filter-bar__fields">
+          <label>As of <input type="date" className="input" value={asOf}
+            onChange={event => setAsOf(event.target.value)} data-testid="accounting-source-control-date" /></label>
+        </div>
+        <button type="button" className="btn" onClick={reload} disabled={loading || !url}
+          data-testid="accounting-source-control-refresh"><RefreshCw size={15} aria-hidden="true" />Refresh</button>
+      </div>
+      {!asOf && <p>Choose an as-of date.</p>}
+      {loading && <p>Comparing subledgers with the posted ledger...</p>}
+      {error && <p className="error" role="alert">{error.message}</p>}
+      {data && !loading && (
+        <>
+          <p data-testid="accounting-source-control-status" role="status">
+            {!data.has_activity ? 'No posted AR/AP activity for this entity by this date.'
+              : data.matched ? 'AR and AP control totals match.' : 'Review the AR/AP differences or currency warning below.'}
+            {' '}{data.entity_code} · {data.as_of} · {data.base_currency}
+          </p>
+          <div className="data-table-wrap">
+            <table className="data-table" data-testid="accounting-source-control-table">
+              <thead><tr><th>Control account</th><th style={{ textAlign: 'right' }}>Open documents</th>
+                <th style={{ textAlign: 'right' }}>Posted GL</th><th style={{ textAlign: 'right' }}>Difference (GL − documents)</th><th>Result</th></tr></thead>
+              <tbody>{controls.map(control => (
+                <tr key={control.account_code}>
+                  <td>{control.account_code} · {control.label}</td>
+                  <td style={{ textAlign: 'right' }}>{fmt(control.source_due)}</td>
+                  <td style={{ textAlign: 'right' }}>{fmt(control.gl_balance)}</td>
+                  <td style={{ textAlign: 'right' }}>{fmt(control.difference)}</td>
+                  <td>{!data.has_activity ? 'No activity'
+                    : data.foreign_currencies.length ? 'Currency review'
+                      : control.matched ? 'Matches' : 'Difference'}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          {data.foreign_currencies.length > 0 && <p className="error" role="alert" data-testid="accounting-source-control-currency-warning">
+            Posted source documents include {data.foreign_currencies.join(', ')}. This comparison does not convert currencies; review those documents separately.
+          </p>}
+          <h3>Posted ledger sources</h3>
+          <div className="data-table-wrap">
+            <table className="data-table" data-testid="accounting-source-control-sources">
+              <thead><tr><th>Control account</th><th>Source</th><th style={{ textAlign: 'right' }}>Journals</th>
+                <th style={{ textAlign: 'right' }}>Net {data.base_currency}</th></tr></thead>
+              <tbody>{controls.flatMap(control => control.sources.map(source => (
+                <tr key={`${control.account_code}-${source.module}`}>
+                  <td>{control.account_code}</td><td>{source.module}</td>
+                  <td style={{ textAlign: 'right' }}>{source.journal_count}</td>
+                  <td style={{ textAlign: 'right' }}>{fmt(source.net)}</td>
+                </tr>
+              )))}</tbody>
+            </table>
+          </div>
+          <p className="report-page__meta">This is a control-total check. Offsetting errors and unposted documents can still be missed.</p>
+        </>
+      )}
+    </div>
   );
 }
 

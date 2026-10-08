@@ -11,6 +11,7 @@ export const FINANCIAL_REPORTS = [
   { to: '/modules/accounting/balance', label: 'Balance sheet', meta: 'Assets, liabilities and equity', Icon: BookOpen, tone: 'navy', moduleId: 'accounting' },
   { to: '/modules/accounting/cash-flow', label: 'Cash flow', meta: 'Operating, investing and financing', Icon: Wallet, tone: 'teal', moduleId: 'accounting' },
   { to: '/modules/accounting/trial', label: 'Trial balance', meta: 'Debit and credit control totals', Icon: Scale, tone: 'slate', moduleId: 'accounting' },
+  { to: '/modules/accounting/reports?tab=source_control', label: 'AR/AP tie-out', meta: 'Compare open documents with the ledger', Icon: Scale, tone: 'teal', moduleId: 'accounting' },
   { to: '/modules/billing/aging', label: 'AR aging', meta: 'Outstanding customer balances', Icon: ArrowDownLeft, tone: 'green', moduleId: 'billing' },
   { to: '/modules/ap/aging', label: 'AP aging', meta: 'Outstanding vendor balances', Icon: ArrowUpRight, tone: 'amber', moduleId: 'ap' },
 ];
@@ -56,7 +57,7 @@ export default function FinancialReportLibrary({ session, prominent = false }) {
             key={to}
             to={scopedLink(to, moduleId)}
             className={`report-library__item report-library__item--${tone}`}
-            data-testid={`financial-report-${to.split('/').pop()}`}
+            data-testid={`financial-report-${to.split('/').pop().split('?')[0]}`}
           >
             <span className="report-library__item-icon" aria-hidden="true"><Icon size={18} /></span>
             <span className="report-library__item-copy">
