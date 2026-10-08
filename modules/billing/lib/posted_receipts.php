@@ -892,7 +892,7 @@ function billingCorrectCustomerDepositRefund(int $tenantId, int $refundId, strin
     }
 }
 
-/** Reverse a manual receipt without erasing its invoice, bank or ledger history. */
+/** Reverse a Billing-posted receipt without erasing its invoice, bank or ledger history. */
 function billingCorrectPostedPayment(int $tenantId, int $paymentId, string $reason, ?int $actorUserId): array
 {
     $reason = trim($reason);
@@ -915,7 +915,7 @@ function billingCorrectPostedPayment(int $tenantId, int $paymentId, string $reas
             || $payment['source_module'] !== 'billing'
             || $payment['source_ref_type'] !== 'billing_payment'
             || (int) $payment['source_ref_id'] !== $paymentId) {
-            throw new RuntimeException('This is not an active manually posted receipt. Refresh and try again.');
+            throw new RuntimeException('This is not an active Billing-posted receipt. Refresh and try again.');
         }
         $applicationStmt = $pdo->prepare(
             'SELECT id FROM billing_deposit_applications

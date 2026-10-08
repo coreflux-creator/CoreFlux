@@ -4,8 +4,8 @@
  *
  *   GET  /api/billing/payments                    → list with filters
  *   POST /api/billing/payments                    → record, allocate and post a receipt
- *   POST /api/billing/payments?action=post&id=N   → finish an imported manual receipt
- *   POST /api/billing/payments?action=correct&id=N → reverse a posted manual receipt
+ *   POST /api/billing/payments?action=post&id=N   → finish a pending imported receipt
+ *   POST /api/billing/payments?action=correct&id=N → reverse a Billing-posted receipt
  *   POST /api/billing/payments?action=apply_deposit&id=N → apply held cash to an invoice
  *   POST /api/billing/payments?action=refund_deposit&id=N → record an external cash refund
  *
@@ -82,13 +82,19 @@ if ($method === 'GET' && $action === 'deposit_activity') {
 
 if ($method === 'GET') {
     rbac_legacy_require($user, 'billing.view');
-    $where  = ['tenant_id = :tenant_id'];
+    $where  = ['p.tenant_id = :tenant_id'];
     $params = [];
-    if (!empty($_GET['client_name'])) { $where[] = 'client_name = :cn';   $params['cn'] = $_GET['client_name']; }
-    if (!empty($_GET['from']))        { $where[] = 'received_at >= :df'; $params['df'] = $_GET['from']; }
-    if (!empty($_GET['to']))          { $where[] = 'received_at <= :dt'; $params['dt'] = $_GET['to']; }
+    if (!empty($_GET['client_name'])) { $where[] = 'p.client_name = :cn';   $params['cn'] = $_GET['client_name']; }
+    if (!empty($_GET['from']))        { $where[] = 'p.received_at >= :df'; $params['df'] = $_GET['from']; }
+    if (!empty($_GET['to']))          { $where[] = 'p.received_at <= :dt'; $params['dt'] = $_GET['to']; }
     $rows = scopedQuery(
-        'SELECT * FROM billing_payments WHERE ' . implode(' AND ', $where) . ' ORDER BY received_at DESC, id DESC LIMIT 200',
+        'SELECT p.*, je.status AS journal_status, je.source_module AS journal_source_module,
+                je.source_ref_type AS journal_source_ref_type, je.source_ref_id AS journal_source_ref_id
+           FROM billing_payments p
+           LEFT JOIN accounting_journal_entries je
+             ON je.tenant_id = p.tenant_id AND je.id = p.journal_entry_id
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY p.received_at DESC, p.id DESC LIMIT 200',
         $params
     );
     $applicationStmt = getDB()->prepare(
@@ -117,15 +123,17 @@ if ($method === 'GET') {
         $row['receipt_state'] = $row['voided_at'] !== null ? 'corrected'
             : (!empty($row['journal_entry_id']) || str_starts_with((string) ($row['external_id'] ?? ''), 'bank-line:')
                 ? 'posted' : 'pending');
-        $row['can_correct'] = $row['voided_at'] === null && !empty($row['journal_entry_id'])
-            && $row['source_system'] === 'manual'
-            && !str_starts_with((string) ($row['external_id'] ?? ''), 'bank-line:')
+        $billingPosted = $row['receipt_state'] === 'posted' && !empty($row['bank_account_id'])
+            && $row['journal_status'] === 'posted'
+            && $row['journal_source_module'] === 'billing'
+            && $row['journal_source_ref_type'] === 'billing_payment'
+            && (int) $row['journal_source_ref_id'] === (int) $row['id']
+            && !str_starts_with((string) ($row['external_id'] ?? ''), 'bank-line:');
+        $row['can_correct'] = $billingPosted
             && empty($hasLaterApplications[$row['id']])
             && empty($refundAmounts[$row['id']]);
-        $row['can_apply_deposit'] = $row['receipt_state'] === 'posted'
-            && (float) $row['unallocated_amount'] > 0.005
-            && $row['source_system'] === 'manual'
-            && !str_starts_with((string) ($row['external_id'] ?? ''), 'bank-line:');
+        $row['can_apply_deposit'] = $billingPosted
+            && (float) $row['unallocated_amount'] > 0.005;
         $row['can_refund_deposit'] = $row['can_apply_deposit'];
         $row['refunded_amount'] = $refundAmounts[$row['id']] ?? 0;
         $row['has_deposit_activity'] = !empty($hasAnyApplications[$row['id']])

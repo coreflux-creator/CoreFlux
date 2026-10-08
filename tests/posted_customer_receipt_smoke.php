@@ -121,6 +121,11 @@ $check('external-source pending receipts use Billing posting and deposit control
     str_contains($service, 'Imported receipts are still operator-posted')
     && str_contains($service, "\$payment['source_module'] !== 'billing'")
     && str_contains($service, "\$payment['source_ref_type'] !== 'billing_payment'"));
+$check('payment list exposes actions from posted Billing journal ownership, not source label',
+    str_contains($api, "\$row['journal_source_module'] === 'billing'")
+    && str_contains($api, "\$row['journal_source_ref_type'] === 'billing_payment'")
+    && str_contains($api, "\$row['can_apply_deposit'] = \$billingPosted")
+    && str_contains($api, "\$row['can_correct'] = \$billingPosted"));
 
-echo ($failures ? "Failed: {$failures}" : 'Passed: 22') . PHP_EOL;
+echo ($failures ? "Failed: {$failures}" : 'Passed: 23') . PHP_EOL;
 exit($failures ? 1 : 0);

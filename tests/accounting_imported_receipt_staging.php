@@ -19,6 +19,16 @@ function qaImportedReceiptCsv(string $client, string $externalId, string $amount
     ]);
 }
 
+function qaImportedReceiptListRow(int $paymentId, string $client, string $cookie): ?array
+{
+    $list = qaRequest('/modules/billing/api/payments.php?client_name=' . rawurlencode($client),
+        'GET', null, $cookie);
+    foreach (($list['rows'] ?? []) as $row) {
+        if ((int) ($row['id'] ?? 0) === $paymentId) return $row;
+    }
+    return null;
+}
+
 $maker = null;
 $reviewer = null;
 $cookies = [];
@@ -88,6 +98,10 @@ try {
         && $payment['journal_entry_id'] === null && $payment['bank_account_id'] === null
         && $afterInvoice === qaBalances($pdo, $entityId),
         'external-source CSV receipt remains pending without a cash journal');
+    $pendingRow = qaImportedReceiptListRow($paymentId, $client, $makerCookie);
+    qaExpect(($pendingRow['receipt_state'] ?? '') === 'pending'
+        && empty($pendingRow['can_apply_deposit']) && empty($pendingRow['can_correct']),
+        'pending import exposes posting but no deposit or correction action');
 
     $posted = qaRequest('/modules/billing/api/payments.php?action=post&id=' . $paymentId,
         'POST', ['bank_account_id' => $bankId, 'hold_unapplied' => true], $makerCookie);
@@ -98,6 +112,12 @@ try {
         && qaDelta($afterInvoice, $afterDeposit, '2300', -30)
         && qaDelta($afterInvoice, $afterDeposit, '1100', 0),
         'operator posts imported receipt once to cash and customer deposit');
+    $depositRow = qaImportedReceiptListRow($paymentId, $client, $makerCookie);
+    qaExpect(($depositRow['receipt_state'] ?? '') === 'posted'
+        && !empty($depositRow['can_apply_deposit'])
+        && !empty($depositRow['can_refund_deposit'])
+        && !empty($depositRow['can_correct']),
+        'posted imported deposit exposes apply, refund and correction actions');
 
     $update = qaRequest('/modules/billing/api/payments_csv_import.php?action=commit&update_existing=1',
         'POST', ['csv' => qaImportedReceiptCsv($client, $externalId, '31.00')], $makerCookie);
@@ -125,6 +145,13 @@ try {
         && qaDelta($afterDeposit, $afterApplication, '2300', 30)
         && qaDelta($afterDeposit, $afterApplication, '1100', -30),
         'imported customer deposit applies to the posted invoice');
+    $appliedRow = qaImportedReceiptListRow($paymentId, $client, $makerCookie);
+    qaExpect(($appliedRow['receipt_state'] ?? '') === 'posted'
+        && empty($appliedRow['can_apply_deposit'])
+        && empty($appliedRow['can_refund_deposit'])
+        && empty($appliedRow['can_correct'])
+        && !empty($appliedRow['has_deposit_activity']),
+        'applied imported deposit shows activity without stale action buttons');
 
     $fitid = 'SYN-QBO-BANK-' . $run;
     qaRequest('/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=' . $bankId,

@@ -371,6 +371,16 @@ try {
     qaExpect(!empty($receiptReplay['idempotent_replay'])
         && (int) $receiptReplay['journal_entry_id'] === (int) $receipt['journal_entry_id'],
         'receipt retry reused its journal and allocation');
+    $listedReceipts = qaRequest('/modules/billing/api/payments.php?client_name=' . rawurlencode($client),
+        'GET', null, $reviewerCookie);
+    $listedReceipt = null;
+    foreach (($listedReceipts['rows'] ?? []) as $row) {
+        if ((int) ($row['id'] ?? 0) === (int) ($receipt['id'] ?? 0)) $listedReceipt = $row;
+    }
+    qaExpect(($listedReceipt['receipt_state'] ?? '') === 'posted'
+        && !empty($listedReceipt['can_correct'])
+        && empty($listedReceipt['can_apply_deposit']),
+        'fully allocated manual receipt retains correction without a deposit action');
 
     $payment = qaRequest('/modules/ap/api/payments.php', 'POST', [
         'entity_id' => $entityId, 'bank_account_id' => $bankId,
