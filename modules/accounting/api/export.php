@@ -46,6 +46,13 @@ $asOf = $_GET['as_of']  ?? null;
 $eid  = !empty($_GET['entity_id']) ? (int) $_GET['entity_id'] : null;
 $code = $_GET['account_code'] ?? $_GET['code'] ?? null;
 $tplId = (int) ($_GET['template_id'] ?? 0);
+if (in_array($type, ['gl_detail', 'unposted_jes', 'unposted', 'approval_queue', 'account_activity'], true)) {
+    try {
+        $eid = accountingValidateActiveEntityId($tid, $_GET['entity_id'] ?? null);
+    } catch (\InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
 
 $emit = function (string $filename, array $headers, iterable $rows) use ($tid, $type): void {
     if (!headers_sent()) {
@@ -118,6 +125,7 @@ $governedExports = [
         'columns' => [
             'je_number'       => 'je_number',
             'posting_date'    => 'posting_date',
+            'entity_id'       => 'entity_id',
             'account_code'    => 'account_code',
             'account_name'    => 'account_name',
             'debit'           => 'debit',
@@ -135,6 +143,7 @@ $governedExports = [
         'columns' => [
             'je_number'       => 'je_number',
             'posting_date'    => 'posting_date',
+            'entity_id'       => 'entity_id',
             'account_code'    => 'account_code',
             'account_name'    => 'account_name',
             'debit'           => 'debit',
@@ -247,6 +256,7 @@ $datasetOptionsForType = function (string $exportType, array $cfg) use ($from, $
     if ($from) $opts['from'] = (string) $from;
     if ($to) $opts['to'] = (string) $to;
     if ($eid) $opts['entity_id'] = $eid;
+    if ($exportType === 'gl_detail') $opts['statuses'] = ['posted', 'reversed'];
     if (!empty($_GET['status']) && empty($cfg['forced_options']['status'])) {
         $opts['status'] = (string) $_GET['status'];
     }
@@ -322,10 +332,15 @@ if ($type === 'tb') {
 
 // The audit log is specialized tenant/security evidence, not a report-builder dataset.
 if ($type === 'audit_log') {
+    rbac_legacy_require($user, 'accounting.audit.view');
     $where  = ['tenant_id = :t', "event LIKE 'accounting.%'"];
     $params = ['t' => $tid];
     if ($from) { $where[] = 'created_at >= :f';         $params['f']   = $from . ' 00:00:00'; }
     if ($to)   { $where[] = 'created_at <= :to2';       $params['to2'] = $to   . ' 23:59:59'; }
+    if (!empty($_GET['event_like'])) {
+        $where[] = 'event LIKE :el';
+        $params['el'] = 'accounting.' . rtrim((string) $_GET['event_like'], '%') . '%';
+    }
     $stmt = $db->prepare(
         'SELECT id, event, actor_user_id, target_id, meta_json, ip_address, created_at
          FROM audit_log WHERE ' . implode(' AND ', $where) . '
@@ -342,10 +357,12 @@ if ($type === 'account_activity') {
     if (!$code) api_error('code (account_code) required', 422);
     $where  = ['je.tenant_id = :t', "je.status IN ('posted','reversed')", 'a.code = :ac'];
     $params = ['t' => $tid, 'ac' => $code];
+    if ($eid) { $where[] = 'je.entity_id = :entity_id'; $params['entity_id'] = $eid; }
     if ($from) { $where[] = 'je.posting_date >= :f';   $params['f']   = $from; }
     if ($to)   { $where[] = 'je.posting_date <= :to2'; $params['to2'] = $to;   }
     $stmt = $db->prepare(
-        'SELECT je.je_number, je.posting_date, a.code AS account_code, a.name AS account_name,
+        'SELECT je.je_number, je.posting_date, je.entity_id,
+                a.code AS account_code, a.name AS account_name,
                 a.normal_side, l.debit, l.credit, l.memo, je.source_module
          FROM accounting_journal_entry_lines l
          JOIN accounting_journal_entries je ON je.id = l.je_id
@@ -366,7 +383,7 @@ if ($type === 'account_activity') {
     }
     unset($r);
     $emit("accounting-account-activity-{$tid}-{$code}-{$today}.csv",
-        ['je_number','posting_date','account_code','account_name','debit','credit','memo','source_module','running_balance'],
+        ['je_number','posting_date','entity_id','account_code','account_name','debit','credit','memo','source_module','running_balance'],
         $rows);
 }
 

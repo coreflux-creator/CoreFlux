@@ -1080,10 +1080,20 @@ function exportDatasetFetchAccountingGlDetail(int $tenantId, array $opts): array
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
     $where = ['je.tenant_id = :tenant_id'];
     $params = ['tenant_id' => $tenantId];
-    $status = (string) ($opts['status'] ?? 'posted');
-    if ($status !== '' && $status !== 'all') {
-        $where[] = 'je.status = :status';
-        $params['status'] = $status;
+    if (!empty($opts['statuses'])) {
+        $statusKeys = [];
+        foreach (array_values((array) $opts['statuses']) as $index => $value) {
+            $key = 'status' . $index;
+            $statusKeys[] = ':' . $key;
+            $params[$key] = (string) $value;
+        }
+        $where[] = 'je.status IN (' . implode(',', $statusKeys) . ')';
+    } else {
+        $status = (string) ($opts['status'] ?? 'posted');
+        if ($status !== '' && $status !== 'all') {
+            $where[] = 'je.status = :status';
+            $params['status'] = $status;
+        }
     }
     if (!empty($opts['from'])) {
         $where[] = 'je.posting_date >= :from_date';

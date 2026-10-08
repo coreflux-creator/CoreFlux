@@ -11,6 +11,7 @@ export default function AccountingEntitySelector({ scope, testId = 'accounting-e
         style={{ fontSize: 12, maxWidth: 280 }}>
         {scope.error && !scope.entity && <option value="invalid" disabled>Select a legal entity</option>}
         {allowAll && <option value="all">All entities (not consolidated)</option>}
+        {!allowAll && scope.allEntities && <option value="all" disabled>Choose a legal entity</option>}
         {scope.entities.map(row => (
           <option key={row.id} value={String(row.id)}>{row.code} · {row.legal_name || row.name}</option>
         ))}

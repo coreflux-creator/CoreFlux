@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 import FinancialReportLibrary from '../../../dashboard/src/components/FinancialReportLibrary';
 import {
   Activity, BarChart3, ClipboardCheck, Download, FileClock, ScrollText,
@@ -27,6 +29,8 @@ const REPORT_TABS = [
  */
 export default function StandardReports({ session }) {
   const [tab, setTab] = useState('gl_detail');
+  const scope = useAccountingEntityScope();
+  const scopedTab = tab !== 'audit_log';
   return (
     <section className="report-page" data-testid="accounting-standard-reports">
       <header className="report-page__header">
@@ -41,9 +45,12 @@ export default function StandardReports({ session }) {
 
       <FinancialReportLibrary session={session} />
 
-      <div className="report-library__section-label">
-        <strong>Ledger operations · workspace-wide</strong>
-        <span>Review postings, approvals and audit history across the workspace.</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+        <div className="report-library__section-label">
+          <strong>{scopedTab ? 'Ledger operations' : 'Audit log · workspace-wide'}</strong>
+          <span>{scopedTab ? 'Review activity for one legal entity.' : 'Review accounting history across the workspace.'}</span>
+        </div>
+        {scopedTab && <AccountingEntitySelector scope={scope} allowAll={false} testId="accounting-operational-report-entity" />}
       </div>
       <nav className="report-tabs" aria-label="Standard reports">
         {REPORT_TABS.map(([k, label, tid, Icon]) => (
@@ -55,11 +62,17 @@ export default function StandardReports({ session }) {
           ><Icon size={15} aria-hidden="true" />{label}</button>
         ))}
       </nav>
-      {tab === 'gl_detail'        && <GlDetail />}
-      {tab === 'unposted_jes'     && <Unposted />}
-      {tab === 'approval_queue'   && <ApprovalQueue />}
+      {scopedTab && (scope.error || scope.allEntities) && (
+        <p className="error" data-testid="accounting-operational-report-scope-error">
+          {scope.error || 'Choose one legal entity to view ledger operations.'}
+        </p>
+      )}
+      {scopedTab && !scope.loaded && <p>Loading legal entities...</p>}
+      {tab === 'gl_detail'        && scope.ready && !scope.allEntities && <GlDetail scope={scope} />}
+      {tab === 'unposted_jes'     && scope.ready && !scope.allEntities && <Unposted scope={scope} />}
+      {tab === 'approval_queue'   && scope.ready && !scope.allEntities && <ApprovalQueue scope={scope} />}
       {tab === 'audit_log'        && <AuditLog />}
-      {tab === 'account_activity' && <AccountActivity />}
+      {tab === 'account_activity' && scope.ready && !scope.allEntities && <AccountActivity scope={scope} />}
     </section>
   );
 }
@@ -106,12 +119,13 @@ function downloadCsv(url, filename) {
 }
 
 // ── GL Detail ───────────────────────────────────────────────────────────
-function GlDetail() {
+function GlDetail({ scope }) {
   const [from, setFrom] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10));
   const [to, setTo]     = useState(new Date().toISOString().slice(0,10));
   const [code, setCode] = useState('');
-  const qs  = new URLSearchParams({ type: 'gl_detail', from, to, ...(code ? { account_code: code } : {}) }).toString();
-  const { data, loading, error } = useApi(`/modules/accounting/api/standard_reports.php?${qs}`);
+  const qs  = new URLSearchParams({ type: 'gl_detail', from, to, entity_id: String(scope.entityId), ...(code ? { account_code: code } : {}) }).toString();
+  const { data: response, loading, error } = useApi(`/modules/accounting/api/standard_reports.php?${qs}`);
+  const data = response?.entity_id === scope.entityId ? response : null;
   return (
     <div>
       <FilterBar
@@ -159,12 +173,14 @@ function GlDetail() {
 }
 
 // ── Unposted JEs ────────────────────────────────────────────────────────
-function Unposted() {
-  const { data, loading, error } = useApi('/modules/accounting/api/standard_reports.php?type=unposted_jes');
+function Unposted({ scope }) {
+  const qs = new URLSearchParams({ type: 'unposted_jes', entity_id: String(scope.entityId) }).toString();
+  const { data: response, loading, error } = useApi(`/modules/accounting/api/standard_reports.php?${qs}`);
+  const data = response?.entity_id === scope.entityId ? response : null;
   return (
     <div>
       <FilterBar
-        onExport={() => downloadCsv('/modules/accounting/api/export.php?type=unposted_jes', 'unposted-jes.csv')}
+        onExport={() => downloadCsv(`/modules/accounting/api/export.php?${qs}`, 'unposted-jes.csv')}
         exportTestId="accounting-report-unposted-export"
       />
       {loading && <p>Loading…</p>}
@@ -197,12 +213,14 @@ function Unposted() {
 }
 
 // ── Approval Queue ──────────────────────────────────────────────────────
-function ApprovalQueue() {
-  const { data, loading, error } = useApi('/modules/accounting/api/standard_reports.php?type=approval_queue');
+function ApprovalQueue({ scope }) {
+  const qs = new URLSearchParams({ type: 'approval_queue', entity_id: String(scope.entityId) }).toString();
+  const { data: response, loading, error } = useApi(`/modules/accounting/api/standard_reports.php?${qs}`);
+  const data = response?.entity_id === scope.entityId ? response : null;
   return (
     <div>
       <FilterBar
-        onExport={() => downloadCsv('/modules/accounting/api/export.php?type=approval_queue', 'approval-queue.csv')}
+        onExport={() => downloadCsv(`/modules/accounting/api/export.php?${qs}`, 'approval-queue.csv')}
         exportTestId="accounting-report-approval-export"
       />
       {loading && <p>Loading…</p>}
@@ -285,12 +303,13 @@ function AuditLog() {
 }
 
 // ── Account Activity ────────────────────────────────────────────────────
-function AccountActivity() {
+function AccountActivity({ scope }) {
   const [code, setCode] = useState('');
   const [from, setFrom] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10));
   const [to, setTo]     = useState(new Date().toISOString().slice(0,10));
-  const qs = code ? new URLSearchParams({ type: 'account_activity', code, from, to }).toString() : '';
-  const { data, loading, error } = useApi(code ? `/modules/accounting/api/standard_reports.php?${qs}` : null);
+  const qs = code ? new URLSearchParams({ type: 'account_activity', code, from, to, entity_id: String(scope.entityId) }).toString() : '';
+  const { data: response, loading, error } = useApi(code ? `/modules/accounting/api/standard_reports.php?${qs}` : null);
+  const data = response?.entity_id === scope.entityId ? response : null;
   return (
     <div>
       <FilterBar

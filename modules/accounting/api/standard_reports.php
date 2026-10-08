@@ -29,15 +29,25 @@ $from = $_GET['from']   ?? null;
 $to   = $_GET['to']     ?? null;
 $code = $_GET['account_code'] ?? $_GET['code'] ?? null;
 $db   = getDB();
+$entityId = null;
+if (in_array($type, ['gl_detail', 'unposted_jes', 'unposted', 'approval_queue', 'account_activity'], true)) {
+    try {
+        $entityId = accountingValidateActiveEntityId($tid, $_GET['entity_id'] ?? null);
+    } catch (\InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
 
 if ($type === 'gl_detail') {
     $where  = ['je.tenant_id = :t', "je.status IN ('posted','reversed')"];
     $params = ['t' => $tid];
+    if ($entityId) { $where[] = 'je.entity_id = :entity_id'; $params['entity_id'] = $entityId; }
     if ($from) { $where[] = 'je.posting_date >= :f';   $params['f']   = $from; }
     if ($to)   { $where[] = 'je.posting_date <= :to2'; $params['to2'] = $to;   }
     if ($code) { $where[] = 'a.code = :ac';            $params['ac']  = $code; }
     $stmt = $db->prepare(
-        'SELECT je.id AS je_id, je.je_number, je.posting_date, a.code AS account_code,
+        'SELECT je.id AS je_id, je.je_number, je.posting_date, je.entity_id,
+                a.id AS account_id, a.code AS account_code,
                 a.name AS account_name, l.debit, l.credit, l.memo AS line_memo,
                 je.memo AS je_memo, je.source_module, je.source_ref_type, je.source_ref_id
          FROM accounting_journal_entry_lines l
@@ -51,39 +61,48 @@ if ($type === 'gl_detail') {
     $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
     $td = 0.0; $tc = 0.0;
     foreach ($rows as $r) { $td += (float) $r['debit']; $tc += (float) $r['credit']; }
-    api_ok(['rows' => $rows, 'total_debit' => round($td, 2), 'total_credit' => round($tc, 2), 'count' => count($rows)]);
+    api_ok(['entity_id' => $entityId, 'rows' => $rows,
+        'total_debit' => round($td, 2), 'total_credit' => round($tc, 2), 'count' => count($rows)]);
 }
 
 if ($type === 'unposted_jes' || $type === 'unposted') {
+    $where = "tenant_id = :t AND status = 'draft'";
+    $params = ['t' => $tid];
+    if ($entityId) { $where .= ' AND entity_id = :entity_id'; $params['entity_id'] = $entityId; }
     $stmt = $db->prepare(
         "SELECT id, je_number, posting_date, entity_id, period_id, source_module,
                 status, total_debit, total_credit, memo, created_by_user_id, created_at
          FROM accounting_journal_entries
-         WHERE tenant_id = :t AND status = 'draft'
+         WHERE {$where}
          ORDER BY posting_date DESC, id DESC
          LIMIT 500"
     );
-    $stmt->execute(['t' => $tid]);
+    $stmt->execute($params);
     $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
     $byStatus = [];
     foreach ($rows as $r) $byStatus[$r['status']] = ($byStatus[$r['status']] ?? 0) + 1;
-    api_ok(['rows' => $rows, 'count' => count($rows), 'by_status' => $byStatus]);
+    api_ok(['entity_id' => $entityId, 'rows' => $rows,
+        'count' => count($rows), 'by_status' => $byStatus]);
 }
 
 if ($type === 'approval_queue') {
+    $where = "tenant_id = :t AND status = 'draft'";
+    $params = ['t' => $tid];
+    if ($entityId) { $where .= ' AND entity_id = :entity_id'; $params['entity_id'] = $entityId; }
     $stmt = $db->prepare(
         "SELECT id, je_number, posting_date, entity_id, source_module, source_ref_type, source_ref_id,
                 total_debit, total_credit, memo, created_by_user_id, created_at
          FROM accounting_journal_entries
-         WHERE tenant_id = :t AND status = 'draft'
+         WHERE {$where}
          ORDER BY created_at ASC
          LIMIT 500"
     );
-    $stmt->execute(['t' => $tid]);
+    $stmt->execute($params);
     $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
     $bySrc = [];
     foreach ($rows as $r) $bySrc[$r['source_module']] = ($bySrc[$r['source_module']] ?? 0) + 1;
-    api_ok(['rows' => $rows, 'count' => count($rows), 'by_source' => $bySrc]);
+    api_ok(['entity_id' => $entityId, 'rows' => $rows,
+        'count' => count($rows), 'by_source' => $bySrc]);
 }
 
 if ($type === 'audit_log') {
@@ -110,10 +129,11 @@ if ($type === 'account_activity') {
     if (!$code) api_error('code (account_code) required', 422);
     $where  = ['je.tenant_id = :t', "je.status IN ('posted','reversed')", 'a.code = :ac'];
     $params = ['t' => $tid, 'ac' => $code];
+    if ($entityId) { $where[] = 'je.entity_id = :entity_id'; $params['entity_id'] = $entityId; }
     if ($from) { $where[] = 'je.posting_date >= :f';   $params['f']   = $from; }
     if ($to)   { $where[] = 'je.posting_date <= :to2'; $params['to2'] = $to;   }
     $stmt = $db->prepare(
-        'SELECT je.id AS je_id, je.je_number, je.posting_date,
+        'SELECT je.id AS je_id, je.je_number, je.posting_date, je.entity_id,
                 a.code AS account_code, a.name AS account_name, a.normal_side,
                 l.debit, l.credit, l.memo, je.source_module, je.source_ref_type, je.source_ref_id
          FROM accounting_journal_entry_lines l
@@ -136,6 +156,7 @@ if ($type === 'account_activity') {
     }
     unset($r);
     api_ok([
+        'entity_id' => $entityId,
         'account_code' => $code,
         'rows'         => $rows,
         'total_debit'  => round($td, 2),
