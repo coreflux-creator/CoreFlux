@@ -2,7 +2,7 @@ name: CoreFlux CI
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, master, develop, codex/coreaccounting-native]
   pull_request:
     branches: [main, master, develop]
   schedule:
@@ -176,6 +176,20 @@ jobs:
 
       - name: Install private CI database config
         run: install -m 600 tests/fixtures/coreaccounting_ci_db.php "$COREFLUX_ACCOUNTING_DB_CONFIG_PATH"
+
+      - name: Web request must leave the fresh database empty
+        env:
+          COREFLUX_STANDALONE_DATABASE: coreaccounting_ci
+          COREFLUX_PUBLIC_ORIGIN: https://staging.corefluxapp.com
+        run: |
+          COREFLUX_ENV=coreaccounting php -S 127.0.0.1:8765 -t . > "$RUNNER_TEMP/coreaccounting-web.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          curl --retry 5 --retry-connrefused --retry-delay 1 --silent --output "$RUNNER_TEMP/coreaccounting-web-response.json" \
+            http://127.0.0.1:8765/modules/accounting/api/reports.php
+          inspection="$(php deploy/bootstrap_coreaccounting.php --inspect)"
+          printf '%s\n' "$inspection"
+          printf '%s' "$inspection" | php -r '$result = json_decode(stream_get_contents(STDIN), true); if (($result["database"] ?? null) !== "coreaccounting_ci" || ($result["existing_tables"] ?? -1) !== 0) exit(1);'
 
       - name: Bootstrap canonical schema and first tenant
         run: |

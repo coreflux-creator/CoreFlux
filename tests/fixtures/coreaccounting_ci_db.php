@@ -2,8 +2,9 @@
 /** Private-copy database config for the disposable CoreAccounting CI database. */
 declare(strict_types=1);
 
-if (getenv('COREFLUX_ENV') !== 'staging') {
-    throw new RuntimeException('The CI database fixture is staging-only.');
+if (!in_array(getenv('COREFLUX_ENV'), ['staging', 'coreaccounting'], true)
+    || getenv('DB_NAME') !== 'coreaccounting_ci') {
+    throw new RuntimeException('The CI database fixture is restricted to its disposable database.');
 }
 
 foreach (['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASS'] as $setting) {
