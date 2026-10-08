@@ -131,6 +131,7 @@ function Editor({ edit }) {
   const [lines, setLines] = useState([newLine(), newLine()]);
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
+  const [templateMeta, setTemplateMeta] = useState({ loading: !!edit, error: null, status: null, lastRunJeId: null });
   const [expandedLine, setExpandedLine] = useState(null);
   const [assignmentStatus, setAssignmentStatus] = useState({});
 
@@ -141,6 +142,13 @@ function Editor({ edit }) {
     }).catch(() => setDimensions([]));
     if (edit && id) {
       api.get(`/modules/accounting/api/recurring_journal_entries.php?id=${id}`).then(d => {
+        if (!d?.template) throw new Error('Recurring template not found.');
+        setTemplateMeta({
+          loading: false,
+          error: null,
+          status: d.template.status,
+          lastRunJeId: d.template.last_run_je_id || null,
+        });
         if (d?.template) setForm({
           entity_id: d.template.entity_id ? String(d.template.entity_id) : '',
           name: d.template.name || '',
@@ -162,7 +170,7 @@ function Editor({ edit }) {
             assignment_entity_id: dims.placement ? (storedLegalEntity || d.template.entity_id || null) : null,
           };
         }));
-      });
+      }).catch(e => setTemplateMeta({ loading: false, error: e.message, status: null, lastRunJeId: null }));
     }
   }, [edit, id]);
 
@@ -304,10 +312,27 @@ function Editor({ edit }) {
     finally { setBusy(false); }
   };
 
+  if (edit && templateMeta.loading) {
+    return <section data-testid="accounting-recurring-editor"><p>Loading recurring template…</p></section>;
+  }
+  if (edit && templateMeta.error) {
+    return <section data-testid="accounting-recurring-editor"><Link to="/modules/accounting/recurring">← Recurring entries</Link><p className="error">{templateMeta.error}</p></section>;
+  }
+
   return (
     <section data-testid="accounting-recurring-editor">
       <Link to="/modules/accounting/recurring" style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Recurring entries</Link>
       <h2 style={{ marginTop: 8 }}>{edit ? 'Edit' : 'New'} recurring template</h2>
+      {edit && templateMeta.status !== 'active' && (
+        <p data-testid="accounting-recurring-inactive-notice" style={{ background: '#f5f8fc', borderLeft: '3px solid #1683ff', padding: '10px 12px', fontSize: 13 }}>
+          {templateMeta.status === 'ended'
+            ? 'This template has ended. Saving changes will not restart it or alter past journal entries. Create a new template for future runs.'
+            : 'This template is paused. Saving changes will not resume it; use Resume on the recurring entries list.'}
+        </p>
+      )}
+      {edit && templateMeta.lastRunJeId && (
+        <p style={{ marginTop: 0, fontSize: 13 }}><Link to={`/modules/accounting/journal-entries/${templateMeta.lastRunJeId}`} data-testid="accounting-recurring-last-journal">View last run journal</Link></p>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, maxWidth: 900 }}>
         <label style={{ fontSize: 13 }}>Legal entity

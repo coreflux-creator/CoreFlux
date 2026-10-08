@@ -140,9 +140,25 @@ try {
         && (int) $repeatReversal['je_id'] === $reversalId,
         'repeat reversal returns the existing correction');
 
-    qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=end&id='
+    $ended = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=end&id='
         . $templateId, 'POST', [], $cookie);
-    qaExpect(true, 'synthetic schedule ended; linked journals remain for audit');
+    qaExpect(($ended['status'] ?? '') === 'ended',
+        'synthetic schedule ended; linked journals remain for audit');
+    $endReplay = qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=end&id='
+        . $templateId, 'POST', [], $cookie);
+    qaExpect(!empty($endReplay['idempotent_replay']), 'ending an ended schedule is idempotent');
+    $resumeError = null;
+    try {
+        qaRequest('/modules/accounting/api/recurring_journal_entries.php?action=resume&id='
+            . $templateId, 'POST', [], $cookie);
+    } catch (RuntimeException $e) {
+        $resumeError = $e->getMessage();
+    }
+    $endedRow = qaOne($pdo, 'SELECT status FROM accounting_recurring_journal_entries
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $templateId]);
+    qaExpect($resumeError !== null && str_contains($resumeError, 'HTTP 409')
+        && ($endedRow['status'] ?? '') === 'ended',
+        'ended schedule cannot be reactivated through the API');
     echo "Staging recurring template {$templateId}, journal {$jeId}, reversal {$reversalId}, entity {$entityId}.\n";
 } finally {
     if ($templateId > 0) {

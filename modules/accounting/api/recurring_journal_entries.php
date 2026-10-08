@@ -202,7 +202,27 @@ if ($method === 'POST' && in_array($action, ['pause','resume','end'], true)) {
         'resume' => 'active',
         'end'    => 'ended',
     };
-    scopedUpdate('accounting_recurring_journal_entries', $id, ['status' => $newStatus]);
+    $existing = scopedFind(
+        'SELECT status FROM accounting_recurring_journal_entries WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $id]
+    );
+    if (!$existing) api_error('Not found', 404);
+    $currentStatus = (string) $existing['status'];
+    if ($currentStatus === $newStatus) api_ok(['ok' => true, 'status' => $newStatus, 'idempotent_replay' => true]);
+    if ($currentStatus === 'ended') api_error('Ended templates cannot be restarted; create a new template', 409);
+    if ($action === 'resume' && $currentStatus !== 'paused') api_error('Only paused templates can be resumed', 409);
+    if ($action === 'pause' && $currentStatus !== 'active') api_error('Only active templates can be paused', 409);
+    $update = getDB()->prepare(
+        'UPDATE accounting_recurring_journal_entries SET status = :new_status
+          WHERE tenant_id = :tenant_id AND id = :id AND status = :current_status'
+    );
+    $update->execute([
+        'new_status' => $newStatus,
+        'tenant_id' => $tid,
+        'id' => $id,
+        'current_status' => $currentStatus,
+    ]);
+    if ($update->rowCount() !== 1) api_error('Template status changed; reload and try again', 409);
     accountingAudit('accounting.recurring_je.' . $action, ['status' => $newStatus], $id);
     api_ok(['ok' => true, 'status' => $newStatus]);
 }
