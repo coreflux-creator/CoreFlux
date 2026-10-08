@@ -47,7 +47,9 @@ if (!function_exists('cf_mail_bootstrap')) {
             ? new ResendDriver(
                 (string) (getenv('COREFLUX_ACCOUNTING_RESEND_API_KEY') ?: ''),
                 (string) (getenv('COREFLUX_ACCOUNTING_FROM_EMAIL') ?: ''),
-                (string) (getenv('COREFLUX_ACCOUNTING_FROM_NAME') ?: '')
+                (string) (getenv('COREFLUX_ACCOUNTING_FROM_NAME') ?: ''),
+                null,
+                true
             )
             : new ResendDriver();
         // Log-only delivery must be explicit. A missing production key should

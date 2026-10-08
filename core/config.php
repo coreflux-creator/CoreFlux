@@ -46,13 +46,18 @@ define('DB_PASS', getenv('DB_PASS') !== false ? (string) getenv('DB_PASS') : '7D
 
 // SMTP Configuration
 if ($standaloneAccounting) {
-    define('SMTP_HOST', trim((string) (getenv('SMTP_HOST') ?: '')));
-    define('SMTP_PORT', (int) (getenv('SMTP_PORT') ?: 587));
-    define('SMTP_USER', trim((string) (getenv('SMTP_USER') ?: '')));
-    define('SMTP_PASS', (string) (getenv('SMTP_PASS') ?: ''));
-    define('SMTP_SECURE', trim((string) (getenv('SMTP_SECURE') ?: 'tls')));
-    define('SMTP_FROM_EMAIL', trim((string) (getenv('SMTP_FROM_EMAIL') ?: '')));
-    define('SMTP_FROM_NAME', trim((string) (getenv('SMTP_FROM_NAME') ?: 'CoreAccounting')));
+    foreach (['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_SECURE', 'SMTP_FROM_EMAIL', 'SMTP_FROM_NAME'] as $setting) {
+        if (defined($setting)) {
+            throw new RuntimeException('CoreAccounting SMTP settings must use dedicated environment variables.');
+        }
+    }
+    define('SMTP_HOST', trim((string) (getenv('COREFLUX_ACCOUNTING_SMTP_HOST') ?: '')));
+    define('SMTP_PORT', (int) (getenv('COREFLUX_ACCOUNTING_SMTP_PORT') ?: 587));
+    define('SMTP_USER', trim((string) (getenv('COREFLUX_ACCOUNTING_SMTP_USER') ?: '')));
+    define('SMTP_PASS', (string) (getenv('COREFLUX_ACCOUNTING_SMTP_PASS') ?: ''));
+    define('SMTP_SECURE', trim((string) (getenv('COREFLUX_ACCOUNTING_SMTP_SECURE') ?: 'tls')));
+    define('SMTP_FROM_EMAIL', trim((string) (getenv('COREFLUX_ACCOUNTING_FROM_EMAIL') ?: '')));
+    define('SMTP_FROM_NAME', trim((string) (getenv('COREFLUX_ACCOUNTING_FROM_NAME') ?: 'CoreAccounting')));
 } else {
 define('SMTP_HOST', 'smtp.mail.yahoo.com');
 define('SMTP_PORT', 587);

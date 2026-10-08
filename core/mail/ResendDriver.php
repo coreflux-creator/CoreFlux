@@ -27,11 +27,12 @@ class ResendDriver implements MailDriver
     private string $apiKey;
     private ?string $defaultFromEmail;
     private ?string $defaultFromName;
+    private bool $enforceFromEmail;
 
     /** @var (callable(array):array)|null Optional test transport: fn($envelope) => ['ok'=>bool,'id'=>?,'error'=>?,'http'=>int] */
     private $transport;
 
-    public function __construct(?string $apiKey = null, ?string $defaultFromEmail = null, ?string $defaultFromName = null, ?callable $transport = null)
+    public function __construct(?string $apiKey = null, ?string $defaultFromEmail = null, ?string $defaultFromName = null, ?callable $transport = null, bool $enforceFromEmail = false)
     {
         // Accept both `define()` and `getenv()` conventions. `define()` matches
         // the existing OpenAI / Plaid secrets in /app/core/config.local.php;
@@ -48,6 +49,7 @@ class ResendDriver implements MailDriver
         $this->apiKey           = $apiKey            ?? ($envKey !== '' ? $envKey : $defKey);
         $this->defaultFromEmail = $defaultFromEmail  ?? ($envFrom !== '' ? $envFrom : ($defFrom !== '' ? $defFrom : null));
         $this->defaultFromName  = $defaultFromName   ?? ($envFromName !== '' ? $envFromName : ($defFromName !== '' ? $defFromName : null));
+        $this->enforceFromEmail = $enforceFromEmail;
         $this->transport = $transport;
     }
 
@@ -76,6 +78,10 @@ class ResendDriver implements MailDriver
         $fromEmail = !empty($envelope['from']) ? $envelope['from'] : $this->defaultFromEmail;
         if (!$fromEmail) {
             return $this->fail('From address not configured (set RESEND_FROM_EMAIL)');
+        }
+        if ($this->enforceFromEmail && (!filter_var($this->defaultFromEmail, FILTER_VALIDATE_EMAIL)
+            || strcasecmp(trim((string) $fromEmail), trim((string) $this->defaultFromEmail)) !== 0)) {
+            return $this->fail('From address does not match the configured CoreAccounting sender');
         }
         $fromName = !empty($envelope['from_name']) ? $envelope['from_name'] : $this->defaultFromName;
         $fromHeader = $fromName

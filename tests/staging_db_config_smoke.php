@@ -93,15 +93,59 @@ if ($exit === 0 || !str_contains($output, 'CoreAccounting requires an explicit H
 }
 
 $standalone['COREFLUX_PUBLIC_ORIGIN'] = 'https://accounting.example.test';
-$standalone['SMTP_USER'] = null;
-$standalone['SMTP_PASS'] = null;
-$standalone['SMTP_FROM_EMAIL'] = null;
+$standalone['COREFLUX_ACCOUNTING_SMTP_HOST'] = null;
+$standalone['COREFLUX_ACCOUNTING_SMTP_USER'] = null;
+$standalone['COREFLUX_ACCOUNTING_SMTP_PASS'] = null;
+$standalone['COREFLUX_ACCOUNTING_FROM_EMAIL'] = null;
+$standalone['SIM_MOCK_EMAIL'] = null;
+$standalone['SIM_MOCK_RESEND'] = null;
+$standalone['SMTP_HOST'] = 'erp-smtp.example.test';
+$standalone['SMTP_USER'] = 'erp-user';
+$standalone['SMTP_PASS'] = 'erp-password';
+$standalone['SMTP_FROM_EMAIL'] = 'erp-sender@example.test';
 [$exit, $output] = runConfigCheck($definitions . " \$_SERVER['HTTP_HOST'] = 'phpstack-123.cloudwaysapps.com'; require $config;
-    echo json_encode([DB_NAME, APP_URL, COREFLUX_STAGING, SMTP_USER, SMTP_PASS, SMTP_FROM_EMAIL]);",
+    echo json_encode([DB_NAME, APP_URL, COREFLUX_STAGING, SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM_EMAIL]);",
     $standalone);
 if ($exit !== 0 || json_decode(trim($output), true) !==
-    ['stage_test', 'https://accounting.example.test', false, '', '', '']) {
+    ['stage_test', 'https://accounting.example.test', false, '', '', '', '']) {
     throw new RuntimeException('Standalone mode did not isolate database, public origin and mail defaults.');
+}
+
+[$exit, $output] = runConfigCheck($definitions . " define('SMTP_USER', 'copied-erp-user'); require $config;", $standalone);
+if ($exit === 0 || !str_contains($output, 'CoreAccounting SMTP settings must use dedicated environment variables.')) {
+    throw new RuntimeException('Standalone mode accepted a copied ERP SMTP constant.');
+}
+
+$mailer = var_export(dirname(__DIR__) . '/core/mailer.php', true);
+$smtpProbe = $definitions . " require $mailer;"
+    . ' try { sendEmail(["to" => "test@example.test", "subject" => "Test", "body_text" => "Test"]); }'
+    . ' catch (RuntimeException $e) { echo $e->getMessage(); }';
+[$exit, $output] = runConfigCheck($smtpProbe, array_replace($standalone, [
+    'SIM_MODE' => null, 'COREFLUX_DISABLE_DATABASE' => '1',
+]));
+if ($exit !== 0 || trim($output) !== 'CoreAccounting SMTP delivery is not configured.') {
+    throw new RuntimeException('Standalone SMTP fallback did not fail closed.');
+}
+
+$ownSmtp = array_replace($standalone, [
+    'COREFLUX_DISABLE_DATABASE' => '1',
+    'COREFLUX_ACCOUNTING_SMTP_HOST' => 'accounting-smtp.example.test',
+    'COREFLUX_ACCOUNTING_SMTP_USER' => 'accounting-user',
+    'COREFLUX_ACCOUNTING_SMTP_PASS' => 'synthetic-only',
+    'COREFLUX_ACCOUNTING_FROM_EMAIL' => 'accounting@example.test',
+]);
+[$exit, $output] = runConfigCheck($definitions . " require $config; echo json_encode([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM_EMAIL]);", $ownSmtp);
+if ($exit !== 0 || json_decode(trim($output), true) !==
+    ['accounting-smtp.example.test', 'accounting-user', 'synthetic-only', 'accounting@example.test']) {
+    throw new RuntimeException('Standalone SMTP ignored its dedicated settings.');
+}
+$smtpOverrideProbe = $definitions . " require $mailer;"
+    . ' try { sendEmail(["to" => "test@example.test", "subject" => "Test", "body_text" => "Test",'
+    . ' "from_email" => "legacy@example.test"]); }'
+    . ' catch (RuntimeException $e) { echo $e->getMessage(); }';
+[$exit, $output] = runConfigCheck($smtpOverrideProbe, $ownSmtp);
+if ($exit !== 0 || trim($output) !== 'From address does not match the configured CoreAccounting sender.') {
+    throw new RuntimeException('Standalone SMTP accepted an ERP sender override.');
 }
 
 $mailProbe = $definitions . ' require ' . $mailBootstrap
@@ -131,6 +175,37 @@ $mailWithRecipient = $definitions . ' require ' . $mailBootstrap
 [$exit, $output] = runConfigCheck($mailWithRecipient, $mailEnv);
 if ($exit !== 0 || trim($output) !== 'From address not configured (set RESEND_FROM_EMAIL)') {
     throw new RuntimeException('Standalone mail inherited the ERP sender.');
+}
+
+$tenantMail = var_export(dirname(__DIR__) . '/core/tenant_mail.php', true);
+$senderProbe = $definitions . " require $config; require $tenantMail;"
+    . ' $sender = cf_tenant_mail_sender(0); echo json_encode([$sender["from"], $sender["from_name"]]);';
+[$exit, $output] = runConfigCheck($senderProbe, $mailEnv);
+if ($exit !== 0 || json_decode(trim($output), true) !== [null, null]) {
+    throw new RuntimeException('Standalone tenant mail inherited the ERP sender.');
+}
+[$exit, $output] = runConfigCheck($senderProbe, array_replace($mailEnv, [
+    'COREFLUX_ACCOUNTING_FROM_EMAIL' => 'accounting@example.test',
+    'COREFLUX_ACCOUNTING_FROM_NAME' => 'Accounting',
+]));
+if ($exit !== 0 || json_decode(trim($output), true) !== ['accounting@example.test', 'Accounting']) {
+    throw new RuntimeException('Standalone tenant mail ignored its dedicated sender.');
+}
+[$exit, $output] = runConfigCheck($senderProbe, array_replace($mailEnv, ['COREFLUX_ENV' => null]));
+if ($exit !== 0 || json_decode(trim($output), true)[0] !== 'legacy@example.test') {
+    throw new RuntimeException('The existing ERP tenant mail sender changed.');
+}
+
+require_once dirname(__DIR__) . '/core/mail/ResendDriver.php';
+$driver = new Core\Mail\ResendDriver('re_test', 'accounting@example.test', 'Accounting',
+    static fn(array $request): array => ['ok' => true, 'id' => 'synthetic', 'http' => 200], true);
+$rejected = $driver->send(['to' => ['test@example.test'], 'from' => 'legacy@example.test']);
+if (($rejected['error'] ?? '') !== 'From address does not match the configured CoreAccounting sender') {
+    throw new RuntimeException('Standalone provider accepted an ERP sender override.');
+}
+$accepted = $driver->send(['to' => ['test@example.test'], 'from' => 'accounting@example.test']);
+if (($accepted['status'] ?? '') !== 'sent') {
+    throw new RuntimeException('Standalone provider rejected its dedicated sender.');
 }
 
 echo "Staging database configuration checks passed.\n";

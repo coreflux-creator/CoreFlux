@@ -35,8 +35,10 @@ $a('defaults purpose to "notification"',                   $c($mailer, "\$args['
 
 echo "\ncore/mail_bootstrap.php — config.local.php fallback\n";
 $boot = (string) file_get_contents($ROOT . '/core/mail_bootstrap.php');
+$resendDriver = (string) file_get_contents($ROOT . '/core/mail/ResendDriver.php');
 $a('checks env first, then defined() constant',
-    $c($boot, "getenv('RESEND_API_KEY')") && $c($boot, "defined('RESEND_API_KEY')"));
+    $c($boot, ': new ResendDriver()') && $c($resendDriver, "getenv('RESEND_API_KEY')")
+        && $c($resendDriver, "defined('RESEND_API_KEY')"));
 $a('eager-loads config.local.php for web/cron entry points',
     $c($boot, "__DIR__ . '/config.local.php'") && $c($boot, 'require_once $_mailLocalConfig'));
 $a('LogDriver default requires explicit MAIL_DRIVER=log',

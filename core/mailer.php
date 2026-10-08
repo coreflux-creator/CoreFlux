@@ -51,6 +51,17 @@ function sendEmail(array $args): array {
         ]);
     }
 
+    if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+        if (SMTP_HOST === '' || SMTP_USER === '' || SMTP_PASS === ''
+            || !filter_var(SMTP_FROM_EMAIL, FILTER_VALIDATE_EMAIL)) {
+            throw new RuntimeException('CoreAccounting SMTP delivery is not configured.');
+        }
+        if (!empty($args['from_email'])
+            && strcasecmp(trim((string) $args['from_email']), SMTP_FROM_EMAIL) !== 0) {
+            throw new RuntimeException('From address does not match the configured CoreAccounting sender.');
+        }
+    }
+
     // Lazy-load PHPMailer from the vendored copy
     $base = __DIR__ . '/../lib/PHPMailer/src';
     require_once $base . '/Exception.php';

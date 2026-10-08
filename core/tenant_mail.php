@@ -64,8 +64,13 @@ if (!function_exists('cf_mail_purpose_lookup')) {
 if (!function_exists('cf_tenant_mail_sender')) {
     function cf_tenant_mail_sender(int $tenantId, string $purpose = 'core'): array
     {
-        $platformFrom = getenv('RESEND_FROM_EMAIL') ?: (defined('RESEND_FROM_EMAIL') ? constant('RESEND_FROM_EMAIL') : (defined('SMTP_FROM_EMAIL') ? SMTP_FROM_EMAIL : null));
-        $platformName = getenv('RESEND_FROM_NAME')  ?: (defined('RESEND_FROM_NAME')  ? constant('RESEND_FROM_NAME')  : (defined('SMTP_FROM_NAME')  ? SMTP_FROM_NAME  : null));
+        if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+            $platformFrom = trim((string) (getenv('COREFLUX_ACCOUNTING_FROM_EMAIL') ?: '')) ?: null;
+            $platformName = trim((string) (getenv('COREFLUX_ACCOUNTING_FROM_NAME') ?: '')) ?: null;
+        } else {
+            $platformFrom = getenv('RESEND_FROM_EMAIL') ?: (defined('RESEND_FROM_EMAIL') ? constant('RESEND_FROM_EMAIL') : (defined('SMTP_FROM_EMAIL') ? SMTP_FROM_EMAIL : null));
+            $platformName = getenv('RESEND_FROM_NAME')  ?: (defined('RESEND_FROM_NAME')  ? constant('RESEND_FROM_NAME')  : (defined('SMTP_FROM_NAME')  ? SMTP_FROM_NAME  : null));
+        }
 
         $fromName = $platformName;
         $replyTo  = null;
