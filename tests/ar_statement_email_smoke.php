@@ -2,7 +2,7 @@
 /**
  * Smoke: Billing — AR statement (Email statement from Aging table).
  *
- * Reuses billing_client_contacts (no new migration). Verifies:
+ * Reuses entity-owned billing_client_contacts. Verifies:
  *   - lib/statement.php helpers (bucketing, render)
  *   - api/send_statement.php (preview + send + RBAC + idempotency key)
  *   - AgingTable.jsx wiring (Email statement button + preview modal)
@@ -78,9 +78,11 @@ $a('GET treated as dry-run',                          str_contains($api, "\$dryR
 $a('validates client_name required',                  str_contains($api, "api_error('client_name required', 422)"));
 $a('validates as_of format',                          str_contains($api, "api_error('as_of must be YYYY-MM-DD', 422)"));
 $a('409 when nothing outstanding',                    str_contains($api, 'Nothing outstanding for'));
-$a('422 when no AR contact resolved',                 str_contains($api, "No AR contact on file for this client. Add one in Client contacts and retry."));
+$a('422 when no entity AR contact resolved',          str_contains($api, 'No AR contact for this client and legal entity.'));
 $a('uses cf_mail_bootstrap',                          str_contains($api, '$svc    = cf_mail_bootstrap();'));
-$a('uses cf_tenant_mail_sender(tid, billing)',        str_contains($api, "cf_tenant_mail_sender(\$tid, 'billing')"));
+$a('uses entity billing sender',                      str_contains($api, 'billingEntityMailSender($tid, $entityId)'));
+$a('sender must be ready',                            str_contains($api, "if (!\$sender['ready'])"));
+$a('resolves entity-owned contact',                   str_contains($api, 'billingStatementResolveRecipients($tid, $entityId, $clientName)'));
 $a('CC line includes escalation_email',               str_contains($api, "'cc'        => \$recipients['cc']"));
 $a("template_key = 'ar_statement'",                   str_contains($api, "'ar_statement'"));
 $a('idempotency includes legal entity',              str_contains($api, 'billingStatementIdempotencyKey($tid, $entityId, $clientName'));
@@ -101,7 +103,7 @@ $a('send keeps preview entity and date',             str_contains($ui, 'as_of: s
 $a('PDF keeps preview entity and tab tenant',        str_contains($ui, 'entity_id: String(statement.entity_id)')
     && str_contains($ui, "'X-CoreFlux-Tenant-Id': tenantId"));
 $a('all-entities view cannot send',                  str_contains($ui, 'disabled={!scope.entityId || sending === r.client_name}'));
-$a('disables Send button when no AR contact',         str_contains($ui, 'disabled={busy || !to}'));
+$a('disables Send without contact or sender',         str_contains($ui, 'disabled={busy || !to || !preview?.sender?.ready}'));
 $a('shows no-contact warning state',                  str_contains($ui, 'billing-aging-statement-no-contact'));
 $a('shows preview email body',                        str_contains($ui, 'dangerouslySetInnerHTML={{ __html: preview?.email?.html || \'\' }}'));
 

@@ -66,6 +66,9 @@ catch (\InvalidArgumentException $e) { $assert("rejects invalid recipient", true
 try { $svc->send(7, 'time', 'x', ['a@b.co'], '', 'b'); $assert("rejects empty subject", false); }
 catch (\InvalidArgumentException $e) { $assert("rejects empty subject", true); }
 
+try { $svc->send(7, 'time', 'x', ['a@b.co'], 's', 'b', null, [], ['cc' => ['invalid']]); $assert("rejects invalid CC", false); }
+catch (\InvalidArgumentException $e) { $assert("rejects invalid CC", true); }
+
 echo "\nSend (LogDriver) end-to-end\n";
 $res = $svc->send(
     7,
@@ -76,7 +79,8 @@ $res = $svc->send(
     'Plaintext body',
     '<p>HTML body</p>',
     [101, 102],
-    ['from' => 'timesheets@acmestaffing.com', 'reply_to' => 'no-reply@acmestaffing.com']
+    ['from' => 'timesheets@acmestaffing.com', 'reply_to' => 'no-reply@acmestaffing.com',
+     'cc' => ['controller@acmestaffing.com']]
 );
 $assert("send returns status=sent",                 ($res['status'] ?? null) === 'sent');
 $assert("send returns provider_message_id",         !empty($res['provider_message_id']));
@@ -91,6 +95,7 @@ $assert("row.module=time",                          ($row['module']    ?? null) 
 $assert("row.purpose=token_approval",               ($row['purpose']   ?? null) === 'token_approval');
 $assert("row.from preserved",                       ($row['from_address'] ?? null) === 'timesheets@acmestaffing.com');
 $assert("row.to_addresses_json is JSON array",      is_array(json_decode($row['to_addresses_json'] ?? '', true)));
+$assert("row.cc_addresses_json records CC",        json_decode($row['cc_addresses_json'] ?? '', true) === ['controller@acmestaffing.com']);
 $assert("row.attachments_json is JSON array",       is_array(json_decode($row['attachments_json'] ?? '', true)));
 $assert("row.status=sent",                          ($row['status']    ?? null) === 'sent');
 $assert("row.driver=log",                           ($row['driver']    ?? null) === 'log');
@@ -103,6 +108,7 @@ $logged = json_decode($lines[0] ?? '', true) ?: [];
 $assert("logged subject matches",                   ($logged['subject'] ?? null) === 'Approve timesheet — Jane Doe — Week of 2026-02-09');
 $assert("logged has_html=true",                     ($logged['has_html'] ?? null) === true);
 $assert("logged attach_n=2",                        ($logged['attach_n'] ?? null) === 2);
+$assert("logged cc is preserved",                    ($logged['cc'] ?? null) === ['controller@acmestaffing.com']);
 
 echo "\nDuplicate recipients deduped\n";
 $res2 = $svc->send(7, 'time', 'x', ['a@b.co', 'a@b.co', 'c@d.co'], 'subj', 'body');

@@ -51,9 +51,16 @@ if ($method === 'GET' && $action === 'queue') {
         $isDnc = in_array((string) $inv['client_name'], $dnc, true);
         $cadence = billingDunningWithinCadence($inv, (int) $policy['cadence_days']);
         $recipients = billingDunningResolveRecipients($tid, $inv, (int) $inv['dunning_attempts'] + 1, $policy);
+        try {
+            $sender = billingEntityMailSender($tid, (int) ($inv['entity_id'] ?? 0));
+            $senderReason = $sender['ready'] ? null : $sender['reason'];
+        } catch (InvalidArgumentException $e) {
+            $senderReason = $e->getMessage();
+        }
 
         $out[] = [
             'invoice_id'    => (int) $inv['id'],
+            'entity_id'     => (int) ($inv['entity_id'] ?? 0),
             'invoice_number'=> $inv['invoice_number'],
             'client_name'   => $inv['client_name'],
             'amount_due'    => (float) $inv['amount_due'],
@@ -66,9 +73,11 @@ if ($method === 'GET' && $action === 'queue') {
             'current_stage' => (int) ($inv['dunning_stage'] ?? 0),
             'next_stage'    => $stage,
             'recipients'    => $recipients,
+            'sender_reason' => $senderReason,
             'block_reason'  => $isDnc ? 'do_not_contact'
                               : ($recipients['to'] === null ? 'no_contact'
-                              : (($cadence) ? 'cadence' : null)),
+                              : ($senderReason !== null ? 'sender_not_ready'
+                              : ($cadence ? 'cadence' : null))),
         ];
     }
     api_ok(['rows' => $out, 'policy' => $policy, 'today' => $today]);
@@ -93,12 +102,16 @@ if ($method === 'POST' && $action === 'send_now') {
         api_error('No AR contact found on invoice or client. Add one in Client contacts.', 422);
     }
 
-    $tenant = scopedFind('SELECT * FROM tenants WHERE id = :tenant_id', []) ?: ['name' => 'CoreFlux'];
-    $email  = billingDunningRenderEmail((string) $stage['template_key'], $inv, $tenant);
-    $sender = cf_tenant_mail_sender($tid, 'billing');
+    try {
+        $sender = billingEntityMailSender($tid, (int) ($inv['entity_id'] ?? 0));
+    } catch (InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    }
+    if (!$sender['ready']) api_error((string) $sender['reason'], 422);
+    $email  = billingDunningRenderEmail((string) $stage['template_key'], $inv, ['name' => $sender['entity_name']]);
     $svc    = cf_mail_bootstrap();
     try {
-        $svc->send($tid, 'billing', "dunning_{$stage['template_key']}", [$recipients['to']],
+        $sendResult = $svc->send($tid, 'billing', "dunning_{$stage['template_key']}", [$recipients['to']],
             $email['subject'], $email['text'], $email['html'], [], [
                 'from'      => $sender['from'] ?? null,
                 'from_name' => $sender['from_name'] ?? null,
@@ -107,6 +120,9 @@ if ($method === 'POST' && $action === 'send_now') {
                 'idempotency_key' => 'dunning-' . $id . '-' . $stage['stage_no'] . '-' . date('Y-m-d'),
             ]
         );
+        if (($sendResult['status'] ?? 'failed') !== 'sent') {
+            throw new RuntimeException((string) ($sendResult['error'] ?? 'Delivery provider did not accept the reminder.'));
+        }
         billingDunningRecordSend($tid, $id, $stage, $recipients['to'], $recipients['cc'], 'sent');
         api_ok(['ok' => true, 'stage' => $stage, 'recipients' => $recipients]);
     } catch (\Throwable $e) {

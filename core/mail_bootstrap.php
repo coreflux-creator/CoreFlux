@@ -63,13 +63,13 @@ if (!function_exists('cf_mail_bootstrap')) {
                 $stmt = $pdo->prepare(
                     'INSERT INTO mail_outbox
                       (tenant_id, module, purpose, connection_id, driver,
-                       to_addresses_json, from_address, reply_to, subject,
+                       to_addresses_json, cc_addresses_json, from_address, reply_to, subject,
                        body_text, body_html, attachments_json,
                        status, provider_message_id, sent_at, error,
                        created_at)
                      VALUES
                       (:tenant_id, :module, :purpose, :connection_id, :driver,
-                       :to_addresses_json, :from_address, :reply_to, :subject,
+                       :to_addresses_json, :cc_addresses_json, :from_address, :reply_to, :subject,
                        :body_text, :body_html, :attachments_json,
                        :status, :provider_message_id, :sent_at, :error,
                        NOW())'
@@ -81,6 +81,7 @@ if (!function_exists('cf_mail_bootstrap')) {
                     'connection_id'       => $row['connection_id'] ?? null,
                     'driver'              => $row['driver'],
                     'to_addresses_json'   => $row['to_addresses_json'],
+                    'cc_addresses_json'   => $row['cc_addresses_json'] ?? null,
                     'from_address'        => $row['from_address'] ?? null,
                     'reply_to'            => $row['reply_to'] ?? null,
                     'subject'             => $row['subject'],

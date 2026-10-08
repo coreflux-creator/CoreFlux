@@ -43,6 +43,7 @@ class LogDriver implements MailDriver
             'purpose'   => $envelope['purpose']   ?? null,
             'from'      => $envelope['from']      ?? null,
             'to'        => $envelope['to']        ?? [],
+            'cc'        => $envelope['cc']        ?? [],
             'subject'   => $envelope['subject']   ?? '',
             'has_html'  => !empty($envelope['body_html']),
             'attach_n'  => count($envelope['attachments'] ?? []),

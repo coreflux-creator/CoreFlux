@@ -3,7 +3,7 @@
  * AR Statement library — renders a per-client open-invoice statement
  * and resolves which AR contacts it should be emailed to.
  *
- * Reuses billing_client_contacts (ar_primary_email + ar_escalation_email)
+ * Reuses entity-owned billing_client_contacts (ar_primary_email + ar_escalation_email)
  * so the same roster used by the dunning engine doubles as the statement
  * distribution list — no second source of truth.
  *
@@ -15,6 +15,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/billing.php';
 require_once __DIR__ . '/../../../core/tenant_branding.php';
 require_once __DIR__ . '/../../../core/accounting/books_health_metrics.php';
+require_once __DIR__ . '/entity_delivery.php';
 
 function billingStatementEntity(int $tenantId, mixed $requested): array
 {
@@ -85,16 +86,10 @@ function billingStatementBucket(array $invoices): array
  *
  * @return array{to: ?string, cc: array<int,string>, reason: string}
  */
-function billingStatementResolveRecipients(int $tenantId, string $clientName): array
+function billingStatementResolveRecipients(int $tenantId, int $entityId, string $clientName): array
 {
     try {
-        $st = getDB()->prepare(
-            'SELECT ar_primary_email, ar_escalation_email
-               FROM billing_client_contacts
-              WHERE tenant_id = :t AND client_name = :c LIMIT 1'
-        );
-        $st->execute(['t' => $tenantId, 'c' => $clientName]);
-        $row = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+        $row = billingClientContactForEntity($tenantId, $entityId, $clientName);
     } catch (\Throwable $_) { $row = null; }
 
     $primary = (!empty($row['ar_primary_email']) && filter_var($row['ar_primary_email'], FILTER_VALIDATE_EMAIL))

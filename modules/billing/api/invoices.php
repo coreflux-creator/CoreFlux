@@ -23,6 +23,7 @@ require_once __DIR__ . '/../../../core/active_entity.php';
 require_once __DIR__ . '/../lib/billing.php';
 require_once __DIR__ . '/../lib/invoice_drafts.php';
 require_once __DIR__ . '/../lib/invoice_pdf.php';
+require_once __DIR__ . '/../lib/entity_delivery.php';
 require_once __DIR__ . '/../lib/workflow.php';
 require_once __DIR__ . '/../../ap/lib/ap.php';   // apNormalizeItemType() — shared item_type vocabulary
 require_once __DIR__ . '/../../ap/lib/pwp.php';  // apPwpAutoLinkForArInvoice() — pay-when-paid auto-link
@@ -47,14 +48,9 @@ function billingInvoiceDefaultRecipient(int $tenantId, array $invoice): array
     }
 
     try {
-        $stmt = getDB()->prepare(
-            'SELECT ar_primary_email
-               FROM billing_client_contacts
-              WHERE tenant_id = :t AND client_name = :client
-              LIMIT 1'
-        );
-        $stmt->execute(['t' => $tenantId, 'client' => (string) ($invoice['client_name'] ?? '')]);
-        $email = trim((string) ($stmt->fetchColumn() ?: ''));
+        $entityId = billingInvoiceDeliveryEntityId($tenantId, $invoice);
+        $contact = $entityId ? billingClientContactForEntity($tenantId, $entityId, (string) ($invoice['client_name'] ?? '')) : null;
+        $email = trim((string) ($contact['ar_primary_email'] ?? ''));
         if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return ['email' => $email, 'source' => 'client contacts'];
         }
@@ -108,12 +104,14 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
         $token['url'] = $base !== '' ? "{$base}/billing/invoice.php?t={$token['token']}" : null;
         unset($token['token']); // never expose raw token in authed API beyond URL
     }
+    $deliveryEntityId = billingInvoiceDeliveryEntityId($tid, $inv);
     api_ok([
         'invoice' => $inv,
         'lines' => $lines,
         'allocations' => $allocations,
         'token' => $token,
         'default_recipient' => billingInvoiceDefaultRecipient($tid, $inv),
+        'delivery_sender' => $deliveryEntityId ? billingEntityMailSender($tid, $deliveryEntityId) : null,
     ]);
 }
 
@@ -139,7 +137,7 @@ if ($method === 'GET' && $action === '') {
     $offset  = ($page - 1) * $perPage;
 
     $rows = scopedQuery(
-        'SELECT id, invoice_number, client_name, issue_date, due_date, currency,
+        'SELECT id, entity_id, invoice_number, client_name, issue_date, due_date, currency,
                 subtotal, tax_total, total, amount_paid, amount_due, status,
                 po_number, bill_to_json, journal_entry_id, sent_at, created_at,
                 (SELECT je.status FROM accounting_journal_entries je
@@ -152,11 +150,12 @@ if ($method === 'GET' && $action === '') {
     $contactMap = [];
     try {
         foreach (scopedQuery(
-            'SELECT client_name, ar_primary_email
+            'SELECT entity_id, client_name, ar_primary_email
                FROM billing_client_contacts
-              WHERE tenant_id = :tenant_id AND ar_primary_email IS NOT NULL'
+              WHERE tenant_id = :tenant_id AND entity_id IS NOT NULL AND ar_primary_email IS NOT NULL'
         ) as $contact) {
-            $contactMap[strtolower(trim((string) $contact['client_name']))] = trim((string) $contact['ar_primary_email']);
+            $key = (int) $contact['entity_id'] . ':' . strtolower(trim((string) $contact['client_name']));
+            $contactMap[$key] = trim((string) $contact['ar_primary_email']);
         }
     } catch (\Throwable $e) {
         error_log('[billing invoice list recipients] ' . $e->getMessage());
@@ -166,7 +165,8 @@ if ($method === 'GET' && $action === '') {
             ? (json_decode((string) $invoiceRow['bill_to_json'], true) ?: [])
             : [];
         $billToEmail = trim((string) ($billTo['email'] ?? ''));
-        $contactEmail = $contactMap[strtolower(trim((string) $invoiceRow['client_name']))] ?? '';
+        $contactKey = (int) ($invoiceRow['entity_id'] ?? 0) . ':' . strtolower(trim((string) $invoiceRow['client_name']));
+        $contactEmail = $contactMap[$contactKey] ?? '';
         if ($billToEmail !== '' && filter_var($billToEmail, FILTER_VALIDATE_EMAIL)) {
             $invoiceRow['recipient_email'] = $billToEmail;
             $invoiceRow['recipient_source'] = 'invoice bill-to';
@@ -657,11 +657,17 @@ if ($method === 'POST' && $action === 'send') {
     if (!empty($row['opening_cutover_id'])) api_error('This is an opening receivable, not a new invoice to send.', 409);
     if (!billingTransitionAllowed($row['status'], 'sent')) api_error("Cannot send from status {$row['status']}", 409);
     $postedEntry = !empty($row['journal_entry_id']) ? scopedFind(
-        'SELECT id FROM accounting_journal_entries
+        'SELECT id, entity_id FROM accounting_journal_entries
           WHERE tenant_id = :tenant_id AND id = :id AND status = "posted"',
         ['id' => (int) $row['journal_entry_id']]
     ) : null;
     if (!$postedEntry) api_error('Post the invoice to the ledger before sending it', 409);
+    $entityId = billingInvoiceDeliveryEntityId($tid, $row);
+    if (!$entityId || (int) $postedEntry['entity_id'] !== $entityId) {
+        api_error('Invoice legal entity does not match its posted journal.', 409);
+    }
+    $sender = billingEntityMailSender($tid, $entityId);
+    if (!$sender['ready']) api_error((string) $sender['reason'], 422);
 
     $beforeNormalization = $row;
     try {
@@ -687,11 +693,10 @@ if ($method === 'POST' && $action === 'send') {
         $to = (string) (billingInvoiceDefaultRecipient($tid, $row)['email'] ?? '');
     }
     if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
-        api_error('No valid invoice recipient. Add a bill-to email on the invoice or an AR primary email under Billing → Client contacts.', 422);
+        api_error('No valid invoice recipient. Add a bill-to email or an AR contact for this legal entity.', 422);
     }
 
     $tok = billingIssueViewToken($tid, $id);
-    $sender = cf_tenant_mail_sender($tid, 'billing');
     $svc = cf_mail_bootstrap();
 
     // Generate the invoice PDF and attach it. If the renderer is missing on

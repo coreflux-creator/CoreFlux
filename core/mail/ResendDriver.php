@@ -87,9 +87,34 @@ class ResendDriver implements MailDriver
             'to'      => $to,
             'subject' => (string) ($envelope['subject'] ?? ''),
         ];
+        $cc = array_values(array_filter((array) ($envelope['cc'] ?? [])));
+        if ($cc) $payload['cc'] = $cc;
         if (!empty($envelope['body_html']))      $payload['html']     = $envelope['body_html'];
         if (!empty($envelope['body_text']))      $payload['text']     = $envelope['body_text'];
         if (!empty($envelope['reply_to']))       $payload['reply_to'] = $envelope['reply_to'];
+        $files = [];
+        $encodedBytes = 0;
+        foreach ((array) ($envelope['attachments'] ?? []) as $attachment) {
+            if (!is_array($attachment)) return $this->fail('Invalid attachment metadata');
+            $filename = basename((string) ($attachment['filename'] ?? ''));
+            if ($filename === '' || preg_match('/[\r\n]/', $filename)) return $this->fail('Invalid attachment filename');
+            if (!empty($attachment['path'])) {
+                $path = (string) $attachment['path'];
+                if (!is_file($path) || !is_readable($path)) return $this->fail('Attachment file is unavailable');
+                $size = filesize($path);
+                if ($size === false || $size > 30000000) return $this->fail('Attachment is too large');
+                $bytes = file_get_contents($path);
+                if ($bytes === false) return $this->fail('Attachment file could not be read');
+                $content = base64_encode($bytes);
+            } else {
+                $content = (string) ($attachment['content'] ?? '');
+                if ($content === '' || base64_decode($content, true) === false) return $this->fail('Invalid attachment content');
+            }
+            $encodedBytes += strlen($content);
+            if ($encodedBytes > 40000000) return $this->fail('Attachments exceed email size limit');
+            $files[] = ['filename' => $filename, 'content' => $content];
+        }
+        if ($files) $payload['attachments'] = $files;
         if (!empty($envelope['tags']) && is_array($envelope['tags'])) {
             $payload['tags'] = $envelope['tags'];
         }
@@ -103,6 +128,7 @@ class ResendDriver implements MailDriver
                 $envelope['module']    ?? 'core',
                 substr(hash('sha256', json_encode([
                     'to'      => $to,
+                    'cc'      => $cc,
                     'subject' => $payload['subject'],
                     'purpose' => $envelope['purpose'] ?? '',
                 ])), 0, 24)

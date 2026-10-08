@@ -51,8 +51,9 @@ if (empty($invoices)) {
     api_error("Nothing outstanding for \"{$clientName}\" as of {$asOf}.", 409);
 }
 $buckets    = billingStatementBucket($invoices);
-$recipients = billingStatementResolveRecipients($tid, $clientName);
+$recipients = billingStatementResolveRecipients($tid, $entityId, $clientName);
 $email      = billingStatementRenderEmail((string) $entity['legal_name'], $clientName, $invoices, $buckets, $asOf, null, $tid);
+$sender = billingEntityMailSender($tid, $entityId);
 
 if ($dryRun) {
     api_ok([
@@ -65,17 +66,18 @@ if ($dryRun) {
         'invoices'   => $invoices,
         'email'      => $email,
         'recipients' => $recipients,
+        'sender'     => $sender,
     ]);
 }
 
 if (!$recipients['to']) {
-    api_error('No AR contact on file for this client. Add one in Client contacts and retry.', 422);
+    api_error('No AR contact for this client and legal entity. Add one in Client contacts and retry.', 422);
 }
+if (!$sender['ready']) api_error((string) $sender['reason'], 422);
 
-$sender = cf_tenant_mail_sender($tid, 'billing');
 $svc    = cf_mail_bootstrap();
 try {
-    $svc->send($tid, 'billing', 'ar_statement', [$recipients['to']],
+    $sendResult = $svc->send($tid, 'billing', 'ar_statement', [$recipients['to']],
         $email['subject'], $email['text'], $email['html'], [], [
             'from'      => $sender['from']      ?? null,
             'from_name' => $sender['from_name'] ?? null,
@@ -84,6 +86,9 @@ try {
             'idempotency_key' => billingStatementIdempotencyKey($tid, $entityId, $clientName, date('Y-m-d')),
         ]
     );
+    if (($sendResult['status'] ?? 'failed') !== 'sent') {
+        throw new RuntimeException((string) ($sendResult['error'] ?? 'Delivery provider did not accept the statement.'));
+    }
 } catch (\Throwable $e) {
     api_error('Send failed: ' . $e->getMessage(), 502);
 }

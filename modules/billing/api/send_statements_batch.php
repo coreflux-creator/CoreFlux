@@ -45,8 +45,9 @@ $aging = billingComputeAging($tid, $asOf, $entityId);
 $report = ['as_of' => $asOf, 'entity_id' => $entityId, 'entity_name' => $entity['legal_name'], 'preview' => $dryRun,
     'attempted' => 0, 'sent' => 0, 'skipped' => 0, 'failed' => 0, 'rows' => []];
 
-$sender = $dryRun ? null : cf_tenant_mail_sender($tid, 'billing');
+$sender = billingEntityMailSender($tid, $entityId);
 $svc    = $dryRun ? null : cf_mail_bootstrap();
+$report['sender'] = $sender;
 
 foreach ($aging as $row) {
     $past = (float) ($row['bucket_1_30'] ?? 0)
@@ -57,10 +58,15 @@ foreach ($aging as $row) {
     $report['attempted']++;
     $client = (string) $row['client_name'];
 
-    $recipients = billingStatementResolveRecipients($tid, $client);
+    $recipients = billingStatementResolveRecipients($tid, $entityId, $client);
     if (!$recipients['to']) {
         $report['skipped']++;
         $report['rows'][] = ['client_name' => $client, 'status' => 'skipped', 'reason' => 'no AR contact on file'];
+        continue;
+    }
+    if (!$sender['ready']) {
+        $report['skipped']++;
+        $report['rows'][] = ['client_name' => $client, 'status' => 'skipped', 'reason' => $sender['reason']];
         continue;
     }
     $invoices = billingStatementOpenInvoices($tid, $client, $asOf, $entityId);
@@ -83,7 +89,7 @@ foreach ($aging as $row) {
     }
     $email = billingStatementRenderEmail((string) $entity['legal_name'], $client, $invoices, $buckets, $asOf, null, $tid);
     try {
-        $svc->send($tid, 'billing', 'ar_statement', [$recipients['to']],
+        $sendResult = $svc->send($tid, 'billing', 'ar_statement', [$recipients['to']],
             $email['subject'], $email['text'], $email['html'], [], [
                 'from'      => $sender['from']      ?? null,
                 'from_name' => $sender['from_name'] ?? null,
@@ -92,6 +98,9 @@ foreach ($aging as $row) {
                 'idempotency_key' => billingStatementIdempotencyKey($tid, $entityId, $client, date('Y-m-d')),
             ]
         );
+        if (($sendResult['status'] ?? 'failed') !== 'sent') {
+            throw new RuntimeException((string) ($sendResult['error'] ?? 'Delivery provider did not accept the statement.'));
+        }
         $report['sent']++;
         $report['rows'][] = ['client_name' => $client, 'status' => 'sent', 'to' => $recipients['to']];
     } catch (\Throwable $e) {

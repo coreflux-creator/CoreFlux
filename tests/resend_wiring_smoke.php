@@ -93,9 +93,25 @@ $res = $drvMocked->send([
     'body_html' => '<p>Hi</p>',
     'body_text' => 'Hi',
     'reply_to'  => 'kunal@corefluxapp.com',
+    'cc'        => ['controller@example.com'],
+    'attachments' => [['filename' => 'synthetic.pdf', 'content' => base64_encode('%PDF-1.4 synthetic')]],
     'tags'      => [['name' => 'module', 'value' => 'cfo_reports']],
 ]);
 $a('send() returns status=sent on 200', ($res['status'] ?? '') === 'sent');
+$a('payload includes CC', ($captured['payload']['cc'] ?? null) === ['controller@example.com']);
+$a('payload includes base64 attachment', ($captured['payload']['attachments'][0]['content'] ?? null)
+    === base64_encode('%PDF-1.4 synthetic'));
+$originalCaptured = $captured;
+$localAttachment = tempnam(sys_get_temp_dir(), 'cf-mail-');
+file_put_contents($localAttachment, '%PDF-1.4 local');
+$fileResult = $drvMocked->send([
+    'to' => ['client@example.com'], 'subject' => 'File attachment',
+    'attachments' => [['filename' => 'local.pdf', 'path' => $localAttachment]],
+]);
+$a('local attachment is encoded', ($fileResult['status'] ?? '') === 'sent'
+    && ($captured['payload']['attachments'][0]['content'] ?? null) === base64_encode('%PDF-1.4 local'));
+unlink($localAttachment);
+$captured = $originalCaptured;
 $a('send() captures provider_message_id from response',
     ($res['provider_message_id'] ?? '') === 'mocked-msg-id-xyz');
 $a('send() emits POST to api.resend.com/emails',

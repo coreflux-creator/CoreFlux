@@ -44,6 +44,7 @@ if (!function_exists('cf_mail_purpose_registry')) {
             ['key' => 'membership_invite',   'module' => 'admin',     'label' => 'Member Invites',  'description' => 'Admin invitations and tenant membership acceptance links.'],
             ['key' => 'timesheets',    'module' => 'staffing', 'label' => 'Timesheets',     'description' => 'Timesheet approver notifications.'],
             ['key' => 'ap',            'module' => 'ap',       'label' => 'AP',             'description' => 'Bill approval requests sent to approvers.'],
+            ['key' => 'billing',       'module' => 'billing',  'label' => 'Billing',        'description' => 'Customer invoices, statements, and payment reminders.'],
             ['key' => 'vendor_portal', 'module' => 'ap',       'label' => 'Vendor Portal',  'description' => 'Magic-link invites to the vendor self-serve portal.'],
             ['key' => 'cfo',           'module' => 'cfo',      'label' => 'CFO',            'description' => 'CFO digests and ad-hoc reports.'],
             ['key' => 'payments',      'module' => 'treasury', 'label' => 'Payments',       'description' => 'Mercury payment lifecycle notifications.'],

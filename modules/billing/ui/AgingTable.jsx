@@ -277,13 +277,16 @@ function BatchReportModal({ report, busy, onClose, onSend, alreadySent, actionEr
             <p style={{ margin: '4px 0 0', fontSize: 12 }}>{report.entity_name}</p>
             <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
               {isPreview
-                ? <>Will send <strong>{report.sent}</strong> · skip <strong>{report.skipped}</strong> (no contact).</>
+                ? <>Will send <strong>{report.sent}</strong> · skip <strong>{report.skipped}</strong>.</>
                 : <>Sent <strong>{report.sent}</strong> · skipped <strong>{report.skipped}</strong> · failed <strong>{report.failed}</strong>.</>}
             </p>
           </div>
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>×</button>
         </header>
         {actionError && <p className="error" role="alert">{actionError}</p>}
+        {report?.sender && <p style={{ fontSize: 12, color: report.sender.ready ? 'var(--cf-text-secondary)' : '#a16207' }}>
+          {report.sender.ready ? `From: ${report.sender.from_name} · replies: ${report.sender.reply_to || 'platform address'}` : report.sender.reason}
+        </p>}
 
         <table className="data-table" data-testid="billing-aging-batch-rows" style={{ fontSize: 12 }}>
           <thead><tr><th>Client</th><th>Status</th><th>Reason / recipient</th></tr></thead>
@@ -332,6 +335,9 @@ function StatementPreviewModal({ preview, asOf, busy, downloading, onClose, onSe
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>×</button>
         </header>
         {actionError && <p className="error" role="alert">{actionError}</p>}
+        {preview?.sender && <p style={{ fontSize: 12, color: preview.sender.ready ? 'var(--cf-text-secondary)' : '#a16207' }}>
+          {preview.sender.ready ? `From: ${preview.sender.from_name} · replies: ${preview.sender.reply_to || 'platform address'}` : preview.sender.reason}
+        </p>}
 
         <div style={{ background: '#f8fafc', borderRadius: 6, padding: 12, marginBottom: 12, fontSize: 13 }}>
           {to ? (
@@ -341,7 +347,7 @@ function StatementPreviewModal({ preview, asOf, busy, downloading, onClose, onSe
             </>
           ) : (
             <div className="error" data-testid="billing-aging-statement-no-contact">
-              No AR contact on file for this client. Add one in <strong>Client contacts</strong> first.
+              No AR contact for this client and legal entity. Add one in <strong>Client contacts</strong> first.
             </div>
           )}
         </div>
@@ -363,7 +369,7 @@ function StatementPreviewModal({ preview, asOf, busy, downloading, onClose, onSe
             <button
               className="btn btn--primary"
               onClick={onSend}
-              disabled={busy || !to}
+              disabled={busy || !to || !preview?.sender?.ready}
               data-testid="billing-aging-statement-send"
             >
               {busy ? 'Sending…' : 'Send statement'}

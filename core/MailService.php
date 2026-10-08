@@ -81,7 +81,7 @@ class MailService
      *   ['outbox_id' => int|null, 'status' => 'sent'|'failed',
      *    'provider_message_id' => string|null, 'error' => string|null].
      *
-     * @param array $opts ['from' => string, 'reply_to' => string, 'driver' => string,
+     * @param array $opts ['from' => string, 'reply_to' => string, 'cc' => string[], 'driver' => string,
      *                     'connection_id' => int, 'attachments' => array<int>]
      */
     public function send(
@@ -113,6 +113,16 @@ class MailService
                 throw new \InvalidArgumentException("MailService::send invalid recipient: {$addr}");
             }
         }
+        $cc = array_values(array_unique(array_filter(array_map(
+            fn($x) => is_string($x) ? trim($x) : '',
+            (array) ($opts['cc'] ?? [])
+        ))));
+        foreach ($cc as $addr) {
+            if (!filter_var($addr, FILTER_VALIDATE_EMAIL)) {
+                throw new \InvalidArgumentException("MailService::send invalid cc: {$addr}");
+            }
+        }
+        $cc = array_values(array_diff($cc, $to));
         if ($subject === '') {
             throw new \InvalidArgumentException('MailService::send subject required');
         }
@@ -128,6 +138,7 @@ class MailService
             'from_name'     => $opts['from_name'] ?? null,
             'reply_to'      => $opts['reply_to']  ?? null,
             'to'            => $to,
+            'cc'            => $cc,
             'subject'       => $subject,
             'body_text'     => $bodyText,
             'body_html'     => $bodyHtml,
@@ -146,6 +157,7 @@ class MailService
                 'purpose'             => $purpose,
                 'connection_id'       => $opts['connection_id'] ?? null,
                 'to_addresses_json'   => json_encode($to),
+                'cc_addresses_json'   => json_encode($cc),
                 'from_address'        => $opts['from'] ?? null,
                 'reply_to'            => $opts['reply_to'] ?? null,
                 'subject'             => $subject,

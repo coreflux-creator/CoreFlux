@@ -25,6 +25,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
+require_once __DIR__ . '/entity_delivery.php';
 
 function billingDunningDefaultPolicy(): array {
     return [
@@ -149,7 +150,6 @@ function billingDunningEligibleInvoices(int $tenantId, string $today): array {
  * is added to CC once attempts >= policy.escalate_to_client_contact_after_attempts.
  */
 function billingDunningResolveRecipients(int $tenantId, array $invoice, int $attempts, array $policy): array {
-    $pdo = getDB();
     $primary = null; $reason = '';
     if (!empty($invoice['bill_to_json'])) {
         $bt = json_decode((string) $invoice['bill_to_json'], true) ?: [];
@@ -159,12 +159,8 @@ function billingDunningResolveRecipients(int $tenantId, array $invoice, int $att
     }
     $clientContact = null;
     try {
-        $st = $pdo->prepare(
-            'SELECT ar_primary_email, ar_escalation_email FROM billing_client_contacts
-              WHERE tenant_id = :t AND client_name = :c LIMIT 1'
-        );
-        $st->execute(['t' => $tenantId, 'c' => (string) $invoice['client_name']]);
-        $clientContact = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+        $entityId = billingInvoiceDeliveryEntityId($tenantId, $invoice);
+        $clientContact = $entityId ? billingClientContactForEntity($tenantId, $entityId, (string) $invoice['client_name']) : null;
     } catch (\Throwable $_) { /* table not migrated yet */ }
 
     if (!$primary && !empty($clientContact['ar_primary_email']) && filter_var($clientContact['ar_primary_email'], FILTER_VALIDATE_EMAIL)) {

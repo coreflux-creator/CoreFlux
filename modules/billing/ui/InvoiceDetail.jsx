@@ -293,9 +293,13 @@ export default function InvoiceDetail() {
           <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 12, width: 'min(420px, 100%)', padding: 24 }}>
             <h3 style={{ margin: '0 0 12px' }}>Send invoice</h3>
             <p style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>
-              Sends the PDF and public link from your workspace Reply-To.
+              Sends the PDF and public link from this invoice's legal entity.
               {data.default_recipient?.source ? ` Recipient loaded from ${data.default_recipient.source}.` : ' Save a default under Client contacts to avoid entering it again.'}
             </p>
+            {!data.delivery_sender?.ready && <p className="error" role="alert">
+              {data.delivery_sender?.reason || 'This invoice has no valid legal entity for delivery.'}{' '}
+              <Link to={`/modules/billing/clients?entity_id=${inv.entity_id}`} onClick={() => setShowSend(false)}>Set up billing sender</Link>
+            </p>}
             <input
               type="email"
               className="input"
@@ -307,7 +311,7 @@ export default function InvoiceDetail() {
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               <button className="btn btn--ghost" onClick={() => setShowSend(false)} data-testid="billing-invoice-send-cancel">Cancel</button>
-              <button className="btn btn--primary" onClick={send} disabled={busy==='send' || !sendTo} data-testid="billing-invoice-send-confirm">
+              <button className="btn btn--primary" onClick={send} disabled={busy==='send' || !sendTo || !data.delivery_sender?.ready} data-testid="billing-invoice-send-confirm">
                 {busy==='send' ? 'Sending…' : 'Send'}
               </button>
             </div>
