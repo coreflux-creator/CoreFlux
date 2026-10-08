@@ -94,8 +94,8 @@ try {
 
     $flowDate = '2016-12-31';
     if (qaOne($pdo, 'SELECT id FROM accounting_periods WHERE tenant_id = :t AND entity_id = :e
-        AND start_date <= :d AND end_date >= :d',
-        ['t' => QA_TENANT, 'e' => $entityId, 'd' => $flowDate])) {
+        AND start_date <= :d1 AND end_date >= :d2',
+        ['t' => QA_TENANT, 'e' => $entityId, 'd1' => $flowDate, 'd2' => $flowDate])) {
         throw new RuntimeException('Disposable synthetic close-period date is already in use.');
     }
     $pdo->prepare('INSERT INTO accounting_periods
