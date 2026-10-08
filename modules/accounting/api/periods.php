@@ -306,7 +306,25 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
              SET status = "reopened", reopened_at = :ts, reopened_by_user_id = :u, reopen_reason = :r
              WHERE id = :id AND tenant_id = :t'
         )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id, 't' => $tid]);
-        accountingAudit('accounting.period.reopened', ['period_id' => $id, 'period_number' => (int) $row['period_number'], 'reason' => $reason], $id);
+        $reviews = $pdo->prepare('SELECT task_key, status, completed_at, completed_by_user_id, notes
+            FROM accounting_close_tasks WHERE tenant_id = :t AND period_id = :p ORDER BY sort_order, id');
+        $reviews->execute(['t' => $tid, 'p' => $id]);
+        $priorReviews = $reviews->fetchAll(\PDO::FETCH_ASSOC);
+        $pdo->prepare('UPDATE accounting_close_tasks
+            SET status = "pending", completed_at = NULL, completed_by_user_id = NULL, notes = NULL
+            WHERE tenant_id = :t AND period_id = :p')
+            ->execute(['t' => $tid, 'p' => $id]);
+        $pdo->prepare('UPDATE accounting_close_runs
+            SET status = "reopened", reopened_at = :ts,
+                reopened_by_user_id = :u, reopen_reason = :r, updated_at = :ts
+            WHERE tenant_id = :t AND period_id = :p AND status <> "reopened"')
+            ->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'r' => mb_substr($reason, 0, 500),
+                't' => $tid, 'p' => $id]);
+        accountingAudit('accounting.period.reopened', [
+            'period_id' => $id, 'period_number' => (int) $row['period_number'],
+            'reason' => $reason, 'prior_close_cycle' => (int) $row['close_cycle'],
+            'prior_tasks' => $priorReviews,
+        ], $id);
 
         // Auto-reverse every locked consolidation run whose period_to
         // falls inside the reopened period. Audit trail is preserved —

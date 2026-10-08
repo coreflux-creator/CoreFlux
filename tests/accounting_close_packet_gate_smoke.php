@@ -78,6 +78,10 @@ $a('close run cannot reuse an older packet or lock an unlocked period',
     && str_contains($runs, "(int) \$packet['close_cycle'] !== (int) \$period['close_cycle']"));
 $a('close action refuses with same 409 + code',
     substr_count($periods, "'code' => 'close_tasks_open', 'open_tasks' => \$openTasks") >= 2);
+$a('reopen resets review stamps and supersedes active close runs',
+    str_contains($periods, 'SET status = "pending", completed_at = NULL, completed_by_user_id = NULL, notes = NULL')
+    && str_contains($periods, 'UPDATE accounting_close_runs')
+    && str_contains($periods, "'prior_tasks' => \$priorReviews"));
 $a('close override is audit-logged separately',
     str_contains($periods, "accountingAudit('accounting.period.close_open_tasks_override'"));
 

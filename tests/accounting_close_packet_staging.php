@@ -191,8 +191,28 @@ try {
     qaExpect((int) $closedPacket['id'] > 0 && (int) $closedPacket['close_cycle'] === 1
         && $packetTask['status'] === 'done',
         'saving the closed packet completes the packet action task');
+    $run = qaRequest('/api/accounting/close_runs.php?action=start', 'POST',
+        ['period_id' => $flowPeriodId], $cookie);
+    $runId = (int) ($run['run']['id'] ?? 0);
+    qaExpect($runId > 0, 'the same period can be tracked by the close-run API');
     qaRequest('/modules/accounting/api/periods.php?action=reopen&id=' . $flowPeriodId,
         'POST', ['reason' => 'Synthetic QA re-review'], $cookie);
+    $superseded = qaOne($pdo, 'SELECT status, reopen_reason FROM accounting_close_runs
+        WHERE tenant_id = :t AND period_id = :p AND id = :id',
+        ['t' => QA_TENANT, 'p' => $flowPeriodId, 'id' => $runId]);
+    qaExpect($superseded['status'] === 'reopened'
+        && $superseded['reopen_reason'] === 'Synthetic QA re-review',
+        'reopening supersedes the parallel close run with its reason');
+    $reset = qaOne($pdo, 'SELECT COUNT(*) AS n FROM accounting_close_tasks
+        WHERE tenant_id = :t AND period_id = :p AND status = "pending"',
+        ['t' => QA_TENANT, 'p' => $flowPeriodId]);
+    qaExpect((int) $reset['n'] === 9, 'reopening resets all review and action steps for a fresh close');
+    qaExpect(qaClosePacketStatus($flowPath, 'POST', $cookie) === 409,
+        'reclose requires the renewed review, even when the old packet still exists');
+    foreach ($taskIds as $taskId) {
+        qaRequest('/modules/accounting/api/close_tasks.php?action=complete&id=' . (int) $taskId,
+            'POST', [], $cookie);
+    }
     qaRequest($flowPath, 'POST', [], $cookie);
     $reclosed = qaOne($pdo, 'SELECT close_cycle FROM accounting_periods
         WHERE tenant_id = :t AND id = :p', ['t' => QA_TENANT, 'p' => $flowPeriodId]);
@@ -277,6 +297,8 @@ try {
             $pdo->prepare('DELETE FROM accounting_close_packets
                 WHERE tenant_id = :t AND period_id = :p')->execute(['t' => QA_TENANT, 'p' => $flowPeriodId]);
             $pdo->prepare('DELETE FROM accounting_close_tasks
+                WHERE tenant_id = :t AND period_id = :p')->execute(['t' => QA_TENANT, 'p' => $flowPeriodId]);
+            $pdo->prepare('DELETE FROM accounting_close_runs
                 WHERE tenant_id = :t AND period_id = :p')->execute(['t' => QA_TENANT, 'p' => $flowPeriodId]);
             $pdo->prepare('DELETE FROM accounting_periods
                 WHERE tenant_id = :t AND entity_id = :e AND id = :p')
