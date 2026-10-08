@@ -406,6 +406,7 @@ function Editor({ edit = false, replacement = false }) {
       </div>
 
       <h3 style={{ marginTop: 24 }}>Lines</h3>
+      <div className="data-table-wrap">
       <table className="data-table" data-testid="accounting-recurring-lines">
         <thead><tr><th>Account</th><th>Description</th><th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th><th>Dimensions</th><th></th></tr></thead>
         <tbody>
@@ -515,6 +516,7 @@ function Editor({ edit = false, replacement = false }) {
           </tr>
         </tbody>
       </table>
+      </div>
       <button type="button" className="btn btn--ghost" onClick={() => setLines([...lines, newLine()])} data-testid="accounting-recurring-add-line" style={{ marginTop: 8 }}><Plus size={15} aria-hidden="true" />Add line</button>
 
       <p style={{ marginTop: 16, fontSize: 13, color: balanced ? '#065f46' : '#991b1b' }} data-testid="accounting-recurring-balance-status">
