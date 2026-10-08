@@ -19,9 +19,18 @@ $payments = $source('api/treasury_payments.php');
 $transfers = $source('api/treasury_transfers.php');
 $periods = $source('modules/accounting/api/periods.php');
 $entityScope = $source('dashboard/src/lib/useAccountingEntityScope.js');
+$apAging = $source('modules/ap/api/aging.php');
+$apAgingUi = $source('modules/ap/ui/AgingTable.jsx');
+$reportLibrary = $source('dashboard/src/components/FinancialReportLibrary.jsx');
 
 $check('Entity validation waits for the available-entity response',
     str_contains($entityScope, 'loaded && requested !== null && !allEntities'));
+$check('AP aging and its report link retain validated legal-entity scope',
+    str_contains($apAging, 'booksHealthResolveEntity')
+    && str_contains($apAging, 'apComputeAging($tid, $asOf, $entityId)')
+    && str_contains($apAgingUi, 'useAccountingEntityScope')
+    && str_contains($apAgingUi, 'data?.entity_id')
+    && str_contains($reportLibrary, "moduleId !== 'ap'"));
 
 $check('Overview carries entity into exact task queues',
     str_contains($overview, '/modules/ap/bills?status=needs_action')

@@ -19,7 +19,7 @@ export default function FinancialReportLibrary({ session, prominent = false }) {
   const location = useLocation();
   const requestedScope = new URLSearchParams(location.search).get('entity_id');
   const scopedLink = (to, moduleId) => {
-    if (moduleId !== 'accounting' || !requestedScope) return to;
+    if ((moduleId !== 'accounting' && moduleId !== 'ap') || !requestedScope) return to;
     return addEntityScope(to, requestedScope === 'all' ? null : Number(requestedScope), requestedScope === 'all');
   };
   const scopedModules = Array.isArray(session?.modules)
@@ -61,7 +61,7 @@ export default function FinancialReportLibrary({ session, prominent = false }) {
             <span className="report-library__item-icon" aria-hidden="true"><Icon size={18} /></span>
             <span className="report-library__item-copy">
               <strong>{label}</strong>
-              <small>{requestedScope && moduleId !== 'accounting' ? `${meta} · workspace-wide` : meta}</small>
+              <small>{requestedScope && moduleId === 'billing' ? `${meta} · workspace-wide` : meta}</small>
             </span>
             <ArrowRight className="report-library__item-arrow" size={16} aria-hidden="true" />
           </Link>

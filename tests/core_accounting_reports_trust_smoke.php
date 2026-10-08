@@ -87,6 +87,7 @@ $trialBalance = (string) file_get_contents($root . '/modules/accounting/ui/Trial
 $glDetail = (string) file_get_contents($root . '/api/gl_detail.php');
 $accounting = (string) file_get_contents($root . '/modules/accounting/lib/accounting.php');
 $booksHealth = (string) file_get_contents($root . '/api/books_health.php');
+$booksHealthMetrics = (string) file_get_contents($root . '/core/accounting/books_health_metrics.php');
 $consolidation = (string) file_get_contents($root . '/modules/accounting/lib/consolidation.php');
 $intercompany = (string) file_get_contents($root . '/modules/accounting/lib/intercompany.php');
 $accountInterest = (string) file_get_contents($root . '/modules/accounting/lib/account_interest.php');
@@ -142,7 +143,8 @@ $assert('reversed originals remain in ledger-backed financial reports',
     str_contains($glDetail, "je.status IN ('posted','reversed')")
     && substr_count($standardReportsLib, 'je.status IN ("posted","reversed")') >= 2
     && str_contains($accounting, 'je.status IN ("posted","reversed")')
-    && substr_count($booksHealth, "je.status IN ('posted','reversed')") >= 2);
+    && str_contains($booksHealth, "je.status IN ('posted','reversed')")
+    && str_contains($booksHealthMetrics, 'je.status IN ("posted", "reversed")'));
 $assert('reversal-aware balances stay consistent in consolidation treasury tax and interest',
     substr_count($consolidation, 'je.status IN ("posted","reversed")') >= 7
     && substr_count($intercompany, "je.status IN ('posted','reversed')") >= 2
