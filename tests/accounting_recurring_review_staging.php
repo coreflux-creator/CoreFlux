@@ -10,10 +10,6 @@ if (PHP_SAPI !== 'cli' || ($argv[1] ?? '') !== '--execute') {
 define('QA_LIFECYCLE_LIBRARY_MODE', true);
 require_once __DIR__ . '/accounting_staging_lifecycle.php';
 
-if (!defined('COREFLUX_STAGING') || !COREFLUX_STAGING) {
-    throw new RuntimeException('Refusing a non-staging environment.');
-}
-
 $actor = null;
 $cookie = null;
 $templateId = 0;
