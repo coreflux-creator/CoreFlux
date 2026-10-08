@@ -7,6 +7,7 @@ if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging') {
     exit(2);
 }
 require_once __DIR__ . '/../core/accounting/coreone_invoices_v1.php';
+require_once __DIR__ . '/../core/memberships.php';
 
 $tenantId = 0;
 foreach (array_slice($argv, 1) as $arg) {
@@ -89,10 +90,7 @@ try {
         'email' => 'approval-' . bin2hex(random_bytes(8)) . '@coreflux.test',
     ]);
     $approverId = (int) $pdo->lastInsertId();
-    $pdo->prepare('INSERT INTO user_tenants (user_id, tenant_id, role, status)
-        VALUES (:user_id, :tenant_id, "tenant_admin", "active")')->execute([
-        'user_id' => $approverId, 'tenant_id' => $tenantId,
-    ]);
+    provisionMembership($approverId, $tenantId, 'tenant_admin', ['status' => 'active']);
     $policy = peopleGraphCreateApprovalPolicy($tenantId, [
         'policy_key' => 'coreone-approval-' . bin2hex(random_bytes(8)),
         'name' => 'Rollback-only invoice approval',
@@ -170,14 +168,12 @@ try {
         CoreOneDocumentConflictException::class
     ) && coreoneV1GetInvoiceDraft($requestCredential, $reviewSource)['workflow_instance_id'] === null;
     $pdo->prepare('UPDATE users SET is_active = 1 WHERE id = :id')->execute(['id' => $approverId]);
-    $pdo->prepare('UPDATE user_tenants SET role = "employee" WHERE tenant_id = :tenant_id AND user_id = :user_id')
-        ->execute(['tenant_id' => $tenantId, 'user_id' => $approverId]);
+    provisionMembership($approverId, $tenantId, 'employee', ['status' => 'active']);
     $checks['approver_without_billing_permission_cannot_receive_request'] = $rejects(
         static fn() => coreoneV1RequestInvoiceApproval($requestCredential, $reviewRequest),
         CoreOneDocumentConflictException::class
     ) && coreoneV1GetInvoiceDraft($requestCredential, $reviewSource)['workflow_instance_id'] === null;
-    $pdo->prepare('UPDATE user_tenants SET role = "tenant_admin" WHERE tenant_id = :tenant_id AND user_id = :user_id')
-        ->execute(['tenant_id' => $tenantId, 'user_id' => $approverId]);
+    provisionMembership($approverId, $tenantId, 'tenant_admin', ['status' => 'active']);
     coreoneV1RequestInvoiceApproval($requestCredential, $reviewRequest);
     $rejected = billingInvoiceWorkflowAct($tenantId, (int) $review['id'], $approverId,
         'reject', 'Fixture review rejection');

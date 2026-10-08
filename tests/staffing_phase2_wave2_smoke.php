@@ -20,16 +20,20 @@ $read = fn (string $p) => (string) file_get_contents($p);
 
 echo "Per-client AR payment terms\n";
 $inv = $read(__DIR__ . '/../modules/billing/api/invoices.php');
-$a('AR reads staffing_clients.payment_terms_days',  str_contains($inv, "FROM staffing_clients") && str_contains($inv, 'payment_terms_days IS NOT NULL'));
-$a('AR overrides netDays per-client',               str_contains($inv, '$netDays = (int) $perClient'));
-$a('AR tolerates missing staffing_clients table',   str_contains($inv, '/* staffing_clients may not exist'));
+$invoiceDrafts = $read(__DIR__ . '/../modules/billing/lib/invoice_drafts.php');
+$a('AR reads staffing_clients.payment_terms_days',  str_contains($inv, 'billingCreateDirectInvoiceDraft(')
+    && str_contains($invoiceDrafts, 'FROM staffing_clients') && str_contains($invoiceDrafts, 'payment_terms_days IS NOT NULL'));
+$a('AR overrides netDays per-client',               str_contains($invoiceDrafts, '$netDays = (int) $perClient'));
+$a('AR tolerates missing staffing_clients table',   str_contains($invoiceDrafts, '/* staffing_clients may not exist'));
 
 echo "\nPer-vendor AP payment terms\n";
 $bill = $read(__DIR__ . '/../modules/ap/api/bills.php');
-$a('AP reads companies.payment_terms_days',         str_contains($bill, "FROM companies WHERE tenant_id = :t AND id = :id"));
-$a('AP overrides netDays per-vendor',               str_contains($bill, '$netDays = (int) $perVendor'));
-$a('AP tries vendor_company_id first',              str_contains($bill, "WHERE tenant_id = :t AND id = :id AND payment_terms_days"));
-$a('AP falls back to vendor name match',            str_contains($bill, "WHERE tenant_id = :t AND name = :n AND payment_terms_days"));
+$billDrafts = $read(__DIR__ . '/../modules/ap/lib/bill_drafts.php');
+$a('AP reads companies.payment_terms_days',         str_contains($bill, 'apCreateManualBill(')
+    && str_contains($billDrafts, "FROM companies WHERE tenant_id = :t AND id = :id"));
+$a('AP overrides netDays per-vendor',               str_contains($billDrafts, '$netDays = (int) $perVendor'));
+$a('AP tries vendor_company_id first',              str_contains($billDrafts, "WHERE tenant_id = :t AND id = :id AND payment_terms_days"));
+$a('AP falls back to vendor name match',            str_contains($billDrafts, "WHERE tenant_id = :t AND name = :n AND payment_terms_days"));
 $ptmig = $read(__DIR__ . '/../modules/people/migrations/005_companies_payment_terms.sql');
 $a('migration adds companies.payment_terms_days',   str_contains($ptmig, 'ADD COLUMN payment_terms_days INT NULL'));
 

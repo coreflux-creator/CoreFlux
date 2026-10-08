@@ -10,6 +10,7 @@ require_once __DIR__ . '/../modules/billing/lib/approval_settings.php';
 require_once __DIR__ . '/../modules/billing/lib/workflow.php';
 require_once __DIR__ . '/../modules/billing/lib/invoice_drafts.php';
 require_once __DIR__ . '/../modules/billing/lib/approval_assignment.php';
+require_once __DIR__ . '/../core/memberships.php';
 
 $tenantId = 0;
 foreach (array_slice($argv, 1) as $arg) {
@@ -53,9 +54,7 @@ try {
         VALUES ("Rollback-only Reviewer", :email, "tenant_admin", 1)')
         ->execute(['email' => $fixtureEmail]);
     $reviewerId = (int) $pdo->lastInsertId();
-    $pdo->prepare('INSERT INTO user_tenants (user_id, tenant_id, role, status)
-        VALUES (:user_id, :tenant_id, "tenant_admin", "active")')
-        ->execute(['user_id' => $reviewerId, 'tenant_id' => $tenantId]);
+    provisionMembership($reviewerId, $tenantId, 'tenant_admin', ['status' => 'active']);
     $checks['eligible_active_tenant_admin'] = billingInvoiceReviewerIsEligible($tenantId, $reviewerId);
     $checks['empty_selection_rejected'] = $rejects(
         static fn() => billingInvoiceApprovalSettingsSave($tenantId, [], $reviewerId),
@@ -88,9 +87,7 @@ try {
         VALUES ("Rollback-only Second Reviewer", :email, "tenant_admin", 1)')
         ->execute(['email' => 'reviewer-' . bin2hex(random_bytes(8)) . '@coreflux.test']);
     $secondId = (int) $pdo->lastInsertId();
-    $pdo->prepare('INSERT INTO user_tenants (user_id, tenant_id, role, status)
-        VALUES (:user_id, :tenant_id, "tenant_admin", "active")')
-        ->execute(['user_id' => $secondId, 'tenant_id' => $tenantId]);
+    provisionMembership($secondId, $tenantId, 'tenant_admin', ['status' => 'active']);
     $changed = billingInvoiceApprovalSettingsSave($tenantId, [$reviewerId, $secondId], $reviewerId);
     $checks['multiple_reviewers_replace_policy_atomically'] = $changed['reviewer_user_ids'] === [$reviewerId, $secondId]
         && count(peopleGraphListApprovalRules($tenantId, ['policy_id' => $policy['id']])) === 2;
@@ -112,9 +109,7 @@ try {
         VALUES ("Rollback-only New Reviewer", :email, "tenant_admin", 1)')
         ->execute(['email' => 'reviewer-' . bin2hex(random_bytes(8)) . '@coreflux.test']);
     $newId = (int) $pdo->lastInsertId();
-    $pdo->prepare('INSERT INTO user_tenants (user_id, tenant_id, role, status)
-        VALUES (:user_id, :tenant_id, "tenant_admin", "active")')
-        ->execute(['user_id' => $newId, 'tenant_id' => $tenantId]);
+    provisionMembership($newId, $tenantId, 'tenant_admin', ['status' => 'active']);
     $entity = $pdo->prepare('SELECT id, base_currency FROM accounting_entities
         WHERE tenant_id = :tenant_id AND active = 1 ORDER BY id LIMIT 1');
     $entity->execute(['tenant_id' => $tenantId]);
