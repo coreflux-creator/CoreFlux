@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../../../core/accounting/csv_document_entity.php';
 require_once __DIR__ . '/../lib/billing.php';
+require_once __DIR__ . '/../lib/invoice_drafts.php';
 require_once __DIR__ . '/../../ap/lib/ap.php';
 
 use Core\CsvImportService;
@@ -41,6 +42,7 @@ CsvImportService::registerSchema('billing_invoices', [
         'record_status'    => ['label' => 'Record status (read only)'],
         'amount_paid'      => ['label' => 'Amount paid (read only)', 'type' => 'number'],
         'client_name'      => ['label' => 'Client name'],
+        'client_company_id' => ['label' => 'Client company ID', 'type' => 'integer'],
         'entity_code'      => ['label' => 'Entity code'],
         'issue_date'       => ['label' => 'Issue date',      'type' => 'date'],
         'due_date'         => ['label' => 'Due date',        'type' => 'date'],
@@ -143,14 +145,21 @@ if ($method === 'POST' && $action === 'dry_run') {
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap = CsvImportService::readRequestColumnMap();
+    $pdo = getDB();
+    $catalogTenantId = staffingClientCatalogTenantId($tid);
     $review = accountingCsvReviewDocumentGroups(
         CsvImportService::dryRun('billing_invoices', $csv, $columnMap),
-        accountingCsvDocumentEntities(getDB(), $tid),
+        accountingCsvDocumentEntities($pdo, $tid),
         'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date'],
-        static function (array $row, array $amounts) use ($tid): void {
+        static function (array $row, array $amounts) use ($pdo, $tid): void {
             billingValidateImportedInvoiceLineAmounts($row, $amounts);
-            billingImportedInvoiceLineMetadata(getDB(), $tid, $row, $amounts);
-        }, 'billingValidateImportedInvoiceGroupAmounts'
+            billingImportedInvoiceLineMetadata($pdo, $tid, $row, $amounts);
+        }, static function (array $rows, array $amounts) use ($pdo, $catalogTenantId): void {
+            billingValidateImportedInvoiceGroupAmounts($rows, $amounts);
+            $header = reset($rows);
+            billingValidateDirectInvoiceClientCompanyId($pdo, $catalogTenantId,
+                (string) ($header['client_name'] ?? ''), $header['client_company_id'] ?? null);
+        }
     );
     api_ok($review['result']);
 }
@@ -160,17 +169,24 @@ if ($method === 'POST' && $action === 'commit') {
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap = CsvImportService::readRequestColumnMap();
+    $pdo = getDB();
+    $catalogTenantId = staffingClientCatalogTenantId($tid);
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
 
     $review = accountingCsvReviewDocumentGroups(
         CsvImportService::dryRun('billing_invoices', $csv, $columnMap),
-        accountingCsvDocumentEntities(getDB(), $tid),
+        accountingCsvDocumentEntities($pdo, $tid),
         'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date'],
-        static function (array $row, array $amounts) use ($tid): void {
+        static function (array $row, array $amounts) use ($pdo, $tid): void {
             billingValidateImportedInvoiceLineAmounts($row, $amounts);
-            billingImportedInvoiceLineMetadata(getDB(), $tid, $row, $amounts);
-        }, 'billingValidateImportedInvoiceGroupAmounts'
+            billingImportedInvoiceLineMetadata($pdo, $tid, $row, $amounts);
+        }, static function (array $rows, array $amounts) use ($pdo, $catalogTenantId): void {
+            billingValidateImportedInvoiceGroupAmounts($rows, $amounts);
+            $header = reset($rows);
+            billingValidateDirectInvoiceClientCompanyId($pdo, $catalogTenantId,
+                (string) ($header['client_name'] ?? ''), $header['client_company_id'] ?? null);
+        }
     );
     $dry = $review['result'];
     if (!empty($dry['blocking_error']) || (!$skipInvalid && $dry['error_count'] > 0)) {
@@ -186,7 +202,6 @@ if ($method === 'POST' && $action === 'commit') {
 
     $groups = $review['groups'];
 
-    $pdo = getDB();
     $imported = 0;
     $created  = 0;
     $updated  = 0;
@@ -274,11 +289,16 @@ if ($method === 'POST' && $action === 'commit') {
 
         $pdo->beginTransaction();
         try {
+            $clientCompanyId = billingResolveDirectInvoiceClientCompanyId(
+                $pdo, $catalogTenantId, (string) $header['client_name'],
+                $header['client_company_id'] ?? null, (int) ($user['id'] ?? 0) ?: null
+            );
             $headerPayload = [
                 'invoice_number' => $inv,
                 'external_id'    => $externalId,
                 'source_system'  => $sourceSystem,
                 'client_name'    => (string) $header['client_name'],
+                'client_company_id' => $clientCompanyId,
                 'entity_id'      => $entity['id'],
                 'currency'       => $entity['base_currency'],
                 'issue_date'     => $header['issue_date'],

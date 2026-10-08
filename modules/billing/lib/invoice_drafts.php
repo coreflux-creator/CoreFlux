@@ -81,6 +81,34 @@ function billingInsertDirectInvoiceLines(PDO $pdo, int $invoiceId, array $lines)
     }
 }
 
+function billingValidateDirectInvoiceClientCompanyId(
+    PDO $pdo,
+    int $catalogTenantId,
+    string $clientName,
+    mixed $suppliedCompanyId
+): ?int {
+    $clientName = trim($clientName);
+    if ($clientName === '' || strlen($clientName) > 255) {
+        throw new InvalidArgumentException('Enter a client name of at most 255 characters');
+    }
+    if ($suppliedCompanyId === null || $suppliedCompanyId === '') return null;
+    if ((!is_int($suppliedCompanyId) && !is_string($suppliedCompanyId))
+        || !ctype_digit((string) $suppliedCompanyId) || (int) $suppliedCompanyId <= 0) {
+        throw new InvalidArgumentException('Choose a valid client company');
+    }
+    $clientStmt = $pdo->prepare(
+        'SELECT id, name FROM companies
+          WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL'
+    );
+    $clientStmt->execute(['tenant_id' => $catalogTenantId, 'id' => (int) $suppliedCompanyId]);
+    $client = $clientStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$client) throw new InvalidArgumentException('Client company is not available in this workspace');
+    if (strcasecmp(trim((string) $client['name']), $clientName) !== 0) {
+        throw new InvalidArgumentException('Client name does not match the selected company');
+    }
+    return (int) $client['id'];
+}
+
 function billingResolveDirectInvoiceClientCompanyId(
     PDO $pdo,
     int $catalogTenantId,
@@ -88,28 +116,11 @@ function billingResolveDirectInvoiceClientCompanyId(
     mixed $suppliedCompanyId,
     ?int $actorUserId = null
 ): int {
-    $clientName = trim($clientName);
-    if ($clientName === '' || strlen($clientName) > 255) {
-        throw new InvalidArgumentException('Enter a client name of at most 255 characters');
-    }
-    if ($suppliedCompanyId !== null && $suppliedCompanyId !== '') {
-        if ((!is_int($suppliedCompanyId) && !is_string($suppliedCompanyId))
-            || !ctype_digit((string) $suppliedCompanyId) || (int) $suppliedCompanyId <= 0) {
-            throw new InvalidArgumentException('Choose a valid client company');
-        }
-        $clientStmt = $pdo->prepare(
-            'SELECT id, name FROM companies
-              WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL'
-        );
-        $clientStmt->execute(['tenant_id' => $catalogTenantId, 'id' => (int) $suppliedCompanyId]);
-        $client = $clientStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$client) throw new InvalidArgumentException('Client company is not available in this workspace');
-        if (strcasecmp(trim((string) $client['name']), $clientName) !== 0) {
-            throw new InvalidArgumentException('Client name does not match the selected company');
-        }
-        $clientCompanyId = (int) $client['id'];
-    } else {
-        $clientCompanyId = companiesUpsertByName($catalogTenantId, $clientName,
+    $clientCompanyId = billingValidateDirectInvoiceClientCompanyId(
+        $pdo, $catalogTenantId, $clientName, $suppliedCompanyId
+    );
+    if ($clientCompanyId === null) {
+        $clientCompanyId = companiesUpsertByName($catalogTenantId, trim($clientName),
             ['created_by_user_id' => $actorUserId], ['client']);
     }
     companiesBumpUsage($clientCompanyId);

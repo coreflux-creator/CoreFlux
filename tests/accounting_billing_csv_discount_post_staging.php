@@ -11,7 +11,8 @@ require_once __DIR__ . '/accounting_staging_lifecycle.php';
 
 function qaDiscountInvoiceCsv(string $number, int $catalogItemId): string
 {
-    $headers = ['invoice_number', 'client_name', 'entity_code', 'issue_date', 'due_date',
+    $headers = ['invoice_number', 'client_name', 'client_company_id', 'entity_code',
+        'issue_date', 'due_date',
         'currency', 'line_description', 'line_catalog_item_id', 'line_item_type',
         'line_gl_revenue_account_code', 'line_quantity', 'line_unit_price',
         'line_subtotal', 'line_tax_amount', 'line_total'];
@@ -124,7 +125,8 @@ try {
     $import = qaRequest('/modules/billing/api/csv_import.php?action=commit', 'POST',
         ['csv' => qaDiscountInvoiceCsv($number, $catalogItemId)], $makerCookie);
     $invoiceId = (int) ($import['ids'][$number] ?? 0);
-    $draft = qaOne($pdo, 'SELECT status, entity_id, created_by_user_id, subtotal,
+    $draft = qaOne($pdo, 'SELECT status, entity_id, client_company_id,
+            created_by_user_id, subtotal,
             tax_total, total, journal_entry_id FROM billing_invoices
         WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $invoiceId]);
     qaExpect(($import['imported_count'] ?? 0) === 1 && $invoiceId > 0
@@ -135,6 +137,10 @@ try {
         && $draft['journal_entry_id'] === null
         && qaBalances($pdo, $entityId) === $before,
         'CSV created one $23 draft without GL movement');
+    $companyId = (int) ($draft['client_company_id'] ?? 0);
+    $company = qaOne($pdo, 'SELECT name FROM companies WHERE id = :id', ['id' => $companyId]);
+    qaExpect($companyId > 0 && ($company['name'] ?? '') === 'Invented Discount Client',
+        'CSV invoice uses the same client-company identity as direct Billing');
     $types = $pdo->prepare('SELECT line_no, item_type, catalog_item_id, gl_revenue_account_code
         FROM billing_invoice_lines
         WHERE invoice_id = :id ORDER BY line_no');
@@ -147,6 +153,7 @@ try {
         'CSV retains catalog, revenue account and discount classification');
     $exported = qaDiscountExportRows($number, $makerCookie);
     qaExpect(count($exported) === 2
+        && (int) ($exported[0]['Client company ID'] ?? 0) === $companyId
         && ($exported[0]['Line item type'] ?? null) === 'fixed_fee'
         && (int) ($exported[0]['Line catalog item ID'] ?? 0) === $catalogItemId
         && ($exported[0]['Line revenue account'] ?? null) === '4000'

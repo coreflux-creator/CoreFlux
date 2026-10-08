@@ -46,6 +46,12 @@ $check('invoice CSV round trip retains catalog and revenue account identity',
     && str_contains($billingImport, "'gl_rev'     => \$metadata['gl_revenue_account_code']")
     && str_contains($billingExport, 'l.catalog_item_id AS line_catalog_item_id')
     && str_contains($billingExport, 'l.gl_revenue_account_code AS line_gl_revenue_account_code'));
+$check('invoice CSV round trip retains customer company identity',
+    str_contains($billingImport, "'client_company_id' => ['label' => 'Client company ID'")
+    && str_contains($billingImport, 'billingResolveDirectInvoiceClientCompanyId(')
+    && str_contains($billingImport, "'client_company_id' => \$clientCompanyId")
+    && str_contains($billingExport, 'i.client_company_id')
+    && str_contains($billingExport, "'client_company_id' => 'Client company ID'"));
 $check('invoice import exposes update mode',
     str_contains($billingImport, "_GET['update_existing']")
     && str_contains($billingImport, "scopedUpdate('billing_invoices'"));
