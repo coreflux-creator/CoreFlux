@@ -90,6 +90,10 @@ $check('bill CSV preserves legal entity and validates whole groups on commit',
 $check('invoice and bill previews show resolved legal entity',
     str_contains($invoiceUi, "key: 'entity_code'")
     && str_contains($billUi, "key: 'entity_code'"));
+$check('invoice and bill imports link directly to committed documents',
+    str_contains($invoiceUi, 'resultLinks={(result) => Object.entries(result.ids || {})')
+    && str_contains($billUi, 'resultLinks={(result) => Object.entries(result.ids || {})')
+    && str_contains((string) file_get_contents($root . '/dashboard/src/components/CsvImportPage.jsx'), 'importedLinks.map'));
 $check('document import controls describe whole-document behavior',
     str_contains($invoiceUi, 'groupLabel="invoice"')
     && str_contains($billUi, 'groupLabel="bill"')

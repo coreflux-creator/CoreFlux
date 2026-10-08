@@ -19,6 +19,10 @@ export default function BillsCsvImport() {
       backLabel="← Bills"
       testidPrefix="ap-bills-csv-import"
       presetEntity="ap_bills"
+      resultLinks={(result) => Object.entries(result.ids || {}).map(([number, id]) => ({
+        label: number,
+        to: `/modules/ap/bills/${id}`,
+      }))}
       previewColumns={[
         { key: 'bill_number',      label: 'Bill #' },
         { key: 'vendor_name',      label: 'Vendor' },

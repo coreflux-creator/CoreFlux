@@ -70,6 +70,7 @@ export default function CsvImportPage({
    * the row count.
    */
   successCtas = null,
+  resultLinks = null,
 }) {
   const fileRef = useRef(null);
   const [csvText, setCsvText]         = useState('');
@@ -292,6 +293,7 @@ export default function CsvImportPage({
   const rowsArr = preview ? Object.entries(preview.rows || {}) : [];
   const errorsByRow = preview?.errors || {};
   const committedErrors = committed ? Object.entries(committed.errors || {}) : [];
+  const importedLinks = committed && typeof resultLinks === 'function' ? resultLinks(committed) || [] : [];
 
   return (
     <section data-testid={testidPrefix}>
@@ -621,6 +623,16 @@ export default function CsvImportPage({
               <strong data-testid={`${testidPrefix}-result-imported`}>{committed.imported_count}</strong> {groupLabel ? `${groupLabel}s ` : ''}imported,{' '}
               <strong data-testid={`${testidPrefix}-result-skipped`}>{committed.skipped_count}</strong> {groupLabel ? `${groupLabel}s ` : ''}skipped.
             </p>
+            {importedLinks.length > 0 && (
+              <div data-testid={`${testidPrefix}-result-links`} style={{ margin: '8px 0 14px' }}>
+                <strong>{groupLabel ? `Imported ${groupLabel}s` : 'Imported records'}</strong>
+                <ul style={{ margin: '6px 0 0', paddingLeft: 20, maxHeight: 240, overflowY: 'auto' }}>
+                  {importedLinks.map((item, index) => (
+                    <li key={`${item.to}-${index}`}><Link to={item.to}>{item.label}</Link></li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {committedErrors.length > 0 && (
               <div
                 data-testid={`${testidPrefix}-result-errors`}

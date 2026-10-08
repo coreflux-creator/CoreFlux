@@ -19,6 +19,10 @@ export default function InvoicesCsvImport() {
       backLabel="← Invoices"
       testidPrefix="billing-invoices-csv-import"
       presetEntity="billing_invoices"
+      resultLinks={(result) => Object.entries(result.ids || {}).map(([number, id]) => ({
+        label: number,
+        to: `/modules/billing/invoices/${id}`,
+      }))}
       previewColumns={[
         { key: 'invoice_number',   label: 'Invoice #' },
         { key: 'client_name',      label: 'Client' },
