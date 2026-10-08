@@ -66,7 +66,8 @@ function reportCashFlowClassification(array $account): array
             || str_contains($text, 'trade payable')) {
             return ['tag' => 'operating_wc_ap', 'source' => 'inferred'];
         }
-        if (str_contains($text, 'accrued') || str_contains($text, 'payroll tax') || str_contains($text, 'sales tax payable')) {
+        if (str_contains($text, 'accrued') || str_contains($text, 'payroll')
+            || str_contains($text, 'deduction payable') || str_contains($text, 'sales tax payable')) {
             return ['tag' => 'operating_wc_other', 'source' => 'inferred'];
         }
         if (preg_match('/\b(loan|note|debt) payable\b/', $text)

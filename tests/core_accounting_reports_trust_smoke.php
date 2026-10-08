@@ -48,6 +48,14 @@ $cases = [
         ['code' => '2000', 'name' => 'Accounts Payable', 'account_type' => 'liability'],
         'operating_wc_ap', 'inferred',
     ],
+    'payroll payable is operating' => [
+        ['code' => '2200', 'name' => 'Payroll Payable', 'account_type' => 'liability'],
+        'operating_wc_other', 'inferred',
+    ],
+    'payroll deduction payable is operating' => [
+        ['code' => '2220', 'name' => 'Payroll Deduction Payable', 'account_type' => 'liability'],
+        'operating_wc_other', 'inferred',
+    ],
     'card-brand liability is recognized as debt' => [
         ['code' => '2007', 'name' => 'Visa', 'account_type' => 'liability'],
         'financing_debt', 'inferred',

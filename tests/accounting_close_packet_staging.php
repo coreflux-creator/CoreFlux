@@ -34,6 +34,27 @@ function qaClosePacketStatus(string $path, string $method, string $cookie, array
     return (int) $status;
 }
 
+function qaClosePacketPdf(string $path, string $cookie): array
+{
+    $curl = curl_init(QA_BASE_URL . $path);
+    curl_setopt_array($curl, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_TIMEOUT => 40,
+        CURLOPT_COOKIEFILE => $cookie,
+        CURLOPT_COOKIEJAR => $cookie,
+        CURLOPT_HTTPHEADER => ['Accept: application/pdf',
+            'X-CoreFlux-Tenant-Id: ' . QA_TENANT],
+    ]);
+    $body = curl_exec($curl);
+    $status = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    $type = (string) curl_getinfo($curl, CURLINFO_CONTENT_TYPE);
+    $error = curl_error($curl);
+    curl_close($curl);
+    if ($body === false) throw new RuntimeException("GET {$path}: {$error}");
+    return [$status, $type, $body];
+}
+
 $actor = null;
 $cookie = null;
 $testTaskId = null;
@@ -261,6 +282,11 @@ try {
     $saved = qaRequest($path . '&packet_id=' . $packetId, 'GET', null, $cookie);
     qaExpect($saved['recorded'] === true && $saved['html'] === $stored['html_snapshot'],
         'saved packet endpoint returns the exact stored HTML');
+    [$pdfStatus, $pdfType, $pdfBody] = qaClosePacketPdf(
+        $path . '&packet_id=' . $packetId . '&format=pdf', $cookie);
+    qaExpect($pdfStatus === 200 && str_starts_with($pdfType, 'application/pdf')
+        && str_starts_with($pdfBody, '%PDF-') && strlen($pdfBody) > 1000,
+        'saved close packet downloads as a nonempty PDF');
     qaExpect(qaClosePacketStatus($path . '&packet_id=2147483647', 'GET', $cookie) === 404,
         'a packet outside this period is not available');
 

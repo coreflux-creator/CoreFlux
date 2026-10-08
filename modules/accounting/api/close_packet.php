@@ -7,8 +7,7 @@
  *   GET /api/accounting/close_packet?period_id=N&packet_id=N → saved version
  *   POST /api/accounting/close_packet?period_id=N&action=record → saves a rendered version
  *
- * The HTML can be print-to-PDF in the browser or post-processed by dompdf
- * once that lib is wired in a later sprint. For now the HTML is the artifact.
+ * Saved HTML versions can also be downloaded as PDFs.
  */
 declare(strict_types=1);
 
@@ -61,16 +60,11 @@ if ($method === 'GET') {
         exit;
     }
 
-    // ?format=pdf renders via cf_render_html_to_pdf so close packets can be
-    // dropped straight into board decks / auditor portals.
     if ($format === 'pdf') {
-        $page = '<!doctype html><html><head><meta charset="utf-8"><title>Close packet — period '
-              . (int) $periodId . '</title><style>body{margin:0;background:#fff;font-family:system-ui}</style></head>'
-              . '<body>' . $html . '</body></html>';
         $tmpDir = sys_get_temp_dir() . '/cf-pdf-close';
         if (!is_dir($tmpDir)) @mkdir($tmpDir, 0755, true);
         $outPath = "{$tmpDir}/close-packet-{$tenantId}-{$periodId}-" . bin2hex(random_bytes(4)) . '.pdf';
-        try { cf_render_html_to_pdf($page, $outPath, ['orientation' => 'portrait']); }
+        try { cf_render_html_to_pdf($html, $outPath, ['paper' => 'letter']); }
         catch (\Throwable $e) { api_error('PDF renderer unavailable: ' . $e->getMessage(), 503); }
         header_remove('Content-Type');
         header('Content-Type: application/pdf');
