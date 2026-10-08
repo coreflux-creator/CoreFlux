@@ -196,6 +196,62 @@ try {
         && abs((float) ($lines['cr'] ?? 0) - 23.0) < 0.005,
         'canonical journal is balanced at the net invoice amount');
 
+    $bank = qaOne($pdo, 'SELECT id FROM accounting_bank_accounts
+        WHERE tenant_id = :t AND entity_id = :e AND gl_account_code = :code AND status = "active"',
+        ['t' => QA_TENANT, 'e' => $entityId, 'code' => QA_BANK_CODE]);
+    $bankId = (int) ($bank['id'] ?? 0);
+    if ($bankId <= 0) throw new RuntimeException('Synthetic lifecycle bank is unavailable');
+    $fitid = 'SYN-CSV-RECEIPT-' . $run;
+    $bankImport = qaRequest('/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id='
+        . $bankId, 'POST', ['csv' => qaCsv([
+            ['Date', 'Description', 'Amount', 'Transaction ID'],
+            ['2026-10-08', 'Invented CSV client ACH ' . $run, '23.00', $fitid],
+        ])], $makerCookie);
+    $bankLine = qaOne($pdo, 'SELECT id, match_status FROM accounting_bank_statement_lines
+        WHERE tenant_id = :t AND bank_account_id = :bank AND fitid = :fitid',
+        ['t' => QA_TENANT, 'bank' => $bankId, 'fitid' => $fitid]);
+    $bankLineId = (int) ($bankLine['id'] ?? 0);
+    qaExpect((int) ($bankImport['inserted'] ?? 0) === 1 && $bankLineId > 0
+        && ($bankLine['match_status'] ?? '') === 'unmatched',
+        'invented deposit enters bank reconciliation as unmatched');
+
+    $candidates = qaRequest('/modules/accounting/api/bank_statements.php?action=invoice_candidates&line_id='
+        . $bankLineId, 'GET', null, $reviewerCookie);
+    $matches = array_values(array_filter($candidates['rows'] ?? [],
+        static fn(array $candidate): bool => (int) ($candidate['id'] ?? 0) === $invoiceId));
+    qaExpect(count($matches) === 1
+        && (int) ($matches[0]['client_company_id'] ?? 0) === $companyId
+        && abs((float) ($matches[0]['amount_due'] ?? 0) - 23.0) < 0.005,
+        'CSV invoice appears as an exact bank receipt candidate with customer identity');
+
+    $matchPath = '/modules/accounting/api/bank_statements.php?action=match_invoice&line_id=' . $bankLineId;
+    $receipt = qaRequest($matchPath, 'POST', ['invoice_id' => $invoiceId], $reviewerCookie);
+    $receiptReplay = qaRequest($matchPath, 'POST', ['invoice_id' => $invoiceId], $reviewerCookie);
+    $receiptJeId = (int) ($receipt['matched_je_id'] ?? 0);
+    $paymentId = (int) ($receipt['payment_id'] ?? 0);
+    $paid = qaOne($pdo, 'SELECT status, amount_paid, amount_due FROM billing_invoices
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $invoiceId]);
+    $matchedLine = qaOne($pdo, 'SELECT match_status, matched_je_id FROM accounting_bank_statement_lines
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $bankLineId]);
+    $afterReceipt = qaBalances($pdo, $entityId);
+    qaExpect($receiptJeId > 0 && $paymentId > 0
+        && (int) ($receiptReplay['matched_je_id'] ?? 0) === $receiptJeId
+        && (int) ($receiptReplay['payment_id'] ?? 0) === $paymentId
+        && ($paid['status'] ?? '') === 'paid'
+        && abs((float) ($paid['amount_paid'] ?? 0) - 23.0) < 0.005
+        && abs((float) ($paid['amount_due'] ?? 0)) < 0.005
+        && ($matchedLine['match_status'] ?? '') === 'matched'
+        && (int) ($matchedLine['matched_je_id'] ?? 0) === $receiptJeId
+        && qaDelta($after, $afterReceipt, QA_BANK_CODE, 23.0)
+        && qaDelta($after, $afterReceipt, '1100', -23.0)
+        && qaDelta($after, $afterReceipt, '4000', 0),
+        'bank match collects the CSV invoice once and moves $23 from AR to cash');
+    $receiptCounterparty = qaOne($pdo, 'SELECT COUNT(*) AS n FROM accounting_journal_entry_lines
+        WHERE tenant_id = :t AND je_id = :je AND counterparty_company_id = :company',
+        ['t' => QA_TENANT, 'je' => $receiptJeId, 'company' => $companyId]);
+    qaExpect((int) ($receiptCounterparty['n'] ?? 0) >= 1,
+        'receipt journal retains the imported customer-company dimension');
+
     qaRequest('/modules/billing/api/items.php?id=' . $catalogItemId,
         'PATCH', ['active' => false], $makerCookie);
     $inactive = qaOne($pdo, 'SELECT active FROM billing_items
@@ -204,7 +260,9 @@ try {
         'synthetic catalog item is inactive after the posted-invoice test');
 
     echo json_encode(['run' => $run, 'invoice_id' => $invoiceId,
-        'journal_entry_id' => $journalId, 'inactive_catalog_item_id' => $catalogItemId],
+        'journal_entry_id' => $journalId, 'bank_line_id' => $bankLineId,
+        'receipt_journal_id' => $receiptJeId, 'payment_id' => $paymentId,
+        'inactive_catalog_item_id' => $catalogItemId],
         JSON_PRETTY_PRINT), "\n";
 } finally {
     foreach ([$maker, $reviewer] as $actor) {
