@@ -29,9 +29,10 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$periods = (string) file_get_contents('/app/modules/accounting/api/periods.php');
-$tasks   = (string) file_get_contents('/app/modules/accounting/api/close_tasks.php');
-$schema  = (string) file_get_contents('/app/modules/accounting/migrations/009_dimensions_and_close.sql');
+$root = dirname(__DIR__);
+$periods = (string) file_get_contents($root . '/modules/accounting/api/periods.php');
+$tasks   = (string) file_get_contents($root . '/modules/accounting/api/close_tasks.php');
+$schema  = (string) file_get_contents($root . '/modules/accounting/migrations/009_dimensions_and_close.sql');
 
 echo "\n1. Schema supports owners + due dates + status states\n";
 $a('assignee_user_id column',  str_contains($schema, 'assignee_user_id BIGINT UNSIGNED NULL'));
@@ -53,6 +54,8 @@ $a('soft_close override is audit-logged with task_keys',
 echo "\n3. close (hard close) blocking gate — same shape\n";
 $a('close action also queries blockers',
     (bool) preg_match('/if \(\$action === \'close\'\).+SELECT id, task_key, title, status, assignee_user_id, due_date/s', $periods));
+$a('post-close packet and lock tasks do not block close',
+    substr_count($periods, "AND task_key NOT IN ('lock_period','build_packet')") === 2);
 $a('close action refuses with same 409 + code',
     substr_count($periods, "'code' => 'close_tasks_open', 'open_tasks' => \$openTasks") >= 2);
 $a('close override is audit-logged separately',
@@ -74,8 +77,8 @@ $a('PATCH accepts assignee_user_id + due_date',
 
 echo "\n6. PHP syntax\n";
 foreach ([
-    '/app/modules/accounting/api/periods.php',
-    '/app/modules/accounting/api/close_tasks.php',
+    $root . '/modules/accounting/api/periods.php',
+    $root . '/modules/accounting/api/close_tasks.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
