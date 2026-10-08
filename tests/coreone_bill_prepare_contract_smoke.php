@@ -6,6 +6,8 @@ $root = dirname(__DIR__);
 require_once $root . '/core/accounting/coreone_bills_v1.php';
 $route = (string) file_get_contents($root . '/api/coreone/v1/bills.php');
 $service = (string) file_get_contents($root . '/core/accounting/coreone_bills_v1.php');
+$credentialService = (string) file_get_contents($root . '/core/accounting/coreone_v1.php');
+$issuerBackfill = (string) file_get_contents($root . '/core/migrations/159_coreone_bill_issuer_attribution.sql');
 $drafts = (string) file_get_contents($root . '/modules/ap/lib/bill_drafts.php');
 $credentialRoute = (string) file_get_contents($root . '/api/coreone_credentials.php');
 $checks = [];
@@ -52,6 +54,16 @@ $check('machine route requires bearer and bill scope',
 $check('machine bill uses the same AP creation service as the ERP route',
     str_contains($service, 'apCreateManualBill(')
     && str_contains((string) file_get_contents($root . '/modules/ap/api/bills.php'), 'apCreateManualBill('));
+$check('service-key issuer is recorded for AP two-eye approval',
+    str_contains($credentialService, 'c.created_by_user_id')
+    && str_contains($service, "\$credential['created_by_user_id']")
+    && str_contains($service, '$issuerUserId > 0 ? $issuerUserId : null'));
+$check('historical issuer backfill is source and tenant scoped',
+    str_contains($issuerBackfill, "d.source_type = 'ap.bill'")
+    && str_contains($issuerBackfill, 'd.tenant_id = b.tenant_id')
+    && str_contains($issuerBackfill, 'c.id = d.credential_id')
+    && str_contains($issuerBackfill, 'u.tenant_id = d.tenant_id')
+    && str_contains($issuerBackfill, 'b.created_by_user_id IS NULL'));
 $check('source mapping is atomic and entity scoped',
     str_contains($service, "coreoneV1SubmitDocument(\$credential, 'ap.bill'")
     && str_contains($service, 'b.entity_id = d.entity_id')

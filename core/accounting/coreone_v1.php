@@ -58,7 +58,8 @@ function coreoneV1Authenticate(?string $authorization): ?array
     }
     $pdo = getDB();
     $stmt = $pdo->prepare(
-        'SELECT c.id, c.tenant_id, c.entity_id, c.label, c.scopes_json, e.base_currency
+        'SELECT c.id, c.tenant_id, c.entity_id, c.label, c.scopes_json,
+                c.created_by_user_id, e.base_currency
            FROM coreone_accounting_credentials c
            JOIN accounting_entities e ON e.tenant_id = c.tenant_id AND e.id = c.entity_id AND e.active = 1
           WHERE c.token_hash = :hash AND c.revoked_at IS NULL AND c.expires_at > NOW() LIMIT 1'
@@ -69,6 +70,8 @@ function coreoneV1Authenticate(?string $authorization): ?array
     $credential['id'] = (int) $credential['id'];
     $credential['tenant_id'] = (int) $credential['tenant_id'];
     $credential['entity_id'] = (int) $credential['entity_id'];
+    $credential['created_by_user_id'] = $credential['created_by_user_id'] === null
+        ? null : (int) $credential['created_by_user_id'];
     $credential['scopes'] = json_decode((string) $credential['scopes_json'], true);
     if (!is_array($credential['scopes']) || !array_is_list($credential['scopes'])
         || !$credential['scopes']) return null;

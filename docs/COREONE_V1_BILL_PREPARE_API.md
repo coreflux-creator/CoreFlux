@@ -8,6 +8,8 @@ Issue an entity-bound service credential through authenticated `POST /api/coreon
 
 Pass `Authorization: Bearer <token>`. The token fixes the workspace, legal entity and base currency. Browser cookies and caller-supplied tenant or entity IDs cannot redirect this route.
 
+The user who issues the service credential is recorded as the creator of each bill it prepares. AP's existing two-eye check therefore prevents that issuer from approving the bill. Existing source-linked bills with a known credential issuer receive that attribution through migration `159_coreone_bill_issuer_attribution.sql`; an issuerless credential should be revoked and replaced before operational use.
+
 ## Prepare
 
 `POST /api/coreone/v1/bills.php` with JSON:
@@ -46,8 +48,12 @@ A new bill returns HTTP 201 with `{bill, idempotent_replay: false}`. The `bill` 
 
 The source ID and intent hash are mapped to the AP bill in the same transaction as bill creation. This mapping is provenance/idempotency, not a second payable or ledger. A voided or edited bill retains its source ID; a retry returns the current document, not a replacement. A new business bill requires a new source ID. Duplicate vendor bill numbers are currently checked for manual bills within one legal entity, under AP's tenant numbering lock; imported and other AP sources require their own duplicate-policy audit before this can serve as a universal bill-ingestion guarantee.
 
+## Verified staging handoff
+
+The isolated simulation-company acceptance in `tests/accounting_coreone_bill_lifecycle_staging.php` calls the actual bearer endpoint, verifies that the pending bill appears in ERP AP, checks exact-retry and changed-intent behavior, and confirms that no journal exists before human approval. It then proves the credential issuer cannot self-approve, a separate AP reviewer can approve and post, and CoreOne's source-ID lookup returns that same posted bill and canonical journal. The final ledger and income, balance-sheet and cash-flow reports balance without inventing a payment. The one-day test credential is revoked afterward. This is a service/API rehearsal with synthetic data, not a signed-in two-human browser rehearsal or a production-history audit.
+
 ## Next gates
 
-- Review source-owned approval, posting, payment and correction machine contracts; preserve AP's two-person controls. Do not use general journals to stand in for those actions.
+- Review any source-owned approval, posting, payment and correction machine contracts; preserve AP's two-person controls. The verified handoff uses a human AP reviewer and the existing AP post endpoint, not CoreOne machine authority. Do not use general journals to stand in for those actions.
 - Add explicit credit/discount bill-line treatment and a typed catalog of permitted expense/capitalization accounts before claiming broad QuickBooks parity.
 - Verify the clean-database installer on a disposable isolated database, then complete second-user and non-synthetic multi-entity acceptance plus historical financial audits before production service credentials.

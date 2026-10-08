@@ -175,11 +175,13 @@ function coreoneV1PrepareBill(array $credential, array $body): array
     $normalized = coreoneV1NormalizeBill($credential, $body);
     $tenantId = (int) $credential['tenant_id'];
     $entityId = (int) $credential['entity_id'];
+    $issuerUserId = (int) ($credential['created_by_user_id'] ?? 0);
     $result = coreoneV1SubmitDocument($credential, 'ap.bill', $normalized['source_record_id'],
         $normalized,
-        static function () use ($tenantId, $entityId, $normalized): int {
+        static function () use ($tenantId, $entityId, $issuerUserId, $normalized): int {
             $bill = apCreateManualBill($tenantId,
-                array_merge($normalized, ['entity_id' => $entityId]), null);
+                array_merge($normalized, ['entity_id' => $entityId]),
+                $issuerUserId > 0 ? $issuerUserId : null);
             if ((float) $bill['total'] <= 0 || $bill['status'] !== 'pending_approval') {
                 throw new RuntimeException('AP did not prepare a positive bill.');
             }
