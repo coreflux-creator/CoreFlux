@@ -5,6 +5,7 @@ import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
 import PlacementPicker from '../../placements/ui/PlacementPicker';
+import { requireSupportedJournalDimensions, visibleJournalDimensions } from './journalDimensions';
 import { ArrowLeft, Copy, Pencil, Plus, Save, Send, SlidersHorizontal, Trash2 } from 'lucide-react';
 
 /**
@@ -30,7 +31,7 @@ const newLine = () => ({
   assignment_entity_id: null,
 });
 
-export default function JournalEntryCreate() {
+export default function JournalEntryCreate({ session }) {
   const navigate = useNavigate();
   const { activeEntityId, entities, loaded: entitiesLoaded } = useActiveEntity();
   const { id } = useParams();
@@ -67,9 +68,9 @@ export default function JournalEntryCreate() {
       setAccounts(d?.rows || d?.accounts || []);
     }).catch(() => setAccounts([]));
     api.get('/modules/accounting/api/dimensions.php').then((d) => {
-      setDimensions((d?.dimensions || []).filter((dimension) => Number(dimension.active) === 1 && dimension.dim_key !== 'legal_entity'));
+      setDimensions(visibleJournalDimensions(d?.dimensions || [], session?.product_mode));
     }).catch(() => setDimensions([]));
-  }, []);
+  }, [session?.product_mode]);
 
   useEffect(() => {
     if (!entitiesLoaded || entityId) return;
@@ -241,39 +242,42 @@ export default function JournalEntryCreate() {
     ));
   };
 
-  const refreshAssignmentDimensions = async () => Promise.all(lines.map(async (line, index) => {
-    const placementId = line.dims?.placement;
-    if (!placementId) return line;
-    const params = new URLSearchParams({
-      placement_id: String(placementId),
-      as_of: postingDate,
-      entity_id: String(entityId),
-    });
-    const data = await api.get(`/modules/staffing/api/assignment_dimensions.php?${params.toString()}`);
-    if (data?.resolved_entity_id && Number(data.resolved_entity_id) !== Number(entityId)) {
-      throw new Error(`Assignment PL-${placementId} belongs to a different legal entity.`);
-    }
-    const needsVendor = accountNeedsVendor(line.account_code);
-    const missing = relevantAssignmentMissing(data?.missing || [], needsVendor);
-    if (missing.length > 0) {
-      throw new Error(`Line ${index + 1}: assignment PL-${placementId} is missing ${missing.map(formatDimensionKey).join(', ')}.`);
-    }
-    const inherited = { ...(data?.dimensions || {}) };
-    delete inherited.legal_entity;
-    const preserved = { ...(line.dims || {}) };
-    ASSIGNMENT_DIMENSION_KEYS.forEach((key) => delete preserved[key]);
-    if (needsVendor) {
-      if (!data?.vendor_dimension) {
-        throw new Error(`Line ${index + 1}: assignment PL-${placementId} has no payable vendor.`);
+  const refreshAssignmentDimensions = async () => {
+    requireSupportedJournalDimensions(lines, session?.product_mode);
+    return Promise.all(lines.map(async (line, index) => {
+      const placementId = line.dims?.placement;
+      if (!placementId) return line;
+      const params = new URLSearchParams({
+        placement_id: String(placementId),
+        as_of: postingDate,
+        entity_id: String(entityId),
+      });
+      const data = await api.get(`/modules/staffing/api/assignment_dimensions.php?${params.toString()}`);
+      if (data?.resolved_entity_id && Number(data.resolved_entity_id) !== Number(entityId)) {
+        throw new Error(`Assignment PL-${placementId} belongs to a different legal entity.`);
       }
-      inherited.vendor = data.vendor_dimension;
-    }
-    return {
-      ...line,
-      dims: { ...preserved, ...inherited, placement: placementId },
-      assignment_entity_id: data?.resolved_entity_id || null,
-    };
-  }));
+      const needsVendor = accountNeedsVendor(line.account_code);
+      const missing = relevantAssignmentMissing(data?.missing || [], needsVendor);
+      if (missing.length > 0) {
+        throw new Error(`Line ${index + 1}: assignment PL-${placementId} is missing ${missing.map(formatDimensionKey).join(', ')}.`);
+      }
+      const inherited = { ...(data?.dimensions || {}) };
+      delete inherited.legal_entity;
+      const preserved = { ...(line.dims || {}) };
+      ASSIGNMENT_DIMENSION_KEYS.forEach((key) => delete preserved[key]);
+      if (needsVendor) {
+        if (!data?.vendor_dimension) {
+          throw new Error(`Line ${index + 1}: assignment PL-${placementId} has no payable vendor.`);
+        }
+        inherited.vendor = data.vendor_dimension;
+      }
+      return {
+        ...line,
+        dims: { ...preserved, ...inherited, placement: placementId },
+        assignment_entity_id: data?.resolved_entity_id || null,
+      };
+    }));
+  };
 
   const totals = lines.reduce((acc, l) => {
     const d = parseFloat(l.debit)  || 0;

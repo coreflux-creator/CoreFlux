@@ -27,6 +27,7 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/tenant_scope.php';
+require_once __DIR__ . '/accounting/standalone_boundary.php';
 require_once __DIR__ . '/auditor.php';
 // Membership read-fallback shim — exposes membershipReadSourceSql() so any
 // API endpoint can swap a direct `FROM tenant_memberships` for the UNIONed
@@ -136,6 +137,11 @@ function api_require_fields(array $data, array $required): void {
  * Emits 401 if not authenticated, 400 if no tenant selected.
  */
 function api_require_auth(bool $requireTenant = true): array {
+    $moduleKey = coreAccountingRequestModule($_SERVER['SCRIPT_FILENAME'] ?? null, currentModuleKey());
+    if (!coreAccountingAllowsModule($moduleKey, (string) getenv('COREFLUX_ENV'))) {
+        api_error('Not found', 404);
+    }
+
     // Accept JWT bearer first (mobile / API clients), fall back to session cookie (web SPA).
     if (!isAuthenticated()) {
         require_once __DIR__ . '/jwt.php';

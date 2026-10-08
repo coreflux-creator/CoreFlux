@@ -5,6 +5,7 @@ $root = dirname(__DIR__);
 $ui = (string) file_get_contents($root . '/modules/accounting/ui/JournalEntries.jsx');
 $detail = (string) file_get_contents($root . '/modules/accounting/ui/JournalEntryDetail.jsx');
 $editor = (string) file_get_contents($root . '/modules/accounting/ui/JournalEntryCreate.jsx');
+$journalDimensions = (string) file_get_contents($root . '/modules/accounting/ui/journalDimensions.js');
 $api = (string) file_get_contents($root . '/modules/accounting/api/journal_entries.php');
 $module = (string) file_get_contents($root . '/modules/accounting/ui/AccountingModule.jsx');
 $sidebar = (string) file_get_contents($root . '/dashboard/src/layout/Sidebar.jsx');
@@ -54,7 +55,8 @@ $checks = [
         str_contains($editor, 'data-testid="accounting-je-entity"')
         && str_contains($editor, 'data-testid={`accounting-je-line-dimensions-${i}`}')
         && str_contains($editor, 'data-testid={`accounting-je-line-${i}-dimension-${dimension.dim_key}`}')
-        && str_contains($editor, "dimension.dim_key !== 'legal_entity'"),
+        && str_contains($editor, 'visibleJournalDimensions(d?.dimensions || [], session?.product_mode)')
+        && str_contains($journalDimensions, "dimension.dim_key !== 'legal_entity'"),
     'assignment choice inherits canonical dimensions and revalidates at submit' =>
         str_contains($editor, '<PlacementPicker')
         && str_contains($editor, 'applyAssignmentDimensions')

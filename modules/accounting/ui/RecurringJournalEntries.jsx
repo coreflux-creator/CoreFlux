@@ -3,6 +3,7 @@ import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import PlacementPicker from '../../placements/ui/PlacementPicker';
+import { requireSupportedJournalDimensions, visibleJournalDimensions } from './journalDimensions';
 import { Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 
 /**
@@ -12,13 +13,13 @@ import { Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
  *  - /modules/accounting/recurring/:id            → edit form (header + lines)
  *  - /modules/accounting/recurring/replace/:journalId → reviewed replacement draft
  */
-export default function RecurringJournalEntries() {
+export default function RecurringJournalEntries({ session }) {
   return (
     <Routes>
       <Route index           element={<List />} />
-      <Route path="new"      element={<Editor />} />
-      <Route path="replace/:journalId" element={<Editor replacement />} />
-      <Route path=":id"      element={<Editor edit />} />
+      <Route path="new"      element={<Editor session={session} />} />
+      <Route path="replace/:journalId" element={<Editor replacement session={session} />} />
+      <Route path=":id"      element={<Editor edit session={session} />} />
     </Routes>
   );
 }
@@ -123,7 +124,7 @@ const newLine = () => ({
   assignment_entity_id: null,
 });
 
-function Editor({ edit = false, replacement = false }) {
+function Editor({ edit = false, replacement = false, session }) {
   const navigate = useNavigate();
   const { id, journalId } = useParams();
   const { activeEntityId, entities, loaded: entitiesLoaded } = useActiveEntity();
@@ -140,7 +141,7 @@ function Editor({ edit = false, replacement = false }) {
   useEffect(() => {
     api.get('/modules/accounting/api/accounts.php').then(d => setAccounts(d?.rows || d?.accounts || []));
     api.get('/modules/accounting/api/dimensions.php').then(d => {
-      setDimensions((d?.dimensions || []).filter(dimension => Number(dimension.active) === 1 && dimension.dim_key !== 'legal_entity'));
+      setDimensions(visibleJournalDimensions(d?.dimensions || [], session?.product_mode));
     }).catch(() => setDimensions([]));
     if (replacement && journalId) {
       api.get(`/modules/accounting/api/recurring_journal_entries.php?action=replacement&id=${journalId}`).then(d => {
@@ -190,7 +191,7 @@ function Editor({ edit = false, replacement = false }) {
         }));
       }).catch(e => setTemplateMeta({ loading: false, error: e.message, status: null, lastRunJeId: null }));
     }
-  }, [edit, id, replacement, journalId]);
+  }, [edit, id, replacement, journalId, session?.product_mode]);
 
   useEffect(() => {
     if (!entitiesLoaded || form.entity_id) return;
@@ -270,37 +271,40 @@ function Editor({ edit = false, replacement = false }) {
     }
   };
 
-  const refreshAssignmentDimensions = async () => Promise.all(lines.map(async (line, index) => {
-    const placementId = line.dims?.placement;
-    if (!placementId) return line;
-    const params = new URLSearchParams({
-      placement_id: String(placementId),
-      as_of: replacement ? form.posting_date : form.next_run_date,
-      entity_id: String(form.entity_id),
-    });
-    const data = await api.get(`/modules/staffing/api/assignment_dimensions.php?${params.toString()}`);
-    if (data?.resolved_entity_id && Number(data.resolved_entity_id) !== Number(form.entity_id)) {
-      throw new Error(`Line ${index + 1}: assignment PL-${placementId} belongs to a different legal entity.`);
-    }
-    const needsVendor = accountNeedsVendor(line.account_code);
-    const missing = recurringRelevantMissing(data?.missing || [], needsVendor);
-    if (missing.length > 0) {
-      throw new Error(`Line ${index + 1}: assignment PL-${placementId} is missing ${missing.map(key => String(key).replaceAll('_', ' ')).join(', ')}.`);
-    }
-    const inherited = { ...(data?.dimensions || {}) };
-    delete inherited.legal_entity;
-    const preserved = { ...(line.dims || {}) };
-    ASSIGNMENT_DIMENSION_KEYS.forEach(key => delete preserved[key]);
-    if (needsVendor) {
-      if (!data?.vendor_dimension) throw new Error(`Line ${index + 1}: assignment PL-${placementId} has no payable vendor.`);
-      inherited.vendor = data.vendor_dimension;
-    }
-    return {
-      ...line,
-      dims: { ...preserved, ...inherited, placement: placementId },
-      assignment_entity_id: data?.resolved_entity_id || null,
-    };
-  }));
+  const refreshAssignmentDimensions = async () => {
+    requireSupportedJournalDimensions(lines, session?.product_mode);
+    return Promise.all(lines.map(async (line, index) => {
+      const placementId = line.dims?.placement;
+      if (!placementId) return line;
+      const params = new URLSearchParams({
+        placement_id: String(placementId),
+        as_of: replacement ? form.posting_date : form.next_run_date,
+        entity_id: String(form.entity_id),
+      });
+      const data = await api.get(`/modules/staffing/api/assignment_dimensions.php?${params.toString()}`);
+      if (data?.resolved_entity_id && Number(data.resolved_entity_id) !== Number(form.entity_id)) {
+        throw new Error(`Line ${index + 1}: assignment PL-${placementId} belongs to a different legal entity.`);
+      }
+      const needsVendor = accountNeedsVendor(line.account_code);
+      const missing = recurringRelevantMissing(data?.missing || [], needsVendor);
+      if (missing.length > 0) {
+        throw new Error(`Line ${index + 1}: assignment PL-${placementId} is missing ${missing.map(key => String(key).replaceAll('_', ' ')).join(', ')}.`);
+      }
+      const inherited = { ...(data?.dimensions || {}) };
+      delete inherited.legal_entity;
+      const preserved = { ...(line.dims || {}) };
+      ASSIGNMENT_DIMENSION_KEYS.forEach(key => delete preserved[key]);
+      if (needsVendor) {
+        if (!data?.vendor_dimension) throw new Error(`Line ${index + 1}: assignment PL-${placementId} has no payable vendor.`);
+        inherited.vendor = data.vendor_dimension;
+      }
+      return {
+        ...line,
+        dims: { ...preserved, ...inherited, placement: placementId },
+        assignment_entity_id: data?.resolved_entity_id || null,
+      };
+    }));
+  };
 
   const submit = async () => {
     setBusy(true); setErr(null);
