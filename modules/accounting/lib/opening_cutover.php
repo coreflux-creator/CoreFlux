@@ -141,6 +141,7 @@ function accountingOpeningDocumentOnlyReview(PDO $pdo, int $tenantId, int $entit
         'first_fiscal_day' => $context['first_fiscal_day'], 'posting_date' => $date,
         'rows' => [], 'row_count' => 0,
         'balancing_equity' => ['account_code' => '3000', 'debit' => '0.00', 'credit' => '0.00'],
+        'opening_equity' => accountingOpeningEquitySummary(0),
         'total_debit' => '0.00', 'total_credit' => '0.00',
         'errors' => $errors, 'error_count' => count($errors),
         'preview_token' => $errors ? null : $token,
@@ -252,6 +253,11 @@ function accountingOpeningCutoverReview(PDO $pdo, int $tenantId, int $entityId,
         'ar_count' => count($ar['rows']), 'ap_count' => count($ap['rows']),
         'ar_total' => accountingOpeningAmount($ar['total_cents']),
         'ap_total' => accountingOpeningAmount($ap['total_cents']),
+        'opening_equity' => accountingOpeningEquitySummary(
+            accountingOpeningSignedCents($base['balancing_equity']['credit'])
+            - accountingOpeningSignedCents($base['balancing_equity']['debit'])
+            + $ar['total_cents'] - $ap['total_cents']
+        ),
         'errors' => $errors, 'error_count' => $errorCount,
         'preview_token' => $errorCount === 0 ? $token : null,
         'already_posted' => $prior !== null && $errorCount === 0,

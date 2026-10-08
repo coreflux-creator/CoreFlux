@@ -43,6 +43,8 @@ try {
         'combined preview is valid and read-only');
     $assert($preview['ar_total'] === '150.00' && $preview['ap_total'] === '80.00',
         'source totals are exact cents');
+    $assert($preview['opening_equity'] === ['amount' => '870.00', 'negative' => false],
+        'combined preview includes source offsets in account 3000');
     $assert((int) $pdo->query('SELECT COUNT(*) FROM billing_invoices WHERE tenant_id = 1')->fetchColumn()
         === $baseline['invoices'], 'preview creates no invoice');
     $badAr = "Invoice number,Client name,Issue date,Due date,Open amount\n"
@@ -127,6 +129,8 @@ try {
     $assert($preview['error_count'] === 0 && $preview['preview_token'] !== null
         && $preview['balances']['journal_lines'] === [],
         'document-only preview needs no ordinary opening journal');
+    $assert($preview['opening_equity'] === ['amount' => '70.00', 'negative' => false],
+        'document-only AR less AP is the opening-equity offset');
     $assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = 1')->fetchColumn()
         === $baseline['journals'], 'document-only preview creates no journal');
     $posted = accountingOpeningCutoverCommit($pdo, 1, $entityId, '', $ar, $ap,
@@ -185,6 +189,8 @@ try {
     $preview = accountingOpeningCutoverReview($pdo, 1, $entityId, '', '', $ap);
     $assert($preview['error_count'] === 0 && $preview['ar_count'] === 0 && $preview['ap_count'] === 1,
         'AP-only source file is valid without balances or AR');
+    $assert($preview['opening_equity'] === ['amount' => '80.00', 'negative' => true],
+        'AP-only preview shows debit-side opening equity');
     $posted = accountingOpeningCutoverCommit($pdo, 1, $entityId, '', '', $ap,
         $preview['preview_token'], null);
     $assert($posted['journal_entry_id'] === $posted['bills'][0]['journal_entry_id'],

@@ -51,6 +51,11 @@ function accountingOpeningAmount(int $cents): string
     return intdiv($cents, 100) . '.' . str_pad((string) ($cents % 100), 2, '0', STR_PAD_LEFT);
 }
 
+function accountingOpeningEquitySummary(int $cents): array
+{
+    return ['amount' => accountingOpeningAmount(abs($cents)), 'negative' => $cents < 0];
+}
+
 /** @return list<array{account_code:string,debit:string,credit:string}> */
 function accountingOpeningStoredLines(PDO $pdo, int $tenantId, int $jeId): array
 {
@@ -241,6 +246,7 @@ function accountingOpeningReview(PDO $pdo, int $tenantId, int $entityId, string 
             'debit' => accountingOpeningAmount($equityDebit),
             'credit' => accountingOpeningAmount($equityCredit),
         ],
+        'opening_equity' => accountingOpeningEquitySummary($netDebitCents),
         'total_debit' => accountingOpeningAmount($totalDebit),
         'total_credit' => accountingOpeningAmount($totalCredit),
         'errors' => $errors, 'error_count' => count($errors),

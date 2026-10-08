@@ -100,6 +100,7 @@ export default function OpeningBalances() {
 
   const balancePreview = preview?.balances || preview;
   const hasDocuments = Boolean(preview?.balances);
+  const openingEquity = preview?.opening_equity || balancePreview?.opening_equity;
   const postedJournalId = preview?.journal_entry_id || balancePreview?.journal_entry_id;
   const reviewErrors = preview?.error_count > 0
     ? hasDocuments
@@ -200,6 +201,8 @@ export default function OpeningBalances() {
             <div><span>First fiscal day</span><strong>{balancePreview.first_fiscal_day}</strong></div>
             {hasDocuments && <div><span>Open AR</span><strong>{preview.ar_count} · ${preview.ar_total}</strong></div>}
             {hasDocuments && <div><span>Open AP</span><strong>{preview.ap_count} · ${preview.ap_total}</strong></div>}
+            {openingEquity && <div><span>Opening Balance Equity · 3000</span>
+              <strong>{openingEquity.negative ? `($${openingEquity.amount})` : `$${openingEquity.amount}`}</strong></div>}
           </div>
           {preview.error_count > 0 && (
             <div className="opening-balances__errors" role="alert" data-testid="opening-preview-errors">

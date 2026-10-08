@@ -23,6 +23,8 @@ $assert = static function (bool $condition, string $message) use (&$checks): voi
 };
 $assert(accountingOpeningSignedCents('$1,234.50') === 123450, 'currency and grouping parse exactly');
 $assert(accountingOpeningSignedCents('($12.30)') === -1230, 'parentheses represent negative balance');
+$assert(accountingOpeningEquitySummary(-8050) === ['amount' => '80.50', 'negative' => true],
+    'debit-side opening equity displays with exact cents');
 $postingSource = (string) file_get_contents(__DIR__ . '/../modules/accounting/lib/accounting.php');
 $assert((bool) preg_match('/function accountingPostJe\(.*?\$entityLock.*?FOR UPDATE/s', $postingSource),
     'ordinary journal posts serialize on the same legal-entity lock as cutover');
@@ -74,6 +76,7 @@ try {
     $assert($preview['error_count'] === 0 && $preview['posting_date'] === '2024-12-31',
         'preview uses the day before the first fiscal year');
     $assert($preview['balancing_equity']['credit'] === '800.00'
+        && $preview['opening_equity'] === ['amount' => '800.00', 'negative' => false]
         && $preview['total_debit'] === '1000.00'
         && $preview['total_credit'] === '1000.00', 'preview shows the balancing equity and exact totals');
     $assert((int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries WHERE tenant_id = 1')->fetchColumn() === 0
