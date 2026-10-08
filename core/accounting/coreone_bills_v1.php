@@ -127,6 +127,7 @@ function coreoneV1NormalizeBill(array $credential, array $body): array
         ];
     }
     if ($gross <= 0) throw new InvalidArgumentException('Bill total must be greater than zero.');
+    apValidateManualBillLines($lines, (float) $taxRate);
     return [
         'schema_version' => 1, 'source_record_id' => $sourceId,
         'vendor_name' => trim($vendorName), 'vendor_type' => $vendorType,

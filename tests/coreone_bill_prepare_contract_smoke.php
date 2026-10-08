@@ -81,6 +81,10 @@ $invalid = $body; $invalid['lines'][0]['is_1099_eligible'] = 'false';
 $check('1099 eligibility must be a boolean', $rejects(static fn() => coreoneV1NormalizeBill($identity, $invalid)));
 $invalid = $body; $invalid['lines'][0]['unit_price'] = '-2';
 $check('negative bill price is not accepted as a regular line', $rejects(static fn() => coreoneV1NormalizeBill($identity, $invalid)));
+$invalid = $body; $invalid['lines'][0]['unit_price'] = '0';
+$check('zero-value bill line cannot be prepared', $rejects(static fn() => coreoneV1NormalizeBill($identity, $invalid)));
+$invalid = $body; $invalid['lines'][0]['item_type'] = 'discount';
+$check('unsupported discount cannot become a payable expense', $rejects(static fn() => coreoneV1NormalizeBill($identity, $invalid)));
 $invalid = $body; $invalid['lines'][0]['gl_expense_account_code'] = '2000';
 $check('managed AP control account cannot be selected for a bill expense',
     $rejects(static fn() => coreoneV1NormalizeBill($identity, $invalid)));

@@ -6,6 +6,45 @@ require_once __DIR__ . '/ap.php';
 require_once __DIR__ . '/../../../core/active_entity.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
 
+/** Validate amounts before either ERP or CoreOne creates an approvable bill. */
+function apValidateManualBillLines(array $lines, float $taxPct): array
+{
+    foreach ($lines as $index => $line) {
+        $number = $index + 1;
+        if (!is_array($line)) {
+            throw new InvalidArgumentException("Bill line {$number} must be an object");
+        }
+        if (isset($line['item_type']) && !is_string($line['item_type'])) {
+            throw new InvalidArgumentException("Bill line {$number}: item_type must be text");
+        }
+        if (apNormalizeItemType($line['item_type'] ?? null, 'manual') === 'discount') {
+            throw new InvalidArgumentException(
+                "Bill line {$number}: discounts are not supported on payable lines; enter the net price instead"
+            );
+        }
+        foreach (['quantity', 'unit_price'] as $field) {
+            $value = $line[$field] ?? null;
+            if (!is_numeric($value) || !is_finite((float) $value)
+                || (float) $value <= 0 || (float) $value > 99999999.9999) {
+                throw new InvalidArgumentException("Bill line {$number}: {$field} must be a positive amount");
+            }
+        }
+    }
+    $computed = apComputeTotals($lines, $taxPct);
+    foreach ($computed['lines'] as $index => $line) {
+        if (!is_finite((float) $line['total']) || (float) $line['total'] <= 0
+            || (float) $line['total'] > 9999999999.99) {
+            throw new InvalidArgumentException(
+                'Bill line ' . ($index + 1) . ': total must be between 0.01 and 9,999,999,999.99 in the bill currency'
+            );
+        }
+    }
+    if (!is_finite((float) $computed['total']) || (float) $computed['total'] > 9999999999.99) {
+        throw new InvalidArgumentException('Bill total exceeds the supported amount');
+    }
+    return $computed;
+}
+
 function apCreateManualBill(int $tenantId, array $body, ?int $actorUserId = null): array
 {
     $vendorName = trim((string) ($body['vendor_name'] ?? ''));
@@ -81,7 +120,7 @@ function apCreateManualBill(int $tenantId, array $body, ?int $actorUserId = null
     if (!$validDate($dueDate) || $dueDate < $billDate) {
         throw new InvalidArgumentException('Due date must be on or after the bill date (YYYY-MM-DD)');
     }
-    $computed = apComputeTotals($body['lines'], (float) $taxPct);
+    $computed = apValidateManualBillLines($body['lines'], (float) $taxPct);
     try {
         $issuingEntity = activeEntityResolveForTenant(
             $tenantId, !empty($body['entity_id']) ? (int) $body['entity_id'] : null

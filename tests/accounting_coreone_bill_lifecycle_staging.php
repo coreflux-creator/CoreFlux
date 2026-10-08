@@ -108,6 +108,47 @@ try {
     $reviewToken = (string) $reviewIssued['token'];
     echo "Synthetic CoreOne AP run {$run}\n";
 
+    $zero = $body;
+    $zero['source_record_id'] .= ':zero';
+    $zero['bill_number'] .= '-ZERO';
+    $zero['lines'][0]['unit_price'] = '0';
+    $zeroResult = qaCoreOneBillRequest('POST', '/api/coreone/v1/bills.php', $token, $zero);
+    $zeroMapping = qaOne($pdo, 'SELECT target_id FROM coreone_document_requests
+        WHERE tenant_id = :t AND entity_id = :e AND source_type = "ap.bill"
+            AND source_record_id = :source_id',
+        ['t' => QA_TENANT, 'e' => $entityId, 'source_id' => $zero['source_record_id']]);
+    $zeroBill = qaOne($pdo, 'SELECT id FROM ap_bills
+        WHERE tenant_id = :t AND entity_id = :e AND bill_number = :bill_number',
+        ['t' => QA_TENANT, 'e' => $entityId, 'bill_number' => $zero['bill_number']]);
+    qaExpect($zeroResult['status'] === 422 && !$zeroMapping && !$zeroBill,
+        'zero-value machine bill is refused before source mapping or AP creation');
+    $discount = $body;
+    $discount['source_record_id'] .= ':discount';
+    $discount['bill_number'] .= '-DISCOUNT';
+    $discount['lines'][0]['item_type'] = 'discount';
+    $discountResult = qaCoreOneBillRequest('POST', '/api/coreone/v1/bills.php', $token, $discount);
+    $discountMapping = qaOne($pdo, 'SELECT target_id FROM coreone_document_requests
+        WHERE tenant_id = :t AND entity_id = :e AND source_type = "ap.bill"
+            AND source_record_id = :source_id',
+        ['t' => QA_TENANT, 'e' => $entityId, 'source_id' => $discount['source_record_id']]);
+    qaExpect($discountResult['status'] === 422 && !$discountMapping,
+        'unsupported machine discount is refused before source reservation');
+    $manualZero = $zero;
+    $manualZero['bill_number'] .= '-ERP';
+    $manualZero['entity_id'] = $entityId;
+    try {
+        qaRequest('/modules/ap/api/bills.php', 'POST', $manualZero, $makerCookie);
+        $manualZeroRejected = false;
+    } catch (RuntimeException $e) {
+        $manualZeroRejected = str_contains($e->getMessage(), 'HTTP 422')
+            && str_contains($e->getMessage(), 'unit_price');
+    }
+    $manualZeroBill = qaOne($pdo, 'SELECT id FROM ap_bills
+        WHERE tenant_id = :t AND entity_id = :e AND bill_number = :bill_number',
+        ['t' => QA_TENANT, 'e' => $entityId, 'bill_number' => $manualZero['bill_number']]);
+    qaExpect($manualZeroRejected && !$manualZeroBill,
+        'ERP manual bill also rejects a zero line without creating a bill');
+
     $missing = qaCoreOneBillRequest('GET', $path, $token);
     qaExpect($missing['status'] === 404, 'unknown source bill is not found');
     $first = qaCoreOneBillRequest('POST', '/api/coreone/v1/bills.php', $token, $body);
