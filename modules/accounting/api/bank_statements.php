@@ -352,9 +352,8 @@ if ($method === 'GET') {
                    FROM accounting_bank_statement_lines bl
                    JOIN accounting_journal_entries je
                      ON je.tenant_id = bl.tenant_id AND je.id = bl.matched_je_id
-                   JOIN billing_payments p ON p.tenant_id = bl.tenant_id AND p.source_system = "manual"
-                    AND (p.external_id = CONCAT("bank-line:", bl.id)
-                      OR p.external_id LIKE CONCAT("bank-line:", bl.id, ":%"))
+                   JOIN billing_payments p
+                     ON p.tenant_id = bl.tenant_id AND p.journal_entry_id = bl.matched_je_id
                    JOIN billing_payment_allocations a ON a.payment_id = p.id
                    JOIN billing_invoices i ON i.tenant_id = bl.tenant_id AND i.id = a.invoice_id
                   WHERE bl.tenant_id = :tenant_id AND bl.id IN (' . implode(',', $placeholders) . ')

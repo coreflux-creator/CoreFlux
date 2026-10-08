@@ -252,6 +252,17 @@ try {
         && qaDelta($after, $afterReceipt, '1100', -23.0)
         && qaDelta($after, $afterReceipt, '4000', 0),
         'bank match collects the CSV invoice once and moves $23 from AR to cash');
+    $matchedList = qaRequest('/modules/accounting/api/bank_statements.php?bank_account_id=' . $bankId
+        . '&match_status=matched&q=' . rawurlencode($fitid), 'GET', null, $reviewerCookie);
+    $listed = null;
+    foreach (($matchedList['rows'] ?? []) as $row) {
+        if ((int) ($row['id'] ?? 0) === $bankLineId) $listed = $row;
+    }
+    qaExpect($listed !== null
+        && (int) ($listed['applied_invoices'][0]['id'] ?? 0) === $invoiceId
+        && abs((float) ($listed['applied_invoices'][0]['amount'] ?? 0) - 23) < 0.005
+        && !empty($listed['can_correct_receipt']),
+        'matched bank-created receipt still links its invoice and source correction');
     $receiptCounterparty = qaOne($pdo, 'SELECT COUNT(*) AS n FROM accounting_journal_entry_lines
         WHERE tenant_id = :t AND je_id = :je AND counterparty_company_id = :company',
         ['t' => QA_TENANT, 'je' => $receiptJeId, 'company' => $companyId]);

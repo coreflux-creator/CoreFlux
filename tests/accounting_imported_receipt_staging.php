@@ -148,6 +148,17 @@ try {
         && (int) ($matched['matched_je_id'] ?? 0) === $receiptJeId
         && qaBalances($pdo, $entityId) === $afterApplication,
         'bank reconciliation reuses the imported receipt journal without posting cash twice');
+    $matchedList = qaRequest('/modules/accounting/api/bank_statements.php?bank_account_id=' . $bankId
+        . '&match_status=matched&q=' . rawurlencode($fitid), 'GET', null, $reviewerCookie);
+    $matchedRow = null;
+    foreach (($matchedList['rows'] ?? []) as $row) {
+        if ((int) ($row['id'] ?? 0) === $lineId) $matchedRow = $row;
+    }
+    qaExpect($matchedRow !== null
+        && (int) ($matchedRow['applied_invoices'][0]['id'] ?? 0) === $invoiceId
+        && abs((float) ($matchedRow['applied_invoices'][0]['amount'] ?? 0) - 30) < 0.005
+        && empty($matchedRow['can_correct_receipt']),
+        'matched bank row links the imported receipt invoice without offering a bank-owned reversal');
     qaExpect(qaDelta($before, $afterApplication, QA_BANK_CODE, 30)
         && qaDelta($before, $afterApplication, '1100', 0)
         && qaDelta($before, $afterApplication, '2300', 0)

@@ -51,6 +51,9 @@ $check('bank list preloads invoice suggestions', str_contains($bankApi, 'bankRec
 $check('matched bank lines show applied invoices',
     str_contains($bankApi, "\$lineRow['applied_invoices']")
     && str_contains($bankUi, 'line.applied_invoices.map(invoice =>'));
+$check('matched bank lines find both imported and bank-created receipts by journal',
+    str_contains($bankApi, 'p.journal_entry_id = bl.matched_je_id')
+    && str_contains($bankApi, 'p.voided_at IS NULL AND a.reversed_at IS NULL'));
 $check('bank lines can be reviewed by status',
     str_contains($bankUi, "['matched', 'Matched']")
     && str_contains($bankUi, "params.set('match_status', lineStatus)"));
