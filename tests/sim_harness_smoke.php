@@ -135,6 +135,14 @@ $a('tenant-only seed skips schema and rejects non-simulation tenants',
     && str_contains($seedScript, 'if (!$tenantOnly)')
     && str_contains($seedScript, '(int) $existingTenant[\'is_simulation\'] !== 1')
     && !str_contains($seedScript, 'ON DUPLICATE KEY UPDATE tenant_id = VALUES(tenant_id)'));
+$apBase = strpos($seedScript, "'modules/ap/migrations/001_init.sql'");
+$billingBase = strpos($seedScript, "'modules/billing/migrations/001_init.sql'");
+$entityColumns = strpos($seedScript, "'modules/accounting/migrations/007_consolidation.sql'");
+$invoiceJournalLink = strpos($seedScript, "'modules/accounting/migrations/008_consolidation_runs.sql'");
+$a('live simulation adds source entity and journal columns after AP and Billing base tables',
+    $apBase !== false && $billingBase !== false && $entityColumns !== false
+    && $invoiceJournalLink !== false && $apBase < $entityColumns
+    && $billingBase < $entityColumns && $entityColumns < $invoiceJournalLink);
 $a('runner exits non-zero on failure',     str_contains($runner, "exit(\$status === 'passed' ? 0 : 1)"));
 
 echo "\nDry-run executes end-to-end without DB\n";
