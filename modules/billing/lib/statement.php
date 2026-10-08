@@ -155,7 +155,7 @@ function billingStatementRenderEmail(string $tenantName, string $clientName, arr
            . '<thead><tr style="background:#f1f5f9"><th style="text-align:left;padding:6px 8px">Invoice</th><th style="text-align:left;padding:6px 8px">Due</th><th style="text-align:right;padding:6px 8px">Age</th><th style="text-align:right;padding:6px 8px">Amount</th></tr></thead>'
            . '<tbody>' . $rowsHtml . '</tbody>'
            . '</table>'
-           . '<p style="margin-top:24px;color:#64748b;font-size:13px">Reply to this email if any invoice on this statement is in dispute or has been paid recently and you need it reconciled.</p>'
+           . '<p style="margin-top:24px;color:#64748b;font-size:13px">Please contact the accounts receivable team if any invoice is in dispute or has been paid recently.</p>'
            . cf_branding_footer_html($branding, $tenantName)
            . '</div>';
 

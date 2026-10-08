@@ -63,6 +63,8 @@ $a('html lists INV-001',            str_contains($e['html'], 'INV-001'));
 $a('html lists INV-002',            str_contains($e['html'], 'INV-002'));
 $a('html shows 40d past',           str_contains($e['html'], '40d'));
 $a('html includes tenant name in footer',   str_contains($e['html'], 'Acme Staffing'));
+$a('html has PDF-safe contact wording',      str_contains($e['html'], 'contact the accounts receivable team')
+    && !str_contains($e['html'], 'Reply to this email'));
 $a('html escapes <script>',         str_contains(billingStatementRenderEmail('a<b>c', 'd', [], billingStatementBucket([]), $today)['html'], 'a&lt;b&gt;c'));
 $a('text has heading + total',      str_contains($e['text'], 'Statement of account') && str_contains($e['text'], 'TOTAL DUE:'));
 $a('singular when 1 invoice',       str_contains(billingStatementRenderEmail('T','C',[$inv2[0]],billingStatementBucket([$inv2[0]]),$today)['subject'], '1 open invoice '));
