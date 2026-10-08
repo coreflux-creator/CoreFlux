@@ -6,14 +6,15 @@ import IntercompanySplitDialog from '../../../dashboard/src/components/Intercomp
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 import ThreeWayMatchPanel from './ThreeWayMatchPanel';
 import BillApprovalThread from './BillApprovalThread';
-import { Pencil, RotateCcw } from 'lucide-react';
+import { Pencil, RotateCcw, X } from 'lucide-react';
 
 const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 
 export default function BillDetail({ session }) {
   const { id } = useParams();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const requestedEntityId = params.get('entity_id');
+  const attachmentWarning = params.has('attach_error');
   const returnParams = new URLSearchParams();
   if (requestedEntityId) returnParams.set('entity_id', requestedEntityId);
   if (params.get('status')) returnParams.set('status', params.get('status'));
@@ -119,6 +120,16 @@ export default function BillDetail({ session }) {
         </div>
       </div>
 
+      {attachmentWarning && (
+        <div className="error" role="alert" data-testid="ap-bill-attachment-warning" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ flex: 1 }}>Bill saved, but its PDF was not attached. <a href="#ap-bill-evidence-section">Upload it under supporting documents.</a></span>
+          <button type="button" className="btn btn--ghost" aria-label="Dismiss attachment warning" title="Dismiss attachment warning" onClick={() => {
+            const next = new URLSearchParams(params);
+            next.delete('attach_error');
+            setParams(next, { replace: true });
+          }}><X size={15} aria-hidden="true" /></button>
+        </div>
+      )}
       {createdByCurrentUser && ['pending_review','pending_approval'].includes(bill.status) && (
         <p className="operational-state" data-testid="ap-bill-two-eye-note">Another authorized user must approve this bill.</p>
       )}
@@ -298,7 +309,7 @@ export default function BillDetail({ session }) {
         </table>
       )}
 
-      <div style={{ marginTop: 16 }}>
+      <div id="ap-bill-evidence-section" style={{ marginTop: 16 }}>
         <EvidenceAttachments
           subjectType="ap_bill"
           subjectId={bill.id}

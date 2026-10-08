@@ -141,13 +141,22 @@ $apBase = strpos($seedScript, "'modules/ap/migrations/001_init.sql'");
 $billingBase = strpos($seedScript, "'modules/billing/migrations/001_init.sql'");
 $entityColumns = strpos($seedScript, "'modules/accounting/migrations/007_consolidation.sql'");
 $invoiceJournalLink = strpos($seedScript, "'modules/accounting/migrations/008_consolidation_runs.sql'");
+$paymentEntity = strpos($seedScript, "'modules/ap/migrations/020_payment_entity_scope.sql'");
 $a('live simulation adds source entity and journal columns after their base tables',
     $peopleBase !== false && $sharedPersonBase !== false
     && $apBase !== false && $billingBase !== false
-    && $entityColumns !== false && $invoiceJournalLink !== false
+    && $entityColumns !== false && $invoiceJournalLink !== false && $paymentEntity !== false
     && $peopleBase < $sharedPersonBase && $sharedPersonBase < $entityColumns
     && $apBase < $entityColumns
-    && $billingBase < $entityColumns && $entityColumns < $invoiceJournalLink);
+    && $billingBase < $entityColumns && $entityColumns < $invoiceJournalLink
+    && $entityColumns < $paymentEntity);
+$duplicateScenario = json_decode($read(__DIR__ . '/../sim/scenarios/duplicate_webhook_idempotent.json'), true);
+$firstEvent = $duplicateScenario['steps'][1] ?? [];
+$replayedEvent = $duplicateScenario['steps'][2] ?? [];
+$a('duplicate webhook scenario repeats the exact financial intent',
+    ($firstEvent['event_type'] ?? null) === ($replayedEvent['event_type'] ?? null)
+    && ($firstEvent['source_record_id'] ?? null) === ($replayedEvent['source_record_id'] ?? null)
+    && ($firstEvent['payload'] ?? null) === ($replayedEvent['payload'] ?? null));
 $a('runner exits non-zero on failure',     str_contains($runner, "exit(\$status === 'passed' ? 0 : 1)"));
 
 echo "\nDry-run executes end-to-end without DB\n";

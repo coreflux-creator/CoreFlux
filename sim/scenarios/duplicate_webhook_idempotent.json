@@ -51,8 +51,8 @@
         "amount": 750.00,
         "currency": "USD",
         "lines": [
-          { "account_code": "6990", "debit": 750.00, "credit": 0,      "description": "Office supplies (replay)" },
-          { "account_code": "2000", "debit": 0,      "credit": 750.00, "description": "AP payable (replay)" }
+          { "account_code": "6990", "debit": 750.00, "credit": 0,      "description": "Office supplies" },
+          { "account_code": "2000", "debit": 0,      "credit": 750.00, "description": "AP payable" }
         ]
       }
     }

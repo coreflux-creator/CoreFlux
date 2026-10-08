@@ -161,11 +161,10 @@ export default function BillCreate() {
             pendingFile
           );
           await api.post(`/modules/ap/api/bills.php?action=attach&id=${res.id}`, uploaded);
-        } catch (uploadErr) {
-          // Bill is still saved — surface a soft warning by routing with
-          // an error param. The detail page can read it and show a banner.
+        } catch {
+          // The bill is saved even when its supporting document needs a retry.
           const detailParams = new URLSearchParams(contextParams);
-          detailParams.set('attach_error', uploadErr.message);
+          detailParams.set('attach_error', '1');
           nav(`../bills/${res.id}?${detailParams}`);
           return;
         }

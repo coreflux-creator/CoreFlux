@@ -83,6 +83,7 @@ $schemaFiles = [
     'modules/billing/migrations/001_init.sql',
     'modules/accounting/migrations/007_consolidation.sql',
     'modules/accounting/migrations/008_consolidation_runs.sql',
+    'modules/ap/migrations/020_payment_entity_scope.sql',
     'modules/payroll/migrations/001_init.sql',
     'core/migrations/036_event_registry.sql',
     'core/migrations/043_simulation_harness.sql',
