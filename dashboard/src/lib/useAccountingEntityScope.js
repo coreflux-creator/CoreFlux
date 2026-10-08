@@ -21,7 +21,7 @@ export function useAccountingEntityScope() {
   const requestedId = requested && /^[1-9][0-9]*$/.test(requested) ? Number(requested) : null;
   const entityId = allEntities ? null : requested === null ? activeEntityId : requestedId;
   const entity = entities.find(row => Number(row.id) === Number(entityId)) || null;
-  const error = entityError?.message || (requested !== null && !allEntities && (!requestedId || !entity)
+  const error = entityError?.message || (loaded && requested !== null && !allEntities && (!requestedId || !entity)
     ? 'That legal entity is not available in this workspace.' : null);
   const ready = loaded && !error && (allEntities || Boolean(entity));
   const scopeKey = allEntities ? 'all' : String(entityId || 'pending');

@@ -18,6 +18,10 @@ $templateExport = $source('core/export_datasets.php');
 $payments = $source('api/treasury_payments.php');
 $transfers = $source('api/treasury_transfers.php');
 $periods = $source('modules/accounting/api/periods.php');
+$entityScope = $source('dashboard/src/lib/useAccountingEntityScope.js');
+
+$check('Entity validation waits for the available-entity response',
+    str_contains($entityScope, 'loaded && requested !== null && !allEntities'));
 
 $check('Overview carries entity into exact task queues',
     str_contains($overview, '/modules/ap/bills?status=needs_action')
