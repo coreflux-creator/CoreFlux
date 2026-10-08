@@ -5,6 +5,7 @@ $root = dirname(__DIR__);
 $ui = (string) file_get_contents($root . '/modules/ap/ui/Approvals.jsx');
 $billDetail = (string) file_get_contents($root . '/modules/ap/ui/BillDetail.jsx');
 $billList = (string) file_get_contents($root . '/modules/ap/ui/BillsList.jsx');
+$paymentList = (string) file_get_contents($root . '/modules/ap/ui/PaymentsList.jsx');
 $module = (string) file_get_contents($root . '/modules/ap/ui/APModule.jsx');
 $billsApi = (string) file_get_contents($root . '/modules/ap/api/bills.php');
 $correction = (string) file_get_contents($root . '/modules/ap/lib/bill_correction.php');
@@ -45,6 +46,11 @@ $check('bill detail does not invite its creator to self-approve',
 $check('bulk approval excludes bills created by the acting user',
     str_contains($module, '<BillsList session={session}')
     && str_contains($billList, 'Number(row.created_by_user_id) !== currentUserId'));
+$check('payment release explains maker-checker and excludes creator from bulk release',
+    str_contains($module, '<PaymentsList session={session}')
+    && str_contains($paymentList, 'Number(payment.created_by_user_id) === currentUserId')
+    && str_contains($paymentList, 'data-testid={`ap-payment-needs-reviewer-${p.id}`}')
+    && str_contains($paymentList, "Number(p.unallocated_amount) <= 0.005 && !createdByCurrentUser(p)"));
 $check('pending bills offer an audited detail edit',
     str_contains($billDetail, 'data-testid="ap-bill-edit-form"')
     && str_contains($billDetail, 'api.patch(`/modules/ap/api/bills.php?id=${id}`, editForm)'));

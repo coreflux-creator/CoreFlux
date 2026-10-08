@@ -15,9 +15,12 @@ const METHOD_LABELS = {
 };
 const RAIL_LABELS = { plaid_transfer: 'Online bank payment', nacha: 'Bank payment file', mercury: 'Mercury', purepay: 'Pure//Pay' };
 
-export default function PaymentsList() {
+export default function PaymentsList({ session }) {
   const location = useLocation();
   const { activeEntityId, activeEntity } = useActiveEntity();
+  const currentUserId = Number(session?.user?.id);
+  const createdByCurrentUser = (payment) => currentUserId > 0
+    && Number(payment.created_by_user_id) === currentUserId;
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -141,12 +144,14 @@ export default function PaymentsList() {
   const isOriginatable = (p) =>
     ['ach','plaid'].includes(p.method) &&
     Number(p.unallocated_amount) <= 0.005 &&
+    (!['draft', 'queued'].includes(p.status) || !createdByCurrentUser(p)) &&
     (['draft','queued'].includes(p.status) || (p.status === 'sent' && !p.rail_external_ref));
 
   const eligibleSelected = rows.filter(p => sel.has(p.id) && isOriginatable(p)
     && (defaultRail !== 'purepay' || String(p.currency || 'USD').toUpperCase() === 'USD'));
   const releasableSelected = rows.filter(p => (
-    sel.has(p.id) && ['draft', 'queued'].includes(p.status) && Number(p.unallocated_amount) <= 0.005
+    sel.has(p.id) && ['draft', 'queued'].includes(p.status)
+    && Number(p.unallocated_amount) <= 0.005 && !createdByCurrentUser(p)
   ));
   const mercurySelected = rows.filter(p => (
     sel.has(p.id) && p.method === 'mercury' && p.status === 'sent' && !p.rail_external_ref
@@ -429,7 +434,15 @@ export default function PaymentsList() {
               </td>
               <td>
                 <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                {['draft', 'queued'].includes(p.status) && (
+                {['draft', 'queued'].includes(p.status) && createdByCurrentUser(p)
+                  && Number(p.unallocated_amount) <= 0.005 && (
+                    <span className="muted" data-testid={`ap-payment-needs-reviewer-${p.id}`}
+                      title="A different authorized user must release this payment">
+                      Needs another approver
+                    </span>
+                  )}
+                {['draft', 'queued'].includes(p.status) && !(createdByCurrentUser(p)
+                  && Number(p.unallocated_amount) <= 0.005) && (
                   <button
                     className="btn btn--ghost"
                     onClick={() => releasePayment(p)}
