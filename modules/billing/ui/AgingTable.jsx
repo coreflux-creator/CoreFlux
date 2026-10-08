@@ -300,7 +300,7 @@ function BatchReportModal({ report, busy, onClose, onSend, alreadySent, actionEr
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
           <button className="btn btn--ghost" onClick={onClose} disabled={busy} data-testid="billing-aging-batch-close">Close</button>
-          {isPreview && !alreadySent && (
+          {isPreview && !alreadySent && report.sent > 0 && (
             <button className="btn btn--primary" onClick={onSend} disabled={busy || report.sent === 0} data-testid="billing-aging-batch-send">
               {busy ? 'Sending…' : `Send to ${report.sent} client${report.sent === 1 ? '' : 's'}`}
             </button>

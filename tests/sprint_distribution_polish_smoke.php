@@ -207,6 +207,7 @@ $a('write audited as batch_sent',                        str_contains($api, "'bi
 $ui = $read(__DIR__ . '/../modules/billing/ui/AgingTable.jsx');
 $a('Aging UI: batch preview button',                     str_contains($ui, 'data-testid="billing-aging-batch-preview"'));
 $a('Aging UI: batch send button in modal',               str_contains($ui, 'data-testid="billing-aging-batch-send"'));
+$a('Aging UI: no send command for empty preview',       str_contains($ui, 'isPreview && !alreadySent && report.sent > 0'));
 $a('Aging UI: batch modal rows table',                   str_contains($ui, 'data-testid="billing-aging-batch-rows"'));
 $a('Aging UI: per-row statement PDF link',               str_contains($ui, 'data-testid="billing-aging-statement-pdf"'));
 
