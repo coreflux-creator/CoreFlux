@@ -209,6 +209,9 @@ $pdo->exec("INSERT INTO ap_payment_allocations(payment_id,bill_id,amount_applied
 $pdo->exec("INSERT INTO ap_payments(id,tenant_id,pay_date,method,amount,reference,status,voided_at)
     VALUES (451,1,'2026-02-17','ach',100,'voided-payment','void','2026-02-18 00:00:00')");
 $pdo->exec("INSERT INTO ap_payment_allocations(payment_id,bill_id,amount_applied) VALUES (451,800,100)");
+$pdo->exec("INSERT INTO ap_payments(id,tenant_id,pay_date,method,amount,reference,status)
+    VALUES (452,1,'2026-02-17','ach',100,'draft-payment','draft')");
+$pdo->exec("INSERT INTO ap_payment_allocations(payment_id,bill_id,amount_applied) VALUES (452,800,100)");
 
 $pdo->exec("CREATE TABLE accounting_journal_entries (
     id INTEGER PRIMARY KEY, tenant_id INT, je_number TEXT, posting_date TEXT,

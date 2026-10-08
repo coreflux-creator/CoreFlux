@@ -361,6 +361,7 @@ function _lifecycleApSide(\PDO $pdo, int $tenantId, array $entryIds): array
     }
 
     // Payments.
+    $paymentParams = $bparams + ['sent_status' => 'sent', 'cleared_status' => 'cleared'];
     $allocStmt = $pdo->prepare(
         'SELECT a.bill_id, a.amount_applied, a.applied_at,
                 p.id AS payment_id, p.pay_date, p.method, p.amount AS payment_amount,
@@ -372,9 +373,10 @@ function _lifecycleApSide(\PDO $pdo, int $tenantId, array $entryIds): array
           WHERE p.tenant_id = :t
             AND a.bill_id IN (' . implode(',', $bp) . ')
             AND p.voided_at IS NULL
+            AND p.status IN (:sent_status, :cleared_status)
           ORDER BY a.applied_at ASC, a.id ASC'
     );
-    $allocStmt->execute($bparams);
+    $allocStmt->execute($paymentParams);
     $allocByBill = [];
     foreach ($allocStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $a) {
         $allocByBill[(int) $a['bill_id']][] = $a;
