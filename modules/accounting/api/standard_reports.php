@@ -127,42 +127,70 @@ if ($type === 'audit_log') {
 
 if ($type === 'account_activity') {
     if (!$code) api_error('code (account_code) required', 422);
+    $pageRaw = $_GET['page'] ?? '1';
+    $pageSizeRaw = $_GET['page_size'] ?? '50';
+    if (!is_scalar($pageRaw) || !preg_match('/^[1-9][0-9]{0,5}$/', (string) $pageRaw)
+        || !is_scalar($pageSizeRaw) || !preg_match('/^[1-9][0-9]{0,2}$/', (string) $pageSizeRaw)
+        || (int) $pageSizeRaw > 200) {
+        api_error('Choose a valid account-activity page and page size (1-200).', 422);
+    }
+    $page = (int) $pageRaw;
+    $pageSize = (int) $pageSizeRaw;
+    $offset = ($page - 1) * $pageSize;
     $where  = ['je.tenant_id = :t', "je.status IN ('posted','reversed')", 'a.code = :ac'];
     $params = ['t' => $tid, 'ac' => $code];
     if ($entityId) { $where[] = 'je.entity_id = :entity_id'; $params['entity_id'] = $entityId; }
     if ($from) { $where[] = 'je.posting_date >= :f';   $params['f']   = $from; }
     if ($to)   { $where[] = 'je.posting_date <= :to2'; $params['to2'] = $to;   }
-    $stmt = $db->prepare(
-        'SELECT je.id AS je_id, je.je_number, je.posting_date, je.entity_id,
-                a.code AS account_code, a.name AS account_name, a.normal_side,
-                l.debit, l.credit, l.memo, je.source_module, je.source_ref_type, je.source_ref_id
-         FROM accounting_journal_entry_lines l
-         JOIN accounting_journal_entries je ON je.id = l.je_id
-         JOIN accounting_accounts a ON a.id = l.account_id
-         WHERE ' . implode(' AND ', $where) . '
-         ORDER BY je.posting_date, je.id, l.line_no
-         LIMIT 2000'
-    );
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-    $run = 0.0; $td = 0.0; $tc = 0.0;
-    foreach ($rows as &$r) {
-        $delta = ($r['normal_side'] === 'debit')
-            ? ((float) $r['debit'] - (float) $r['credit'])
-            : ((float) $r['credit'] - (float) $r['debit']);
-        $run += $delta;
-        $r['running_balance'] = round($run, 2);
-        $td += (float) $r['debit']; $tc += (float) $r['credit'];
+    $source = ' FROM accounting_journal_entry_lines l
+        JOIN accounting_journal_entries je ON je.id = l.je_id
+        JOIN accounting_accounts a ON a.id = l.account_id
+        WHERE ' . implode(' AND ', $where);
+    $signed = "CASE WHEN a.normal_side = 'debit' THEN l.debit - l.credit
+        ELSE l.credit - l.debit END";
+    $db->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+    $db->beginTransaction();
+    try {
+        $totalsStmt = $db->prepare('SELECT COUNT(*) AS line_count,
+            COALESCE(SUM(l.debit), 0) AS total_debit,
+            COALESCE(SUM(l.credit), 0) AS total_credit,
+            COALESCE(SUM(' . $signed . '), 0) AS ending_balance' . $source);
+        $totalsStmt->execute($params);
+        $totals = $totalsStmt->fetch(\PDO::FETCH_ASSOC);
+        $stmt = $db->prepare(
+            'SELECT je.id AS je_id, je.je_number, je.posting_date, je.entity_id,
+                    a.code AS account_code, a.name AS account_name, a.normal_side,
+                    l.debit, l.credit, l.memo, je.source_module, je.source_ref_type, je.source_ref_id,
+                    SUM(' . $signed . ') OVER (
+                        ORDER BY je.posting_date, je.id, l.line_no, l.id
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                    ) AS running_balance'
+            . $source . ' ORDER BY je.posting_date, je.id, l.line_no, l.id
+                LIMIT ' . $pageSize . ' OFFSET ' . $offset
+        );
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $db->commit();
+    } catch (\Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        throw $e;
     }
-    unset($r);
+    foreach ($rows as &$row) $row['running_balance'] = round((float) $row['running_balance'], 2);
+    unset($row);
+    $count = (int) $totals['line_count'];
     api_ok([
         'entity_id' => $entityId,
         'account_code' => $code,
+        'from' => (string) ($from ?? ''),
+        'to' => (string) ($to ?? ''),
+        'page' => $page,
+        'page_size' => $pageSize,
+        'has_more' => $offset + count($rows) < $count,
         'rows'         => $rows,
-        'total_debit'  => round($td, 2),
-        'total_credit' => round($tc, 2),
-        'ending_balance' => round($run, 2),
-        'count'        => count($rows),
+        'total_debit'  => round((float) $totals['total_debit'], 2),
+        'total_credit' => round((float) $totals['total_credit'], 2),
+        'ending_balance' => round((float) $totals['ending_balance'], 2),
+        'count'        => $count,
     ]);
 }
 

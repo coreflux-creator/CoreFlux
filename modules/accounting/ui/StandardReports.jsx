@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
@@ -6,7 +6,7 @@ import AccountLink from '../../../dashboard/src/components/AccountLink';
 import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 import FinancialReportLibrary from '../../../dashboard/src/components/FinancialReportLibrary';
 import {
-  Activity, BarChart3, ClipboardCheck, Download, FileClock, ScrollText,
+  Activity, BarChart3, ChevronLeft, ChevronRight, ClipboardCheck, Download, FileClock, ScrollText,
 } from 'lucide-react';
 
 const REPORT_TABS = [
@@ -307,18 +307,24 @@ function AccountActivity({ scope }) {
   const [code, setCode] = useState('');
   const [from, setFrom] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10));
   const [to, setTo]     = useState(new Date().toISOString().slice(0,10));
-  const qs = code ? new URLSearchParams({ type: 'account_activity', code, from, to, entity_id: String(scope.entityId) }).toString() : '';
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  useEffect(() => setPage(1), [scope.entityId]);
+  const exportQs = code ? new URLSearchParams({ type: 'account_activity', code, from, to, entity_id: String(scope.entityId) }).toString() : '';
+  const qs = code ? `${exportQs}&page=${page}&page_size=${pageSize}` : '';
   const { data: response, loading, error } = useApi(code ? `/modules/accounting/api/standard_reports.php?${qs}` : null);
-  const data = response?.entity_id === scope.entityId ? response : null;
+  const data = !loading && response?.entity_id === scope.entityId
+    && response?.account_code === code && response?.from === from && response?.to === to
+    && response?.page === page && response?.page_size === pageSize ? response : null;
   return (
     <div>
       <FilterBar
-        onExport={() => code && downloadCsv(`/modules/accounting/api/export.php?${qs}`, `account-activity-${code}.csv`)}
+        onExport={() => code && downloadCsv(`/modules/accounting/api/export.php?${exportQs}`, `account-activity-${code}.csv`)}
         exportTestId="accounting-report-account-export"
       >
-        <label>Account code <input className="input" value={code} onChange={e => setCode(e.target.value)} placeholder="e.g. 1010" data-testid="accounting-report-account-code" /></label>
-        <label>From <input type="date" className="input" value={from} onChange={e => setFrom(e.target.value)} data-testid="accounting-report-account-from" /></label>
-        <label>To <input type="date" className="input" value={to} onChange={e => setTo(e.target.value)} data-testid="accounting-report-account-to" /></label>
+        <label>Account code <input className="input" value={code} onChange={e => { setCode(e.target.value); setPage(1); }} placeholder="e.g. 1010" data-testid="accounting-report-account-code" /></label>
+        <label>From <input type="date" className="input" value={from} onChange={e => { setFrom(e.target.value); setPage(1); }} data-testid="accounting-report-account-from" /></label>
+        <label>To <input type="date" className="input" value={to} onChange={e => { setTo(e.target.value); setPage(1); }} data-testid="accounting-report-account-to" /></label>
       </FilterBar>
       {!code && <div className="report-empty-prompt">Choose an account to view activity.</div>}
       {loading && <p>Loading…</p>}
@@ -338,6 +344,7 @@ function AccountActivity({ scope }) {
           <table className="data-table" data-testid="accounting-report-account-table">
             <thead><tr><th>JE</th><th>Date</th><th>Memo</th><th style={{textAlign:'right'}}>Debit</th><th style={{textAlign:'right'}}>Credit</th><th style={{textAlign:'right'}}>Running balance</th></tr></thead>
             <tbody>
+              {data.rows.length === 0 && <tr><td colSpan={6} className="empty">No activity in this period.</td></tr>}
               {(data.rows || []).map((r, i) => (
                 <tr key={i}>
                   <td>{r.je_number}</td>
@@ -350,6 +357,25 @@ function AccountActivity({ scope }) {
               ))}
             </tbody>
           </table>
+          </div>
+          <div data-testid="accounting-report-account-pagination"
+            style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 0' }}>
+            <span style={{ fontSize: 12, color: '#64748b' }}>
+              {data.rows.length ? `${(page - 1) * pageSize + 1}–${(page - 1) * pageSize + data.rows.length}` : '0'} of {data.count} lines
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>Rows
+                <select className="input" value={pageSize} aria-label="Account activity rows per page"
+                  onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}>
+                  {[25, 50, 100, 200].map(size => <option key={size} value={size}>{size}</option>)}
+                </select>
+              </label>
+              <button type="button" className="btn btn--ghost btn--sm" aria-label="Previous account activity page"
+                title="Previous page" disabled={page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={16} /></button>
+              <span style={{ fontSize: 12, minWidth: 66, textAlign: 'center' }}>Page {page} of {Math.max(1, Math.ceil(data.count / pageSize))}</span>
+              <button type="button" className="btn btn--ghost btn--sm" aria-label="Next account activity page"
+                title="Next page" disabled={!data.has_more} onClick={() => setPage(value => value + 1)}><ChevronRight size={16} /></button>
+            </div>
           </div>
         </>
       )}

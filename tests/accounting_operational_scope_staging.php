@@ -132,15 +132,33 @@ try {
         }
 
         $activityParams = 'type=account_activity&code=4000&from=2026-01-01&to=2026-12-31' . $scope;
-        $activity = qaRequest('/modules/accounting/api/standard_reports.php?' . $activityParams,
-            'GET', null, $cookie);
         [$activityStatus, $activityCsv] = operationalGet(
             '/modules/accounting/api/export.php?' . $activityParams, $cookie);
         $activityRows = operationalCsvRows($activityCsv);
-        $activityMatches = (int) $activity['count'] === count($activityRows);
+        $activity = null;
+        $visibleRows = [];
+        $activityMatches = true;
+        $pageCount = max(1, (int) ceil(count($activityRows) / 2));
+        for ($page = 1; $page <= $pageCount; $page++) {
+            $pageResult = qaRequest('/modules/accounting/api/standard_reports.php?'
+                . $activityParams . '&page_size=2&page=' . $page, 'GET', null, $cookie);
+            if ($activity === null) $activity = $pageResult;
+            $activityMatches = $activityMatches && (int) $pageResult['count'] === count($activityRows)
+                && (int) $pageResult['page'] === $page
+                && (int) $pageResult['page_size'] === 2
+                && (bool) $pageResult['has_more'] === ($page < $pageCount);
+            $visibleRows = array_merge($visibleRows, $pageResult['rows']);
+        }
+        $activityMatches = $activityMatches && count($visibleRows) === count($activityRows)
+            && abs((float) $activity['total_debit']
+                - array_sum(array_map('floatval', array_column($activityRows, 'debit')))) < 0.01
+            && abs((float) $activity['total_credit']
+                - array_sum(array_map('floatval', array_column($activityRows, 'credit')))) < 0.01
+            && abs((float) $activity['ending_balance']
+                - (float) (end($activityRows)['running_balance'] ?? 0)) < 0.01;
         if ($activityMatches) {
             foreach ($activityRows as $index => $row) {
-                $visible = $activity['rows'][$index] ?? null;
+                $visible = $visibleRows[$index] ?? null;
                 if (!$visible || $row['je_number'] !== $visible['je_number']
                     || $row['posting_date'] !== $visible['posting_date']
                     || abs((float) $row['running_balance'] - (float) $visible['running_balance']) >= 0.01) {
@@ -153,9 +171,9 @@ try {
             && $activityMatches
             && count(array_filter($activityRows, static fn ($row) =>
                 (int) $row['entity_id'] !== $id)) === 0
-            && count(array_filter($activity['rows'], static fn ($row) =>
+            && count(array_filter($visibleRows, static fn ($row) =>
                 (int) $row['entity_id'] !== $id)) === 0,
-            "{$entity['code']} account activity API and CSV match balances and entity");
+            "{$entity['code']} account activity pages match complete CSV and balances");
     }
 
     foreach (['invalid', '999999999'] as $invalid) {
@@ -168,6 +186,11 @@ try {
     [$invalidApprovalStatus] = operationalGet('/modules/accounting/api/export.php'
         . '?type=unposted_jes&approval_state=approved', $cookie);
     qaExpect($invalidApprovalStatus === 422, 'journal export rejects nonexistent approval-state filter');
+    foreach (['page=0', 'page=invalid', 'page_size=201'] as $invalidPage) {
+        [$status] = operationalGet('/modules/accounting/api/standard_reports.php?'
+            . 'type=account_activity&code=4000&entity_id=' . $lifecycleId . '&' . $invalidPage, $cookie);
+        qaExpect($status === 422, "account activity rejects {$invalidPage}");
+    }
 } finally {
     $cleanupFailure = null;
     if ($draftId && is_string($cookie)) {
