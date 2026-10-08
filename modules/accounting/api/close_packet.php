@@ -25,6 +25,9 @@ if (!$periodId) api_error('period_id required', 422);
 
 if ($method === 'GET') {
     rbac_legacy_require($user, 'accounting.period.view');
+    $period = scopedFind('SELECT id FROM accounting_periods WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $periodId]);
+    if (!$period) api_error('Period not found', 404);
     $html = accountingBuildClosePacketHtml($tenantId, $periodId);
 
     // Allow ?format=html to download as a real HTML file.
@@ -61,6 +64,9 @@ if ($method === 'GET') {
 
 if ($method === 'POST' && (api_query('action') ?? '') === 'record') {
     rbac_legacy_require($user, 'accounting.close_workflow.manage');
+    $period = scopedFind('SELECT id FROM accounting_periods WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $periodId]);
+    if (!$period) api_error('Period not found', 404);
     $id = scopedInsert('accounting_close_packets', [
         'period_id'         => $periodId,
         'storage_object_id' => null,

@@ -117,7 +117,13 @@ function accountingBuildClosePacketHtml(int $tenantId, int $periodId): string {
     $jeByStatus = [];
     foreach ($jeCounts->fetchAll(PDO::FETCH_ASSOC) as $r) $jeByStatus[$r['status']] = (int) $r['c'];
 
-    $tb = accountingTrialBalance($tenantId, (string) $period['end_date'], (int) $period['entity_id']);
+    $tbRows = accountingTrialBalance($tenantId, (string) $period['end_date'], (int) $period['entity_id']);
+    $totalDebit = 0.0;
+    $totalCredit = 0.0;
+    foreach ($tbRows as $row) {
+        $totalDebit += (float) $row['debit'];
+        $totalCredit += (float) $row['credit'];
+    }
 
     $tasksStmt = $pdo->prepare(
         "SELECT title, status, completed_at,
@@ -167,15 +173,16 @@ function accountingBuildClosePacketHtml(int $tenantId, int $periodId): string {
 
     $html .= '<h2>Trial balance — as of ' . $h($period['end_date']) . '</h2>';
     $html .= '<table><thead><tr><th>Code</th><th>Account</th><th class="r">Debit</th><th class="r">Credit</th></tr></thead><tbody>';
-    foreach (($tb['rows'] ?? []) as $r) {
+    foreach ($tbRows as $r) {
+        if ((float) $r['debit'] === 0.0 && (float) $r['credit'] === 0.0) continue;
         $html .= '<tr><td>' . $h($r['code'] ?? '') . '</td>'
               .  '<td>' . $h($r['name'] ?? '') . '</td>'
               .  '<td class="r">' . number_format((float) ($r['debit']  ?? 0), 2) . '</td>'
               .  '<td class="r">' . number_format((float) ($r['credit'] ?? 0), 2) . '</td></tr>';
     }
     $html .= '<tr><th>Total</th><th></th>'
-          .  '<th class="r">' . number_format((float) ($tb['total_debit']  ?? 0), 2) . '</th>'
-          .  '<th class="r">' . number_format((float) ($tb['total_credit'] ?? 0), 2) . '</th></tr>';
+          .  '<th class="r">' . number_format($totalDebit, 2) . '</th>'
+          .  '<th class="r">' . number_format($totalCredit, 2) . '</th></tr>';
     $html .= '</tbody></table>';
 
     $html .= '<div class="muted" style="margin-top:32px">Generated ' . date('Y-m-d H:i:s') . ' UTC</div>';
