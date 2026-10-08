@@ -138,11 +138,12 @@ function apActiveTenantMemberIds(int $tenantId): array {
 /**
  * Persist the evaluation outcome to the audit log + create approval rows
  * for the first step of the chain. Sends a push to each step-1 approver
- * (best-effort; never blocks).
+ * (best-effort; never blocks) unless the caller defers it until commit.
  *
- * @return array{policy_id:?int, approval_ids:list<int>, push_count:int, risk:array, matched:bool}
+ * @return array{policy_id:?int, approval_ids:list<int>, approver_user_ids:list<int>, workflow_instance_id:?int, push_count:int, risk:array, matched:bool}
  */
-function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = null): array {
+function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = null,
+    bool $deferPush = false): array {
     $pdo = getDB();
     if (!$pdo) throw new \RuntimeException('No DB');
     if (!array_key_exists('created_by_user_id', $bill)) {
@@ -233,59 +234,65 @@ function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = 
         // Non-fatal — legacy ap_bill_approvals path remains the source of truth.
     }
 
-    // Fire push notifications to step-1 approvers (best-effort).
-    $pushCount = 0;
-    if ($apIds) {
-        require_once __DIR__ . '/../../../core/push_service.php';
-        require_once __DIR__ . '/risk_explainer.php';
-        $aiExplain = '';
-        try {
-            if (!empty($bill['vendor_id']) && $eval['risk']['level'] !== 'none') {
-                $aiExplain = apExplainRisk($tenantId, (int) $bill['vendor_id'], $billId);
-            }
-        } catch (\Throwable $_) { $aiExplain = ''; }
-
-        $title = 'AP bill needs approval';
-        $body  = sprintf('Bill #%d for $%s%s. Open to review.',
-            $billId,
-            number_format($billAmount, 2),
-            $eval['risk']['level'] !== 'none' ? " ({$eval['risk']['level']} risk)" : ''
-        );
-        if ($aiExplain) $body .= "\n\n" . $aiExplain;
-        $opts = [
-            'category'        => 'ap_bill_approval',
-            'deep_link'       => '/modules/ap/bills/' . $billId,
-            // Sprint 6-cutover: if we successfully created a workflow
-            // instance, carry its mobile deep link on the AP push so
-            // tapping the notification lands directly on the single-bill
-            // approval screen in the Expo app.
-            'mobile_deep_link'=> $workflowInstanceId
-                                    ? "coreflux://approvals/{$workflowInstanceId}"
-                                    : null,
-            'source_module'   => 'ap',
-            'source_event'    => 'bill.routed_for_approval',
-            'source_ref_type' => 'ap_bill',
-            'source_ref_id'   => $billId,
-        ];
-        foreach ($step1['approver_user_ids'] as $uid) {
-            $pushCount += pushSendToUser($tenantId, (int) $uid, $title, $body, [
-                'bill_id'              => $billId,
-                'amount'               => $billAmount,
-                'risk_level'           => $eval['risk']['level'],
-                'policy_id'            => $eval['policy_id'],
-                'workflow_instance_id' => $workflowInstanceId,
-            ], $opts);
-        }
-    }
+    $approverUserIds = $apIds ? $step1['approver_user_ids'] : [];
+    $pushCount = $deferPush ? 0 : apPushRoutedBillApprovers(
+        $tenantId, $bill, $eval['risk'], (int) $eval['policy_id'],
+        $workflowInstanceId, $approverUserIds
+    );
 
     return [
         'policy_id'            => $eval['policy_id'],
         'approval_ids'         => $apIds,
+        'approver_user_ids'    => $approverUserIds,
         'workflow_instance_id' => $workflowInstanceId,
         'push_count'           => $pushCount,
         'risk'                 => $eval['risk'],
         'matched'              => true,
     ];
+}
+
+/** Send only after a transactional machine route commits; ordinary AP routing calls this inline. */
+function apPushRoutedBillApprovers(int $tenantId, array $bill, array $risk,
+    int $policyId, ?int $workflowInstanceId, array $approverUserIds): int {
+    if (!$approverUserIds) return 0;
+    require_once __DIR__ . '/../../../core/push_service.php';
+    require_once __DIR__ . '/risk_explainer.php';
+    $billId = (int) $bill['id'];
+    $billAmount = (float) ($bill['total_amount'] ?? $bill['total'] ?? 0);
+    $riskLevel = (string) ($risk['level'] ?? 'none');
+    $aiExplain = '';
+    try {
+        if (!empty($bill['vendor_id']) && $riskLevel !== 'none') {
+            $aiExplain = apExplainRisk($tenantId, (int) $bill['vendor_id'], $billId);
+        }
+    } catch (\Throwable $_) { $aiExplain = ''; }
+
+    $title = 'AP bill needs approval';
+    $body = sprintf('Bill #%d for $%s%s. Open to review.',
+        $billId, number_format($billAmount, 2),
+        $riskLevel !== 'none' ? " ({$riskLevel} risk)" : '');
+    if ($aiExplain) $body .= "\n\n" . $aiExplain;
+    $opts = [
+        'category' => 'ap_bill_approval',
+        'deep_link' => '/modules/ap/bills/' . $billId,
+        'mobile_deep_link' => $workflowInstanceId
+            ? "coreflux://approvals/{$workflowInstanceId}" : null,
+        'source_module' => 'ap',
+        'source_event' => 'bill.routed_for_approval',
+        'source_ref_type' => 'ap_bill',
+        'source_ref_id' => $billId,
+    ];
+    $pushCount = 0;
+    foreach ($approverUserIds as $uid) {
+        $pushCount += pushSendToUser($tenantId, (int) $uid, $title, $body, [
+            'bill_id' => $billId,
+            'amount' => $billAmount,
+            'risk_level' => $riskLevel,
+            'policy_id' => $policyId,
+            'workflow_instance_id' => $workflowInstanceId,
+        ], $opts);
+    }
+    return $pushCount;
 }
 
 /* ---------------------------------------------------------------------- */

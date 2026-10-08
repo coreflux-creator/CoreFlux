@@ -10,6 +10,7 @@ if (PHP_SAPI !== 'cli' || ($argv[1] ?? '') !== '--execute') {
 define('QA_LIFECYCLE_LIBRARY_MODE', true);
 require_once __DIR__ . '/accounting_staging_lifecycle.php';
 require_once __DIR__ . '/../core/accounting/coreone_v1.php';
+require_once __DIR__ . '/../core/accounting/coreone_bills_v1.php';
 
 function qaCoreOneBillRequest(string $method, string $path, string $token, ?array $body = null): array
 {
@@ -56,7 +57,7 @@ if (!$expense) throw new RuntimeException('Synthetic expense account 5000 is una
 
 $maker = null;
 $reviewer = null;
-$credentialId = null;
+$credentials = [];
 $cookies = [];
 try {
     $maker = qaEnsureActor($pdo, 'maker');
@@ -99,8 +100,12 @@ try {
     $reportsBefore = qaReports($entityId, $reviewerCookie);
     $issued = coreoneV1IssueCredential(QA_TENANT, $entityId,
         'Synthetic AP lifecycle ' . $run, 1, (int) $maker['id'], ['bills:prepare']);
-    $credentialId = (int) $issued['id'];
+    $credentials[] = $issued;
     $token = (string) $issued['token'];
+    $reviewIssued = coreoneV1IssueCredential(QA_TENANT, $entityId,
+        'Synthetic AP review ' . $run, 1, (int) $maker['id'], ['bills:request_approval']);
+    $credentials[] = $reviewIssued;
+    $reviewToken = (string) $reviewIssued['token'];
     echo "Synthetic CoreOne AP run {$run}\n";
 
     $missing = qaCoreOneBillRequest('GET', $path, $token);
@@ -129,6 +134,36 @@ try {
     $read = qaCoreOneBillRequest('GET', $path, $token);
     qaExpect($read['status'] === 200 && (int) ($read['data']['id'] ?? 0) === $billId,
         'CoreOne reads the same pending bill by source ID');
+    $reviewRead = qaCoreOneBillRequest('GET', $path, $reviewToken);
+    qaExpect($reviewRead['status'] === 200
+        && (int) ($reviewRead['data']['id'] ?? 0) === $billId
+        && ($reviewRead['data']['approval_status'] ?? '') === 'not_requested',
+        'request-only credential can poll the unsubmitted bill');
+    $reviewBody = ['schema_version' => 1, 'source_record_id' => $sourceId];
+    $requestPath = '/api/coreone/v1/bills.php?action=request_approval';
+    $otherEntity = qaOne($pdo, 'SELECT id FROM accounting_entities
+        WHERE tenant_id = :t AND code = "SIM-CUTOVER-QA" AND active = 1',
+        ['t' => QA_TENANT]);
+    if (!$otherEntity) throw new RuntimeException('Synthetic isolation entity is unavailable.');
+    $otherIssued = coreoneV1IssueCredential(QA_TENANT, (int) $otherEntity['id'],
+        'Synthetic AP isolation ' . $run, 1, (int) $maker['id'], ['bills:request_approval']);
+    $credentials[] = $otherIssued;
+    $otherToken = (string) $otherIssued['token'];
+    $crossEntityRead = qaCoreOneBillRequest('GET', $path, $otherToken);
+    $crossEntityRequest = qaCoreOneBillRequest('POST', $requestPath, $otherToken, $reviewBody);
+    qaExpect($crossEntityRead['status'] === 404 && $crossEntityRequest['status'] === 404,
+        'another entity cannot read or request review of the source bill');
+    $wrongScope = qaCoreOneBillRequest('POST', $requestPath, $token, $reviewBody);
+    $cannotPrepare = qaCoreOneBillRequest('POST', '/api/coreone/v1/bills.php', $reviewToken, $body);
+    qaExpect($wrongScope['status'] === 403 && $cannotPrepare['status'] === 403,
+        'preparation and review-request scopes do not imply each other');
+    $badReview = qaCoreOneBillRequest('POST', $requestPath, $reviewToken,
+        $reviewBody + ['approver_user_id' => (int) $maker['id']]);
+    $missingReview = qaCoreOneBillRequest('POST', $requestPath, $reviewToken,
+        ['schema_version' => 1, 'source_record_id' => 'stage-ap-e2e:missing-' . $run]);
+    qaExpect($badReview['status'] === 422 && $missingReview['status'] === 404
+        && qaBalances($pdo, $entityId) === $before,
+        'review request accepts only its source key and creates no missing bill');
     $replay = qaCoreOneBillRequest('POST', '/api/coreone/v1/bills.php', $token, $body);
     qaExpect($replay['status'] === 200
         && !empty($replay['data']['idempotent_replay'])
@@ -143,6 +178,72 @@ try {
         '/api/coreone/v1/bills.php?action=post&id=' . $billId, $token, []);
     qaExpect($machinePost['status'] === 422 && qaBalances($pdo, $entityId) === $before,
         'bill-only machine credential cannot post through the intake endpoint');
+
+    require_once __DIR__ . '/../modules/ap/lib/approval_router.php';
+    $reviewCredential = coreoneV1Authenticate('Bearer ' . $reviewToken);
+    $unroutedBill = qaOne($pdo, 'SELECT * FROM ap_bills
+        WHERE tenant_id = :t AND entity_id = :e AND id = :bill_id',
+        ['t' => QA_TENANT, 'e' => $entityId, 'bill_id' => $billId]);
+    if (!$reviewCredential || !$unroutedBill) {
+        throw new RuntimeException('Could not prepare reviewer failure proof.');
+    }
+    $evaluation = apEvaluateApprovalPolicy(QA_TENANT, $unroutedBill);
+    $policyId = (int) ($evaluation['policy_id'] ?? 0);
+    if ($policyId <= 0 || empty($evaluation['chain'])) {
+        throw new RuntimeException('Synthetic reviewer policy is unavailable.');
+    }
+    $pdo->beginTransaction();
+    try {
+        $makerOnlyChain = json_encode([['step' => 1,
+            'approver_user_ids' => [(int) $maker['id']], 'quorum' => 1,
+            'label' => 'Self approval is prohibited']], JSON_THROW_ON_ERROR);
+        $pdo->prepare('UPDATE ap_approval_policies SET chain_json = :chain
+            WHERE tenant_id = :t AND id = :id')
+            ->execute(['chain' => $makerOnlyChain, 't' => QA_TENANT, 'id' => $policyId]);
+        $routingBlocked = false;
+        try {
+            coreoneV1RequestBillApproval($reviewCredential, $reviewBody);
+        } catch (CoreOneDocumentConflictException $error) {
+            $routingBlocked = str_contains($error->getMessage(), 'creator cannot approve');
+        }
+        $orphanWorkflow = qaOne($pdo, 'SELECT COUNT(*) AS n FROM workflow_instances
+            WHERE tenant_id = :t AND subject_type = "ap_bill" AND subject_id = :bill_id',
+            ['t' => QA_TENANT, 'bill_id' => $billId]);
+        $orphanReview = qaOne($pdo, 'SELECT COUNT(*) AS n FROM ap_bill_approvals
+            WHERE tenant_id = :t AND bill_id = :bill_id',
+            ['t' => QA_TENANT, 'bill_id' => $billId]);
+        qaExpect($routingBlocked && (int) $orphanWorkflow['n'] === 0
+            && (int) $orphanReview['n'] === 0
+            && qaBalances($pdo, $entityId) === $before,
+            'no independent reviewer leaves no workflow, approval rows or GL movement');
+    } finally {
+        $pdo->rollBack();
+    }
+
+    $requested = qaCoreOneBillRequest('POST', $requestPath, $reviewToken, $reviewBody);
+    $workflowId = (int) ($requested['data']['bill']['approval_workflow_id'] ?? 0);
+    $workflow = qaOne($pdo, 'SELECT status, started_by_user_id FROM workflow_instances
+        WHERE tenant_id = :t AND id = :id AND subject_type = "ap_bill" AND subject_id = :bill_id',
+        ['t' => QA_TENANT, 'id' => $workflowId, 'bill_id' => $billId]);
+    $approvalRows = (int) qaOne($pdo, 'SELECT COUNT(*) AS n FROM ap_bill_approvals
+        WHERE tenant_id = :t AND bill_id = :bill_id AND state = "pending"',
+        ['t' => QA_TENANT, 'bill_id' => $billId])['n'];
+    qaExpect($requested['status'] === 202 && $workflowId > 0
+        && !empty($requested['data']['approval_requested'])
+        && ($requested['data']['bill']['approval_status'] ?? '') === 'pending'
+        && ($workflow['status'] ?? '') === 'pending'
+        && (int) $workflow['started_by_user_id'] === (int) $maker['id']
+        && $approvalRows > 0 && qaBalances($pdo, $entityId) === $before,
+        'machine starts the existing AP human review without posting');
+    $requestReplay = qaCoreOneBillRequest('POST', $requestPath, $reviewToken, $reviewBody);
+    $workflowCount = (int) qaOne($pdo, 'SELECT COUNT(*) AS n FROM workflow_instances
+        WHERE tenant_id = :t AND subject_type = "ap_bill" AND subject_id = :bill_id',
+        ['t' => QA_TENANT, 'bill_id' => $billId])['n'];
+    qaExpect($requestReplay['status'] === 200
+        && !empty($requestReplay['data']['idempotent_replay'])
+        && (int) ($requestReplay['data']['bill']['approval_workflow_id'] ?? 0) === $workflowId
+        && $workflowCount === 1,
+        'review-request retry reuses one human workflow');
 
     try {
         qaRequest('/modules/ap/api/bills.php?action=approve&id=' . $billId,
@@ -207,22 +308,35 @@ try {
             'journal_id' => $journalId])['n'];
     qaExpect($final['status'] === 200
         && (int) ($final['data']['journal_entry_id'] ?? 0) === $journalId
+        && ($final['data']['approval_status'] ?? '') === 'approved'
         && $postReplay['status'] === 200
         && !empty($postReplay['data']['idempotent_replay'])
         && (int) ($postReplay['data']['bill']['journal_entry_id'] ?? 0) === $journalId
         && $journalCount === 1 && qaBalances($pdo, $entityId) === $after,
         'machine sees posted state and replay cannot duplicate the journal');
+    $reviewAfterPost = qaCoreOneBillRequest('POST', $requestPath, $reviewToken, $reviewBody);
+    qaExpect($reviewAfterPost['status'] === 200
+        && !empty($reviewAfterPost['data']['idempotent_replay'])
+        && (int) ($reviewAfterPost['data']['bill']['journal_entry_id'] ?? 0) === $journalId
+        && $workflowCount === (int) qaOne($pdo, 'SELECT COUNT(*) AS n FROM workflow_instances
+            WHERE tenant_id = :t AND subject_type = "ap_bill" AND subject_id = :bill_id',
+            ['t' => QA_TENANT, 'bill_id' => $billId])['n'],
+        'post-approval machine retry remains read-only');
     echo json_encode(['run' => $run, 'entity_id' => $entityId,
         'bill_id' => $billId, 'journal_entry_id' => $journalId], JSON_PRETTY_PRINT), "\n";
 } finally {
-    if ($credentialId !== null) {
+    foreach ($credentials as $credential) {
         $pdo->prepare('UPDATE coreone_accounting_credentials SET revoked_at = NOW()
             WHERE tenant_id = :t AND id = :id')
-            ->execute(['t' => QA_TENANT, 'id' => $credentialId]);
-        if (isset($token, $path)) {
-            $revoked = qaCoreOneBillRequest('GET', $path, $token);
-            qaExpect($revoked['status'] === 401, 'temporary CoreOne credential is revoked');
-        }
+            ->execute(['t' => QA_TENANT, 'id' => (int) $credential['id']]);
+    }
+    if ($credentials && isset($token, $reviewToken, $otherToken, $path)) {
+        $revoked = qaCoreOneBillRequest('GET', $path, $token);
+        $reviewRevoked = qaCoreOneBillRequest('GET', $path, $reviewToken);
+        $otherRevoked = qaCoreOneBillRequest('GET', $path, $otherToken);
+        qaExpect($revoked['status'] === 401 && $reviewRevoked['status'] === 401
+            && $otherRevoked['status'] === 401,
+            'temporary preparation, review and isolation credentials are revoked');
     }
     foreach ($cookies as $cookie) {
         if (is_string($cookie) && file_exists($cookie)) unlink($cookie);

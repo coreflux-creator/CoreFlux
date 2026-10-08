@@ -44,9 +44,12 @@ $check('bill numbers, dates and four-place values normalize without a database',
     && $normalized['lines'][0]['unit_price'] === '12.5000');
 $check('existing credentials do not gain bill preparation',
     !in_array('bills:prepare', COREONE_V1_DEFAULT_SCOPES, true)
-    && in_array('bills:prepare', COREONE_V1_ALLOWED_SCOPES, true));
+    && !in_array('bills:request_approval', COREONE_V1_DEFAULT_SCOPES, true)
+    && in_array('bills:prepare', COREONE_V1_ALLOWED_SCOPES, true)
+    && in_array('bills:request_approval', COREONE_V1_ALLOWED_SCOPES, true));
 $check('bill scope issuance requires the AP bill permission',
     str_contains($credentialRoute, "'bills:prepare'" )
+    && str_contains($credentialRoute, "'bills:request_approval'")
     && str_contains($credentialRoute, "'ap.bill.create'"));
 $check('machine route requires bearer and bill scope',
     str_contains($route, 'coreoneV1Authenticate(')
@@ -86,6 +89,13 @@ $check('bill preparation cannot approve, post or pay',
     && !str_contains($route, 'accountingPostJe(')
     && !str_contains($route, 'apClearPayment(')
     && str_contains($drafts, "'status' => 'pending_approval'"));
+$check('machine review requests the canonical AP workflow without deciding or posting',
+    str_contains($route, "'request_approval'")
+    && str_contains($service, 'apWorkflowSubmitBillForApproval(')
+    && str_contains($service, 'apEvaluateApprovalPolicy(')
+    && str_contains($service, 'apPushRoutedBillApprovers(')
+    && !str_contains($route, 'apWorkflowActBillApproval(')
+    && !str_contains($route, 'accountingPostJe('));
 $check('nested AP creation has its own rollback boundary',
     str_contains($drafts, 'SAVEPOINT ')
     && str_contains($drafts, 'ROLLBACK TO SAVEPOINT '));

@@ -40,6 +40,7 @@ if (api_method() === 'POST') {
         if (in_array('invoices:draft', $scopes, true)) rbac_legacy_require($user, 'billing.invoice.draft');
         if (in_array('invoices:request_approval', $scopes, true)) rbac_legacy_require($user, 'billing.invoice.draft');
         if (in_array('bills:prepare', $scopes, true)) rbac_legacy_require($user, 'ap.bill.create');
+        if (in_array('bills:request_approval', $scopes, true)) rbac_legacy_require($user, 'ap.bill.create');
         $result = coreoneV1IssueCredential($tenantId, (int) ($body['entity_id'] ?? 0),
             (string) ($body['label'] ?? ''), (int) ($body['days'] ?? 30),
             isset($user['id']) ? (int) $user['id'] : null, $scopes);

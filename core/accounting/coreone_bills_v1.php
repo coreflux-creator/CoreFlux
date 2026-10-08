@@ -167,6 +167,15 @@ function coreoneV1GetBill(array $credential, string $sourceId): ?array
     );
     $lines->execute(['bill_id' => $row['id']]);
     $row['lines'] = $lines->fetchAll(PDO::FETCH_ASSOC);
+    $workflow = getDB()->prepare(
+        'SELECT id, status FROM workflow_instances
+          WHERE tenant_id = :t AND subject_type = "ap_bill" AND subject_id = :bill_id
+          ORDER BY id DESC LIMIT 1'
+    );
+    $workflow->execute(['t' => (int) $credential['tenant_id'], 'bill_id' => $row['id']]);
+    $review = $workflow->fetch(PDO::FETCH_ASSOC) ?: null;
+    $row['approval_workflow_id'] = $review ? (int) $review['id'] : null;
+    $row['approval_status'] = $review['status'] ?? 'not_requested';
     return $row;
 }
 
@@ -189,4 +198,149 @@ function coreoneV1PrepareBill(array $credential, array $body): array
         },
         static fn(string $id): ?array => coreoneV1GetBill($credential, $id));
     return ['bill' => $result['record'], 'idempotent_replay' => $result['idempotent_replay']];
+}
+
+function coreoneV1NormalizeBillApprovalRequest(array $body): string
+{
+    if (array_diff(array_keys($body), ['schema_version', 'source_record_id'])
+        || ($body['schema_version'] ?? null) !== 1) {
+        throw new InvalidArgumentException('Approval request needs schema_version 1 and source_record_id only.');
+    }
+    $sourceId = $body['source_record_id'] ?? null;
+    if (!is_string($sourceId)
+        || !preg_match('#^[A-Za-z0-9][A-Za-z0-9:_./-]{0,119}$#D', $sourceId)) {
+        throw new InvalidArgumentException('source_record_id must be a stable ID of at most 120 characters.');
+    }
+    return $sourceId;
+}
+
+function coreoneV1RequestBillApproval(array $credential, array $body): array
+{
+    $sourceId = coreoneV1NormalizeBillApprovalRequest($body);
+    $tenantId = (int) $credential['tenant_id'];
+    $entityId = (int) $credential['entity_id'];
+    $pdo = getDB();
+    $owns = !$pdo->inTransaction();
+    $savepoint = $owns ? null : 'coreone_bill_review_' . bin2hex(random_bytes(4));
+    if ($owns) $pdo->beginTransaction();
+    else $pdo->exec('SAVEPOINT ' . $savepoint);
+    $routing = null;
+    $bill = null;
+    try {
+        $mapping = $pdo->prepare(
+            'SELECT target_id FROM coreone_document_requests
+              WHERE tenant_id = :t AND entity_id = :e AND source_type = "ap.bill"
+                AND source_record_id = :source_id FOR UPDATE'
+        );
+        $mapping->execute(['t' => $tenantId, 'e' => $entityId, 'source_id' => $sourceId]);
+        $billId = (int) ($mapping->fetchColumn() ?: 0);
+        if ($billId <= 0) throw new OutOfBoundsException('Bill not found for this entity.');
+        $row = $pdo->prepare(
+            'SELECT * FROM ap_bills
+              WHERE tenant_id = :t AND entity_id = :e AND id = :bill_id FOR UPDATE'
+        );
+        $row->execute(['t' => $tenantId, 'e' => $entityId, 'bill_id' => $billId]);
+        $bill = $row->fetch(PDO::FETCH_ASSOC);
+        if (!$bill) throw new OutOfBoundsException('Bill not found for this entity.');
+
+        $status = (string) $bill['status'];
+        if ($status === 'void') {
+            throw new CoreOneDocumentConflictException('A void bill cannot request approval.');
+        }
+        $pending = $pdo->prepare(
+            'SELECT id FROM workflow_instances
+              WHERE tenant_id = :t AND subject_type = "ap_bill"
+                AND subject_id = :bill_id AND status = "pending" LIMIT 1'
+        );
+        $pending->execute(['t' => $tenantId, 'bill_id' => $billId]);
+        $pendingId = (int) ($pending->fetchColumn() ?: 0);
+        $replay = true;
+        if ($pendingId <= 0 && in_array($status, ['inbox', 'pending_review', 'pending_approval'], true)) {
+            $prior = $pdo->prepare(
+                'SELECT 1 FROM workflow_instances
+                  WHERE tenant_id = :t AND subject_type = "ap_bill"
+                    AND subject_id = :bill_id LIMIT 1'
+            );
+            $prior->execute(['t' => $tenantId, 'bill_id' => $billId]);
+            if ($prior->fetchColumn()) {
+                throw new CoreOneDocumentConflictException(
+                    'A previous AP review ended; review the bill in AP before requesting again.'
+                );
+            }
+            $creatorId = (int) ($bill['created_by_user_id'] ?? 0);
+            if ($creatorId <= 0) {
+                throw new CoreOneDocumentConflictException(
+                    'This bill has no accountable creator; reissue its credential and review it in AP.'
+                );
+            }
+            $legacy = $pdo->prepare(
+                'SELECT 1 FROM ap_bill_approvals
+                  WHERE tenant_id = :t AND bill_id = :bill_id AND state = "pending" LIMIT 1'
+            );
+            $legacy->execute(['t' => $tenantId, 'bill_id' => $billId]);
+            if ($legacy->fetchColumn()) {
+                throw new CoreOneDocumentConflictException(
+                    'Existing AP approval rows need review in AP before another request.'
+                );
+            }
+            require_once __DIR__ . '/../../modules/ap/lib/approval_router.php';
+            require_once __DIR__ . '/../../modules/ap/lib/workflow_bridge.php';
+            $evaluation = apEvaluateApprovalPolicy($tenantId, $bill);
+            if (!empty($evaluation['routing_error'])) {
+                throw new CoreOneDocumentConflictException((string) $evaluation['routing_error']);
+            }
+            if (empty($evaluation['matched']) || empty($evaluation['chain'])) {
+                throw new CoreOneDocumentConflictException(
+                    'Configure an AP approval policy with an independent reviewer before requesting machine approval.'
+                );
+            }
+            $routing = apWorkflowSubmitBillForApproval(
+                $tenantId, $bill, $creatorId, 'coreone', true
+            );
+            if ((int) ($routing['workflow_instance_id'] ?? 0) <= 0
+                || empty($routing['approval_ids'])) {
+                throw new RuntimeException('AP approval workflow and reviewer rows could not be persisted.');
+            }
+            $replay = false;
+        } elseif ($pendingId <= 0) {
+            if (!in_array($status, ['approved', 'partially_paid', 'paid'], true)) {
+                throw new CoreOneDocumentConflictException('This bill is not available for AP review.');
+            }
+            $prior = $pdo->prepare(
+                'SELECT id FROM workflow_instances
+                  WHERE tenant_id = :t AND subject_type = "ap_bill"
+                    AND subject_id = :bill_id ORDER BY id DESC LIMIT 1'
+            );
+            $prior->execute(['t' => $tenantId, 'bill_id' => $billId]);
+            if (!$prior->fetchColumn()) {
+                throw new CoreOneDocumentConflictException(
+                    'This bill was approved outside the CoreOne AP review workflow.'
+                );
+            }
+        }
+
+        $current = coreoneV1GetBill($credential, $sourceId);
+        if (!$current) throw new RuntimeException('Bill disappeared during approval request.');
+        if ($owns) $pdo->commit();
+        else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+    } catch (Throwable $e) {
+        if ($owns && $pdo->inTransaction()) $pdo->rollBack();
+        elseif (!$owns && $pdo->inTransaction()) {
+            $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+            $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        }
+        throw $e;
+    }
+
+    if (!$replay && $owns && $routing) {
+        try {
+            apPushRoutedBillApprovers($tenantId, $bill, (array) $routing['risk'],
+                (int) $routing['policy_id'], (int) $routing['workflow_instance_id'],
+                (array) ($routing['approver_user_ids'] ?? []));
+        } catch (Throwable $e) {
+            error_log('[coreone bill approval notification] ' . $e->getMessage());
+        }
+    }
+    return ['bill' => $current, 'approval_requested' => !$replay,
+        'idempotent_replay' => $replay];
 }
