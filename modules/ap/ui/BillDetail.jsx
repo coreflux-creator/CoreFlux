@@ -329,7 +329,7 @@ function LiquidityImpactPanel({ billId, amountDue }) {
     `/api/ap_bill_liquidity_impact.php?bill_id=${billId}&pay_date=${payDate}`
   );
 
-  const fmt = (n) => `$${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmt = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(n));
 
   return (
     <div data-testid="ap-bill-liquidity-impact"
