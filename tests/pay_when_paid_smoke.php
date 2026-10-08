@@ -59,11 +59,19 @@ $a("null → not pwp, default 30",                $r['is_pwp'] === false && $r['
 echo "\nbillingAllocatePayment() triggers PWP\n";
 $billingLib = (string) file_get_contents(__DIR__ . '/../modules/billing/lib/billing.php');
 $a('lib loads ap/lib/pwp.php on demand',        str_contains($billingLib, "@require_once __DIR__ . '/../../ap/lib/pwp.php'"));
-$a('release runs AFTER commit (durable AR)',    preg_match('/\$pdo->commit\(\);\s*\n\s*\/\/ Pay-When-Paid trigger/s', $billingLib) === 1);
-$a('release only for newly-paid invoices',      str_contains($billingLib, "(\$a['new_status'] ?? null) !== 'paid'"));
-$a('release calls apPwpReleaseForArInvoice',    str_contains($billingLib, 'apPwpReleaseForArInvoice($tenantId, (int) $a[\'invoice_id\'], $actorUserId)'));
+$a('release runs after own commit or is deferred by caller',
+    str_contains($billingLib, 'if ($ownsTxn) $pdo->commit();')
+    && str_contains($billingLib, "!empty(\$request['defer_pwp'])"));
+$a('release only for newly-paid invoices',
+    str_contains($billingLib, "(\$allocation['new_status'] ?? null) !== 'paid'"));
+$a('release calls apPwpReleaseForArInvoice',
+    str_contains($billingLib, 'apPwpReleaseForArInvoice($tenantId, (int) $allocation[\'invoice_id\'], $actorUserId)'));
 $a('release errors are non-fatal (logged)',     str_contains($billingLib, "[billingAllocatePayment] PWP release failed"));
 $a('response includes pwp results',             str_contains($billingLib, "'pwp' => \$pwpResults"));
+$a('PWP release does not approve vendor bills',
+    !str_contains((string) file_get_contents($libPath), 'approved_by_user_id = COALESCE(approved_by_user_id, :u)'));
+$a('PWP release locks its AR invoice before checking the paid balance',
+    str_contains((string) file_get_contents($libPath), 'WHERE id = :id AND tenant_id = :t FOR UPDATE'));
 
 echo "\nfrom-time-bundle auto-link\n";
 $invSrc = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');

@@ -192,6 +192,9 @@ export default function BillDetail({ session }) {
               {bill.linked_ar_invoice_id && (
                 <> · AR <Link to={`/modules/billing/invoices/${bill.linked_ar_invoice_id}`} data-testid="ap-bill-pwp-ar-link">#{bill.linked_ar_invoice_id}</Link> paid in full</>
               )}
+              {['inbox', 'pending_review', 'pending_approval'].includes(bill.status) && (
+                <> · Bill approval still required</>
+              )}
             </span>
           ) : bill.pwp_status === 'awaiting_ar' ? (
             <span data-testid="ap-bill-pwp-awaiting">

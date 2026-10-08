@@ -249,8 +249,7 @@ function apPwpClearLink(int $tenantId, int $billId, ?int $actorUserId = null): a
  * is FULLY paid. Releases every PWP bill linked to it:
  *   - sets pwp_status='triggered', pwp_released_at=NOW()
  *   - bumps due_date = today + N days (from PWP_NET<N>)
- *   - if bill is still pending_review/pending_approval → transition to 'approved'
- *     (approved_by = system / actor)
+ *   - leaves the bill's approval status untouched; collection does not authorize AP
  *
  * Returns ['released' => [['bill_id','new_due_date','prev_status','new_status'], ...]].
  *
@@ -282,24 +281,26 @@ function apPwpAllocatedBillsAwaitingAr(int $tenantId, int $paymentId): array {
 
 function apPwpReleaseForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorUserId = null): array {
     $pdo = getDB();
-    $inv = $pdo->prepare('SELECT id, amount_due, status FROM billing_invoices WHERE id = :id AND tenant_id = :t');
-    $inv->execute(['id' => $arInvoiceId, 't' => $tenantId]);
-    $invRow = $inv->fetch(\PDO::FETCH_ASSOC);
-    if (!$invRow) return ['released' => [], 'reason' => 'AR invoice not found'];
-    if (round((float) $invRow['amount_due'], 2) > 0.005) {
-        return ['released' => [], 'reason' => 'AR invoice not fully paid yet'];
-    }
-
-    $st = $pdo->prepare(
-        'SELECT id, status, payment_terms, due_date
-           FROM ap_bills
-          WHERE tenant_id = :t AND linked_ar_invoice_id = :ar AND pwp_status = "awaiting_ar"
-          FOR UPDATE'
-    );
-    $released = [];
     $ownsTxn = !$pdo->inTransaction();
     if ($ownsTxn) $pdo->beginTransaction();
     try {
+        $inv = $pdo->prepare('SELECT id, amount_due, status FROM billing_invoices
+            WHERE id = :id AND tenant_id = :t FOR UPDATE');
+        $inv->execute(['id' => $arInvoiceId, 't' => $tenantId]);
+        $invRow = $inv->fetch(\PDO::FETCH_ASSOC);
+        if (!$invRow || round((float) $invRow['amount_due'], 2) > 0.005) {
+            if ($ownsTxn) $pdo->commit();
+            return ['released' => [], 'reason' => $invRow
+                ? 'AR invoice not fully paid yet' : 'AR invoice not found'];
+        }
+
+        $st = $pdo->prepare(
+            'SELECT id, status, payment_terms, due_date
+               FROM ap_bills
+              WHERE tenant_id = :t AND linked_ar_invoice_id = :ar AND pwp_status = "awaiting_ar"
+              FOR UPDATE'
+        );
+        $released = [];
         $st->execute(['t' => $tenantId, 'ar' => $arInvoiceId]);
         $bills = $st->fetchAll(\PDO::FETCH_ASSOC);
 
@@ -309,22 +310,15 @@ function apPwpReleaseForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorUs
             $newDue = date('Y-m-d', strtotime("+{$netDays} days"));
 
             $prevStatus = (string) $b['status'];
-            $newStatus  = $prevStatus;
-            if (in_array($prevStatus, ['inbox', 'pending_review', 'pending_approval'], true)) {
-                $newStatus = 'approved';
-            }
 
             $pdo->prepare(
                 'UPDATE ap_bills
                     SET pwp_status = "triggered",
                         pwp_released_at = NOW(),
-                        due_date = :due,
-                        status = :st,
-                        approved_by_user_id = COALESCE(approved_by_user_id, :u),
-                        approved_at = COALESCE(approved_at, NOW())
+                        due_date = :due
                   WHERE id = :id AND tenant_id = :t'
             )->execute([
-                'due' => $newDue, 'st' => $newStatus, 'u' => $actorUserId,
+                'due' => $newDue,
                 'id' => (int) $b['id'], 't' => $tenantId,
             ]);
 
@@ -332,7 +326,7 @@ function apPwpReleaseForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorUs
                 'bill_id' => (int) $b['id'],
                 'ar_invoice_id' => $arInvoiceId,
                 'prev_status' => $prevStatus,
-                'new_status'  => $newStatus,
+                'new_status'  => $prevStatus,
                 'new_due_date'=> $newDue,
                 'net_days_after_ar' => $netDays,
             ], (int) $b['id']);
@@ -340,7 +334,7 @@ function apPwpReleaseForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorUs
             $released[] = [
                 'bill_id'      => (int) $b['id'],
                 'prev_status'  => $prevStatus,
-                'new_status'   => $newStatus,
+                'new_status'   => $prevStatus,
                 'new_due_date' => $newDue,
             ];
         }

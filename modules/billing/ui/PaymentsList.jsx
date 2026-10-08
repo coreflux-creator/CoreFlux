@@ -23,7 +23,7 @@ export default function PaymentsList() {
   const handleAllocResult = (res) => {
     // The /allocate (and /payments auto_allocate) responses now carry a
     // `pwp` array: [{ar_invoice_id, released:[{bill_id,prev_status,new_status,new_due_date}]}].
-    // Surface this so AR ops sees "client paid → vendor bills released".
+    // Surface the collection hold change without implying AP approval.
     const groups = res?.pwp || res?.auto_allocation?.pwp || [];
     const totalReleased = groups.reduce((s, g) => s + (g.released?.length || 0), 0);
     if (totalReleased > 0) setPwpToast({ groups, totalReleased });
@@ -49,8 +49,8 @@ export default function PaymentsList() {
       {pwpToast && (
         <div data-testid="billing-pwp-toast" role="status"
              style={{ margin: '0 0 16px', padding: '12px 16px', background: '#ecfdf5', borderLeft: '4px solid #10b981', borderRadius: 6, fontSize: 13, color: '#065f46' }}>
-          <strong>Pay-When-Paid released:</strong>{' '}
-          {pwpToast.totalReleased} vendor bill{pwpToast.totalReleased === 1 ? '' : 's'} freed for payment because the client invoice cleared.
+          <strong>Pay-When-Paid hold released:</strong>{' '}
+          Client payment cleared the hold on {pwpToast.totalReleased} vendor bill{pwpToast.totalReleased === 1 ? '' : 's'}. Bills still need approval before payment.
           <details style={{ marginTop: 6 }}>
             <summary style={{ cursor: 'pointer' }}>See details</summary>
             <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
@@ -60,7 +60,7 @@ export default function PaymentsList() {
                   <ul style={{ paddingLeft: 16, marginTop: 2 }}>
                     {g.released.map(r => (
                       <li key={r.bill_id} data-testid={`billing-pwp-released-${r.bill_id}`}>
-                        Bill #{r.bill_id} — was <em>{r.prev_status}</em>, now <strong>{r.new_status}</strong>, due {r.new_due_date}
+                        Bill #{r.bill_id} — approval: <strong>{r.new_status}</strong>, due {r.new_due_date}
                       </li>
                     ))}
                   </ul>

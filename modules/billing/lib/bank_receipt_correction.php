@@ -117,16 +117,6 @@ function billingCorrectBankReceipt(int $tenantId, int $bankLineId, string $reaso
         $invoiceIds = array_keys($amountsByInvoice);
         $invoicePlaceholders = implode(',', array_fill(0, count($invoiceIds), '?'));
 
-        $pwpStmt = $pdo->prepare(
-            'SELECT id FROM ap_bills WHERE tenant_id = ?
-                AND linked_ar_invoice_id IN (' . $invoicePlaceholders . ')
-                AND pwp_status IN ("triggered", "partial_triggered") LIMIT 1'
-        );
-        $pwpStmt->execute(array_merge([$tenantId], $invoiceIds));
-        if ($pwpStmt->fetchColumn()) {
-            throw new RuntimeException('Pay-when-paid bills were released by this invoice. Correct those bills before reversing the receipt.');
-        }
-
         $invoiceStmt = $pdo->prepare(
             'SELECT id, total, amount_paid, sent_at, status
                FROM billing_invoices WHERE tenant_id = ?
@@ -137,6 +127,18 @@ function billingCorrectBankReceipt(int $tenantId, int $bankLineId, string $reaso
         if (count($invoices) !== count($invoiceIds)) {
             throw new RuntimeException('An allocated invoice is missing. Contact support before changing this receipt.');
         }
+
+        $pwpStmt = $pdo->prepare(
+            'SELECT id, pwp_status FROM ap_bills WHERE tenant_id = ?
+                AND linked_ar_invoice_id IN (' . $invoicePlaceholders . ') FOR UPDATE'
+        );
+        $pwpStmt->execute(array_merge([$tenantId], $invoiceIds));
+        foreach ($pwpStmt->fetchAll(PDO::FETCH_ASSOC) as $linkedBill) {
+            if (in_array($linkedBill['pwp_status'], ['triggered', 'partial_triggered'], true)) {
+                throw new RuntimeException('Pay-when-paid bills were released by this invoice. Correct those bills before reversing the receipt.');
+            }
+        }
+
         $restored = [];
         foreach ($invoices as $invoice) {
             $invoiceId = (int) $invoice['id'];

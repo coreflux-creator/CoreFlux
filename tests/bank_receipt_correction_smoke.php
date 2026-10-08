@@ -21,6 +21,11 @@ $check('correction is one transaction', str_contains($lib, 'cf_begin_transaction
     && str_contains($lib, '$pdo->commit()') && str_contains($lib, '$pdo->rollBack()'));
 $check('correction refuses closed reconciliation and released PWP bills',
     str_contains($lib, 'status = "closed"') && str_contains($lib, 'partial_triggered'));
+$invoiceLock = strpos($lib, 'ORDER BY id FOR UPDATE');
+$pwpLock = strpos($lib, 'linked_ar_invoice_id IN (');
+$check('correction locks invoices before inspecting linked PWP bills',
+    $invoiceLock !== false && $pwpLock !== false && $invoiceLock < $pwpLock
+    && str_contains($lib, 'AND linked_ar_invoice_id IN (\' . $invoicePlaceholders . \') FOR UPDATE'));
 $check('correction reverses JE and restores invoice, payment and bank state',
     str_contains($lib, 'accountingReverseJe(') && str_contains($lib, 'reversed_at = NOW()')
     && str_contains($lib, 'voided_at = NOW()') && str_contains($lib, 'match_status = "unmatched"'));
@@ -38,5 +43,5 @@ $check('bank screen offers correction with an explicit reason',
     str_contains($ui, 'accounting-bank-correction-reason-')
     && str_contains($ui, 'Reverse and reopen'));
 
-echo ($failures ? "Failed: {$failures}" : 'Passed: 10') . PHP_EOL;
+echo ($failures ? "Failed: {$failures}" : 'Passed: 11') . PHP_EOL;
 exit($failures ? 1 : 0);
