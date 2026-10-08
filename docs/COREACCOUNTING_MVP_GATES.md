@@ -25,7 +25,7 @@ The 2026-10-08 read-only root-entrypoint sweep covered 51 root PHP files, two di
 
 ## Next acceptance sequence
 
-1. Configure the already-created disposable QA app's private database file, then run the guarded empty-database bootstrap, schema contract and invoice-to-cash/bill-to-payment replay. Never clear or reuse the populated simulation database.
+1. Create a fresh disposable QA database and app for the guarded empty-database bootstrap, schema contract and invoice-to-cash/bill-to-payment replay. The first QA database was partially schema-populated by a web-startup defect and must not be reused as clean-install evidence. Never clear or reuse the populated simulation database.
 2. Complete a signed-in, two-human browser walkthrough of the everyday invoice, bill, bank and report tasks. Capture concrete friction and fix it before sign-off.
 3. Reconcile non-synthetic opening balances, AR/AP source lists, bank statements, entity ownership and historical source links to an approved cutover date.
 4. Verify controlled provider delivery to approved test recipients; keep payment initiation and payroll compliance behind separate gates.

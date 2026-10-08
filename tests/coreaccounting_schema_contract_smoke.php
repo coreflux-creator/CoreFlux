@@ -72,6 +72,13 @@ $check('first-tenant provisioning checks the accounting schema before creating r
     strpos($provisioner, 'coreAccountingInspectSchema($pdo)') !== false
     && strpos($provisioner, 'coreAccountingInspectSchema($pdo)')
         < strpos($provisioner, '$pdo->beginTransaction()'));
+$bootstrap = (string) file_get_contents(__DIR__ . '/../deploy/bootstrap_coreaccounting.php');
+$billBase = strpos($bootstrap, "'modules/ap/migrations/001_init.sql'");
+$consolidation = strpos($bootstrap, "'modules/accounting/migrations/007_consolidation.sql'");
+$canonical = strpos($bootstrap, 'coreflux_run_migrations(true)');
+$check('bill entity column precedes canonical issuer backfill on an empty install',
+    $billBase !== false && $consolidation !== false && $canonical !== false
+    && $billBase < $consolidation && $consolidation < $canonical);
 
-echo $failures ? "Failed: {$failures}\n" : "Passed: 13\n";
+echo $failures ? "Failed: {$failures}\n" : "Passed: 14\n";
 exit($failures ? 1 : 0);

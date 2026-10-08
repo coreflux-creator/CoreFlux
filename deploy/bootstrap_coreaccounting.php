@@ -62,6 +62,7 @@ $prerequisites = [
     'modules/ap/migrations/001_init.sql',
     'modules/ap/migrations/014_purchase_orders.sql',
     'modules/billing/migrations/001_init.sql',
+    'modules/accounting/migrations/007_consolidation.sql',
     'modules/payroll/migrations/001_init.sql',
     'modules/payroll/migrations/002_gusto_sync.sql',
 ];
