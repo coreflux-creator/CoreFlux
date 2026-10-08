@@ -20,8 +20,8 @@ $deploy = is_file($deployPath) ? (string) file_get_contents($deployPath) : null;
 $checks = [
     'journal navigation uses bookmarkable canonical routes' =>
         str_contains($module, "{ to: 'journal-entries', label: 'Entries'")
-        && str_contains($ui, 'navigate(`/modules/accounting/journal-entries/${id}`)')
-        && str_contains($module, 'to="/modules/accounting/journal-entries/new"'),
+        && str_contains($ui, 'navigate(scope.withScope(`/modules/accounting/journal-entries/${id}`))')
+        && str_contains($module, "scopedAccountingPath('/modules/accounting/journal-entries/new', location.search)"),
     'legacy journal route redirects to the canonical list' =>
         str_contains($module, '<Route path="journal"  element={<Navigate to="../journal-entries" replace />} />'),
     'journal list exposes account date and status filters' =>
@@ -73,8 +73,10 @@ $checks = [
         && str_contains($import, "'dims' => \$dims"),
     'journal CSV derives assignment dimensions during preview and commit' =>
         str_contains($import, 'function accountingPrepareJeImport')
+        && str_contains($import, 'function accountingReviewJeImport')
         && str_contains($import, 'staffingAssignmentDimensionContext(')
-        && substr_count($import, 'accountingPrepareJeImport($tid,') >= 2
+        && str_contains($import, 'accountingPrepareJeImport($tenantId, $dry)')
+        && substr_count($import, 'accountingReviewJeImport($tid,') >= 2
         && str_contains($import, '$dims = array_replace($dims, $inheritedDimensions'),
     'legal entity is stamped through post edit validation and draft promotion' =>
         str_contains($accounting, 'function accountingStampLegalEntityDimension')
@@ -113,7 +115,7 @@ $checks = [
         && str_contains($api, "\$action === 'replace'")
         && str_contains($api, "\$action === 'delete'"),
     'journal list exposes direct correction and deletion actions' =>
-        str_contains($ui, 'onCorrect={(id) => navigate(`/modules/accounting/journal-entries/new?replace_id=${id}`)}')
+        str_contains($ui, 'onCorrect={(id) => navigate(scope.withScope(`/modules/accounting/journal-entries/new?replace_id=${id}`))}')
         && str_contains($ui, 'aria-label={`Delete ${r.je_number}`}')
         && str_contains($ui, 'data-testid="accounting-journal-delete-panel"'),
     'deletion is auditable and concurrent mutation is guarded' =>
@@ -135,7 +137,7 @@ $checks = [
         str_contains($module, "{ to: 'journal-entries', label: 'Entries'")
         && str_contains($module, "{ to: 'transactions-to-review', label: 'Bank feed'")
         && str_contains($module, "{ to: 'close', label: 'Month-end'")
-        && str_contains($module, '<Navigate to="journal-entries" replace />')
+        && str_contains($module, '<Navigate to="overview" replace />')
         && str_contains($sidebar, "to: '/modules/accounting/journal-entries'")
         && str_contains($module, 'Tools <ChevronDown'),
 ];

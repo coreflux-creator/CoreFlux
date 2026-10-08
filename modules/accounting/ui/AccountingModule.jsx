@@ -36,6 +36,7 @@ import TaxMappings from './TaxMappings';
 import TaxExport from './TaxExport';
 import DimensionalPnL from './DimensionalPnL';
 import LayerSandboxModule from './layer/LayerSandboxModule';
+import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 
 // LayerFi sandbox embed (per-tenant embedded accounting evaluation).
 // Production-safe default: HIDDEN unless VITE_ENABLE_LAYER_SANDBOX is
@@ -109,6 +110,7 @@ const MORE_NAV = [
  * Accounting Module — Phase 0 + 1 + 2 UI
  */
 export default function AccountingModule({ session }) {
+  const location = useLocation();
   return (
     <div data-testid="accounting-module">
       <header className="module-workspace-header">
@@ -117,7 +119,7 @@ export default function AccountingModule({ session }) {
             <span className="workspace-eyebrow">Financial controls</span>
             <h1>Accounting</h1>
           </div>
-          <Link className="btn btn--primary" to="/modules/accounting/journal-entries/new" data-testid="accounting-new-entry-global">
+          <Link className="btn btn--primary" to={scopedAccountingPath('/modules/accounting/journal-entries/new', location.search)} data-testid="accounting-new-entry-global">
             <Plus size={16} aria-hidden="true" />New journal entry
           </Link>
         </div>
@@ -203,6 +205,7 @@ function AccountingNav() {
             key={item.to}
             item={item}
             active={item.to === 'reports' && reportActive}
+            search={location.search}
           />
         ))}
       </div>
@@ -223,7 +226,7 @@ function AccountingNav() {
               <section className="accounting-nav__group" key={group.label}>
                 <h3>{group.label}</h3>
                 {group.items.map(item => (
-                  <AccountingNavLink key={item.to} item={item} menu onSelect={() => setMoreOpen(false)} />
+                  <AccountingNavLink key={item.to} item={item} menu search={location.search} onSelect={() => setMoreOpen(false)} />
                 ))}
               </section>
             ))}
@@ -234,11 +237,18 @@ function AccountingNav() {
   );
 }
 
-function AccountingNavLink({ item, menu = false, onSelect, active = false }) {
+function scopedAccountingPath(path, search) {
+  const requested = new URLSearchParams(search).get('entity_id');
+  if (requested === 'all') return addEntityScope(path, null, true);
+  if (requested && /^[1-9][0-9]*$/.test(requested)) return addEntityScope(path, requested);
+  return path;
+}
+
+function AccountingNavLink({ item, menu = false, onSelect, active = false, search = '' }) {
   const { to, label, Icon } = item;
   return (
     <NavLink
-      to={to}
+      to={scopedAccountingPath(to, search)}
       data-testid={`accounting-tab-${to}`}
       className={({ isActive }) => `${menu ? 'accounting-nav__menu-link' : 'accounting-nav__link'}${isActive || active ? ' is-active' : ''}`}
       onClick={onSelect}

@@ -98,16 +98,16 @@ $je  = (string) file_get_contents("{$ROOT}/modules/accounting/ui/JournalEntries.
 $pr  = (string) file_get_contents("{$ROOT}/modules/accounting/ui/Periods.jsx");
 $pcw = (string) file_get_contents("{$ROOT}/modules/accounting/ui/PeriodCloseWorkflow.jsx");
 
-$assert('JournalEntries imports useActiveEntity',    stripos($je, 'useActiveEntity') !== false);
+$assert('JournalEntries uses scoped legal entity',    stripos($je, 'useAccountingEntityScope') !== false);
 $assert('JournalEntries threads entity_id into qs',  stripos($je, "qs.set('entity_id'") !== false);
 $assert('JournalEntries shows entity pill testid',   stripos($je, 'accounting-journal-filter-entity') !== false);
 
-$assert('Periods imports useActiveEntity',           stripos($pr, 'useActiveEntity') !== false);
-$assert('Periods appends entityQuery to API URL',    stripos($pr, "entityQuery('?')") !== false);
+$assert('Periods uses scoped legal entity',          stripos($pr, 'useAccountingEntityScope') !== false);
+$assert('Periods appends entity_id to API URL',      stripos($pr, "query.set('entity_id'") !== false);
 $assert('Periods shows entity scope notice testid',  stripos($pr, 'accounting-periods-entity-scope') !== false);
 
-$assert('PeriodCloseWorkflow imports useActiveEntity',stripos($pcw, 'useActiveEntity') !== false);
-$assert('PeriodCloseWorkflow uses entityQuery',       stripos($pcw, "entityQuery('?')") !== false);
+$assert('PeriodCloseWorkflow uses scoped legal entity',stripos($pcw, 'useAccountingEntityScope') !== false);
+$assert('PeriodCloseWorkflow requests entity_id',     stripos($pcw, 'periods.php?entity_id=') !== false);
 $assert('PeriodCloseWorkflow shows entity scope testid', stripos($pcw, 'close-entity-scope') !== false);
 
 echo "\nap_bill_approvals schema contract (columns the sync writes to)\n";

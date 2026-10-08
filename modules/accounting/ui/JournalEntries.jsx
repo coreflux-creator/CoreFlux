@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
-import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
 import { ChevronRight, FileText, Pencil, Trash2, X } from 'lucide-react';
 
@@ -11,23 +12,23 @@ import { ChevronRight, FileText, Pencil, Trash2, X } from 'lucide-react';
 export default function JournalEntries() {
   const [view, setView] = useState({ mode: 'list' });
   const navigate = useNavigate();
+  const scope = useAccountingEntityScope();
 
   return (
     <section data-testid="accounting-journal">
-      {view.mode === 'list'   && <List onOpen={(id) => navigate(`/modules/accounting/journal-entries/${id}`)} onEdit={(id) => navigate(`/modules/accounting/journal-entries/${id}/edit`)} onCorrect={(id) => navigate(`/modules/accounting/journal-entries/new?replace_id=${id}`)} />}
+      {view.mode === 'list'   && <List key={scope.scopeKey} scope={scope} onOpen={(id) => navigate(scope.withScope(`/modules/accounting/journal-entries/${id}`))} onEdit={(id) => navigate(scope.withScope(`/modules/accounting/journal-entries/${id}/edit`))} onCorrect={(id) => navigate(scope.withScope(`/modules/accounting/journal-entries/new?replace_id=${id}`))} />}
       {view.mode === 'detail' && <Detail id={view.id} onBack={() => setView({ mode: 'list' })} />}
       {view.mode === 'new'    && <ManualPost onDone={() => setView({ mode: 'list' })} onCancel={() => setView({ mode: 'list' })} />}
     </section>
   );
 }
 
-function List({ onOpen, onEdit, onCorrect }) {
+function List({ scope, onOpen, onEdit, onCorrect }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
-  const { activeEntityId, activeEntity } = useActiveEntity();
   const accountCode = searchParams.get('account_code') || '';
   const from        = searchParams.get('from')         || '';
   const to          = searchParams.get('to')           || '';
@@ -41,14 +42,20 @@ function List({ onOpen, onEdit, onCorrect }) {
   if (status)      qs.set('status', status);
   qs.set('page', String(page));
   qs.set('per_page', String(perPage));
-  if (activeEntityId) qs.set('entity_id', String(activeEntityId));
+  if (scope.entityId) qs.set('entity_id', String(scope.entityId));
   const apiUrl = '/modules/accounting/api/journal_entries.php' + (qs.toString() ? `?${qs}` : '');
-  const { data, loading, error, reload } = useApi(apiUrl);
+  const { data, loading, error, reload } = useApi(apiUrl, { enabled: scope.ready && !scope.allEntities });
   const rows = data?.rows ?? [];
   const total = Number(data?.total ?? rows.length);
   const totalPages = Math.max(1, Math.ceil(total / perPage));
-  const filterActive = !!(accountCode || from || to || status || activeEntityId);
+  const filterActive = !!(accountCode || from || to || status || scope.entityId);
   const userFilterActive = !!(accountCode || from || to || status);
+  const clearJournalFilters = () => {
+    const next = new URLSearchParams();
+    if (scope.entityId) next.set('entity_id', String(scope.entityId));
+    else if (scope.allEntities) next.set('entity_id', 'all');
+    setSearchParams(next);
+  };
   const updateSearch = (updates, resetPage = true) => {
     const next = new URLSearchParams(searchParams);
     Object.entries(updates).forEach(([key, value]) => {
@@ -97,17 +104,21 @@ function List({ onOpen, onEdit, onCorrect }) {
             <p className="ledger-page-header__meta">{total} entries in this view</p>
           </div>
         </div>
+        <AccountingEntitySelector scope={scope} allowAll={false} testId="accounting-journal-entity" />
       </header>
+      {(scope.error || scope.allEntities) && <p className="error" role="alert" data-testid="accounting-journal-scope-error">
+        {scope.error || 'Choose one legal entity to view journal entries.'}
+      </p>}
       {filterActive && (
         <div className="filter-pill" data-testid="accounting-journal-filter-pill">
           <span>
-            {activeEntity ? <>Viewing entity <code data-testid="accounting-journal-filter-entity">{activeEntity.code}</code></> : 'Journal context'}
+            {scope.entity ? <>Viewing entity <code data-testid="accounting-journal-filter-entity">{scope.entity.code}</code></> : 'Journal context'}
             {accountCode ? <> · account <code>{accountCode}</code></> : null}
             {from ? <> · from {from}</> : null}{to ? <> · to {to}</> : null}
             {status ? <> · status {status}</> : null}
           </span>
           {userFilterActive && (
-            <button className="btn btn--ghost btn--icon" aria-label="Clear journal filters" data-testid="accounting-journal-filter-clear" onClick={() => setSearchParams({})} style={{ width: 22, minWidth: 22, minHeight: 22, height: 22 }}><X size={12} aria-hidden="true" /></button>
+            <button className="btn btn--ghost btn--icon" aria-label="Clear journal filters" data-testid="accounting-journal-filter-clear" onClick={clearJournalFilters} style={{ width: 22, minWidth: 22, minHeight: 22, height: 22 }}><X size={12} aria-hidden="true" /></button>
           )}
         </div>
       )}

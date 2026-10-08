@@ -22,9 +22,27 @@ $entityScope = $source('dashboard/src/lib/useAccountingEntityScope.js');
 $apAging = $source('modules/ap/api/aging.php');
 $apAgingUi = $source('modules/ap/ui/AgingTable.jsx');
 $reportLibrary = $source('dashboard/src/components/FinancialReportLibrary.jsx');
+$accountingModule = $source('modules/accounting/ui/AccountingModule.jsx');
+$journalList = $source('modules/accounting/ui/JournalEntries.jsx');
+$journalCreate = $source('modules/accounting/ui/JournalEntryCreate.jsx');
+$journalDetail = $source('modules/accounting/ui/JournalEntryDetail.jsx');
 
 $check('Entity validation waits for the available-entity response',
     str_contains($entityScope, 'loaded && requested !== null && !allEntities'));
+$check('Accounting navigation and entry actions retain legal entity scope',
+    str_contains($accountingModule, 'scopedAccountingPath(to, search)')
+    && str_contains($accountingModule, "scopedAccountingPath('/modules/accounting/journal-entries/new', location.search)")
+    && str_contains($journalList, 'AccountingEntitySelector scope={scope} allowAll={false}')
+    && str_contains($journalList, 'scope.withScope(')
+    && str_contains($journalList, "if (scope.entityId) qs.set('entity_id'")
+    && str_contains($journalCreate, "searchParams.get('entity_id')")
+    && str_contains($journalCreate, 'navigate(scopedPath(')
+    && str_contains($journalDetail, 'data?.entry?.entity_id')
+    && str_contains($journalDetail, "navigate(scopedPath('/modules/accounting/journal-entries')"));
+$check('Changing accounting entity resets prior page without losing journal filters',
+    str_contains($entityScope, "next.delete('page')")
+    && str_contains($journalList, 'setSearchParams(next)')
+    && str_contains($journalList, "next.set('entity_id', String(scope.entityId))"));
 $check('AP aging and its report link retain validated legal-entity scope',
     str_contains($apAging, 'booksHealthResolveEntity')
     && str_contains($apAging, 'apComputeAging($tid, $asOf, $entityId)')

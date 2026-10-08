@@ -36,6 +36,7 @@ export function useAccountingEntityScope({ defaultAll = false } = {}) {
     const next = new URLSearchParams(params);
     next.set('entity_id', value);
     next.delete('bank_account_id');
+    next.delete('page');
     setParams(next, { replace: true });
   }, [params, setParams]);
 

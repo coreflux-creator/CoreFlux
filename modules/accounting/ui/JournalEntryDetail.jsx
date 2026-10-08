@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
+import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 import JeTracePane from './JeTracePane';
 import {
   ArrowLeft, ExternalLink, FileCheck2, Pencil, RotateCcw, Trash2, X,
@@ -16,6 +17,7 @@ export default function JournalEntryDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { data, loading, error, reload } = useApi(`/modules/accounting/api/journal_entries.php?id=${id}`);
+  const scopedPath = path => addEntityScope(path, data?.entry?.entity_id);
   const [busy, setBusy] = useState(false);
   const [actionErr, setErr] = useState(null);
   const [reverseOpen, setReverseOpen] = useState(false);
@@ -36,7 +38,7 @@ export default function JournalEntryDetail() {
         setReverseOpen(false);
         await reload();
       } else {
-        navigate(`/modules/accounting/journal-entries/${res.je_id}`);
+        navigate(scopedPath(`/modules/accounting/journal-entries/${res.je_id}`));
       }
     } catch (e) { setErr(e.message || String(e)); }
     finally { setBusy(false); }
@@ -61,7 +63,7 @@ export default function JournalEntryDetail() {
       await api.post(`/modules/accounting/api/journal_entries.php?action=delete&id=${id}`, {
         reason: deleteReason.trim(),
       });
-      navigate('/modules/accounting/journal-entries', { replace: true });
+      navigate(scopedPath('/modules/accounting/journal-entries'), { replace: true });
     } catch (e) { setErr(e.message || String(e)); }
     finally { setBusy(false); }
   };
@@ -84,7 +86,7 @@ export default function JournalEntryDetail() {
 
   return (
     <section className="entry-detail" data-testid="accounting-je-detail">
-      <Link to="/modules/accounting/journal-entries" className="entry-detail__back-link">
+      <Link to={scopedPath('/modules/accounting/journal-entries')} className="entry-detail__back-link">
         <ArrowLeft size={14} aria-hidden="true" />Journal entries
       </Link>
 
@@ -96,7 +98,7 @@ export default function JournalEntryDetail() {
         <div className="entry-detail__actions" aria-label="Journal entry actions">
           {canManageDraft && (
             <>
-              <Link className="btn btn--ghost" to={`/modules/accounting/journal-entries/${id}/edit`} data-testid="accounting-je-edit-draft">
+              <Link className="btn btn--ghost" to={scopedPath(`/modules/accounting/journal-entries/${id}/edit`)} data-testid="accounting-je-edit-draft">
                 <Pencil size={15} aria-hidden="true" />Edit draft
               </Link>
               <button type="button" className="btn btn--primary" onClick={postDraft} disabled={busy} data-testid="accounting-je-post-draft">
@@ -131,7 +133,7 @@ export default function JournalEntryDetail() {
           )}
           {canCorrect && (
             <>
-              <Link className="btn btn--primary" to={`/modules/accounting/journal-entries/new?replace_id=${id}`} data-testid="accounting-je-correct">
+              <Link className="btn btn--primary" to={scopedPath(`/modules/accounting/journal-entries/new?replace_id=${id}`)} data-testid="accounting-je-correct">
                 <Pencil size={15} aria-hidden="true" />Correct entry
               </Link>
               <button type="button" className="btn btn--danger-quiet" onClick={() => { setDeleteReason(''); setDeleteOpen(true); }} disabled={busy} data-testid="accounting-je-delete">
@@ -159,7 +161,7 @@ export default function JournalEntryDetail() {
       {(entry.reverses_je_id || entry.reversed_by_je_id) && (
         <div className="entry-related" data-testid="accounting-je-related-entry">
           <span>{entry.reverses_je_id ? 'Reverses' : 'Reversed by'}</span>
-          <Link to={`/modules/accounting/journal-entries/${entry.reverses_je_id || entry.reversed_by_je_id}`}>
+          <Link to={scopedPath(`/modules/accounting/journal-entries/${entry.reverses_je_id || entry.reversed_by_je_id}`)}>
             Open linked journal entry <ExternalLink size={13} aria-hidden="true" />
           </Link>
         </div>
@@ -168,7 +170,7 @@ export default function JournalEntryDetail() {
       {entry.corrected_by_je_id && (
         <div className="entry-related" data-testid="accounting-je-corrected-by">
           <span>Corrected by</span>
-          <Link to={`/modules/accounting/journal-entries/${entry.corrected_by_je_id}`}>
+          <Link to={scopedPath(`/modules/accounting/journal-entries/${entry.corrected_by_je_id}`)}>
             {entry.corrected_by_je_number || 'Open corrected entry'} <ExternalLink size={13} aria-hidden="true" />
           </Link>
         </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
 import PlacementPicker from '../../placements/ui/PlacementPicker';
 import { ArrowLeft, Copy, Pencil, Plus, Save, Send, SlidersHorizontal, Trash2 } from 'lucide-react';
@@ -33,7 +34,8 @@ export default function JournalEntryCreate() {
   const navigate = useNavigate();
   const { activeEntityId, entities, loaded: entitiesLoaded } = useActiveEntity();
   const { id } = useParams();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedEntityId = searchParams.get('entity_id');
   const copyFrom = searchParams.get('copy_from');
   const replaceId = searchParams.get('replace_id');
   const isEdit = Boolean(id);
@@ -53,6 +55,9 @@ export default function JournalEntryCreate() {
   const [icSeed, setIcSeed] = useState(null);
   const [expandedLine, setExpandedLine] = useState(null);
   const [assignmentStatus, setAssignmentStatus] = useState({});
+  const scopedPath = path => addEntityScope(path,
+    entityId || (requestedEntityId && /^[1-9][0-9]*$/.test(requestedEntityId) ? requestedEntityId : null),
+    !entityId && requestedEntityId === 'all');
 
   useEffect(() => {
     api.get('/modules/accounting/api/accounts.php').then((d) => {
@@ -65,9 +70,23 @@ export default function JournalEntryCreate() {
 
   useEffect(() => {
     if (!entitiesLoaded || entityId) return;
+    if (requestedEntityId) {
+      const requested = entities.find(entity => String(entity.id) === requestedEntityId
+        && Number(entity.active ?? 1) === 1);
+      if (requested) setEntityId(String(requested.id));
+      return;
+    }
     const fallback = activeEntityId || (entities.length === 1 ? entities[0]?.id : null);
     if (fallback) setEntityId(String(fallback));
-  }, [activeEntityId, entities, entitiesLoaded, entityId]);
+  }, [activeEntityId, entities, entitiesLoaded, entityId, requestedEntityId]);
+
+  const changeEntity = value => {
+    setEntityId(value);
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set('entity_id', value);
+    else next.delete('entity_id');
+    setSearchParams(next, { replace: true });
+  };
 
   useEffect(() => {
     const sourceId = id || replaceId || copyFrom;
@@ -298,7 +317,7 @@ export default function JournalEntryCreate() {
         const url = '/modules/accounting/api/journal_entries.php' + (action === 'draft' ? '?action=draft' : '');
         res = await api.post(url, payload);
       }
-      navigate(`/modules/accounting/journal-entries/${res.je_id}`);
+      navigate(scopedPath(`/modules/accounting/journal-entries/${res.je_id}`));
     } catch (e) {
       setError(e.message || String(e));
     } finally {
@@ -312,7 +331,7 @@ export default function JournalEntryCreate() {
   if ((isEdit || copyFrom || isCorrection) && !sourceEntry && error) {
     return (
       <section className="ledger-page" data-testid="accounting-je-create-source-error">
-        <Link to="/modules/accounting/journal-entries" className="entry-detail__back-link"><ArrowLeft size={14} aria-hidden="true" />Journal entries</Link>
+        <Link to={scopedPath('/modules/accounting/journal-entries')} className="entry-detail__back-link"><ArrowLeft size={14} aria-hidden="true" />Journal entries</Link>
         <p className="error">Could not prepare this entry: {error}</p>
       </section>
     );
@@ -321,7 +340,7 @@ export default function JournalEntryCreate() {
   return (
     <section className="ledger-page" data-testid="accounting-je-create">
       <Link
-        to={(isEdit || isCorrection) ? `/modules/accounting/journal-entries/${id || replaceId}` : '/modules/accounting/journal-entries'}
+        to={scopedPath((isEdit || isCorrection) ? `/modules/accounting/journal-entries/${id || replaceId}` : '/modules/accounting/journal-entries')}
         className="entry-detail__back-link"
       ><ArrowLeft size={14} aria-hidden="true" />{(isEdit || isCorrection) ? 'Journal entry' : 'Journal entries'}</Link>
       <header className="entry-editor__header">
@@ -334,14 +353,14 @@ export default function JournalEntryCreate() {
       {isCorrection && sourceEntry && (
         <div className="entry-status-note entry-status-note--warning" data-testid="accounting-je-correction-notice">
           <Pencil size={16} aria-hidden="true" />
-          <span>The original <Link to={`/modules/accounting/journal-entries/${sourceEntry.id}`}>{sourceEntry.je_number}</Link> stays unchanged until this correction posts. CoreFlux then removes the original from active books and preserves both entries in the audit trail.</span>
+          <span>The original <Link to={scopedPath(`/modules/accounting/journal-entries/${sourceEntry.id}`)}>{sourceEntry.je_number}</Link> stays unchanged until this correction posts. CoreFlux then removes the original from active books and preserves both entries in the audit trail.</span>
         </div>
       )}
 
       {!isEdit && !isCorrection && sourceEntry && (
         <div className="entry-status-note entry-status-note--info" data-testid="accounting-je-copy-notice">
           <Copy size={16} aria-hidden="true" />
-          <span>Copied from <Link to={`/modules/accounting/journal-entries/${sourceEntry.id}`}>{sourceEntry.je_number}</Link>. Review every line before posting; the original entry is unchanged.</span>
+          <span>Copied from <Link to={scopedPath(`/modules/accounting/journal-entries/${sourceEntry.id}`)}>{sourceEntry.je_number}</Link>. Review every line before posting; the original entry is unchanged.</span>
         </div>
       )}
 
@@ -351,7 +370,7 @@ export default function JournalEntryCreate() {
           <select
             className="input"
             value={entityId}
-            onChange={(event) => setEntityId(event.target.value)}
+            onChange={(event) => changeEntity(event.target.value)}
             data-testid="accounting-je-entity"
             style={{ display: 'block', width: '100%', marginTop: 4 }}
             required
@@ -592,7 +611,7 @@ export default function JournalEntryCreate() {
           onClose={() => setIcOpen(false)}
           onPosted={(res) => {
             setIcOpen(false);
-            if (res?.jes?.[0]?.je_id) navigate(`/modules/accounting/journal-entries/${res.jes[0].je_id}`);
+            if (res?.jes?.[0]?.je_id) navigate(scopedPath(`/modules/accounting/journal-entries/${res.jes[0].je_id}`));
           }}
           amount={icSeed.amount}
           sourceEntityId={Number(entityId)}
