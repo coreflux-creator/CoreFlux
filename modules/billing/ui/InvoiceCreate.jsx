@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import EntityPicker from '../../../dashboard/src/components/EntityPicker';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, useApi } from '../../../dashboard/src/lib/api';
+import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
 import LineItemEditor, { blankLine } from '../../../dashboard/src/components/LineItemEditor';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
@@ -126,9 +126,11 @@ export default function InvoiceCreate() {
       if (payload.lines.length === 0) throw new Error('Add at least one line item');
       if (isEdit) {
         await api.patch(`/api/v1/billing/invoices?id=${id}`, payload);
+        bustApiCachePrefix('billing-invoices-list:');
         nav(detailPath(id, entityId));
       } else {
         const res = await api.post('/api/v1/billing/invoices', payload);
+        bustApiCachePrefix('billing-invoices-list:');
         nav(detailPath(res.id, entityId));
       }
     } catch (e2) { setErr(e2); }

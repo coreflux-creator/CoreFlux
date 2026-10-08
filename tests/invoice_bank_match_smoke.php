@@ -33,6 +33,9 @@ $check('invoice list defaults to all entities and allows filtering',
 $check('new invoice defaults from the selected or active entity',
     str_contains($create, 'requestedEntityId ?? activeEntityId'));
 $check('issuing entity is required in UI', str_contains($create, 'allowNone={false}') && str_contains($create, 'required'));
+$check('invoice create and detail actions refresh cached invoice worklists',
+    str_contains($create, "bustApiCachePrefix('billing-invoices-list:')")
+    && str_contains($detail, "bustApiCachePrefix('billing-invoices-list:')"));
 $check('draft service resolves a valid issuing entity',
     str_contains($invoiceApi, 'billingCreateDirectInvoiceDraft(')
     && str_contains($invoiceDrafts, 'activeEntityResolveForTenant(')

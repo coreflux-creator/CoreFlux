@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { ArrowRight, BookOpenCheck, Check, Landmark, Send, UserRoundCog, X } from 'lucide-react';
-import { api, useApi } from '../../../dashboard/src/lib/api';
+import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 
@@ -61,7 +61,10 @@ export default function InvoiceDetail() {
 
   const run = async (label, fn) => {
     setBusy(label); setActionError(null);
-    try { await fn(); } catch (e) { setActionError(e); }
+    try {
+      await fn();
+      bustApiCachePrefix('billing-invoices-list:');
+    } catch (e) { setActionError(e); }
     finally { await reload(); await approval.reload(); setBusy(null); }
   };
 
