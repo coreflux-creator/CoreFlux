@@ -286,7 +286,9 @@ const useSession = () => {
         // row, the DB-sourced entry wins (dedup by id).
         const dbModules = Array.isArray(data.modules) ? data.modules : [];
         const dbIds = new Set(dbModules.map(m => m.id));
-        const spaOnly = DEMO_SESSION.modules.filter(m => !dbIds.has(m.id) && ['staffing'].includes(m.id));
+        const spaOnly = data.product_mode === 'coreaccounting'
+          ? []
+          : DEMO_SESSION.modules.filter(m => !dbIds.has(m.id) && ['staffing'].includes(m.id));
         data.modules = [...dbModules, ...spaOnly];
 
         // RBAC — strip Layer Sandbox / Layer Integration nav entries when
@@ -378,7 +380,7 @@ const AppContent = ({ session, usingDemo }) => {
       // tenant_modules). Synthesize a minimal module object from the
       // DEMO_SESSION manifest so the sidebar still renders the right nav
       // instead of showing the wrong module's actions.
-      if (!mod && moduleId !== activeModule?.id) {
+      if (!mod && session.product_mode !== 'coreaccounting' && moduleId !== activeModule?.id) {
         const fallback = DEMO_SESSION.modules.find(m => m.id === moduleId);
         if (fallback) { setActiveModule(fallback); return; }
       }
@@ -413,6 +415,18 @@ const AppContent = ({ session, usingDemo }) => {
     ...session,
     active_module: activeModule
   };
+
+  if (session.product_mode === 'coreaccounting') {
+    const accountingPath = '/modules/accounting/overview';
+    const allowedPrefixes = [
+      '/modules/accounting', '/modules/billing', '/modules/ap', '/modules/treasury',
+      '/inbox', '/profile', '/settings', '/admin', '/select-tenant',
+    ];
+    const allowed = allowedPrefixes.some(prefix =>
+      location.pathname === prefix || location.pathname.startsWith(`${prefix}/`)
+    );
+    if (!allowed) return <Navigate to={accountingPath} replace />;
+  }
 
   return (
     <>

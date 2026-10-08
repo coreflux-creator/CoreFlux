@@ -38,13 +38,14 @@ const navItems = [
 ];
 
 export default function APModule({ session }) {
+  const standaloneAccounting = session?.product_mode === 'coreaccounting';
   return (
     <div className="people-directory" data-testid="ap-module">
       <header className="module-workspace-header">
         <span className="workspace-eyebrow">Accounts payable / bills</span>
         <h1>Bills &amp; payments</h1>
-        <p>From approved work to payment-ready obligations.</p>
-        <ModuleTabs items={navItems.map(n => ({ ...n, testId: `ap-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Accounts payable sections" testId="ap-section-nav" />
+        <p>Review bills, approvals, payments, and payables.</p>
+        <ModuleTabs items={navItems.filter(n => !standaloneAccounting || n.to !== '/modules/ap/weekly-queue').map(n => ({ ...n, testId: `ap-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Accounts payable sections" testId="ap-section-nav" />
       </header>
 
       <Routes>
@@ -53,7 +54,7 @@ export default function APModule({ session }) {
         <Route path="bills/csv_import" element={<BillsCsvImport />} />
         <Route path="bills/new" element={<BillCreate />} />
         <Route path="bills/:id" element={<BillDetail session={session} />} />
-        <Route path="weekly-queue" element={<WeeklyQueue />} />
+        <Route path="weekly-queue" element={standaloneAccounting ? <Navigate to="../bills" replace /> : <WeeklyQueue />} />
         <Route path="payments" element={<PaymentsList />} />
         <Route path="payments/csv_import" element={<PaymentsCsvImport />} />
         <Route path="approvals" element={<Approvals />} />

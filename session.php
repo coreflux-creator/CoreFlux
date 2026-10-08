@@ -71,6 +71,7 @@ if ($requestedTenantId !== null) {
 $modules = function_exists('getUserModules')
     ? getUserModules($role)
     : ($_SESSION['modules'] ?? []);
+$productMode = getenv('COREFLUX_ENV') === 'coreaccounting' ? 'coreaccounting' : 'coreflux';
 
 // Tenant-subscription gate: every non-master_admin user only sees modules
 // their active tenant has subscribed to in `tenant_modules`. master_admin
@@ -105,6 +106,13 @@ if ($globalRole !== 'master_admin' && $tenantId) {
     }
 }
 
+if ($productMode === 'coreaccounting') {
+    $accountingModules = ['accounting', 'billing', 'ap', 'treasury'];
+    $modules = array_values(array_filter($modules, static function ($mod) use ($accountingModules) {
+        return in_array($mod['id'] ?? '', $accountingModules, true);
+    }));
+}
+
 // Format modules with ID for React routing.
 // IMPORTANT: prefer the explicit `id` from getModuleDefinitions(); deriving
 // the slug from `name` would turn "Accounts Payable" into `accounts_payable`,
@@ -132,6 +140,10 @@ if ($activeModule) {
         'description' => $activeModule['description'] ?? '',
         'actions' => $activeModule['actions'] ?? [['name' => 'Overview', 'route' => 'overview']],
     ];
+}
+if ($productMode === 'coreaccounting' && $formattedActiveModule
+    && !in_array($formattedActiveModule['id'], ['accounting', 'billing', 'ap', 'treasury'], true)) {
+    $formattedActiveModule = null;
 }
 
 function _buildModuleAccessMap(array $user, $tenantId, $membershipId = null): array
@@ -184,6 +196,7 @@ $response = [
         'module_access' => _buildModuleAccessMap($user, $tenantId, $_SESSION['active_membership_id'] ?? null),
     ],
     'modules' => $formattedModules,
+    'product_mode' => $productMode,
     'tenant' => $tenant,
     'tenant_id' => $tenantId,
     'tenants' => $user['tenants'] ?? [],

@@ -253,7 +253,7 @@ export default function InvoicesList({ session }) {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <Link to={scope.withScope('/modules/billing/invoices/new')} className="btn btn--primary" data-testid="billing-new-invoice"><Plus size={16} /> New invoice</Link>
-          <details style={{ position: 'relative' }}>
+          {session?.product_mode !== 'coreaccounting' && <details style={{ position: 'relative' }}>
             <summary className="btn btn--ghost" style={{ listStyle: 'none', cursor: 'pointer' }} data-testid="billing-create-from-time-menu">
               <Clock3 size={15} /> Create from time <ChevronDown size={14} />
             </summary>
@@ -261,7 +261,7 @@ export default function InvoicesList({ session }) {
               <button className="btn btn--ghost" onClick={() => setShowCreate(true)} data-testid="billing-new-from-time-bundle">Time bundle</button>
               <button className="btn btn--ghost" onClick={() => setShowEntries(true)} data-testid="billing-new-from-time-entries">Approved hours</button>
             </div>
-          </details>
+          </details>}
           <Link to={scope.withScope('/modules/billing/invoices/csv_import')} className="btn btn--ghost" data-testid="billing-invoices-import-csv"><Upload size={15} /> Import</Link>
           <a className="btn btn--ghost" href={scope.ready ? exportHref : undefined} aria-disabled={!scope.ready} data-testid="billing-invoices-export-csv"><Download size={15} /> Export</a>
           {canManageApprovals && (
@@ -478,10 +478,10 @@ export default function InvoicesList({ session }) {
         </div>
       )}
 
-      <details style={{ marginTop: 14 }} data-testid="billing-approved-time-ready-section">
+      {session?.product_mode !== 'coreaccounting' && <details style={{ marginTop: 14 }} data-testid="billing-approved-time-ready-section">
         <summary style={{ cursor: 'pointer', color: 'var(--cf-text-secondary)', fontSize: 13 }}>Approved time ready to bill</summary>
         <ApprovedHoursReadyTile variant="billing" onPick={() => setShowEntries(true)} />
-      </details>
+      </details>}
 
       {showCreate && (
         <InvoiceFromTimeBundleModal

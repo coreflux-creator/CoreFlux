@@ -198,7 +198,7 @@ export default function BillsList({ session }) {
         <span>{scope.label}</span>
       </div>
 
-      <ApprovedHoursReadyTile variant="ap" scopeLabel="workspace-wide" onPick={() => setShowFromEntries(true)} />
+      {session?.product_mode !== 'coreaccounting' && <ApprovedHoursReadyTile variant="ap" scopeLabel="workspace-wide" onPick={() => setShowFromEntries(true)} />}
 
       {createdBills.length > 0 && (
         <div className="success" role="status" data-testid="ap-bills-created-links">
@@ -241,7 +241,7 @@ export default function BillsList({ session }) {
             <input
               type="search"
               className="input"
-              placeholder="Search vendor, bill, placement or source"
+              placeholder={session?.product_mode === 'coreaccounting' ? 'Search vendor, bill or source' : 'Search vendor, bill, placement or source'}
               value={searchInput}
               onChange={event => setSearchInput(event.target.value)}
               data-testid="ap-bills-search"
@@ -251,8 +251,8 @@ export default function BillsList({ session }) {
           <details className="action-overflow">
             <summary className="btn" aria-label="More bill actions"><MoreHorizontal size={16} aria-hidden="true" /> More</summary>
             <div className="action-overflow__menu">
-              <button className="action-overflow__item" onClick={() => setShowFromBundle(true)} data-testid="ap-new-from-time-bundle">New from time bundle</button>
-              <button className="action-overflow__item" onClick={() => setShowFromEntries(true)} data-testid="ap-bills-new-from-time-entries">New from approved hours</button>
+              {session?.product_mode !== 'coreaccounting' && <button className="action-overflow__item" onClick={() => setShowFromBundle(true)} data-testid="ap-new-from-time-bundle">New from time bundle</button>}
+              {session?.product_mode !== 'coreaccounting' && <button className="action-overflow__item" onClick={() => setShowFromEntries(true)} data-testid="ap-bills-new-from-time-entries">New from approved hours</button>}
               <a className="action-overflow__item" href={`/api/v1/ap/bills-csv-export${rawExportParams.size ? `?${rawExportParams}` : ''}`} data-testid="ap-bills-export-all-csv"><Download size={15} aria-hidden="true" /> Export all</a>
               <ExportTemplatePicker
                 dataset="ap_bills"
