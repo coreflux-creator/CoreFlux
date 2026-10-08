@@ -51,6 +51,21 @@ if ($exit === 0 || !str_contains($output, 'Staging database configuration is inc
 }
 
 $definitions = "define('DB_HOST', '127.0.0.1'); define('DB_NAME', 'stage_test'); define('DB_USER', 'stage_user'); define('DB_PASS', 'stage_pass');";
+$privateFixture = tempnam(sys_get_temp_dir(), 'coreacc-db-');
+if ($privateFixture === false || !rename($privateFixture, $privateFixture . '.php')) {
+    throw new RuntimeException('Could not create a private database configuration fixture.');
+}
+$privateFixture .= '.php';
+register_shutdown_function(static fn() => @unlink($privateFixture));
+file_put_contents($privateFixture, '<?php if (!defined("DB_NAME")) { ' . $definitions . ' }');
+
+[$exit, $output] = runConfigCheck("require $config; echo DB_NAME;", [
+    'COREFLUX_ENV' => 'staging', 'COREFLUX_ACCOUNTING_DB_CONFIG_PATH' => $privateFixture,
+]);
+if ($exit !== 0 || trim($output) !== 'stage_test') {
+    throw new RuntimeException('Staging CLI did not load the private database configuration.');
+}
+
 [$exit, $output] = runConfigCheck($definitions . " require $config; echo DB_NAME . ':' . (COREFLUX_STAGING ? 'staging' : 'prod');", ['COREFLUX_ENV' => 'staging']);
 if ($exit !== 0 || trim($output) !== 'stage_test:staging') {
     throw new RuntimeException('Explicit staging database settings were not honored.');
@@ -62,13 +77,39 @@ if ($exit !== 0 || !str_contains($output, 'log:none')) {
     throw new RuntimeException('Staging mail bootstrap did not enforce log-only delivery.');
 }
 
-[$exit, $output] = runConfigCheck("require $config;", ['COREFLUX_ENV' => 'coreaccounting']);
-if ($exit === 0 || !str_contains($output, 'CoreAccounting database configuration is incomplete.')) {
-    throw new RuntimeException('Standalone mode accepted implicit database settings.');
+[$exit, $output] = runConfigCheck($definitions . " require $config;", [
+    'COREFLUX_ENV' => 'coreaccounting', 'COREFLUX_ACCOUNTING_DB_CONFIG_PATH' => null,
+]);
+if ($exit === 0 || !str_contains($output, 'CoreAccounting private database configuration is unavailable.')) {
+    throw new RuntimeException('Standalone mode accepted an in-webroot or implicit database configuration.');
+}
+
+[$exit, $output] = runConfigCheck($definitions . " require $config;", [
+    'COREFLUX_ENV' => 'coreaccounting',
+    'COREFLUX_ACCOUNTING_DB_CONFIG_PATH' => dirname(__DIR__) . '/core/db.local.example.php',
+]);
+if ($exit === 0 || !str_contains($output, 'CoreAccounting private database configuration is unavailable.')) {
+    throw new RuntimeException('Standalone mode accepted a database configuration inside the public webroot.');
+}
+
+[$exit, $output] = runConfigCheck($definitions . " require $config;", [
+    'COREFLUX_ENV' => 'coreaccounting',
+    'COREFLUX_ACCOUNTING_DB_CONFIG_PATH' => $privateFixture . '.missing',
+]);
+if ($exit === 0 || !str_contains($output, 'CoreAccounting private database configuration is unavailable.')) {
+    throw new RuntimeException('Standalone mode accepted a missing private database configuration.');
+}
+
+[$exit, $output] = runConfigCheck($definitions . " require $config;", [
+    'COREFLUX_ENV' => 'coreaccounting',
+    'COREFLUX_ACCOUNTING_DB_CONFIG_PATH' => 'core/db.local.example.php',
+]);
+if ($exit === 0 || !str_contains($output, 'CoreAccounting private database configuration is unavailable.')) {
+    throw new RuntimeException('Standalone mode accepted a relative database configuration path.');
 }
 
 $standalone = ['COREFLUX_ENV' => 'coreaccounting', 'COREFLUX_STANDALONE_DATABASE' => null,
-    'COREFLUX_PUBLIC_ORIGIN' => null];
+    'COREFLUX_PUBLIC_ORIGIN' => null, 'COREFLUX_ACCOUNTING_DB_CONFIG_PATH' => $privateFixture];
 [$exit, $output] = runConfigCheck($definitions . " require $config;", $standalone);
 if ($exit === 0 || !str_contains($output, 'CoreAccounting database identity is missing or does not match.')) {
     throw new RuntimeException('Standalone mode accepted a database without an expected identity.');

@@ -14,15 +14,45 @@ if (getenv('COREFLUX_ENV') === 'coreaccounting') {
     }
 }
 
-// Cloudways default domains and explicit staging runs must never use the
-// legacy production database fallback. Each staging app needs its own file.
-$dbLocalConfig = __DIR__ . '/db.local.php';
-if (is_file($dbLocalConfig)) {
-    require_once $dbLocalConfig;
+// A standalone service must load its credentials from outside the public
+// checkout. Staging CLI commands may use the same private file.
+$standaloneAccounting = getenv('COREFLUX_ENV') === 'coreaccounting';
+$privateDbConfigPath = ($standaloneAccounting || getenv('COREFLUX_ENV') === 'staging')
+    ? trim((string) (getenv('COREFLUX_ACCOUNTING_DB_CONFIG_PATH') ?: '')) : '';
+if ($privateDbConfigPath !== '') {
+    $resolvedDbConfig = realpath($privateDbConfigPath);
+    $publicRoot = realpath(dirname(__DIR__));
+    $requestedPath = str_replace('\\', '/', $privateDbConfigPath);
+    $publicPath = str_replace('\\', '/', (string) $publicRoot);
+    if (PHP_OS_FAMILY === 'Windows') {
+        $requestedPath = strtolower($requestedPath);
+        $publicPath = strtolower($publicPath);
+    }
+    $requestedInsideWebroot = $publicRoot !== false
+        && ($requestedPath === $publicPath || str_starts_with($requestedPath, $publicPath . '/'));
+    $invalidDbConfig = !preg_match('~^(?:/|[A-Za-z]:[/\\\\])~', $privateDbConfigPath)
+        || $resolvedDbConfig === false || $publicRoot === false || $requestedInsideWebroot
+        || !is_file($resolvedDbConfig) || !is_readable($resolvedDbConfig)
+        || pathinfo($resolvedDbConfig, PATHINFO_EXTENSION) !== 'php'
+        || $resolvedDbConfig === $publicRoot
+        || str_starts_with($resolvedDbConfig, $publicRoot . DIRECTORY_SEPARATOR);
+    if ($invalidDbConfig) {
+        if ($standaloneAccounting) {
+            coreAccountingConfigurationFailure('CoreAccounting private database configuration is unavailable.');
+        }
+        throw new RuntimeException('Private staging database configuration is unavailable.');
+    }
+    require_once $resolvedDbConfig;
+} elseif ($standaloneAccounting) {
+    coreAccountingConfigurationFailure('CoreAccounting private database configuration is unavailable.');
+} else {
+    $dbLocalConfig = __DIR__ . '/db.local.php';
+    if (is_file($dbLocalConfig)) {
+        require_once $dbLocalConfig;
+    }
 }
 $requestHost = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
 $requestHost = preg_replace('/:\d+$/', '', $requestHost);
-$standaloneAccounting = getenv('COREFLUX_ENV') === 'coreaccounting';
 $requiresExplicitDb = getenv('COREFLUX_ENV') === 'staging'
     || (!$standaloneAccounting && ((bool) preg_match('/(^|\.)cloudwaysapps\.com$/', $requestHost)
         || in_array($requestHost, ['stage.corefluxapp.com', 'staging.corefluxapp.com'], true)));
