@@ -32,6 +32,7 @@ function coreAccountingAllowsPublicApiScript(?string $scriptFilename, string $ro
             'switch_tenant.php',
         ], true);
     }
+    if ($relative === 'billing/invoice.php') return true;
     if (!str_starts_with($relative, 'api/')) return false;
     if ($relative === 'api/index.php') return true;
     if (preg_match('~^api/coreone/v1/(bills|invoices|journals|reports)\.php$~', $relative)) {

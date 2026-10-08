@@ -21,6 +21,11 @@ foreach ([
     'dashboard/src/lib/api.js', 'graphql/router/index.ts',
     'deploy/example.php', 'scripts/example.php', '.github/workflows/example.yml',
     'modules/accounting/ui/journalDimensions.js',
+    'admin/custom_fields.php', 'app/index.html', 'approvers/dashboard.php',
+    'auth/login.php', 'master_admin_panel/dashboard.php', 'mobile/src/lib/api.ts',
+    'people/index.php', 'time_sheet_review/js/review_timesheets.js',
+    'timesheets/approve.php', 'views/dashboard_user.php',
+    'billing/invoice.php',
 ] as $file) $put($file);
 $sharedApacheConfig = (string) file_get_contents(__DIR__ . '/../.htaccess');
 file_put_contents($webroot . '/.htaccess', $sharedApacheConfig);
@@ -76,12 +81,17 @@ try {
         'dashboard/src/lib/api.js', 'graphql/router/index.ts',
         '.github/workflows/example.yml',
         'modules/accounting/ui/journalDimensions.js',
+        'admin/custom_fields.php', 'app/index.html', 'approvers/dashboard.php',
+        'auth/login.php', 'master_admin_panel/dashboard.php', 'mobile/src/lib/api.ts',
+        'people/index.php', 'time_sheet_review/js/review_timesheets.js',
+        'timesheets/approve.php', 'views/dashboard_user.php',
     ];
     $retained = [
         '.htaccess', 'spa.php', 'login.php', 'session.php', 'index.html', 'dashboard/dist/index.html',
         'deploy/example.php', 'scripts/example.php',
         'vendor/autoload.php', 'spa-assets/index-current.js', 'spa-assets/index-current.css',
         'modules/accounting/api/reports.php', '_deploy_ok.txt', 'robots.txt',
+        'billing/invoice.php',
     ];
     foreach ($moved as $relative) {
         if (file_exists($webroot . '/' . $relative) || !is_file($private . '/' . $relative)) {
@@ -91,11 +101,27 @@ try {
     foreach ($retained as $relative) {
         if (!is_file($webroot . '/' . $relative)) throw new RuntimeException("Runtime file moved: $relative");
     }
-    if (($result['moved_entries'] ?? null) !== 10) throw new RuntimeException('Unexpected move count');
+    if (($result['moved_entries'] ?? null) !== 20) throw new RuntimeException('Unexpected move count');
     require_once __DIR__ . '/../core/installer_helpers.php';
     $bundleChecks = spaBundleStatus($webroot);
     if (($bundleChecks[1]['detail'] ?? '') !== 'runtime-only package; compare installed bundle hashes with the release manifest') {
         throw new RuntimeException('Runtime-only bundle check claimed source freshness');
+    }
+
+    $secondPrivate = $privateParent . DIRECTORY_SEPARATOR . 'release-qa-rerun';
+    $argv = [
+        'finalize_coreaccounting_qa_webroot.php', '--confirm-disposable-staging',
+        '--webroot=' . $webroot, '--expected-webroot=' . $webroot,
+        '--private=' . $secondPrivate,
+    ];
+    ob_start();
+    require __DIR__ . '/../deploy/finalize_coreaccounting_qa_webroot.php';
+    $rerun = json_decode((string) ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
+    if (($rerun['moved_entries'] ?? null) !== 0
+        || ($rerun['standalone_apache_rules_installed'] ?? null) !== false
+        || (string) file_get_contents($webroot . '/.htaccess') !== $installedApacheConfig
+        || !is_file($webroot . '/billing/invoice.php')) {
+        throw new RuntimeException('Re-running the staging finalizer changed the runtime.');
     }
 
     foreach ([

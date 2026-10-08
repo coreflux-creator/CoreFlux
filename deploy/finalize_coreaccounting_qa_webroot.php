@@ -87,6 +87,8 @@ foreach (glob($webroot . '/*.php') ?: [] as $source) {
 }
 foreach ([
     'composer.json', 'composer.lock', 'dashboard (1).css', 'eslint.config.js', 'mock-server.js',
+    'admin', 'app', 'approvers', 'auth', 'master_admin_panel', 'mobile',
+    'people', 'time_sheet_review', 'timesheets', 'views',
     'dashboard/package.json', 'dashboard/package-lock.json', 'dashboard/vite.config.js',
     'dashboard/main.js', 'dashboard/style.css', 'dashboard/index.html', 'dashboard/vite.svg',
     'dashboard/.env.local', 'dashboard/src', 'dashboard/node_modules', 'dashboard/tests',
