@@ -48,11 +48,13 @@ try {
                 $safeText(implode('; ', $sources))], ',', '"', '');
         }
         rewind($out);
+        $csv = stream_get_contents($out);
+        if ($csv === false) throw new \RuntimeException('Could not read the CSV.');
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="accounting-ar-ap-tie-out-'
             . $entityId . '-' . $asOf . '.csv"');
         header('Cache-Control: no-store');
-        fpassthru($out);
+        echo $csv;
     } finally {
         fclose($out);
     }
