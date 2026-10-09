@@ -21,6 +21,8 @@ foreach ([
     'modules/accounting/api/reports.php', '_deploy_ok.txt', 'robots.txt',
     'about.html', 'login2.html', 'spa.php.tmp', 'data/branding_settings.json',
     'assets/css/signup.html',
+    'modules/private_equity/file tree.txt', 'modules/private_equity 2/Data/legacy.png',
+    'modules/finance/scripts.js',
     'README.md', 'ssh note.txt', 'install.php', 'bootstrap_debug.php',
     'signup.php', 'signup.html',
     'composer.lock', 'dashboard/package.json',
@@ -100,11 +102,13 @@ try {
         }
         return false;
     };
-    foreach (['/modules/people/api/companies.php', '/modules/billing/api/items.php'] as $path) {
+    foreach (['/modules/people/api/companies.php', '/modules/billing/api/items.php',
+        '/modules/accounting/reports', '/modules/treasury'] as $path) {
         if ($denies($path)) throw new RuntimeException("Required standalone API was blocked: $path");
     }
     foreach (['/modules/people/api/persons.php', '/modules/people/index.php',
-        '/data/branding_settings.json'] as $path) {
+        '/modules/people/overview', '/modules/private_equity/pe_scenarios.txt',
+        '/modules/finance/scripts.js', '/data/branding_settings.json'] as $path) {
         if (!$denies($path)) throw new RuntimeException("Unrelated route was exposed: $path");
     }
     $lineEnding = str_contains($installedApacheConfig, "\r\n") ? "\r\n" : "\n";
@@ -112,6 +116,14 @@ try {
     if ($withoutDataRule === $installedApacheConfig
         || coreAccountingStandaloneApacheConfig($withoutDataRule) !== $installedApacheConfig) {
         throw new RuntimeException('Existing standalone Apache rules did not add the data denial.');
+    }
+    $withoutModuleRule = str_replace(
+        'RedirectMatch 404 ^/modules/(?!accounting(?:/|$)|billing(?:/|$)|ap(?:/|$)|treasury(?:/|$)|people/api/companies\.php$)[^/]+(?:/|$)' . $lineEnding,
+        '', $installedApacheConfig
+    );
+    if ($withoutModuleRule === $installedApacheConfig
+        || coreAccountingStandaloneApacheConfig($withoutModuleRule) !== $installedApacheConfig) {
+        throw new RuntimeException('Existing standalone Apache rules did not add the module denial.');
     }
     $lfConfig = str_replace("\r\n", "\n", $sharedApacheConfig);
     $lfInstalled = coreAccountingStandaloneApacheConfig($lfConfig);
@@ -144,6 +156,8 @@ try {
         'dashboard/src/lib/api.js', 'graphql/router/index.ts',
         'dashboard/dist/spa-assets/index-old.js',
         'data/branding_settings.json', 'assets/css/signup.html',
+        'modules/private_equity/file tree.txt', 'modules/private_equity 2/Data/legacy.png',
+        'modules/finance/scripts.js',
         'spa-assets/index-old.js', 'spa-assets/index-old.css', 'spa-assets/index.html',
         '.github/workflows/example.yml',
         'modules/accounting/ui/journalDimensions.js',
@@ -168,7 +182,7 @@ try {
     foreach ($retained as $relative) {
         if (!is_file($webroot . '/' . $relative)) throw new RuntimeException("Runtime file moved: $relative");
     }
-    if (($result['moved_entries'] ?? null) !== 33) throw new RuntimeException('Unexpected move count');
+    if (($result['moved_entries'] ?? null) !== 36) throw new RuntimeException('Unexpected move count');
     require_once __DIR__ . '/../core/installer_helpers.php';
     $bundleChecks = spaBundleStatus($webroot);
     if (($bundleChecks[1]['detail'] ?? '') !== 'runtime-only package; compare installed bundle hashes with the release manifest') {

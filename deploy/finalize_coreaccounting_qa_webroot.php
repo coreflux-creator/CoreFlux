@@ -139,6 +139,7 @@ foreach ([
     'dashboard/.env.local', 'dashboard/src', 'dashboard/node_modules', 'dashboard/tests',
     'src', 'graphql', '_debug', '.github', 'data', 'docs', 'legacy',
     'memory', 'spec', 'tests',
+    'modules/private_equity', 'modules/private_equity 2', 'modules/finance',
 ] as $relative) $move($relative);
 $move('assets/css/signup.html');
 $move('dashboard/dist/spa-assets');

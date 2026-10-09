@@ -18,7 +18,7 @@ $read = static fn(string $path): string => (string) file_get_contents($root . '/
 echo "Public navigation semantics\n";
 $publicPages = [
     'people.html', 'finance.html', 'accounting.html', 'tax.html',
-    'wealth.html', 'reporting.html', 'crm.html', 'pricing.html', 'login.html',
+    'wealth.html', 'reporting.html', 'crm.html', 'pricing.html',
 ];
 foreach ($publicPages as $page) {
     $html = $read($page);
@@ -26,6 +26,9 @@ foreach ($publicPages as $page) {
     $assert("{$page} has no dead Modules link", !str_contains($html, '<a href="#">Modules</a>'));
     $assert("{$page} exposes an accessible Modules trigger", str_contains($html, 'class="dropdown-trigger" aria-haspopup="true"'));
 }
+$login = $read('login.html');
+$assert('sign-in keeps its page heading', preg_match('/<h1(?:\s|>)/i', $login) === 1);
+$assert('sign-in has no marketing navigation to unshipped pages', !str_contains($login, 'class="nav-links"'));
 $css = $read('assets/css/styles.css');
 $assert('dropdown opens for keyboard focus', str_contains($css, '.dropdown:focus-within .dropdown-content'));
 $assert('public navigation has a visible keyboard focus style', str_contains($css, ':focus-visible'));

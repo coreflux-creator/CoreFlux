@@ -8,13 +8,15 @@ $spa = (string) file_get_contents($root . '/spa.php');
 $worker = (string) file_get_contents($root . '/spa-assets/sw.js');
 $paths = [
     '/assets/brand/coreflux-logo.png',
-    '/assets/img/hero-login.png',
     '/assets/brand/coreflux-mark.png',
 ];
 foreach ($paths as $path) {
     if (!str_contains($login, $path) || !is_file($root . $path)) {
         throw new RuntimeException("Login image is missing: $path");
     }
+}
+if (preg_match('/href="(?:index|pricing|people|finance|accounting|tax|wealth|reporting|crm)\.html"/', $login)) {
+    throw new RuntimeException('Standalone sign-in must not link to retired marketing pages.');
 }
 if (!str_contains($dashboard, 'href="/assets/brand/coreflux-mark.png"')) {
     throw new RuntimeException('Dashboard favicon must use the packaged brand mark.');
