@@ -31,7 +31,8 @@ $assert('DepositList loads only the selected entity',   stripos($tUI, 'deposit_a
     && stripos($tUI, 'entity_id=${selectedEntityId}') !== false);
 $assert('DepositList exposes the legal-entity picker',  stripos($tUI, 'data-testid="treasury-deposits-entity-scope"') !== false
     && stripos($tUI, 'id="treasury-deposits-entity"') !== false);
-$assert('Deposit create uses selected entity explicitly', stripos($tUI, 'entity_id: entityId') !== false);
+$assert('Deposit create opens entity-scoped bank setup',
+    stripos($tUI, '/modules/accounting/bank-rec?entity_id=${selectedEntityId}&new=1') !== false);
 
 echo "\nAP legacy → workflow_instances reverse mirror\n";
 $ba = (string) file_get_contents("{$ROOT}/modules/ap/api/bill_approvals.php");

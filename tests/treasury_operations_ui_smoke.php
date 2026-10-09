@@ -31,7 +31,7 @@ $assert('bookkeeping shortcuts use mounted module routes',
     && str_contains($overview, "scope.withScope('/modules/treasury/transfers?queue=pending')")
     && str_contains($overview, "scope.withScope('/modules/accounting/periods?status=ready_to_close')"));
 $assert('bank and journal links use mounted module routes',
-    str_contains($overview, "scope.withScope('/modules/treasury/deposits')")
+    str_contains($overview, "scope.withScope('/modules/accounting/bank-rec?new=1')")
     && str_contains($overview, 'scope.withScope(`/modules/accounting/journal-entries/${e.journal_entry_id}`)'));
 $assert('failure reasons are returned to the queue',
     str_contains($paymentApi, 'failure_reason') && str_contains($transferApi, 'failure_reason'));
