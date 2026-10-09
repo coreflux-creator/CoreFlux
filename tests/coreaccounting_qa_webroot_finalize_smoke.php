@@ -13,11 +13,13 @@ $put = static function (string $relative) use ($webroot): void {
     file_put_contents($path, 'fixture');
 };
 foreach ([
-    '.htaccess', '.gitignore', 'spa.php', 'login.php', 'session.php', 'index.html',
+    '.htaccess', '.gitignore', 'spa.php', 'login.php', 'login.html', 'session.php', 'index.html',
     '404.html', 'privacy.html', 'terms.html', 'quickbooks-connect.html', 'quickbooks-disconnect.html',
     'dashboard/dist/index.html', 'dashboard/dist/spa-assets/index-old.js',
     'vendor/autoload.php', 'spa-assets/index-current.js', 'spa-assets/index-current.css',
+    'spa-assets/index-feature.js', 'spa-assets/index-theme.css',
     'spa-assets/index-old.js', 'spa-assets/index-old.css', 'spa-assets/index.html',
+    'spa-assets/sw.js',
     'modules/accounting/api/reports.php', '_deploy_ok.txt', 'robots.txt',
     'about.html', 'login2.html', 'spa.php.tmp', 'data/branding_settings.json',
     'assets/css/signup.html', 'assets/brand/coreflux-logo.png', 'assets/brand/coreflux-mark.png',
@@ -61,7 +63,7 @@ try {
         require __DIR__ . '/../deploy/finalize_coreaccounting_qa_webroot.php';
         throw new RuntimeException('Incomplete app bundle was accepted');
     } catch (RuntimeException $error) {
-        if ($error->getMessage() !== 'Installed app asset is missing: index-missing.js') throw $error;
+        if ($error->getMessage() !== 'Installed app asset is missing or linked: index-missing.js') throw $error;
     }
     if (file_exists($privateParent . '/invalid-entry')
         || !is_file($webroot . '/index.html')
@@ -85,7 +87,8 @@ try {
     if (is_dir($privateParent . '/referenced-static') || !is_file($webroot . '/assets/img/old.png')) {
         throw new RuntimeException('Referenced static preflight mutated the app');
     }
-    file_put_contents($webroot . '/spa-assets/index-current.js', 'fixture');
+    file_put_contents($webroot . '/spa-assets/index-current.js', 'import("./index-feature.js")');
+    file_put_contents($webroot . '/spa-assets/index-current.css', '@import "./index-theme.css";');
 
     $private = $privateParent . DIRECTORY_SEPARATOR . 'release-qa';
     $argv = [
@@ -201,6 +204,7 @@ try {
         '404.html', 'privacy.html', 'terms.html', 'quickbooks-connect.html', 'quickbooks-disconnect.html',
         'deploy/example.php', 'scripts/example.php',
         'vendor/autoload.php', 'spa-assets/index-current.js', 'spa-assets/index-current.css',
+        'spa-assets/index-feature.js', 'spa-assets/index-theme.css',
         'assets/brand/coreflux-logo.png', 'assets/brand/coreflux-mark.png',
         'assets/css/legal.css', 'assets/css/styles.css',
         'modules/accounting/api/reports.php', '_deploy_ok.txt', 'robots.txt',

@@ -37,28 +37,11 @@ foreach (['spa.php', '.htaccess', 'dashboard/dist/index.html', 'vendor/autoload.
 }
 $distHtml = file_get_contents($webroot . '/dashboard/dist/index.html');
 if ($distHtml === false) throw new RuntimeException('Could not read the installed app entry.');
+require_once __DIR__ . '/coreaccounting_public_assets.php';
 $runtimeSpaAssets = [];
-$queue = [];
-foreach (['js', 'css'] as $extension) {
-    preg_match_all('~/(?:spa-assets|assets)/(index-[A-Za-z0-9_-]+\.' . $extension . ')(?=["\'])~',
-        $distHtml, $matches);
-    $entryAssets = array_values(array_unique($matches[1] ?? []));
-    if (count($entryAssets) !== 1) {
-        throw new RuntimeException("Installed app must identify one $extension entry asset.");
-    }
-    $queue[] = $entryAssets[0];
-}
-while ($queue) {
-    $name = array_shift($queue);
-    if (isset($runtimeSpaAssets[$name])) continue;
-    $path = $webroot . '/spa-assets/' . $name;
-    if (!is_file($path)) throw new RuntimeException("Installed app asset is missing: $name");
-    $runtimeSpaAssets[$name] = true;
-    if (str_ends_with($name, '.js')) {
-        preg_match_all('/index-[A-Za-z0-9_-]+\.(?:js|css)/', (string) file_get_contents($path), $references);
-        foreach (array_unique($references[0] ?? []) as $reference) {
-            if (!isset($runtimeSpaAssets[$reference])) $queue[] = $reference;
-        }
+foreach (coreAccountingExpectedPublicFiles($webroot) as $relative) {
+    if (str_starts_with($relative, 'spa-assets/index-')) {
+        $runtimeSpaAssets[basename($relative)] = true;
     }
 }
 $publicAssetReferences = $distHtml;
