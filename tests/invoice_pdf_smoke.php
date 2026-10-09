@@ -67,7 +67,8 @@ $a('invoiceRenderPdf() defined',               function_exists('invoiceRenderPdf
 $a('invoiceBuildPdfHtml() defined',            function_exists('invoiceBuildPdfHtml'));
 $a('invoiceBuildPdfHtmlFinal() defined',       function_exists('invoiceBuildPdfHtmlFinal'));
 $a('cache busts on updated_at + amount_due',   str_contains($libSrc, "updated_at") && str_contains($libSrc, 'amount_due'));
-$a('cache dir is tenant-scoped',               str_contains($libSrc, "COREFLUX_INVOICE_PDF_STORAGE_ROOT . '/' . \$tenantId"));
+$a('cache dir is tenant-scoped',               str_contains($libSrc, "invoicePdfStorageRoot() . '/' . \$tenantId"));
+$a('standalone uses private storage',          str_contains($libSrc, 'coreAccountingPrivateStorageRoot(dirname(__DIR__, 3))'));
 $a('uses cf_render_html_to_pdf()',             str_contains($libSrc, 'cf_render_html_to_pdf('));
 $a('letter paper default',                     str_contains($libSrc, "'paper' => 'letter'"));
 

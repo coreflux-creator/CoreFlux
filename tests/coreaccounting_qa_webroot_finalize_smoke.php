@@ -20,7 +20,10 @@ foreach ([
     'spa-assets/index-old.js', 'spa-assets/index-old.css', 'spa-assets/index.html',
     'modules/accounting/api/reports.php', '_deploy_ok.txt', 'robots.txt',
     'about.html', 'login2.html', 'spa.php.tmp', 'data/branding_settings.json',
-    'assets/css/signup.html',
+    'assets/css/signup.html', 'assets/brand/coreflux-logo.png', 'assets/brand/coreflux-mark.png',
+    'assets/css/legal.css', 'assets/css/styles.css', 'assets/css/dashboard.css',
+    'assets/css/css/legacy.css', 'assets/img/old.png', 'assets/styles.css', 'css/style.css',
+    'dashboard/static/js/main.js', 'modules/accounting/assets/js/script.js',
     'modules/private_equity/file tree.txt', 'modules/private_equity 2/Data/legacy.png',
     'modules/finance/scripts.js',
     'README.md', 'ssh note.txt', 'install.php', 'bootstrap_debug.php',
@@ -67,6 +70,23 @@ try {
     }
     file_put_contents($webroot . '/spa-assets/index-current.js', 'fixture');
 
+    file_put_contents($webroot . '/spa-assets/index-current.js', 'const old = "/assets/img/old.png";');
+    $argv = [
+        'finalize_coreaccounting_qa_webroot.php', '--confirm-disposable-staging',
+        '--webroot=' . $webroot, '--expected-webroot=' . $webroot,
+        '--private=' . $privateParent . '/referenced-static',
+    ];
+    try {
+        require __DIR__ . '/../deploy/finalize_coreaccounting_qa_webroot.php';
+        throw new RuntimeException('Referenced legacy image was moved');
+    } catch (RuntimeException $error) {
+        if ($error->getMessage() !== 'Active app references or links legacy static path: assets/img') throw $error;
+    }
+    if (is_dir($privateParent . '/referenced-static') || !is_file($webroot . '/assets/img/old.png')) {
+        throw new RuntimeException('Referenced static preflight mutated the app');
+    }
+    file_put_contents($webroot . '/spa-assets/index-current.js', 'fixture');
+
     $private = $privateParent . DIRECTORY_SEPARATOR . 'release-qa';
     $argv = [
         'finalize_coreaccounting_qa_webroot.php', '--confirm-disposable-staging',
@@ -108,7 +128,8 @@ try {
     }
     foreach (['/modules/people/api/persons.php', '/modules/people/index.php',
         '/modules/people/overview', '/modules/private_equity/pe_scenarios.txt',
-        '/modules/finance/scripts.js', '/data/branding_settings.json'] as $path) {
+        '/modules/finance/scripts.js', '/modules/accounting/assets/js/script.js',
+        '/data/branding_settings.json'] as $path) {
         if (!$denies($path)) throw new RuntimeException("Unrelated route was exposed: $path");
     }
     $lineEnding = str_contains($installedApacheConfig, "\r\n") ? "\r\n" : "\n";
@@ -124,6 +145,12 @@ try {
     if ($withoutModuleRule === $installedApacheConfig
         || coreAccountingStandaloneApacheConfig($withoutModuleRule) !== $installedApacheConfig) {
         throw new RuntimeException('Existing standalone Apache rules did not add the module denial.');
+    }
+    $assetRule = 'RedirectMatch 404 ^/modules/[^/]+/assets(?:/|$)' . $lineEnding;
+    $withoutAssetRule = str_replace($assetRule, '', $installedApacheConfig);
+    if ($withoutAssetRule === $installedApacheConfig
+        || coreAccountingStandaloneApacheConfig($withoutAssetRule) !== $installedApacheConfig) {
+        throw new RuntimeException('Existing standalone Apache rules did not add the static asset denial.');
     }
     $lfConfig = str_replace("\r\n", "\n", $sharedApacheConfig);
     $lfInstalled = coreAccountingStandaloneApacheConfig($lfConfig);
@@ -156,6 +183,9 @@ try {
         'dashboard/src/lib/api.js', 'graphql/router/index.ts',
         'dashboard/dist/spa-assets/index-old.js',
         'data/branding_settings.json', 'assets/css/signup.html',
+        'assets/css/dashboard.css', 'assets/css/css/legacy.css', 'assets/img/old.png',
+        'assets/styles.css', 'css/style.css', 'dashboard/static/js/main.js',
+        'modules/accounting/assets/js/script.js',
         'modules/private_equity/file tree.txt', 'modules/private_equity 2/Data/legacy.png',
         'modules/finance/scripts.js',
         'spa-assets/index-old.js', 'spa-assets/index-old.css', 'spa-assets/index.html',
@@ -171,6 +201,8 @@ try {
         '404.html', 'privacy.html', 'terms.html', 'quickbooks-connect.html', 'quickbooks-disconnect.html',
         'deploy/example.php', 'scripts/example.php',
         'vendor/autoload.php', 'spa-assets/index-current.js', 'spa-assets/index-current.css',
+        'assets/brand/coreflux-logo.png', 'assets/brand/coreflux-mark.png',
+        'assets/css/legal.css', 'assets/css/styles.css',
         'modules/accounting/api/reports.php', '_deploy_ok.txt', 'robots.txt',
         'billing/invoice.php',
     ];
@@ -182,7 +214,7 @@ try {
     foreach ($retained as $relative) {
         if (!is_file($webroot . '/' . $relative)) throw new RuntimeException("Runtime file moved: $relative");
     }
-    if (($result['moved_entries'] ?? null) !== 36) throw new RuntimeException('Unexpected move count');
+    if (($result['moved_entries'] ?? null) !== 43) throw new RuntimeException('Unexpected move count');
     require_once __DIR__ . '/../core/installer_helpers.php';
     $bundleChecks = spaBundleStatus($webroot);
     if (($bundleChecks[1]['detail'] ?? '') !== 'runtime-only package; compare installed bundle hashes with the release manifest') {

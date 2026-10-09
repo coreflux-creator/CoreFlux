@@ -61,6 +61,33 @@ while ($queue) {
         }
     }
 }
+$publicAssetReferences = $distHtml;
+foreach (array_keys($runtimeSpaAssets) as $name) {
+    $publicAssetReferences .= (string) file_get_contents($webroot . '/spa-assets/' . $name);
+}
+foreach (['spa.php', 'login.html', '404.html', 'privacy.html', 'terms.html',
+    'quickbooks-connect.html', 'quickbooks-disconnect.html',
+    'assets/css/legal.css', 'assets/css/styles.css'] as $relative) {
+    $path = $webroot . '/' . $relative;
+    if (is_file($path)) $publicAssetReferences .= (string) file_get_contents($path);
+}
+$legacyStatic = ['assets/img', 'assets/styles.css', 'css',
+    'dashboard/static', 'modules/accounting/assets'];
+foreach (glob($webroot . '/assets/css/*') ?: [] as $path) {
+    $name = basename($path);
+    if (!in_array($name, ['legal.css', 'styles.css'], true)) {
+        $legacyStatic[] = 'assets/css/' . $name;
+    }
+}
+foreach ($legacyStatic as $relative) {
+    $source = $webroot . '/' . $relative;
+    if (!file_exists($source)) continue;
+    $reference = '~(?<![A-Za-z0-9_./-])/' . preg_quote($relative, '~')
+        . (is_dir($source) ? '/' : '') . '~';
+    if (is_link($source) || preg_match($reference, $publicAssetReferences)) {
+        throw new RuntimeException("Active app references or links legacy static path: $relative");
+    }
+}
 require_once __DIR__ . '/coreaccounting_apache_boundary.php';
 $apacheConfig = file_get_contents($webroot . '/.htaccess');
 if ($apacheConfig === false) throw new RuntimeException('Could not read Apache config.');
@@ -142,6 +169,8 @@ foreach ([
     'modules/private_equity', 'modules/private_equity 2', 'modules/finance',
 ] as $relative) $move($relative);
 $move('assets/css/signup.html');
+$legacyStatic = array_values(array_unique($legacyStatic));
+foreach ($legacyStatic as $relative) $move($relative);
 $move('dashboard/dist/spa-assets');
 foreach (glob($webroot . '/spa-assets/*') ?: [] as $source) {
     if (!is_file($source)) continue;

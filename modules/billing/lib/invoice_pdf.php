@@ -5,7 +5,8 @@
  *   invoiceRenderPdf(int $invoiceId, bool $useCache = true): string  → absolute path
  *   invoiceBuildPdfHtml(int $invoiceId): string                       → HTML template
  *
- * Cached at `/app/storage/billing/invoices/<tenant_id>/<invoice_id>-<hash>.pdf`.
+ * Cached under private storage for standalone CoreAccounting, or the ERP's
+ * existing storage directory otherwise.
  * Cache key is the invoice's `updated_at` + amount_due (so any edit busts cache).
  *
  * Permissions are NOT checked here — callers (HTTP endpoint, mail attach)
@@ -15,8 +16,16 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/pdf_renderer.php';
+require_once __DIR__ . '/../../../core/accounting/private_storage.php';
 
 const COREFLUX_INVOICE_PDF_STORAGE_ROOT = __DIR__ . '/../../../storage/billing/invoices';
+
+function invoicePdfStorageRoot(): string {
+    if (getenv('COREFLUX_ENV') !== 'coreaccounting') {
+        return COREFLUX_INVOICE_PDF_STORAGE_ROOT;
+    }
+    return coreAccountingPrivateStorageRoot(dirname(__DIR__, 3)) . '/billing/invoices';
+}
 
 function invoiceRenderPdf(int $invoiceId, bool $useCache = true): string {
     $pdo = getDB();
@@ -25,7 +34,7 @@ function invoiceRenderPdf(int $invoiceId, bool $useCache = true): string {
 
     $cacheKey = hash('sha1', (string) $inv['updated_at'] . '|' . (string) $inv['amount_due']);
     $tenantId = (int) $inv['tenant_id'];
-    $outDir   = COREFLUX_INVOICE_PDF_STORAGE_ROOT . '/' . $tenantId;
+    $outDir   = invoicePdfStorageRoot() . '/' . $tenantId;
     $outPath  = $outDir . '/' . $invoiceId . '-' . $cacheKey . '.pdf';
 
     if ($useCache && is_file($outPath) && filesize($outPath) > 0) return $outPath;

@@ -10,6 +10,7 @@ function coreAccountingStandaloneApacheConfig(string $config): string
         'RedirectMatch 404 ^/modules/(?!accounting/|billing/|ap/|treasury/|people/api/companies\.php$)[^/]+/api/.*\.php$',
         'RedirectMatch 404 ^/data(?:/|$)',
         'RedirectMatch 404 ^/modules/(?!accounting(?:/|$)|billing(?:/|$)|ap(?:/|$)|treasury(?:/|$)|people/api/companies\.php$)[^/]+(?:/|$)',
+        'RedirectMatch 404 ^/modules/[^/]+/assets(?:/|$)',
     ];
     $counts = array_map(static fn(string $rule): int => substr_count($config, $rule), $rules);
     $oldCount = substr_count($config, $oldApiRule);
@@ -20,8 +21,9 @@ function coreAccountingStandaloneApacheConfig(string $config): string
     }
     $lineEnding = str_contains($config, "\r\n") ? "\r\n" : "\n";
     if ($counts[0] === 1 && $counts[1] === 1 && $oldCount === 0
-        && in_array($counts[2], [0, 1], true) && in_array($counts[3], [0, 1], true)) {
-        foreach ([2, 3] as $index) {
+        && in_array($counts[2], [0, 1], true) && in_array($counts[3], [0, 1], true)
+        && in_array($counts[4], [0, 1], true)) {
+        foreach ([2, 3, 4] as $index) {
             if ($counts[$index] === 1) continue;
             $anchor = $rules[$index - 1] . $lineEnding;
             if (substr_count($config, $anchor) !== 1) {
@@ -32,7 +34,7 @@ function coreAccountingStandaloneApacheConfig(string $config): string
         }
         return $config;
     }
-    if ($counts !== [0, 0, 0, 0] || $oldCount !== 0) {
+    if ($counts !== [0, 0, 0, 0, 0] || $oldCount !== 0) {
         throw new RuntimeException('Standalone Apache module rules are incomplete or duplicated.');
     }
 
