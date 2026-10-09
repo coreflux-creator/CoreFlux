@@ -228,6 +228,35 @@ jobs:
       - name: Exercise legacy password reset schema migration
         run: php tests/coreaccounting_password_reset_migration_db_check.php --confirm-disposable-fixture
 
+      - name: Exercise log-only password reset and replay
+        run: |
+          export MAIL_DRIVER=log
+          export MAIL_LOG_PATH="$RUNNER_TEMP/coreaccounting-reset-mail.jsonl"
+          php tests/coreaccounting_password_reset_http_check.php --setup
+          php -S 127.0.0.1:8766 -t "$COREFLUX_STANDALONE_WEBROOT" > "$RUNNER_TEMP/coreaccounting-reset-web.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in 1 2 3 4 5; do
+            if curl --silent --output /dev/null http://127.0.0.1:8766/forgot_password.php; then break; fi
+            sleep 1
+          done
+          response="$(curl --fail --silent --show-error --request POST \
+            --data-urlencode 'email=ci-admin@coreaccounting.invalid' \
+            --data-urlencode 'token=ci-synthetic-reset-token-2026' \
+            --data-urlencode 'password=ci-synthetic-reset-password-2026' \
+            --data-urlencode 'confirm=ci-synthetic-reset-password-2026' \
+            http://127.0.0.1:8766/reset_password.php)"
+          printf '%s' "$response" | grep -q 'Your password has been reset successfully'
+          test -s "$MAIL_LOG_PATH"
+          replay="$(curl --fail --silent --show-error --request POST \
+            --data-urlencode 'email=ci-admin@coreaccounting.invalid' \
+            --data-urlencode 'token=ci-synthetic-reset-token-2026' \
+            --data-urlencode 'password=ci-synthetic-reset-password-2026' \
+            --data-urlencode 'confirm=ci-synthetic-reset-password-2026' \
+            http://127.0.0.1:8766/reset_password.php)"
+          printf '%s' "$replay" | grep -q 'Invalid or expired reset link'
+          php tests/coreaccounting_password_reset_http_check.php --verify
+
       - name: Replay invoice, bill, payment and bank scenarios
         run: |
           cd "$COREFLUX_STANDALONE_WEBROOT"
