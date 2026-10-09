@@ -74,6 +74,29 @@ if ($standaloneAccounting) {
     if ($expectedDatabase === '' || !hash_equals($expectedDatabase, (string) DB_NAME)) {
         coreAccountingConfigurationFailure('CoreAccounting database identity is missing or does not match.');
     }
+
+    $mailConfigPath = trim((string) (getenv('COREFLUX_ACCOUNTING_MAIL_CONFIG_PATH') ?: ''));
+    if ($mailConfigPath !== '') {
+        $resolvedMailConfig = realpath($mailConfigPath);
+        $publicRoot = realpath(dirname(__DIR__));
+        $requestedPath = str_replace('\\', '/', $mailConfigPath);
+        $publicPath = str_replace('\\', '/', (string) $publicRoot);
+        if (PHP_OS_FAMILY === 'Windows') {
+            $requestedPath = strtolower($requestedPath);
+            $publicPath = strtolower($publicPath);
+        }
+        $requestedInsideWebroot = $publicRoot !== false
+            && ($requestedPath === $publicPath || str_starts_with($requestedPath, $publicPath . '/'));
+        if (!preg_match('~^(?:/|[A-Za-z]:[/\\\\])~', $mailConfigPath)
+            || $resolvedMailConfig === false || $publicRoot === false || $requestedInsideWebroot
+            || !is_file($resolvedMailConfig) || !is_readable($resolvedMailConfig)
+            || is_link($mailConfigPath) || pathinfo($resolvedMailConfig, PATHINFO_EXTENSION) !== 'php'
+            || $resolvedMailConfig === $publicRoot
+            || str_starts_with($resolvedMailConfig, $publicRoot . DIRECTORY_SEPARATOR)) {
+            coreAccountingConfigurationFailure('CoreAccounting private mail configuration is unavailable.');
+        }
+        require_once $resolvedMailConfig;
+    }
 }
 
 // Database Configuration
