@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/../deploy/coreaccounting_vendor_layout.php';
 
 $base = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'coreaccounting-vendor-' . bin2hex(random_bytes(6));
 $webroot = $base . DIRECTORY_SEPARATOR . 'public_html';
@@ -84,7 +85,41 @@ try {
     if ($code === 0 || !is_file($private . '/vendor/autoload.php')) {
         throw new RuntimeException('A second private Composer destination was accepted');
     }
-    echo "Passed: private Composer runtime, autoload shim, rerun, and unsafe-target refusals\n";
+
+    $packageRoot = $base . '/package/public_html';
+    $packageVendor = $packageRoot . '/vendor';
+    mkdir($packageVendor . '/dompdf/dompdf/src', 0700, true);
+    file_put_contents($packageVendor . '/autoload.php', "<?php\nclass CoreAccountingPortableVendorFixture {}\n");
+    file_put_contents($packageVendor . '/dompdf/dompdf/src/Dompdf.php', "<?php\n");
+    $packagePrivate = $base . '/package/private_runtime';
+    $packageEnvironment = $standaloneEnvironment;
+    $packageEnvironment['COREFLUX_STANDALONE_WEBROOT'] = $packageRoot;
+    $packageArgs = ['--confirm-standalone-webroot', '--package-layout',
+        '--webroot=' . $packageRoot, '--expected-webroot=' . $packageRoot,
+        '--private=' . $packagePrivate,
+        '--origin=https://accounting.example.test', '--database=fixture_accounting'];
+    $wrongPackageArgs = array_map(static fn(string $arg): string =>
+        str_starts_with($arg, '--private=') ? '--private=' . $base . '/package/not_private_runtime' : $arg,
+        $packageArgs);
+    [$code] = $run($wrongPackageArgs, $packageEnvironment);
+    if ($code === 0 || !is_file($packageVendor . '/autoload.php') || is_dir($packagePrivate)) {
+        throw new RuntimeException('Portable package accepted a wrong private sibling');
+    }
+    [$code, $out, $err] = $run($packageArgs, $packageEnvironment);
+    if ($code !== 0 || $err !== '' || (json_decode($out, true)['already_private'] ?? null) !== false
+        || file_get_contents($packageVendor . '/autoload.php') !== coreAccountingPortableVendorShim()
+        || !is_file($packagePrivate . '/vendor/autoload.php')) {
+        throw new RuntimeException('Portable Composer package failed: ' . $err . ' ' . $out);
+    }
+    require $packageVendor . '/autoload.php';
+    if (!class_exists('CoreAccountingPortableVendorFixture')) {
+        throw new RuntimeException('Portable autoload shim does not load private dependencies');
+    }
+    [$code, $out, $err] = $run($packageArgs, $packageEnvironment);
+    if ($code !== 0 || $err !== '' || (json_decode($out, true)['already_private'] ?? null) !== true) {
+        throw new RuntimeException('Portable Composer rerun was not idempotent');
+    }
+    echo "Passed: private Composer runtime, portable shim, rerun, and unsafe-target refusals\n";
 } finally {
     $resolved = realpath($base);
     $temp = realpath(sys_get_temp_dir());

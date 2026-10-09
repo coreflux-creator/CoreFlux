@@ -15,17 +15,25 @@ $option = static function (string $name) use ($argv): string {
     return count($matches) === 1 ? substr($matches[0], strlen($prefix)) : '';
 };
 $root = realpath($option('root'));
+$privateRootPath = $option('private-root');
+$privateRoot = realpath($privateRootPath);
 $output = $option('output');
 $parent = $output !== '' ? realpath(dirname($output)) : false;
 $commit = $option('commit');
-if ($root === false || $parent === false || is_link($root) || is_link($output)
+if ($root === false || $privateRoot === false || $parent === false
+    || is_link($root) || is_link($privateRootPath) || is_link($output)
     || file_exists($output) || !preg_match('/^[a-f0-9]{40}$/', $commit)
     || !preg_match('~^(?:/|[A-Za-z]:[/\\\\])~', $output)) {
-    throw new RuntimeException('Exact runtime root, new absolute manifest path and commit are required.');
+    throw new RuntimeException('Exact public and private roots, new absolute manifest path and commit are required.');
 }
 $resolvedOutput = $parent . DIRECTORY_SEPARATOR . basename($output);
-if ($parent === $root || str_starts_with($parent, $root . DIRECTORY_SEPARATOR)) {
-    throw new RuntimeException('Release manifest must be outside the public webroot.');
+if (basename($root) !== 'public_html' || basename($privateRoot) !== 'private_runtime'
+    || dirname($root) !== dirname($privateRoot) || $root === $privateRoot) {
+    throw new RuntimeException('Release requires exact public_html and private_runtime siblings.');
+}
+if ($parent === $root || str_starts_with($parent, $root . DIRECTORY_SEPARATOR)
+    || $parent === $privateRoot || str_starts_with($parent, $privateRoot . DIRECTORY_SEPARATOR)) {
+    throw new RuntimeException('Release manifest must be outside both runtime roots.');
 }
 foreach (['.htaccess', 'dashboard/dist/index.html', 'vendor/autoload.php'] as $required) {
     if (!is_file($root . '/' . $required)) {
@@ -37,6 +45,15 @@ foreach (['composer.json', 'composer.lock', 'core/db.local.php', 'core/config.lo
         throw new RuntimeException("Build-only or private file remains in webroot: $private");
     }
 }
+require_once __DIR__ . '/coreaccounting_vendor_layout.php';
+$publicVendor = $root . '/vendor';
+$vendorEntries = scandir($publicVendor);
+if ($vendorEntries === false || array_values(array_diff($vendorEntries, ['.', '..'])) !== ['autoload.php']
+    || file_get_contents($publicVendor . '/autoload.php') !== coreAccountingPortableVendorShim()
+    || !is_file($privateRoot . '/vendor/autoload.php')
+    || !is_file($privateRoot . '/vendor/dompdf/dompdf/src/Dompdf.php')) {
+    throw new RuntimeException('Portable Composer runtime is incomplete or exposed in webroot.');
+}
 
 require_once __DIR__ . '/coreaccounting_apache_boundary.php';
 $apache = file_get_contents($root . '/.htaccess');
@@ -46,31 +63,22 @@ if ($apache === false || coreAccountingStandaloneApacheConfig($apache) !== $apac
 require_once __DIR__ . '/coreaccounting_public_assets.php';
 $public = coreAccountingExpectedPublicFiles($root);
 
-$files = [];
-$iterator = new RecursiveIteratorIterator(
-    new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
-    RecursiveIteratorIterator::SELF_FIRST
-);
-foreach ($iterator as $entry) {
-    $relative = str_replace('\\', '/', substr($entry->getPathname(), strlen($root) + 1));
-    if ($entry->isLink()) throw new RuntimeException("Linked package entry is not accepted: $relative");
-    if (!$entry->isFile()) continue;
-    $hash = hash_file('sha256', $entry->getPathname());
-    if ($hash === false) throw new RuntimeException("Could not hash package entry: $relative");
-    $files[$relative] = $hash;
-}
-ksort($files, SORT_STRING);
+require_once __DIR__ . '/coreaccounting_release_files.php';
+$files = coreAccountingReleaseFileHashes($root);
+$privateFiles = coreAccountingReleaseFileHashes($privateRoot);
 foreach ($public as $relative) {
     if (!isset($files[$relative])) throw new RuntimeException("Public runtime file is missing: $relative");
 }
-if (!$files) throw new RuntimeException('Prepared runtime is empty.');
+if (!$files || !$privateFiles) throw new RuntimeException('Prepared runtime is empty.');
 
 $manifest = [
     'product' => 'CoreAccounting',
     'source_commit' => $commit,
     'file_count' => count($files),
+    'private_file_count' => count($privateFiles),
     'expected_public_files' => $public,
     'files' => $files,
+    'private_files' => $privateFiles,
 ];
 $json = json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 if (file_put_contents($resolvedOutput, $json, LOCK_EX) !== strlen($json)) {
@@ -79,6 +87,7 @@ if (file_put_contents($resolvedOutput, $json, LOCK_EX) !== strlen($json)) {
 echo json_encode([
     'source_commit' => $commit,
     'file_count' => count($files),
+    'private_file_count' => count($privateFiles),
     'expected_public_files' => count($public),
     'manifest_sha256' => hash('sha256', $json),
 ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";

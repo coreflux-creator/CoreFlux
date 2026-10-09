@@ -39,6 +39,7 @@ if ($webroot === false || $expected !== $webroot || $parent === false
     throw new RuntimeException('Exact existing webroot and absolute private destination are required.');
 }
 $private = $parent . DIRECTORY_SEPARATOR . basename($privatePath);
+$packageLayout = in_array('--package-layout', $argv, true);
 $rootPath = str_replace('\\', '/', $webroot);
 $parentPath = str_replace('\\', '/', $parent);
 if ($parent === '/' || $parentPath === $rootPath
@@ -46,9 +47,15 @@ if ($parent === '/' || $parentPath === $rootPath
     || is_link($private) || is_link($webroot . '/vendor')) {
     throw new RuntimeException('Private destination must be outside the webroot; symlinks are not allowed.');
 }
+if ($packageLayout && (!$standalone || $parent !== dirname($webroot)
+    || basename($private) !== 'private_runtime')) {
+    throw new RuntimeException('Portable package requires the exact private_runtime sibling.');
+}
 $privateAutoload = $private . '/vendor/autoload.php';
-$shim = "<?php\n/** Composer runtime lives outside the public document root. */\n"
-    . 'return require ' . var_export($privateAutoload, true) . ";\n";
+require_once __DIR__ . '/coreaccounting_vendor_layout.php';
+$shim = $packageLayout ? coreAccountingPortableVendorShim()
+    : "<?php\n/** Composer runtime lives outside the public document root. */\n"
+        . 'return require ' . var_export($privateAutoload, true) . ";\n";
 $publicAutoload = $webroot . '/vendor/autoload.php';
 if (is_dir($private)) {
     if (!is_file($privateAutoload) || !is_file($publicAutoload)

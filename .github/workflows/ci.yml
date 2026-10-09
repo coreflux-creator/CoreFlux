@@ -199,6 +199,7 @@ jobs:
           COREFLUX_STANDALONE_WEBROOT="$extracted/public_html" \
           php "$extracted/public_html/deploy/verify_coreaccounting_release.php" \
             --confirm-read-only-package --root="$extracted/public_html" \
+            --private-root="$extracted/private_runtime" \
             --manifest="$extracted/manifest.json" --commit="$commit" \
             --manifest-sha256="$manifest_sha"
           echo "COREFLUX_STANDALONE_WEBROOT=$extracted/public_html" >> "$GITHUB_ENV"
@@ -251,6 +252,11 @@ jobs:
           tools: composer:v2
           coverage: none
 
+      - name: Check package manifest and private Composer layout
+        run: |
+          php tests/coreaccounting_release_manifest_smoke.php
+          php tests/coreaccounting_private_vendor_smoke.php
+
       - name: Build and independently verify extracted package
         run: |
           package="$RUNNER_TEMP/coreaccounting-release"
@@ -259,14 +265,20 @@ jobs:
           mkdir "$extracted"
           tar -xzf "$package/release.tar.gz" -C "$extracted"
           test -f "$extracted/public_html/vendor/autoload.php"
+          test "$(find "$extracted/public_html/vendor" -type f | wc -l)" -eq 1
+          test -f "$extracted/private_runtime/vendor/autoload.php"
+          test -f "$extracted/private_runtime/vendor/dompdf/dompdf/src/Dompdf.php"
           test ! -e "$extracted/public_html/composer.json"
           test ! -e "$extracted/private_build_only"
+          php -r 'require $argv[1]; if (!class_exists("Dompdf\\Dompdf")) exit(1);' \
+            "$extracted/public_html/vendor/autoload.php"
           commit="$(git rev-parse HEAD)"
           manifest_sha="$(sha256sum "$package/manifest.json" | cut -d' ' -f1)"
           COREFLUX_ENV=coreaccounting \
           COREFLUX_STANDALONE_WEBROOT="$extracted/public_html" \
           php "$extracted/public_html/deploy/verify_coreaccounting_release.php" \
             --confirm-read-only-package --root="$extracted/public_html" \
+            --private-root="$extracted/private_runtime" \
             --manifest="$extracted/manifest.json" --commit="$commit" \
             --manifest-sha256="$manifest_sha"
 

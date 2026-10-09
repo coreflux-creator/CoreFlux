@@ -35,8 +35,19 @@ php "$output/public_html/deploy/coreaccounting_webroot_finalizer.php" \
   --origin=https://package.coreaccounting.invalid --database=package_build \
   --private="$output/private_build_only"
 
+COREFLUX_ENV=coreaccounting \
+COREFLUX_STANDALONE_WEBROOT="$output/public_html" \
+COREFLUX_PUBLIC_ORIGIN=https://package.coreaccounting.invalid \
+COREFLUX_STANDALONE_DATABASE=package_build \
+php "$output/public_html/deploy/privatize_coreaccounting_vendor.php" \
+  --confirm-standalone-webroot --package-layout \
+  --webroot="$output/public_html" --expected-webroot="$output/public_html" \
+  --origin=https://package.coreaccounting.invalid --database=package_build \
+  --private="$output/private_runtime"
+
 COREFLUX_ENV=coreaccounting php "$output/public_html/deploy/create_coreaccounting_release_manifest.php" \
   --confirm-package-build --root="$output/public_html" \
+  --private-root="$output/private_runtime" \
   --output="$output/manifest.json" --commit="$commit"
-tar -czf "$output/release.tar.gz" -C "$output" public_html manifest.json
+tar -czf "$output/release.tar.gz" -C "$output" public_html private_runtime manifest.json
 sha256sum "$output/release.tar.gz"
