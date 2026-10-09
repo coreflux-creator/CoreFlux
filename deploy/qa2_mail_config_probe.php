@@ -24,6 +24,7 @@ require_once QA_ROOT . '/core/mail/ResendDriver.php';
 $key = coreAccountingMailSetting('COREFLUX_ACCOUNTING_RESEND_API_KEY');
 $sender = coreAccountingMailSetting('COREFLUX_ACCOUNTING_FROM_EMAIL');
 $testMode = coreAccountingMailSetting('COREFLUX_ACCOUNTING_MAIL_TEST_MODE') === '1';
+$recipient = coreAccountingMailSetting('COREFLUX_ACCOUNTING_TEST_RECIPIENTS');
 $called = false;
 $driver = new \Core\Mail\ResendDriver($key, $sender, 'CoreAccounting QA',
     static function () use (&$called): array {
@@ -31,17 +32,27 @@ $driver = new \Core\Mail\ResendDriver($key, $sender, 'CoreAccounting QA',
         return ['ok' => true, 'id' => 'unexpected'];
     }, true);
 $blocked = $driver->send(['to' => ['unapproved@example.test'], 'subject' => 'QA probe']);
+$blockedWithoutProvider = $blocked['status'] === 'failed' && !$called;
+$approvedWithMock = false;
+if ($recipient !== '' && filter_var($recipient, FILTER_VALIDATE_EMAIL)
+    && !str_contains($recipient, ',')) {
+    $approved = $driver->send(['to' => [$recipient], 'subject' => 'QA probe']);
+    $approvedWithMock = $approved['status'] === 'sent' && $called;
+}
 $result = [
     'database' => DB_NAME,
     'sender' => $sender,
     'key_loaded' => (bool) preg_match('/^re_[A-Za-z0-9_-]{20,120}$/D', $key),
     'test_mode' => $testMode,
-    'unapproved_recipient_blocked' => $blocked['status'] === 'failed' && !$called,
+    'approved_recipient_configured' => $recipient !== '',
+    'approved_recipient_mock_sent' => $approvedWithMock,
+    'unapproved_recipient_blocked' => $blockedWithoutProvider,
 ];
 if ($result['database'] !== 'aqdcpvafpj'
     || $result['sender'] !== 'qa-invoices@mail.corefluxapp.com'
     || !$result['key_loaded'] || !$result['test_mode']
-    || !$result['unapproved_recipient_blocked']) {
+    || !$result['unapproved_recipient_blocked']
+    || ($result['approved_recipient_configured'] && !$result['approved_recipient_mock_sent'])) {
     fwrite(STDERR, "Disposable QA mail readiness failed.\n");
     exit(1);
 }
