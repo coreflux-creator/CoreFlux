@@ -262,6 +262,27 @@ jobs:
           php deploy/audit_coreaccounting_migrations.php --database=coreaccounting_ci
           COREFLUX_ENV=staging php scripts/ci_seed_sim_tenant.php --tenant-only --require-new
 
+      - name: Refuse the clean installer after the database is populated
+        run: |
+          package="$RUNNER_TEMP/coreaccounting-install-extracted"
+          target="$RUNNER_TEMP/coreaccounting-clean-app"
+          mkdir "$target/private/recheck"
+          commit="$(git rev-parse HEAD)"
+          manifest_sha="$(sha256sum "$package/manifest.json" | cut -d' ' -f1)"
+          if php deploy/install_coreaccounting_clean_app.php --inspect \
+            --package="$package" --webroot="$target/public_html" \
+            --private-runtime="$target/private/recheck/private_runtime" \
+            --backup-root="$target/private/recheck/backup" \
+            --db-config="$COREFLUX_ACCOUNTING_DB_CONFIG_PATH" \
+            --mail-log="$target/private/mail.jsonl" \
+            --origin="$COREFLUX_PUBLIC_ORIGIN" --database="$COREFLUX_STANDALONE_DATABASE" \
+            --commit="$commit" --manifest-sha256="$manifest_sha"; then
+            echo 'Clean installer accepted a populated database' >&2
+            exit 1
+          fi
+          test ! -e "$target/private/recheck/private_runtime"
+          test ! -e "$target/private/recheck/backup"
+
       - name: Exercise legacy password reset schema migration
         run: php tests/coreaccounting_password_reset_migration_db_check.php --confirm-disposable-fixture
 
