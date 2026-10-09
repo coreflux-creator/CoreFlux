@@ -25,6 +25,8 @@ The 2026-10-08 read-only root-entrypoint sweep covered 51 root PHP files, two di
 
 On 2026-10-09, the initialized QA3 database received canonical password-reset migration 160 through the guarded CLI release path. The public recovery request no longer creates or alters its own table; schema verification now requires the reset table. CI exercised a legacy email-primary-key table, while QA3 verified an invalid link and an unknown-address request without sending mail or changing a credential. The full reset email and password-change journey remains an acceptance gate.
 
+Follow-up CI run `37883362904` exercised a synthetic HTTP password change and one-time token replay under an explicit log-only mail driver, with all eight jobs passing. Real-provider reset-link delivery and hosted end-user password recovery remain open.
+
 ## Next acceptance sequence
 
 1. Keep all CI jobs green. The latest source-commit archive separates public files and private Composer dependencies; CI verifies both trees and installs a fresh test database. Disposable Cloudways app `6718294` completed first-tenant bootstrap, synthetic invoice/bill/payment/bank replay, and a signed-in finance navigation check. Its outside-in audit found exactly 25 intended public files among 359 current non-PHP paths and 610 retired paths, with no unexpected serving or byte differences. The host-specific private library path and rollback backup are recorded in `COREACCOUNTING_PACKAGE_QA3_ACCEPTANCE.md`. An atomic host installer, broader legacy-document and historical-URL sweeps, real financial cutover and full human workflow review remain open. Do not reuse the first partially populated QA database or clear a populated simulation database.
