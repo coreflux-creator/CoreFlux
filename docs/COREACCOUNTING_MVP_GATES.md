@@ -1,6 +1,6 @@
 # CoreAccounting MVP release gates
 
-CoreAccounting is an independent product surface on the **existing CoreFlux/CoreOne accounting core**. Invoices, bills, bank transactions, approvals, subledger links and posted journals remain in their current source modules and shared ledger. This checklist is an acceptance ledger, not a claim of production readiness. Detailed evidence and decisions live in `COREACCOUNTING_COREONE_ALIGNMENT.md`.
+CoreAccounting is an independent product surface on the **existing CoreFlux/CoreOne accounting core**. Invoices, bills, bank transactions, approvals, subledger links and posted journals remain in their current source modules and shared ledger. This checklist is an acceptance ledger, not a claim of production readiness. Detailed evidence and decisions live in `COREACCOUNTING_COREONE_ALIGNMENT.md`. The latest fresh-package hosted check is recorded in `COREACCOUNTING_PACKAGE_QA3_ACCEPTANCE.md`.
 
 | Gate | Current evidence | Release status |
 | --- | --- | --- |
