@@ -1,11 +1,14 @@
 <?php
-/** Provision the canonical CoreFlux schema on an empty, isolated staging database. */
+/** Provision the canonical CoreFlux schema on an empty, isolated database. */
 declare(strict_types=1);
 
-if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging'
+$environment = getenv('COREFLUX_ENV');
+$confirmFlag = $environment === 'coreaccounting'
+    ? '--confirm-empty-standalone' : '--confirm-empty-staging';
+if (PHP_SAPI !== 'cli' || !in_array($environment, ['staging', 'coreaccounting'], true)
     || (!in_array('--inspect', $argv, true) && !in_array('--verify-schema', $argv, true)
-        && !in_array('--confirm-empty-staging', $argv, true))) {
-    fwrite(STDERR, "Staging CLI only. Use --inspect, --verify-schema, or --confirm-empty-staging --database=NAME.\n");
+        && !in_array($confirmFlag, $argv, true))) {
+    fwrite(STDERR, "Isolated accounting CLI only. Use --inspect, --verify-schema, or $confirmFlag --database=NAME.\n");
     exit(2);
 }
 
@@ -15,7 +18,7 @@ require_once __DIR__ . '/../core/installer_helpers.php';
 require_once __DIR__ . '/../core/accounting/schema_contract.php';
 
 $pdo = getDB();
-if (!$pdo) throw new RuntimeException('The isolated staging database is unavailable.');
+if (!$pdo) throw new RuntimeException('The isolated accounting database is unavailable.');
 $connectedDatabase = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
 $existing = (int) $pdo->query(
     'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()'

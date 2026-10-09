@@ -1,10 +1,10 @@
 <?php
-/** Create the first tenant on an isolated, fully migrated staging database. */
+/** Create the first tenant on an isolated, fully migrated accounting database. */
 declare(strict_types=1);
 
-if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging'
+if (PHP_SAPI !== 'cli' || !in_array(getenv('COREFLUX_ENV'), ['staging', 'coreaccounting'], true)
     || !in_array('--confirm-first-tenant', $argv, true)) {
-    fwrite(STDERR, "Staging CLI only. Use --confirm-first-tenant --database=NAME.\n");
+    fwrite(STDERR, "Isolated accounting CLI only. Use --confirm-first-tenant --database=NAME.\n");
     exit(2);
 }
 
@@ -19,7 +19,7 @@ require_once __DIR__ . '/../core/seeds/event_registry_seed.php';
 require_once __DIR__ . '/../modules/staffing/lib/posting_rules_seed.php';
 
 $pdo = getDB();
-if (!$pdo) throw new RuntimeException('The isolated staging database is unavailable.');
+if (!$pdo) throw new RuntimeException('The isolated accounting database is unavailable.');
 
 $databaseArgs = array_values(array_filter(
     $argv,

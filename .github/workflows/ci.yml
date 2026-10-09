@@ -136,7 +136,7 @@ jobs:
   coreaccounting-clean-install:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    name: CoreAccounting empty-database install
+    name: CoreAccounting standalone empty-database install
 
     services:
       mariadb:
@@ -152,9 +152,10 @@ jobs:
           --health-retries=10
 
     env:
-      COREFLUX_ENV: staging
+      COREFLUX_ENV: coreaccounting
       COREFLUX_ACCOUNTING_DB_CONFIG_PATH: /tmp/coreaccounting-ci-db.php
-      COREFLUX_STAGING_PUBLIC_ORIGIN: https://staging.corefluxapp.com
+      COREFLUX_STANDALONE_DATABASE: coreaccounting_ci
+      COREFLUX_PUBLIC_ORIGIN: https://staging.corefluxapp.com
       DB_HOST: 127.0.0.1
       DB_NAME: coreaccounting_ci
       DB_USER: root
@@ -186,11 +187,8 @@ jobs:
         run: install -m 600 tests/fixtures/coreaccounting_ci_db.php "$COREFLUX_ACCOUNTING_DB_CONFIG_PATH"
 
       - name: Web request must leave the fresh database empty
-        env:
-          COREFLUX_STANDALONE_DATABASE: coreaccounting_ci
-          COREFLUX_PUBLIC_ORIGIN: https://staging.corefluxapp.com
         run: |
-          COREFLUX_ENV=coreaccounting php -S 127.0.0.1:8765 -t . > "$RUNNER_TEMP/coreaccounting-web.log" 2>&1 &
+          php -S 127.0.0.1:8765 -t . > "$RUNNER_TEMP/coreaccounting-web.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           curl --retry 5 --retry-connrefused --retry-delay 1 --silent --output "$RUNNER_TEMP/coreaccounting-web-response.json" \
@@ -202,7 +200,7 @@ jobs:
       - name: Bootstrap canonical schema and first tenant
         run: |
           php deploy/bootstrap_coreaccounting.php --inspect
-          php deploy/bootstrap_coreaccounting.php --confirm-empty-staging --database=coreaccounting_ci
+          php deploy/bootstrap_coreaccounting.php --confirm-empty-standalone --database=coreaccounting_ci
           php deploy/bootstrap_coreaccounting.php --verify-schema
           php deploy/provision_coreaccounting_tenant.php --confirm-first-tenant --database=coreaccounting_ci
           php deploy/audit_coreaccounting_migrations.php --database=coreaccounting_ci
