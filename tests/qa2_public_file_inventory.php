@@ -60,6 +60,7 @@ $active = [];
 $status = [];
 $errors = [];
 $served = [];
+$servedHashes = [];
 $stale = [];
 $unexpectedStatus = [];
 while ($pending || $active) {
@@ -67,15 +68,19 @@ while ($pending || $active) {
         $path = array_shift($pending);
         $url = $origin . '/' . implode('/', array_map('rawurlencode', explode('/', $path)));
         $curl = curl_init($url);
+        $bodyHash = hash_init('sha256');
         curl_setopt_array($curl, [
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_CONNECTTIMEOUT => 3,
             CURLOPT_TIMEOUT => 8,
             CURLOPT_USERAGENT => 'CoreAccounting-QA-public-file-inventory/1',
-            CURLOPT_WRITEFUNCTION => static fn($handle, string $chunk): int => strlen($chunk),
+            CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use ($bodyHash): int {
+                hash_update($bodyHash, $chunk);
+                return strlen($chunk);
+            },
         ]);
         curl_multi_add_handle($multi, $curl);
-        $active[spl_object_id($curl)] = ['handle' => $curl, 'path' => $path];
+        $active[spl_object_id($curl)] = ['handle' => $curl, 'path' => $path, 'body_hash' => $bodyHash];
     }
     do {
         $result = curl_multi_exec($multi, $running);
@@ -86,6 +91,7 @@ while ($pending || $active) {
         $id = spl_object_id($curl);
         $path = $active[$id]['path'];
         $code = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+        $responseHash = hash_final($active[$id]['body_hash']);
         $status[$code] = ($status[$code] ?? 0) + 1;
         if ($info['result'] !== CURLE_OK) {
             $errors[] = ['path' => $path, 'curl_error' => curl_error($curl)];
@@ -93,6 +99,7 @@ while ($pending || $active) {
             $stale[] = ['path' => $path, 'status' => $code];
         } elseif (isset($current[$path]) && $code >= 200 && $code < 300) {
             $served[] = $path;
+            $servedHashes[$path] = $responseHash;
         } elseif (isset($current[$path]) && !in_array($code, [403, 404], true)) {
             $unexpectedStatus[] = ['path' => $path, 'status' => $code];
         }
@@ -120,9 +127,19 @@ $allowedServed = [
 sort($allowedServed, SORT_STRING);
 $unexpectedServed = array_values(array_diff($served, $allowedServed));
 $missingServed = array_values(array_diff($allowedServed, $served));
+$contentMismatch = [];
+foreach ($allowedServed as $path) {
+    if (!isset($servedHashes[$path])) continue;
+    $diskHash = hash_file('sha256', $root . '/' . $path);
+    if ($diskHash === false || !hash_equals($diskHash, $servedHashes[$path])) {
+        $contentMismatch[] = $path;
+    }
+}
 echo json_encode(['root' => $root, 'files' => count($paths), 'retired_files' => count($retired),
     'status' => $status, 'served' => $served, 'unexpected_served' => $unexpectedServed,
-    'missing_served' => $missingServed, 'stale_retired' => $stale,
+    'missing_served' => $missingServed, 'content_mismatch' => $contentMismatch,
+    'stale_retired' => $stale,
     'unexpected_status' => $unexpectedStatus, 'errors' => $errors],
     JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
-exit(($errors || $stale || $unexpectedStatus || $unexpectedServed || $missingServed) ? 1 : 0);
+exit(($errors || $stale || $unexpectedStatus || $unexpectedServed || $missingServed
+    || $contentMismatch) ? 1 : 0);
