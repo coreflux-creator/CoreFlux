@@ -269,3 +269,13 @@ jobs:
             --confirm-read-only-package --root="$extracted/public_html" \
             --manifest="$extracted/manifest.json" --commit="$commit" \
             --manifest-sha256="$manifest_sha"
+
+      - name: Retain verified package for isolated QA installation
+        uses: actions/upload-artifact@v4
+        with:
+          name: coreaccounting-release-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/coreaccounting-release/release.tar.gz
+            ${{ runner.temp }}/coreaccounting-release/manifest.json
+          if-no-files-found: error
+          retention-days: 7
