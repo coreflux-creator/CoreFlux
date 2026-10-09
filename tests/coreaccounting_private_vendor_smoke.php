@@ -12,11 +12,11 @@ file_put_contents($vendor . '/autoload.php', "<?php\nclass CoreAccountingVendorF
 file_put_contents($vendor . '/dompdf/dompdf/src/Dompdf.php', "<?php\n");
 file_put_contents($vendor . '/dompdf/dompdf/lib/res/broken_image.png', 'fixture');
 
-$run = static function (array $args): array {
+$run = static function (array $args, array $environment = ['COREFLUX_ENV' => 'staging']): array {
     $command = array_merge([PHP_BINARY, __DIR__ . '/../deploy/privatize_coreaccounting_vendor.php'], $args);
     $pipes = [];
     $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes,
-        null, ['COREFLUX_ENV' => 'staging']);
+        null, $environment);
     if (!is_resource($process)) throw new RuntimeException('Could not start vendor packaging fixture');
     $out = stream_get_contents($pipes[1]);
     $err = stream_get_contents($pipes[2]);
@@ -27,6 +27,15 @@ $run = static function (array $args): array {
 $private = $privateParent . DIRECTORY_SEPARATOR . 'release';
 $args = ['--confirm-disposable-staging', '--webroot=' . $webroot,
     '--expected-webroot=' . $webroot, '--private=' . $private];
+$standaloneEnvironment = [
+    'COREFLUX_ENV' => 'coreaccounting',
+    'COREFLUX_STANDALONE_WEBROOT' => $webroot,
+    'COREFLUX_PUBLIC_ORIGIN' => 'https://accounting.example.test',
+    'COREFLUX_STANDALONE_DATABASE' => 'fixture_accounting',
+];
+$standaloneArgs = ['--confirm-standalone-webroot', '--webroot=' . $webroot,
+    '--expected-webroot=' . $webroot, '--private=' . $private,
+    '--origin=https://accounting.example.test', '--database=fixture_accounting'];
 
 try {
     [$code] = $run(['--confirm-disposable-staging', '--webroot=' . $webroot,
@@ -35,7 +44,22 @@ try {
         throw new RuntimeException('Unsafe webroot was accepted or mutated');
     }
 
-    [$code, $out, $err] = $run($args);
+    foreach ([
+        '--origin=https://wrong.example.test',
+        '--database=wrong_database',
+    ] as $wrong) {
+        $changed = array_map(static fn(string $arg): string =>
+            str_starts_with($arg, explode('=', $wrong, 2)[0] . '=') ? $wrong : $arg,
+            $standaloneArgs);
+        [$code, $out, $err] = $run($changed, $standaloneEnvironment);
+        if ($code === 0 || !str_contains($err . $out, 'identity must match host settings')
+            || !is_file($vendor . '/autoload.php') || is_dir($private)) {
+            throw new RuntimeException('Mismatched standalone identity was accepted or mutated: '
+                . $code . ' ' . $err . ' ' . $out);
+        }
+    }
+
+    [$code, $out, $err] = $run($standaloneArgs, $standaloneEnvironment);
     $result = json_decode($out, true);
     if ($code !== 0 || $err !== '' || ($result['already_private'] ?? null) !== false
         || !is_file($private . '/vendor/dompdf/dompdf/lib/res/broken_image.png')
@@ -50,6 +74,10 @@ try {
     $result = json_decode($out, true);
     if ($code !== 0 || $err !== '' || ($result['already_private'] ?? null) !== true) {
         throw new RuntimeException('Private Composer rerun was not idempotent');
+    }
+    [$code, $out, $err] = $run($standaloneArgs, $standaloneEnvironment);
+    if ($code !== 0 || $err !== '' || (json_decode($out, true)['already_private'] ?? null) !== true) {
+        throw new RuntimeException('Standalone Composer rerun was not idempotent');
     }
     [$code] = $run(['--confirm-disposable-staging', '--webroot=' . $webroot,
         '--expected-webroot=' . $webroot, '--private=' . $privateParent . '/other']);

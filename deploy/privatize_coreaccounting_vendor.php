@@ -1,10 +1,13 @@
 <?php
-/** Move Composer dependencies outside a disposable standalone webroot. */
+/** Move Composer dependencies outside an isolated CoreAccounting webroot. */
 declare(strict_types=1);
 
-if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging'
-    || !in_array('--confirm-disposable-staging', $argv, true)) {
-    fwrite(STDERR, "Disposable staging CLI only.\n");
+$disposableStaging = getenv('COREFLUX_ENV') === 'staging'
+    && in_array('--confirm-disposable-staging', $argv, true);
+$standalone = getenv('COREFLUX_ENV') === 'coreaccounting'
+    && in_array('--confirm-standalone-webroot', $argv, true);
+if (PHP_SAPI !== 'cli' || (!$disposableStaging && !$standalone)) {
+    fwrite(STDERR, "Isolated CoreAccounting CLI only.\n");
     exit(2);
 }
 
@@ -15,6 +18,19 @@ $option = static function (string $name) use ($argv): string {
 };
 $webroot = realpath($option('webroot'));
 $expected = realpath($option('expected-webroot'));
+if ($standalone) {
+    $origin = $option('origin');
+    $database = $option('database');
+    $parts = parse_url($origin);
+    if ($webroot === false || $webroot !== realpath((string) getenv('COREFLUX_STANDALONE_WEBROOT'))
+        || $origin === '' || $origin !== getenv('COREFLUX_PUBLIC_ORIGIN')
+        || !is_array($parts) || ($parts['scheme'] ?? '') !== 'https'
+        || empty($parts['host'])
+        || array_intersect(['user', 'pass', 'port', 'path', 'query', 'fragment'], array_keys($parts))
+        || $database === '' || $database !== getenv('COREFLUX_STANDALONE_DATABASE')) {
+        throw new RuntimeException('Standalone webroot, HTTPS origin and database identity must match host settings.');
+    }
+}
 $privatePath = $option('private');
 $parent = $privatePath !== '' ? realpath(dirname($privatePath)) : false;
 $normalizedPrivatePath = str_replace('\\', '/', $privatePath);

@@ -47,6 +47,7 @@ function coreAccountingExpectedPublicFiles(string $root): array
 
     $queue = $entries;
     $assets = [];
+    $publicReferences = $html;
     while ($queue) {
         $name = array_shift($queue);
         if (isset($assets[$name])) continue;
@@ -57,13 +58,29 @@ function coreAccountingExpectedPublicFiles(string $root): array
         $assets[$name] = true;
         $source = file_get_contents($path);
         if ($source === false) throw new RuntimeException("Could not read installed asset: $name");
+        $publicReferences .= $source;
         preg_match_all('/index-[A-Za-z0-9_-]+\.(?:js|css)/', $source, $references);
         foreach (array_unique($references[0] ?? []) as $reference) {
             if (!isset($assets[$reference])) $queue[] = $reference;
         }
     }
 
-    $expected = array_merge($fixed, array_map(
+    foreach (['spa.php', 'login.html', '404.html', 'privacy.html', 'terms.html',
+        'quickbooks-connect.html', 'quickbooks-disconnect.html',
+        'assets/css/legal.css', 'assets/css/styles.css'] as $relative) {
+        $path = $root . '/' . $relative;
+        if (is_file($path)) $publicReferences .= (string) file_get_contents($path);
+    }
+    preg_match_all('~/(assets/icons/[A-Za-z0-9._-]+\.(?:png|svg|webp))~i',
+        $publicReferences, $iconMatches);
+    $icons = array_values(array_unique($iconMatches[1] ?? []));
+    foreach ($icons as $relative) {
+        if (!is_file($root . '/' . $relative) || is_link($root . '/' . $relative)) {
+            throw new RuntimeException("Referenced public icon is missing or linked: $relative");
+        }
+    }
+
+    $expected = array_merge($fixed, $icons, array_map(
         static fn(string $name): string => 'spa-assets/' . $name,
         array_keys($assets)
     ));

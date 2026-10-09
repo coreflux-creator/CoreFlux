@@ -56,8 +56,9 @@ foreach (['spa.php', '.htaccess', 'dashboard/dist/index.html', 'vendor/autoload.
 $distHtml = file_get_contents($webroot . '/dashboard/dist/index.html');
 if ($distHtml === false) throw new RuntimeException('Could not read the installed app entry.');
 require_once __DIR__ . '/coreaccounting_public_assets.php';
+$expectedPublicFiles = coreAccountingExpectedPublicFiles($webroot);
 $runtimeSpaAssets = [];
-foreach (coreAccountingExpectedPublicFiles($webroot) as $relative) {
+foreach ($expectedPublicFiles as $relative) {
     if (str_starts_with($relative, 'spa-assets/index-')) {
         $runtimeSpaAssets[basename($relative)] = true;
     }
@@ -72,8 +73,20 @@ foreach (['spa.php', 'login.html', '404.html', 'privacy.html', 'terms.html',
     $path = $webroot . '/' . $relative;
     if (is_file($path)) $publicAssetReferences .= (string) file_get_contents($path);
 }
-$legacyStatic = ['assets/img', 'assets/styles.css', 'css',
-    'dashboard/static', 'modules/accounting/assets'];
+$legacyStatic = ['assets/img', 'assets/logo.png', 'assets/styles.css', 'css',
+    'dashboard/assets', 'dashboard/static', 'modules/accounting/assets',
+    'spa-assets/manifest.webmanifest'];
+foreach (glob($webroot . '/assets/icons/*') ?: [] as $path) {
+    $relative = 'assets/icons/' . basename($path);
+    $needed = false;
+    foreach ($expectedPublicFiles as $expectedFile) {
+        if ($expectedFile === $relative || str_starts_with($expectedFile, $relative . '/')) {
+            $needed = true;
+            break;
+        }
+    }
+    if (!$needed) $legacyStatic[] = $relative;
+}
 foreach (glob($webroot . '/assets/css/*') ?: [] as $path) {
     $name = basename($path);
     if (!in_array($name, ['legal.css', 'styles.css'], true)) {

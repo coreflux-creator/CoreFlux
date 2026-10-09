@@ -25,6 +25,8 @@ foreach ([
     'assets/css/signup.html', 'assets/brand/coreflux-logo.png', 'assets/brand/coreflux-mark.png',
     'assets/css/legal.css', 'assets/css/styles.css', 'assets/css/dashboard.css',
     'assets/css/css/legacy.css', 'assets/img/old.png', 'assets/styles.css', 'css/style.css',
+    'assets/logo.png', 'assets/icons/keep.png', 'assets/icons/old.png',
+    'dashboard/assets/legacy.png', 'spa-assets/manifest.webmanifest',
     'dashboard/static/js/main.js', 'modules/accounting/assets/js/script.js',
     'modules/private_equity/file tree.txt', 'modules/private_equity 2/Data/legacy.png',
     'modules/finance/scripts.js',
@@ -92,7 +94,8 @@ try {
     if (is_dir($privateParent . '/referenced-static') || !is_file($webroot . '/assets/img/old.png')) {
         throw new RuntimeException('Referenced static preflight mutated the app');
     }
-    file_put_contents($webroot . '/spa-assets/index-current.js', 'import("./index-feature.js")');
+    file_put_contents($webroot . '/spa-assets/index-current.js',
+        'import("./index-feature.js");const icon="/assets/icons/keep.png";');
     file_put_contents($webroot . '/spa-assets/index-current.css', '@import "./index-theme.css";');
 
     putenv('COREFLUX_ENV=coreaccounting');
@@ -115,6 +118,9 @@ try {
         || ($preview['standalone_apache_rules_needed'] ?? null) !== true
         || !in_array('index.html', $preview['planned_entries'] ?? [], true)
         || !in_array('spa-assets/index-old.js', $preview['planned_entries'] ?? [], true)
+        || !in_array('assets/icons/old.png', $preview['planned_entries'] ?? [], true)
+        || !in_array('dashboard/assets', $preview['planned_entries'] ?? [], true)
+        || in_array('assets/icons/keep.png', $preview['planned_entries'] ?? [], true)
         || is_dir($previewPrivate) || !is_file($webroot . '/index.html')
         || (string) file_get_contents($webroot . '/.htaccess') !== $sharedApacheConfig) {
         throw new RuntimeException('Standalone preview changed files or omitted planned moves.');
@@ -236,6 +242,8 @@ try {
         'dashboard/dist/spa-assets/index-old.js',
         'data/branding_settings.json', 'assets/css/signup.html',
         'assets/css/dashboard.css', 'assets/css/css/legacy.css', 'assets/img/old.png',
+        'assets/logo.png', 'assets/icons/old.png', 'dashboard/assets',
+        'spa-assets/manifest.webmanifest',
         'assets/styles.css', 'css/style.css', 'dashboard/static/js/main.js',
         'modules/accounting/assets/js/script.js',
         'modules/private_equity/file tree.txt', 'modules/private_equity 2/Data/legacy.png',
@@ -256,18 +264,19 @@ try {
         'spa-assets/index-feature.js', 'spa-assets/index-theme.css',
         'assets/brand/coreflux-logo.png', 'assets/brand/coreflux-mark.png',
         'assets/css/legal.css', 'assets/css/styles.css',
+        'assets/icons/keep.png',
         'modules/accounting/api/reports.php', '_deploy_ok.txt', 'robots.txt',
         'billing/invoice.php',
     ];
     foreach ($moved as $relative) {
-        if (file_exists($webroot . '/' . $relative) || !is_file($private . '/' . $relative)) {
+        if (file_exists($webroot . '/' . $relative) || !file_exists($private . '/' . $relative)) {
             throw new RuntimeException("Not privatized: $relative");
         }
     }
     foreach ($retained as $relative) {
         if (!is_file($webroot . '/' . $relative)) throw new RuntimeException("Runtime file moved: $relative");
     }
-    if (($result['moved_entries'] ?? null) !== 43) throw new RuntimeException('Unexpected move count');
+    if (($result['moved_entries'] ?? null) !== 47) throw new RuntimeException('Unexpected move count');
     require_once __DIR__ . '/../core/installer_helpers.php';
     $bundleChecks = spaBundleStatus($webroot);
     if (($bundleChecks[1]['detail'] ?? '') !== 'runtime-only package; compare installed bundle hashes with the release manifest') {
