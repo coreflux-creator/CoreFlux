@@ -43,6 +43,7 @@ function coreAccountingInstallNewPath(string $requested, string $label): string
 function coreAccountingInstallMailLog(string $requested, string $webroot, string $package): string
 {
     $resolved = coreAccountingInstallAbsolute($requested) ? realpath($requested) : false;
+    if ($resolved !== false) clearstatcache(true, $resolved);
     if ($resolved === false || is_link($requested) || !is_file($resolved)
         || !is_writable($resolved) || filesize($resolved) !== 0
         || coreAccountingInstallWithin($resolved, $webroot)
