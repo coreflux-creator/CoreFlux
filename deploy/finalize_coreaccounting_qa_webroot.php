@@ -30,9 +30,35 @@ if ($normalizedParent === $normalizedRoot || str_starts_with($normalizedParent .
     || $privateParent === '/' || file_exists($private) || is_link($private)) {
     throw new RuntimeException('Private destination must be new and outside the webroot.');
 }
-foreach (['spa.php', 'index.html', '.htaccess', 'dashboard/dist/index.html', 'vendor/autoload.php'] as $required) {
+foreach (['spa.php', '.htaccess', 'dashboard/dist/index.html', 'vendor/autoload.php'] as $required) {
     if (!is_file($webroot . '/' . $required)) {
         throw new RuntimeException("Runtime release is incomplete: $required");
+    }
+}
+$distHtml = file_get_contents($webroot . '/dashboard/dist/index.html');
+if ($distHtml === false) throw new RuntimeException('Could not read the installed app entry.');
+$runtimeSpaAssets = [];
+$queue = [];
+foreach (['js', 'css'] as $extension) {
+    preg_match_all('~/(?:spa-assets|assets)/(index-[A-Za-z0-9_-]+\.' . $extension . ')(?=["\'])~',
+        $distHtml, $matches);
+    $entryAssets = array_values(array_unique($matches[1] ?? []));
+    if (count($entryAssets) !== 1) {
+        throw new RuntimeException("Installed app must identify one $extension entry asset.");
+    }
+    $queue[] = $entryAssets[0];
+}
+while ($queue) {
+    $name = array_shift($queue);
+    if (isset($runtimeSpaAssets[$name])) continue;
+    $path = $webroot . '/spa-assets/' . $name;
+    if (!is_file($path)) throw new RuntimeException("Installed app asset is missing: $name");
+    $runtimeSpaAssets[$name] = true;
+    if (str_ends_with($name, '.js')) {
+        preg_match_all('/index-[A-Za-z0-9_-]+\.(?:js|css)/', (string) file_get_contents($path), $references);
+        foreach (array_unique($references[0] ?? []) as $reference) {
+            if (!isset($runtimeSpaAssets[$reference])) $queue[] = $reference;
+        }
     }
 }
 require_once __DIR__ . '/coreaccounting_apache_boundary.php';
@@ -85,6 +111,24 @@ foreach (glob($webroot . '/*.php') ?: [] as $source) {
         $move(basename($source));
     }
 }
+$publicRootFiles = array_fill_keys([
+    '.htaccess', '.deploy-version', '404.html', 'login.html',
+    'privacy.html', 'terms.html', 'quickbooks-connect.html', 'quickbooks-disconnect.html',
+    '_deploy_ok.txt', 'robots.txt',
+], true);
+$rootFiles = [];
+foreach (new DirectoryIterator($webroot) as $entry) {
+    if (!$entry->isFile() && !$entry->isLink()) continue;
+    $rootFiles[] = $entry->getFilename();
+}
+foreach ($rootFiles as $name) {
+    if (isset($publicRootFiles[$name])
+        || (str_ends_with($name, '.php')
+            && coreAccountingAllowsPublicApiScript($webroot . '/' . $name, $webroot, 'coreaccounting'))) {
+        continue;
+    }
+    $move($name);
+}
 foreach ([
     'composer.json', 'composer.lock', 'dashboard (1).css', 'eslint.config.js', 'mock-server.js',
     'signup.html',
@@ -93,9 +137,19 @@ foreach ([
     'dashboard/package.json', 'dashboard/package-lock.json', 'dashboard/vite.config.js',
     'dashboard/main.js', 'dashboard/style.css', 'dashboard/index.html', 'dashboard/vite.svg',
     'dashboard/.env.local', 'dashboard/src', 'dashboard/node_modules', 'dashboard/tests',
-    'src', 'graphql', '_debug', '.github', 'docs', 'legacy',
+    'src', 'graphql', '_debug', '.github', 'data', 'docs', 'legacy',
     'memory', 'spec', 'tests',
 ] as $relative) $move($relative);
+$move('assets/css/signup.html');
+$move('dashboard/dist/spa-assets');
+foreach (glob($webroot . '/spa-assets/*') ?: [] as $source) {
+    if (!is_file($source)) continue;
+    $name = basename($source);
+    if (($name === 'index.html' || preg_match('/^index-.*\.(?:js|css)(?:\.map)?$/', $name))
+        && !isset($runtimeSpaAssets[$name])) {
+        $move('spa-assets/' . $name);
+    }
+}
 foreach (glob($webroot . '/modules/*/ui', GLOB_ONLYDIR) ?: [] as $source) {
     $move('modules/' . basename(dirname($source)) . '/ui');
 }

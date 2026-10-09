@@ -8,18 +8,29 @@ function coreAccountingStandaloneApacheConfig(string $config): string
     $rules = [
         'RedirectMatch 404 ^/modules/[^/]+/(?!api/).*\.php$',
         'RedirectMatch 404 ^/modules/(?!accounting/|billing/|ap/|treasury/|people/api/companies\.php$)[^/]+/api/.*\.php$',
+        'RedirectMatch 404 ^/data(?:/|$)',
     ];
     $counts = array_map(static fn(string $rule): int => substr_count($config, $rule), $rules);
     $oldCount = substr_count($config, $oldApiRule);
-    if ($counts === [1, 1] && $oldCount === 0) return $config;
-    if ($counts === [1, 0] && $oldCount === 1) {
-        return str_replace($oldApiRule, $rules[1], $config);
+    if ($oldCount === 1 && $counts[0] === 1 && $counts[1] === 0) {
+        $config = str_replace($oldApiRule, $rules[1], $config);
+        $counts[1] = 1;
+        $oldCount = 0;
     }
-    if ($counts !== [0, 0] || $oldCount !== 0) {
+    if ($counts === [1, 1, 1] && $oldCount === 0) return $config;
+
+    $lineEnding = str_contains($config, "\r\n") ? "\r\n" : "\n";
+    if ($counts === [1, 1, 0] && $oldCount === 0) {
+        $anchor = $rules[1] . $lineEnding;
+        if (substr_count($config, $anchor) !== 1) {
+            throw new RuntimeException('Standalone Apache module rules have an unexpected layout.');
+        }
+        return str_replace($anchor, $anchor . $rules[2] . $lineEnding, $config);
+    }
+    if ($counts !== [0, 0, 0] || $oldCount !== 0) {
         throw new RuntimeException('Standalone Apache module rules are incomplete or duplicated.');
     }
 
-    $lineEnding = str_contains($config, "\r\n") ? "\r\n" : "\n";
     $anchor = '# Sensible defaults' . $lineEnding;
     if (substr_count($config, $anchor) !== 1) {
         throw new RuntimeException('Apache config is missing its expected insertion point.');
