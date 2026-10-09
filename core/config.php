@@ -70,6 +70,7 @@ if ($requiresExplicitDb || $standaloneAccounting) {
     }
 }
 if ($standaloneAccounting) {
+    require_once __DIR__ . '/accounting/mail_settings.php';
     $expectedDatabase = trim((string) (getenv('COREFLUX_STANDALONE_DATABASE') ?: ''));
     if ($expectedDatabase === '' || !hash_equals($expectedDatabase, (string) DB_NAME)) {
         coreAccountingConfigurationFailure('CoreAccounting database identity is missing or does not match.');
@@ -115,13 +116,13 @@ if ($standaloneAccounting) {
             coreAccountingConfigurationFailure('CoreAccounting SMTP settings must use dedicated environment variables.');
         }
     }
-    define('SMTP_HOST', trim((string) (getenv('COREFLUX_ACCOUNTING_SMTP_HOST') ?: '')));
-    define('SMTP_PORT', (int) (getenv('COREFLUX_ACCOUNTING_SMTP_PORT') ?: 587));
-    define('SMTP_USER', trim((string) (getenv('COREFLUX_ACCOUNTING_SMTP_USER') ?: '')));
-    define('SMTP_PASS', (string) (getenv('COREFLUX_ACCOUNTING_SMTP_PASS') ?: ''));
-    define('SMTP_SECURE', trim((string) (getenv('COREFLUX_ACCOUNTING_SMTP_SECURE') ?: 'tls')));
-    define('SMTP_FROM_EMAIL', trim((string) (getenv('COREFLUX_ACCOUNTING_FROM_EMAIL') ?: '')));
-    define('SMTP_FROM_NAME', trim((string) (getenv('COREFLUX_ACCOUNTING_FROM_NAME') ?: 'CoreAccounting')));
+    define('SMTP_HOST', trim(coreAccountingMailSetting('COREFLUX_ACCOUNTING_SMTP_HOST')));
+    define('SMTP_PORT', (int) (coreAccountingMailSetting('COREFLUX_ACCOUNTING_SMTP_PORT') ?: 587));
+    define('SMTP_USER', trim(coreAccountingMailSetting('COREFLUX_ACCOUNTING_SMTP_USER')));
+    define('SMTP_PASS', coreAccountingMailSetting('COREFLUX_ACCOUNTING_SMTP_PASS'));
+    define('SMTP_SECURE', trim(coreAccountingMailSetting('COREFLUX_ACCOUNTING_SMTP_SECURE') ?: 'tls'));
+    define('SMTP_FROM_EMAIL', trim(coreAccountingMailSetting('COREFLUX_ACCOUNTING_FROM_EMAIL')));
+    define('SMTP_FROM_NAME', trim(coreAccountingMailSetting('COREFLUX_ACCOUNTING_FROM_NAME') ?: 'CoreAccounting'));
 } else {
 define('SMTP_HOST', 'smtp.mail.yahoo.com');
 define('SMTP_PORT', 587);

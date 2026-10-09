@@ -19,6 +19,7 @@
 namespace Core\Mail;
 
 require_once __DIR__ . '/MailDriver.php';
+require_once __DIR__ . '/../accounting/mail_settings.php';
 
 class ResendDriver implements MailDriver
 {
@@ -75,10 +76,10 @@ class ResendDriver implements MailDriver
             return $this->fail('No recipients');
         }
         if (getenv('COREFLUX_ENV') === 'coreaccounting'
-            && getenv('COREFLUX_ACCOUNTING_MAIL_TEST_MODE') === '1') {
+            && \coreAccountingMailSetting('COREFLUX_ACCOUNTING_MAIL_TEST_MODE') === '1') {
             $allowed = array_filter(array_map(
                 static fn(string $address): string => strtolower(trim($address)),
-                explode(',', (string) (getenv('COREFLUX_ACCOUNTING_TEST_RECIPIENTS') ?: ''))
+                explode(',', \coreAccountingMailSetting('COREFLUX_ACCOUNTING_TEST_RECIPIENTS'))
             ));
             if (!$allowed) return $this->fail('CoreAccounting test recipients are not configured');
             foreach (array_merge($to, (array) ($envelope['cc'] ?? [])) as $recipient) {

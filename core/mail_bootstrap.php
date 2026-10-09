@@ -45,9 +45,9 @@ if (!function_exists('cf_mail_bootstrap')) {
         $standaloneAccounting = getenv('COREFLUX_ENV') === 'coreaccounting';
         $resendDriver = $standaloneAccounting
             ? new ResendDriver(
-                (string) (getenv('COREFLUX_ACCOUNTING_RESEND_API_KEY') ?: ''),
-                (string) (getenv('COREFLUX_ACCOUNTING_FROM_EMAIL') ?: ''),
-                (string) (getenv('COREFLUX_ACCOUNTING_FROM_NAME') ?: ''),
+                coreAccountingMailSetting('COREFLUX_ACCOUNTING_RESEND_API_KEY'),
+                coreAccountingMailSetting('COREFLUX_ACCOUNTING_FROM_EMAIL'),
+                coreAccountingMailSetting('COREFLUX_ACCOUNTING_FROM_NAME'),
                 null,
                 true
             )

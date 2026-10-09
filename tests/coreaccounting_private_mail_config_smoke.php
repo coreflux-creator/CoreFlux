@@ -7,14 +7,16 @@ if (!mkdir($privateDir, 0700)) throw new RuntimeException('Could not create priv
 $dbConfig = $privateDir . DIRECTORY_SEPARATOR . 'db.php';
 $mailConfig = $privateDir . DIRECTORY_SEPARATOR . 'mail.php';
 file_put_contents($dbConfig, "<?php\ndefine('DB_HOST', 'localhost');\ndefine('DB_NAME', 'qa_mail_config_test');\ndefine('DB_USER', 'synthetic');\ndefine('DB_PASS', 'synthetic');\n");
-file_put_contents($mailConfig, "<?php\nputenv('COREFLUX_ACCOUNTING_MAIL_CONFIG_LOADED=yes');\n");
+file_put_contents($mailConfig, "<?php\ndefine('COREFLUX_ACCOUNTING_MAIL_CONFIG_LOADED', 'yes');\ndefine('COREFLUX_ACCOUNTING_FROM_EMAIL', 'qa@mail.corefluxapp.com');\n");
 $probe = 'require ' . var_export($root . '/core/config.php', true)
-    . '; echo (string) getenv("COREFLUX_ACCOUNTING_MAIL_CONFIG_LOADED");';
+    . '; echo json_encode([constant("COREFLUX_ACCOUNTING_MAIL_CONFIG_LOADED"),'
+    . ' coreAccountingMailSetting("COREFLUX_ACCOUNTING_FROM_EMAIL"), SMTP_FROM_EMAIL]);';
 $baseEnv = array_merge(getenv(), [
     'COREFLUX_ENV' => 'coreaccounting',
     'COREFLUX_ACCOUNTING_DB_CONFIG_PATH' => $dbConfig,
     'COREFLUX_STANDALONE_DATABASE' => 'qa_mail_config_test',
     'COREFLUX_PUBLIC_ORIGIN' => 'https://stage.corefluxapp.com',
+    'COREFLUX_ACCOUNTING_FROM_EMAIL' => '',
 ]);
 $run = static function (string $path) use ($probe, $baseEnv): array {
     $env = array_merge($baseEnv, ['COREFLUX_ACCOUNTING_MAIL_CONFIG_PATH' => $path]);
@@ -30,7 +32,9 @@ $run = static function (string $path) use ($probe, $baseEnv): array {
 
 try {
     [$status, $stdout] = $run($mailConfig);
-    if ($status !== 0 || $stdout !== 'yes') throw new RuntimeException('Private mail config did not load');
+    if ($status !== 0 || json_decode($stdout, true) !== [
+        'yes', 'qa@mail.corefluxapp.com', 'qa@mail.corefluxapp.com',
+    ]) throw new RuntimeException('Private mail config did not load');
 
     [$status, $stdout, $stderr] = $run('mail.php');
     if ($status === 0 || !str_contains($stdout . $stderr, 'private mail configuration is unavailable')) {
