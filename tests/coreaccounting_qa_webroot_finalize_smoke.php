@@ -51,6 +51,11 @@ if ($phpFallback === false || $spaFallback === false || $phpFallback >= $spaFall
 file_put_contents($webroot . '/.htaccess', $sharedApacheConfig);
 
 $originalEnvironment = getenv('COREFLUX_ENV');
+$standaloneSettings = [];
+foreach (['COREFLUX_STANDALONE_WEBROOT', 'COREFLUX_PUBLIC_ORIGIN',
+    'COREFLUX_STANDALONE_DATABASE'] as $name) {
+    $standaloneSettings[$name] = getenv($name);
+}
 try {
     putenv('COREFLUX_ENV=staging');
     file_put_contents($webroot . '/spa-assets/index-current.js', 'import("./index-missing.js")');
@@ -90,15 +95,59 @@ try {
     file_put_contents($webroot . '/spa-assets/index-current.js', 'import("./index-feature.js")');
     file_put_contents($webroot . '/spa-assets/index-current.css', '@import "./index-theme.css";');
 
-    $private = $privateParent . DIRECTORY_SEPARATOR . 'release-qa';
-    $argv = [
-        'finalize_coreaccounting_qa_webroot.php', '--confirm-disposable-staging',
+    putenv('COREFLUX_ENV=coreaccounting');
+    putenv('COREFLUX_STANDALONE_WEBROOT=' . $webroot);
+    putenv('COREFLUX_PUBLIC_ORIGIN=https://accounting.example.test');
+    putenv('COREFLUX_STANDALONE_DATABASE=fixture_accounting');
+    $standaloneArgs = [
+        'coreaccounting_webroot_finalizer.php', '--confirm-standalone-webroot',
         '--webroot=' . $webroot, '--expected-webroot=' . $webroot,
-        '--private=' . $private,
+        '--origin=https://accounting.example.test', '--database=fixture_accounting',
     ];
+    $previewPrivate = $privateParent . '/preview';
+    $argv = array_merge($standaloneArgs, ['--private=' . $previewPrivate, '--dry-run']);
     ob_start();
-    require __DIR__ . '/../deploy/finalize_coreaccounting_qa_webroot.php';
+    require __DIR__ . '/../deploy/coreaccounting_webroot_finalizer.php';
+    $preview = json_decode((string) ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
+    if (($preview['dry_run'] ?? null) !== true
+        || ($preview['moved_entries'] ?? null) !== 0
+        || ($preview['standalone_apache_rules_installed'] ?? null) !== false
+        || ($preview['standalone_apache_rules_needed'] ?? null) !== true
+        || !in_array('index.html', $preview['planned_entries'] ?? [], true)
+        || !in_array('spa-assets/index-old.js', $preview['planned_entries'] ?? [], true)
+        || is_dir($previewPrivate) || !is_file($webroot . '/index.html')
+        || (string) file_get_contents($webroot . '/.htaccess') !== $sharedApacheConfig) {
+        throw new RuntimeException('Standalone preview changed files or omitted planned moves.');
+    }
+    foreach ([
+        ['--origin=https://wrong.example.test', '--database=fixture_accounting'],
+        ['--origin=https://accounting.example.test', '--database=wrong_database'],
+    ] as [$originArg, $databaseArg]) {
+        $argv = array_merge(array_slice($standaloneArgs, 0, 4),
+            [$originArg, $databaseArg, '--private=' . $privateParent . '/refused', '--dry-run']);
+        try {
+            require __DIR__ . '/../deploy/coreaccounting_webroot_finalizer.php';
+            throw new RuntimeException('Mismatched standalone identity was accepted.');
+        } catch (RuntimeException $error) {
+            if ($error->getMessage() !== 'Standalone webroot, HTTPS origin and database identity must match host settings.') {
+                throw $error;
+            }
+        }
+    }
+    if (is_dir($privateParent . '/refused')) {
+        throw new RuntimeException('Rejected standalone identity created a private directory.');
+    }
+
+    $private = $privateParent . DIRECTORY_SEPARATOR . 'release-qa';
+    $argv = array_merge($standaloneArgs, ['--private=' . $private]);
+    ob_start();
+    require __DIR__ . '/../deploy/coreaccounting_webroot_finalizer.php';
     $result = json_decode((string) ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
+    putenv('COREFLUX_ENV=staging');
+    if (count($preview['planned_entries']) !== ($result['moved_entries'] ?? -1)
+        || ($result['dry_run'] ?? null) !== false) {
+        throw new RuntimeException('Standalone preview and actual source moves diverged.');
+    }
 
     require_once __DIR__ . '/../deploy/coreaccounting_apache_boundary.php';
     $installedApacheConfig = (string) file_get_contents($webroot . '/.htaccess');
@@ -260,6 +309,10 @@ try {
 } finally {
     if ($originalEnvironment === false) putenv('COREFLUX_ENV');
     else putenv('COREFLUX_ENV=' . $originalEnvironment);
+    foreach ($standaloneSettings as $name => $value) {
+        if ($value === false) putenv($name);
+        else putenv($name . '=' . $value);
+    }
     $resolved = realpath($base);
     $temp = realpath(sys_get_temp_dir());
     if ($resolved === false || $temp === false
