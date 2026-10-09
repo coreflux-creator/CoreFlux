@@ -91,6 +91,7 @@ function ReconciliationsList() {
 function AccountsList() {
   const [showClosed, setShowClosed] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const requestedEntity = searchParams.get('entity_id');
   const entityId = requestedEntity && /^[1-9][0-9]*$/.test(requestedEntity) ? Number(requestedEntity) : null;
   const apiUrl = '/modules/accounting/api/bank_accounts.php' + (showClosed ? '?include_closed=1' : '');
@@ -100,7 +101,7 @@ function AccountsList() {
   const entityNames = Object.fromEntries(entities.map(entity => [entity.id, entity.code]));
   const availableEntity = !entityId || entities.some(entity => Number(entity.id) === entityId);
   const displayedAccounts = (data?.rows || []).filter(account => !entityId || Number(account.entity_id) === entityId);
-  const [showNew, setShow] = useState(false);
+  const [showNew, setShow] = useState(searchParams.get('new') === '1');
   const [busy, setBusy] = useState(null);
   const counts = entityId ? {
     active: displayedAccounts.filter(account => account.status === 'active').length,
@@ -155,7 +156,16 @@ function AccountsList() {
       {loading && <p>Loading…</p>}
       {error   && <p className="error">{error.message}</p>}
       {entityData && !availableEntity && <p className="error" role="alert">That legal entity is not available in this workspace.</p>}
-      {showNew && <NewAccountForm onDone={() => { setShow(false); reload(); }} onCancel={() => setShow(false)} />}
+      {showNew && <NewAccountForm preferredEntityId={entityId}
+        onDone={(id, createdEntityId) => { setShow(false); navigate(`${id}?entity_id=${createdEntityId}`); }}
+        onCancel={() => {
+          setShow(false);
+          if (searchParams.has('new')) {
+            const next = new URLSearchParams(searchParams);
+            next.delete('new');
+            setSearchParams(next, { replace: true });
+          }
+        }} />}
       <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Bank accounts" tabIndex={0}>
       <table className="data-table" data-testid="accounting-bank-accounts-table">
         <thead><tr><th>Name</th><th>Entity</th><th>GL code</th><th>Bank</th><th>Last4</th><th>Feed</th><th>Last sync</th><th>Status</th><th></th></tr></thead>
@@ -212,7 +222,7 @@ function AccountsList() {
   );
 }
 
-function NewAccountForm({ onDone, onCancel }) {
+function NewAccountForm({ preferredEntityId, onDone, onCancel }) {
   const [form, setForm] = useState({ name: '', entity_id: '', gl_account_code: '', bank_name: '', last4: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
@@ -220,21 +230,25 @@ function NewAccountForm({ onDone, onCancel }) {
   const { data: accountsData, loading: accountsLoading, error: accountsError } = useApi('/modules/accounting/api/accounts.php?type=asset&active=1&postable=1');
   const { data: banksData, loading: banksLoading, error: banksError } = useApi('/modules/accounting/api/bank_accounts.php?include_closed=1');
   const entities = (entitiesData?.rows || []).filter(entity => Number(entity.active) === 1);
-  const entityId = form.entity_id || (entities.length === 1 ? String(entities[0].id) : '');
+  const entityId = form.entity_id || (entities.some(entity => Number(entity.id) === preferredEntityId)
+    ? String(preferredEntityId) : (entities.length === 1 ? String(entities[0].id) : ''));
   const selectedEntity = entities.find(entity => String(entity.id) === entityId);
   const usedCodes = new Set((banksData?.rows || []).map(bank => bank.gl_account_code));
   const cashAccounts = selectedEntity ? (accountsData?.rows || []).filter(account =>
     account.normal_side === 'debit' && !usedCodes.has(account.code)
+      && (account.cash_flow_tag === 'cash_and_equivalents'
+        || (account.code === '1000' && (Number(account.is_system_account) === 1
+          || (account.is_system_account == null && account.name === 'Cash'))))
       && (!account.currency || account.currency === selectedEntity.base_currency)) : [];
   const loadingOptions = entitiesLoading || accountsLoading || banksLoading;
   const optionError = entitiesError || accountsError || banksError;
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr(null);
     try {
-      await api.post('/modules/accounting/api/bank_accounts.php', {
+      const result = await api.post('/modules/accounting/api/bank_accounts.php', {
         ...form, entity_id: Number(entityId), currency: selectedEntity.base_currency,
       });
-      onDone();
+      onDone(result.id, Number(entityId));
     }
     catch (e2) { setErr(e2.message); }
     finally { setBusy(false); }
@@ -243,20 +257,30 @@ function NewAccountForm({ onDone, onCancel }) {
     <form onSubmit={submit} data-testid="accounting-bank-account-form" style={{ marginBottom: 16, padding: 12, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8, background: '#fafbff' }}>
       <h3 style={{ margin: '0 0 12px', fontSize: 14 }}>New bank account</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-        <input className="input" placeholder="Name (e.g. Operating Chase ...4421)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-bank-account-name" required />
-        <select className="input" value={entityId} onChange={e => setForm({ ...form, entity_id: e.target.value, gl_account_code: '' })} data-testid="accounting-bank-account-entity" aria-label="Legal entity" required>
-          <option value="">Choose legal entity</option>
-          {entities.map(entity => <option key={entity.id} value={entity.id}>{entity.code} · {entity.legal_name}</option>)}
-        </select>
-        <select className="input" value={form.gl_account_code} onChange={e => setForm({ ...form, gl_account_code: e.target.value })} data-testid="accounting-bank-account-gl" aria-label="Bank cash ledger account" required>
-          <option value="">Choose unused asset account</option>
-          {cashAccounts.map(account => <option key={account.id} value={account.code}>{account.code} · {account.name}</option>)}
-        </select>
-        <input className="input" placeholder="Bank name" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} data-testid="accounting-bank-account-bank-name" />
-        <input className="input" placeholder="Last 4" maxLength={4} value={form.last4} onChange={(e) => setForm({ ...form, last4: e.target.value })} data-testid="accounting-bank-account-last4" />
+        <label style={{ fontSize: 12 }}>Account name
+          <input className="input" placeholder="Operating Chase ...4421" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-bank-account-name" required style={{ display: 'block', width: '100%', marginTop: 4 }} />
+        </label>
+        <label style={{ fontSize: 12 }}>Legal entity
+          <select className="input" value={entityId} onChange={e => setForm({ ...form, entity_id: e.target.value, gl_account_code: '' })} data-testid="accounting-bank-account-entity" required style={{ display: 'block', width: '100%', marginTop: 4 }}>
+            <option value="">Choose legal entity</option>
+            {entities.map(entity => <option key={entity.id} value={entity.id}>{entity.code} · {entity.legal_name}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12 }}>Cash ledger account
+          <select className="input" value={form.gl_account_code} onChange={e => setForm({ ...form, gl_account_code: e.target.value })} data-testid="accounting-bank-account-gl" required style={{ display: 'block', width: '100%', marginTop: 4 }}>
+            <option value="">Choose a cash ledger account</option>
+            {cashAccounts.map(account => <option key={account.id} value={account.code}>{account.code} · {account.name}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12 }}>Bank name
+          <input className="input" placeholder="Optional" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} data-testid="accounting-bank-account-bank-name" style={{ display: 'block', width: '100%', marginTop: 4 }} />
+        </label>
+        <label style={{ fontSize: 12 }}>Last 4 digits
+          <input className="input" placeholder="Optional" maxLength={4} value={form.last4} onChange={(e) => setForm({ ...form, last4: e.target.value })} data-testid="accounting-bank-account-last4" style={{ display: 'block', width: '100%', marginTop: 4 }} />
+        </label>
       </div>
       {!loadingOptions && !optionError && selectedEntity && cashAccounts.length === 0 && <p style={{ margin: '8px 0 0', fontSize: 13 }}>
-        No unused asset account is available for this entity. <Link to="/modules/accounting/accounts">Add a dedicated cash asset account</Link> to the chart first.
+        No unused cash account is available for this entity. <Link to="/modules/accounting/accounts">Add an asset account marked Bank/cash</Link> to the chart first.
       </p>}
       {optionError && <p className="error">Could not load bank setup options: {optionError.message}</p>}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>

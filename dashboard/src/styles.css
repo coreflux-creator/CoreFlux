@@ -2300,6 +2300,12 @@ input[type="radio"] {
     border-radius: 6px;
 }
 
+.inline-create-form__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 .account-link {
     color: var(--cf-accent-dark);
     text-decoration: none;

@@ -14,36 +14,12 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/active_entity.php';
 require_once __DIR__ . '/../lib/accounting.php';
+require_once __DIR__ . '/../lib/bank_account_ledger.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
-
-function bankAccountValidateLedger(string $code, string $currency, ?int $excludeId = null): void
-{
-    $account = scopedFind(
-        'SELECT id, account_type, normal_side, is_postable, active, currency
-           FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :code',
-        ['code' => $code]
-    );
-    if (!$account || (int) $account['active'] !== 1 || (int) $account['is_postable'] !== 1
-        || $account['account_type'] !== 'asset' || $account['normal_side'] !== 'debit') {
-        api_error('Choose an active, postable cash asset account from the chart of accounts', 422);
-    }
-    if (!empty($account['currency']) && strcasecmp((string) $account['currency'], $currency) !== 0) {
-        api_error('The bank and cash ledger account must use the same currency', 422);
-    }
-    $usedSql = 'SELECT id FROM accounting_bank_accounts
-                 WHERE tenant_id = :tenant_id AND gl_account_code = :code';
-    $usedParams = ['code' => $code];
-    if ($excludeId !== null) {
-        $usedSql .= ' AND id <> :exclude_id';
-        $usedParams['exclude_id'] = $excludeId;
-    }
-    $used = scopedFind($usedSql . ' LIMIT 1', $usedParams);
-    if ($used) api_error('This cash ledger account is already linked to a bank account. Choose a different cash account.', 409);
-}
 
 function bankAccountResolveEntity(int $tenantId, ?int $requestedId): array
 {
@@ -153,7 +129,7 @@ if ($method === 'POST') {
     $entity = bankAccountResolveEntity((int) $ctx['tenant_id'],
         !empty($body['entity_id']) ? (int) $body['entity_id'] : null);
     $code = trim((string) $body['gl_account_code']);
-    $currency = strtoupper(trim((string) ($body['currency'] ?? 'USD')));
+    $currency = strtoupper(trim((string) ($body['currency'] ?? $entity['base_currency'])));
     if (!preg_match('/^[A-Z]{3}$/', $currency)) api_error('Currency must be a three-letter code', 422);
     if (strcasecmp((string) $entity['base_currency'], $currency) !== 0) {
         api_error('The bank account currency must match the legal entity currency', 422);

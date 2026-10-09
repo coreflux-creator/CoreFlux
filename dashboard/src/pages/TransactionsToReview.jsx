@@ -161,6 +161,7 @@ export default function TransactionsToReview() {
 
   const totalRemaining = visibleRows.length;
   const totalServer    = data?.total ?? 0;
+  const hasBankAccounts = (data?.bank_accounts || []).length > 0;
 
   return (
     <div data-testid="transactions-to-review-page" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -214,11 +215,13 @@ export default function TransactionsToReview() {
 
       {(!loading && data && totalServer === 0 && totalRemaining === 0) && (
         <div data-testid="transactions-to-review-empty" style={{ padding: 36, background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 12, textAlign: 'center' }}>
-          <CheckCircle2 size={28} color="#059669" style={{ marginBottom: 8 }} />
-          <strong style={{ display: 'block', color: '#065f46', fontSize: 15 }}>You're all caught up</strong>
-          <p style={{ color: '#047857', margin: '6px 0 0', fontSize: 13 }}>No unmatched statement lines on active bank accounts.</p>
-          <Link to={scope.withScope('/modules/accounting/overview')} className="btn btn--ghost" style={{ marginTop: 12, fontSize: 12 }} data-testid="transactions-to-review-back-overview">
-            Back to bookkeeping overview <ArrowRight size={12} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
+          {hasBankAccounts ? <CheckCircle2 size={28} color="#059669" style={{ marginBottom: 8 }} /> : <Wallet size={28} color="#0284c7" style={{ marginBottom: 8 }} />}
+          <strong style={{ display: 'block', color: '#065f46', fontSize: 15 }}>{hasBankAccounts ? "You're all caught up" : 'Add a bank account to get started'}</strong>
+          <p style={{ color: '#047857', margin: '6px 0 0', fontSize: 13 }}>
+            {hasBankAccounts ? 'No unmatched statement lines on active bank accounts.' : 'Connect a bank feed or import a statement to review transactions here.'}
+          </p>
+          <Link to={scope.withScope(hasBankAccounts ? '/modules/accounting/overview' : '/modules/accounting/bank-rec?new=1')} className="btn btn--ghost" style={{ marginTop: 12, fontSize: 12 }} data-testid="transactions-to-review-back-overview">
+            {hasBankAccounts ? 'Back to bookkeeping overview' : 'Add bank account'} <ArrowRight size={12} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
           </Link>
         </div>
       )}

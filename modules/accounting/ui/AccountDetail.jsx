@@ -50,7 +50,7 @@ export default function AccountDetail() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [accountEditOpen, setAccountEditOpen] = useState(false);
-  const [accountEdit, setAccountEdit] = useState({ name: '', description: '', active: '1' });
+  const [accountEdit, setAccountEdit] = useState({ name: '', description: '', active: '1', cash_flow_tag: '' });
   const [accountEditBusy, setAccountEditBusy] = useState(false);
 
   const entities = useMemo(() => workspace.data?.entities || [], [workspace.data?.entities]);
@@ -95,6 +95,7 @@ export default function AccountDetail() {
       name: account.name || '',
       description: account.description || '',
       active: String(Number(account.active)),
+      cash_flow_tag: account.cash_flow_tag || '',
     });
     setNotice(null);
     setAccountEditOpen(true);
@@ -110,6 +111,8 @@ export default function AccountDetail() {
         name: accountEdit.name.trim(),
         description: accountEdit.description.trim(),
         active: Number(accountEdit.active),
+        ...(account.account_type === 'asset' && !(account.code === '1000' && Number(account.is_system_account) === 1)
+          ? { cash_flow_tag: accountEdit.cash_flow_tag } : {}),
       });
       setAccountEditOpen(false);
       setNotice({ type: 'ok', text: 'Account updated.' });
@@ -161,7 +164,11 @@ export default function AccountDetail() {
 
   const accountEditChanged = accountEdit.name.trim() !== account.name
     || accountEdit.description.trim() !== (account.description || '')
-    || Number(accountEdit.active) !== Number(account.active);
+    || Number(accountEdit.active) !== Number(account.active)
+    || (account.account_type === 'asset' && !(account.code === '1000' && Number(account.is_system_account) === 1)
+      && accountEdit.cash_flow_tag !== (account.cash_flow_tag || ''));
+  const isSystemCash = account.code === '1000' && Number(account.is_system_account) === 1;
+  const isBankCash = isSystemCash || account.cash_flow_tag === 'cash_and_equivalents';
   const canBearInterest = ['asset', 'liability'].includes(account.account_type);
   const incomeAccounts = (workspace.data?.offset_accounts || []).filter((row) => row.account_type === 'revenue');
   const expenseAccounts = (workspace.data?.offset_accounts || []).filter((row) => row.account_type === 'expense');
@@ -209,6 +216,15 @@ export default function AccountDetail() {
               </select>
             </label>
           </div>
+          {account.account_type === 'asset' && !isSystemCash && (
+            <label style={{ ...labelStyle, display: 'inline-flex', flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 }}>
+              <input type="checkbox" checked={accountEdit.cash_flow_tag === 'cash_and_equivalents'}
+                onChange={(event) => setAccountEdit((current) => ({ ...current, cash_flow_tag: event.target.checked ? 'cash_and_equivalents' : (account.cash_flow_tag === 'cash_and_equivalents' ? '' : (account.cash_flow_tag || '')) }))}
+                data-testid="accounting-account-edit-bank-cash" />
+              Bank/cash account
+            </label>
+          )}
+          {isSystemCash && <p style={{ fontSize: 12, margin: '12px 0 0', color: '#64748b' }}>The standard Cash account is available for bank setup.</p>}
           <label style={{ ...labelStyle, marginTop: 12 }}>Description
             <textarea className="input" rows={2} maxLength={500} value={accountEdit.description}
               onChange={(event) => setAccountEdit((current) => ({ ...current, description: event.target.value }))} />
@@ -231,6 +247,7 @@ export default function AccountDetail() {
           <Stat label="Currency" value={selectedBalance?.currency || account.currency || 'USD'} />
           <Stat label="Posting" value={account.is_postable ? 'Postable' : 'Header only'} />
           <Stat label="Status" value={account.active ? 'Active' : 'Inactive'} />
+          {account.account_type === 'asset' && <Stat label="Bank/cash" value={isBankCash ? 'Yes' : 'No'} />}
           <Link className="btn btn--ghost" to={`/modules/accounting/gl-detail?account_id=${account.id}${entityId ? `&entity_id=${entityId}` : ''}`}>
             View account activity <ExternalLink size={13} style={{ marginLeft: 5, verticalAlign: 'middle' }} />
           </Link>

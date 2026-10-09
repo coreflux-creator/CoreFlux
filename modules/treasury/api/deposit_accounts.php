@@ -4,8 +4,8 @@
  *
  *   GET                → list all active deposit accounts (bank + cash) with
  *                         current GL balance and last feed sync.
- *   POST               → create a new deposit account (proxies accounting's
- *                         bank_accounts create path so we don't duplicate logic).
+ *   POST               → create a new deposit account with the same cash-ledger
+ *                         validation as Accounting bank setup.
  *
  * "Deposit account" = any GL account in the `accounting_bank_accounts`
  * table (checking / savings / cash-on-hand) plus ad-hoc asset-type COA
@@ -16,6 +16,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/active_entity.php';
+require_once __DIR__ . '/../../accounting/lib/bank_account_ledger.php';
 
 $ctx = api_require_auth();
 
@@ -110,15 +111,30 @@ switch (api_method()) {
         }
         if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
 
-        $id = scopedInsert('accounting_bank_accounts', [
-            'name'            => trim((string) $body['name']),
-            'gl_account_code' => trim((string) $body['gl_account_code']),
-            'bank_name'       => $body['bank_name'] ?? null,
-            'last4'           => $body['last4'] ?? null,
-            'currency'        => $body['currency'] ?? 'USD',
-            'entity_id'       => (int) $entity['id'],
-            'status'          => 'active',
-        ]);
+        $code = trim((string) $body['gl_account_code']);
+        $currency = strtoupper(trim((string) ($body['currency'] ?? $entity['base_currency'])));
+        if (!preg_match('/^[A-Z]{3}$/', $currency)) api_error('Currency must be a three-letter code', 422);
+        if (strcasecmp((string) $entity['base_currency'], $currency) !== 0) {
+            api_error('The bank account currency must match the legal entity currency', 422);
+        }
+        bankAccountValidateLedger($code, $currency);
+
+        try {
+            $id = scopedInsert('accounting_bank_accounts', [
+                'name'            => trim((string) $body['name']),
+                'gl_account_code' => $code,
+                'bank_name'       => $body['bank_name'] ?? null,
+                'last4'           => $body['last4'] ?? null,
+                'currency'        => $currency,
+                'entity_id'       => (int) $entity['id'],
+                'status'          => 'active',
+            ]);
+        } catch (\PDOException $e) {
+            if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+                api_error('This cash ledger account is already linked to a bank account. Choose a different cash account.', 409);
+            }
+            throw $e;
+        }
 
         try {
             $pdo = getDB();

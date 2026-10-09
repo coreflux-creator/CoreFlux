@@ -99,7 +99,7 @@ export default function ChartOfAccounts() {
   const { data, loading, error, reload } = useApi('/modules/accounting/api/accounts.php');
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
   const accountTypes = data?.types ?? Object.keys(TYPE_META);
-  const [form, setForm]       = useState({ code: '', name: '', account_type: 'expense' });
+  const [form, setForm]       = useState({ code: '', name: '', account_type: 'expense', cash_flow_tag: '' });
   const [busy, setBusy]       = useState(false);
   const [seedBusy, setSeedBusy] = useState(false);
   const [autoBusy, setAutoBusy] = useState(false);
@@ -214,7 +214,7 @@ export default function ChartOfAccounts() {
     setBusy(true); setNotice(null);
     try {
       await api.post('/modules/accounting/api/accounts.php', form);
-      setForm({ code: '', name: '', account_type: 'expense' });
+      setForm({ code: '', name: '', account_type: 'expense', cash_flow_tag: '' });
       setShowAdd(false);
       reload();
     } catch (err) { setNotice({ type: 'err', text: err.message }); }
@@ -381,13 +381,20 @@ export default function ChartOfAccounts() {
         <form onSubmit={add} className="inline-create-form" data-testid="accounting-accounts-form">
           <input className="input" placeholder="Number" aria-label="Account number" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} data-testid="accounting-accounts-code" required />
           <input className="input" placeholder="Account name" aria-label="Account name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-accounts-name" required />
-          <select className="input" aria-label="Account type" value={form.account_type} onChange={(e) => setForm({ ...form, account_type: e.target.value })} data-testid="accounting-accounts-type">
+          <select className="input" aria-label="Account type" value={form.account_type} onChange={(e) => setForm({ ...form, account_type: e.target.value, cash_flow_tag: e.target.value === 'asset' ? form.cash_flow_tag : '' })} data-testid="accounting-accounts-type">
             {accountTypes.map((t) => <option key={t} value={t}>
               {TYPE_META[t]?.label ?? t}{TYPE_META[t]?.normal ? ` (${TYPE_META[t].normal})` : ''}
             </option>)}
           </select>
-          <button className="btn btn--primary" data-testid="accounting-accounts-add" disabled={busy}>{busy ? 'Adding…' : 'Add account'}</button>
-          <button type="button" className="btn btn--ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+          {form.account_type === 'asset' && <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+            <input type="checkbox" checked={form.cash_flow_tag === 'cash_and_equivalents'}
+              onChange={(e) => setForm({ ...form, cash_flow_tag: e.target.checked ? 'cash_and_equivalents' : '' })}
+              data-testid="accounting-accounts-bank-cash" />Bank/cash account
+          </label>}
+          <div className="inline-create-form__actions">
+            <button className="btn btn--primary" data-testid="accounting-accounts-add" disabled={busy}>{busy ? 'Adding…' : 'Add account'}</button>
+            <button type="button" className="btn btn--ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+          </div>
         </form>
       )}
 

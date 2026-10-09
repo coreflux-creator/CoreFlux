@@ -21,14 +21,12 @@ function DepositList() {
   const requestedEntityId = Number(searchParams.get('entity_id'));
   const selectedEntityId = entities.some((entity) => entity.id === requestedEntityId)
     ? requestedEntityId : activeEntityId;
-  const selectedEntity = entities.find((entity) => entity.id === selectedEntityId);
   const query = selectedEntityId ? `?entity_id=${selectedEntityId}` : '';
   const { data, error, loading, reload } = useApi(
     `/modules/treasury/api/deposit_accounts.php${query}`,
     { enabled: loaded && Boolean(selectedEntityId) },
   );
   const rows = (data?.rows || []).filter((row) => Number(row.entity_id) === selectedEntityId);
-  const [showNew, setShowNew] = useState(false);
   const navigate = useNavigate();
 
   return (
@@ -41,14 +39,11 @@ function DepositList() {
             pull live bank-feed transactions into the ledger.
           </p>
         </div>
-        <button
-          className="btn btn--primary"
-          onClick={() => setShowNew((v) => !v)}
-          disabled={!selectedEntityId}
-          data-testid="treasury-deposit-new-btn"
-        >
-          {showNew ? 'Cancel' : '+ New deposit account'}
-        </button>
+        {selectedEntityId ? (
+          <Link className="btn btn--primary"
+            to={`/modules/accounting/bank-rec?entity_id=${selectedEntityId}&new=1`}
+            data-testid="treasury-deposit-new-btn">+ Add bank account</Link>
+        ) : <button className="btn btn--primary" disabled>+ Add bank account</button>}
       </header>
 
       {loaded && entities.length > 0 && (
@@ -63,7 +58,6 @@ function DepositList() {
             onChange={(event) => {
               const next = new URLSearchParams(searchParams);
               next.set('entity_id', event.target.value);
-              setShowNew(false);
               setSearchParams(next);
             }}
             style={{ maxWidth: 360 }}
@@ -77,17 +71,12 @@ function DepositList() {
         </div>
       )}
 
-      {showNew && selectedEntity && (
-        <NewDepositForm key={selectedEntity.id} entityId={selectedEntity.id}
-          onDone={() => { setShowNew(false); reload(); }} />
-      )}
-
       {(!loaded || loading) && <p>Loading…</p>}
       {loaded && entities.length === 0 && <p className="empty-state">Create a legal entity before adding a deposit account.</p>}
       {error && <p className="error" role="alert">Could not load deposit accounts: {error.message} <button type="button" className="btn btn--ghost" onClick={reload}>Retry</button></p>}
       {loaded && !loading && !error && selectedEntityId && rows.length === 0 && (
         <p className="empty-state" data-testid="treasury-deposits-empty">
-          No deposit accounts yet. Click <em>+ New deposit account</em> to add one.
+          No deposit accounts yet. Add a bank account to get started.
         </p>
       )}
 
@@ -251,49 +240,6 @@ function DepositRow({ row: r, onChanged, navigate }) {
       </tr>
     )}
     </>
-  );
-}
-
-function NewDepositForm({ entityId, onDone }) {
-  const [f, setF] = useState({ name: '', gl_account_code: '', bank_name: '', last4: '' });
-  const [busy, setBusy] = useState(false);
-  const [err, setErr]   = useState(null);
-  const submit = async () => {
-    setBusy(true); setErr(null);
-    try { await api.post('/modules/treasury/api/deposit_accounts.php', { ...f, entity_id: entityId }); onDone(); }
-    catch (e) { setErr(e.message); } finally { setBusy(false); }
-  };
-  return (
-    <div
-      data-testid="treasury-deposit-new-form"
-      style={{
-        padding: 16, marginBottom: 16, background: 'var(--cf-surface)',
-        border: '1px solid var(--cf-border)', borderRadius: 8,
-      }}
-    >
-      <h3 style={{ margin: '0 0 12px', fontSize: 14 }}>New deposit account</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-        <input className="input" placeholder="Name (Operating Chase ...4421)"
-          value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })}
-          data-testid="treasury-deposit-name" required />
-        <input className="input" placeholder="GL account code (1010)"
-          value={f.gl_account_code} onChange={(e) => setF({ ...f, gl_account_code: e.target.value })}
-          data-testid="treasury-deposit-gl" required />
-        <input className="input" placeholder="Bank name (optional)"
-          value={f.bank_name} onChange={(e) => setF({ ...f, bank_name: e.target.value })} />
-        <input className="input" placeholder="Last 4" maxLength={4}
-          value={f.last4} onChange={(e) => setF({ ...f, last4: e.target.value })} />
-      </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-        <button
-          type="button" className="btn btn--primary"
-          onClick={submit} disabled={busy || !f.name || !f.gl_account_code}
-          data-testid="treasury-deposit-save">
-          {busy ? 'Saving…' : 'Save'}
-        </button>
-      </div>
-      {err && <p className="error" data-testid="treasury-deposit-error">{err}</p>}
-    </div>
   );
 }
 

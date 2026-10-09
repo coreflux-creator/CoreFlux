@@ -125,6 +125,7 @@ if ($method === 'GET') {
     if (!empty($_GET['postable'])) { $where[] = 'is_postable = 1'; }
     $rows = scopedQuery(
         'SELECT id, code, name, account_type, normal_side, parent_account_id, is_postable, active, currency,
+                cash_flow_tag, is_system_account,
                 (SELECT COUNT(*) FROM accounting_account_terms t
                   WHERE t.tenant_id = accounting_accounts.tenant_id
                     AND t.account_id = accounting_accounts.id

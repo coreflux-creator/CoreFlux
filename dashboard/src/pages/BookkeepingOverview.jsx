@@ -73,13 +73,13 @@ export default function BookkeepingOverview() {
         <div className="bookkeeping-overview-connect-bank" data-testid="bookkeeping-overview-connect-bank" style={ctaBox}>
           <Wallet size={20} color="#7c3aed" />
           <div style={{ flex: '1 1 220px', minWidth: 0 }}>
-            <strong style={{ fontSize: 14, color: '#5b21b6' }}>Connect your first bank to start auto-bookkeeping</strong>
+            <strong style={{ fontSize: 14, color: '#5b21b6' }}>Add your first bank account</strong>
             <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6d28d9' }}>
-              Without a live bank feed the engine has no transactions to categorize.
+              Add a cash ledger account, then connect its feed or import a bank statement.
             </p>
           </div>
-          <Link to={scope.withScope('/modules/treasury/deposits')} className="btn btn--primary" data-testid="bookkeeping-overview-connect-bank-cta">
-            Connect bank <ArrowRight size={14} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
+          <Link to={scope.withScope('/modules/accounting/bank-rec?new=1')} className="btn btn--primary" data-testid="bookkeeping-overview-connect-bank-cta">
+            Add bank account <ArrowRight size={14} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
           </Link>
         </div>
       )}
