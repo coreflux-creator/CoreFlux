@@ -5,6 +5,8 @@ declare(strict_types=1);
 function coreAccountingRequiredSchema(): array
 {
     return [
+        'password_resets' => ['id', 'user_id', 'email', 'token_hash', 'expires_at',
+            'used_at', 'created_at'],
         'accounting_entities' => ['id', 'tenant_id', 'code', 'base_currency', 'active'],
         'accounting_periods' => ['id', 'tenant_id', 'entity_id', 'start_date', 'end_date', 'status'],
         'accounting_accounts' => ['id', 'tenant_id', 'code', 'account_type', 'normal_side',

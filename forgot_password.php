@@ -33,60 +33,19 @@ $APP_NAME      = 'CoreFlux';
 $TOKEN_TTL_MIN = 60;
 $RESET_PATH    = '/reset_password.php';
 
-/**
- * Bring legacy password_resets tables up to the shape used by CoreFlux.
- *
- * Some production installs already have the common Laravel-style table
- * (email, token, created_at). CREATE TABLE IF NOT EXISTS leaves that table
- * untouched, so the first registered-user request used to fail on user_id,
- * token_hash, expires_at, or used_at before mail delivery was attempted.
- * Keep this repair local and idempotent because this public flow must also
- * work on older hosts before the normal migration runner has executed.
- *
- * @return array<string,bool> lowercase column-name set
- */
-function forgotPasswordEnsureSchema(PDO $pdo): array
+/** @return array<string,bool> lowercase column-name set */
+function forgotPasswordResetColumns(PDO $pdo): array
 {
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS password_resets (
-            id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            user_id     BIGINT UNSIGNED NOT NULL,
-            email       VARCHAR(255) NOT NULL,
-            token_hash  CHAR(64)     NOT NULL,
-            expires_at  DATETIME     NOT NULL,
-            used_at     DATETIME     NULL,
-            created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX (email), INDEX (user_id), INDEX (token_hash)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    ");
-
-    $readColumns = static function () use ($pdo): array {
-        $set = [];
-        foreach ($pdo->query('SHOW COLUMNS FROM password_resets')->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $name = strtolower((string) ($row['Field'] ?? ''));
-            if ($name !== '') $set[$name] = true;
-        }
-        return $set;
-    };
-
-    $columns = $readColumns();
-    $repairs = [
-        // AUTO_INCREMENT may coexist with a legacy primary key when it has
-        // its own UNIQUE index. Existing rows receive stable generated ids.
-        'id'         => 'ADD COLUMN id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT UNIQUE FIRST',
-        'user_id'    => 'ADD COLUMN user_id BIGINT UNSIGNED NULL AFTER id',
-        'email'      => 'ADD COLUMN email VARCHAR(255) NULL AFTER user_id',
-        'token_hash' => 'ADD COLUMN token_hash CHAR(64) NULL AFTER email',
-        'expires_at' => 'ADD COLUMN expires_at DATETIME NULL AFTER token_hash',
-        'used_at'    => 'ADD COLUMN used_at DATETIME NULL AFTER expires_at',
-        'created_at' => 'ADD COLUMN created_at DATETIME NULL DEFAULT CURRENT_TIMESTAMP AFTER used_at',
-    ];
-    foreach ($repairs as $column => $ddl) {
-        if (isset($columns[$column])) continue;
-        $pdo->exec('ALTER TABLE password_resets ' . $ddl);
-        $columns[$column] = true;
+    $columns = [];
+    foreach ($pdo->query('SHOW COLUMNS FROM password_resets')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $name = strtolower((string) ($row['Field'] ?? ''));
+        if ($name !== '') $columns[$name] = true;
     }
-
+    foreach (['id', 'user_id', 'email', 'token_hash', 'expires_at', 'used_at', 'created_at'] as $name) {
+        if (!isset($columns[$name])) {
+            throw new RuntimeException('Password reset schema is not ready. Run guarded migrations.');
+        }
+    }
     return $columns;
 }
 
@@ -94,14 +53,15 @@ $successMsg = '';
 $errorMsg   = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim($_POST['email'] ?? '');
+    $email = is_string($_POST['email'] ?? null) ? trim($_POST['email']) : '';
 
     if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $errorMsg = 'Please enter a valid email address.';
     } else {
-        $passwordResetColumns = forgotPasswordEnsureSchema($pdo);
-        $resetStage = 'user_lookup';
+        $resetStage = 'schema_check';
         try {
+            $passwordResetColumns = forgotPasswordResetColumns($pdo);
+            $resetStage = 'user_lookup';
             $stmt = $pdo->prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(:e) LIMIT 1');
             $stmt->execute([':e' => $email]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);

@@ -11,6 +11,11 @@ $check = static function (string $name, bool $ok) use (&$failures): void {
 };
 
 $check('complete CoreAccounting schema has no gaps', coreAccountingMissingSchema($required) === []);
+$withoutResetToken = $required;
+$withoutResetToken['password_resets'] = array_values(array_diff(
+    $withoutResetToken['password_resets'], ['token_hash']));
+$check('missing password recovery column is reported', in_array(
+    'password_resets.token_hash', coreAccountingMissingSchema($withoutResetToken), true));
 $withoutBill = $required;
 unset($withoutBill['ap_bills']);
 $check('missing AP table is reported', in_array('ap_bills',
@@ -79,6 +84,10 @@ $canonical = strpos($bootstrap, 'coreflux_run_migrations(true)');
 $check('bill entity column precedes canonical issuer backfill on an empty install',
     $billBase !== false && $consolidation !== false && $canonical !== false
     && $billBase < $consolidation && $consolidation < $canonical);
+$resetMigration = (string) file_get_contents(__DIR__ . '/../core/migrations/160_password_reset_tokens.sql');
+$check('password recovery schema is created by the guarded migration',
+    str_contains($resetMigration, 'CREATE TABLE IF NOT EXISTS password_resets')
+    && str_contains($resetMigration, 'ADD COLUMN token_hash'));
 
-echo $failures ? "Failed: {$failures}\n" : "Passed: 14\n";
+echo $failures ? "Failed: {$failures}\n" : "Passed: 16\n";
 exit($failures ? 1 : 0);

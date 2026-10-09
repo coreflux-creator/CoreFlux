@@ -1,4 +1,6 @@
 <?php
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Referrer-Policy: no-referrer');
 require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/auth.php';
 require_once __DIR__ . '/core/mailer.php';
@@ -10,8 +12,10 @@ if (!$pdo) {
 }
 
 // Accept both styles (?token=&email=) and legacy (?t=&e=)
-$email = trim($_GET['email'] ?? $_GET['e'] ?? $_POST['email'] ?? '');
-$token = trim($_GET['token'] ?? $_GET['t'] ?? $_POST['token'] ?? '');
+$emailValue = $_GET['email'] ?? $_GET['e'] ?? $_POST['email'] ?? '';
+$tokenValue = $_GET['token'] ?? $_GET['t'] ?? $_POST['token'] ?? '';
+$email = is_string($emailValue) ? trim($emailValue) : '';
+$token = is_string($tokenValue) ? trim($tokenValue) : '';
 
 $can_show_form = false;
 $error   = '';
@@ -21,15 +25,16 @@ $success = '';
  * Fetch and validate the latest, unused, unexpired reset token for the email.
  * Returns [row|null, error|null].
  */
-function get_valid_reset(PDO $pdo, string $email, string $token) {
+function get_valid_reset(PDO $pdo, string $email, string $token, bool $lock = false) {
     $stmt = $pdo->prepare("
         SELECT id, user_id, email, token_hash, expires_at, used_at
         FROM password_resets
         WHERE email = :email
           AND used_at IS NULL
-        ORDER BY created_at DESC
+          AND user_id IS NOT NULL AND token_hash IS NOT NULL AND expires_at IS NOT NULL
+        ORDER BY created_at DESC, id DESC
         LIMIT 1
-    ");
+    " . ($lock ? ' FOR UPDATE' : ''));
     $stmt->execute([':email' => $email]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -40,7 +45,7 @@ function get_valid_reset(PDO $pdo, string $email, string $token) {
         return [null, 'This reset link has expired. Please request a new one.'];
     }
     // Verify SHA-256 token using constant-time comparison
-    if (!hash_equals($row['token_hash'], hash('sha256', $token))) {
+    if (!hash_equals((string) $row['token_hash'], hash('sha256', $token))) {
         return [null, 'Invalid reset token.'];
     }
     return [$row, null];
@@ -95,8 +100,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
 // POST: attempt password change
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $newPassword = trim($_POST['password'] ?? '');
-    $confirm     = trim($_POST['confirm'] ?? '');
+    $newPassword = is_string($_POST['password'] ?? null) ? $_POST['password'] : '';
+    $confirm     = is_string($_POST['confirm'] ?? null) ? $_POST['confirm'] : '';
 
     if ($email === '' || $token === '') {
         $error = 'Missing reset link parameters.';
@@ -110,15 +115,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($error === '') {
         try {
-            [$row, $err] = get_valid_reset($pdo, $email, $token);
+            $pdo->beginTransaction();
+            [$row, $err] = get_valid_reset($pdo, $email, $token, true);
             if ($err) {
+                $pdo->rollBack();
                 $error = $err;
             } else {
                 // Update user password across canonical and legacy columns.
                 $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
                 $userCols = authTableColumns($pdo, 'users');
                 $sets = [];
-                $bind = [':e' => $email];
+                $bind = [':e' => $email, ':uid' => (int) $row['user_id']];
                 if (in_array('password', $userCols, true)) {
                     $sets[] = 'password = :password';
                     $bind[':password'] = $passwordHash;
@@ -133,14 +140,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$sets) {
                     throw new RuntimeException('No password column exists on users table.');
                 }
-                $pdo->prepare('UPDATE users SET ' . implode(', ', $sets) . ' WHERE LOWER(email) = LOWER(:e)')
-                    ->execute($bind);
+                $userUpdate = $pdo->prepare('UPDATE users SET ' . implode(', ', $sets)
+                    . ' WHERE id = :uid AND LOWER(email) = LOWER(:e)');
+                $userUpdate->execute($bind);
+                if ($userUpdate->rowCount() !== 1) {
+                    throw new RuntimeException('Reset user is no longer available.');
+                }
 
-                // Mark token as used and optionally clean up old used tokens
-                $pdo->prepare("UPDATE password_resets SET used_at = NOW() WHERE id = :id")
-                    ->execute([':id' => $row['id']]);
+                $tokenUpdate = $pdo->prepare(
+                    'UPDATE password_resets SET used_at = NOW() WHERE id = :id AND used_at IS NULL'
+                );
+                $tokenUpdate->execute([':id' => $row['id']]);
+                if ($tokenUpdate->rowCount() !== 1) {
+                    throw new RuntimeException('Reset token was already used.');
+                }
                 $pdo->prepare("DELETE FROM password_resets WHERE email = :e AND used_at IS NOT NULL")
                     ->execute([':e' => $email]);
+                $pdo->commit();
 
                 // Optional confirmation email through the central mailer.
                 try {
@@ -166,6 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $success = 'Your password has been reset successfully. You can now <a href="/login.php">log in</a>.';
             }
         } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
             error_log('Reset password error: ' . $e->getMessage());
             $error = 'Something went wrong. Please try again.';
         }

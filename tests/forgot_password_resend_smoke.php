@@ -21,8 +21,11 @@ $a('uses canonical guarded database connection',
 $a('reset link uses configured origin, not the request Host header',
     str_contains($fp, "rtrim(APP_URL, '/') . \$RESET_PATH")
     && !str_contains($fp, "\$_SERVER['HTTP_HOST']"));
-$a('read-only reset form does not run schema repair',
-    strpos($fp, 'forgotPasswordEnsureSchema($pdo);') > strpos($fp, "if (\$_SERVER['REQUEST_METHOD'] === 'POST')"));
+$a('public reset request only inspects its schema',
+    str_contains($fp, 'forgotPasswordResetColumns($pdo)')
+    && str_contains($fp, 'SHOW COLUMNS FROM password_resets')
+    && !str_contains($fp, 'CREATE TABLE IF NOT EXISTS password_resets')
+    && !str_contains($fp, 'ALTER TABLE password_resets'));
 $a('requires core/mailer.php',                   str_contains($fp, "require_once __DIR__ . '/core/mailer.php';"));
 $a('requires memberships for unified tenant lookup', str_contains($fp, "require_once __DIR__ . '/core/memberships.php';"));
 $a('does NOT use sendPasswordResetEmail',        !str_contains($fp, 'sendPasswordResetEmail('));
@@ -40,10 +43,12 @@ $a('final fallback to first active tenant',
     str_contains($fp, 'SELECT id FROM tenants WHERE COALESCE(is_active,1) = 1 ORDER BY id ASC LIMIT 1'));
 $a('logs failures with tenant + driver + err',
     str_contains($fp, '[forgot_password] mailerSend failed'));
-$a('repairs legacy password_resets schemas before registered-user writes',
-    str_contains($fp, 'function forgotPasswordEnsureSchema')
-    && str_contains($fp, 'SHOW COLUMNS FROM password_resets')
-    && str_contains($fp, 'ALTER TABLE password_resets'));
+$resetMigration = (string) file_get_contents($ROOT . '/core/migrations/160_password_reset_tokens.sql');
+$a('guarded migration creates and repairs legacy password reset schema',
+    str_contains($resetMigration, 'CREATE TABLE IF NOT EXISTS password_resets')
+    && str_contains($resetMigration, 'ADD COLUMN id')
+    && str_contains($resetMigration, 'ADD COLUMN token_hash')
+    && str_contains($resetMigration, 'ADD COLUMN expires_at'));
 $a('supports legacy required token column without storing raw tokens',
     str_contains($fp, "isset(\$passwordResetColumns['token'])")
     && str_contains($fp, "\$insertParams[':legacy_token'] = \$tokenHash"));
@@ -69,7 +74,17 @@ $a('does NOT require legacy smtp_yahoo.php',      !str_contains($rp, "smtp_yahoo
 $a('uses auth schema helpers',                    str_contains($rp, "require_once __DIR__ . '/core/auth.php';"));
 $a('updates password when column exists',         str_contains($rp, "in_array('password', \$userCols, true)") && str_contains($rp, 'password = :password'));
 $a('updates password_hash when column exists',    str_contains($rp, "in_array('password_hash', \$userCols, true)") && str_contains($rp, 'password_hash = :password_hash'));
-$a('password update is case-insensitive by email', str_contains($rp, 'WHERE LOWER(email) = LOWER(:e)'));
+$a('password update is bound to the token owner and email',
+    str_contains($rp, 'WHERE id = :uid AND LOWER(email) = LOWER(:e)'));
+$a('password and token changes share one transaction and row lock',
+    str_contains($rp, '$pdo->beginTransaction()')
+    && str_contains($rp, 'get_valid_reset($pdo, $email, $token, true)')
+    && str_contains($rp, 'FOR UPDATE')
+    && str_contains($rp, '$pdo->commit()')
+    && str_contains($rp, '$pdo->rollBack()'));
+$a('reset page prevents token URL caching and referrer disclosure',
+    str_contains($rp, 'Cache-Control: no-store')
+    && str_contains($rp, 'Referrer-Policy: no-referrer'));
 $a('confirmation uses central mailer',            str_contains($rp, 'mailerSend([') && str_contains($rp, "'purpose'   => 'password_reset'"));
 $a('confirmation tenant lookup uses membership union', str_contains($rp, 'membershipReadSourceSql()'));
 
