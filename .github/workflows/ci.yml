@@ -215,3 +215,38 @@ jobs:
             php sim/runner.php --scenario=treasury_bank_feed_categorize --seed=42 --tenant=999
             php sim/check_accounting_snapshot.php --tenant=999 --entity-code=SIM
           done
+
+  coreaccounting-release-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    name: CoreAccounting standalone release package
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP and Composer
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, curl, json, openssl, dom, gd, zip
+          tools: composer:v2
+          coverage: none
+
+      - name: Build and independently verify extracted package
+        run: |
+          package="$RUNNER_TEMP/coreaccounting-release"
+          extracted="$RUNNER_TEMP/coreaccounting-extracted"
+          bash scripts/build_coreaccounting_release.sh "$package"
+          mkdir "$extracted"
+          tar -xzf "$package/release.tar.gz" -C "$extracted"
+          test -f "$extracted/public_html/vendor/autoload.php"
+          test ! -e "$extracted/public_html/composer.json"
+          test ! -e "$extracted/private_build_only"
+          commit="$(git rev-parse HEAD)"
+          manifest_sha="$(sha256sum "$package/manifest.json" | cut -d' ' -f1)"
+          COREFLUX_ENV=coreaccounting \
+          COREFLUX_STANDALONE_WEBROOT="$extracted/public_html" \
+          php "$extracted/public_html/deploy/verify_coreaccounting_release.php" \
+            --confirm-read-only-package --root="$extracted/public_html" \
+            --manifest="$extracted/manifest.json" --commit="$commit" \
+            --manifest-sha256="$manifest_sha"
