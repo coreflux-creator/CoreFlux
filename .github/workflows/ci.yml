@@ -205,6 +205,7 @@ jobs:
           php deploy/bootstrap_coreaccounting.php --confirm-empty-staging --database=coreaccounting_ci
           php deploy/bootstrap_coreaccounting.php --verify-schema
           php deploy/provision_coreaccounting_tenant.php --confirm-first-tenant --database=coreaccounting_ci
+          php deploy/audit_coreaccounting_migrations.php --database=coreaccounting_ci
           php scripts/ci_seed_sim_tenant.php --tenant-only --require-new
 
       - name: Replay invoice, bill, payment and bank scenarios
