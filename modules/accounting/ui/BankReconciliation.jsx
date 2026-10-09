@@ -236,7 +236,7 @@ function NewAccountForm({ preferredEntityId, onDone, onCancel }) {
   const usedCodes = new Set((banksData?.rows || []).map(bank => bank.gl_account_code));
   const cashAccounts = selectedEntity ? (accountsData?.rows || []).filter(account =>
     account.normal_side === 'debit' && !usedCodes.has(account.code)
-      && (account.cash_flow_tag === 'cash_and_equivalents'
+      && ((account.cash_flow_tag === 'cash_and_equivalents' && Number(account.is_system_account) === 0)
         || (account.code === '1000' && (Number(account.is_system_account) === 1
           || (account.is_system_account == null && account.name === 'Cash'))))
       && (!account.currency || account.currency === selectedEntity.base_currency)) : [];

@@ -111,7 +111,7 @@ export default function AccountDetail() {
         name: accountEdit.name.trim(),
         description: accountEdit.description.trim(),
         active: Number(accountEdit.active),
-        ...(account.account_type === 'asset' && !(account.code === '1000' && Number(account.is_system_account) === 1)
+        ...(account.account_type === 'asset' && Number(account.is_system_account) !== 1
           ? { cash_flow_tag: accountEdit.cash_flow_tag } : {}),
       });
       setAccountEditOpen(false);
@@ -165,10 +165,11 @@ export default function AccountDetail() {
   const accountEditChanged = accountEdit.name.trim() !== account.name
     || accountEdit.description.trim() !== (account.description || '')
     || Number(accountEdit.active) !== Number(account.active)
-    || (account.account_type === 'asset' && !(account.code === '1000' && Number(account.is_system_account) === 1)
+    || (account.account_type === 'asset' && Number(account.is_system_account) !== 1
       && accountEdit.cash_flow_tag !== (account.cash_flow_tag || ''));
   const isSystemCash = account.code === '1000' && Number(account.is_system_account) === 1;
-  const isBankCash = isSystemCash || account.cash_flow_tag === 'cash_and_equivalents';
+  const isBankCash = isSystemCash || (Number(account.is_system_account) !== 1
+    && account.cash_flow_tag === 'cash_and_equivalents');
   const canBearInterest = ['asset', 'liability'].includes(account.account_type);
   const incomeAccounts = (workspace.data?.offset_accounts || []).filter((row) => row.account_type === 'revenue');
   const expenseAccounts = (workspace.data?.offset_accounts || []).filter((row) => row.account_type === 'expense');
@@ -216,7 +217,7 @@ export default function AccountDetail() {
               </select>
             </label>
           </div>
-          {account.account_type === 'asset' && !isSystemCash && (
+          {account.account_type === 'asset' && Number(account.is_system_account) !== 1 && (
             <label style={{ ...labelStyle, display: 'inline-flex', flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 }}>
               <input type="checkbox" checked={accountEdit.cash_flow_tag === 'cash_and_equivalents'}
                 onChange={(event) => setAccountEdit((current) => ({ ...current, cash_flow_tag: event.target.checked ? 'cash_and_equivalents' : (account.cash_flow_tag === 'cash_and_equivalents' ? '' : (account.cash_flow_tag || '')) }))}

@@ -31,6 +31,9 @@ $check('clearing account is not a bank ledger', !accountingBankCashLedgerEligibl
 $check('custom account cannot borrow the system Cash code', !accountingBankCashLedgerEligible(
     array_replace($cash, ['is_system_account' => 0])
 ));
+$check('system receivable cannot be designated as cash', !accountingBankCashLedgerEligible(
+    array_replace($cash, ['code' => '1100', 'cash_flow_tag' => 'cash_and_equivalents'])
+));
 $check('inactive account is not a bank ledger', !accountingBankCashLedgerEligible(
     array_replace($custom, ['active' => 0])
 ));

@@ -9,7 +9,8 @@ function accountingBankCashLedgerEligible(array $account): bool
         && ($account['account_type'] ?? '') === 'asset'
         && ($account['normal_side'] ?? '') === 'debit'
         && (
-            ($account['cash_flow_tag'] ?? '') === 'cash_and_equivalents'
+            ((int) ($account['is_system_account'] ?? 0) === 0
+                && ($account['cash_flow_tag'] ?? '') === 'cash_and_equivalents')
             || (($account['code'] ?? '') === '1000' && (int) ($account['is_system_account'] ?? 0) === 1)
         );
 }
