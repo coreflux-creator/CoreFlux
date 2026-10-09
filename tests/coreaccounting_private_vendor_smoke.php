@@ -119,6 +119,29 @@ try {
     if ($code !== 0 || $err !== '' || (json_decode($out, true)['already_private'] ?? null) !== true) {
         throw new RuntimeException('Portable Composer rerun was not idempotent');
     }
+    $hostAutoload = $base . '/host-private/vendor/autoload.php';
+    mkdir(dirname($hostAutoload), 0700, true);
+    file_put_contents($hostAutoload, "<?php\nclass CoreAccountingHostVendorFixture {}\n");
+    $checkHostPath = static function (string $autoloadPath, string $expectedClass)
+        use ($packageVendor): int {
+        $process = proc_open([PHP_BINARY, '-r',
+            'require $argv[1]; if (!class_exists($argv[2])) exit(3);',
+            $packageVendor . '/autoload.php', $expectedClass],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['COREFLUX_ACCOUNTING_PRIVATE_VENDOR_AUTOLOAD' => $autoloadPath]);
+        if (!is_resource($process)) throw new RuntimeException('Could not check host Composer path');
+        stream_get_contents($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return proc_close($process);
+    };
+    if ($checkHostPath($hostAutoload, 'CoreAccountingHostVendorFixture') !== 0
+        || $checkHostPath($packageVendor . '/dompdf/dompdf/src/Dompdf.php',
+            'CoreAccountingHostVendorFixture') === 0
+        || $checkHostPath($base . '/missing-autoload.php', 'CoreAccountingHostVendorFixture') === 0) {
+        throw new RuntimeException('Host Composer override did not enforce a private existing path');
+    }
     echo "Passed: private Composer runtime, portable shim, rerun, and unsafe-target refusals\n";
 } finally {
     $resolved = realpath($base);
