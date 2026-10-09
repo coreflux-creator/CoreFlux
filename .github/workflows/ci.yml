@@ -181,24 +181,42 @@ jobs:
         with:
           php-version: '8.2'
           extensions: mbstring, pdo_mysql, curl, json, openssl
+          tools: composer:v2
           coverage: none
 
       - name: Install private CI database config
         run: install -m 600 tests/fixtures/coreaccounting_ci_db.php "$COREFLUX_ACCOUNTING_DB_CONFIG_PATH"
 
+      - name: Build and extract the committed standalone runtime
+        run: |
+          package="$RUNNER_TEMP/coreaccounting-install-package"
+          extracted="$RUNNER_TEMP/coreaccounting-install-extracted"
+          bash scripts/build_coreaccounting_release.sh "$package"
+          mkdir "$extracted"
+          tar -xzf "$package/release.tar.gz" -C "$extracted"
+          commit="$(git rev-parse HEAD)"
+          manifest_sha="$(sha256sum "$package/manifest.json" | cut -d' ' -f1)"
+          COREFLUX_STANDALONE_WEBROOT="$extracted/public_html" \
+          php "$extracted/public_html/deploy/verify_coreaccounting_release.php" \
+            --confirm-read-only-package --root="$extracted/public_html" \
+            --manifest="$extracted/manifest.json" --commit="$commit" \
+            --manifest-sha256="$manifest_sha"
+          echo "COREFLUX_STANDALONE_WEBROOT=$extracted/public_html" >> "$GITHUB_ENV"
+
       - name: Web request must leave the fresh database empty
         run: |
-          php -S 127.0.0.1:8765 -t . > "$RUNNER_TEMP/coreaccounting-web.log" 2>&1 &
+          php -S 127.0.0.1:8765 -t "$COREFLUX_STANDALONE_WEBROOT" > "$RUNNER_TEMP/coreaccounting-web.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           curl --retry 5 --retry-connrefused --retry-delay 1 --silent --output "$RUNNER_TEMP/coreaccounting-web-response.json" \
             http://127.0.0.1:8765/modules/accounting/api/reports.php
-          inspection="$(php deploy/bootstrap_coreaccounting.php --inspect)"
+          inspection="$(php "$COREFLUX_STANDALONE_WEBROOT/deploy/bootstrap_coreaccounting.php" --inspect)"
           printf '%s\n' "$inspection"
           printf '%s' "$inspection" | php -r '$result = json_decode(stream_get_contents(STDIN), true); if (($result["database"] ?? null) !== "coreaccounting_ci" || ($result["existing_tables"] ?? -1) !== 0) exit(1);'
 
       - name: Bootstrap canonical schema and first tenant
         run: |
+          cd "$COREFLUX_STANDALONE_WEBROOT"
           php deploy/bootstrap_coreaccounting.php --inspect
           php deploy/bootstrap_coreaccounting.php --confirm-empty-standalone --database=coreaccounting_ci
           php deploy/bootstrap_coreaccounting.php --verify-schema
@@ -208,6 +226,7 @@ jobs:
 
       - name: Replay invoice, bill, payment and bank scenarios
         run: |
+          cd "$COREFLUX_STANDALONE_WEBROOT"
           for pass in 1 2; do
             php sim/runner.php --scenario=ar_invoice_happy_path --seed=42 --tenant=999
             php sim/runner.php --scenario=ap_bill_happy_path --seed=42 --tenant=999
