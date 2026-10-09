@@ -9,12 +9,16 @@ if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'coreaccounting'
 }
 
 const QA_WEBROOT = '/home/1516771.cloudwaysapps.com/aqdcpvafpj/public_html';
+const QA_CONFIG = '/home/master/.coreaccounting-cleanqa2/db.local.php';
 const QA_DATABASE = 'aqdcpvafpj';
 const QA_ORIGIN = 'https://phpstack-1516771-6717961.cloudwaysapps.com';
 const QA_INVOICE_ID = 2;
 
-if (realpath(QA_WEBROOT) !== QA_WEBROOT) {
-    throw new RuntimeException('The pinned disposable QA webroot is unavailable.');
+if (realpath(QA_WEBROOT) !== QA_WEBROOT
+    || getenv('COREFLUX_ACCOUNTING_DB_CONFIG_PATH') !== QA_CONFIG
+    || getenv('COREFLUX_STANDALONE_DATABASE') !== QA_DATABASE
+    || getenv('COREFLUX_PUBLIC_ORIGIN') !== QA_ORIGIN) {
+    throw new RuntimeException('The pinned disposable QA environment is unavailable.');
 }
 require_once QA_WEBROOT . '/core/db.php';
 require_once QA_WEBROOT . '/modules/billing/lib/billing.php';
