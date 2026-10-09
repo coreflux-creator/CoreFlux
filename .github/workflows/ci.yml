@@ -197,12 +197,49 @@ jobs:
           commit="$(git rev-parse HEAD)"
           manifest_sha="$(sha256sum "$package/manifest.json" | cut -d' ' -f1)"
           COREFLUX_STANDALONE_WEBROOT="$extracted/public_html" \
-          php "$extracted/public_html/deploy/verify_coreaccounting_release.php" \
+          php deploy/verify_coreaccounting_release.php \
             --confirm-read-only-package --root="$extracted/public_html" \
             --private-root="$extracted/private_runtime" \
             --manifest="$extracted/manifest.json" --commit="$commit" \
             --manifest-sha256="$manifest_sha"
-          echo "COREFLUX_STANDALONE_WEBROOT=$extracted/public_html" >> "$GITHUB_ENV"
+          target="$RUNNER_TEMP/coreaccounting-clean-app"
+          mkdir -p "$target/public_html" "$target/private"
+          touch "$target/public_html/cloudways-placeholder.txt"
+          args=(--package="$extracted" --webroot="$target/public_html" \
+            --private-runtime="$target/private/private_runtime" \
+            --backup-root="$target/private/backup" \
+            --db-config="$COREFLUX_ACCOUNTING_DB_CONFIG_PATH" \
+            --mail-log="$target/private/mail.jsonl" \
+            --origin="$COREFLUX_PUBLIC_ORIGIN" --database="$COREFLUX_STANDALONE_DATABASE" \
+            --commit="$commit" --manifest-sha256="$manifest_sha")
+          preflight="$(COREFLUX_STANDALONE_WEBROOT="$target/public_html" \
+            php deploy/install_coreaccounting_clean_app.php --inspect "${args[@]}")"
+          fingerprint="$(printf '%s' "$preflight" | php -r \
+            '$result=json_decode(stream_get_contents(STDIN),true); if (($result["status"]??null)!=="ready_for_empty_install" || ($result["existing_tables"]??null)!==0) exit(1); echo $result["webroot_sha256"]??"";')"
+          test -n "$fingerprint"
+          printf 'changed after inspection' > "$target/public_html/cloudways-placeholder.txt"
+          if COREFLUX_STANDALONE_WEBROOT="$target/public_html" \
+            php deploy/install_coreaccounting_clean_app.php --confirm-empty-install \
+              --webroot-sha256="$fingerprint" "${args[@]}"; then
+            echo 'Installer accepted a stale webroot fingerprint' >&2
+            exit 1
+          fi
+          test ! -e "$target/private/private_runtime"
+          test -f "$target/public_html/cloudways-placeholder.txt"
+          preflight="$(COREFLUX_STANDALONE_WEBROOT="$target/public_html" \
+            php deploy/install_coreaccounting_clean_app.php --inspect "${args[@]}")"
+          fingerprint="$(printf '%s' "$preflight" | php -r \
+            '$result=json_decode(stream_get_contents(STDIN),true); echo $result["webroot_sha256"]??"";')"
+          COREFLUX_STANDALONE_WEBROOT="$target/public_html" \
+            php deploy/install_coreaccounting_clean_app.php --confirm-empty-install \
+              --webroot-sha256="$fingerprint" "${args[@]}"
+          test -f "$target/private/backup/original/cloudways-placeholder.txt"
+          test -f "$target/private/private_runtime/vendor/autoload.php"
+          test -f "$target/public_html/spa.php"
+          echo "COREFLUX_STANDALONE_WEBROOT=$target/public_html" >> "$GITHUB_ENV"
+          echo "COREFLUX_ACCOUNTING_PRIVATE_VENDOR_AUTOLOAD=$target/private/private_runtime/vendor/autoload.php" >> "$GITHUB_ENV"
+          echo "MAIL_DRIVER=log" >> "$GITHUB_ENV"
+          echo "MAIL_LOG_PATH=$target/private/mail.jsonl" >> "$GITHUB_ENV"
 
       - name: Web request must leave the fresh database empty
         run: |
@@ -292,6 +329,7 @@ jobs:
       - name: Check package manifest and private Composer layout
         run: |
           php tests/coreaccounting_release_manifest_smoke.php
+          php tests/coreaccounting_clean_installer_smoke.php
           php tests/coreaccounting_private_vendor_smoke.php
 
       - name: Build and independently verify extracted package
