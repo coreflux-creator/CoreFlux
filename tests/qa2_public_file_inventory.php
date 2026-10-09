@@ -114,17 +114,11 @@ while ($pending || $active) {
 curl_multi_close($multi);
 ksort($status);
 sort($served, SORT_STRING);
-$allowedServed = [
-    '404.html', '_deploy_ok.txt',
-    'assets/brand/coreflux-logo.png', 'assets/brand/coreflux-mark.png',
-    'assets/css/legal.css', 'assets/css/styles.css',
-    'dashboard/dist/index.html', 'login.html', 'privacy.html',
-    'quickbooks-connect.html', 'quickbooks-disconnect.html',
-    'spa-assets/index-CJR12EpM.js', 'spa-assets/index-DUIIybQx.js',
-    'spa-assets/index-SRkxIh9x.css', 'spa-assets/index-hTtQmukx.css',
-    'spa-assets/sw.js', 'terms.html',
-];
-sort($allowedServed, SORT_STRING);
+$assetLibrary = is_file(__DIR__ . '/coreaccounting_public_assets.php')
+    ? __DIR__ . '/coreaccounting_public_assets.php'
+    : __DIR__ . '/../deploy/coreaccounting_public_assets.php';
+require_once $assetLibrary;
+$allowedServed = coreAccountingExpectedPublicFiles($root);
 $unexpectedServed = array_values(array_diff($served, $allowedServed));
 $missingServed = array_values(array_diff($allowedServed, $served));
 $contentMismatch = [];
