@@ -71,7 +71,17 @@ foreach (['spa.php', 'login.html', '404.html', 'privacy.html', 'terms.html',
     'quickbooks-connect.html', 'quickbooks-disconnect.html',
     'assets/css/legal.css', 'assets/css/styles.css'] as $relative) {
     $path = $webroot . '/' . $relative;
-    if (is_file($path)) $publicAssetReferences .= (string) file_get_contents($path);
+    if (!is_file($path)) continue;
+    $source = (string) file_get_contents($path);
+    if ($standalone && $relative === 'spa.php') {
+        $source = preg_replace(
+            '~<\?php if \(getenv\([\'\"]COREFLUX_ENV[\'\"]\) !== [\'\"]coreaccounting[\'\"]\): \?>\s*'
+            . '<link rel="manifest" href="/spa-assets/manifest\.webmanifest"\s*/>\s*<\?php endif; \?>~',
+            '', $source, 1
+        );
+        if ($source === null) throw new RuntimeException('Could not inspect standalone app shell.');
+    }
+    $publicAssetReferences .= $source;
 }
 $legacyStatic = ['assets/img', 'assets/logo.png', 'assets/styles.css', 'css',
     'dashboard/assets', 'dashboard/static', 'modules/accounting/assets',

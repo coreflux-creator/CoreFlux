@@ -44,6 +44,10 @@ foreach ([
 ] as $file) $put($file);
 file_put_contents($webroot . '/dashboard/dist/index.html',
     '<script src="/spa-assets/index-current.js"></script><link href="/spa-assets/index-current.css" rel="stylesheet">');
+file_put_contents($webroot . '/spa.php',
+    '<?php if (getenv(\'COREFLUX_ENV\') !== \'coreaccounting\'): ?>' . "\n"
+    . '<link rel="manifest" href="/spa-assets/manifest.webmanifest" />' . "\n"
+    . '<?php endif; ?>');
 $sharedApacheConfig = (string) file_get_contents(__DIR__ . '/../.htaccess');
 $phpFallback = strpos($sharedApacheConfig, 'RewriteRule \.php$ - [R=404,L]');
 $spaFallback = strpos($sharedApacheConfig, 'RewriteRule ^(admin|');
@@ -78,6 +82,26 @@ try {
         throw new RuntimeException('Bundle preflight mutated an incomplete release.');
     }
     file_put_contents($webroot . '/spa-assets/index-current.js', 'fixture');
+
+    file_put_contents($webroot . '/spa-assets/index-current.js',
+        'const manifest="/spa-assets/manifest.webmanifest";');
+    $argv = [
+        'finalize_coreaccounting_qa_webroot.php', '--confirm-disposable-staging',
+        '--webroot=' . $webroot, '--expected-webroot=' . $webroot,
+        '--private=' . $privateParent . '/referenced-manifest',
+    ];
+    try {
+        require __DIR__ . '/../deploy/finalize_coreaccounting_qa_webroot.php';
+        throw new RuntimeException('Active manifest reference was moved');
+    } catch (RuntimeException $error) {
+        if ($error->getMessage() !== 'Active app references or links legacy static path: spa-assets/manifest.webmanifest') {
+            throw $error;
+        }
+    }
+    if (is_dir($privateParent . '/referenced-manifest')
+        || !is_file($webroot . '/spa-assets/manifest.webmanifest')) {
+        throw new RuntimeException('Manifest preflight mutated the app');
+    }
 
     file_put_contents($webroot . '/spa-assets/index-current.js', 'const old = "/assets/img/old.png";');
     $argv = [
