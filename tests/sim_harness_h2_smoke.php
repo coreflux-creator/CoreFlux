@@ -115,7 +115,7 @@ $a('lifecycle scenario asserts AP↔GL parity',
 $ar = json_decode($read(__DIR__ . '/../sim/scenarios/ar_invoice_happy_path.json'), true);
 $arEvents = array_values(array_filter(
     $ar['steps'] ?? [],
-    fn ($s) => ($s['event_type'] ?? '') === 'billing.invoice.sent'
+    fn ($s) => ($s['event_type'] ?? '') === 'ar.invoice.issued'
 ));
 $arPayload = $arEvents[0]['payload'] ?? [];
 $a('AR scenario satisfies the canonical invoice event contract',

@@ -67,7 +67,7 @@ function simInvariantPostedSourceLinks(\PDO $pdo, int $tenantId): array {
            FROM accounting_events e
            LEFT JOIN accounting_journal_entries j ON j.id = e.journal_entry_id AND j.tenant_id = e.tenant_id
           WHERE e.tenant_id = :tenant_id AND e.status = "posted" AND e.source_record_id LIKE "sim:%"
-            AND e.event_type IN ("billing.invoice.sent", "ap.bill.approved", "ap.payment.cleared")'
+            AND e.event_type IN ("billing.invoice.sent", "ar.invoice.issued", "ap.bill.approved", "ap.payment.cleared")'
     );
     $events->execute(['tenant_id' => $tenantId]);
     $missing = [];

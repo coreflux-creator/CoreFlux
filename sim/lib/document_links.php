@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 function simDocumentForEvent(string $eventType): ?array {
     return match ($eventType) {
-        'billing.invoice.sent' => ['billing_invoices', 'invoice_id'],
+        'billing.invoice.sent', 'ar.invoice.issued' => ['billing_invoices', 'invoice_id'],
         'ap.bill.approved' => ['ap_bills', 'bill_id'],
         default => null,
     };

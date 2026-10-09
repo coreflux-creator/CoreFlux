@@ -90,7 +90,7 @@ $a('AP bills imports discipline helper',    str_contains($bills, "require_once _
 $a('AP bills logs fallback fire',           str_contains($bills, "moduleEmissionDisciplineLog('ap', 'ap.bill.approved'"));
 $a('AP bills logs BEFORE direct post',      strpos($bills, "moduleEmissionDisciplineLog('ap'") < strpos($bills, "accountingPostJe(\$tid, ["));
 $a('Billing imports discipline helper',     str_contains($inv, "require_once __DIR__ . '/../../../core/module_emission_discipline.php'"));
-$a('Billing logs fallback fire',            str_contains($inv, "moduleEmissionDisciplineLog('billing', 'billing.invoice.sent'"));
+$a('Billing logs fallback fire',            str_contains($inv, "moduleEmissionDisciplineLog('billing', 'ar.invoice.issued'"));
 
 echo "\nHarness scenarios cover the refactor\n";
 foreach ([

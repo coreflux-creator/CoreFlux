@@ -58,7 +58,7 @@ echo "\nseed_defaults.php — AP / AR pack entries\n";
 $sd = (string) file_get_contents("{$ROOT}/core/posting_engine/seed_defaults.php");
 $assert('parses',                                   $lint("{$ROOT}/core/posting_engine/seed_defaults.php"));
 $assert('event ap.bill.approved present',           strpos($sd, "'ap.bill.approved'") !== false);
-$assert('event billing.invoice.sent present',       strpos($sd, "'billing.invoice.sent'") !== false);
+$assert('event ar.invoice.issued present',           strpos($sd, "'ar.invoice.issued'") !== false);
 $assert('event ap.payment.cleared present',         strpos($sd, "'ap.payment.cleared'") !== false);
 $assert('event billing.payment.received present',   strpos($sd, "'billing.payment.received'") !== false);
 $assert('AP bill template is passthrough',

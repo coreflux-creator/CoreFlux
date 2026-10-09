@@ -104,7 +104,7 @@ export default function RuleSandbox() {
 
   // Sprint 7e — historical AP bill / Billing invoice replays. Same shape
   // as the bank-feed replay above; emits ap.bill.approved /
-  // billing.invoice.sent events back-fillable into the audit ledger.
+  // ar.invoice.issued events back-fillable into the audit ledger.
   const [subledgerKind, setSubledgerKind] = useState('ap_bill');
   const [subledgerDays, setSubledgerDays] = useState(180);
   const [subledgerDryRun, setSubledgerDryRun] = useState(true);
@@ -226,7 +226,7 @@ export default function RuleSandbox() {
 
       {/* Sprint 7e — Subledger replay (AP bills / Billing invoices).
           Lets a tenant emit historical bills + invoices as
-          ap.bill.approved / billing.invoice.sent so accounting_events +
+          ap.bill.approved / ar.invoice.issued so accounting_events +
           subledger_links carry the full audit trail without re-posting
           the JEs. */}
       <div data-testid="rule-sandbox-subledger-replay-strip"

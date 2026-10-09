@@ -31,7 +31,7 @@ $events = $pdo->prepare(
       WHERE e.tenant_id = :tenant_id AND e.status = "posted" AND j.status = "posted"
         AND j.source_module = e.source_module
         AND e.source_record_id LIKE "sim:%"
-        AND e.event_type IN ("billing.invoice.sent", "ap.bill.approved")
+        AND e.event_type IN ("billing.invoice.sent", "ar.invoice.issued", "ap.bill.approved")
       ORDER BY e.id'
 );
 $events->execute(['tenant_id' => $tenantId]);

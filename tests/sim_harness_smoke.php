@@ -109,7 +109,7 @@ $a('sim AP bills include line items',      str_contains($runner, 'INSERT INTO ap
 $a('sim AR invoices include line items',   str_contains($runner, 'INSERT INTO billing_invoice_lines'));
 $a('posted sim invoices and bills link to the journal entry',
     str_contains($runner, 'simLinkPostedDocument($ctx[\'tenant_id\'], $type, $payload, $jeId)')
-    && str_contains($documentLinks, "'billing.invoice.sent' => ['billing_invoices', 'invoice_id']")
+    && str_contains($documentLinks, "'billing.invoice.sent', 'ar.invoice.issued' => ['billing_invoices', 'invoice_id']")
     && str_contains($documentLinks, "'ap.bill.approved' => ['ap_bills', 'bill_id']"));
 $paymentLinks = $read(__DIR__ . '/../sim/lib/payment_links.php');
 $a('cleared sim payments retain their bill allocation and posted JE',

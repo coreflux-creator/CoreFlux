@@ -331,6 +331,7 @@ jobs:
             php sim/runner.php --scenario=treasury_bank_feed_categorize --seed=42 --tenant=999
             php sim/check_accounting_snapshot.php --tenant=999 --entity-code=SIM
           done
+          php sim/check_invoice_event_alias.php --tenant=999 --confirm-disposable-fixture
 
   coreaccounting-release-package:
     runs-on: ubuntu-latest

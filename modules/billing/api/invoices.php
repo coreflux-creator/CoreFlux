@@ -1323,7 +1323,7 @@ if ($method === 'POST' && $action === 'post') {
     }
     $eventPostingLines = $reclassifyOnly ? $reclassLines : $lines;
 
-    // Sprint 7e — preferred path: emit billing.invoice.sent into the
+    // Preferred path: emit ar.invoice.issued into the
     // posting engine. Falls back to the legacy direct accountingPostJe()
     // call when no rule has been seeded for this tenant.
     $payloadLines = [];
@@ -1337,11 +1337,11 @@ if ($method === 'POST' && $action === 'post') {
             'dims'          => (array) ($l['dims'] ?? []),
         ];
     }
-    $eventResult = null; $eventError = null;
+    $eventResult = null; $eventError = null; $eventErrorStatus = 422;
     try {
         $eventResult = accountingProcessEvent($tid, [
             'entity_id'        => $documentEntityId,
-            'event_type'       => 'billing.invoice.sent',
+            'event_type'       => 'ar.invoice.issued',
             'source_module'    => 'billing',
             'source_record_id' => 'billing_invoice:' . $id,
             'event_date'       => (string) $row['issue_date'],
@@ -1361,9 +1361,11 @@ if ($method === 'POST' && $action === 'post') {
         ], $user['id'] ?? null);
     } catch (\Throwable $e) {
         $eventError = $e->getMessage();
+        if ($e instanceof AccountingEventConflictException) $eventErrorStatus = 409;
     }
 
-    if ($eventResult && ($eventResult['status'] ?? null) === 'posted') {
+    if ($eventResult && ($eventResult['status'] ?? null) === 'posted'
+        && (int) ($eventResult['journal_entry_id'] ?? 0) > 0) {
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE billing_invoices SET journal_entry_id = :j WHERE id = :id')
             ->execute(['j' => $eventResult['journal_entry_id'], 'id' => $id]);
@@ -1386,6 +1388,14 @@ if ($method === 'POST' && $action === 'post') {
             'accounting_event_id' => (int) ($eventResult['event_id'] ?? 0),
             'via' => 'event_layer',
         ]);
+    }
+
+    if ($eventError !== null) {
+        api_error('Invoice event processing failed: ' . $eventError, $eventErrorStatus);
+    }
+    if (($eventResult['status'] ?? null) !== 'ignored'
+        || ($eventResult['error'] ?? null) !== 'no posting rule matched') {
+        api_error('Invoice event processing failed: ' . ($eventResult['error'] ?? 'missing posted journal'), 422);
     }
 
     // Reclassification branch (accrual-at-approval model). When the
@@ -1455,7 +1465,7 @@ if ($method === 'POST' && $action === 'post') {
     // the discipline dashboard so we can prove zero fallback fires before
     // hard-erroring this path.
     require_once __DIR__ . '/../../../core/module_emission_discipline.php';
-    moduleEmissionDisciplineLog('billing', 'billing.invoice.sent', [
+    moduleEmissionDisciplineLog('billing', 'ar.invoice.issued', [
         'invoice_id'   => (int) $id,
         'event_error'  => $eventError,
         'event_status' => $eventResult['status'] ?? null,

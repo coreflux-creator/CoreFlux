@@ -127,7 +127,7 @@ const POSTING_RULES_DEFAULT_PACK = [
     // user explicitly categorizes (single account) or splits (multi-account)
     // a bank statement line. The payload carries the fully rendered, balanced
     // JE lines so the engine just persists them — same pattern as
-    // ap.bill.approved + billing.invoice.sent.
+    // ap.bill.approved + ar.invoice.issued.
     [
         'event_type'  => 'treasury.bank_transaction.categorized',
         'rule_name'   => 'Bank tx categorized — passthrough',
@@ -148,7 +148,7 @@ const POSTING_RULES_DEFAULT_PACK = [
         ],
     ],
     [
-        'event_type'  => 'billing.invoice.sent',
+        'event_type'  => 'ar.invoice.issued',
         'rule_name'   => 'AR invoice sent — passthrough',
         'template'    => [
             'name'           => 'AR invoice sent — passthrough',

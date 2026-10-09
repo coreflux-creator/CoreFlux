@@ -99,6 +99,66 @@ function accountingProcessEventInner(int $tenantId, array $event, ?int $actorUse
     $pdo = getDB();
     if (!$pdo) throw new \RuntimeException('no DB');
 
+    // Older invoice events used the billing alias in their source key. A
+    // canonical retry must reuse that posted journal, not create a second one.
+    if (!$dryRun && $event['event_type'] === 'ar.invoice.issued') {
+        $legacy = $pdo->prepare(
+            'SELECT e.id, e.entity_id, e.event_date, e.payload, e.status,
+                    e.journal_entry_id, j.status AS journal_status
+               FROM accounting_events e
+               LEFT JOIN accounting_journal_entries j
+                 ON j.tenant_id = e.tenant_id AND j.id = e.journal_entry_id
+                AND j.entity_id = e.entity_id
+              WHERE e.tenant_id = :t AND e.source_module = :sm
+                AND e.source_record_id = :sr AND e.event_type = "billing.invoice.sent"
+              FOR UPDATE'
+        );
+        $legacy->execute([
+            't' => $tenantId,
+            'sm' => (string) $event['source_module'],
+            'sr' => (string) $event['source_record_id'],
+        ]);
+        $existing = $legacy->fetch(\PDO::FETCH_ASSOC);
+        if ($existing) {
+            $canonical = $pdo->prepare(
+                'SELECT id FROM accounting_events
+                  WHERE tenant_id = :t AND source_module = :sm
+                    AND source_record_id = :sr AND event_type = "ar.invoice.issued"
+                  FOR UPDATE'
+            );
+            $canonical->execute([
+                't' => $tenantId,
+                'sm' => (string) $event['source_module'],
+                'sr' => (string) $event['source_record_id'],
+            ]);
+            if ($canonical->fetchColumn()) {
+                throw new AccountingEventConflictException(
+                    'Both legacy and canonical invoice events exist for this source ID; review their journals'
+                );
+            }
+            $originalPayload = json_decode((string) $existing['payload'], true);
+            if ((int) $existing['entity_id'] !== (int) $event['entity_id']
+                || (string) $existing['event_date'] !== (string) $event['event_date']
+                || !is_array($originalPayload) || $originalPayload != $payload) {
+                throw new AccountingEventConflictException(
+                    'Legacy invoice event source ID already exists with different entity, date, or payload'
+                );
+            }
+            if ($existing['status'] !== 'posted' || $existing['journal_status'] !== 'posted'
+                || (int) $existing['journal_entry_id'] <= 0) {
+                throw new AccountingEventConflictException(
+                    'Legacy invoice event has not posted; resolve it before issuing the canonical event'
+                );
+            }
+            return [
+                'status' => 'posted',
+                'event_id' => (int) $existing['id'],
+                'journal_entry_id' => (int) $existing['journal_entry_id'],
+                'idempotent_replay' => true,
+            ];
+        }
+    }
+
     // 1) Match a posting rule.
     $rule = postingEngineFindRule($pdo, $tenantId, (int) $event['entity_id'], (string) $event['event_type'], $context);
 
@@ -363,12 +423,19 @@ function postingEngineFindRule(\PDO $pdo, int $tenantId, int $entityId, string $
             AND (entity_id IS NULL OR entity_id = :e)
           ORDER BY priority DESC, id ASC'
     );
-    $stmt->execute(['t' => $tenantId, 'et' => $eventType, 'e' => $entityId]);
-    foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
-        $cond = $r['conditions'] ? json_decode((string) $r['conditions'], true) : [];
-        if (!is_array($cond)) $cond = [];
-        if (postingEngineMatchConditions($cond, $context)) {
-            return $r;
+    $types = $eventType === 'ar.invoice.issued'
+        ? [$eventType, 'billing.invoice.sent']
+        : [$eventType];
+    foreach ($types as $candidateType) {
+        $stmt->execute(['t' => $tenantId, 'et' => $candidateType, 'e' => $entityId]);
+        $candidateContext = $context;
+        $candidateContext['event']['event_type'] = $candidateType;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+            $cond = $r['conditions'] ? json_decode((string) $r['conditions'], true) : [];
+            if (!is_array($cond)) $cond = [];
+            if (postingEngineMatchConditions($cond, $candidateContext)) {
+                return $r;
+            }
         }
     }
     return null;
