@@ -169,6 +169,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'subject'   => "Reset your {$APP_NAME} password",
                         'body_html' => $bodyHtml,
                         'body_text' => $bodyText,
+                        'outbox_redactions' => [$resetUrl, $rawToken],
                     ]);
                     if (empty($res['ok'])) {
                         error_log('[forgot_password] mailerSend failed for ' . $email

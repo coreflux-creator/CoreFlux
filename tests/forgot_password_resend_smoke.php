@@ -33,6 +33,9 @@ $a('does NOT require smtp_yahoo.php',            !str_contains($fp, "smtp_yahoo.
 $a('calls mailerSend with module=auth purpose=password_reset',
     str_contains($fp, "'module'    => 'auth'")
     && str_contains($fp, "'purpose'   => 'password_reset'"));
+$a('keeps reset links out of the stored mail body',
+    str_contains($fp, "'outbox_redactions' => [\$resetUrl, \$rawToken]")
+    && str_contains((string) file_get_contents($ROOT . '/core/mailer.php'), "'outbox_redactions' => array_values("));
 $a('resolves tenant_id from users.tenant_id when present',
     str_contains($fp, "SHOW COLUMNS FROM users LIKE 'tenant_id'")
     && str_contains($fp, "SELECT tenant_id FROM users WHERE id = :id"));

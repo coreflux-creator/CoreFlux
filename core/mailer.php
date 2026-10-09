@@ -298,7 +298,12 @@ if (!function_exists('mailerSend')) {
                     'from'      => $args['from_email']  ?? null,
                     'from_name' => $args['from_name']   ?? null,
                     'reply_to'  => $args['reply_to']    ?? null,
-                ], static fn($v) => $v !== null && $v !== '')
+                ], static fn($v) => $v !== null && $v !== '') + [
+                    'outbox_redactions' => array_values(array_filter(
+                        (array) ($args['outbox_redactions'] ?? []),
+                        static fn($value): bool => is_string($value) && $value !== ''
+                    )),
+                ]
             );
             if (($res['status'] ?? '') === 'sent') {
                 return [

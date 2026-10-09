@@ -177,6 +177,29 @@ $a('payload preserves subject + html',                     ($transportCalls[0]['
 $a('payload propagates reply_to',                          ($transportCalls[0]['payload']['reply_to'] ?? '') === 'no-reply@coreflux.app');
 $a('outbox row tagged with resend driver',                 ($outbox[0]['driver'] ?? '') === 'resend');
 
+// The provider receives the live reset link, but the persisted outbox must not.
+$resetToken = str_repeat('a', 64);
+$resetUrl = 'https://coreaccounting.test/reset_password.php?token=' . $resetToken . '&email=alice%40example.com';
+$transportCalls = [];
+$outbox = [];
+$redacted = mailerSend([
+    'tenant_id' => 42,
+    'module' => 'auth',
+    'purpose' => 'password_reset',
+    'to' => 'alice@example.com',
+    'subject' => 'Reset password',
+    'body_text' => "Open {$resetUrl}",
+    'body_html' => '<a href="' . htmlspecialchars($resetUrl, ENT_QUOTES) . '">Reset</a>',
+    'outbox_redactions' => [$resetUrl, $resetToken],
+]);
+$a('reset mail is delivered via provider',                  ($redacted['ok'] ?? false) === true);
+$a('provider receives usable reset token',                 count($transportCalls) === 1
+                                                           && $c((string) ($transportCalls[0]['payload']['html'] ?? ''), $resetToken));
+$a('outbox redacts reset token from both bodies',           count($outbox) === 1
+                                                           && !$c((string) ($outbox[0]['body_text'] ?? ''), $resetToken)
+                                                           && !$c((string) ($outbox[0]['body_html'] ?? ''), $resetToken)
+                                                           && $c((string) ($outbox[0]['body_text'] ?? ''), '[redacted]'));
+
 // Failure path — transport returns failure.
 $transportFail = function (array $_req): array {
     return ['ok' => false, 'http' => 422, 'error' => 'invalid sender domain'];

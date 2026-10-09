@@ -232,7 +232,6 @@ jobs:
         run: |
           export MAIL_DRIVER=log
           export MAIL_LOG_PATH="$RUNNER_TEMP/coreaccounting-reset-mail.jsonl"
-          php tests/coreaccounting_password_reset_http_check.php --setup
           php -S 127.0.0.1:8766 -t "$COREFLUX_STANDALONE_WEBROOT" > "$RUNNER_TEMP/coreaccounting-reset-web.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
@@ -240,6 +239,12 @@ jobs:
             if curl --silent --output /dev/null http://127.0.0.1:8766/forgot_password.php; then break; fi
             sleep 1
           done
+          request="$(curl --fail --silent --show-error --request POST \
+            --data-urlencode 'email=ci-admin@coreaccounting.invalid' \
+            http://127.0.0.1:8766/forgot_password.php)"
+          printf '%s' "$request" | grep -q 'If that email is registered'
+          php tests/coreaccounting_password_reset_http_check.php --check-request
+          php tests/coreaccounting_password_reset_http_check.php --setup
           response="$(curl --fail --silent --show-error --request POST \
             --data-urlencode 'email=ci-admin@coreaccounting.invalid' \
             --data-urlencode 'token=ci-synthetic-reset-token-2026' \
