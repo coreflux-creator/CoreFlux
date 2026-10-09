@@ -14,11 +14,12 @@ if (getenv('COREFLUX_ENV') === 'coreaccounting') {
     }
 }
 
-// A standalone service must load its credentials from outside the public
-// checkout. Staging CLI commands may use the same private file.
+// Keep deployment credentials outside the public checkout. Standalone and
+// staging use the accounting-specific path; the ERP may use its own path.
 $standaloneAccounting = getenv('COREFLUX_ENV') === 'coreaccounting';
 $privateDbConfigPath = ($standaloneAccounting || getenv('COREFLUX_ENV') === 'staging')
-    ? trim((string) (getenv('COREFLUX_ACCOUNTING_DB_CONFIG_PATH') ?: '')) : '';
+    ? trim((string) (getenv('COREFLUX_ACCOUNTING_DB_CONFIG_PATH') ?: ''))
+    : trim((string) (getenv('COREFLUX_DB_CONFIG_PATH') ?: ''));
 if ($privateDbConfigPath !== '') {
     $resolvedDbConfig = realpath($privateDbConfigPath);
     $publicRoot = realpath(dirname(__DIR__));
@@ -32,6 +33,7 @@ if ($privateDbConfigPath !== '') {
         && ($requestedPath === $publicPath || str_starts_with($requestedPath, $publicPath . '/'));
     $invalidDbConfig = !preg_match('~^(?:/|[A-Za-z]:[/\\\\])~', $privateDbConfigPath)
         || $resolvedDbConfig === false || $publicRoot === false || $requestedInsideWebroot
+        || is_link($privateDbConfigPath)
         || !is_file($resolvedDbConfig) || !is_readable($resolvedDbConfig)
         || pathinfo($resolvedDbConfig, PATHINFO_EXTENSION) !== 'php'
         || $resolvedDbConfig === $publicRoot
@@ -40,7 +42,9 @@ if ($privateDbConfigPath !== '') {
         if ($standaloneAccounting) {
             coreAccountingConfigurationFailure('CoreAccounting private database configuration is unavailable.');
         }
-        throw new RuntimeException('Private staging database configuration is unavailable.');
+        throw new RuntimeException(getenv('COREFLUX_ENV') === 'staging'
+            ? 'Private staging database configuration is unavailable.'
+            : 'Private ERP database configuration is unavailable.');
     }
     require_once $resolvedDbConfig;
 } elseif ($standaloneAccounting) {
@@ -101,12 +105,12 @@ if ($standaloneAccounting) {
 }
 
 // Database Configuration
-if (!defined('DB_HOST')) {
-define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
-define('DB_NAME', getenv('DB_NAME') ?: 'grcudkpvcd');
-define('DB_USER', getenv('DB_USER') ?: 'grcudkpvcd');
-define('DB_PASS', getenv('DB_PASS') !== false ? (string) getenv('DB_PASS') : '7DgX7F4RPz');
-
+// Deployment-specific credentials belong in a private config file or host settings.
+if (!defined('DB_HOST')) define('DB_HOST', trim((string) (getenv('DB_HOST') ?: 'localhost')));
+if (!defined('DB_NAME')) define('DB_NAME', trim((string) (getenv('DB_NAME') ?: 'coreflux')));
+if (!defined('DB_USER')) define('DB_USER', trim((string) (getenv('DB_USER') ?: '')));
+if (!defined('DB_PASS')) {
+    define('DB_PASS', getenv('DB_PASS') !== false ? (string) getenv('DB_PASS') : '');
 }
 
 // SMTP Configuration
@@ -124,15 +128,14 @@ if ($standaloneAccounting) {
     define('SMTP_FROM_EMAIL', trim(coreAccountingMailSetting('COREFLUX_ACCOUNTING_FROM_EMAIL')));
     define('SMTP_FROM_NAME', trim(coreAccountingMailSetting('COREFLUX_ACCOUNTING_FROM_NAME') ?: 'CoreAccounting'));
 } else {
-define('SMTP_HOST', 'smtp.mail.yahoo.com');
-define('SMTP_PORT', 587);
-define('SMTP_USER', 'no-reply@corefluxapp.com');
-define('SMTP_PASS', 'rpevtweukxlgnkll');
-define('SMTP_SECURE', 'tls');
-define('SMTP_FROM_EMAIL', 'no-reply@corefluxapp.com');
-define('SMTP_FROM_NAME', 'CoreFlux Notifications');
+    if (!defined('SMTP_HOST')) define('SMTP_HOST', trim((string) (getenv('SMTP_HOST') ?: '')));
+    if (!defined('SMTP_PORT')) define('SMTP_PORT', (int) (getenv('SMTP_PORT') ?: 587));
+    if (!defined('SMTP_USER')) define('SMTP_USER', trim((string) (getenv('SMTP_USER') ?: '')));
+    if (!defined('SMTP_PASS')) define('SMTP_PASS', (string) (getenv('SMTP_PASS') ?: ''));
+    if (!defined('SMTP_SECURE')) define('SMTP_SECURE', trim((string) (getenv('SMTP_SECURE') ?: 'tls')));
+    if (!defined('SMTP_FROM_EMAIL')) define('SMTP_FROM_EMAIL', trim((string) (getenv('SMTP_FROM_EMAIL') ?: 'no-reply@corefluxapp.com')));
+    if (!defined('SMTP_FROM_NAME')) define('SMTP_FROM_NAME', trim((string) (getenv('SMTP_FROM_NAME') ?: 'CoreFlux Notifications')));
 }
-
 // Application Settings
 define('APP_NAME', 'CoreFlux');
 define('APP_VERSION', '1.0.0');

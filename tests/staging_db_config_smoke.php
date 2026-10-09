@@ -5,7 +5,8 @@ $config = var_export(dirname(__DIR__) . '/core/config.php', true);
 
 function runConfigCheck(string $code, array $env = []): array
 {
-    $env += ['COREFLUX_ACCOUNTING_DB_CONFIG_PATH' => null];
+    $env += ['COREFLUX_ACCOUNTING_DB_CONFIG_PATH' => null,
+        'COREFLUX_DB_CONFIG_PATH' => null];
     $original = [];
     foreach ($env as $name => $value) {
         $original[$name] = getenv($name);
@@ -36,6 +37,28 @@ function runConfigCheck(string $code, array $env = []): array
     return [$exit, $output];
 }
 
+$configSource = file_get_contents(dirname(__DIR__) . '/core/config.php');
+if ($configSource === false
+    || preg_match("/define\\('DB_PASS',\\s*'[^']+'\\)/", $configSource)
+    || preg_match("/define\\('DB_PASS',[^\\n]*:\\s*'[^']+'\\)/", $configSource)
+    || preg_match("/define\\('SMTP_PASS',\\s*'[^']+'\\)/", $configSource)) {
+    throw new RuntimeException('Shared configuration contains a source-embedded credential fallback.');
+}
+
+[$exit, $output] = runConfigCheck("require $config; echo json_encode([DB_HOST, DB_NAME, DB_USER, DB_PASS, SMTP_HOST, SMTP_USER, SMTP_PASS]);", [
+    'COREFLUX_ENV' => null,
+    'DB_HOST' => 'db.example.test', 'DB_NAME' => 'legacy_fixture',
+    'DB_USER' => 'fixture_user', 'DB_PASS' => 'synthetic-db-only',
+    'SMTP_HOST' => 'mail.example.test', 'SMTP_USER' => 'fixture_mail',
+    'SMTP_PASS' => 'synthetic-mail-only',
+]);
+if ($exit !== 0 || json_decode(trim($output), true) !== [
+    'db.example.test', 'legacy_fixture', 'fixture_user', 'synthetic-db-only',
+    'mail.example.test', 'fixture_mail', 'synthetic-mail-only',
+]) {
+    throw new RuntimeException('Legacy ERP did not honor explicit database and mail settings.');
+}
+
 [$exit, $output] = runConfigCheck("require $config;", ['COREFLUX_ENV' => 'staging']);
 if ($exit === 0 || !str_contains($output, 'Staging database configuration is incomplete.')) {
     throw new RuntimeException('Staging without explicit database settings did not fail closed.');
@@ -60,6 +83,20 @@ $privateFixture .= '.php';
 register_shutdown_function(static fn() => @unlink($privateFixture));
 if (file_put_contents($privateFixture, '<?php if (!defined("DB_NAME")) { ' . $definitions . ' }') === false) {
     throw new RuntimeException('Could not write the private database configuration fixture.');
+}
+
+[$exit, $output] = runConfigCheck("require $config; echo DB_NAME;", [
+    'COREFLUX_ENV' => null, 'COREFLUX_DB_CONFIG_PATH' => $privateFixture,
+]);
+if ($exit !== 0 || trim($output) !== 'stage_test') {
+    throw new RuntimeException('ERP did not load its private database configuration.');
+}
+[$exit, $output] = runConfigCheck("require $config;", [
+    'COREFLUX_ENV' => null,
+    'COREFLUX_DB_CONFIG_PATH' => dirname(__DIR__) . '/core/db.local.example.php',
+]);
+if ($exit === 0 || !str_contains($output, 'Private ERP database configuration is unavailable.')) {
+    throw new RuntimeException('ERP accepted a private database file inside the public checkout.');
 }
 
 [$exit, $output] = runConfigCheck("require $config; echo DB_NAME;", [
