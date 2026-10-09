@@ -43,6 +43,15 @@ try {
         'New private destination did not normalize.');
     $throws(static fn() => coreAccountingInstallNewPath($target, 'Backup'));
 
+    $mailLog = $base . '/mail.jsonl';
+    file_put_contents($mailLog, '');
+    $expect(coreAccountingInstallMailLog($mailLog, $target, $source) === realpath($mailLog),
+        'An empty private mail log was rejected.');
+    $throws(static fn() => coreAccountingInstallMailLog($base . '/missing.jsonl', $target, $source));
+    file_put_contents($mailLog, 'existing message');
+    $throws(static fn() => coreAccountingInstallMailLog($mailLog, $target, $source));
+    file_put_contents($mailLog, '');
+
     $before = coreAccountingInstallInventory($source);
     $expect(isset($before['d:nested'], $before['f:nested/file.txt'], $before['f:.htaccess']),
         'The source inventory missed a directory or file.');

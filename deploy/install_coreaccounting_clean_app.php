@@ -40,6 +40,18 @@ function coreAccountingInstallNewPath(string $requested, string $label): string
     return $parent . DIRECTORY_SEPARATOR . basename($requested);
 }
 
+function coreAccountingInstallMailLog(string $requested, string $webroot, string $package): string
+{
+    $resolved = coreAccountingInstallAbsolute($requested) ? realpath($requested) : false;
+    if ($resolved === false || is_link($requested) || !is_file($resolved)
+        || !is_writable($resolved) || filesize($resolved) !== 0
+        || coreAccountingInstallWithin($resolved, $webroot)
+        || coreAccountingInstallWithin($resolved, $package)) {
+        throw new RuntimeException('Mail log must be a new writable private file outside the release and webroot.');
+    }
+    return $resolved;
+}
+
 function coreAccountingInstallEntries(string $directory): array
 {
     $entries = scandir($directory);
@@ -344,17 +356,8 @@ try {
         || coreAccountingInstallWithin($dbConfig, $package)) {
         throw new RuntimeException('An exact private database configuration outside the release and webroot is required.');
     }
-    $requestedMailLog = coreAccountingInstallOption($argv, 'mail-log');
-    $mailLog = coreAccountingInstallAbsolute($requestedMailLog)
-        ? realpath(dirname($requestedMailLog)) . DIRECTORY_SEPARATOR . basename($requestedMailLog) : '';
-    if ($mailLog === '' || $mailLog === DIRECTORY_SEPARATOR . basename($requestedMailLog)
-        || is_link($requestedMailLog) || is_dir($requestedMailLog)
-        || (is_file($requestedMailLog) && !is_writable($requestedMailLog))
-        || !is_writable(dirname($mailLog))
-        || coreAccountingInstallWithin($mailLog, $webroot)
-        || coreAccountingInstallWithin($mailLog, $package)) {
-        throw new RuntimeException('Mail log must be a writable private path outside the release and webroot.');
-    }
+    $mailLog = coreAccountingInstallMailLog(coreAccountingInstallOption($argv, 'mail-log'),
+        $webroot, $package);
 
     $manifest = coreAccountingInstallVerifiedPackage($package, $commit, $manifestHash);
     coreAccountingInstallEmptyDatabase($dbConfig, $database);

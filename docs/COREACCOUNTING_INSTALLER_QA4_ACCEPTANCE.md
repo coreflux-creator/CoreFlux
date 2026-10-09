@@ -1,0 +1,23 @@
+# CoreAccounting installer QA 4 acceptance
+
+Date: 2026-10-09. This is an isolated, disposable Cloudways rehearsal, not a production release or a second home for any existing company's books. App `6718409` (`CoreAccounting Installer QA 4`) uses database `fyqqcqhwwr` on the existing server. It is a Custom App on the Hybrid stack with no paid add-ons. Production CoreFlux and populated CoreFlux staging were not changed.
+
+## Verified clean installation
+
+The release came from commit `9e89f4c97ed86a06b7dca4d4668da7891a23e23c`, [CI run 37886429065](https://github.com/coreflux-creator/CoreFlux/actions/runs/37886429065), which passed all eight jobs. Archive SHA-256: `54096fe842f1bd0260df3c2c6c85f5b7d8ae053ba3a3e61b00bd52c894ef5e07`. External manifest SHA-256: `5f9b5bd1f17b5714272c7cfa86d16ee9e8206f7d5f37c19ac546073fc43d9c0a`. The host hashes matched both values, and the trusted verifier found 1,470 public and 4,198 private files, 25 expected public assets, and no missing, extra or changed files.
+
+Before activation the new database had zero tables and the app's `public_html` held only Cloudways' default `index.php`. The guarded installer inspected that exact webroot, returning fingerprint `cfa626f3d01a1b2e00a28ba4b951f0b1e59b1ba345bc117c0e6873cec0766cff`, then installed against the same fingerprint. It returned `code_installed_database_empty`, copied and verified both runtime trees, and retained the default page in a private rollback directory. The host-specific Apache rules hash was `ace7c09b00270a329bb768e41fa6b4316d2ec5fdc291e3fea2f6d99166de1170`. Private database settings and Composer dependencies stayed outside the webroot. An anonymous accounting request returned 401 and a subsequent read-only database inspection still reported zero tables.
+
+The guarded bootstrap then applied 22 prerequisites and 282 canonical migrations. Schema verification found all 28 required tables, 173 required columns and 13 required unique keys with no gaps; the migration audit matched all 282 files with zero pending, changed or failed. An invented first tenant, administrator and legal entity were provisioned. The QA-only simulation tenant `999` is separate from that tenant.
+
+## Hosted behavior
+
+The app-scoped Cloudways site cache was purged. Its outside-in static-file audit checked 360 non-PHP paths: exactly 25 intended assets returned 200, 291 protected paths returned 403, and 44 absent paths returned 404. Unexpected serving, missing assets, byte mismatches, unexpected statuses and transport errors were empty. Direct requests to installer/bootstrap, simulation runner, core config, public vendor loader, unrelated People API and signup returned 404; the signed-out Reports API returned 401. A synthetic administrator signed in through the hosted login handler, and the signed-in income-statement API returned 200 with zero amounts for the empty first tenant.
+
+Four accounting scenarios ran twice on the installed host: invoice, bill, AP payment and bank-feed categorization. First pass created five posted journals; second pass created none. The final synthetic snapshot reported AR `$2,500`, AP `$1,500`, assets `$1,525`, liabilities `$1,500`, equity `$25`, balanced income and balance sheet, and `$0` cash-flow/GL difference. All scenario assertions passed. The event layer still warned that `billing.invoice.sent` is a deprecated alias for `ar.invoice.issued`; this is a source migration to review, not a failed journal.
+
+The first installer version accepted a mail-log path whose parent was writable by the deployment user but not by the web PHP worker. After activation, a private empty log file was provisioned with mode `0660` and the app's `www-data` group. A synthetic password-recovery request returned the generic response and wrote one line through web PHP to that log; no external email was sent. The follow-up source change requires an existing empty private log file at installer preflight. That change is not part of the hosted `9e89f4c9` runtime and needs its own CI result; the exact hosted permission arrangement still needs to be checked on any future host.
+
+## Remaining gates
+
+As of 2026-10-09 05:15 UTC, public DNS resolvers returned NXDOMAIN for the new Cloudways default hostname, although the server responded correctly over HTTPS when the hostname was resolved directly to its known IP. A normal browser walkthrough of this particular app remains blocked until its default hostname resolves; do not mistake direct-IP routing for public reachability. This QA test did not send customer mail, move money, run payroll, reconcile real opening balances, or obtain two independent human approvals. No production deployment or customer cutover is implied.
