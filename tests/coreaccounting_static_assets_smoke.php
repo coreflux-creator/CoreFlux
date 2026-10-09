@@ -15,6 +15,20 @@ foreach ($paths as $path) {
         throw new RuntimeException("Login image is missing: $path");
     }
 }
+foreach (['privacy.html', 'terms.html', 'quickbooks-connect.html', 'quickbooks-disconnect.html'] as $page) {
+    $html = (string) file_get_contents($root . '/' . $page);
+    if (!str_contains($html, '/assets/brand/coreflux-mark.png')
+        || str_contains($html, '/assets/icons/')) {
+        throw new RuntimeException("Public legal page uses an unshipped icon: $page");
+    }
+}
+$notFound = (string) file_get_contents($root . '/404.html');
+if (!str_contains($notFound, '/assets/brand/coreflux-logo.png')
+    || !str_contains($notFound, '/assets/brand/coreflux-mark.png')
+    || !str_contains($notFound, 'href="/"')
+    || str_contains($notFound, 'assets/icons/')) {
+    throw new RuntimeException('404 page must use shipped branding and the workspace route.');
+}
 if (preg_match('/href="(?:index|pricing|people|finance|accounting|tax|wealth|reporting|crm)\.html"/', $login)) {
     throw new RuntimeException('Standalone sign-in must not link to retired marketing pages.');
 }
@@ -30,4 +44,4 @@ if (str_contains($worker, "'/manifest.webmanifest'")
     || str_contains($worker, "'/spa-assets/manifest.webmanifest'")) {
     throw new RuntimeException('Service-worker shell must not precache an optional manifest.');
 }
-echo "Passed: login images, favicon, and standalone app shell use available assets\n";
+echo "Passed: standalone login, legal and 404 pages use shipped assets and routes\n";
