@@ -32,6 +32,7 @@ export default function UsersAdmin({ session }) {
   const [pwReset, setPwReset] = useState(null);  // user object
   const [permsFor, setPermsFor] = useState(null); // user object — opens effective-permissions inspector
   const isMaster = session?.user?.global_role === 'master_admin';
+  const canAssignTenantAdmin = isMaster || session?.user?.role === 'tenant_admin';
 
   const users = (data?.users || []).filter(u => {
     if (!filter) return true;
@@ -101,7 +102,9 @@ export default function UsersAdmin({ session }) {
                   <td style={{ fontWeight: 500 }}>{u.name}</td>
                   <td style={{ color: 'var(--cf-text-secondary)' }}>{u.email}</td>
                   <td>
-                    <span className={`badge badge--${u.role === 'master_admin' ? 'critical' : 'info'}`}>{u.role}</span>
+                    <span className={`badge badge--${u.role === 'master_admin' ? 'critical' : 'info'}`}>
+                      {u.role === 'master_admin' ? u.role : (u.workspace_role || u.role)}
+                    </span>
                   </td>
                   <td>{u.tenant_count}</td>
                   <td>
@@ -139,6 +142,7 @@ export default function UsersAdmin({ session }) {
         <UserEditModal
           user={editing}
           isMaster={isMaster}
+          canAssignTenantAdmin={canAssignTenantAdmin}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); reload(); }}
         />
@@ -156,11 +160,11 @@ export default function UsersAdmin({ session }) {
   );
 }
 
-function UserEditModal({ user, isMaster, onClose, onSaved }) {
+function UserEditModal({ user, isMaster, canAssignTenantAdmin, onClose, onSaved }) {
   const [form, setForm] = useState({
     name: user.name || '',
     email: user.email || '',
-    role: user.role || 'employee',
+    role: user.role === 'master_admin' ? user.role : (user.workspace_role || user.role || 'employee'),
     password: '',
     is_active: user.is_active === undefined ? 1 : user.is_active,
   });
@@ -177,8 +181,9 @@ function UserEditModal({ user, isMaster, onClose, onSaved }) {
         await api.post('/api/users.php', form);
       } else {
         const patch = {
-          name: form.name, email: form.email, role: form.role, is_active: form.is_active,
+          name: form.name, email: form.email, is_active: form.is_active,
         };
+        if (user.role !== 'master_admin') patch.role = form.role;
         await api.patch(`/api/users.php?id=${user.id}`, patch);
       }
       onSaved();
@@ -200,12 +205,16 @@ function UserEditModal({ user, isMaster, onClose, onSaved }) {
                  data-testid="users-edit-email" />
         </Field>
         <Field label="Role">
-          <select className="input" value={form.role}
+          <select className="input" value={form.role} disabled={!isNew && user.role === 'master_admin'}
                   onChange={e => setForm({...form, role: e.target.value})}
                   data-testid="users-edit-role">
-            {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            {isMaster && <option value="master_admin">Master Admin</option>}
+            {ROLE_OPTIONS.filter(r => r.value !== 'tenant_admin' || canAssignTenantAdmin)
+              .map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            {!isNew && user.role === 'master_admin' && <option value="master_admin">Master Admin</option>}
           </select>
+          {!isNew && user.role !== 'master_admin' && <small style={{ color: 'var(--cf-text-secondary)', display: 'block', marginTop: 4 }}>
+            Changing this role resets module access in the current workspace to the role defaults.
+          </small>}
         </Field>
         {isNew && (
           <Field label="Initial password (≥ 8 chars)">

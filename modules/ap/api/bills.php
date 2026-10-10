@@ -310,7 +310,37 @@ if ($method === 'GET' && !empty($_GET['id'])) {
             $bill['correction_unavailable_reason'] = 'Correction needs an accounting review';
         }
     }
-    api_ok(['bill' => $bill, 'lines' => $lines, 'allocations' => $allocations]);
+    $approval = ['can_approve' => false, 'reason' => null];
+    if (in_array($bill['status'], ['pending_review', 'pending_approval'], true)) {
+        $actorId = (int) ($user['id'] ?? 0);
+        if ($actorId === (int) ($bill['created_by_user_id'] ?? 0)) {
+            $approval['reason'] = 'Another authorized user must approve this bill.';
+        } elseif (!rbac_legacy_can($user, 'ap.bill.approve')) {
+            $approval['reason'] = 'Your workspace role cannot approve bills.';
+        } else {
+            try {
+                $instance = apWorkflowFindBillInstance($tid, $id, true);
+                if ($instance) {
+                    $approverIds = apWorkflowCurrentApproverUserIds($tid, $id);
+                    $approval['reason'] = 'This bill is assigned to another approver.';
+                } else {
+                    require_once __DIR__ . '/../lib/approval_router.php';
+                    $policy = apEvaluateApprovalPolicy($tid, $bill);
+                    $approverIds = (array) ($policy['chain'][0]['approver_user_ids'] ?? []);
+                    $approval['reason'] = (string) ($policy['routing_error'] ?? 'This bill is assigned to another approver.');
+                    if (empty($policy['matched'])) {
+                        $approval['reason'] = 'No approval policy covers this bill.';
+                    }
+                }
+                $approval['can_approve'] = in_array($actorId, array_map('intval', $approverIds), true);
+                if ($approval['can_approve']) $approval['reason'] = null;
+            } catch (\Throwable $e) {
+                error_log('[ap.bill.approval_availability] ' . $e->getMessage());
+                $approval['reason'] = 'Approval availability could not be checked. Refresh and try again.';
+            }
+        }
+    }
+    api_ok(['bill' => $bill, 'lines' => $lines, 'allocations' => $allocations, 'approval' => $approval]);
 }
 
 if ($method === 'GET') {

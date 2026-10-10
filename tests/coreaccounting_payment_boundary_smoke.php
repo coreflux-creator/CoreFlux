@@ -35,8 +35,19 @@ foreach (['', 'allocate', 'send', 'clear', 'void', 'correct_cleared'] as $action
     $check("standalone keeps manual AP {$action}",
         coreAccountingAllowsApPaymentAction('POST', $action, 'coreaccounting'));
 }
+foreach (['plaid', 'mercury'] as $method) {
+    $check("standalone rejects vendor {$method} default",
+        !coreAccountingAllowsVendorPaymentMethod($method, 'coreaccounting'));
+    $check("ERP retains vendor {$method} default",
+        coreAccountingAllowsVendorPaymentMethod($method, 'production'));
+}
+foreach (['ach', 'wire', 'check', 'card', 'cash', 'other'] as $method) {
+    $check("standalone keeps manual vendor {$method} default",
+        coreAccountingAllowsVendorPaymentMethod($method, 'coreaccounting'));
+}
 
 $payments = (string) file_get_contents($root . '/modules/ap/api/payments.php');
+$vendors = (string) file_get_contents($root . '/modules/ap/api/vendors.php');
 $bills = (string) file_get_contents($root . '/modules/ap/api/bills.php');
 $settings = (string) file_get_contents($root . '/modules/ap/api/settings.php');
 $csv = (string) file_get_contents($root . '/modules/ap/api/payments_csv_import.php');
@@ -53,6 +64,8 @@ $check('payment-run creation and rail settings are blocked in standalone',
 $check('CSV preview and commit use standalone manual methods',
     str_contains($csv, "getenv('COREFLUX_ENV') === 'coreaccounting'")
     && str_contains($csv, "['ach','wire','check','card','cash','other']"));
+$check('vendor creation checks standalone payment boundary',
+    str_contains($vendors, 'coreAccountingAllowsVendorPaymentMethod($paymentMethod,'));
 $check('central router checks endpoint before loading bootstrap',
     strpos($router, 'coreAccountingAllowsModuleEndpoint(')
         < strpos($router, "require_once __DIR__ . '/../core/api_bootstrap.php'"));

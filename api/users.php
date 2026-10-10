@@ -54,6 +54,9 @@ function _usersScopeWhere(string $role, ?int $activeTid): array {
 }
 
 function _usersValidateRole(string $r, string $callerRole): void {
+    if ($r === 'tenant_admin' && !in_array($callerRole, ['tenant_admin', 'master_admin'], true)) {
+        api_error('Only a tenant administrator can assign Tenant Admin', 403);
+    }
     if (!in_array($r, _USERS_ASSIGNABLE_ROLES, true)) {
         if ($r === 'master_admin' && $callerRole !== 'master_admin') {
             api_error('Only master_admin can assign master_admin role', 403);
@@ -160,7 +163,13 @@ if ($method === 'GET' && !$id) {
              LIMIT 500";
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    api_ok(['users' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $workspaceRoles = membershipRoleLabelsForTenant((int) ($activeTid ?? 0), $pdo);
+    foreach ($users as &$listedUser) {
+        $listedUser['workspace_role'] = $workspaceRoles[(int) $listedUser['id']] ?? null;
+    }
+    unset($listedUser);
+    api_ok(['users' => $users]);
 }
 
 if ($method === 'GET' && $id) {
@@ -390,18 +399,41 @@ if (($method === 'PATCH' || ($method === 'POST' && $action === 'password')) && $
         if ($stmt->fetchColumn()) api_error('Email already in use', 409);
         $sets[] = "email = :email"; $params['email'] = $email;
     }
+    $newRole = null;
     if (array_key_exists('role', $body)) {
-        _usersValidateRole((string) $body['role'], $role);
-        $sets[] = "role = :role"; $params['role'] = (string) $body['role'];
+        $newRole = (string) $body['role'];
+        _usersValidateRole($newRole, $role);
+        if ($existing['role'] === 'master_admin' && $newRole !== 'master_admin') {
+            api_error('Platform administrator demotion requires a separate access review', 409);
+        }
+        $sets[] = "role = :role"; $params['role'] = $newRole;
     }
     if (array_key_exists('is_active', $body)) {
         $sets[] = "is_active = :ia"; $params['ia'] = (int) (bool) $body['is_active'];
     }
     if (!$sets) api_error('No updatable fields', 422);
 
-    $pdo->prepare(
-        "UPDATE users SET " . implode(', ', $sets) . ", updated_at = NOW() WHERE id = :id"
-    )->execute($params);
+    if ($newRole !== null && $newRole !== 'master_admin' && !$activeTid) {
+        api_error('Select a workspace before changing its role', 422);
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare(
+            "UPDATE users SET " . implode(', ', $sets) . ", updated_at = NOW() WHERE id = :id"
+        )->execute($params);
+
+        if ($newRole !== null && $newRole !== 'master_admin') {
+            membershipChangeWorkspaceRole($id, (int) $activeTid, $newRole, $actorId, $pdo);
+        }
+        $pdo->commit();
+    } catch (\DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 409);
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
 
     subTenantAudit(0, $activeTid ?? 0, $actorId, 'user.updated', array_merge(['user_id' => $id], $body));
     api_ok(['id' => $id]);

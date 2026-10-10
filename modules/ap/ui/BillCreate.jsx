@@ -16,7 +16,7 @@ const AP_ITEM_TYPES = ITEM_TYPES.filter((t) => t.value !== 'discount');
  * Manual AP bill creator. Vendor credits and discounts need their own
  * posting treatment and are not accepted as bill lines.
  */
-export default function BillCreate() {
+export default function BillCreate({ session }) {
   const nav = useNavigate();
   const [params] = useSearchParams();
   const requestedEntityId = params.get('entity_id');
@@ -301,6 +301,7 @@ export default function BillCreate() {
       {showCreateVendor && (
         <VendorQuickCreate
           initialName={pendingVendorName}
+          standaloneAccounting={session?.product_mode === 'coreaccounting'}
           onCancel={() => setShowCreateVendor(false)}
           onCreated={(v) => {
             // VendorQuickCreate returns ap_vendors_index payload with

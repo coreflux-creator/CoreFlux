@@ -53,7 +53,7 @@ export default function APModule({ session }) {
         <Route path="overview" element={<Navigate to="../bills" replace />} />
         <Route path="bills" element={<BillsList session={session} />} />
         <Route path="bills/csv_import" element={<BillsCsvImport />} />
-        <Route path="bills/new" element={<BillCreate />} />
+        <Route path="bills/new" element={<BillCreate session={session} />} />
         <Route path="bills/:id" element={<BillDetail session={session} />} />
         <Route path="weekly-queue" element={standaloneAccounting ? <Navigate to="../bills" replace /> : <WeeklyQueue />} />
         <Route path="payments" element={<PaymentsList session={session} />} />

@@ -37,8 +37,7 @@ export default function BillDetail({ session }) {
 
   const createdByCurrentUser = Number(session?.user?.id) > 0
     && Number(bill.created_by_user_id) === Number(session.user.id);
-  const canApprove = ['pending_review','pending_approval'].includes(bill.status)
-    && !createdByCurrentUser;
+  const canApprove = Boolean(data.approval?.can_approve);
   const hasAccountingActivity = Boolean(bill.journal_entry_id)
     || Number(bill.amount_paid) > 0.005 || allocations.length > 0;
   const canDispute = ['pending_review','pending_approval','approved'].includes(bill.status)
@@ -132,6 +131,9 @@ export default function BillDetail({ session }) {
       )}
       {createdByCurrentUser && ['pending_review','pending_approval'].includes(bill.status) && (
         <p className="operational-state" data-testid="ap-bill-two-eye-note">Another authorized user must approve this bill.</p>
+      )}
+      {!createdByCurrentUser && !canApprove && data.approval?.reason && (
+        <p className="operational-state" data-testid="ap-bill-approval-note">{data.approval.reason}</p>
       )}
       {hasAccountingActivity && bill.status !== 'void' && (
         <p className="operational-state" data-testid="ap-bill-correction-note">

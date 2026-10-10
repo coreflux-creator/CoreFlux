@@ -39,6 +39,13 @@ function coreAccountingAllowsApPaymentAction(string $method, string $action, str
         || !in_array($action, ['originate', 'originate_batch', 'send_via_mercury'], true);
 }
 
+/** Standalone records manual vendor payment preferences, not provider rails. */
+function coreAccountingAllowsVendorPaymentMethod(string $paymentMethod, string $environment): bool
+{
+    return $environment !== 'coreaccounting'
+        || !in_array($paymentMethod, ['plaid', 'mercury'], true);
+}
+
 /** Billing and AP share the company directory without exposing the People module. */
 function coreAccountingAllowsModuleRequest(?string $scriptFilename, ?string $moduleKey, string $environment): bool
 {
