@@ -69,7 +69,7 @@ $assert('Treasury overview links to the shipped forecast', str_contains($treasur
 $assert('Treasury overview links to cash scenarios', str_contains($treasury, 'to="../scenario"'));
 $assert('Treasury overview no longer calls its forecast coming soon', !str_contains($treasury, '13-week forecast coming soon'));
 $assert('Accounting overview is a visible primary route', str_contains($accounting, "{ to: 'overview', label: 'Overview'")
-    && str_contains($accounting, '<Route path="overview" element={<BookkeepingOverview />} />'));
+    && str_contains($accounting, '<Route path="overview" element={<BookkeepingOverview standaloneAccounting={session?.product_mode === \'coreaccounting\'} />} />'));
 $assert('old bookkeeping links reach the accounting overview', str_contains($accounting,
     '<Route path="bookkeeping" element={<Navigate to="/modules/accounting/overview" replace />} />'));
 $assert('unknown accounting paths do not render a blank page', str_contains($accounting,

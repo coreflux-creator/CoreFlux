@@ -156,7 +156,7 @@ $assert('live AccountingModule (V1) imports BookkeepingOverview',
 $assert('live AccountingModule mounts /transactions-to-review route',
     strpos($liveMod, 'path="transactions-to-review" element={<TransactionsToReview />}') !== false);
 $assert('live AccountingModule mounts overview and redirects legacy bookkeeping',
-    strpos($liveMod, 'path="overview" element={<BookkeepingOverview />}') !== false
+    strpos($liveMod, 'path="overview" element={<BookkeepingOverview standaloneAccounting={session?.product_mode === \'coreaccounting\'} />}') !== false
     && strpos($liveMod, 'path="bookkeeping" element={<Navigate to="/modules/accounting/overview" replace />}') !== false);
 $assert('live AccountingModule primary nav has Bank feed',
     strpos($liveMod, "to: 'transactions-to-review', label: 'Bank feed'") !== false);

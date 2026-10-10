@@ -233,8 +233,8 @@ $a('reads plaid_transfer_linked from API',
     $c($pl, 'plaidTransferLinked = !!data?.plaid_transfer_linked'));
 $a('renders inline link-CTA testid when configured but unlinked',
     $c($pl, 'data-testid="ap-plaid-link-cta"'));
-$a('CTA links to /admin/integrations/plaid',
-    $c($pl, 'to="/admin/integrations/plaid"'));
+$a('CTA keeps the ERP Plaid route and uses Treasury in standalone accounting',
+    $c($pl, "session?.product_mode === 'coreaccounting' ? '/modules/treasury/overview' : '/admin/integrations/plaid'"));
 $a('CTA Link has its own testid',                $c($pl, 'data-testid="ap-plaid-link-cta-link"'));
 $a('still surfaces ready badge when linked',
     $c($pl, 'Online payments ready'));
