@@ -7,9 +7,9 @@ import { api } from '../lib/api';
  * CSV Import History — auditor + CFO view of every bulk import committed
  * via /api/<module>/csv_import.php or the bulk wizard.
  *
- * Reads from /api/admin/csv_import_history.php, which is populated by the
- * SPA right after each successful commit (CsvImportPage.jsx +
- * CsvBulkImport.jsx both POST a row on success).
+ * Reads from /api/admin/csv_import_history.php. The CSV screens reserve a
+ * row before committing and finalize it afterward; an interrupted run stays
+ * visible for operator reconciliation.
  *
  * Filterable by entity, status, and date range. Migration may not have
  * run on a brand-new tenant; in that case the endpoint returns
@@ -39,6 +39,7 @@ const STATUS_COLORS = {
   success: { bg: 'rgba(34,197,94,0.12)',  fg: '#047857' },
   partial: { bg: 'rgba(245,158,11,0.12)', fg: '#a16207' },
   failed:  { bg: 'rgba(239,68,68,0.12)',  fg: '#b91c1c' },
+  needs_review: { bg: 'rgba(245,158,11,0.16)', fg: '#92400e' },
 };
 
 function fmtDateTime(iso) {
@@ -48,17 +49,18 @@ function fmtDateTime(iso) {
   return d.toLocaleString();
 }
 
-function StatusPill({ status }) {
-  const c = STATUS_COLORS[status] || { bg: '#eee', fg: '#333' };
+function StatusPill({ status, needsReview = false }) {
+  const displayStatus = needsReview ? 'needs_review' : status;
+  const c = STATUS_COLORS[displayStatus] || { bg: '#eee', fg: '#333' };
   return (
     <span
-      data-testid={`csv-history-status-${status}`}
+      data-testid={`csv-history-status-${displayStatus}`}
       style={{
         display: 'inline-block', padding: '2px 8px', borderRadius: 999,
         background: c.bg, color: c.fg, fontSize: 12, fontWeight: 600, textTransform: 'capitalize',
       }}
     >
-      {status}
+      {needsReview ? 'Needs review' : status}
     </span>
   );
 }
@@ -99,9 +101,10 @@ export default function CsvImportHistory({ financeOnly = false }) {
       acc.imports  += 1;
       acc.imported += Number(r.rows_imported || 0);
       acc.skipped  += Number(r.rows_skipped  || 0);
-      acc.failed   += r.status === 'failed' ? 1 : 0;
+      acc.failed   += r.status === 'failed' && !r.needs_review ? 1 : 0;
+      acc.review   += r.needs_review ? 1 : 0;
       return acc;
-    }, { imports: 0, imported: 0, skipped: 0, failed: 0 });
+    }, { imports: 0, imported: 0, skipped: 0, failed: 0, review: 0 });
   }, [rows]);
 
   return (
@@ -127,6 +130,7 @@ export default function CsvImportHistory({ financeOnly = false }) {
           <Stat label="Rows imported"  value={totals.imported} testid="csv-history-kpi-imported" />
           <Stat label="Rows skipped"   value={totals.skipped}  testid="csv-history-kpi-skipped" />
           <Stat label="Failed imports" value={totals.failed}   testid="csv-history-kpi-failed" />
+          <Stat label="Needs review" value={totals.review} testid="csv-history-kpi-needs-review" />
         </div>
 
         {/* Filters */}
@@ -143,6 +147,7 @@ export default function CsvImportHistory({ financeOnly = false }) {
               <option value="success">Success</option>
               <option value="partial">Partial</option>
               <option value="failed">Failed</option>
+              <option value="needs_review">Needs review</option>
             </select>
           </Field>
           <Field label="From">
@@ -161,8 +166,7 @@ export default function CsvImportHistory({ financeOnly = false }) {
 
         {migPending && (
           <p data-testid="csv-history-migration-pending" style={{ background: 'rgba(245,158,11,0.1)', color: '#a16207', padding: 12, borderRadius: 6 }}>
-            History table not provisioned yet for this tenant — it&apos;ll populate as
-            soon as the next CSV import commits.
+            Import history is not provisioned for this workspace. Ask an administrator to apply the pending database migration before importing files.
           </p>
         )}
 
@@ -220,9 +224,9 @@ export default function CsvImportHistory({ financeOnly = false }) {
                       <td style={{ textAlign: 'right' }} data-testid={`csv-history-row-${r.id}-imported`}>{r.rows_imported}</td>
                       <td style={{ textAlign: 'right' }}>{r.rows_skipped}</td>
                       <td style={{ textAlign: 'right' }}>{r.errors_count}</td>
-                      <td><StatusPill status={r.status} /></td>
+                      <td><StatusPill status={r.status} needsReview={r.needs_review} /></td>
                       <td>
-                        {(errs || map) && (
+                        {(errs || map || r.needs_review) && (
                           <button
                             className="btn btn--ghost"
                             onClick={() => setExpanded(prev => ({ ...prev, [r.id]: !prev[r.id] }))}
@@ -255,6 +259,7 @@ export default function CsvImportHistory({ financeOnly = false }) {
                             </div>
                             <div>
                               <strong>Errors</strong>
+                              {r.needs_review && <p data-testid={`csv-history-row-${r.id}-review-warning`} style={{ color: '#92400e' }}>The import may have changed records, but its outcome was not confirmed. Check the source worklist before retrying. Never assume zero rows were imported.</p>}
                               {errs && Object.keys(errs).length > 0 ? (
                                 <ul style={{ marginTop: 6, paddingLeft: '1rem', maxHeight: 240, overflow: 'auto' }}>
                                   {Object.entries(errs).map(([rn, msgs]) => (

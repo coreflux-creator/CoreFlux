@@ -101,7 +101,7 @@ $check('document import controls describe whole-document behavior',
 $check('document and line counts stay separate in import history',
     str_contains($billingImport, "'imported_row_count' => \$importedRows")
     && str_contains($billsImport, "'imported_row_count' => \$importedRows")
-    && str_contains((string) file_get_contents($root . '/dashboard/src/components/CsvImportPage.jsx'), 'res?.imported_row_count'));
+    && str_contains((string) file_get_contents($root . '/dashboard/src/lib/csvImportAudit.js'), 'result?.imported_row_count'));
 $check('unassigned document lines block partial invoice and bill imports',
     str_contains($billingImport, "!empty(\$dry['blocking_error'])")
     && str_contains($billsImport, "!empty(\$dry['blocking_error'])")

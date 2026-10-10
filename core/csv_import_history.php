@@ -1,11 +1,10 @@
 <?php
 /**
- * CSV import history — single chokepoint every csv_import endpoint calls
- * AFTER a commit completes (success, partial, OR failure during persist).
+ * CSV import history shared by the entity import screens.
  *
- * Designed to NEVER throw. If the table doesn't exist yet (migration
- * 042 not run on this tenant) or the row write fails, we swallow the
- * error and continue. Audit-write is a nicety, not a critical path.
+ * The legacy recorder remains non-throwing for callers outside the CSV UI.
+ * The history API checks its return value and refuses a commit when it
+ * cannot reserve a durable row first.
  *
  *   csvImportHistoryRecord([
  *     'entity'          => 'people',
@@ -65,11 +64,11 @@ function csvImportHistoryRecord(array $args): ?int
             'ue'  => !empty($args['update_existing']) ? 1 : 0,
             'ai'  => !empty($args['ai_used'])         ? 1 : 0,
             'pid' => isset($args['preset_id']) && $args['preset_id'] ? (int) $args['preset_id'] : null,
-            'cm'  => $args['column_map']  ? json_encode($args['column_map']) : null,
+            'cm'  => !empty($args['column_map']) ? json_encode($args['column_map']) : null,
             'es'  => $errorsCount         ? json_encode(array_slice($errors, 0, 50, true)) : null,
             'st'  => $status,
             'dur' => isset($args['duration_ms']) ? (int) $args['duration_ms'] : null,
-            'uid' => $_SESSION['user']['id'] ?? null,
+            'uid' => $args['created_by_user_id'] ?? ($_SESSION['user']['id'] ?? null),
         ]);
         return (int) $pdo->lastInsertId() ?: null;
     } catch (\Throwable $e) {

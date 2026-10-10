@@ -11,10 +11,10 @@
  *               rows_imported?, rows_skipped?, errors?, skip_invalid?,
  *               update_existing?, ai_used?, preset_id?, column_map?,
  *               duration_ms? }
- *       Called from the SPA right after a successful CSV commit so the
- *       CFO/audit view captures who imported what, when, with which
- *       mapping. Never raises — audit-write is a nicety, not a critical
- *       path (matches csvImportHistoryRecord() semantics).
+ *   POST ?action=reserve creates a durable, explicitly unconfirmed run
+ *       before the source commit. POST ?action=finalize records its result.
+ *       A crash or failed response leaves the unconfirmed run visible for
+ *       reconciliation; it must never be interpreted as zero source writes.
  */
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/RBAC.php';
@@ -25,10 +25,63 @@ $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
+$action = (string) api_query('action', '');
+const CSV_IMPORT_UNCONFIRMED_KEY = '_import_outcome_unconfirmed';
 
 // ---------- POST: record one history row ----------
 if ($method === 'POST') {
     $body = api_json_body();
+    if ($action === 'finalize') {
+        $id = (int) ($body['id'] ?? 0);
+        if ($id <= 0) api_error('Import run ID is required', 422);
+        $pdo = getDB();
+        try {
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare(
+                'SELECT id, status, error_summary FROM csv_import_history
+                  WHERE id = :id AND tenant_id = :tenant_id AND created_by_user_id = :user_id
+                  FOR UPDATE'
+            );
+            $stmt->execute(['id' => $id, 'tenant_id' => $tid, 'user_id' => (int) $user['id']]);
+            $run = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$run) {
+                $pdo->rollBack();
+                api_error('Import run not found for this user', 404);
+            }
+            $oldErrors = json_decode((string) ($run['error_summary'] ?? ''), true);
+            if (!is_array($oldErrors) || !isset($oldErrors[CSV_IMPORT_UNCONFIRMED_KEY])) {
+                $pdo->commit();
+                api_ok(['recorded' => true, 'id' => $id, 'already_finalized' => true]);
+            }
+            $errors = is_array($body['errors'] ?? null) ? $body['errors'] : [];
+            $imported = max(0, (int) ($body['rows_imported'] ?? 0));
+            $skipped = max(0, (int) ($body['rows_skipped'] ?? 0));
+            $total = max($imported + $skipped, (int) ($body['rows_total'] ?? 0));
+            $status = $imported === 0 ? 'failed' : ($skipped > 0 || $errors ? 'partial' : 'success');
+            $update = $pdo->prepare(
+                'UPDATE csv_import_history
+                    SET rows_total = :total, rows_imported = :imported,
+                        rows_skipped = :skipped, errors_count = :error_count,
+                        error_summary = :errors, status = :status, duration_ms = :duration
+                  WHERE id = :id AND tenant_id = :tenant_id'
+            );
+            $update->execute([
+                'total' => $total, 'imported' => $imported, 'skipped' => $skipped,
+                'error_count' => count($errors),
+                'errors' => $errors ? json_encode(array_slice($errors, 0, 50, true)) : null,
+                'status' => $status,
+                'duration' => isset($body['duration_ms']) ? max(0, (int) $body['duration_ms']) : null,
+                'id' => $id, 'tenant_id' => $tid,
+            ]);
+            $pdo->commit();
+            api_ok(['recorded' => true, 'id' => $id, 'status' => $status]);
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('CSV import history finalization failed: ' . $error->getMessage());
+            api_error('Import outcome could not be saved. Check the run in Import History before importing again.', 503);
+        }
+    }
+    if ($action !== '' && $action !== 'reserve') api_error('Unknown action', 400);
     $entity = (string) ($body['entity'] ?? '');
     if ($entity === '') api_error('entity is required', 400);
     if (!coreAccountingCsvEntityAllowed($entity)) api_error('Import type is unavailable in CoreAccounting', 422);
@@ -38,17 +91,21 @@ if ($method === 'POST') {
         'file_name'       => $body['file_name']       ?? null,
         'bytes_processed' => (int) ($body['bytes_processed'] ?? 0),
         'rows_total'      => (int) ($body['rows_total']      ?? 0),
-        'rows_imported'   => (int) ($body['rows_imported']   ?? 0),
-        'rows_skipped'    => (int) ($body['rows_skipped']    ?? 0),
-        'errors'          => is_array($body['errors'] ?? null) ? $body['errors'] : [],
+        'rows_imported'   => $action === 'reserve' ? 0 : (int) ($body['rows_imported'] ?? 0),
+        'rows_skipped'    => $action === 'reserve' ? 0 : (int) ($body['rows_skipped'] ?? 0),
+        'errors'          => $action === 'reserve'
+            ? [CSV_IMPORT_UNCONFIRMED_KEY => ['Import outcome is unconfirmed. Check source records before retrying.']]
+            : (is_array($body['errors'] ?? null) ? $body['errors'] : []),
         'skip_invalid'    => !empty($body['skip_invalid']),
         'update_existing' => !empty($body['update_existing']),
         'ai_used'         => !empty($body['ai_used']),
         'preset_id'       => isset($body['preset_id']) && $body['preset_id'] ? (int) $body['preset_id'] : null,
         'column_map'      => is_array($body['column_map'] ?? null) ? $body['column_map'] : null,
         'duration_ms'     => isset($body['duration_ms']) ? (int) $body['duration_ms'] : null,
+        'created_by_user_id' => (int) $user['id'],
     ]);
-    api_ok(['recorded' => true, 'id' => $newId]);
+    if (!$newId) api_error('Import history is unavailable. No import was started; try again later.', 503);
+    api_ok(['recorded' => true, 'id' => $newId, 'needs_review' => $action === 'reserve']);
 }
 
 if ($method !== 'GET') api_error('Method not allowed', 405);
@@ -74,7 +131,23 @@ if (!empty($_GET['entity']))  {
     $where[] = 'h.entity = :e';
     $params['e'] = $_GET['entity'];
 }
-if (!empty($_GET['status']))  { $where[] = 'h.status = :s';     $params['s']  = $_GET['status']; }
+if (!empty($_GET['status'])) {
+    $requestedStatus = (string) $_GET['status'];
+    if (!in_array($requestedStatus, ['success', 'partial', 'failed', 'needs_review'], true)) {
+        api_error('Unknown import history status', 422);
+    }
+    if ($requestedStatus === 'needs_review') {
+        $where[] = 'LOCATE(:review_marker, h.error_summary) > 0';
+        $params['review_marker'] = CSV_IMPORT_UNCONFIRMED_KEY;
+    } else {
+        $where[] = 'h.status = :s';
+        $params['s'] = $requestedStatus;
+        if ($requestedStatus === 'failed') {
+            $where[] = '(h.error_summary IS NULL OR LOCATE(:review_marker, h.error_summary) = 0)';
+            $params['review_marker'] = CSV_IMPORT_UNCONFIRMED_KEY;
+        }
+    }
+}
 if (!empty($_GET['from']))    { $where[] = 'h.created_at >= :f'; $params['f']  = $_GET['from']; }
 if (!empty($_GET['to']))      { $where[] = 'h.created_at <= :t'; $params['t']  = $_GET['to'] . ' 23:59:59'; }
 
@@ -98,15 +171,18 @@ try {
         $params
     );
 } catch (\Throwable $e) {
-    // Migration may not have run on this tenant yet — return an empty
-    // result rather than 500, the UI will render an empty state.
-    api_ok(['rows' => [], 'migration_pending' => true]);
+    if ($e instanceof PDOException && (int) ($e->errorInfo[1] ?? 0) === 1146) {
+        api_ok(['rows' => [], 'migration_pending' => true]);
+    }
+    error_log('CSV import history read failed: ' . $e->getMessage());
+    api_error('Import history could not be loaded. Try again later.', 503);
 }
 
 // Decode JSON columns so the UI can render them directly.
 foreach ($rows as &$r) {
     $r['column_map']    = is_string($r['column_map'])    ? json_decode($r['column_map'],    true) : $r['column_map'];
     $r['error_summary'] = is_string($r['error_summary']) ? json_decode($r['error_summary'], true) : $r['error_summary'];
+    $r['needs_review'] = isset($r['error_summary'][CSV_IMPORT_UNCONFIRMED_KEY]);
 }
 
 api_ok(['rows' => $rows]);

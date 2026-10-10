@@ -20,9 +20,8 @@ import { api } from './api';
  * CSV with document_type='column_map' so auditors can see "here are the
  * input bytes AND here's exactly how we interpreted them" in one place.
  *
- * Never throws — audit-write is a nicety, not a critical path. Reuses the
- * generic evidence-upload flow already used by AP bills, invoices, and
- * time bundles.
+ * Returns a null attachment when storage fails; the caller must show that
+ * source evidence is missing. Reuses the generic evidence-upload flow.
  */
 export async function attachCsvToImportRun({ importRunId, csvText, fileName, entity, columnMap }) {
   if (!importRunId || !csvText) return null;
@@ -75,15 +74,19 @@ async function _uploadEvidence({ importRunId, bytes, filename, contentType, docu
   });
 
   // Step 2: upload bytes direct to S3 (or local-driver shim).
-  if (presign.upload?.url) {
+  const uploadUrl = presign.upload?.form_action || presign.upload?.url;
+  if (!uploadUrl) throw new Error('Storage did not provide an upload destination');
+  {
     const blob = new Blob([bytes], { type: contentType });
     const form = new FormData();
     Object.entries(presign.upload.fields || {}).forEach(([k, v]) => form.append(k, v));
     form.append('file', blob, filename);
-    const up = await fetch(presign.upload.url, { method: 'POST', body: form, credentials: 'omit' });
+    const up = await fetch(uploadUrl, {
+      method: 'POST', body: form,
+      credentials: uploadUrl.startsWith('/') ? 'same-origin' : 'omit',
+    });
     if (!up.ok) throw new Error(`upload failed: ${up.status}`);
   }
-  // LocalDriver returns no upload.url — the storage_key IS the path.
 
   // Step 3: register metadata.
   return await api.post('/api/accounting/evidence.php', {

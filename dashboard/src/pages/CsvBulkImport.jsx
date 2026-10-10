@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { api } from '../lib/api';
-import { attachCsvToImportRun } from '../lib/csvAuditAttach';
+import { reserveCsvImportAudit, finalizeCsvImportAudit } from '../lib/csvImportAudit';
 
 /**
  * Tenant Onboarding — Bulk CSV Import Wizard.
@@ -186,7 +186,7 @@ function readFile(f) {
 export default function CsvBulkImport({ financeOnly = false }) {
   const visibleEntityOrder = financeOnly ? FINANCE_ENTITY_ORDER : ENTITY_ORDER;
   const fileRef = useRef(null);
-  // files: { fileName, entity, csv, preview, committed, error, columnMap, presetName }
+  // files: { fileName, entity, csv, preview, committed, error, audit, columnMap, presetName }
   const [files, setFiles] = useState([]);
   const [skipInvalid, setSkipInvalid] = useState(false);
   const [updateExisting, setUpdateExisting] = useState(false);
@@ -231,9 +231,9 @@ export default function CsvBulkImport({ financeOnly = false }) {
           columnMap = applied.columnMap;
           presetName = applied.presetName;
         }
-        next.push({ fileName: f.name, entity, csv, preview: null, committed: null, error: null, columnMap, presetName });
+        next.push({ fileName: f.name, entity, csv, preview: null, committed: null, error: null, audit: null, columnMap, presetName });
       } catch (err) {
-        next.push({ fileName: f.name, entity: null, csv: '', preview: null, committed: null, error: err, columnMap: null, presetName: null });
+        next.push({ fileName: f.name, entity: null, csv: '', preview: null, committed: null, error: err, audit: null, columnMap: null, presetName: null });
       }
     }
     setFiles(prev => [...prev, ...next]);
@@ -241,7 +241,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
   };
 
   const setEntity = (idx, entity) => {
-    setFiles(prev => prev.map((f, i) => i === idx ? { ...f, entity, preview: null, committed: null, columnMap: null, presetName: null } : f));
+    setFiles(prev => prev.map((f, i) => i === idx ? { ...f, entity, preview: null, committed: null, audit: null, columnMap: null, presetName: null } : f));
   };
 
   const removeFile = (idx) => {
@@ -276,7 +276,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
       const ordered = visibleEntityOrder
         .flatMap(entity => files
           .map((f, idx) => ({ f, idx }))
-          .filter(({ f }) => f.entity === entity && f.csv && !f.committed)
+          .filter(({ f }) => f.entity === entity && f.csv && !f.committed && !f.audit?.id)
         );
       const next = [...files];
       for (const { f, idx } of ordered) {
@@ -284,44 +284,56 @@ export default function CsvBulkImport({ financeOnly = false }) {
         const shouldUpdate = updateExisting && cfg.supportsUpdate;
         const path = `${cfg.endpoint}?action=commit${skipInvalid ? '&skip_invalid=1' : ''}${shouldUpdate ? '&update_existing=1' : ''}`;
         const startedAt = Date.now();
+        let runId = null;
         try {
+          runId = await reserveCsvImportAudit({
+            entity: f.entity, fileName: f.fileName, csvText: f.csv, preview: f.preview,
+            skipInvalid, updateExisting: shouldUpdate, columnMap: f.columnMap,
+          });
+          next[idx] = { ...f, audit: { id: runId, state: 'unconfirmed' } };
+          setFiles([...next]);
           const body = { csv: f.csv };
           if (f.columnMap) body.column_map = f.columnMap;
           const res = await api.post(path, body);
-          next[idx] = { ...f, committed: res, error: null };
-          // Audit-write each successful commit to the import history,
-          // then attach the original CSV bytes for full auditor download.
+          next[idx] = { ...next[idx], committed: res, error: null };
           try {
-            const hist = await api.post('/api/admin/csv_import_history.php', {
-              entity:          f.entity,
-              file_name:       f.fileName || null,
-              bytes_processed: f.csv.length,
-              rows_total:      (res?.imported_count || 0) + (res?.skipped_count || 0),
-              rows_imported:   res?.imported_count || 0,
-              rows_skipped:    res?.skipped_count  || 0,
-              errors:          res?.errors        || {},
-              skip_invalid:    skipInvalid,
-              update_existing: shouldUpdate,
-              ai_used:         false,
-              preset_id:       null,
-              column_map:      f.columnMap || null,
-              duration_ms:     Date.now() - startedAt,
+            const receipt = await finalizeCsvImportAudit({
+              runId, result: res, startedAt, csvText: f.csv, fileName: f.fileName,
+              entity: f.entity, columnMap: f.columnMap,
             });
-            if (hist?.id) {
-              await attachCsvToImportRun({
-                importRunId: hist.id,
-                csvText:     f.csv,
-                fileName:    f.fileName,
-                entity:      f.entity,
-                columnMap:   f.columnMap || null,
-              });
-            }
-          } catch { /* non-fatal */ }
+            next[idx] = { ...next[idx], audit: { id: runId, state: receipt.sourceAttached ? 'logged' : 'source_missing' } };
+          } catch (auditError) {
+            next[idx] = { ...next[idx], audit: { id: runId, state: 'unconfirmed', message: auditError.message } };
+          }
         } catch (err) {
-          next[idx] = { ...f, committed: null, error: err };
+          next[idx] = {
+            ...next[idx], committed: null,
+            error: runId
+              ? new Error(`Import outcome unconfirmed. Check Import History and source records before retrying. ${err.message}`)
+              : err,
+          };
         }
         setFiles([...next]); // surface progress as each file completes
       }
+    } finally { setBusy(false); }
+  };
+
+  const retryAudit = async (idx) => {
+    const f = files[idx];
+    if (!f?.committed || !f.audit?.id || busy) return;
+    setBusy(true);
+    try {
+      const receipt = await finalizeCsvImportAudit({
+        runId: f.audit.id, result: f.committed, startedAt: Date.now(),
+        csvText: f.csv, fileName: f.fileName, entity: f.entity, columnMap: f.columnMap,
+      });
+      setFiles(prev => prev.map((row, i) => i === idx
+        ? { ...row, audit: { id: f.audit.id, state: receipt.sourceAttached ? 'logged' : 'source_missing' } }
+        : row));
+    } catch (err) {
+      setFiles(prev => prev.map((row, i) => i === idx
+        ? { ...row, audit: { id: f.audit.id, state: 'unconfirmed', message: err.message } }
+        : row));
     } finally { setBusy(false); }
   };
 
@@ -509,6 +521,10 @@ export default function CsvBulkImport({ financeOnly = false }) {
                   <td>
                     {f.error && <span style={{ color: '#c0392b' }}>Error: {f.error.message}</span>}
                     {!f.error && f.committed && <span style={{ color: 'var(--cf-green, #047857)' }}>Imported</span>}
+                    {f.audit?.state === 'logged' && <span data-testid={`csv-bulk-row-${idx}-audit-logged`}> · History #{f.audit.id}</span>}
+                    {f.audit?.state === 'source_missing' && <span className="error" data-testid={`csv-bulk-row-${idx}-source-missing`}> · Source CSV not archived; keep the original file.</span>}
+                    {f.audit?.state === 'unconfirmed' && <span className="error" data-testid={`csv-bulk-row-${idx}-audit-unconfirmed`}> · Run #{f.audit.id} needs review. Do not import again. {f.audit.message}</span>}
+                    {f.audit?.state === 'unconfirmed' && f.committed && <button className="btn" disabled={busy} onClick={() => retryAudit(idx)} data-testid={`csv-bulk-row-${idx}-audit-retry`}>Retry history only</button>}
                     {!f.error && !f.committed && f.preview && (
                       f.preview.error_count > 0
                         ? <span style={{ color: '#a16207' }}>⚠ {f.preview.error_count} rows have errors</span>
@@ -537,7 +553,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
               ))}
             </ul>
             <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
-              Every imported file above has been logged to the audit trail (who, when, file, rows, errors).
+              History status is shown beside each file. Resolve any unconfirmed run before importing that file again.
             </p>
             <Link to={financeOnly ? '/modules/accounting/import-history' : '/data/import-history'} className="btn btn--primary" data-testid="csv-bulk-summary-view-history">View import history</Link>
           </div>

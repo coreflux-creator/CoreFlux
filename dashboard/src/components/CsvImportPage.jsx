@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
-import { attachCsvToImportRun } from '../../../dashboard/src/lib/csvAuditAttach';
+import { reserveCsvImportAudit, finalizeCsvImportAudit } from '../../../dashboard/src/lib/csvImportAudit';
 
 /**
  * Shared CSV Import flow — built on Core\CsvImportService.
@@ -74,6 +74,7 @@ export default function CsvImportPage({
   standaloneAccounting = false,
 }) {
   const fileRef = useRef(null);
+  const committingRef = useRef(false);
   const [csvText, setCsvText]         = useState('');
   const [fileName, setFileName]       = useState('');
   // Interactive column mapping state
@@ -85,6 +86,7 @@ export default function CsvImportPage({
   const [running, setRunning]         = useState(false);
   const [error, setError]             = useState(null);
   const [committed, setCommitted]     = useState(null);
+  const [auditRun, setAuditRun]       = useState(null);
   const [skipInvalid, setSkipInvalid] = useState(false);
   const [updateExisting, setUpdateExisting] = useState(!!defaultUpdateExisting);
   // Per-entity extra toggles (e.g. Time's "already_approved"). Stored as
@@ -103,7 +105,7 @@ export default function CsvImportPage({
     reader.onload = async () => {
       const text = String(reader.result || '');
       setCsvText(text);
-      setPreview(null); setCommitted(null); setError(null);
+      setPreview(null); setCommitted(null); setError(null); setAuditRun(null);
       // Auto-inspect on file pick so the mapping table appears immediately.
       setInspecting(true);
       try {
@@ -223,10 +225,20 @@ export default function CsvImportPage({
   };
 
   const commit = async () => {
-    if (!csvText) return;
+    if (!csvText || committingRef.current || auditRun?.id) return;
+    committingRef.current = true;
     setRunning(true); setError(null);
     const startedAt = Date.now();
+    let runId = null;
     try {
+      if (presetEntity) {
+        runId = await reserveCsvImportAudit({
+          entity: presetEntity, fileName, csvText, preview, skipInvalid, updateExisting,
+          aiUsed: !!aiReasoning, presetId: presetMatch?.id || null,
+          columnMap, extraFlags: extraToggleValues,
+        });
+        setAuditRun({ id: runId, state: 'unconfirmed' });
+      }
       const params = [];
       if (skipInvalid)    params.push('skip_invalid=1');
       if (updateExisting) params.push('update_existing=1');
@@ -239,51 +251,42 @@ export default function CsvImportPage({
       if (columnMap) body.column_map = columnMap;
       const res = await api.post(path, body);
       setCommitted(res);
-
-      // Audit-write to CSV Import History. Never throw — the import has
-      // already succeeded; a failed history write is a nicety to lose.
-      if (presetEntity) {
+      if (runId) {
         try {
-          const hist = await api.post('/api/admin/csv_import_history.php', {
-            entity:          presetEntity,
-            file_name:       fileName || null,
-            bytes_processed: csvText.length,
-            rows_total:      res?.row_count ?? ((res?.imported_count || 0) + (res?.skipped_count || 0)),
-            rows_imported:   res?.imported_row_count ?? (res?.imported_count || 0),
-            rows_skipped:    res?.skipped_row_count ?? (res?.skipped_count || 0),
-            errors:          res?.errors        || {},
-            skip_invalid:    skipInvalid,
-            update_existing: updateExisting,
-            ai_used:         !!aiReasoning,
-            preset_id:       presetMatch?.id || null,
-            column_map:      columnMap || null,
-            duration_ms:     Date.now() - startedAt,
-            // Per-entity extras (e.g. {already_approved: true}) — purely
-            // for audit visibility; the engine already received them via
-            // the URL.
-            ...(Object.keys(extraToggleValues).length
-                ? { extra_flags: extraToggleValues }
-                : {}),
+          const receipt = await finalizeCsvImportAudit({
+            runId, result: res, startedAt, csvText, fileName, entity: presetEntity, columnMap,
           });
-          // Attach the original CSV bytes to the history row so auditors
-          // can download the exact input that produced this batch.
-          if (hist?.id) {
-            await attachCsvToImportRun({
-              importRunId: hist.id,
-              csvText,
-              fileName,
-              entity: presetEntity,
-              columnMap: columnMap || null,
-            });
-          }
-        } catch { /* non-fatal */ }
+          setAuditRun({ id: runId, state: receipt.sourceAttached ? 'logged' : 'source_missing' });
+        } catch (auditError) {
+          setAuditRun({ id: runId, state: 'unconfirmed', message: auditError.message });
+        }
       }
-    } catch (e) { setError(e); }
-    finally     { setRunning(false); }
+    } catch (e) {
+      setError(runId
+        ? new Error(`The import result is unconfirmed. Check Import History and source records before retrying. ${e.message}`)
+        : e);
+    } finally {
+      committingRef.current = false;
+      setRunning(false);
+    }
+  };
+
+  const retryAudit = async () => {
+    if (!committed || !auditRun?.id || running) return;
+    setRunning(true);
+    try {
+      const receipt = await finalizeCsvImportAudit({
+        runId: auditRun.id, result: committed, startedAt: Date.now(),
+        csvText, fileName, entity: presetEntity, columnMap,
+      });
+      setAuditRun({ id: auditRun.id, state: receipt.sourceAttached ? 'logged' : 'source_missing' });
+    } catch (e) {
+      setAuditRun({ id: auditRun.id, state: 'unconfirmed', message: e.message });
+    } finally { setRunning(false); }
   };
 
   const reset = () => {
-    setCsvText(''); setFileName(''); setPreview(null); setCommitted(null); setError(null);
+    setCsvText(''); setFileName(''); setPreview(null); setCommitted(null); setError(null); setAuditRun(null);
     setInspectResult(null); setColumnMap(null);
     setSkipInvalid(false);
     setUpdateExisting(!!defaultUpdateExisting);
@@ -577,7 +580,7 @@ export default function CsvImportPage({
               <button
                 className="btn btn--primary"
                 onClick={commit}
-                disabled={running || !!preview.blocking_error || (preview.error_count > 0 && !skipInvalid)}
+                disabled={running || !!auditRun?.id || !!preview.blocking_error || (preview.error_count > 0 && !skipInvalid)}
                 data-testid={`${testidPrefix}-commit`}
               >
                 {running ? 'Importing…' : groupLabel ? `Import ${groupLabel}s` : 'Import rows'}
@@ -658,9 +661,15 @@ export default function CsvImportPage({
                 </ul>
               </div>
             )}
-            <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)', margin: '4px 0 12px' }}>
-              This import has been logged to the audit trail (who, when, file, rows, errors).
-            </p>
+            {auditRun?.state === 'logged' && <p data-testid={`${testidPrefix}-audit-logged`}>Import history recorded as run #{auditRun.id}.</p>}
+            {auditRun?.state === 'source_missing' && <p className="error" data-testid={`${testidPrefix}-audit-source-missing`}>Import history was saved as run #{auditRun.id}, but the source CSV could not be archived. Keep your original file for review.</p>}
+            {auditRun?.state === 'unconfirmed' && (
+              <div className="error" data-testid={`${testidPrefix}-audit-unconfirmed`}>
+                Import run #{auditRun.id} needs review. The source records may have changed. Do not import this file again until you verify them.
+                {auditRun.message && <p>{auditRun.message}</p>}
+                <button className="btn" onClick={retryAudit} disabled={running || !committed} data-testid={`${testidPrefix}-audit-retry`}>Retry history only</button>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
               {(typeof successCtas === 'function' ? (successCtas(committed) || []) : []).map((c, i) => (
                 <Link
@@ -673,7 +682,7 @@ export default function CsvImportPage({
                 </Link>
               ))}
               <Link to={backTo}              className={(typeof successCtas === 'function' && (successCtas(committed) || []).length > 0) ? 'btn' : 'btn btn--primary'} data-testid={`${testidPrefix}-result-back`}>Done</Link>
-              <Link to="/data/import-history" className="btn btn--ghost"   data-testid={`${testidPrefix}-result-view-history`}>View import history</Link>
+              <Link to={standaloneAccounting ? '/modules/accounting/import-history' : '/data/import-history'} className="btn btn--ghost" data-testid={`${testidPrefix}-result-view-history`}>View import history</Link>
             </div>
           </div>
         )}
