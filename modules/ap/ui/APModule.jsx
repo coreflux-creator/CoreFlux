@@ -52,15 +52,15 @@ export default function APModule({ session }) {
         <Route index element={<Navigate to="bills" replace />} />
         <Route path="overview" element={<Navigate to="../bills" replace />} />
         <Route path="bills" element={<BillsList session={session} />} />
-        <Route path="bills/csv_import" element={<BillsCsvImport />} />
+        <Route path="bills/csv_import" element={<BillsCsvImport standaloneAccounting={standaloneAccounting} />} />
         <Route path="bills/new" element={<BillCreate session={session} />} />
         <Route path="bills/:id" element={<BillDetail session={session} />} />
         <Route path="weekly-queue" element={standaloneAccounting ? <Navigate to="../bills" replace /> : <WeeklyQueue />} />
         <Route path="payments" element={<PaymentsList session={session} />} />
-        <Route path="payments/csv_import" element={<PaymentsCsvImport />} />
+        <Route path="payments/csv_import" element={<PaymentsCsvImport standaloneAccounting={standaloneAccounting} />} />
         <Route path="approvals" element={<Approvals />} />
         <Route path="vendors" element={<VendorsList />} />
-        <Route path="vendors/csv_import" element={<VendorsCsvImport />} />
+        <Route path="vendors/csv_import" element={<VendorsCsvImport standaloneAccounting={standaloneAccounting} />} />
         <Route path="expenses" element={<ExpensesList />} />
         <Route path="expenses/new" element={<ExpenseCreate />} />
         <Route path="recurring" element={<RecurringBills />} />

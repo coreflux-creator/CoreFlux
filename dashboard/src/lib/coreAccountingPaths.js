@@ -16,6 +16,8 @@ export const CORE_ACCOUNTING_SEARCH_DESTINATIONS = [
   { label: 'Reconcile', detail: 'Banking', to: '/modules/accounting/bank-rec' },
   { label: 'Journal entries', detail: 'Accounting', to: '/modules/accounting/journal-entries' },
   { label: 'Chart of accounts', detail: 'Accounting', to: '/modules/accounting/accounts' },
+  { label: 'CSV imports', detail: 'Accounting', to: '/modules/accounting/imports' },
+  { label: 'Import history', detail: 'Accounting', to: '/modules/accounting/import-history' },
   { label: 'Reports', detail: 'Accounting', to: '/modules/accounting/reports' },
   { label: 'Income statement', detail: 'Reports', to: '/modules/accounting/pnl' },
   { label: 'Balance sheet', detail: 'Reports', to: '/modules/accounting/balance' },

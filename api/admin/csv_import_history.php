@@ -19,6 +19,7 @@
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/RBAC.php';
 require_once __DIR__ . '/../../core/csv_import_history.php';
+require_once __DIR__ . '/../../core/accounting/csv_import_scope.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -30,6 +31,7 @@ if ($method === 'POST') {
     $body = api_json_body();
     $entity = (string) ($body['entity'] ?? '');
     if ($entity === '') api_error('entity is required', 400);
+    if (!coreAccountingCsvEntityAllowed($entity)) api_error('Import type is unavailable in CoreAccounting', 422);
 
     $newId = csvImportHistoryRecord([
         'entity'          => $entity,
@@ -54,7 +56,24 @@ if ($method !== 'GET') api_error('Method not allowed', 405);
 $where  = ['h.tenant_id = :tenant_id'];
 $params = [];
 
-if (!empty($_GET['entity']))  { $where[] = 'h.entity = :e';     $params['e']  = $_GET['entity']; }
+if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+    foreach (coreAccountingCsvEntities() as $index => $allowedEntity) {
+        $key = 'finance_entity_' . $index;
+        $params[$key] = $allowedEntity;
+    }
+    $where[] = 'h.entity IN (' . implode(',', array_map(
+        static fn(int $index): string => ':finance_entity_' . $index,
+        array_keys(coreAccountingCsvEntities())
+    )) . ')';
+}
+
+if (!empty($_GET['entity']))  {
+    if (!coreAccountingCsvEntityAllowed((string) $_GET['entity'])) {
+        api_error('Import type is unavailable in CoreAccounting', 422);
+    }
+    $where[] = 'h.entity = :e';
+    $params['e'] = $_GET['entity'];
+}
 if (!empty($_GET['status']))  { $where[] = 'h.status = :s';     $params['s']  = $_GET['status']; }
 if (!empty($_GET['from']))    { $where[] = 'h.created_at >= :f'; $params['f']  = $_GET['from']; }
 if (!empty($_GET['to']))      { $where[] = 'h.created_at <= :t'; $params['t']  = $_GET['to'] . ' 23:59:59'; }

@@ -20,6 +20,8 @@ import StandardReports from './StandardReports';
 import AccountingImport from './AccountingImport';
 import OpeningBalances from './OpeningBalances';
 import AccountsCsvImport from './AccountsCsvImport';
+import CsvBulkImport from '../../../dashboard/src/pages/CsvBulkImport';
+import CsvImportHistory from '../../../dashboard/src/pages/CsvImportHistory';
 import IntercompanyMappings from './IntercompanyMappings';
 import XTenantIntercompany from './XTenantIntercompany';
 import EliminationWorksheet from './EliminationWorksheet';
@@ -62,6 +64,7 @@ const MORE_NAV = [
   {
     label: 'Workspace',
     items: [
+      { to: 'imports', label: 'CSV imports', Icon: Upload, standaloneOnly: true },
       { to: 'import', label: 'Import journal entries', Icon: Upload },
       { to: 'opening-balances', label: 'Opening balances', Icon: Wallet },
       { to: 'periods', label: 'Accounting periods', Icon: Calendar },
@@ -136,7 +139,7 @@ export default function AccountingModule({ session }) {
         <Route path="missing-dimensions" element={<MissingDimensions />} />
         <Route path="ai-agents" element={<Navigate to="/ai-agents" replace />} />
         <Route path="accounts" element={<ChartOfAccounts session={session} />} />
-        <Route path="accounts/import" element={<AccountsCsvImport />} />
+        <Route path="accounts/import" element={<AccountsCsvImport standaloneAccounting={session?.product_mode === 'coreaccounting'} />} />
         <Route path="accounts/detail" element={<AccountDetail session={session} />} />
         <Route path="accounts/:id" element={<AccountDetail session={session} />} />
         <Route path="journal"  element={<Navigate to="../journal-entries" replace />} />
@@ -158,6 +161,8 @@ export default function AccountingModule({ session }) {
         <Route path="tax-mappings" element={<TaxMappings />} />
         <Route path="tax-export" element={<TaxExport />} />
         <Route path="import"   element={<AccountingImport session={session} />} />
+        <Route path="imports" element={session?.product_mode === 'coreaccounting' ? <CsvBulkImport financeOnly /> : <Navigate to="/data/bulk-import" replace />} />
+        <Route path="import-history" element={session?.product_mode === 'coreaccounting' ? <CsvImportHistory financeOnly /> : <Navigate to="/data/import-history" replace />} />
         <Route path="opening-balances" element={<OpeningBalances />} />
         <Route path="intercompany" element={<IntercompanyMappings session={session} />} />
         <Route path="xtenant-ic"   element={<XTenantIntercompany session={session} />} />
@@ -185,9 +190,11 @@ function AccountingNav({ standaloneAccounting = false }) {
   const location = useLocation();
   const reportRoutes = ['trial', 'pnl', 'balance', 'cash-flow', 'gl-detail', 'dim-pnl'];
   const reportActive = reportRoutes.some(route => location.pathname.includes(`/accounting/${route}`));
-  const visibleMoreNav = standaloneAccounting
-    ? MORE_NAV.map(group => ({ ...group, items: group.items.filter(item => item.to !== 'ai-agents') }))
-    : MORE_NAV;
+  const visibleMoreNav = MORE_NAV.map(group => ({
+    ...group,
+    items: group.items.filter(item => (standaloneAccounting || !item.standaloneOnly)
+      && (!standaloneAccounting || item.to !== 'ai-agents')),
+  }));
   const moreRoutes = visibleMoreNav.flatMap(group => group.items.map(item => item.to))
     .filter(route => !reportRoutes.includes(route));
   const moreActive = moreRoutes.some(route => location.pathname.includes(`/accounting/${route}`));

@@ -8,7 +8,7 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  * the SAME CSV, grouped by `bill_number`. Powered by Core\CsvImportService
  * via /api/ap/bills_csv_import.php.
  */
-export default function BillsCsvImport() {
+export default function BillsCsvImport({ standaloneAccounting = false }) {
   return (
     <CsvImportPage
       endpoint="/modules/ap/api/bills_csv_import.php"
@@ -19,6 +19,7 @@ export default function BillsCsvImport() {
       backLabel="← Bills"
       testidPrefix="ap-bills-csv-import"
       presetEntity="ap_bills"
+      standaloneAccounting={standaloneAccounting}
       resultLinks={(result) => Object.entries(result.ids || {}).map(([number, id]) => ({
         label: number,
         to: `/modules/ap/bills/${id}`,

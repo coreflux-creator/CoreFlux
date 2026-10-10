@@ -90,7 +90,7 @@ $a('Bulk wizard forwards file_name',        str_contains($bulk, 'file_name:     
 $a('Bulk wizard forwards column_map',       str_contains($bulk, 'column_map:      f.columnMap || null'));
 $a('Bulk wizard header has Import History link',
     str_contains($bulk, 'data-testid="csv-bulk-history-link"')
-    && str_contains($bulk, 'to="/data/import-history"'));
+    && str_contains($bulk, "financeOnly ? '/modules/accounting/import-history' : '/data/import-history'"));
 $a('Bulk wizard summary has View History CTA',
     str_contains($bulk, 'data-testid="csv-bulk-summary-view-history"')
     && str_contains($bulk, 'audit trail (who, when, file, rows, errors)'));

@@ -71,6 +71,7 @@ export default function CsvImportPage({
    */
   successCtas = null,
   resultLinks = null,
+  standaloneAccounting = false,
 }) {
   const fileRef = useRef(null);
   const [csvText, setCsvText]         = useState('');
@@ -156,7 +157,7 @@ export default function CsvImportPage({
     if (!presetEntity) return;
     try {
       const sig = await computeHeaderSignature(headers);
-      const all = await api.get(`/api/admin/csv_mapping_presets?entity=${presetEntity}`);
+      const all = await api.get(`/api/admin/csv_mapping_presets.php?entity=${presetEntity}`);
       const rows = all?.rows || [];
       setPresets(rows);
       const exact = rows.find(p => p.header_signature === sig);
@@ -170,14 +171,14 @@ export default function CsvImportPage({
   const applyPreset = async (p) => {
     setColumnMap(prev => ({ ...(prev || {}), ...(p.column_map || {}) }));
     setPreview(null);
-    try { await api.post(`/api/admin/csv_mapping_presets?action=use&id=${p.id}`); } catch { /* non-fatal */ }
+    try { await api.post(`/api/admin/csv_mapping_presets.php?action=use&id=${p.id}`); } catch { /* non-fatal */ }
   };
 
   const savePreset = async () => {
     if (!presetEntity || !inspect || !columnMap || !presetName.trim()) return;
     setSavingPreset(true);
     try {
-      const res = await api.post('/api/admin/csv_mapping_presets', {
+      const res = await api.post('/api/admin/csv_mapping_presets.php', {
         entity: presetEntity,
         name: presetName.trim(),
         column_map: columnMap,
@@ -305,8 +306,8 @@ export default function CsvImportPage({
           </p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
-          <Link to="/data/bulk-import"   className="btn btn--ghost" data-testid={`${testidPrefix}-bulk-link`}>Import multiple files</Link>
-          <Link to="/data/import-history" className="btn btn--ghost" data-testid={`${testidPrefix}-history-link`}>Import history</Link>
+          <Link to={standaloneAccounting ? '/modules/accounting/imports' : '/data/bulk-import'} className="btn btn--ghost" data-testid={`${testidPrefix}-bulk-link`}>Import multiple files</Link>
+          <Link to={standaloneAccounting ? '/modules/accounting/import-history' : '/data/import-history'} className="btn btn--ghost" data-testid={`${testidPrefix}-history-link`}>Import history</Link>
           <Link to={backTo}              className="btn btn--ghost" data-testid={`${testidPrefix}-back`}>{backLabel}</Link>
         </div>
       </header>

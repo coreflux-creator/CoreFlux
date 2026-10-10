@@ -84,8 +84,8 @@ echo "\nBulk wizard auto-applies presets\n";
 $bulk = $read(__DIR__ . '/../dashboard/src/pages/CsvBulkImport.jsx');
 $a('wizard computes header signature',       str_contains($bulk, 'signatureFor') && str_contains($bulk, 'SHA-256'));
 $a('wizard tryApplyPreset helper',           str_contains($bulk, 'tryApplyPreset'));
-$a('wizard hits preset endpoint',            str_contains($bulk, '/api/admin/csv_mapping_presets?entity=') && str_contains($bulk, 'signature='));
-$a('wizard bumps used_count after apply',    str_contains($bulk, 'csv_mapping_presets?action=use'));
+$a('wizard hits preset endpoint',            str_contains($bulk, '/api/admin/csv_mapping_presets.php?entity=') && str_contains($bulk, 'signature='));
+$a('wizard bumps used_count after apply',    str_contains($bulk, 'csv_mapping_presets.php?action=use'));
 $a('wizard surfaces preset name in row',     str_contains($bulk, 'preset: {f.presetName}'));
 $a('wizard forwards column_map on dry_run',  str_contains($bulk, 'body.column_map = f.columnMap') || str_contains($bulk, 'body.column_map = f.columnMap;'));
 $a('wizard forwards column_map on commit',   substr_count($bulk, 'body.column_map = f.columnMap') >= 2);
@@ -105,7 +105,7 @@ $a('UI computes header signature',           str_contains($cmp, 'computeHeaderSi
 $a('UI loads presets on inspect',            str_contains($cmp, 'loadPresetsForHeaders'));
 $a('UI applies matching preset',             str_contains($cmp, 'preset-match') || str_contains($cmp, 'presetMatch'));
 $a('UI lists all presets for entity',        str_contains($cmp, 'preset-apply-${i}') || str_contains($cmp, 'preset-apply-`'));
-$a('UI saves new preset',                    str_contains($cmp, "api.post('/api/admin/csv_mapping_presets'"));
+$a('UI saves new preset',                    str_contains($cmp, "api.post('/api/admin/csv_mapping_presets.php'"));
 $a('UI update-existing checkbox',            str_contains($cmp, 'update-existing') && str_contains($cmp, 'setUpdateExisting'));
 $a('UI sends ?update_existing=1 on commit',  str_contains($cmp, "'update_existing=1'"));
 

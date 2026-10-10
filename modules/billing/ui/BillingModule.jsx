@@ -47,14 +47,14 @@ export default function BillingModule({ session }) {
         <Route index element={<Navigate to="invoices" replace />} />
         <Route path="overview" element={<Navigate to="../invoices" replace />} />
         <Route path="invoices" element={<InvoicesList session={session} />} />
-        <Route path="invoices/csv_import" element={<InvoicesCsvImport />} />
+        <Route path="invoices/csv_import" element={<InvoicesCsvImport standaloneAccounting={session?.product_mode === 'coreaccounting'} />} />
         <Route path="invoices/new" element={<InvoiceCreate />} />
         <Route path="invoices/:id/edit" element={<InvoiceCreate />} />
         <Route path="invoices/:id" element={<InvoiceDetail />} />
         <Route path="items" element={<ItemsCatalog />} />
-        <Route path="items/csv_import" element={<ItemsCsvImport />} />
+        <Route path="items/csv_import" element={<ItemsCsvImport standaloneAccounting={session?.product_mode === 'coreaccounting'} />} />
         <Route path="payments" element={<PaymentsList />} />
-        <Route path="payments/csv_import" element={<PaymentsCsvImport />} />
+        <Route path="payments/csv_import" element={<PaymentsCsvImport standaloneAccounting={session?.product_mode === 'coreaccounting'} />} />
         <Route path="aging" element={<AgingTable />} />
         <Route path="dunning" element={<DunningQueue />} />
         <Route path="contracts" element={<RecurringContracts />} />

@@ -7,7 +7,7 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  * Mounted at /modules/ap/vendors/csv_import (or wherever the AP router puts
  * us). Powered by Core\CsvImportService via /api/ap/csv_import.php.
  */
-export default function VendorsCsvImport() {
+export default function VendorsCsvImport({ standaloneAccounting = false }) {
   return (
     <CsvImportPage
       endpoint="/modules/ap/api/csv_import.php"
@@ -16,6 +16,7 @@ export default function VendorsCsvImport() {
       backLabel="← Vendors"
       testidPrefix="ap-vendors-csv-import"
       presetEntity="ap_vendors"
+      standaloneAccounting={standaloneAccounting}
       previewColumns={[
         { key: 'vendor_name',     label: 'Name' },
         { key: 'vendor_type',     label: 'Type' },

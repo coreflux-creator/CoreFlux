@@ -30,6 +30,10 @@ const ENTITY_LABELS = {
   ap_payments:      'Vendor payments',
   billing_payments: 'Customer payments',
 };
+const FINANCE_ENTITIES = new Set([
+  'ap_vendors', 'accounting_accounts', 'billing_items',
+  'ap_bills', 'billing_invoices', 'ap_payments', 'billing_payments',
+]);
 
 const STATUS_COLORS = {
   success: { bg: 'rgba(34,197,94,0.12)',  fg: '#047857' },
@@ -59,7 +63,7 @@ function StatusPill({ status }) {
   );
 }
 
-export default function CsvImportHistory() {
+export default function CsvImportHistory({ financeOnly = false }) {
   const [rows,       setRows]       = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
@@ -81,11 +85,11 @@ export default function CsvImportHistory() {
       if (from)   qs.set('from',   from);
       if (to)     qs.set('to',     to);
       const res = await api.get(`/api/admin/csv_import_history.php${qs.toString() ? '?' + qs.toString() : ''}`);
-      setRows(res?.rows || []);
+      setRows(financeOnly ? (res?.rows || []).filter(row => FINANCE_ENTITIES.has(row.entity)) : (res?.rows || []));
       setMigPending(!!res?.migration_pending);
     } catch (e) { setError(e); }
     finally     { setLoading(false); }
-  }, [entity, status, from, to]);
+  }, [entity, status, from, to, financeOnly]);
 
   // Initial load + on filter change.
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
@@ -106,13 +110,13 @@ export default function CsvImportHistory() {
         <div>
           <h2>CSV Import History</h2>
           <p style={{ color: 'var(--cf-text-secondary)' }}>
-            Audit trail of every bulk CSV import committed through the platform.
-            Filter by entity, status, or date range.
+            {financeOnly ? 'Review accounting CSV imports and their source files.' : 'Audit trail of every bulk CSV import committed through the platform.'}
+            {' '}Filter by entity, status, or date range.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)' }}>
-          <Link to="/data/bulk-import" className="btn" data-testid="csv-history-go-bulk">+ New bulk import</Link>
-          <Link to="/" className="btn btn--ghost" data-testid="csv-history-back">← Dashboard</Link>
+          <Link to={financeOnly ? '/modules/accounting/imports' : '/data/bulk-import'} className="btn" data-testid="csv-history-go-bulk">+ New bulk import</Link>
+          <Link to={financeOnly ? '/modules/accounting/overview' : '/'} className="btn btn--ghost" data-testid="csv-history-back">← Overview</Link>
         </div>
       </header>
 
@@ -130,7 +134,7 @@ export default function CsvImportHistory() {
           <Field label="Entity">
             <select value={entity} onChange={e => setEntity(e.target.value)} data-testid="csv-history-filter-entity">
               <option value="">All</option>
-              {Object.entries(ENTITY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {Object.entries(ENTITY_LABELS).filter(([key]) => !financeOnly || FINANCE_ENTITIES.has(key)).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </Field>
           <Field label="Status">
@@ -168,7 +172,7 @@ export default function CsvImportHistory() {
 
         {!loading && !error && rows.length === 0 && !migPending && (
           <p className="empty" data-testid="csv-history-empty">
-            No CSV imports recorded yet. Run a bulk import to populate this view.
+            No CSV imports recorded yet. Import an accounting CSV to populate this view.
           </p>
         )}
 

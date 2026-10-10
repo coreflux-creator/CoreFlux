@@ -2,7 +2,7 @@ import React from 'react';
 import { Download } from 'lucide-react';
 import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
 
-export default function AccountsCsvImport() {
+export default function AccountsCsvImport({ standaloneAccounting = false }) {
   return (
     <div data-testid="accounting-accounts-csv-workspace">
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -31,6 +31,7 @@ export default function AccountsCsvImport() {
         backLabel="Back to chart of accounts"
         testidPrefix="accounting-accounts-csv-import"
         presetEntity="accounting_accounts"
+        standaloneAccounting={standaloneAccounting}
         updateExistingLabel="Update matching accounts by Account ID or code"
       />
     </div>

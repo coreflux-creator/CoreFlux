@@ -32,6 +32,10 @@ const ENTITY_ORDER = [
   'placements', 'time', 'ap_bills', 'billing_invoices',
   'ap_payments', 'billing_payments',
 ];
+const FINANCE_ENTITY_ORDER = [
+  'ap_vendors', 'accounting_accounts', 'billing_items',
+  'ap_bills', 'billing_invoices', 'ap_payments', 'billing_payments',
+];
 
 const ENTITY_CONFIG = {
   people: {
@@ -157,11 +161,12 @@ function firstCsvRecord(csv) {
   return csv;
 }
 
-function detectEntity(headers) {
+function detectEntity(headers, candidates = ENTITY_ORDER) {
   const normalized = new Set(headers.map(value => String(value || '').trim().toLowerCase()));
   let best = null;
   let bestScore = 0;
-  for (const [key, cfg] of Object.entries(ENTITY_CONFIG)) {
+  for (const key of candidates) {
+    const cfg = ENTITY_CONFIG[key];
     const score = cfg.signature.filter(s => normalized.has(s.toLowerCase())).length;
     if (score > bestScore) { best = key; bestScore = score; }
   }
@@ -178,13 +183,14 @@ function readFile(f) {
   });
 }
 
-export default function CsvBulkImport() {
+export default function CsvBulkImport({ financeOnly = false }) {
+  const visibleEntityOrder = financeOnly ? FINANCE_ENTITY_ORDER : ENTITY_ORDER;
   const fileRef = useRef(null);
   // files: { fileName, entity, csv, preview, committed, error, columnMap, presetName }
   const [files, setFiles] = useState([]);
   const [skipInvalid, setSkipInvalid] = useState(false);
   const [updateExisting, setUpdateExisting] = useState(false);
-  const [exportEntity, setExportEntity] = useState('placements');
+  const [exportEntity, setExportEntity] = useState(financeOnly ? 'accounting_accounts' : 'placements');
   const [busy, setBusy] = useState(false);
 
   // Compute the same header signature the backend uses (sha256 of
@@ -200,10 +206,10 @@ export default function CsvBulkImport() {
   const tryApplyPreset = async (entity, headers) => {
     try {
       const sig = await signatureFor(headers);
-      const res = await api.get(`/api/admin/csv_mapping_presets?entity=${entity}&signature=${sig}`);
+      const res = await api.get(`/api/admin/csv_mapping_presets.php?entity=${entity}&signature=${sig}`);
       const match = (res?.rows || [])[0];
       if (match) {
-        await api.post(`/api/admin/csv_mapping_presets?action=use&id=${match.id}`).catch(() => null);
+        await api.post(`/api/admin/csv_mapping_presets.php?action=use&id=${match.id}`).catch(() => null);
         return { columnMap: match.column_map || {}, presetName: match.name };
       }
     } catch { /* presets are a nicety; never block the flow */ }
@@ -218,7 +224,7 @@ export default function CsvBulkImport() {
       try {
         const csv = await readFile(f);
         const headers = parseCsvRow(firstCsvRecord(csv).replace(/^\uFEFF/, ''));
-        const entity = detectEntity(headers);
+        const entity = detectEntity(headers, visibleEntityOrder);
         let columnMap = null, presetName = null;
         if (entity) {
           const applied = await tryApplyPreset(entity, headers);
@@ -267,7 +273,7 @@ export default function CsvBulkImport() {
     setBusy(true);
     try {
       // Commit in FK-respecting order.
-      const ordered = ENTITY_ORDER
+      const ordered = visibleEntityOrder
         .flatMap(entity => files
           .map((f, idx) => ({ f, idx }))
           .filter(({ f }) => f.entity === entity && f.csv && !f.committed)
@@ -327,7 +333,7 @@ export default function CsvBulkImport() {
   };
 
   const hasAny       = files.length > 0;
-  const allDetected  = files.every(f => f.entity);
+  const allDetected  = files.every(f => f.entity && visibleEntityOrder.includes(f.entity));
   const validationFinished = hasAny && files.every(f => f.preview || f.error);
   const validationSucceeded = validationFinished && files.every(f => f.preview && !f.error);
   const totalRows    = files.reduce((sum, f) => sum + (f.preview?.row_count || 0), 0);
@@ -347,8 +353,8 @@ export default function CsvBulkImport() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
-          <Link to="/data/import-history" className="btn btn--ghost" data-testid="csv-bulk-history-link">Import history</Link>
-          <Link to="/" className="btn btn--ghost" data-testid="csv-bulk-back">← Dashboard</Link>
+          <Link to={financeOnly ? '/modules/accounting/import-history' : '/data/import-history'} className="btn btn--ghost" data-testid="csv-bulk-history-link">Import history</Link>
+          <Link to={financeOnly ? '/modules/accounting/overview' : '/'} className="btn btn--ghost" data-testid="csv-bulk-back">← Overview</Link>
         </div>
       </header>
 
@@ -361,7 +367,7 @@ export default function CsvBulkImport() {
             aria-label="Data to export"
             data-testid="csv-bulk-export-entity"
           >
-            {ENTITY_ORDER.map(k => <option key={k} value={k}>{ENTITY_CONFIG[k].label}</option>)}
+            {visibleEntityOrder.map(k => <option key={k} value={k}>{ENTITY_CONFIG[k].label}</option>)}
           </select>
           <a
             className="btn btn--primary"
@@ -378,10 +384,10 @@ export default function CsvBulkImport() {
             full working dataset before importing their real books. */}
         <details style={{ marginBottom: 'var(--cf-space-4)' }} data-testid="csv-bulk-sample-pack">
           <summary style={{ cursor: 'pointer', color: 'var(--cf-text-secondary)', fontSize: 13 }}>
-            New to CoreFlux? Download our sample CSV pack →
+            {financeOnly ? 'Sample accounting CSVs' : 'New to CoreFlux? Download our sample CSV pack'}
           </summary>
           <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {ENTITY_ORDER.map(k => (
+            {visibleEntityOrder.map(k => (
               <a
                 key={k}
                 className="btn btn--ghost"
@@ -394,9 +400,9 @@ export default function CsvBulkImport() {
             ))}
           </div>
           <p style={{ marginTop: 8, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
-            All samples are FK-coherent — emails, vendor names and placement IDs
-            line up across files so you can load them in order and see the
-            full platform populated in 30 seconds.
+            {financeOnly
+              ? 'Check each file before import. Financial documents retain their approval and posting controls.'
+              : 'All samples are FK-coherent — emails, vendor names and placement IDs line up across files so you can load them in order.'}
           </p>
         </details>
 
@@ -446,8 +452,9 @@ export default function CsvBulkImport() {
 
         {!hasAny && (
           <p className="empty" data-testid="csv-bulk-empty">
-            No files selected yet. Pick multiple CSV files above — one per entity
-            (people.csv, vendors.csv, clients.csv, etc.).
+            {financeOnly
+              ? 'No files selected yet. Choose one or more accounting CSV files.'
+              : 'No files selected yet. Pick multiple CSV files above — one per entity (people.csv, vendors.csv, clients.csv, etc.).'}
           </p>
         )}
 
@@ -489,7 +496,7 @@ export default function CsvBulkImport() {
                       style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--cf-border, #e5e7eb)' }}
                     >
                       <option value="">— pick entity —</option>
-                      {ENTITY_ORDER.map(k => <option key={k} value={k}>{ENTITY_CONFIG[k].label}</option>)}
+                      {visibleEntityOrder.map(k => <option key={k} value={k}>{ENTITY_CONFIG[k].label}</option>)}
                     </select>
                   </td>
                   <td>
@@ -532,7 +539,7 @@ export default function CsvBulkImport() {
             <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
               Every imported file above has been logged to the audit trail (who, when, file, rows, errors).
             </p>
-            <Link to="/data/import-history" className="btn btn--primary" data-testid="csv-bulk-summary-view-history">View import history</Link>
+            <Link to={financeOnly ? '/modules/accounting/import-history' : '/data/import-history'} className="btn btn--primary" data-testid="csv-bulk-summary-view-history">View import history</Link>
           </div>
         )}
       </div>
