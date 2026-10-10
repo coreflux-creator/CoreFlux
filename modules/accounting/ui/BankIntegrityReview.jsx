@@ -8,7 +8,7 @@ const BANK_BASE = '/modules/accounting/bank-rec';
 const titles = {
   bank_match_integrity: 'Matched lines with inconsistent journals',
   bank_duplicate_journal_matches: 'Journals claimed by multiple lines',
-  bank_unmatched_explicit_lineage: 'Unmatched lines with posted history',
+  bank_unmatched_explicit_lineage: 'Unmatched lines with ledger references',
 };
 const checkResult = check => check.status === 'fail'
   ? `${check.issue_count} found`
@@ -66,17 +66,24 @@ function DuplicateRows({ rows }) {
 
 function UnmatchedRows({ rows }) {
   return (
-    <div className="data-table-wrap" role="region" aria-label="Unmatched bank lines with posted history" tabIndex={0}>
+    <div className="data-table-wrap" role="region" aria-label="Unmatched bank lines with ledger references" tabIndex={0}>
       <table className="data-table">
-        <thead><tr><th>Bank line</th><th>Date</th><th>Amount</th><th>Linked journal</th></tr></thead>
-        <tbody>{rows.map(row => (
-          <tr key={row.bank_line_id}>
-            <td><BankLineLink accountId={row.bank_account_id} lineId={row.bank_line_id} /></td>
-            <td>{fmtDate(row.posted_date)}</td>
-            <td>{fmtMoney(row.amount)}</td>
-            <td><JournalLink journalId={row.matched_je_id} /></td>
-          </tr>
-        ))}</tbody>
+        <thead><tr><th>Bank line</th><th>Date</th><th>Amount</th><th>Stored match</th><th>Posted source</th></tr></thead>
+        <tbody>{rows.map(row => {
+          const postedIds = [...new Set([
+            ...String(row.direct_posted_journal_ids || '').split(','),
+            ...String(row.linked_posted_journal_ids || '').split(','),
+          ].filter(id => /^\d+$/.test(id)))];
+          return (
+            <tr key={row.bank_line_id}>
+              <td><BankLineLink accountId={row.bank_account_id} lineId={row.bank_line_id} /></td>
+              <td>{fmtDate(row.posted_date)}</td>
+              <td>{fmtMoney(row.amount)}</td>
+              <td><JournalLink journalId={row.matched_je_id} /></td>
+              <td>{postedIds.length ? postedIds.map(id => <span key={id} style={{ marginRight: 12 }}><JournalLink journalId={id} /></span>) : 'None'}</td>
+            </tr>
+          );
+        })}</tbody>
       </table>
     </div>
   );

@@ -932,13 +932,30 @@ function businessIntegrityBankChecks(int $accountingTenantId): array
     $checks[] = businessIntegrityCountCheck(
         $accountingTenantId,
         'bank_unmatched_explicit_lineage',
-        'Unmatched bank lines with explicit posted lineage need review',
+        'Unmatched bank lines with ledger references need review',
         'error',
         "SELECT COUNT(*) FROM accounting_bank_statement_lines bank_line
           WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'unmatched'
             AND ({$unmatchedLineage})",
         "SELECT bank_line.id AS bank_line_id, bank_line.bank_account_id, bank_line.posted_date,
-                bank_line.amount, bank_line.matched_je_id
+                bank_line.amount, bank_line.matched_je_id,
+                (SELECT GROUP_CONCAT(DISTINCT direct_je.id ORDER BY direct_je.id)
+                   FROM accounting_journal_entries direct_je
+                  WHERE direct_je.tenant_id = bank_line.tenant_id AND direct_je.status = 'posted'
+                    AND direct_je.source_module = 'treasury_feed'
+                    AND direct_je.source_ref_type = 'bank_statement_line'
+                    AND CAST(direct_je.source_ref_id AS CHAR) = CAST(bank_line.id AS CHAR))
+                  AS direct_posted_journal_ids,
+                (SELECT GROUP_CONCAT(DISTINCT linked_je.id ORDER BY linked_je.id)
+                   FROM accounting_subledger_links link
+                   JOIN accounting_journal_entries linked_je
+                     ON linked_je.tenant_id = link.tenant_id
+                    AND linked_je.id = link.journal_entry_id AND linked_je.status = 'posted'
+                  WHERE link.tenant_id = bank_line.tenant_id
+                    AND link.source_module = 'treasury_feed' AND link.link_kind = 'primary'
+                    AND link.source_record_id IN (CONCAT('bank_line:', bank_line.id),
+                                                  CONCAT('bank_line:split:', bank_line.id)))
+                  AS linked_posted_journal_ids
            FROM accounting_bank_statement_lines bank_line
           WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'unmatched'
             AND ({$unmatchedLineage})
