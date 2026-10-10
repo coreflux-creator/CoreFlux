@@ -19,7 +19,7 @@ import {
  *  - Recent engine activity (last 10 posted accounting_events)
  *  - Connect-a-bank CTA when no active connections
  */
-export default function BookkeepingOverview() {
+export default function BookkeepingOverview({ standaloneAccounting = false }) {
   const scope = useAccountingEntityScope();
   const healthUrl = '/api/books_health.php' + (scope.apiQuery ? `?${scope.apiQuery}` : '');
   const { data: response, error, refetch } = useApi(healthUrl, { enabled: scope.ready });
@@ -210,9 +210,11 @@ export default function BookkeepingOverview() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <Activity size={16} color="#7c3aed" />
               <strong style={{ fontSize: 14 }}>Recent engine activity</strong>
-              <Link to="/admin/rule-sandbox" className="btn btn--ghost" style={{ marginLeft: 'auto', fontSize: 11 }}>
-                <FlaskConical size={11} style={{ marginRight: 3, verticalAlign: 'middle' }} />Rule sandbox
-              </Link>
+              {!standaloneAccounting && (
+                <Link to="/admin/rule-sandbox" className="btn btn--ghost" style={{ marginLeft: 'auto', fontSize: 11 }}>
+                  <FlaskConical size={11} style={{ marginRight: 3, verticalAlign: 'middle' }} />Rule sandbox
+                </Link>
+              )}
             </div>
             {(!data.recent_events || data.recent_events.length === 0)
               ? <p data-testid="bookkeeping-overview-recent-empty" style={{ fontSize: 13, color: '#94a3b8', margin: 0 }}>

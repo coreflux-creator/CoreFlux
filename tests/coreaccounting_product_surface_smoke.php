@@ -10,8 +10,11 @@ $header = $read('dashboard/src/layout/Header.jsx');
 $layout = $read('dashboard/src/layout/AppLayout.jsx');
 $paths = $read('dashboard/src/lib/coreAccountingPaths.js');
 $accounting = $read('modules/accounting/ui/AccountingModule.jsx');
+$bookkeeping = $read('dashboard/src/pages/BookkeepingOverview.jsx');
 $billingModule = $read('modules/billing/ui/BillingModule.jsx');
 $apModule = $read('modules/ap/ui/APModule.jsx');
+$apPayments = $read('modules/ap/ui/PaymentsList.jsx');
+$treasuryModule = $read('modules/treasury/ui/TreasuryModule.jsx');
 $settings = $read('dashboard/src/pages/SettingsPage.jsx');
 $admin = $read('dashboard/src/pages/AdminModule.jsx');
 $bills = $read('modules/ap/ui/BillsList.jsx');
@@ -49,6 +52,13 @@ $check('standalone header links to finance pages and uses curated search',
 $check('standalone Tools omits the unavailable AI workspace',
     str_contains($accounting, "item.to !== 'ai-agents'")
     && str_contains($accounting, 'visibleMoreNav.map(group => ('));
+$check('standalone bank connection shortcuts avoid disabled admin routes',
+    str_contains($sidebar, "label: 'Bank connections', to: '/modules/treasury/overview'")
+    && str_contains($apPayments, "session?.product_mode === 'coreaccounting' ? '/modules/treasury/overview'")
+    && str_contains($accounting, '<BookkeepingOverview standaloneAccounting=')
+    && str_contains($bookkeeping, '{!standaloneAccounting && (')
+    && str_contains($treasuryModule, 'items={visibleNavItems}')
+    && str_contains($treasuryModule, "standaloneAccounting ? '/modules/treasury/overview' : '/admin/integrations'"));
 $check('generic Billing and AP overview links reach their worklists',
     str_contains($billingModule, '<Route path="overview" element={<Navigate to="../invoices" replace />} />')
     && str_contains($apModule, '<Route path="overview" element={<Navigate to="../bills" replace />} />'));

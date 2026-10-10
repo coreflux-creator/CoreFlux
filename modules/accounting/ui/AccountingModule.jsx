@@ -128,7 +128,7 @@ export default function AccountingModule({ session }) {
       </header>
       <Routes>
         <Route index element={<Navigate to="overview" replace />} />
-        <Route path="overview" element={<BookkeepingOverview />} />
+        <Route path="overview" element={<BookkeepingOverview standaloneAccounting={session?.product_mode === 'coreaccounting'} />} />
         <Route path="bookkeeping" element={<Navigate to="/modules/accounting/overview" replace />} />
         <Route path="books-health" element={<Navigate to="/modules/accounting/overview" replace />} />
         <Route path="transactions-to-review" element={<TransactionsToReview />} />

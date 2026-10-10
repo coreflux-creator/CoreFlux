@@ -281,7 +281,7 @@ export default function PaymentsList({ session }) {
                           Payment account needed
                         </span>
                         {' '}
-                        <Link to="/admin/integrations/plaid" data-testid="ap-plaid-link-cta-link" style={{ marginLeft: 6 }}>
+                        <Link to={session?.product_mode === 'coreaccounting' ? '/modules/treasury/overview' : '/admin/integrations/plaid'} data-testid="ap-plaid-link-cta-link" style={{ marginLeft: 6 }}>
                           Connect payment account →
                         </Link>
                       </span>

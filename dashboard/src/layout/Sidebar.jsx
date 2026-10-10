@@ -100,7 +100,9 @@ const Sidebar = ({ session, onModuleChange }) => {
           {isAdmin && (
             <>
               {!standaloneAccounting && <SidebarLink item={{ label: 'Data import / export', to: '/data/bulk-import', Icon: Upload }} active={location.pathname.startsWith('/data/')} />}
-              <SidebarLink item={{ label: 'Connections', to: '/admin/integrations', Icon: Link2 }} active={location.pathname.startsWith('/admin/integrations')} />
+              {standaloneAccounting
+                ? <SidebarLink item={{ label: 'Bank connections', to: '/modules/treasury/overview', Icon: Link2 }} active={location.pathname === '/modules/treasury/overview'} />
+                : <SidebarLink item={{ label: 'Connections', to: '/admin/integrations', Icon: Link2 }} active={location.pathname.startsWith('/admin/integrations')} />}
             </>
           )}
         </SidebarGroup>
