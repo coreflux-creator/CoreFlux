@@ -6,7 +6,12 @@ $read = static fn(string $path): string => (string) file_get_contents($root . '/
 $session = $read('session.php');
 $app = $read('dashboard/src/App.jsx');
 $sidebar = $read('dashboard/src/layout/Sidebar.jsx');
+$header = $read('dashboard/src/layout/Header.jsx');
+$layout = $read('dashboard/src/layout/AppLayout.jsx');
 $paths = $read('dashboard/src/lib/coreAccountingPaths.js');
+$accounting = $read('modules/accounting/ui/AccountingModule.jsx');
+$billingModule = $read('modules/billing/ui/BillingModule.jsx');
+$apModule = $read('modules/ap/ui/APModule.jsx');
 $settings = $read('dashboard/src/pages/SettingsPage.jsx');
 $admin = $read('dashboard/src/pages/AdminModule.jsx');
 $bills = $read('modules/ap/ui/BillsList.jsx');
@@ -35,6 +40,18 @@ $check('standalone sidebar leads with accounting tasks',
     && str_contains($sidebar, "label: 'Invoices'")
     && str_contains($sidebar, "label: 'Bills'")
     && str_contains($sidebar, "label: 'Reports'"));
+$check('standalone header links to finance pages and uses curated search',
+    str_contains($layout, 'productMode={session.product_mode}')
+    && str_contains($header, 'standaloneAccounting ? CORE_ACCOUNTING_SEARCH_DESTINATIONS')
+    && str_contains($header, 'to="/modules/accounting/reports"')
+    && str_contains($header, 'const homePath = standaloneAccounting ? CORE_ACCOUNTING_HOME')
+    && str_contains($paths, "to: '/modules/billing/invoices'"));
+$check('standalone Tools omits the unavailable AI workspace',
+    str_contains($accounting, "item.to !== 'ai-agents'")
+    && str_contains($accounting, 'visibleMoreNav.map(group => ('));
+$check('generic Billing and AP overview links reach their worklists',
+    str_contains($billingModule, '<Route path="overview" element={<Navigate to="../invoices" replace />} />')
+    && str_contains($apModule, '<Route path="overview" element={<Navigate to="../bills" replace />} />'));
 $check('standalone invoice and bill worklists omit staffing time entry points',
     substr_count($invoices, "session?.product_mode !== 'coreaccounting'") >= 2
     && substr_count($bills, "session?.product_mode !== 'coreaccounting'") >= 3);

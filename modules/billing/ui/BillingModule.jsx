@@ -45,6 +45,7 @@ export default function BillingModule({ session }) {
 
       <Routes>
         <Route index element={<Navigate to="invoices" replace />} />
+        <Route path="overview" element={<Navigate to="../invoices" replace />} />
         <Route path="invoices" element={<InvoicesList session={session} />} />
         <Route path="invoices/csv_import" element={<InvoicesCsvImport />} />
         <Route path="invoices/new" element={<InvoiceCreate />} />

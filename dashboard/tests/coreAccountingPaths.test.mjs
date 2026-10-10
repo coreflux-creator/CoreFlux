@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { coreAccountingPathAllowed } from '../src/lib/coreAccountingPaths.js';
+import {
+  CORE_ACCOUNTING_HOME, CORE_ACCOUNTING_SEARCH_DESTINATIONS, coreAccountingPathAllowed,
+} from '../src/lib/coreAccountingPaths.js';
 
 test('standalone keeps financial and essential account routes', () => {
   for (const path of [
@@ -20,4 +22,16 @@ test('standalone redirects unrelated ERP and inactive settings routes', () => {
   ]) {
     assert.equal(coreAccountingPathAllowed(path), false, path);
   }
+});
+
+test('standalone search destinations are unique, financial and directly allowed', () => {
+  assert.equal(CORE_ACCOUNTING_HOME, '/modules/accounting/overview');
+  const destinations = CORE_ACCOUNTING_SEARCH_DESTINATIONS.map(item => item.to);
+  assert.equal(new Set(destinations).size, destinations.length);
+  assert.ok(destinations.includes('/modules/accounting/reports'));
+  assert.ok(destinations.includes('/modules/billing/invoices'));
+  assert.ok(destinations.includes('/modules/ap/bills'));
+  assert.ok(destinations.every(coreAccountingPathAllowed));
+  assert.ok(!destinations.includes('/ai-agents'));
+  assert.ok(!destinations.some(path => path.endsWith('/overview') && path !== CORE_ACCOUNTING_HOME));
 });

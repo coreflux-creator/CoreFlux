@@ -2,11 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ChevronDown, Shield, Building2, Inbox, Search, TrendingUp, UserCog } from 'lucide-react';
 import { api, clearPinnedTenantId } from '../lib/api';
+import { CORE_ACCOUNTING_HOME, CORE_ACCOUNTING_SEARCH_DESTINATIONS } from '../lib/coreAccountingPaths';
 
 const corefluxLogo = '/assets/brand/coreflux-logo.png';
 const corefluxMark = '/assets/brand/coreflux-mark.png';
 
-const Header = ({ user, modules, tenant, tenants, onModuleChange, onTenantChange }) => {
+const Header = ({ user, modules, productMode, tenant, tenants, onModuleChange, onTenantChange }) => {
   const [tenantOpen, setTenantOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [personaOpen, setPersonaOpen] = useState(false);
@@ -89,7 +90,11 @@ const Header = ({ user, modules, tenant, tenants, onModuleChange, onTenantChange
     }
   };
 
-  const isOnDashboard = location.pathname === '/' || location.pathname === '/dashboard';
+  const standaloneAccounting = productMode === 'coreaccounting';
+  const homePath = standaloneAccounting ? CORE_ACCOUNTING_HOME : '/';
+  const isOnDashboard = standaloneAccounting
+    ? location.pathname === CORE_ACCOUNTING_HOME
+    : location.pathname === '/' || location.pathname === '/dashboard';
   const isOnInbox = location.pathname === '/inbox';
   const isOnCfo   = location.pathname.startsWith('/cfo');
   // CFO surface is gated server-side; mirror the same rule in the UI so we
@@ -99,7 +104,7 @@ const Header = ({ user, modules, tenant, tenants, onModuleChange, onTenantChange
                  || ['master_admin','tenant_admin'].includes(user?.global_role)
                  || !!user?.is_global_admin;
   const activePersona = personas.find(p => p.id === activePersonaId);
-  const searchDestinations = [
+  const searchDestinations = standaloneAccounting ? CORE_ACCOUNTING_SEARCH_DESTINATIONS : [
     { label: 'Workspace overview', detail: 'Dashboard', to: '/' },
     { label: 'Approval inbox', detail: 'Operations', to: '/inbox' },
     { label: 'Ask CoreFlux', detail: 'AI workspace', to: '/ai-agents' },
@@ -128,7 +133,7 @@ const Header = ({ user, modules, tenant, tenants, onModuleChange, onTenantChange
     <header className="header">
       {/* Left - Logo */}
       <div className="header-left">
-        <Link to="/" className="logo">
+        <Link to={homePath} className="logo">
           <img 
             src={corefluxLogo}
             alt="CoreFlux" 
@@ -149,11 +154,16 @@ const Header = ({ user, modules, tenant, tenants, onModuleChange, onTenantChange
 
       {/* Center - workspace navigation + command search */}
       <div className="header-center">
-        <Link to="/" className={`header-workspace-link ${isOnDashboard ? 'active' : ''}`}>
-          Workspace
+        <Link to={homePath} className={`header-workspace-link ${isOnDashboard ? 'active' : ''}`}>
+          {standaloneAccounting ? 'Overview' : 'Workspace'}
         </Link>
 
-        {canSeeCfo && (
+        {standaloneAccounting ? (
+          <Link to="/modules/accounting/reports" className="header-workspace-link" data-testid="header-accounting-reports-link">
+            <TrendingUp size={15} aria-hidden="true" />
+            <span>Reports</span>
+          </Link>
+        ) : canSeeCfo && (
           <Link to="/cfo" className={`header-workspace-link ${isOnCfo ? 'active' : ''}`} data-testid="header-cfo-link">
             <TrendingUp size={15} aria-hidden="true" />
             <span>CFO overview</span>
@@ -166,8 +176,8 @@ const Header = ({ user, modules, tenant, tenants, onModuleChange, onTenantChange
             ref={searchInputRef}
             type="search"
             value={search}
-            placeholder="Search anything..."
-            aria-label="Search CoreFlux"
+            placeholder={standaloneAccounting ? 'Find a page...' : 'Search anything...'}
+            aria-label={standaloneAccounting ? 'Find an accounting page' : 'Search CoreFlux'}
             onFocus={() => setSearchOpen(true)}
             onChange={event => { setSearch(event.target.value); setSearchOpen(true); }}
             onKeyDown={event => {

@@ -50,6 +50,7 @@ export default function APModule({ session }) {
 
       <Routes>
         <Route index element={<Navigate to="bills" replace />} />
+        <Route path="overview" element={<Navigate to="../bills" replace />} />
         <Route path="bills" element={<BillsList session={session} />} />
         <Route path="bills/csv_import" element={<BillsCsvImport />} />
         <Route path="bills/new" element={<BillCreate />} />

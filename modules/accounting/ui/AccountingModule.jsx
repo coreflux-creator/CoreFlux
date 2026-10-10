@@ -124,7 +124,7 @@ export default function AccountingModule({ session }) {
           </Link>
         </div>
         <p>Keep the books, review activity, and close with confidence.</p>
-        <AccountingNav />
+        <AccountingNav standaloneAccounting={session?.product_mode === 'coreaccounting'} />
       </header>
       <Routes>
         <Route index element={<Navigate to="overview" replace />} />
@@ -179,13 +179,16 @@ export default function AccountingModule({ session }) {
   );
 }
 
-function AccountingNav() {
+function AccountingNav({ standaloneAccounting = false }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const menuRef = useRef(null);
   const location = useLocation();
   const reportRoutes = ['trial', 'pnl', 'balance', 'cash-flow', 'gl-detail', 'dim-pnl'];
   const reportActive = reportRoutes.some(route => location.pathname.includes(`/accounting/${route}`));
-  const moreRoutes = MORE_NAV.flatMap(group => group.items.map(item => item.to))
+  const visibleMoreNav = standaloneAccounting
+    ? MORE_NAV.map(group => ({ ...group, items: group.items.filter(item => item.to !== 'ai-agents') }))
+    : MORE_NAV;
+  const moreRoutes = visibleMoreNav.flatMap(group => group.items.map(item => item.to))
     .filter(route => !reportRoutes.includes(route));
   const moreActive = moreRoutes.some(route => location.pathname.includes(`/accounting/${route}`));
 
@@ -222,7 +225,7 @@ function AccountingNav() {
         </button>
         {moreOpen && (
           <div className="accounting-nav__menu" data-testid="accounting-more-menu">
-            {MORE_NAV.map(group => (
+            {visibleMoreNav.map(group => (
               <section className="accounting-nav__group" key={group.label}>
                 <h3>{group.label}</h3>
                 {group.items.map(item => (
