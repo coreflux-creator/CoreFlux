@@ -341,6 +341,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
       - name: Set up PHP and Composer
         uses: shivammathur/setup-php@v2
         with:
@@ -353,6 +359,7 @@ jobs:
         run: |
           php tests/coreaccounting_release_manifest_smoke.php
           php tests/coreaccounting_clean_installer_smoke.php
+          php tests/coreaccounting_code_upgrade_inspection_smoke.php
           php tests/coreaccounting_private_vendor_smoke.php
 
       - name: Build and independently verify extracted package
@@ -366,6 +373,14 @@ jobs:
           test "$(find "$extracted/public_html/vendor" -type f | wc -l)" -eq 1
           test -f "$extracted/private_runtime/vendor/autoload.php"
           test -f "$extracted/private_runtime/vendor/dompdf/dompdf/src/Dompdf.php"
+          bundle_js="$(sed -nE 's/.*src="\/spa-assets\/(index-[A-Za-z0-9_-]+\.js)".*/\1/p' "$extracted/public_html/dashboard/dist/index.html" | head -1)"
+          test -n "$bundle_js"
+          test -f "$extracted/public_html/spa-assets/$bundle_js"
+          grep -Fq 'Choose a cash ledger account' "$extracted/public_html/spa-assets/$bundle_js"
+          if grep -Fq 'Choose unused asset account' "$extracted/public_html/spa-assets/$bundle_js"; then
+            echo 'Stale bank setup bundle was packaged' >&2
+            exit 1
+          fi
           test ! -e "$extracted/public_html/composer.json"
           test ! -e "$extracted/private_build_only"
           php -r 'require $argv[1]; if (!class_exists("Dompdf\\Dompdf")) exit(1);' \

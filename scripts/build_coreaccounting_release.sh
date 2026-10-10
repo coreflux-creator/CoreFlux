@@ -6,7 +6,7 @@ if [[ $# -ne 1 || "$1" != /* ]]; then
   echo 'Usage: build_coreaccounting_release.sh /absolute/new/output-directory' >&2
   exit 2
 fi
-for command in git tar php composer realpath sha256sum; do
+for command in git tar php composer node npm realpath sha256sum; do
   command -v "$command" >/dev/null || { echo "Missing build tool: $command" >&2; exit 2; }
 done
 
@@ -22,6 +22,8 @@ mkdir -m 700 "$output"
 mkdir -m 750 "$output/public_html"
 
 git -C "$source_root" archive --format=tar "$commit" | tar -xf - -C "$output/public_html"
+npm ci --prefix "$output/public_html/dashboard" --no-audit --no-fund
+npm run build --prefix "$output/public_html/dashboard"
 composer install --working-dir="$output/public_html" --no-dev --no-interaction \
   --prefer-dist --optimize-autoloader --no-scripts --no-plugins
 
