@@ -29,7 +29,7 @@ class LocalDriver implements StorageDriver
         $this->publicBaseUrl = rtrim($publicBaseUrl ?? (getenv('STORAGE_LOCAL_PUBLIC_BASE') ?: '/api/storage/local/get.php'), '/');
 
         if (!is_dir($this->root)) {
-            @mkdir($this->root, 0775, true);
+            @mkdir($this->root, getenv('COREFLUX_ENV') === 'coreaccounting' ? 0700 : 0775, true);
         }
         if (!is_dir($this->root) || is_link($this->root) || !is_writable($this->root)) {
             throw new \RuntimeException('LocalDriver: storage root is unavailable.');
@@ -40,7 +40,7 @@ class LocalDriver implements StorageDriver
     {
         $this->guard_key($key);
         $abs = $this->abs($key);
-        @mkdir(dirname($abs), 0775, true);
+        @mkdir(dirname($abs), getenv('COREFLUX_ENV') === 'coreaccounting' ? 0700 : 0775, true);
         $abs = $this->abs($key);
 
         if (is_resource($localPathOrStream)) {
