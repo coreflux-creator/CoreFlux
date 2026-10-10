@@ -143,6 +143,29 @@ try {
     $check($reversal['repaired'] === 0 && !$reversal['conflicts']
         && $lineState($reversalLine)['match_status'] === 'unmatched',
         'reversal-only Treasury link is not treated as an active posting');
+
+    $pdo->prepare(
+        'INSERT INTO accounting_bank_rules
+            (tenant_id, bank_account_id, name, pattern_kind, pattern, direction,
+             target_account_code, is_approved, status)
+         VALUES (:t, :bank, "Rollback-only repair rule", "contains", "Rollback-only repair proof",
+                 "credit", :code, 1, "active")'
+    )->execute(['t' => $tenantId, 'bank' => $bankId, 'code' => $offsetCode]);
+    $ruleId = (int) $pdo->lastInsertId();
+    $ruleResult = bankRecApplyRules($tenantId, $bankId, null);
+    $check($ruleResult['auto_applied'] === 1 && $ruleResult['lines_evaluated'] === 1
+        && $ruleResult['lineage_conflict_count'] === 3,
+        'rules skip three conflicted posted lines and review only the unbooked line');
+    $ruleLine = $pdo->prepare(
+        'SELECT applied_rule_id FROM accounting_bank_statement_lines WHERE tenant_id = :t AND id = :id'
+    );
+    foreach ([$wrongEntityLine, $wrongAmountLine, $ambiguousLine] as $conflictedLine) {
+        $ruleLine->execute(['t' => $tenantId, 'id' => $conflictedLine]);
+        $check($ruleLine->fetchColumn() === null, 'conflicted line receives no rule suggestion');
+    }
+    $ruleLine->execute(['t' => $tenantId, 'id' => $reversalLine]);
+    $check((int) $ruleLine->fetchColumn() === $ruleId,
+        'rule still applies to the unbooked bank line');
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();
     setRequestTenantId(null);

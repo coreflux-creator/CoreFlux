@@ -334,6 +334,7 @@ function AccountDetail() {
   const [importError, setImportError] = useState(null);
   const [busy, setBusy]     = useState(null);
   const [actErr, setErr]    = useState(null);
+  const [applyRulesResult, setApplyRulesResult] = useState(null);
   const bankAccount = accountApi.data?.account || null;
   const total = Number(data?.total || 0);
   const pages = Number(data?.pages || 1);
@@ -373,8 +374,12 @@ function AccountDetail() {
     }
   };
   const applyRules = async () => {
-    setBusy('apply'); setErr(null);
-    try { await api.post(`/modules/accounting/api/bank_statements.php?action=apply_rules&bank_account_id=${id}`); reload(); }
+    setBusy('apply'); setErr(null); setApplyRulesResult(null);
+    try {
+      const result = await api.post(`/modules/accounting/api/bank_statements.php?action=apply_rules&bank_account_id=${id}`);
+      setApplyRulesResult(result);
+      reload();
+    }
     catch (e2) { setErr(e2.message); }
     finally { setBusy(null); }
   };
@@ -426,6 +431,10 @@ function AccountDetail() {
       {accountApi.loading && <p>Loading account...</p>}
       {accountApi.error && <p className="error">{accountApi.error.message}</p>}
       {actErr && <p className="error" data-testid="accounting-bank-action-error">{actErr}</p>}
+      {applyRulesResult && <p role="status" data-testid="accounting-bank-rules-result">
+        Rule suggestions updated on {Number(applyRulesResult.auto_applied || 0) + Number(applyRulesResult.suggested || 0)} lines.
+        {Number(applyRulesResult.lineage_conflict_count) > 0 && ` ${applyRulesResult.lineage_conflict_count} linked line${Number(applyRulesResult.lineage_conflict_count) === 1 ? '' : 's'} skipped for ledger review.`}
+      </p>}
 
       <form onSubmit={importCsv} style={{ marginBottom: 16 }}>
         <details>

@@ -507,6 +507,8 @@ function bankRecGuardPostedLineage(int $tenantId, int $lineId): void
  */
 function bankRecApplyRules(int $tenantId, int $bankAccountId, ?int $userId): array
 {
+    $repair = bankRecRepairPostedMatches($tenantId, $bankAccountId);
+    $conflicts = $repair['conflicts'];
     $rules = scopedQuery(
         'SELECT * FROM accounting_bank_rules
          WHERE tenant_id = :tenant_id AND status = "active"
@@ -514,7 +516,8 @@ function bankRecApplyRules(int $tenantId, int $bankAccountId, ?int $userId): arr
          ORDER BY is_approved DESC, id',
         ['b' => $bankAccountId]
     );
-    if (empty($rules)) return ['rules_evaluated' => 0, 'auto_applied' => 0, 'suggested' => 0];
+    if (empty($rules)) return ['rules_evaluated' => 0, 'auto_applied' => 0, 'suggested' => 0,
+        'lines_evaluated' => 0, 'lineage_conflict_count' => count($conflicts)];
 
     $lines = scopedQuery(
         'SELECT * FROM accounting_bank_statement_lines
@@ -523,9 +526,11 @@ function bankRecApplyRules(int $tenantId, int $bankAccountId, ?int $userId): arr
         ['b' => $bankAccountId]
     );
 
-    $autoApplied = 0; $suggested = 0;
+    $autoApplied = 0; $suggested = 0; $evaluated = 0;
     $now = date('Y-m-d H:i:s');
     foreach ($lines as $l) {
+        if (isset($conflicts[(int) $l['id']])) continue;
+        $evaluated++;
         foreach ($rules as $r) {
             if (!bankRecLineMatchesRule($l, $r)) continue;
 
@@ -564,7 +569,8 @@ function bankRecApplyRules(int $tenantId, int $bankAccountId, ?int $userId): arr
         'rules_evaluated' => count($rules),
         'auto_applied'    => $autoApplied,
         'suggested'       => $suggested,
-        'lines_evaluated' => count($lines),
+        'lines_evaluated' => $evaluated,
+        'lineage_conflict_count' => count($conflicts),
     ];
 }
 

@@ -31,6 +31,12 @@ $check('repair validates the journal before changing bank-line state',
 $check('repair refuses ambiguous posted lineage',
     str_contains($repairBody, 'count($jeIds) !== 1')
     && str_contains($repairBody, "'conflicts' => \$conflicts"));
+$rulesStart = strpos($lib, 'function bankRecApplyRules(');
+$rulesBody = $rulesStart === false ? '' : substr($lib, $rulesStart, 4500);
+$check('bank rules leave conflicted posted lines for ledger review',
+    str_contains($rulesBody, 'bankRecRepairPostedMatches($tenantId, $bankAccountId)')
+    && str_contains($rulesBody, "isset(\$conflicts[(int) \$l['id']])")
+    && str_contains($rulesBody, "'lineage_conflict_count' => count(\$conflicts)"));
 $check('write routes guard stale posted lineage',
     str_contains($bankApi, 'bankRecGuardPostedLineage(')
     && str_contains($treasury, 'bankRecGuardPostedLineage($tenantId, $lineId)'));
