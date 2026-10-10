@@ -11,9 +11,9 @@ const titles = {
   bank_unmatched_explicit_lineage: 'Unmatched lines with posted history',
 };
 
-function BankLineLink({ accountId, lineId }) {
+function BankLineLink({ accountId, lineId, matched = false }) {
   if (!accountId || !lineId) return <>Line {lineId || 'unknown'}</>;
-  return <Link to={`${BANK_BASE}/${accountId}?line_id=${lineId}`}>Line {lineId}</Link>;
+  return <Link to={`${BANK_BASE}/${accountId}?line_id=${lineId}${matched ? '&match_status=matched' : ''}`}>Line {lineId}</Link>;
 }
 
 function JournalLink({ journalId }) {
@@ -28,7 +28,7 @@ function MatchRows({ rows }) {
         <thead><tr><th>Bank line</th><th>Date</th><th>Bank amount</th><th>Journal</th><th>Cash movement</th><th>Entity</th><th>Currency</th></tr></thead>
         <tbody>{rows.map(row => (
           <tr key={row.bank_line_id}>
-            <td><BankLineLink accountId={row.bank_account_id} lineId={row.bank_line_id} /></td>
+            <td><BankLineLink accountId={row.bank_account_id} lineId={row.bank_line_id} matched /></td>
             <td>{fmtDate(row.posted_date)}</td>
             <td>{fmtMoney(row.amount)}</td>
             <td><JournalLink journalId={row.matched_je_id} />{row.journal_status && ` · ${row.journal_status}`}</td>
@@ -52,7 +52,7 @@ function DuplicateRows({ rows }) {
             <td><JournalLink journalId={row.matched_je_id} /></td>
             <td>{String(row.bank_line_refs || '').split(',').filter(Boolean).map(ref => {
               const [lineId, accountId] = ref.split(':');
-              return <span key={ref} style={{ marginRight: 12 }}><BankLineLink accountId={accountId} lineId={lineId} /></span>;
+              return <span key={ref} style={{ marginRight: 12 }}><BankLineLink accountId={accountId} lineId={lineId} matched /></span>;
             })}</td>
           </tr>
         ))}</tbody>

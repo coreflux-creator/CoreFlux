@@ -58,6 +58,7 @@ $check('bank exceptions link back to bank lines and journals',
     str_contains($bankRecUi, 'path="integrity"')
     && str_contains($bankRecUi, 'accounting-bank-integrity-link')
     && str_contains($bankIntegrityUi, '?line_id=${lineId}')
+    && str_contains($bankIntegrityUi, 'match_status=matched')
     && str_contains($bankIntegrityUi, '/modules/accounting/journal-entries/${journalId}'));
 $check('write routes guard stale posted lineage',
     str_contains($bankApi, 'bankRecGuardPostedLineage(')
