@@ -81,11 +81,9 @@ try {
                 ['account_code' => $offsetCode, 'debit' => 0, 'credit' => $cashAmount],
             ],
         ];
-        if ($direct) {
-            $payload['source_module'] = 'treasury_feed';
-            $payload['source_ref_type'] = 'bank_statement_line';
-            $payload['source_ref_id'] = $lineId;
-        }
+        $payload['source_module'] = 'treasury_feed';
+        $payload['source_ref_type'] = $direct ? 'bank_statement_line' : 'bank_statement_line_reversal';
+        $payload['source_ref_id'] = $lineId;
         return (int) accountingPostJe($tenantId, $payload, null, true)['je_id'];
     };
     $lineState = static function (int $lineId) use ($pdo, $tenantId): array {
