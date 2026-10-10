@@ -86,6 +86,12 @@ async function _uploadEvidence({ importRunId, bytes, filename, contentType, docu
       credentials: uploadUrl.startsWith('/') ? 'same-origin' : 'omit',
     });
     if (!up.ok) throw new Error(`upload failed: ${up.status}`);
+    if (presign.driver === 'local') {
+      const receipt = await up.json().catch(() => null);
+      if (!receipt?.stored || receipt.storage_key !== presign.storage_key) {
+        throw new Error('Local storage did not confirm the uploaded bytes');
+      }
+    }
   }
 
   // Step 3: register metadata.
