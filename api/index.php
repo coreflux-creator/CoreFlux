@@ -25,7 +25,9 @@ if (getenv('COREFLUX_ENV') === 'coreaccounting') {
         $_SERVER['PATH_INFO'] ?? '',
         $_SERVER['REQUEST_URI'] ?? '/'
     );
-    if ($preflight['ok'] && !coreAccountingAllowsModule($preflight['module_id'], 'coreaccounting')) {
+    if ($preflight['ok'] && !coreAccountingAllowsModuleEndpoint(
+        $preflight['module_id'], $preflight['endpoint'], 'coreaccounting'
+    )) {
         header('Content-Type: application/json; charset=utf-8');
         http_response_code(404);
         echo '{"error":"Not found","status":404}';

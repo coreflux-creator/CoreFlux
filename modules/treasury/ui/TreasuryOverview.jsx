@@ -26,7 +26,8 @@ function maskedConnectionId(itemId) {
   return `Connection …${String(itemId).slice(-6)}`;
 }
 
-export default function TreasuryOverview() {
+export default function TreasuryOverview({ session }) {
+  const standaloneAccounting = session?.product_mode === 'coreaccounting';
   const dep = useApi('/modules/treasury/api/deposit_accounts.php');
   const lia = useApi('/modules/treasury/api/liability_accounts.php');
 
@@ -54,8 +55,10 @@ export default function TreasuryOverview() {
           <h2>Treasury</h2>
           <p className="muted">
             Cash positions, credit exposure, and bank-feed health in one view.
-            {' '}Use the <Link to="../forecast">13-week forecast</Link> to plan ahead or
-            {' '}compare <Link to="../scenario">cash scenarios</Link> before committing.
+            {!standaloneAccounting && <>
+              {' '}Use the <Link to="../forecast">13-week forecast</Link> to plan ahead or
+              {' '}compare <Link to="../scenario">cash scenarios</Link> before committing.
+            </>}
           </p>
         </div>
       </header>
@@ -175,9 +178,9 @@ export default function TreasuryOverview() {
         <ConnectedInstitutions onChanged={() => window.location.reload()} />
       </section>
 
-      <section className="treasury-overview__section">
+      {!standaloneAccounting && <section className="treasury-overview__section">
         <PlaidTransferFundingCard />
-      </section>
+      </section>}
     </section>
   );
 }

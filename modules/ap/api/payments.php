@@ -23,6 +23,9 @@ $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
+if (!coreAccountingAllowsApPaymentAction($method, (string) $action, (string) getenv('COREFLUX_ENV'))) {
+    api_error('Payment-provider origination is not available in CoreAccounting', 403);
+}
 
 if ($method === 'GET' && $action === 'correction_check') {
     rbac_legacy_require($user, 'ap.view');
@@ -187,10 +190,10 @@ if ($method === 'GET') {
         'total'                 => (int) ($count['c'] ?? 0),
         'page'                  => $page,
         'per_page'              => $perPage,
-        'plaid_enabled'         => apPlaidConfigured(),
-        'plaid_transfer_linked' => $plaidLinked,
-        'mercury_connected'     => $mercuryConnected,
-        'purepay_connected'     => $purepayConnected,
+        'plaid_enabled'         => getenv('COREFLUX_ENV') === 'coreaccounting' ? false : apPlaidConfigured(),
+        'plaid_transfer_linked' => getenv('COREFLUX_ENV') === 'coreaccounting' ? false : $plaidLinked,
+        'mercury_connected'     => getenv('COREFLUX_ENV') === 'coreaccounting' ? false : $mercuryConnected,
+        'purepay_connected'     => getenv('COREFLUX_ENV') === 'coreaccounting' ? false : $purepayConnected,
         'can_void_payment'      => rbac_legacy_can($user, 'ap.payment.send'),
         'can_correct_manual_payment' => rbac_legacy_can($user, 'ap.payment.send')
             && rbac_legacy_can($user, 'accounting.je.reverse'),
@@ -201,6 +204,10 @@ if ($method === 'POST' && $action === '') {
     rbac_legacy_require($user, 'ap.payment.create');
     $body = api_json_body();
     api_require_fields($body, ['vendor_name', 'pay_date', 'method', 'amount']);
+    if (getenv('COREFLUX_ENV') === 'coreaccounting'
+        && in_array((string) $body['method'], ['plaid', 'mercury'], true)) {
+        api_error('Choose a manual payment method in CoreAccounting', 422);
+    }
     $amount = round((float) $body['amount'], 2);
     if ($amount <= 0) api_error('amount must be > 0', 422);
 
@@ -296,6 +303,10 @@ if ($method === 'POST' && $action === 'send') {
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
+    if (getenv('COREFLUX_ENV') === 'coreaccounting'
+        && in_array((string) $row['method'], ['plaid', 'mercury'], true)) {
+        api_error('Provider-linked payments cannot be released in CoreAccounting', 403);
+    }
     if (!apPaymentTransitionAllowed($row['status'], 'sent')) api_error("Cannot send from status {$row['status']}", 409);
     apPaymentReleaseGateOrError($tid, $row, (int) ($user['id'] ?? 0), 'send');
 

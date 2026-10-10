@@ -26,6 +26,12 @@ export const CORE_ACCOUNTING_SEARCH_DESTINATIONS = [
 
 export function coreAccountingPathAllowed(pathname) {
   if (SETTINGS_PATHS.has(pathname)) return true;
+  if (pathname === '/modules/ap/settings') return false;
+  if (pathname === '/modules/treasury' || pathname.startsWith('/modules/treasury/')) {
+    return ['/modules/treasury/overview', '/modules/treasury/deposits',
+      '/modules/treasury/liabilities', '/modules/treasury/reconciliation',
+      '/modules/treasury/rules'].some((root) => pathname === root || pathname.startsWith(`${root}/`));
+  }
   return [...MODULE_ROOTS, ...SHARED_ROOTS].some((root) =>
     pathname === root || pathname.startsWith(`${root}/`));
 }

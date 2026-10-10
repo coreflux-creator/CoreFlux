@@ -43,6 +43,8 @@ $denied = [
     'api/admin/integrations/field_map.php',
     'modules/payroll/api/runs.php',
     'modules/people/api/people.php',
+    'modules/treasury/api/payments.php',
+    'modules/treasury/api/transfers.php',
     'modules/staffing/api/timesheets.php',
     'master_admin_panel/dashboard.php',
     'people/index.php',

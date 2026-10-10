@@ -17,7 +17,8 @@ function coreAccountingAllowsPublicApiScript(?string $scriptFilename, string $ro
 
     if ($relative === 'modules/people/api/companies.php') return true;
     if (preg_match('~^modules/([a-z][a-z0-9_-]*)/api/[^/]+\.php$~', $relative, $match)) {
-        return coreAccountingAllowsModule($match[1], $environment);
+        $endpoint = substr(basename($relative), 0, -4);
+        return coreAccountingAllowsModuleEndpoint($match[1], $endpoint, $environment);
     }
     if (str_starts_with($relative, 'core/api/')) {
         return in_array($relative, [

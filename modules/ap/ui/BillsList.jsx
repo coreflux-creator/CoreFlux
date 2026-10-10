@@ -228,9 +228,9 @@ export default function BillsList({ session }) {
           </div>
           <div className="operational-heading-actions">
             <Link to="csv_import" className="btn" data-testid="ap-bills-import-csv"><Upload size={15} aria-hidden="true" /> Import</Link>
-            <button className="btn" onClick={() => setShowSuggestRun(true)} data-testid="ap-bills-suggest-payment-run">
+            {session?.product_mode !== 'coreaccounting' && <button className="btn" onClick={() => setShowSuggestRun(true)} data-testid="ap-bills-suggest-payment-run">
               <CreditCard size={15} aria-hidden="true" /> Payment run
-            </button>
+            </button>}
             <Link to={scope.withScope(`new${status === 'all' ? '' : `?status=${encodeURIComponent(status)}`}`)} className="btn btn--primary" data-testid="ap-new-bill"><Plus size={16} aria-hidden="true" /> New bill</Link>
           </div>
         </div>
@@ -392,7 +392,7 @@ export default function BillsList({ session }) {
       {showFromEntries && (
         <BillFromTimeEntriesModal onClose={() => setShowFromEntries(false)} onCreated={(result) => { setShowFromEntries(false); setCreatedBills(result?.bills_created || []); bustApiCachePrefix('ap-bills-list:'); reload(); }} />
       )}
-      {showSuggestRun && (
+      {showSuggestRun && session?.product_mode !== 'coreaccounting' && (
         <SuggestPaymentRunModal
           entityId={scope.entityId}
           onClose={() => setShowSuggestRun(false)}

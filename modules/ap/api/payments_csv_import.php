@@ -32,7 +32,9 @@ CsvImportService::registerSchema('ap_payments', [
         'vendor_name' => ['label' => 'Vendor name',  'required' => true],
         'pay_date'    => ['label' => 'Pay date',     'required' => true, 'type' => 'date'],
         'method'      => ['label' => 'Method',
-                          'enum'  => ['ach','wire','check','card','cash','plaid','mercury','other']],
+                          'enum'  => getenv('COREFLUX_ENV') === 'coreaccounting'
+                              ? ['ach','wire','check','card','cash','other']
+                              : ['ach','wire','check','card','cash','plaid','mercury','other']],
         'reference'   => ['label' => 'Reference'],
         // external_id + source_system: stable per-row id from the
         // source-of-truth payment system (Mercury/Plaid txn id, QBO

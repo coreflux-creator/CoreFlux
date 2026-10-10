@@ -15,6 +15,7 @@ $billingModule = $read('modules/billing/ui/BillingModule.jsx');
 $apModule = $read('modules/ap/ui/APModule.jsx');
 $apPayments = $read('modules/ap/ui/PaymentsList.jsx');
 $treasuryModule = $read('modules/treasury/ui/TreasuryModule.jsx');
+$treasuryOverview = $read('modules/treasury/ui/TreasuryOverview.jsx');
 $settings = $read('dashboard/src/pages/SettingsPage.jsx');
 $admin = $read('dashboard/src/pages/AdminModule.jsx');
 $bills = $read('modules/ap/ui/BillsList.jsx');
@@ -59,6 +60,14 @@ $check('standalone bank connection shortcuts avoid disabled admin routes',
     && str_contains($bookkeeping, '{!standaloneAccounting && (')
     && str_contains($treasuryModule, 'items={visibleNavItems}')
     && str_contains($treasuryModule, "standaloneAccounting ? '/modules/treasury/overview' : '/admin/integrations'"));
+$check('standalone payment rails and Treasury payment workflows are not presented',
+    str_contains($paths, "pathname === '/modules/ap/settings'")
+    && str_contains($paths, "'/modules/treasury/reconciliation'")
+    && !str_contains($paths, "'/modules/treasury/payments'")
+    && str_contains($treasuryOverview, '!standaloneAccounting && <section')
+    && str_contains($apPayments, 'ap-manual-payment-notice')
+    && str_contains($apPayments, '!standaloneAccounting && <button')
+    && str_contains($apModule, "'/modules/ap/settings'].includes(n.to)"));
 $check('generic Billing and AP overview links reach their worklists',
     str_contains($billingModule, '<Route path="overview" element={<Navigate to="../invoices" replace />} />')
     && str_contains($apModule, '<Route path="overview" element={<Navigate to="../bills" replace />} />'));

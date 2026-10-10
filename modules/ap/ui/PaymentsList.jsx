@@ -17,6 +17,7 @@ const RAIL_LABELS = { plaid_transfer: 'Online bank payment', nacha: 'Bank paymen
 
 export default function PaymentsList({ session }) {
   const location = useLocation();
+  const standaloneAccounting = session?.product_mode === 'coreaccounting';
   const { activeEntityId, activeEntity } = useActiveEntity();
   const currentUserId = Number(session?.user?.id);
   const createdByCurrentUser = (payment) => currentUserId > 0
@@ -36,10 +37,10 @@ export default function PaymentsList({ session }) {
   const total = Number(data?.total ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / perPage));
   const createdRun = location.state?.paymentRun || null;
-  const plaidEnabled = !!data?.plaid_enabled;
-  const plaidTransferLinked = !!data?.plaid_transfer_linked;
-  const mercuryConnected = !!data?.mercury_connected;
-  const purepayConnected = !!data?.purepay_connected;
+  const plaidEnabled = !standaloneAccounting && !!data?.plaid_enabled;
+  const plaidTransferLinked = !standaloneAccounting && !!data?.plaid_transfer_linked;
+  const mercuryConnected = !standaloneAccounting && !!data?.mercury_connected;
+  const purepayConnected = !standaloneAccounting && !!data?.purepay_connected;
   const canVoidPayment = !!data?.can_void_payment;
   const canCorrectManualPayment = !!data?.can_correct_manual_payment;
   const [showRecord, setShowRecord] = useState(false);
@@ -147,7 +148,7 @@ export default function PaymentsList({ session }) {
     (!['draft', 'queued'].includes(p.status) || !createdByCurrentUser(p)) &&
     (['draft','queued'].includes(p.status) || (p.status === 'sent' && !p.rail_external_ref));
 
-  const eligibleSelected = rows.filter(p => sel.has(p.id) && isOriginatable(p)
+  const eligibleSelected = rows.filter(p => !standaloneAccounting && sel.has(p.id) && isOriginatable(p)
     && (defaultRail !== 'purepay' || String(p.currency || 'USD').toUpperCase() === 'USD'));
   const releasableSelected = rows.filter(p => (
     sel.has(p.id) && ['draft', 'queued'].includes(p.status)
@@ -272,7 +273,9 @@ export default function PaymentsList({ session }) {
         <div>
           <h3 style={{ margin: 0, fontSize: 16 }}>Vendor payments</h3>
           <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
-            {plaidEnabled
+            {standaloneAccounting
+              ? <span data-testid="ap-manual-payment-notice">Record payments made outside CoreAccounting, then match them in bank reconciliation. CoreAccounting does not send money.</span>
+              : plaidEnabled
               ? (plaidTransferLinked
                   ? <><span className="badge badge--success">Online payments ready</span> — approved payments can be sent from CoreFlux.</>
                   : (
@@ -336,9 +339,9 @@ export default function PaymentsList({ session }) {
           <button className="btn btn--primary" onClick={releaseSelected} disabled={batching || !releasableSelected.length} data-testid="ap-payments-release-selected">
             <Send size={15} aria-hidden="true" /> Release ({releasableSelected.length})
           </button>
-          <button className="btn btn--primary" onClick={() => originateBatch()} disabled={batching || apSettings.loading || (defaultRail === 'purepay' && !purepayConnected) || !eligibleSelected.length} data-testid="ap-payments-originate-selected">
+          {!standaloneAccounting && <button className="btn btn--primary" onClick={() => originateBatch()} disabled={batching || apSettings.loading || (defaultRail === 'purepay' && !purepayConnected) || !eligibleSelected.length} data-testid="ap-payments-originate-selected">
             <Landmark size={15} aria-hidden="true" /> {defaultRail === 'purepay' ? 'Pay via Pure//Pay' : 'Prepare bank batch'} ({eligibleSelected.length})
-          </button>
+          </button>}
           {purepayConnected && defaultRail !== 'purepay' && (
             <button className="btn btn--ghost" onClick={() => originateBatch('purepay')} disabled={batching || !purepaySelected.length} data-testid="ap-payments-purepay-selected">
               <Landmark size={15} aria-hidden="true" /> Pay via Pure//Pay ({purepaySelected.length})
@@ -564,7 +567,7 @@ export default function PaymentsList({ session }) {
         </footer>
       )}
 
-      {showRecord && <RecordPaymentModal onClose={() => setShowRecord(false)} onCreated={() => { setShowRecord(false); reload(); }} plaidEnabled={plaidEnabled} mercuryEnabled={mercuryConnected} entityId={activeEntityId} />}
+      {showRecord && <RecordPaymentModal onClose={() => setShowRecord(false)} onCreated={() => { setShowRecord(false); reload(); }} plaidEnabled={plaidEnabled} mercuryEnabled={mercuryConnected} standaloneAccounting={standaloneAccounting} entityId={activeEntityId} />}
       {showAllocate && <AllocateModal payment={showAllocate} onClose={() => setShowAllocate(null)} onDone={() => { setShowAllocate(null); reload(); }} />}
       {paymentAction && <PaymentActionModal
         payment={paymentAction.payment}
@@ -586,7 +589,7 @@ const bulkBar = {
   marginBottom: 12, flexWrap: 'wrap',
 };
 
-function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled, entityId = null }) {
+function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled, standaloneAccounting, entityId = null }) {
   const [form, setForm] = useState({
     vendor_name: '', pay_date: new Date().toISOString().slice(0, 10), method: 'ach',
     amount: '', reference: '', currency: 'USD', auto_allocate: true, notes: '',
@@ -626,8 +629,8 @@ function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled, 
               <option value="check">Check</option>
               <option value="card">Card</option>
               <option value="cash">Cash</option>
-              <option value="plaid" disabled={!plaidEnabled}>Online bank payment{plaidEnabled ? '' : ' (not connected)'}</option>
-              <option value="mercury" disabled={!mercuryEnabled}>Mercury{mercuryEnabled ? '' : ' (not connected)'}</option>
+              {!standaloneAccounting && <option value="plaid" disabled={!plaidEnabled}>Online bank payment{plaidEnabled ? '' : ' (not connected)'}</option>}
+              {!standaloneAccounting && <option value="mercury" disabled={!mercuryEnabled}>Mercury{mercuryEnabled ? '' : ' (not connected)'}</option>}
               <option value="other">Other</option>
             </select>
           </Field>

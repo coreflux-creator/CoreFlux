@@ -429,6 +429,9 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'suggest-payment-run') {
+    if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+        api_error('Provider-backed payment runs are not available in CoreAccounting', 403);
+    }
     rbac_legacy_require($user, 'ap.payment.create');
     $body = api_json_body();
     $days = (int) ($body['days_ahead'] ?? 7);
@@ -444,6 +447,9 @@ if ($method === 'POST' && $action === 'suggest-payment-run') {
 }
 
 if ($method === 'POST' && $action === 'execute-payment-run') {
+    if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+        api_error('Provider-backed payment runs are not available in CoreAccounting', 403);
+    }
     rbac_legacy_require($user, 'ap.payment.create');
     $body = api_json_body();
     $rail = trim((string) ($body['rail'] ?? ''));

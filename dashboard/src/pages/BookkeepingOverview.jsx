@@ -253,10 +253,12 @@ export default function BookkeepingOverview({ standaloneAccounting = false }) {
                      to={scope.withScope('/modules/accounting/transactions-to-review?prefilter=oldest_first&autoload=1')} testId="task-tx-review" />
             <TaskRow icon={FileText} label="Bills awaiting action" count={data.tasks?.bills_pending ?? 0}
                      to={scope.withScope('/modules/ap/bills?status=needs_action')} testId="task-bills" />
-            <TaskRow icon={Wallet}  label="Payments pending" count={data.tasks?.payments_pending ?? 0}
-                     to={scope.withScope('/modules/treasury/payments?queue=pending')} testId="task-payments" />
-            <TaskRow icon={ArrowRight} label="Transfers pending" count={data.tasks?.transfers_pending ?? 0}
-                     to={scope.withScope('/modules/treasury/transfers?queue=pending')} testId="task-transfers" />
+            {!standaloneAccounting && <>
+              <TaskRow icon={Wallet} label="Payments pending" count={data.tasks?.payments_pending ?? 0}
+                       to={scope.withScope('/modules/treasury/payments?queue=pending')} testId="task-payments" />
+              <TaskRow icon={ArrowRight} label="Transfers pending" count={data.tasks?.transfers_pending ?? 0}
+                       to={scope.withScope('/modules/treasury/transfers?queue=pending')} testId="task-transfers" />
+            </>}
             <TaskRow icon={CheckCircle2} label="Periods ready to close" count={data.tasks?.period_ready_to_close ?? 0}
                      to={scope.withScope('/modules/accounting/periods?status=ready_to_close')} testId="task-period-close" />
           </div>

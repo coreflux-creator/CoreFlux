@@ -22,6 +22,23 @@ function coreAccountingAllowsModule(?string $moduleKey, string $environment): bo
     return in_array($moduleKey, ['accounting', 'billing', 'ap', 'treasury'], true);
 }
 
+/** Treasury's payment/transfer workflows are outside basic bookkeeping. */
+function coreAccountingAllowsModuleEndpoint(?string $moduleKey, ?string $endpoint, string $environment): bool
+{
+    if (!coreAccountingAllowsModule($moduleKey, $environment)) return false;
+    return $environment !== 'coreaccounting'
+        || $moduleKey !== 'treasury'
+        || !in_array($endpoint, ['payments', 'transfers'], true);
+}
+
+/** AP drafts and manual settlement remain available; provider dispatch does not. */
+function coreAccountingAllowsApPaymentAction(string $method, string $action, string $environment): bool
+{
+    return $environment !== 'coreaccounting'
+        || $method !== 'POST'
+        || !in_array($action, ['originate', 'originate_batch', 'send_via_mercury'], true);
+}
+
 /** Billing and AP share the company directory without exposing the People module. */
 function coreAccountingAllowsModuleRequest(?string $scriptFilename, ?string $moduleKey, string $environment): bool
 {
