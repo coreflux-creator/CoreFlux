@@ -15,9 +15,9 @@ import {
  *  - Books Health badge (0..100, label, reasons)
  *  - 6-month P&L bar chart
  *  - Tasks list (clickable counts → relevant pages)
- *  - Bank connections card
+ *  - Bank accounts card
  *  - Recent engine activity (last 10 posted accounting_events)
- *  - Connect-a-bank CTA when no active connections
+ *  - Add-a-bank CTA when no active accounts
  */
 export default function BookkeepingOverview({ standaloneAccounting = false }) {
   const scope = useAccountingEntityScope();
@@ -297,10 +297,10 @@ export default function BookkeepingOverview({ standaloneAccounting = false }) {
             </div>
           )}
 
-          {/* Bank connections */}
+          {/* Bank accounts */}
           <div data-testid="bookkeeping-overview-banks-card"
                style={{ padding: 18, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
-            <strong style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>Bank connections</strong>
+            <strong style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>Bank accounts</strong>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
               <span>Active</span>
               <strong data-testid="bookkeeping-overview-banks-active">{data.bank_connections?.active ?? 0}</strong>

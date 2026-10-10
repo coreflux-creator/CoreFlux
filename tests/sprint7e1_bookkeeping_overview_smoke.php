@@ -86,6 +86,9 @@ $assert('tasks preserve legal-entity scope',
     strpos($jsx, "scope.withScope('/modules/ap/bills?status=needs_action')") !== false
     && strpos($jsx, "scope.withScope('/modules/treasury/payments?queue=pending')") !== false);
 $assert('top-level testid',                      strpos($jsx, 'data-testid="bookkeeping-overview-page"') !== false);
+$assert('bank count is labeled as accounts, not live connections',
+    strpos($jsx, '>Bank accounts</strong>') !== false
+    && strpos($jsx, '>Bank connections</strong>') === false);
 $assert('error testid',                          strpos($jsx, 'data-testid="bookkeeping-overview-error"') !== false);
 $assert('loading testid',                        strpos($jsx, 'data-testid="bookkeeping-overview-loading"') !== false);
 $assert('refresh button testid',                 strpos($jsx, 'data-testid="bookkeeping-overview-refresh"') !== false);

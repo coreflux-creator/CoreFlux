@@ -22,7 +22,7 @@
  *
  * Health score formula (transparent):
  *   100 base
- *   −20 if no active bank connections
+ *   -20 if no active bank accounts
  *   −15 if last reconciliation > 60 days
  *   − 8 if last reconciliation > 30 days
  *   −10 if uncategorized bank txs > 50
@@ -56,7 +56,7 @@ try {
 $asOf = date('Y-m-d');
 
 // ──────────────────────────────────────────────────────────────────
-// Bank connections
+// Bank accounts. The bank_connections response key is retained for existing clients.
 // ──────────────────────────────────────────────────────────────────
 $baWhere = ['ba.tenant_id = :t']; $baP = ['t' => $tid];
 if ($entityId) { $baWhere[] = 'ba.entity_id = :e'; $baP['e'] = $entityId; }
