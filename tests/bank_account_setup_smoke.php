@@ -90,6 +90,11 @@ $check('account list exposes cash designation and system flag to the picker',
 $check('chart can designate a custom bank or cash account',
     str_contains($chartUi, 'accounting-accounts-bank-cash')
     && str_contains($chartUi, "'cash_and_equivalents'"));
+$check('new bank cash ledger keeps legal entity and returns to setup',
+    str_contains($bankUi, 'accounts?entity_id=${entityId}&bank_setup=1')
+    && str_contains($chartUi, "searchParams.get('bank_setup') === '1'")
+    && str_contains($chartUi, "cash_flow_tag: bankSetupPath ? 'cash_and_equivalents' : ''")
+    && str_contains($chartUi, 'navigate(bankSetupPath, { replace: true })'));
 $check('existing asset can be designated without CSV',
     str_contains($accountDetailUi, 'accounting-account-edit-bank-cash')
     && str_contains($accountDetailUi, 'cash_flow_tag: accountEdit.cash_flow_tag'));

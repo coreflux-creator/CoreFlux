@@ -280,7 +280,7 @@ function NewAccountForm({ preferredEntityId, onDone, onCancel }) {
         </label>
       </div>
       {!loadingOptions && !optionError && selectedEntity && cashAccounts.length === 0 && <p style={{ margin: '8px 0 0', fontSize: 13 }}>
-        No unused cash account is available for this entity. <Link to="/modules/accounting/accounts">Add an asset account marked Bank/cash</Link> to the chart first.
+        No unused cash account is available for this entity. <Link to={`/modules/accounting/accounts?entity_id=${entityId}&bank_setup=1`}>Add an asset account marked Bank/cash</Link> to the chart first.
       </p>}
       {optionError && <p className="error">Could not load bank setup options: {optionError.message}</p>}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
@@ -96,10 +96,15 @@ function descendantSet(rows, accountId) {
 }
 
 export default function ChartOfAccounts() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedEntity = searchParams.get('entity_id');
+  const bankSetupPath = searchParams.get('bank_setup') === '1' && /^[1-9][0-9]*$/.test(requestedEntity || '')
+    ? `/modules/accounting/bank-rec?entity_id=${requestedEntity}&new=1` : null;
   const { data, loading, error, reload } = useApi('/modules/accounting/api/accounts.php');
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
   const accountTypes = data?.types ?? Object.keys(TYPE_META);
-  const [form, setForm]       = useState({ code: '', name: '', account_type: 'expense', cash_flow_tag: '' });
+  const [form, setForm]       = useState(() => ({ code: '', name: '', account_type: bankSetupPath ? 'asset' : 'expense', cash_flow_tag: bankSetupPath ? 'cash_and_equivalents' : '' }));
   const [busy, setBusy]       = useState(false);
   const [seedBusy, setSeedBusy] = useState(false);
   const [autoBusy, setAutoBusy] = useState(false);
@@ -113,7 +118,7 @@ export default function ChartOfAccounts() {
   const [selected, setSelected] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
-  const [showAdd, setShowAdd] = useState(false);
+  const [showAdd, setShowAdd] = useState(!!bankSetupPath);
   const [moveTarget, setMoveTarget] = useState(null);   // {id, code, name, account_type, parent_account_id}
 
   const filtered = useMemo(
@@ -214,6 +219,10 @@ export default function ChartOfAccounts() {
     setBusy(true); setNotice(null);
     try {
       await api.post('/modules/accounting/api/accounts.php', form);
+      if (bankSetupPath) {
+        navigate(bankSetupPath, { replace: true });
+        return;
+      }
       setForm({ code: '', name: '', account_type: 'expense', cash_flow_tag: '' });
       setShowAdd(false);
       reload();
@@ -309,7 +318,7 @@ export default function ChartOfAccounts() {
           <button
             type="button"
             className="btn btn--primary"
-            onClick={() => setShowAdd(open => !open)}
+            onClick={() => showAdd && bankSetupPath ? navigate(bankSetupPath) : setShowAdd(open => !open)}
             aria-expanded={showAdd}
             data-testid="accounting-accounts-add-trigger"
           >
@@ -393,7 +402,7 @@ export default function ChartOfAccounts() {
           </label>}
           <div className="inline-create-form__actions">
             <button className="btn btn--primary" data-testid="accounting-accounts-add" disabled={busy}>{busy ? 'Adding…' : 'Add account'}</button>
-            <button type="button" className="btn btn--ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+            <button type="button" className="btn btn--ghost" onClick={() => bankSetupPath ? navigate(bankSetupPath) : setShowAdd(false)}>Cancel</button>
           </div>
         </form>
       )}
