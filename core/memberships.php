@@ -213,8 +213,9 @@ function membershipChangeWorkspaceRole(
         $changed = $rows[0]['persona_type'] !== $personaType || $legacyRole !== $role;
         if ($changed) {
             $pdo->prepare(
-                'UPDATE tenant_memberships SET persona_type = :role, updated_at = CURRENT_TIMESTAMP WHERE id = :id'
-            )->execute(['role' => $personaType, 'id' => (int) $rows[0]['id']]);
+                'UPDATE tenant_memberships SET persona_type = :role, updated_at = CURRENT_TIMESTAMP
+                  WHERE id = :id AND tenant_id = :tenant_id'
+            )->execute(['role' => $personaType, 'id' => (int) $rows[0]['id'], 'tenant_id' => $tenantId]);
             $pdo->prepare(
                 'UPDATE user_tenants SET role = :role, updated_at = CURRENT_TIMESTAMP
                   WHERE user_id = :u AND tenant_id = :t'

@@ -210,7 +210,7 @@ function UserEditModal({ user, isMaster, canAssignTenantAdmin, onClose, onSaved 
                   data-testid="users-edit-role">
             {ROLE_OPTIONS.filter(r => r.value !== 'tenant_admin' || canAssignTenantAdmin)
               .map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            {!isNew && user.role === 'master_admin' && <option value="master_admin">Master Admin</option>}
+            {isMaster && !isNew && user.role === 'master_admin' && <option value="master_admin">Master Admin</option>}
           </select>
           {!isNew && user.role !== 'master_admin' && <small style={{ color: 'var(--cf-text-secondary)', display: 'block', marginTop: 4 }}>
             Changing this role resets module access in the current workspace to the role defaults.
