@@ -25,8 +25,9 @@ $bankLink = $read('api/plaid_bank_link.php');
 $check('Plaid exchange resolves tenant entity', str_contains($bankLink, 'activeEntityResolveForTenant'));
 $check('new Plaid bank rows persist entity_id',
     str_contains($bankLink, '(tenant_id, entity_id, name, gl_account_code'));
-$check('relinked Plaid bank rows repair null entity',
-    str_contains($bankLink, 'entity_id = COALESCE(entity_id, :eid)'));
+$check('relinked Plaid bank rows refuse null or conflicting entity',
+    str_contains($bankLink, "This connected bank account belongs to another or unassigned legal entity")
+    && !str_contains($bankLink, 'entity_id = COALESCE(entity_id, :eid)'));
 
 $bankApi = $read('modules/accounting/api/bank_accounts.php');
 $check('manual bank creation resolves tenant entity', str_contains($bankApi, 'activeEntityResolveForTenant'));

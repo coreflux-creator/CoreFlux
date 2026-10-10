@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
 
@@ -528,19 +529,31 @@ function ConnectedInstitutions({ onChanged }) {
 }
 
 function BankConnectCard({ onLinked }) {
+  const { entities, loaded: entitiesLoaded, error: entitiesError } = useActiveEntity();
+  const [selectedEntityId, setSelectedEntityId] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg]   = React.useState(null);
   const [err, setErr]   = React.useState(null);
   const [diag, setDiag] = React.useState(null);
   const [backfilling, setBackfilling] = React.useState(false);
+  const [orphanSelected, setOrphanSelected] = React.useState({});
+  const [orphanEntityIds, setOrphanEntityIds] = React.useState({});
 
   // Post-Link account picker state
   const [picker, setPicker] = React.useState(null); // { publicToken, institution, accounts:[{id,name,mask,subtype,type}] }
   const [pickerSelected, setPickerSelected] = React.useState({}); // accountId -> bool
-  const [createGlPerAccount, setCreateGlPerAccount] = React.useState(false);
+  const [accountEntityIds, setAccountEntityIds] = React.useState({});
   const [exchanging, setExchanging] = React.useState(false);
 
+  React.useEffect(() => {
+    if (entities.length === 1) setSelectedEntityId(Number(entities[0].id));
+  }, [entities]);
+
   const link = async () => {
+    if (!selectedEntityId) {
+      setErr('Choose the legal entity that owns these bank accounts.');
+      return;
+    }
     setBusy(true); setMsg(null); setErr(null);
     try {
       const tok = await fetch('/api/plaid_bank_link.php', {
@@ -568,6 +581,7 @@ function BankConnectCard({ onLinked }) {
           const sel = {};
           accounts.forEach((a) => { sel[a.id] = true; });
           setPickerSelected(sel);
+          setAccountEntityIds({});
           setPicker({ publicToken, institution: meta?.institution || {}, accounts });
         },
         onExit: (e) => { if (e) setErr('The bank connection was closed before it finished.'); },
@@ -578,20 +592,17 @@ function BankConnectCard({ onLinked }) {
     } finally { setBusy(false); }
   };
 
-  const doExchange = async (publicToken, institution, selectedIds) => {
+  const doExchange = async (publicToken, institution, selectedIds, entityIds = {}) => {
     setExchanging(true); setErr(null);
     try {
       const body = {
         public_token: publicToken,
+        entity_id: selectedEntityId,
+        account_entity_ids: entityIds,
         institution: {
           name:           institution?.name           || null,
           institution_id: institution?.institution_id || null,
         },
-        // Default OFF since 2026-02 — every connected bank shares one
-        // "Cash — Checking" / "Cash — Savings" GL row instead of one row
-        // per sub-account.  Operators who reconcile per-bank flip the
-        // checkbox in the picker modal.
-        create_gl_per_account: createGlPerAccount,
       };
       if (Array.isArray(selectedIds)) body.selected_account_ids = selectedIds;
       const res = await fetch('/api/plaid_bank_link.php?action=exchange', {
@@ -615,7 +626,6 @@ function BankConnectCard({ onLinked }) {
         setErr('Some accounts could not be added:\n• ' + errs.join('\n• '));
       }
       setPicker(null);
-      setCreateGlPerAccount(false);
       if ((dep || lia) && onLinked) setTimeout(onLinked, 1200);
     } catch (e) { setErr(e.message || 'The selected accounts could not be added.'); }
     finally { setExchanging(false); }
@@ -629,29 +639,45 @@ function BankConnectCard({ onLinked }) {
       setPicker(null);
       return;
     }
-    doExchange(picker.publicToken, picker.institution, ids);
+    const entityIds = Object.fromEntries(ids.map((id) => [id, accountEntityIds[id] ?? selectedEntityId]));
+    if (Object.values(entityIds).some((id) => !id)) {
+      setErr('Choose a legal entity for each selected account.');
+      return;
+    }
+    doExchange(picker.publicToken, picker.institution, ids, entityIds);
   };
 
-  const runDiagnostics = async () => {
-    setErr(null); setMsg(null);
+  const runDiagnostics = async (clearStatus = true) => {
+    if (clearStatus) { setErr(null); setMsg(null); }
     try {
       const res = await fetch('/api/plaid_diagnostics.php', { credentials: 'include' });
       const data = await res.json();
-      console.log('[plaid_diagnostics]', data);
+      if (!res.ok) throw new Error(data.error || 'The connected-account check could not be loaded.');
       setDiag(data);
     } catch (e) { setErr(e.message); }
   };
 
   const backfillOrphans = async () => {
-    if (!confirm('Add the missing connected accounts to Treasury? You will not need to sign in to the bank again.')) return;
+    const ids = actionableOrphans
+      .filter((account) => orphanSelected[account.account_id])
+      .map((account) => account.account_id);
+    if (!ids.length) { setErr('Select the accounts to add to Treasury.'); return; }
+    if (!selectedEntityId) { setErr('Choose the legal entity that owns these accounts.'); return; }
+    const entityIds = Object.fromEntries(ids.map((id) => [id, orphanEntityIds[id] ?? selectedEntityId]));
+    if (Object.values(entityIds).some((id) => !id)) {
+      setErr('Choose a legal entity for each selected account.');
+      return;
+    }
+    if (!confirm(`Add ${ids.length} selected account${ids.length === 1 ? '' : 's'} to Treasury? You will not need to sign in to the bank again.`)) return;
     setBackfilling(true); setErr(null); setMsg(null);
     try {
       const res = await fetch('/api/plaid_diagnostics.php?action=backfill', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entity_id: selectedEntityId, selected_account_ids: ids, account_entity_ids: entityIds }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error('The missing accounts could not be added.');
+      if (!res.ok) throw new Error(data.error || 'The missing accounts could not be added.');
       const dep = data.bank_accounts_created?.length || 0;
       const lia = data.liability_accounts_created?.length || 0;
       const skipped = data.skipped?.length || 0;
@@ -661,14 +687,19 @@ function BankConnectCard({ onLinked }) {
         setErr('Some connected accounts still need attention. Open Connections to review them.');
       }
       // Refresh diagnostics view
-      await runDiagnostics();
+      await runDiagnostics(false);
       if ((dep || lia) && onLinked) setTimeout(onLinked, 1200);
     } catch (e) {
       setErr(e.message || 'The missing accounts could not be added.');
     } finally { setBackfilling(false); }
   };
 
-  const orphanCount = diag?.orphaned_plaid_accounts?.length || 0;
+  const actionableOrphans = (diag?.orphaned_plaid_accounts || [])
+    .filter((account) => ['depository', 'credit', 'loan'].includes(account.type));
+  const orphanCount = actionableOrphans.length;
+  const unsupportedCount = (diag?.orphaned_plaid_accounts?.length || 0) - orphanCount;
+  const selectedOrphanCount = actionableOrphans
+    .filter((account) => orphanSelected[account.account_id]).length;
 
   return (
     <div data-testid="plaid-bank-connect-card">
@@ -678,11 +709,27 @@ function BankConnectCard({ onLinked }) {
         <strong> This connection can only read account activity; it cannot move money.</strong>{' '}
         Connect a separate payment account below when you are ready to send approved payments.
       </p>
-      <button onClick={link} disabled={busy} className="btn btn--primary" data-testid="plaid-bank-connect-btn">
+      <label style={{ display: 'block', fontSize: 12, marginBottom: 12, maxWidth: 340 }}>
+        Legal entity
+        <select
+          className="input"
+          value={selectedEntityId ?? ''}
+          onChange={(event) => setSelectedEntityId(event.target.value ? Number(event.target.value) : null)}
+          data-testid="plaid-bank-entity"
+          style={{ display: 'block', width: '100%' }}
+        >
+          <option value="" disabled>Choose legal entity</option>
+          {entities.map((entity) => (
+            <option key={entity.id} value={entity.id}>{entity.legal_name || entity.code}</option>
+          ))}
+        </select>
+      </label>
+      {entitiesError && <p className="error">Legal entities could not be loaded. Refresh and try again.</p>}
+      <button onClick={link} disabled={busy || !entitiesLoaded || !selectedEntityId} className="btn btn--primary" data-testid="plaid-bank-connect-btn">
         {busy ? 'Opening secure connection…' : 'Connect bank'}
       </button>
       <button
-        onClick={runDiagnostics}
+        onClick={() => runDiagnostics()}
         className="btn btn--ghost"
         data-testid="plaid-bank-diagnostics-btn"
         style={{ marginLeft: 8 }}
@@ -699,35 +746,72 @@ function BankConnectCard({ onLinked }) {
             <DiagStat label="Linked accounts" value={diag.plaid_accounts?.length || 0} />
             <DiagStat label="Deposit accounts" value={diag.accounting_bank_accounts_for_plaid?.length || 0} />
             <DiagStat label="Liability accounts" value={diag.treasury_liability_accounts_for_plaid?.length || 0} />
-            <DiagStat label="Missing from Treasury" value={orphanCount} warn={orphanCount > 0} />
+            <DiagStat label="Not added to Treasury" value={orphanCount} warn={orphanCount > 0} />
           </div>
           {orphanCount > 0 && (
             <div data-testid="plaid-orphan-banner" style={{
               padding: 10, background: '#fef3c7', border: '1px solid #f59e0b',
               borderRadius: 4, marginBottom: 8, color: '#78350f',
             }}>
-              <strong>{orphanCount} connected account{orphanCount === 1 ? ' is' : 's are'} missing from Treasury.</strong>
-              {' '}Add the missing account records without signing in to the bank again.
-              <ul style={{ margin: '6px 0 6px 20px', fontSize: 12 }}>
-                {(diag.orphaned_plaid_accounts || []).slice(0, 5).map((o) => (
-                  <li key={o.id}>
-                    {o.name} {o.mask ? `…${o.mask}` : ''} — <em>{o.type}/{o.subtype || '—'}</em>
-                  </li>
+              <strong>{orphanCount} connected account{orphanCount === 1 ? ' has' : 's have'} not been added to Treasury.</strong>
+              {' '}Select only the accounts you want to add.
+              <label style={{ display: 'block', marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={selectedOrphanCount === orphanCount}
+                  onChange={(event) => setOrphanSelected(Object.fromEntries(
+                    actionableOrphans.map((account) => [account.account_id, event.target.checked])
+                  ))}
+                  data-testid="plaid-orphan-select-all"
+                />{' '}Select all
+              </label>
+              <div style={{ maxHeight: 240, overflowY: 'auto', margin: '6px 0' }}>
+                {actionableOrphans.map((account) => (
+                  <div key={account.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                    <label style={{ flex: 1 }}>
+                      <input
+                        type="checkbox"
+                        checked={!!orphanSelected[account.account_id]}
+                        onChange={(event) => setOrphanSelected((current) => ({
+                          ...current, [account.account_id]: event.target.checked,
+                        }))}
+                      />{' '}{account.name} {account.mask ? `…${account.mask}` : ''} ({account.type}/{account.subtype || '—'})
+                    </label>
+                    {entities.length > 1 && orphanSelected[account.account_id] && (
+                      <select
+                        className="input"
+                        aria-label={`Legal entity for ${account.name}`}
+                        value={orphanEntityIds[account.account_id] ?? selectedEntityId ?? ''}
+                        onChange={(event) => setOrphanEntityIds((current) => ({
+                          ...current, [account.account_id]: Number(event.target.value),
+                        }))}
+                      >
+                        {entities.map((entity) => (
+                          <option key={entity.id} value={entity.id}>{entity.legal_name || entity.code}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 ))}
-              </ul>
+              </div>
               <button
                 onClick={backfillOrphans}
-                disabled={backfilling}
+                disabled={backfilling || selectedOrphanCount === 0}
                 className="btn btn--primary"
                 data-testid="plaid-backfill-orphans-btn"
               >
-                {backfilling ? 'Adding accounts…' : `Add ${orphanCount} missing account${orphanCount === 1 ? '' : 's'}`}
+                {backfilling ? 'Adding accounts…' : `Add ${selectedOrphanCount} selected account${selectedOrphanCount === 1 ? '' : 's'}`}
               </button>
             </div>
           )}
           {orphanCount === 0 && (
             <p style={{ margin: 0, color: '#065f46' }} data-testid="plaid-no-orphans">
-              All connected accounts are available in Treasury.
+              All supported connected accounts are available in Treasury.
+            </p>
+          )}
+          {unsupportedCount > 0 && (
+            <p className="muted" style={{ margin: '8px 0 0' }}>
+              {unsupportedCount} unsupported account{unsupportedCount === 1 ? ' is' : 's are'} kept outside Treasury.
             </p>
           )}
         </div>
@@ -755,59 +839,46 @@ function BankConnectCard({ onLinked }) {
             <div style={{ borderTop: '1px solid var(--cf-border, #e5e7eb)', margin: '12px 0' }} />
             <div data-testid="plaid-account-picker-list">
               {picker.accounts.map((a) => (
-                <label
+                <div
                   key={a.id}
                   data-testid={`plaid-account-picker-row-${a.id}`}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 12,
                     padding: '8px 4px', borderBottom: '1px solid var(--cf-border, #f1f5f9)',
-                    cursor: 'pointer',
                   }}
                 >
-                  <input
-                    type="checkbox"
-                    checked={!!pickerSelected[a.id]}
-                    onChange={(e) => setPickerSelected((s) => ({ ...s, [a.id]: e.target.checked }))}
-                    data-testid={`plaid-account-picker-cb-${a.id}`}
-                  />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500 }}>
-                      {a.name} {a.mask ? <span className="muted">····{a.mask}</span> : null}
+                  <label style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!pickerSelected[a.id]}
+                      onChange={(e) => setPickerSelected((s) => ({ ...s, [a.id]: e.target.checked }))}
+                      data-testid={`plaid-account-picker-cb-${a.id}`}
+                    />
+                    <div>
+                      <div style={{ fontWeight: 500 }}>
+                        {a.name} {a.mask ? <span className="muted">····{a.mask}</span> : null}
+                      </div>
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {a.type}{a.subtype ? ` · ${a.subtype}` : ''}
+                      </div>
                     </div>
-                    <div className="muted" style={{ fontSize: 12 }}>
-                      {a.type}{a.subtype ? ` · ${a.subtype}` : ''}
-                    </div>
-                  </div>
-                </label>
-              ))}
-            </div>
-            <div style={{
-              marginTop: 12, padding: '10px 12px',
-              background: '#f8fafc', border: '1px solid var(--cf-border, #e2e8f0)',
-              borderRadius: 6,
-            }}>
-              <label
-                data-testid="plaid-create-gl-per-account-toggle"
-                style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={createGlPerAccount}
-                  onChange={(e) => setCreateGlPerAccount(e.target.checked)}
-                  data-testid="plaid-create-gl-per-account-cb"
-                  style={{ marginTop: 3 }}
-                />
-                <div style={{ fontSize: 13, lineHeight: 1.4 }}>
-                  <strong>Create a separate Chart-of-Accounts line per bank account</strong>{' '}
-                  <span className="muted">(advanced — for tenants who reconcile per-bank in the trial balance)</span>
-                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                    By default, every connected bank shares one <code>1000 Cash — Checking</code>
-                    {' '}/{' '}<code>1010 Cash — Savings</code>{' '}GL row (and one
-                    {' '}<code>2100 Credit Card Payable</code>{' '}/{' '}<code>2200 Notes Payable</code>{' '}
-                    row for cards / loans). Treasury still tracks each bank as its own sub-ledger row.
-                    Turn this on only if your accountant wants a per-bank breakdown directly on the trial balance.
-                  </div>
+                  </label>
+                  {entities.length > 1 && pickerSelected[a.id] && (
+                    <select
+                      className="input"
+                      aria-label={`Legal entity for ${a.name}`}
+                      value={accountEntityIds[a.id] ?? selectedEntityId ?? ''}
+                      onChange={(event) => setAccountEntityIds((current) => ({
+                        ...current, [a.id]: Number(event.target.value),
+                      }))}
+                    >
+                      {entities.map((entity) => (
+                        <option key={entity.id} value={entity.id}>{entity.legal_name || entity.code}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
-              </label>
+              ))}
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
               <button

@@ -6,7 +6,9 @@
  *   POST /api/plaid_bank_link.php?action=exchange  → persists item + account
  *      body: {
  *        public_token: "public-sandbox-…",
- *        accounts:    [{ id, name, mask, subtype }],   // from Link metadata
+ *        entity_id:   123, // required when tenant has multiple legal entities
+ *        account_entity_ids: { plaid_account_id: 123 }, // optional per-account owner
+ *        selected_account_ids: ["plaid_account_id"], // omitted = legacy all
  *        institution: { name, institution_id }
  *      }
  *
@@ -91,54 +93,53 @@ if ($action === 'exchange') {
     $publicToken = trim((string) ($body['public_token'] ?? ''));
     if ($publicToken === '') api_error('public_token required', 422);
     $institution = is_array($body['institution'] ?? null) ? $body['institution'] : [];
+    $availableEntities = activeEntityAvailable($tenantId);
+    if (!$availableEntities) api_error('No accounting entity is configured for this tenant', 422);
+    $validEntityIds = array_fill_keys(array_column($availableEntities, 'id'), true);
+    $requestedEntityId = !empty($body['entity_id']) ? (int) $body['entity_id'] : null;
+    if (count($availableEntities) > 1 && !$requestedEntityId) {
+        api_error('Choose a legal entity before connecting bank accounts', 422);
+    }
     try {
-        $entity = activeEntityResolveForTenant(
-            $tenantId,
-            !empty($body['entity_id']) ? (int) $body['entity_id'] : null
-        );
+        $entity = activeEntityResolveForTenant($tenantId, $requestedEntityId);
     } catch (\Throwable $e) {
         api_error($e->getMessage(), 422);
     }
-    if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
     $entityId = (int) $entity['id'];
+    $accountEntityIds = [];
+    if (isset($body['account_entity_ids'])) {
+        if (!is_array($body['account_entity_ids'])) api_error('account_entity_ids must be an object', 422);
+        foreach ($body['account_entity_ids'] as $accountId => $ownerId) {
+            if ((string) $accountId === '' || !is_scalar($ownerId)) {
+                api_error('Invalid bank account entity assignment', 422);
+            }
+            $ownerId = filter_var($ownerId, FILTER_VALIDATE_INT);
+            if (!$ownerId || !isset($validEntityIds[$ownerId])) {
+                api_error('Bank account entity does not belong to the active tenant', 422);
+            }
+            $accountEntityIds[(string) $accountId] = $ownerId;
+        }
+    }
 
-    // Per-account opt-in: when the UI passes selected_account_ids[], only those
-    // Plaid accounts get mirrored into Treasury. Unselected accounts still get
-    // recorded in plaid_accounts (so you can backfill later via diagnostics)
-    // but won't pollute deposit/liability lists. Empty/missing == mirror all
-    // (legacy behavior).
+    // An omitted selection mirrors all accounts for legacy callers; an
+    // explicitly empty selection mirrors none.
     $selectedIds = [];
-    if (isset($body['selected_account_ids']) && is_array($body['selected_account_ids'])) {
+    if (array_key_exists('selected_account_ids', $body)) {
+        if (!is_array($body['selected_account_ids'])) api_error('selected_account_ids must be an array', 422);
+        foreach ($body['selected_account_ids'] as $selectedId) {
+            if (!is_scalar($selectedId)) api_error('Invalid bank account selection', 422);
+        }
         $selectedIds = array_values(array_filter(array_map(
             fn ($v) => (string) $v,
             $body['selected_account_ids']
         ), fn ($v) => $v !== ''));
     }
-    $selectedSet = $selectedIds ? array_flip($selectedIds) : null;
+    $selectedSet = array_key_exists('selected_account_ids', $body)
+        ? array_flip($selectedIds)
+        : null;
 
-    // 2026-02: changed default from per-account GL allocation to shared.
-    //
-    // Pre-2026 every Plaid sub-account got its own `accounting_accounts`
-    // row (e.g. "1000-1348 First Citizens Bank — Operating") so the trial
-    // balance broke down per bank.  Operators with 15+ sub-accounts
-    // complained that this polluted the CoA with rows they didn't intend
-    // to map / sync to their external accounting provider (Jaz, QBO,
-    // etc.).
-    //
-    // New default: every Plaid deposit shares ONE "1000 Cash — Checking"
-    // GL row (and "1010 Cash — Savings" for savings).  Each Plaid card /
-    // loan shares one "2100 Credit Card Payable" / "2200 Notes Payable"
-    // row.  Operators who explicitly want per-account granularity flip
-    // the `create_gl_per_account` flag in the picker UI before exchange.
-    //
-    // We honour the explicit boolean either direction; absence defaults
-    // to false (shared).  The legacy backfill endpoint
-    // (/api/plaid_diagnostics.php?action=backfill) keeps per-account
-    // semantics to avoid silently changing behaviour for tenants who
-    // historically relied on the per-bank chart layout.
-    $createGlPerAccount = isset($body['create_gl_per_account'])
-        ? (bool) $body['create_gl_per_account']
-        : false;
+    // The former shared-GL option is ignored. A feed needs its own ledger
+    // account so a bank line can be tied to an unambiguous cash movement.
 
     try {
         $exchange = plaidExchangePublicToken($publicToken);
@@ -249,92 +250,69 @@ if ($action === 'exchange') {
             $skippedOptOut[] = "{$name}" . ($mask ? " …{$mask}" : '');
             continue;
         }
+        $accountEntityId = $accountEntityIds[$accId] ?? $entityId;
 
         if ($type === 'depository') {
             try {
                 // 1) Exact re-link match — same Plaid account_id seen before.
                 $check = $pdo->prepare(
-                    'SELECT id FROM accounting_bank_accounts
+                    'SELECT id, entity_id FROM accounting_bank_accounts
                       WHERE tenant_id = :t AND plaid_account_id = :a LIMIT 1'
                 );
                 $check->execute(['t' => $tenantId, 'a' => $accId]);
-                $existingId = (int) $check->fetchColumn();
-                if ($existingId > 0) {
+                $existing = $check->fetch(PDO::FETCH_ASSOC);
+                if ($existing) {
+                    if ((int) ($existing['entity_id'] ?? 0) !== $accountEntityId) {
+                        throw new RuntimeException('This connected bank account belongs to another or unassigned legal entity');
+                    }
                     // Re-activate in case it was previously hidden by a disconnect.
                     $pdo->prepare(
                         "UPDATE accounting_bank_accounts
                             SET status = 'active',
-                                entity_id = COALESCE(entity_id, :eid),
                                 updated_at = NOW()
-                          WHERE tenant_id = :t AND id = :id"
-                    )->execute(['t' => $tenantId, 'id' => $existingId, 'eid' => $entityId]);
-                    $createdBank[] = $existingId;
+                          WHERE tenant_id = :t AND id = :id AND entity_id = :eid"
+                    )->execute(['t' => $tenantId, 'id' => (int) $existing['id'], 'eid' => $accountEntityId]);
+                    $createdBank[] = (int) $existing['id'];
                     continue;
                 }
 
-                // 2) Adoption — same bank+last4 already linked under a different
-                //    Plaid account_id (Plaid issues a brand-new account_id every
-                //    time the user runs Link, even for the exact same bank account
-                //    they previously connected). Rather than letting a fresh row
-                //    pile up, find the most-recently-touched matching row, point
-                //    it at the new Plaid account_id, and reuse its GL code so all
-                //    historical JEs keep their references intact.
+                // 2) Adopt only an unambiguous same-bank, same-last4 account
+                //    when Plaid changes its account id during a reconnect.
                 $instLabel = (string) ($institution['name'] ?? '');
-                if ($mask) {
-                    // The "bank_name OR institution unknown" filter used to be
-                    // expressed as a single-statement `OR :bk` duplicate (same
-                    // placeholder referenced twice) — but PDO with EMULATE_PREPARES=false (set in core/db.php) refuses
-                    // to reference the same named placeholder twice and aborts
-                    // with HY093 "Invalid parameter number". Branch the SQL so
-                    // each placeholder is bound exactly once.
-                    $hasInst = $instLabel !== '';
+                if ($mask && $instLabel !== '') {
+                    // A missing institution is not enough identity to adopt.
+                    // Bind :bk once: PDO with EMULATE_PREPARES=false rejects
+                    // the former duplicated-placeholder OR with HY093.
                     $sql = 'SELECT id FROM accounting_bank_accounts
                               WHERE tenant_id = :t
-                                AND last4     = :l4'
-                        . ($hasInst ? ' AND bank_name = :bk' : '')
-                        . ' ORDER BY (status = "active") DESC, updated_at DESC, id DESC
-                            LIMIT 1';
+                                AND entity_id = :eid
+                                AND last4     = :l4
+                                AND bank_name = :bk
+                             ORDER BY (status = "active") DESC, updated_at DESC, id DESC
+                             LIMIT 2';
                     $stmt   = $pdo->prepare($sql);
-                    $params = ['t' => $tenantId, 'l4' => $mask];
-                    if ($hasInst) $params['bk'] = $instLabel;
+                    $params = ['t' => $tenantId, 'eid' => $accountEntityId, 'l4' => $mask,
+                        'bk' => $instLabel];
                     $stmt->execute($params);
-                    $adoptId = (int) $stmt->fetchColumn();
+                    $candidates = $stmt->fetchAll(PDO::FETCH_COLUMN);
+                    $adoptId = count($candidates) === 1 ? (int) $candidates[0] : 0;
                     if ($adoptId > 0) {
                         $pdo->prepare(
                             "UPDATE accounting_bank_accounts
                                 SET plaid_account_id = :pa,
                                     feed_provider    = 'plaid_transactions',
-                                    entity_id        = COALESCE(entity_id, :eid),
                                     status           = 'active',
                                     updated_at       = NOW()
-                              WHERE tenant_id = :t AND id = :id"
-                        )->execute(['t' => $tenantId, 'pa' => $accId, 'id' => $adoptId, 'eid' => $entityId]);
+                              WHERE tenant_id = :t AND id = :id AND entity_id = :eid"
+                        )->execute(['t' => $tenantId, 'pa' => $accId, 'id' => $adoptId, 'eid' => $accountEntityId]);
                         $createdBank[] = $adoptId;
                         continue;
                     }
                 }
 
-                // 3) Brand-new bank account — allocate a fresh row.
-                // GL codes are UNIQUE per (tenant, code).
-                // Modes:
-                //   - $createGlPerAccount === true: derive a unique
-                //     code per Plaid account (`1000-{last4}` etc.) so
-                //     every sub-account has its own GL row.
-                //   - $createGlPerAccount === false (default 2026-02+):
-                //     all deposit accounts of the same subtype share
-                //     ONE GL row ("1000 Cash — Checking" /
-                //     "1010 Cash — Savings").  Keeps the CoA clean for
-                //     tenants who don't care about per-bank
-                //     reconciliation at the GL level.
+                // 3) Brand-new bank account — allocate a distinct cash ledger.
                 $baseCode = $subtype === 'savings' ? '1010' : '1000';
-                if ($createGlPerAccount) {
-                    $glCode   = plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
-                } else {
-                    $sharedName = $subtype === 'savings' ? 'Cash — Savings' : 'Cash — Checking';
-                    $glCode = plaidEnsureSharedGlAccount(
-                        $pdo, $tenantId, $baseCode, $sharedName, 'asset', 'debit'
-                    );
-                }
+                $glCode = plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
 
                 $bankName  = $instLabel !== '' ? $instLabel : ($name ?: 'Bank');
                 $insName   = trim(($instLabel ? "{$instLabel} — " : '') . ($name ?: 'Account'));
@@ -344,8 +322,6 @@ if ($action === 'exchange') {
                 // this, accounting_bank_accounts has a gl_account_code that
                 // doesn't resolve to a real GL account and the CoA list is empty.
                 //
-                // In shared-GL mode `plaidEnsureSharedGlAccount()` already
-                // created the row, so this block falls through as a no-op.
                 $aaCheck = $pdo->prepare(
                     'SELECT id FROM accounting_accounts
                       WHERE tenant_id = :t AND code = :c LIMIT 1'
@@ -363,8 +339,9 @@ if ($action === 'exchange') {
                         $pdo->prepare(
                             "INSERT INTO accounting_accounts
                                 (tenant_id, code, name, account_type, normal_side,
-                                 is_postable, parent_account_id, active, created_at)
-                             VALUES (:t, :c, :n, 'asset', 'debit', 1, NULL, 1, NOW())"
+                                 cash_flow_tag, is_postable, parent_account_id, active, created_at)
+                             VALUES (:t, :c, :n, 'asset', 'debit',
+                                     'cash_and_equivalents', 1, NULL, 1, NOW())"
                         )->execute(['t' => $tenantId, 'c' => $glCode, 'n' => $glFull]);
                     } catch (\Throwable $e) {
                         // If we lose a race on the UNIQUE (tenant, code) constraint
@@ -382,7 +359,7 @@ if ($action === 'exchange') {
                          created_at)
                      VALUES (:t, :eid, :nm, :gl, :bk, :l4, :c, "plaid_transactions", "active", :pa, NULL, NOW())'
                 )->execute([
-                    't'  => $tenantId, 'eid' => $entityId, 'nm' => $insName, 'gl' => $glCode,
+                    't'  => $tenantId, 'eid' => $accountEntityId, 'nm' => $insName, 'gl' => $glCode,
                     'bk' => $bankName, 'l4' => $mask, 'c'  => 'USD', 'pa' => $accId,
                 ]);
                 $createdBank[] = (int) $pdo->lastInsertId();
@@ -396,12 +373,15 @@ if ($action === 'exchange') {
             try {
                 // 1) Exact re-link match.
                 $check = $pdo->prepare(
-                    'SELECT id, account_id FROM treasury_liability_accounts
+                    'SELECT id, account_id, entity_id FROM treasury_liability_accounts
                       WHERE tenant_id = :t AND plaid_account_id = :a LIMIT 1'
                 );
                 $check->execute(['t' => $tenantId, 'a' => $accId]);
                 $existingRow = $check->fetch(PDO::FETCH_ASSOC);
                 if ($existingRow) {
+                    if ((int) ($existingRow['entity_id'] ?? 0) !== $accountEntityId) {
+                        throw new RuntimeException('This connected liability belongs to another or unassigned legal entity');
+                    }
                     // Re-activate companion COA row in case it was deactivated.
                     $pdo->prepare(
                         "UPDATE accounting_accounts
@@ -412,32 +392,32 @@ if ($action === 'exchange') {
                     continue;
                 }
 
-                // 2) Adoption — same institution+last4 already linked under a
-                //    different Plaid account_id. Reassign the new Plaid id to
-                //    the existing row instead of spawning a duplicate card.
+                // 2) Adopt only an unambiguous same-institution, same-last4
+                //    liability when Plaid changes its account id.
                 $instLabelRaw = (string) ($institution['name'] ?? '');
-                if ($mask) {
-                    // Same HY093 fix as the depository branch above —
-                    // EMULATE_PREPARES=false won't accept the duplicated
-                    // `:inst` placeholder. Branch the SQL instead.
-                    $hasInst = $instLabelRaw !== '';
+                if ($mask && $instLabelRaw !== '') {
+                    // Require institution identity and bind :inst once;
+                    // EMULATE_PREPARES=false rejects the former OR with HY093.
                     $sql = 'SELECT tla.id, tla.account_id FROM treasury_liability_accounts tla
                               WHERE tla.tenant_id = :t
-                                AND tla.last4     = :l4'
-                        . ($hasInst ? ' AND tla.institution_name = :inst' : '')
-                        . ' ORDER BY tla.updated_at DESC, tla.id DESC
-                            LIMIT 1';
+                                AND tla.entity_id = :eid
+                                AND tla.last4     = :l4
+                                AND tla.institution_name = :inst
+                             ORDER BY tla.updated_at DESC, tla.id DESC
+                             LIMIT 2';
                     $stmt   = $pdo->prepare($sql);
-                    $params = ['t' => $tenantId, 'l4' => $mask];
-                    if ($hasInst) $params['inst'] = $instLabelRaw;
+                    $params = ['t' => $tenantId, 'eid' => $accountEntityId,
+                        'l4' => $mask, 'inst' => $instLabelRaw];
                     $stmt->execute($params);
-                    $adopt = $stmt->fetch(PDO::FETCH_ASSOC);
+                    $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    $adopt = count($candidates) === 1 ? $candidates[0] : null;
                     if ($adopt) {
                         $pdo->prepare(
                             'UPDATE treasury_liability_accounts
                                 SET plaid_account_id = :pa, updated_at = NOW()
-                              WHERE tenant_id = :t AND id = :id'
-                        )->execute(['t' => $tenantId, 'pa' => $accId, 'id' => (int) $adopt['id']]);
+                              WHERE tenant_id = :t AND id = :id AND entity_id = :eid'
+                        )->execute(['t' => $tenantId, 'pa' => $accId,
+                            'id' => (int) $adopt['id'], 'eid' => $accountEntityId]);
                         $pdo->prepare(
                             'UPDATE accounting_accounts
                                 SET active = 1, updated_at = NOW()
@@ -448,18 +428,10 @@ if ($action === 'exchange') {
                     }
                 }
 
-                // 3) Brand-new card / loan — allocate a fresh COA + companion row.
-                // See deposit branch above for the per-account vs shared
-                // mode rationale; default is shared since 2026-02.
+                // 3) Brand-new card / loan — allocate a distinct ledger row.
                 $baseCode = $type === 'loan' ? '2200' : '2100';
                 $glName   = $type === 'loan' ? 'Notes Payable' : 'Credit Card Payable';
-                if ($createGlPerAccount) {
-                    $glCode = plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
-                } else {
-                    $glCode = plaidEnsureSharedGlAccount(
-                        $pdo, $tenantId, $baseCode, $glName, 'liability', 'credit'
-                    );
-                }
+                $glCode = plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
 
                 $treasurySubtype = match (true) {
                     $subtype === 'credit card'                  => 'credit_card',
@@ -500,12 +472,13 @@ if ($action === 'exchange') {
 
                 $pdo->prepare(
                     'INSERT INTO treasury_liability_accounts
-                        (tenant_id, account_id, subtype, institution_name, last4,
+                        (tenant_id, account_id, entity_id, subtype, institution_name, last4,
                          plaid_account_id, created_at)
-                     VALUES (:t, :aid, :st, :inst, :l4, :pa, NOW())'
+                     VALUES (:t, :aid, :eid, :st, :inst, :l4, :pa, NOW())'
                 )->execute([
                     't'   => $tenantId,
                     'aid' => $aaId,
+                    'eid' => $accountEntityId,
                     'st'  => $treasurySubtype,
                     'inst'=> (string) ($institution['name'] ?? '') ?: null,
                     'l4'  => $mask,

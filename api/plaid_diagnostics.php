@@ -17,7 +17,8 @@
  *     orphaned_plaid_accounts:      [...]   // Plaid accounts NOT mirrored anywhere
  *   }
  *
- * Permission: `accounting.bank.manage`. Read-only.
+ * Permission: `accounting.bank.manage`. GET is read-only; POST recovery
+ * requires selected_account_ids and an explicit owner in multi-entity tenants.
  */
 
 declare(strict_types=1);
@@ -33,9 +34,41 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
     require_once __DIR__ . '/../core/active_entity.php';
 
     $pdo = getDB();
-    $entity = activeEntityResolveForTenant($tenantId);
-    if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
+    $body = api_json_body();
+    $availableEntities = activeEntityAvailable($tenantId);
+    if (!$availableEntities) api_error('No accounting entity is configured for this tenant', 422);
+    $validEntityIds = array_fill_keys(array_column($availableEntities, 'id'), true);
+    $requestedEntityId = !empty($body['entity_id']) ? (int) $body['entity_id'] : null;
+    if (count($availableEntities) > 1 && !$requestedEntityId) {
+        api_error('Choose a legal entity before adding connected accounts', 422);
+    }
+    try {
+        $entity = activeEntityResolveForTenant($tenantId, $requestedEntityId);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
     $entityId = (int) $entity['id'];
+    $accountEntityIds = [];
+    if (isset($body['account_entity_ids'])) {
+        if (!is_array($body['account_entity_ids'])) api_error('account_entity_ids must be an object', 422);
+        foreach ($body['account_entity_ids'] as $accountId => $ownerId) {
+            if ((string) $accountId === '' || !is_scalar($ownerId)) {
+                api_error('Invalid bank account entity assignment', 422);
+            }
+            $ownerId = filter_var($ownerId, FILTER_VALIDATE_INT);
+            if (!$ownerId || !isset($validEntityIds[$ownerId])) {
+                api_error('Bank account entity does not belong to the active tenant', 422);
+            }
+            $accountEntityIds[(string) $accountId] = $ownerId;
+        }
+    }
+    if (!isset($body['selected_account_ids']) || !is_array($body['selected_account_ids'])) {
+        api_error('Select the connected accounts to add to Treasury', 422);
+    }
+    foreach ($body['selected_account_ids'] as $selectedId) {
+        if (!is_scalar($selectedId)) api_error('Invalid bank account selection', 422);
+    }
+    $selectedIds = array_flip(array_map('strval', $body['selected_account_ids']));
 
     // Self-heal: add the liability column if it isn't there yet (mirror of
     // the same guard in plaid_bank_link.php).
@@ -78,6 +111,9 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
         $orphans = array_values(array_filter($orphans, fn ($o) => !isset($alreadyLiab[$o['account_id']])));
     } catch (\Throwable $e) { /* table may not exist; nothing to filter */ }
 
+    $orphans = array_values(array_filter($orphans,
+        fn ($a) => isset($selectedIds[(string) $a['account_id']])));
+
     $createdBank = []; $createdLiab = []; $skipped = []; $errors = [];
 
     foreach ($orphans as $a) {
@@ -87,6 +123,7 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
         $type    = (string) ($a['type'] ?? '');
         $subtype = (string) ($a['subtype'] ?? '');
         $instName= (string) ($a['institution_name'] ?? '');
+        $accountEntityId = $accountEntityIds[$accId] ?? $entityId;
 
         try {
             if ($type === 'depository') {
@@ -104,8 +141,9 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
                     $pdo->prepare(
                         "INSERT INTO accounting_accounts
                             (tenant_id, code, name, account_type, normal_side,
-                             is_postable, parent_account_id, active, created_at)
-                         VALUES (:t, :c, :n, 'asset', 'debit', 1, NULL, 1, NOW())"
+                             cash_flow_tag, is_postable, parent_account_id, active, created_at)
+                         VALUES (:t, :c, :n, 'asset', 'debit',
+                                 'cash_and_equivalents', 1, NULL, 1, NOW())"
                     )->execute(['t' => $tenantId, 'c' => $glCode, 'n' => $glFull ?: ($name ?: 'Bank account')]);
                 }
 
@@ -116,7 +154,7 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
                          created_at)
                      VALUES (:t, :eid, :nm, :gl, :bk, :l4, :c, "plaid_transactions", "active", :pa, NULL, NOW())'
                 )->execute([
-                    't'  => $tenantId, 'eid' => $entityId, 'nm' => $insName, 'gl' => $glCode,
+                    't'  => $tenantId, 'eid' => $accountEntityId, 'nm' => $insName, 'gl' => $glCode,
                     'bk' => $bankName, 'l4' => $mask, 'c'  => 'USD', 'pa' => $accId,
                 ]);
                 $createdBank[] = (int) $pdo->lastInsertId();
@@ -149,11 +187,12 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
 
                 $pdo->prepare(
                     'INSERT INTO treasury_liability_accounts
-                        (tenant_id, account_id, subtype, institution_name, last4,
+                        (tenant_id, account_id, entity_id, subtype, institution_name, last4,
                          plaid_account_id, created_at)
-                     VALUES (:t, :aid, :st, :inst, :l4, :pa, NOW())'
+                     VALUES (:t, :aid, :eid, :st, :inst, :l4, :pa, NOW())'
                 )->execute([
-                    't'   => $tenantId, 'aid' => $aaId, 'st'  => $treasurySubtype,
+                    't'   => $tenantId, 'aid' => $aaId, 'eid' => $accountEntityId,
+                    'st'  => $treasurySubtype,
                     'inst'=> $instName !== '' ? $instName : null,
                     'l4'  => $mask, 'pa'  => $accId,
                 ]);
@@ -214,8 +253,9 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill_gl
             $pdo->prepare(
                 "INSERT INTO accounting_accounts
                     (tenant_id, code, name, account_type, normal_side,
-                     is_postable, parent_account_id, active, created_at)
-                 VALUES (:t, :c, :n, 'asset', 'debit', 1, NULL, 1, NOW())"
+                     cash_flow_tag, is_postable, parent_account_id, active, created_at)
+                 VALUES (:t, :c, :n, 'asset', 'debit',
+                         'cash_and_equivalents', 1, NULL, 1, NOW())"
             )->execute(['t' => $tenantId, 'c' => $code, 'n' => $glName]);
             $created[] = ['bank_account_id' => (int) $row['id'], 'code' => $code, 'name' => $glName];
         } catch (\Throwable $e) {
@@ -256,7 +296,7 @@ $accounts->execute(['t' => $tenantId]);
 $accounts = $accounts->fetchAll(PDO::FETCH_ASSOC);
 
 $bankRows = $pdo->prepare(
-    "SELECT id, name, gl_account_code, bank_name, last4, currency, feed_provider,
+    "SELECT id, entity_id, name, gl_account_code, bank_name, last4, currency, feed_provider,
             status, plaid_account_id, last_feed_synced_at, created_at
        FROM accounting_bank_accounts
       WHERE tenant_id = :t AND plaid_account_id IS NOT NULL"
@@ -277,7 +317,7 @@ try {
     $col->execute();
     if ((int) $col->fetchColumn() > 0) {
         $stmt = $pdo->prepare(
-            "SELECT id, account_id, subtype, institution_name, last4, plaid_account_id, created_at
+            "SELECT id, account_id, entity_id, subtype, institution_name, last4, plaid_account_id, created_at
                FROM treasury_liability_accounts
               WHERE tenant_id = :t AND plaid_account_id IS NOT NULL"
         );

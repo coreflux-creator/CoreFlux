@@ -135,7 +135,9 @@ _a('Liability list shows Bank balance column',              str_contains($liaUI,
 
 echo "\nReconnect adoption (no more duplicates) + dedupe endpoint\n";
 _a('exchange has exact re-link match path',                 str_contains($bankLink, 'Exact re-link match'));
-_a('exchange has adoption path keyed on bank+last4',        str_contains($bankLink, 'Adoption — same bank+last4 already linked'));
+_a('exchange adopts only one bank+last4 candidate',        str_contains($bankLink, 'AND bank_name = :bk')
+                                                          && str_contains($bankLink, 'AND last4     = :l4')
+                                                          && str_contains($bankLink, 'count($candidates) === 1'));
 _a('exchange adoption updates plaid_account_id in place',   str_contains($bankLink, 'SET plaid_account_id = :pa,'));
 _a('exchange re-activates closed rows on relink',           str_contains($bankLink, "SET status = 'active',")
                                                           && str_contains($bankLink, 'updated_at = NOW()'));
