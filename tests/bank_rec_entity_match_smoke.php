@@ -49,12 +49,13 @@ $check($entityGuard !== false && $replayReturn !== false && $entityGuard < $repl
     'exact replay validates the original bank and journal ownership first');
 
 $integrity = (string) file_get_contents(__DIR__ . '/../core/business_integrity.php');
-$bankIntegrityStart = strpos($integrity, "'bank_match_integrity'");
-$bankIntegrityEnd = strpos($integrity, "'reconciliation_balance_integrity'", $bankIntegrityStart ?: 0);
+$bankIntegrityStart = strpos($integrity, '$bankMatchInvalid =');
+$bankIntegrityEnd = strpos($integrity, "'bank_duplicate_journal_matches'", $bankIntegrityStart ?: 0);
 $bankIntegrity = $bankIntegrityStart === false ? '' : substr($integrity, $bankIntegrityStart,
     $bankIntegrityEnd === false ? null : $bankIntegrityEnd - $bankIntegrityStart);
-$check(substr_count($bankIntegrity, 'bank.entity_id <> journal.entity_id') === 2
-    && substr_count($bankIntegrity, 'bank.entity_id IS NULL OR journal.entity_id IS NULL') === 2,
-    'integrity count and details expose cross-entity or unknown-entity matches');
+$check(str_contains($bankIntegrity, 'bank.entity_id <> journal.entity_id')
+    && str_contains($bankIntegrity, 'bank.entity_id IS NULL OR journal.entity_id IS NULL')
+    && substr_count($bankIntegrity, '{$bankMatchInvalid}') === 2,
+    'integrity count and details share the cross-entity and unknown-entity predicate');
 
 echo "bank rec entity match smoke: {$passed} passed\n";
