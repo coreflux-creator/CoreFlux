@@ -210,7 +210,9 @@ export default function LineItemEditor({ testIdPrefix, lines, onChange, glLabel,
                       data-testid={`${testIdPrefix}-line-${i}-gl`}
                     >
                       <option value="">— default —</option>
-                      {accounts.map((a) => <option key={a.code} value={a.code}>{a.code} {a.name}</option>)}
+                      {accounts.map((a) => <option key={a.code} value={a.code} disabled={a.disabled}>
+                        {a.code} {a.name}{a.unavailable_reason ? ` (${a.unavailable_reason})` : ''}
+                      </option>)}
                     </select>
                   ) : (
                     <input

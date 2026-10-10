@@ -8,6 +8,7 @@
  *   POST   /api/ap/bills?action=from-time-bundle
  *          body: {period_id, placement_ids[], aggregation}
  *   PATCH  /api/ap/bills?id=N                   → edit (only inbox/pending_review/pending_approval)
+ *   PATCH  /api/ap/bills?action=coding&id=N     → recode an unposted manual bill without changing approved amounts
  *   POST   /api/ap/bills?action=approve&id=N    → two-eye gate
  *   POST   /api/ap/bills?action=void&id=N       → body: {reason}
  *   POST   /api/ap/bills?action=correct_posted&id=N → reverse an unpaid manual bill with reason
@@ -308,6 +309,17 @@ if ($method === 'GET' && !empty($_GET['id'])) {
             $bill['correction_unavailable_reason'] = $e->getMessage();
         } catch (\Throwable $_) {
             $bill['correction_unavailable_reason'] = 'Correction needs an accounting review';
+        }
+    }
+    $bill['coding_permitted'] = $bill['source'] === 'manual'
+        && in_array($bill['status'], ['inbox', 'pending_review', 'pending_approval', 'approved'], true)
+        && empty($bill['placement_id']) && !apBillHasLedgerOrPaymentActivity($pdo, $tid, $bill)
+        && rbac_legacy_can($user, 'ap.bill.create')
+        && ($bill['status'] !== 'approved' || rbac_legacy_can($user, 'ap.bill.post'));
+    foreach ($lines as $line) {
+        if ($line['source_type'] !== 'manual' || !empty($line['placement_id'])) {
+            $bill['coding_permitted'] = false;
+            break;
         }
     }
     $approval = ['can_approve' => false, 'reason' => null];
@@ -743,6 +755,103 @@ if ($method === 'POST' && $action === '') {
     apAudit('ap.bill.created', ['bill_id' => $created['id'],
         'internal_ref' => $created['internal_ref'], 'source' => 'manual'], $created['id']);
     api_ok(['id' => $created['id'], 'internal_ref' => $created['internal_ref']], 201);
+}
+
+if ($method === 'PATCH' && $action === 'coding') {
+    rbac_legacy_require($user, 'ap.bill.create');
+    $id = (int) ($_GET['id'] ?? 0);
+    $body = api_json_body();
+    $requested = $body['lines'] ?? null;
+    if ($id <= 0 || !is_array($requested) || !array_is_list($requested)
+        || !$requested || count($requested) > 500) {
+        api_error('Supply every bill line with its current and replacement expense account', 422);
+    }
+    $pdo = getDB();
+    cf_begin_transaction();
+    try {
+        $locked = $pdo->prepare('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE');
+        $locked->execute(['tenant_id' => $tid, 'id' => $id]);
+        $bill = $locked->fetch(PDO::FETCH_ASSOC);
+        if (!$bill) throw new \DomainException('Bill not found in this workspace');
+        if ($bill['source'] !== 'manual' || !in_array($bill['status'],
+            ['inbox', 'pending_review', 'pending_approval', 'approved'], true)
+            || !empty($bill['placement_id']) || apBillHasLedgerOrPaymentActivity($pdo, $tid, $bill)) {
+            throw new \DomainException('Only unposted, unpaid manual bills without placements can be recoded');
+        }
+        if ($bill['status'] === 'approved' && !rbac_legacy_can($user, 'ap.bill.post')) {
+            throw new \DomainException('Posting permission is required to recode an approved bill');
+        }
+        $lineQuery = $pdo->prepare(
+            'SELECT id, source_type, placement_id, gl_expense_account_code
+               FROM ap_bill_lines WHERE bill_id = :bill_id ORDER BY line_no FOR UPDATE'
+        );
+        $lineQuery->execute(['bill_id' => $id]);
+        $storedLines = $lineQuery->fetchAll(PDO::FETCH_ASSOC);
+        if (count($storedLines) !== count($requested)) {
+            throw new \DomainException('The bill lines changed. Refresh before saving coding.');
+        }
+        $wanted = [];
+        foreach ($requested as $choice) {
+            if (!is_array($choice) || !isset($choice['line_id'])
+                || !array_key_exists('expected_gl_expense_account_code', $choice)
+                || !array_key_exists('gl_expense_account_code', $choice)
+                || !is_numeric($choice['line_id'])
+                || (int) $choice['line_id'] <= 0
+                || isset($wanted[(int) $choice['line_id']])) {
+                throw new \InvalidArgumentException('Supply each bill line once with its current expense account');
+            }
+            $wanted[(int) $choice['line_id']] = $choice;
+        }
+        $changes = [];
+        $update = $pdo->prepare(
+            'UPDATE ap_bill_lines SET gl_expense_account_code = :code
+              WHERE bill_id = :bill_id AND id = :line_id
+                AND EXISTS (SELECT 1 FROM ap_bills b
+                             WHERE b.id = :scoped_bill_id AND b.tenant_id = :tenant_id)'
+        );
+        foreach ($storedLines as $line) {
+            $lineId = (int) $line['id'];
+            $choice = $wanted[$lineId] ?? null;
+            if (!$choice || $line['source_type'] !== 'manual' || !empty($line['placement_id'])) {
+                throw new \DomainException('The bill lines changed or are placement-owned. Refresh before saving coding.');
+            }
+            $old = trim((string) ($line['gl_expense_account_code'] ?? '')) ?: null;
+            $expected = $choice['expected_gl_expense_account_code'];
+            $replacement = $choice['gl_expense_account_code'];
+            if (($expected !== null && !is_scalar($expected))
+                || ($replacement !== null && !is_scalar($replacement))) {
+                throw new \InvalidArgumentException('Choose a valid expense account for each line');
+            }
+            $expected = trim((string) $expected) ?: null;
+            $replacement = trim((string) $replacement) ?: null;
+            if ($old !== $expected) {
+                throw new \DomainException('The bill coding changed. Refresh before saving.');
+            }
+            apValidateDirectBillExpenseAccounts($tid, [['gl_expense_account_code' => $replacement]]);
+            if ($old === $replacement) continue;
+            $update->execute([
+                'code' => $replacement, 'bill_id' => $id, 'line_id' => $lineId,
+                'scoped_bill_id' => $id, 'tenant_id' => $tid,
+            ]);
+            if ($update->rowCount() !== 1) throw new \DomainException('Bill coding changed. Refresh before saving.');
+            $changes[] = ['line_id' => $lineId, 'from' => $old, 'to' => $replacement];
+        }
+        if ($changes) {
+            apAudit('ap.bill.updated', ['bill_id' => $id, 'fields' => ['gl_expense_account_code'],
+                'coding_changes' => $changes], $id);
+        }
+        $pdo->commit();
+    } catch (\InvalidArgumentException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 422);
+    } catch (\DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 409);
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    api_ok(['ok' => true, 'changed' => count($changes)]);
 }
 
 if ($method === 'PATCH') {

@@ -6,6 +6,7 @@ import IntercompanySplitDialog from '../../../dashboard/src/components/Intercomp
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 import ThreeWayMatchPanel from './ThreeWayMatchPanel';
 import BillApprovalThread from './BillApprovalThread';
+import { directBillAccountChoices } from './directBillAccounts';
 import { Pencil, RotateCcw, X } from 'lucide-react';
 
 const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
@@ -19,11 +20,14 @@ export default function BillDetail({ session }) {
   if (requestedEntityId) returnParams.set('entity_id', requestedEntityId);
   if (params.get('status')) returnParams.set('status', params.get('status'));
   const { data, loading, error, reload } = useApi(`/modules/ap/api/bills.php?id=${id}`);
+  const accountsApi = useApi('/modules/accounting/api/accounts.php?active=1&include_required_dimensions=1');
   const [busy, setBusy] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [icSplitOpen, setIcSplitOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
+  const [codingOpen, setCodingOpen] = useState(false);
+  const [codingByLine, setCodingByLine] = useState({});
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const [correctionReason, setCorrectionReason] = useState('');
 
@@ -34,6 +38,12 @@ export default function BillDetail({ session }) {
   const bill = data.bill;
   const lines = data.lines || [];
   const allocations = data.allocations || [];
+  const expenseAccounts = directBillAccountChoices(accountsApi.data?.rows ?? []);
+  const eligibleCodes = new Set(expenseAccounts.filter(account => !account.disabled).map(account => account.code));
+  const codingInvalid = lines.some(line => {
+    const selected = codingByLine[line.id] ?? '';
+    return selected !== '' && !eligibleCodes.has(selected);
+  });
 
   const createdByCurrentUser = Number(session?.user?.id) > 0
     && Number(bill.created_by_user_id) === Number(session.user.id);
@@ -48,6 +58,7 @@ export default function BillDetail({ session }) {
   const canEdit    = ['inbox','pending_review','pending_approval'].includes(bill.status)
     && !hasAccountingActivity;
   const canCorrect = Boolean(bill.correction_available && bill.correction_permitted);
+  const canEditCoding = Boolean(bill.coding_permitted);
 
   const run = async (label, fn) => {
     setBusy(label); setActionError(null);
@@ -94,6 +105,25 @@ export default function BillDetail({ session }) {
       setEditing(false);
     });
   };
+  const startCoding = () => {
+    setCodingByLine(Object.fromEntries(lines.map(line => [line.id, line.gl_expense_account_code || ''])));
+    setActionError(null);
+    setCodingOpen(true);
+  };
+  const saveCoding = (event) => {
+    event.preventDefault();
+    if (accountsApi.loading || accountsApi.error || codingInvalid) return;
+    run('coding', async () => {
+      await api.patch(`/modules/ap/api/bills.php?action=coding&id=${id}`, {
+        lines: lines.map(line => ({
+          line_id: Number(line.id),
+          expected_gl_expense_account_code: line.gl_expense_account_code || null,
+          gl_expense_account_code: codingByLine[line.id] || null,
+        })),
+      });
+      setCodingOpen(false);
+    });
+  };
 
   return (
     <section data-testid="ap-bill-detail">
@@ -110,9 +140,10 @@ export default function BillDetail({ session }) {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {canEdit && <button className="btn btn--ghost" onClick={startEdit} disabled={busy === 'edit'} data-testid="ap-bill-edit"><Pencil size={15} aria-hidden="true" /> Edit details</button>}
+          {canEditCoding && !codingOpen && <button className="btn btn--ghost" type="button" onClick={startCoding} data-testid="ap-bill-edit-coding"><Pencil size={15} aria-hidden="true" /> Edit coding</button>}
           {canApprove && <button className="btn btn--primary" onClick={approve} disabled={busy==='approve'} data-testid="ap-bill-approve">{busy==='approve' ? 'Approving…' : 'Approve'}</button>}
-          {canPost    && <button className="btn btn--ghost" onClick={postGl} disabled={busy==='post'} data-testid="ap-bill-post">{busy==='post' ? 'Posting…' : 'Post to GL'}</button>}
-          {canPost    && <button className="btn btn--ghost" onClick={() => setIcSplitOpen(true)} data-testid="ap-bill-post-ic-split">⊕ Post with IC split</button>}
+          {canPost    && <button className="btn btn--ghost" onClick={postGl} disabled={busy==='post' || codingOpen} data-testid="ap-bill-post">{busy==='post' ? 'Posting…' : 'Post to GL'}</button>}
+          {canPost    && <button className="btn btn--ghost" onClick={() => setIcSplitOpen(true)} disabled={codingOpen} data-testid="ap-bill-post-ic-split">⊕ Post with IC split</button>}
           {canCorrect && <button className="btn btn--ghost" type="button" onClick={() => setCorrectionOpen(true)} disabled={busy === 'correct'} aria-expanded={correctionOpen} data-testid="ap-bill-correct-posted"><RotateCcw size={15} aria-hidden="true" /> Correct posted bill</button>}
           {canDispute && <button className="btn btn--ghost" onClick={dispute} disabled={busy==='dispute'} data-testid="ap-bill-dispute">{busy==='dispute' ? 'Disputing…' : 'Dispute'}</button>}
           {canVoid    && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="ap-bill-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}
@@ -255,6 +286,13 @@ export default function BillDetail({ session }) {
       <BillApprovalThread billId={id} />
 
       <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>Lines</h3>
+      {codingOpen && <form id="ap-bill-coding-form" onSubmit={saveCoding} data-testid="ap-bill-coding-form" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+        <span style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>Change expense accounts only. Approved amounts stay the same.</span>
+        <button className="btn btn--primary" type="submit" disabled={busy === 'coding' || accountsApi.loading || Boolean(accountsApi.error) || codingInvalid} data-testid="ap-bill-save-coding">{busy === 'coding' ? 'Saving…' : 'Save coding'}</button>
+        <button className="btn btn--ghost" type="button" onClick={() => setCodingOpen(false)} disabled={busy === 'coding'}>Cancel</button>
+        {accountsApi.error && <span className="error" role="alert">Accounts unavailable: {accountsApi.error.message}</span>}
+        {codingInvalid && <span className="error" role="alert">Choose an account available for a direct bill.</span>}
+      </form>}
       <table className="data-table" data-testid="ap-bill-lines" style={{ marginBottom: 'var(--cf-space-4)' }}>
         <thead><tr><th>#</th><th>Description</th><th style={{textAlign:'right'}}>Qty</th><th>Unit</th><th style={{textAlign:'right'}}>Unit $</th><th style={{textAlign:'right'}}>Subtotal</th><th style={{textAlign:'right'}}>Total</th><th>GL</th><th>1099?</th><th>Receipt</th></tr></thead>
         <tbody>
@@ -282,7 +320,21 @@ export default function BillDetail({ session }) {
               <td style={{textAlign:'right'}}>{Number(l.unit_price).toFixed(4)}</td>
               <td style={{textAlign:'right'}}>{Number(l.subtotal).toFixed(2)}</td>
               <td style={{textAlign:'right'}}>{Number(l.total).toFixed(2)}</td>
-              <td>{l.gl_expense_account_code || '—'}</td>
+              <td>{codingOpen ? <select
+                className="input"
+                aria-label={`Expense account for line ${l.line_no}`}
+                value={codingByLine[l.id] ?? ''}
+                onChange={event => setCodingByLine(current => ({ ...current, [l.id]: event.target.value }))}
+                data-testid={`ap-bill-line-${l.id}-coding`}
+                style={{ minWidth: 185 }}
+              >
+                <option value="">Default expense (6990)</option>
+                {l.gl_expense_account_code && !expenseAccounts.some(account => account.code === l.gl_expense_account_code) &&
+                  <option value={l.gl_expense_account_code} disabled>{l.gl_expense_account_code} (unavailable)</option>}
+                {expenseAccounts.map(account => <option key={account.code} value={account.code} disabled={account.disabled}>
+                  {account.code} {account.name}{account.unavailable_reason ? ` (${account.unavailable_reason})` : ''}
+                </option>)}
+              </select> : (l.gl_expense_account_code || '—')}</td>
               <td>{Number(l.is_1099_eligible) ? 'Yes' : 'No'}</td>
               <td><LineReceiptCell line={l} /></td>
             </tr>

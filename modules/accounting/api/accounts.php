@@ -140,6 +140,36 @@ if ($method === 'GET') {
             && !isset($protectedCodes[(string) $account['code']]);
     }
     unset($account);
+    if (($_GET['include_required_dimensions'] ?? '') === '1') {
+        require_once __DIR__ . '/../lib/dimensions.php';
+        $registry = accountingDimensionRegistry($tid);
+        $rulesByAccount = [];
+        if ($registry) {
+            $rules = getDB()->prepare(
+                'SELECT r.account_id, d.dim_key, r.requirement
+                   FROM accounting_account_dim_rules r
+                   JOIN accounting_dimensions d ON d.id = r.dimension_id
+                  WHERE r.tenant_id = :tenant_id AND d.tenant_id = :dimension_tenant_id AND d.active = 1'
+            );
+            $rules->execute(['tenant_id' => $tid, 'dimension_tenant_id' => $tid]);
+            foreach ($rules->fetchAll(PDO::FETCH_ASSOC) as $rule) {
+                $rulesByAccount[(int) $rule['account_id']][(string) $rule['dim_key']] = (string) $rule['requirement'];
+            }
+        }
+        foreach ($rows as &$account) {
+            $required = [];
+            $blocked = [];
+            foreach ($registry as $key => $dimension) {
+                $requirement = $rulesByAccount[(int) $account['id']][$key]
+                    ?? (!empty($dimension['required_default']) ? 'required' : 'optional');
+                if ($requirement === 'required') $required[] = $key;
+                if ($requirement === 'blocked') $blocked[] = $key;
+            }
+            $account['required_dimensions'] = $required;
+            $account['blocked_dimensions'] = $blocked;
+        }
+        unset($account);
+    }
     api_ok(['rows' => $rows, 'types' => ACCOUNTING_ACCOUNT_TYPES]);
 }
 

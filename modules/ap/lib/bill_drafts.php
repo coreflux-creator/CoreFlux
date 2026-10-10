@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/ap.php';
 require_once __DIR__ . '/../../../core/active_entity.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
+require_once __DIR__ . '/../../accounting/lib/dimensions.php';
 
 /** Validate amounts before either ERP or CoreOne creates an approvable bill. */
 function apValidateManualBillLines(array $lines, float $taxPct): array
@@ -44,6 +45,55 @@ function apValidateManualBillLines(array $lines, float $taxPct): array
         throw new InvalidArgumentException('Bill total exceeds the supported amount');
     }
     return $computed;
+}
+
+/** A direct bill supplies vendor and legal entity, but no assignment context. */
+function apValidateDirectBillExpenseAccounts(int $tenantId, array $lines): void
+{
+    $account = getDB()->prepare(
+        'SELECT id, name FROM accounting_accounts
+          WHERE tenant_id = :tenant_id AND code = :code
+            AND active = 1 AND is_postable = 1
+            AND account_type IN ("expense", "other_expense") LIMIT 1'
+    );
+    $registry = accountingDimensionRegistry($tenantId);
+    $checked = [];
+    foreach ($lines as $index => $line) {
+        $rawCode = $line['gl_expense_account_code'] ?? null;
+        if ($rawCode !== null && !is_scalar($rawCode)) {
+            throw new InvalidArgumentException('Bill line ' . ($index + 1) . ': choose a valid expense account');
+        }
+        $code = trim((string) $rawCode) ?: '6990';
+        if (!array_key_exists($code, $checked)) {
+            $account->execute(['tenant_id' => $tenantId, 'code' => $code]);
+            $found = $account->fetch(PDO::FETCH_ASSOC);
+            if (!$found) {
+                $checked[$code] = "Expense account {$code} is inactive, unavailable or not postable";
+            } else {
+                $required = accountingRequiredDimensionKeysForAccountCodes($tenantId, [$code]);
+                $missing = array_values(array_diff($required, ['vendor', 'legal_entity']));
+                $rules = accountingAccountDimRules($tenantId, (int) $found['id']);
+                $blocked = array_keys(array_filter(
+                    $rules,
+                    static fn(string $requirement, string $key): bool => $requirement === 'blocked'
+                        && in_array($key, ['vendor', 'legal_entity'], true),
+                    ARRAY_FILTER_USE_BOTH
+                ));
+                $labels = array_map(
+                    static fn(string $key): string => (string) ($registry[$key]['label'] ?? $key),
+                    $missing
+                );
+                $checked[$code] = $labels
+                    ? "{$code} {$found['name']} requires " . implode(', ', $labels)
+                        . '; choose an account without those dimensions for a direct bill'
+                    : ($blocked ? "{$code} {$found['name']} blocks " . implode(', ', $blocked)
+                        . '; choose an account that accepts vendor and legal entity coding' : null);
+            }
+        }
+        if ($checked[$code] !== null) {
+            throw new InvalidArgumentException('Bill line ' . ($index + 1) . ': ' . $checked[$code]);
+        }
+    }
 }
 
 function apCreateManualBill(int $tenantId, array $body, ?int $actorUserId = null): array
@@ -130,6 +180,9 @@ function apCreateManualBill(int $tenantId, array $body, ?int $actorUserId = null
         throw new InvalidArgumentException($e->getMessage(), 0, $e);
     }
     if (!$issuingEntity) throw new InvalidArgumentException('An active issuing entity is required');
+    if (empty($body['placement_id'])) {
+        apValidateDirectBillExpenseAccounts($tenantId, $body['lines']);
+    }
 
     $owns = !$pdo->inTransaction();
     $savepoint = $owns ? null : 'ap_bill_' . bin2hex(random_bytes(4));

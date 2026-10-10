@@ -8,6 +8,7 @@ import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import VendorTypeahead from './VendorTypeahead';
 import VendorQuickCreate from './VendorQuickCreate';
 import { calculateDocumentTotals } from '../../../dashboard/src/lib/documentTotals';
+import { directBillAccountChoices } from './directBillAccounts';
 
 const ITEM_TYPE_FALLBACK = ITEM_TYPES.map((t) => t.value);
 const AP_ITEM_TYPES = ITEM_TYPES.filter((t) => t.value !== 'discount');
@@ -25,8 +26,8 @@ export default function BillCreate({ session }) {
   if (params.get('status')) contextParams.set('status', params.get('status'));
   const contextQuery = contextParams.size ? `?${contextParams}` : '';
   const returnPath = `../bills${contextQuery}`;
-  const accountsApi = useApi('/modules/accounting/api/accounts.php?type=expense&active=1');
-  const expenseAccounts = accountsApi.data?.rows ?? [];
+  const accountsApi = useApi('/modules/accounting/api/accounts.php?active=1&include_required_dimensions=1');
+  const expenseAccounts = directBillAccountChoices(accountsApi.data?.rows ?? []);
 
   const [vendor, setVendor]       = useState(null);
   const [showCreateVendor, setShowCreateVendor] = useState(false);
