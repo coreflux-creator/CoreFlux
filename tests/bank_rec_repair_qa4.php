@@ -13,6 +13,7 @@ if ($root !== '/home/1516771.cloudwaysapps.com/fyqqcqhwwr/public_html') {
     throw new RuntimeException('Refusing to run outside the disposable CoreAccounting QA4 webroot.');
 }
 require_once $root . '/core/tenant_scope.php';
+require_once $root . '/core/business_integrity.php';
 require_once $root . '/modules/accounting/lib/accounting.php';
 require_once $root . '/modules/accounting/lib/bank_rec.php';
 
@@ -40,6 +41,14 @@ $check = static function (bool $ok, string $message) use (&$assertions): void {
 };
 $lineCountBefore = (int) $pdo->query('SELECT COUNT(*) FROM accounting_bank_statement_lines')->fetchColumn();
 $journalCountBefore = (int) $pdo->query('SELECT COUNT(*) FROM accounting_journal_entries')->fetchColumn();
+$auditChecks = static function (int $tenantId): array {
+    $checks = [];
+    foreach (businessIntegrityAudit($tenantId)['checks'] as $check) {
+        $checks[$check['key']] = $check;
+    }
+    return $checks;
+};
+$baselineAudit = $auditChecks($tenantId);
 
 $pdo->beginTransaction();
 try {
@@ -118,7 +127,7 @@ try {
     }
 
     $wrongAmountLine = $makeLine();
-    $post($wrongAmountLine, $bankEntityId, 9.00);
+    $wrongAmountJe = $post($wrongAmountLine, $bankEntityId, 9.00);
     $wrongAmount = bankRecRepairPostedMatches($tenantId, $bankId, $wrongAmountLine);
     $check($wrongAmount['repaired'] === 0 && isset($wrongAmount['conflicts'][$wrongAmountLine])
         && $lineState($wrongAmountLine)['match_status'] === 'unmatched',
@@ -166,6 +175,42 @@ try {
     $ruleLine->execute(['t' => $tenantId, 'id' => $reversalLine]);
     $check((int) $ruleLine->fetchColumn() === $ruleId,
         'rule still applies to the unbooked bank line');
+
+    $unresolvedAudit = $auditChecks($tenantId);
+    $check(($unresolvedAudit['bank_match_integrity']['issue_count'] ?? -1)
+        === ($baselineAudit['bank_match_integrity']['issue_count'] ?? 0),
+        'valid repaired match keeps the cash-movement audit clean');
+    $check(($unresolvedAudit['bank_unmatched_explicit_lineage']['issue_count'] ?? -1)
+        === ($baselineAudit['bank_unmatched_explicit_lineage']['issue_count'] ?? 0) + 3,
+        'unmatched direct posted lineage surfaces three review exceptions');
+
+    $forceMatch = $pdo->prepare(
+        'UPDATE accounting_bank_statement_lines
+            SET match_status = "matched", matched_je_id = :je
+          WHERE tenant_id = :t AND id = :id'
+    );
+    foreach ([
+        [$wrongEntityLine, $wrongEntityJe],
+        [$wrongAmountLine, $wrongAmountJe],
+        [$ambiguousLine, $goodJe],
+    ] as [$lineId, $jeId]) {
+        $forceMatch->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $jeId]);
+    }
+    $wrongCurrencyLine = $makeLine();
+    $wrongCurrencyJe = $post($wrongCurrencyLine, $bankEntityId, 10.00);
+    $pdo->prepare('UPDATE accounting_journal_entries SET currency = "EUR" WHERE tenant_id = :t AND id = :id')
+        ->execute(['t' => $tenantId, 'id' => $wrongCurrencyJe]);
+    $forceMatch->execute(['t' => $tenantId, 'id' => $wrongCurrencyLine, 'je' => $wrongCurrencyJe]);
+    $invalidAudit = $auditChecks($tenantId);
+    $check(($invalidAudit['bank_match_integrity']['issue_count'] ?? -1)
+        === ($baselineAudit['bank_match_integrity']['issue_count'] ?? 0) + 3,
+        'matched-line audit finds wrong entity, cash amount and currency');
+    $check(($invalidAudit['bank_duplicate_journal_matches']['issue_count'] ?? -1)
+        === ($baselineAudit['bank_duplicate_journal_matches']['issue_count'] ?? 0) + 1,
+        'audit finds two bank lines claiming one posted journal');
+    $check(($invalidAudit['bank_unmatched_explicit_lineage']['issue_count'] ?? -1)
+        === ($baselineAudit['bank_unmatched_explicit_lineage']['issue_count'] ?? 0),
+        'resolved synthetic lines no longer appear as unmatched exceptions');
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();
     setRequestTenantId(null);

@@ -11,6 +11,7 @@ $check = static function (string $label, bool $ok) use (&$passed, &$failed): voi
 $lib = (string) file_get_contents($root . '/modules/accounting/lib/bank_rec.php');
 $bankApi = (string) file_get_contents($root . '/modules/accounting/api/bank_statements.php');
 $treasury = (string) file_get_contents($root . '/modules/treasury/api/account_transactions.php');
+$integrity = (string) file_get_contents($root . '/core/business_integrity.php');
 
 $check('shared match transition exists', str_contains($lib, 'function bankRecMarkLineMatched('));
 $check('shared transition records match metadata', str_contains($lib, 'matched_at = NOW()') && str_contains($lib, 'matched_by_user_id = :user_id'));
@@ -37,6 +38,14 @@ $check('bank rules leave conflicted posted lines for ledger review',
     str_contains($rulesBody, 'bankRecRepairPostedMatches($tenantId, $bankAccountId)')
     && str_contains($rulesBody, "isset(\$conflicts[(int) \$l['id']])")
     && str_contains($rulesBody, "'lineage_conflict_count' => count(\$conflicts)"));
+$check('read-only integrity audit compares cash movement and currency',
+    str_contains($integrity, "'bank_match_integrity'")
+    && str_contains($integrity, 'journal_line.debit - journal_line.credit')
+    && str_contains($integrity, "COALESCE(NULLIF(bank.currency, ''), 'USD')"));
+$check('read-only integrity audit detects duplicate and unresolved bank lineage',
+    str_contains($integrity, "'bank_duplicate_journal_matches'")
+    && str_contains($integrity, "'bank_unmatched_explicit_lineage'")
+    && str_contains($integrity, "link.link_kind = 'primary'"));
 $check('write routes guard stale posted lineage',
     str_contains($bankApi, 'bankRecGuardPostedLineage(')
     && str_contains($treasury, 'bankRecGuardPostedLineage($tenantId, $lineId)'));
