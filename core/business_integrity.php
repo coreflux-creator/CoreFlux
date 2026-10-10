@@ -515,6 +515,8 @@ function businessIntegrityAudit(int $tenantId): array
             AND (
                 bank_line.matched_je_id IS NULL OR account.id IS NULL OR journal.id IS NULL
                 OR journal.status NOT IN ('posted','reversed')
+                OR bank.entity_id IS NULL OR journal.entity_id IS NULL
+                OR bank.entity_id <> journal.entity_id
                 OR NOT EXISTS (
                     SELECT 1 FROM accounting_journal_entry_lines journal_line
                      WHERE journal_line.je_id = journal.id AND journal_line.account_id = account.id
@@ -535,6 +537,8 @@ function businessIntegrityAudit(int $tenantId): array
             AND (
                 bank_line.matched_je_id IS NULL OR account.id IS NULL OR journal.id IS NULL
                 OR journal.status NOT IN ('posted','reversed')
+                OR bank.entity_id IS NULL OR journal.entity_id IS NULL
+                OR bank.entity_id <> journal.entity_id
                 OR NOT EXISTS (
                     SELECT 1 FROM accounting_journal_entry_lines journal_line
                      WHERE journal_line.je_id = journal.id AND journal_line.account_id = account.id

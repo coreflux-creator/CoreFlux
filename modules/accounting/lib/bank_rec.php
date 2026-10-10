@@ -274,11 +274,9 @@ function bankRecMatchLine(int $tenantId, int $lineId, int $jeId, ?int $userId): 
             ['id' => $lineId]
         );
         if (!$line) throw new RuntimeException('Line not found');
-        if (($line['match_status'] ?? '') === 'matched' && (int) ($line['matched_je_id'] ?? 0) === $jeId) {
-            cf_tx_commit($pdo, $ownsTransaction);
-            return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId, 'idempotent_replay' => true];
-        }
-        if (($line['match_status'] ?? '') !== 'unmatched') {
+        $isReplay = ($line['match_status'] ?? '') === 'matched'
+            && (int) ($line['matched_je_id'] ?? 0) === $jeId;
+        if (!$isReplay && ($line['match_status'] ?? '') !== 'unmatched') {
             throw new RuntimeException('This bank line is already resolved');
         }
 
@@ -304,6 +302,10 @@ function bankRecMatchLine(int $tenantId, int $lineId, int $jeId, ?int $userId): 
         }
         if (abs((float) $je['bank_movement'] - (float) $line['amount']) > 0.005) {
             throw new RuntimeException('The journal entry does not contain the matching cash movement for this bank account and amount');
+        }
+        if ($isReplay) {
+            cf_tx_commit($pdo, $ownsTransaction);
+            return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId, 'idempotent_replay' => true];
         }
         $used = scopedFind(
             'SELECT id FROM accounting_bank_statement_lines

@@ -43,5 +43,18 @@ $match = $matchStart === false ? '' : substr($source, $matchStart,
 $check(str_contains($match, "empty(\$line['bank_entity_id']) || empty(\$je['entity_id'])")
     && str_contains($match, "(int) \$line['bank_entity_id'] !== (int) \$je['entity_id']"),
     'final match refuses unknown or different legal entities');
+$entityGuard = strpos($match, 'The journal entry and bank account must belong to the same legal entity');
+$replayReturn = strpos($match, "'idempotent_replay' => true");
+$check($entityGuard !== false && $replayReturn !== false && $entityGuard < $replayReturn,
+    'exact replay validates the original bank and journal ownership first');
+
+$integrity = (string) file_get_contents(__DIR__ . '/../core/business_integrity.php');
+$bankIntegrityStart = strpos($integrity, "'bank_match_integrity'");
+$bankIntegrityEnd = strpos($integrity, "'reconciliation_balance_integrity'", $bankIntegrityStart ?: 0);
+$bankIntegrity = $bankIntegrityStart === false ? '' : substr($integrity, $bankIntegrityStart,
+    $bankIntegrityEnd === false ? null : $bankIntegrityEnd - $bankIntegrityStart);
+$check(substr_count($bankIntegrity, 'bank.entity_id <> journal.entity_id') === 2
+    && substr_count($bankIntegrity, 'bank.entity_id IS NULL OR journal.entity_id IS NULL') === 2,
+    'integrity count and details expose cross-entity or unknown-entity matches');
 
 echo "bank rec entity match smoke: {$passed} passed\n";
