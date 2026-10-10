@@ -10,6 +10,9 @@ const titles = {
   bank_duplicate_journal_matches: 'Journals claimed by multiple lines',
   bank_unmatched_explicit_lineage: 'Unmatched lines with posted history',
 };
+const checkResult = check => check.status === 'fail'
+  ? `${check.issue_count} found`
+  : check.status === 'ok' ? 'No issues' : 'Unavailable';
 
 function BankLineLink({ accountId, lineId, matched = false }) {
   if (!accountId || !lineId) return <>Line {lineId || 'unknown'}</>;
@@ -102,7 +105,7 @@ export default function BankIntegrityReview() {
       </p>}
       {checks.map(check => (
         <section key={check.key} style={{ borderTop: '1px solid #dbe4ed', padding: '16px 0' }} data-testid={`accounting-bank-integrity-${check.key}`}>
-          <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>{titles[check.key] || check.label} · {check.status === 'fail' ? check.issue_count : check.status}</h3>
+          <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>{titles[check.key] || check.label} · {checkResult(check)}</h3>
           {check.status === 'error' && <p className="error" role="alert">This check could not finish. Contact support before relying on the review.</p>}
           {check.status === 'skipped' && <p className="error" role="alert">This check is unavailable: {check.reason}</p>}
           {check.status === 'fail' && check.issue_count > check.sample.length && <p style={{ fontSize: 12, color: '#64748b' }}>Showing {check.sample.length} of {check.issue_count} exceptions.</p>}
