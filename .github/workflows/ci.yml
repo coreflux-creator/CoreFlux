@@ -184,6 +184,12 @@ jobs:
           tools: composer:v2
           coverage: none
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
       - name: Install private CI database config
         run: install -m 600 tests/fixtures/coreaccounting_ci_db.php "$COREFLUX_ACCOUNTING_DB_CONFIG_PATH"
 
