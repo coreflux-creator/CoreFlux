@@ -7,11 +7,11 @@ const SETTINGS_PATHS = new Set(['/settings', '/settings/mail']);
 export const CORE_ACCOUNTING_HOME = '/modules/accounting/overview';
 export const CORE_ACCOUNTING_SEARCH_DESTINATIONS = [
   { label: 'Overview', detail: 'Accounting', to: CORE_ACCOUNTING_HOME },
-  { label: 'Invoices', detail: 'Money in', to: '/modules/billing/invoices' },
-  { label: 'Products & services', detail: 'Money in', to: '/modules/billing/items' },
-  { label: 'Customer payments', detail: 'Money in', to: '/modules/billing/payments' },
-  { label: 'Bills', detail: 'Money out', to: '/modules/ap/bills' },
-  { label: 'Vendor payments', detail: 'Money out', to: '/modules/ap/payments' },
+  { label: 'Invoices', detail: 'Billing', to: '/modules/billing/invoices' },
+  { label: 'Products & services', detail: 'Billing', to: '/modules/billing/items' },
+  { label: 'Customer payments', detail: 'Billing', to: '/modules/billing/payments' },
+  { label: 'Bills', detail: 'Accounts payable', to: '/modules/ap/bills' },
+  { label: 'Vendor payments', detail: 'Accounts payable', to: '/modules/ap/payments' },
   { label: 'Bank feed', detail: 'Banking', to: '/modules/accounting/transactions-to-review' },
   { label: 'Reconcile', detail: 'Banking', to: '/modules/accounting/bank-rec' },
   { label: 'Journal entries', detail: 'Accounting', to: '/modules/accounting/journal-entries' },

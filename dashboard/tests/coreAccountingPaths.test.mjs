@@ -34,4 +34,9 @@ test('standalone search destinations are unique, financial and directly allowed'
   assert.ok(destinations.every(coreAccountingPathAllowed));
   assert.ok(!destinations.includes('/ai-agents'));
   assert.ok(!destinations.some(path => path.endsWith('/overview') && path !== CORE_ACCOUNTING_HOME));
+  const matching = query => CORE_ACCOUNTING_SEARCH_DESTINATIONS
+    .filter(item => `${item.label} ${item.detail}`.toLowerCase().includes(query.toLowerCase()))
+    .map(item => item.to);
+  assert.ok(matching('Billing').includes('/modules/billing/invoices'));
+  assert.ok(matching('Accounts payable').includes('/modules/ap/bills'));
 });

@@ -194,7 +194,7 @@ const Header = ({ user, modules, productMode, tenant, tenants, onModuleChange, o
                   <span>{item.label}</span><small>{item.detail}</small>
                 </button>
               ))}
-              {!searchResults.length && <p>No matching workspace or workflow.</p>}
+              {!searchResults.length && <p>{standaloneAccounting ? 'No matching accounting page.' : 'No matching workspace or workflow.'}</p>}
             </div>
           )}
         </div>
