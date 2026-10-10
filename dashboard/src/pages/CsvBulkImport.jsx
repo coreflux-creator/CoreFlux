@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { api } from '../lib/api';
-import { reserveCsvImportAudit, finalizeCsvImportAudit } from '../lib/csvImportAudit';
+import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit } from '../lib/csvImportAudit';
 
 /**
  * Tenant Onboarding — Bulk CSV Import Wizard.
@@ -276,39 +276,62 @@ export default function CsvBulkImport({ financeOnly = false }) {
       const ordered = visibleEntityOrder
         .flatMap(entity => files
           .map((f, idx) => ({ f, idx }))
-          .filter(({ f }) => f.entity === entity && f.csv && !f.committed && !f.audit?.id)
+          .filter(({ f }) => f.entity === entity && f.csv && !f.committed && (!f.audit?.id || f.audit.state === 'source_missing'))
         );
       const next = [...files];
       for (const { f, idx } of ordered) {
         const cfg = ENTITY_CONFIG[f.entity];
         const shouldUpdate = updateExisting && cfg.supportsUpdate;
+        const auditInput = {
+          csv: f.csv, sourceFile: f.sourceFile, fileName: f.fileName, entity: f.entity,
+          columnMap: JSON.stringify(f.columnMap), skipInvalid, updateExisting: shouldUpdate,
+        };
+        if (f.audit?.state === 'source_missing' && Object.keys(auditInput).some(key => auditInput[key] !== f.audit.input?.[key])) {
+          next[idx] = { ...f, error: new Error('The file or import options changed. Select the file again to start a new import run.') };
+          setFiles([...next]);
+          continue;
+        }
         const path = `${cfg.endpoint}?action=commit${skipInvalid ? '&skip_invalid=1' : ''}${shouldUpdate ? '&update_existing=1' : ''}`;
         const startedAt = Date.now();
-        let runId = null;
+        let runId = f.audit?.state === 'source_missing' ? f.audit.id : null;
+        let sourceArchived = false;
         try {
-          runId = await reserveCsvImportAudit({
-            entity: f.entity, fileName: f.fileName, csvText: f.csv, sourceFile: f.sourceFile, preview: f.preview,
-            skipInvalid, updateExisting: shouldUpdate, columnMap: f.columnMap,
-          });
-          next[idx] = { ...f, audit: { id: runId, state: 'unconfirmed' } };
+          if (!runId) {
+            runId = await reserveCsvImportAudit({
+              entity: f.entity, fileName: f.fileName, csvText: f.csv, sourceFile: f.sourceFile, preview: f.preview,
+              skipInvalid, updateExisting: shouldUpdate, columnMap: f.columnMap,
+            });
+          }
+          next[idx] = { ...f, audit: { id: runId, state: 'unconfirmed', input: auditInput } };
           setFiles([...next]);
+          if (financeOnly) {
+            await archiveCsvImportAudit({
+              runId, csvText: f.csv, sourceFile: f.sourceFile, fileName: f.fileName,
+              entity: f.entity, columnMap: f.columnMap,
+            });
+          }
+          sourceArchived = true;
           const body = { csv: f.csv };
           if (f.columnMap) body.column_map = f.columnMap;
           const res = await api.post(path, body);
           next[idx] = { ...next[idx], committed: res, error: null };
           try {
             const receipt = await finalizeCsvImportAudit({
-              runId, result: res, startedAt, csvText: f.csv, sourceFile: f.sourceFile, fileName: f.fileName,
-              entity: f.entity, columnMap: f.columnMap,
+              runId, result: res, startedAt,
+              postCommitSource: financeOnly ? null : {
+                csvText: f.csv, sourceFile: f.sourceFile, fileName: f.fileName,
+                entity: f.entity, columnMap: f.columnMap,
+              },
             });
-            next[idx] = { ...next[idx], audit: { id: runId, state: receipt.sourceAttached ? 'logged' : 'source_missing' } };
+            next[idx] = { ...next[idx], audit: { id: receipt.id, state: receipt.sourceAttached ? 'logged' : 'source_missing_after_commit', input: auditInput } };
           } catch (auditError) {
-            next[idx] = { ...next[idx], audit: { id: runId, state: 'unconfirmed', message: auditError.message } };
+            next[idx] = { ...next[idx], audit: { id: runId, state: 'unconfirmed', input: auditInput, message: auditError.message } };
           }
         } catch (err) {
           next[idx] = {
             ...next[idx], committed: null,
-            error: runId
+            audit: runId ? { id: runId, state: sourceArchived ? 'unconfirmed' : 'source_missing', input: auditInput, message: err.message } : next[idx].audit,
+            error: runId && !sourceArchived ? null : runId
               ? new Error(`Import outcome unconfirmed. Check Import History and source records before retrying. ${err.message}`)
               : err,
           };
@@ -325,14 +348,17 @@ export default function CsvBulkImport({ financeOnly = false }) {
     try {
       const receipt = await finalizeCsvImportAudit({
         runId: f.audit.id, result: f.committed, startedAt: Date.now(),
-        csvText: f.csv, sourceFile: f.sourceFile, fileName: f.fileName, entity: f.entity, columnMap: f.columnMap,
+        postCommitSource: financeOnly ? null : {
+          csvText: f.csv, sourceFile: f.sourceFile, fileName: f.fileName,
+          entity: f.entity, columnMap: f.columnMap,
+        },
       });
       setFiles(prev => prev.map((row, i) => i === idx
-        ? { ...row, audit: { id: f.audit.id, state: receipt.sourceAttached ? 'logged' : 'source_missing' } }
+        ? { ...row, audit: { id: receipt.id, state: receipt.sourceAttached ? 'logged' : 'source_missing_after_commit', input: f.audit.input } }
         : row));
     } catch (err) {
       setFiles(prev => prev.map((row, i) => i === idx
-        ? { ...row, audit: { id: f.audit.id, state: 'unconfirmed', message: err.message } }
+        ? { ...row, audit: { id: f.audit.id, state: 'unconfirmed', input: f.audit.input, message: err.message } }
         : row));
     } finally { setBusy(false); }
   };
@@ -522,10 +548,12 @@ export default function CsvBulkImport({ financeOnly = false }) {
                     {f.error && <span style={{ color: '#c0392b' }}>Error: {f.error.message}</span>}
                     {!f.error && f.committed && <span style={{ color: 'var(--cf-green, #047857)' }}>Imported</span>}
                     {f.audit?.state === 'logged' && <span data-testid={`csv-bulk-row-${idx}-audit-logged`}> · History #{f.audit.id}</span>}
-                    {f.audit?.state === 'source_missing' && <span className="error" data-testid={`csv-bulk-row-${idx}-source-missing`}> · Source CSV not archived; keep the original file.</span>}
+                    {f.audit?.state === 'source_missing' && <span className="error" data-testid={`csv-bulk-row-${idx}-source-missing`}> · No records imported: source CSV not archived. Retry Import all. {f.audit.message}</span>}
+                    {f.audit?.state === 'source_missing_after_commit' && <span className="error" data-testid={`csv-bulk-row-${idx}-source-missing`}> · Source CSV not archived; keep the original file.</span>}
+                    {f.audit?.state === 'source_missing_after_commit' && f.committed && <button className="btn" disabled={busy} onClick={() => retryAudit(idx)} data-testid={`csv-bulk-row-${idx}-source-retry`}>Retry source archive</button>}
                     {f.audit?.state === 'unconfirmed' && <span className="error" data-testid={`csv-bulk-row-${idx}-audit-unconfirmed`}> · Run #{f.audit.id} needs review. Do not import again. {f.audit.message}</span>}
                     {f.audit?.state === 'unconfirmed' && f.committed && <button className="btn" disabled={busy} onClick={() => retryAudit(idx)} data-testid={`csv-bulk-row-${idx}-audit-retry`}>Retry history only</button>}
-                    {!f.error && !f.committed && f.preview && (
+                    {!f.error && !f.audit?.id && !f.committed && f.preview && (
                       f.preview.error_count > 0
                         ? <span style={{ color: '#a16207' }}>⚠ {f.preview.error_count} rows have errors</span>
                         : <span style={{ color: 'var(--cf-green, #047857)' }}>Ready to import</span>

@@ -26,7 +26,7 @@ const result = await build({
 });
 const module = { exports: {} };
 new Function('module', 'exports', result.outputFiles[0].text)(module, module.exports);
-const { reserveCsvImportAudit, finalizeCsvImportAudit } = module.exports;
+const { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit } = module.exports;
 
 test('reservation fails closed without a persisted ID', async () => {
   globalThis.csvAuditTestApi = { post: async () => ({ recorded: true, id: null }) };
@@ -36,7 +36,7 @@ test('reservation fails closed without a persisted ID', async () => {
   }), /No import was started/);
 });
 
-test('finalization preserves document and line counts, then archives', async () => {
+test('source is archived after reservation and before result finalization', async () => {
   const calls = [];
   globalThis.csvAuditTestApi = {
     post: async (path, body) => {
@@ -55,19 +55,22 @@ test('finalization preserves document and line counts, then archives', async () 
     sourceFile: new Blob([new Uint8Array([0xef, 0xbb, 0xbf, 0x61, 0x2c, 0x62, 0x0a, 0x31, 0x2c, 0x32])]),
     preview: { row_count: 3 }, skipInvalid: false, updateExisting: false,
   });
+  const sourceFile = new Blob([new Uint8Array([0xef, 0xbb, 0xbf, 0x61, 0x2c, 0x62, 0x0a, 0x31, 0x2c, 0x32])]);
+  const attachment = await archiveCsvImportAudit({
+    runId, csvText: 'a,b\n1,2', sourceFile, fileName: 'sample.csv', entity: 'billing_invoices',
+  });
   const receipt = await finalizeCsvImportAudit({
     runId, result: { row_count: 3, imported_count: 1, skipped_count: 0,
       imported_row_count: 3, skipped_row_count: 0, errors: {} },
-    startedAt: Date.now(), csvText: 'a,b\n1,2', fileName: 'sample.csv',
-    entity: 'billing_invoices', columnMap: null,
+    startedAt: Date.now(),
   });
   assert.equal(receipt.id, 42);
-  assert.equal(receipt.sourceAttached, true);
+  assert.equal(attachment.csv.id, 11);
   assert.equal(calls[0].body.rows_total, 3);
   assert.equal(calls[0].body.bytes_processed, 10);
-  assert.equal(calls[1].body.rows_imported, 3);
-  assert.equal(calls[1].body.rows_skipped, 0);
-  assert.equal(calls[2].attachment.importRunId, 42);
+  assert.equal(calls[1].attachment.importRunId, 42);
+  assert.equal(calls[2].body.rows_imported, 3);
+  assert.equal(calls[2].body.rows_skipped, 0);
 });
 
 test('failed finalization never attempts source attachment', async () => {
@@ -81,12 +84,31 @@ test('failed finalization never attempts source attachment', async () => {
   assert.equal(attachments, 0);
 });
 
-test('failed source archive is reported separately from saved history', async () => {
-  globalThis.csvAuditTestApi = { post: async () => ({ recorded: true, id: 42 }) };
+test('failed source archive blocks the source commit', async () => {
+  let finalized = 0;
+  globalThis.csvAuditTestApi = { post: async () => { finalized += 1; return { recorded: true, id: 42 }; } };
   globalThis.csvAuditTestAttach = async () => ({ csv: null });
+  await assert.rejects(archiveCsvImportAudit({
+    runId: 42,
+    csvText: 'a,b\n1,2', fileName: 'sample.csv', entity: 'ap_bills',
+  }), /No records were imported/);
+  assert.equal(finalized, 0);
+});
+
+test('the broader ERP can still attach source evidence after finalization', async () => {
+  const calls = [];
+  globalThis.csvAuditTestApi = { post: async () => {
+    calls.push('finalize');
+    return { recorded: true, id: 42 };
+  } };
+  globalThis.csvAuditTestAttach = async () => {
+    calls.push('attach');
+    return { csv: null };
+  };
   const receipt = await finalizeCsvImportAudit({
     runId: 42, result: { imported_count: 1 }, startedAt: Date.now(),
-    csvText: 'a,b\n1,2', fileName: 'sample.csv', entity: 'ap_bills',
+    postCommitSource: { csvText: 'a,b\n1,2', fileName: 'sample.csv', entity: 'ap_bills' },
   });
+  assert.deepEqual(calls, ['finalize', 'attach']);
   assert.equal(receipt.sourceAttached, false);
 });

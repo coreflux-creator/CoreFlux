@@ -26,14 +26,14 @@ $a('helper distinguishes CSV from mapping evidence', str_contains($helper, "docu
 $a('helper reports failed CSV upload', str_contains($helper, '[csv-audit-attach:csv]'));
 
 $audit = $read('dashboard/src/lib/csvImportAudit.js');
-$a('finalizer attempts source attachment', str_contains($audit, 'await attachCsvToImportRun({'));
-$a('finalizer reports attachment outcome', str_contains($audit, 'sourceAttached: !!attachment?.csv?.id'));
+$a('pre-commit archive attempts source attachment', str_contains($audit, 'await attachCsvToImportRun({'));
+$a('pre-commit archive requires a source receipt', str_contains($audit, 'if (!attachment?.csv?.id)'));
 $single = $read('dashboard/src/components/CsvImportPage.jsx');
 $bulk = $read('dashboard/src/pages/CsvBulkImport.jsx');
-$a('single-file screen warns on source failure', str_contains($single, 'audit-source-missing')
-    && str_contains($single, 'Keep your original file'));
+$a('single-file screen retries source before importing', str_contains($single, "auditRun?.state === 'source_missing'")
+    && str_contains($single, 'Retry source and import'));
 $a('bulk screen warns on source failure', str_contains($bulk, 'source-missing')
-    && str_contains($bulk, 'keep the original file'));
+    && str_contains($bulk, 'No records imported: source CSV not archived'));
 $history = $read('dashboard/src/pages/CsvImportHistory.jsx');
 $a('history retains CSV evidence download', str_contains($history, 'DownloadOriginalCsv')
     && str_contains($history, 'download-original'));

@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
-import { reserveCsvImportAudit, finalizeCsvImportAudit } from '../../../dashboard/src/lib/csvImportAudit';
+import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit } from '../../../dashboard/src/lib/csvImportAudit';
 
 /**
  * Shared CSV Import flow — built on Core\CsvImportService.
@@ -228,19 +228,36 @@ export default function CsvImportPage({
   };
 
   const commit = async () => {
-    if (!csvText || committingRef.current || auditRun?.id) return;
+    if (!csvText || committed || committingRef.current || (auditRun?.id && auditRun.state !== 'source_missing')) return;
+    const auditInput = {
+      csvText, sourceFile, fileName, columnMap: JSON.stringify(columnMap),
+      skipInvalid, updateExisting, extraToggles: JSON.stringify(extraToggleValues),
+    };
+    if (auditRun?.state === 'source_missing' && Object.keys(auditInput).some(key => auditInput[key] !== auditRun.input?.[key])) {
+      setError(new Error('The file or import options changed after the source upload failed. Select the file again to start a new import run.'));
+      return;
+    }
     committingRef.current = true;
     setRunning(true); setError(null);
     const startedAt = Date.now();
-    let runId = null;
+    let runId = auditRun?.state === 'source_missing' ? auditRun.id : null;
+    let sourceArchived = false;
     try {
       if (presetEntity) {
-        runId = await reserveCsvImportAudit({
-          entity: presetEntity, fileName, csvText, sourceFile, preview, skipInvalid, updateExisting,
-          aiUsed: !!aiReasoning, presetId: presetMatch?.id || null,
-          columnMap, extraFlags: extraToggleValues,
-        });
-        setAuditRun({ id: runId, state: 'unconfirmed' });
+        if (!runId) {
+          runId = await reserveCsvImportAudit({
+            entity: presetEntity, fileName, csvText, sourceFile, preview, skipInvalid, updateExisting,
+            aiUsed: !!aiReasoning, presetId: presetMatch?.id || null,
+            columnMap, extraFlags: extraToggleValues,
+          });
+        }
+        setAuditRun({ id: runId, state: 'unconfirmed', input: auditInput });
+        if (standaloneAccounting) {
+          await archiveCsvImportAudit({
+            runId, csvText, sourceFile, fileName, entity: presetEntity, columnMap,
+          });
+        }
+        sourceArchived = true;
       }
       const params = [];
       if (skipInvalid)    params.push('skip_invalid=1');
@@ -257,15 +274,21 @@ export default function CsvImportPage({
       if (runId) {
         try {
           const receipt = await finalizeCsvImportAudit({
-            runId, result: res, startedAt, csvText, sourceFile, fileName, entity: presetEntity, columnMap,
+            runId, result: res, startedAt,
+            postCommitSource: standaloneAccounting ? null : {
+              csvText, sourceFile, fileName, entity: presetEntity, columnMap,
+            },
           });
-          setAuditRun({ id: runId, state: receipt.sourceAttached ? 'logged' : 'source_missing' });
+          setAuditRun({ id: receipt.id, state: receipt.sourceAttached ? 'logged' : 'source_missing_after_commit', input: auditInput });
         } catch (auditError) {
-          setAuditRun({ id: runId, state: 'unconfirmed', message: auditError.message });
+          setAuditRun({ id: runId, state: 'unconfirmed', input: auditInput, message: auditError.message });
         }
       }
     } catch (e) {
-      setError(runId
+      if (runId) {
+        setAuditRun({ id: runId, state: sourceArchived ? 'unconfirmed' : 'source_missing', input: auditInput, message: e.message });
+      }
+      setError(runId && sourceArchived
         ? new Error(`The import result is unconfirmed. Check Import History and source records before retrying. ${e.message}`)
         : e);
     } finally {
@@ -280,11 +303,13 @@ export default function CsvImportPage({
     try {
       const receipt = await finalizeCsvImportAudit({
         runId: auditRun.id, result: committed, startedAt: Date.now(),
-        csvText, sourceFile, fileName, entity: presetEntity, columnMap,
+        postCommitSource: standaloneAccounting ? null : {
+          csvText, sourceFile, fileName, entity: presetEntity, columnMap,
+        },
       });
-      setAuditRun({ id: auditRun.id, state: receipt.sourceAttached ? 'logged' : 'source_missing' });
+      setAuditRun({ id: receipt.id, state: receipt.sourceAttached ? 'logged' : 'source_missing_after_commit', input: auditRun.input });
     } catch (e) {
-      setAuditRun({ id: auditRun.id, state: 'unconfirmed', message: e.message });
+      setAuditRun({ id: auditRun.id, state: 'unconfirmed', input: auditRun.input, message: e.message });
     } finally { setRunning(false); }
   };
 
@@ -583,10 +608,10 @@ export default function CsvImportPage({
               <button
                 className="btn btn--primary"
                 onClick={commit}
-                disabled={running || !!auditRun?.id || !!preview.blocking_error || (preview.error_count > 0 && !skipInvalid)}
+                disabled={running || !!committed || (!!auditRun?.id && auditRun.state !== 'source_missing') || !!preview.blocking_error || (preview.error_count > 0 && !skipInvalid)}
                 data-testid={`${testidPrefix}-commit`}
               >
-                {running ? 'Importing…' : groupLabel ? `Import ${groupLabel}s` : 'Import rows'}
+                {running ? 'Importing…' : auditRun?.state === 'source_missing' ? 'Retry source and import' : groupLabel ? `Import ${groupLabel}s` : 'Import rows'}
               </button>
             </div>
 
@@ -665,7 +690,7 @@ export default function CsvImportPage({
               </div>
             )}
             {auditRun?.state === 'logged' && <p data-testid={`${testidPrefix}-audit-logged`}>Import history recorded as run #{auditRun.id}.</p>}
-            {auditRun?.state === 'source_missing' && <p className="error" data-testid={`${testidPrefix}-audit-source-missing`}>Import history was saved as run #{auditRun.id}, but the source CSV could not be archived. Keep your original file for review.</p>}
+            {auditRun?.state === 'source_missing_after_commit' && <p className="error" data-testid={`${testidPrefix}-audit-source-missing`}>Import history was saved as run #{auditRun.id}, but the source CSV could not be archived. Keep your original file for review. <button className="btn" onClick={retryAudit} disabled={running}>Retry source archive</button></p>}
             {auditRun?.state === 'unconfirmed' && (
               <div className="error" data-testid={`${testidPrefix}-audit-unconfirmed`}>
                 Import run #{auditRun.id} needs review. The source records may have changed. Do not import this file again until you verify them.

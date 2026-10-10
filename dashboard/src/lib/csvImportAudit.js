@@ -20,7 +20,17 @@ export async function reserveCsvImportAudit({ entity, fileName, csvText, sourceF
   return run.id;
 }
 
-export async function finalizeCsvImportAudit({ runId, result, startedAt, csvText, sourceFile, fileName, entity, columnMap }) {
+export async function archiveCsvImportAudit({ runId, csvText, sourceFile, fileName, entity, columnMap }) {
+  const attachment = await attachCsvToImportRun({
+    importRunId: runId, csvText, sourceFile, fileName, entity, columnMap,
+  });
+  if (!attachment?.csv?.id) {
+    throw new Error('The source CSV could not be archived. No records were imported.');
+  }
+  return attachment;
+}
+
+export async function finalizeCsvImportAudit({ runId, result, startedAt, postCommitSource = null }) {
   const finalized = await api.post(`${HISTORY}?action=finalize`, {
     id: runId,
     rows_total: result?.row_count ?? ((result?.imported_row_count ?? result?.imported_count ?? 0)
@@ -33,6 +43,7 @@ export async function finalizeCsvImportAudit({ runId, result, startedAt, csvText
   if (!finalized?.recorded || finalized.id !== runId) {
     throw new Error('The import finished, but its history remains unconfirmed. Do not import the file again.');
   }
-  const attachment = await attachCsvToImportRun({ importRunId: runId, csvText, sourceFile, fileName, entity, columnMap });
+  if (!postCommitSource) return { id: runId, sourceAttached: true };
+  const attachment = await attachCsvToImportRun({ importRunId: runId, ...postCommitSource });
   return { id: runId, sourceAttached: !!attachment?.csv?.id };
 }

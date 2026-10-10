@@ -41,6 +41,8 @@ $a('finance-only scope remains', str_contains($api, 'coreAccountingCsvEntityAllo
 $audit = $read('dashboard/src/lib/csvImportAudit.js');
 $a('client reserves before commit', str_contains($audit, '?action=reserve'));
 $a('client finalizes result only', str_contains($audit, '?action=finalize'));
+$a('source archive has a blocking receipt', str_contains($audit, 'export async function archiveCsvImportAudit')
+    && str_contains($audit, "if (!attachment?.csv?.id)"));
 $a('client checks server receipt', str_contains($audit, 'if (!finalized?.recorded'));
 foreach (['file_name:', 'rows_total:', 'rows_imported:', 'rows_skipped:', 'errors:',
           'skip_invalid:', 'update_existing:', 'ai_used:', 'preset_id:',
@@ -51,12 +53,16 @@ $single = $read('dashboard/src/components/CsvImportPage.jsx');
 $bulk = $read('dashboard/src/pages/CsvBulkImport.jsx');
 $a('single importer reserves before source commit', strpos($single, 'await reserveCsvImportAudit(')
     < strpos($single, 'await api.post(path, body)'));
+$a('single importer archives before source commit', strpos($single, 'await archiveCsvImportAudit(')
+    < strpos($single, 'await api.post(path, body)'));
 $a('single importer finalizes after source commit', strpos($single, 'await finalizeCsvImportAudit(')
     > strpos($single, 'await api.post(path, body)'));
 $a('single importer blocks duplicate commit', str_contains($single, '!!auditRun?.id'));
 $a('single importer retries history without import', str_contains($single, 'const retryAudit = async () =>')
     && str_contains($single, 'Retry history only'));
 $a('bulk importer reserves before source commit', strpos($bulk, 'await reserveCsvImportAudit(')
+    < strpos($bulk, 'await api.post(path, body)'));
+$a('bulk importer archives before source commit', strpos($bulk, 'await archiveCsvImportAudit(')
     < strpos($bulk, 'await api.post(path, body)'));
 $a('bulk importer finalizes after source commit', strpos($bulk, 'await finalizeCsvImportAudit(')
     > strpos($bulk, 'await api.post(path, body)'));
