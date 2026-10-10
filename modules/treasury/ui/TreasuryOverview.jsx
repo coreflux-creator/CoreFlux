@@ -171,7 +171,7 @@ export default function TreasuryOverview({ session }) {
       </section>
 
       <section className="treasury-overview__section">
-        <BankConnectCard onLinked={() => window.location.reload()} />
+        <BankConnectCard standaloneAccounting={standaloneAccounting} onLinked={() => window.location.reload()} />
       </section>
 
       <section className="treasury-overview__section">
@@ -531,7 +531,7 @@ function ConnectedInstitutions({ onChanged }) {
   );
 }
 
-function BankConnectCard({ onLinked }) {
+function BankConnectCard({ standaloneAccounting = false, onLinked }) {
   const { entities, loaded: entitiesLoaded, error: entitiesError } = useActiveEntity();
   const [selectedEntityId, setSelectedEntityId] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
@@ -709,8 +709,8 @@ function BankConnectCard({ onLinked }) {
       <h3>Connect accounts for balances and reconciliation</h3>
       <p className="muted" style={{ fontSize: 13 }}>
         Link checking, savings, credit cards, and loans so balances and transactions stay current for reconciliation.
-        <strong> This connection can only read account activity; it cannot move money.</strong>{' '}
-        Connect a separate payment account below when you are ready to send approved payments.
+        <strong> This connection can only read account activity; it cannot move money.</strong>
+        {!standaloneAccounting && ' Connect a separate payment account below when you are ready to send approved payments.'}
       </p>
       <label style={{ display: 'block', fontSize: 12, marginBottom: 12, maxWidth: 340 }}>
         Legal entity

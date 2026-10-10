@@ -65,6 +65,7 @@ $check('standalone payment rails and Treasury payment workflows are not presente
     && str_contains($paths, "'/modules/treasury/reconciliation'")
     && !str_contains($paths, "'/modules/treasury/payments'")
     && str_contains($treasuryOverview, '!standaloneAccounting && <section')
+    && str_contains($treasuryOverview, "!standaloneAccounting && ' Connect a separate payment account")
     && str_contains($apPayments, 'ap-manual-payment-notice')
     && str_contains($apPayments, '!standaloneAccounting && <button')
     && str_contains($apModule, "'/modules/ap/settings'].includes(n.to)"));
