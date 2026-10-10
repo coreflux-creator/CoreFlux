@@ -392,12 +392,16 @@ function bankRecUnmatchLine(int $tenantId, int $lineId): array
 /**
  * Bring historical Treasury bookings back into line with bank reconciliation.
  * Only explicit journal lineage is considered; amount/date similarity is never
- * enough to change a statement line's status.
+ * enough to change a statement line's status. Invalid or ambiguous lineage is
+ * left open for review, never silently treated as a reconciled cash movement.
  */
-function bankRecRepairPostedMatches(int $tenantId, int $bankAccountId): array
+function bankRecRepairPostedMatches(int $tenantId, int $bankAccountId, ?int $onlyLineId = null): array
 {
     $pdo = getDB();
     $found = [];
+    $lineFilter = $onlyLineId === null ? '' : ' AND bl.id = :line_id';
+    $params = ['tenant_id' => $tenantId, 'bank_account_id' => $bankAccountId];
+    if ($onlyLineId !== null) $params['line_id'] = $onlyLineId;
 
     $queries = [
         // A line may already hold a journal id while its status remained stale.
@@ -406,10 +410,10 @@ function bankRecRepairPostedMatches(int $tenantId, int $bankAccountId): array
            JOIN accounting_journal_entries je
              ON je.tenant_id = bl.tenant_id AND je.id = bl.matched_je_id AND je.status = "posted"
           WHERE bl.tenant_id = :tenant_id AND bl.bank_account_id = :bank_account_id
-            AND bl.match_status = "unmatched"',
+            AND bl.match_status = "unmatched"' . $lineFilter,
 
         // Treasury direct-post journals carry the statement line as source.
-        'SELECT bl.id AS line_id, MAX(je.id) AS je_id
+        'SELECT bl.id AS line_id, je.id AS je_id
            FROM accounting_bank_statement_lines bl
            JOIN accounting_journal_entries je
              ON je.tenant_id = bl.tenant_id
@@ -418,46 +422,83 @@ function bankRecRepairPostedMatches(int $tenantId, int $bankAccountId): array
             AND je.source_ref_type = "bank_statement_line"
             AND CAST(je.source_ref_id AS CHAR) = CAST(bl.id AS CHAR)
           WHERE bl.tenant_id = :tenant_id AND bl.bank_account_id = :bank_account_id
-            AND bl.match_status = "unmatched"
-          GROUP BY bl.id',
+            AND bl.match_status = "unmatched"' . $lineFilter,
     ];
 
     foreach ($queries as $sql) {
         $stmt = $pdo->prepare($sql);
-        $stmt->execute(['tenant_id' => $tenantId, 'bank_account_id' => $bankAccountId]);
+        $stmt->execute($params);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            if ((int) ($row['je_id'] ?? 0) > 0) $found[(int) $row['line_id']] = (int) $row['je_id'];
+            if ((int) ($row['je_id'] ?? 0) > 0) {
+                $found[(int) $row['line_id']][(int) $row['je_id']] = (int) $row['je_id'];
+            }
         }
     }
 
     // Event-routed Treasury postings are connected through subledger links.
     try {
         $stmt = $pdo->prepare(
-            'SELECT bl.id AS line_id, MAX(sl.journal_entry_id) AS je_id
+            'SELECT bl.id AS line_id, sl.journal_entry_id AS je_id
                FROM accounting_bank_statement_lines bl
                JOIN accounting_subledger_links sl
                  ON sl.tenant_id = bl.tenant_id
                 AND sl.source_module = "treasury_feed"
+                AND sl.link_kind = "primary"
                 AND sl.source_record_id IN (CONCAT("bank_line:", bl.id), CONCAT("bank_line:split:", bl.id))
                JOIN accounting_journal_entries je
                  ON je.tenant_id = sl.tenant_id AND je.id = sl.journal_entry_id AND je.status = "posted"
               WHERE bl.tenant_id = :tenant_id AND bl.bank_account_id = :bank_account_id
-                AND bl.match_status = "unmatched"
-              GROUP BY bl.id'
+                AND bl.match_status = "unmatched"' . $lineFilter
         );
-        $stmt->execute(['tenant_id' => $tenantId, 'bank_account_id' => $bankAccountId]);
+        $stmt->execute($params);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            if ((int) ($row['je_id'] ?? 0) > 0) $found[(int) $row['line_id']] = (int) $row['je_id'];
+            if ((int) ($row['je_id'] ?? 0) > 0) {
+                $found[(int) $row['line_id']][(int) $row['je_id']] = (int) $row['je_id'];
+            }
         }
     } catch (Throwable $_) {
         // Older tenants may not have the optional subledger link table yet.
     }
 
-    foreach ($found as $lineId => $jeId) {
-        bankRecMarkLineMatched($tenantId, $lineId, $jeId, null);
+    $repaired = [];
+    $conflicts = [];
+    foreach ($found as $lineId => $jeIds) {
+        $jeIds = array_values($jeIds);
+        if (count($jeIds) !== 1) {
+            $conflicts[$lineId] = [
+                'message' => 'Several posted journals claim this bank line. Review their source records before reconciling.',
+                'journal_ids' => $jeIds,
+            ];
+            continue;
+        }
+        try {
+            bankRecMatchLine($tenantId, $lineId, $jeIds[0], null);
+            $repaired[] = $lineId;
+        } catch (PDOException $e) {
+            throw $e;
+        } catch (RuntimeException $e) {
+            $conflicts[$lineId] = [
+                'message' => 'The linked posted journal cannot reconcile this bank line: ' . $e->getMessage(),
+                'journal_ids' => $jeIds,
+            ];
+        }
     }
 
-    return ['repaired' => count($found), 'line_ids' => array_keys($found)];
+    return ['repaired' => count($repaired), 'line_ids' => $repaired, 'conflicts' => $conflicts];
+}
+
+function bankRecGuardPostedLineage(int $tenantId, int $lineId): void
+{
+    $line = scopedFind(
+        'SELECT bank_account_id FROM accounting_bank_statement_lines
+          WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $lineId]
+    );
+    if (!$line) throw new RuntimeException('Bank line not found');
+    $result = bankRecRepairPostedMatches($tenantId, (int) $line['bank_account_id'], $lineId);
+    if (isset($result['conflicts'][$lineId])) {
+        throw new RuntimeException($result['conflicts'][$lineId]['message']);
+    }
 }
 
 /**

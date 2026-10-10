@@ -20,9 +20,25 @@ $check('bank reconciliation excludes duplicate audit copies', str_contains($bank
 $check('repair only uses posted journals', substr_count($lib, 'je.status = "posted"') >= 3);
 $check('repair recognizes direct Treasury source lineage', str_contains($lib, 'je.source_module = "treasury_feed"') && str_contains($lib, 'je.source_ref_type = "bank_statement_line"'));
 $check('repair recognizes regular and split subledger lineage', str_contains($lib, 'CONCAT("bank_line:", bl.id)') && str_contains($lib, 'CONCAT("bank_line:split:", bl.id)'));
+$check('repair ignores reversed Treasury links after a correction',
+    str_contains($lib, 'AND sl.link_kind = "primary"'));
 $repairStart = strpos($lib, 'function bankRecRepairPostedMatches(');
 $repairBody = $repairStart === false ? '' : substr($lib, $repairStart, 5000);
 $check('repair does not use fuzzy amount/date matching', !str_contains($repairBody, 'ABS(l.debit') && !str_contains($repairBody, 'DATE_SUB'));
+$check('repair validates the journal before changing bank-line state',
+    str_contains($repairBody, 'bankRecMatchLine($tenantId, $lineId, $jeIds[0], null)')
+    && !str_contains($repairBody, 'bankRecMarkLineMatched($tenantId, $lineId'));
+$check('repair refuses ambiguous posted lineage',
+    str_contains($repairBody, 'count($jeIds) !== 1')
+    && str_contains($repairBody, "'conflicts' => \$conflicts"));
+$check('write routes guard stale posted lineage',
+    str_contains($bankApi, 'bankRecGuardPostedLineage(')
+    && str_contains($treasury, 'bankRecGuardPostedLineage($tenantId, $lineId)'));
+$check('both bank surfaces expose conflict review instead of posting controls',
+    str_contains($bankApi, "\$lineRow['lineage_conflict']")
+    && str_contains($treasury, "\$row['lineage_conflict']")
+    && str_contains((string) file_get_contents($root . '/modules/accounting/ui/BankReconciliation.jsx'), 'Ledger review required')
+    && str_contains((string) file_get_contents($root . '/modules/treasury/ui/AccountTransactions.jsx'), 'Ledger review required'));
 $check('bank reconciliation repairs before listing unmatched lines', str_contains($bankApi, 'bankRecRepairPostedMatches((int) $ctx[\'tenant_id\'], $bid)'));
 $check('Treasury deposit postings use shared validated transitions',
     !str_contains($treasury, 'bankRecMarkLineMatched($tenantId')

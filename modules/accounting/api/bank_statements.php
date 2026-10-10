@@ -41,6 +41,20 @@ $user   = $ctx['user'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
+if ($method === 'POST' && in_array($action, [
+    'match', 'settle_processor_payout', 'match_ap_payment',
+    'split_match_invoices', 'match_invoice', 'ignore',
+], true)) {
+    $guardLineId = (int) ($_GET['line_id'] ?? 0);
+    if ($guardLineId > 0) {
+        try {
+            bankRecGuardPostedLineage((int) $ctx['tenant_id'], $guardLineId);
+        } catch (RuntimeException $e) {
+            api_error($e->getMessage(), 409);
+        }
+    }
+}
+
 if ($method === 'GET' && $action === 'processor_payout_candidates') {
     rbac_legacy_require($user, 'accounting.bank.manage');
     rbac_legacy_require($user, 'billing.view');
@@ -158,8 +172,10 @@ if ($method === 'GET' && $action === 'receipt_candidates') {
             AND COALESCE(NULLIF(ba.currency, ""), "USD") = :currency' . $entitySql,
         $bankParams
     );
+    $lineageConflicts = [];
     foreach ($bankAccounts as $bankAccount) {
-        bankRecRepairPostedMatches((int) $ctx['tenant_id'], (int) $bankAccount['id']);
+        $repair = bankRecRepairPostedMatches((int) $ctx['tenant_id'], (int) $bankAccount['id']);
+        $lineageConflicts += $repair['conflicts'];
     }
     $candidateColumns = 'bl.id, bl.bank_account_id, ba.name AS bank_account_name,
                 bl.posted_date, bl.description, bl.bank_reference, bl.amount';
@@ -200,7 +216,9 @@ if ($method === 'GET' && $action === 'receipt_candidates') {
     $recentRows = scopedQuery('SELECT ' . $candidateColumns . $candidateFromSql
         . ' ORDER BY bl.posted_date DESC, bl.id DESC LIMIT 100', $params);
     $rowsById = [];
-    foreach (array_merge($priorityRows, $recentRows) as $row) $rowsById[(int) $row['id']] = $row;
+    foreach (array_merge($priorityRows, $recentRows) as $row) {
+        if (!isset($lineageConflicts[(int) $row['id']])) $rowsById[(int) $row['id']] = $row;
+    }
     $rows = array_values($rowsById);
     foreach ($rows as &$row) {
         $amount = round((float) $row['amount'], 2);
@@ -228,8 +246,9 @@ if ($method === 'GET') {
     $bid = (int) ($_GET['bank_account_id'] ?? 0);
     if ($bid <= 0) api_error('bank_account_id required', 400);
     $pdo = getDB();
+    $repair = ['conflicts' => []];
     if (empty($_GET['match_status']) || $_GET['match_status'] === 'unmatched') {
-        bankRecRepairPostedMatches((int) $ctx['tenant_id'], $bid);
+        $repair = bankRecRepairPostedMatches((int) $ctx['tenant_id'], $bid);
     }
     $where  = ['tenant_id = :tenant_id', 'bank_account_id = :b'];
     $params = ['b' => $bid];
@@ -342,6 +361,7 @@ if ($method === 'GET') {
             $history = $correctionByLine[(int) $lineRow['id']] ?? null;
             $lineRow['correction_count'] = (int) ($history['correction_count'] ?? 0);
             $lineRow['last_reversal_je_id'] = $history ? (int) $history['last_reversal_je_id'] : null;
+            $lineRow['lineage_conflict'] = $repair['conflicts'][(int) $lineRow['id']] ?? null;
         }
         unset($lineRow);
         $payouts = scopedQuery(
@@ -421,6 +441,7 @@ if ($method === 'GET') {
         'page' => $page,
         'per_page' => $perPage,
         'pages' => $pages,
+        'lineage_conflict_count' => count($repair['conflicts']),
     ]);
 }
 
@@ -889,7 +910,7 @@ if ($method === 'POST' && $action === 'split_match_invoices') {
             }
             $paymentIds[] = $paymentId;
         }
-        bankRecMarkLineMatched((int) $ctx['tenant_id'], $lid, (int) $receiptJe['je_id'], $user['id'] ?? null);
+        bankRecMatchLine((int) $ctx['tenant_id'], $lid, (int) $receiptJe['je_id'], $user['id'] ?? null);
         foreach ($paymentIds as $paymentId) {
             billingLinkBankReceiptJournal((int) $ctx['tenant_id'], $paymentId, (int) $receiptJe['je_id']);
         }
@@ -1125,7 +1146,7 @@ if ($method === 'POST' && $action === 'match_invoice') {
             $pwpApplied = $allocationResult['applied'];
         }
 
-        bankRecMarkLineMatched((int) $ctx['tenant_id'], $lid, (int) $receiptJe['je_id'], $user['id'] ?? null);
+        bankRecMatchLine((int) $ctx['tenant_id'], $lid, (int) $receiptJe['je_id'], $user['id'] ?? null);
         billingLinkBankReceiptJournal((int) $ctx['tenant_id'], $paymentId, (int) $receiptJe['je_id']);
         try {
             $pdo->prepare(

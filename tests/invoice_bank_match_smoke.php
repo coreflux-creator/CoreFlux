@@ -65,7 +65,7 @@ $check('requires bank and payment permissions', str_contains($bankApi, "'account
 $check('requires exact open balance', str_contains($bankApi, "\$invoice['amount_due'] - \$amount"));
 $check('requires posted invoice ledger entry', str_contains($bankApi, 'Post this invoice to the ledger before applying its bank payment'));
 $check('posts cash receipt journal', str_contains($bankApi, "'idempotency_key' => 'billing:bank-receipt:'"));
-$check('allocates payment and closes bank line', str_contains($bankApi, 'billingAllocatePayment(') && str_contains($bankApi, 'bankRecMarkLineMatched('));
+$check('allocates payment and validates bank line match', str_contains($bankApi, 'billingAllocatePayment(') && str_contains($bankApi, 'bankRecMatchLine('));
 $check('bank UI reviews and applies invoice match', str_contains($bankUi, 'Review match') && str_contains($bankUi, 'Apply payment'));
 $check('bank UI can accept posted journal match', str_contains($bankUi, 'Match line') && str_contains($bankUi, "action=match&line_id="));
 $check('direct receipt validates bank currency and invoice date',
@@ -125,7 +125,7 @@ $directAction = substr($bankApi, strpos($bankApi, "\$action === 'match_invoice'"
     strpos($bankApi, "\$action === 'unmatch'") - strpos($bankApi, "\$action === 'match_invoice'"));
 foreach (['split' => $splitAction, 'direct' => $directAction] as $name => $actionSource) {
     $check("{$name} receipt journal, allocation and match share one transaction",
-        preg_match('/cf_begin_transaction\(\);[\s\S]*accountingPostJe\([\s\S]*billingAllocatePayment\([\s\S]*bankRecMarkLineMatched\([\s\S]*\$pdo->commit\(\)/', $actionSource) === 1
+        preg_match('/cf_begin_transaction\(\);[\s\S]*accountingPostJe\([\s\S]*billingAllocatePayment\([\s\S]*bankRecMatchLine\([\s\S]*\$pdo->commit\(\)/', $actionSource) === 1
         && str_contains($actionSource, '$pdo->rollBack()'));
 }
 $check('pay-when-paid release is deferred until the bank transaction commits',

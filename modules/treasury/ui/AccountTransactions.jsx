@@ -211,8 +211,9 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const eligibleAccounts = allAccounts.filter((a) => a.direct_category_eligible
     && (type !== 'liability' || Number(a.id) !== Number(accountId)));
   const accountsById = new Map(eligibleAccounts.map((a) => [Number(a.id), a]));
-  const selectedRows = rows.filter((row) => selectedIds.includes(row.id));
-  const allPageSelected = rows.length > 0 && rows.every((row) => selectedIds.includes(row.id));
+  const selectableRows = rows.filter((row) => !row.lineage_conflict);
+  const selectedRows = selectableRows.filter((row) => selectedIds.includes(row.id));
+  const allPageSelected = selectableRows.length > 0 && selectableRows.every((row) => selectedIds.includes(row.id));
   const hasFilters = Object.values(filters).some((value) => value !== '');
 
   useEffect(() => { setPage(1); }, [deferredQuery, filters.status, filters.direction,
@@ -259,7 +260,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const toggleRow = (lineId) => setSelectedIds((current) => (
     current.includes(lineId) ? current.filter((id) => id !== lineId) : [...current, lineId]
   ));
-  const togglePage = () => setSelectedIds(allPageSelected ? [] : rows.map((row) => row.id));
+  const togglePage = () => setSelectedIds(allPageSelected ? [] : selectableRows.map((row) => row.id));
 
   const runBulkState = async (bulkAction) => {
     if (!selectedRows.length) return;
@@ -485,6 +486,11 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
       )}
 
       {loading && <p>Loading…</p>}
+      {Number(data?.lineage_conflict_count) > 0 && (
+        <p className="error" role="alert" data-testid="treasury-bank-lineage-conflicts">
+          {data.lineage_conflict_count} bank line{Number(data.lineage_conflict_count) === 1 ? '' : 's'} linked to posted journals need ledger review before they can be resolved.
+        </p>
+      )}
       {!loading && rows.length === 0 && (
         <div
           data-testid={`treasury-${type}-transactions-empty`}
@@ -544,7 +550,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
         <table className="data-table" data-testid={`treasury-${type}-transactions-table`}>
           <thead>
             <tr>
-              <th style={{ width: 36 }}><input type="checkbox" checked={allPageSelected} onChange={togglePage} aria-label="Select all visible transactions" /></th>
+              <th style={{ width: 36 }}><input type="checkbox" checked={allPageSelected} onChange={togglePage} disabled={selectableRows.length === 0} aria-label="Select all visible transactions" /></th>
               <SortableHeader label="Date" sortKey="date" sort={sort} onSort={changeSort} />
               <SortableHeader label="Description" sortKey="description" sort={sort} onSort={changeSort} />
               {type === 'liability' && <th>Category</th>}
@@ -557,7 +563,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
             {rows.map((r) => (
               <React.Fragment key={r.id}>
                 <tr data-testid={`treasury-txn-row-${r.id}`}>
-                  <td><input type="checkbox" checked={selectedIds.includes(r.id)} onChange={() => toggleRow(r.id)} aria-label={`Select ${r.description || 'transaction'}`} /></td>
+                  <td><input type="checkbox" checked={selectedIds.includes(r.id) && !r.lineage_conflict} onChange={() => toggleRow(r.id)} disabled={!!r.lineage_conflict} aria-label={`Select ${r.description || 'transaction'}`} /></td>
                   <td style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                     {fmtDate(r.posted_date)}
                   </td>
@@ -570,6 +576,16 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                     )}
                     {r.bank_reference && (
                       <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>Reference {r.bank_reference}</div>
+                    )}
+                    {r.lineage_conflict && (
+                      <div role="alert" data-testid={`treasury-txn-conflict-${r.id}`}
+                           style={{ color: '#92400e', fontSize: 12, marginTop: 4 }}>
+                        {r.lineage_conflict.message}
+                        {(r.lineage_conflict.journal_ids || []).map(journalId => (
+                          <Link key={journalId} to={`/modules/accounting/journal-entries/${journalId}`}
+                                style={{ marginLeft: 8 }}>Journal #{journalId}</Link>
+                        ))}
+                      </div>
                     )}
                     {Number(r.correction_count) > 0 && (
                       <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>
@@ -635,7 +651,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                     )}
                   </td>
                   <td>
-                    {r.match_status === 'unmatched' && accountsById.has(Number(r.ai_suggestion?.suggested_account_id)) && (
+                    {r.match_status === 'unmatched' && !r.lineage_conflict && accountsById.has(Number(r.ai_suggestion?.suggested_account_id)) && (
                       <AiSuggestionPill
                         suggestion={r.ai_suggestion}
                         suggestedAccount={accountsById.get(r.ai_suggestion.suggested_account_id)}
@@ -647,7 +663,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         )}
                       />
                     )}
-                    {r.match_status === 'unmatched' && (
+                    {r.match_status === 'unmatched' && !r.lineage_conflict && (
                       <>
                         <button
                           type="button"
@@ -692,6 +708,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         </button>
                       </>
                     )}
+                    {r.lineage_conflict && <span style={{ color: '#92400e', fontSize: 12 }}>Ledger review required</span>}
                     {r.match_status === 'matched' && !r.unmatch_blocker && (
                       <button
                         type="button"

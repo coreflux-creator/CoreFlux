@@ -555,6 +555,11 @@ function AccountDetail() {
 
       {loading && <p>Loading…</p>}
       {error   && <p className="error">{error.message}</p>}
+      {Number(data?.lineage_conflict_count) > 0 && (
+        <p className="error" role="alert" data-testid="accounting-bank-lineage-conflicts">
+          {data.lineage_conflict_count} bank line{Number(data.lineage_conflict_count) === 1 ? '' : 's'} linked to posted journals need ledger review before they can be resolved.
+        </p>
+      )}
       <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Bank statement lines" tabIndex={0}>
       <table className="data-table" data-testid="accounting-bank-lines-table">
         <thead><tr><th>Date</th><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th>Status</th><th>AI</th><th></th></tr></thead>
@@ -748,6 +753,16 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
         <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(line.posted_date)}</td>
         <td>
           {line.description}
+          {line.lineage_conflict && (
+            <div role="alert" data-testid={`accounting-bank-line-conflict-${line.id}`}
+                 style={{ marginTop: 5, color: '#92400e', fontSize: 12 }}>
+              {line.lineage_conflict.message}
+              {(line.lineage_conflict.journal_ids || []).map(journalId => (
+                <Link key={journalId} to={`/modules/accounting/journal-entries/${journalId}`}
+                      style={{ marginLeft: 8 }}>Journal #{journalId}</Link>
+              ))}
+            </div>
+          )}
           {Number(line.correction_count) > 0 && (
             <div style={{ marginTop: 3, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
               Corrected {line.correction_count} time{Number(line.correction_count) === 1 ? '' : 's'}
@@ -788,7 +803,9 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
             : '—'}
         </td>
         <td>
-          <div style={{ display: 'flex', gap: 4 }}>
+          {line.lineage_conflict ? (
+            <span style={{ color: '#92400e', fontSize: 12 }}>Ledger review required</span>
+          ) : <div style={{ display: 'flex', gap: 4 }}>
             <button
               className={(line.invoice_match || line.ap_payment_match) ? 'btn btn--primary' : 'btn btn--ghost'}
               onClick={line.ap_payment_match
@@ -821,7 +838,7 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
                 Processor payout
               </button>
             )}
-          </div>
+          </div>}
         </td>
       </tr>
       {receiptSplitOpen && (

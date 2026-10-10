@@ -9,9 +9,9 @@ $checks = [
         substr_count($bank, 'billingLinkBankReceiptJournal(') === 2,
     'linking happens after the bank line is matched' =>
         str_contains($bank,
-            "bankRecMarkLineMatched((int) \$ctx['tenant_id'], \$lid, (int) \$receiptJe['je_id'], \$user['id'] ?? null);\n        foreach (\$paymentIds as \$paymentId) {\n            billingLinkBankReceiptJournal(")
+            "bankRecMatchLine((int) \$ctx['tenant_id'], \$lid, (int) \$receiptJe['je_id'], \$user['id'] ?? null);\n        foreach (\$paymentIds as \$paymentId) {\n            billingLinkBankReceiptJournal(")
         && str_contains($bank,
-            "bankRecMarkLineMatched((int) \$ctx['tenant_id'], \$lid, (int) \$receiptJe['je_id'], \$user['id'] ?? null);\n        billingLinkBankReceiptJournal("),
+            "bankRecMatchLine((int) \$ctx['tenant_id'], \$lid, (int) \$receiptJe['je_id'], \$user['id'] ?? null);\n        billingLinkBankReceiptJournal("),
     'helper requires transaction, verified match and posted billing journal' =>
         str_contains($billing, 'function billingLinkBankReceiptJournal(')
         && str_contains($billing, 'if (!$pdo->inTransaction())')

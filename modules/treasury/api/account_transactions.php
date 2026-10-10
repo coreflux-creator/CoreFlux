@@ -115,6 +115,14 @@ if (api_method() === 'POST') {
         if (!in_array($bulkAction, ['ignore', 'restore', 'unmatch'], true)) {
             api_error('bulk_action must be ignore, restore, or unmatch', 422);
         }
+        if ($type === 'deposit' && $bulkAction === 'ignore') {
+            $repair = bankRecRepairPostedMatches($tenantId, $accountId);
+            foreach ($lineIds as $selectedLineId) {
+                if (isset($repair['conflicts'][$selectedLineId])) {
+                    api_error($repair['conflicts'][$selectedLineId]['message'], 409);
+                }
+            }
+        }
 
         $params = ['t' => $tenantId, 'a' => $accountId];
         $placeholders = [];
@@ -176,6 +184,15 @@ if (api_method() === 'POST') {
 
     $lineId = (int) ($body['line_id'] ?? 0);
     if ($lineId <= 0) api_error('line_id required', 422);
+    if ($type === 'deposit' && in_array($action, [
+        'ignore', 'match', 'split_categorize', 'categorize_and_post',
+    ], true)) {
+        try {
+            bankRecGuardPostedLineage($tenantId, $lineId);
+        } catch (RuntimeException $e) {
+            api_error($e->getMessage(), 409);
+        }
+    }
 
     // Ensure migration 004 cols exist on first POST in case the deploy hasn't run yet.
     if ($type === 'liability') {
@@ -1045,6 +1062,9 @@ if ($accountId <= 0) api_error('account_id required', 422);
 if (!in_array($type, ['deposit', 'liability'], true)) {
     api_error("type must be 'deposit' or 'liability'", 422);
 }
+$repair = $type === 'deposit'
+    ? bankRecRepairPostedMatches($tenantId, $accountId)
+    : ['conflicts' => []];
 
 $table = $type === 'deposit'
     ? 'accounting_bank_statement_lines'
@@ -1187,6 +1207,10 @@ $stmt = $pdo->prepare(
 );
 $stmt->execute($params);
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+foreach ($rows as &$row) {
+    $row['lineage_conflict'] = $repair['conflicts'][(int) $row['id']] ?? null;
+}
+unset($row);
 
 $count   = (int) ($summary['row_count'] ?? 0);
 $inflow  = (float) ($summary['inflow_total'] ?? 0);
@@ -1366,7 +1390,7 @@ $cacheStmt = $pdo->prepare(
 );
 
 foreach ($rows as $i => $r) {
-    if ($r['match_status'] !== 'unmatched') continue;
+    if ($r['match_status'] !== 'unmatched' || $r['lineage_conflict']) continue;
     $cacheStmt->execute([
         't'   => $tenantId,
         'fk'  => AI_CATEGORIZATION_FEATURE_KEY,
@@ -1505,6 +1529,7 @@ $entities = accountingListActiveEntities($tenantId);
 
 api_ok([
     'rows'                  => $rows,
+    'lineage_conflict_count'=> count($repair['conflicts']),
     'entities'              => $entities,
     'count'                 => $count,
     'total_count'           => $totalCount,
