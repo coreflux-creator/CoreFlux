@@ -40,6 +40,9 @@ function coreAccountingAllowsPublicApiScript(?string $scriptFilename, string $ro
     if (preg_match('~^api/coreone/v1/(bills|invoices|journals|reports)\.php$~', $relative)) {
         return true;
     }
+    if (in_array($relative, ['api/storage/local/put.php', 'api/storage/local/get.php'], true)) {
+        return true;
+    }
 
     if (preg_match('~^api/(accounting|ap|auth|billing|qbo|sso|treasury|zoho_books)/[a-z][a-z0-9_]*\.php$~', $relative)) {
         return true;

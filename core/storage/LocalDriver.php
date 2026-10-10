@@ -23,13 +23,16 @@ class LocalDriver implements StorageDriver
 
     public function __construct(?string $root = null, ?string $hmacSecret = null, ?string $publicBaseUrl = null)
     {
-        $this->root = rtrim($root ?? (getenv('STORAGE_LOCAL_ROOT') ?: '/app/storage/_dev'), '/');
+        $this->root = rtrim($root ?? (getenv('STORAGE_LOCAL_ROOT') ?: '/app/storage/_dev'), '/\\');
         $this->hmacSecret = $hmacSecret
             ?? (getenv('STORAGE_LOCAL_HMAC_SECRET') ?: 'dev-only-do-not-use-in-prod');
         $this->publicBaseUrl = rtrim($publicBaseUrl ?? (getenv('STORAGE_LOCAL_PUBLIC_BASE') ?: '/api/storage/local/get.php'), '/');
 
         if (!is_dir($this->root)) {
             @mkdir($this->root, 0775, true);
+        }
+        if (!is_dir($this->root) || is_link($this->root) || !is_writable($this->root)) {
+            throw new \RuntimeException('LocalDriver: storage root is unavailable.');
         }
     }
 
@@ -38,6 +41,7 @@ class LocalDriver implements StorageDriver
         $this->guard_key($key);
         $abs = $this->abs($key);
         @mkdir(dirname($abs), 0775, true);
+        $abs = $this->abs($key);
 
         if (is_resource($localPathOrStream)) {
             $bytes = stream_get_contents($localPathOrStream);
@@ -52,9 +56,28 @@ class LocalDriver implements StorageDriver
             throw new \RuntimeException("LocalDriver: failed to read source for key={$key}");
         }
 
-        $written = file_put_contents($abs, $bytes);
-        if ($written === false) {
-            throw new \RuntimeException("LocalDriver: failed to write {$abs}");
+        if (!empty($opts['if_not_exists'])) {
+            $handle = @fopen($abs, 'xb');
+            if ($handle === false) throw new \RuntimeException('LocalDriver: object already exists or cannot be created.');
+            try {
+                $written = 0;
+                $length = strlen($bytes);
+                while ($written < $length) {
+                    $chunk = fwrite($handle, substr($bytes, $written));
+                    if ($chunk === false || $chunk === 0) {
+                        throw new \RuntimeException('LocalDriver: incomplete object write.');
+                    }
+                    $written += $chunk;
+                }
+            } catch (\Throwable $error) {
+                fclose($handle);
+                @unlink($abs);
+                throw $error;
+            }
+            fclose($handle);
+        } else {
+            $written = file_put_contents($abs, $bytes, LOCK_EX);
+            if ($written === false) throw new \RuntimeException('LocalDriver: failed to write object.');
         }
 
         $meta = [
@@ -64,7 +87,10 @@ class LocalDriver implements StorageDriver
             'lock_until'   => isset($opts['lock_until']) ? $opts['lock_until']->format(DATE_ATOM) : null,
             'put_at'       => date(DATE_ATOM),
         ];
-        file_put_contents($abs . '.meta.json', json_encode($meta));
+        if (file_put_contents($abs . '.meta.json', json_encode($meta), LOCK_EX) === false) {
+            if (!empty($opts['if_not_exists'])) @unlink($abs);
+            throw new \RuntimeException('LocalDriver: failed to write object metadata.');
+        }
 
         return [
             'version_id' => null,                              // local driver doesn't version
@@ -76,7 +102,7 @@ class LocalDriver implements StorageDriver
     public function get_signed_url(string $key, int $ttlSeconds = 300, array $opts = []): string
     {
         $this->guard_key($key);
-        $expires = time() + max(1, $ttlSeconds);
+        $expires = time() + max(1, min(3600, $ttlSeconds));
         $sig = hash_hmac('sha256', $key . '|' . $expires, $this->hmacSecret);
         $qs = http_build_query([
             'k'   => $key,
@@ -157,14 +183,37 @@ class LocalDriver implements StorageDriver
      */
     public function verify_signed_token(string $key, int $expires, string $sig): bool
     {
-        if ($expires < time()) return false;
+        if ($expires < time() || $expires > time() + 3600) return false;
         $expected = hash_hmac('sha256', $key . '|' . $expires, $this->hmacSecret);
         return hash_equals($expected, $sig);
     }
 
+    public function verify_signed_post_token(string $key, int $expires, string $sig): bool
+    {
+        if ($expires < time() || $expires > time() + 600) return false;
+        $expected = hash_hmac('sha256', 'POST|' . $key . '|' . $expires, $this->hmacSecret);
+        return hash_equals($expected, $sig);
+    }
+
+    public static function key_belongs_to_tenant(string $key, int $tenantId): bool
+    {
+        $segments = explode('/', $key);
+        return $tenantId > 0 && count($segments) === 5
+            && $segments[0] !== '' && $segments[1] === (string) $tenantId
+            && $segments[2] !== '' && $segments[3] !== '' && $segments[4] !== ''
+            && !str_contains($key, '..') && !str_contains($key, '\\')
+            && !preg_match('/[\x00-\x1f\x7f]/', $key);
+    }
+
     public function abs(string $key): string
     {
-        return $this->root . '/' . $key;
+        $this->guard_key($key);
+        $path = $this->root;
+        foreach (explode('/', $key) as $segment) {
+            $path .= '/' . $segment;
+            if (is_link($path)) throw new \RuntimeException('LocalDriver: linked storage path is not allowed.');
+        }
+        return $path;
     }
 
     /**
@@ -173,7 +222,9 @@ class LocalDriver implements StorageDriver
      */
     private function guard_key(string $key): void
     {
-        if ($key === '' || str_contains($key, '..') || str_starts_with($key, '/')) {
+        if ($key === '' || str_contains($key, '..') || str_contains($key, '\\')
+            || str_starts_with($key, '/') || str_contains($key, '//')
+            || preg_match('/[\x00-\x1f\x7f]/', $key)) {
             throw new \InvalidArgumentException("LocalDriver: unsafe key '{$key}'");
         }
     }

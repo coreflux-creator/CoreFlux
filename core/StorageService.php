@@ -53,10 +53,28 @@ class StorageService
             return;
         }
         $name = strtolower((string) (getenv('STORAGE_DRIVER') ?: 'local'));
-        $this->driver = ($name === 's3') ? new S3Driver() : new LocalDriver();
+        if ($name === 's3') {
+            $this->driver = new S3Driver();
+        } elseif (getenv('COREFLUX_ENV') === 'coreaccounting') {
+            require_once __DIR__ . '/accounting/private_storage.php';
+            if (!defined('DB_PASS') || (string) DB_PASS === '') {
+                throw new \RuntimeException('CoreAccounting local storage secret is unavailable.');
+            }
+            $privateRoot = coreAccountingPrivateStorageRoot(dirname(__DIR__));
+            $secret = hash_hmac('sha256', 'coreaccounting-local-storage-v1', (string) DB_PASS);
+            $this->driver = new LocalDriver($privateRoot . '/coreaccounting-storage', $secret);
+        } else {
+            $this->driver = new LocalDriver();
+        }
     }
 
     public function driver_name(): string { return $this->driver->driver_name(); }
+
+    /** Local upload/download endpoints use this; modules continue through StorageService. */
+    public function local_driver(): ?LocalDriver
+    {
+        return $this->driver instanceof LocalDriver ? $this->driver : null;
+    }
 
     /**
      * Persist a file. Returns a structured payload describing the stored object.

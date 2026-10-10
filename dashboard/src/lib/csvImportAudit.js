@@ -3,11 +3,11 @@ import { attachCsvToImportRun } from './csvAuditAttach';
 
 const HISTORY = '/api/admin/csv_import_history.php';
 
-export async function reserveCsvImportAudit({ entity, fileName, csvText, preview, skipInvalid, updateExisting, aiUsed = false, presetId = null, columnMap = null, extraFlags = null }) {
+export async function reserveCsvImportAudit({ entity, fileName, csvText, sourceFile, preview, skipInvalid, updateExisting, aiUsed = false, presetId = null, columnMap = null, extraFlags = null }) {
   const run = await api.post(`${HISTORY}?action=reserve`, {
     entity,
     file_name: fileName || null,
-    bytes_processed: new Blob([csvText]).size,
+    bytes_processed: sourceFile?.size ?? new Blob([csvText]).size,
     rows_total: preview?.row_count || 0,
     skip_invalid: skipInvalid,
     update_existing: updateExisting,
@@ -20,7 +20,7 @@ export async function reserveCsvImportAudit({ entity, fileName, csvText, preview
   return run.id;
 }
 
-export async function finalizeCsvImportAudit({ runId, result, startedAt, csvText, fileName, entity, columnMap }) {
+export async function finalizeCsvImportAudit({ runId, result, startedAt, csvText, sourceFile, fileName, entity, columnMap }) {
   const finalized = await api.post(`${HISTORY}?action=finalize`, {
     id: runId,
     rows_total: result?.row_count ?? ((result?.imported_row_count ?? result?.imported_count ?? 0)
@@ -33,6 +33,6 @@ export async function finalizeCsvImportAudit({ runId, result, startedAt, csvText
   if (!finalized?.recorded || finalized.id !== runId) {
     throw new Error('The import finished, but its history remains unconfirmed. Do not import the file again.');
   }
-  const attachment = await attachCsvToImportRun({ importRunId: runId, csvText, fileName, entity, columnMap });
+  const attachment = await attachCsvToImportRun({ importRunId: runId, csvText, sourceFile, fileName, entity, columnMap });
   return { id: runId, sourceAttached: !!attachment?.csv?.id };
 }

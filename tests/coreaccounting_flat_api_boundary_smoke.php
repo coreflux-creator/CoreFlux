@@ -17,6 +17,8 @@ $allowed = [
     'api/coreone/v1/journals.php',
     'api/coreone/v1/reports.php',
     'api/plaid_bank_link.php',
+    'api/storage/local/get.php',
+    'api/storage/local/put.php',
     'core/api/payment_rails.php',
     'modules/accounting/api/bank_integrity.php',
     'modules/accounting/api/reports.php',

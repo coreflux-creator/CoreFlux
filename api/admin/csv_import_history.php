@@ -96,6 +96,7 @@ if ($method === 'POST') {
         'errors'          => $action === 'reserve'
             ? [CSV_IMPORT_UNCONFIRMED_KEY => ['Import outcome is unconfirmed. Check source records before retrying.']]
             : (is_array($body['errors'] ?? null) ? $body['errors'] : []),
+        'errors_count_override' => $action === 'reserve' ? 0 : null,
         'skip_invalid'    => !empty($body['skip_invalid']),
         'update_existing' => !empty($body['update_existing']),
         'ai_used'         => !empty($body['ai_used']),

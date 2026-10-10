@@ -199,6 +199,7 @@ export default function CsvImportHistory({ financeOnly = false }) {
               {rows.map(r => {
                 const open = !!expanded[r.id];
                 const errs = r.error_summary && typeof r.error_summary === 'object' ? r.error_summary : null;
+                const rowErrors = Object.entries(errs || {}).filter(([key]) => key !== '_import_outcome_unconfirmed');
                 const map  = r.column_map    && typeof r.column_map    === 'object' ? r.column_map    : null;
                 return (
                   <React.Fragment key={r.id}>
@@ -221,9 +222,9 @@ export default function CsvImportHistory({ financeOnly = false }) {
                         <DownloadOriginalCsv importRunId={r.id} fallbackName={r.file_name}/>
                         <DownloadColumnMap   importRunId={r.id}/>
                       </td>
-                      <td style={{ textAlign: 'right' }} data-testid={`csv-history-row-${r.id}-imported`}>{r.rows_imported}</td>
-                      <td style={{ textAlign: 'right' }}>{r.rows_skipped}</td>
-                      <td style={{ textAlign: 'right' }}>{r.errors_count}</td>
+                      <td style={{ textAlign: 'right' }} data-testid={`csv-history-row-${r.id}-imported`}>{r.needs_review ? '—' : r.rows_imported}</td>
+                      <td style={{ textAlign: 'right' }}>{r.needs_review ? '—' : r.rows_skipped}</td>
+                      <td style={{ textAlign: 'right' }}>{r.needs_review ? '—' : r.errors_count}</td>
                       <td><StatusPill status={r.status} needsReview={r.needs_review} /></td>
                       <td>
                         {(errs || map || r.needs_review) && (
@@ -260,9 +261,9 @@ export default function CsvImportHistory({ financeOnly = false }) {
                             <div>
                               <strong>Errors</strong>
                               {r.needs_review && <p data-testid={`csv-history-row-${r.id}-review-warning`} style={{ color: '#92400e' }}>The import may have changed records, but its outcome was not confirmed. Check the source worklist before retrying. Never assume zero rows were imported.</p>}
-                              {errs && Object.keys(errs).length > 0 ? (
+                              {rowErrors.length > 0 ? (
                                 <ul style={{ marginTop: 6, paddingLeft: '1rem', maxHeight: 240, overflow: 'auto' }}>
-                                  {Object.entries(errs).map(([rn, msgs]) => (
+                                  {rowErrors.map(([rn, msgs]) => (
                                     <li key={rn}>
                                       <strong>Row {rn}:</strong>{' '}
                                       {(Array.isArray(msgs) ? msgs : [String(msgs)]).join('; ')}

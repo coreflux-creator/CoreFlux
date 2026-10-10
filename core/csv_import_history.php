@@ -31,6 +31,8 @@ function csvImportHistoryRecord(array $args): ?int
 
         $errors      = is_array($args['errors'] ?? null) ? $args['errors'] : [];
         $errorsCount = count($errors);
+        $storedErrorsCount = isset($args['errors_count_override'])
+            ? max(0, (int) $args['errors_count_override']) : $errorsCount;
         $imported    = (int) ($args['rows_imported'] ?? 0);
         $skipped     = (int) ($args['rows_skipped']  ?? 0);
         $total       = (int) ($args['rows_total']    ?? max(0, $imported + $skipped));
@@ -59,7 +61,7 @@ function csvImportHistoryRecord(array $args): ?int
             'rt'  => $total,
             'ri'  => $imported,
             'rs'  => $skipped,
-            'ec'  => $errorsCount,
+            'ec'  => $storedErrorsCount,
             'si'  => !empty($args['skip_invalid'])    ? 1 : 0,
             'ue'  => !empty($args['update_existing']) ? 1 : 0,
             'ai'  => !empty($args['ai_used'])         ? 1 : 0,

@@ -76,6 +76,7 @@ export default function CsvImportPage({
   const fileRef = useRef(null);
   const committingRef = useRef(false);
   const [csvText, setCsvText]         = useState('');
+  const [sourceFile, setSourceFile]   = useState(null);
   const [fileName, setFileName]       = useState('');
   // Interactive column mapping state
   const [inspecting, setInspecting]   = useState(false);
@@ -100,12 +101,13 @@ export default function CsvImportPage({
   const onFile = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
+    setCsvText(''); setSourceFile(null); setPreview(null); setCommitted(null); setError(null); setAuditRun(null);
     setFileName(f.name);
     const reader = new FileReader();
     reader.onload = async () => {
       const text = String(reader.result || '');
       setCsvText(text);
-      setPreview(null); setCommitted(null); setError(null); setAuditRun(null);
+      setSourceFile(f);
       // Auto-inspect on file pick so the mapping table appears immediately.
       setInspecting(true);
       try {
@@ -120,6 +122,7 @@ export default function CsvImportPage({
       } catch (err) { setError(err); }
       finally       { setInspecting(false); }
     };
+    reader.onerror = () => setError(new Error('The selected CSV could not be read. Choose it again.'));
     reader.readAsText(f);
   };
 
@@ -233,7 +236,7 @@ export default function CsvImportPage({
     try {
       if (presetEntity) {
         runId = await reserveCsvImportAudit({
-          entity: presetEntity, fileName, csvText, preview, skipInvalid, updateExisting,
+          entity: presetEntity, fileName, csvText, sourceFile, preview, skipInvalid, updateExisting,
           aiUsed: !!aiReasoning, presetId: presetMatch?.id || null,
           columnMap, extraFlags: extraToggleValues,
         });
@@ -254,7 +257,7 @@ export default function CsvImportPage({
       if (runId) {
         try {
           const receipt = await finalizeCsvImportAudit({
-            runId, result: res, startedAt, csvText, fileName, entity: presetEntity, columnMap,
+            runId, result: res, startedAt, csvText, sourceFile, fileName, entity: presetEntity, columnMap,
           });
           setAuditRun({ id: runId, state: receipt.sourceAttached ? 'logged' : 'source_missing' });
         } catch (auditError) {
@@ -277,7 +280,7 @@ export default function CsvImportPage({
     try {
       const receipt = await finalizeCsvImportAudit({
         runId: auditRun.id, result: committed, startedAt: Date.now(),
-        csvText, fileName, entity: presetEntity, columnMap,
+        csvText, sourceFile, fileName, entity: presetEntity, columnMap,
       });
       setAuditRun({ id: auditRun.id, state: receipt.sourceAttached ? 'logged' : 'source_missing' });
     } catch (e) {
@@ -286,7 +289,7 @@ export default function CsvImportPage({
   };
 
   const reset = () => {
-    setCsvText(''); setFileName(''); setPreview(null); setCommitted(null); setError(null); setAuditRun(null);
+    setCsvText(''); setSourceFile(null); setFileName(''); setPreview(null); setCommitted(null); setError(null); setAuditRun(null);
     setInspectResult(null); setColumnMap(null);
     setSkipInvalid(false);
     setUpdateExisting(!!defaultUpdateExisting);

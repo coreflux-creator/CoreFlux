@@ -80,6 +80,27 @@ $post = $svc->get_presigned_post($put['key']);
 $assert("presigned-post has form_action", !empty($post['form_action']));
 $assert("presigned-post has 'sig' field",  isset($post['fields']['sig']));
 $assert("presigned-post has 'key' field",  isset($post['fields']['key']));
+$assert('signed POST token verifies', $driver->verify_signed_post_token(
+    $post['fields']['key'], (int) $post['fields']['expires'], $post['fields']['sig']));
+$assert('tampered POST token is refused', !$driver->verify_signed_post_token(
+    $post['fields']['key'], (int) $post['fields']['expires'], 'bad'));
+$assert('expired POST token is refused', !$driver->verify_signed_post_token(
+    $post['fields']['key'], time() - 1, $post['fields']['sig']));
+$assert('own tenant key accepted', LocalDriver::key_belongs_to_tenant($put['key'], 7));
+$assert('other tenant key refused', !LocalDriver::key_belongs_to_tenant($put['key'], 8));
+$assert('traversal key refused', !LocalDriver::key_belongs_to_tenant('time/7/timesheet/1/../secret', 7));
+
+$immutableKey = $svc->build_key('csv_imports', 7, 'csv_import_run', 1, 'sample.csv');
+$driver->put($immutableKey, "a,b\n1,2\n", ['if_not_exists' => true, 'mime' => 'text/csv']);
+try {
+    $driver->put($immutableKey, 'replacement', ['if_not_exists' => true]);
+    $assert('signed upload cannot overwrite an existing object', false);
+} catch (\RuntimeException $e) {
+    $assert('signed upload cannot overwrite an existing object', true);
+}
+$assert('rejected overwrite preserves original bytes',
+    file_get_contents($driver->abs($immutableKey)) === "a,b\n1,2\n");
+$driver->delete($immutableKey);
 
 echo "\nRetention + legal hold (advisory on local driver)\n";
 $svc->apply_retention($put['key'], new \DateTimeImmutable('+7 years'));
@@ -97,8 +118,15 @@ echo "\nS3Driver loadable (without instantiation)\n";
 $assert("S3Driver class exists",
     class_exists(\Core\Storage\S3Driver::class));
 
-// Cleanup
-@exec('rm -rf ' . escapeshellarg($tmpRoot));
+// Cleanup only the two paths created by this test, on every host OS.
+foreach ([$put['key'], $immutableKey] as $key) {
+    $dir = dirname($driver->abs($key));
+    while ($dir !== $tmpRoot && str_starts_with($dir . DIRECTORY_SEPARATOR, $tmpRoot . DIRECTORY_SEPARATOR)) {
+        @rmdir($dir);
+        $dir = dirname($dir);
+    }
+}
+@rmdir($tmpRoot);
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

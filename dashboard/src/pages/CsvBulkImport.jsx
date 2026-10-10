@@ -186,7 +186,7 @@ function readFile(f) {
 export default function CsvBulkImport({ financeOnly = false }) {
   const visibleEntityOrder = financeOnly ? FINANCE_ENTITY_ORDER : ENTITY_ORDER;
   const fileRef = useRef(null);
-  // files: { fileName, entity, csv, preview, committed, error, audit, columnMap, presetName }
+  // files: { fileName, sourceFile, entity, csv, preview, committed, error, audit, columnMap, presetName }
   const [files, setFiles] = useState([]);
   const [skipInvalid, setSkipInvalid] = useState(false);
   const [updateExisting, setUpdateExisting] = useState(false);
@@ -231,7 +231,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
           columnMap = applied.columnMap;
           presetName = applied.presetName;
         }
-        next.push({ fileName: f.name, entity, csv, preview: null, committed: null, error: null, audit: null, columnMap, presetName });
+        next.push({ fileName: f.name, sourceFile: f, entity, csv, preview: null, committed: null, error: null, audit: null, columnMap, presetName });
       } catch (err) {
         next.push({ fileName: f.name, entity: null, csv: '', preview: null, committed: null, error: err, audit: null, columnMap: null, presetName: null });
       }
@@ -287,7 +287,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
         let runId = null;
         try {
           runId = await reserveCsvImportAudit({
-            entity: f.entity, fileName: f.fileName, csvText: f.csv, preview: f.preview,
+            entity: f.entity, fileName: f.fileName, csvText: f.csv, sourceFile: f.sourceFile, preview: f.preview,
             skipInvalid, updateExisting: shouldUpdate, columnMap: f.columnMap,
           });
           next[idx] = { ...f, audit: { id: runId, state: 'unconfirmed' } };
@@ -298,7 +298,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
           next[idx] = { ...next[idx], committed: res, error: null };
           try {
             const receipt = await finalizeCsvImportAudit({
-              runId, result: res, startedAt, csvText: f.csv, fileName: f.fileName,
+              runId, result: res, startedAt, csvText: f.csv, sourceFile: f.sourceFile, fileName: f.fileName,
               entity: f.entity, columnMap: f.columnMap,
             });
             next[idx] = { ...next[idx], audit: { id: runId, state: receipt.sourceAttached ? 'logged' : 'source_missing' } };
@@ -325,7 +325,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
     try {
       const receipt = await finalizeCsvImportAudit({
         runId: f.audit.id, result: f.committed, startedAt: Date.now(),
-        csvText: f.csv, fileName: f.fileName, entity: f.entity, columnMap: f.columnMap,
+        csvText: f.csv, sourceFile: f.sourceFile, fileName: f.fileName, entity: f.entity, columnMap: f.columnMap,
       });
       setFiles(prev => prev.map((row, i) => i === idx
         ? { ...row, audit: { id: f.audit.id, state: receipt.sourceAttached ? 'logged' : 'source_missing' } }

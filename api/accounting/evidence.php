@@ -61,9 +61,34 @@ if ($method === 'POST' && $action === 'supersede') {
 
 if ($method === 'POST') {
     $body  = api_json_body();
+    if (($body['subject_type'] ?? '') === 'csv_import_run') {
+        require_once __DIR__ . '/../../core/StorageService.php';
+        $subjectId = (int) ($body['subject_id'] ?? 0);
+        $documentType = (string) ($body['document_type'] ?? '');
+        $key = (string) ($body['storage_key'] ?? '');
+        if ($subjectId <= 0 || !in_array($documentType, ['csv_source', 'column_map'], true)
+            || !str_starts_with($key, "csv_imports/{$tenantId}/csv_import_run/{$subjectId}/")) {
+            api_error('Invalid import evidence', 422);
+        }
+        $run = getDB()->prepare(
+            'SELECT id FROM csv_import_history
+              WHERE id = :id AND tenant_id = :tenant_id AND created_by_user_id = :user_id LIMIT 1'
+        );
+        $run->execute(['id' => $subjectId, 'tenant_id' => $tenantId, 'user_id' => $userId]);
+        if (!$run->fetchColumn()) api_error('Import run not found for this user', 404);
+        $head = \Core\StorageService::getInstance()->head($key);
+        if ($head === null || (int) ($head['size_bytes'] ?? 0) < 1
+            || (int) ($body['size_bytes'] ?? 0) !== (int) $head['size_bytes']) {
+            api_error('Uploaded import file is missing or has a different size', 422);
+        }
+    }
     $args  = array_merge($body, ['attached_by_user_id' => $userId]);
     try {
-        api_ok(evidenceAttach($tenantId, $args), 201);
+        $attached = evidenceAttach($tenantId, $args);
+        if (($body['subject_type'] ?? '') === 'csv_import_run' && (int) ($attached['id'] ?? 0) <= 0) {
+            api_error('Import evidence could not be registered', 503);
+        }
+        api_ok($attached, 201);
     } catch (\InvalidArgumentException $e) {
         api_error($e->getMessage(), 422);
     }

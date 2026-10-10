@@ -52,6 +52,7 @@ test('finalization preserves document and line counts, then archives', async () 
   };
   const runId = await reserveCsvImportAudit({
     entity: 'billing_invoices', fileName: 'sample.csv', csvText: 'a,b\n1,2',
+    sourceFile: new Blob([new Uint8Array([0xef, 0xbb, 0xbf, 0x61, 0x2c, 0x62, 0x0a, 0x31, 0x2c, 0x32])]),
     preview: { row_count: 3 }, skipInvalid: false, updateExisting: false,
   });
   const receipt = await finalizeCsvImportAudit({
@@ -63,6 +64,7 @@ test('finalization preserves document and line counts, then archives', async () 
   assert.equal(receipt.id, 42);
   assert.equal(receipt.sourceAttached, true);
   assert.equal(calls[0].body.rows_total, 3);
+  assert.equal(calls[0].body.bytes_processed, 10);
   assert.equal(calls[1].body.rows_imported, 3);
   assert.equal(calls[1].body.rows_skipped, 0);
   assert.equal(calls[2].attachment.importRunId, 42);
