@@ -497,104 +497,7 @@ function businessIntegrityAudit(int $tenantId): array
         ['payroll_runs', 'payroll_line_items']
     );
 
-    $bankCashMovement = 'COALESCE((
-        SELECT ROUND(SUM(journal_line.debit - journal_line.credit), 2)
-          FROM accounting_journal_entry_lines journal_line
-          JOIN accounting_accounts cash_account
-            ON cash_account.id = journal_line.account_id
-           AND cash_account.tenant_id = bank_line.tenant_id
-           AND cash_account.code = bank.gl_account_code
-         WHERE journal_line.je_id = journal.id
-    ), 0)';
-    $bankMatchFrom = 'FROM accounting_bank_statement_lines bank_line
-        LEFT JOIN accounting_bank_accounts bank
-          ON bank.tenant_id = bank_line.tenant_id AND bank.id = bank_line.bank_account_id
-        LEFT JOIN accounting_accounts account
-          ON account.tenant_id = bank_line.tenant_id AND account.code = bank.gl_account_code
-        LEFT JOIN accounting_journal_entries journal
-          ON journal.tenant_id = bank_line.tenant_id AND journal.id = bank_line.matched_je_id';
-    $bankMatchInvalid = "bank.id IS NULL OR bank_line.matched_je_id IS NULL
-        OR account.id IS NULL OR journal.id IS NULL OR journal.status <> 'posted'
-        OR bank.entity_id IS NULL OR journal.entity_id IS NULL
-        OR bank.entity_id <> journal.entity_id
-        OR COALESCE(NULLIF(bank.currency, ''), 'USD') <> COALESCE(NULLIF(journal.currency, ''), 'USD')
-        OR ABS({$bankCashMovement} - bank_line.amount) >= 0.005";
-    $bankTables = [
-        'accounting_bank_statement_lines', 'accounting_bank_accounts',
-        'accounting_accounts', 'accounting_journal_entries', 'accounting_journal_entry_lines',
-    ];
-    $checks[] = businessIntegrityCountCheck(
-        $accountingTenantId,
-        'bank_match_integrity',
-        'Matched bank lines have one posted journal with the same entity, currency and cash movement',
-        'critical',
-        "SELECT COUNT(*) {$bankMatchFrom}
-          WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'matched'
-            AND ({$bankMatchInvalid})",
-        "SELECT bank_line.id AS bank_line_id, bank_line.posted_date, bank_line.amount,
-                bank_line.matched_je_id, journal.status AS journal_status,
-                bank.id AS bank_account_id, bank.gl_account_code,
-                bank.entity_id AS bank_entity_id, journal.entity_id AS journal_entity_id,
-                bank.currency AS bank_currency, journal.currency AS journal_currency,
-                {$bankCashMovement} AS cash_movement
-           {$bankMatchFrom}
-          WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'matched'
-            AND ({$bankMatchInvalid})
-          ORDER BY bank_line.id DESC LIMIT 25",
-        $bankTables
-    );
-
-    $checks[] = businessIntegrityCountCheck(
-        $accountingTenantId,
-        'bank_duplicate_journal_matches',
-        'One posted journal is not claimed by multiple matched bank lines',
-        'critical',
-        "SELECT COUNT(*) FROM (
-            SELECT matched_je_id FROM accounting_bank_statement_lines
-             WHERE tenant_id = :tenant_id AND match_status = 'matched' AND matched_je_id IS NOT NULL
-             GROUP BY matched_je_id HAVING COUNT(*) > 1
-        ) duplicates",
-        "SELECT matched_je_id, COUNT(*) AS line_count, GROUP_CONCAT(id ORDER BY id) AS bank_line_ids
-           FROM accounting_bank_statement_lines
-          WHERE tenant_id = :tenant_id AND match_status = 'matched' AND matched_je_id IS NOT NULL
-          GROUP BY matched_je_id HAVING COUNT(*) > 1
-          ORDER BY line_count DESC, matched_je_id LIMIT 25",
-        ['accounting_bank_statement_lines']
-    );
-
-    $unmatchedLineage = "bank_line.matched_je_id IS NOT NULL
-        OR EXISTS (
-            SELECT 1 FROM accounting_journal_entries direct_je
-             WHERE direct_je.tenant_id = bank_line.tenant_id AND direct_je.status = 'posted'
-               AND direct_je.source_module = 'treasury_feed'
-               AND direct_je.source_ref_type = 'bank_statement_line'
-               AND CAST(direct_je.source_ref_id AS CHAR) = CAST(bank_line.id AS CHAR)
-        )
-        OR EXISTS (
-            SELECT 1 FROM accounting_subledger_links link
-            JOIN accounting_journal_entries linked_je
-              ON linked_je.tenant_id = link.tenant_id AND linked_je.id = link.journal_entry_id
-             WHERE link.tenant_id = bank_line.tenant_id AND link.source_module = 'treasury_feed'
-               AND link.link_kind = 'primary' AND linked_je.status = 'posted'
-               AND link.source_record_id IN (CONCAT('bank_line:', bank_line.id),
-                                             CONCAT('bank_line:split:', bank_line.id))
-        )";
-    $checks[] = businessIntegrityCountCheck(
-        $accountingTenantId,
-        'bank_unmatched_explicit_lineage',
-        'Unmatched bank lines with explicit posted lineage need review',
-        'error',
-        "SELECT COUNT(*) FROM accounting_bank_statement_lines bank_line
-          WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'unmatched'
-            AND ({$unmatchedLineage})",
-        "SELECT bank_line.id AS bank_line_id, bank_line.bank_account_id, bank_line.posted_date,
-                bank_line.amount, bank_line.matched_je_id
-           FROM accounting_bank_statement_lines bank_line
-          WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'unmatched'
-            AND ({$unmatchedLineage})
-          ORDER BY bank_line.id DESC LIMIT 25",
-        ['accounting_bank_statement_lines', 'accounting_journal_entries', 'accounting_subledger_links']
-    );
+    array_push($checks, ...businessIntegrityBankChecks($accountingTenantId));
 
     $checks[] = businessIntegrityCountCheck(
         $accountingTenantId,
@@ -937,6 +840,113 @@ function businessIntegrityAudit(int $tenantId): array
         'checks' => $checks,
         'ran_at' => date(DATE_ATOM),
     ];
+}
+
+function businessIntegrityBankChecks(int $accountingTenantId): array
+{
+    if ($accountingTenantId <= 0) throw new InvalidArgumentException('accountingTenantId required');
+    $checks = [];
+    $bankCashMovement = 'COALESCE((
+        SELECT ROUND(SUM(journal_line.debit - journal_line.credit), 2)
+          FROM accounting_journal_entry_lines journal_line
+          JOIN accounting_accounts cash_account
+            ON cash_account.id = journal_line.account_id
+           AND cash_account.tenant_id = bank_line.tenant_id
+           AND cash_account.code = bank.gl_account_code
+         WHERE journal_line.je_id = journal.id
+    ), 0)';
+    $bankMatchFrom = 'FROM accounting_bank_statement_lines bank_line
+        LEFT JOIN accounting_bank_accounts bank
+          ON bank.tenant_id = bank_line.tenant_id AND bank.id = bank_line.bank_account_id
+        LEFT JOIN accounting_accounts account
+          ON account.tenant_id = bank_line.tenant_id AND account.code = bank.gl_account_code
+        LEFT JOIN accounting_journal_entries journal
+          ON journal.tenant_id = bank_line.tenant_id AND journal.id = bank_line.matched_je_id';
+    $bankMatchInvalid = "bank.id IS NULL OR bank_line.matched_je_id IS NULL
+        OR account.id IS NULL OR journal.id IS NULL OR journal.status <> 'posted'
+        OR bank.entity_id IS NULL OR journal.entity_id IS NULL
+        OR bank.entity_id <> journal.entity_id
+        OR COALESCE(NULLIF(bank.currency, ''), 'USD') <> COALESCE(NULLIF(journal.currency, ''), 'USD')
+        OR ABS({$bankCashMovement} - bank_line.amount) >= 0.005";
+    $bankTables = [
+        'accounting_bank_statement_lines', 'accounting_bank_accounts',
+        'accounting_accounts', 'accounting_journal_entries', 'accounting_journal_entry_lines',
+    ];
+    $checks[] = businessIntegrityCountCheck(
+        $accountingTenantId,
+        'bank_match_integrity',
+        'Matched bank lines have one posted journal with the same entity, currency and cash movement',
+        'critical',
+        "SELECT COUNT(*) {$bankMatchFrom}
+          WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'matched'
+            AND ({$bankMatchInvalid})",
+        "SELECT bank_line.id AS bank_line_id, bank_line.posted_date, bank_line.amount,
+                bank_line.matched_je_id, journal.status AS journal_status,
+                bank.id AS bank_account_id, bank.gl_account_code,
+                bank.entity_id AS bank_entity_id, journal.entity_id AS journal_entity_id,
+                bank.currency AS bank_currency, journal.currency AS journal_currency,
+                {$bankCashMovement} AS cash_movement
+           {$bankMatchFrom}
+          WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'matched'
+            AND ({$bankMatchInvalid})
+          ORDER BY bank_line.id DESC LIMIT 25",
+        $bankTables
+    );
+
+    $checks[] = businessIntegrityCountCheck(
+        $accountingTenantId,
+        'bank_duplicate_journal_matches',
+        'One journal is not claimed by multiple matched bank lines',
+        'critical',
+        "SELECT COUNT(*) FROM (
+            SELECT matched_je_id FROM accounting_bank_statement_lines
+             WHERE tenant_id = :tenant_id AND match_status = 'matched' AND matched_je_id IS NOT NULL
+             GROUP BY matched_je_id HAVING COUNT(*) > 1
+        ) duplicates",
+        "SELECT matched_je_id, COUNT(*) AS line_count,
+                GROUP_CONCAT(CONCAT(id, ':', bank_account_id) ORDER BY id) AS bank_line_refs
+           FROM accounting_bank_statement_lines
+          WHERE tenant_id = :tenant_id AND match_status = 'matched' AND matched_je_id IS NOT NULL
+          GROUP BY matched_je_id HAVING COUNT(*) > 1
+          ORDER BY line_count DESC, matched_je_id LIMIT 25",
+        ['accounting_bank_statement_lines']
+    );
+
+    $unmatchedLineage = "bank_line.matched_je_id IS NOT NULL
+        OR EXISTS (
+            SELECT 1 FROM accounting_journal_entries direct_je
+             WHERE direct_je.tenant_id = bank_line.tenant_id AND direct_je.status = 'posted'
+               AND direct_je.source_module = 'treasury_feed'
+               AND direct_je.source_ref_type = 'bank_statement_line'
+               AND CAST(direct_je.source_ref_id AS CHAR) = CAST(bank_line.id AS CHAR)
+        )
+        OR EXISTS (
+            SELECT 1 FROM accounting_subledger_links link
+            JOIN accounting_journal_entries linked_je
+              ON linked_je.tenant_id = link.tenant_id AND linked_je.id = link.journal_entry_id
+             WHERE link.tenant_id = bank_line.tenant_id AND link.source_module = 'treasury_feed'
+               AND link.link_kind = 'primary' AND linked_je.status = 'posted'
+               AND link.source_record_id IN (CONCAT('bank_line:', bank_line.id),
+                                             CONCAT('bank_line:split:', bank_line.id))
+        )";
+    $checks[] = businessIntegrityCountCheck(
+        $accountingTenantId,
+        'bank_unmatched_explicit_lineage',
+        'Unmatched bank lines with explicit posted lineage need review',
+        'error',
+        "SELECT COUNT(*) FROM accounting_bank_statement_lines bank_line
+          WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'unmatched'
+            AND ({$unmatchedLineage})",
+        "SELECT bank_line.id AS bank_line_id, bank_line.bank_account_id, bank_line.posted_date,
+                bank_line.amount, bank_line.matched_je_id
+           FROM accounting_bank_statement_lines bank_line
+          WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'unmatched'
+            AND ({$unmatchedLineage})
+          ORDER BY bank_line.id DESC LIMIT 25",
+        ['accounting_bank_statement_lines', 'accounting_journal_entries', 'accounting_subledger_links']
+    );
+
+    return $checks;
 }
 
 function businessIntegrityArtifactCoverageCheck(

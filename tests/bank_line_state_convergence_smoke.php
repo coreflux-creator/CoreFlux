@@ -12,6 +12,9 @@ $lib = (string) file_get_contents($root . '/modules/accounting/lib/bank_rec.php'
 $bankApi = (string) file_get_contents($root . '/modules/accounting/api/bank_statements.php');
 $treasury = (string) file_get_contents($root . '/modules/treasury/api/account_transactions.php');
 $integrity = (string) file_get_contents($root . '/core/business_integrity.php');
+$bankIntegrityApi = (string) file_get_contents($root . '/modules/accounting/api/bank_integrity.php');
+$bankIntegrityUi = (string) file_get_contents($root . '/modules/accounting/ui/BankIntegrityReview.jsx');
+$bankRecUi = (string) file_get_contents($root . '/modules/accounting/ui/BankReconciliation.jsx');
 
 $check('shared match transition exists', str_contains($lib, 'function bankRecMarkLineMatched('));
 $check('shared transition records match metadata', str_contains($lib, 'matched_at = NOW()') && str_contains($lib, 'matched_by_user_id = :user_id'));
@@ -46,6 +49,16 @@ $check('read-only integrity audit detects duplicate and unresolved bank lineage'
     str_contains($integrity, "'bank_duplicate_journal_matches'")
     && str_contains($integrity, "'bank_unmatched_explicit_lineage'")
     && str_contains($integrity, "link.link_kind = 'primary'"));
+$check('bank review reuses the shared read-only audit with accounting access control',
+    str_contains($integrity, 'function businessIntegrityBankChecks(')
+    && str_contains($integrity, 'businessIntegrityBankChecks($accountingTenantId)')
+    && str_contains($bankIntegrityApi, "rbac_legacy_require(\$ctx['user'], 'accounting.coa.view')")
+    && str_contains($bankIntegrityApi, 'businessIntegrityBankChecks($accountingTenantId)'));
+$check('bank exceptions link back to bank lines and journals',
+    str_contains($bankRecUi, 'path="integrity"')
+    && str_contains($bankRecUi, 'accounting-bank-integrity-link')
+    && str_contains($bankIntegrityUi, '?line_id=${lineId}')
+    && str_contains($bankIntegrityUi, '/modules/accounting/journal-entries/${journalId}'));
 $check('write routes guard stale posted lineage',
     str_contains($bankApi, 'bankRecGuardPostedLineage(')
     && str_contains($treasury, 'bankRecGuardPostedLineage($tenantId, $lineId)'));

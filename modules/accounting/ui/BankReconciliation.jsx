@@ -7,6 +7,8 @@ import IntercompanySplitDialog from '../../../dashboard/src/components/Intercomp
 import PlaidLinkButton from '../../../dashboard/src/components/PlaidLinkButton';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
 import { SplitIcPanel as BankReceiptSplitPanel } from '../../treasury/ui/AccountTransactions';
+import BankIntegrityReview from './BankIntegrityReview';
+import { ShieldAlert } from 'lucide-react';
 
 /**
  * Bank Reconciliation module.
@@ -18,6 +20,7 @@ export default function BankReconciliation() {
   return (
     <Routes>
       <Route index element={<AccountsList />} />
+      <Route path="integrity" element={<BankIntegrityReview />} />
       <Route path=":id" element={<AccountDetail />} />
       <Route path=":id/rules" element={<RulesList />} />
       <Route path="reconciliations/:id" element={<ReconciliationsList />} />
@@ -137,6 +140,7 @@ function AccountsList() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Link className="btn btn--ghost" to="integrity" data-testid="accounting-bank-integrity-link"><ShieldAlert size={16} aria-hidden="true" /> Review history</Link>
           <select className="input" aria-label="Legal entity" data-testid="accounting-bank-accounts-entity" value={entityId || 'all'} onChange={event => selectEntity(event.target.value)}>
             <option value="all">All entities</option>
             {entities.map(entity => <option key={entity.id} value={entity.id}>{entity.code} · {entity.legal_name || entity.name}</option>)}

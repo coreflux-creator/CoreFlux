@@ -18,6 +18,7 @@ $allowed = [
     'api/coreone/v1/reports.php',
     'api/plaid_bank_link.php',
     'core/api/payment_rails.php',
+    'modules/accounting/api/bank_integrity.php',
     'modules/accounting/api/reports.php',
     'modules/billing/api/invoices.php',
     'modules/people/api/companies.php',
