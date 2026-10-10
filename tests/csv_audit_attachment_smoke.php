@@ -39,6 +39,10 @@ $a('history retains CSV evidence download', str_contains($history, 'DownloadOrig
     && str_contains($history, 'download-original'));
 $a('history retains mapping evidence download', str_contains($history, 'DownloadColumnMap')
     && str_contains($history, 'download-mapping'));
+$a('history download avoids an async popup', str_contains($history, 'window.location.assign(r.signed_url)')
+    && !str_contains($history, "window.open(r.signed_url"));
+$evidence = $read('api/accounting/evidence.php');
+$a('download links force the evidence filename', str_contains($evidence, "'filename_for_download'"));
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

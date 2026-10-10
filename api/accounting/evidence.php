@@ -38,7 +38,11 @@ if ($method === 'GET' && $action === 'signed_url') {
     $stmt->execute(['t' => $tenantId, 'id' => $id]);
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);
     if (!$row || empty($row['storage_key'])) api_error('not found or no file', 404);
-    $url = \Core\StorageService::getInstance()->get_signed_url($row['storage_key']);
+    $downloadName = preg_replace('/[^A-Za-z0-9._-]/', '_',
+        basename(str_replace('\\', '/', (string) ($row['label'] ?: 'download')))) ?: 'download';
+    $url = \Core\StorageService::getInstance()->get_signed_url(
+        $row['storage_key'], 300, ['filename_for_download' => $downloadName]
+    );
     api_ok(['signed_url' => $url, 'filename' => $row['label']]);
 }
 

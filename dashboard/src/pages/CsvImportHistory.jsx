@@ -344,6 +344,7 @@ function DownloadColumnMap({ importRunId }) {
 function DownloadEvidenceByType({ importRunId, documentType, extensionFallback, label, title, testid }) {
   const [attachment, setAttachment] = useState(null);
   const [loading, setLoading]       = useState(true);
+  const [downloadError, setDownloadError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -370,24 +371,31 @@ function DownloadEvidenceByType({ importRunId, documentType, extensionFallback, 
 
   const onClick = async (e) => {
     e.preventDefault(); e.stopPropagation();
+    setDownloadError('');
     try {
       const r = await api.get(`/api/accounting/evidence.php?action=signed_url&id=${attachment.id}`);
-      if (r?.signed_url) window.open(r.signed_url, '_blank', 'noopener');
-    } catch { /* silent */ }
+      if (!r?.signed_url) throw new Error('No download link was returned');
+      window.location.assign(r.signed_url);
+    } catch {
+      setDownloadError('Download unavailable. Try again.');
+    }
   };
 
   return (
-    <button
-      onClick={onClick}
-      data-testid={testid}
-      className="btn btn--ghost"
-      title={title}
-      style={{
-        marginLeft: 6, padding: '1px 6px', fontSize: 11,
-        display: 'inline-flex', alignItems: 'center', gap: 3,
-        color: '#0369a1', verticalAlign: 'middle',
-      }}>
-      <Download size={11}/> {label}
-    </button>
+    <>
+      <button
+        onClick={onClick}
+        data-testid={testid}
+        className="btn btn--ghost"
+        title={title}
+        style={{
+          marginLeft: 6, padding: '1px 6px', fontSize: 11,
+          display: 'inline-flex', alignItems: 'center', gap: 3,
+          color: '#0369a1', verticalAlign: 'middle',
+        }}>
+        <Download size={11}/> {label}
+      </button>
+      {downloadError && <span role="alert" style={{ color: '#b91c1c', fontSize: 11 }}>{downloadError}</span>}
+    </>
   );
 }
