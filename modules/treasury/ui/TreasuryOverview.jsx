@@ -741,7 +741,7 @@ function BankConnectCard({ onLinked }) {
           marginTop: 12, padding: 12, background: 'var(--cf-surface)',
           border: '1px solid var(--cf-border)', borderRadius: 6, fontSize: 13,
         }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: 8, marginBottom: 8 }}>
             <DiagStat label="Bank connections" value={diag.plaid_items?.length || 0} />
             <DiagStat label="Linked accounts" value={diag.plaid_accounts?.length || 0} />
             <DiagStat label="Deposit accounts" value={diag.accounting_bank_accounts_for_plaid?.length || 0} />
@@ -767,7 +767,7 @@ function BankConnectCard({ onLinked }) {
               </label>
               <div style={{ maxHeight: 240, overflowY: 'auto', margin: '6px 0' }}>
                 {actionableOrphans.map((account) => (
-                  <div key={account.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                  <div key={account.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '4px 0' }}>
                     <label style={{ flex: 1 }}>
                       <input
                         type="checkbox"
@@ -781,6 +781,7 @@ function BankConnectCard({ onLinked }) {
                       <select
                         className="input"
                         aria-label={`Legal entity for ${account.name}`}
+                        style={{ minWidth: 160, maxWidth: '100%', flex: '1 1 160px' }}
                         value={orphanEntityIds[account.account_id] ?? selectedEntityId ?? ''}
                         onChange={(event) => setOrphanEntityIds((current) => ({
                           ...current, [account.account_id]: Number(event.target.value),
@@ -828,7 +829,8 @@ function BankConnectCard({ onLinked }) {
         >
           <div style={{
             background: '#fff', borderRadius: 8, padding: 24, width: 'min(560px, 92vw)',
-            maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
+            boxSizing: 'border-box', maxHeight: '88vh', overflow: 'auto',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
           }}>
             <h3 style={{ marginTop: 0 }}>Choose accounts to add</h3>
             <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
@@ -843,11 +845,11 @@ function BankConnectCard({ onLinked }) {
                   key={a.id}
                   data-testid={`plaid-account-picker-row-${a.id}`}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 12,
+                    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12,
                     padding: '8px 4px', borderBottom: '1px solid var(--cf-border, #f1f5f9)',
                   }}
                 >
-                  <label style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                  <label style={{ display: 'flex', flex: 1, minWidth: 0, alignItems: 'center', gap: 12, cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={!!pickerSelected[a.id]}
@@ -867,6 +869,7 @@ function BankConnectCard({ onLinked }) {
                     <select
                       className="input"
                       aria-label={`Legal entity for ${a.name}`}
+                      style={{ minWidth: 160, maxWidth: '100%', flex: '1 1 160px' }}
                       value={accountEntityIds[a.id] ?? selectedEntityId ?? ''}
                       onChange={(event) => setAccountEntityIds((current) => ({
                         ...current, [a.id]: Number(event.target.value),

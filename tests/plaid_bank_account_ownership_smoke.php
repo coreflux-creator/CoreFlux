@@ -57,6 +57,9 @@ check('UI offers entity assignment and deliberate bulk recovery',
     && str_contains($ui, 'account_entity_ids: entityIds')
     && str_contains($ui, 'data-testid="plaid-orphan-select-all"')
     && str_contains($ui, 'selected_account_ids: ids'));
+check('Recovery counters and picker fit narrow screens',
+    str_contains($ui, 'repeat(auto-fit, minmax(105px, 1fr))')
+    && str_contains($ui, "boxSizing: 'border-box', maxHeight: '88vh'"));
 
 echo "{$pass} passed; {$fail} failed\n";
 exit($fail ? 1 : 0);
