@@ -95,7 +95,7 @@ $check('manual journal match validates signed bank movement',
     str_contains($bankLib, 'line.debit - line.credit')
     && str_contains($bankLib, 'does not contain the matching cash movement'));
 $check('manual journal match rejects currency, entity, and duplicate-use conflicts',
-    str_contains($bankLib, 'journal entry belongs to a different entity')
+    str_contains($bankLib, 'journal entry and bank account must belong to the same legal entity')
     && str_contains($bankLib, 'journal entry uses a different currency')
     && str_contains($bankLib, 'already matched to another bank line'));
 $check('line match uses a conditional write to prevent double resolution',

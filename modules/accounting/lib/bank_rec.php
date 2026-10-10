@@ -295,9 +295,9 @@ function bankRecMatchLine(int $tenantId, int $lineId, int $jeId, ?int $userId): 
             ['id' => $jeId, 'bank_code' => (string) $line['gl_account_code']]
         );
         if (!$je) throw new RuntimeException('JE not found');
-        if (!empty($line['bank_entity_id']) && !empty($je['entity_id'])
-            && (int) $line['bank_entity_id'] !== (int) $je['entity_id']) {
-            throw new RuntimeException('The journal entry belongs to a different entity');
+        if (empty($line['bank_entity_id']) || empty($je['entity_id'])
+            || (int) $line['bank_entity_id'] !== (int) $je['entity_id']) {
+            throw new RuntimeException('The journal entry and bank account must belong to the same legal entity');
         }
         if (strcasecmp((string) ($line['bank_currency'] ?: 'USD'), (string) ($je['currency'] ?: 'USD')) !== 0) {
             throw new RuntimeException('The journal entry uses a different currency');
@@ -580,6 +580,7 @@ function bankRecAutoSuggestMatches(int $tenantId, array $bankLine, int $bankAcco
          JOIN accounting_bank_accounts ba
            ON ba.tenant_id = l.tenant_id AND ba.id = :bank_account_id
           AND ba.gl_account_code = a.code
+          AND ba.entity_id IS NOT NULL AND je.entity_id = ba.entity_id
          WHERE l.tenant_id = :tenant_id
            AND je.status = "posted"
            ' . $bankSideSql . '
