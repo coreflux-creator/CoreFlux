@@ -79,7 +79,11 @@ $a('page testid',                               strpos($bc, 'data-testid="ap-bil
 $a('vendor typeahead',                          strpos($bc, 'VendorTypeahead') !== false && strpos($bc, 'testId="ap-bill-create-vendor"') !== false);
 $a('uses LineItemEditor',                       strpos($bc, "import LineItemEditor") !== false);
 $a('passes glField=gl_expense_account_code',    strpos($bc, 'glField="gl_expense_account_code"') !== false);
-$a('fetches expense accounts only',             strpos($bc, '/modules/accounting/api/accounts.php?type=expense') !== false);
+$choices = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/directBillAccounts.js');
+$a('fetches active account dimension rules',    strpos($bc, '/modules/accounting/api/accounts.php?active=1&include_required_dimensions=1') !== false);
+$a('offers only postable expense classes',      strpos($choices, "['expense', 'other_expense'].includes(account.account_type)") !== false
+    && strpos($choices, 'Number(account.is_postable) === 1') !== false);
+$a('disables accounts needing absent dimensions', strpos($choices, 'disabled: missing.length > 0 || blocked.length > 0') !== false);
 $a('vendor type select',                        strpos($bc, 'data-testid="ap-bill-create-vendor-type"') !== false);
 $a('1099 individual auto-flag',                 strpos($bc, "is_1099_eligible: vendorType === '1099_individual'") !== false);
 $a('submit posts to bills.php',                 strpos($bc, "api.post('/modules/ap/api/bills.php'") !== false);
