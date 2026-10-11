@@ -140,7 +140,7 @@ function AccountsList() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <Link className="btn btn--ghost" to="integrity" data-testid="accounting-bank-integrity-link"><ShieldAlert size={16} aria-hidden="true" /> Review history</Link>
+          <Link className="btn btn--ghost" to="integrity" data-testid="accounting-bank-integrity-link"><ShieldAlert size={16} aria-hidden="true" /> Review integrity</Link>
           <select className="input" aria-label="Legal entity" data-testid="accounting-bank-accounts-entity" value={entityId || 'all'} onChange={event => selectEntity(event.target.value)}>
             <option value="all">All entities</option>
             {entities.map(entity => <option key={entity.id} value={entity.id}>{entity.code} · {entity.legal_name || entity.name}</option>)}

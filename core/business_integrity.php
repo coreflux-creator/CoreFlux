@@ -871,11 +871,13 @@ function businessIntegrityBankChecks(int $accountingTenantId): array
         'critical',
         "SELECT COUNT(*) {$bankMappingFrom}
           WHERE bank.tenant_id = :tenant_id AND ({$bankMappingInvalid})",
-        "SELECT bank.id AS bank_account_id, bank.status, bank.entity_id,
+        "SELECT bank.id AS bank_account_id, bank.name AS bank_account_name,
+                bank.status, bank.entity_id,
                 bank.gl_account_code, bank.currency AS bank_currency,
                 entity.active AS entity_active, entity.base_currency AS entity_currency,
                 cash_account.id AS cash_account_id, cash_account.active AS cash_account_active,
-                cash_account.is_postable, cash_account.account_type,
+                cash_account.is_postable, cash_account.is_system_account,
+                cash_account.account_type,
                 cash_account.normal_side, cash_account.cash_flow_tag,
                 cash_account.currency AS cash_account_currency
            {$bankMappingFrom}

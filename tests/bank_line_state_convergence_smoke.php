@@ -61,6 +61,7 @@ $check('bank review reuses the shared read-only audit with accounting access con
 $check('bank exceptions link back to bank lines and journals',
     str_contains($bankRecUi, 'path="integrity"')
     && str_contains($bankRecUi, 'accounting-bank-integrity-link')
+    && str_contains($bankIntegrityUi, 'accounting-bank-integrity-mapping-table')
     && str_contains($bankIntegrityUi, '?line_id=${lineId}')
     && str_contains($bankIntegrityUi, 'match_status=matched')
     && str_contains($bankIntegrityUi, '/modules/accounting/journal-entries/${journalId}'));
