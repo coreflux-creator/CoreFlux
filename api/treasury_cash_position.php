@@ -59,6 +59,7 @@ $balStmt = $pdo->prepare(
        JOIN accounting_journal_entries je ON je.id = jl.je_id
       WHERE je.tenant_id = :t
         AND je.status IN ('posted','reversed')
+        AND je.entity_id = :entity_id
         AND je.posting_date <= :a
         AND jl.account_id = :acc"
 );
@@ -103,7 +104,8 @@ foreach ($banks as $b) {
     ];
 
     if ($entry['gl_account_id']) {
-        $balStmt->execute(['t' => $tid, 'a' => $asOf, 'acc' => $entry['gl_account_id']]);
+        $balStmt->execute(['t' => $tid, 'a' => $asOf,
+            'acc' => $entry['gl_account_id'], 'entity_id' => $entry['entity_id']]);
         $entry['gl_balance'] = round((float) $balStmt->fetchColumn(), 2);
     }
     $outflowStmt->execute(['t' => $tid, 'ba' => $entry['bank_account_id'], 'end' => $forecastEnd]);

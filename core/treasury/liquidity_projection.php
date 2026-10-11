@@ -50,7 +50,7 @@ function liquidityBaselineDatasets(int $tenantId, string $today, string $endDate
            JOIN accounting_journal_entry_lines jl ON jl.account_id = a.id AND jl.tenant_id = a.tenant_id
            JOIN accounting_journal_entries je ON je.id = jl.je_id
                  AND je.tenant_id = ba.tenant_id
-                 AND (ba.entity_id IS NULL OR je.entity_id = ba.entity_id)
+                 AND je.entity_id = ba.entity_id
                  AND je.status IN ('posted','reversed')
           WHERE ba.tenant_id = :t AND ba.status = 'active' AND je.posting_date <= :d"
        . ($entityId ? ' AND ba.entity_id = :e' : '')

@@ -46,7 +46,10 @@ $mockLinked = null;
 function scopedFind(string $sql, array $params): ?array
 {
     global $mockAccount, $mockLinked;
-    return str_contains($sql, 'FROM accounting_accounts') ? $mockAccount : $mockLinked;
+    if (str_contains($sql, 'FROM accounting_accounts')) return $mockAccount;
+    if (!$mockLinked || (!empty($params['exclude_id']) && $params['exclude_id'] === $mockLinked['id'])) return null;
+    return $mockLinked['entity_id'] === null || $mockLinked['entity_id'] === $params['entity_id']
+        ? $mockLinked : null;
 }
 function api_error(string $message, int $status): never
 {
@@ -61,16 +64,27 @@ $failsWith = static function (int $status, callable $action): bool {
     return false;
 };
 $check('valid Cash ledger passes API validation', (static function (): bool {
-    bankAccountValidateLedger('1000', 'USD');
+    bankAccountValidateLedger('1000', 'USD', 10);
     return true;
 })());
 $mockAccount = array_replace($cash, ['code' => '1100']);
-$check('API refuses receivable as a bank ledger', $failsWith(422, static fn() => bankAccountValidateLedger('1100', 'USD')));
+$check('API refuses receivable as a bank ledger', $failsWith(422, static fn() => bankAccountValidateLedger('1100', 'USD', 10)));
 $mockAccount = array_replace($cash, ['currency' => 'EUR']);
-$check('API refuses mismatched currency', $failsWith(422, static fn() => bankAccountValidateLedger('1000', 'USD')));
+$check('API refuses mismatched currency', $failsWith(422, static fn() => bankAccountValidateLedger('1000', 'USD', 10)));
 $mockAccount = $cash;
-$mockLinked = ['id' => 4];
-$check('API refuses duplicate bank linkage', $failsWith(409, static fn() => bankAccountValidateLedger('1000', 'USD')));
+$mockLinked = ['id' => 4, 'entity_id' => 10];
+$check('API refuses duplicate bank linkage in the same entity', $failsWith(409, static fn() => bankAccountValidateLedger('1000', 'USD', 10)));
+$check('another legal entity may reuse the same chart cash code', (static function (): bool {
+    bankAccountValidateLedger('1000', 'USD', 20);
+    return true;
+})());
+$check('an existing bank may keep its unchanged mapping', (static function (): bool {
+    bankAccountValidateLedger('1000', 'USD', 10, 4);
+    return true;
+})());
+$mockLinked = ['id' => 5, 'entity_id' => null];
+$check('unowned legacy bank reserves its cash code pending review', $failsWith(409, static fn() => bankAccountValidateLedger('1000', 'USD', 20)));
+$check('bank setup requires a legal entity', $failsWith(422, static fn() => bankAccountValidateLedger('1000', 'USD', 0)));
 
 $accountingApi = $read('modules/accounting/api/bank_accounts.php');
 $treasuryApi = $read('modules/treasury/api/deposit_accounts.php');
@@ -84,7 +98,18 @@ $worklist = $read('dashboard/src/pages/TransactionsToReview.jsx');
 $check('Accounting and Treasury use shared bank-ledger validation',
     str_contains($accountingApi, "require_once __DIR__ . '/../lib/bank_account_ledger.php'")
     && str_contains($treasuryApi, "require_once __DIR__ . '/../../accounting/lib/bank_account_ledger.php'")
-    && str_contains($treasuryApi, 'bankAccountValidateLedger($code, $currency)'));
+    && str_contains($treasuryApi, "bankAccountValidateLedger(\$code, \$currency, (int) \$entity['id'])"));
+$migration = $read('modules/accounting/migrations/043_bank_account_entity_cash_code.sql');
+$cashPosition = $read('api/treasury_cash_position.php');
+$cashForecast = $read('core/ai/cash_forecast.php');
+$cashVariance = $read('api/treasury_recommendations.php');
+$check('bank cash code uniqueness is per entity, with a reserved key for unowned banks',
+    str_contains($migration, 'COALESCE(entity_id, 0)')
+    && str_contains($migration, 'uq_aba_tenant_entity_gl (tenant_id, entity_scope_id, gl_account_code)'));
+$check('cash position, forecast and variance require matching journal entity',
+    str_contains($cashPosition, 'je.entity_id = :entity_id')
+    && str_contains($cashForecast, 'j.entity_id = b.entity_id')
+    && str_contains($cashVariance, 'je.entity_id = ba.entity_id'));
 $check('account list exposes cash designation and system flag to the picker',
     str_contains($accountsApi, 'cash_flow_tag, is_system_account'));
 $check('chart can designate a custom bank or cash account',

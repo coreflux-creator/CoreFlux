@@ -15,8 +15,9 @@ function accountingBankCashLedgerEligible(array $account): bool
         );
 }
 
-function bankAccountValidateLedger(string $code, string $currency, ?int $excludeId = null): void
+function bankAccountValidateLedger(string $code, string $currency, int $entityId, ?int $excludeId = null): void
 {
+    if ($entityId <= 0) api_error('Choose an active legal entity for this bank account', 422);
     $account = scopedFind(
         'SELECT code, account_type, normal_side, is_postable, active, currency,
                 cash_flow_tag, is_system_account
@@ -30,8 +31,9 @@ function bankAccountValidateLedger(string $code, string $currency, ?int $exclude
         api_error('The bank and cash ledger account must use the same currency', 422);
     }
     $usedSql = 'SELECT id FROM accounting_bank_accounts
-                 WHERE tenant_id = :tenant_id AND gl_account_code = :code';
-    $usedParams = ['code' => $code];
+                 WHERE tenant_id = :tenant_id AND gl_account_code = :code
+                   AND (entity_id = :entity_id OR entity_id IS NULL)';
+    $usedParams = ['code' => $code, 'entity_id' => $entityId];
     if ($excludeId !== null) {
         $usedSql .= ' AND id <> :exclude_id';
         $usedParams['exclude_id'] = $excludeId;

@@ -244,7 +244,7 @@ function cashForecastReadOpeningBalanceCents(int $tenantId, ?string $asOfDate = 
              ON a.tenant_id = b.tenant_id AND a.code = b.gl_account_code
            JOIN accounting_journal_entry_lines l ON l.account_id = a.id
            JOIN accounting_journal_entries j
-             ON j.id = l.je_id AND j.tenant_id = b.tenant_id
+             ON j.id = l.je_id AND j.tenant_id = b.tenant_id AND j.entity_id = b.entity_id
           WHERE b.tenant_id = :t
             AND b.status = 'active'
             AND b.currency = :currency

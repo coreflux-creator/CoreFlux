@@ -77,7 +77,7 @@ switch (api_method()) {
                ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
              LEFT JOIN accounting_journal_entries je
                ON je.tenant_id = aa.tenant_id
-              AND (ba.entity_id IS NULL OR je.entity_id = ba.entity_id)
+              AND je.entity_id = ba.entity_id
               AND je.status IN ('posted', 'reversed')
              LEFT JOIN accounting_journal_entry_lines jel
                ON jel.je_id = je.id AND jel.account_id = aa.id
@@ -117,7 +117,7 @@ switch (api_method()) {
         if (strcasecmp((string) $entity['base_currency'], $currency) !== 0) {
             api_error('The bank account currency must match the legal entity currency', 422);
         }
-        bankAccountValidateLedger($code, $currency);
+        bankAccountValidateLedger($code, $currency, (int) $entity['id']);
 
         try {
             $id = scopedInsert('accounting_bank_accounts', [
@@ -179,7 +179,7 @@ switch (api_method()) {
                    JOIN accounting_bank_accounts ba ON ba.gl_account_code = aa.code AND ba.tenant_id = aa.tenant_id
                   WHERE ba.tenant_id = :tenant_id AND ba.id = :id
                     AND je.tenant_id = ba.tenant_id
-                    AND (ba.entity_id IS NULL OR je.entity_id = ba.entity_id)
+                    AND je.entity_id = ba.entity_id
                     AND je.status IN ('posted', 'reversed')",
                 ['id' => $id]
             );

@@ -134,7 +134,7 @@ if ($method === 'POST') {
     if (strcasecmp((string) $entity['base_currency'], $currency) !== 0) {
         api_error('The bank account currency must match the legal entity currency', 422);
     }
-    bankAccountValidateLedger($code, $currency);
+    bankAccountValidateLedger($code, $currency, (int) $entity['id']);
     try {
         $id = scopedInsert('accounting_bank_accounts', [
             'entity_id'        => (int) $entity['id'],
@@ -191,7 +191,7 @@ if ($method === 'PUT') {
         if (strcasecmp((string) $entity['base_currency'], $nextCurrency) !== 0) {
             api_error('The bank account currency must match the legal entity currency', 422);
         }
-        bankAccountValidateLedger($nextCode, $nextCurrency, $id);
+        bankAccountValidateLedger($nextCode, $nextCurrency, $nextEntityId, $id);
     }
     if (array_key_exists('gl_account_code', $body)) $body['gl_account_code'] = $nextCode;
     if (array_key_exists('currency', $body)) $body['currency'] = $nextCurrency;

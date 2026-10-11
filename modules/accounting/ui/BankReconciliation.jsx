@@ -237,7 +237,9 @@ function NewAccountForm({ preferredEntityId, onDone, onCancel }) {
   const entityId = form.entity_id || (entities.some(entity => Number(entity.id) === preferredEntityId)
     ? String(preferredEntityId) : (entities.length === 1 ? String(entities[0].id) : ''));
   const selectedEntity = entities.find(entity => String(entity.id) === entityId);
-  const usedCodes = new Set((banksData?.rows || []).map(bank => bank.gl_account_code));
+  const usedCodes = new Set((banksData?.rows || [])
+    .filter(bank => bank.entity_id == null || String(bank.entity_id) === entityId)
+    .map(bank => bank.gl_account_code));
   const cashAccounts = selectedEntity ? (accountsData?.rows || []).filter(account =>
     account.normal_side === 'debit' && !usedCodes.has(account.code)
       && ((account.cash_flow_tag === 'cash_and_equivalents' && Number(account.is_system_account) === 0)

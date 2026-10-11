@@ -1485,7 +1485,7 @@ if ($type === 'deposit') {
            LEFT JOIN accounting_journal_entry_lines jel ON jel.account_id = aa.id
            LEFT JOIN accounting_journal_entries je
              ON je.tenant_id = ba.tenant_id AND je.id = jel.je_id
-            AND (ba.entity_id IS NULL OR je.entity_id = ba.entity_id)
+            AND je.entity_id = ba.entity_id
           WHERE ba.tenant_id = :t AND ba.id = :a
           GROUP BY ba.id"
     );
