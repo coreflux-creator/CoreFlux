@@ -31,7 +31,8 @@ CsvImportService::registerSchema('ap_vendors', [
         // system of record (JobDiva, QBO, Mercury, …). When supplied,
         // becomes the upsert key so re-imports don't duplicate rows.
         // Optional — manual one-off imports still work without it.
-        'external_id'      => ['label' => 'External ID (audit / integration)'],
+        'external_id'      => ['label' => 'External ID (audit / integration)',
+                               'aliases' => ['External ID']],
         'source_system'    => ['label' => 'Source system',
                                'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
         'vendor_type'      => ['label' => 'Vendor type',
