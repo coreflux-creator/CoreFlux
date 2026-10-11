@@ -50,6 +50,7 @@ const ENTITY_CONFIG = {
     endpoint: '/modules/ap/api/csv_import.php',
     exportHref: '/modules/ap/api/csv_export.php',
     signature: ['Vendor name','Vendor type'],
+    supportsUpdate: true,
   },
   staffing_clients: {
     label: 'Clients',
@@ -259,7 +260,8 @@ export default function CsvBulkImport({ financeOnly = false }) {
         try {
           const body = { csv: f.csv };
           if (f.columnMap) body.column_map = f.columnMap;
-          const res = await api.post(`${cfg.endpoint}?action=dry_run`, body);
+          const shouldUpdate = updateExisting && cfg.supportsUpdate;
+          const res = await api.post(`${cfg.endpoint}?action=dry_run${shouldUpdate ? '&update_existing=1' : ''}`, body);
           next[i] = { ...f, preview: res, error: null };
         } catch (err) {
           next[i] = { ...f, preview: null, error: err };
@@ -474,7 +476,10 @@ export default function CsvBulkImport({ financeOnly = false }) {
                   <input
                     type="checkbox"
                     checked={updateExisting}
-                    onChange={e => setUpdateExisting(e.target.checked)}
+                    onChange={e => {
+                      setUpdateExisting(e.target.checked);
+                      setFiles(prev => prev.map(f => ({ ...f, preview: null })));
+                    }}
                     data-testid="csv-bulk-update-existing"
                   />
                   Update matching editable records

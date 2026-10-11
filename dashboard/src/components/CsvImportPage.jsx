@@ -215,13 +215,13 @@ export default function CsvImportPage({
     finally       { setAiRunning(false); }
   };
 
-  const dryRun = async () => {
+  const dryRun = async (updateMode = updateExisting) => {
     if (!csvText) return;
     setRunning(true); setError(null); setCommitted(null);
     try {
       const body = { csv: csvText };
       if (columnMap) body.column_map = columnMap;
-      const res = await api.post(`${endpoint}?action=dry_run`, body);
+      const res = await api.post(`${endpoint}?action=dry_run${updateMode ? '&update_existing=1' : ''}`, body);
       setPreview(res);
     } catch (e) { setError(e); }
     finally     { setRunning(false); }
@@ -380,7 +380,7 @@ export default function CsvImportPage({
           />
           <button
             className="btn btn--primary"
-            onClick={dryRun}
+            onClick={() => dryRun()}
             disabled={!csvText || running}
             data-testid={`${testidPrefix}-dry-run`}
           >
@@ -590,7 +590,11 @@ export default function CsvImportPage({
                 <input
                   type="checkbox"
                   checked={updateExisting}
-                  onChange={e => setUpdateExisting(e.target.checked)}
+                  onChange={e => {
+                    const next = e.target.checked;
+                    setUpdateExisting(next);
+                    dryRun(next);
+                  }}
                   data-testid={`${testidPrefix}-update-existing`}
                 />
                 {updateExistingLabel}

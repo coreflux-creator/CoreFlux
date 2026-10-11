@@ -4,7 +4,7 @@
  *
  *   GET  /api/ap/csv_import?action=template
  *   POST /api/ap/csv_import?action=dry_run
- *   POST /api/ap/csv_import?action=commit (+ optional ?skip_invalid=1)
+ *   POST /api/ap/csv_import?action=commit (+ optional skip_invalid=1 or update_existing=1)
  *
  * Built on Core\CsvImportService primitive per HARD_RULES (2026-02-XX):
  * every primary-entity module MUST expose a CSV import flow so tenants
@@ -129,8 +129,8 @@ if ($method === 'POST' && $action === 'dry_run') {
     $columnMap = CsvImportService::readRequestColumnMap();
     $result = CsvImportService::dryRun('ap_vendors', $csv, $columnMap);
 
-    // Surface collisions with existing vendor_name rows in this tenant.
-    if ($result['rows']) {
+    // Existing names are valid only when the operator explicitly chose update mode.
+    if ($result['rows'] && empty($_GET['update_existing'])) {
         $names = array_unique(array_filter(array_column($result['rows'], 'vendor_name')));
         if ($names) {
             $placeholders = implode(',', array_fill(0, count($names), '?'));
@@ -145,7 +145,7 @@ if ($method === 'POST' && $action === 'dry_run') {
             foreach ($result['rows'] as $rn => $row) {
                 if (!empty($row['vendor_name']) && isset($existing[$row['vendor_name']])) {
                     $result['errors'][$rn] = $result['errors'][$rn] ?? [];
-                    $result['errors'][$rn][] = "vendor_name: '{$row['vendor_name']}' already exists in tenant (will be updated on commit)";
+                    $result['errors'][$rn][] = "vendor_name: '{$row['vendor_name']}' already exists in tenant; enable Update matching editable records to update it";
                 }
             }
             $result['error_count'] = count($result['errors']);
@@ -162,10 +162,10 @@ if ($method === 'POST' && $action === 'commit') {
     coreAccountingClaimCsvImport('ap_vendors', $csv, (int) $ctx['tenant_id'], (int) $user['id']);
     $columnMap = CsvImportService::readRequestColumnMap();
     $skipInvalid = !empty($_GET['skip_invalid']);
-    // CSV existing-row errors are warnings (we upsert), so don't block commit on them.
-    $opts = ['skip_invalid' => true, 'column_map' => $columnMap];
+    $updateExisting = !empty($_GET['update_existing']);
+    $opts = ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap, 'atomic' => !$skipInvalid];
 
-    $result = CsvImportService::commit('ap_vendors', $csv, function (array $row) use ($tid, $user) {
+    $result = CsvImportService::commit('ap_vendors', $csv, function (array $row) use ($tid, $updateExisting) {
         $vendorType = (string) ($row['vendor_type'] ?? 'other');
         $vendorCat  = (string) ($row['vendor_category']
             ?? (in_array($vendorType, ['1099_individual','c2c_corp'], true) ? 'hourly_labor' : 'service_provider'));
@@ -173,14 +173,15 @@ if ($method === 'POST' && $action === 'commit') {
         $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
 
         $pdo = getDB();
-        $pdo->prepare(
+        $sql =
             'INSERT INTO ap_vendors_index
                (tenant_id, vendor_name, external_id, source_system,
                 vendor_type, vendor_category,
                 payment_method, remit_to_email, remit_to_phone,
                 default_terms, tax_id_last4, requires_1099)
-             VALUES (:t, :v, :ext, :src, :vt, :cat, :pm, :rmail, :rphone, :terms, :last4, :r)
-             ON DUPLICATE KEY UPDATE
+             VALUES (:t, :v, :ext, :src, :vt, :cat, :pm, :rmail, :rphone, :terms, :last4, :r)';
+        if ($updateExisting) {
+            $sql .= ' ON DUPLICATE KEY UPDATE
                vendor_name     = VALUES(vendor_name),
                external_id     = COALESCE(VALUES(external_id), external_id),
                source_system   = VALUES(source_system),
@@ -191,8 +192,9 @@ if ($method === 'POST' && $action === 'commit') {
                remit_to_phone  = COALESCE(VALUES(remit_to_phone), remit_to_phone),
                default_terms   = VALUES(default_terms),
                tax_id_last4    = COALESCE(VALUES(tax_id_last4), tax_id_last4),
-               requires_1099   = VALUES(requires_1099)'
-        )->execute([
+               requires_1099   = VALUES(requires_1099)';
+        }
+        $pdo->prepare($sql)->execute([
             't'      => $tid,
             'v'      => (string) $row['vendor_name'],
             'ext'    => $externalId,
