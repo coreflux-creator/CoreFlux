@@ -45,7 +45,7 @@ export default function APModule({ session }) {
         <span className="workspace-eyebrow">Accounts payable / bills</span>
         <h1>Bills &amp; payments</h1>
         <p>Review bills, approvals, payments, and payables.</p>
-        <ModuleTabs items={navItems.filter(n => !standaloneAccounting || !['/modules/ap/weekly-queue', '/modules/ap/settings'].includes(n.to)).map(n => ({ ...n, testId: `ap-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Accounts payable sections" testId="ap-section-nav" />
+        <ModuleTabs items={navItems.filter(n => !standaloneAccounting || !['/modules/ap/weekly-queue', '/modules/ap/settings'].includes(n.to)).map(n => ({ ...n, testId: `ap-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Accounts payable sections" testId="ap-section-nav" preserveEntityScope />
       </header>
 
       <Routes>

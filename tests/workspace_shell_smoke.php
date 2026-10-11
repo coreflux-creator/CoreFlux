@@ -69,6 +69,13 @@ $assert('high-volume finance modules share the tab architecture',
     str_contains($ap, '<ModuleTabs')
     && str_contains($billing, '<ModuleTabs')
     && str_contains($treasury, '<ModuleTabs'));
+$assert('finance tabs preserve the selected legal entity across sections',
+    str_contains($tabs, "new URLSearchParams(location.search).get('entity_id')")
+    && str_contains($tabs, 'addEntityScope(to, requestedEntity)')
+    && str_contains($tabs, 'addEntityScope(to, null, true)')
+    && str_contains($ap, 'preserveEntityScope />')
+    && str_contains($billing, 'preserveEntityScope />')
+    && str_contains($treasury, 'preserveEntityScope />'));
 $assert('placements opens with an operational KPI summary and action overflow',
     str_contains($placements, 'page-kpi-strip')
     && str_contains($placements, 'action-overflow'));

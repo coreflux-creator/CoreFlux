@@ -40,7 +40,7 @@ export default function BillingModule({ session }) {
         <span className="workspace-eyebrow">Money in</span>
         <h1>Billing</h1>
         <p>Invoice clients, collect cash, and manage receivables.</p>
-        <ModuleTabs items={navItems.filter(n => !n.adminOnly || canManageApprovals).map(n => ({ ...n, testId: `billing-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Billing sections" testId="billing-section-nav" />
+        <ModuleTabs items={navItems.filter(n => !n.adminOnly || canManageApprovals).map(n => ({ ...n, testId: `billing-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Billing sections" testId="billing-section-nav" preserveEntityScope />
       </header>
 
       <Routes>

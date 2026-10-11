@@ -50,7 +50,7 @@ export default function TreasuryModule({ session }) {
         <span className="workspace-eyebrow">Cash and capital</span>
         <h1>Treasury</h1>
         <p>Monitor accounts, liquidity, obligations, and cash movement.</p>
-        <ModuleTabs items={visibleNavItems} primaryCount={5} label="Treasury sections" testId="treasury-section-nav" />
+        <ModuleTabs items={visibleNavItems} primaryCount={5} label="Treasury sections" testId="treasury-section-nav" preserveEntityScope />
       </header>
       <Routes>
         <Route index                element={<Navigate to="overview" replace />} />
