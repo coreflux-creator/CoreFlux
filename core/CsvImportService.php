@@ -363,20 +363,50 @@ class CsvImportService
         $errors   = $dry['errors'];
         $ids      = [];
         $atomic   = !empty($opts['atomic']) && !$skipInvalid;
-        $pdo      = null;
+        $pdo      = function_exists('getDB') ? \getDB() : null;
         $ownsTxn  = false;
+        $allSavepoint = false;
         if ($atomic) {
-            $pdo = \getDB();
+            if (!$pdo instanceof \PDO) throw new \RuntimeException('CSV import database is unavailable.');
             $ownsTxn = !$pdo->inTransaction();
-            if ($ownsTxn) $pdo->beginTransaction();
+            if ($ownsTxn) {
+                $pdo->beginTransaction();
+            } else {
+                if ($pdo->exec('SAVEPOINT csv_import_all') === false) {
+                    throw new \RuntimeException('Could not start the CSV import savepoint.');
+                }
+                $allSavepoint = true;
+            }
         }
         foreach ($dry['rows'] as $rowNum => $row) {
             if (isset($dry['errors'][$rowNum])) { $skipped++; continue; }
+            $rowSavepoint = false;
+            if ($pdo instanceof \PDO && $pdo->inTransaction()
+                && ($atomic || getenv('COREFLUX_ENV') === 'coreaccounting')) {
+                if ($pdo->exec('SAVEPOINT csv_import_row') === false) {
+                    throw new \RuntimeException('Could not start the CSV row savepoint.');
+                }
+                $rowSavepoint = true;
+            }
             try {
                 $id = (int) $onRow($row);
+                if ($rowSavepoint && $pdo->exec('RELEASE SAVEPOINT csv_import_row') === false) {
+                    throw new \RuntimeException('Could not complete the CSV row savepoint.');
+                }
                 $ids[$rowNum] = $id;
                 $imported++;
             } catch (\Throwable $e) {
+                if ($rowSavepoint && $pdo->inTransaction()) {
+                    try {
+                        if ($pdo->exec('ROLLBACK TO SAVEPOINT csv_import_row') === false
+                            || $pdo->exec('RELEASE SAVEPOINT csv_import_row') === false) {
+                            throw new \RuntimeException('Could not roll back the CSV row savepoint.');
+                        }
+                    } catch (\Throwable $rollbackError) {
+                        $pdo->rollBack();
+                        throw $rollbackError;
+                    }
+                }
                 $errors[$rowNum] = $errors[$rowNum] ?? [];
                 $errors[$rowNum][] = 'persist failed: ' . $e->getMessage();
                 $skipped++;
@@ -384,7 +414,19 @@ class CsvImportService
         }
 
         if ($atomic && $errors) {
-            if ($ownsTxn && $pdo?->inTransaction()) $pdo->rollBack();
+            if ($ownsTxn && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            } elseif ($allSavepoint) {
+                try {
+                    if ($pdo->exec('ROLLBACK TO SAVEPOINT csv_import_all') === false
+                        || $pdo->exec('RELEASE SAVEPOINT csv_import_all') === false) {
+                        throw new \RuntimeException('Could not roll back the CSV import savepoint.');
+                    }
+                } catch (\Throwable $rollbackError) {
+                    if ($pdo->inTransaction()) $pdo->rollBack();
+                    throw $rollbackError;
+                }
+            }
             return [
                 'imported_count' => 0,
                 'skipped_count'  => $dry['row_count'],
@@ -393,7 +435,11 @@ class CsvImportService
                 'message'        => 'No rows were imported because one or more rows failed business validation.',
             ];
         }
-        if ($atomic && $ownsTxn && $pdo?->inTransaction()) $pdo->commit();
+        if ($atomic && $ownsTxn && $pdo->inTransaction()) $pdo->commit();
+        if ($allSavepoint && $pdo->exec('RELEASE SAVEPOINT csv_import_all') === false) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw new \RuntimeException('Could not complete the CSV import savepoint.');
+        }
 
         return [
             'imported_count' => $imported,

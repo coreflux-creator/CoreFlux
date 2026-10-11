@@ -154,7 +154,7 @@ if ($method === 'POST' && $action === 'commit') {
         $sourceSystem = $sourceSystemInput !== '' ? $sourceSystemInput : 'manual';
         $paymentId = isset($row['payment_id']) && $row['payment_id'] !== '' ? (int) $row['payment_id'] : 0;
         $pdo = getDB();
-        $pdo->beginTransaction();
+        $ownsUnit = coreAccountingCsvBeginUnit($pdo, 'csv_customer_payment');
         try {
             $existing = null;
             if ($paymentId > 0) {
@@ -210,8 +210,8 @@ if ($method === 'POST' && $action === 'commit') {
                     'unallocated_amount' => $amount,
                     'notes'              => $row['notes']     ?? null,
                 ]);
+                coreAccountingCsvCommitUnit($pdo, 'csv_customer_payment', $ownsUnit);
                 $updated++;
-                $pdo->commit();
                 return (int) $existing['id'];
             }
 
@@ -228,11 +228,11 @@ if ($method === 'POST' && $action === 'commit') {
                 'notes'              => $row['notes']     ?? null,
                 'created_by_user_id' => $user['id']       ?? null,
             ]);
+            coreAccountingCsvCommitUnit($pdo, 'csv_customer_payment', $ownsUnit);
             $created++;
-            $pdo->commit();
             return $id;
         } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
+            coreAccountingCsvRollbackUnit($pdo, 'csv_customer_payment', $ownsUnit);
             throw $e;
         }
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);

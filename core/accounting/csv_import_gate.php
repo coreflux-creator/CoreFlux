@@ -78,12 +78,50 @@ function coreAccountingClaimCsvImport(string $entity, string $csv, int $tenantId
             'id' => $runId,
             'tenant_id' => $tenantId,
         ]);
-        $pdo->commit();
+        // Keep the claim, source writes, and receipt in one transaction. A
+        // dropped request before the receipt rolls back the source as well.
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         if ($error instanceof InvalidArgumentException) api_error($error->getMessage(), 422);
         error_log('CoreAccounting CSV import claim failed: ' . $error->getMessage());
         api_error('Import source could not be verified. No import was started.', 503);
+    }
+}
+
+/** Preserve per-document rollback inside an already claimed import. */
+function coreAccountingCsvBeginUnit(PDO $pdo, string $name): bool
+{
+    if (!preg_match('/^[a-z][a-z0-9_]*$/D', $name)) {
+        throw new InvalidArgumentException('Invalid CSV import savepoint name.');
+    }
+    if (!$pdo->inTransaction()) {
+        $pdo->beginTransaction();
+        return true;
+    }
+    if ($pdo->exec('SAVEPOINT ' . $name) === false) {
+        throw new RuntimeException('Could not start the CSV import savepoint.');
+    }
+    return false;
+}
+
+function coreAccountingCsvCommitUnit(PDO $pdo, string $name, bool $ownsTransaction): void
+{
+    if ($ownsTransaction) {
+        $pdo->commit();
+    } elseif ($pdo->exec('RELEASE SAVEPOINT ' . $name) === false) {
+        throw new RuntimeException('Could not complete the CSV import savepoint.');
+    }
+}
+
+function coreAccountingCsvRollbackUnit(PDO $pdo, string $name, bool $ownsTransaction): void
+{
+    if ($ownsTransaction) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+    } else {
+        if ($pdo->exec('ROLLBACK TO SAVEPOINT ' . $name) === false
+            || $pdo->exec('RELEASE SAVEPOINT ' . $name) === false) {
+            throw new RuntimeException('Could not roll back the CSV import savepoint.');
+        }
     }
 }
 
@@ -109,8 +147,10 @@ function coreAccountingRecordCsvImportOutcome(array $result, int $tenantId, int 
     $outcome = coreAccountingCsvOutcomeSummary($result);
     $pdo = getDB();
     if (!$pdo) api_error('Import may have changed records, but its outcome could not be recorded. Check Import History and source records before retrying.', 503);
+    if (!$pdo->inTransaction()) {
+        api_error('Import transaction ended before its receipt. Check Import History and source records before retrying.', 503);
+    }
     try {
-        $pdo->beginTransaction();
         $stmt = $pdo->prepare(
             'SELECT error_summary FROM csv_import_history
               WHERE id = :id AND tenant_id = :tenant_id AND created_by_user_id = :user_id

@@ -240,30 +240,33 @@ if ($method === 'POST' && $action === 'commit') {
     $errors = $preview['errors'];
     $ids = [];
     $pdo = getDB();
-    $ownsTxn = !$skipInvalid && !$pdo->inTransaction();
-    if ($ownsTxn) $pdo->beginTransaction();
+    $ownsTxn = !$skipInvalid ? coreAccountingCsvBeginUnit($pdo, 'csv_accounts_all') : false;
     foreach ($preview['rows'] as $rowNumber => $row) {
         if (isset($errors[$rowNumber])) {
             $skipped++;
             continue;
         }
+        $ownsRow = coreAccountingCsvBeginUnit($pdo, 'csv_account_row');
         try {
-            $ids[$rowNumber] = $writer($row);
+            $id = $writer($row);
+            coreAccountingCsvCommitUnit($pdo, 'csv_account_row', $ownsRow);
+            $ids[$rowNumber] = $id;
             $imported++;
         } catch (Throwable $e) {
+            coreAccountingCsvRollbackUnit($pdo, 'csv_account_row', $ownsRow);
             $errors[$rowNumber] = ['persist failed: ' . $e->getMessage()];
             $skipped++;
         }
     }
     if (!$skipInvalid && $errors) {
-        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
+        coreAccountingCsvRollbackUnit($pdo, 'csv_accounts_all', $ownsTxn);
         api_ok(coreAccountingRecordCsvImportOutcome([
             'imported_count' => 0, 'skipped_count' => $preview['row_count'],
             'errors' => $errors, 'ids' => [], 'aborted' => true,
             'message' => 'No accounts were imported. Fix all errors and retry.',
         ], (int) $ctx['tenant_id'], (int) $user['id']));
     }
-    if ($ownsTxn && $pdo->inTransaction()) $pdo->commit();
+    if (!$skipInvalid) coreAccountingCsvCommitUnit($pdo, 'csv_accounts_all', $ownsTxn);
     $result = [
         'imported_count' => $imported,
         'skipped_count' => $skipped,

@@ -289,7 +289,7 @@ if ($method === 'POST' && $action === 'commit') {
         $total = round($total, 2);
         $wasUpdate = (bool) $existing;
 
-        $pdo->beginTransaction();
+        $ownsUnit = coreAccountingCsvBeginUnit($pdo, 'csv_invoice_document');
         try {
             $clientCompanyId = billingResolveDirectInvoiceClientCompanyId(
                 $pdo, $catalogTenantId, (string) $header['client_name'],
@@ -355,14 +355,14 @@ if ($method === 'POST' && $action === 'commit') {
                     'gl_rev'     => $metadata['gl_revenue_account_code'],
                 ]);
             }
-            $pdo->commit();
+            coreAccountingCsvCommitUnit($pdo, 'csv_invoice_document', $ownsUnit);
             $ids[$inv] = $invId;
             $imported++;
             $importedRows += count($rows);
             if ($wasUpdate) $updated++;
             else $created++;
         } catch (\Throwable $e) {
-            $pdo->rollBack();
+            coreAccountingCsvRollbackUnit($pdo, 'csv_invoice_document', $ownsUnit);
             $errors['__invoice_' . $inv] = ['persist failed: ' . $e->getMessage()];
         }
     }

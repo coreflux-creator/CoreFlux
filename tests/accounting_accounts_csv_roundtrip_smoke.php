@@ -29,7 +29,7 @@ $check('posted account classification is protected',
 $check('custom validation errors are skipped before persistence',
     str_contains($import, "if (isset(\$errors[\$rowNumber]))")
     && str_contains($import, 'if (!$skipInvalid && $errors)')
-    && str_contains($import, '$pdo->rollBack()'));
+    && str_contains($import, "coreAccountingCsvRollbackUnit(\$pdo, 'csv_accounts_all', \$ownsTxn)"));
 $check('granular cash-flow classifications survive a round trip',
     str_contains($import, 'supports granular prefix-based classifications')
     && !preg_match("/'cash_flow_tag'.*?'enum'/s", $import));

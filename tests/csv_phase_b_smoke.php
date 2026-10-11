@@ -36,7 +36,8 @@ $a('bills first-row header validation',      str_contains($bi, "['vendor_name', 
 $a('bills commit reuses document review',   substr_count($bi, 'accountingCsvReviewDocumentGroups(') === 2 && str_contains($bi, 'array_intersect(array_keys($numberedRows)'));
 $a('bills inserts ap_bill_lines',            str_contains($bi, 'INSERT INTO ap_bill_lines'));
 $a('bills skips existing bill_number',       str_contains($bi, 'already exists'));
-$a('bills wraps lines in transaction',       str_contains($bi, 'beginTransaction'));
+$a('bills wraps lines in transaction',       str_contains($bi, "coreAccountingCsvBeginUnit(\$pdo, 'csv_bill_document')")
+    && str_contains($bi, "coreAccountingCsvRollbackUnit(\$pdo, 'csv_bill_document'"));
 $a('bills computes total from lines',        str_contains($bi, "\$subtotal +=") && str_contains($bi, "\$tax      +="));
 $a('bills RBAC gate ap.bill.create',         str_contains($bi, "'ap.bill.create'"));
 $a('bills audit emitted',                    str_contains($bi, 'ap.bill.csv_imported'));
@@ -53,7 +54,8 @@ $a('invoices dry_run groups by number',      str_contains($ii, "'invoice_number'
 $a('invoices first-row header validation',   str_contains($ii, "['client_name', 'issue_date', 'due_date']") && str_contains($groups, 'required on first row of'));
 $a('invoices inserts invoice_lines',         str_contains($ii, 'INSERT INTO billing_invoice_lines'));
 $a('invoices skips existing invoice number', str_contains($ii, 'already exists'));
-$a('invoices wraps lines in transaction',    str_contains($ii, 'beginTransaction'));
+$a('invoices wraps lines in transaction',    str_contains($ii, "coreAccountingCsvBeginUnit(\$pdo, 'csv_invoice_document')")
+    && str_contains($ii, "coreAccountingCsvRollbackUnit(\$pdo, 'csv_invoice_document'"));
 $a('invoices defaults status=draft',         str_contains($ii, "'draft'"));
 $a('invoices RBAC gate',                     str_contains($ii, "'billing.invoice.draft'"));
 

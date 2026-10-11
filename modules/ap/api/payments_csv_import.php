@@ -151,7 +151,7 @@ if ($method === 'POST' && $action === 'commit') {
             throw new RuntimeException('CSV import creates payment drafts only. Release and clear payments through the payment workflow.');
         }
         $pdo = getDB();
-        $pdo->beginTransaction();
+        $ownsUnit = coreAccountingCsvBeginUnit($pdo, 'csv_ap_payment');
         try {
             // Stable internal ID wins. External-system identity is the
             // fallback for idempotent integration re-imports.
@@ -211,8 +211,8 @@ if ($method === 'POST' && $action === 'commit') {
                     'unallocated_amount' => $amount,
                     'notes'              => $row['notes']      ?? null,
                 ]);
+                coreAccountingCsvCommitUnit($pdo, 'csv_ap_payment', $ownsUnit);
                 $updated++;
-                $pdo->commit();
                 return (int) $existing['id'];
             }
 
@@ -233,11 +233,11 @@ if ($method === 'POST' && $action === 'commit') {
                 'notes'              => $row['notes']      ?? null,
                 'created_by_user_id' => $user['id']        ?? null,
             ]);
+            coreAccountingCsvCommitUnit($pdo, 'csv_ap_payment', $ownsUnit);
             $created++;
-            $pdo->commit();
             return $id;
         } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
+            coreAccountingCsvRollbackUnit($pdo, 'csv_ap_payment', $ownsUnit);
             throw $e;
         }
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);

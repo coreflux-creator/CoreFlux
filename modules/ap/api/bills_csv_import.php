@@ -269,7 +269,7 @@ if ($method === 'POST' && $action === 'commit') {
         $total = round($total, 2);
         $wasUpdate = (bool) $existing;
 
-        $pdo->beginTransaction();
+        $ownsUnit = coreAccountingCsvBeginUnit($pdo, 'csv_bill_document');
         try {
             $headerPayload = [
                 'bill_number'    => $bn,
@@ -328,14 +328,14 @@ if ($method === 'POST' && $action === 'commit') {
                     'total'      => $amounts['total'],
                 ]);
             }
-            $pdo->commit();
+            coreAccountingCsvCommitUnit($pdo, 'csv_bill_document', $ownsUnit);
             $ids[$bn] = $billId;
             $imported++;
             $importedRows += count($rows);
             if ($wasUpdate) $updated++;
             else $created++;
         } catch (\Throwable $e) {
-            $pdo->rollBack();
+            coreAccountingCsvRollbackUnit($pdo, 'csv_bill_document', $ownsUnit);
             $errors['__bill_' . $bn] = ['persist failed: ' . $e->getMessage()];
         }
     }

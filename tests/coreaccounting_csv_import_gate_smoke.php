@@ -27,6 +27,14 @@ foreach (['import_run_id', 'created_by_user_id = :user_id', 'tenant_id = :tenant
     $assert("gate checks {$needle}", str_contains($gate, $needle));
 }
 $assert('standalone-only claim', str_contains($gate, "getenv('COREFLUX_ENV') !== 'coreaccounting'"));
+$claimBlock = substr($gate, strpos($gate, 'function coreAccountingClaimCsvImport('),
+    strpos($gate, 'function coreAccountingCsvBeginUnit(') - strpos($gate, 'function coreAccountingClaimCsvImport('));
+$assert('claim keeps its transaction open for source and receipt',
+    str_contains($claimBlock, '$pdo->beginTransaction()')
+    && !str_contains($claimBlock, '$pdo->commit()'));
+$assert('receipt refuses a source writer that ended the import transaction',
+    str_contains($gate, 'if (!$pdo->inTransaction())')
+    && str_contains($gate, 'Import transaction ended before its receipt'));
 
 $simple = coreAccountingCsvOutcomeSummary([
     'imported_count' => 2, 'skipped_count' => 0, 'errors' => [],
@@ -72,6 +80,15 @@ foreach ($entities as $path => $entity) {
         substr_count($commitSource, 'coreAccountingRecordCsvImportOutcome(') > 0
         && substr_count($commitSource, 'api_ok(') === substr_count($commitSource, 'coreAccountingRecordCsvImportOutcome('));
 }
+$assert('invoice and bill imports use nested document savepoints',
+    str_contains($read('modules/billing/api/csv_import.php'), "coreAccountingCsvBeginUnit(\$pdo, 'csv_invoice_document')")
+    && str_contains($read('modules/ap/api/bills_csv_import.php'), "coreAccountingCsvBeginUnit(\$pdo, 'csv_bill_document')"));
+$assert('payment imports use nested row savepoints',
+    str_contains($read('modules/billing/api/payments_csv_import.php'), "coreAccountingCsvBeginUnit(\$pdo, 'csv_customer_payment')")
+    && str_contains($read('modules/ap/api/payments_csv_import.php'), "coreAccountingCsvBeginUnit(\$pdo, 'csv_ap_payment')"));
+$assert('account imports preserve all-or-nothing and per-row rollback',
+    str_contains($read('modules/accounting/api/accounts_csv_import.php'), "coreAccountingCsvBeginUnit(\$pdo, 'csv_accounts_all')")
+    && str_contains($read('modules/accounting/api/accounts_csv_import.php'), "coreAccountingCsvBeginUnit(\$pdo, 'csv_account_row')"));
 $single = $read('dashboard/src/components/CsvImportPage.jsx');
 $bulk = $read('dashboard/src/pages/CsvBulkImport.jsx');
 $assert('single importer sends run identity', str_contains($single, 'body.import_run_id = runId'));
