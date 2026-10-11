@@ -35,6 +35,9 @@ interface StorageDriver
     /** Returns ['size_bytes', 'mime', 'etag', 'version_id', 'last_modified']. */
     public function head(string $key): ?array;
 
+    /** Read a bounded object for server-side evidence verification. */
+    public function read(string $key, int $maxBytes): ?string;
+
     /** Soft delete (delete-marker for versioned backends). */
     public function delete(string $key): void;
 

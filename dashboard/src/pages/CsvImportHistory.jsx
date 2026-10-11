@@ -199,7 +199,8 @@ export default function CsvImportHistory({ financeOnly = false }) {
               {rows.map(r => {
                 const open = !!expanded[r.id];
                 const errs = r.error_summary && typeof r.error_summary === 'object' ? r.error_summary : null;
-                const rowErrors = Object.entries(errs || {}).filter(([key]) => key !== '_import_outcome_unconfirmed');
+                const rowErrors = Object.entries(errs || {}).filter(([key]) =>
+                  key !== '_import_outcome_unconfirmed' && key !== '_source_commit_started');
                 const map  = r.column_map    && typeof r.column_map    === 'object' ? r.column_map    : null;
                 return (
                   <React.Fragment key={r.id}>

@@ -142,6 +142,8 @@ if ($method === 'POST' && $action === 'commit') {
     $requireManage();
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    require_once __DIR__ . '/../../../core/accounting/csv_import_gate.php';
+    coreAccountingClaimCsvImport('billing_items', $csv, (int) $ctx['tenant_id'], (int) $user['id']);
     $columnMap = CsvImportService::readRequestColumnMap();
     $skipInvalid = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);

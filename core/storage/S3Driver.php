@@ -157,6 +157,27 @@ class S3Driver implements StorageDriver
         }
     }
 
+    public function read(string $key, int $maxBytes): ?string
+    {
+        $head = $this->head($key);
+        if ($head === null) return null;
+        if ((int) ($head['size_bytes'] ?? -1) > $maxBytes) {
+            throw new \RuntimeException('S3Driver: object exceeds the allowed read size.');
+        }
+        $result = $this->client->getObject(['Bucket' => $this->bucket, 'Key' => $key]);
+        $body = $result->get('Body');
+        $bytes = '';
+        while (!$body->eof() && strlen($bytes) <= $maxBytes) {
+            $chunk = $body->read(min(65536, $maxBytes + 1 - strlen($bytes)));
+            if ($chunk === '') break;
+            $bytes .= $chunk;
+        }
+        if (strlen($bytes) > $maxBytes || strlen($bytes) !== (int) $head['size_bytes']) {
+            throw new \RuntimeException('S3Driver: incomplete or oversized object read.');
+        }
+        return $bytes;
+    }
+
     public function delete(string $key): void
     {
         $this->client->deleteObject(['Bucket' => $this->bucket, 'Key' => $key]);

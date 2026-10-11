@@ -23,6 +23,7 @@ mkdir -m 750 "$output/public_html"
 
 git -C "$source_root" archive --format=tar "$commit" | tar -xf - -C "$output/public_html"
 php "$output/public_html/tests/storage_service_smoke.php"
+php "$output/public_html/tests/coreaccounting_csv_import_gate_smoke.php"
 php "$output/public_html/tests/local_storage_upload_surface_smoke.php"
 npm ci --prefix "$output/public_html/dashboard" --no-audit --no-fund
 node --test "$output/public_html/dashboard/tests/csvImportAudit.test.mjs" \

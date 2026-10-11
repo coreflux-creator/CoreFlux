@@ -145,6 +145,21 @@ class LocalDriver implements StorageDriver
         ];
     }
 
+    public function read(string $key, int $maxBytes): ?string
+    {
+        $abs = $this->abs($key);
+        if (!is_file($abs)) return null;
+        $size = filesize($abs);
+        if ($size === false || $size > $maxBytes) {
+            throw new \RuntimeException('LocalDriver: object exceeds the allowed read size.');
+        }
+        $bytes = file_get_contents($abs);
+        if ($bytes === false || strlen($bytes) !== $size) {
+            throw new \RuntimeException('LocalDriver: incomplete object read.');
+        }
+        return $bytes;
+    }
+
     public function delete(string $key): void
     {
         $abs = $this->abs($key);

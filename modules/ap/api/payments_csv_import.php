@@ -129,6 +129,8 @@ if ($method === 'POST' && $action === 'commit') {
     rbac_legacy_require($user, 'ap.payment.create');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    require_once __DIR__ . '/../../../core/accounting/csv_import_gate.php';
+    coreAccountingClaimCsvImport('ap_payments', $csv, (int) $ctx['tenant_id'], (int) $user['id']);
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
     $columnMap      = CsvImportService::readRequestColumnMap();

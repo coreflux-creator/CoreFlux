@@ -124,6 +124,11 @@ class StorageService
         return $this->driver->head($key);
     }
 
+    public function read(string $key, int $maxBytes): ?string
+    {
+        return $this->driver->read($key, $maxBytes);
+    }
+
     public function soft_delete(string $key): void
     {
         $this->driver->delete($key);

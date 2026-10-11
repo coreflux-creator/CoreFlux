@@ -68,6 +68,13 @@ $assert("put signed_url issued",   str_contains($put['signed_url'], 'sig='));
 $head = $svc->head($put['key']);
 $assert("head returns size",       isset($head['size_bytes']) && $head['size_bytes'] === strlen('PDF-bytes-here'));
 $assert("head returns etag",       !empty($head['etag']));
+$assert('bounded read returns exact bytes', $svc->read($put['key'], 100) === 'PDF-bytes-here');
+try {
+    $svc->read($put['key'], 3);
+    $assert('bounded read rejects oversized object', false);
+} catch (\RuntimeException $e) {
+    $assert('bounded read rejects oversized object', true);
+}
 
 echo "\nSigned URL HMAC verification\n";
 parse_str(parse_url($put['signed_url'], PHP_URL_QUERY) ?: '', $qs);

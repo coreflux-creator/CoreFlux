@@ -269,6 +269,7 @@ export default function CsvImportPage({
       const path = `${endpoint}?action=commit${params.length ? '&' + params.join('&') : ''}`;
       const body = { csv: csvText };
       if (columnMap) body.column_map = columnMap;
+      if (standaloneAccounting) body.import_run_id = runId;
       const res = await api.post(path, body);
       setCommitted(res);
       if (runId) {

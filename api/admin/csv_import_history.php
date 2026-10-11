@@ -53,6 +53,11 @@ if ($method === 'POST') {
                 $pdo->commit();
                 api_ok(['recorded' => true, 'id' => $id, 'already_finalized' => true]);
             }
+            if (getenv('COREFLUX_ENV') === 'coreaccounting'
+                && !isset($oldErrors['_source_commit_started'])) {
+                $pdo->rollBack();
+                api_error('This import has not reached the commit step. No outcome can be recorded yet.', 409);
+            }
             $errors = is_array($body['errors'] ?? null) ? $body['errors'] : [];
             $imported = max(0, (int) ($body['rows_imported'] ?? 0));
             $skipped = max(0, (int) ($body['rows_skipped'] ?? 0));

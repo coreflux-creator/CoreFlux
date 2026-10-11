@@ -313,6 +313,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
           sourceArchived = true;
           const body = { csv: f.csv };
           if (f.columnMap) body.column_map = f.columnMap;
+          if (financeOnly) body.import_run_id = runId;
           const res = await api.post(path, body);
           next[idx] = { ...next[idx], committed: res, error: null };
           try {

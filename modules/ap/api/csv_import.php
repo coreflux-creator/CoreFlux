@@ -158,6 +158,8 @@ if ($method === 'POST' && $action === 'commit') {
     rbac_legacy_require($user, 'ap.bill.create');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    require_once __DIR__ . '/../../../core/accounting/csv_import_gate.php';
+    coreAccountingClaimCsvImport('ap_vendors', $csv, (int) $ctx['tenant_id'], (int) $user['id']);
     $columnMap = CsvImportService::readRequestColumnMap();
     $skipInvalid = !empty($_GET['skip_invalid']);
     // CSV existing-row errors are warnings (we upsert), so don't block commit on them.
