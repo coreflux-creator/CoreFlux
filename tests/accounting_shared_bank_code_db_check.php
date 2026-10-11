@@ -17,6 +17,7 @@ require_once $root . '/core/db.php';
 require_once $root . '/core/treasury/liquidity_projection.php';
 require_once $root . '/core/ai/cash_forecast.php';
 require_once $root . '/core/business_integrity.php';
+require_once $root . '/modules/accounting/lib/bank_account_ledger.php';
 
 $pdo = getDB();
 if ((string) $pdo->query('SELECT DATABASE()')->fetchColumn() !== 'coreaccounting_ci') {
@@ -42,6 +43,24 @@ $cashAt = static fn(?int $entityId): float => (float) liquidityBaselineDatasets(
 $beforeAll = $cashAt(null);
 $beforeFirst = $cashAt($firstEntityId);
 $beforeForecast = cashForecastReadOpeningBalanceCents($tenantId, '2026-10-11');
+$cashMappingStmt = $pdo->prepare('SELECT bank.entity_id,
+        bank.currency AS bank_currency, entity.id AS mapped_entity_id,
+        entity.active AS entity_active, entity.base_currency,
+        account.id AS gl_account_id, account.code, account.account_type,
+        account.normal_side, account.is_postable, account.active,
+        account.cash_flow_tag, account.is_system_account,
+        account.currency AS ledger_currency
+    FROM accounting_bank_accounts bank
+    LEFT JOIN accounting_entities entity
+      ON entity.tenant_id = bank.tenant_id AND entity.id = bank.entity_id
+    LEFT JOIN accounting_accounts account
+      ON account.tenant_id = bank.tenant_id AND account.code = bank.gl_account_code
+    WHERE bank.tenant_id = :tenant AND bank.id = :bank');
+$mappingValid = static function (int $bankId) use ($cashMappingStmt, $tenantId): bool {
+    $cashMappingStmt->execute(['tenant' => $tenantId, 'bank' => $bankId]);
+    $bank = $cashMappingStmt->fetch(PDO::FETCH_ASSOC);
+    return is_array($bank) && accountingBankCashPositionMappingValid($bank);
+};
 
 $pdo->beginTransaction();
 try {
@@ -75,6 +94,8 @@ try {
     $secondBankId = (int) $pdo->lastInsertId();
     $assert($firstBankId !== $secondBankId,
         'two legal entities can map different physical banks to one chart code');
+    $assert($mappingValid($firstBankId) && $mappingValid($secondBankId),
+        'both entity-owned synthetic bank mappings can be reported as cash');
     try {
         $addBank->execute(['tenant' => $tenantId, 'entity' => $secondEntityId,
             'name' => 'CI Duplicate Entity B Bank']);
@@ -151,6 +172,9 @@ try {
 
     $addBank->execute(['tenant' => $tenantId, 'entity' => null,
         'name' => 'CI Legacy Unowned Cash Bank']);
+    $unownedBankId = (int) $pdo->lastInsertId();
+    $assert(!$mappingValid($unownedBankId),
+        'unowned synthetic bank must not appear as zero in cash position');
     try {
         $addBank->execute(['tenant' => $tenantId, 'entity' => null,
             'name' => 'CI Second Legacy Unowned Bank']);

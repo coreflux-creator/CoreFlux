@@ -15,6 +15,23 @@ function accountingBankCashLedgerEligible(array $account): bool
         );
 }
 
+function accountingBankCashPositionMappingValid(array $bank): bool
+{
+    $entityId = (int) ($bank['entity_id'] ?? 0);
+    $bankCurrency = trim((string) ($bank['bank_currency'] ?? ''));
+    $entityCurrency = trim((string) ($bank['base_currency'] ?? ''));
+    $ledgerCurrency = trim((string) ($bank['ledger_currency'] ?? ''));
+    return $entityId > 0
+        && (int) ($bank['mapped_entity_id'] ?? 0) === $entityId
+        && (int) ($bank['entity_active'] ?? 0) === 1
+        && (int) ($bank['gl_account_id'] ?? 0) > 0
+        && $bankCurrency !== ''
+        && $entityCurrency !== ''
+        && strcasecmp($bankCurrency, $entityCurrency) === 0
+        && ($ledgerCurrency === '' || strcasecmp($bankCurrency, $ledgerCurrency) === 0)
+        && accountingBankCashLedgerEligible($bank);
+}
+
 function bankAccountValidateLedger(string $code, string $currency, int $entityId, ?int $excludeId = null): void
 {
     if ($entityId <= 0) api_error('Choose an active legal entity for this bank account', 422);

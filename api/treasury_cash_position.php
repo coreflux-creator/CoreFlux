@@ -20,6 +20,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
+require_once __DIR__ . '/../modules/accounting/lib/bank_account_ledger.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -41,9 +42,16 @@ $baWhere = ['ba.tenant_id = :t', "ba.status = 'active'"];
 $baP     = ['t' => $tid];
 if ($entityId) { $baWhere[] = 'ba.entity_id = :e'; $baP['e'] = $entityId; }
 $baStmt = $pdo->prepare(
-    "SELECT ba.id, ba.name, ba.bank_name, ba.last4, ba.entity_id, ba.currency,
-            ba.gl_account_code, aa.id AS gl_account_id
+    "SELECT ba.id, ba.name, ba.bank_name, ba.last4, ba.entity_id,
+            ba.currency AS bank_currency, ba.gl_account_code,
+            entity.id AS mapped_entity_id, entity.active AS entity_active,
+            entity.base_currency,
+            aa.id AS gl_account_id, aa.code, aa.account_type, aa.normal_side,
+            aa.is_postable, aa.active, aa.cash_flow_tag, aa.is_system_account,
+            aa.currency AS ledger_currency
        FROM accounting_bank_accounts ba
+       LEFT JOIN accounting_entities entity
+         ON entity.tenant_id = ba.tenant_id AND entity.id = ba.entity_id
        LEFT JOIN accounting_accounts aa
          ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
       WHERE " . implode(' AND ', $baWhere) . "
@@ -51,6 +59,17 @@ $baStmt = $pdo->prepare(
 );
 $baStmt->execute($baP);
 $banks = $baStmt->fetchAll(\PDO::FETCH_ASSOC);
+$invalidBankIds = [];
+foreach ($banks as $bank) {
+    if (!accountingBankCashPositionMappingValid($bank)) $invalidBankIds[] = (int) $bank['id'];
+}
+if ($invalidBankIds) {
+    api_error('Cash position is unavailable until these bank accounts have a reviewed legal entity and valid cash ledger.', 409, [
+        'code' => 'bank_cash_mapping_review_required',
+        'bank_account_ids' => $invalidBankIds,
+        'review_path' => '/modules/accounting/bank-rec/integrity',
+    ]);
+}
 
 // 2) For each bank account compute GL balance.
 $balStmt = $pdo->prepare(
@@ -95,7 +114,7 @@ foreach ($banks as $b) {
         'bank_name'      => $b['bank_name'],
         'last4'          => $b['last4'],
         'entity_id'      => (int) ($b['entity_id'] ?? 0),
-        'currency'       => (string) $b['currency'],
+        'currency'       => (string) $b['bank_currency'],
         'gl_account_id'  => $b['gl_account_id'] ? (int) $b['gl_account_id'] : null,
         'gl_balance'     => 0.0,
         'last_reconciled_date' => null,

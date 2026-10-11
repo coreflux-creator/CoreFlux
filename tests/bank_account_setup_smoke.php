@@ -41,6 +41,31 @@ $check('non-asset cannot be designated as a bank ledger', !accountingBankCashLed
     array_replace($custom, ['account_type' => 'liability'])
 ));
 
+$cashMapping = array_replace($cash, [
+    'entity_id' => 10, 'mapped_entity_id' => 10, 'entity_active' => 1,
+    'gl_account_id' => 99, 'bank_currency' => 'USD',
+    'base_currency' => 'USD', 'ledger_currency' => null,
+]);
+$check('reviewed bank mapping can be reported as cash', accountingBankCashPositionMappingValid($cashMapping));
+$check('unowned bank cannot be reported as zero cash', !accountingBankCashPositionMappingValid(
+    array_replace($cashMapping, ['entity_id' => null, 'mapped_entity_id' => null])
+));
+$check('missing cash ledger cannot be reported as zero cash', !accountingBankCashPositionMappingValid(
+    array_replace($cashMapping, ['gl_account_id' => null])
+));
+$check('inactive legal entity cannot be reported as cash', !accountingBankCashPositionMappingValid(
+    array_replace($cashMapping, ['entity_active' => 0])
+));
+$check('bank and legal entity currencies must agree for cash reporting', !accountingBankCashPositionMappingValid(
+    array_replace($cashMapping, ['base_currency' => 'EUR'])
+));
+$check('bank and cash ledger currencies must agree for cash reporting', !accountingBankCashPositionMappingValid(
+    array_replace($cashMapping, ['ledger_currency' => 'EUR'])
+));
+$check('non-cash ledger cannot be reported as bank cash', !accountingBankCashPositionMappingValid(
+    array_replace($cashMapping, ['code' => '1100'])
+));
+
 $mockAccount = $cash;
 $mockLinked = null;
 function scopedFind(string $sql, array $params): ?array
@@ -111,6 +136,10 @@ $check('cash position, forecast and variance require matching journal entity',
     && str_contains($cashForecast, 'j.entity_id = b.entity_id')
     && str_contains($cashForecast, "j.status IN ('posted','reversed')")
     && str_contains($cashVariance, 'je.entity_id = ba.entity_id'));
+$check('cash position refuses invalid active bank mappings before reporting totals',
+    str_contains($cashPosition, 'accountingBankCashPositionMappingValid($bank)')
+    && str_contains($cashPosition, "'code' => 'bank_cash_mapping_review_required'")
+    && str_contains($cashPosition, "'/modules/accounting/bank-rec/integrity'"));
 $check('account list exposes cash designation and system flag to the picker',
     str_contains($accountsApi, 'cash_flow_tag, is_system_account'));
 $check('chart can designate a custom bank or cash account',
