@@ -166,7 +166,7 @@ $assert('ordinary AP lines do not silently become direct labor',
     str_contains($apPost, "?: '6990'")
     && str_contains($apPost, 'A blank coding choice is an exception to resolve, not direct labor.'));
 $assert('manual AP vendors receive a durable reporting identity',
-    str_contains($apPost, 'INSERT INTO ap_vendors_index')
+    str_contains($read(__DIR__ . '/../modules/ap/lib/bill_drafts.php'), 'INSERT INTO ap_vendors_index')
     && str_contains($apPost, "'ap_vendor:' . (int) \$vendorRow['id']"));
 
 echo "\nReporting and integrity\n";

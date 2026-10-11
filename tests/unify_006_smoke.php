@@ -67,7 +67,10 @@ $bapi = (string) file_get_contents(__DIR__ . '/../modules/ap/api/bills.php');
 $billDrafts = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/bill_drafts.php');
 $assert('bills manual POST sets vendor_company_id', strpos($bapi, 'apCreateManualBill(') !== false
     && strpos($billDrafts, "'vendor_company_id' => \$vendorCompanyId") !== false);
-$assert('bills time-bundle sets vendor_company_id', strpos($bapi, "UPDATE ap_bills SET vendor_company_id") !== false);
+$apLib = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/ap.php');
+$assert('bills time-bundle uses the saved vendor company_id',
+    str_contains($bapi, 'apPrepareGeneratedDraftVendor($tid, $d)')
+    && str_contains($apLib, "\$draft['bill']['vendor_company_id'] = \$vendor['company_id'] ?: null"));
 $assert('bills PATCH allows vendor_company_id',     strpos($bapi, "'vendor_name','vendor_company_id'") !== false);
 
 echo "\nBilling API unification wiring\n";
