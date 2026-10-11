@@ -314,6 +314,9 @@ jobs:
       - name: Exercise shared cash code in two legal entities
         run: php tests/accounting_shared_bank_code_db_check.php --confirm-disposable-fixture
 
+      - name: Exercise Plaid bank currencies and legal-entity mapping
+        run: php tests/plaid_bank_currency_db_check.php --confirm-disposable-fixture
+
       - name: Exercise invoice-issued rule-label migration and legacy seed alias
         run: php tests/invoice_issued_rule_label_db_check.php --confirm-disposable-fixture
 

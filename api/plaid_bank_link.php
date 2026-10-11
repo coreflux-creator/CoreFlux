@@ -96,6 +96,7 @@ if ($action === 'exchange') {
     $availableEntities = activeEntityAvailable($tenantId);
     if (!$availableEntities) api_error('No accounting entity is configured for this tenant', 422);
     $validEntityIds = array_fill_keys(array_column($availableEntities, 'id'), true);
+    $entitiesById = array_column($availableEntities, null, 'id');
     $requestedEntityId = !empty($body['entity_id']) ? (int) $body['entity_id'] : null;
     if (count($availableEntities) > 1 && !$requestedEntityId) {
         api_error('Choose a legal entity before connecting bank accounts', 422);
@@ -254,9 +255,10 @@ if ($action === 'exchange') {
 
         if ($type === 'depository') {
             try {
+                $bankCurrency = plaidBankMirrorCurrency($acc, $entitiesById[$accountEntityId]);
                 // 1) Exact re-link match — same Plaid account_id seen before.
                 $check = $pdo->prepare(
-                    'SELECT id, entity_id FROM accounting_bank_accounts
+                    'SELECT id, entity_id, currency FROM accounting_bank_accounts
                       WHERE tenant_id = :t AND plaid_account_id = :a LIMIT 1'
                 );
                 $check->execute(['t' => $tenantId, 'a' => $accId]);
@@ -264,6 +266,9 @@ if ($action === 'exchange') {
                 if ($existing) {
                     if ((int) ($existing['entity_id'] ?? 0) !== $accountEntityId) {
                         throw new RuntimeException('This connected bank account belongs to another or unassigned legal entity');
+                    }
+                    if (strcasecmp((string) $existing['currency'], $bankCurrency) !== 0) {
+                        throw new RuntimeException('This connected bank account has a different saved currency');
                     }
                     // Re-activate in case it was previously hidden by a disconnect.
                     $pdo->prepare(
@@ -288,11 +293,12 @@ if ($action === 'exchange') {
                                 AND entity_id = :eid
                                 AND last4     = :l4
                                 AND bank_name = :bk
+                                AND currency  = :currency
                              ORDER BY (status = "active") DESC, updated_at DESC, id DESC
                              LIMIT 2';
                     $stmt   = $pdo->prepare($sql);
                     $params = ['t' => $tenantId, 'eid' => $accountEntityId, 'l4' => $mask,
-                        'bk' => $instLabel];
+                        'bk' => $instLabel, 'currency' => $bankCurrency];
                     $stmt->execute($params);
                     $candidates = $stmt->fetchAll(PDO::FETCH_COLUMN);
                     $adoptId = count($candidates) === 1 ? (int) $candidates[0] : 0;
@@ -360,7 +366,7 @@ if ($action === 'exchange') {
                      VALUES (:t, :eid, :nm, :gl, :bk, :l4, :c, "plaid_transactions", "active", :pa, NULL, NOW())'
                 )->execute([
                     't'  => $tenantId, 'eid' => $accountEntityId, 'nm' => $insName, 'gl' => $glCode,
-                    'bk' => $bankName, 'l4' => $mask, 'c'  => 'USD', 'pa' => $accId,
+                    'bk' => $bankName, 'l4' => $mask, 'c'  => $bankCurrency, 'pa' => $accId,
                 ]);
                 $createdBank[] = (int) $pdo->lastInsertId();
             } catch (\Throwable $e) {

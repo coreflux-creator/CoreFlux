@@ -20,7 +20,29 @@ function source(string $file): string {
 
 $link = source('api/plaid_bank_link.php');
 $diagnostics = source('api/plaid_diagnostics.php');
+$plaidService = source('core/plaid_service.php');
 $ui = source('modules/treasury/ui/TreasuryOverview.jsx');
+require_once __DIR__ . '/../core/plaid_bank_currency.php';
+
+$usdEntity = ['base_currency' => 'USD'];
+$usdAccount = ['balances' => ['iso_currency_code' => 'usd']];
+check('A fresh USD account keeps its reported currency',
+    plaidBankMirrorCurrency($usdAccount, $usdEntity) === 'USD');
+check('An orphan with stored EUR currency can join a EUR entity',
+    plaidBankMirrorCurrency(['iso_currency_code' => 'EUR'], ['base_currency' => 'EUR']) === 'EUR');
+$rejects = static function (array $account, array $entity): bool {
+    try {
+        plaidBankMirrorCurrency($account, $entity);
+        return false;
+    } catch (RuntimeException $e) {
+        return true;
+    }
+};
+check('A currency mismatch cannot create a misleading USD bank',
+    $rejects(['balances' => ['iso_currency_code' => 'CAD']], $usdEntity));
+check('A missing or unofficial currency stays in review',
+    $rejects(['balances' => ['iso_currency_code' => null, 'unofficial_currency_code' => 'XYZ']], $usdEntity)
+    && $rejects(['iso_currency_code' => null], $usdEntity));
 
 check('Each linked deposit and liability gets a distinct GL code',
     substr_count($link, 'plaidAllocateBankGlCode(') === 2
@@ -31,6 +53,19 @@ check('Unsupported shared-ledger toggle is gone',
 check('New deposit ledgers are cash equivalents',
     str_contains($link, "'cash_and_equivalents', 1, NULL, 1, NOW())")
     && substr_count($diagnostics, "'cash_and_equivalents', 1, NULL, 1, NOW())") === 2);
+check('Link and orphan recovery validate the entity and save the reported currency',
+    str_contains($link, 'plaidBankMirrorCurrency($acc, $entitiesById[$accountEntityId])')
+    && str_contains($diagnostics, 'plaidBankMirrorCurrency($a, $entitiesById[$accountEntityId])')
+    && str_contains($link, "'c'  => \$bankCurrency")
+    && str_contains($diagnostics, "'c'  => \$bankCurrency"));
+check('Re-link and same-bank adoption refuse a changed currency',
+    str_contains($link, "strcasecmp((string) \$existing['currency'], \$bankCurrency)")
+    && str_contains($link, 'AND currency  = :currency'));
+check('Legacy orphans without a currency column remain reviewable',
+    str_contains($diagnostics, "? 'pa.iso_currency_code' : 'NULL AS iso_currency_code'"));
+check('Missing Plaid currency is not silently cached as USD',
+    str_contains($plaidService, "\$iso = preg_match('/^[A-Z]{3}$/', \$isoRaw) ? \$isoRaw : null")
+    && !str_contains($plaidService, "'iso_currency_code']) ? substr((string) \$b['iso_currency_code'], 0, 3) : 'USD'"));
 check('Liability mirrors carry an entity in both paths',
     str_contains($link, '(tenant_id, account_id, entity_id, subtype')
     && str_contains($diagnostics, '(tenant_id, account_id, entity_id, subtype'));

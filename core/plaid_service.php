@@ -30,6 +30,7 @@ unset($_plaidLocalConfig);
 require_once __DIR__ . '/encryption.php';
 require_once __DIR__ . '/audit.php';
 require_once __DIR__ . '/sim_mock_bridge.php';
+require_once __DIR__ . '/plaid_bank_currency.php';
 
 // ---------------------------------------------------------------- config
 
@@ -789,7 +790,8 @@ function plaidPersistAccountBalances(PDO $pdo, int $tenantId, array $plaidAccoun
         $cur = isset($b['current'])   && is_numeric($b['current'])   ? (int) round(((float) $b['current'])   * 100) : null;
         $avl = isset($b['available']) && is_numeric($b['available']) ? (int) round(((float) $b['available']) * 100) : null;
         $lim = isset($b['limit'])     && is_numeric($b['limit'])     ? (int) round(((float) $b['limit'])     * 100) : null;
-        $iso = isset($b['iso_currency_code']) ? substr((string) $b['iso_currency_code'], 0, 3) : 'USD';
+        $isoRaw = strtoupper(trim((string) ($b['iso_currency_code'] ?? '')));
+        $iso = preg_match('/^[A-Z]{3}$/', $isoRaw) ? $isoRaw : null;
 
         try {
             $upd->execute([

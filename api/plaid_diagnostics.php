@@ -38,6 +38,7 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
     $availableEntities = activeEntityAvailable($tenantId);
     if (!$availableEntities) api_error('No accounting entity is configured for this tenant', 422);
     $validEntityIds = array_fill_keys(array_column($availableEntities, 'id'), true);
+    $entitiesById = array_column($availableEntities, null, 'id');
     $requestedEntityId = !empty($body['entity_id']) ? (int) $body['entity_id'] : null;
     if (count($availableEntities) > 1 && !$requestedEntityId) {
         api_error('Choose a legal entity before adding connected accounts', 422);
@@ -86,8 +87,17 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
         }
     } catch (\Throwable $e) { /* surfaces per-account below */ }
 
+    $isoColumn = $pdo->prepare(
+        "SELECT COUNT(*) FROM information_schema.columns
+          WHERE table_schema = DATABASE() AND table_name = 'plaid_accounts'
+            AND column_name = 'iso_currency_code'"
+    );
+    $isoColumn->execute();
+    $isoProjection = (int) $isoColumn->fetchColumn() > 0
+        ? 'pa.iso_currency_code' : 'NULL AS iso_currency_code';
     $stmt = $pdo->prepare(
         "SELECT pa.id AS pa_id, pa.account_id, pa.name, pa.mask, pa.type, pa.subtype,
+                {$isoProjection},
                 pi.institution_name
            FROM plaid_accounts pa
            JOIN plaid_items    pi ON pi.id = pa.plaid_item_pk
@@ -127,6 +137,7 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
 
         try {
             if ($type === 'depository') {
+                $bankCurrency = plaidBankMirrorCurrency($a, $entitiesById[$accountEntityId]);
                 $base = $subtype === 'savings' ? '1010' : '1000';
                 $glCode = plaidAllocateBankGlCode($pdo, $tenantId, $base, $mask, $accId);
                 $bankName = $instName !== '' ? $instName : ($name ?: 'Bank');
@@ -155,7 +166,7 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
                      VALUES (:t, :eid, :nm, :gl, :bk, :l4, :c, "plaid_transactions", "active", :pa, NULL, NOW())'
                 )->execute([
                     't'  => $tenantId, 'eid' => $accountEntityId, 'nm' => $insName, 'gl' => $glCode,
-                    'bk' => $bankName, 'l4' => $mask, 'c'  => 'USD', 'pa' => $accId,
+                    'bk' => $bankName, 'l4' => $mask, 'c'  => $bankCurrency, 'pa' => $accId,
                 ]);
                 $createdBank[] = (int) $pdo->lastInsertId();
                 continue;
