@@ -3,6 +3,13 @@ export function roundMoney(value) {
   return Math.sign(amount) * Math.round((Math.abs(amount) + Number.EPSILON) * 100) / 100;
 }
 
+export function formatDocumentMeasure(value) {
+  return Number(value).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  });
+}
+
 export function calculateDocumentTotals(lines, taxPct, { discountsUntaxed = false } = {}) {
   const rate = (Number(taxPct) || 0) / 100;
   let subtotal = 0;

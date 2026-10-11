@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateDocumentTotals, roundMoney } from '../src/lib/documentTotals.js';
+import { calculateDocumentTotals, formatDocumentMeasure, roundMoney } from '../src/lib/documentTotals.js';
+
+test('quantities and unit prices retain supported four-decimal precision', () => {
+  assert.equal(formatDocumentMeasure('1.0050'), '1.005');
+  assert.equal(formatDocumentMeasure('-0.0100'), '-0.01');
+  assert.equal(formatDocumentMeasure('1.0000'), '1.00');
+  assert.equal(formatDocumentMeasure('1000.1234'), '1,000.1234');
+});
 
 test('line amounts round before the document total', () => {
   const lines = Array.from({ length: 3 }, () => ({ quantity: 1, unit_price: 0.335 }));

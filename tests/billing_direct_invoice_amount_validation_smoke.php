@@ -26,6 +26,14 @@ $amounts = billingComputeTax($prepared, 10.0);
 $check('service and untaxed discount produce expected totals',
     $amounts['subtotal'] === 23.0 && $amounts['tax_total'] === 2.5
     && $amounts['total'] === 25.5 && $amounts['lines'][1]['tax_rate_pct'] === 0.0);
+$edge = billingComputeTax(billingValidateDirectInvoiceLines([
+    array_replace($service, ['quantity' => '1', 'unit_price' => '1.0050']),
+    array_replace($discount, ['unit_price' => '-0.01']),
+]), 7.5);
+$check('four-decimal rate and untaxed discount retain cent-accurate totals',
+    $edge['lines'][0]['subtotal'] === 1.01 && $edge['lines'][0]['tax_amount'] === 0.08
+    && $edge['lines'][1]['subtotal'] === -0.01 && $edge['lines'][1]['tax_amount'] === 0.0
+    && $edge['subtotal'] === 1.0 && $edge['total'] === 1.08);
 $check('CoreOne line without item type resolves to other',
     billingValidateDirectInvoiceLines([array_diff_key($service, ['item_type' => true])])[0]['item_type'] === 'other');
 $check('negative line without type infers untaxed discount',

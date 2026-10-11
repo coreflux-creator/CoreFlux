@@ -7,7 +7,7 @@
  *
  * Cached under private storage for standalone CoreAccounting, or the ERP's
  * existing storage directory otherwise.
- * Cache key is the invoice's `updated_at` + amount_due (so any edit busts cache).
+ * Cache key includes invoice state and template source (so edits and releases bust cache).
  *
  * Permissions are NOT checked here — callers (HTTP endpoint, mail attach)
  * are responsible. This is a builder.
@@ -21,6 +21,11 @@ require_once __DIR__ . '/invoice_pdf_cache.php';
 
 const COREFLUX_INVOICE_PDF_STORAGE_ROOT = __DIR__ . '/../../../storage/billing/invoices';
 
+function invoiceFormatMeasure(float|int|string $value): string {
+    $formatted = number_format((float) $value, 4, '.', ',');
+    return substr($formatted, 0, -2) . rtrim(substr($formatted, -2), '0');
+}
+
 function invoicePdfStorageRoot(): string {
     if (getenv('COREFLUX_ENV') !== 'coreaccounting') {
         return COREFLUX_INVOICE_PDF_STORAGE_ROOT;
@@ -33,7 +38,8 @@ function invoiceRenderPdf(int $invoiceId, bool $useCache = true): string {
     $inv = _invoiceLoad($pdo, $invoiceId);
     if (!$inv) throw new RuntimeException("Invoice #{$invoiceId} not found");
 
-    $cacheKey = hash('sha1', (string) $inv['updated_at'] . '|' . (string) $inv['amount_due']);
+    $cacheKey = hash('sha1', (string) $inv['updated_at'] . '|' . (string) $inv['amount_due']
+        . '|' . hash_file('sha1', __FILE__));
     $tenantId = (int) $inv['tenant_id'];
     $storageRoot = invoicePdfStorageRoot();
     if (getenv('COREFLUX_ENV') === 'coreaccounting') {
@@ -77,9 +83,9 @@ function invoiceBuildPdfHtml(int $invoiceId): string {
         $linesHtml .= '<tr>'
             . '<td class="num">' . ($i + 1) . '</td>'
             . '<td>' . $h($l['description']) . '</td>'
-            . '<td class="num">' . $h(rtrim(rtrim(number_format((float) $l['quantity'], 4, '.', ''), '0'), '.')) . '</td>'
+            . '<td class="num">' . $h(invoiceFormatMeasure($l['quantity'])) . '</td>'
             . '<td>' . $h($l['unit']) . '</td>'
-            . '<td class="num">' . $money($l['unit_price']) . '</td>'
+            . '<td class="num">$' . $h(invoiceFormatMeasure($l['unit_price'])) . '</td>'
             . '<td class="num">' . $money($l['subtotal']) . '</td>'
             . '<td class="num">' . $money($l['tax_amount']) . '</td>'
             . '<td class="num">' . $money($l['total']) . '</td>'

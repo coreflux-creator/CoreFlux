@@ -7,6 +7,7 @@ import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttac
 import ThreeWayMatchPanel from './ThreeWayMatchPanel';
 import BillApprovalThread from './BillApprovalThread';
 import { directBillAccountChoices, generatedBillAccountChoices } from './directBillAccounts';
+import { formatDocumentMeasure } from '../../../dashboard/src/lib/documentTotals';
 import { Pencil, RotateCcw, X } from 'lucide-react';
 
 const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
@@ -334,9 +335,9 @@ export default function BillDetail({ session }) {
                   ) : null
                 )}
               </td>
-              <td style={{textAlign:'right'}}>{Number(l.quantity).toFixed(2)}</td>
+              <td style={{textAlign:'right'}}>{formatDocumentMeasure(l.quantity)}</td>
               <td>{l.unit}</td>
-              <td style={{textAlign:'right'}}>{Number(l.unit_price).toFixed(4)}</td>
+              <td style={{textAlign:'right'}}>{formatDocumentMeasure(l.unit_price)}</td>
               <td style={{textAlign:'right'}}>{Number(l.subtotal).toFixed(2)}</td>
               <td style={{textAlign:'right'}}>{Number(l.total).toFixed(2)}</td>
               <td>{codingOpen ? <select

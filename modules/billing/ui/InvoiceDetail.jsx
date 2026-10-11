@@ -5,6 +5,7 @@ import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api'
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 import { invoiceVoidGuidance } from '../../../dashboard/src/lib/invoiceVoidGuidance';
+import { formatDocumentMeasure } from '../../../dashboard/src/lib/documentTotals';
 
 const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 
@@ -325,9 +326,9 @@ export default function InvoiceDetail() {
               <td>{l.line_no}</td>
               <td>{l.catalog_item_name ? <><strong>{l.catalog_item_name}</strong><div style={{ fontSize: 11, color: 'var(--cf-text-muted)' }}>{l.catalog_item_code}</div></> : <span style={{ color: 'var(--cf-text-muted)' }}>Custom</span>}</td>
               <td>{l.description}</td>
-              <td style={{textAlign:'right'}}>{Number(l.quantity).toFixed(2)}</td>
+              <td style={{textAlign:'right'}}>{formatDocumentMeasure(l.quantity)}</td>
               <td>{l.unit}</td>
-              <td style={{textAlign:'right'}}>{Number(l.unit_price).toFixed(2)}</td>
+              <td style={{textAlign:'right'}}>{formatDocumentMeasure(l.unit_price)}</td>
               <td style={{textAlign:'right'}}>{Number(l.subtotal).toFixed(2)}</td>
               <td style={{textAlign:'right'}}>{Number(l.tax_amount).toFixed(2)}</td>
               <td style={{textAlign:'right'}}>{Number(l.total).toFixed(2)}</td>
