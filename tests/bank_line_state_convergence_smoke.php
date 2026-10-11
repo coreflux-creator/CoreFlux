@@ -45,6 +45,10 @@ $check('read-only integrity audit compares cash movement and currency',
     str_contains($integrity, "'bank_match_integrity'")
     && str_contains($integrity, 'journal_line.debit - journal_line.credit')
     && str_contains($integrity, "COALESCE(NULLIF(bank.currency, ''), 'USD')"));
+$check('read-only integrity audit detects unowned or invalid bank mappings',
+    str_contains($integrity, "'bank_account_mapping_integrity'")
+    && str_contains($integrity, 'bank.entity_id IS NULL')
+    && str_contains($integrity, 'cash_account.cash_flow_tag'));
 $check('read-only integrity audit detects duplicate and unresolved bank lineage',
     str_contains($integrity, "'bank_duplicate_journal_matches'")
     && str_contains($integrity, "'bank_unmatched_explicit_lineage'")

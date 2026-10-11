@@ -79,10 +79,10 @@ function accountingImportReviewJe(int $tenantId, string $batchRef, array $journa
     }
     $lookup = $pdo->prepare(
         'SELECT a.id, a.active, a.is_postable, a.currency,
-                ba.id AS bank_account_id
+                EXISTS (SELECT 1 FROM accounting_bank_accounts ba
+                         WHERE ba.tenant_id = a.tenant_id
+                           AND ba.gl_account_code = a.code) AS bank_account_linked
            FROM accounting_accounts a
-           LEFT JOIN accounting_bank_accounts ba
-             ON ba.tenant_id = a.tenant_id AND ba.gl_account_code = a.code
           WHERE a.tenant_id = :t AND a.code = :code LIMIT 1'
     );
     $protectedCodes = array_fill_keys(
@@ -99,7 +99,7 @@ function accountingImportReviewJe(int $tenantId, string $batchRef, array $journa
             continue;
         }
         if (isset($protectedCodes[$code])
-            || $account['bank_account_id'] !== null) {
+            || (int) $account['bank_account_linked'] === 1) {
             $errors[] = 'line ' . ($index + 1)
                 . ': this account belongs to an invoice, bill, payroll, tax, or bank workflow';
         }

@@ -846,6 +846,43 @@ function businessIntegrityBankChecks(int $accountingTenantId): array
 {
     if ($accountingTenantId <= 0) throw new InvalidArgumentException('accountingTenantId required');
     $checks = [];
+    $bankMappingFrom = 'FROM accounting_bank_accounts bank
+        LEFT JOIN accounting_entities entity
+          ON entity.tenant_id = bank.tenant_id AND entity.id = bank.entity_id
+        LEFT JOIN accounting_accounts cash_account
+          ON cash_account.tenant_id = bank.tenant_id
+         AND cash_account.code = bank.gl_account_code';
+    $bankMappingInvalid = "bank.entity_id IS NULL OR entity.id IS NULL OR cash_account.id IS NULL
+        OR UPPER(bank.currency) <> UPPER(entity.base_currency)
+        OR (cash_account.currency IS NOT NULL AND cash_account.currency <> ''
+            AND UPPER(cash_account.currency) <> UPPER(bank.currency))
+        OR (bank.status = 'active' AND (
+            entity.active <> 1 OR cash_account.active <> 1
+            OR cash_account.is_postable <> 1 OR cash_account.account_type <> 'asset'
+            OR cash_account.normal_side <> 'debit'
+            OR NOT ((cash_account.is_system_account = 0
+                     AND COALESCE(cash_account.cash_flow_tag, '') = 'cash_and_equivalents')
+                    OR (cash_account.code = '1000' AND cash_account.is_system_account = 1))
+        ))";
+    $checks[] = businessIntegrityCountCheck(
+        $accountingTenantId,
+        'bank_account_mapping_integrity',
+        'Bank accounts have a valid legal entity, currency and cash ledger mapping',
+        'critical',
+        "SELECT COUNT(*) {$bankMappingFrom}
+          WHERE bank.tenant_id = :tenant_id AND ({$bankMappingInvalid})",
+        "SELECT bank.id AS bank_account_id, bank.status, bank.entity_id,
+                bank.gl_account_code, bank.currency AS bank_currency,
+                entity.active AS entity_active, entity.base_currency AS entity_currency,
+                cash_account.id AS cash_account_id, cash_account.active AS cash_account_active,
+                cash_account.is_postable, cash_account.account_type,
+                cash_account.normal_side, cash_account.cash_flow_tag,
+                cash_account.currency AS cash_account_currency
+           {$bankMappingFrom}
+          WHERE bank.tenant_id = :tenant_id AND ({$bankMappingInvalid})
+          ORDER BY bank.id DESC LIMIT 25",
+        ['accounting_bank_accounts', 'accounting_entities', 'accounting_accounts']
+    );
     $bankCashMovement = 'COALESCE((
         SELECT ROUND(SUM(journal_line.debit - journal_line.credit), 2)
           FROM accounting_journal_entry_lines journal_line
