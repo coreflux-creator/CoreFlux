@@ -62,7 +62,10 @@ exportDatasetAudit($tenantId, $userId ?: null, 'ap.vendors.exported', null, expo
 ], $datasetOptions));
 
 (new CsvExportService([
+    'vendor_id'             => 'Vendor ID',
     'vendor_name'           => 'Vendor name',
+    'external_id'           => 'External ID (audit / integration)',
+    'source_system'         => 'Source system',
     'vendor_type'           => 'Vendor type',
     'vendor_category'       => 'Vendor category',
     'default_terms'         => 'Default terms',

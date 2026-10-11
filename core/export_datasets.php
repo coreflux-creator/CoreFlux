@@ -156,6 +156,8 @@ function exportDatasetRegistry(): array {
             'fields'                => [
                 'vendor_id'             => ['label' => 'Vendor ID',          'sample' => '58'],
                 'vendor_name'           => ['label' => 'Vendor name',        'sample' => 'Acme Corp'],
+                'external_id'           => ['label' => 'External ID (audit / integration)', 'sample' => 'ERP-58'],
+                'source_system'         => ['label' => 'Source system',      'sample' => 'manual'],
                 'vendor_type'           => ['label' => 'Vendor type',        'sample' => 'w9_business'],
                 'vendor_category'       => ['label' => 'Vendor category',    'sample' => 'service_provider'],
                 'default_terms'         => ['label' => 'Default terms',      'sample' => 'NET30'],
@@ -874,7 +876,8 @@ function exportDatasetFetchApVendors(int $tenantId, array $opts): array {
     }
 
     $stmt = $pdo->prepare(
-        'SELECT id AS vendor_id, vendor_name, vendor_type, vendor_category,
+        'SELECT id AS vendor_id, vendor_name, external_id, source_system,
+                vendor_type, vendor_category,
                 default_terms, remit_to_email, remit_to_phone, payment_method,
                 tax_id_last4, payment_account_last4, requires_1099, last_bill_at
            FROM ap_vendors_index

@@ -24,8 +24,7 @@ use Core\CsvImportService;
 
 CsvImportService::registerSchema('ap_vendors', [
     'fields' => [
-        // vendor_id (companies.id) wins over fuzzy vendor_name match
-        // for update-existing rows. Copy from the Vendors list UI.
+        // Stable ap_vendors_index.id from the Vendors list or CSV export.
         'vendor_id'        => ['label' => 'Vendor ID',           'type' => 'integer'],
         'vendor_name'      => ['label' => 'Vendor name',         'required' => true],
         // external_id + source_system: per-row correlation back to the
@@ -47,7 +46,7 @@ CsvImportService::registerSchema('ap_vendors', [
         'tax_id_last4'     => ['label' => 'Tax ID last 4'],
         'requires_1099'    => ['label' => 'Requires 1099',       'type' => 'boolean'],
     ],
-    'unique_within_batch' => ['external_id', 'vendor_name'],
+    'unique_within_batch' => ['vendor_id', 'external_id', 'vendor_name'],
 ]);
 
 $ctx    = api_require_auth();
@@ -129,27 +128,73 @@ if ($method === 'POST' && $action === 'dry_run') {
     $columnMap = CsvImportService::readRequestColumnMap();
     $result = CsvImportService::dryRun('ap_vendors', $csv, $columnMap);
 
-    // Existing names are valid only when the operator explicitly chose update mode.
-    if ($result['rows'] && empty($_GET['update_existing'])) {
+    if ($result['rows']) {
+        $updateExisting = !empty($_GET['update_existing']);
         $names = array_unique(array_filter(array_column($result['rows'], 'vendor_name')));
+        $ids = array_unique(array_filter(array_map('intval', array_column($result['rows'], 'vendor_id'))));
+        $externalIds = array_unique(array_filter(array_column($result['rows'], 'external_id')));
+        $pdo = getDB();
+        $byName = [];
+        $byId = [];
+        $sourceById = [];
+        $byExternal = [];
         if ($names) {
             $placeholders = implode(',', array_fill(0, count($names), '?'));
-            $pdo = getDB();
             $stmt = $pdo->prepare(
-                "SELECT vendor_name FROM ap_vendors_index
+                "SELECT id, vendor_name, source_system FROM ap_vendors_index
                   WHERE tenant_id = ? AND vendor_name IN ({$placeholders})"
             );
             $stmt->execute(array_merge([$tid], $names));
-            $existing = [];
-            foreach ($stmt as $r) $existing[$r['vendor_name']] = true;
-            foreach ($result['rows'] as $rn => $row) {
-                if (!empty($row['vendor_name']) && isset($existing[$row['vendor_name']])) {
-                    $result['errors'][$rn] = $result['errors'][$rn] ?? [];
-                    $result['errors'][$rn][] = "vendor_name: '{$row['vendor_name']}' already exists in tenant; enable Update matching editable records to update it";
-                }
+            foreach ($stmt as $r) {
+                $byName[$r['vendor_name']] = (int) $r['id'];
+                $sourceById[(int) $r['id']] = $r['source_system'];
             }
-            $result['error_count'] = count($result['errors']);
         }
+        if ($ids) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT id, source_system FROM ap_vendors_index WHERE tenant_id = ? AND id IN ({$placeholders})"
+            );
+            $stmt->execute(array_merge([$tid], $ids));
+            foreach ($stmt as $r) {
+                $byId[(int) $r['id']] = true;
+                $sourceById[(int) $r['id']] = $r['source_system'];
+            }
+        }
+        if ($externalIds) {
+            $placeholders = implode(',', array_fill(0, count($externalIds), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT id, source_system, external_id FROM ap_vendors_index
+                  WHERE tenant_id = ? AND external_id IN ({$placeholders})"
+            );
+            $stmt->execute(array_merge([$tid], $externalIds));
+            foreach ($stmt as $r) $byExternal[$r['source_system'] . ':' . $r['external_id']] = (int) $r['id'];
+        }
+        foreach ($result['rows'] as $rn => $row) {
+            $vendorId = (int) ($row['vendor_id'] ?? 0);
+            $name = (string) ($row['vendor_name'] ?? '');
+            $nameId = $byName[$name] ?? 0;
+            $externalId = (string) ($row['external_id'] ?? '');
+            $sourceSystem = (string) (($row['source_system'] ?? '')
+                ?: ($sourceById[$vendorId ?: $nameId] ?? 'manual'));
+            $externalMatchId = $externalId === '' ? 0 : ($byExternal[$sourceSystem . ':' . $externalId] ?? 0);
+            $problem = null;
+            if (($row['vendor_id'] ?? '') !== '' && $vendorId <= 0) {
+                $problem = 'vendor_id: enter a positive Vendor ID or leave it blank';
+            } elseif ($vendorId > 0 && !isset($byId[$vendorId])) {
+                $problem = "vendor_id: {$vendorId} does not belong to this company";
+            } elseif ($vendorId > 0 && $nameId > 0 && $nameId !== $vendorId) {
+                $problem = "vendor_name: '{$name}' belongs to a different vendor";
+            } elseif ($vendorId > 0 && $externalMatchId > 0 && $externalMatchId !== $vendorId) {
+                $problem = "external_id: '{$externalId}' belongs to a different vendor";
+            } elseif ($nameId > 0 && $externalMatchId > 0 && $nameId !== $externalMatchId) {
+                $problem = 'Vendor name and external ID identify different vendors';
+            } elseif (!$updateExisting && ($vendorId > 0 || $nameId > 0 || $externalMatchId > 0)) {
+                $problem = 'Vendor already exists; enable Update matching editable records to update it';
+            }
+            if ($problem !== null) $result['errors'][$rn][] = $problem;
+        }
+        $result['error_count'] = count($result['errors']);
     }
     api_ok($result);
 }
@@ -166,6 +211,12 @@ if ($method === 'POST' && $action === 'commit') {
     $opts = ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap, 'atomic' => !$skipInvalid];
 
     $result = CsvImportService::commit('ap_vendors', $csv, function (array $row) use ($tid, $updateExisting) {
+        $vendorId = (int) ($row['vendor_id'] ?? 0);
+        if (($row['vendor_id'] ?? '') !== '' && $vendorId <= 0) {
+            throw new RuntimeException('Vendor ID must be positive or blank.');
+        }
+        $provided = static fn(string $field): bool => array_key_exists($field, $row)
+            && $row[$field] !== null && $row[$field] !== '';
         $vendorType = (string) ($row['vendor_type'] ?? 'other');
         $vendorCat  = (string) ($row['vendor_category']
             ?? (in_array($vendorType, ['1099_individual','c2c_corp'], true) ? 'hourly_labor' : 'service_provider'));
@@ -173,29 +224,7 @@ if ($method === 'POST' && $action === 'commit') {
         $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
 
         $pdo = getDB();
-        $sql =
-            'INSERT INTO ap_vendors_index
-               (tenant_id, vendor_name, external_id, source_system,
-                vendor_type, vendor_category,
-                payment_method, remit_to_email, remit_to_phone,
-                default_terms, tax_id_last4, requires_1099)
-             VALUES (:t, :v, :ext, :src, :vt, :cat, :pm, :rmail, :rphone, :terms, :last4, :r)';
-        if ($updateExisting) {
-            $sql .= ' ON DUPLICATE KEY UPDATE
-               vendor_name     = VALUES(vendor_name),
-               external_id     = COALESCE(VALUES(external_id), external_id),
-               source_system   = VALUES(source_system),
-               vendor_type     = VALUES(vendor_type),
-               vendor_category = VALUES(vendor_category),
-               payment_method  = COALESCE(VALUES(payment_method), payment_method),
-               remit_to_email  = COALESCE(VALUES(remit_to_email), remit_to_email),
-               remit_to_phone  = COALESCE(VALUES(remit_to_phone), remit_to_phone),
-               default_terms   = VALUES(default_terms),
-               tax_id_last4    = COALESCE(VALUES(tax_id_last4), tax_id_last4),
-               requires_1099   = VALUES(requires_1099)';
-        }
-        $pdo->prepare($sql)->execute([
-            't'      => $tid,
+        $values = [
             'v'      => (string) $row['vendor_name'],
             'ext'    => $externalId,
             'src'    => $sourceSystem,
@@ -207,27 +236,56 @@ if ($method === 'POST' && $action === 'commit') {
             'terms'  => (string) ($row['default_terms'] ?? 'NET30'),
             'last4'  => $row['tax_id_last4'] ?? null,
             'r'      => isset($row['requires_1099']) ? (int) $row['requires_1099'] : 0,
-        ]);
-        $id = (int) $pdo->lastInsertId();
-        if ($id === 0) {
-            // Hit ON DUPLICATE KEY — resolve the existing row id.
-            // Prefer the (source_system, external_id) match (the new
-            // canonical upsert key); fall back to (tenant, name) for
-            // legacy rows or when no external_id was supplied.
-            if ($externalId !== null) {
-                $findStmt = $pdo->prepare(
-                    'SELECT id FROM ap_vendors_index
-                      WHERE tenant_id = :t AND source_system = :s AND external_id = :e'
-                );
-                $findStmt->execute(['t' => $tid, 's' => $sourceSystem, 'e' => $externalId]);
-                $id = (int) $findStmt->fetchColumn();
+        ];
+        $optional = [
+            'external_id' => ['external_id', 'ext'],
+            'source_system' => ['source_system', 'src'],
+            'vendor_type' => ['vendor_type', 'vt'],
+            'vendor_category' => ['vendor_category', 'cat'],
+            'payment_method' => ['payment_method', 'pm'],
+            'remit_to_email' => ['remit_to_email', 'rmail'],
+            'remit_to_phone' => ['remit_to_phone', 'rphone'],
+            'default_terms' => ['default_terms', 'terms'],
+            'tax_id_last4' => ['tax_id_last4', 'last4'],
+            'requires_1099' => ['requires_1099', 'r'],
+        ];
+
+        if ($vendorId > 0) {
+            if (!$updateExisting) throw new RuntimeException('Enable update mode to change an existing vendor.');
+            $find = $pdo->prepare('SELECT id FROM ap_vendors_index WHERE tenant_id = :t AND id = :id');
+            $find->execute(['t' => $tid, 'id' => $vendorId]);
+            if (!$find->fetchColumn()) throw new RuntimeException('Vendor ID does not belong to this company.');
+            $sets = ['vendor_name = :v'];
+            $params = ['t' => $tid, 'id' => $vendorId, 'v' => $values['v']];
+            foreach ($optional as $field => [$column, $param]) {
+                if (!$provided($field)) continue;
+                $sets[] = "{$column} = :{$param}";
+                $params[$param] = $values[$param];
             }
-            if ($id === 0) {
-                $findStmt = $pdo->prepare('SELECT id FROM ap_vendors_index WHERE tenant_id = :t AND vendor_name = :v');
-                $findStmt->execute(['t' => $tid, 'v' => (string) $row['vendor_name']]);
-                $id = (int) $findStmt->fetchColumn();
-            }
+            $pdo->prepare('UPDATE ap_vendors_index SET ' . implode(', ', $sets)
+                . ' WHERE tenant_id = :t AND id = :id')->execute($params);
+            return $vendorId;
         }
+
+        $sql =
+            'INSERT INTO ap_vendors_index
+               (tenant_id, vendor_name, external_id, source_system,
+                vendor_type, vendor_category,
+                payment_method, remit_to_email, remit_to_phone,
+                default_terms, tax_id_last4, requires_1099)
+             VALUES (:t, :v, :ext, :src, :vt, :cat, :pm, :rmail, :rphone, :terms, :last4, :r)';
+        if ($updateExisting) {
+            $assignments = ['vendor_name = VALUES(vendor_name)'];
+            foreach ($optional as $field => [$column]) {
+                if ($provided($field)) $assignments[] = "{$column} = VALUES({$column})";
+            }
+            $sql .= ' ON DUPLICATE KEY UPDATE ' . implode(', ', $assignments);
+        }
+        $pdo->prepare($sql)->execute(['t' => $tid] + $values);
+        $findStmt = $pdo->prepare('SELECT id FROM ap_vendors_index WHERE tenant_id = :t AND vendor_name = :v');
+        $findStmt->execute(['t' => $tid, 'v' => $values['v']]);
+        $id = (int) $findStmt->fetchColumn();
+        if ($id <= 0) throw new RuntimeException('Vendor was not found after import.');
         return $id;
     }, $opts);
 
