@@ -248,7 +248,7 @@ function cashForecastReadOpeningBalanceCents(int $tenantId, ?string $asOfDate = 
           WHERE b.tenant_id = :t
             AND b.status = 'active'
             AND b.currency = :currency
-            AND j.status = 'posted'
+            AND j.status IN ('posted','reversed')
             AND j.posting_date <= :as_of"
     );
     $stmt->execute(['t' => $tenantId, 'currency' => $currency, 'as_of' => $asOfDate]);

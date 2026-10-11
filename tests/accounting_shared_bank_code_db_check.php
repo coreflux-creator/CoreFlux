@@ -95,9 +95,11 @@ try {
     $addLine = $pdo->prepare('INSERT INTO accounting_journal_entry_lines
         (tenant_id, je_id, line_no, account_id, debit, credit)
         VALUES (:tenant, :journal, :line, :account, :debit, :credit)');
+    $periodIds = [];
     foreach ([[$firstEntityId, 'A', '100.00'], [$secondEntityId, 'B', '200.00']] as [$entityId, $suffix, $amount]) {
         $addPeriod->execute(['tenant' => $tenantId, 'entity' => $entityId]);
         $periodId = (int) $pdo->lastInsertId();
+        $periodIds[(int) $entityId] = $periodId;
         $addJournal->execute(['tenant' => $tenantId, 'entity' => $entityId,
             'period' => $periodId, 'number' => 'CI-SHARED-CASH-' . $suffix,
             'amount_debit' => $amount, 'amount_credit' => $amount]);
@@ -108,6 +110,32 @@ try {
             'line' => 2, 'account' => $offsetAccountId, 'debit' => 0, 'credit' => $amount]);
     }
 
+    $addJournal->execute(['tenant' => $tenantId, 'entity' => $firstEntityId,
+        'period' => $periodIds[$firstEntityId], 'number' => 'CI-SHARED-REV-ORIGINAL',
+        'amount_debit' => '40.00', 'amount_credit' => '40.00']);
+    $originalId = (int) $pdo->lastInsertId();
+    $addLine->execute(['tenant' => $tenantId, 'journal' => $originalId,
+        'line' => 1, 'account' => $cashAccountId, 'debit' => '40.00', 'credit' => 0]);
+    $addLine->execute(['tenant' => $tenantId, 'journal' => $originalId,
+        'line' => 2, 'account' => $offsetAccountId, 'debit' => 0, 'credit' => '40.00']);
+    $pdo->prepare('UPDATE accounting_journal_entries SET status = "reversed"
+        WHERE tenant_id = :tenant AND id = :journal')
+        ->execute(['tenant' => $tenantId, 'journal' => $originalId]);
+    $addJournal->execute(['tenant' => $tenantId, 'entity' => $firstEntityId,
+        'period' => $periodIds[$firstEntityId], 'number' => 'CI-SHARED-REV-REVERSAL',
+        'amount_debit' => '40.00', 'amount_credit' => '40.00']);
+    $reversalId = (int) $pdo->lastInsertId();
+    $addLine->execute(['tenant' => $tenantId, 'journal' => $reversalId,
+        'line' => 1, 'account' => $cashAccountId, 'debit' => 0, 'credit' => '40.00']);
+    $addLine->execute(['tenant' => $tenantId, 'journal' => $reversalId,
+        'line' => 2, 'account' => $offsetAccountId, 'debit' => '40.00', 'credit' => 0]);
+    $pdo->prepare('UPDATE accounting_journal_entries
+        SET reversed_by_je_id = :reversal WHERE tenant_id = :tenant AND id = :original')
+        ->execute(['reversal' => $reversalId, 'tenant' => $tenantId, 'original' => $originalId]);
+    $pdo->prepare('UPDATE accounting_journal_entries
+        SET reverses_je_id = :original WHERE tenant_id = :tenant AND id = :reversal')
+        ->execute(['original' => $originalId, 'tenant' => $tenantId, 'reversal' => $reversalId]);
+
     $assert(abs($cashAt($firstEntityId) - $beforeFirst - 100.0) < 0.001,
         'first entity cash increases by only its own posted journal');
     $assert(abs($cashAt($secondEntityId) - 200.0) < 0.001,
@@ -115,7 +143,7 @@ try {
     $assert(abs($cashAt(null) - $beforeAll - 300.0) < 0.001,
         'tenant liquidity totals both banks exactly once');
     $assert(cashForecastReadOpeningBalanceCents($tenantId, '2026-10-11') - $beforeForecast === 30000,
-        'cash forecast opening balance totals shared-code banks once');
+        'cash forecast includes reversed originals and their offsetting journals exactly once');
     $mapping = array_values(array_filter(businessIntegrityBankChecks($tenantId),
         static fn(array $check): bool => $check['key'] === 'bank_account_mapping_integrity'));
     $assert(count($mapping) === 1 && $mapping[0]['issue_count'] === 0,

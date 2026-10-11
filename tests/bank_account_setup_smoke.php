@@ -109,6 +109,7 @@ $check('bank cash code uniqueness is per entity, with a reserved key for unowned
 $check('cash position, forecast and variance require matching journal entity',
     str_contains($cashPosition, 'je.entity_id = :entity_id')
     && str_contains($cashForecast, 'j.entity_id = b.entity_id')
+    && str_contains($cashForecast, "j.status IN ('posted','reversed')")
     && str_contains($cashVariance, 'je.entity_id = ba.entity_id'));
 $check('account list exposes cash designation and system flag to the picker',
     str_contains($accountsApi, 'cash_flow_tag, is_system_account'));
