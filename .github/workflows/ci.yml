@@ -9,28 +9,6 @@ on:
     - cron: '17 6 * * *'
 
 jobs:
-  qa4_access_probe:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/coreaccounting-native' && contains(github.event.head_commit.message, '[qa4-probe]')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Check isolated QA4 path with existing deployment access
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.CW_SSH_HOST }}
-          username: ${{ secrets.CW_SSH_USER }}
-          key: ${{ secrets.CW_SSH_KEY }}
-          port: ${{ secrets.CW_SSH_PORT }}
-          fingerprint: SHA256:UpPwj7uui9zzOD1iFsVGgiYtIgjSBY1fpynswD4Z90A
-          command_timeout: 1m
-          script: |
-            set -eu
-            qa4=/home/1516771.cloudwaysapps.com/fyqqcqhwwr/public_html
-            test -d "$qa4"
-            test -f "$qa4/.htaccess"
-            test -f "$qa4/core/config.php"
-            printf 'Isolated QA4 app path is accessible.\n'
-
   # ─────────────────────────────────────────────────────────────────
   # Smoke suite — 4-way parallel lanes (core / modules / ui / harness).
   # Same test code path; --lane=NAME filters by scripts/ci_lane_classifier.sh.
