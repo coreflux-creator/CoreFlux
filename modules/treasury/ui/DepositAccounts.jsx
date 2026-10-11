@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Routes, Route, Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
-import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
 import AccountTransactions from './AccountTransactions';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 
 export default function DepositAccounts() {
   return (
@@ -16,17 +17,13 @@ export default function DepositAccounts() {
 }
 
 function DepositList() {
-  const { activeEntityId, entities, loaded } = useActiveEntity();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const requestedEntityId = Number(searchParams.get('entity_id'));
-  const selectedEntityId = entities.some((entity) => entity.id === requestedEntityId)
-    ? requestedEntityId : activeEntityId;
-  const query = selectedEntityId ? `?entity_id=${selectedEntityId}` : '';
+  const scope = useAccountingEntityScope();
+  const query = scope.apiQuery ? `?${scope.apiQuery}` : '';
   const { data, error, loading, reload } = useApi(
     `/modules/treasury/api/deposit_accounts.php${query}`,
-    { enabled: loaded && Boolean(selectedEntityId) },
+    { enabled: scope.ready },
   );
-  const rows = (data?.rows || []).filter((row) => Number(row.entity_id) === selectedEntityId);
+  const rows = (data?.rows || []).filter((row) => scope.allEntities || Number(row.entity_id) === scope.entityId);
   const navigate = useNavigate();
 
   return (
@@ -39,42 +36,25 @@ function DepositList() {
             pull live bank-feed transactions into the ledger.
           </p>
         </div>
-        {selectedEntityId ? (
+        {scope.ready && scope.entityId ? (
           <Link className="btn btn--primary"
-            to={`/modules/accounting/bank-rec?entity_id=${selectedEntityId}&new=1`}
+            to={`/modules/accounting/bank-rec?entity_id=${scope.entityId}&new=1`}
             data-testid="treasury-deposit-new-btn">+ Add bank account</Link>
         ) : <button className="btn btn--primary" disabled>+ Add bank account</button>}
       </header>
 
-      {loaded && entities.length > 0 && (
+      {scope.loaded && scope.entities.length > 0 && (
         <div data-testid="treasury-deposits-entity-scope" style={{ marginBottom: 16 }}>
-          <label htmlFor="treasury-deposits-entity" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
-            Legal entity
-          </label>
-          <select
-            id="treasury-deposits-entity"
-            className="input"
-            value={selectedEntityId || ''}
-            onChange={(event) => {
-              const next = new URLSearchParams(searchParams);
-              next.set('entity_id', event.target.value);
-              setSearchParams(next);
-            }}
-            style={{ maxWidth: 360 }}
-          >
-            {entities.map((entity) => (
-              <option key={entity.id} value={entity.id}>
-                {entity.code} - {entity.legal_name}
-              </option>
-            ))}
-          </select>
+          <AccountingEntitySelector scope={scope} testId="treasury-deposits-entity" />
+          {scope.allEntities && <p className="muted">Select a legal entity to add a bank account.</p>}
         </div>
       )}
 
-      {(!loaded || loading) && <p>Loading…</p>}
-      {loaded && entities.length === 0 && <p className="empty-state">Create a legal entity before adding a deposit account.</p>}
+      {(!scope.loaded || loading) && <p>Loading…</p>}
+      {scope.loaded && scope.entities.length === 0 && <p className="empty-state">Create a legal entity before adding a deposit account.</p>}
+      {scope.error && <p className="error" role="alert">{scope.error}</p>}
       {error && <p className="error" role="alert">Could not load deposit accounts: {error.message} <button type="button" className="btn btn--ghost" onClick={reload}>Retry</button></p>}
-      {loaded && !loading && !error && selectedEntityId && rows.length === 0 && (
+      {scope.ready && !loading && !error && rows.length === 0 && (
         <p className="empty-state" data-testid="treasury-deposits-empty">
           No deposit accounts yet. Add a bank account to get started.
         </p>
@@ -252,8 +232,10 @@ function DepositDetail() {
   const accountId = Number(id);
   const { data: listData } = useApi('/modules/treasury/api/deposit_accounts.php');
   const account = (listData?.rows || []).find((r) => r.id === accountId);
-  const entityId = account?.entity_id || Number(searchParams.get('entity_id')) || null;
-  const backPath = `/modules/treasury/deposits${entityId ? `?entity_id=${entityId}` : ''}`;
+  const requestedScope = searchParams.get('entity_id');
+  const entityId = account?.entity_id || Number(requestedScope) || null;
+  const backScope = requestedScope === 'all' ? 'all' : entityId;
+  const backPath = `/modules/treasury/deposits${backScope ? `?entity_id=${backScope}` : ''}`;
   const label = account
     ? `${account.name}${account.last4 ? ` · ····${account.last4}` : ''}`
     : `Deposit account #${accountId}`;

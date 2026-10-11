@@ -18,6 +18,7 @@ $api = (string) file_get_contents($root . '/modules/treasury/api/liability_accou
 $transactions = (string) file_get_contents($root . '/modules/treasury/api/account_transactions.php');
 $overview = (string) file_get_contents($root . '/modules/treasury/ui/TreasuryOverview.jsx');
 $list = (string) file_get_contents($root . '/modules/treasury/ui/LiabilityAccounts.jsx');
+$deposits = (string) file_get_contents($root . '/modules/treasury/ui/DepositAccounts.jsx');
 
 $assert(str_contains($api, 'INNER JOIN treasury_liability_accounts tla'),
     'Treasury lists only explicitly managed liability accounts');
@@ -36,6 +37,26 @@ $assert(str_contains($list, 'liabilityBalance') && str_contains($list, '} credit
     'Negative card balances are labelled as account credits');
 $assert(str_contains($list, 'r.plaid_connected &&'),
     'Manual liabilities do not show an unusable Sync action');
+$assert(str_contains($overview, 'useAccountingEntityScope()')
+    && str_contains($overview, 'Number(row.entity_id) === scope.entityId')
+    && str_contains($overview, '(dep.data?.rows || []).filter(inScope)')
+    && str_contains($overview, '(lia.data?.rows || []).filter(inScope)')
+    && str_contains($overview, 'treasury-overview-entity'),
+    'Treasury overview totals and rows follow the selected legal entity');
+$assert(str_contains($overview, "scope.withScope('../deposits')")
+    && str_contains($overview, "scope.withScope('../liabilities')")
+    && str_contains($overview, 'scope.withScope(`../deposits/${r.id}`)')
+    && str_contains($overview, 'scope.withScope(`../liabilities/${r.id}`)'),
+    'Treasury overview links preserve the selected entity');
+$assert(str_contains($deposits, 'useAccountingEntityScope()')
+    && str_contains($deposits, 'scope.allEntities || Number(row.entity_id) === scope.entityId')
+    && str_contains($deposits, 'treasury-deposits-entity'),
+    'Deposit accounts support selected and all-entity views');
+$assert(str_contains($list, 'useAccountingEntityScope()')
+    && str_contains($list, 'scope.allEntities || Number(row.entity_id) === scope.entityId')
+    && str_contains($list, 'treasury-liabilities-entity')
+    && str_contains($list, 'selectedEntityId={scope.entityId}'),
+    'Liability accounts and their new-account form follow the selected entity');
 
 echo "\nPass: {$pass}\nFail: {$fail}\n";
 exit($fail === 0 ? 0 : 1);

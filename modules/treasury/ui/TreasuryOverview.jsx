@@ -2,8 +2,10 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 
 function plaidIssueText(code, message) {
   const detail = `${code || ''} ${message || ''}`.toUpperCase();
@@ -28,11 +30,13 @@ function maskedConnectionId(itemId) {
 
 export default function TreasuryOverview({ session }) {
   const standaloneAccounting = session?.product_mode === 'coreaccounting';
-  const dep = useApi('/modules/treasury/api/deposit_accounts.php');
-  const lia = useApi('/modules/treasury/api/liability_accounts.php');
+  const scope = useAccountingEntityScope();
+  const dep = useApi('/modules/treasury/api/deposit_accounts.php', { enabled: scope.ready });
+  const lia = useApi('/modules/treasury/api/liability_accounts.php', { enabled: scope.ready });
 
-  const depositRows   = dep.data?.rows || [];
-  const liabilityRows = lia.data?.rows || [];
+  const inScope = (row) => scope.allEntities || Number(row.entity_id) === scope.entityId;
+  const depositRows   = (dep.data?.rows || []).filter(inScope);
+  const liabilityRows = (lia.data?.rows || []).filter(inScope);
   // Headline figures prefer the live Plaid balance (what's actually in the
   // bank right now) and fall back to the GL balance only when no feed exists.
   const balanceOf = (r) => (r.bank_balance !== null && r.bank_balance !== undefined)
@@ -48,6 +52,18 @@ export default function TreasuryOverview({ session }) {
   );
   const netCash = depositTotal - liabilityTotal;
 
+  if (scope.error || dep.error || lia.error) {
+    return (
+      <section className="treasury-overview" data-testid="treasury-overview-error">
+        <AccountingEntitySelector scope={scope} testId="treasury-overview-entity" />
+        <p className="error" role="alert">Could not load Treasury: {scope.error || dep.error?.message || lia.error?.message}</p>
+      </section>
+    );
+  }
+  if (!scope.ready || dep.loading || lia.loading || !dep.data || !lia.data) {
+    return <section className="treasury-overview" data-testid="treasury-overview-loading">Loading Treasury…</section>;
+  }
+
   return (
     <section className="treasury-overview" data-testid="treasury-overview">
       <header className="treasury-overview__header">
@@ -61,6 +77,7 @@ export default function TreasuryOverview({ session }) {
             </>}
           </p>
         </div>
+        <AccountingEntitySelector scope={scope} testId="treasury-overview-entity" />
       </header>
 
       <div className="treasury-overview__stats payroll-stats" data-testid="treasury-overview-stats">
@@ -92,14 +109,14 @@ export default function TreasuryOverview({ session }) {
       <section className="treasury-overview__section">
         <header className="treasury-overview__section-head">
           <h3>Deposit accounts</h3>
-          <Link to="../deposits" className="btn btn--ghost" data-testid="treasury-overview-deposits-link">
+          <Link to={scope.withScope('../deposits')} className="btn btn--ghost" data-testid="treasury-overview-deposits-link">
             Manage →
           </Link>
         </header>
         {depositRows.length === 0 ? (
           <p className="empty-state">
             No deposit accounts yet.{' '}
-            <Link to="../deposits">Create your first one</Link> or connect a bank via Plaid.
+            <Link to={scope.withScope('../deposits')}>Create your first one</Link> or connect a bank via Plaid.
           </p>
         ) : (
           <table className="data-table" data-testid="treasury-overview-deposits-table">
@@ -122,7 +139,7 @@ export default function TreasuryOverview({ session }) {
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {fmtMoney(balanceOf(r))}
                   </td>
-                  <td><Link to={`../deposits/${r.id}`}>Activity</Link></td>
+                  <td><Link to={scope.withScope(`../deposits/${r.id}`)}>Activity</Link></td>
                 </tr>
               ))}
             </tbody>
@@ -133,14 +150,14 @@ export default function TreasuryOverview({ session }) {
       <section className="treasury-overview__section">
         <header className="treasury-overview__section-head">
           <h3>Liability accounts</h3>
-          <Link to="../liabilities" className="btn btn--ghost" data-testid="treasury-overview-liabilities-link">
+          <Link to={scope.withScope('../liabilities')} className="btn btn--ghost" data-testid="treasury-overview-liabilities-link">
             Manage →
           </Link>
         </header>
         {liabilityRows.length === 0 ? (
           <p className="empty-state">
             No liability accounts yet.{' '}
-            <Link to="../liabilities">Add a credit card, loan, or line of credit</Link>.
+            <Link to={scope.withScope('../liabilities')}>Add a credit card, loan, or line of credit</Link>.
           </p>
         ) : (
           <table className="data-table" data-testid="treasury-overview-liabilities-table">
@@ -150,7 +167,7 @@ export default function TreasuryOverview({ session }) {
             <tbody>
               {liabilityRows.slice(0, 5).map((r) => (
                 <tr key={r.id}>
-                  <td><AccountLink accountId={r.id} accountCode={r.code}>{r.name}</AccountLink></td>
+                  <td><AccountLink accountId={r.id} accountCode={r.code} entityId={r.entity_id}>{r.name}</AccountLink></td>
                   <td>{(r.subtype || 'other_liability').replace('_', ' ')}</td>
                   <td>{r.last4 || '—'}</td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
@@ -159,7 +176,7 @@ export default function TreasuryOverview({ session }) {
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {r.credit_limit ? fmtMoney(r.credit_limit) : '—'}
                   </td>
-                  <td><Link to={`../liabilities/${r.id}`}>Activity</Link></td>
+                  <td><Link to={scope.withScope(`../liabilities/${r.id}`)}>Activity</Link></td>
                 </tr>
               ))}
             </tbody>
@@ -171,6 +188,7 @@ export default function TreasuryOverview({ session }) {
       </section>
 
       <section className="treasury-overview__section">
+        <p className="muted">Bank connections are shared across this workspace; choose the owning legal entity for each account.</p>
         <BankConnectCard standaloneAccounting={standaloneAccounting} onLinked={() => window.location.reload()} />
       </section>
 
