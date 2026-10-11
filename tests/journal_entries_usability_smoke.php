@@ -134,7 +134,9 @@ $checks = [
         && str_contains($schemaContract, "'void_reason', 'voided_at'")
         && str_contains($api, "if (\$je['status'] === 'void' && !empty(\$je['voided_by_user_id']))")
         && str_contains($detail, 'data-testid="accounting-je-deletion-audit"')
-        && str_contains($detail, 'Reason: {entry.void_reason}'),
+        && str_contains($detail, 'Reason: {entry.void_reason}')
+        && str_contains($detail, 'maxLength={1000}')
+        && str_contains($accounting, 'Deletion reason must be 1000 characters or fewer.'),
     'deleting an entry releases bank lines and source pointers' =>
         str_contains($accounting, "SET match_status = 'unmatched', matched_je_id = NULL")
         && str_contains($accounting, 'function accountingRelinkJournalReferences')

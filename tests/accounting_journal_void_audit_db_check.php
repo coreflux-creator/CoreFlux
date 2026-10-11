@@ -79,6 +79,16 @@ try {
 }
 $assert($row($postedId)['status'] === 'posted', 'cross-tenant deletion leaves the entry posted');
 
+try {
+    accountingDeleteJe($tenantId, $postedId, str_repeat('x', 1001), $actorId);
+    throw new RuntimeException('Overlong deletion reason unexpectedly succeeded.');
+} catch (InvalidArgumentException $e) {
+    $assert(str_contains($e->getMessage(), '1000 characters'),
+        'overlong deletion reason returns a clear validation error');
+}
+$assert($row($postedId)['status'] === 'posted',
+    'overlong deletion reason leaves the journal posted');
+
 $reason = 'Synthetic CI correction: preserve a reason with the journal';
 $deleted = accountingDeleteJe($tenantId, $postedId, $reason, $actorId);
 $saved = $row($postedId);

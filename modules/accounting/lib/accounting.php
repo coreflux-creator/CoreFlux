@@ -907,6 +907,10 @@ function accountingDeleteJe(
     if ($replacementJeId === $jeId) throw new \InvalidArgumentException('replacement must be a different journal entry');
 
     $reason = trim($reason);
+    $reasonLength = function_exists('mb_strlen') ? mb_strlen($reason, 'UTF-8') : strlen($reason);
+    if ($reasonLength > 1000) {
+        throw new \InvalidArgumentException('Deletion reason must be 1000 characters or fewer.');
+    }
     $pdo = getDB();
     $ownsTransaction = !$pdo->inTransaction();
     if ($ownsTransaction) $pdo->beginTransaction();

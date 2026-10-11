@@ -268,6 +268,7 @@ export default function JournalEntryDetail() {
                 id="accounting-je-delete-reason"
                 className="input"
                 rows={3}
+                maxLength={1000}
                 value={deleteReason}
                 onChange={(event) => setDeleteReason(event.target.value)}
                 placeholder="What was wrong with this entry?"
