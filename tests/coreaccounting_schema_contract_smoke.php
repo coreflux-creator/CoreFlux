@@ -5,7 +5,9 @@ require_once __DIR__ . '/../core/accounting/schema_contract.php';
 
 $required = coreAccountingRequiredSchema();
 $failures = 0;
-$check = static function (string $name, bool $ok) use (&$failures): void {
+$checks = 0;
+$check = static function (string $name, bool $ok) use (&$failures, &$checks): void {
+    $checks++;
     echo ($ok ? 'OK  ' : 'FAIL  ') . $name . "\n";
     if (!$ok) $failures++;
 };
@@ -26,6 +28,12 @@ $withoutBankUpdate['accounting_bank_statement_lines'] = array_values(array_diff(
 $check('missing bank update column is reported', in_array(
     'accounting_bank_statement_lines.updated_at',
     coreAccountingMissingSchema($withoutBankUpdate), true));
+$withoutBankScope = $required;
+$withoutBankScope['accounting_bank_accounts'] = array_values(array_diff(
+    $withoutBankScope['accounting_bank_accounts'], ['entity_scope_id']));
+$check('missing entity-owned bank scope is reported', in_array(
+    'accounting_bank_accounts.entity_scope_id',
+    coreAccountingMissingSchema($withoutBankScope), true));
 $withoutCoreOneIntent = $required;
 $withoutCoreOneIntent['coreone_document_requests'] = array_values(array_diff(
     $withoutCoreOneIntent['coreone_document_requests'], ['intent_hash']));
@@ -52,6 +60,17 @@ unset($withoutPostingKey['accounting_posting_idempotency']);
 $check('missing posting idempotency uniqueness is reported', in_array(
     'accounting_posting_idempotency UNIQUE (tenant_id, idempotency_key)',
     coreAccountingMissingUniqueKeys($withoutPostingKey), true));
+$withoutBankKey = $requiredKeys;
+unset($withoutBankKey['accounting_bank_accounts']);
+$check('missing entity-owned bank uniqueness is reported', in_array(
+    'accounting_bank_accounts UNIQUE (tenant_id, entity_scope_id, gl_account_code)',
+    coreAccountingMissingUniqueKeys($withoutBankKey), true));
+$withLegacyBankKey = $requiredKeys;
+$withLegacyBankKey['accounting_bank_accounts'][] = ['tenant_id', 'gl_account_code'];
+$check('old tenant-wide bank uniqueness is incompatible even beside the new key',
+    coreAccountingIncompatibleUniqueKeys($withLegacyBankKey) !== []);
+$check('entity-owned bank uniqueness alone is compatible',
+    coreAccountingIncompatibleUniqueKeys($requiredKeys) === []);
 $wrongEventKey = $requiredKeys;
 $wrongEventKey['accounting_events'] = [['tenant_id', 'source_module', 'event_type', 'source_record_id']];
 $check('reordered event source key is not accepted', in_array(
@@ -77,7 +96,11 @@ $check('first-tenant provisioning checks the accounting schema before creating r
     strpos($provisioner, 'coreAccountingInspectSchema($pdo)') !== false
     && strpos($provisioner, 'coreAccountingInspectSchema($pdo)')
         < strpos($provisioner, '$pdo->beginTransaction()'));
+$check('first-tenant provisioning rejects incompatible bank indexes',
+    str_contains($provisioner, "\$accountingSchema['incompatible']"));
 $bootstrap = (string) file_get_contents(__DIR__ . '/../deploy/bootstrap_coreaccounting.php');
+$check('schema verification rejects incompatible bank indexes',
+    str_contains($bootstrap, "\$schema['incompatible']"));
 $billBase = strpos($bootstrap, "'modules/ap/migrations/001_init.sql'");
 $consolidation = strpos($bootstrap, "'modules/accounting/migrations/007_consolidation.sql'");
 $canonical = strpos($bootstrap, 'coreflux_run_migrations(true)');
@@ -89,5 +112,5 @@ $check('password recovery schema is created by the guarded migration',
     str_contains($resetMigration, 'CREATE TABLE IF NOT EXISTS password_resets')
     && str_contains($resetMigration, 'ADD COLUMN token_hash'));
 
-echo $failures ? "Failed: {$failures}\n" : "Passed: 16\n";
+echo $failures ? "Failed: {$failures}/{$checks}\n" : "Passed: {$checks}\n";
 exit($failures ? 1 : 0);

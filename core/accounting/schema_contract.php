@@ -21,8 +21,8 @@ function coreAccountingRequiredSchema(): array
             'source_record_id', 'status', 'journal_entry_id'],
         'accounting_subledger_links' => ['id', 'tenant_id', 'source_module',
             'source_record_id', 'journal_entry_id', 'link_kind'],
-        'accounting_bank_accounts' => ['id', 'tenant_id', 'entity_id', 'gl_account_code',
-            'currency', 'status'],
+        'accounting_bank_accounts' => ['id', 'tenant_id', 'entity_id', 'entity_scope_id',
+            'gl_account_code', 'currency', 'status'],
         'accounting_bank_statement_imports' => ['id', 'tenant_id', 'bank_account_id',
             'updated_at'],
         'accounting_bank_statement_lines' => ['id', 'tenant_id', 'bank_account_id',
@@ -66,6 +66,7 @@ function coreAccountingRequiredUniqueKeys(): array
         'accounting_posting_idempotency' => [['tenant_id', 'idempotency_key']],
         'accounting_events' => [['tenant_id', 'source_module', 'source_record_id', 'event_type']],
         'accounting_journal_entries' => [['tenant_id', 'je_number']],
+        'accounting_bank_accounts' => [['tenant_id', 'entity_scope_id', 'gl_account_code']],
         'accounting_bank_statement_lines' => [['tenant_id', 'bank_account_id', 'fitid']],
         'billing_invoices' => [
             ['tenant_id', 'invoice_number'],
@@ -97,6 +98,14 @@ function coreAccountingMissingUniqueKeys(array $present): array
         }
     }
     return $missing;
+}
+
+function coreAccountingIncompatibleUniqueKeys(array $present): array
+{
+    return in_array(['tenant_id', 'gl_account_code'],
+        $present['accounting_bank_accounts'] ?? [], true)
+        ? ['accounting_bank_accounts legacy UNIQUE (tenant_id, gl_account_code) blocks cross-entity cash mappings']
+        : [];
 }
 
 function coreAccountingMissingSchema(array $present): array
@@ -156,5 +165,6 @@ function coreAccountingInspectSchema(PDO $pdo): array
             coreAccountingMissingSchema($present),
             coreAccountingMissingUniqueKeys($uniqueKeys)
         ),
+        'incompatible' => coreAccountingIncompatibleUniqueKeys($uniqueKeys),
     ];
 }

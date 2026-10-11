@@ -30,10 +30,11 @@ if (in_array('--inspect', $argv, true)) {
 }
 if (in_array('--verify-schema', $argv, true)) {
     $schema = coreAccountingInspectSchema($pdo);
+    $issues = array_merge($schema['missing'], $schema['incompatible']);
     echo json_encode(['database' => $connectedDatabase] + $schema + [
-        'status' => $schema['missing'] ? 'incomplete' : 'schema_ready',
+        'status' => $issues ? 'incomplete' : 'schema_ready',
     ], JSON_PRETTY_PRINT) . "\n";
-    exit($schema['missing'] ? 1 : 0);
+    exit($issues ? 1 : 0);
 }
 $databaseArg = array_values(array_filter($argv, static fn(string $arg): bool => str_starts_with($arg, '--database=')));
 $expectedDatabase = count($databaseArg) === 1 ? substr($databaseArg[0], strlen('--database=')) : '';
@@ -97,8 +98,9 @@ $missing = installerCheckBaseSchema($pdo);
 if ($missing) throw new RuntimeException('Base tables still missing: ' . implode(', ', $missing));
 
 $schema = coreAccountingInspectSchema($pdo);
-if ($schema['missing']) {
-    throw new RuntimeException('Accounting schema incomplete: ' . implode(', ', $schema['missing']));
+$issues = array_merge($schema['missing'], $schema['incompatible']);
+if ($issues) {
+    throw new RuntimeException('Accounting schema incomplete: ' . implode(', ', $issues));
 }
 
 echo json_encode(['database' => $connectedDatabase, 'baseline_applied' => count($prerequisites),

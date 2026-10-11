@@ -12,6 +12,7 @@ if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'coreaccounting'
 $root = realpath((string) getenv('COREFLUX_STANDALONE_WEBROOT'));
 if ($root === false) throw new RuntimeException('Installed CoreAccounting runtime is required.');
 require_once $root . '/core/db.php';
+require_once $root . '/core/accounting/schema_contract.php';
 
 $pdo = getDB();
 if ((string) $pdo->query('SELECT DATABASE()')->fetchColumn() !== 'coreaccounting_ci') {
@@ -49,6 +50,13 @@ try {
     if (count($bankIds) !== 2) throw new RuntimeException('Synthetic pre-upgrade banks missing.');
 
     $pdo->exec("USE {$scratch}");
+    $beforeSchema = coreAccountingInspectSchema($pdo);
+    if (!in_array('accounting_bank_accounts.entity_scope_id', $beforeSchema['missing'], true)
+        || !in_array('accounting_bank_accounts UNIQUE (tenant_id, entity_scope_id, gl_account_code)',
+            $beforeSchema['missing'], true)
+        || $beforeSchema['incompatible'] === []) {
+        throw new RuntimeException('Legacy bank mapping schema was not rejected before migration.');
+    }
     foreach (['042_journal_void_audit.sql', '043_bank_account_entity_cash_code.sql'] as $file) {
         $sql = file_get_contents($root . '/modules/accounting/migrations/' . $file);
         if ($sql === false || substr_count(strtoupper($sql), 'ALTER TABLE') !== 1) {
@@ -56,6 +64,18 @@ try {
         }
         $pdo->exec($sql);
     }
+    $afterSchema = coreAccountingInspectSchema($pdo);
+    if (array_filter($afterSchema['missing'],
+            static fn(string $item): bool => str_starts_with($item, 'accounting_bank_accounts'))
+        || $afterSchema['incompatible']) {
+        throw new RuntimeException('Upgraded bank schema failed its readiness contract.');
+    }
+    $pdo->exec('ALTER TABLE accounting_bank_accounts
+        ADD UNIQUE KEY uq_aba_tenant_gl (tenant_id, gl_account_code)');
+    if (coreAccountingInspectSchema($pdo)['incompatible'] === []) {
+        throw new RuntimeException('A retained legacy bank index was incorrectly accepted.');
+    }
+    $pdo->exec('ALTER TABLE accounting_bank_accounts DROP INDEX uq_aba_tenant_gl');
     $pdo->exec('USE coreaccounting_ci');
 
     $journal = $pdo->query("SELECT id, je_number, status, total_debit, total_credit, memo,
@@ -113,7 +133,7 @@ try {
             if ((int) ($e->errorInfo[1] ?? 0) !== 1062) throw $e;
         }
     }
-    echo "PASS populated bank mappings survive and cash codes are unique per entity, including unowned banks\n";
+    echo "PASS populated bank mappings survive, use per-entity cash codes, and reject a retained legacy index\n";
 } finally {
     $pdo->exec('USE coreaccounting_ci');
     if ($created) $pdo->exec("DROP DATABASE {$scratch}");

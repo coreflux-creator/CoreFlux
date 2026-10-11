@@ -57,9 +57,10 @@ $year = accountingFirstFiscalYear((string) getenv('COREFLUX_INITIAL_FISCAL_YEAR'
 $missing = installerCheckBaseSchema($pdo);
 if ($missing) throw new RuntimeException('Base schema is incomplete: ' . implode(', ', $missing));
 $accountingSchema = coreAccountingInspectSchema($pdo);
-if ($accountingSchema['missing']) {
+$schemaIssues = array_merge($accountingSchema['missing'], $accountingSchema['incompatible']);
+if ($schemaIssues) {
     throw new RuntimeException('Accounting schema is incomplete: '
-        . implode(', ', array_slice($accountingSchema['missing'], 0, 5)));
+        . implode(', ', array_slice($schemaIssues, 0, 5)));
 }
 $migrationRows = $pdo->query('SELECT filename, sha256, last_error FROM _migrations')
     ->fetchAll(PDO::FETCH_ASSOC);
