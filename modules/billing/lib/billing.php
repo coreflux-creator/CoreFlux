@@ -1121,7 +1121,7 @@ function billingLinkBankReceiptJournal(int $tenantId, int $paymentId, int $journ
         throw new \RuntimeException('Link the bank receipt in the same transaction as its match.');
     }
     $paymentStmt = $pdo->prepare(
-        'SELECT journal_entry_id, external_id, source_system, voided_at
+        'SELECT journal_entry_id, bank_account_id, posted_at, external_id, source_system, voided_at
            FROM billing_payments WHERE tenant_id = :t AND id = :id FOR UPDATE'
     );
     $paymentStmt->execute(['t' => $tenantId, 'id' => $paymentId]);
@@ -1133,7 +1133,7 @@ function billingLinkBankReceiptJournal(int $tenantId, int $paymentId, int $journ
         throw new \RuntimeException('This payment is not an active bank-line receipt.');
     }
     $bankStmt = $pdo->prepare(
-        'SELECT match_status, matched_je_id FROM accounting_bank_statement_lines
+        'SELECT match_status, matched_je_id, bank_account_id FROM accounting_bank_statement_lines
           WHERE tenant_id = :t AND id = :id FOR UPDATE'
     );
     $bankStmt->execute(['t' => $tenantId, 'id' => (int) $bankMatch[1]]);
@@ -1143,22 +1143,38 @@ function billingLinkBankReceiptJournal(int $tenantId, int $paymentId, int $journ
         throw new \RuntimeException('The payment does not match this bank journal.');
     }
     $journalStmt = $pdo->prepare(
-        'SELECT status FROM accounting_journal_entries
+        'SELECT status, source_ref_type, source_ref_id, posted_at, created_at
+           FROM accounting_journal_entries
           WHERE tenant_id = :t AND id = :id AND source_module = "billing"'
     );
     $journalStmt->execute(['t' => $tenantId, 'id' => $journalId]);
-    if ($journalStmt->fetchColumn() !== 'posted') {
-        throw new \RuntimeException('The bank receipt journal is not posted.');
+    $journal = $journalStmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$journal || $journal['status'] !== 'posted'
+        || $journal['source_ref_type'] !== 'bank_statement_line'
+        || (int) $journal['source_ref_id'] !== (int) $bankMatch[1]) {
+        throw new \RuntimeException('The bank receipt journal is not posted for this bank line.');
     }
-    if ($payment['journal_entry_id'] !== null) {
-        if ((int) $payment['journal_entry_id'] !== $journalId) {
-            throw new \RuntimeException('This payment is linked to a different journal.');
-        }
+    if (($payment['journal_entry_id'] !== null && (int) $payment['journal_entry_id'] !== $journalId)
+        || ($payment['bank_account_id'] !== null
+            && (int) $payment['bank_account_id'] !== (int) $bankLine['bank_account_id'])) {
+        throw new \RuntimeException('This payment is linked to a different bank receipt.');
+    }
+    if ($payment['journal_entry_id'] !== null && $payment['bank_account_id'] !== null
+        && $payment['posted_at'] !== null) {
         return;
     }
     $pdo->prepare(
-        'UPDATE billing_payments SET journal_entry_id = :je WHERE tenant_id = :t AND id = :id'
-    )->execute(['je' => $journalId, 't' => $tenantId, 'id' => $paymentId]);
+        'UPDATE billing_payments
+            SET journal_entry_id = :je, bank_account_id = :bank_account_id,
+                posted_at = COALESCE(posted_at, :posted_at)
+          WHERE tenant_id = :t AND id = :id AND voided_at IS NULL'
+    )->execute([
+        'je' => $journalId,
+        'bank_account_id' => (int) $bankLine['bank_account_id'],
+        'posted_at' => $journal['posted_at'] ?: $journal['created_at'],
+        't' => $tenantId,
+        'id' => $paymentId,
+    ]);
 }
 
 function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserId = null): array

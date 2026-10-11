@@ -110,6 +110,15 @@ try {
         && abs((float) ($matched['invoice_total'] ?? 0) - 70) < 0.005
         && abs((float) ($matched['account_total'] ?? 0) - 5) < 0.005,
         'one bank deposit becomes two client payments and one balanced journal');
+    foreach ($paymentIds as $paymentId) {
+        $payment = qaOne($pdo, 'SELECT bank_account_id, journal_entry_id, posted_at
+            FROM billing_payments WHERE tenant_id = :t AND id = :id',
+            ['t' => QA_TENANT, 'id' => $paymentId]);
+        qaExpect($payment && (int) $payment['bank_account_id'] === $bankId
+            && (int) $payment['journal_entry_id'] === $jeId
+            && $payment['posted_at'] !== null,
+            'matched client payment records its bank account and posted journal time');
+    }
     $balancesMatched = qaBalances($pdo, $entityId);
     qaExpect(qaDelta($before, $balancesMatched, QA_BANK_CODE, 75)
         && qaDelta($before, $balancesMatched, '1100', 40)
