@@ -106,6 +106,40 @@ $request = static function (string $path, string $method, ?array $body = null) u
     if ($raw === false) throw new RuntimeException("{$method} {$path}: {$error}");
     return ['status' => $status, 'body' => json_decode((string) $raw, true), 'raw' => (string) $raw];
 };
+$reportSnapshot = static function () use ($request, $entityId): array {
+    $scope = '&entity_id=' . $entityId;
+    $queries = [
+        'income' => '/modules/accounting/api/reports.php?type=income_statement'
+            . $scope . '&from=2026-01-01&to=2026-12-31',
+        'balance' => '/modules/accounting/api/reports.php?type=balance_sheet'
+            . $scope . '&as_of=2026-12-31',
+        'trial' => '/modules/accounting/api/reports.php?type=trial_balance'
+            . $scope . '&as_of=2026-12-31',
+        'cash' => '/modules/accounting/api/reports.php?type=cash_flow_indirect'
+            . $scope . '&from=2026-01-01&to=2026-12-31',
+        'controls' => '/modules/accounting/api/source_control_tie_out.php?entity_id='
+            . $entityId . '&as_of=2026-12-31',
+    ];
+    $snapshot = [];
+    foreach ($queries as $name => $path) {
+        $response = $request($path, 'GET');
+        if ($response['status'] !== 200 || !is_array($response['body'])
+            || isset($response['body']['data_warning'])) {
+            throw new RuntimeException("{$name} report unavailable: HTTP {$response['status']}: "
+                . substr($response['raw'], 0, 500));
+        }
+        $snapshot[$name] = $response['body'];
+    }
+    return $snapshot;
+};
+$deltaCents = static fn(array $before, array $after, string $field): int =>
+    (int) round(100 * ((float) ($after[$field] ?? 0) - (float) ($before[$field] ?? 0)));
+$trialBalance = static function (array $snapshot, string $code): float {
+    foreach ($snapshot['trial']['rows'] as $row) {
+        if ((string) ($row['code'] ?? '') === $code) return (float) $row['balance_signed'];
+    }
+    throw new RuntimeException("Trial balance account {$code} is missing.");
+};
 
 try {
     $curl = curl_init($base . '/login.php');
@@ -137,6 +171,7 @@ try {
         'HTTP login preserved a session cookie (redirect ' . $location
         . '; set-cookie header ' . (stripos($loginHeaders, 'set-cookie:') !== false ? 'present' : 'absent')
         . '; cookie jar bytes ' . strlen($cookieJar) . ')');
+    $beforeReports = $reportSnapshot();
 
     $posted = $request('/modules/billing/api/invoices.php?action=post&id=' . $invoiceId, 'POST', []);
     $journalId = (int) ($posted['body']['journal_entry_id'] ?? 0);
@@ -145,6 +180,32 @@ try {
             . ': ' . substr($posted['raw'], 0, 500));
     }
     $assert(true, 'approved synthetic invoice posted through the authenticated Billing API');
+    $afterReports = $reportSnapshot();
+    $assert($deltaCents($beforeReports['income'], $afterReports['income'], 'total_revenue') === 13
+        && $deltaCents($beforeReports['income'], $afterReports['income'], 'net_income') === 13
+        && $deltaCents($beforeReports['income'], $afterReports['income'], 'total_expense') === 0,
+        'new invoice appears once in the scoped income statement');
+    $assert($deltaCents($beforeReports['balance'], $afterReports['balance'], 'total_assets') === 13
+        && $deltaCents($beforeReports['balance'], $afterReports['balance'], 'total_equity') === 13
+        && $deltaCents($beforeReports['balance'], $afterReports['balance'], 'total_liabilities') === 0
+        && !empty($afterReports['balance']['balanced']),
+        'new receivable and income keep the scoped balance sheet balanced');
+    $assert((int) round(100 * ($trialBalance($afterReports, '1100')
+            - $trialBalance($beforeReports, '1100'))) === 13
+        && (int) round(100 * ($trialBalance($afterReports, '4000')
+            - $trialBalance($beforeReports, '4000'))) === 13,
+        'trial balance carries the receivable debit and revenue credit');
+    $assert($deltaCents($beforeReports['cash'], $afterReports['cash'], 'net_change_in_cash') === 0
+        && $deltaCents($beforeReports['cash'], $afterReports['cash'], 'cash_change_from_gl') === 0
+        && !empty($afterReports['cash']['balanced']),
+        'uncollected invoice does not create cash');
+    $arBefore = $beforeReports['controls']['controls']['ar'] ?? [];
+    $arAfter = $afterReports['controls']['controls']['ar'] ?? [];
+    $assert($deltaCents($arBefore, $arAfter, 'source_due') === 13
+        && $deltaCents($arBefore, $arAfter, 'gl_balance') === 13
+        && $deltaCents($arBefore, $arAfter, 'difference') === 0
+        && !empty($arAfter['matched']),
+        'open invoice and posted AR control both rise by thirteen cents');
 
     $detail = $request('/modules/billing/api/invoices.php?id=' . $invoiceId, 'GET');
     $sender = $detail['body']['delivery_sender'] ?? [];
