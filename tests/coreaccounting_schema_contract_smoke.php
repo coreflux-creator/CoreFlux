@@ -74,7 +74,7 @@ $reorderedLegacyBankKey['accounting_bank_accounts'][] = ['gl_account_code', 'ten
 $check('reordered tenant-wide bank uniqueness is incompatible',
     coreAccountingIncompatibleUniqueKeys($reorderedLegacyBankKey) !== []);
 $prefixLegacyBankKey = $requiredKeys;
-$prefixLegacyBankKey['accounting_bank_accounts'][] = ['tenant_id', 'gl_account_code(10)'];
+$prefixLegacyBankKey['accounting_bank_accounts'][] = ['tenant_id', 'gl_account_code(12)'];
 $check('prefix tenant-wide bank uniqueness is incompatible',
     coreAccountingIncompatibleUniqueKeys($prefixLegacyBankKey) !== []);
 $check('entity-owned bank uniqueness alone is compatible',

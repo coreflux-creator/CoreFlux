@@ -83,7 +83,7 @@ try {
     }
     $pdo->exec('ALTER TABLE accounting_bank_accounts DROP INDEX uq_aba_legacy_reordered');
     $pdo->exec('ALTER TABLE accounting_bank_accounts
-        ADD UNIQUE KEY uq_aba_legacy_prefix (tenant_id, gl_account_code(10))');
+        ADD UNIQUE KEY uq_aba_legacy_prefix (tenant_id, gl_account_code(12))');
     if (coreAccountingInspectSchema($pdo)['incompatible'] === []) {
         throw new RuntimeException('A prefix legacy bank index was incorrectly accepted.');
     }
