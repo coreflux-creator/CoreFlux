@@ -93,6 +93,47 @@ try {
     $pdo->exec($migration);
     $ruleStmt->execute(['tenant' => $tenantId, 'id' => $customRuleId]);
     $assert($ruleStmt->fetchColumn() === $oldName, 'repeat migration leaves customized rule intact');
+
+    // An older tenant's default may still use the deprecated event alias.
+    $pdo->prepare('UPDATE accounting_posting_rules SET name = :name, event_type = "billing.invoice.sent"
+        WHERE tenant_id = :tenant AND id = :id')
+        ->execute(['name' => $oldName, 'tenant' => $tenantId, 'id' => $default['rule_id']]);
+    $pdo->prepare('UPDATE accounting_journal_templates SET name = :name
+        WHERE tenant_id = :tenant AND id = :id')
+        ->execute(['name' => $oldName, 'tenant' => $tenantId, 'id' => $default['template_id']]);
+    $pdo->prepare('UPDATE accounting_posting_rules SET name = "CI custom renamed"
+        WHERE tenant_id = :tenant AND id = :id')
+        ->execute(['tenant' => $tenantId, 'id' => $customRuleId]);
+
+    $pdo->prepare('INSERT INTO accounting_posting_rules
+        (tenant_id, name, event_type, journal_template_id, priority, status, description)
+        VALUES (:tenant, :name, "billing.invoice.sent", :template, 50, "active", "Tenant customized rule")')
+        ->execute(['tenant' => $tenantId, 'name' => $oldName, 'template' => $customTemplateId]);
+    $customAliasId = (int) $pdo->lastInsertId();
+    $legacyMigration = file_get_contents(__DIR__ . '/../modules/accounting/migrations/041_legacy_invoice_issued_rule_label.sql');
+    if ($legacyMigration === false) throw new RuntimeException('Legacy migration missing.');
+    $pdo->exec($legacyMigration);
+
+    $ruleStmt->execute(['tenant' => $tenantId, 'id' => $default['rule_id']]);
+    $assert($ruleStmt->fetchColumn() === $newName, 'untouched legacy-alias rule renamed to issued');
+    $templateStmt->execute(['tenant' => $tenantId, 'id' => $default['template_id']]);
+    $assert($templateStmt->fetchColumn() === $newName, 'untouched legacy-alias template renamed to issued');
+    $ruleStmt->execute(['tenant' => $tenantId, 'id' => $customAliasId]);
+    $assert($ruleStmt->fetchColumn() === $oldName, 'customized legacy-alias rule preserved');
+    $eventStmt = $pdo->prepare('SELECT event_type FROM accounting_posting_rules WHERE tenant_id = :tenant AND id = :id');
+    $eventStmt->execute(['tenant' => $tenantId, 'id' => $default['rule_id']]);
+    $assert($eventStmt->fetchColumn() === 'billing.invoice.sent', 'legacy routing is unchanged');
+
+    $countAll = $pdo->prepare('SELECT COUNT(*) FROM accounting_posting_rules
+        WHERE tenant_id = :tenant AND event_type IN ("ar.invoice.issued", "billing.invoice.sent")');
+    $countAll->execute(['tenant' => $tenantId]);
+    $before = (int) $countAll->fetchColumn();
+    postingRulesSeedDefaults($tenantId);
+    $countAll->execute(['tenant' => $tenantId]);
+    $assert((int) $countAll->fetchColumn() === $before, 'legacy-alias default prevents duplicate canonical rule');
+    $pdo->exec($legacyMigration);
+    $ruleStmt->execute(['tenant' => $tenantId, 'id' => $customAliasId]);
+    $assert($ruleStmt->fetchColumn() === $oldName, 'repeat legacy migration leaves customization intact');
 } finally {
     $pdo->rollBack();
 }

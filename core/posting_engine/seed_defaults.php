@@ -353,6 +353,15 @@ function postingRulesSeedDefaults(int $tenantId): array {
             ]);
             $ruleId = $findRule->fetchColumn();
         }
+        if (!$ruleId && $legacyInvoiceName !== null) {
+            foreach ([$entry['rule_name'], $legacyInvoiceName] as $aliasName) {
+                $findRule->execute([
+                    't' => $tenantId, 'et' => 'billing.invoice.sent', 'n' => $aliasName,
+                ]);
+                $ruleId = $findRule->fetchColumn();
+                if ($ruleId) break;
+            }
+        }
         if (!$ruleId) {
             $insRule->execute([
                 't' => $tenantId,
