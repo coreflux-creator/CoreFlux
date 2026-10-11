@@ -129,6 +129,11 @@ $assert('detail separates request and posting', strpos($id, 'billing-invoice-req
     && strpos($id, 'billing-invoice-post') !== false
     && strpos($id, 'Approve & post') === false);
 $assert('detail exposes pending assignment', strpos($id, 'billing-invoice-reassign-modal') !== false);
+$assert('draft header does not claim invoice issuance',
+    strpos($id, '· invoice date {inv.issue_date}') !== false
+    && strpos($id, 'Legal entity: {inv.entity_name') !== false
+    && strpos($id, '· issued {inv.issue_date}') === false
+    && strpos($id, 'Issued by {inv.entity_name') === false);
 $assert('detail has send button testid',       strpos($id, 'billing-invoice-send-open') !== false);
 $assert('paid but unsent invoice keeps a first-send label',
     strpos($id, 'const hasBeenSent = Boolean(inv.sent_at)') !== false

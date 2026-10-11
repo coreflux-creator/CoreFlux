@@ -206,9 +206,9 @@ export default function InvoiceDetail() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginTop: 8, marginBottom: 'var(--cf-space-4)' }}>
         <div>
           <h2 style={{ margin: 0 }} data-testid="billing-invoice-detail-number">{inv.invoice_number}</h2>
-          <p style={{ margin: '4px 0', color: 'var(--cf-text-secondary)', fontSize: 14 }}>{inv.client_name} · issued {inv.issue_date} · due {inv.due_date}</p>
+          <p style={{ margin: '4px 0', color: 'var(--cf-text-secondary)', fontSize: 14 }}>{inv.client_name} · invoice date {inv.issue_date} · due {inv.due_date}</p>
           <p style={{ margin: '4px 0', color: 'var(--cf-text-secondary)', fontSize: 13 }} data-testid="billing-invoice-detail-entity">
-            Issued by {inv.entity_name ? `${inv.entity_name} (${inv.entity_code})` : 'an unassigned legal entity'}
+            Legal entity: {inv.entity_name ? `${inv.entity_name} (${inv.entity_code})` : 'unassigned'}
           </p>
           <span className={`badge badge--${inv.status}`}>{statusLabel(inv.status)}</span>
           {inv.opening_cutover_id && <p style={{ margin: '8px 0 0', color: 'var(--cf-text-secondary)', fontSize: 13 }}>
