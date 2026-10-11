@@ -129,6 +129,7 @@ try {
     $headerBytes = (int) curl_getinfo($curl, CURLINFO_HEADER_SIZE);
     $loginHeaders = substr((string) $login, 0, $headerBytes);
     curl_close($curl);
+    unset($curl);
     $assert($login !== false && $loginStatus === 302 && !str_contains($location, 'error='),
         'disposable administrator signed in over HTTP');
     $cookieJar = (string) file_get_contents($cookie);
