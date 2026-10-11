@@ -103,7 +103,7 @@ export default function JournalEntryDetail() {
       <header className="entry-detail__header">
         <div>
           <div className="entry-detail__eyebrow">Journal entry</div>
-          <h2>JE #{entry.je_number} <StatusPill status={entry.status} /></h2>
+          <h2>{entry.je_number} <StatusPill status={entry.status} /></h2>
         </div>
         <div className="entry-detail__actions" aria-label="Journal entry actions">
           {canManageDraft && (

@@ -207,6 +207,32 @@ try {
         && !empty($arAfter['matched']),
         'open invoice and posted AR control both rise by thirteen cents');
 
+    $pdo->prepare('INSERT INTO accounting_entities (tenant_id, code, legal_name)
+        VALUES (:tenant, :code, "CI Alternate Delivery Entity")')
+        ->execute(['tenant' => $tenantId, 'code' => 'CI-ALT-' . bin2hex(random_bytes(3))]);
+    $pdo->prepare('UPDATE billing_entity_mail_settings SET reply_to = NULL
+        WHERE tenant_id = :tenant AND entity_id = :entity')
+        ->execute(['tenant' => $tenantId, 'entity' => $entityId]);
+    $missingReplyTo = $request('/modules/billing/api/invoices.php?id=' . $invoiceId, 'GET');
+    $missingSender = $missingReplyTo['body']['delivery_sender'] ?? [];
+    $assert($missingReplyTo['status'] === 200 && empty($missingSender['ready'])
+        && ($missingSender['setup_target'] ?? null) !== 'provider'
+        && ($missingSender['reason'] ?? null) === 'Set a reply-to address for this legal entity in Client contacts.',
+        'invoice detail prioritizes missing entity reply-to over the log-only provider blocker');
+    $missingReplyToAttempt = $request('/modules/billing/api/invoices.php?action=send&id=' . $invoiceId,
+        'POST', [
+            'to' => 'recipient@coreaccounting.invalid',
+            'resend' => false,
+            'request_id' => '88eb9c8b-eb97-4696-b398-b79046174000',
+        ]);
+    $assert($missingReplyToAttempt['status'] === 422
+        && str_contains($missingReplyToAttempt['raw'], 'reply-to'),
+        'invoice send refuses missing entity reply-to before checking the transport');
+    $pdo->prepare('UPDATE billing_entity_mail_settings SET reply_to = :reply_to
+        WHERE tenant_id = :tenant AND entity_id = :entity')
+        ->execute(['reply_to' => 'reply@coreaccounting.invalid',
+            'tenant' => $tenantId, 'entity' => $entityId]);
+
     $detail = $request('/modules/billing/api/invoices.php?id=' . $invoiceId, 'GET');
     $sender = $detail['body']['delivery_sender'] ?? [];
     $assert($detail['status'] === 200 && empty($sender['ready'])

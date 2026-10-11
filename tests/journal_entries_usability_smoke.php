@@ -98,6 +98,8 @@ $checks = [
         str_contains($detail, "const canCorrect = isManual && (isPosted || isReversed)")
         && str_contains($ui, "r.source_module === 'manual' && ['posted', 'reversed'].includes(r.status)")
         && str_contains($ui, "entry?.source_module === 'manual'"),
+    'journal detail does not duplicate the saved JE number prefix' =>
+        str_contains($detail, '<h2>{entry.je_number} <StatusPill status={entry.status} /></h2>'),
     'source-owned journals link back to invoices and bank receipts' =>
         str_contains($api, "'type' => 'billing_invoice'")
         && str_contains($api, "'type' => 'bank_statement_line'")

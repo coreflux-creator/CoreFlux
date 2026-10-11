@@ -121,7 +121,7 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     $delivery = $deliveryStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     $deliveryEntityId = billingInvoiceDeliveryEntityId($tid, $inv);
     $deliverySender = $deliveryEntityId ? billingEntityMailSender($tid, $deliveryEntityId) : null;
-    if ($deliverySender && getenv('COREFLUX_ENV') === 'coreaccounting') {
+    if ($deliverySender && !empty($deliverySender['ready']) && getenv('COREFLUX_ENV') === 'coreaccounting') {
         try {
             $transport = billingDeliveryTransportReadiness(
                 cf_mail_bootstrap()->default_driver_name(), null, (string) ($deliverySender['from'] ?? '')
