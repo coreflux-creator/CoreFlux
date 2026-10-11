@@ -13,8 +13,11 @@ $checks = [
         && str_contains($api, 'source_category')
         && str_contains($api, 'source_status')
         && str_contains($api, 'source_timesheet_artifact_id'),
-    'standalone shows read-only source disclosure' => str_contains($ui, "session?.product_mode === 'coreaccounting'")
-        && str_contains($ui, '<details data-testid={`ap-bill-line-time-entry-${l.id}`}')
+    'standalone opens a read-only source dialog' => str_contains($ui, "session?.product_mode === 'coreaccounting'")
+        && str_contains($ui, 'onClick={() => setSourceLine(l)}')
+        && str_contains($ui, 'role="dialog"')
+        && str_contains($ui, 'aria-modal="true"')
+        && str_contains($ui, 'data-testid="ap-bill-time-source-dialog"')
         && str_contains($ui, 'Work date')
         && str_contains($ui, 'Hours')
         && str_contains($ui, 'Timesheet status'),

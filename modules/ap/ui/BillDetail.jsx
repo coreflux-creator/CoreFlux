@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
@@ -30,6 +30,7 @@ export default function BillDetail({ session }) {
   const [codingByLine, setCodingByLine] = useState({});
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const [correctionReason, setCorrectionReason] = useState('');
+  const [sourceLine, setSourceLine] = useState(null);
 
   if (loading) return <p>Loading…</p>;
   if (error)   return <p className="error" data-testid="ap-bill-detail-error">Error: {error.message}</p>;
@@ -304,19 +305,14 @@ export default function BillDetail({ session }) {
                 {l.description}
                 {(l.source_type === 'time_entry' || l.source_type === 'time') && l.source_ref_id && l.source_work_date && (
                   standaloneAccounting ? (
-                    <details data-testid={`ap-bill-line-time-entry-${l.id}`} style={{ fontSize: 12, marginTop: 4 }}>
-                      <summary style={{ color: 'var(--cf-primary)', cursor: 'pointer' }}>↳ time entry #{l.source_ref_id}</summary>
-                      <dl style={{ display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: '2px 10px', margin: '6px 0 0 16px', color: 'var(--cf-text-secondary)' }}>
-                        <dt>Work date</dt><dd style={{ margin: 0 }}>{l.source_work_date}</dd>
-                        <dt>Hours</dt><dd style={{ margin: 0 }}>{Number(l.source_hours).toFixed(2)}</dd>
-                        <dt>Category</dt><dd style={{ margin: 0 }}>{statusLabel(l.source_category)}</dd>
-                        <dt>Entry status</dt><dd style={{ margin: 0 }}>{statusLabel(l.source_status)}</dd>
-                        {l.source_entry_description && <><dt>Entry note</dt><dd style={{ margin: 0 }}>{l.source_entry_description}</dd></>}
-                        {l.source_timesheet_id && <><dt>Timesheet</dt><dd style={{ margin: 0 }}>#{l.source_timesheet_id}{l.source_timesheet_artifact_id ? ` · ${l.source_timesheet_artifact_id}` : ''}</dd></>}
-                        {l.source_period_start && <><dt>Week</dt><dd style={{ margin: 0 }}>{l.source_period_start} to {l.source_period_end}</dd></>}
-                        {l.source_timesheet_status && <><dt>Timesheet status</dt><dd style={{ margin: 0 }}>{statusLabel(l.source_timesheet_status)}</dd></>}
-                      </dl>
-                    </details>
+                    <button
+                      type="button"
+                      onClick={() => setSourceLine(l)}
+                      data-testid={`ap-bill-line-time-entry-${l.id}`}
+                      style={{ display: 'block', marginTop: 4, padding: 0, border: 0, background: 'none', color: 'var(--cf-primary)', fontSize: 12, textDecoration: 'underline', cursor: 'pointer' }}
+                    >
+                      ↳ time entry #{l.source_ref_id}
+                    </button>
                   ) : l.source_timesheet_id ? (
                     <Link
                       to={`/modules/staffing/timesheets/${l.source_timesheet_id}/lifecycle?entry_id=${l.source_ref_id}`}
@@ -355,6 +351,7 @@ export default function BillDetail({ session }) {
           ))}
         </tbody>
       </table>
+      {sourceLine && <TimeEntrySourceDialog line={sourceLine} onClose={() => setSourceLine(null)} />}
 
       <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>Payments</h3>
       {allocations.length === 0 ? (
@@ -490,6 +487,62 @@ function LiquidityImpactPanel({ billId, amountDue }) {
   );
 }
 
+
+function TimeEntrySourceDialog({ line, onClose }) {
+  const closeRef = useRef(null);
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    closeRef.current?.focus();
+    return () => previousFocus?.focus?.();
+  }, []);
+
+  const fields = [
+    ['Work date', line.source_work_date],
+    ['Hours', Number(line.source_hours).toFixed(2)],
+    ['Category', statusLabel(line.source_category)],
+    ['Entry status', statusLabel(line.source_status)],
+    ['Entry note', line.source_entry_description],
+    ['Timesheet', line.source_timesheet_id ? `#${line.source_timesheet_id}` : null],
+    ['Timesheet artifact', line.source_timesheet_artifact_id],
+    ['Week', line.source_period_start ? `${line.source_period_start} to ${line.source_period_end}` : null],
+    ['Timesheet status', line.source_timesheet_status ? statusLabel(line.source_timesheet_status) : null],
+  ].filter(([, value]) => value != null && value !== '');
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(10, 37, 64, 0.42)' }}
+      onClick={onClose}
+      onKeyDown={event => {
+        if (event.key === 'Escape') onClose();
+        if (event.key === 'Tab') { event.preventDefault(); closeRef.current?.focus(); }
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ap-time-source-title"
+        data-testid="ap-bill-time-source-dialog"
+        onClick={event => event.stopPropagation()}
+        style={{ width: 'min(560px, 100%)', maxHeight: 'calc(100vh - 32px)', overflow: 'auto', padding: 20, borderRadius: 6, background: 'white', boxShadow: '0 12px 32px rgba(10, 37, 64, 0.18)' }}
+      >
+        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
+          <h3 id="ap-time-source-title" style={{ margin: 0, fontSize: 18 }}>Time entry #{line.source_ref_id}</h3>
+          <button ref={closeRef} type="button" className="btn btn--ghost" aria-label="Close time entry details" title="Close" onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </header>
+        <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px 20px', margin: 0 }}>
+          {fields.map(([label, value]) => (
+            <div key={label} style={{ minWidth: 0 }}>
+              <dt style={{ fontSize: 11, color: 'var(--cf-text-secondary)', marginBottom: 3 }}>{label}</dt>
+              <dd style={{ margin: 0, fontSize: 13, overflowWrap: 'anywhere' }}>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+    </div>
+  );
+}
 
 function LineReceiptCell({ line }) {
   const [state, setState] = useState({ status: 'idle', filename: null, draft: null, error: null });
