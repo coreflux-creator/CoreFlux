@@ -16,6 +16,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/active_entity.php';
+require_once __DIR__ . '/../../../core/accounting/account_mutation.php';
 
 $ctx = api_require_auth();
 
@@ -75,7 +76,7 @@ switch (api_method()) {
         // outstanding even before any JE has posted.
         $rows = scopedQuery(
             "SELECT
-                aa.id, aa.code, aa.name, aa.account_type, aa.active,
+                aa.id, aa.code, aa.name, aa.account_type, aa.normal_side, aa.active,
                 tla.entity_id, ae.code AS entity_code, ae.legal_name AS entity_name,
                 tla.subtype, tla.last4, tla.institution_name, tla.credit_limit_cents,
                 tla.apr_bps, tla.statement_day, tla.autopay_from_bank_account_id,
@@ -143,12 +144,12 @@ switch (api_method()) {
         $pdo = getDB();
         $pdo->beginTransaction();
         try {
-            $accountId = scopedInsert('accounting_accounts', [
-                'code'         => trim((string) $body['code']),
-                'name'         => trim((string) $body['name']),
+            $accountFields = accountingReviewAccountChange((int) $ctx['tenant_id'], null, [
+                'code' => $body['code'],
+                'name' => $body['name'],
                 'account_type' => 'liability',
-                'active'       => 1,
             ]);
+            $accountId = scopedInsert('accounting_accounts', $accountFields);
             scopedInsert('treasury_liability_accounts', [
                 'account_id'          => $accountId,
                 'entity_id'           => (int) $entity['id'],

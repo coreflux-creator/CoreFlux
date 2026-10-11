@@ -99,6 +99,7 @@ export default function ChartOfAccounts() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedEntity = searchParams.get('entity_id');
+  const detailEntityId = requestedEntity && /^[1-9][0-9]*$/.test(requestedEntity) ? requestedEntity : undefined;
   const bankSetupPath = searchParams.get('bank_setup') === '1' && /^[1-9][0-9]*$/.test(requestedEntity || '')
     ? `/modules/accounting/bank-rec?entity_id=${requestedEntity}&new=1` : null;
   const { data, loading, error, reload } = useApi('/modules/accounting/api/accounts.php');
@@ -447,14 +448,14 @@ export default function ChartOfAccounts() {
             <tr key={r.id} data-testid={`accounting-accounts-row-${r.code}`}>
               <td><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} aria-label={`Select ${r.code} ${r.name}`} data-testid={`accounting-account-select-${r.id}`} /></td>
               <td>
-                <AccountLink accountId={r.id} accountCode={r.code} className="account-code">
+                <AccountLink accountId={r.id} accountCode={r.code} entityId={detailEntityId} className="account-code">
                   {r.code}
                 </AccountLink>
               </td>
               <td>
                 <span style={{ display: 'inline-block', width: depth * 20 }} aria-hidden />
                 {depth > 0 && <span style={{ color: '#9eaaa7', marginRight: 6 }}>└</span>}
-                <AccountLink accountId={r.id} accountCode={r.code} data-testid={`accounting-account-open-${r.code}`}>
+                <AccountLink accountId={r.id} accountCode={r.code} entityId={detailEntityId} data-testid={`accounting-account-open-${r.code}`}>
                   <span style={{ fontWeight: r.is_postable ? 400 : 600 }}>{r.name}</span>
                 </AccountLink>
                 {!r.is_postable && (

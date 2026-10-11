@@ -154,7 +154,10 @@ function LiabilityRow({ row: r, navigate, onChanged, scope }) {
       onClick={() => navigate(detailPath)}
     >
       <td><AccountLink accountId={r.id} accountCode={r.code} entityId={r.entity_id} onClick={(e) => e.stopPropagation()}><code>{r.code}</code></AccountLink></td>
-      <td><AccountLink accountId={r.id} accountCode={r.code} entityId={r.entity_id} onClick={(e) => e.stopPropagation()}>{r.name}</AccountLink></td>
+      <td>
+        <AccountLink accountId={r.id} accountCode={r.code} entityId={r.entity_id} onClick={(e) => e.stopPropagation()}>{r.name}</AccountLink>
+        {r.normal_side !== 'credit' && <div data-testid={`treasury-liability-normal-side-${r.id}`} style={{ color: '#b91c1c', fontSize: 11 }}>Review normal balance</div>}
+      </td>
       <td>{r.entity_code || r.entity_name || <span style={{ color: '#b91c1c' }}>Assign entity</span>}</td>
       <td>{SUBTYPE_LABELS[r.subtype] || r.subtype || '—'}</td>
       <td>{r.institution_name || '—'}</td>

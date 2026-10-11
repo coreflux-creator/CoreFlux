@@ -3,6 +3,9 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ExternalLink, Pencil, RefreshCw } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
+import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import { preferredAccountEntityId } from './accountEntityScope.mjs';
 
 const localDate = (date) => [
   date.getFullYear(),
@@ -37,6 +40,8 @@ const emptyTerms = (accountId, entityId) => ({
 export default function AccountDetail() {
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+  const requestedEntityId = searchParams.get('entity_id');
+  const { activeEntityId, loaded: activeEntityLoaded } = useActiveEntity();
   const code = searchParams.get('code') || '';
   const accountApi = useApi(id
     ? `/modules/accounting/api/accounts.php?id=${id}`
@@ -45,22 +50,34 @@ export default function AccountDetail() {
   const workspace = useApi(account?.id
     ? `/modules/accounting/api/account_terms.php?account_id=${account.id}`
     : null);
-  const [entityId, setEntityId] = useState(searchParams.get('entity_id') || '');
+  const [entityId, setEntityId] = useState(requestedEntityId || '');
   const [form, setForm] = useState(emptyTerms(null, null));
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [accountEditOpen, setAccountEditOpen] = useState(false);
   const [accountEdit, setAccountEdit] = useState({ name: '', description: '', active: '1', cash_flow_tag: '' });
   const [accountEditBusy, setAccountEditBusy] = useState(false);
+  const [correctingSide, setCorrectingSide] = useState(false);
 
   const entities = useMemo(() => workspace.data?.entities || [], [workspace.data?.entities]);
   const terms = useMemo(() => workspace.data?.terms || [], [workspace.data?.terms]);
+  const connections = useMemo(() => workspace.data?.connections || {}, [workspace.data?.connections]);
   const selectedTerms = terms.find((row) => String(row.entity_id) === String(entityId)) || null;
   const selectedBalance = (workspace.data?.balances || []).find((row) => String(row.entity_id) === String(entityId));
 
   useEffect(() => {
-    if (!entityId && entities.length) setEntityId(String(entities[0].id));
-  }, [entityId, entities]);
+    if (!entities.length || !activeEntityLoaded) return;
+    if (requestedEntityId !== null) {
+      setEntityId(entities.some(entity => String(entity.id) === requestedEntityId) ? requestedEntityId : '');
+      return;
+    }
+    const preferred = preferredAccountEntityId(entities, connections, activeEntityId);
+    setEntityId(preferred);
+    if (!preferred) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('entity_id', preferred);
+    setSearchParams(next, { replace: true });
+  }, [activeEntityId, activeEntityLoaded, connections, entities, requestedEntityId, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (!account || !entityId) return;
@@ -87,6 +104,19 @@ export default function AccountDetail() {
     if (value) next.set('entity_id', value); else next.delete('entity_id');
     setSearchParams(next, { replace: true });
     setNotice(null);
+  };
+
+  const correctTreasuryLiabilitySide = async () => {
+    if (!window.confirm('Correct this Treasury liability to a credit normal balance? Accounts with journal activity cannot be reclassified.')) return;
+    setCorrectingSide(true);
+    setNotice(null);
+    try {
+      await api.patch(`/modules/accounting/api/accounts.php?id=${account.id}`, { normal_side: 'credit' });
+      setNotice({ type: 'ok', text: 'Normal balance corrected to credit.' });
+      accountApi.reload();
+    } catch (error) {
+      setNotice({ type: 'err', text: error.message });
+    } finally { setCorrectingSide(false); }
   };
 
   const setField = (field, value) => setForm((current) => ({ ...current, [field]: value }));
@@ -175,12 +205,21 @@ export default function AccountDetail() {
   const expenseAccounts = (workspace.data?.offset_accounts || []).filter((row) => row.account_type === 'expense');
   const offsetAccounts = form.interest_direction === 'earned' ? incomeAccounts : expenseAccounts;
   const due = form.interest_enabled && form.next_post_date && form.next_post_date < today();
+  const liabilityLinks = connections.liability_accounts || [];
+  const treasurySideMismatch = account.account_type === 'liability'
+    && account.normal_side !== 'credit' && liabilityLinks.length > 0;
+  const invalidEntity = requestedEntityId !== null && entities.length > 0 && !entityId;
+  const multipleLinkedEntities = new Set([
+    ...(connections.bank_accounts || []), ...liabilityLinks,
+  ].map(link => Number(link.entity_id)).filter(value => Number.isInteger(value) && value > 0)).size > 1;
+  const hasUnassignedLink = [...(connections.bank_accounts || []), ...liabilityLinks]
+    .some(link => !entities.some(entity => String(entity.id) === String(link.entity_id)));
 
   return (
     <section data-testid="accounting-account-detail">
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
         <div>
-          <Link to="/modules/accounting/accounts" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, textDecoration: 'none' }}>
+          <Link to={addEntityScope('/modules/accounting/accounts', entityId)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, textDecoration: 'none' }}>
             <ArrowLeft size={14} /> Chart of Accounts
           </Link>
           <h2 style={{ margin: '8px 0 2px' }}><code>{account.code}</code> {account.name}</h2>
@@ -200,6 +239,14 @@ export default function AccountDetail() {
 
       {notice && <p data-testid="accounting-account-detail-notice" style={noticeStyle(notice.type)}>{notice.text}</p>}
       {workspace.error && <p className="error">{workspace.error.message}</p>}
+      {treasurySideMismatch && (
+        <div className="error" role="alert" data-testid="accounting-liability-normal-side-warning">
+          This Treasury liability has a debit normal balance. Its reported balance can be misleading until reviewed.
+          <button type="button" className="btn btn--ghost" onClick={correctTreasuryLiabilitySide} disabled={correctingSide}>
+            {correctingSide ? 'Correcting...' : 'Correct to credit'}
+          </button>
+        </div>
+      )}
 
       {accountEditOpen && (
         <form onSubmit={saveAccountEdit} style={bandStyle} data-testid="accounting-account-edit-form">
@@ -241,9 +288,14 @@ export default function AccountDetail() {
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 18, flexWrap: 'wrap' }}>
           <label style={{ ...labelStyle, minWidth: 260 }}>Legal entity
             <select className="input" value={entityId} onChange={(event) => selectEntity(event.target.value)}>
+              {!entityId && <option value="" disabled>Choose legal entity</option>}
               {entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.legal_name}</option>)}
             </select>
           </label>
+          {invalidEntity && <p className="error" role="alert">That legal entity is not available in this workspace.</p>}
+          {!invalidEntity && hasUnassignedLink && <p className="error" role="alert">A linked account has no available legal-entity owner. Review its ownership before relying on this balance.</p>}
+          {!invalidEntity && !entityId && multipleLinkedEntities && <p className="muted">This account is linked to multiple legal entities. Choose one to view its balance.</p>}
+          {!invalidEntity && !entityId && !hasUnassignedLink && !multipleLinkedEntities && entities.length > 1 && <p className="muted">Choose a legal entity to view this account's balance.</p>}
           <Stat label="Current posted balance" value={selectedBalance?.balance == null ? 'Unavailable' : fmtMoney(selectedBalance.balance)} />
           <Stat label="Currency" value={selectedBalance?.currency || account.currency || 'USD'} />
           <Stat label="Posting" value={account.is_postable ? 'Postable' : 'Header only'} />
@@ -261,13 +313,13 @@ export default function AccountDetail() {
         {(workspace.data?.connections?.bank_accounts || []).map((bank) => (
           <div key={`bank-${bank.id}`} style={connectionRow}>
             <div><strong>{bank.name}</strong><div style={subtle}>Bank feed{bank.bank_name ? ` · ${bank.bank_name}` : ''}{bank.last4 ? ` · ...${bank.last4}` : ''}</div></div>
-            <Link className="btn btn--ghost" to={`/modules/accounting/bank-rec/${bank.id}`}>Open Bank Rec</Link>
+            <Link className="btn btn--ghost" to={addEntityScope(`/modules/accounting/bank-rec/${bank.id}`, bank.entity_id)}>Open Bank Rec</Link>
           </div>
         ))}
         {(workspace.data?.connections?.liability_accounts || []).map((liability) => (
           <div key={`liability-${liability.id}`} style={connectionRow}>
             <div><strong>{liability.institution_name || account.name}</strong><div style={subtle}>{liability.subtype?.replaceAll('_', ' ') || 'Liability feed'}{liability.last4 ? ` · ...${liability.last4}` : ''}</div></div>
-            <Link className="btn btn--ghost" to={`/modules/treasury/liabilities/${liability.account_id}`}>Open liability activity</Link>
+            <Link className="btn btn--ghost" to={addEntityScope(`/modules/treasury/liabilities/${liability.account_id}`, liability.entity_id)}>Open liability activity</Link>
           </div>
         ))}
         {!workspace.loading

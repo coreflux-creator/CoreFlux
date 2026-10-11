@@ -167,7 +167,10 @@ export default function TreasuryOverview({ session }) {
             <tbody>
               {liabilityRows.slice(0, 5).map((r) => (
                 <tr key={r.id}>
-                  <td><AccountLink accountId={r.id} accountCode={r.code} entityId={r.entity_id}>{r.name}</AccountLink></td>
+                  <td>
+                    <AccountLink accountId={r.id} accountCode={r.code} entityId={r.entity_id}>{r.name}</AccountLink>
+                    {r.normal_side !== 'credit' && <div style={{ color: '#b91c1c', fontSize: 11 }}>Review normal balance</div>}
+                  </td>
                   <td>{(r.subtype || 'other_liability').replace('_', ' ')}</td>
                   <td>{r.last4 || '—'}</td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
