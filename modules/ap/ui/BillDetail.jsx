@@ -37,6 +37,7 @@ export default function BillDetail({ session }) {
 
   const bill = data.bill;
   const lines = data.lines || [];
+  const standaloneAccounting = session?.product_mode === 'coreaccounting';
   const allocations = data.allocations || [];
   const expenseAccounts = directBillAccountChoices(accountsApi.data?.rows ?? []);
   const eligibleCodes = new Set(expenseAccounts.filter(account => !account.disabled).map(account => account.code));
@@ -301,18 +302,31 @@ export default function BillDetail({ session }) {
               <td>{l.line_no}</td>
               <td>
                 {l.description}
-                {(l.source_type === 'time_entry' || l.source_type === 'time') && l.source_ref_id && l.source_timesheet_id && (
-                  <>
-                    {' '}
+                {(l.source_type === 'time_entry' || l.source_type === 'time') && l.source_ref_id && l.source_work_date && (
+                  standaloneAccounting ? (
+                    <details data-testid={`ap-bill-line-time-entry-${l.id}`} style={{ fontSize: 12, marginTop: 4 }}>
+                      <summary style={{ color: 'var(--cf-primary)', cursor: 'pointer' }}>↳ time entry #{l.source_ref_id}</summary>
+                      <dl style={{ display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: '2px 10px', margin: '6px 0 0 16px', color: 'var(--cf-text-secondary)' }}>
+                        <dt>Work date</dt><dd style={{ margin: 0 }}>{l.source_work_date}</dd>
+                        <dt>Hours</dt><dd style={{ margin: 0 }}>{Number(l.source_hours).toFixed(2)}</dd>
+                        <dt>Category</dt><dd style={{ margin: 0 }}>{statusLabel(l.source_category)}</dd>
+                        <dt>Entry status</dt><dd style={{ margin: 0 }}>{statusLabel(l.source_status)}</dd>
+                        {l.source_entry_description && <><dt>Entry note</dt><dd style={{ margin: 0 }}>{l.source_entry_description}</dd></>}
+                        {l.source_timesheet_id && <><dt>Timesheet</dt><dd style={{ margin: 0 }}>#{l.source_timesheet_id}{l.source_timesheet_artifact_id ? ` · ${l.source_timesheet_artifact_id}` : ''}</dd></>}
+                        {l.source_period_start && <><dt>Week</dt><dd style={{ margin: 0 }}>{l.source_period_start} to {l.source_period_end}</dd></>}
+                        {l.source_timesheet_status && <><dt>Timesheet status</dt><dd style={{ margin: 0 }}>{statusLabel(l.source_timesheet_status)}</dd></>}
+                      </dl>
+                    </details>
+                  ) : l.source_timesheet_id ? (
                     <Link
                       to={`/modules/staffing/timesheets/${l.source_timesheet_id}/lifecycle?entry_id=${l.source_ref_id}`}
                       data-testid={`ap-bill-line-time-entry-${l.id}`}
                       style={{ fontSize: 11, marginLeft: 4, color: '#6b7280' }}
-                      title={`Trace back to time entry #${l.source_ref_id}${l.source_work_date ? ' (' + l.source_work_date + ')' : ''}`}
+                      title={`Trace back to time entry #${l.source_ref_id} (${l.source_work_date})`}
                     >
                       ↳ time entry #{l.source_ref_id}
                     </Link>
-                  </>
+                  ) : null
                 )}
               </td>
               <td style={{textAlign:'right'}}>{Number(l.quantity).toFixed(2)}</td>

@@ -259,20 +259,54 @@ if ($method === 'GET' && !empty($_GET['id'])) {
                 $params[$key] = $entryId;
             }
             $entryStmt = $pdo->prepare(
-                'SELECT id, timesheet_id, work_date
+                'SELECT id, timesheet_id, work_date, hours, category, status, description
                    FROM time_entries
                   WHERE tenant_id = :tenant_id AND id IN (' . implode(',', $ph) . ')'
             );
             $entryStmt->execute($params);
             $entriesById = [];
+            $timesheetIds = [];
             foreach ($entryStmt->fetchAll(\PDO::FETCH_ASSOC) as $entry) {
                 $entriesById[(int) $entry['id']] = $entry;
+                if (!empty($entry['timesheet_id'])) $timesheetIds[(int) $entry['timesheet_id']] = true;
+            }
+            $timesheetsById = [];
+            if ($timesheetIds) {
+                try {
+                    $tsParams = ['tenant_id' => $tid];
+                    $tsPh = [];
+                    foreach (array_keys($timesheetIds) as $i => $timesheetId) {
+                        $key = 'timesheet_id_' . $i;
+                        $tsPh[] = ':' . $key;
+                        $tsParams[$key] = $timesheetId;
+                    }
+                    $tsStmt = $pdo->prepare(
+                        'SELECT id, artifact_id, period_start, period_end, status
+                           FROM staffing_timesheets
+                          WHERE tenant_id = :tenant_id AND id IN (' . implode(',', $tsPh) . ')'
+                    );
+                    $tsStmt->execute($tsParams);
+                    foreach ($tsStmt->fetchAll(\PDO::FETCH_ASSOC) as $timesheet) {
+                        $timesheetsById[(int) $timesheet['id']] = $timesheet;
+                    }
+                } catch (\Throwable $_) { /* AP can still show the entry when staffing headers are unavailable */ }
             }
             foreach ($lines as &$l) {
                 $entry = $entriesById[(int) ($l['source_ref_id'] ?? 0)] ?? null;
                 if (!$entry) continue;
                 $l['source_timesheet_id'] = isset($entry['timesheet_id']) ? (int) $entry['timesheet_id'] : null;
                 $l['source_work_date'] = $entry['work_date'] ?? null;
+                $l['source_hours'] = $entry['hours'] ?? null;
+                $l['source_category'] = $entry['category'] ?? null;
+                $l['source_status'] = $entry['status'] ?? null;
+                $l['source_entry_description'] = $entry['description'] ?? null;
+                $timesheet = $timesheetsById[(int) ($entry['timesheet_id'] ?? 0)] ?? null;
+                if ($timesheet) {
+                    $l['source_timesheet_artifact_id'] = $timesheet['artifact_id'] ?? null;
+                    $l['source_period_start'] = $timesheet['period_start'];
+                    $l['source_period_end'] = $timesheet['period_end'];
+                    $l['source_timesheet_status'] = $timesheet['status'];
+                }
             }
             unset($l);
         }
