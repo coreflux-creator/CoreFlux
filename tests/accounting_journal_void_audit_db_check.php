@@ -89,6 +89,22 @@ try {
 $assert($row($postedId)['status'] === 'posted',
     'overlong deletion reason leaves the journal posted');
 
+$correctionCount = $pdo->prepare('SELECT COUNT(*) FROM accounting_journal_entries
+    WHERE tenant_id = :tenant AND source_ref_type = "replaces_je" AND source_ref_id = :id');
+$correctionCount->execute(['tenant' => $tenantId, 'id' => $postedId]);
+$beforeCorrections = (int) $correctionCount->fetchColumn();
+try {
+    accountingReplaceJe($tenantId, $postedId, $entry, str_repeat('x', 1001), $actorId);
+    throw new RuntimeException('Overlong correction reason unexpectedly succeeded.');
+} catch (InvalidArgumentException $e) {
+    $assert(str_contains($e->getMessage(), '1000 characters'),
+        'overlong correction reason returns a clear validation error');
+}
+$correctionCount->execute(['tenant' => $tenantId, 'id' => $postedId]);
+$assert((int) $correctionCount->fetchColumn() === $beforeCorrections
+    && $row($postedId)['status'] === 'posted',
+    'overlong correction reason creates no replacement and leaves the original posted');
+
 $reason = 'Synthetic CI correction: preserve a reason with the journal';
 $deleted = accountingDeleteJe($tenantId, $postedId, $reason, $actorId);
 $saved = $row($postedId);

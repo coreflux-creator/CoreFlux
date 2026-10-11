@@ -145,6 +145,8 @@ $checks = [
         str_contains($accounting, 'function accountingReplaceJe')
         && str_contains($accounting, "\$replacement['source_ref_type'] = 'replaces_je'")
         && str_contains($accounting, 'accounting:correction:{$tenantId}:{$jeId}')
+        && str_contains($accounting, 'Correction reason must be 1000 characters or fewer.')
+        && str_contains($editor, 'maxLength={1000}')
         && str_contains($accounting, 'accountingDeleteJe($tenantId, $jeId, $reason, $actorUserId, (int) $posted'),
     'unposted work queues contain drafts rather than reversals or deleted entries' =>
         str_contains($standardReports, "status = 'draft'")

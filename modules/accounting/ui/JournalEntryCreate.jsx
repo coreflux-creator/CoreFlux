@@ -412,6 +412,7 @@ export default function JournalEntryCreate({ session }) {
             <span style={{ color: 'var(--cf-text-secondary)' }}>Reason for correction</span>
             <input
               className="input"
+              maxLength={1000}
               value={correctionReason}
               onChange={(event) => setCorrectionReason(event.target.value)}
               data-testid="accounting-je-correction-reason"

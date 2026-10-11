@@ -1078,6 +1078,10 @@ function accountingReplaceJe(
 ): array {
     $reason = trim($reason);
     if ($reason === '') throw new \InvalidArgumentException('correction reason required');
+    $reasonLength = function_exists('mb_strlen') ? mb_strlen($reason, 'UTF-8') : strlen($reason);
+    if ($reasonLength > 1000) {
+        throw new \InvalidArgumentException('Correction reason must be 1000 characters or fewer.');
+    }
 
     $pdo = getDB();
     $stmt = $pdo->prepare(
