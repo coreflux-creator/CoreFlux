@@ -25,6 +25,7 @@ const built = await build({
         contents: `
           export const pendingCsvImportRuns = () => globalThis.csvRecoveryTestRuns;
           export const recoverCsvImportAudit = async () => { throw new Error('render cannot submit'); };
+          export const abandonUnstartedCsvImportAudit = async () => { throw new Error('render cannot submit'); };
           export const forgetCsvImportRun = () => {};
         `,
         loader: 'js',

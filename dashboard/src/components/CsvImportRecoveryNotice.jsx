@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  forgetCsvImportRun, pendingCsvImportRuns, recoverCsvImportAudit,
+  abandonUnstartedCsvImportAudit, forgetCsvImportRun, pendingCsvImportRuns, recoverCsvImportAudit,
 } from '../lib/csvImportAudit';
 
 const LABELS = {
@@ -18,26 +18,48 @@ export default function CsvImportRecoveryNotice({ entity = null, onRecovered = n
   const [runs, setRuns] = useState(() => pendingCsvImportRuns().filter(run => !entity || run.entity === entity));
   const [results, setResults] = useState([]);
   const [errors, setErrors] = useState({});
+  const [closable, setClosable] = useState({});
   const [checking, setChecking] = useState(null);
+  const [closing, setClosing] = useState(null);
+
+  const accept = (run, receipt) => {
+    forgetCsvImportRun(run.id);
+    setRuns(previous => previous.filter(item => item.id !== run.id));
+    setResults(previous => [...previous, { ...run, ...receipt.result }]);
+    if (onRecovered) onRecovered();
+  };
 
   const check = async (run) => {
     setChecking(run.id);
     setErrors(previous => ({ ...previous, [run.id]: null }));
+    setClosable(previous => ({ ...previous, [run.id]: false }));
     try {
       const receipt = await recoverCsvImportAudit({ runId: run.id });
-      forgetCsvImportRun(run.id);
-      setRuns(previous => previous.filter(item => item.id !== run.id));
-      setResults(previous => [...previous, { ...run, ...receipt.result }]);
-      if (onRecovered) onRecovered();
+      accept(run, receipt);
     } catch (error) {
       if (error.status === 404) {
         forgetCsvImportRun(run.id);
         setRuns(previous => previous.filter(item => item.id !== run.id));
         setErrors(previous => ({ ...previous, [run.id]: 'This run is not available to this sign-in. Check Import History for your own runs.' }));
+      } else if (error.status === 409 && error.data?.can_abandon_unstarted === true) {
+        setClosable(previous => ({ ...previous, [run.id]: true }));
+        setErrors(previous => ({ ...previous, [run.id]: 'No committed result was found. Closing this unstarted run checks the server again.' }));
       } else {
         setErrors(previous => ({ ...previous, [run.id]: error.message || 'The server outcome is not available yet.' }));
       }
     } finally { setChecking(null); }
+  };
+
+  const closeUnstarted = async (run) => {
+    setClosing(run.id);
+    setErrors(previous => ({ ...previous, [run.id]: null }));
+    try {
+      await abandonUnstartedCsvImportAudit({ runId: run.id });
+      const receipt = await recoverCsvImportAudit({ runId: run.id });
+      accept(run, receipt);
+    } catch (error) {
+      setErrors(previous => ({ ...previous, [run.id]: error.message || 'This run still needs review.' }));
+    } finally { setClosing(null); }
   };
 
   if (!runs.length && !results.length && !Object.values(errors).some(Boolean)) return null;
@@ -47,15 +69,21 @@ export default function CsvImportRecoveryNotice({ entity = null, onRecovered = n
       {runs.map(run => (
         <div key={run.id} data-testid={`csv-import-pending-${run.id}`} style={{ marginTop: 8 }}>
           <span>{LABELS[run.entity]} run #{run.id}. Check its server receipt before importing that file again.</span>{' '}
-          <button className="btn" onClick={() => check(run)} disabled={checking !== null} data-testid={`csv-import-recover-${run.id}`}>
+          <button className="btn" onClick={() => check(run)} disabled={checking !== null || closing !== null} data-testid={`csv-import-recover-${run.id}`}>
             {checking === run.id ? 'Checking...' : 'Check server outcome'}
           </button>
+          {closable[run.id] && <button className="btn btn--ghost" onClick={() => closeUnstarted(run)}
+            disabled={checking !== null || closing !== null} data-testid={`csv-import-close-${run.id}`}>
+            {closing === run.id ? 'Closing...' : 'Close unstarted run'}
+          </button>}
           {errors[run.id] && <p className="error" role="alert">{errors[run.id]}</p>}
         </div>
       ))}
       {results.map(result => (
         <p key={result.id} data-testid={`csv-import-recovered-${result.id}`} style={{ margin: '8px 0 0' }}>
-          {LABELS[result.entity]} run #{result.id}: {result.imported_count} imported, {result.skipped_count} skipped. Verified from the server receipt.
+          {LABELS[result.entity]} run #{result.id}: {result.abandoned
+            ? 'closed without an import. You can upload the file again if needed.'
+            : `${result.imported_count} imported, ${result.skipped_count} skipped. Verified from the server receipt.`}
         </p>
       ))}
       {runs.length === 0 && Object.values(errors).filter(Boolean).map((message, index) => (

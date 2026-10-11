@@ -28,6 +28,7 @@ const module = { exports: {} };
 new Function('module', 'exports', result.outputFiles[0].text)(module, module.exports);
 const {
   reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit,
+  abandonUnstartedCsvImportAudit,
   pendingCsvImportRuns, rememberCsvImportRun, forgetCsvImportRun,
 } = module.exports;
 
@@ -162,6 +163,40 @@ test('lost response cannot treat an unconfirmed or mismatched run as imported', 
   await assert.rejects(recoverCsvImportAudit({ runId: 42 }), /No verified server outcome/);
   globalThis.csvAuditTestApi = { post: async () => { throw new Error('server outcome still unconfirmed'); } };
   await assert.rejects(recoverCsvImportAudit({ runId: 42 }), /still unconfirmed/);
+});
+
+test('a closed unstarted run survives another reload without pretending to be imported', async () => {
+  const calls = [];
+  globalThis.csvAuditTestApi = { post: async (path, body) => {
+    calls.push({ path, body });
+    return path.includes('abandon_unstarted')
+      ? { id: 42, abandoned: true, already_recorded: false }
+      : { id: 42, recorded: true, abandoned: true, server_outcome_recorded: false,
+        rows_total: 1, rows_imported: 0, rows_skipped: 0, status: 'failed' };
+  } };
+  await abandonUnstartedCsvImportAudit({ runId: 42 });
+  const closed = await recoverCsvImportAudit({ runId: 42 });
+  assert.deepEqual(calls.map(call => call.body), [{ id: 42 }, { id: 42 }]);
+  assert.equal(closed.result.abandoned, true);
+  assert.equal(closed.result.imported_count, 0);
+  assert.equal(closed.result.status, 'abandoned');
+});
+
+test('closure needs an exact server confirmation and never imports a file', async () => {
+  globalThis.csvAuditTestApi = { post: async () => ({ id: 43, abandoned: true }) };
+  await assert.rejects(abandonUnstartedCsvImportAudit({ runId: 42 }), /did not confirm/);
+  globalThis.csvAuditTestApi = { post: async () => ({ id: 42, abandoned: false }) };
+  await assert.rejects(abandonUnstartedCsvImportAudit({ runId: 42 }), /did not confirm/);
+  globalThis.csvAuditTestApi = { post: async () => { const error = new Error('still needs review'); error.status = 409; throw error; } };
+  await assert.rejects(abandonUnstartedCsvImportAudit({ runId: 42 }), /still needs review/);
+});
+
+test('a malformed closed-run receipt is not treated as a verified zero-row outcome', async () => {
+  globalThis.csvAuditTestApi = { post: async () => ({
+    id: 42, recorded: false, abandoned: true, server_outcome_recorded: false,
+    status: 'failed', rows_total: null, rows_imported: 0, rows_skipped: 0,
+  }) };
+  await assert.rejects(recoverCsvImportAudit({ runId: 42 }), /No verified server outcome/);
 });
 
 test('failed finalization never attempts source attachment', async () => {

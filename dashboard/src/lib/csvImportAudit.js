@@ -99,6 +99,13 @@ export async function recoverCsvImportAudit({ runId }) {
   const imported = Number(receipt?.rows_imported);
   const skipped = Number(receipt?.rows_skipped);
   const total = Number(receipt?.rows_total);
+  if (receipt?.recorded === true && receipt.id === runId && receipt.abandoned === true
+    && receipt.server_outcome_recorded === false && receipt.status === 'failed'
+    && imported === 0 && skipped === 0 && receipt.rows_total != null
+    && Number.isSafeInteger(total) && total >= 0) {
+    return { id: runId, result: { abandoned: true, imported_count: 0, skipped_count: 0,
+      row_count: total, status: 'abandoned' } };
+  }
   if (!receipt?.recorded || receipt.id !== runId || !receipt.server_outcome_recorded
     || !['success', 'partial', 'failed'].includes(receipt.status)
     || ![imported, skipped, total].every(value => Number.isSafeInteger(value) && value >= 0)
@@ -118,4 +125,12 @@ export async function recoverCsvImportAudit({ runId }) {
       recovered_from_receipt: true,
     },
   };
+}
+
+export async function abandonUnstartedCsvImportAudit({ runId }) {
+  const resolution = await api.post(`${HISTORY}?action=abandon_unstarted`, { id: runId });
+  if (resolution?.id !== runId || !(resolution.abandoned === true || resolution.already_recorded === true)) {
+    throw new Error('The server did not confirm this run was closed. Check Import History before retrying.');
+  }
+  return resolution;
 }

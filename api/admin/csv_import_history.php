@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/RBAC.php';
 require_once __DIR__ . '/../../core/csv_import_history.php';
 require_once __DIR__ . '/../../core/accounting/csv_import_scope.php';
+require_once __DIR__ . '/../../core/accounting/csv_import_run_recovery.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -31,6 +32,27 @@ const CSV_IMPORT_UNCONFIRMED_KEY = '_import_outcome_unconfirmed';
 // ---------- POST: record one history row ----------
 if ($method === 'POST') {
     $body = api_json_body();
+    if ($action === 'abandon_unstarted' && getenv('COREFLUX_ENV') === 'coreaccounting') {
+        $id = (int) ($body['id'] ?? 0);
+        if ($id <= 0) api_error('Import run ID is required', 422);
+        $pdo = getDB();
+        if (!$pdo) api_error('Import run could not be checked. Try again later.', 503);
+        try {
+            $resolution = coreAccountingCsvAbandonUnstarted($pdo, $id, $tid, (int) $user['id']);
+        } catch (Throwable $error) {
+            error_log('CSV import run closure failed: ' . $error->getMessage());
+            api_error('Import run could not be closed. Check Import History before retrying.', 503);
+        }
+        if ($resolution['state'] === 'not_found') api_error('Import run not found for this user', 404);
+        if ($resolution['state'] === 'needs_review') {
+            api_error('This run cannot be confirmed as unstarted. Check its source records.', 409);
+        }
+        api_ok([
+            'id' => $id,
+            'abandoned' => in_array($resolution['state'], ['abandoned', 'already_abandoned'], true),
+            'already_recorded' => $resolution['state'] === 'already_recorded',
+        ]);
+    }
     if ($action === 'finalize') {
         $id = (int) ($body['id'] ?? 0);
         if ($id <= 0) api_error('Import run ID is required', 422);
@@ -38,7 +60,7 @@ if ($method === 'POST') {
         try {
             $pdo->beginTransaction();
             $stmt = $pdo->prepare(
-                'SELECT id, status, error_summary, rows_total, rows_imported, rows_skipped FROM csv_import_history
+                'SELECT id, entity, status, error_summary, rows_total, rows_imported, rows_skipped FROM csv_import_history
                   WHERE id = :id AND tenant_id = :tenant_id AND created_by_user_id = :user_id
                   FOR UPDATE'
             );
@@ -54,6 +76,7 @@ if ($method === 'POST') {
                 api_ok([
                     'recorded' => true, 'id' => $id, 'already_finalized' => true,
                     'server_outcome_recorded' => isset($oldErrors['_server_outcome_recorded']),
+                    'abandoned' => isset($oldErrors['_import_abandoned']),
                     'rows_total' => (int) $run['rows_total'],
                     'rows_imported' => (int) $run['rows_imported'],
                     'rows_skipped' => (int) $run['rows_skipped'],
@@ -62,7 +85,8 @@ if ($method === 'POST') {
             }
             if (getenv('COREFLUX_ENV') === 'coreaccounting') {
                 $pdo->rollBack();
-                api_error('The server has not recorded this import outcome. Check source records before retrying.', 409);
+                api_error('The server has not recorded this import outcome. Check source records before retrying.', 409,
+                    ['can_abandon_unstarted' => coreAccountingCsvCanAbandonUnstarted($run)]);
             }
             $errors = is_array($body['errors'] ?? null) ? $body['errors'] : [];
             $imported = max(0, (int) ($body['rows_imported'] ?? 0));
@@ -148,18 +172,23 @@ if (!empty($_GET['entity']))  {
 }
 if (!empty($_GET['status'])) {
     $requestedStatus = (string) $_GET['status'];
-    if (!in_array($requestedStatus, ['success', 'partial', 'failed', 'needs_review'], true)) {
+    if (!in_array($requestedStatus, ['success', 'partial', 'failed', 'needs_review', 'abandoned'], true)) {
         api_error('Unknown import history status', 422);
     }
     if ($requestedStatus === 'needs_review') {
         $where[] = 'LOCATE(:review_marker, h.error_summary) > 0';
         $params['review_marker'] = CSV_IMPORT_UNCONFIRMED_KEY;
+    } elseif ($requestedStatus === 'abandoned') {
+        $where[] = 'LOCATE(:abandoned_marker, h.error_summary) > 0';
+        $params['abandoned_marker'] = '_import_abandoned';
     } else {
         $where[] = 'h.status = :s';
         $params['s'] = $requestedStatus;
         if ($requestedStatus === 'failed') {
-            $where[] = '(h.error_summary IS NULL OR LOCATE(:review_marker, h.error_summary) = 0)';
+            $where[] = '(h.error_summary IS NULL OR (LOCATE(:review_marker, h.error_summary) = 0
+                AND LOCATE(:abandoned_marker, h.error_summary) = 0))';
             $params['review_marker'] = CSV_IMPORT_UNCONFIRMED_KEY;
+            $params['abandoned_marker'] = '_import_abandoned';
         }
     }
 }
@@ -199,6 +228,7 @@ foreach ($rows as &$r) {
     $r['error_summary'] = is_string($r['error_summary']) ? json_decode($r['error_summary'], true) : $r['error_summary'];
     $r['needs_review'] = isset($r['error_summary'][CSV_IMPORT_UNCONFIRMED_KEY]);
     $r['server_outcome_recorded'] = isset($r['error_summary']['_server_outcome_recorded']);
+    $r['abandoned'] = isset($r['error_summary']['_import_abandoned']);
 }
 
 api_ok(['rows' => $rows]);

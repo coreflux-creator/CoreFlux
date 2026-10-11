@@ -368,6 +368,12 @@ jobs:
           php tests/coreaccounting_code_upgrade_inspection_smoke.php
           php tests/coreaccounting_private_vendor_smoke.php
 
+      - name: Verify finance CSV source, receipt and unstarted-run recovery
+        run: |
+          php tests/coreaccounting_csv_import_surface_smoke.php
+          php tests/coreaccounting_csv_server_receipt_smoke.php
+          php tests/coreaccounting_csv_abandon_smoke.php
+
       - name: Run dashboard unit tests
         run: |
           npm ci --prefix dashboard --no-audit --no-fund

@@ -71,6 +71,13 @@ $check('finance screens expose exact-run recovery after a tab reload without rei
     && str_contains($history, '<CsvImportRecoveryNotice onRecovered={fetchHistory} />')
     && str_contains($recovery, 'recoverCsvImportAudit({ runId: run.id })')
     && !str_contains($recovery, '?action=commit'));
+$check('standalone can close only a server-verified unstarted run',
+    str_contains($historyApi, "\$action === 'abandon_unstarted'")
+    && str_contains($historyApi, 'coreAccountingCsvAbandonUnstarted(')
+    && str_contains($historyApi, 'SELECT id, entity, status, error_summary, rows_total, rows_imported, rows_skipped')
+    && str_contains($historyApi, 'can_abandon_unstarted')
+    && str_contains($recovery, 'abandonUnstartedCsvImportAudit({ runId: run.id })')
+    && str_contains($history, 'r.abandoned'));
 $check('finance modules pass standalone scope to each shared CSV screen',
     substr_count($read('modules/billing/ui/BillingModule.jsx'), "standaloneAccounting={session?.product_mode === 'coreaccounting'}") === 3
     && substr_count($read('modules/ap/ui/APModule.jsx'), 'standaloneAccounting={standaloneAccounting}') === 3

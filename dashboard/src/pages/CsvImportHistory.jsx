@@ -41,6 +41,7 @@ const STATUS_COLORS = {
   partial: { bg: 'rgba(245,158,11,0.12)', fg: '#a16207' },
   failed:  { bg: 'rgba(239,68,68,0.12)',  fg: '#b91c1c' },
   needs_review: { bg: 'rgba(245,158,11,0.16)', fg: '#92400e' },
+  abandoned: { bg: 'rgba(100,116,139,0.14)', fg: '#475569' },
 };
 
 function fmtDateTime(iso) {
@@ -50,8 +51,8 @@ function fmtDateTime(iso) {
   return d.toLocaleString();
 }
 
-function StatusPill({ status, needsReview = false }) {
-  const displayStatus = needsReview ? 'needs_review' : status;
+function StatusPill({ status, needsReview = false, abandoned = false }) {
+  const displayStatus = needsReview ? 'needs_review' : (abandoned ? 'abandoned' : status);
   const c = STATUS_COLORS[displayStatus] || { bg: '#eee', fg: '#333' };
   return (
     <span
@@ -61,7 +62,7 @@ function StatusPill({ status, needsReview = false }) {
         background: c.bg, color: c.fg, fontSize: 12, fontWeight: 600, textTransform: 'capitalize',
       }}
     >
-      {needsReview ? 'Needs review' : status}
+      {needsReview ? 'Needs review' : (abandoned ? 'Not imported' : status)}
     </span>
   );
 }
@@ -102,10 +103,11 @@ export default function CsvImportHistory({ financeOnly = false }) {
       acc.imports  += 1;
       acc.imported += Number(r.rows_imported || 0);
       acc.skipped  += Number(r.rows_skipped  || 0);
-      acc.failed   += r.status === 'failed' && !r.needs_review ? 1 : 0;
+      acc.failed   += r.status === 'failed' && !r.needs_review && !r.abandoned ? 1 : 0;
       acc.review   += r.needs_review ? 1 : 0;
+      acc.abandoned += r.abandoned ? 1 : 0;
       return acc;
-    }, { imports: 0, imported: 0, skipped: 0, failed: 0, review: 0 });
+    }, { imports: 0, imported: 0, skipped: 0, failed: 0, review: 0, abandoned: 0 });
   }, [rows]);
 
   return (
@@ -129,11 +131,12 @@ export default function CsvImportHistory({ financeOnly = false }) {
       <div style={{ background: 'var(--cf-surface)', padding: 'var(--cf-space-6)', borderRadius: 'var(--cf-radius-lg)', border: '1px solid var(--cf-border)' }}>
         {/* KPI strip */}
         <div data-testid="csv-history-kpi-strip" style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--cf-space-4)', marginBottom: 'var(--cf-space-4)' }}>
-          <Stat label="Imports"        value={totals.imports}  testid="csv-history-kpi-imports" />
+          <Stat label={financeOnly ? 'Import runs' : 'Imports'} value={totals.imports} testid="csv-history-kpi-imports" />
           <Stat label="Rows imported"  value={totals.imported} testid="csv-history-kpi-imported" />
           <Stat label="Rows skipped"   value={totals.skipped}  testid="csv-history-kpi-skipped" />
           <Stat label="Failed imports" value={totals.failed}   testid="csv-history-kpi-failed" />
           <Stat label="Needs review" value={totals.review} testid="csv-history-kpi-needs-review" />
+          {financeOnly && <Stat label="Not imported" value={totals.abandoned} testid="csv-history-kpi-abandoned" />}
         </div>
 
         {/* Filters */}
@@ -151,6 +154,7 @@ export default function CsvImportHistory({ financeOnly = false }) {
               <option value="partial">Partial</option>
               <option value="failed">Failed</option>
               <option value="needs_review">Needs review</option>
+              {financeOnly && <option value="abandoned">Not imported</option>}
             </select>
           </Field>
           <Field label="From">
@@ -203,7 +207,8 @@ export default function CsvImportHistory({ financeOnly = false }) {
                 const open = !!expanded[r.id];
                 const errs = r.error_summary && typeof r.error_summary === 'object' ? r.error_summary : null;
                 const rowErrors = Object.entries(errs || {}).filter(([key]) =>
-                  key !== '_import_outcome_unconfirmed' && key !== '_source_commit_started' && key !== '_server_outcome_recorded');
+                  key !== '_import_outcome_unconfirmed' && key !== '_source_commit_started'
+                  && key !== '_server_outcome_recorded' && key !== '_import_abandoned');
                 const map  = r.column_map    && typeof r.column_map    === 'object' ? r.column_map    : null;
                 return (
                   <React.Fragment key={r.id}>
@@ -230,7 +235,7 @@ export default function CsvImportHistory({ financeOnly = false }) {
                       <td style={{ textAlign: 'right' }}>{r.needs_review ? '—' : r.rows_skipped}</td>
                       <td style={{ textAlign: 'right' }}>{r.needs_review ? '—' : r.errors_count}</td>
                       <td>
-                        <StatusPill status={r.status} needsReview={r.needs_review} />
+                        <StatusPill status={r.status} needsReview={r.needs_review} abandoned={r.abandoned} />
                         {r.server_outcome_recorded && <span title="Outcome recorded by the import server" style={{ display: 'block', fontSize: 11, color: 'var(--cf-text-secondary)' }}>Server receipt</span>}
                       </td>
                       <td>
@@ -268,6 +273,7 @@ export default function CsvImportHistory({ financeOnly = false }) {
                             <div>
                               <strong>Errors</strong>
                               {r.needs_review && <p data-testid={`csv-history-row-${r.id}-review-warning`} style={{ color: '#92400e' }}>The import may have changed records, but its outcome was not confirmed. Check the source worklist before retrying. Never assume zero rows were imported.</p>}
+                              {r.abandoned && <p data-testid={`csv-history-row-${r.id}-abandoned`} style={{ color: '#475569' }}>The server closed this run before any source commit. No rows were imported under this run.</p>}
                               {rowErrors.length > 0 ? (
                                 <ul style={{ marginTop: 6, paddingLeft: '1rem', maxHeight: 240, overflow: 'auto' }}>
                                   {rowErrors.map(([rn, msgs]) => (
