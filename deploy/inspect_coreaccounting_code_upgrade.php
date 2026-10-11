@@ -74,6 +74,15 @@ function coreAccountingUpgradePrivateUnchanged(array $old, array $new): bool
     return $oldFiles === $newFiles;
 }
 
+function coreAccountingUpgradePublicWriteReady(string $webroot): bool
+{
+    if (!is_writable($webroot)) return false;
+    foreach (coreAccountingInstallEntries($webroot) as $name) {
+        if (!is_writable($webroot . '/' . $name)) return false;
+    }
+    return true;
+}
+
 function coreAccountingUpgradeMigrationCounts(array $result, string $database): array
 {
     $counts = $result['counts'] ?? null;
@@ -232,6 +241,7 @@ function coreAccountingUpgradeInspect(array $options): array
         'release_public_files' => count($new['files']),
         'release_private_files' => count($new['private_files']),
         'public_only_eligible' => coreAccountingUpgradePrivateUnchanged($old, $new),
+        'public_write_ready' => coreAccountingUpgradePublicWriteReady($webroot),
         'migration_counts' => $migrationCounts,
         'schema_status' => $schema['status'],
     ];
@@ -318,6 +328,9 @@ function coreAccountingUpgradeActivatePublicOnly(array $options, array $inspecti
         throw new RuntimeException('Public-only upgrade requires unchanged private files and exact inspected fingerprints.');
     }
     $webroot = coreAccountingUpgradeDirectory($options['webroot'], 'Live webroot');
+    if (!coreAccountingUpgradePublicWriteReady($webroot)) {
+        throw new RuntimeException('Public-only upgrade requires writable installed public entries; reset this application webroot to its app user first.');
+    }
     $privateRuntime = coreAccountingUpgradeDirectory($options['private-runtime'], 'Live private runtime');
     $oldPackage = coreAccountingUpgradeDirectory($options['old-package'], 'Old package');
     $package = coreAccountingUpgradeDirectory($options['package'], 'New package');

@@ -94,6 +94,16 @@ try {
         'An existing absolute directory was rejected.');
     $expect(coreAccountingUpgradeFile($file, 'Fixture') === realpath($file),
         'An existing absolute file was rejected.');
+    $expect(coreAccountingUpgradePublicWriteReady($fixture),
+        'A writable public fixture was rejected.');
+    $expect(!coreAccountingUpgradePublicWriteReady($fixture . '/missing'),
+        'A missing public tree was accepted as writable.');
+    if (PHP_OS_FAMILY !== 'Windows') {
+        chmod($file, 0444);
+        $expect(!coreAccountingUpgradePublicWriteReady($fixture),
+            'A read-only installed public file was accepted for activation.');
+        chmod($file, 0644);
+    }
     $before = coreAccountingUpgradeFingerprint($fixture);
     file_put_contents($file, 'second');
     $expect(coreAccountingUpgradeFingerprint($fixture) !== $before,
