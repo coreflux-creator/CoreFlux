@@ -25,6 +25,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
+require_once __DIR__ . '/../core/plaid_schema.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
@@ -34,6 +35,12 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
     require_once __DIR__ . '/../core/active_entity.php';
 
     $pdo = getDB();
+    try {
+        plaidRequireBalanceSchema($pdo);
+        plaidRequireLiabilityLinkSchema($pdo);
+    } catch (PlaidSchemaException $e) {
+        api_error($e->getMessage(), 503);
+    }
     $body = api_json_body();
     $availableEntities = activeEntityAvailable($tenantId);
     if (!$availableEntities) api_error('No accounting entity is configured for this tenant', 422);
@@ -71,33 +78,9 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
     }
     $selectedIds = array_flip(array_map('strval', $body['selected_account_ids']));
 
-    // Self-heal: add the liability column if it isn't there yet (mirror of
-    // the same guard in plaid_bank_link.php).
-    try {
-        $colCheck = $pdo->prepare(
-            "SELECT COUNT(*) FROM information_schema.columns
-              WHERE table_schema = DATABASE()
-                AND table_name   = 'treasury_liability_accounts'
-                AND column_name  = 'plaid_account_id'"
-        );
-        $colCheck->execute();
-        if ((int) $colCheck->fetchColumn() === 0) {
-            $pdo->exec("ALTER TABLE treasury_liability_accounts
-                          ADD COLUMN plaid_account_id VARCHAR(80) NULL");
-        }
-    } catch (\Throwable $e) { /* surfaces per-account below */ }
-
-    $isoColumn = $pdo->prepare(
-        "SELECT COUNT(*) FROM information_schema.columns
-          WHERE table_schema = DATABASE() AND table_name = 'plaid_accounts'
-            AND column_name = 'iso_currency_code'"
-    );
-    $isoColumn->execute();
-    $isoProjection = (int) $isoColumn->fetchColumn() > 0
-        ? 'pa.iso_currency_code' : 'NULL AS iso_currency_code';
     $stmt = $pdo->prepare(
         "SELECT pa.id AS pa_id, pa.account_id, pa.name, pa.mask, pa.type, pa.subtype,
-                {$isoProjection},
+                pa.iso_currency_code,
                 pi.institution_name
            FROM plaid_accounts pa
            JOIN plaid_items    pi ON pi.id = pa.plaid_item_pk

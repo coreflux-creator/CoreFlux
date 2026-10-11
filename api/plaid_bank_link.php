@@ -31,6 +31,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/plaid_service.php';
+require_once __DIR__ . '/../core/plaid_schema.php';
 require_once __DIR__ . '/../core/active_entity.php';
 
 $ctx      = api_require_auth();
@@ -142,6 +143,14 @@ if ($action === 'exchange') {
     // The former shared-GL option is ignored. A feed needs its own ledger
     // account so a bank line can be tied to an unambiguous cash movement.
 
+    $pdo = getDB();
+    try {
+        plaidRequireBalanceSchema($pdo);
+        plaidRequireLiabilityLinkSchema($pdo);
+    } catch (PlaidSchemaException $e) {
+        api_error($e->getMessage(), 503);
+    }
+
     try {
         $exchange = plaidExchangePublicToken($publicToken);
     } catch (PlaidApiException $e) {
@@ -152,7 +161,6 @@ if ($action === 'exchange') {
     if ($accessToken === '' || $itemId === '') api_error('Plaid did not return access_token / item_id', 502);
 
     $tokenCt = plaidEncryptAccessToken($accessToken);
-    $pdo = getDB();
 
     // Idempotent insert. If this item_id already exists for the tenant
     // (re-link / re-auth flow), update encrypted token + status.
@@ -190,26 +198,6 @@ if ($action === 'exchange') {
         api_error('accounts/get failed: ' . $e->getMessage(), 502);
     }
     $plaidAccounts = is_array($resp['accounts'] ?? null) ? $resp['accounts'] : [];
-
-    // Defensive: ensure the liability-link column exists. Migration 002 in the
-    // treasury module adds it idempotently; some hosts may have linked the API
-    // before pulling the migration. Auto-add at runtime so credit/loan inserts
-    // don't blow up with "Unknown column 'plaid_account_id'".
-    try {
-        $colCheck = $pdo->prepare(
-            "SELECT COUNT(*) FROM information_schema.columns
-              WHERE table_schema = DATABASE()
-                AND table_name   = 'treasury_liability_accounts'
-                AND column_name  = 'plaid_account_id'"
-        );
-        $colCheck->execute();
-        if ((int) $colCheck->fetchColumn() === 0) {
-            $pdo->exec("ALTER TABLE treasury_liability_accounts
-                          ADD COLUMN plaid_account_id VARCHAR(80) NULL");
-        }
-    } catch (\Throwable $e) {
-        // Non-fatal: liability mirror will fail per-account and surface to UI.
-    }
 
     $createdBank = [];
     $createdLiab = [];

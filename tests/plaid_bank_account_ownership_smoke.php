@@ -61,8 +61,10 @@ check('Link and orphan recovery validate the entity and save the reported curren
 check('Re-link and same-bank adoption refuse a changed currency',
     str_contains($link, "strcasecmp((string) \$existing['currency'], \$bankCurrency)")
     && str_contains($link, 'AND currency  = :currency'));
-check('Legacy orphans without a currency column remain reviewable',
-    str_contains($diagnostics, "? 'pa.iso_currency_code' : 'NULL AS iso_currency_code'"));
+check('Legacy orphans stay readable but recovery requires currency migration',
+    str_contains($diagnostics, "'orphaned_plaid_accounts'")
+    && str_contains($diagnostics, 'plaidRequireBalanceSchema($pdo);')
+    && str_contains($diagnostics, 'pa.iso_currency_code,'));
 check('Missing Plaid currency is not silently cached as USD',
     str_contains($plaidService, "\$iso = preg_match('/^[A-Z]{3}$/', \$isoRaw) ? \$isoRaw : null")
     && !str_contains($plaidService, "'iso_currency_code']) ? substr((string) \$b['iso_currency_code'], 0, 3) : 'USD'"));

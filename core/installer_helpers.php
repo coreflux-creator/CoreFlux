@@ -164,10 +164,8 @@ function spaBundleStatus(string $root): array {
  *   ], ... ]
  *
  * Idempotency: catches "Duplicate column / already exists / Duplicate key"
- * and similar safe errors at the per-statement level. A migration that
- * has been partially applied by the runtime self-heal (e.g.
- * `_treasuryEnsurePlaidBalanceColumns`) will now still register as
- * applied without aborting the whole update.
+ * and similar safe errors at the per-statement level, including historical
+ * partial schemas. Current web requests never apply Plaid migrations.
  */
 function runMigrationsInProcess(): array {
     require_once __DIR__ . '/config.php';

@@ -45,8 +45,12 @@ $assert('returns errors[] to caller',        strpos($src, "'errors'") !== false)
 $assert('GL code allocator avoids unique conflict',
                                              strpos($src, 'plaidAllocateBankGlCode(') !== false);
 $assert('GL allocator suffixes with last4',  strpos(file_get_contents(__DIR__ . '/../core/plaid_service.php'), "\$base . '-' . \$mask") !== false);
-$assert('runtime ALTER TABLE adds plaid_account_id if migration not run',
-                                             strpos($src, "ADD COLUMN plaid_account_id") !== false);
+$assert('migration preflight runs before Plaid token exchange',
+                                             strpos($src, 'plaidRequireBalanceSchema($pdo)') !== false
+                                             && strpos($src, 'plaidRequireLiabilityLinkSchema($pdo)') !== false
+                                             && strpos($src, 'plaidRequireLiabilityLinkSchema($pdo)')
+                                                < strpos($src, 'plaidExchangePublicToken($publicToken)')
+                                             && strpos($src, 'ALTER TABLE') === false);
 $assert('routes credit cards to subtype=credit_card',
                                              strpos($src, "=> 'credit_card'") !== false);
 $assert('routes loans to subtype=loan',      strpos($src, "=> 'loan'") !== false);

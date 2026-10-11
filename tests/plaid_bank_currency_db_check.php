@@ -15,11 +15,17 @@ if ($root === false || !is_file($root . '/core/plaid_bank_currency.php')) {
 }
 require_once $root . '/core/db.php';
 require_once $root . '/core/plaid_bank_currency.php';
+require_once $root . '/core/plaid_schema.php';
 require_once $root . '/modules/accounting/lib/bank_account_ledger.php';
 
 $pdo = getDB();
 if ((string) $pdo->query('SELECT DATABASE()')->fetchColumn() !== 'coreaccounting_ci') {
     throw new RuntimeException('Connected database is not the disposable CI database.');
+}
+plaidRequireBalanceSchema($pdo);
+plaidRequireLiabilityLinkSchema($pdo);
+if (plaidMissingColumns($pdo, 'plaid_accounts', ['fixture_absent_column']) !== ['fixture_absent_column']) {
+    throw new RuntimeException('Plaid schema guard did not report a missing column');
 }
 $tenantId = (int) $pdo->query("SELECT tenant_id FROM users
     WHERE email = 'ci-admin@coreaccounting.invalid' AND is_active = 1 LIMIT 1")
@@ -80,6 +86,28 @@ try {
         echo "PASS synthetic {$currency} Plaid bank maps to its legal entity and cash ledger\n";
     }
 
+    $pdo->prepare('INSERT INTO accounting_accounts
+        (tenant_id, code, name, account_type, normal_side, currency)
+        VALUES (:tenant, "CI-PLAID-LIAB", "CI synthetic Plaid card", "liability", "credit", "USD")')
+        ->execute(['tenant' => $tenantId]);
+    $liabilityGlId = (int) $pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO treasury_liability_accounts
+        (tenant_id, entity_id, account_id, subtype, plaid_account_id)
+        VALUES (:tenant, :entity, :account, "credit_card", "ci-plaid-card-20261011")')
+        ->execute(['tenant' => $tenantId, 'entity' => (int) $usdEntity['id'],
+            'account' => $liabilityGlId]);
+    $liabilityId = (int) $pdo->lastInsertId();
+    $readLiability = $pdo->prepare('SELECT entity_id, account_id, plaid_account_id
+        FROM treasury_liability_accounts WHERE tenant_id = :tenant AND id = :id');
+    $readLiability->execute(['tenant' => $tenantId, 'id' => $liabilityId]);
+    $linked = $readLiability->fetch(PDO::FETCH_ASSOC);
+    if (!$linked || (int) $linked['entity_id'] !== (int) $usdEntity['id']
+        || (int) $linked['account_id'] !== $liabilityGlId
+        || $linked['plaid_account_id'] !== 'ci-plaid-card-20261011') {
+        throw new RuntimeException('Synthetic Plaid liability link did not persist');
+    }
+    echo "PASS synthetic Plaid liability links its legal entity and GL account\n";
+
     foreach ([
         [['balances' => ['iso_currency_code' => 'CAD']], $usdEntity],
         [['iso_currency_code' => null], $usdEntity],
@@ -103,4 +131,10 @@ $countStmt->execute(['tenant' => $tenantId]);
 if ((int) $countStmt->fetchColumn() !== $before) {
     throw new RuntimeException('Synthetic Plaid bank fixture did not roll back');
 }
-echo "PASS synthetic Plaid bank items roll back\n";
+$liabilityLeft = $pdo->prepare('SELECT COUNT(*) FROM treasury_liability_accounts
+    WHERE tenant_id = :tenant AND plaid_account_id = "ci-plaid-card-20261011"');
+$liabilityLeft->execute(['tenant' => $tenantId]);
+if ((int) $liabilityLeft->fetchColumn() !== 0) {
+    throw new RuntimeException('Synthetic Plaid liability fixture did not roll back');
+}
+echo "PASS synthetic Plaid bank and liability items roll back\n";

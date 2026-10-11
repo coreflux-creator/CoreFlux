@@ -34,6 +34,18 @@ $withoutBankScope['accounting_bank_accounts'] = array_values(array_diff(
 $check('missing entity-owned bank scope is reported', in_array(
     'accounting_bank_accounts.entity_scope_id',
     coreAccountingMissingSchema($withoutBankScope), true));
+$withoutPlaidBalance = $required;
+$withoutPlaidBalance['plaid_accounts'] = array_values(array_diff(
+    $withoutPlaidBalance['plaid_accounts'], ['iso_currency_code']));
+$check('missing Plaid balance migration is reported', in_array(
+    'plaid_accounts.iso_currency_code',
+    coreAccountingMissingSchema($withoutPlaidBalance), true));
+$withoutLiabilityLink = $required;
+$withoutLiabilityLink['treasury_liability_accounts'] = array_values(array_diff(
+    $withoutLiabilityLink['treasury_liability_accounts'], ['plaid_account_id']));
+$check('missing Treasury Plaid link migration is reported', in_array(
+    'treasury_liability_accounts.plaid_account_id',
+    coreAccountingMissingSchema($withoutLiabilityLink), true));
 $withoutCoreOneIntent = $required;
 $withoutCoreOneIntent['coreone_document_requests'] = array_values(array_diff(
     $withoutCoreOneIntent['coreone_document_requests'], ['intent_hash']));
@@ -65,6 +77,11 @@ unset($withoutBankKey['accounting_bank_accounts']);
 $check('missing entity-owned bank uniqueness is reported', in_array(
     'accounting_bank_accounts UNIQUE (tenant_id, entity_scope_id, gl_account_code)',
     coreAccountingMissingUniqueKeys($withoutBankKey), true));
+$withoutLiabilityUnique = $requiredKeys;
+$withoutLiabilityUnique['treasury_liability_accounts'] = [['tenant_id', 'account_id']];
+$check('missing Plaid liability identity key is reported', in_array(
+    'treasury_liability_accounts UNIQUE (tenant_id, plaid_account_id)',
+    coreAccountingMissingUniqueKeys($withoutLiabilityUnique), true));
 $withLegacyBankKey = $requiredKeys;
 $withLegacyBankKey['accounting_bank_accounts'][] = ['tenant_id', 'gl_account_code'];
 $check('old tenant-wide bank uniqueness is incompatible even beside the new key',
@@ -119,6 +136,16 @@ $resetMigration = (string) file_get_contents(__DIR__ . '/../core/migrations/160_
 $check('password recovery schema is created by the guarded migration',
     str_contains($resetMigration, 'CREATE TABLE IF NOT EXISTS password_resets')
     && str_contains($resetMigration, 'ADD COLUMN token_hash'));
+
+foreach ([
+    'core/plaid_service.php', 'api/plaid_bank_link.php', 'api/plaid_diagnostics.php',
+    'modules/treasury/api/deposit_accounts.php',
+    'modules/treasury/api/liability_accounts.php',
+] as $path) {
+    $source = (string) file_get_contents(__DIR__ . '/../' . $path);
+    $check($path . ' never migrates Plaid schema in a request',
+        preg_match('/ALTER\\s+TABLE\\s+(?:plaid_accounts|treasury_liability_accounts)/i', $source) === 0);
+}
 
 echo $failures ? "Failed: {$failures}/{$checks}\n" : "Passed: {$checks}\n";
 exit($failures ? 1 : 0);
