@@ -295,7 +295,7 @@ try {
         && !empty($arCollected['matched']),
         'open invoice and posted AR control both fall by five cents');
 
-    $invoiceState = $pdo->prepare('SELECT status, amount_due, amount_paid
+    $invoiceState = $pdo->prepare('SELECT invoice_number, status, amount_due, amount_paid
         FROM billing_invoices WHERE tenant_id = :tenant AND id = :invoice');
     $invoiceState->execute(['tenant' => $tenantId, 'invoice' => $invoiceId]);
     $collectedInvoice = $invoiceState->fetch(PDO::FETCH_ASSOC);
@@ -313,6 +313,74 @@ try {
     $assert($deltaCents($collectedReports['cash'], $replayReports['cash'], 'net_change_in_cash') === 0
         && $deltaCents($arCollected, $replayReports['controls']['controls']['ar'] ?? [], 'source_due') === 0,
         'receipt retry leaves cash and outstanding AR unchanged');
+
+    $invoiceNumber = (string) $collectedInvoice['invoice_number'];
+    $fitid = 'CI-BANK-PARTIAL-' . bin2hex(random_bytes(8));
+    $csv = "Date,Description,Amount,Transaction ID\n"
+        . "2026-10-11,Partial payment for {$invoiceNumber},0.03,{$fitid}\n";
+    $import = $request('/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id='
+        . $bankId, 'POST', ['csv' => $csv]);
+    $assert($import['status'] === 201 && (int) ($import['body']['inserted'] ?? 0) === 1,
+        'new synthetic bank-feed deposit was imported through the authenticated Accounting API');
+    $lineStmt = $pdo->prepare('SELECT id, match_status FROM accounting_bank_statement_lines
+        WHERE tenant_id = :tenant AND bank_account_id = :bank AND fitid = :fitid');
+    $lineStmt->execute(['tenant' => $tenantId, 'bank' => $bankId, 'fitid' => $fitid]);
+    $bankLine = $lineStmt->fetch(PDO::FETCH_ASSOC);
+    $lineId = (int) ($bankLine['id'] ?? 0);
+    $assert($lineId > 0 && ($bankLine['match_status'] ?? null) === 'unmatched',
+        'imported deposit starts as an unmatched bank line');
+
+    $candidates = $request('/modules/accounting/api/bank_statements.php?action=invoice_candidates&line_id='
+        . $lineId . '&q=' . rawurlencode($invoiceNumber), 'GET');
+    $candidateRows = $candidates['body']['rows'] ?? [];
+    $assert($candidates['status'] === 200 && count($candidateRows) === 1
+        && (int) $candidateRows[0]['id'] === $invoiceId
+        && abs((float) $candidateRows[0]['amount_due'] - 0.08) < 0.005,
+        'bank receipt picker finds the posted invoice and its remaining balance');
+
+    $splitPath = '/modules/accounting/api/bank_statements.php?action=split_match_invoices&line_id=' . $lineId;
+    $splitRequest = ['allocations' => [['invoice_id' => $invoiceId, 'amount' => 0.03]],
+        'account_splits' => []];
+    $bankReceipt = $request($splitPath, 'POST', $splitRequest);
+    $bankJournalId = (int) ($bankReceipt['body']['matched_je_id'] ?? 0);
+    $bankPaymentIds = array_map('intval', $bankReceipt['body']['payment_ids'] ?? []);
+    $assert($bankReceipt['status'] === 200 && $bankJournalId > 0 && count($bankPaymentIds) === 1,
+        'bank-feed partial match creates one posted journal and one client payment');
+    $lineStmt->execute(['tenant' => $tenantId, 'bank' => $bankId, 'fitid' => $fitid]);
+    $matchedLine = $lineStmt->fetch(PDO::FETCH_ASSOC);
+    $assert($matchedLine && $matchedLine['match_status'] === 'matched',
+        'bank-feed deposit is matched rather than left in reconciliation');
+
+    $bankReports = $reportSnapshot();
+    $bankAr = $bankReports['controls']['controls']['ar'] ?? [];
+    $assert($deltaCents($collectedReports['income'], $bankReports['income'], 'total_revenue') === 0
+        && $deltaCents($collectedReports['income'], $bankReports['income'], 'net_income') === 0,
+        'bank-feed collection does not recognize invoice revenue again');
+    $assert($deltaCents($collectedReports['balance'], $bankReports['balance'], 'total_assets') === 0
+        && !empty($bankReports['balance']['balanced'])
+        && $deltaCents($collectedReports['cash'], $bankReports['cash'], 'net_change_in_cash') === 3
+        && $deltaCents($collectedReports['cash'], $bankReports['cash'], 'cash_change_from_gl') === 3,
+        'bank-feed collection raises cash while preserving the balanced balance sheet');
+    $assert($deltaCents($arCollected, $bankAr, 'source_due') === -3
+        && $deltaCents($arCollected, $bankAr, 'gl_balance') === -3
+        && $deltaCents($arCollected, $bankAr, 'difference') === 0
+        && !empty($bankAr['matched']),
+        'bank-feed collection reduces source AR and its posted GL control together');
+    $invoiceState->execute(['tenant' => $tenantId, 'invoice' => $invoiceId]);
+    $bankCollectedInvoice = $invoiceState->fetch(PDO::FETCH_ASSOC);
+    $assert($bankCollectedInvoice && $bankCollectedInvoice['status'] === 'partially_paid'
+        && abs((float) $bankCollectedInvoice['amount_due'] - 0.05) < 0.005
+        && abs((float) $bankCollectedInvoice['amount_paid'] - 0.08) < 0.005,
+        'invoice persists both receipts and only five cents remains due');
+    $bankReplay = $request($splitPath, 'POST', $splitRequest);
+    $assert($bankReplay['status'] === 200 && !empty($bankReplay['body']['idempotent_replay'])
+        && (int) ($bankReplay['body']['matched_je_id'] ?? 0) === $bankJournalId
+        && array_map('intval', $bankReplay['body']['payment_ids'] ?? []) === $bankPaymentIds,
+        'repeating the bank match returns the original journal and payment');
+    $bankReplayReports = $reportSnapshot();
+    $assert($deltaCents($bankReports['cash'], $bankReplayReports['cash'], 'net_change_in_cash') === 0
+        && $deltaCents($bankAr, $bankReplayReports['controls']['controls']['ar'] ?? [], 'source_due') === 0,
+        'bank match retry leaves cash and outstanding AR unchanged');
 } finally {
     @unlink($cookie);
 }
