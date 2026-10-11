@@ -418,7 +418,8 @@ export default function InvoiceDetail() {
             </p>
             {!data.delivery_sender?.ready && <p className="error" role="alert">
               {data.delivery_sender?.reason || 'This invoice has no valid legal entity for delivery.'}{' '}
-              <Link to={`/modules/billing/clients?entity_id=${inv.entity_id}`} onClick={() => setShowSend(false)}>Set up billing sender</Link>
+              {data.delivery_sender?.setup_target !== 'provider' &&
+                <Link to={`/modules/billing/clients?entity_id=${inv.entity_id}`} onClick={() => setShowSend(false)}>Set up billing sender</Link>}
             </p>}
             <input
               type="email"

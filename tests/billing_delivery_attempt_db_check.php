@@ -53,6 +53,62 @@ try {
     $invoiceId = (int) $pdo->lastInsertId();
     $assert($invoiceId > 0, 'new synthetic posted invoice exists in the disposable database');
 
+    $mailSettings = [
+        'COREFLUX_ACCOUNTING_RESEND_API_KEY', 'COREFLUX_ACCOUNTING_FROM_EMAIL',
+        'COREFLUX_ACCOUNTING_MAIL_TEST_MODE', 'COREFLUX_ACCOUNTING_TEST_RECIPIENTS',
+    ];
+    $originalMailSettings = [];
+    foreach ($mailSettings as $name) {
+        $originalMailSettings[$name] = getenv($name);
+        putenv($name . '=');
+    }
+    try {
+        $logOnly = billingDeliveryTransportReadiness('log', 'delivery@coreaccounting.invalid');
+        $missingKey = billingDeliveryTransportReadiness('resend', 'delivery@coreaccounting.invalid');
+        $assert(!$logOnly['ready'] && $logOnly['http_status'] === 503
+            && !$missingKey['ready'] && $missingKey['http_status'] === 503,
+            'log-only and missing-key modes cannot claim a customer email was sent');
+
+        putenv('COREFLUX_ACCOUNTING_RESEND_API_KEY=re_ci_disposable');
+        $missingSender = billingDeliveryTransportReadiness('resend', 'delivery@coreaccounting.invalid');
+        $assert(!$missingSender['ready'] && $missingSender['http_status'] === 503,
+            'a missing standalone sender fails before reserving delivery');
+
+        putenv('COREFLUX_ACCOUNTING_FROM_EMAIL=qa@coreaccounting.invalid');
+        putenv('COREFLUX_ACCOUNTING_MAIL_TEST_MODE=1');
+        $missingAllowlist = billingDeliveryTransportReadiness('resend', 'delivery@coreaccounting.invalid');
+        $assert(!$missingAllowlist['ready'] && $missingAllowlist['http_status'] === 503,
+            'test mode without an allowlist cannot reserve delivery');
+
+        putenv('COREFLUX_ACCOUNTING_TEST_RECIPIENTS=allowed@coreaccounting.invalid');
+        $blockedRecipient = billingDeliveryTransportReadiness('resend',
+            'delivery@coreaccounting.invalid', 'qa@coreaccounting.invalid');
+        $wrongSender = billingDeliveryTransportReadiness('resend',
+            'allowed@coreaccounting.invalid', 'other@coreaccounting.invalid');
+        $allowedRecipient = billingDeliveryTransportReadiness('resend',
+            'ALLOWED@coreaccounting.invalid', 'QA@coreaccounting.invalid');
+        $assert(!$blockedRecipient['ready'] && $blockedRecipient['http_status'] === 422
+            && !$wrongSender['ready'] && $wrongSender['http_status'] === 503
+            && $allowedRecipient['ready'],
+            'test mode requires an allowed recipient and the configured sender before a send attempt');
+        $assert((int) $pdo->query('SELECT COUNT(*) FROM billing_invoice_tokens')->fetchColumn() === 0,
+            'known transport setup errors created no customer links');
+    } finally {
+        foreach ($originalMailSettings as $name => $value) {
+            putenv($value === false ? $name : $name . '=' . $value);
+        }
+    }
+
+    $apiSource = file_get_contents($root . '/modules/billing/api/invoices.php');
+    $sendStart = strpos((string) $apiSource, "if (\$method === 'POST' && \$action === 'send')");
+    $preflight = strpos((string) $apiSource,
+        'billingDeliveryTransportReadiness(', $sendStart ?: 0);
+    $reserve = strpos((string) $apiSource, 'billingDeliveryReserve($tid, $id, $requestId',
+        $sendStart ?: 0);
+    $assert($sendStart !== false && $preflight !== false && $reserve !== false
+        && $sendStart < $preflight && $preflight < $reserve,
+        'send endpoint checks the standalone transport before reserving a delivery');
+
     $firstId = 'a223e456-e89b-42d3-a456-426614174000';
     $secondId = 'b223e456-e89b-42d3-a456-426614174000';
     $thirdId = 'c223e456-e89b-42d3-a456-426614174000';

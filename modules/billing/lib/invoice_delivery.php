@@ -4,6 +4,56 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/billing.php';
 require_once __DIR__ . '/entity_delivery.php';
+require_once __DIR__ . '/../../../core/accounting/mail_settings.php';
+
+/** A local test log is not customer delivery; reject known setup failures before reserving a link. */
+function billingDeliveryTransportReadiness(
+    string $driverName, ?string $recipient = null, ?string $senderFrom = null
+): array
+{
+    if (getenv('COREFLUX_ENV') !== 'coreaccounting') {
+        return ['ready' => true, 'reason' => null, 'http_status' => 200];
+    }
+    if ($driverName === 'log') {
+        return ['ready' => false,
+            'reason' => 'Invoice email is in log-only test mode. No customer message would be delivered.',
+            'http_status' => 503];
+    }
+    if ($driverName !== 'resend'
+        || coreAccountingMailSetting('COREFLUX_ACCOUNTING_RESEND_API_KEY') === '') {
+        return ['ready' => false,
+            'reason' => 'CoreAccounting email delivery is not configured. No delivery attempt was started.',
+            'http_status' => 503];
+    }
+    $configuredFrom = trim(coreAccountingMailSetting('COREFLUX_ACCOUNTING_FROM_EMAIL'));
+    if (!filter_var($configuredFrom, FILTER_VALIDATE_EMAIL)) {
+        return ['ready' => false,
+            'reason' => 'CoreAccounting needs a valid sender address before invoice email can be sent.',
+            'http_status' => 503];
+    }
+    if ($senderFrom !== null && strcasecmp(trim($senderFrom), $configuredFrom) !== 0) {
+        return ['ready' => false,
+            'reason' => 'The billing sender does not match the configured CoreAccounting email address.',
+            'http_status' => 503];
+    }
+    if (coreAccountingMailSetting('COREFLUX_ACCOUNTING_MAIL_TEST_MODE') === '1') {
+        $allowed = array_values(array_filter(array_map(
+            static fn(string $email): string => strtolower(trim($email)),
+            explode(',', coreAccountingMailSetting('COREFLUX_ACCOUNTING_TEST_RECIPIENTS'))
+        )));
+        if (!$allowed) {
+            return ['ready' => false,
+                'reason' => 'CoreAccounting test recipients are not configured. No delivery attempt was started.',
+                'http_status' => 503];
+        }
+        if ($recipient !== null && !in_array(strtolower(trim($recipient)), $allowed, true)) {
+            return ['ready' => false,
+                'reason' => 'This recipient is not allowed in the CoreAccounting test environment.',
+                'http_status' => 422];
+        }
+    }
+    return ['ready' => true, 'reason' => null, 'http_status' => 200];
+}
 
 function billingDeliveryRequestId(string $value): string
 {

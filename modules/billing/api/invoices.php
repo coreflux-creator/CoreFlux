@@ -120,6 +120,23 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     $deliveryStmt->execute(['id' => $id, 't' => $tid]);
     $delivery = $deliveryStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     $deliveryEntityId = billingInvoiceDeliveryEntityId($tid, $inv);
+    $deliverySender = $deliveryEntityId ? billingEntityMailSender($tid, $deliveryEntityId) : null;
+    if ($deliverySender && getenv('COREFLUX_ENV') === 'coreaccounting') {
+        try {
+            $transport = billingDeliveryTransportReadiness(
+                cf_mail_bootstrap()->default_driver_name(), null, (string) ($deliverySender['from'] ?? '')
+            );
+            if (!$transport['ready']) {
+                $deliverySender['ready'] = false;
+                $deliverySender['reason'] = $transport['reason'];
+                $deliverySender['setup_target'] = 'provider';
+            }
+        } catch (\Throwable $e) {
+            $deliverySender['ready'] = false;
+            $deliverySender['reason'] = 'CoreAccounting email delivery is not configured.';
+            $deliverySender['setup_target'] = 'provider';
+        }
+    }
     api_ok([
         'invoice' => $inv,
         'lines' => $lines,
@@ -128,7 +145,7 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
         'delivery' => $delivery,
         'capabilities' => ['can_send' => RBAC::hasPermission($user, 'billing.invoice.send')],
         'default_recipient' => billingInvoiceDefaultRecipient($tid, $inv),
-        'delivery_sender' => $deliveryEntityId ? billingEntityMailSender($tid, $deliveryEntityId) : null,
+        'delivery_sender' => $deliverySender,
     ]);
 }
 
@@ -845,6 +862,10 @@ if ($method === 'POST' && $action === 'send') {
         error_log('[billing invoice delivery] Mail setup failed: ' . $e->getMessage());
         api_error('Invoice email is not configured. No delivery attempt was started.', 503);
     }
+    $transport = billingDeliveryTransportReadiness(
+        $svc->default_driver_name(), $to, (string) ($sender['from'] ?? '')
+    );
+    if (!$transport['ready']) api_error($transport['reason'], $transport['http_status']);
 
     if (!is_bool($body['resend'] ?? false)) api_error('Resend confirmation must be true or false.', 422);
     try {
