@@ -43,7 +43,8 @@ test('source is archived after reservation and before result finalization', asyn
       calls.push({ path, body });
       return path.includes('reserve')
         ? { recorded: true, id: 42 }
-        : { recorded: true, id: 42, status: 'success' };
+        : { recorded: true, id: 42, status: 'success',
+          server_outcome_recorded: true, rows_imported: 3, rows_skipped: 0 };
     },
   };
   globalThis.csvAuditTestAttach = async payload => {
@@ -69,8 +70,21 @@ test('source is archived after reservation and before result finalization', asyn
   assert.equal(calls[0].body.rows_total, 3);
   assert.equal(calls[0].body.bytes_processed, 10);
   assert.equal(calls[1].attachment.importRunId, 42);
-  assert.equal(calls[2].body.rows_imported, 3);
-  assert.equal(calls[2].body.rows_skipped, 0);
+  assert.deepEqual(calls[2].body, { id: 42 });
+});
+
+test('standalone refuses missing or conflicting server counts', async () => {
+  globalThis.csvAuditTestApi = { post: async () => ({
+    recorded: true, id: 42, server_outcome_recorded: true,
+    rows_imported: 0, rows_skipped: 1,
+  }) };
+  await assert.rejects(finalizeCsvImportAudit({
+    runId: 42, result: { imported_count: 1, skipped_count: 0 }, startedAt: Date.now(),
+  }), /does not match/);
+  globalThis.csvAuditTestApi = { post: async () => ({ recorded: true, id: 42 }) };
+  await assert.rejects(finalizeCsvImportAudit({
+    runId: 42, result: { imported_count: 1, skipped_count: 0 }, startedAt: Date.now(),
+  }), /does not match/);
 });
 
 test('failed finalization never attempts source attachment', async () => {
