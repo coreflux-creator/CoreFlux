@@ -12,7 +12,8 @@ function coreAccountingUpgradeOptions(array $argv): array
     $activationNames = ['backup-root', 'webroot-sha256', 'private-sha256'];
     $options = [];
     foreach (array_slice($argv, 1) as $arg) {
-        if (in_array($arg, ['--inspect', '--confirm-code-only-upgrade'], true)
+        if (in_array($arg, ['--inspect', '--confirm-code-only-upgrade',
+            '--confirm-public-only-upgrade'], true)
             && !isset($options['mode'])) {
             $options['mode'] = substr($arg, 2);
             continue;
@@ -26,7 +27,8 @@ function coreAccountingUpgradeOptions(array $argv): array
     }
     if (!isset($options['mode']) || count(array_diff($names, array_keys($options))) > 0
         || ($options['mode'] === 'inspect' && count($options) !== count($names) + 1)
-        || ($options['mode'] === 'confirm-code-only-upgrade'
+        || (in_array($options['mode'], ['confirm-code-only-upgrade',
+            'confirm-public-only-upgrade'], true)
             && (count($options) !== count($names) + count($activationNames) + 1
                 || count(array_diff($activationNames, array_keys($options))) > 0))) {
         throw new RuntimeException('Upgrade requires one mode and all exact host/release identities.');
@@ -58,6 +60,18 @@ function coreAccountingUpgradeFingerprint(string $root): string
 {
     return hash('sha256', json_encode(coreAccountingInstallInventory($root),
         JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+}
+
+function coreAccountingUpgradePrivateUnchanged(array $old, array $new): bool
+{
+    $oldFiles = $old['private_files'] ?? null;
+    $newFiles = $new['private_files'] ?? null;
+    if (!is_array($oldFiles) || !is_array($newFiles) || !$oldFiles || !$newFiles) {
+        throw new RuntimeException('Both verified releases must contain a private runtime.');
+    }
+    ksort($oldFiles, SORT_STRING);
+    ksort($newFiles, SORT_STRING);
+    return $oldFiles === $newFiles;
 }
 
 function coreAccountingUpgradeMigrationCounts(array $result, string $database): array
@@ -217,9 +231,128 @@ function coreAccountingUpgradeInspect(array $options): array
         'live_apache_sha256' => hash('sha256', $apache),
         'release_public_files' => count($new['files']),
         'release_private_files' => count($new['private_files']),
+        'public_only_eligible' => coreAccountingUpgradePrivateUnchanged($old, $new),
         'migration_counts' => $migrationCounts,
         'schema_status' => $schema['status'],
     ];
+}
+
+function coreAccountingUpgradeSwapPublicOnly(string $webroot, string $privateRuntime,
+    string $package, string $backup, string $apache, array $manifest,
+    array $inspection): array
+{
+    if (!mkdir($backup, 0700) || !mkdir($backup . '/original-public_html', 0700)
+        || !mkdir($backup . '/failed-public_html', 0700)) {
+        throw new RuntimeException('Could not prepare the application-scoped rollback point.');
+    }
+
+    $moved = [];
+    $copyStarted = false;
+    try {
+        foreach (coreAccountingInstallEntries($webroot) as $name) {
+            if (!rename($webroot . '/' . $name, $backup . '/original-public_html/' . $name)) {
+                throw new RuntimeException('Could not back up an installed public entry.');
+            }
+            $moved[] = $name;
+        }
+        $copyStarted = true;
+        coreAccountingInstallCopyTree($package . '/public_html', $webroot);
+        $temporary = tempnam($webroot, '.coreaccounting-host-');
+        if ($temporary === false) throw new RuntimeException('Could not stage host Apache settings.');
+        try {
+            if (file_put_contents($temporary, $apache, LOCK_EX) !== strlen($apache)
+                || !chmod($temporary, 0644) || !rename($temporary, $webroot . '/.htaccess')) {
+                throw new RuntimeException('Could not activate host Apache settings.');
+            }
+        } finally {
+            if (is_file($temporary)) unlink($temporary);
+        }
+        coreAccountingInstallVerifyCopied($webroot, $privateRuntime,
+            $manifest, hash('sha256', $apache));
+        $privateAfter = coreAccountingUpgradeFingerprint($privateRuntime);
+        if (!hash_equals($inspection['live_private_sha256'], $privateAfter)) {
+            throw new RuntimeException('Private runtime changed during public-only activation.');
+        }
+        $receipt = array_merge($inspection, [
+            'status' => 'public_only_upgrade_installed',
+            'backup_root' => $backup,
+            'new_webroot_sha256' => coreAccountingUpgradeFingerprint($webroot),
+            'new_private_sha256' => $privateAfter,
+        ]);
+        $json = json_encode($receipt, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+        if (file_put_contents($backup . '/upgrade-receipt.json', $json, LOCK_EX) !== strlen($json)) {
+            throw new RuntimeException('Could not retain the upgrade receipt.');
+        }
+        return $receipt;
+    } catch (Throwable $error) {
+        $restored = true;
+        if ($copyStarted) {
+            foreach (coreAccountingInstallEntries($webroot) as $name) {
+                if (!rename($webroot . '/' . $name, $backup . '/failed-public_html/' . $name)) {
+                    $restored = false;
+                }
+            }
+        }
+        foreach ($moved as $name) {
+            if (file_exists($webroot . '/' . $name) || is_link($webroot . '/' . $name)
+                || !rename($backup . '/original-public_html/' . $name, $webroot . '/' . $name)) {
+                $restored = false;
+            }
+        }
+        throw new RuntimeException($restored
+            ? 'Public-only upgrade failed; original public files were restored.'
+            : 'Public-only upgrade failed and manual recovery is required from the private backup.', 0, $error);
+    }
+}
+
+function coreAccountingUpgradeActivatePublicOnly(array $options, array $inspection): array
+{
+    foreach (['webroot-sha256', 'private-sha256'] as $name) {
+        if (!preg_match('/^[a-f0-9]{64}$/D', $options[$name])) {
+            throw new RuntimeException('Activation requires exact inspected file fingerprints.');
+        }
+    }
+    if (!hash_equals($inspection['live_webroot_sha256'], $options['webroot-sha256'])
+        || !hash_equals($inspection['live_private_sha256'], $options['private-sha256'])
+        || ($inspection['public_only_eligible'] ?? false) !== true) {
+        throw new RuntimeException('Public-only upgrade requires unchanged private files and exact inspected fingerprints.');
+    }
+    $webroot = coreAccountingUpgradeDirectory($options['webroot'], 'Live webroot');
+    $privateRuntime = coreAccountingUpgradeDirectory($options['private-runtime'], 'Live private runtime');
+    $oldPackage = coreAccountingUpgradeDirectory($options['old-package'], 'Old package');
+    $package = coreAccountingUpgradeDirectory($options['package'], 'New package');
+    $backup = coreAccountingInstallNewPath($options['backup-root'], 'Private upgrade backup');
+    $appRoot = dirname($webroot);
+    if (!coreAccountingInstallWithin($backup, $appRoot)
+        || coreAccountingInstallWithin($backup, $webroot)
+        || !coreAccountingInstallWithin($oldPackage, $appRoot)
+        || !coreAccountingInstallWithin($package, $appRoot)
+        || !is_writable($webroot)
+        || (stat(dirname($backup))['dev'] ?? null) !== (stat($webroot)['dev'] ?? null)) {
+        throw new RuntimeException('Public-only release and private backup must stay within the writable application directory, outside its webroot.');
+    }
+    foreach ([$oldPackage, $package, $privateRuntime, $webroot] as $root) {
+        if (coreAccountingInstallWithin($backup, $root)
+            || coreAccountingInstallWithin($root, $backup)) {
+            throw new RuntimeException('Private upgrade backup overlaps a release or runtime.');
+        }
+    }
+    $old = coreAccountingInstallVerifiedPackage($oldPackage,
+        $options['old-commit'], $options['old-manifest-sha256']);
+    $new = coreAccountingInstallVerifiedPackage($package,
+        $options['commit'], $options['manifest-sha256']);
+    if (!coreAccountingUpgradePrivateUnchanged($old, $new)
+        || !hash_equals($inspection['live_webroot_sha256'], coreAccountingUpgradeFingerprint($webroot))
+        || !hash_equals($inspection['live_private_sha256'], coreAccountingUpgradeFingerprint($privateRuntime))) {
+        throw new RuntimeException('Release contents or installed files changed after inspection.');
+    }
+    $dbConfig = coreAccountingUpgradeFile($options['db-config'], 'Private database config');
+    $mailLog = coreAccountingUpgradeFile($options['mail-log'], 'Private mail log');
+    $apache = coreAccountingInstallApache($package . '/public_html',
+        $options['database'], $options['origin'], $dbConfig,
+        $privateRuntime . '/vendor/autoload.php', $mailLog);
+    return coreAccountingUpgradeSwapPublicOnly($webroot, $privateRuntime,
+        $package, $backup, $apache, $new, $inspection);
 }
 
 function coreAccountingUpgradeActivate(array $options, array $inspection): array
@@ -352,8 +485,11 @@ if (realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? '')) !== __FILE__) return;
 try {
     $options = coreAccountingUpgradeOptions($argv);
     $inspection = coreAccountingUpgradeInspect($options);
-    $result = $options['mode'] === 'inspect'
-        ? $inspection : coreAccountingUpgradeActivate($options, $inspection);
+    $result = match ($options['mode']) {
+        'inspect' => $inspection,
+        'confirm-public-only-upgrade' => coreAccountingUpgradeActivatePublicOnly($options, $inspection),
+        default => coreAccountingUpgradeActivate($options, $inspection),
+    };
     echo json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 } catch (Throwable $error) {
     fwrite(STDERR, $error->getMessage() . "\n");

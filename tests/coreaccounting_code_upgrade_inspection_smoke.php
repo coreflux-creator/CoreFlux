@@ -40,6 +40,19 @@ $activation = array_merge(['script.php', '--confirm-code-only-upgrade'],
 $expect(coreAccountingUpgradeOptions($activation)['mode'] === 'confirm-code-only-upgrade',
     'A complete guarded activation request was rejected.');
 $refuses(static fn() => coreAccountingUpgradeOptions(array_slice($activation, 0, -1)));
+$publicOnly = $activation;
+$publicOnly[1] = '--confirm-public-only-upgrade';
+$expect(coreAccountingUpgradeOptions($publicOnly)['mode'] === 'confirm-public-only-upgrade',
+    'A complete public-only activation request was rejected.');
+$refuses(static fn() => coreAccountingUpgradeOptions(array_slice($publicOnly, 0, -1)));
+$expect(coreAccountingUpgradePrivateUnchanged(
+    ['private_files' => ['a' => '1', 'b' => '2']],
+    ['private_files' => ['b' => '2', 'a' => '1']]),
+    'Identical private runtimes were not recognized.');
+$expect(!coreAccountingUpgradePrivateUnchanged(
+    ['private_files' => ['a' => '1']], ['private_files' => ['a' => '2']]),
+    'A changed private runtime was accepted for public-only activation.');
+$refuses(static fn() => coreAccountingUpgradePrivateUnchanged([], []));
 
 $matched = ['database' => 'qa_db', 'counts' => [
     'shipped' => 282, 'matched' => 282, 'pending' => 0, 'changed' => 0,
@@ -112,7 +125,6 @@ PHP);
         'legacy_db', $file, 'https://qa.invalid'));
     $refuses(static fn() => coreAccountingUpgradeVerifySchema($fixture,
         'invalid', $file, 'https://qa.invalid'));
-    echo "CoreAccounting code upgrade inspection: {$checks} checks passed\n";
 } finally {
     $resolved = realpath($fixture);
     $temp = realpath(sys_get_temp_dir());
@@ -128,3 +140,67 @@ PHP);
     unlink($resolved . '/file.txt');
     rmdir($resolved);
 }
+
+$swapRoot = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'coreaccounting-public-swap-'
+    . bin2hex(random_bytes(6));
+if (!mkdir($swapRoot, 0700)) throw new RuntimeException('Could not prepare public swap fixture.');
+try {
+    $app = $swapRoot . '/app';
+    $webroot = $app . '/public_html';
+    $package = $app . '/package';
+    $private = $swapRoot . '/private_runtime';
+    foreach ([$app, $webroot, $package, $package . '/public_html',
+        $private, $private . '/vendor'] as $directory) {
+        if (!mkdir($directory, 0700)) throw new RuntimeException('Could not create public swap fixture directory.');
+    }
+    file_put_contents($webroot . '/old.txt', 'installed before upgrade');
+    file_put_contents($webroot . '/.htaccess', 'old host rules');
+    file_put_contents($package . '/public_html/index.php', '<?php echo "new";');
+    file_put_contents($package . '/public_html/.htaccess', 'portable rules');
+    file_put_contents($private . '/vendor/autoload.php', 'unchanged private vendor');
+    $manifest = ['files' => [
+        '.htaccess' => hash_file('sha256', $package . '/public_html/.htaccess'),
+        'index.php' => hash_file('sha256', $package . '/public_html/index.php'),
+    ], 'private_files' => [
+        'vendor/autoload.php' => hash_file('sha256', $private . '/vendor/autoload.php'),
+    ]];
+    $privateBefore = coreAccountingUpgradeFingerprint($private);
+    $inspection = ['live_private_sha256' => $privateBefore];
+    $receipt = coreAccountingUpgradeSwapPublicOnly($webroot, $private, $package,
+        $app . '/backup-success', 'new host rules', $manifest, $inspection);
+    $expect($receipt['status'] === 'public_only_upgrade_installed'
+        && is_file($webroot . '/index.php') && !file_exists($webroot . '/old.txt')
+        && is_file($app . '/backup-success/original-public_html/old.txt'),
+        'Public-only activation did not retain the previous webroot.');
+    $expect($receipt['new_private_sha256'] === $privateBefore,
+        'Public-only activation changed the private runtime.');
+
+    file_put_contents($webroot . '/marker.txt', 'retain on failure');
+    $publicBeforeFailure = coreAccountingUpgradeFingerprint($webroot);
+    $wrongManifest = $manifest;
+    $wrongManifest['files']['index.php'] = str_repeat('0', 64);
+    $refuses(static fn() => coreAccountingUpgradeSwapPublicOnly($webroot,
+        $private, $package, $app . '/backup-failure', 'new host rules',
+        $wrongManifest, $inspection));
+    $expect(coreAccountingUpgradeFingerprint($webroot) === $publicBeforeFailure
+        && is_file($webroot . '/marker.txt'),
+        'A failed public-only activation did not restore the previous webroot.');
+    $expect(coreAccountingUpgradeFingerprint($private) === $privateBefore,
+        'A failed public-only activation changed the private runtime.');
+} finally {
+    $resolved = realpath($swapRoot);
+    $temp = realpath(sys_get_temp_dir());
+    if ($resolved === false || $temp === false
+        || !str_starts_with($resolved, $temp . DIRECTORY_SEPARATOR . 'coreaccounting-public-swap-')) {
+        throw new RuntimeException('Refusing public swap cleanup outside the test directory.');
+    }
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($resolved, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST);
+    foreach ($iterator as $entry) {
+        if ($entry->isLink()) throw new RuntimeException('Refusing linked public swap fixture cleanup.');
+        $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname());
+    }
+    rmdir($resolved);
+}
+echo "CoreAccounting code upgrade inspection: {$checks} checks passed\n";
