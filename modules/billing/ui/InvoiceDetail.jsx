@@ -4,6 +4,7 @@ import { ArrowRight, BookOpenCheck, Check, Copy, Landmark, Link2, Link2Off, Send
 import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import { invoiceVoidGuidance } from '../../../dashboard/src/lib/invoiceVoidGuidance';
 
 const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 
@@ -86,6 +87,12 @@ export default function InvoiceDetail() {
     && !inv.journal_entry_id
     && Number(inv.amount_paid || 0) === 0
     && allocations.length === 0;
+  const voidNote = invoiceVoidGuidance({
+    status: inv.status,
+    canVoid: Boolean(canVoid),
+    approvalReady: Boolean(approvalState) && !approval.loading && !approval.error,
+    approvalPending: Boolean(approvalState?.pending),
+  });
 
   const run = async (label, fn) => {
     setBusy(label); setActionError(null);
@@ -279,9 +286,9 @@ export default function InvoiceDetail() {
         </p>
       )}
 
-      {!canVoid && inv.status !== 'void' && (
+      {voidNote && (
         <p className="muted" style={{ fontSize: 12, margin: '0 0 16px' }} data-testid="billing-invoice-void-note">
-          This invoice cannot be voided from here. Its approval, ledger, and payment activity must be corrected together.
+          {voidNote}
         </p>
       )}
 
