@@ -8,6 +8,7 @@ $export = (string) file_get_contents($root . '/modules/ap/api/csv_export.php');
 $datasets = (string) file_get_contents($root . '/core/export_datasets.php');
 $single = (string) file_get_contents($root . '/dashboard/src/components/CsvImportPage.jsx');
 $bulk = (string) file_get_contents($root . '/dashboard/src/pages/CsvBulkImport.jsx');
+$vendorUi = (string) file_get_contents($root . '/modules/ap/ui/VendorsCsvImport.jsx');
 $checks = [
     'raw export includes the stable vendor ID' => str_contains($export, "'vendor_id'             => 'Vendor ID'")
         && str_contains($datasets, 'SELECT id AS vendor_id, vendor_name, external_id, source_system,'),
@@ -26,7 +27,9 @@ $checks = [
     'single-file preview includes update mode' => str_contains($single, "?action=dry_run\${updateMode ? '&update_existing=1' : ''}"),
     'single-file toggle refreshes preview' => str_contains($single, 'dryRun(next);'),
     'bulk vendor import supports update mode' => preg_match('/ap_vendors:\s*\{[^}]*supportsUpdate:\s*true/s', $bulk) === 1,
+    'bulk auto-detects ID-based partial vendor files' => str_contains($bulk, "signature: ['Vendor ID','Vendor name','Vendor type']"),
     'bulk preview includes update mode' => str_contains($bulk, "?action=dry_run\${shouldUpdate ? '&update_existing=1' : ''}"),
+    'single-file preview shows the target vendor ID' => str_contains($vendorUi, "{ key: 'vendor_id',       label: 'Vendor ID' }"),
 ];
 
 $failed = 0;

@@ -18,6 +18,7 @@ export default function VendorsCsvImport({ standaloneAccounting = false }) {
       presetEntity="ap_vendors"
       standaloneAccounting={standaloneAccounting}
       previewColumns={[
+        { key: 'vendor_id',       label: 'Vendor ID' },
         { key: 'vendor_name',     label: 'Name' },
         { key: 'vendor_type',     label: 'Type' },
         { key: 'vendor_category', label: 'Category' },

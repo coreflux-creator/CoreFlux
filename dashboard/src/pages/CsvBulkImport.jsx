@@ -49,7 +49,7 @@ const ENTITY_CONFIG = {
     label: 'Vendors',
     endpoint: '/modules/ap/api/csv_import.php',
     exportHref: '/modules/ap/api/csv_export.php',
-    signature: ['Vendor name','Vendor type'],
+    signature: ['Vendor ID','Vendor name','Vendor type'],
     supportsUpdate: true,
   },
   staffing_clients: {
