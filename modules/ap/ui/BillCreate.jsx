@@ -9,6 +9,7 @@ import VendorTypeahead from './VendorTypeahead';
 import VendorQuickCreate from './VendorQuickCreate';
 import { calculateDocumentTotals } from '../../../dashboard/src/lib/documentTotals';
 import { directBillAccountChoices } from './directBillAccounts';
+import { billDetailUrl } from './billNavigation.mjs';
 
 const ITEM_TYPE_FALLBACK = ITEM_TYPES.map((t) => t.value);
 const AP_ITEM_TYPES = ITEM_TYPES.filter((t) => t.value !== 'discount');
@@ -163,13 +164,11 @@ export default function BillCreate({ session }) {
           await api.post(`/modules/ap/api/bills.php?action=attach&id=${res.id}`, uploaded);
         } catch {
           // The bill is saved even when its supporting document needs a retry.
-          const detailParams = new URLSearchParams(contextParams);
-          detailParams.set('attach_error', '1');
-          nav(`../bills/${res.id}?${detailParams}`);
+          nav(billDetailUrl(res.id, contextParams, res.entity_id ?? entityId, true));
           return;
         }
       }
-      nav(`../bills/${res.id}${contextQuery}`);
+      nav(billDetailUrl(res.id, contextParams, res.entity_id ?? entityId));
     } catch (e2) { setErr(e2); }
     finally     { setBusy(false); }
   };
