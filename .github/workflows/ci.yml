@@ -326,6 +326,9 @@ jobs:
       - name: Exercise draft-only account visibility across reports
         run: php tests/accounting_draft_report_visibility_db_check.php --confirm-disposable-fixture
 
+      - name: Rehearse pending migrations on populated Accounting tables
+        run: php tests/coreaccounting_populated_upgrade_db_check.php --confirm-disposable-fixture
+
       - name: Exercise log-only password reset and replay
         run: |
           export MAIL_DRIVER=log
