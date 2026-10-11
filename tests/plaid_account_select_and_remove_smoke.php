@@ -103,8 +103,8 @@ _a('migration adds balance_as_of timestamp',                str_contains($mig, '
 
 $svc = (string) file_get_contents(__DIR__ . '/../core/plaid_service.php');
 _a('plaidPersistAccountBalances helper exists',             str_contains($svc, 'function plaidPersistAccountBalances'));
-_a('helper self-heals missing columns at runtime',          str_contains($svc, "'plaid_accounts'")
-                                                          && str_contains($svc, 'ADD COLUMN'));
+_a('balance helper checks migrations without runtime DDL', str_contains($svc, 'plaidRequireBalanceSchema($pdo)')
+                                                          && !str_contains($svc, 'ALTER TABLE plaid_accounts'));
 
 _a('exchange persists balances after upsert',               str_contains($bankLink, 'plaidPersistAccountBalances'));
 $sync = (string) file_get_contents(__DIR__ . '/../api/plaid_sync_transactions.php');
