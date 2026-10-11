@@ -86,7 +86,9 @@ $a('standalone contractor vendor can be created inline',
     strpos($vq, "standaloneAccounting && <option value=\"1099_individual\"") !== false
     && strpos($vq, "standaloneAccounting && <option value=\"c2c_corp\"") !== false
     && strpos($vq, "!standaloneAccounting && category === 'hourly_labor'") !== false
-    && strpos($vq, "requires_1099: vendorType === '1099_individual'") !== false);
+    && strpos($vq, 'requires_1099: requires1099') !== false
+    && strpos($vq, 'vendor-quick-create-requires-1099') !== false
+    && strpos($vq, 'extractedRequires1099(d, current)') !== false);
 $a('standalone hides provider payment defaults',
     strpos($vq, '!standaloneAccounting && <option value="plaid"') !== false
     && strpos($vq, '!standaloneAccounting && <option value="mercury"') !== false);
