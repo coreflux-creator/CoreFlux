@@ -102,13 +102,13 @@ function reportIncomeStatement(int $tenantId, string $from, string $to, ?int $en
 
     $stmt = $pdo->prepare(
         'SELECT a.code, a.name, a.account_type, a.normal_side,
-                COALESCE(SUM(l.debit),0)  AS debit,
-                COALESCE(SUM(l.credit),0) AS credit
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN l.debit ELSE 0 END),0)  AS debit,
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN l.credit ELSE 0 END),0) AS credit
          FROM accounting_accounts a
          LEFT JOIN accounting_journal_entry_lines l ON l.account_id = a.id
          LEFT JOIN accounting_journal_entries je ON je.id = l.je_id
+           AND ' . implode(' AND ', $where) . '
          WHERE a.tenant_id = :t_a AND a.account_type IN ("revenue","expense")
-           AND (je.id IS NULL OR (' . implode(' AND ', $where) . '))
          GROUP BY a.id
          ORDER BY a.account_type DESC, a.code'
     );
@@ -196,13 +196,13 @@ function reportBalanceSheet(int $tenantId, string $asOf, ?int $entityId): array
 
     $stmt = $pdo->prepare(
         'SELECT a.code, a.name, a.account_type, a.normal_side,
-                COALESCE(SUM(l.debit),0)  AS debit,
-                COALESCE(SUM(l.credit),0) AS credit
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN l.debit ELSE 0 END),0)  AS debit,
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN l.credit ELSE 0 END),0) AS credit
          FROM accounting_accounts a
          LEFT JOIN accounting_journal_entry_lines l ON l.account_id = a.id
          LEFT JOIN accounting_journal_entries je ON je.id = l.je_id
+           AND ' . implode(' AND ', $where) . '
          WHERE a.tenant_id = :t_a
-           AND (je.id IS NULL OR (' . implode(' AND ', $where) . '))
          GROUP BY a.id
          ORDER BY a.account_type, a.code'
     );

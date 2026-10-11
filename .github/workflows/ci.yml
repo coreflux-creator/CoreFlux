@@ -323,6 +323,9 @@ jobs:
       - name: Exercise journal deletion audit and balance restoration
         run: php tests/accounting_journal_void_audit_db_check.php --confirm-disposable-fixture
 
+      - name: Exercise draft-only account visibility across reports
+        run: php tests/accounting_draft_report_visibility_db_check.php --confirm-disposable-fixture
+
       - name: Exercise log-only password reset and replay
         run: |
           export MAIL_DRIVER=log
