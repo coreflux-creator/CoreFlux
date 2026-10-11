@@ -93,6 +93,89 @@ try {
     $assert($saved['vendor_type'] === 'w9_business' && (int) $saved['requires_1099'] === 1,
         'manual bill preparation does not overwrite the vendor directory');
 
+    $reconciled = placementEconomicsEnsureVendor(
+        $tenantId, 'CI 1099 opted-out individual', null, 'other', null, null, 712345
+    );
+    $vendorCheck->execute(['t' => $tenantId, 'id' => $optedOutId]);
+    $saved = $vendorCheck->fetch(PDO::FETCH_ASSOC);
+    $assert($reconciled['vendor_type'] === '1099_individual'
+        && $saved['vendor_type'] === '1099_individual' && (int) $saved['requires_1099'] === 0,
+        'placement reconciliation preserves an already-reviewed vendor classification');
+
+    $generated = [
+        'ap_vendor_id' => $optedOutId,
+        'bill' => ['vendor_name' => 'Stale placement payee', 'vendor_type' => 'other',
+            'vendor_company_id' => null],
+        'lines' => [['placement_id' => 712345, 'description' => 'Synthetic approved time',
+            'is_1099_eligible' => 1]],
+    ];
+    $prepared = apPrepareGeneratedDraftVendor($tenantId, $generated);
+    $assert($prepared['bill']['vendor_name'] === 'CI 1099 opted-out individual'
+        && $prepared['bill']['vendor_type'] === '1099_individual'
+        && (int) $prepared['lines'][0]['is_1099_eligible'] === 0,
+        'generated AP labor honors an opted-out saved vendor despite stale placement metadata');
+
+    $generated['ap_vendor_id'] = $partnershipId;
+    $generated['bill']['vendor_name'] = 'Old W-9 payee label';
+    $generated['bill']['vendor_type'] = 'other';
+    $generated['lines'][0]['is_1099_eligible'] = 0;
+    $preparedBusiness = apPrepareGeneratedDraftVendor($tenantId, $generated);
+    $assert($preparedBusiness['bill']['vendor_name'] === 'CI 1099 partnership'
+        && $preparedBusiness['bill']['vendor_type'] === 'w9_business'
+        && (int) $preparedBusiness['lines'][0]['is_1099_eligible'] === 1,
+        'generated AP labor honors an opted-in business vendor');
+
+    $preparedBusiness['lines'][0]['description'] = 'Synthetic secondary placement fee';
+    $secondary = apPrepareGeneratedDraftVendor($tenantId, $preparedBusiness);
+    $assert((int) $secondary['lines'][0]['is_1099_eligible'] === 1,
+        'generated secondary payee lines use the same reviewed vendor classification');
+
+    $insertGenerated = $pdo->prepare(
+        'INSERT INTO ap_bills
+            (tenant_id, bill_number, internal_ref, vendor_name, vendor_type, received_at,
+             bill_date, due_date, subtotal, total, amount_due, status, source)
+         VALUES (:t, :ref, :ref2, :name, :type, "2026-10-11", "2026-10-11",
+                 "2026-11-10", 1.00, 1.00, 1.00, "pending_approval", "time_bundle")'
+    );
+    $insertGeneratedLine = $pdo->prepare(
+        'INSERT INTO ap_bill_lines
+            (bill_id, line_no, source_type, item_type, description, quantity,
+             unit, unit_price, subtotal, total, is_1099_eligible)
+         VALUES (:bill, 1, "time", "labor", :description, 1, "hour", 1.00, 1.00, 1.00, :eligible)'
+    );
+    foreach ([$prepared, $secondary] as $generatedBill) {
+        $ref = apNextInternalRef($tenantId);
+        $insertGenerated->execute([
+            't' => $tenantId, 'ref' => $ref, 'ref2' => $ref,
+            'name' => $generatedBill['bill']['vendor_name'],
+            'type' => $generatedBill['bill']['vendor_type'],
+        ]);
+        $generatedBillId = (int) $pdo->lastInsertId();
+        $insertGeneratedLine->execute([
+            'bill' => $generatedBillId,
+            'description' => $generatedBill['lines'][0]['description'],
+            'eligible' => $generatedBill['lines'][0]['is_1099_eligible'],
+        ]);
+        $fetch->execute(['t' => $tenantId, 'id' => $generatedBillId]);
+        $savedGenerated = $fetch->fetch(PDO::FETCH_ASSOC);
+        $assert($savedGenerated['vendor_name'] === $generatedBill['bill']['vendor_name']
+            && (int) $savedGenerated['is_1099_eligible'] === (int) $generatedBill['lines'][0]['is_1099_eligible'],
+            'synthetic generated bill and line persist the reviewed vendor decision');
+    }
+
+    $nameOnly = $generated;
+    unset($nameOnly['ap_vendor_id']);
+    $nameOnly['bill']['vendor_name'] = 'CI 1099 partnership';
+    $assert(apPrepareGeneratedDraftVendor($tenantId, $nameOnly)['ap_vendor_id'] === $partnershipId,
+        'legacy generated drafts can resolve an exact tenant-unique vendor name');
+    try {
+        apPrepareGeneratedDraftVendor($tenantId + 1, $generated);
+        throw new RuntimeException('A vendor from another tenant was accepted');
+    } catch (RuntimeException $e) {
+        $assert(str_contains($e->getMessage(), 'unavailable'),
+            'generated AP vendor IDs cannot cross the tenant boundary');
+    }
+
     $pdo->prepare('UPDATE tenants SET ap_1099_threshold = 1 WHERE id = :t')
         ->execute(['t' => $tenantId]);
     $payment = $pdo->prepare(

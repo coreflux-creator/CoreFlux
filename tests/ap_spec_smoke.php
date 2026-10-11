@@ -39,9 +39,17 @@ foreach (['ap_bill_prefix','ap_next_bill_seq','ap_default_terms','ap_1099_thresh
 }
 
 echo "\nLibrary contract\n";
-foreach (['apNextInternalRef','apBuildDraftFromBundle','apComputeTotals','apBillTransitionAllowed','apPaymentTransitionAllowed','apAllocatePayment','apComputeAging','apBuild1099Ledger','apPlaidConfigured','apAudit'] as $f) {
+foreach (['apNextInternalRef','apPrepareGeneratedDraftVendor','apBuildDraftFromBundle','apComputeTotals','apBillTransitionAllowed','apPaymentTransitionAllowed','apAllocatePayment','apComputeAging','apBuild1099Ledger','apPlaidConfigured','apAudit'] as $f) {
     $assert("fn: {$f}",                         function_exists($f));
 }
+$billApi = (string) file_get_contents(__DIR__ . '/../modules/ap/api/bills.php');
+$settlement = (string) file_get_contents(__DIR__ . '/../modules/time/lib/settlement_create.php');
+$assert('both time and bundle bill routes resolve saved vendors',
+    substr_count($billApi, 'apPrepareGeneratedDraftVendor($tid, $d)') === 2);
+$assert('time settlement resolves saved vendors',
+    str_contains($settlement, 'apPrepareGeneratedDraftVendor($tenantId, $draft)'));
+$assert('generated AP never promotes 1099 based only on vendor type',
+    !str_contains($billApi, 'GREATEST(requires_1099, VALUES(requires_1099))'));
 
 echo "\napComputeTotals math\n";
 $lines = [
@@ -127,7 +135,9 @@ $assert('bill mutations refuse ledger or payment lineage',
     && strpos($bills, 'FOR UPDATE') !== false);
 $assert('approve checks transition allowed',   strpos($bills, "apBillTransitionAllowed(\$row['status'], 'approved')") !== false);
 $assert('from-time-bundle marks bundles consumed', strpos($bills, 'status = "consumed"') !== false);
-$assert('from-time-bundle upserts vendors_index', strpos($bills, 'INSERT INTO ap_vendors_index') !== false);
+$assert('from-time-bundle uses the saved vendor directory',
+    str_contains($bills, 'apPrepareGeneratedDraftVendor($tid, $d)')
+    && !str_contains($bills, 'INSERT INTO ap_vendors_index'));
 $assert('post integrates with Accounting GL',  strpos($bills, "require_once __DIR__ . '/../../accounting/lib/accounting.php'") !== false
                                                 && strpos($bills, 'accountingPostJe') !== false);
 

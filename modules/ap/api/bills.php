@@ -527,6 +527,7 @@ if ($method === 'POST' && $action === 'from-time-entries') {
     cf_begin_transaction();
     try {
         foreach ($drafts as $d) {
+            $d = apPrepareGeneratedDraftVendor($tid, $d);
             $bill = $d['bill'];
             $bill['tenant_id']          = $tid;
             $bill['internal_ref']       = apNextInternalRef($tid);
@@ -562,36 +563,6 @@ if ($method === 'POST' && $action === 'from-time-entries') {
                     array_merge($obligation, ['status' => 'billed', 'ap_bill_id' => $billId])
                 );
             }
-
-            // Upsert vendors_index + companies for corporate vendors.
-            $companyId = !empty($bill['vendor_company_id']) ? (int) $bill['vendor_company_id'] : null;
-            if (!$companyId && in_array($bill['vendor_type'], ['c2c_corp','w9_business','utility','other'], true)) {
-                require_once __DIR__ . '/../../people/lib/companies.php';
-                $companyId = companiesUpsertByName($tid, (string) $bill['vendor_name'], [
-                    'created_by_user_id' => $user['id'] ?? null,
-                ], ['vendor']);
-                companiesBumpUsage($companyId);
-                // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-                $pdo->prepare('UPDATE ap_bills SET vendor_company_id = :cid WHERE id = :id')
-                    ->execute(['cid' => $companyId, 'id' => $billId]);
-            }
-            $pdo->prepare(
-                'INSERT INTO ap_vendors_index (tenant_id, vendor_name, company_id, vendor_type, requires_1099, last_bill_at, placement_id_last)
-                 VALUES (:t, :v, :cid, :vt, :r, NOW(), :pid)
-                 ON DUPLICATE KEY UPDATE
-                   company_id = COALESCE(VALUES(company_id), company_id),
-                   vendor_type = VALUES(vendor_type),
-                   requires_1099 = GREATEST(requires_1099, VALUES(requires_1099)),
-                   last_bill_at = NOW(),
-                   placement_id_last = VALUES(placement_id_last)'
-            )->execute([
-                't'  => $tid,
-                'v'  => $bill['vendor_name'],
-                'cid'=> $companyId,
-                'vt' => $bill['vendor_type'],
-                'r'  => $bill['vendor_type'] === '1099_individual' ? 1 : 0,
-                'pid'=> !empty($d['lines'][0]['placement_id']) ? (int) $d['lines'][0]['placement_id'] : null,
-            ]);
 
             apAudit('ap.bill.created', [
                 'bill_id'     => $billId,
@@ -643,6 +614,7 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
     cf_begin_transaction();
     try {
         foreach ($drafts as $d) {
+            $d = apPrepareGeneratedDraftVendor($tid, $d);
             $bill = $d['bill'];
             $bill['tenant_id']          = $tid;
             $bill['internal_ref']       = apNextInternalRef($tid);
@@ -686,36 +658,6 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
                      WHERE id = :bid AND tenant_id = :tid AND status = "ready"'
                 )->execute(['bid_id' => $billId, 'bid' => (int) $bid, 'tid' => $tid]);
             }
-
-            // Upsert into vendors_index + companies directory for non-individuals
-            $companyId = !empty($bill['vendor_company_id']) ? (int) $bill['vendor_company_id'] : null;
-            if (!$companyId && in_array($bill['vendor_type'], ['c2c_corp','w9_business','utility','other'], true)) {
-                require_once __DIR__ . '/../../people/lib/companies.php';
-                $companyId = companiesUpsertByName($tid, (string) $bill['vendor_name'], [
-                    'created_by_user_id' => $user['id'] ?? null,
-                ], ['vendor']);
-                companiesBumpUsage($companyId);
-                // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-                $pdo->prepare('UPDATE ap_bills SET vendor_company_id = :cid WHERE id = :id')
-                    ->execute(['cid' => $companyId, 'id' => $billId]);
-            }
-            $pdo->prepare(
-                'INSERT INTO ap_vendors_index (tenant_id, vendor_name, company_id, vendor_type, requires_1099, last_bill_at, placement_id_last)
-                 VALUES (:t, :v, :cid, :vt, :r, NOW(), :pid)
-                 ON DUPLICATE KEY UPDATE
-                   company_id = COALESCE(VALUES(company_id), company_id),
-                   vendor_type = VALUES(vendor_type),
-                   requires_1099 = GREATEST(requires_1099, VALUES(requires_1099)),
-                   last_bill_at = NOW(),
-                   placement_id_last = VALUES(placement_id_last)'
-            )->execute([
-                't'  => $tid,
-                'v'  => $bill['vendor_name'],
-                'cid'=> $companyId,
-                'vt' => $bill['vendor_type'],
-                'r'  => $bill['vendor_type'] === '1099_individual' ? 1 : 0,
-                'pid'=> !empty($d['lines'][0]['placement_id']) ? (int) $d['lines'][0]['placement_id'] : null,
-            ]);
 
             apAudit('ap.bill.created', [
                 'bill_id' => $billId, 'internal_ref' => $bill['internal_ref'],

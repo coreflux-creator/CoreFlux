@@ -103,15 +103,11 @@ function placementEconomicsEnsureVendor(
     if ($existing) {
         $pdo->prepare(
             'UPDATE ap_vendors_index
-                SET vendor_name = :name,
-                    company_id = COALESCE(:company_id, company_id),
-                    vendor_type = :vendor_type,
+                SET company_id = COALESCE(company_id, :company_id),
                     placement_id_last = COALESCE(:placement_id, placement_id_last)
               WHERE tenant_id = :t AND id = :id'
         )->execute([
-            'name' => $displayName,
             'company_id' => $companyId,
-            'vendor_type' => $vendorType,
             'placement_id' => $placementId,
             't' => $tenantId,
             'id' => (int) $existing['id'],
@@ -140,9 +136,10 @@ function placementEconomicsEnsureVendor(
 
     return [
         'id' => $vendorId,
-        'company_id' => $companyId,
-        'vendor_name' => $displayName,
-        'vendor_type' => $vendorType,
+        'company_id' => $existing ? ($existing['company_id'] ?: $companyId) : $companyId,
+        'vendor_name' => $existing ? (string) $existing['vendor_name'] : $displayName,
+        'vendor_type' => $existing ? (string) $existing['vendor_type'] : $vendorType,
+        'requires_1099' => $existing ? (int) $existing['requires_1099'] : ($vendorType === '1099_individual' ? 1 : 0),
         'default_terms' => $existing
             ? (string) ($existing['default_terms'] ?? 'NET30')
             : $normalTerms,

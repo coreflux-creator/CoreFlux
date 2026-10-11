@@ -54,6 +54,60 @@ function apNextInternalRef(int $tenantId): string
     }
 }
 
+/** Resolve a staffing-generated bill against the reviewed tenant vendor record. */
+function apPrepareGeneratedDraftVendor(int $tenantId, array $draft): array
+{
+    $pdo = getDB();
+    if (!$pdo->inTransaction()) {
+        throw new \LogicException('Generated AP bills must be prepared inside a transaction.');
+    }
+
+    $vendorId = (int) ($draft['ap_vendor_id'] ?? 0);
+    $vendorName = trim((string) ($draft['bill']['vendor_name'] ?? ''));
+    if ($vendorId > 0) {
+        $stmt = $pdo->prepare(
+            'SELECT id, vendor_name, vendor_type, company_id, requires_1099
+               FROM ap_vendors_index WHERE tenant_id = :t AND id = :id FOR UPDATE'
+        );
+        $stmt->execute(['t' => $tenantId, 'id' => $vendorId]);
+    } elseif ($vendorName !== '') {
+        // Older rate snapshots can lack an ID; the tenant-unique name is the only safe fallback.
+        $stmt = $pdo->prepare(
+            'SELECT id, vendor_name, vendor_type, company_id, requires_1099
+               FROM ap_vendors_index WHERE tenant_id = :t AND vendor_name = :name FOR UPDATE'
+        );
+        $stmt->execute(['t' => $tenantId, 'name' => $vendorName]);
+    } else {
+        throw new \RuntimeException('Generated AP bill has no vendor. Review the placement recipient.');
+    }
+    $vendor = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$vendor) {
+        throw new \RuntimeException('Generated AP vendor is unavailable. Review the placement recipient before creating bills.');
+    }
+
+    $draft['ap_vendor_id'] = (int) $vendor['id'];
+    $draft['bill']['vendor_name'] = (string) $vendor['vendor_name'];
+    $draft['bill']['vendor_type'] = (string) $vendor['vendor_type'];
+    $draft['bill']['vendor_company_id'] = $vendor['company_id'] ?: null;
+    foreach ($draft['lines'] as &$line) {
+        $line['is_1099_eligible'] = (int) $vendor['requires_1099'];
+    }
+    unset($line);
+
+    $placementId = (int) ($draft['lines'][0]['placement_id'] ?? 0);
+    $pdo->prepare(
+        'UPDATE ap_vendors_index
+            SET last_bill_at = NOW(), placement_id_last = COALESCE(:pid, placement_id_last)
+          WHERE tenant_id = :t AND id = :id'
+    )->execute([
+        'pid' => $placementId > 0 ? $placementId : null,
+        't' => $tenantId,
+        'id' => $draft['ap_vendor_id'],
+    ]);
+
+    return $draft;
+}
+
 /**
  * Build draft bill header(s) + lines from a closed time period's `ap`
  * bundles (1099 / C2C contractor pay). Returns array of {bill, lines, bundle_ids}.
@@ -261,6 +315,7 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
         if (empty($lines)) continue;
 
         $bills[] = [
+            'ap_vendor_id' => $first['ap_vendor_id'],
             'bill' => [
                 'vendor_name'   => $vendorName,
                 'vendor_type'   => $vendorType,
@@ -410,10 +465,13 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
 
     $groups = [];
     foreach (array_filter($payable, static fn(array $row): bool => !empty($row['_primary_ap_party'])) as $e) {
+        $vendorKey = !empty($e['_ap_vendor_id'])
+            ? 'I:' . (int) $e['_ap_vendor_id']
+            : 'N:' . $e['_vendor_name'];
         $key = match ($aggregation) {
-            'per_day'       => 'D:' . $e['placement_id'] . ':' . $e['work_date'] . ':' . $e['_vendor_name'],
-            'per_placement' => 'P:' . $e['placement_id'],
-            'per_vendor'    => 'V:' . (int) ($e['_ap_vendor_id'] ?? 0),
+            'per_day'       => 'D:' . $e['placement_id'] . ':' . $e['work_date'] . ':' . $vendorKey,
+            'per_placement' => 'P:' . $e['placement_id'] . ':' . $vendorKey,
+            'per_vendor'    => 'V:' . $vendorKey,
         };
         $groups[$key][] = $e;
     }
@@ -508,6 +566,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
         if (empty($lines)) continue;
 
         $bills[] = [
+            'ap_vendor_id' => $first['_ap_vendor_id'],
             'bill' => [
                 'vendor_name'    => $vendorName,
                 'vendor_type'    => $vendorType,
@@ -582,6 +641,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
                 ? $economicItemId
                 : ($obligationSourceType === 'manual' ? $placementId : $sourceRef);
             $bills[] = [
+                'ap_vendor_id' => $charge['ap_vendor_id'] ?: null,
                 'bill' => [
                     'vendor_name' => (string) ($charge['vendor_name'] ?: $charge['display_name']),
                     'vendor_type' => (string) ($charge['vendor_type'] ?: 'other'),

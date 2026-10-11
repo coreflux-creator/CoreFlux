@@ -260,6 +260,7 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
                 $createdTotal = 0.0;
                 $createdLineCount = 0;
                 foreach ($drafts as $draft) {
+                    $draft = apPrepareGeneratedDraftVendor($tenantId, $draft);
                     $bill = $draft['bill'];
                     $bill['tenant_id'] = $tenantId;
                     $bill['internal_ref'] = apNextInternalRef($tenantId);
