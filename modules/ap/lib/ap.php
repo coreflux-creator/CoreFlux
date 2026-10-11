@@ -108,6 +108,31 @@ function apPrepareGeneratedDraftVendor(int $tenantId, array $draft): array
     return $draft;
 }
 
+/** A generated bill must belong to the placement's active legal entity. */
+function apGeneratedActiveEntityIds(int $tenantId): array
+{
+    $stmt = getDB()->prepare(
+        'SELECT id FROM accounting_entities WHERE tenant_id = :t AND active = 1 ORDER BY id'
+    );
+    $stmt->execute(['t' => $tenantId]);
+    return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+}
+
+function apGeneratedEntityId(int $placementId, int $configuredEntityId, array $activeEntityIds): int
+{
+    if (!$activeEntityIds) {
+        throw new \RuntimeException('Set up an active legal entity before generating bills.');
+    }
+    if ($configuredEntityId > 0) {
+        if (!in_array($configuredEntityId, $activeEntityIds, true)) {
+            throw new \RuntimeException("Placement #{$placementId} has no active legal entity in this workspace.");
+        }
+        return $configuredEntityId;
+    }
+    if (count($activeEntityIds) === 1) return $activeEntityIds[0];
+    throw new \RuntimeException("Set the owning legal entity on placement #{$placementId} before generating bills.");
+}
+
 /**
  * Build draft bill header(s) + lines from a closed time period's `ap`
  * bundles (1099 / C2C contractor pay). Returns array of {bill, lines, bundle_ids}.
@@ -148,7 +173,7 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
 
     $bundles = scopedQuery(
         'SELECT tdf.*, p.title AS placement_title, p.person_id,
-                p.engagement_type,
+                p.engagement_type, p.accounting_entity_id,
                 pcd.corp_name,
                 pe.first_name, pe.last_name
          FROM time_downstream_feed tdf
@@ -179,10 +204,12 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
         }
     }
 
-    // Group bundles
+    // Keep generated bills within one legal entity, even for per-vendor aggregation.
+    $activeEntityIds = apGeneratedActiveEntityIds($tenantId);
     $groups = [];
     foreach ($bundles as $b) {
         $placementId = (int) $b['placement_id'];
+        $entityId = apGeneratedEntityId($placementId, (int) ($b['accounting_entity_id'] ?? 0), $activeEntityIds);
         placementEconomicsReconcile($tenantId, $placementId);
         $hours = (float) $b['total_hours_billable'];
         $charges = placementEconomicsApCharges(
@@ -197,7 +224,7 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
             );
         }
         foreach ($charges as $party) {
-            $key = 'V:' . (int) $party['ap_vendor_id'];
+            $key = 'V:' . (int) $party['ap_vendor_id'] . ':E:' . $entityId;
             if ($aggregation === 'per_placement') $key .= ':P:' . $placementId;
             $groups[$key][] = [
                 'bundle' => $b,
@@ -206,6 +233,7 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
                 'vendor_type' => (string) ($party['vendor_type'] ?: 'other'),
                 'vendor_company_id' => $party['company_id'] ?: null,
                 'ap_vendor_id' => $party['ap_vendor_id'] ?: null,
+                'entity_id' => $entityId,
                 'economic_party_id' => $party['id'] ?: null,
                 'payment_terms' => (string) ($party['resolved_payment_terms'] ?? $terms),
                 'pwp_enabled' => !empty($party['resolved_pwp']),
@@ -320,6 +348,7 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
                 'vendor_name'   => $vendorName,
                 'vendor_type'   => $vendorType,
                 'vendor_company_id' => $first['vendor_company_id'],
+                'entity_id' => $first['entity_id'],
                 'received_at'   => $today,
                 'bill_date'     => $today,
                 'due_date'      => $billDue,
@@ -397,7 +426,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
     $entries = scopedQuery(
         'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.category, te.hour_type,
                 te.hours, te.billable, te.payable, te.status, te.description, te.rate_snapshot_id,
-                p.title AS placement_title, p.engagement_type,
+                p.title AS placement_title, p.engagement_type, p.accounting_entity_id,
                 pcd.corp_name,
                 pe.first_name, pe.last_name
            FROM time_entries te
@@ -411,6 +440,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
     );
     if (empty($entries)) throw new \RuntimeException('No matching time_entries found');
 
+    $activeEntityIds = apGeneratedActiveEntityIds($tenantId);
     $payable = [];
     foreach ($entries as $e) {
         if ((int) $e['payable'] !== 1) continue;
@@ -420,6 +450,9 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
             );
         }
         if ((float) $e['hours'] <= 0) continue;
+        $e['_entity_id'] = apGeneratedEntityId(
+            (int) $e['placement_id'], (int) ($e['accounting_entity_id'] ?? 0), $activeEntityIds
+        );
         $payable[] = $e;
     }
     if (empty($payable)) throw new \RuntimeException('Selected entries have no payable hours');
@@ -468,6 +501,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
         $vendorKey = !empty($e['_ap_vendor_id'])
             ? 'I:' . (int) $e['_ap_vendor_id']
             : 'N:' . $e['_vendor_name'];
+        $vendorKey .= ':E:' . $e['_entity_id'];
         $key = match ($aggregation) {
             'per_day'       => 'D:' . $e['placement_id'] . ':' . $e['work_date'] . ':' . $vendorKey,
             'per_placement' => 'P:' . $e['placement_id'] . ':' . $vendorKey,
@@ -588,6 +622,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
                 'vendor_name'    => $vendorName,
                 'vendor_type'    => $vendorType,
                 'vendor_company_id' => $first['_vendor_company_id'],
+                'entity_id' => $first['_entity_id'],
                 'received_at'    => $today,
                 'bill_date'      => $today,
                 'due_date'       => $resolvedDueDate,
@@ -675,6 +710,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
                     'amount_due' => $amount,
                     'status' => 'pending_approval',
                     'source' => 'staffing_economics',
+                    'entity_id' => $rows[0]['_entity_id'],
                     'placement_id' => $placementId,
                     'payment_terms' => $termsForCharge,
                     'pwp_status' => $pwpForCharge ? 'awaiting_ar' : 'not_pwp',

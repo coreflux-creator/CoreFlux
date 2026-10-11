@@ -31,6 +31,12 @@ $cycleColumns = $pdo->query(
         AND COLUMN_NAME IN ('client_bill_cycle', 'vendor_pay_cycle')"
 )->fetchAll(PDO::FETCH_COLUMN);
 $assert(count($cycleColumns) === 2, 'clean-install placements support billing and vendor cadence defaults');
+$entityStmt = $pdo->prepare(
+    'SELECT id FROM accounting_entities WHERE tenant_id = :t AND active = 1 ORDER BY id LIMIT 1'
+);
+$entityStmt->execute(['t' => $tenantId]);
+$entityId = (int) $entityStmt->fetchColumn();
+$assert($entityId > 0, 'clean-install tenant has an active legal entity');
 
 $pdo->beginTransaction();
 try {
@@ -47,9 +53,9 @@ try {
     )->execute(['tenant_id' => $tenantId]);
     $personId = (int) $pdo->lastInsertId();
     $pdo->prepare(
-        'INSERT INTO placements (tenant_id, person_id, status, start_date, engagement_type, title)
-         VALUES (:tenant_id, :person_id, "active", "2026-10-01", "1099", "CI rate correction")'
-    )->execute(['tenant_id' => $tenantId, 'person_id' => $personId]);
+        'INSERT INTO placements (tenant_id, person_id, accounting_entity_id, status, start_date, engagement_type, title)
+         VALUES (:tenant_id, :person_id, :entity_id, "active", "2026-10-01", "1099", "CI rate correction")'
+    )->execute(['tenant_id' => $tenantId, 'person_id' => $personId, 'entity_id' => $entityId]);
     $placementId = (int) $pdo->lastInsertId();
 
     $rateInsert = $pdo->prepare(
@@ -110,6 +116,8 @@ try {
         && (string) $draft['bill']['vendor_name'] === $name
         && (string) $draft['bill']['vendor_type'] === '1099_individual',
         'the generated bill resolves the reviewed vendor identity');
+    $assert((int) $draft['bill']['entity_id'] === $entityId,
+        'the generated bill inherits the placement owning entity');
     $assert(count($draft['lines']) === 4
         && count(array_unique(array_column($draft['lines'], 'rate_snapshot_id'))) === 3,
         'same-day rate corrections remain separate and cent-sensitive entries do not merge');
@@ -146,7 +154,7 @@ try {
         $lineInsert->execute(['bill_id' => $billId] + $line);
     }
     $saved = $pdo->prepare(
-        'SELECT b.total, b.source, COUNT(l.id) AS line_count,
+        'SELECT b.total, b.source, b.entity_id, COUNT(l.id) AS line_count,
                 SUM(l.subtotal) AS line_total, SUM(l.is_1099_eligible) AS eligible_count
            FROM ap_bills b JOIN ap_bill_lines l ON l.bill_id = b.id
           WHERE b.tenant_id = :tenant_id AND b.id = :id
@@ -157,9 +165,52 @@ try {
     $assert($row && $row['source'] === 'time_entries'
         && (int) $row['line_count'] === 4
         && (float) $row['total'] === 80.02
+        && (int) $row['entity_id'] === $entityId
         && (float) $row['line_total'] === 80.02
         && (int) $row['eligible_count'] === 0,
         'the synthetic generated AP bill persists four correctly classified lines');
+
+    $pdo->prepare(
+        'INSERT INTO accounting_entities (tenant_id, code, legal_name)
+         VALUES (:tenant_id, "CI_AP_SECOND", "CI AP second legal entity")'
+    )->execute(['tenant_id' => $tenantId]);
+    $secondEntityId = (int) $pdo->lastInsertId();
+    $pdo->prepare(
+        'INSERT INTO placements (tenant_id, person_id, accounting_entity_id, status, start_date, engagement_type, title)
+         VALUES (:tenant_id, :person_id, :entity_id, "active", "2026-10-01", "1099", "CI second entity")'
+    )->execute(['tenant_id' => $tenantId, 'person_id' => $personId, 'entity_id' => $secondEntityId]);
+    $secondPlacementId = (int) $pdo->lastInsertId();
+    $pdo->prepare(
+        'INSERT INTO placement_rates
+            (tenant_id, placement_id, effective_from, bill_rate, pay_rate, approved_at)
+         VALUES (:tenant_id, :placement_id, "2026-10-01", 20.0000, 5.0000, "2026-10-06 12:00:00")'
+    )->execute(['tenant_id' => $tenantId, 'placement_id' => $secondPlacementId]);
+    $secondRateId = (int) $pdo->lastInsertId();
+    $entryInsert->execute([
+        'tenant_id' => $tenantId, 'placement_id' => $secondPlacementId,
+        'person_id' => $personId, 'period_id' => $periodId,
+        'timesheet_id' => $timesheetId, 'hours' => 1, 'rate_snapshot_id' => $secondRateId,
+    ]);
+    $secondEntryId = (int) $pdo->lastInsertId();
+    $pdo->prepare(
+        'UPDATE staffing_timesheets SET total_hours = 10 WHERE tenant_id = :t AND id = :id'
+    )->execute(['t' => $tenantId, 'id' => $timesheetId]);
+    $byVendor = apBuildDraftFromTimeEntries($tenantId, [...$entryIds, $secondEntryId], 'per_vendor');
+    $totalsByEntity = [];
+    foreach ($byVendor as $generated) {
+        $totalsByEntity[(int) $generated['bill']['entity_id']] = round((float) $generated['bill']['total'], 2);
+    }
+    $assert(count($byVendor) === 2 && ($totalsByEntity[$entityId] ?? null) === 80.02
+        && ($totalsByEntity[$secondEntityId] ?? null) === 5.0,
+        'per-vendor time bills never merge entries from different legal entities');
+    $ambiguousEntityRejected = false;
+    try {
+        apGeneratedEntityId($secondPlacementId, 0, [$entityId, $secondEntityId]);
+    } catch (RuntimeException $error) {
+        $ambiguousEntityRejected = str_contains($error->getMessage(), 'owning legal entity');
+    }
+    $assert($ambiguousEntityRejected,
+        'multi-entity AP generation requires a placement owning entity');
 
     $pdo->prepare(
         'INSERT INTO time_downstream_feed
@@ -172,8 +223,28 @@ try {
     $bundleDraft = apPrepareGeneratedDraftVendor($tenantId, $bundleDrafts[0]);
     $assert((int) $bundleDraft['ap_vendor_id'] === $vendorId
         && (int) $bundleDraft['lines'][0]['is_1099_eligible'] === 0
+        && (int) $bundleDraft['bill']['entity_id'] === $entityId
         && round((float) $bundleDraft['bill']['total'], 2) === 80.02,
         'the bundle path also retains the saved vendor exclusion and approved cost');
+    $pdo->prepare(
+        'INSERT INTO time_downstream_feed
+            (tenant_id, period_id, placement_id, bundle_type, rate_snapshot_id,
+             total_hours_billable, total_amount_bill, total_amount_pay, status)
+         VALUES (:tenant_id, :period_id, :placement_id, "ap", NULL, 1, 20, 5, "ready")'
+    )->execute([
+        'tenant_id' => $tenantId, 'period_id' => $periodId, 'placement_id' => $secondPlacementId,
+    ]);
+    $bundleByVendor = apBuildDraftFromBundle(
+        $tenantId, $periodId, [$placementId, $secondPlacementId], 'per_vendor'
+    );
+    $bundleEntities = array_map(
+        static fn(array $generated): int => (int) $generated['bill']['entity_id'], $bundleByVendor
+    );
+    sort($bundleEntities);
+    $expectedEntities = [$entityId, $secondEntityId];
+    sort($expectedEntities);
+    $assert(count($bundleByVendor) === 2 && $bundleEntities === $expectedEntities,
+        'per-vendor time bundles also stay separate by legal entity');
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();
     unset($GLOBALS['__cf_request_tenant_id']);
