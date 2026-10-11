@@ -131,8 +131,11 @@ try {
 
     $posted = $request('/modules/billing/api/invoices.php?action=post&id=' . $invoiceId, 'POST', []);
     $journalId = (int) ($posted['body']['journal_entry_id'] ?? 0);
-    $assert($posted['status'] === 200 && $journalId > 0,
-        'approved synthetic invoice posted through the authenticated Billing API');
+    if ($posted['status'] !== 200 || $journalId <= 0) {
+        throw new RuntimeException('Synthetic invoice posting returned HTTP ' . $posted['status']
+            . ': ' . substr($posted['raw'], 0, 500));
+    }
+    $assert(true, 'approved synthetic invoice posted through the authenticated Billing API');
 
     $detail = $request('/modules/billing/api/invoices.php?id=' . $invoiceId, 'GET');
     $sender = $detail['body']['delivery_sender'] ?? [];
