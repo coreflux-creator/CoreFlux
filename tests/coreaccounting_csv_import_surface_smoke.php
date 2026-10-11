@@ -71,6 +71,15 @@ $check('finance screens expose exact-run recovery after a tab reload without rei
     && str_contains($history, '<CsvImportRecoveryNotice onRecovered={fetchHistory} />')
     && str_contains($recovery, 'recoverCsvImportAudit({ runId: run.id })')
     && !str_contains($recovery, '?action=commit'));
+$check('recovered finance result can show verified source links and legacy row counts',
+    str_contains($shared, "const importedLinks = committed && typeof resultLinks === 'function'")
+    && str_contains($shared, 'committed?.recovered_counts_are_rows')
+    && str_contains($shared, 'committed.ids_truncated')
+    && str_contains($bulk, 'f.committed.recovered_counts_are_rows')
+    && str_contains($historyApi, "'receipt_result' => is_array(")
+    && str_contains($recovery, 'csvImportDocumentLinks(result.entity, result.ids)')
+    && str_contains($history, "key !== '_server_receipt_result'")
+    && str_contains($history, 'csvImportDocumentLinks(r.entity, errs?._server_receipt_result?.ids)'));
 $check('bulk import distinguishes active work from an uncertain server outcome',
     str_contains($bulk, "state: 'processing', input: auditInput")
     && str_contains($bulk, "f.audit?.state === 'processing'")

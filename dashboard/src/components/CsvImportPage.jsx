@@ -355,8 +355,11 @@ export default function CsvImportPage({
   const rowsArr = preview ? Object.entries(preview.rows || {}) : [];
   const errorsByRow = preview?.errors || {};
   const committedErrors = committed ? Object.entries(committed.errors || {}) : [];
-  const importedLinks = committed && !committed.recovered_from_receipt && typeof resultLinks === 'function'
+  const importedLinks = committed && typeof resultLinks === 'function'
     ? resultLinks(committed) || [] : [];
+  const resultCountNoun = count => committed?.recovered_counts_are_rows || !groupLabel
+    ? `row${Number(count) === 1 ? '' : 's'}`
+    : `${groupLabel}${Number(count) === 1 ? '' : 's'}`;
 
   return (
     <section data-testid={testidPrefix}>
@@ -697,10 +700,11 @@ export default function CsvImportPage({
           <div data-testid={`${testidPrefix}-result`} style={{ marginTop: 'var(--cf-space-4)' }}>
             <h3>{Number(committed.imported_count || 0) > 0 ? 'Import complete' : 'Nothing was imported'}</h3>
             <p>
-              <strong data-testid={`${testidPrefix}-result-imported`}>{committed.imported_count}</strong> {groupLabel ? `${groupLabel}s ` : ''}imported,{' '}
-              <strong data-testid={`${testidPrefix}-result-skipped`}>{committed.skipped_count}</strong> {groupLabel ? `${groupLabel}s ` : ''}skipped.
+              <strong data-testid={`${testidPrefix}-result-imported`}>{committed.imported_count}</strong> {resultCountNoun(committed.imported_count)} imported,{' '}
+              <strong data-testid={`${testidPrefix}-result-skipped`}>{committed.skipped_count}</strong> {resultCountNoun(committed.skipped_count)} skipped.
             </p>
             {committed.recovered_from_receipt && <p data-testid={`${testidPrefix}-recovered-result`}>Outcome recovered from the server receipt. Open Import History for row details.</p>}
+            {committed.ids_truncated && <p>Only the first 500 record links are shown. All imported records remain available from their worklist.</p>}
             {importedLinks.length > 0 && (
               <div data-testid={`${testidPrefix}-result-links`} style={{ margin: '8px 0 14px' }}>
                 <strong>{groupLabel ? `Imported ${groupLabel}s` : 'Imported records'}</strong>

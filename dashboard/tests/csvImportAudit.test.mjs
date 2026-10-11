@@ -128,6 +128,15 @@ test('standalone refuses missing or conflicting server counts', async () => {
   await assert.rejects(finalizeCsvImportAudit({
     runId: 42, result: { imported_count: 1, skipped_count: 0 }, startedAt: Date.now(),
   }), /does not match/);
+  globalThis.csvAuditTestApi = { post: async () => ({
+    recorded: true, id: 42, server_outcome_recorded: true,
+    rows_imported: 3, rows_skipped: 0,
+    receipt_result: { imported_count: 3, skipped_count: 0 },
+  }) };
+  await assert.rejects(finalizeCsvImportAudit({
+    runId: 42, result: { imported_count: 1, skipped_count: 0,
+      imported_row_count: 3, skipped_row_count: 0 }, startedAt: Date.now(),
+  }), /document counts do not match/);
 });
 
 test('lost response recovers only a finalized server-owned outcome', async () => {
@@ -144,6 +153,47 @@ test('lost response recovers only a finalized server-owned outcome', async () =>
   assert.equal(receipt.result.skipped_count, 1);
   assert.equal(receipt.result.status, 'partial');
   assert.equal(receipt.result.recovered_from_receipt, true);
+  assert.equal(receipt.result.recovered_counts_are_rows, true);
+});
+
+test('lost invoice response restores document counts and source IDs, not line counts', async () => {
+  globalThis.csvAuditTestApi = { post: async () => ({
+    recorded: true, id: 51, server_outcome_recorded: true,
+    rows_total: 4, rows_imported: 3, rows_skipped: 1, status: 'partial',
+    receipt_result: {
+      imported_count: 1, skipped_count: 1, row_count: 4,
+      imported_row_count: 3, skipped_row_count: 1,
+      ids: { 'QA-INV-1': 71 }, ids_truncated: false,
+    },
+  }) };
+  const recovered = await recoverCsvImportAudit({ runId: 51 });
+  assert.equal(recovered.result.imported_count, 1);
+  assert.equal(recovered.result.skipped_count, 1);
+  assert.equal(recovered.result.imported_row_count, 3);
+  assert.deepEqual(recovered.result.ids, { 'QA-INV-1': 71 });
+  assert.equal(recovered.result.recovered_counts_are_rows, undefined);
+  assert.equal(recovered.result.recovered_from_receipt, true);
+});
+
+test('inconsistent document receipt cannot be presented as a successful recovery', async () => {
+  globalThis.csvAuditTestApi = { post: async () => ({
+    recorded: true, id: 51, server_outcome_recorded: true,
+    rows_total: 4, rows_imported: 3, rows_skipped: 1, status: 'partial',
+    receipt_result: {
+      imported_count: 1, skipped_count: 1, row_count: 4,
+      imported_row_count: 2, skipped_row_count: 1, ids: {},
+    },
+  }) };
+  await assert.rejects(recoverCsvImportAudit({ runId: 51 }), /receipt details are inconsistent/);
+  globalThis.csvAuditTestApi = { post: async () => ({
+    recorded: true, id: 51, server_outcome_recorded: true,
+    rows_total: 4, rows_imported: 3, rows_skipped: 1, status: 'partial',
+    receipt_result: {
+      imported_count: 1, skipped_count: 1, row_count: 4,
+      imported_row_count: 3, skipped_row_count: 1, ids: { 'QA-INV-1': '../other' },
+    },
+  }) };
+  await assert.rejects(recoverCsvImportAudit({ runId: 51 }), /receipt details are inconsistent/);
 });
 
 test('lost response cannot treat an unconfirmed or mismatched run as imported', async () => {

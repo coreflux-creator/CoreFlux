@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { api } from '../lib/api';
+import { csvImportDocumentLinks } from '../lib/csvImportDocumentLinks';
 import CsvImportRecoveryNotice from '../components/CsvImportRecoveryNotice';
 
 /**
@@ -208,7 +209,9 @@ export default function CsvImportHistory({ financeOnly = false }) {
                 const errs = r.error_summary && typeof r.error_summary === 'object' ? r.error_summary : null;
                 const rowErrors = Object.entries(errs || {}).filter(([key]) =>
                   key !== '_import_outcome_unconfirmed' && key !== '_source_commit_started'
-                  && key !== '_server_outcome_recorded' && key !== '_import_abandoned');
+                  && key !== '_server_outcome_recorded' && key !== '_server_receipt_result'
+                  && key !== '_import_abandoned');
+                const documentLinks = csvImportDocumentLinks(r.entity, errs?._server_receipt_result?.ids);
                 const map  = r.column_map    && typeof r.column_map    === 'object' ? r.column_map    : null;
                 return (
                   <React.Fragment key={r.id}>
@@ -284,6 +287,16 @@ export default function CsvImportHistory({ financeOnly = false }) {
                                   ))}
                                 </ul>
                               ) : <p style={{ color: 'var(--cf-text-secondary)' }}>No errors recorded.</p>}
+                              {documentLinks.length > 0 && (
+                                <div style={{ marginTop: 12 }}>
+                                  <strong>Imported documents</strong>
+                                  <ul style={{ marginTop: 6, paddingLeft: 20, maxHeight: 240, overflowY: 'auto' }}>
+                                    {documentLinks.map(link => <li key={link.to}><Link to={link.to}>{link.label}</Link></li>)}
+                                  </ul>
+                                  {Object.keys(errs?._server_receipt_result?.ids || {}).length > documentLinks.length
+                                    && <p>Showing the first {documentLinks.length} links. Find the rest in the document worklist.</p>}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>

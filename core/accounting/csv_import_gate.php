@@ -139,6 +139,35 @@ function coreAccountingCsvOutcomeSummary(array $result): array
     return compact('imported', 'skipped', 'total', 'errors', 'status');
 }
 
+/** Preserve document counts and a bounded source-ID map for lost-response recovery. */
+function coreAccountingCsvReceiptResult(array $result, array $outcome): array
+{
+    $ids = [];
+    $truncated = false;
+    foreach (is_array($result['ids'] ?? null) ? $result['ids'] : [] as $key => $id) {
+        $parsed = filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($parsed === false) continue;
+        if (count($ids) >= 500) {
+            $truncated = true;
+            break;
+        }
+        $ids[(string) $key] = $parsed;
+    }
+    $receipt = [
+        'imported_count' => max(0, (int) ($result['imported_count'] ?? $outcome['imported'])),
+        'skipped_count' => max(0, (int) ($result['skipped_count'] ?? $outcome['skipped'])),
+        'row_count' => $outcome['total'],
+        'imported_row_count' => $outcome['imported'],
+        'skipped_row_count' => $outcome['skipped'],
+        'ids' => $ids,
+        'ids_truncated' => $truncated,
+    ];
+    foreach (['group_count', 'created_count', 'updated_count'] as $field) {
+        if (isset($result[$field])) $receipt[$field] = max(0, (int) $result[$field]);
+    }
+    return $receipt;
+}
+
 /** Persist the source endpoint's result before returning it to the browser. */
 function coreAccountingRecordCsvImportOutcome(array $result, int $tenantId, int $userId): array
 {
@@ -169,6 +198,7 @@ function coreAccountingRecordCsvImportOutcome(array $result, int $tenantId, int 
         }
         $summary = array_slice($outcome['errors'], 0, 50, true);
         $summary['_server_outcome_recorded'] = [gmdate(DATE_ATOM)];
+        $summary['_server_receipt_result'] = coreAccountingCsvReceiptResult($result, $outcome);
         $stmt = $pdo->prepare(
             'UPDATE csv_import_history
                 SET rows_total = :total, rows_imported = :imported,

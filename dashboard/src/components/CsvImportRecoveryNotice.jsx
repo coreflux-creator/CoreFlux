@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   abandonUnstartedCsvImportAudit, forgetCsvImportRun, pendingCsvImportRuns, recoverCsvImportAudit,
 } from '../lib/csvImportAudit';
+import { csvImportDocumentLinks } from '../lib/csvImportDocumentLinks';
 
 const LABELS = {
   ap_vendors: 'Vendors',
@@ -79,13 +80,24 @@ export default function CsvImportRecoveryNotice({ entity = null, onRecovered = n
           {errors[run.id] && <p className="error" role="alert">{errors[run.id]}</p>}
         </div>
       ))}
-      {results.map(result => (
-        <p key={result.id} data-testid={`csv-import-recovered-${result.id}`} style={{ margin: '8px 0 0' }}>
-          {LABELS[result.entity]} run #{result.id}: {result.abandoned
-            ? 'closed without an import. You can upload the file again if needed.'
-            : `${result.imported_count} imported, ${result.skipped_count} skipped. Verified from the server receipt.`}
-        </p>
-      ))}
+      {results.map(result => {
+        const links = csvImportDocumentLinks(result.entity, result.ids);
+        return (
+          <div key={result.id} data-testid={`csv-import-recovered-${result.id}`} style={{ marginTop: 8 }}>
+            {LABELS[result.entity]} run #{result.id}: {result.abandoned
+              ? 'closed without an import. You can upload the file again if needed.'
+              : `${result.imported_count} ${result.recovered_counts_are_rows ? 'rows ' : ''}imported, ${result.skipped_count} ${result.recovered_counts_are_rows ? 'rows ' : ''}skipped. Verified from the server receipt.`}
+            {links.length > 0 && (
+              <ul style={{ margin: '6px 0', paddingLeft: 20 }}>
+                {links.map(link => <li key={link.to}><Link to={link.to}>{link.label}</Link></li>)}
+              </ul>
+            )}
+            {Object.keys(result.ids || {}).length > links.length && links.length > 0
+              && <p>Showing the first {links.length} document links. The rest are in the document worklist.</p>}
+            {result.ids_truncated && <p>Only the first 500 record links were retained. Use the document worklist for the rest.</p>}
+          </div>
+        );
+      })}
       {runs.length === 0 && Object.values(errors).filter(Boolean).map((message, index) => (
         <p key={index} className="error" role="alert">{message}</p>
       ))}

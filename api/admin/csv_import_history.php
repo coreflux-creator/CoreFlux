@@ -76,6 +76,8 @@ if ($method === 'POST') {
                 api_ok([
                     'recorded' => true, 'id' => $id, 'already_finalized' => true,
                     'server_outcome_recorded' => isset($oldErrors['_server_outcome_recorded']),
+                    'receipt_result' => is_array($oldErrors['_server_receipt_result'] ?? null)
+                        ? $oldErrors['_server_receipt_result'] : null,
                     'abandoned' => isset($oldErrors['_import_abandoned']),
                     'rows_total' => (int) $run['rows_total'],
                     'rows_imported' => (int) $run['rows_imported'],

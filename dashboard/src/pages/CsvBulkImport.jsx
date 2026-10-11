@@ -564,7 +564,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
                   </td>
                   <td>
                     {f.committed
-                      ? <span style={{ color: 'var(--cf-green, #047857)' }}>{f.committed.imported_count} imported</span>
+                      ? <span style={{ color: 'var(--cf-green, #047857)' }}>{f.committed.imported_count} {f.committed.recovered_counts_are_rows ? 'rows ' : ''}imported</span>
                       : f.preview
                           ? `${f.preview.row_count} (${f.preview.error_count} errors)`
                           : '—'}
@@ -603,7 +603,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
               {files.filter(f => f.committed).map((f, i) => (
                 <li key={i}>
                   <strong>{ENTITY_CONFIG[f.entity].label}</strong> ({f.fileName}):{' '}
-                  {f.committed.imported_count} imported, {f.committed.skipped_count} skipped
+                  {f.committed.imported_count} {f.committed.recovered_counts_are_rows ? 'rows ' : ''}imported, {f.committed.skipped_count} {f.committed.recovered_counts_are_rows ? 'rows ' : ''}skipped
                 </li>
               ))}
             </ul>

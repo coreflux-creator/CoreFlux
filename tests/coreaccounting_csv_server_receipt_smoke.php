@@ -142,7 +142,7 @@ putenv('COREFLUX_ENV=coreaccounting');
 
 $result = ['imported_count' => 1, 'skipped_count' => 1,
     'row_count' => 4, 'imported_row_count' => 3, 'skipped_row_count' => 1,
-    'errors' => ['4' => ['invalid amount']]];
+    'errors' => ['4' => ['invalid amount']], 'ids' => ['QA-INV-1' => 71]];
 $GLOBALS['csvReceiptDb']->beginTransaction();
 $GLOBALS['csvReceiptDb']->sources[] = 'synthetic-source';
 $saved = coreAccountingRecordCsvImportOutcome($result, 21, 3);
@@ -156,6 +156,17 @@ $check('receipt is server-marked and returned', $saved['server_outcome_recorded'
     && !isset($summary['_import_outcome_unconfirmed']) && isset($summary['4'])
     && $GLOBALS['csvReceiptDb']->sources === ['synthetic-source']
     && !$GLOBALS['csvReceiptDb']->inTransaction());
+$check('receipt preserves document counts and source links separately from row counts',
+    ($summary['_server_receipt_result']['imported_count'] ?? null) === 1
+    && ($summary['_server_receipt_result']['skipped_count'] ?? null) === 1
+    && ($summary['_server_receipt_result']['imported_row_count'] ?? null) === 3
+    && ($summary['_server_receipt_result']['ids']['QA-INV-1'] ?? null) === 71);
+$manyIds = array_combine(array_map(static fn(int $n): string => 'QA-' . $n, range(1, 501)), range(1, 501));
+$bounded = coreAccountingCsvReceiptResult(['imported_count' => 501, 'ids' => $manyIds],
+    ['total' => 501, 'imported' => 501, 'skipped' => 0]);
+$check('recovery links are bounded without changing imported document totals',
+    count($bounded['ids']) === 500 && $bounded['ids_truncated'] === true
+    && $bounded['imported_count'] === 501);
 
 $GLOBALS['csvReceiptDb'] = new CsvReceiptFakePDO();
 $GLOBALS['csvReceiptDb']->beginTransaction();

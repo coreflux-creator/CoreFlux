@@ -88,6 +88,10 @@ export async function finalizeCsvImportAudit({ runId, result, startedAt, postCom
       || Number(finalized.rows_skipped) !== Number(skipped)) {
       throw new Error('The server receipt does not match the import response. Check Import History before retrying.');
     }
+    if (finalized.receipt_result && (Number(finalized.receipt_result.imported_count) !== Number(result?.imported_count)
+      || Number(finalized.receipt_result.skipped_count) !== Number(result?.skipped_count))) {
+      throw new Error('The document counts do not match the server receipt. Check Import History before retrying.');
+    }
   }
   if (!postCommitSource) return { id: runId, sourceAttached: true };
   const attachment = await attachCsvToImportRun({ importRunId: runId, ...postCommitSource });
@@ -112,6 +116,22 @@ export async function recoverCsvImportAudit({ runId }) {
     || total < imported + skipped) {
     throw new Error('No verified server outcome is available. Check Import History and source records before retrying.');
   }
+  const exact = receipt.receipt_result;
+  if (exact != null) {
+    const counts = ['imported_count', 'skipped_count', 'row_count', 'imported_row_count', 'skipped_row_count'];
+    if (!exact || typeof exact !== 'object' || Array.isArray(exact)
+      || !counts.every(key => Number.isSafeInteger(exact[key]) && exact[key] >= 0)
+      || exact.row_count !== total || exact.imported_row_count !== imported
+      || exact.skipped_row_count !== skipped || exact.ids == null
+      || typeof exact.ids !== 'object'
+      || !Object.values(exact.ids).every(id => Number.isSafeInteger(id) && id > 0)) {
+      throw new Error('The server receipt details are inconsistent. Check Import History before retrying.');
+    }
+    return {
+      id: runId,
+      result: { ...exact, errors: {}, status: receipt.status, recovered_from_receipt: true },
+    };
+  }
   return {
     id: runId,
     result: {
@@ -123,6 +143,7 @@ export async function recoverCsvImportAudit({ runId }) {
       errors: {},
       status: receipt.status,
       recovered_from_receipt: true,
+      recovered_counts_are_rows: true,
     },
   };
 }
