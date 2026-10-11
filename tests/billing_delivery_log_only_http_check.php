@@ -238,6 +238,81 @@ try {
         && $saved['journal_status'] === 'posted' && (int) $tokens->fetchColumn() === 0
         && (int) $outbox->fetchColumn() === $outboxBefore,
         'blocked send preserves the posted invoice without a customer link or outbox item');
+
+    $bank = $request('/modules/accounting/api/bank_accounts.php', 'POST', [
+        'entity_id' => $entityId,
+        'name' => 'CI Synthetic Collection Bank',
+        'bank_name' => 'CI Test Bank',
+        'gl_account_code' => '1000',
+        'currency' => 'USD',
+    ]);
+    $bankId = (int) ($bank['body']['id'] ?? 0);
+    if ($bank['status'] !== 201 || $bankId <= 0) {
+        throw new RuntimeException('Synthetic bank setup returned HTTP ' . $bank['status']
+            . ': ' . substr($bank['raw'], 0, 500));
+    }
+    $assert(true, 'new synthetic bank account was created through the authenticated Accounting API');
+
+    $receiptRequest = [
+        'bank_account_id' => $bankId,
+        'client_name' => 'CI Log-Only Delivery Client',
+        'received_at' => '2026-10-11',
+        'amount' => 0.05,
+        'currency' => 'USD',
+        'method' => 'other',
+        'reference' => 'CI-SYNTHETIC-PARTIAL-COLLECTION',
+        'request_key' => 'ci_collection_' . bin2hex(random_bytes(8)),
+        'allocations' => [['invoice_id' => $invoiceId, 'amount' => 0.05]],
+    ];
+    $receipt = $request('/modules/billing/api/payments.php', 'POST', $receiptRequest);
+    $paymentId = (int) ($receipt['body']['id'] ?? 0);
+    $receiptJournalId = (int) ($receipt['body']['journal_entry_id'] ?? 0);
+    if ($receipt['status'] !== 201 || $paymentId <= 0 || $receiptJournalId <= 0) {
+        throw new RuntimeException('Synthetic partial receipt returned HTTP ' . $receipt['status']
+            . ': ' . substr($receipt['raw'], 0, 500));
+    }
+    $assert(true, 'new synthetic partial receipt posted through the authenticated Billing API');
+    $collectedReports = $reportSnapshot();
+    $assert($deltaCents($afterReports['income'], $collectedReports['income'], 'total_revenue') === 0
+        && $deltaCents($afterReports['income'], $collectedReports['income'], 'net_income') === 0,
+        'collecting an invoice does not recognize revenue a second time');
+    $assert($deltaCents($afterReports['balance'], $collectedReports['balance'], 'total_assets') === 0
+        && !empty($collectedReports['balance']['balanced']),
+        'partial collection exchanges receivables for cash without changing total assets');
+    $assert((int) round(100 * ($trialBalance($collectedReports, '1100')
+            - $trialBalance($afterReports, '1100'))) === -5
+        && (int) round(100 * ($trialBalance($collectedReports, '1000')
+            - $trialBalance($afterReports, '1000'))) === 5,
+        'receipt journal moves five cents from AR to bank cash');
+    $assert($deltaCents($afterReports['cash'], $collectedReports['cash'], 'net_change_in_cash') === 5
+        && $deltaCents($afterReports['cash'], $collectedReports['cash'], 'cash_change_from_gl') === 5
+        && !empty($collectedReports['cash']['balanced']),
+        'indirect cash flow and bank GL both rise by five cents');
+    $arCollected = $collectedReports['controls']['controls']['ar'] ?? [];
+    $assert($deltaCents($arAfter, $arCollected, 'source_due') === -5
+        && $deltaCents($arAfter, $arCollected, 'gl_balance') === -5
+        && $deltaCents($arAfter, $arCollected, 'difference') === 0
+        && !empty($arCollected['matched']),
+        'open invoice and posted AR control both fall by five cents');
+
+    $invoiceState = $pdo->prepare('SELECT status, amount_due, amount_paid
+        FROM billing_invoices WHERE tenant_id = :tenant AND id = :invoice');
+    $invoiceState->execute(['tenant' => $tenantId, 'invoice' => $invoiceId]);
+    $collectedInvoice = $invoiceState->fetch(PDO::FETCH_ASSOC);
+    $assert($collectedInvoice && $collectedInvoice['status'] === 'partially_paid'
+        && abs((float) $collectedInvoice['amount_due'] - 0.08) < 0.005
+        && abs((float) $collectedInvoice['amount_paid'] - 0.05) < 0.005,
+        'the source invoice persists eight cents due and five cents paid');
+    $receiptReplay = $request('/modules/billing/api/payments.php', 'POST', $receiptRequest);
+    $assert($receiptReplay['status'] === 201
+        && !empty($receiptReplay['body']['idempotent_replay'])
+        && (int) ($receiptReplay['body']['id'] ?? 0) === $paymentId
+        && (int) ($receiptReplay['body']['journal_entry_id'] ?? 0) === $receiptJournalId,
+        'identical receipt retry reuses the original payment and journal');
+    $replayReports = $reportSnapshot();
+    $assert($deltaCents($collectedReports['cash'], $replayReports['cash'], 'net_change_in_cash') === 0
+        && $deltaCents($arCollected, $replayReports['controls']['controls']['ar'] ?? [], 'source_due') === 0,
+        'receipt retry leaves cash and outstanding AR unchanged');
 } finally {
     @unlink($cookie);
 }
