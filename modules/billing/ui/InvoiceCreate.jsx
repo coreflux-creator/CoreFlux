@@ -7,6 +7,7 @@ import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 import { calculateDocumentTotals } from '../../../dashboard/src/lib/documentTotals';
+import { selectedCompanyMatchesQuery, uniqueExactCompany } from '../../../dashboard/src/lib/companySelection';
 
 /**
  * Manual Billing invoice creator — supports any item_type. Time-bundle-driven
@@ -36,6 +37,7 @@ export default function InvoiceCreate() {
   const revenueAccounts = accountsApi.data?.rows ?? [];
 
   const [client, setClient]   = useState(null);
+  const [clientQuery, setClientQuery] = useState('');
   const [issueDate, setIssue] = useState(new Date().toISOString().slice(0, 10));
   const [dueDate, setDue]     = useState('');
   const [poNumber, setPo]     = useState('');
@@ -55,6 +57,7 @@ export default function InvoiceCreate() {
     const invoice = invoiceApi.data.invoice;
     const savedLines = invoiceApi.data.lines ?? [];
     setClient({ id: invoice.client_company_id, name: invoice.client_name });
+    setClientQuery(invoice.client_name || '');
     setIssue(invoice.issue_date || '');
     setDue(invoice.due_date || '');
     setPo(invoice.po_number || '');
@@ -93,7 +96,16 @@ export default function InvoiceCreate() {
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr(null);
     try {
-      if (!client) throw new Error('Pick a client');
+      const enteredClient = clientQuery.trim();
+      let selectedClient = selectedCompanyMatchesQuery(client, enteredClient) ? client : null;
+      if (!selectedClient && enteredClient) {
+        const params = new URLSearchParams({ q: enteredClient, role: 'client', per_page: '100' });
+        const matches = await api.get(`/modules/people/api/companies.php?${params}`);
+        selectedClient = uniqueExactCompany(matches.rows, enteredClient);
+      }
+      if (!selectedClient) throw new Error(enteredClient
+        ? 'Choose a client from the suggestions, or create a new client there.'
+        : 'Pick a client');
       const activeLines = lines.filter((line) =>
         String(line.description || '').trim() !== ''
         || String(line.unit_price ?? '').trim() !== ''
@@ -118,8 +130,8 @@ export default function InvoiceCreate() {
       if (Math.round(total * 100) <= 0) throw new Error('Invoice total must be positive.');
       const payload = {
         entity_id: entityId,
-        client_name: client.name,
-        client_company_id: client.id,
+        client_name: selectedClient.name,
+        client_company_id: selectedClient.id,
         issue_date: issueDate,
         due_date: dueDate || null,
         po_number: poNumber || null,
@@ -172,6 +184,7 @@ export default function InvoiceCreate() {
               role="client"
               value={client}
               onChange={setClient}
+              onQueryChange={setClientQuery}
               testId="billing-invoice-create-client"
               placeholder="Search clients…"
             />
