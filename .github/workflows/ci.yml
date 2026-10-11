@@ -311,6 +311,9 @@ jobs:
       - name: Exercise invoice-issued rule-label migration and legacy seed alias
         run: php tests/invoice_issued_rule_label_db_check.php --confirm-disposable-fixture
 
+      - name: Exercise independent direct invoice approval without a policy
+        run: php tests/billing_invoice_direct_approval_sod_db_check.php --confirm-disposable-fixture
+
       - name: Exercise journal deletion audit and balance restoration
         run: php tests/accounting_journal_void_audit_db_check.php --confirm-disposable-fixture
 

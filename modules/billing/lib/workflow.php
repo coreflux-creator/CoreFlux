@@ -222,6 +222,9 @@ function billingInvoiceHasIndependentApprover(int $tenantId, array $requirements
 /** @internal */
 function billingInvoiceApproveDirect(int $tenantId, int $invoiceId, int $userId, array $invoice): array
 {
+    if (in_array($userId, billingInvoiceWorkflowSodBlockedUserIds($invoice), true)) {
+        throw new \RuntimeException('Separation of duties: the invoice preparer cannot approve their own invoice.');
+    }
     $pdo = getDB();
     if (!$pdo) throw new \RuntimeException('No DB');
     $stmt = $pdo->prepare(
@@ -231,6 +234,9 @@ function billingInvoiceApproveDirect(int $tenantId, int $invoiceId, int $userId,
           WHERE tenant_id = :t AND id = :id AND status = 'draft'"
     );
     $stmt->execute(['u' => $userId, 't' => $tenantId, 'id' => $invoiceId]);
+    if ($stmt->rowCount() !== 1) {
+        throw new \RuntimeException('This invoice changed while you were approving it. Refresh and review its current status.');
+    }
 
     $updated = billingInvoiceWorkflowRow($tenantId, $invoiceId) ?? $invoice;
     if ((string) ($updated['status'] ?? '') !== 'approved') {
