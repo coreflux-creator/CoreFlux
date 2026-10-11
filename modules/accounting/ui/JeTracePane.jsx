@@ -102,9 +102,9 @@ function EventNode({ node, interpretations = [], exceptions = [], evidence = [],
       )}
       {interpretations.length > 0 && (
         <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {accepted && <InterpretationRow row={accepted} highlight />}
-          {proposed.map(r => <InterpretationRow key={r.id} row={r}/>)}
-          {overridden.map(r => <InterpretationRow key={r.id} row={r}/>)}
+          {accepted && <InterpretationRow row={accepted} eventType={node.event_type} highlight />}
+          {proposed.map(r => <InterpretationRow key={r.id} row={r} eventType={node.event_type}/>)}
+          {overridden.map(r => <InterpretationRow key={r.id} row={r} eventType={node.event_type}/>)}
         </div>
       )}
       {exceptions.length > 0 && (
@@ -175,9 +175,11 @@ function ExceptionRow({ row }) {
   );
 }
 
-function InterpretationRow({ row, highlight }) {
+function InterpretationRow({ row, eventType, highlight }) {
   const isAi   = row.proposed_by?.startsWith('ai:');
   const isRule = row.proposed_by?.startsWith('posting_rule:');
+  const legacyInvoiceLabel = eventType === 'ar.invoice.issued'
+    && row.reasoning?.includes('AR invoice sent — passthrough');
   const Icon   = isAi ? Sparkles : (isRule ? FileText : User);
   const statusColor = {
     accepted:   '#16a34a',
@@ -208,6 +210,9 @@ function InterpretationRow({ row, highlight }) {
         </div>
       )}
       {row.reasoning && <div style={{ marginTop: 4, color: '#0f172a' }}>{row.reasoning}</div>}
+      {legacyInvoiceLabel && <div style={{ marginTop: 4, color: '#475569' }}>
+        Historical rule name only. This journal records invoice issuance, not customer delivery.
+      </div>}
       {row.review_disposition && <div style={{ marginTop: 4, color: '#475569' }}><strong>Reviewer:</strong> {row.review_disposition}</div>}
       {row.proposed_je?.lines?.length > 0 && (
         <table style={{ marginTop: 6, fontSize: 10, width: '100%', borderCollapse: 'collapse' }}>

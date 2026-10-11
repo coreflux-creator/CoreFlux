@@ -149,9 +149,9 @@ const POSTING_RULES_DEFAULT_PACK = [
     ],
     [
         'event_type'  => 'ar.invoice.issued',
-        'rule_name'   => 'AR invoice sent — passthrough',
+        'rule_name'   => 'AR invoice issued — passthrough',
         'template'    => [
-            'name'           => 'AR invoice sent — passthrough',
+            'name'           => 'AR invoice issued — passthrough',
             'memo_template'  => 'Invoice {payload.invoice_number} / {payload.client_name}',
             'line_source'    => 'payload',
         ],
@@ -295,10 +295,16 @@ function postingRulesSeedDefaults(int $tenantId): array {
     foreach (POSTING_RULES_DEFAULT_PACK as $entry) {
         $tplName    = $entry['template']['name'];
         $lineSource = (string) ($entry['template']['line_source'] ?? 'template');
+        $legacyInvoiceName = $entry['event_type'] === 'ar.invoice.issued'
+            ? 'AR invoice sent — passthrough' : null;
 
         // Template
         $findTpl->execute(['t' => $tenantId, 'n' => $tplName]);
         $tplId = (int) ($findTpl->fetchColumn() ?: 0);
+        if (!$tplId && $legacyInvoiceName !== null) {
+            $findTpl->execute(['t' => $tenantId, 'n' => $legacyInvoiceName]);
+            $tplId = (int) ($findTpl->fetchColumn() ?: 0);
+        }
         if (!$tplId) {
             $insTpl->execute([
                 't'  => $tenantId,
@@ -340,7 +346,14 @@ function postingRulesSeedDefaults(int $tenantId): array {
         $findRule->execute([
             't' => $tenantId, 'et' => $entry['event_type'], 'n' => $entry['rule_name'],
         ]);
-        if (!$findRule->fetchColumn()) {
+        $ruleId = $findRule->fetchColumn();
+        if (!$ruleId && $legacyInvoiceName !== null) {
+            $findRule->execute([
+                't' => $tenantId, 'et' => $entry['event_type'], 'n' => $legacyInvoiceName,
+            ]);
+            $ruleId = $findRule->fetchColumn();
+        }
+        if (!$ruleId) {
             $insRule->execute([
                 't' => $tenantId,
                 'n' => $entry['rule_name'],

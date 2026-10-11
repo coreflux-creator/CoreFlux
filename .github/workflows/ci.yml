@@ -308,6 +308,9 @@ jobs:
       - name: Exercise exact-reference partial bank invoice suggestions
         run: php tests/bank_invoice_reference_db_check.php --confirm-disposable-fixture
 
+      - name: Exercise invoice-issued rule-label migration and legacy seed alias
+        run: php tests/invoice_issued_rule_label_db_check.php --confirm-disposable-fixture
+
       - name: Exercise log-only password reset and replay
         run: |
           export MAIL_DRIVER=log
