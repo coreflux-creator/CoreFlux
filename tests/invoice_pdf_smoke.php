@@ -70,8 +70,16 @@ $a('PDF rate retains four-decimal precision', invoiceFormatMeasure('1.0050') ===
     && invoiceFormatMeasure('-0.0100') === '-0.01'
     && invoiceFormatMeasure('1.0000') === '1.00'
     && invoiceFormatMeasure('1000.1234') === '1,000.1234');
+$a('draft PDF is not presented as an issued payable', invoicePdfStatusPresentation('draft')
+    === ['DRAFT - NOT ISSUED', 'Planned due date', 'Draft total']
+    && invoicePdfStatusPresentation('approved')
+    === ['APPROVED - NOT SENT', 'Planned due date', 'Approved total']
+    && invoicePdfStatusPresentation('sent') === ['', 'Due date', 'Total due']
+    && invoicePdfStatusPresentation('void')
+    === ['VOID - NOT PAYABLE', 'Due date', 'Voided balance']);
 $a('cache busts on invoice state and template changes', str_contains($libSrc, "updated_at")
-    && str_contains($libSrc, 'amount_due') && str_contains($libSrc, "hash_file('sha1', __FILE__)"));
+    && str_contains($libSrc, "\$inv['status']") && str_contains($libSrc, 'amount_due')
+    && str_contains($libSrc, "hash_file('sha1', __FILE__)"));
 $a('cache dir is tenant-scoped',               str_contains($libSrc, "\$storageRoot . '/' . \$tenantId"));
 $a('standalone uses private storage',          str_contains($libSrc, 'coreAccountingPrivateStorageRoot(dirname(__DIR__, 3))'));
 $a('standalone archives old cache',            str_contains($libSrc, 'invoiceArchiveLegacyPdfCache($invoiceId, $tenantId,'));

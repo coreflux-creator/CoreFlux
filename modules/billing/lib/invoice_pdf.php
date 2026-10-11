@@ -7,7 +7,7 @@
  *
  * Cached under private storage for standalone CoreAccounting, or the ERP's
  * existing storage directory otherwise.
- * Cache key includes invoice state and template source (so edits and releases bust cache).
+ * Cache key includes invoice state and template source (so edits, workflow and releases bust cache).
  *
  * Permissions are NOT checked here — callers (HTTP endpoint, mail attach)
  * are responsible. This is a builder.
@@ -26,6 +26,15 @@ function invoiceFormatMeasure(float|int|string $value): string {
     return substr($formatted, 0, -2) . rtrim(substr($formatted, -2), '0');
 }
 
+function invoicePdfStatusPresentation(string $status): array {
+    return match ($status) {
+        'draft' => ['DRAFT - NOT ISSUED', 'Planned due date', 'Draft total'],
+        'approved' => ['APPROVED - NOT SENT', 'Planned due date', 'Approved total'],
+        'void' => ['VOID - NOT PAYABLE', 'Due date', 'Voided balance'],
+        default => ['', 'Due date', 'Total due'],
+    };
+}
+
 function invoicePdfStorageRoot(): string {
     if (getenv('COREFLUX_ENV') !== 'coreaccounting') {
         return COREFLUX_INVOICE_PDF_STORAGE_ROOT;
@@ -38,7 +47,8 @@ function invoiceRenderPdf(int $invoiceId, bool $useCache = true): string {
     $inv = _invoiceLoad($pdo, $invoiceId);
     if (!$inv) throw new RuntimeException("Invoice #{$invoiceId} not found");
 
-    $cacheKey = hash('sha1', (string) $inv['updated_at'] . '|' . (string) $inv['amount_due']
+    $cacheKey = hash('sha1', (string) $inv['updated_at'] . '|' . (string) $inv['status']
+        . '|' . (string) $inv['amount_due']
         . '|' . hash_file('sha1', __FILE__));
     $tenantId = (int) $inv['tenant_id'];
     $storageRoot = invoicePdfStorageRoot();
@@ -67,6 +77,8 @@ function invoiceBuildPdfHtml(int $invoiceId): string {
 
     $h = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
     $money = fn($v) => '$' . number_format((float) $v, 2);
+    [$notice, $dueDateLabel, $totalLabel] = invoicePdfStatusPresentation((string) ($inv['status'] ?? ''));
+    $noticeHtml = $notice !== '' ? '<div class="document-state">' . $h($notice) . '</div>' : '';
 
     $billToJson = is_string($inv['bill_to_json'] ?? null) ? json_decode($inv['bill_to_json'], true) : null;
     $billToLines = [];
@@ -119,6 +131,7 @@ function invoiceBuildPdfHtml(int $invoiceId): string {
   .brand-name { font-size: 22pt; font-weight: 700; color: {$brandColor}; }
   .title { text-align: right; }
   .title h1 { margin: 0 0 4px; font-size: 26pt; color: {$brandColor}; letter-spacing: 0.04em; }
+  .document-state { margin: 0 0 4px; color: #9a3412; font-size: 10pt; font-weight: 700; letter-spacing: 0.04em; }
   .title .meta { color: #64748b; font-size: 10pt; line-height: 1.55; }
   .parties { display: table; width: 100%; margin: 24px 0; }
   .parties > .party { display: table-cell; vertical-align: top; padding-right: 20px; }
@@ -147,10 +160,11 @@ function invoiceBuildPdfHtml(int $invoiceId): string {
     <div>{$logoHtml}</div>
     <div class="title">
       <h1>INVOICE</h1>
+      {$noticeHtml}
       <div class="meta">
         <strong>{$h($inv['invoice_number'])}</strong><br>
-        Issue date: {$h($inv['issue_date'])}<br>
-        Due date: {$h($inv['due_date'])}
+        Invoice date: {$h($inv['issue_date'])}<br>
+        {$h($dueDateLabel)}: {$h($inv['due_date'])}
         @{po_section}
       </div>
     </div>
@@ -185,7 +199,7 @@ function invoiceBuildPdfHtml(int $invoiceId): string {
     <table>
       <tr><td class="label">Subtotal</td><td class="val">{$money($inv['subtotal'])}</td></tr>
       <tr><td class="label">Tax</td><td class="val">{$money($inv['tax_total'])}</td></tr>
-      <tr><td class="label grand">Total due</td><td class="val grand">{$money($inv['amount_due'])}</td></tr>
+      <tr><td class="label grand">{$h($totalLabel)}</td><td class="val grand">{$money($inv['amount_due'])}</td></tr>
     </table>
   </div>
   {$notesHtml}
