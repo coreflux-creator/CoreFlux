@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../StorageService.php';
+require_once __DIR__ . '/csv_import_evidence.php';
 
 function coreAccountingCsvContentMatches(string $archived, string $submitted): bool
 {
@@ -41,7 +42,7 @@ function coreAccountingClaimCsvImport(string $entity, string $csv, int $tenantId
         }
 
         $stmt = $pdo->prepare(
-            "SELECT storage_key, size_bytes FROM evidence_attachments
+            "SELECT storage_key, size_bytes, sha256_hash FROM evidence_attachments
               WHERE tenant_id = :tenant_id AND subject_type = 'csv_import_run'
                 AND subject_id = :id AND document_type = 'csv_source'
                 AND attached_by_user_id = :user_id AND deleted_at IS NULL
@@ -63,6 +64,9 @@ function coreAccountingClaimCsvImport(string $entity, string $csv, int $tenantId
         $source = \Core\StorageService::getInstance()->read($key, 25 * 1024 * 1024);
         if ($source === null || strlen($source) !== $size) {
             throw new InvalidArgumentException('The archived source CSV is missing or incomplete.');
+        }
+        if (!coreAccountingCsvArchiveHashMatches($source, $sources[0]['sha256_hash'] ?? null)) {
+            throw new InvalidArgumentException('The archived source CSV failed its integrity check. Start a new import.');
         }
         if (!coreAccountingCsvContentMatches($source, $csv)) {
             throw new InvalidArgumentException('The CSV being imported differs from its archived source. Select the file again.');
