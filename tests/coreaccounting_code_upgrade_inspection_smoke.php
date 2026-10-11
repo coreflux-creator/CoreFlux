@@ -87,6 +87,31 @@ try {
         'A changed live file retained its inspection fingerprint.');
     $refuses(static fn() => coreAccountingUpgradeDirectory('relative', 'Fixture'));
     $refuses(static fn() => coreAccountingUpgradeFile($fixture . '/missing', 'Fixture'));
+
+    $deploy = $fixture . '/public_html/deploy';
+    if (!mkdir($deploy, 0700, true)) throw new RuntimeException('Could not prepare schema verifier fixture.');
+    $bootstrap = $deploy . '/bootstrap_coreaccounting.php';
+    file_put_contents($bootstrap, <<<'PHP'
+<?php
+declare(strict_types=1);
+$database = getenv('COREFLUX_STANDALONE_DATABASE');
+if ($database === 'invalid') exit(2);
+if (getenv('COREFLUX_ENV') !== 'coreaccounting'
+    || realpath((string) getenv('COREFLUX_STANDALONE_WEBROOT')) !== realpath(dirname(__DIR__))
+    || !is_file((string) getenv('COREFLUX_ACCOUNTING_DB_CONFIG_PATH'))
+    || getenv('COREFLUX_PUBLIC_ORIGIN') !== 'https://qa.invalid'
+    || ($argv[1] ?? '') !== '--verify-schema') exit(3);
+echo json_encode(['database' => $database,
+    'status' => $database === 'legacy_db' ? 'incomplete' : 'schema_ready',
+    'missing' => [], 'incompatible' => $database === 'legacy_db' ? ['old bank key'] : []]);
+PHP);
+    $expect(coreAccountingUpgradeVerifySchema($fixture, 'qa_db', $file,
+        'https://qa.invalid')['status'] === 'schema_ready',
+        'The candidate-package schema verifier did not run with the intended environment.');
+    $refuses(static fn() => coreAccountingUpgradeVerifySchema($fixture,
+        'legacy_db', $file, 'https://qa.invalid'));
+    $refuses(static fn() => coreAccountingUpgradeVerifySchema($fixture,
+        'invalid', $file, 'https://qa.invalid'));
     echo "CoreAccounting code upgrade inspection: {$checks} checks passed\n";
 } finally {
     $resolved = realpath($fixture);
@@ -94,6 +119,11 @@ try {
     if ($resolved === false || $temp === false
         || !str_starts_with($resolved, $temp . DIRECTORY_SEPARATOR . 'coreaccounting-upgrade-inspect-')) {
         throw new RuntimeException('Refusing fixture cleanup outside the test directory.');
+    }
+    if (is_file($resolved . '/public_html/deploy/bootstrap_coreaccounting.php')) {
+        unlink($resolved . '/public_html/deploy/bootstrap_coreaccounting.php');
+        rmdir($resolved . '/public_html/deploy');
+        rmdir($resolved . '/public_html');
     }
     unlink($resolved . '/file.txt');
     rmdir($resolved);

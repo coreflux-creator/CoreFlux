@@ -76,6 +76,18 @@ try {
         throw new RuntimeException('A retained legacy bank index was incorrectly accepted.');
     }
     $pdo->exec('ALTER TABLE accounting_bank_accounts DROP INDEX uq_aba_tenant_gl');
+    $pdo->exec('ALTER TABLE accounting_bank_accounts
+        ADD UNIQUE KEY uq_aba_legacy_reordered (gl_account_code, tenant_id)');
+    if (coreAccountingInspectSchema($pdo)['incompatible'] === []) {
+        throw new RuntimeException('A reordered legacy bank index was incorrectly accepted.');
+    }
+    $pdo->exec('ALTER TABLE accounting_bank_accounts DROP INDEX uq_aba_legacy_reordered');
+    $pdo->exec('ALTER TABLE accounting_bank_accounts
+        ADD UNIQUE KEY uq_aba_legacy_prefix (tenant_id, gl_account_code(10))');
+    if (coreAccountingInspectSchema($pdo)['incompatible'] === []) {
+        throw new RuntimeException('A prefix legacy bank index was incorrectly accepted.');
+    }
+    $pdo->exec('ALTER TABLE accounting_bank_accounts DROP INDEX uq_aba_legacy_prefix');
     $pdo->exec('USE coreaccounting_ci');
 
     $journal = $pdo->query("SELECT id, je_number, status, total_debit, total_credit, memo,

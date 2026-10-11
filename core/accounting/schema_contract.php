@@ -102,10 +102,16 @@ function coreAccountingMissingUniqueKeys(array $present): array
 
 function coreAccountingIncompatibleUniqueKeys(array $present): array
 {
-    return in_array(['tenant_id', 'gl_account_code'],
-        $present['accounting_bank_accounts'] ?? [], true)
-        ? ['accounting_bank_accounts legacy UNIQUE (tenant_id, gl_account_code) blocks cross-entity cash mappings']
-        : [];
+    foreach ($present['accounting_bank_accounts'] ?? [] as $columns) {
+        if (count($columns) !== 2) continue;
+        $names = array_map(static fn(string $column): string =>
+            preg_replace('/\(\d+\)$/', '', $column) ?? $column, $columns);
+        sort($names, SORT_STRING);
+        if ($names === ['gl_account_code', 'tenant_id']) {
+            return ['accounting_bank_accounts legacy UNIQUE (tenant_id, gl_account_code) blocks cross-entity cash mappings'];
+        }
+    }
+    return [];
 }
 
 function coreAccountingMissingSchema(array $present): array
