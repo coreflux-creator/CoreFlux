@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
+import { withVendorType } from './vendorTaxDefaults.mjs';
 
 export default function VendorsList() {
   const [q, setQ] = useState('');
@@ -173,7 +174,7 @@ function PortalInviteButton({ vendor }) {
 }
 
 function VendorCreateModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ vendor_name: '', vendor_type: '1099_individual', default_terms: 'NET30', tax_id_full: '', requires_1099: true });
+  const [form, setForm] = useState({ vendor_name: '', vendor_type: 'other', default_terms: 'NET30', tax_id_full: '', requires_1099: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const submit = async () => {
@@ -190,7 +191,10 @@ function VendorCreateModal({ onClose, onCreated }) {
             <input className="input" value={form.vendor_name} onChange={(e) => setForm({ ...form, vendor_name: e.target.value })} data-testid="ap-vendor-name" style={{ marginTop: 4 }} />
           </label>
           <label style={{ fontSize: 13 }}><span style={{ color: 'var(--cf-text-secondary)' }}>Type</span>
-            <select className="input" value={form.vendor_type} onChange={(e) => setForm({ ...form, vendor_type: e.target.value })} data-testid="ap-vendor-type" style={{ marginTop: 4 }}>
+            <select className="input" value={form.vendor_type} onChange={(e) => {
+              const vendorType = e.target.value;
+              setForm((current) => withVendorType(current, vendorType));
+            }} data-testid="ap-vendor-type" style={{ marginTop: 4 }}>
               <option value="1099_individual">1099 Individual</option>
               <option value="c2c_corp">C2C Corp</option>
               <option value="w9_business">W9 Business</option>

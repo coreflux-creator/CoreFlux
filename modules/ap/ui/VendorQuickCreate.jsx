@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
+import { defaultRequires1099, extractedRequires1099 } from './vendorTaxDefaults.mjs';
 
 /**
  * Inline "Add new vendor" dialog used from BillCreate's vendor picker when
@@ -16,7 +17,8 @@ import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 export default function VendorQuickCreate({ initialName, onCreated, onCancel, standaloneAccounting = false }) {
   const [category, setCategory] = useState('service_provider');
   const [name, setName]         = useState(initialName || '');
-  const [vendorType, setVendorType] = useState('w9_business');
+  const [vendorType, setVendorType] = useState('other');
+  const [requires1099, setRequires1099] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('');
   const [remitEmail, setRemitEmail] = useState('');
   const [remitPhone, setRemitPhone] = useState('');
@@ -43,6 +45,7 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel, st
       // Pre-fill the form. User reviews everything before submit.
       if (d.vendor_name)    setName(d.vendor_name);
       if (d.vendor_type)    setVendorType(d.vendor_type);
+      setRequires1099((current) => extractedRequires1099(d, current));
       if (d.tax_id_last4)   setTaxIdLast4(String(d.tax_id_last4).slice(0, 4));
       setExtractInfo({ classification: d.tax_classification, model: res.model });
     } catch (e) { setExtractError(e); }
@@ -65,7 +68,7 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel, st
         vendor_name: name.trim(),
         vendor_type: vendorType,
         vendor_category: selectedCategory,
-        requires_1099: vendorType === '1099_individual',
+        requires_1099: requires1099,
         payment_method: paymentMethod || null,
         remit_to_email: remitEmail || null,
         remit_to_phone: remitPhone || null,
@@ -165,7 +168,11 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel, st
             </Field>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <Field label="Type">
-                <select className="input" value={vendorType} onChange={(e) => setVendorType(e.target.value)} data-testid="vendor-quick-create-type">
+                <select className="input" value={vendorType} onChange={(e) => {
+                  const nextType = e.target.value;
+                  setVendorType(nextType);
+                  setRequires1099(defaultRequires1099(nextType));
+                }} data-testid="vendor-quick-create-type">
                   {standaloneAccounting && <option value="1099_individual">1099 individual</option>}
                   {standaloneAccounting && <option value="c2c_corp">C2C company</option>}
                   <option value="w9_business">W-9 business</option>
@@ -186,6 +193,10 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel, st
                 </select>
               </Field>
             </div>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+              <input type="checkbox" checked={requires1099} onChange={(e) => setRequires1099(e.target.checked)} data-testid="vendor-quick-create-requires-1099" />
+              Requires 1099-NEC
+            </label>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 }}>
               <Field label="Remit-to email (where to send invoices/payment notices)">
                 <input className="input" type="email" value={remitEmail} onChange={(e) => setRemitEmail(e.target.value)} data-testid="vendor-quick-create-remit-email" />
