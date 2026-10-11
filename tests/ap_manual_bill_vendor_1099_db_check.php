@@ -106,13 +106,15 @@ try {
         'ap_vendor_id' => $optedOutId,
         'bill' => ['vendor_name' => 'Stale placement payee', 'vendor_type' => 'other',
             'vendor_company_id' => null],
-        'lines' => [['placement_id' => 712345, 'description' => 'Synthetic approved time',
+        'lines' => [['placement_id' => 712345, 'item_type' => 'labor',
+            'description' => 'Synthetic approved time',
             'is_1099_eligible' => 1]],
     ];
     $prepared = apPrepareGeneratedDraftVendor($tenantId, $generated);
     $assert($prepared['bill']['vendor_name'] === 'CI 1099 opted-out individual'
         && $prepared['bill']['vendor_type'] === '1099_individual'
-        && (int) $prepared['lines'][0]['is_1099_eligible'] === 0,
+        && (int) $prepared['lines'][0]['is_1099_eligible'] === 0
+        && $prepared['lines'][0]['gl_expense_account_code'] === '5070',
         'generated AP labor honors an opted-out saved vendor despite stale placement metadata');
 
     $generated['ap_vendor_id'] = $partnershipId;
@@ -122,7 +124,8 @@ try {
     $preparedBusiness = apPrepareGeneratedDraftVendor($tenantId, $generated);
     $assert($preparedBusiness['bill']['vendor_name'] === 'CI 1099 partnership'
         && $preparedBusiness['bill']['vendor_type'] === 'w9_business'
-        && (int) $preparedBusiness['lines'][0]['is_1099_eligible'] === 1,
+        && (int) $preparedBusiness['lines'][0]['is_1099_eligible'] === 1
+        && $preparedBusiness['lines'][0]['gl_expense_account_code'] === '5010',
         'generated AP labor honors an opted-in business vendor');
 
     $preparedBusiness['lines'][0]['description'] = 'Synthetic secondary placement fee';

@@ -8,7 +8,7 @@
  *   POST   /api/ap/bills?action=from-time-bundle
  *          body: {period_id, placement_ids[], aggregation}
  *   PATCH  /api/ap/bills?id=N                   → edit (only inbox/pending_review/pending_approval)
- *   PATCH  /api/ap/bills?action=coding&id=N     → recode an unposted manual bill without changing approved amounts
+ *   PATCH  /api/ap/bills?action=coding&id=N     → recode an unposted bill without changing approved amounts
  *   POST   /api/ap/bills?action=approve&id=N    → two-eye gate
  *   POST   /api/ap/bills?action=void&id=N       → body: {reason}
  *   POST   /api/ap/bills?action=correct_posted&id=N → reverse an unpaid manual bill with reason
@@ -345,17 +345,12 @@ if ($method === 'GET' && !empty($_GET['id'])) {
             $bill['correction_unavailable_reason'] = 'Correction needs an accounting review';
         }
     }
-    $bill['coding_permitted'] = $bill['source'] === 'manual'
+    $bill['coding_mode'] = apBillCodingMode($bill, $lines);
+    $bill['coding_permitted'] = $bill['coding_mode'] !== null
         && in_array($bill['status'], ['inbox', 'pending_review', 'pending_approval', 'approved'], true)
-        && empty($bill['placement_id']) && !apBillHasLedgerOrPaymentActivity($pdo, $tid, $bill)
+        && !apBillHasLedgerOrPaymentActivity($pdo, $tid, $bill)
         && rbac_legacy_can($user, 'ap.bill.create')
         && ($bill['status'] !== 'approved' || rbac_legacy_can($user, 'ap.bill.post'));
-    foreach ($lines as $line) {
-        if ($line['source_type'] !== 'manual' || !empty($line['placement_id'])) {
-            $bill['coding_permitted'] = false;
-            break;
-        }
-    }
     $approval = ['can_approve' => false, 'reason' => null];
     if (in_array($bill['status'], ['pending_review', 'pending_approval'], true)) {
         $actorId = (int) ($user['id'] ?? 0);
@@ -749,10 +744,9 @@ if ($method === 'PATCH' && $action === 'coding') {
         $locked->execute(['tenant_id' => $tid, 'id' => $id]);
         $bill = $locked->fetch(PDO::FETCH_ASSOC);
         if (!$bill) throw new \DomainException('Bill not found in this workspace');
-        if ($bill['source'] !== 'manual' || !in_array($bill['status'],
-            ['inbox', 'pending_review', 'pending_approval', 'approved'], true)
-            || !empty($bill['placement_id']) || apBillHasLedgerOrPaymentActivity($pdo, $tid, $bill)) {
-            throw new \DomainException('Only unposted, unpaid manual bills without placements can be recoded');
+        if (!in_array($bill['status'], ['inbox', 'pending_review', 'pending_approval', 'approved'], true)
+            || apBillHasLedgerOrPaymentActivity($pdo, $tid, $bill)) {
+            throw new \DomainException('Only unposted, unpaid bills awaiting review or posting can be recoded');
         }
         if ($bill['status'] === 'approved' && !rbac_legacy_can($user, 'ap.bill.post')) {
             throw new \DomainException('Posting permission is required to recode an approved bill');
@@ -763,6 +757,10 @@ if ($method === 'PATCH' && $action === 'coding') {
         );
         $lineQuery->execute(['bill_id' => $id]);
         $storedLines = $lineQuery->fetchAll(PDO::FETCH_ASSOC);
+        $codingMode = apBillCodingMode($bill, $storedLines);
+        if ($codingMode === null) {
+            throw new \DomainException('This bill must be corrected through its source workflow');
+        }
         if (count($storedLines) !== count($requested)) {
             throw new \DomainException('The bill lines changed. Refresh before saving coding.');
         }
@@ -788,9 +786,7 @@ if ($method === 'PATCH' && $action === 'coding') {
         foreach ($storedLines as $line) {
             $lineId = (int) $line['id'];
             $choice = $wanted[$lineId] ?? null;
-            if (!$choice || $line['source_type'] !== 'manual' || !empty($line['placement_id'])) {
-                throw new \DomainException('The bill lines changed or are placement-owned. Refresh before saving coding.');
-            }
+            if (!$choice) throw new \DomainException('The bill lines changed. Refresh before saving coding.');
             $old = trim((string) ($line['gl_expense_account_code'] ?? '')) ?: null;
             $expected = $choice['expected_gl_expense_account_code'];
             $replacement = $choice['gl_expense_account_code'];
@@ -803,7 +799,11 @@ if ($method === 'PATCH' && $action === 'coding') {
             if ($old !== $expected) {
                 throw new \DomainException('The bill coding changed. Refresh before saving.');
             }
-            apValidateDirectBillExpenseAccounts($tid, [['gl_expense_account_code' => $replacement]]);
+            if ($codingMode === 'generated') {
+                apValidateGeneratedBillExpenseAccounts($tid, [$replacement]);
+            } else {
+                apValidateDirectBillExpenseAccounts($tid, [['gl_expense_account_code' => $replacement]]);
+            }
             if ($old === $replacement) continue;
             $update->execute([
                 'code' => $replacement, 'bill_id' => $id, 'line_id' => $lineId,
@@ -1094,6 +1094,11 @@ if ($method === 'POST' && $action === 'post') {
     $linesStmt = $pdo->prepare('SELECT * FROM ap_bill_lines WHERE bill_id = :id ORDER BY line_no');
     $linesStmt->execute(['id' => $id]);
     $billLines = $linesStmt->fetchAll(\PDO::FETCH_ASSOC);
+    try {
+        apRequireGeneratedBillExpenseCoding($tid, $row, $billLines);
+    } catch (\InvalidArgumentException|\RuntimeException $e) {
+        api_error($e->getMessage(), 422);
+    }
     $accruedLineCount = count(array_filter(
         $billLines,
         static fn(array $line): bool => in_array(
@@ -1524,6 +1529,17 @@ if ($method === 'POST' && $action === 'post_with_ic_split') {
             'intercompany_group_id'  => $row['intercompany_group_id'] ?? null,
             'idempotent_replay'      => true,
         ]);
+    }
+
+    $codingLines = getDB()->prepare(
+        'SELECT source_type, placement_id, gl_expense_account_code
+           FROM ap_bill_lines WHERE bill_id = :id ORDER BY line_no'
+    );
+    $codingLines->execute(['id' => $id]);
+    try {
+        apRequireGeneratedBillExpenseCoding($tid, $row, $codingLines->fetchAll(\PDO::FETCH_ASSOC));
+    } catch (\InvalidArgumentException|\RuntimeException $e) {
+        api_error($e->getMessage(), 422);
     }
 
     require_once __DIR__ . '/../../accounting/lib/accounting.php';

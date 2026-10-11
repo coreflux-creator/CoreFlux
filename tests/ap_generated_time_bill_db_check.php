@@ -118,6 +118,19 @@ try {
         'the generated bill resolves the reviewed vendor identity');
     $assert((int) $draft['bill']['entity_id'] === $entityId,
         'the generated bill inherits the placement owning entity');
+    $pdo->prepare(
+        'UPDATE accounting_accounts SET active = 0 WHERE tenant_id = :t AND code = "5070"'
+    )->execute(['t' => $tenantId]);
+    $inactiveCodeRejected = false;
+    try {
+        apPrepareGeneratedDraftVendor($tenantId, $drafts[0]);
+    } catch (InvalidArgumentException $error) {
+        $inactiveCodeRejected = str_contains($error->getMessage(), 'active, postable direct-cost');
+    }
+    $assert($inactiveCodeRejected, 'generated AP refuses an inactive direct-cost account before saving');
+    $pdo->prepare(
+        'UPDATE accounting_accounts SET active = 1 WHERE tenant_id = :t AND code = "5070"'
+    )->execute(['t' => $tenantId]);
     $assert(count($draft['lines']) === 4
         && count(array_unique(array_column($draft['lines'], 'rate_snapshot_id'))) === 3,
         'same-day rate corrections remain separate and cent-sensitive entries do not merge');
@@ -126,10 +139,21 @@ try {
     $assert($lineTotal === 80.02 && $obligationTotal === 80.02
         && round((float) $draft['bill']['total'], 2) === 80.02,
         'AP lines, bill total and per-entry obligations all equal the locked $80.02 cost');
+    apRequireGeneratedBillExpenseCoding($tenantId, $draft['bill'], $draft['lines']);
+    $legacyLines = $draft['lines'];
+    $legacyLines[0]['gl_expense_account_code'] = null;
+    $uncodedRejected = false;
+    try {
+        apRequireGeneratedBillExpenseCoding($tenantId, $draft['bill'], $legacyLines);
+    } catch (InvalidArgumentException $error) {
+        $uncodedRejected = str_contains($error->getMessage(), 'every generated bill line');
+    }
+    $assert($uncodedRejected, 'legacy uncoded generated bills cannot silently post to operating expense');
     foreach ($draft['lines'] as $line) {
         $assert((int) $line['is_1099_eligible'] === 0
+            && (string) $line['gl_expense_account_code'] === '5070'
             && round((float) $line['quantity'] * (float) $line['unit_price'], 2) === (float) $line['subtotal'],
-            'each generated line preserves the reviewed 1099 exclusion and its displayed math');
+            'each generated line preserves reviewed 1099, direct-cost coding, and displayed math');
     }
     $assert(array_values(array_unique(array_map('intval', $draft['entry_ids']))) === $entryIds,
         'the generated bill retains all four source time entry IDs');
@@ -156,6 +180,8 @@ try {
     $saved = $pdo->prepare(
         'SELECT b.total, b.source, b.entity_id, COUNT(l.id) AS line_count,
                 SUM(l.subtotal) AS line_total, SUM(l.is_1099_eligible) AS eligible_count
+                , COUNT(DISTINCT l.gl_expense_account_code) AS expense_codes,
+                  MIN(l.gl_expense_account_code) AS expense_code
            FROM ap_bills b JOIN ap_bill_lines l ON l.bill_id = b.id
           WHERE b.tenant_id = :tenant_id AND b.id = :id
           GROUP BY b.id'
@@ -167,7 +193,8 @@ try {
         && (float) $row['total'] === 80.02
         && (int) $row['entity_id'] === $entityId
         && (float) $row['line_total'] === 80.02
-        && (int) $row['eligible_count'] === 0,
+        && (int) $row['eligible_count'] === 0
+        && (int) $row['expense_codes'] === 1 && $row['expense_code'] === '5070',
         'the synthetic generated AP bill persists four correctly classified lines');
 
     $pdo->prepare(
@@ -223,6 +250,7 @@ try {
     $bundleDraft = apPrepareGeneratedDraftVendor($tenantId, $bundleDrafts[0]);
     $assert((int) $bundleDraft['ap_vendor_id'] === $vendorId
         && (int) $bundleDraft['lines'][0]['is_1099_eligible'] === 0
+        && (string) $bundleDraft['lines'][0]['gl_expense_account_code'] === '5070'
         && (int) $bundleDraft['bill']['entity_id'] === $entityId
         && round((float) $bundleDraft['bill']['total'], 2) === 80.02,
         'the bundle path also retains the saved vendor exclusion and approved cost');

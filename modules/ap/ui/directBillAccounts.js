@@ -17,3 +17,9 @@ export function directBillAccountChoices(rows) {
       };
     });
 }
+
+export function generatedBillAccountChoices(rows) {
+  return rows.filter(account => Number(account.active) === 1 && Number(account.is_postable) === 1
+    && account.account_type === 'expense' && account.subtype === 'cogs')
+    .map(account => ({ ...account, disabled: false }));
+}

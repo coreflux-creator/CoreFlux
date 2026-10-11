@@ -54,6 +54,83 @@ function apNextInternalRef(int $tenantId): string
     }
 }
 
+/** Keep staffing costs in direct cost accounts, using the reviewed vendor type. */
+function apGeneratedExpenseAccountCode(array $line, string $vendorType): string
+{
+    $chosen = trim((string) ($line['gl_expense_account_code'] ?? ''));
+    if ($chosen !== '') return $chosen;
+
+    if (($line['item_type'] ?? '') === 'labor') {
+        return match ($vendorType) {
+            '1099_individual' => '5070',
+            'c2c_corp', 'w9_business' => '5010',
+            default => throw new \RuntimeException(
+                'Classify the staffing vendor as an individual or business before generating labor bills.'
+            ),
+        };
+    }
+    return '5080';
+}
+
+/** Generated placement costs may use a custom, active COGS account, never operating expense. */
+function apValidateGeneratedBillExpenseAccounts(int $tenantId, array $codes): void
+{
+    $lookup = getDB()->prepare(
+        'SELECT account_type, subtype, active, is_postable
+           FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :code LIMIT 1'
+    );
+    foreach (array_unique($codes) as $code) {
+        $code = trim((string) $code);
+        if ($code === '') {
+            throw new \InvalidArgumentException('Choose a direct-cost expense account for every generated bill line.');
+        }
+        $lookup->execute(['tenant_id' => $tenantId, 'code' => $code]);
+        $account = $lookup->fetch(\PDO::FETCH_ASSOC);
+        if (!$account || $account['account_type'] !== 'expense' || $account['subtype'] !== 'cogs'
+            || (int) $account['active'] !== 1 || (int) $account['is_postable'] !== 1) {
+            throw new \InvalidArgumentException(
+                "Account {$code} is not an active, postable direct-cost expense account."
+            );
+        }
+    }
+}
+
+/** Bill coding rules are shared by its read model and compare-and-swap editor. */
+function apBillCodingMode(array $bill, array $lines): ?string
+{
+    if (!$lines) return null;
+    if (($bill['source'] ?? '') === 'manual' && empty($bill['placement_id'])) {
+        foreach ($lines as $line) {
+            if (($line['source_type'] ?? '') !== 'manual' || !empty($line['placement_id'])) return null;
+        }
+        return 'direct';
+    }
+    if (in_array((string) ($bill['source'] ?? ''), ['time_entries', 'time_bundle', 'staffing_economics'], true)) {
+        foreach ($lines as $line) {
+            if ((int) ($line['placement_id'] ?? 0) <= 0
+                || !in_array((string) ($line['source_type'] ?? ''),
+                    ['time_entry', 'time', 'economic_item', 'economic_party'], true)) return null;
+        }
+        return 'generated';
+    }
+    return null;
+}
+
+function apRequireGeneratedBillExpenseCoding(int $tenantId, array $bill, array $lines): void
+{
+    if (!in_array((string) ($bill['source'] ?? ''),
+        ['time_entries', 'time_bundle', 'staffing_economics'], true)) return;
+    if (apBillCodingMode($bill, $lines) !== 'generated') {
+        throw new \RuntimeException('Generated bill lines need placement and source review before posting.');
+    }
+    apValidateGeneratedBillExpenseAccounts(
+        $tenantId, array_map(
+            static fn(array $line): ?string => $line['gl_expense_account_code'] ?? null,
+            $lines
+        )
+    );
+}
+
 /** Resolve a staffing-generated bill against the reviewed tenant vendor record. */
 function apPrepareGeneratedDraftVendor(int $tenantId, array $draft): array
 {
@@ -91,8 +168,14 @@ function apPrepareGeneratedDraftVendor(int $tenantId, array $draft): array
     $draft['bill']['vendor_company_id'] = $vendor['company_id'] ?: null;
     foreach ($draft['lines'] as &$line) {
         $line['is_1099_eligible'] = (int) $vendor['requires_1099'];
+        $line['gl_expense_account_code'] = apGeneratedExpenseAccountCode(
+            $line, (string) $vendor['vendor_type']
+        );
     }
     unset($line);
+    apValidateGeneratedBillExpenseAccounts(
+        $tenantId, array_column($draft['lines'], 'gl_expense_account_code')
+    );
 
     $placementId = (int) ($draft['lines'][0]['placement_id'] ?? 0);
     $pdo->prepare(
