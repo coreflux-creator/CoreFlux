@@ -60,7 +60,11 @@ if ($method === 'POST' && $action === 'supersede') {
     $old   = (int) ($body['old_id'] ?? 0);
     $new   = (int) ($body['new_id'] ?? 0);
     if (!$old || !$new) api_error('old_id + new_id required', 422);
-    api_ok(['ok' => evidenceSupersede($tenantId, $old, $new)]);
+    try {
+        api_ok(['ok' => evidenceSupersede($tenantId, $old, $new)]);
+    } catch (\DomainException $e) {
+        api_error($e->getMessage(), 409);
+    }
 }
 
 if ($method === 'POST') {
@@ -101,7 +105,11 @@ if ($method === 'POST') {
 if ($method === 'DELETE') {
     $id = (int) api_query('id', 0);
     if (!$id) api_error('id required', 422);
-    api_ok(['ok' => evidenceSoftDelete($tenantId, $id, $userId)]);
+    try {
+        api_ok(['ok' => evidenceSoftDelete($tenantId, $id, $userId)]);
+    } catch (\DomainException $e) {
+        api_error($e->getMessage(), 409);
+    }
 }
 
 api_error('Method not allowed', 405);
