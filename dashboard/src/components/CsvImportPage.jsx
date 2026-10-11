@@ -441,7 +441,7 @@ export default function CsvImportPage({
         )}
 
         {error && <p className="error" data-testid={`${testidPrefix}-error`}>Error: {error.message}</p>}
-        {standaloneAccounting && auditRun?.state === 'unconfirmed' && !committed && (
+        {standaloneAccounting && auditRun?.state === 'unconfirmed' && !committed && !running && (
           <div className="error" data-testid={`${testidPrefix}-audit-unconfirmed`}>
             Run #{auditRun.id} needs review. Do not import this file again.
             {auditRun.message && <p>{auditRun.message}</p>}

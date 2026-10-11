@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
 import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import { receiptSourcePath } from '../../../dashboard/src/lib/paymentNavigation';
 import JeTracePane from './JeTracePane';
 import {
   ArrowLeft, ExternalLink, FileCheck2, Pencil, RotateCcw, Trash2, X,
@@ -333,6 +334,10 @@ function EntryStatusNote({ status, approvalControlled = false, managedBySource =
 }
 
 function renderSource(entry) {
+  const receiptPath = receiptSourcePath(entry);
+  if (receiptPath) {
+    return <Link to={receiptPath} data-testid="accounting-je-source-link">Customer receipt RCP-{entry.source_ref_id} <ExternalLink size={12} aria-hidden="true" /></Link>;
+  }
   if (entry.source_document?.type === 'billing_invoice') {
     return <Link to={`/modules/billing/invoices/${entry.source_document.id}`} data-testid="accounting-je-source-link">{entry.source_document.label} <ExternalLink size={12} aria-hidden="true" /></Link>;
   }

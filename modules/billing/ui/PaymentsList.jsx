@@ -1,7 +1,8 @@
 import React, { useDeferredValue, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { paymentListRequestUrl, receiptId } from '../../../dashboard/src/lib/paymentNavigation';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const METHODS = ['ach','wire','check','card','cash','other'];
@@ -11,15 +12,15 @@ const localDate = () => {
 };
 
 export default function PaymentsList() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusedPaymentId = receiptId(searchParams.get('payment_id'));
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(50);
   const deferredQuery = useDeferredValue(query);
   const requestUrl = useMemo(() => {
-    const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
-    if (deferredQuery.trim()) params.set('q', deferredQuery.trim());
-    return `/api/v1/billing/payments?${params.toString()}`;
-  }, [page, perPage, deferredQuery]);
+    return paymentListRequestUrl(page, perPage, deferredQuery, focusedPaymentId);
+  }, [page, perPage, deferredQuery, focusedPaymentId]);
   const { data, loading, error, reload } = useApi(requestUrl);
   const rows = data?.rows ?? [];
   const total = Number(data?.total ?? rows.length);
@@ -87,6 +88,19 @@ export default function PaymentsList() {
 
       {loading && <p>Loading…</p>}
       {error && <p className="error" data-testid="billing-payments-error">Error: {error.message}</p>}
+
+      {focusedPaymentId && (
+        <div role="status" data-testid="billing-payments-focused" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <span>Receipt RCP-{focusedPaymentId}</span>
+          <button type="button" className="btn btn--ghost" onClick={() => {
+            const next = new URLSearchParams(searchParams);
+            next.delete('payment_id');
+            setSearchParams(next);
+            setQuery('');
+            setPage(1);
+          }}>All payments</button>
+        </div>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         <div style={{ position: 'relative', flex: '1 1 260px', maxWidth: 440 }}>

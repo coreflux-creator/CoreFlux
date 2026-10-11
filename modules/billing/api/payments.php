@@ -84,6 +84,14 @@ if ($method === 'GET') {
     rbac_legacy_require($user, 'billing.view');
     $where  = ['p.tenant_id = :tenant_id'];
     $params = [];
+    if (array_key_exists('payment_id', $_GET)) {
+        $paymentId = $_GET['payment_id'];
+        if (!is_string($paymentId) || !preg_match('/^[1-9][0-9]{0,17}$/D', $paymentId)) {
+            api_error('Valid payment_id required', 422);
+        }
+        $where[] = 'p.id = :payment_id';
+        $params['payment_id'] = $paymentId;
+    }
     if (!empty($_GET['client_name'])) { $where[] = 'p.client_name = :cn';   $params['cn'] = $_GET['client_name']; }
     if (!empty($_GET['from']))        { $where[] = 'p.received_at >= :df'; $params['df'] = $_GET['from']; }
     if (!empty($_GET['to']))          { $where[] = 'p.received_at <= :dt'; $params['dt'] = $_GET['to']; }
