@@ -326,6 +326,21 @@ jobs:
       - name: Exercise durable invoice delivery attempts on a synthetic posted item
         run: php tests/billing_delivery_attempt_db_check.php --confirm-disposable-fixture
 
+      - name: Exercise log-only invoice send over authenticated HTTP
+        run: |
+          export MAIL_DRIVER=log
+          export MAIL_LOG_PATH="$RUNNER_TEMP/coreaccounting-invoice-mail.jsonl"
+          export COREFLUX_ACCOUNTING_FROM_EMAIL=qa@coreaccounting.invalid
+          export COREFLUX_ACCOUNTING_HTTP_FIXTURE_URL=http://127.0.0.1:8767
+          php -S 127.0.0.1:8767 -t "$COREFLUX_STANDALONE_WEBROOT" > "$RUNNER_TEMP/coreaccounting-invoice-web.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:8767/login.html; then break; fi
+            sleep 1
+          done
+          php tests/billing_delivery_log_only_http_check.php --confirm-disposable-fixture
+
       - name: Exercise journal deletion audit and balance restoration
         run: php tests/accounting_journal_void_audit_db_check.php --confirm-disposable-fixture
 
