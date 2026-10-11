@@ -52,13 +52,15 @@ $vimp = (string) file_get_contents($ROOT . '/modules/ap/api/csv_import.php');
 $a("registers external_id field",                 $c($vimp, "'external_id'      => ['label' => 'External ID"));
 $a("registers source_system enum field",          $c($vimp, "'source_system'    => ['label' => 'Source system',")
                                                && $c($vimp, "'manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other'"));
-$a("unique_within_batch includes external_id",    $c($vimp, "'unique_within_batch' => ['external_id', 'vendor_name']"));
+$a("unique_within_batch includes external_id",    $c($vimp, "'unique_within_batch' => ['vendor_id', 'external_id', 'vendor_name']"));
 $a("INSERT writes external_id + source_system",   $c($vimp, "external_id, source_system,")
                                                && $c($vimp, '(:t, :v, :ext, :src,'));
-$a("ON DUPLICATE KEY preserves existing external_id",
-                                                  $c($vimp, "external_id     = COALESCE(VALUES(external_id), external_id)"));
-$a("ON DUPLICATE refreshes source_system",         $c($vimp, "source_system   = VALUES(source_system)"));
-$a("fallback resolve by (tenant,src,ext)",        $c($vimp, 'AND source_system = :s AND external_id = :e'));
+$a("ON DUPLICATE preserves external_id when omitted",
+                                                  $c($vimp, "'external_id' => ['external_id', 'ext']")
+                                               && $c($vimp, 'if ($provided($field)) $assignments[] = "{$column} = VALUES({$column})"'));
+$a("ON DUPLICATE refreshes supplied source_system", $c($vimp, "'source_system' => ['source_system', 'src']")
+                                               && $c($vimp, "ON DUPLICATE KEY UPDATE ' . implode(', ', \$assignments)"));
+$a("resolves imported vendor within tenant",       $c($vimp, 'SELECT id FROM ap_vendors_index WHERE tenant_id = :t AND vendor_name = :v'));
 
 // ----------------------------------------------------------------- AP bills
 echo "\nmodules/ap/api/bills_csv_import.php — bills\n";
