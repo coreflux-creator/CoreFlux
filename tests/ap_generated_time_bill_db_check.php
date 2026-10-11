@@ -25,6 +25,12 @@ $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
     echo "PASS {$message}\n";
 };
+$cycleColumns = $pdo->query(
+    "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'placements'
+        AND COLUMN_NAME IN ('client_bill_cycle', 'vendor_pay_cycle')"
+)->fetchAll(PDO::FETCH_COLUMN);
+$assert(count($cycleColumns) === 2, 'clean-install placements support billing and vendor cadence defaults');
 
 $pdo->beginTransaction();
 try {
