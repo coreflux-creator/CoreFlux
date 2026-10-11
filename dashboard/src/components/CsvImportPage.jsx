@@ -1,7 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
-import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit } from '../../../dashboard/src/lib/csvImportAudit';
+import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit, rememberCsvImportRun, forgetCsvImportRun } from '../../../dashboard/src/lib/csvImportAudit';
+import CsvImportRecoveryNotice from './CsvImportRecoveryNotice';
 
 /**
  * Shared CSV Import flow — built on Core\CsvImportService.
@@ -251,6 +252,7 @@ export default function CsvImportPage({
             columnMap, extraFlags: extraToggleValues,
           });
         }
+        if (standaloneAccounting) rememberCsvImportRun({ id: runId, entity: presetEntity });
         setAuditRun({ id: runId, state: 'unconfirmed', input: auditInput });
         if (standaloneAccounting) {
           await archiveCsvImportAudit({
@@ -281,6 +283,7 @@ export default function CsvImportPage({
             },
           });
           setAuditRun({ id: receipt.id, state: receipt.sourceAttached ? 'logged' : 'source_missing_after_commit', input: auditInput });
+          if (standaloneAccounting) forgetCsvImportRun(runId);
         } catch (auditError) {
           setAuditRun({ id: runId, state: 'unconfirmed', input: auditInput, message: auditError.message });
         }
@@ -291,6 +294,7 @@ export default function CsvImportPage({
           const receipt = await recoverCsvImportAudit({ runId });
           setCommitted(receipt.result);
           setAuditRun({ id: receipt.id, state: 'logged', input: auditInput });
+          forgetCsvImportRun(runId);
           setError(null);
           return;
         } catch (recoveryError) {
@@ -319,6 +323,7 @@ export default function CsvImportPage({
         },
       });
       setAuditRun({ id: receipt.id, state: receipt.sourceAttached ? 'logged' : 'source_missing_after_commit', input: auditRun.input });
+      if (standaloneAccounting) forgetCsvImportRun(auditRun.id);
     } catch (e) {
       setAuditRun({ id: auditRun.id, state: 'unconfirmed', input: auditRun.input, message: e.message });
     } finally { setRunning(false); }
@@ -331,6 +336,7 @@ export default function CsvImportPage({
       const receipt = await recoverCsvImportAudit({ runId: auditRun.id });
       setCommitted(receipt.result);
       setAuditRun({ id: receipt.id, state: 'logged', input: auditRun.input });
+      forgetCsvImportRun(auditRun.id);
       setError(null);
     } catch (e) {
       setAuditRun({ id: auditRun.id, state: 'unconfirmed', input: auditRun.input, message: e.message });
@@ -367,6 +373,8 @@ export default function CsvImportPage({
           <Link to={backTo}              className="btn btn--ghost" data-testid={`${testidPrefix}-back`}>{backLabel}</Link>
         </div>
       </header>
+
+      {standaloneAccounting && <CsvImportRecoveryNotice entity={presetEntity} />}
 
       <div style={{ background: 'var(--cf-surface)', padding: 'var(--cf-space-6)', borderRadius: 'var(--cf-radius-lg)', border: '1px solid var(--cf-border)' }}>
         <div style={{ display: 'flex', gap: 'var(--cf-space-3)', flexWrap: 'wrap', marginBottom: 'var(--cf-space-4)' }}>

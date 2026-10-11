@@ -7,7 +7,7 @@ import {
 test('standalone keeps financial and essential account routes', () => {
   for (const path of [
     '/modules/accounting/overview', '/modules/accounting/reports',
-    '/modules/billing/invoices', '/modules/ap/bills', '/modules/treasury/accounts',
+    '/modules/billing/invoices', '/modules/ap/bills', '/modules/treasury/deposits',
     '/admin/users', '/profile', '/settings', '/settings/mail', '/inbox',
   ]) {
     assert.equal(coreAccountingPathAllowed(path), true, path);
@@ -18,7 +18,7 @@ test('standalone redirects unrelated ERP and inactive settings routes', () => {
   for (const path of [
     '/modules/payroll/runs', '/modules/staffing/timesheets', '/modules/people',
     '/settings/staffing-economics', '/settings/notifications', '/data/bulk-import',
-    '/modules/accounting-rogue/overview',
+    '/modules/accounting-rogue/overview', '/modules/treasury/accounts',
   ]) {
     assert.equal(coreAccountingPathAllowed(path), false, path);
   }

@@ -2,7 +2,8 @@ import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { api } from '../lib/api';
-import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit } from '../lib/csvImportAudit';
+import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit, rememberCsvImportRun, forgetCsvImportRun } from '../lib/csvImportAudit';
+import CsvImportRecoveryNotice from '../components/CsvImportRecoveryNotice';
 
 /**
  * Tenant Onboarding — Bulk CSV Import Wizard.
@@ -304,6 +305,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
               skipInvalid, updateExisting: shouldUpdate, columnMap: f.columnMap,
             });
           }
+          if (financeOnly) rememberCsvImportRun({ id: runId, entity: f.entity });
           next[idx] = { ...f, audit: { id: runId, state: 'unconfirmed', input: auditInput } };
           setFiles([...next]);
           if (financeOnly) {
@@ -327,6 +329,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
               },
             });
             next[idx] = { ...next[idx], audit: { id: receipt.id, state: receipt.sourceAttached ? 'logged' : 'source_missing_after_commit', input: auditInput } };
+            if (financeOnly) forgetCsvImportRun(runId);
           } catch (auditError) {
             next[idx] = { ...next[idx], audit: { id: runId, state: 'unconfirmed', input: auditInput, message: auditError.message } };
           }
@@ -337,6 +340,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
             try { recovered = await recoverCsvImportAudit({ runId }); }
             catch (error) { recoveryError = error; }
           }
+          if (recovered) forgetCsvImportRun(runId);
           next[idx] = recovered ? {
             ...next[idx], committed: recovered.result, error: null,
             audit: { id: recovered.id, state: 'logged', input: auditInput },
@@ -367,6 +371,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
             entity: f.entity, columnMap: f.columnMap,
           },
         });
+      if (financeOnly) forgetCsvImportRun(f.audit.id);
       setFiles(prev => prev.map((row, i) => i === idx
         ? { ...row, committed: row.committed || receipt.result, error: null,
           audit: { id: receipt.id, state: (receipt.result || receipt.sourceAttached) ? 'logged' : 'source_missing_after_commit', input: f.audit.input } }
@@ -410,6 +415,8 @@ export default function CsvBulkImport({ financeOnly = false }) {
           <Link to={financeOnly ? '/modules/accounting/overview' : '/'} className="btn btn--ghost" data-testid="csv-bulk-back">← Overview</Link>
         </div>
       </header>
+
+      {financeOnly && <CsvImportRecoveryNotice />}
 
       <div style={{ background: 'var(--cf-surface)', padding: 'var(--cf-space-6)', borderRadius: 'var(--cf-radius-lg)', border: '1px solid var(--cf-border)' }}>
         <div className="csv-roundtrip-toolbar" data-testid="csv-bulk-current-data-export">

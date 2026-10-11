@@ -368,6 +368,11 @@ jobs:
           php tests/coreaccounting_code_upgrade_inspection_smoke.php
           php tests/coreaccounting_private_vendor_smoke.php
 
+      - name: Run dashboard unit tests
+        run: |
+          npm ci --prefix dashboard --no-audit --no-fund
+          node --test dashboard/tests/*.test.mjs
+
       - name: Build and independently verify extracted package
         run: |
           package="$RUNNER_TEMP/coreaccounting-release"

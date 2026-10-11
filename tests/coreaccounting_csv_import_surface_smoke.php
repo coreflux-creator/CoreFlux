@@ -41,6 +41,7 @@ $check('standalone presets enforce finance scope on all operations',
 $shared = $read('dashboard/src/components/CsvImportPage.jsx');
 $bulk = $read('dashboard/src/pages/CsvBulkImport.jsx');
 $history = $read('dashboard/src/pages/CsvImportHistory.jsx');
+$recovery = $read('dashboard/src/components/CsvImportRecoveryNotice.jsx');
 $accounting = $read('modules/accounting/ui/AccountingModule.jsx');
 $check('shared import links resolve inside standalone accounting',
     str_contains($shared, "standaloneAccounting ? '/modules/accounting/imports' : '/data/bulk-import'")
@@ -62,6 +63,14 @@ $check('finance import and history pages are routed and searchable',
 $check('history filters finance-only rows and links back to finance import',
     str_contains($history, 'FINANCE_ENTITIES.has(row.entity)')
     && str_contains($history, "financeOnly ? '/modules/accounting/imports' : '/data/bulk-import'"));
+$check('finance screens expose exact-run recovery after a tab reload without reimporting',
+    str_contains($shared, 'rememberCsvImportRun({ id: runId, entity: presetEntity })')
+    && str_contains($bulk, 'rememberCsvImportRun({ id: runId, entity: f.entity })')
+    && str_contains($shared, '<CsvImportRecoveryNotice entity={presetEntity} />')
+    && str_contains($bulk, '<CsvImportRecoveryNotice />')
+    && str_contains($history, '<CsvImportRecoveryNotice onRecovered={fetchHistory} />')
+    && str_contains($recovery, 'recoverCsvImportAudit({ runId: run.id })')
+    && !str_contains($recovery, '?action=commit'));
 $check('finance modules pass standalone scope to each shared CSV screen',
     substr_count($read('modules/billing/ui/BillingModule.jsx'), "standaloneAccounting={session?.product_mode === 'coreaccounting'}") === 3
     && substr_count($read('modules/ap/ui/APModule.jsx'), 'standaloneAccounting={standaloneAccounting}') === 3

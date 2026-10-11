@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { api } from '../lib/api';
+import CsvImportRecoveryNotice from '../components/CsvImportRecoveryNotice';
 
 /**
  * CSV Import History — auditor + CFO view of every bulk import committed
@@ -122,6 +123,8 @@ export default function CsvImportHistory({ financeOnly = false }) {
           <Link to={financeOnly ? '/modules/accounting/overview' : '/'} className="btn btn--ghost" data-testid="csv-history-back">← Overview</Link>
         </div>
       </header>
+
+      {financeOnly && <CsvImportRecoveryNotice onRecovered={fetchHistory} />}
 
       <div style={{ background: 'var(--cf-surface)', padding: 'var(--cf-space-6)', borderRadius: 'var(--cf-radius-lg)', border: '1px solid var(--cf-border)' }}>
         {/* KPI strip */}

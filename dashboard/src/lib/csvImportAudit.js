@@ -2,6 +2,43 @@ import { api } from './api';
 import { attachCsvToImportRun } from './csvAuditAttach';
 
 const HISTORY = '/api/admin/csv_import_history.php';
+const PENDING_KEY = 'coreaccounting.csv_import.pending.v1';
+const FINANCE_ENTITIES = new Set([
+  'ap_vendors', 'accounting_accounts', 'billing_items', 'ap_bills',
+  'billing_invoices', 'ap_payments', 'billing_payments',
+]);
+
+function tabStorage() {
+  try { return typeof window === 'undefined' ? null : window.sessionStorage; }
+  catch { return null; }
+}
+
+export function pendingCsvImportRuns(storage = tabStorage()) {
+  if (!storage) return [];
+  try {
+    const parsed = JSON.parse(storage.getItem(PENDING_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter(run =>
+      Number.isSafeInteger(run?.id) && run.id > 0 && FINANCE_ENTITIES.has(run.entity)
+    ) : [];
+  } catch { return []; }
+}
+
+export function rememberCsvImportRun({ id, entity }, storage = tabStorage()) {
+  if (!storage || !Number.isSafeInteger(id) || id <= 0 || !FINANCE_ENTITIES.has(entity)) return;
+  try {
+    const runs = pendingCsvImportRuns(storage).filter(run => run.id !== id);
+    storage.setItem(PENDING_KEY, JSON.stringify([...runs, { id, entity }]));
+  } catch { /* Import History remains authoritative when tab storage is unavailable. */ }
+}
+
+export function forgetCsvImportRun(id, storage = tabStorage()) {
+  if (!storage) return;
+  try {
+    const runs = pendingCsvImportRuns(storage).filter(run => run.id !== id);
+    if (runs.length) storage.setItem(PENDING_KEY, JSON.stringify(runs));
+    else storage.removeItem(PENDING_KEY);
+  } catch { /* A storage failure cannot change the server receipt. */ }
+}
 
 export async function reserveCsvImportAudit({ entity, fileName, csvText, sourceFile, preview, skipInvalid, updateExisting, aiUsed = false, presetId = null, columnMap = null, extraFlags = null }) {
   const run = await api.post(`${HISTORY}?action=reserve`, {

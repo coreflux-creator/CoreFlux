@@ -26,7 +26,49 @@ const result = await build({
 });
 const module = { exports: {} };
 new Function('module', 'exports', result.outputFiles[0].text)(module, module.exports);
-const { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit } = module.exports;
+const {
+  reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit,
+  pendingCsvImportRuns, rememberCsvImportRun, forgetCsvImportRun,
+} = module.exports;
+
+test('finance run IDs survive a tab reload without storing CSV contents', () => {
+  const values = new Map();
+  const storage = {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key),
+  };
+  rememberCsvImportRun({ id: 10, entity: 'ap_vendors' }, storage);
+  rememberCsvImportRun({ id: 10, entity: 'ap_vendors' }, storage);
+  rememberCsvImportRun({ id: 11, entity: 'billing_invoices' }, storage);
+  rememberCsvImportRun({ id: 12, entity: 'people' }, storage);
+  assert.deepEqual(pendingCsvImportRuns(storage), [
+    { id: 10, entity: 'ap_vendors' },
+    { id: 11, entity: 'billing_invoices' },
+  ]);
+  assert.doesNotMatch([...values.values()][0], /Vendor name|invoice amount|csv:/i);
+  forgetCsvImportRun(10, storage);
+  assert.deepEqual(pendingCsvImportRuns(storage), [{ id: 11, entity: 'billing_invoices' }]);
+  forgetCsvImportRun(11, storage);
+  assert.deepEqual(pendingCsvImportRuns(storage), []);
+  assert.equal(values.size, 0);
+  for (let id = 20; id <= 45; id += 1) {
+    rememberCsvImportRun({ id, entity: 'ap_vendors' }, storage);
+  }
+  assert.equal(pendingCsvImportRuns(storage).length, 26);
+});
+
+test('malformed or inaccessible tab storage cannot invent a recoverable run', () => {
+  const storage = {
+    getItem: () => '[{"id":0,"entity":"ap_vendors"},{"id":2,"entity":"people"}]',
+    setItem: () => { throw new Error('storage denied'); },
+    removeItem: () => { throw new Error('storage denied'); },
+  };
+  assert.deepEqual(pendingCsvImportRuns(storage), []);
+  assert.doesNotThrow(() => rememberCsvImportRun({ id: 3, entity: 'ap_vendors' }, storage));
+  assert.doesNotThrow(() => forgetCsvImportRun(3, storage));
+  assert.deepEqual(pendingCsvImportRuns({ getItem: () => '{' }), []);
+});
 
 test('reservation fails closed without a persisted ID', async () => {
   globalThis.csvAuditTestApi = { post: async () => ({ recorded: true, id: null }) };
