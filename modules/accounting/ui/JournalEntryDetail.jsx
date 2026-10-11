@@ -161,6 +161,17 @@ export default function JournalEntryDetail() {
 
       <EntryStatusNote status={entry.status} approvalControlled={approvalControlled} managedBySource={!isManual} recurring={isRecurring} />
 
+      {entry.status === 'void' && (entry.voided_at || entry.void_reason) && (
+        <div className="entry-related entry-related--audit" data-testid="accounting-je-deletion-audit">
+          <span>Deletion record</span>
+          <div>
+            {entry.voided_at && <div>Deleted {formatUtcDateTime(entry.voided_at)}</div>}
+            {entry.voided_by_user_id && <div>By {entry.voided_by_name || `User #${entry.voided_by_user_id}`}</div>}
+            {entry.void_reason && <div>Reason: {entry.void_reason}</div>}
+          </div>
+        </div>
+      )}
+
       {isDraft && approvalControlled && (
         <div className="entry-related" data-testid="accounting-je-approval-workflow-note">
           <span>Approval-controlled draft</span>
@@ -380,4 +391,10 @@ function Field({ label, value, testid }) {
 
 function fmt(value) {
   return Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatUtcDateTime(value) {
+  const iso = `${String(value).replace(' ', 'T')}Z`;
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }

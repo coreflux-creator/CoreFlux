@@ -17,6 +17,8 @@ $import = (string) file_get_contents($root . '/modules/accounting/api/import.php
 $intercompanyDialog = (string) file_get_contents($root . '/dashboard/src/components/IntercompanySplitDialog.jsx');
 $deployPath = $root . '/.github/workflows/deploy-light-workspace.yml';
 $deploy = is_file($deployPath) ? (string) file_get_contents($deployPath) : null;
+$voidAuditMigration = (string) file_get_contents($root . '/modules/accounting/migrations/042_journal_void_audit.sql');
+$schemaContract = (string) file_get_contents($root . '/core/accounting/schema_contract.php');
 
 $checks = [
     'journal navigation uses bookmarkable canonical routes' =>
@@ -123,6 +125,16 @@ $checks = [
     'deletion is auditable and concurrent mutation is guarded' =>
         str_contains($manifest, "'accounting.je.deleted'")
         && str_contains($accounting, 'if ($delete->rowCount() < 1)'),
+    'deletion reason actor and time persist with the journal transaction' =>
+        str_contains($voidAuditMigration, 'ADD COLUMN void_reason')
+        && str_contains($voidAuditMigration, 'ADD COLUMN voided_at')
+        && str_contains($voidAuditMigration, 'ADD COLUMN voided_by_user_id')
+        && str_contains($accounting, "void_reason = NULLIF(?, ''), voided_at = UTC_TIMESTAMP()")
+        && str_contains($accounting, 'array_merge([$reason, $actorUserId, $tenantId], $deletedIds)')
+        && str_contains($schemaContract, "'void_reason', 'voided_at'")
+        && str_contains($api, "if (\$je['status'] === 'void' && !empty(\$je['voided_by_user_id']))")
+        && str_contains($detail, 'data-testid="accounting-je-deletion-audit"')
+        && str_contains($detail, 'Reason: {entry.void_reason}'),
     'deleting an entry releases bank lines and source pointers' =>
         str_contains($accounting, "SET match_status = 'unmatched', matched_je_id = NULL")
         && str_contains($accounting, 'function accountingRelinkJournalReferences')

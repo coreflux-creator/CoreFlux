@@ -2130,6 +2130,15 @@ input[type="radio"] {
     color: var(--cf-text-secondary);
 }
 
+.entry-related--audit {
+    align-items: flex-start;
+}
+
+.entry-related--audit > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
 .entry-related a,
 .entry-detail__field a {
     display: inline-flex;

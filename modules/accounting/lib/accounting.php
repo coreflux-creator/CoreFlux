@@ -972,10 +972,12 @@ function accountingDeleteJe(
 
         $delete = $pdo->prepare(
             "UPDATE accounting_journal_entries
-                SET status = 'void', idempotency_key = NULL
+                SET status = 'void', idempotency_key = NULL,
+                    void_reason = NULLIF(?, ''), voided_at = UTC_TIMESTAMP(),
+                    voided_by_user_id = ?
               WHERE tenant_id = ? AND id IN ({$marks}) AND status <> 'void'"
         );
-        $delete->execute(array_merge([$tenantId], $deletedIds));
+        $delete->execute(array_merge([$reason, $actorUserId, $tenantId], $deletedIds));
         if ($delete->rowCount() < 1) {
             throw new \RuntimeException('This journal entry changed while you were deleting it. Refresh and try again.');
         }

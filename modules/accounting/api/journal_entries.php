@@ -54,6 +54,11 @@ if ($method === 'GET' && !empty($_GET['id'])) {
     $je = scopedFind('SELECT * FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$je) api_error('Not found', 404);
     $pdo = getDB();
+    if ($je['status'] === 'void' && !empty($je['voided_by_user_id'])) {
+        $actor = $pdo->prepare('SELECT name FROM users WHERE tenant_id = :tenant_id AND id = :id');
+        $actor->execute(['tenant_id' => $tid, 'id' => (int) $je['voided_by_user_id']]);
+        $je['voided_by_name'] = $actor->fetchColumn() ?: null;
+    }
     // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
     $stmt = $pdo->prepare(
         'SELECT l.*, a.code AS account_code, a.name AS account_name, a.account_type
