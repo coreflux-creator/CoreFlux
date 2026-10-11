@@ -508,7 +508,8 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
 
         $linesByKey = [];
         foreach ($rows as $r) {
-            $lk = $r['placement_id'] . '|' . $r['work_date'] . '|' . $r['hour_type'];
+            $lk = $r['placement_id'] . '|' . $r['work_date'] . '|' . $r['hour_type']
+                . '|' . $r['_rate_snapshot_id'];
             if (!isset($linesByKey[$lk])) {
                 $linesByKey[$lk] = [
                     'placement_id'    => (int) $r['placement_id'],
@@ -521,10 +522,16 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
                     'rate_snapshot_id'=> $r['_rate_snapshot_id'] ?? null,
                     'hours'           => 0.0,
                     'source_refs'     => [],
+                    'entries'         => [],
                 ];
             }
             $linesByKey[$lk]['hours']       += (float) $r['hours'];
             $linesByKey[$lk]['source_refs'][]= (int) $r['id'];
+            $linesByKey[$lk]['entries'][] = [
+                'id' => (int) $r['id'],
+                'hours' => (float) $r['hours'],
+                'amount_cents' => (int) round(round((float) $r['hours'] * (float) $r['_pay_rate'], 2) * 100),
+            ];
             if (!$minDate || strcmp((string) $r['work_date'], $minDate) < 0) $minDate = (string) $r['work_date'];
             if (!$maxDate || strcmp((string) $r['work_date'], $maxDate) > 0) $maxDate = (string) $r['work_date'];
         }
@@ -532,7 +539,15 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
 
         $lines = []; $lineNo = 1; $subtotal = 0.0;
         foreach ($linesByKey as $ld) {
-            $sub = round($ld['hours'] * $ld['pay_rate'], 2);
+            $groupCents = (int) round(round($ld['hours'] * $ld['pay_rate'], 2) * 100);
+            $entryCents = array_sum(array_column($ld['entries'], 'amount_cents'));
+            $parts = $groupCents === $entryCents
+                ? [['hours' => $ld['hours'], 'amount_cents' => $groupCents, 'source_refs' => $ld['source_refs']]]
+                : array_map(static fn(array $entry): array => [
+                    'hours' => $entry['hours'],
+                    'amount_cents' => $entry['amount_cents'],
+                    'source_refs' => [$entry['id']],
+                ], $ld['entries']);
             $consultant = trim($ld['first_name'] . ' ' . $ld['last_name']) ?: 'Consultant';
             $desc = sprintf(
                 '%s — %s · %s · %s',
@@ -541,27 +556,29 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
                 $ld['work_date'],
                 $ld['hour_type']
             );
-            $primaryRef = $ld['source_refs'][0];
-            $lines[] = [
-                'line_no'                 => $lineNo++,
-                'source_type'             => 'time_entry',
-                'item_type'               => 'labor',
-                'source_ref_id'           => $primaryRef,
-                'placement_id'            => $ld['placement_id'],
-                'rate_snapshot_id'        => $ld['rate_snapshot_id'] ? (int) $ld['rate_snapshot_id'] : null,
-                'description'             => $desc . (count($ld['source_refs']) > 1 ? ' (' . count($ld['source_refs']) . ' entries)' : ''),
-                'quantity'                => round($ld['hours'], 4),
-                'unit'                    => 'hour',
-                'unit_price'              => $ld['pay_rate'],
-                'subtotal'                => $sub,
-                'tax_rate_pct'            => 0,
-                'tax_amount'              => 0,
-                'total'                   => $sub,
-                'gl_expense_account_code' => null,
-                'is_1099_eligible'        => $is1099 ? 1 : 0,
-                '_entry_ids'              => $ld['source_refs'],
-            ];
-            $subtotal += $sub;
+            foreach ($parts as $part) {
+                $sub = $part['amount_cents'] / 100;
+                $lines[] = [
+                    'line_no'                 => $lineNo++,
+                    'source_type'             => 'time_entry',
+                    'item_type'               => 'labor',
+                    'source_ref_id'           => $part['source_refs'][0],
+                    'placement_id'            => $ld['placement_id'],
+                    'rate_snapshot_id'        => $ld['rate_snapshot_id'] ? (int) $ld['rate_snapshot_id'] : null,
+                    'description'             => $desc . (count($part['source_refs']) > 1 ? ' (' . count($part['source_refs']) . ' entries)' : ''),
+                    'quantity'                => round($part['hours'], 4),
+                    'unit'                    => 'hour',
+                    'unit_price'              => $ld['pay_rate'],
+                    'subtotal'                => $sub,
+                    'tax_rate_pct'            => 0,
+                    'tax_amount'              => 0,
+                    'total'                   => $sub,
+                    'gl_expense_account_code' => null,
+                    'is_1099_eligible'        => $is1099 ? 1 : 0,
+                    '_entry_ids'              => $part['source_refs'],
+                ];
+                $subtotal += $sub;
+            }
         }
         if (empty($lines)) continue;
 

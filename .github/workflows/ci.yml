@@ -299,6 +299,9 @@ jobs:
       - name: Exercise saved vendor classification on new AP bills
         run: php tests/ap_manual_bill_vendor_1099_db_check.php --confirm-disposable-fixture
 
+      - name: Exercise approved-time AP bills with mixed locked rates
+        run: php tests/ap_generated_time_bill_db_check.php --confirm-disposable-fixture
+
       - name: Exercise log-only password reset and replay
         run: |
           export MAIL_DRIVER=log
