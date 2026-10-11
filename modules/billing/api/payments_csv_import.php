@@ -241,7 +241,7 @@ if ($method === 'POST' && $action === 'commit') {
     $result['updated_count'] = $updated;
     $result['update_existing'] = $updateExisting;
 
-    api_ok($result);
+    api_ok(coreAccountingRecordCsvImportOutcome($result, (int) $ctx['tenant_id'], (int) $user['id']));
 }
 
 api_error('Unknown action. Use ?action=template|sample|inspect|dry_run|commit|ai_suggest_map', 400);

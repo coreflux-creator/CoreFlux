@@ -28,6 +28,29 @@ foreach (['import_run_id', 'created_by_user_id = :user_id', 'tenant_id = :tenant
 }
 $assert('standalone-only claim', str_contains($gate, "getenv('COREFLUX_ENV') !== 'coreaccounting'"));
 
+$simple = coreAccountingCsvOutcomeSummary([
+    'imported_count' => 2, 'skipped_count' => 0, 'errors' => [],
+]);
+$assert('simple import summary uses source counts', $simple['imported'] === 2
+    && $simple['skipped'] === 0 && $simple['total'] === 2 && $simple['status'] === 'success');
+$grouped = coreAccountingCsvOutcomeSummary([
+    'imported_count' => 1, 'skipped_count' => 1, 'row_count' => 5,
+    'imported_row_count' => 3, 'skipped_row_count' => 2,
+    'errors' => ['4' => ['invalid line']],
+]);
+$assert('grouped import summary counts lines, not documents', $grouped['imported'] === 3
+    && $grouped['skipped'] === 2 && $grouped['total'] === 5
+    && $grouped['status'] === 'partial' && count($grouped['errors']) === 1);
+$failed = coreAccountingCsvOutcomeSummary([
+    'imported_count' => 0, 'skipped_count' => 4, 'errors' => ['2' => ['invalid']],
+]);
+$assert('validation-aborted import records failure', $failed['status'] === 'failed'
+    && $failed['imported'] === 0 && $failed['total'] === 4);
+$assert('server outcome is scoped to claimed actor and tenant', str_contains($gate, 'function coreAccountingRecordCsvImportOutcome(')
+    && str_contains($gate, 'created_by_user_id = :user_id')
+    && str_contains($gate, "isset(\$markers['_source_commit_started'])")
+    && str_contains($gate, "'_server_outcome_recorded'"));
+
 $entities = [
     'modules/ap/api/csv_import.php' => 'ap_vendors',
     'modules/accounting/api/accounts_csv_import.php' => 'accounting_accounts',
@@ -44,10 +67,24 @@ foreach ($entities as $path => $entity) {
     if ($write === false) $write = strrpos($source, 'CsvImportService::commit(');
     if ($write === false) $write = strrpos($source, 'api_ok($result)');
     $assert("{$entity} claims source before writing", $claim !== false && $write !== false && $claim < $write);
+    $commitSource = $claim === false ? '' : substr($source, $claim);
+    $assert("{$entity} records every commit outcome on the server",
+        substr_count($commitSource, 'coreAccountingRecordCsvImportOutcome(') > 0
+        && substr_count($commitSource, 'api_ok(') === substr_count($commitSource, 'coreAccountingRecordCsvImportOutcome('));
 }
 $assert('single importer sends run identity', str_contains($read('dashboard/src/components/CsvImportPage.jsx'), 'body.import_run_id = runId'));
 $assert('bulk importer sends run identity', str_contains($read('dashboard/src/pages/CsvBulkImport.jsx'), 'body.import_run_id = runId'));
-$assert('unclaimed run cannot be finalized', str_contains($read('api/admin/csv_import_history.php'), "!isset(\$oldErrors['_source_commit_started'])"));
+$history = $read('api/admin/csv_import_history.php');
+$assert('unconfirmed standalone run cannot be client-finalized', str_contains($history,
+    "if (getenv('COREFLUX_ENV') === 'coreaccounting')")
+    && str_contains($history, 'The server has not recorded this import outcome'));
+$assert('standalone cannot forge a direct history result', str_contains($history,
+    "getenv('COREFLUX_ENV') === 'coreaccounting' && \$action !== 'reserve'"));
+$assert('history exposes server-recorded receipt', str_contains($history, "'_server_outcome_recorded'")
+    && str_contains($history, "'rows_imported' => (int) \$run['rows_imported']"));
+$audit = $read('dashboard/src/lib/csvImportAudit.js');
+$assert('standalone browser checks server receipt counts', str_contains($audit, '!finalized.server_outcome_recorded')
+    && str_contains($audit, 'Number(finalized.rows_imported) !== Number(imported)'));
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

@@ -294,7 +294,7 @@ if ($method === 'POST' && $action === 'commit') {
         'skipped'  => $result['skipped_count'],
         'errors'   => count($result['errors']),
     ]);
-    api_ok($result);
+    api_ok(coreAccountingRecordCsvImportOutcome($result, $tid, (int) $user['id']));
 }
 
 api_error('Unknown action. Use ?action=template|dry_run|commit', 400);

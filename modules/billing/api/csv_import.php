@@ -192,14 +192,14 @@ if ($method === 'POST' && $action === 'commit') {
     );
     $dry = $review['result'];
     if (!empty($dry['blocking_error']) || (!$skipInvalid && $dry['error_count'] > 0)) {
-        api_ok([
+        api_ok(coreAccountingRecordCsvImportOutcome([
             'imported_count' => 0, 'skipped_count' => $dry['groups'],
             'group_count' => $dry['groups'],
             'row_count' => count($dry['rows']), 'imported_row_count' => 0,
             'skipped_row_count' => count($dry['rows']),
             'errors' => $dry['errors'],
             'message' => $dry['blocking_error'] ?? 'Validation errors present; pass skip_invalid=1 to import valid documents only.',
-        ]);
+        ], (int) $ctx['tenant_id'], (int) $user['id']));
     }
 
     $groups = $review['groups'];
@@ -367,7 +367,7 @@ if ($method === 'POST' && $action === 'commit') {
         }
     }
 
-    api_ok([
+    api_ok(coreAccountingRecordCsvImportOutcome([
         'imported_count' => $imported,
         'created_count'  => $created,
         'updated_count'  => $updated,
@@ -379,7 +379,7 @@ if ($method === 'POST' && $action === 'commit') {
         'errors'         => $errors,
         'ids'            => $ids,
         'update_existing'=> $updateExisting,
-    ]);
+    ], (int) $ctx['tenant_id'], (int) $user['id']));
 }
 
 api_error('Unknown action. Use ?action=template|dry_run|commit', 400);

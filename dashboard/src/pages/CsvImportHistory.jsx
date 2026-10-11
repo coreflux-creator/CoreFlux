@@ -200,7 +200,7 @@ export default function CsvImportHistory({ financeOnly = false }) {
                 const open = !!expanded[r.id];
                 const errs = r.error_summary && typeof r.error_summary === 'object' ? r.error_summary : null;
                 const rowErrors = Object.entries(errs || {}).filter(([key]) =>
-                  key !== '_import_outcome_unconfirmed' && key !== '_source_commit_started');
+                  key !== '_import_outcome_unconfirmed' && key !== '_source_commit_started' && key !== '_server_outcome_recorded');
                 const map  = r.column_map    && typeof r.column_map    === 'object' ? r.column_map    : null;
                 return (
                   <React.Fragment key={r.id}>
@@ -226,7 +226,10 @@ export default function CsvImportHistory({ financeOnly = false }) {
                       <td style={{ textAlign: 'right' }} data-testid={`csv-history-row-${r.id}-imported`}>{r.needs_review ? '—' : r.rows_imported}</td>
                       <td style={{ textAlign: 'right' }}>{r.needs_review ? '—' : r.rows_skipped}</td>
                       <td style={{ textAlign: 'right' }}>{r.needs_review ? '—' : r.errors_count}</td>
-                      <td><StatusPill status={r.status} needsReview={r.needs_review} /></td>
+                      <td>
+                        <StatusPill status={r.status} needsReview={r.needs_review} />
+                        {r.server_outcome_recorded && <span title="Outcome recorded by the import server" style={{ display: 'block', fontSize: 11, color: 'var(--cf-text-secondary)' }}>Server receipt</span>}
+                      </td>
                       <td>
                         {(errs || map || r.needs_review) && (
                           <button

@@ -38,7 +38,7 @@ if ($method === 'POST') {
         try {
             $pdo->beginTransaction();
             $stmt = $pdo->prepare(
-                'SELECT id, status, error_summary FROM csv_import_history
+                'SELECT id, status, error_summary, rows_total, rows_imported, rows_skipped FROM csv_import_history
                   WHERE id = :id AND tenant_id = :tenant_id AND created_by_user_id = :user_id
                   FOR UPDATE'
             );
@@ -51,12 +51,18 @@ if ($method === 'POST') {
             $oldErrors = json_decode((string) ($run['error_summary'] ?? ''), true);
             if (!is_array($oldErrors) || !isset($oldErrors[CSV_IMPORT_UNCONFIRMED_KEY])) {
                 $pdo->commit();
-                api_ok(['recorded' => true, 'id' => $id, 'already_finalized' => true]);
+                api_ok([
+                    'recorded' => true, 'id' => $id, 'already_finalized' => true,
+                    'server_outcome_recorded' => isset($oldErrors['_server_outcome_recorded']),
+                    'rows_total' => (int) $run['rows_total'],
+                    'rows_imported' => (int) $run['rows_imported'],
+                    'rows_skipped' => (int) $run['rows_skipped'],
+                    'status' => $run['status'],
+                ]);
             }
-            if (getenv('COREFLUX_ENV') === 'coreaccounting'
-                && !isset($oldErrors['_source_commit_started'])) {
+            if (getenv('COREFLUX_ENV') === 'coreaccounting') {
                 $pdo->rollBack();
-                api_error('This import has not reached the commit step. No outcome can be recorded yet.', 409);
+                api_error('The server has not recorded this import outcome. Check source records before retrying.', 409);
             }
             $errors = is_array($body['errors'] ?? null) ? $body['errors'] : [];
             $imported = max(0, (int) ($body['rows_imported'] ?? 0));
@@ -85,6 +91,9 @@ if ($method === 'POST') {
             error_log('CSV import history finalization failed: ' . $error->getMessage());
             api_error('Import outcome could not be saved. Check the run in Import History before importing again.', 503);
         }
+    }
+    if (getenv('COREFLUX_ENV') === 'coreaccounting' && $action !== 'reserve') {
+        api_error('CoreAccounting imports must reserve a run and archive the source before committing.', 422);
     }
     if ($action !== '' && $action !== 'reserve') api_error('Unknown action', 400);
     $entity = (string) ($body['entity'] ?? '');
@@ -189,6 +198,7 @@ foreach ($rows as &$r) {
     $r['column_map']    = is_string($r['column_map'])    ? json_decode($r['column_map'],    true) : $r['column_map'];
     $r['error_summary'] = is_string($r['error_summary']) ? json_decode($r['error_summary'], true) : $r['error_summary'];
     $r['needs_review'] = isset($r['error_summary'][CSV_IMPORT_UNCONFIRMED_KEY]);
+    $r['server_outcome_recorded'] = isset($r['error_summary']['_server_outcome_recorded']);
 }
 
 api_ok(['rows' => $rows]);

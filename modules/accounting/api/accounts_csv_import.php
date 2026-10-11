@@ -176,13 +176,13 @@ if ($method === 'POST' && $action === 'commit') {
     $preview = CsvImportService::dryRun('accounting_accounts', $csv, $columnMap);
     $validateRows($preview);
     if (!$skipInvalid && $preview['error_count'] > 0) {
-        api_ok([
+        api_ok(coreAccountingRecordCsvImportOutcome([
             'imported_count' => 0,
             'skipped_count' => $preview['row_count'],
             'errors' => $preview['errors'],
             'ids' => [],
             'message' => 'Validation errors present; import was not committed.',
-        ]);
+        ], (int) $ctx['tenant_id'], (int) $user['id']));
     }
 
     $writer = function (array $row) use (
@@ -257,11 +257,11 @@ if ($method === 'POST' && $action === 'commit') {
     }
     if (!$skipInvalid && $errors) {
         if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
-        api_ok([
+        api_ok(coreAccountingRecordCsvImportOutcome([
             'imported_count' => 0, 'skipped_count' => $preview['row_count'],
             'errors' => $errors, 'ids' => [], 'aborted' => true,
             'message' => 'No accounts were imported. Fix all errors and retry.',
-        ]);
+        ], (int) $ctx['tenant_id'], (int) $user['id']));
     }
     if ($ownsTxn && $pdo->inTransaction()) $pdo->commit();
     $result = [
@@ -270,7 +270,7 @@ if ($method === 'POST' && $action === 'commit') {
         'errors' => $errors,
         'ids' => $ids,
     ];
-    api_ok($result);
+    api_ok(coreAccountingRecordCsvImportOutcome($result, (int) $ctx['tenant_id'], (int) $user['id']));
 }
 
 api_error('Unknown action. Use ?action=template|sample|inspect|ai_suggest_map|dry_run|commit', 400);

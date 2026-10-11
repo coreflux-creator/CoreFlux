@@ -31,7 +31,7 @@ export async function archiveCsvImportAudit({ runId, csvText, sourceFile, fileNa
 }
 
 export async function finalizeCsvImportAudit({ runId, result, startedAt, postCommitSource = null }) {
-  const finalized = await api.post(`${HISTORY}?action=finalize`, {
+  const outcome = postCommitSource ? {
     id: runId,
     rows_total: result?.row_count ?? ((result?.imported_row_count ?? result?.imported_count ?? 0)
       + (result?.skipped_row_count ?? result?.skipped_count ?? 0)),
@@ -39,9 +39,18 @@ export async function finalizeCsvImportAudit({ runId, result, startedAt, postCom
     rows_skipped: result?.skipped_row_count ?? result?.skipped_count ?? 0,
     errors: result?.errors || {},
     duration_ms: Date.now() - startedAt,
-  });
+  } : { id: runId };
+  const finalized = await api.post(`${HISTORY}?action=finalize`, outcome);
   if (!finalized?.recorded || finalized.id !== runId) {
     throw new Error('The import finished, but its history remains unconfirmed. Do not import the file again.');
+  }
+  if (!postCommitSource) {
+    const imported = result?.imported_row_count ?? result?.imported_count ?? 0;
+    const skipped = result?.skipped_row_count ?? result?.skipped_count ?? 0;
+    if (!finalized.server_outcome_recorded || Number(finalized.rows_imported) !== Number(imported)
+      || Number(finalized.rows_skipped) !== Number(skipped)) {
+      throw new Error('The server receipt does not match the import response. Check Import History before retrying.');
+    }
   }
   if (!postCommitSource) return { id: runId, sourceAttached: true };
   const attachment = await attachCsvToImportRun({ importRunId: runId, ...postCommitSource });
