@@ -132,3 +132,68 @@ $assert($draftSaved['status'] === 'void' && $draftSaved['void_reason'] === null
 $assert(abs($balance('6200') - $before6200) < 0.001
     && abs($balance('6990') - $before6990) < 0.001,
     'draft lifecycle leaves posted balances unchanged');
+
+$correctionOriginal = accountingPostJe($tenantId, $entry, $actorId);
+$correctionOriginalId = (int) $correctionOriginal['je_id'];
+$corrected = $entry;
+$corrected['memo'] = 'CI synthetic corrected replacement';
+$corrected['lines'][0]['debit'] = 0.09;
+$corrected['lines'][1]['credit'] = 0.09;
+
+$wrongEntity = $corrected;
+$wrongEntity['entity_id'] = $entityId + 100000;
+try {
+    accountingReplaceJe($tenantId, $correctionOriginalId, $wrongEntity,
+        'CI synthetic wrong-entity correction', $actorId);
+    throw new RuntimeException('Wrong-entity correction unexpectedly succeeded.');
+} catch (InvalidArgumentException $e) {
+    $assert(str_contains($e->getMessage(), 'original legal entity'),
+        'correction refuses a different legal entity');
+}
+
+$pdo->exec(<<<'SQL'
+CREATE TRIGGER ci_accounting_journal_void_block
+    BEFORE UPDATE ON accounting_journal_entries FOR EACH ROW
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'CI forced void failure'
+SQL);
+$forcedFailure = false;
+try {
+    accountingReplaceJe($tenantId, $correctionOriginalId, $corrected,
+        'CI synthetic forced correction failure', $actorId);
+} catch (Throwable $e) {
+    if (!str_contains($e->getMessage(), 'CI forced void failure')) throw $e;
+    $forcedFailure = true;
+} finally {
+    $pdo->exec('DROP TRIGGER ci_accounting_journal_void_block');
+}
+$correctionCount->execute(['tenant' => $tenantId, 'id' => $correctionOriginalId]);
+$assert($forcedFailure && (int) $correctionCount->fetchColumn() === 0
+    && $row($correctionOriginalId)['status'] === 'posted'
+    && abs($balance('6200') - $before6200 - 0.07) < 0.001,
+    'failed correction rolls back its replacement and leaves the original posted');
+
+$correctionReason = 'CI synthetic atomic journal correction';
+$replacement = accountingReplaceJe($tenantId, $correctionOriginalId,
+    $corrected, $correctionReason, $actorId);
+$replacementId = (int) $replacement['je_id'];
+$originalSaved = $row($correctionOriginalId);
+$assert($replacementId > 0 && $row($replacementId)['status'] === 'posted'
+    && $originalSaved['status'] === 'void'
+    && $originalSaved['void_reason'] === $correctionReason
+    && abs($balance('6200') - $before6200 - 0.09) < 0.001
+    && abs($balance('6990') - $before6990 + 0.09) < 0.001,
+    'new synthetic correction atomically replaces its original in both balances');
+$replayedCorrection = accountingReplaceJe($tenantId, $correctionOriginalId,
+    $corrected, $correctionReason, $actorId);
+$correctionCount->execute(['tenant' => $tenantId, 'id' => $correctionOriginalId]);
+$assert($replayedCorrection['idempotent_replay'] === true
+    && (int) $replayedCorrection['je_id'] === $replacementId
+    && (int) $correctionCount->fetchColumn() === 1
+    && $row($correctionOriginalId) === $originalSaved,
+    'correction replay reuses one replacement and preserves the original audit');
+
+accountingDeleteJe($tenantId, $replacementId,
+    'CI synthetic cleanup after correction verification', $actorId);
+$assert(abs($balance('6200') - $before6200) < 0.001
+    && abs($balance('6990') - $before6990) < 0.001,
+    'deleting the synthetic replacement restores both starting balances');

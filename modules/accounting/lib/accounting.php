@@ -1084,88 +1084,71 @@ function accountingReplaceJe(
     }
 
     $pdo = getDB();
-    $stmt = $pdo->prepare(
-        'SELECT * FROM accounting_journal_entries WHERE tenant_id = :t AND id = :id LIMIT 1'
-    );
-    $stmt->execute(['t' => $tenantId, 'id' => $jeId]);
-    $original = $stmt->fetch(\PDO::FETCH_ASSOC);
-    if (!$original) throw new \RuntimeException("Journal entry {$jeId} not found");
-
-    $existingStmt = $pdo->prepare(
-        'SELECT * FROM accounting_journal_entries
-          WHERE tenant_id = :t AND source_ref_type = "replaces_je" AND source_ref_id = :id
-            AND status IN ("posted", "reversed")
-          ORDER BY id DESC LIMIT 1'
-    );
-    $existingStmt->execute(['t' => $tenantId, 'id' => $jeId]);
-    $existingCorrection = $existingStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-    if ($existingCorrection) {
-        $deleted = ($original['status'] === 'void')
-            ? ['deleted_ids' => [$jeId], 'released_bank_lines' => 0]
-            : accountingDeleteJe($tenantId, $jeId, $reason, $actorUserId, (int) $existingCorrection['id']);
-        return [
-            'je_id' => (int) $existingCorrection['id'],
-            'je_number' => (string) $existingCorrection['je_number'],
-            'status' => (string) $existingCorrection['status'],
-            'total_debit' => (float) $existingCorrection['total_debit'],
-            'total_credit' => (float) $existingCorrection['total_credit'],
-            'idempotent_replay' => true,
-            'replaced_je_id' => $jeId,
-            'deleted_ids' => $deleted['deleted_ids'],
-            'released_bank_lines' => $deleted['released_bank_lines'],
-            'correction_reason' => $reason,
-        ];
-    }
-    if (!in_array($original['status'], ['posted', 'reversed'], true)) {
-        throw new \RuntimeException('Only posted or reversed entries need a correction. Edit a draft directly.');
-    }
-
-    $replacement['entity_id'] = !empty($replacement['entity_id'])
-        ? (int) $replacement['entity_id']
-        : (int) $original['entity_id'];
-    $replacement['currency'] = (string) ($replacement['currency'] ?? $original['currency'] ?? 'USD');
-    $replacement['source_module'] = 'manual';
-    $replacement['source_ref_type'] = 'replaces_je';
-    $replacement['source_ref_id'] = $jeId;
-    $replacement['idempotency_key'] = "accounting:correction:{$tenantId}:{$jeId}";
-
+    $ownsTransaction = cf_tx_begin($pdo);
     try {
-        $posted = accountingPostJe($tenantId, $replacement, $actorUserId, true);
-    } catch (\Throwable $postError) {
-        // A concurrent retry can win the unique idempotency key between the
-        // initial lookup and insert. Resolve that race to the winning entry.
+        $stmt = $pdo->prepare(
+            'SELECT * FROM accounting_journal_entries
+              WHERE tenant_id = :t AND id = :id LIMIT 1 FOR UPDATE'
+        );
+        $stmt->execute(['t' => $tenantId, 'id' => $jeId]);
+        $original = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$original) throw new \RuntimeException("Journal entry {$jeId} not found");
+
+        $existingStmt = $pdo->prepare(
+            'SELECT * FROM accounting_journal_entries
+              WHERE tenant_id = :t AND source_ref_type = "replaces_je" AND source_ref_id = :id
+                AND status IN ("posted", "reversed")
+              ORDER BY id DESC LIMIT 1'
+        );
         $existingStmt->execute(['t' => $tenantId, 'id' => $jeId]);
-        $winner = $existingStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-        if (!$winner) throw $postError;
-        $posted = [
-            'je_id' => (int) $winner['id'],
-            'je_number' => (string) $winner['je_number'],
-            'status' => (string) $winner['status'],
-            'total_debit' => (float) $winner['total_debit'],
-            'total_credit' => (float) $winner['total_credit'],
-            'idempotent_replay' => true,
-        ];
-    }
-    try {
-        $deleted = accountingDeleteJe($tenantId, $jeId, $reason, $actorUserId, (int) $posted['je_id']);
+        $existingCorrection = $existingStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if ($existingCorrection) {
+            $deleted = ($original['status'] === 'void')
+                ? ['deleted_ids' => [$jeId], 'released_bank_lines' => 0]
+                : accountingDeleteJe($tenantId, $jeId, $reason, $actorUserId, (int) $existingCorrection['id']);
+            $result = [
+                'je_id' => (int) $existingCorrection['id'],
+                'je_number' => (string) $existingCorrection['je_number'],
+                'status' => (string) $existingCorrection['status'],
+                'total_debit' => (float) $existingCorrection['total_debit'],
+                'total_credit' => (float) $existingCorrection['total_credit'],
+                'idempotent_replay' => true,
+                'replaced_je_id' => $jeId,
+                'deleted_ids' => $deleted['deleted_ids'],
+                'released_bank_lines' => $deleted['released_bank_lines'],
+                'correction_reason' => $reason,
+            ];
+        } else {
+            if (!in_array($original['status'], ['posted', 'reversed'], true)) {
+                throw new \RuntimeException('Only posted or reversed entries need a correction. Edit a draft directly.');
+            }
+            if (!empty($replacement['entity_id'])
+                && (int) $replacement['entity_id'] !== (int) $original['entity_id']) {
+                throw new \InvalidArgumentException('A correction must keep the original legal entity.');
+            }
+
+            $replacement['entity_id'] = (int) $original['entity_id'];
+            $replacement['currency'] = (string) ($replacement['currency'] ?? $original['currency'] ?? 'USD');
+            $replacement['source_module'] = 'manual';
+            $replacement['source_ref_type'] = 'replaces_je';
+            $replacement['source_ref_id'] = $jeId;
+            $replacement['idempotency_key'] = "accounting:correction:{$tenantId}:{$jeId}";
+
+            $posted = accountingPostJe($tenantId, $replacement, $actorUserId, true);
+            $deleted = accountingDeleteJe($tenantId, $jeId, $reason, $actorUserId, (int) $posted['je_id']);
+            $result = $posted + [
+                'replaced_je_id' => $jeId,
+                'deleted_ids' => $deleted['deleted_ids'],
+                'released_bank_lines' => $deleted['released_bank_lines'],
+                'correction_reason' => $reason,
+            ];
+        }
+        cf_tx_commit($pdo, $ownsTransaction);
+        return $result;
     } catch (\Throwable $e) {
-        try {
-            accountingDeleteJe(
-                $tenantId,
-                (int) $posted['je_id'],
-                'Automatic rollback because the original correction could not be completed.',
-                $actorUserId
-            );
-        } catch (\Throwable $_) { /* preserve the original failure */ }
+        cf_tx_rollback($pdo, $ownsTransaction);
         throw $e;
     }
-
-    return $posted + [
-        'replaced_je_id' => $jeId,
-        'deleted_ids' => $deleted['deleted_ids'],
-        'released_bank_lines' => $deleted['released_bank_lines'],
-        'correction_reason' => $reason,
-    ];
 }
 
 /**
